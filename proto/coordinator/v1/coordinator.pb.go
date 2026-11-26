@@ -165,6 +165,48 @@ func (x LogStreamType) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
+// How Dagu reaches a node.
+type NodeKind int32
+
+const (
+	NodeKind_NODE_KIND_UNSPECIFIED NodeKind = 0
+	NodeKind_NODE_KIND_SSH         NodeKind = 1 // A host of an inventory
+)
+
+// Enum value maps for NodeKind.
+var (
+	NodeKind_name = map[int32]string{
+		0: "NODE_KIND_UNSPECIFIED",
+		1: "NODE_KIND_SSH",
+	}
+	NodeKind_value = map[string]int32{
+		"NODE_KIND_UNSPECIFIED": 0,
+		"NODE_KIND_SSH":         1,
+	}
+)
+
+func (x NodeKind) Enum() *NodeKind {
+	p := new(NodeKind)
+	*p = x
+	return p
+}
+
+func (x NodeKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (NodeKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_proto_coordinator_v1_coordinator_proto_enumTypes[3].Descriptor()
+}
+
+func (NodeKind) Type() protoreflect.EnumType {
+	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[3]
+}
+
+func (x NodeKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
 // Request message for polling a task.
 type PollRequest struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
@@ -6003,15 +6045,18 @@ func (b0 GetDAGResponse_builder) Build() *GetDAGResponse {
 
 // ResolveSecretReference resolves or checks one Dagu-managed registry ref.
 type ResolveSecretReferenceRequest struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`                               // Environment variable name requested by the DAG
-	Ref           string                 `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`                                 // Registry ref, for example "prod/db-password"
-	Workspace     string                 `protobuf:"bytes,3,opt,name=workspace,proto3" json:"workspace,omitempty"`                     // Workspace scope; empty means global
-	CheckOnly     bool                   `protobuf:"varint,4,opt,name=check_only,json=checkOnly,proto3" json:"check_only,omitempty"`   // When true, verify access without returning plaintext
-	WorkerId      string                 `protobuf:"bytes,5,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`       // Worker currently owning the dispatched attempt
-	AttemptKey    string                 `protobuf:"bytes,6,opt,name=attempt_key,json=attemptKey,proto3" json:"attempt_key,omitempty"` // Active distributed attempt lease key
-	AttemptId     string                 `protobuf:"bytes,7,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`    // Attempt ID created by the coordinator
-	DagName       string                 `protobuf:"bytes,8,opt,name=dag_name,json=dagName,proto3" json:"dag_name,omitempty"`          // Current DAG definition; empty keeps legacy root behavior
+	state      protoimpl.MessageState `protogen:"hybrid.v1"`
+	Name       string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`                               // Environment variable name requested by the DAG
+	Ref        string                 `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`                                 // Registry ref, for example "prod/db-password"
+	Workspace  string                 `protobuf:"bytes,3,opt,name=workspace,proto3" json:"workspace,omitempty"`                     // Workspace scope; empty means global
+	CheckOnly  bool                   `protobuf:"varint,4,opt,name=check_only,json=checkOnly,proto3" json:"check_only,omitempty"`   // When true, verify access without returning plaintext
+	WorkerId   string                 `protobuf:"bytes,5,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`       // Worker currently owning the dispatched attempt
+	AttemptKey string                 `protobuf:"bytes,6,opt,name=attempt_key,json=attemptKey,proto3" json:"attempt_key,omitempty"` // Active distributed attempt lease key
+	AttemptId  string                 `protobuf:"bytes,7,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`    // Attempt ID created by the coordinator
+	DagName    string                 `protobuf:"bytes,8,opt,name=dag_name,json=dagName,proto3" json:"dag_name,omitempty"`          // Current DAG definition; empty keeps legacy root behavior
+	// Node whose connection uses ref, set in place of name. The ref is served
+	// only to an attempt that targets nodes.
+	Node          string `protobuf:"bytes,9,opt,name=node,proto3" json:"node,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6097,6 +6142,13 @@ func (x *ResolveSecretReferenceRequest) GetDagName() string {
 	return ""
 }
 
+func (x *ResolveSecretReferenceRequest) GetNode() string {
+	if x != nil {
+		return x.Node
+	}
+	return ""
+}
+
 func (x *ResolveSecretReferenceRequest) SetName(v string) {
 	x.Name = v
 }
@@ -6129,6 +6181,10 @@ func (x *ResolveSecretReferenceRequest) SetDagName(v string) {
 	x.DagName = v
 }
 
+func (x *ResolveSecretReferenceRequest) SetNode(v string) {
+	x.Node = v
+}
+
 type ResolveSecretReferenceRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -6140,6 +6196,9 @@ type ResolveSecretReferenceRequest_builder struct {
 	AttemptKey string
 	AttemptId  string
 	DagName    string
+	// Node whose connection uses ref, set in place of name. The ref is served
+	// only to an attempt that targets nodes.
+	Node string
 }
 
 func (b0 ResolveSecretReferenceRequest_builder) Build() *ResolveSecretReferenceRequest {
@@ -6154,6 +6213,7 @@ func (b0 ResolveSecretReferenceRequest_builder) Build() *ResolveSecretReferenceR
 	x.AttemptKey = b.AttemptKey
 	x.AttemptId = b.AttemptId
 	x.DagName = b.DagName
+	x.Node = b.Node
 	return m0
 }
 
@@ -6590,6 +6650,625 @@ func (b0 ResolveRuntimeProfileResponse_builder) Build() *ResolveRuntimeProfileRe
 	return m0
 }
 
+// ResolveNodesRequest names the nodes a run on a worker targets, by a
+// selector or by exact names, never both.
+type ResolveNodesRequest struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	WorkerId      string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`       // Worker currently owning the dispatched attempt
+	AttemptKey    string                 `protobuf:"bytes,2,opt,name=attempt_key,json=attemptKey,proto3" json:"attempt_key,omitempty"` // Active distributed attempt lease key
+	AttemptId     string                 `protobuf:"bytes,3,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`    // Attempt ID created by the coordinator
+	DagName       string                 `protobuf:"bytes,4,opt,name=dag_name,json=dagName,proto3" json:"dag_name,omitempty"`          // Current DAG definition; empty selects the attempt's DAG
+	Selector      string                 `protobuf:"bytes,5,opt,name=selector,proto3" json:"selector,omitempty"`                       // Label selector, such as "role=web,!canary"
+	Names         []string               `protobuf:"bytes,6,rep,name=names,proto3" json:"names,omitempty"`                             // Exact node names, compared without case
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveNodesRequest) Reset() {
+	*x = ResolveNodesRequest{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveNodesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveNodesRequest) ProtoMessage() {}
+
+func (x *ResolveNodesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ResolveNodesRequest) GetWorkerId() string {
+	if x != nil {
+		return x.WorkerId
+	}
+	return ""
+}
+
+func (x *ResolveNodesRequest) GetAttemptKey() string {
+	if x != nil {
+		return x.AttemptKey
+	}
+	return ""
+}
+
+func (x *ResolveNodesRequest) GetAttemptId() string {
+	if x != nil {
+		return x.AttemptId
+	}
+	return ""
+}
+
+func (x *ResolveNodesRequest) GetDagName() string {
+	if x != nil {
+		return x.DagName
+	}
+	return ""
+}
+
+func (x *ResolveNodesRequest) GetSelector() string {
+	if x != nil {
+		return x.Selector
+	}
+	return ""
+}
+
+func (x *ResolveNodesRequest) GetNames() []string {
+	if x != nil {
+		return x.Names
+	}
+	return nil
+}
+
+func (x *ResolveNodesRequest) SetWorkerId(v string) {
+	x.WorkerId = v
+}
+
+func (x *ResolveNodesRequest) SetAttemptKey(v string) {
+	x.AttemptKey = v
+}
+
+func (x *ResolveNodesRequest) SetAttemptId(v string) {
+	x.AttemptId = v
+}
+
+func (x *ResolveNodesRequest) SetDagName(v string) {
+	x.DagName = v
+}
+
+func (x *ResolveNodesRequest) SetSelector(v string) {
+	x.Selector = v
+}
+
+func (x *ResolveNodesRequest) SetNames(v []string) {
+	x.Names = v
+}
+
+type ResolveNodesRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	WorkerId   string
+	AttemptKey string
+	AttemptId  string
+	DagName    string
+	Selector   string
+	Names      []string
+}
+
+func (b0 ResolveNodesRequest_builder) Build() *ResolveNodesRequest {
+	m0 := &ResolveNodesRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.WorkerId = b.WorkerId
+	x.AttemptKey = b.AttemptKey
+	x.AttemptId = b.AttemptId
+	x.DagName = b.DagName
+	x.Selector = b.Selector
+	x.Names = b.Names
+	return m0
+}
+
+type ResolveNodesResponse struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Nodes the selector matches or the names name, in name order. A name
+	// that names no node is left out.
+	Nodes []*ResolvedNode `protobuf:"bytes,1,rep,name=nodes,proto3" json:"nodes,omitempty"`
+	// Each node that a node above connects through, once, in name order.
+	Bastions []*ResolvedNode `protobuf:"bytes,2,rep,name=bastions,proto3" json:"bastions,omitempty"`
+	// Host keys trusted for the nodes and bastions above.
+	TrustedHostKeys []*TrustedHostKey `protobuf:"bytes,3,rep,name=trusted_host_keys,json=trustedHostKeys,proto3" json:"trusted_host_keys,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ResolveNodesResponse) Reset() {
+	*x = ResolveNodesResponse{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[61]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveNodesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveNodesResponse) ProtoMessage() {}
+
+func (x *ResolveNodesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[61]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ResolveNodesResponse) GetNodes() []*ResolvedNode {
+	if x != nil {
+		return x.Nodes
+	}
+	return nil
+}
+
+func (x *ResolveNodesResponse) GetBastions() []*ResolvedNode {
+	if x != nil {
+		return x.Bastions
+	}
+	return nil
+}
+
+func (x *ResolveNodesResponse) GetTrustedHostKeys() []*TrustedHostKey {
+	if x != nil {
+		return x.TrustedHostKeys
+	}
+	return nil
+}
+
+func (x *ResolveNodesResponse) SetNodes(v []*ResolvedNode) {
+	x.Nodes = v
+}
+
+func (x *ResolveNodesResponse) SetBastions(v []*ResolvedNode) {
+	x.Bastions = v
+}
+
+func (x *ResolveNodesResponse) SetTrustedHostKeys(v []*TrustedHostKey) {
+	x.TrustedHostKeys = v
+}
+
+type ResolveNodesResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Nodes the selector matches or the names name, in name order. A name
+	// that names no node is left out.
+	Nodes []*ResolvedNode
+	// Each node that a node above connects through, once, in name order.
+	Bastions []*ResolvedNode
+	// Host keys trusted for the nodes and bastions above.
+	TrustedHostKeys []*TrustedHostKey
+}
+
+func (b0 ResolveNodesResponse_builder) Build() *ResolveNodesResponse {
+	m0 := &ResolveNodesResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Nodes = b.Nodes
+	x.Bastions = b.Bastions
+	x.TrustedHostKeys = b.TrustedHostKeys
+	return m0
+}
+
+// A node with its inventory's defaults applied. A credential is a key path
+// or a secret ref, never a secret value.
+type ResolvedNode struct {
+	state            protoimpl.MessageState `protogen:"hybrid.v1"`
+	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Kind             NodeKind               `protobuf:"varint,2,opt,name=kind,proto3,enum=coordinator.v1.NodeKind" json:"kind,omitempty"`
+	InventoryId      string                 `protobuf:"bytes,3,opt,name=inventory_id,json=inventoryId,proto3" json:"inventory_id,omitempty"`
+	InventoryName    string                 `protobuf:"bytes,4,opt,name=inventory_name,json=inventoryName,proto3" json:"inventory_name,omitempty"`
+	Host             string                 `protobuf:"bytes,5,opt,name=host,proto3" json:"host,omitempty"`
+	Port             int32                  `protobuf:"varint,6,opt,name=port,proto3" json:"port,omitempty"`
+	User             string                 `protobuf:"bytes,7,opt,name=user,proto3" json:"user,omitempty"`
+	KeyPath          string                 `protobuf:"bytes,8,opt,name=key_path,json=keyPath,proto3" json:"key_path,omitempty"`
+	KeySecret        string                 `protobuf:"bytes,9,opt,name=key_secret,json=keySecret,proto3" json:"key_secret,omitempty"`
+	PasswordSecret   string                 `protobuf:"bytes,10,opt,name=password_secret,json=passwordSecret,proto3" json:"password_secret,omitempty"`
+	PassphraseSecret string                 `protobuf:"bytes,11,opt,name=passphrase_secret,json=passphraseSecret,proto3" json:"passphrase_secret,omitempty"`
+	Bastion          string                 `protobuf:"bytes,12,opt,name=bastion,proto3" json:"bastion,omitempty"`                // Node of the same inventory to connect through
+	HostKey          string                 `protobuf:"bytes,13,opt,name=host_key,json=hostKey,proto3" json:"host_key,omitempty"` // Pinned public key in authorized_keys form
+	StrictHostKey    bool                   `protobuf:"varint,14,opt,name=strict_host_key,json=strictHostKey,proto3" json:"strict_host_key,omitempty"`
+	Shell            string                 `protobuf:"bytes,15,opt,name=shell,proto3" json:"shell,omitempty"`
+	TimeoutNanos     int64                  `protobuf:"varint,16,opt,name=timeout_nanos,json=timeoutNanos,proto3" json:"timeout_nanos,omitempty"` // Connect timeout in nanoseconds
+	Labels           []string               `protobuf:"bytes,17,rep,name=labels,proto3" json:"labels,omitempty"`                                  // "key" or "key=value"
+	Description      string                 `protobuf:"bytes,18,opt,name=description,proto3" json:"description,omitempty"`
+	Disabled         bool                   `protobuf:"varint,19,opt,name=disabled,proto3" json:"disabled,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ResolvedNode) Reset() {
+	*x = ResolvedNode{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[62]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolvedNode) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolvedNode) ProtoMessage() {}
+
+func (x *ResolvedNode) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[62]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ResolvedNode) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ResolvedNode) GetKind() NodeKind {
+	if x != nil {
+		return x.Kind
+	}
+	return NodeKind_NODE_KIND_UNSPECIFIED
+}
+
+func (x *ResolvedNode) GetInventoryId() string {
+	if x != nil {
+		return x.InventoryId
+	}
+	return ""
+}
+
+func (x *ResolvedNode) GetInventoryName() string {
+	if x != nil {
+		return x.InventoryName
+	}
+	return ""
+}
+
+func (x *ResolvedNode) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *ResolvedNode) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *ResolvedNode) GetUser() string {
+	if x != nil {
+		return x.User
+	}
+	return ""
+}
+
+func (x *ResolvedNode) GetKeyPath() string {
+	if x != nil {
+		return x.KeyPath
+	}
+	return ""
+}
+
+func (x *ResolvedNode) GetKeySecret() string {
+	if x != nil {
+		return x.KeySecret
+	}
+	return ""
+}
+
+func (x *ResolvedNode) GetPasswordSecret() string {
+	if x != nil {
+		return x.PasswordSecret
+	}
+	return ""
+}
+
+func (x *ResolvedNode) GetPassphraseSecret() string {
+	if x != nil {
+		return x.PassphraseSecret
+	}
+	return ""
+}
+
+func (x *ResolvedNode) GetBastion() string {
+	if x != nil {
+		return x.Bastion
+	}
+	return ""
+}
+
+func (x *ResolvedNode) GetHostKey() string {
+	if x != nil {
+		return x.HostKey
+	}
+	return ""
+}
+
+func (x *ResolvedNode) GetStrictHostKey() bool {
+	if x != nil {
+		return x.StrictHostKey
+	}
+	return false
+}
+
+func (x *ResolvedNode) GetShell() string {
+	if x != nil {
+		return x.Shell
+	}
+	return ""
+}
+
+func (x *ResolvedNode) GetTimeoutNanos() int64 {
+	if x != nil {
+		return x.TimeoutNanos
+	}
+	return 0
+}
+
+func (x *ResolvedNode) GetLabels() []string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+func (x *ResolvedNode) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *ResolvedNode) GetDisabled() bool {
+	if x != nil {
+		return x.Disabled
+	}
+	return false
+}
+
+func (x *ResolvedNode) SetName(v string) {
+	x.Name = v
+}
+
+func (x *ResolvedNode) SetKind(v NodeKind) {
+	x.Kind = v
+}
+
+func (x *ResolvedNode) SetInventoryId(v string) {
+	x.InventoryId = v
+}
+
+func (x *ResolvedNode) SetInventoryName(v string) {
+	x.InventoryName = v
+}
+
+func (x *ResolvedNode) SetHost(v string) {
+	x.Host = v
+}
+
+func (x *ResolvedNode) SetPort(v int32) {
+	x.Port = v
+}
+
+func (x *ResolvedNode) SetUser(v string) {
+	x.User = v
+}
+
+func (x *ResolvedNode) SetKeyPath(v string) {
+	x.KeyPath = v
+}
+
+func (x *ResolvedNode) SetKeySecret(v string) {
+	x.KeySecret = v
+}
+
+func (x *ResolvedNode) SetPasswordSecret(v string) {
+	x.PasswordSecret = v
+}
+
+func (x *ResolvedNode) SetPassphraseSecret(v string) {
+	x.PassphraseSecret = v
+}
+
+func (x *ResolvedNode) SetBastion(v string) {
+	x.Bastion = v
+}
+
+func (x *ResolvedNode) SetHostKey(v string) {
+	x.HostKey = v
+}
+
+func (x *ResolvedNode) SetStrictHostKey(v bool) {
+	x.StrictHostKey = v
+}
+
+func (x *ResolvedNode) SetShell(v string) {
+	x.Shell = v
+}
+
+func (x *ResolvedNode) SetTimeoutNanos(v int64) {
+	x.TimeoutNanos = v
+}
+
+func (x *ResolvedNode) SetLabels(v []string) {
+	x.Labels = v
+}
+
+func (x *ResolvedNode) SetDescription(v string) {
+	x.Description = v
+}
+
+func (x *ResolvedNode) SetDisabled(v bool) {
+	x.Disabled = v
+}
+
+type ResolvedNode_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Name             string
+	Kind             NodeKind
+	InventoryId      string
+	InventoryName    string
+	Host             string
+	Port             int32
+	User             string
+	KeyPath          string
+	KeySecret        string
+	PasswordSecret   string
+	PassphraseSecret string
+	Bastion          string
+	HostKey          string
+	StrictHostKey    bool
+	Shell            string
+	TimeoutNanos     int64
+	Labels           []string
+	Description      string
+	Disabled         bool
+}
+
+func (b0 ResolvedNode_builder) Build() *ResolvedNode {
+	m0 := &ResolvedNode{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Name = b.Name
+	x.Kind = b.Kind
+	x.InventoryId = b.InventoryId
+	x.InventoryName = b.InventoryName
+	x.Host = b.Host
+	x.Port = b.Port
+	x.User = b.User
+	x.KeyPath = b.KeyPath
+	x.KeySecret = b.KeySecret
+	x.PasswordSecret = b.PasswordSecret
+	x.PassphraseSecret = b.PassphraseSecret
+	x.Bastion = b.Bastion
+	x.HostKey = b.HostKey
+	x.StrictHostKey = b.StrictHostKey
+	x.Shell = b.Shell
+	x.TimeoutNanos = b.TimeoutNanos
+	x.Labels = b.Labels
+	x.Description = b.Description
+	x.Disabled = b.Disabled
+	return m0
+}
+
+// A host key a user trusted for a node.
+type TrustedHostKey struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Node          string                 `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
+	Key           string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`                 // Public key in authorized_keys form
+	Fingerprint   string                 `protobuf:"bytes,3,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"` // SHA256 fingerprint
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TrustedHostKey) Reset() {
+	*x = TrustedHostKey{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[63]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TrustedHostKey) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TrustedHostKey) ProtoMessage() {}
+
+func (x *TrustedHostKey) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[63]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *TrustedHostKey) GetNode() string {
+	if x != nil {
+		return x.Node
+	}
+	return ""
+}
+
+func (x *TrustedHostKey) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *TrustedHostKey) GetFingerprint() string {
+	if x != nil {
+		return x.Fingerprint
+	}
+	return ""
+}
+
+func (x *TrustedHostKey) SetNode(v string) {
+	x.Node = v
+}
+
+func (x *TrustedHostKey) SetKey(v string) {
+	x.Key = v
+}
+
+func (x *TrustedHostKey) SetFingerprint(v string) {
+	x.Fingerprint = v
+}
+
+type TrustedHostKey_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Node        string
+	Key         string
+	Fingerprint string
+}
+
+func (b0 TrustedHostKey_builder) Build() *TrustedHostKey {
+	m0 := &TrustedHostKey{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Node = b.Node
+	x.Key = b.Key
+	x.Fingerprint = b.Fingerprint
+	return m0
+}
+
 var File_proto_coordinator_v1_coordinator_proto protoreflect.FileDescriptor
 
 const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
@@ -6935,7 +7614,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\":\n" +
 	"\x0eGetDAGResponse\x12\x12\n" +
 	"\x04spec\x18\x01 \x01(\tR\x04spec\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\xfa\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\x8e\x02\n" +
 	"\x1dResolveSecretReferenceRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x1c\n" +
@@ -6947,7 +7626,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"attemptKey\x12\x1d\n" +
 	"\n" +
 	"attempt_id\x18\a \x01(\tR\tattemptId\x12\x19\n" +
-	"\bdag_name\x18\b \x01(\tR\adagName\"6\n" +
+	"\bdag_name\x18\b \x01(\tR\adagName\x12\x12\n" +
+	"\x04node\x18\t \x01(\tR\x04node\"6\n" +
 	"\x1eResolveSecretReferenceResponse\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\tR\x05value\"\xd7\x01\n" +
 	"\x1cResolveRuntimeProfileRequest\x12\x1b\n" +
@@ -6968,7 +7648,46 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\aentries\x18\x02 \x03(\v2#.coordinator.v1.RuntimeProfileEntryR\aentries\"\xa1\x01\n" +
 	"\x1dResolveRuntimeProfileResponse\x12?\n" +
 	"\bdefaults\x18\x01 \x01(\v2#.coordinator.v1.RuntimeProfileLayerR\bdefaults\x12?\n" +
-	"\bselected\x18\x02 \x01(\v2#.coordinator.v1.RuntimeProfileLayerR\bselected*P\n" +
+	"\bselected\x18\x02 \x01(\v2#.coordinator.v1.RuntimeProfileLayerR\bselected\"\xbf\x01\n" +
+	"\x13ResolveNodesRequest\x12\x1b\n" +
+	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1f\n" +
+	"\vattempt_key\x18\x02 \x01(\tR\n" +
+	"attemptKey\x12\x1d\n" +
+	"\n" +
+	"attempt_id\x18\x03 \x01(\tR\tattemptId\x12\x19\n" +
+	"\bdag_name\x18\x04 \x01(\tR\adagName\x12\x1a\n" +
+	"\bselector\x18\x05 \x01(\tR\bselector\x12\x14\n" +
+	"\x05names\x18\x06 \x03(\tR\x05names\"\xd0\x01\n" +
+	"\x14ResolveNodesResponse\x122\n" +
+	"\x05nodes\x18\x01 \x03(\v2\x1c.coordinator.v1.ResolvedNodeR\x05nodes\x128\n" +
+	"\bbastions\x18\x02 \x03(\v2\x1c.coordinator.v1.ResolvedNodeR\bbastions\x12J\n" +
+	"\x11trusted_host_keys\x18\x03 \x03(\v2\x1e.coordinator.v1.TrustedHostKeyR\x0ftrustedHostKeys\"\xd4\x04\n" +
+	"\fResolvedNode\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12,\n" +
+	"\x04kind\x18\x02 \x01(\x0e2\x18.coordinator.v1.NodeKindR\x04kind\x12!\n" +
+	"\finventory_id\x18\x03 \x01(\tR\vinventoryId\x12%\n" +
+	"\x0einventory_name\x18\x04 \x01(\tR\rinventoryName\x12\x12\n" +
+	"\x04host\x18\x05 \x01(\tR\x04host\x12\x12\n" +
+	"\x04port\x18\x06 \x01(\x05R\x04port\x12\x12\n" +
+	"\x04user\x18\a \x01(\tR\x04user\x12\x19\n" +
+	"\bkey_path\x18\b \x01(\tR\akeyPath\x12\x1d\n" +
+	"\n" +
+	"key_secret\x18\t \x01(\tR\tkeySecret\x12'\n" +
+	"\x0fpassword_secret\x18\n" +
+	" \x01(\tR\x0epasswordSecret\x12+\n" +
+	"\x11passphrase_secret\x18\v \x01(\tR\x10passphraseSecret\x12\x18\n" +
+	"\abastion\x18\f \x01(\tR\abastion\x12\x19\n" +
+	"\bhost_key\x18\r \x01(\tR\ahostKey\x12&\n" +
+	"\x0fstrict_host_key\x18\x0e \x01(\bR\rstrictHostKey\x12\x14\n" +
+	"\x05shell\x18\x0f \x01(\tR\x05shell\x12#\n" +
+	"\rtimeout_nanos\x18\x10 \x01(\x03R\ftimeoutNanos\x12\x16\n" +
+	"\x06labels\x18\x11 \x03(\tR\x06labels\x12 \n" +
+	"\vdescription\x18\x12 \x01(\tR\vdescription\x12\x1a\n" +
+	"\bdisabled\x18\x13 \x01(\bR\bdisabled\"X\n" +
+	"\x0eTrustedHostKey\x12\x12\n" +
+	"\x04node\x18\x01 \x01(\tR\x04node\x12\x10\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x12 \n" +
+	"\vfingerprint\x18\x03 \x01(\tR\vfingerprint*P\n" +
 	"\tOperation\x12\x19\n" +
 	"\x15OPERATION_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fOPERATION_START\x10\x01\x12\x13\n" +
@@ -6982,7 +7701,10 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x1bLOG_STREAM_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16LOG_STREAM_TYPE_STDOUT\x10\x01\x12\x1a\n" +
 	"\x16LOG_STREAM_TYPE_STDERR\x10\x02\x12\x1d\n" +
-	"\x19LOG_STREAM_TYPE_SCHEDULER\x10\x032\x93\x11\n" +
+	"\x19LOG_STREAM_TYPE_SCHEDULER\x10\x03*8\n" +
+	"\bNodeKind\x12\x19\n" +
+	"\x15NODE_KIND_UNSPECIFIED\x10\x00\x12\x11\n" +
+	"\rNODE_KIND_SSH\x10\x012\xee\x11\n" +
 	"\x12CoordinatorService\x12A\n" +
 	"\x04Poll\x12\x1b.coordinator.v1.PollRequest\x1a\x1c.coordinator.v1.PollResponse\x12M\n" +
 	"\bDispatch\x12\x1f.coordinator.v1.DispatchRequest\x1a .coordinator.v1.DispatchResponse\x12S\n" +
@@ -7008,168 +7730,180 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\tListState\x12 .coordinator.v1.ListStateRequest\x1a!.coordinator.v1.ListStateResponse\x12G\n" +
 	"\x06GetDAG\x12\x1d.coordinator.v1.GetDAGRequest\x1a\x1e.coordinator.v1.GetDAGResponse\x12w\n" +
 	"\x16ResolveSecretReference\x12-.coordinator.v1.ResolveSecretReferenceRequest\x1a..coordinator.v1.ResolveSecretReferenceResponse\x12t\n" +
-	"\x15ResolveRuntimeProfile\x12,.coordinator.v1.ResolveRuntimeProfileRequest\x1a-.coordinator.v1.ResolveRuntimeProfileResponseBAZ?github.com/dagucloud/dagu/v2/proto/coordinator/v1;coordinatorv1b\x06proto3"
+	"\x15ResolveRuntimeProfile\x12,.coordinator.v1.ResolveRuntimeProfileRequest\x1a-.coordinator.v1.ResolveRuntimeProfileResponse\x12Y\n" +
+	"\fResolveNodes\x12#.coordinator.v1.ResolveNodesRequest\x1a$.coordinator.v1.ResolveNodesResponseBAZ?github.com/dagucloud/dagu/v2/proto/coordinator/v1;coordinatorv1b\x06proto3"
 
-var file_proto_coordinator_v1_coordinator_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_proto_coordinator_v1_coordinator_proto_msgTypes = make([]protoimpl.MessageInfo, 64)
+var file_proto_coordinator_v1_coordinator_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_proto_coordinator_v1_coordinator_proto_msgTypes = make([]protoimpl.MessageInfo, 68)
 var file_proto_coordinator_v1_coordinator_proto_goTypes = []any{
 	(Operation)(0),                              // 0: coordinator.v1.Operation
 	(WorkerHealthStatus)(0),                     // 1: coordinator.v1.WorkerHealthStatus
 	(LogStreamType)(0),                          // 2: coordinator.v1.LogStreamType
-	(*PollRequest)(nil),                         // 3: coordinator.v1.PollRequest
-	(*PollResponse)(nil),                        // 4: coordinator.v1.PollResponse
-	(*DispatchRequest)(nil),                     // 5: coordinator.v1.DispatchRequest
-	(*DispatchResponse)(nil),                    // 6: coordinator.v1.DispatchResponse
-	(*Task)(nil),                                // 7: coordinator.v1.Task
-	(*GetWorkersRequest)(nil),                   // 8: coordinator.v1.GetWorkersRequest
-	(*GetWorkersResponse)(nil),                  // 9: coordinator.v1.GetWorkersResponse
-	(*WorkerInfo)(nil),                          // 10: coordinator.v1.WorkerInfo
-	(*HeartbeatRequest)(nil),                    // 11: coordinator.v1.HeartbeatRequest
-	(*MachineSample)(nil),                       // 12: coordinator.v1.MachineSample
-	(*MachineUsage)(nil),                        // 13: coordinator.v1.MachineUsage
-	(*MachineLoad)(nil),                         // 14: coordinator.v1.MachineLoad
-	(*HeartbeatResponse)(nil),                   // 15: coordinator.v1.HeartbeatResponse
-	(*AckTaskClaimRequest)(nil),                 // 16: coordinator.v1.AckTaskClaimRequest
-	(*AckTaskClaimResponse)(nil),                // 17: coordinator.v1.AckTaskClaimResponse
-	(*ClaimAgentSessionCleanupRequest)(nil),     // 18: coordinator.v1.ClaimAgentSessionCleanupRequest
-	(*ClaimAgentSessionCleanupResponse)(nil),    // 19: coordinator.v1.ClaimAgentSessionCleanupResponse
-	(*CompleteAgentSessionCleanupRequest)(nil),  // 20: coordinator.v1.CompleteAgentSessionCleanupRequest
-	(*CompleteAgentSessionCleanupResponse)(nil), // 21: coordinator.v1.CompleteAgentSessionCleanupResponse
-	(*RunHeartbeatRequest)(nil),                 // 22: coordinator.v1.RunHeartbeatRequest
-	(*RunHeartbeatResponse)(nil),                // 23: coordinator.v1.RunHeartbeatResponse
-	(*CancelledRun)(nil),                        // 24: coordinator.v1.CancelledRun
-	(*WorkerStats)(nil),                         // 25: coordinator.v1.WorkerStats
-	(*RunningTask)(nil),                         // 26: coordinator.v1.RunningTask
-	(*ReportStatusRequest)(nil),                 // 27: coordinator.v1.ReportStatusRequest
-	(*ReportStatusResponse)(nil),                // 28: coordinator.v1.ReportStatusResponse
-	(*DAGRunStatusProto)(nil),                   // 29: coordinator.v1.DAGRunStatusProto
-	(*LogChunk)(nil),                            // 30: coordinator.v1.LogChunk
-	(*StreamLogsResponse)(nil),                  // 31: coordinator.v1.StreamLogsResponse
-	(*ArtifactChunk)(nil),                       // 32: coordinator.v1.ArtifactChunk
-	(*StreamArtifactsResponse)(nil),             // 33: coordinator.v1.StreamArtifactsResponse
-	(*WorkspaceBundle)(nil),                     // 34: coordinator.v1.WorkspaceBundle
-	(*WorkspaceBundleChunk)(nil),                // 35: coordinator.v1.WorkspaceBundleChunk
-	(*PutWorkspaceBundleResponse)(nil),          // 36: coordinator.v1.PutWorkspaceBundleResponse
-	(*HasWorkspaceBundleRequest)(nil),           // 37: coordinator.v1.HasWorkspaceBundleRequest
-	(*HasWorkspaceBundleResponse)(nil),          // 38: coordinator.v1.HasWorkspaceBundleResponse
-	(*GetWorkspaceBundleRequest)(nil),           // 39: coordinator.v1.GetWorkspaceBundleRequest
-	(*GetDAGRunStatusRequest)(nil),              // 40: coordinator.v1.GetDAGRunStatusRequest
-	(*GetDAGRunStatusResponse)(nil),             // 41: coordinator.v1.GetDAGRunStatusResponse
-	(*RequestCancelRequest)(nil),                // 42: coordinator.v1.RequestCancelRequest
-	(*RequestCancelResponse)(nil),               // 43: coordinator.v1.RequestCancelResponse
-	(*StateRef)(nil),                            // 44: coordinator.v1.StateRef
-	(*StateUpdateSource)(nil),                   // 45: coordinator.v1.StateUpdateSource
-	(*StateEntry)(nil),                          // 46: coordinator.v1.StateEntry
-	(*GetStateRequest)(nil),                     // 47: coordinator.v1.GetStateRequest
-	(*GetStateResponse)(nil),                    // 48: coordinator.v1.GetStateResponse
-	(*PutStateRequest)(nil),                     // 49: coordinator.v1.PutStateRequest
-	(*PutStateResponse)(nil),                    // 50: coordinator.v1.PutStateResponse
-	(*DeleteStateRequest)(nil),                  // 51: coordinator.v1.DeleteStateRequest
-	(*DeleteStateResponse)(nil),                 // 52: coordinator.v1.DeleteStateResponse
-	(*ListStateRequest)(nil),                    // 53: coordinator.v1.ListStateRequest
-	(*ListStateResponse)(nil),                   // 54: coordinator.v1.ListStateResponse
-	(*GetDAGRequest)(nil),                       // 55: coordinator.v1.GetDAGRequest
-	(*GetDAGResponse)(nil),                      // 56: coordinator.v1.GetDAGResponse
-	(*ResolveSecretReferenceRequest)(nil),       // 57: coordinator.v1.ResolveSecretReferenceRequest
-	(*ResolveSecretReferenceResponse)(nil),      // 58: coordinator.v1.ResolveSecretReferenceResponse
-	(*ResolveRuntimeProfileRequest)(nil),        // 59: coordinator.v1.ResolveRuntimeProfileRequest
-	(*RuntimeProfileEntry)(nil),                 // 60: coordinator.v1.RuntimeProfileEntry
-	(*RuntimeProfileLayer)(nil),                 // 61: coordinator.v1.RuntimeProfileLayer
-	(*ResolveRuntimeProfileResponse)(nil),       // 62: coordinator.v1.ResolveRuntimeProfileResponse
-	nil,                                         // 63: coordinator.v1.PollRequest.LabelsEntry
-	nil,                                         // 64: coordinator.v1.Task.WorkerSelectorEntry
-	nil,                                         // 65: coordinator.v1.WorkerInfo.LabelsEntry
-	nil,                                         // 66: coordinator.v1.HeartbeatRequest.LabelsEntry
+	(NodeKind)(0),                               // 3: coordinator.v1.NodeKind
+	(*PollRequest)(nil),                         // 4: coordinator.v1.PollRequest
+	(*PollResponse)(nil),                        // 5: coordinator.v1.PollResponse
+	(*DispatchRequest)(nil),                     // 6: coordinator.v1.DispatchRequest
+	(*DispatchResponse)(nil),                    // 7: coordinator.v1.DispatchResponse
+	(*Task)(nil),                                // 8: coordinator.v1.Task
+	(*GetWorkersRequest)(nil),                   // 9: coordinator.v1.GetWorkersRequest
+	(*GetWorkersResponse)(nil),                  // 10: coordinator.v1.GetWorkersResponse
+	(*WorkerInfo)(nil),                          // 11: coordinator.v1.WorkerInfo
+	(*HeartbeatRequest)(nil),                    // 12: coordinator.v1.HeartbeatRequest
+	(*MachineSample)(nil),                       // 13: coordinator.v1.MachineSample
+	(*MachineUsage)(nil),                        // 14: coordinator.v1.MachineUsage
+	(*MachineLoad)(nil),                         // 15: coordinator.v1.MachineLoad
+	(*HeartbeatResponse)(nil),                   // 16: coordinator.v1.HeartbeatResponse
+	(*AckTaskClaimRequest)(nil),                 // 17: coordinator.v1.AckTaskClaimRequest
+	(*AckTaskClaimResponse)(nil),                // 18: coordinator.v1.AckTaskClaimResponse
+	(*ClaimAgentSessionCleanupRequest)(nil),     // 19: coordinator.v1.ClaimAgentSessionCleanupRequest
+	(*ClaimAgentSessionCleanupResponse)(nil),    // 20: coordinator.v1.ClaimAgentSessionCleanupResponse
+	(*CompleteAgentSessionCleanupRequest)(nil),  // 21: coordinator.v1.CompleteAgentSessionCleanupRequest
+	(*CompleteAgentSessionCleanupResponse)(nil), // 22: coordinator.v1.CompleteAgentSessionCleanupResponse
+	(*RunHeartbeatRequest)(nil),                 // 23: coordinator.v1.RunHeartbeatRequest
+	(*RunHeartbeatResponse)(nil),                // 24: coordinator.v1.RunHeartbeatResponse
+	(*CancelledRun)(nil),                        // 25: coordinator.v1.CancelledRun
+	(*WorkerStats)(nil),                         // 26: coordinator.v1.WorkerStats
+	(*RunningTask)(nil),                         // 27: coordinator.v1.RunningTask
+	(*ReportStatusRequest)(nil),                 // 28: coordinator.v1.ReportStatusRequest
+	(*ReportStatusResponse)(nil),                // 29: coordinator.v1.ReportStatusResponse
+	(*DAGRunStatusProto)(nil),                   // 30: coordinator.v1.DAGRunStatusProto
+	(*LogChunk)(nil),                            // 31: coordinator.v1.LogChunk
+	(*StreamLogsResponse)(nil),                  // 32: coordinator.v1.StreamLogsResponse
+	(*ArtifactChunk)(nil),                       // 33: coordinator.v1.ArtifactChunk
+	(*StreamArtifactsResponse)(nil),             // 34: coordinator.v1.StreamArtifactsResponse
+	(*WorkspaceBundle)(nil),                     // 35: coordinator.v1.WorkspaceBundle
+	(*WorkspaceBundleChunk)(nil),                // 36: coordinator.v1.WorkspaceBundleChunk
+	(*PutWorkspaceBundleResponse)(nil),          // 37: coordinator.v1.PutWorkspaceBundleResponse
+	(*HasWorkspaceBundleRequest)(nil),           // 38: coordinator.v1.HasWorkspaceBundleRequest
+	(*HasWorkspaceBundleResponse)(nil),          // 39: coordinator.v1.HasWorkspaceBundleResponse
+	(*GetWorkspaceBundleRequest)(nil),           // 40: coordinator.v1.GetWorkspaceBundleRequest
+	(*GetDAGRunStatusRequest)(nil),              // 41: coordinator.v1.GetDAGRunStatusRequest
+	(*GetDAGRunStatusResponse)(nil),             // 42: coordinator.v1.GetDAGRunStatusResponse
+	(*RequestCancelRequest)(nil),                // 43: coordinator.v1.RequestCancelRequest
+	(*RequestCancelResponse)(nil),               // 44: coordinator.v1.RequestCancelResponse
+	(*StateRef)(nil),                            // 45: coordinator.v1.StateRef
+	(*StateUpdateSource)(nil),                   // 46: coordinator.v1.StateUpdateSource
+	(*StateEntry)(nil),                          // 47: coordinator.v1.StateEntry
+	(*GetStateRequest)(nil),                     // 48: coordinator.v1.GetStateRequest
+	(*GetStateResponse)(nil),                    // 49: coordinator.v1.GetStateResponse
+	(*PutStateRequest)(nil),                     // 50: coordinator.v1.PutStateRequest
+	(*PutStateResponse)(nil),                    // 51: coordinator.v1.PutStateResponse
+	(*DeleteStateRequest)(nil),                  // 52: coordinator.v1.DeleteStateRequest
+	(*DeleteStateResponse)(nil),                 // 53: coordinator.v1.DeleteStateResponse
+	(*ListStateRequest)(nil),                    // 54: coordinator.v1.ListStateRequest
+	(*ListStateResponse)(nil),                   // 55: coordinator.v1.ListStateResponse
+	(*GetDAGRequest)(nil),                       // 56: coordinator.v1.GetDAGRequest
+	(*GetDAGResponse)(nil),                      // 57: coordinator.v1.GetDAGResponse
+	(*ResolveSecretReferenceRequest)(nil),       // 58: coordinator.v1.ResolveSecretReferenceRequest
+	(*ResolveSecretReferenceResponse)(nil),      // 59: coordinator.v1.ResolveSecretReferenceResponse
+	(*ResolveRuntimeProfileRequest)(nil),        // 60: coordinator.v1.ResolveRuntimeProfileRequest
+	(*RuntimeProfileEntry)(nil),                 // 61: coordinator.v1.RuntimeProfileEntry
+	(*RuntimeProfileLayer)(nil),                 // 62: coordinator.v1.RuntimeProfileLayer
+	(*ResolveRuntimeProfileResponse)(nil),       // 63: coordinator.v1.ResolveRuntimeProfileResponse
+	(*ResolveNodesRequest)(nil),                 // 64: coordinator.v1.ResolveNodesRequest
+	(*ResolveNodesResponse)(nil),                // 65: coordinator.v1.ResolveNodesResponse
+	(*ResolvedNode)(nil),                        // 66: coordinator.v1.ResolvedNode
+	(*TrustedHostKey)(nil),                      // 67: coordinator.v1.TrustedHostKey
+	nil,                                         // 68: coordinator.v1.PollRequest.LabelsEntry
+	nil,                                         // 69: coordinator.v1.Task.WorkerSelectorEntry
+	nil,                                         // 70: coordinator.v1.WorkerInfo.LabelsEntry
+	nil,                                         // 71: coordinator.v1.HeartbeatRequest.LabelsEntry
 }
 var file_proto_coordinator_v1_coordinator_proto_depIdxs = []int32{
-	63, // 0: coordinator.v1.PollRequest.labels:type_name -> coordinator.v1.PollRequest.LabelsEntry
-	7,  // 1: coordinator.v1.PollResponse.task:type_name -> coordinator.v1.Task
-	7,  // 2: coordinator.v1.DispatchRequest.task:type_name -> coordinator.v1.Task
+	68, // 0: coordinator.v1.PollRequest.labels:type_name -> coordinator.v1.PollRequest.LabelsEntry
+	8,  // 1: coordinator.v1.PollResponse.task:type_name -> coordinator.v1.Task
+	8,  // 2: coordinator.v1.DispatchRequest.task:type_name -> coordinator.v1.Task
 	0,  // 3: coordinator.v1.Task.operation:type_name -> coordinator.v1.Operation
-	64, // 4: coordinator.v1.Task.worker_selector:type_name -> coordinator.v1.Task.WorkerSelectorEntry
-	29, // 5: coordinator.v1.Task.previous_status:type_name -> coordinator.v1.DAGRunStatusProto
-	10, // 6: coordinator.v1.GetWorkersResponse.workers:type_name -> coordinator.v1.WorkerInfo
-	65, // 7: coordinator.v1.WorkerInfo.labels:type_name -> coordinator.v1.WorkerInfo.LabelsEntry
-	26, // 8: coordinator.v1.WorkerInfo.running_tasks:type_name -> coordinator.v1.RunningTask
+	69, // 4: coordinator.v1.Task.worker_selector:type_name -> coordinator.v1.Task.WorkerSelectorEntry
+	30, // 5: coordinator.v1.Task.previous_status:type_name -> coordinator.v1.DAGRunStatusProto
+	11, // 6: coordinator.v1.GetWorkersResponse.workers:type_name -> coordinator.v1.WorkerInfo
+	70, // 7: coordinator.v1.WorkerInfo.labels:type_name -> coordinator.v1.WorkerInfo.LabelsEntry
+	27, // 8: coordinator.v1.WorkerInfo.running_tasks:type_name -> coordinator.v1.RunningTask
 	1,  // 9: coordinator.v1.WorkerInfo.health_status:type_name -> coordinator.v1.WorkerHealthStatus
-	66, // 10: coordinator.v1.HeartbeatRequest.labels:type_name -> coordinator.v1.HeartbeatRequest.LabelsEntry
-	25, // 11: coordinator.v1.HeartbeatRequest.stats:type_name -> coordinator.v1.WorkerStats
-	12, // 12: coordinator.v1.HeartbeatRequest.machine:type_name -> coordinator.v1.MachineSample
-	13, // 13: coordinator.v1.MachineSample.memory:type_name -> coordinator.v1.MachineUsage
-	13, // 14: coordinator.v1.MachineSample.disk:type_name -> coordinator.v1.MachineUsage
-	13, // 15: coordinator.v1.MachineSample.log_disk:type_name -> coordinator.v1.MachineUsage
-	14, // 16: coordinator.v1.MachineSample.load:type_name -> coordinator.v1.MachineLoad
-	24, // 17: coordinator.v1.HeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
-	26, // 18: coordinator.v1.RunHeartbeatRequest.running_tasks:type_name -> coordinator.v1.RunningTask
-	24, // 19: coordinator.v1.RunHeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
-	26, // 20: coordinator.v1.WorkerStats.running_tasks:type_name -> coordinator.v1.RunningTask
-	29, // 21: coordinator.v1.ReportStatusRequest.status:type_name -> coordinator.v1.DAGRunStatusProto
+	71, // 10: coordinator.v1.HeartbeatRequest.labels:type_name -> coordinator.v1.HeartbeatRequest.LabelsEntry
+	26, // 11: coordinator.v1.HeartbeatRequest.stats:type_name -> coordinator.v1.WorkerStats
+	13, // 12: coordinator.v1.HeartbeatRequest.machine:type_name -> coordinator.v1.MachineSample
+	14, // 13: coordinator.v1.MachineSample.memory:type_name -> coordinator.v1.MachineUsage
+	14, // 14: coordinator.v1.MachineSample.disk:type_name -> coordinator.v1.MachineUsage
+	14, // 15: coordinator.v1.MachineSample.log_disk:type_name -> coordinator.v1.MachineUsage
+	15, // 16: coordinator.v1.MachineSample.load:type_name -> coordinator.v1.MachineLoad
+	25, // 17: coordinator.v1.HeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
+	27, // 18: coordinator.v1.RunHeartbeatRequest.running_tasks:type_name -> coordinator.v1.RunningTask
+	25, // 19: coordinator.v1.RunHeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
+	27, // 20: coordinator.v1.WorkerStats.running_tasks:type_name -> coordinator.v1.RunningTask
+	30, // 21: coordinator.v1.ReportStatusRequest.status:type_name -> coordinator.v1.DAGRunStatusProto
 	2,  // 22: coordinator.v1.LogChunk.stream_type:type_name -> coordinator.v1.LogStreamType
-	34, // 23: coordinator.v1.WorkspaceBundleChunk.bundle:type_name -> coordinator.v1.WorkspaceBundle
-	29, // 24: coordinator.v1.GetDAGRunStatusResponse.status:type_name -> coordinator.v1.DAGRunStatusProto
-	44, // 25: coordinator.v1.StateEntry.ref:type_name -> coordinator.v1.StateRef
-	45, // 26: coordinator.v1.StateEntry.updated_by:type_name -> coordinator.v1.StateUpdateSource
-	44, // 27: coordinator.v1.GetStateRequest.ref:type_name -> coordinator.v1.StateRef
-	46, // 28: coordinator.v1.GetStateResponse.entry:type_name -> coordinator.v1.StateEntry
-	44, // 29: coordinator.v1.PutStateRequest.ref:type_name -> coordinator.v1.StateRef
-	45, // 30: coordinator.v1.PutStateRequest.updated_by:type_name -> coordinator.v1.StateUpdateSource
-	46, // 31: coordinator.v1.PutStateResponse.entry:type_name -> coordinator.v1.StateEntry
-	44, // 32: coordinator.v1.DeleteStateRequest.ref:type_name -> coordinator.v1.StateRef
-	46, // 33: coordinator.v1.ListStateResponse.entries:type_name -> coordinator.v1.StateEntry
-	60, // 34: coordinator.v1.RuntimeProfileLayer.entries:type_name -> coordinator.v1.RuntimeProfileEntry
-	61, // 35: coordinator.v1.ResolveRuntimeProfileResponse.defaults:type_name -> coordinator.v1.RuntimeProfileLayer
-	61, // 36: coordinator.v1.ResolveRuntimeProfileResponse.selected:type_name -> coordinator.v1.RuntimeProfileLayer
-	3,  // 37: coordinator.v1.CoordinatorService.Poll:input_type -> coordinator.v1.PollRequest
-	5,  // 38: coordinator.v1.CoordinatorService.Dispatch:input_type -> coordinator.v1.DispatchRequest
-	8,  // 39: coordinator.v1.CoordinatorService.GetWorkers:input_type -> coordinator.v1.GetWorkersRequest
-	11, // 40: coordinator.v1.CoordinatorService.Heartbeat:input_type -> coordinator.v1.HeartbeatRequest
-	16, // 41: coordinator.v1.CoordinatorService.AckTaskClaim:input_type -> coordinator.v1.AckTaskClaimRequest
-	18, // 42: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:input_type -> coordinator.v1.ClaimAgentSessionCleanupRequest
-	20, // 43: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:input_type -> coordinator.v1.CompleteAgentSessionCleanupRequest
-	22, // 44: coordinator.v1.CoordinatorService.RunHeartbeat:input_type -> coordinator.v1.RunHeartbeatRequest
-	27, // 45: coordinator.v1.CoordinatorService.ReportStatus:input_type -> coordinator.v1.ReportStatusRequest
-	30, // 46: coordinator.v1.CoordinatorService.StreamLogs:input_type -> coordinator.v1.LogChunk
-	32, // 47: coordinator.v1.CoordinatorService.StreamArtifacts:input_type -> coordinator.v1.ArtifactChunk
-	35, // 48: coordinator.v1.CoordinatorService.PutWorkspaceBundle:input_type -> coordinator.v1.WorkspaceBundleChunk
-	37, // 49: coordinator.v1.CoordinatorService.HasWorkspaceBundle:input_type -> coordinator.v1.HasWorkspaceBundleRequest
-	39, // 50: coordinator.v1.CoordinatorService.GetWorkspaceBundle:input_type -> coordinator.v1.GetWorkspaceBundleRequest
-	40, // 51: coordinator.v1.CoordinatorService.GetDAGRunStatus:input_type -> coordinator.v1.GetDAGRunStatusRequest
-	42, // 52: coordinator.v1.CoordinatorService.RequestCancel:input_type -> coordinator.v1.RequestCancelRequest
-	47, // 53: coordinator.v1.CoordinatorService.GetState:input_type -> coordinator.v1.GetStateRequest
-	49, // 54: coordinator.v1.CoordinatorService.PutState:input_type -> coordinator.v1.PutStateRequest
-	51, // 55: coordinator.v1.CoordinatorService.DeleteState:input_type -> coordinator.v1.DeleteStateRequest
-	53, // 56: coordinator.v1.CoordinatorService.ListState:input_type -> coordinator.v1.ListStateRequest
-	55, // 57: coordinator.v1.CoordinatorService.GetDAG:input_type -> coordinator.v1.GetDAGRequest
-	57, // 58: coordinator.v1.CoordinatorService.ResolveSecretReference:input_type -> coordinator.v1.ResolveSecretReferenceRequest
-	59, // 59: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:input_type -> coordinator.v1.ResolveRuntimeProfileRequest
-	4,  // 60: coordinator.v1.CoordinatorService.Poll:output_type -> coordinator.v1.PollResponse
-	6,  // 61: coordinator.v1.CoordinatorService.Dispatch:output_type -> coordinator.v1.DispatchResponse
-	9,  // 62: coordinator.v1.CoordinatorService.GetWorkers:output_type -> coordinator.v1.GetWorkersResponse
-	15, // 63: coordinator.v1.CoordinatorService.Heartbeat:output_type -> coordinator.v1.HeartbeatResponse
-	17, // 64: coordinator.v1.CoordinatorService.AckTaskClaim:output_type -> coordinator.v1.AckTaskClaimResponse
-	19, // 65: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:output_type -> coordinator.v1.ClaimAgentSessionCleanupResponse
-	21, // 66: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:output_type -> coordinator.v1.CompleteAgentSessionCleanupResponse
-	23, // 67: coordinator.v1.CoordinatorService.RunHeartbeat:output_type -> coordinator.v1.RunHeartbeatResponse
-	28, // 68: coordinator.v1.CoordinatorService.ReportStatus:output_type -> coordinator.v1.ReportStatusResponse
-	31, // 69: coordinator.v1.CoordinatorService.StreamLogs:output_type -> coordinator.v1.StreamLogsResponse
-	33, // 70: coordinator.v1.CoordinatorService.StreamArtifacts:output_type -> coordinator.v1.StreamArtifactsResponse
-	36, // 71: coordinator.v1.CoordinatorService.PutWorkspaceBundle:output_type -> coordinator.v1.PutWorkspaceBundleResponse
-	38, // 72: coordinator.v1.CoordinatorService.HasWorkspaceBundle:output_type -> coordinator.v1.HasWorkspaceBundleResponse
-	35, // 73: coordinator.v1.CoordinatorService.GetWorkspaceBundle:output_type -> coordinator.v1.WorkspaceBundleChunk
-	41, // 74: coordinator.v1.CoordinatorService.GetDAGRunStatus:output_type -> coordinator.v1.GetDAGRunStatusResponse
-	43, // 75: coordinator.v1.CoordinatorService.RequestCancel:output_type -> coordinator.v1.RequestCancelResponse
-	48, // 76: coordinator.v1.CoordinatorService.GetState:output_type -> coordinator.v1.GetStateResponse
-	50, // 77: coordinator.v1.CoordinatorService.PutState:output_type -> coordinator.v1.PutStateResponse
-	52, // 78: coordinator.v1.CoordinatorService.DeleteState:output_type -> coordinator.v1.DeleteStateResponse
-	54, // 79: coordinator.v1.CoordinatorService.ListState:output_type -> coordinator.v1.ListStateResponse
-	56, // 80: coordinator.v1.CoordinatorService.GetDAG:output_type -> coordinator.v1.GetDAGResponse
-	58, // 81: coordinator.v1.CoordinatorService.ResolveSecretReference:output_type -> coordinator.v1.ResolveSecretReferenceResponse
-	62, // 82: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:output_type -> coordinator.v1.ResolveRuntimeProfileResponse
-	60, // [60:83] is the sub-list for method output_type
-	37, // [37:60] is the sub-list for method input_type
-	37, // [37:37] is the sub-list for extension type_name
-	37, // [37:37] is the sub-list for extension extendee
-	0,  // [0:37] is the sub-list for field type_name
+	35, // 23: coordinator.v1.WorkspaceBundleChunk.bundle:type_name -> coordinator.v1.WorkspaceBundle
+	30, // 24: coordinator.v1.GetDAGRunStatusResponse.status:type_name -> coordinator.v1.DAGRunStatusProto
+	45, // 25: coordinator.v1.StateEntry.ref:type_name -> coordinator.v1.StateRef
+	46, // 26: coordinator.v1.StateEntry.updated_by:type_name -> coordinator.v1.StateUpdateSource
+	45, // 27: coordinator.v1.GetStateRequest.ref:type_name -> coordinator.v1.StateRef
+	47, // 28: coordinator.v1.GetStateResponse.entry:type_name -> coordinator.v1.StateEntry
+	45, // 29: coordinator.v1.PutStateRequest.ref:type_name -> coordinator.v1.StateRef
+	46, // 30: coordinator.v1.PutStateRequest.updated_by:type_name -> coordinator.v1.StateUpdateSource
+	47, // 31: coordinator.v1.PutStateResponse.entry:type_name -> coordinator.v1.StateEntry
+	45, // 32: coordinator.v1.DeleteStateRequest.ref:type_name -> coordinator.v1.StateRef
+	47, // 33: coordinator.v1.ListStateResponse.entries:type_name -> coordinator.v1.StateEntry
+	61, // 34: coordinator.v1.RuntimeProfileLayer.entries:type_name -> coordinator.v1.RuntimeProfileEntry
+	62, // 35: coordinator.v1.ResolveRuntimeProfileResponse.defaults:type_name -> coordinator.v1.RuntimeProfileLayer
+	62, // 36: coordinator.v1.ResolveRuntimeProfileResponse.selected:type_name -> coordinator.v1.RuntimeProfileLayer
+	66, // 37: coordinator.v1.ResolveNodesResponse.nodes:type_name -> coordinator.v1.ResolvedNode
+	66, // 38: coordinator.v1.ResolveNodesResponse.bastions:type_name -> coordinator.v1.ResolvedNode
+	67, // 39: coordinator.v1.ResolveNodesResponse.trusted_host_keys:type_name -> coordinator.v1.TrustedHostKey
+	3,  // 40: coordinator.v1.ResolvedNode.kind:type_name -> coordinator.v1.NodeKind
+	4,  // 41: coordinator.v1.CoordinatorService.Poll:input_type -> coordinator.v1.PollRequest
+	6,  // 42: coordinator.v1.CoordinatorService.Dispatch:input_type -> coordinator.v1.DispatchRequest
+	9,  // 43: coordinator.v1.CoordinatorService.GetWorkers:input_type -> coordinator.v1.GetWorkersRequest
+	12, // 44: coordinator.v1.CoordinatorService.Heartbeat:input_type -> coordinator.v1.HeartbeatRequest
+	17, // 45: coordinator.v1.CoordinatorService.AckTaskClaim:input_type -> coordinator.v1.AckTaskClaimRequest
+	19, // 46: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:input_type -> coordinator.v1.ClaimAgentSessionCleanupRequest
+	21, // 47: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:input_type -> coordinator.v1.CompleteAgentSessionCleanupRequest
+	23, // 48: coordinator.v1.CoordinatorService.RunHeartbeat:input_type -> coordinator.v1.RunHeartbeatRequest
+	28, // 49: coordinator.v1.CoordinatorService.ReportStatus:input_type -> coordinator.v1.ReportStatusRequest
+	31, // 50: coordinator.v1.CoordinatorService.StreamLogs:input_type -> coordinator.v1.LogChunk
+	33, // 51: coordinator.v1.CoordinatorService.StreamArtifacts:input_type -> coordinator.v1.ArtifactChunk
+	36, // 52: coordinator.v1.CoordinatorService.PutWorkspaceBundle:input_type -> coordinator.v1.WorkspaceBundleChunk
+	38, // 53: coordinator.v1.CoordinatorService.HasWorkspaceBundle:input_type -> coordinator.v1.HasWorkspaceBundleRequest
+	40, // 54: coordinator.v1.CoordinatorService.GetWorkspaceBundle:input_type -> coordinator.v1.GetWorkspaceBundleRequest
+	41, // 55: coordinator.v1.CoordinatorService.GetDAGRunStatus:input_type -> coordinator.v1.GetDAGRunStatusRequest
+	43, // 56: coordinator.v1.CoordinatorService.RequestCancel:input_type -> coordinator.v1.RequestCancelRequest
+	48, // 57: coordinator.v1.CoordinatorService.GetState:input_type -> coordinator.v1.GetStateRequest
+	50, // 58: coordinator.v1.CoordinatorService.PutState:input_type -> coordinator.v1.PutStateRequest
+	52, // 59: coordinator.v1.CoordinatorService.DeleteState:input_type -> coordinator.v1.DeleteStateRequest
+	54, // 60: coordinator.v1.CoordinatorService.ListState:input_type -> coordinator.v1.ListStateRequest
+	56, // 61: coordinator.v1.CoordinatorService.GetDAG:input_type -> coordinator.v1.GetDAGRequest
+	58, // 62: coordinator.v1.CoordinatorService.ResolveSecretReference:input_type -> coordinator.v1.ResolveSecretReferenceRequest
+	60, // 63: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:input_type -> coordinator.v1.ResolveRuntimeProfileRequest
+	64, // 64: coordinator.v1.CoordinatorService.ResolveNodes:input_type -> coordinator.v1.ResolveNodesRequest
+	5,  // 65: coordinator.v1.CoordinatorService.Poll:output_type -> coordinator.v1.PollResponse
+	7,  // 66: coordinator.v1.CoordinatorService.Dispatch:output_type -> coordinator.v1.DispatchResponse
+	10, // 67: coordinator.v1.CoordinatorService.GetWorkers:output_type -> coordinator.v1.GetWorkersResponse
+	16, // 68: coordinator.v1.CoordinatorService.Heartbeat:output_type -> coordinator.v1.HeartbeatResponse
+	18, // 69: coordinator.v1.CoordinatorService.AckTaskClaim:output_type -> coordinator.v1.AckTaskClaimResponse
+	20, // 70: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:output_type -> coordinator.v1.ClaimAgentSessionCleanupResponse
+	22, // 71: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:output_type -> coordinator.v1.CompleteAgentSessionCleanupResponse
+	24, // 72: coordinator.v1.CoordinatorService.RunHeartbeat:output_type -> coordinator.v1.RunHeartbeatResponse
+	29, // 73: coordinator.v1.CoordinatorService.ReportStatus:output_type -> coordinator.v1.ReportStatusResponse
+	32, // 74: coordinator.v1.CoordinatorService.StreamLogs:output_type -> coordinator.v1.StreamLogsResponse
+	34, // 75: coordinator.v1.CoordinatorService.StreamArtifacts:output_type -> coordinator.v1.StreamArtifactsResponse
+	37, // 76: coordinator.v1.CoordinatorService.PutWorkspaceBundle:output_type -> coordinator.v1.PutWorkspaceBundleResponse
+	39, // 77: coordinator.v1.CoordinatorService.HasWorkspaceBundle:output_type -> coordinator.v1.HasWorkspaceBundleResponse
+	36, // 78: coordinator.v1.CoordinatorService.GetWorkspaceBundle:output_type -> coordinator.v1.WorkspaceBundleChunk
+	42, // 79: coordinator.v1.CoordinatorService.GetDAGRunStatus:output_type -> coordinator.v1.GetDAGRunStatusResponse
+	44, // 80: coordinator.v1.CoordinatorService.RequestCancel:output_type -> coordinator.v1.RequestCancelResponse
+	49, // 81: coordinator.v1.CoordinatorService.GetState:output_type -> coordinator.v1.GetStateResponse
+	51, // 82: coordinator.v1.CoordinatorService.PutState:output_type -> coordinator.v1.PutStateResponse
+	53, // 83: coordinator.v1.CoordinatorService.DeleteState:output_type -> coordinator.v1.DeleteStateResponse
+	55, // 84: coordinator.v1.CoordinatorService.ListState:output_type -> coordinator.v1.ListStateResponse
+	57, // 85: coordinator.v1.CoordinatorService.GetDAG:output_type -> coordinator.v1.GetDAGResponse
+	59, // 86: coordinator.v1.CoordinatorService.ResolveSecretReference:output_type -> coordinator.v1.ResolveSecretReferenceResponse
+	63, // 87: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:output_type -> coordinator.v1.ResolveRuntimeProfileResponse
+	65, // 88: coordinator.v1.CoordinatorService.ResolveNodes:output_type -> coordinator.v1.ResolveNodesResponse
+	65, // [65:89] is the sub-list for method output_type
+	41, // [41:65] is the sub-list for method input_type
+	41, // [41:41] is the sub-list for extension type_name
+	41, // [41:41] is the sub-list for extension extendee
+	0,  // [0:41] is the sub-list for field type_name
 }
 
 func init() { file_proto_coordinator_v1_coordinator_proto_init() }
@@ -7186,8 +7920,8 @@ func file_proto_coordinator_v1_coordinator_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_coordinator_v1_coordinator_proto_rawDesc), len(file_proto_coordinator_v1_coordinator_proto_rawDesc)),
-			NumEnums:      3,
-			NumMessages:   64,
+			NumEnums:      4,
+			NumMessages:   68,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

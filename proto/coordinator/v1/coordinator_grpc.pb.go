@@ -45,6 +45,7 @@ const (
 	CoordinatorService_GetDAG_FullMethodName                      = "/coordinator.v1.CoordinatorService/GetDAG"
 	CoordinatorService_ResolveSecretReference_FullMethodName      = "/coordinator.v1.CoordinatorService/ResolveSecretReference"
 	CoordinatorService_ResolveRuntimeProfile_FullMethodName       = "/coordinator.v1.CoordinatorService/ResolveRuntimeProfile"
+	CoordinatorService_ResolveNodes_FullMethodName                = "/coordinator.v1.CoordinatorService/ResolveNodes"
 )
 
 // CoordinatorServiceClient is the client API for CoordinatorService service.
@@ -108,6 +109,10 @@ type CoordinatorServiceClient interface {
 	ResolveSecretReference(ctx context.Context, in *ResolveSecretReferenceRequest, opts ...grpc.CallOption) (*ResolveSecretReferenceResponse, error)
 	// ResolveRuntimeProfile resolves inherited and selected runtime profile layers.
 	ResolveRuntimeProfile(ctx context.Context, in *ResolveRuntimeProfileRequest, opts ...grpc.CallOption) (*ResolveRuntimeProfileResponse, error)
+	// ResolveNodes answers the nodes a run on a worker targets, the nodes they
+	// connect through, and the host keys trusted for them. Credentials appear
+	// as secret refs, never as values.
+	ResolveNodes(ctx context.Context, in *ResolveNodesRequest, opts ...grpc.CallOption) (*ResolveNodesResponse, error)
 }
 
 type coordinatorServiceClient struct {
@@ -366,6 +371,16 @@ func (c *coordinatorServiceClient) ResolveRuntimeProfile(ctx context.Context, in
 	return out, nil
 }
 
+func (c *coordinatorServiceClient) ResolveNodes(ctx context.Context, in *ResolveNodesRequest, opts ...grpc.CallOption) (*ResolveNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolveNodesResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_ResolveNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoordinatorServiceServer is the server API for CoordinatorService service.
 // All implementations must embed UnimplementedCoordinatorServiceServer
 // for forward compatibility.
@@ -427,6 +442,10 @@ type CoordinatorServiceServer interface {
 	ResolveSecretReference(context.Context, *ResolveSecretReferenceRequest) (*ResolveSecretReferenceResponse, error)
 	// ResolveRuntimeProfile resolves inherited and selected runtime profile layers.
 	ResolveRuntimeProfile(context.Context, *ResolveRuntimeProfileRequest) (*ResolveRuntimeProfileResponse, error)
+	// ResolveNodes answers the nodes a run on a worker targets, the nodes they
+	// connect through, and the host keys trusted for them. Credentials appear
+	// as secret refs, never as values.
+	ResolveNodes(context.Context, *ResolveNodesRequest) (*ResolveNodesResponse, error)
 	mustEmbedUnimplementedCoordinatorServiceServer()
 }
 
@@ -505,6 +524,9 @@ func (UnimplementedCoordinatorServiceServer) ResolveSecretReference(context.Cont
 }
 func (UnimplementedCoordinatorServiceServer) ResolveRuntimeProfile(context.Context, *ResolveRuntimeProfileRequest) (*ResolveRuntimeProfileResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResolveRuntimeProfile not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) ResolveNodes(context.Context, *ResolveNodesRequest) (*ResolveNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResolveNodes not implemented")
 }
 func (UnimplementedCoordinatorServiceServer) mustEmbedUnimplementedCoordinatorServiceServer() {}
 func (UnimplementedCoordinatorServiceServer) testEmbeddedByValue()                            {}
@@ -901,6 +923,24 @@ func _CoordinatorService_ResolveRuntimeProfile_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoordinatorService_ResolveNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveNodesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).ResolveNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_ResolveNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).ResolveNodes(ctx, req.(*ResolveNodesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CoordinatorService_ServiceDesc is the grpc.ServiceDesc for CoordinatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -983,6 +1023,10 @@ var CoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResolveRuntimeProfile",
 			Handler:    _CoordinatorService_ResolveRuntimeProfile_Handler,
+		},
+		{
+			MethodName: "ResolveNodes",
+			Handler:    _CoordinatorService_ResolveNodes_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
