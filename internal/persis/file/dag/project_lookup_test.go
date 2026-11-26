@@ -157,7 +157,8 @@ func TestProjectLookupRefusesOtherProjects(t *testing.T) {
 
 // The default project's DAG directory may hold the other DAG roots. Files
 // there belong to the innermost root, so the default project does not reach
-// a project's DAG by path.
+// by path a project's DAG, or a file in paths.projects_dir that no project
+// owns.
 func TestProjectLookupNestedRoots(t *testing.T) {
 	root := t.TempDir()
 	dags := filepath.Join(root, "dags")
@@ -168,7 +169,9 @@ func TestProjectLookupNestedRoots(t *testing.T) {
 		inPlace:  &inPlaceFixture{files: map[string][]string{}},
 	}
 	registry := projectregistry.New(filepath.Join(root, "data"))
-	_, err := registry.Create(t.Context(), project.CreateInput{Name: "weather"})
+	_, err := registry.EnsureDefault(t.Context())
+	require.NoError(t, err)
+	_, err = registry.Create(t.Context(), project.CreateInput{Name: "weather"})
 	require.NoError(t, err)
 	l.owners = NewOwners(OwnerDirs{DAGsDir: l.dags, ProjectsDir: l.projects, Library: l.library}, registry, nil)
 	forecast := writeDAG(t, filepath.Join(l.projects, "weather", "forecast.yaml"))
@@ -178,6 +181,12 @@ func TestProjectLookupNestedRoots(t *testing.T) {
 	_, err = store.Get(t.Context(), forecast)
 	assert.ErrorContains(t, err, `belongs to project "weather"; project "default"`)
 	assert.Equal(t, sameAs(t, shared), sourcePath(t, store, "ABC"))
+
+	for _, rel := range []string{"scripts/x.yaml", "loose.yaml", "default/stray.yaml"} {
+		file := writeDAG(t, filepath.Join(l.projects, filepath.FromSlash(rel)))
+		_, err = store.Get(t.Context(), file)
+		assert.ErrorContains(t, err, `is in neither project "default" nor the library`, rel)
+	}
 }
 
 // With projects on, no lookup follows a symbolic link out of the project's

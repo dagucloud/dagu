@@ -86,23 +86,30 @@ const (
 // paths.projects_dir is a project's only while the registry holds that
 // project.
 func (o *Owners) Of(ctx context.Context, path string) (Owner, error) {
+	owner, _, err := o.of(ctx, path)
+	return owner, err
+}
+
+// of is Of. It also reports whether a record or a DAG root placed the file,
+// as opposed to a file outside every root.
+func (o *Owners) of(ctx context.Context, path string) (Owner, bool, error) {
 	real, err := resolveExisting(path)
 	if err != nil {
-		return Owner{}, err
+		return Owner{}, false, err
 	}
 	if o.inPlace != nil {
 		name, err := o.inPlace.InPlaceOwner(ctx, real)
 		if err != nil {
-			return Owner{}, err
+			return Owner{}, false, err
 		}
 		if name != "" {
-			return Owner{Project: name}, nil
+			return Owner{Project: name}, true, nil
 		}
 	}
 
 	roots, err := o.resolvedRoots()
 	if err != nil {
-		return Owner{}, err
+		return Owner{}, false, err
 	}
 	var (
 		inner ownerRoot
@@ -118,23 +125,24 @@ func (o *Owners) Of(ctx context.Context, path string) (Owner, error) {
 
 	switch {
 	case inner.dir == "":
-		return Owner{}, nil
+		return Owner{}, false, nil
 	case inner.kind == ownedByLibrary:
-		return Owner{Library: true}, nil
+		return Owner{Library: true}, true, nil
 	case inner.kind == ownedByDefault:
-		return Owner{Project: project.DefaultName}, nil
+		return Owner{Project: project.DefaultName}, true, nil
 	default:
-		return o.projectIn(ctx, inner.dir, rel)
+		owner, err := o.projectIn(ctx, inner.dir, rel)
+		return owner, true, err
 	}
 }
 
-// OfIn is Of for a lookup by the project called caller. A file that Of
-// places nowhere is the caller's when it lies in the caller's DAG directory
-// once that directory's links resolve, as when the directory is a symbolic
-// link to a checkout.
+// OfIn is Of for a lookup by the project called caller. A file that lies
+// in no DAG root and has no record is the caller's when it lies in the
+// caller's DAG directory once that directory's links resolve, as when the
+// directory is a symbolic link to a checkout.
 func (o *Owners) OfIn(ctx context.Context, caller, path string) (Owner, error) {
-	owner, err := o.Of(ctx, path)
-	if err != nil || owner != (Owner{}) {
+	owner, placed, err := o.of(ctx, path)
+	if err != nil || placed {
 		return owner, err
 	}
 	dir := o.dirs.DAGsDir
