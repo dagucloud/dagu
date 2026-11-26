@@ -145,6 +145,7 @@ func TestReadSeesALayoutChange(t *testing.T) {
 		})
 	}
 }
+
 // A partial folder (a new file but no SKILL.md yet) is refused, not used.
 func TestPartialSkillIsRefused(t *testing.T) {
 	t.Parallel()
