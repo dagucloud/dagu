@@ -351,3 +351,84 @@ steps:
 `, newCountingSecretResolver(nil))
 	dagAgent.RunSuccess(t)
 }
+
+// workerNode is the worker node tokyo-gw, as the project lists it.
+var workerNode = inventory.ResolvedNode{
+	Name:   "tokyo-gw",
+	Kind:   inventory.NodeKindWorker,
+	Host:   "gw.tokyo",
+	Labels: ir.NewLabels([]string{"site=tokyo", "gpu"}),
+}
+
+// runOnWorker runs yaml bound to worker node tokyo-gw, on the worker workerID.
+func runOnWorker(t *testing.T, workerID, yaml string) (*test.Agent, *test.DAG) {
+	t.Helper()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, yaml)
+	return dag.Agent(test.WithAgentOptions(agent.Options{
+		BoundNode:    "tokyo-gw",
+		WorkerID:     workerID,
+		NodeSelector: nodeInventory{workerNode},
+	})), &dag
+}
+
+// A run bound to a worker node runs every step on that worker, and reads the
+// node's name, host, and labels. A worker node has no port, user, or
+// description.
+func TestAgent_BoundRunOnWorkerNode(t *testing.T) {
+	t.Parallel()
+
+	dagAgent, dag := runOnWorker(t, "tokyo-gw", `
+node: required
+steps:
+  - id: where
+    run: echo "${node.name} ${node.host} ${node.labels.site} ${node.labels} port=${node.port} user=${node.user} description=${node.description}"
+    output: WHERE
+`)
+	dagAgent.RunSuccess(t)
+
+	require.Equal(t, "tokyo-gw gw.tokyo tokyo gpu,site=tokyo port= user= description=", dag.ReadOutputs(t)["where"])
+	require.Equal(t, "tokyo-gw", dagAgent.Status(context.Background()).BoundNode)
+}
+
+// A run bound to a worker node fails before any step starts when it cannot
+// run there.
+func TestAgent_WorkerBoundRunFailsBeforeAnyStep(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		workerID string
+		yaml     string
+		wantErr  string
+	}{
+		{
+			name:    "OnDaguHost",
+			yaml:    "node: required\nsteps:\n  - id: restart\n    run: systemctl restart app\n",
+			wantErr: `the run is bound to worker node "tokyo-gw", so it runs only on that worker`,
+		},
+		{
+			name:     "SSHWithoutHost",
+			workerID: "tokyo-gw",
+			yaml:     "node: required\nsteps:\n  - id: local\n    action: noop\n  - id: connect\n    action: ssh.run\n    with:\n      command: \"true\"\n",
+			wantErr:  `step "connect" connects to its node over SSH, but worker node "tokyo-gw" has no SSH connection`,
+		},
+		{
+			name:     "MissingLabel",
+			workerID: "tokyo-gw",
+			yaml:     "node: required\nsteps:\n  - id: restart\n    run: systemctl restart ${node.labels.zone}\n",
+			wantErr:  `node "tokyo-gw" has no label "zone"`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dagAgent, _ := runOnWorker(t, tc.workerID, tc.yaml)
+			dagAgent.RunCheckErr(t, tc.wantErr)
+			for _, n := range dagAgent.Status(context.Background()).Nodes {
+				require.Equal(t, ir.NodeNotStarted, n.Status, "step %q ran", n.Step.Name)
+			}
+		})
+	}
+}

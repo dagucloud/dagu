@@ -45,6 +45,7 @@ func (a *Agent) resolveStartup(ctx context.Context) (startupResolution, error) {
 		secretStore:             a.secretStore,
 		secretReferenceResolver: a.secretReferenceResolver,
 		boundNode:               a.boundNode,
+		workerID:                a.workerID,
 		nodeSelector:            a.nodeSelector,
 		secretValues:            a.secretValues,
 		testSideEffects:         a.testSideEffects,

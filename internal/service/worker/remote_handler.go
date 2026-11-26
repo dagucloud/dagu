@@ -506,6 +506,9 @@ func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Tas
 	loadOpts = append(loadOpts, spec.WithParams(params))
 
 	dag, err := spec.Load(ctx, tempFile, loadOpts...)
+	if err == nil && task.NodeStep != "" {
+		dag, err = dag.NodeStepChild(task.NodeStep)
+	}
 	if err != nil {
 		cleanupFunc()
 		return nil, fmt.Errorf("failed to load DAG from %s: %w", tempFile, err)
@@ -801,6 +804,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		TriggerActor:             task.TriggerActor,
 		TriggerType:              run.triggerType(),
 		ParallelItem:             task.ParallelItem,
+		BoundNode:                task.BoundNode,
 		ServiceRegistry:          h.serviceRegistry,
 		SubWorkflowRunnerFactory: subWorkflowRunnerFactory,
 		RemoteDAGLoader:          remoteDAGLoader,
