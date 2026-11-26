@@ -169,7 +169,10 @@ func recordedNodes(ctx context.Context, records ir.NodeRuns) ([]executor.NodeRun
 		case node.Disabled:
 			run.Disabled = true
 		}
-		run.Worker = found && node.Kind == inventory.NodeKindWorker
+		// A worker node's child is dispatched to the worker by its exact ID.
+		if found && node.Kind == inventory.NodeKindWorker {
+			run.Node, run.Worker = node.Name, true
+		}
 		runnable = runnable || run.Runs()
 		runs[i] = run
 	}

@@ -36,13 +36,13 @@ func TestRecordedNodes(t *testing.T) {
 		{Node: "web04", Status: ir.NodeRunNotStarted, DAGRunID: "run-4"},
 		{Node: "web05", Status: ir.NodeRunAborted, DAGRunID: "run-5"},
 		{Node: "WEB06", Status: ir.NodeRunDisabled},
-		{Node: "web-gw", Status: ir.NodeRunFailed, DAGRunID: "run-8"},
+		{Node: "WEB-GW", Status: ir.NodeRunFailed, DAGRunID: "run-8"},
 	}}
 	ctx := NewContext(context.Background(), &ir.DAG{Name: "deploy"}, "run", "",
 		WithNodeSelector(fixedNodes{
 			// web01 left, but its run succeeded; web04 left; web05 is disabled
 			// now; web06, disabled before, is enabled; web07 is new; web-gw
-			// is a worker node.
+			// is a worker node, recorded under other case.
 			{Name: "web-gw", Kind: inventory.NodeKindWorker},
 			{Name: "web02", Disabled: true},
 			{Name: "web03"},
