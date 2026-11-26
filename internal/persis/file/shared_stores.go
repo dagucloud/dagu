@@ -113,7 +113,11 @@ const connectionDirPerm os.FileMode = 0o700
 // NewConnectionStore creates the store of OAuth apps, connections, their
 // token state, and their tool catalogs. Each collection's directory is
 // owner-only, including one that already exists.
-func NewConnectionStore(apps, conns, tokens, catalogs persis.Collection, enc *crypto.Encryptor) (connection.Store, error) {
+func NewConnectionStore(
+	apps, conns, tokens, catalogs persis.Collection,
+	lifecycle persis.Lock,
+	enc *crypto.Encryptor,
+) (connection.Store, error) {
 	for _, col := range []persis.Collection{apps, conns, tokens, catalogs} {
 		if err := createCollectionDirs(col, "connection store", connectionDirPerm, ""); err != nil {
 			return nil, err
@@ -124,7 +128,7 @@ func NewConnectionStore(apps, conns, tokens, catalogs persis.Collection, enc *cr
 			}
 		}
 	}
-	return store.NewConnectionStore(apps, conns, tokens, catalogs, enc)
+	return store.NewConnectionStore(apps, conns, tokens, catalogs, lifecycle, enc)
 }
 
 func NewLicenseStore(ctx context.Context, col persis.Collection) license.ActivationStore {

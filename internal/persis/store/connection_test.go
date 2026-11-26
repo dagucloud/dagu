@@ -31,16 +31,21 @@ type connectionFixture struct {
 
 func newConnectionFixture(t *testing.T) connectionFixture {
 	t.Helper()
+	backend := testutil.NewMemoryBackend()
+	return newConnectionFixtureWithTokens(t, backend, backend.Collection(persis.CollectionConnectionTokens))
+}
+
+func newConnectionFixtureWithTokens(t *testing.T, backend *testutil.MemoryBackend, tokens persis.Collection) connectionFixture {
+	t.Helper()
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
-	backend := testutil.NewMemoryBackend()
 	conns := backend.Collection(persis.CollectionConnections)
-	tokens := backend.Collection(persis.CollectionConnectionTokens)
 	s, err := store.NewConnectionStore(
 		backend.Collection(persis.CollectionOAuthApps),
 		conns,
 		tokens,
 		backend.Collection(persis.CollectionConnectionCatalogs),
+		backend.Lock(persis.CollectionConnections),
 		enc,
 	)
 	require.NoError(t, err)
@@ -214,6 +219,39 @@ func TestUpdateTokenStateRefusesRemovedConnection(t *testing.T) {
 	_, err = f.store.UpdateTokenState(ctx, conn, setRefreshToken("refresh"))
 	assert.ErrorIs(t, err, connection.ErrNotFound)
 	_, err = f.store.Get(ctx, conn.Key())
+	assert.ErrorIs(t, err, connection.ErrNotFound)
+}
+
+// A delete that starts while Create writes the token state waits for it and
+// then removes that state, so no later token write for the removed
+// connection succeeds.
+func TestDeleteWaitsForCreate(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	backend := testutil.NewMemoryBackend()
+	tokens := &claimingCollection{Collection: backend.Collection(persis.CollectionConnectionTokens)}
+	f := newConnectionFixtureWithTokens(t, backend, tokens)
+	deleted := make(chan error, 1)
+	finishedEarly := false
+	tokens.during = func() {
+		go func() { deleted <- f.store.Delete(ctx, connection.Key{Workspace: "payments", Name: "mail"}) }()
+		// An unserialized Delete finishes at once, before Create writes the
+		// token state. The wait only gives it the chance to; a serialized
+		// Delete passes either way.
+		select {
+		case <-deleted:
+			finishedEarly = true
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	tokens.armed.Store(true)
+
+	conn, err := f.store.Create(ctx, newTestConnection("payments", "mail"))
+	require.NoError(t, err)
+	require.False(t, finishedEarly, "Delete finished while Create was writing token state")
+	require.NoError(t, <-deleted)
+
+	_, err = f.store.UpdateTokenState(ctx, conn, setRefreshToken("refresh"))
 	assert.ErrorIs(t, err, connection.ErrNotFound)
 }
 

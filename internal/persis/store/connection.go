@@ -40,25 +40,37 @@ type ConnectionStore struct {
 	conns    recordHelper
 	tokens   persis.Collection
 	catalogs recordHelper
-	codec    connectionCodec
+	// lifecycle serializes Create and Delete, which each write several
+	// records, across every process that shares the collections.
+	lifecycle persis.Lock
+	codec     connectionCodec
 }
 
 // NewConnectionStore creates a connection store that keeps apps,
 // connection metadata, token state, and catalogs in the given collections,
-// encrypting secrets with enc.
-func NewConnectionStore(apps, conns, tokens, catalogs persis.Collection, enc *crypto.Encryptor) (*ConnectionStore, error) {
+// encrypting secrets with enc. lifecycle must be shared by every store of
+// the same collections.
+func NewConnectionStore(
+	apps, conns, tokens, catalogs persis.Collection,
+	lifecycle persis.Lock,
+	enc *crypto.Encryptor,
+) (*ConnectionStore, error) {
 	if apps == nil || conns == nil || tokens == nil || catalogs == nil {
 		return nil, errors.New("connection store: collections cannot be nil")
+	}
+	if lifecycle == nil {
+		return nil, errors.New("connection store: lock cannot be nil")
 	}
 	if enc == nil {
 		return nil, errors.New("connection store: encryptor cannot be nil")
 	}
 	return &ConnectionStore{
-		apps:     recordHelper{col: apps, name: connectionStoreName},
-		conns:    recordHelper{col: conns, name: connectionStoreName},
-		tokens:   tokens,
-		catalogs: recordHelper{col: catalogs, name: connectionStoreName},
-		codec:    connectionCodec{encryptor: enc},
+		apps:      recordHelper{col: apps, name: connectionStoreName},
+		conns:     recordHelper{col: conns, name: connectionStoreName},
+		tokens:    tokens,
+		catalogs:  recordHelper{col: catalogs, name: connectionStoreName},
+		lifecycle: lifecycle,
+		codec:     connectionCodec{encryptor: enc},
 	}, nil
 }
 
@@ -168,18 +180,27 @@ func (s *ConnectionStore) Create(ctx context.Context, conn *connection.Connectio
 	}
 	id := connectionRecordID(stored.Key())
 	rec := &persis.Record{ID: id, Data: data, CreatedAt: stored.CreatedAt, UpdatedAt: stored.UpdatedAt}
-	if err := s.conns.col.Create(ctx, rec); err != nil {
-		if errors.Is(err, persis.ErrConflict) {
-			return nil, connection.ErrAlreadyExists
+	err = s.lifecycle.Do(ctx, func(held func() error) error {
+		if err := held(); err != nil {
+			return err
 		}
-		return nil, fmt.Errorf("connection store: create connection: %w", err)
-	}
-	// The metadata claims the key first, so a failed create never replaces
-	// the token state of a connection that holds the key.
-	if err := s.resetTokenState(ctx, &stored); err != nil {
-		if rollbackErr := s.conns.col.CompareAndDelete(ctx, rec); rollbackErr != nil {
-			err = errors.Join(err, rollbackErr)
+		if err := s.conns.col.Create(ctx, rec); err != nil {
+			if errors.Is(err, persis.ErrConflict) {
+				return connection.ErrAlreadyExists
+			}
+			return fmt.Errorf("connection store: create connection: %w", err)
 		}
+		// The metadata claims the key first, so a failed create never
+		// replaces the token state of a connection that holds the key.
+		if err := s.resetTokenState(ctx, &stored, held); err != nil {
+			if rollbackErr := s.conns.col.CompareAndDelete(ctx, rec); rollbackErr != nil {
+				err = errors.Join(err, rollbackErr)
+			}
+			return err
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 	return &stored, nil
@@ -188,29 +209,18 @@ func (s *ConnectionStore) Create(ctx context.Context, conn *connection.Connectio
 // resetTokenState gives conn pending token state, replacing any left under
 // its key, so a new connection never inherits an earlier one's tokens.
 // Catalogs need no reset: Catalog returns only those saved for conn.
-//
-// It writes only while conn holds its key, and the write is a swap of the
-// record read after that check. A connection that takes the key later
-// writes its own state first, so the swap fails and the check then fails.
-func (s *ConnectionStore) resetTokenState(ctx context.Context, conn *connection.Connection) error {
+func (s *ConnectionStore) resetTokenState(ctx context.Context, conn *connection.Connection, held func() error) error {
 	id := connectionRecordID(conn.Key())
+	data, err := s.encodeTokenState(pendingTokenState(conn))
+	if err != nil {
+		return err
+	}
 	return retryConflict(ctx, func(ctx context.Context) error {
 		current, err := s.tokens.Get(ctx, id)
 		if err != nil && !errors.Is(err, persis.ErrNotFound) {
 			return err
 		}
-		if current != nil {
-			state, err := s.decodeTokenState(current)
-			if err == nil && state.ConnectionID == conn.ID {
-				// A writer already updated the new connection's state.
-				return nil
-			}
-		}
-		if err := s.ensureCurrent(ctx, conn); err != nil {
-			return err
-		}
-		data, err := s.encodeTokenState(pendingTokenState(conn))
-		if err != nil {
+		if err := held(); err != nil {
 			return err
 		}
 		now := time.Now().UTC()
@@ -289,74 +299,35 @@ func (s *ConnectionStore) Delete(ctx context.Context, key connection.Key) error 
 		return connection.ErrNotFound
 	}
 	id := connectionRecordID(key)
-	conn, err := s.Get(ctx, key)
-	if err != nil {
-		return err
-	}
-	// Each step removes only records that belong to conn, so a delete that
-	// resumes after the key was taken again leaves the new connection
-	// alone. Secrets go first, so an interrupted delete leaves no tokens.
-	err = s.deleteOwned(ctx, s.tokens, id, conn.ID, func(rec *persis.Record) (string, error) {
-		var stored tokenStateRecord
-		err := persis.Decode(rec, &stored)
-		return stored.ConnectionID, err
-	})
-	if err != nil {
-		return fmt.Errorf("connection store: delete token state: %w", err)
-	}
-	catalogs, err := listAll(ctx, s.catalogs.col, persis.ListQuery{Prefix: id + "/"})
-	if err != nil {
-		return fmt.Errorf("connection store: list catalogs: %w", err)
-	}
-	for _, rec := range catalogs {
-		err := s.deleteOwned(ctx, s.catalogs.col, rec.ID, conn.ID, func(rec *persis.Record) (string, error) {
-			var stored catalogRecord
-			err := persis.Decode(rec, &stored)
-			return stored.ConnectionID, err
-		})
-		if err != nil {
-			return fmt.Errorf("connection store: delete catalog: %w", err)
-		}
-	}
-	err = s.deleteOwned(ctx, s.conns.col, id, conn.ID, func(rec *persis.Record) (string, error) {
-		var stored connectionRecord
-		err := persis.Decode(rec, &stored)
-		return stored.ID, err
-	})
-	if err != nil {
-		return fmt.Errorf("connection store: delete connection: %w", err)
-	}
-	return nil
-}
-
-// deleteOwned removes record id of col while owner reads connectionID from
-// it. A record that is missing or belongs to another connection is kept.
-func (s *ConnectionStore) deleteOwned(
-	ctx context.Context,
-	col persis.Collection,
-	id, connectionID string,
-	owner func(*persis.Record) (string, error),
-) error {
-	return retryConflict(ctx, func(ctx context.Context) error {
-		rec, err := col.Get(ctx, id)
-		if errors.Is(err, persis.ErrNotFound) {
-			return nil
-		}
-		if err != nil {
+	return s.lifecycle.Do(ctx, func(held func() error) error {
+		// The lock keeps Create out until every record of the connection
+		// is gone, so no later connection with the key loses a record here.
+		if _, err := s.Get(ctx, key); err != nil {
 			return err
 		}
-		got, err := owner(rec)
-		if err != nil {
+		// Secrets go first, so an interrupted delete leaves no tokens.
+		if err := held(); err != nil {
 			return err
 		}
-		if got != connectionID {
-			return nil
+		if err := s.tokens.Delete(ctx, id); err != nil {
+			return fmt.Errorf("connection store: delete token state: %w", err)
 		}
-		err = col.CompareAndDelete(ctx, rec)
-		if errors.Is(err, persis.ErrNotFound) {
-			return nil
+		catalogs, err := listAll(ctx, s.catalogs.col, persis.ListQuery{Prefix: id + "/"})
+		if err != nil {
+			return fmt.Errorf("connection store: list catalogs: %w", err)
 		}
-		return err
+		for _, rec := range catalogs {
+			if err := held(); err != nil {
+				return err
+			}
+			if err := s.catalogs.col.Delete(ctx, rec.ID); err != nil {
+				return fmt.Errorf("connection store: delete catalog: %w", err)
+			}
+		}
+		if err := held(); err != nil {
+			return err
+		}
+		return s.conns.delete(ctx, id, connection.ErrNotFound, "connection")
 	})
 }
 

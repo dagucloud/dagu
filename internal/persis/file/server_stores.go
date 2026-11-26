@@ -197,6 +197,7 @@ func (s *ServerStores) ConnectionStore() (connection.Store, error) {
 		s.backend.Collection(persis.CollectionConnections),
 		s.backend.Collection(persis.CollectionConnectionTokens),
 		s.backend.Collection(persis.CollectionConnectionCatalogs),
+		s.backend.Lock(persis.CollectionConnections),
 		enc,
 	)
 }

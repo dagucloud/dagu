@@ -184,6 +184,7 @@ func TestNewConnectionStoreKeepsSecretsOwnerOnly(t *testing.T) {
 		backend.Collection(persis.CollectionConnections),
 		backend.Collection(persis.CollectionConnectionTokens),
 		backend.Collection(persis.CollectionConnectionCatalogs),
+		backend.Lock(persis.CollectionConnections),
 		enc,
 	)
 	require.NoError(t, err)
@@ -245,6 +246,7 @@ func TestConnectionStoreSeparatesWorkspacesByCase(t *testing.T) {
 		backend.Collection(persis.CollectionConnections),
 		backend.Collection(persis.CollectionConnectionTokens),
 		backend.Collection(persis.CollectionConnectionCatalogs),
+		backend.Lock(persis.CollectionConnections),
 		enc,
 	)
 	require.NoError(t, err)
