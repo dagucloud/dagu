@@ -41,7 +41,7 @@ type EnqueueRequest struct {
 	ScheduleWindow ir.ScheduleWindow
 	// TargetNodes is the parent's node list, which the child keeps.
 	TargetNodes []string
-	// Location is the file the DAG was loaded from. DAG.Location is empty.
+	// Location is the file the DAG was written in. DAG.Location is empty.
 	Location string
 }
 

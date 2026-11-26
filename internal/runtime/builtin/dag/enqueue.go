@@ -258,7 +258,7 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		ScheduleTime:   rCtx.ScheduleTime,
 		ScheduleWindow: rCtx.ScheduleWindow,
 		TargetNodes:    rCtx.TargetNodes,
-		Location:       child.DAG.Location,
+		Location:       rCtx.DAG.ChildFile(child.DAG),
 	})
 	if err != nil {
 		return enqueueRunOutput{}, err

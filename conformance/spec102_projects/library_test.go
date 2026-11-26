@@ -330,3 +330,51 @@ func TestLibraryQueueRefused(t *testing.T) {
 	in.run(false, nil, "enqueue", library).ExpectExitCode(0)
 	in.run(false, nil, "start", caller).ExpectExitCode(0)
 }
+
+// TestLibraryEnqueueOfProjectDAG proves that a project DAG that a library
+// run queues with dag.enqueue is the project's: its queued run points its
+// log into the project's logs, not the library's.
+func TestLibraryEnqueueOfProjectDAG(t *testing.T) {
+	t.Parallel()
+
+	in := newLibraryInstall(t)
+	library := in.write(t, "library/etl.yaml", "steps:\n  - id: queue\n    action: dag.enqueue\n    with:\n      dag: forecast\n")
+	in.write(t, "dags/forecast.yaml", "steps:\n  - id: noop\n    run: \"true\"\n")
+	in.run(true, nil, "start", library).ExpectExitCode(0)
+
+	result := in.run(true, nil, "status", "forecast")
+	result.ExpectExitCode(0)
+	require.NotContains(t, filepath.ToSlash(result.Stdout()), "/library/logs/")
+	require.NoDirExists(t, filepath.Join(in.home, "data", "projects", "default", "library", "logs", "forecast"))
+}
+
+// TestLibraryLocalDAGState proves Spec 102 "Runs of Library DAGs" for a DAG
+// defined in a library DAG's file: it is a library DAG too, so its DAG
+// state with scope dag stays in the library directories.
+func TestLibraryLocalDAGState(t *testing.T) {
+	t.Parallel()
+
+	in := newLibraryInstall(t)
+	out := filepath.Join(t.TempDir(), "state.json")
+	library := in.write(t, "library/etl.yaml", callerOf("sub")+"---\nname: sub\n"+setStateDAG("owner", "library-local", "dag"))
+	in.run(true, nil, "start", library).ExpectExitCode(0)
+
+	in.write(t, "dags/sub.yaml", stateDAG(out, "owner", "dag"))
+	in.run(true, nil, "start", "sub").ExpectExitCode(0)
+	require.Empty(t, stateFound(t, out))
+}
+
+// TestLibraryChildWorkerRefused proves that a child of a library DAG's run
+// is not sent to a worker, where the coordinator would not find its root
+// run among the project's.
+func TestLibraryChildWorkerRefused(t *testing.T) {
+	t.Parallel()
+
+	in := newLibraryInstall(t)
+	in.write(t, "library/remote.yaml", "worker_selector:\n  gpu: \"true\"\nsteps:\n  - id: noop\n    run: \"true\"\n")
+	library := in.write(t, "library/etl.yaml", callerOf("remote"))
+
+	result := in.run(true, nil, "start", library)
+	result.ExpectNonZeroExitCode()
+	requireOutput(t, result, "library DAGs cannot run on workers")
+}

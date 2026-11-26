@@ -579,7 +579,7 @@ func (r *Local) newAgent(
 	opts.RunStateStore = r.runStateStoreFromContext(ctx)
 	opts.StateStore = r.stateStoreFromContext(ctx)
 	if r.stateStoreFor != nil {
-		if opts.StateStore, err = r.stateStoreFor(ctx, dag.Location); err != nil {
+		if opts.StateStore, err = r.stateStoreFor(ctx, req.ParentDAG.ChildFile(req.DAG)); err != nil {
 			return nil, err
 		}
 	}
