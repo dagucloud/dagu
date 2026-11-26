@@ -1,0 +1,496 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package skill_test
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/dagucloud/dagu/v2/internal/skill"
+	"github.com/stretchr/testify/require"
+)
+
+// good is a valid SKILL.md for the folder "demo".
+const good = "---\nname: demo\ndescription: Explain the demo rules. Use when the user asks about the demo.\n---\n# Demo\n\nBody text.\n"
+
+// writeSkill creates the folder name under a new directory. files maps a
+// relative path to its content.
+func writeSkill(t *testing.T, name string, files map[string]string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), name)
+	for rel, content := range files {
+		full := filepath.Join(dir, filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+		require.NoError(t, os.WriteFile(full, []byte(content), 0o644))
+	}
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	return dir
+}
+
+func skillMD(front string) string { return "---\n" + front + "\n---\nBody.\n" }
+
+func ruleSet(issues []skill.Issue) map[string]skill.Issue {
+	out := map[string]skill.Issue{}
+	for _, i := range issues {
+		out[i.Rule] = i
+	}
+	return out
+}
+
+// One fixture for each rule of the format. A bad fixture gives the rule as an
+// error and names the file. A good fixture gives no error.
+func TestFormatRules(t *testing.T) {
+	t.Parallel()
+
+	long := func(n int) string { return strings.Repeat("a", n) }
+	// frontOf returns a valid front matter of n bytes, with the newline that
+	// skillMD adds.
+	frontOf := func(n int) string {
+		head := "name: demo\ndescription: A description of the skill.\nmetadata:\n  pad: "
+		return head + long(n-len(head)-1)
+	}
+	cases := []struct {
+		name    string
+		folder  string
+		content string
+		rule    string // empty: the skill is valid
+		file    string
+		sev     string
+	}{
+		{name: "valid minimal", folder: "demo", content: good},
+		{name: "valid with all keys", folder: "demo", content: skillMD("name: demo\ndescription: Explain the demo rules. Use when asked.\nlicense: MIT\ncompatibility: Needs git\nmetadata:\n  author: me\n  version: \"1.0\"\nallowed-tools: Bash(git:*) Read")},
+		{name: "valid unicode name", folder: "données", content: skillMD("name: données\ndescription: Explain the data rules. Use when asked.")},
+		{name: "valid digit first", folder: "7zip", content: skillMD("name: 7zip\ndescription: Explain the archive rules. Use when asked.")},
+		{name: "no front matter", folder: "demo", content: "# Demo\n", rule: skill.RuleFrontMatterStart, file: "SKILL.md"},
+		{name: "unclosed front matter", folder: "demo", content: "---\nname: demo\n", rule: skill.RuleFrontMatterEnd, file: "SKILL.md"},
+		{name: "bad yaml", folder: "demo", content: "---\nname: [demo\n---\nBody\n", rule: skill.RuleFrontMatterYAML, file: "SKILL.md"},
+		{name: "merge key", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\nmetadata:\n  <<: {author: me}"), rule: skill.RuleFrontMatterYAML, file: "SKILL.md"},
+		{name: "front matter at the limit", folder: "demo", content: skillMD(frontOf(skill.MaxFrontMatterBytes))},
+		{name: "front matter above the limit", folder: "demo", content: skillMD(frontOf(skill.MaxFrontMatterBytes + 1)), rule: skill.RuleFrontMatterYAML, file: "SKILL.md"},
+		{name: "duplicate key", folder: "demo", content: skillMD("name: demo\nname: demo\ndescription: A description of the skill."), rule: skill.RuleFrontMatterDup, file: "SKILL.md"},
+		{name: "unknown key", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\nmodel: sonnet"), rule: skill.RuleFrontMatterKey, file: "SKILL.md"},
+		{name: "claude extension key", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\nargument-hint: x"), rule: skill.RuleFrontMatterKey, file: "SKILL.md"},
+		{name: "name missing", folder: "demo", content: skillMD("description: A description of the skill."), rule: skill.RuleNameMissing, file: "SKILL.md"},
+		{name: "name not string", folder: "demo", content: skillMD("name: 12\ndescription: A description of the skill."), rule: skill.RuleNameType, file: "SKILL.md"},
+		{name: "name differs from folder", folder: "demo", content: skillMD("name: other\ndescription: A description of the skill."), rule: skill.RuleNameFolder, file: "SKILL.md"},
+		{name: "name upper case", folder: "Demo", content: skillMD("name: Demo\ndescription: A description of the skill."), rule: skill.RuleNameCharset, file: "SKILL.md"},
+		{name: "name underscore", folder: "a_b", content: skillMD("name: a_b\ndescription: A description of the skill."), rule: skill.RuleNameCharset, file: "SKILL.md"},
+		{name: "name leading hyphen", folder: "-demo", content: skillMD("name: -demo\ndescription: A description of the skill."), rule: skill.RuleNameHyphenEdge, file: "SKILL.md"},
+		{name: "name trailing hyphen", folder: "demo-", content: skillMD("name: demo-\ndescription: A description of the skill."), rule: skill.RuleNameHyphenEdge, file: "SKILL.md"},
+		{name: "name double hyphen", folder: "de--mo", content: skillMD("name: de--mo\ndescription: A description of the skill."), rule: skill.RuleNameHyphenDouble, file: "SKILL.md"},
+		{name: "name 64 characters", folder: long(64), content: skillMD("name: " + long(64) + "\ndescription: A description of the skill.")},
+		{name: "name 65 characters", folder: long(65), content: skillMD("name: " + long(65) + "\ndescription: A description of the skill."), rule: skill.RuleNameLength, file: "SKILL.md"},
+		{name: "description missing", folder: "demo", content: skillMD("name: demo"), rule: skill.RuleDescriptionMiss, file: "SKILL.md"},
+		{name: "description empty", folder: "demo", content: skillMD("name: demo\ndescription: \"  \""), rule: skill.RuleDescriptionMiss, file: "SKILL.md"},
+		{name: "description 1024", folder: "demo", content: skillMD("name: demo\ndescription: " + long(1024))},
+		{name: "description 1025", folder: "demo", content: skillMD("name: demo\ndescription: " + long(1025)), rule: skill.RuleDescriptionLength, file: "SKILL.md"},
+		{name: "description xml", folder: "demo", content: skillMD("name: demo\ndescription: Use the <tool> when asked about things."), rule: skill.RuleDescriptionXML, file: "SKILL.md"},
+		{name: "description comparison is not xml", folder: "demo", content: skillMD("name: demo\ndescription: Use when a < b and c > d is true, always.")},
+		{name: "license too long", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\nlicense: " + long(129)), rule: skill.RuleLicense, file: "SKILL.md"},
+		{name: "compatibility empty", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\ncompatibility: \"\""), rule: skill.RuleCompatibility, file: "SKILL.md"},
+		{name: "compatibility 501", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\ncompatibility: " + long(501)), rule: skill.RuleCompatibility, file: "SKILL.md"},
+		{name: "compatibility 500", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\ncompatibility: " + long(500))},
+		{name: "metadata not a map", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\nmetadata: x"), rule: skill.RuleMetadata, file: "SKILL.md"},
+		{name: "metadata number value", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\nmetadata:\n  version: 1.0"), rule: skill.RuleMetadata, file: "SKILL.md"},
+		{name: "allowed-tools list", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\nallowed-tools:\n  - Read"), rule: skill.RuleAllowedTools, file: "SKILL.md"},
+		{name: "body empty", folder: "demo", content: "---\nname: demo\ndescription: A description of the skill.\n---\n\n", rule: skill.RuleBodyEmpty, file: "SKILL.md"},
+		{name: "body too large", folder: "demo", content: "---\nname: demo\ndescription: A description of the skill.\n---\n" + strings.Repeat("x", skill.MaxBodyBytes+1), rule: skill.RuleBodyTooLarge, file: "SKILL.md"},
+		{name: "body exactly 64 KiB", folder: "demo", content: "---\nname: demo\ndescription: A description of the skill.\n---\n" + strings.Repeat("x", skill.MaxBodyBytes), rule: skill.RuleBodyTokens, file: "SKILL.md", sev: skill.SeverityWarning},
+		{name: "warning body lines", folder: "demo", content: "---\nname: demo\ndescription: A description of the skill.\n---\n" + strings.Repeat("l\n", 501), rule: skill.RuleBodyLines, file: "SKILL.md", sev: skill.SeverityWarning},
+		{name: "warning body tokens", folder: "demo", content: "---\nname: demo\ndescription: A description of the skill.\n---\n" + strings.Repeat("x", 18600), rule: skill.RuleBodyTokens, file: "SKILL.md", sev: skill.SeverityWarning},
+		{name: "warning short description", folder: "demo", content: skillMD("name: demo\ndescription: Short one"), rule: skill.RuleDescriptionShort, file: "SKILL.md", sev: skill.SeverityWarning},
+		{name: "not utf8", folder: "demo", content: "---\nname: demo\ndescription: A description of the skill.\n---\n\xff\xfe\n", rule: skill.RuleNotUTF8, file: "SKILL.md"},
+		{name: "crlf is accepted", folder: "demo", content: "---\r\nname: demo\r\ndescription: A description of the skill.\r\n---\r\nBody\r\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := writeSkill(t, tc.folder, map[string]string{"SKILL.md": tc.content})
+			s, err := skill.Read(dir)
+			require.NoError(t, err)
+			if tc.rule == "" {
+				require.True(t, s.Valid(), "%v", s.Issues)
+				require.NoError(t, s.Err())
+				return
+			}
+			issue, ok := ruleSet(s.Issues)[tc.rule]
+			require.True(t, ok, "rule %s not in %v", tc.rule, s.Issues)
+			require.Equal(t, tc.file, issue.File)
+			if tc.sev == skill.SeverityWarning {
+				require.Equal(t, skill.SeverityWarning, issue.Severity)
+				require.True(t, s.Valid(), "a warning must not refuse the skill: %v", s.Issues)
+				return
+			}
+			require.Equal(t, skill.SeverityError, issue.Severity)
+			require.False(t, s.Valid())
+			err = s.Err()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.folder)
+			require.Contains(t, err.Error(), tc.file)
+			require.Contains(t, err.Error(), tc.rule)
+		})
+	}
+}
+
+// A description above the limit is cut to the limit, so a list of refused
+// skills stays small.
+func TestLongDescriptionIsCut(t *testing.T) {
+	t.Parallel()
+	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": skillMD("name: demo\ndescription: " + strings.Repeat("é", 2*skill.MaxDescriptionLength))})
+	s, err := skill.Read(dir)
+	require.NoError(t, err)
+	require.Contains(t, ruleSet(s.Errors()), skill.RuleDescriptionLength)
+	require.Equal(t, strings.Repeat("é", skill.MaxDescriptionLength), s.Meta.Description)
+}
+
+// A message quotes at most a short part of a value of the front matter, so a
+// large SKILL.md gives short issues.
+func TestIssuesQuoteShortValues(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("x", 4000)
+	cases := map[string]string{
+		"name":          skillMD("name: " + long + "\ndescription: A description of the skill."),
+		"unknown key":   skillMD("name: demo\ndescription: A description of the skill.\n" + long + ": v"),
+		"metadata key":  skillMD("name: demo\ndescription: A description of the skill.\nmetadata:\n  " + long + ": 1"),
+		"duplicate key": skillMD("name: demo\ndescription: A description of the skill.\n" + long + ": a\n" + long + ": b"),
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s, err := skill.Read(writeSkill(t, "demo", map[string]string{"SKILL.md": content}))
+			require.NoError(t, err)
+			require.False(t, s.Valid())
+			for _, issue := range s.Issues {
+				require.Less(t, len(issue.Message), 1024, "%s: %.200s", issue.Rule, issue.Message)
+			}
+		})
+	}
+}
+
+func TestUnknownKeyIsNamed(t *testing.T) {
+	t.Parallel()
+	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": skillMD("name: demo\ndescription: A description of the skill.\nwhen_to_use: now")})
+	s, err := skill.Read(dir)
+	require.NoError(t, err)
+	require.Contains(t, s.Err().Error(), `"when_to_use"`)
+}
+
+// Many bad keys give one issue per rule, which names the first keys and counts
+// the rest, so a large front matter gives few issues.
+func TestManyBadKeysGiveOneIssue(t *testing.T) {
+	t.Parallel()
+	var front strings.Builder
+	front.WriteString("name: demo\ndescription: A description of the skill.\n")
+	for i := range 500 {
+		fmt.Fprintf(&front, "k%04d: v\n", i)
+	}
+	front.WriteString("metadata:\n")
+	for i := range 500 {
+		fmt.Fprintf(&front, "  m%04d: 1\n", i)
+	}
+	s, err := skill.Read(writeSkill(t, "demo", map[string]string{"SKILL.md": skillMD(front.String())}))
+	require.NoError(t, err)
+
+	counts := map[string]int{}
+	for _, issue := range s.Issues {
+		counts[issue.Rule]++
+	}
+	require.Equal(t, 1, counts[skill.RuleFrontMatterKey], "%v", counts)
+	require.Equal(t, 1, counts[skill.RuleMetadata], "%v", counts)
+	issues := ruleSet(s.Issues)
+	require.Contains(t, issues[skill.RuleFrontMatterKey].Message, `"k0000", "k0001", "k0002", "k0003", "k0004" and 495 more`)
+	require.Contains(t, issues[skill.RuleMetadata].Message, `"m0000", "m0001", "m0002", "m0003", "m0004" and 495 more`)
+}
+
+// A folder that the server cannot read gives the rule unreadable, and the
+// message names no path of the server. The test needs a user other than root.
+func TestUnreadableFolderNamesNoServerPath(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a folder of mode 0000")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("a folder mode of 0 does not stop a read on Windows")
+	}
+	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": skillMD("name: demo\ndescription: A description of the skill."), "references/a.md": "a"})
+	locked := filepath.Join(dir, "references")
+	require.NoError(t, os.Chmod(locked, 0))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+	s, err := skill.Read(dir)
+	require.NoError(t, err)
+	require.Len(t, s.Issues, 1)
+	require.Equal(t, skill.RuleUnreadable, s.Issues[0].Rule)
+	require.NotContains(t, s.Issues[0].Message, dir)
+}
+
+// A skill folder that is gone is not found.
+func TestReadOfAMissingFolder(t *testing.T) {
+	t.Parallel()
+	_, err := skill.Read(filepath.Join(t.TempDir(), "gone"))
+	require.ErrorIs(t, err, skill.ErrNotFound)
+}
+
+// A folder above the total limit is refused, and its read keeps at most the
+// limit of text in memory.
+func TestReadBoundsTheTextItKeeps(t *testing.T) {
+	t.Parallel()
+	files := map[string]string{"SKILL.md": strings.Replace(good, "name: demo", "name: big", 1)}
+	for i := range 5 {
+		files[fmt.Sprintf("references/r%d.md", i)] = strings.Repeat("a", skill.MaxFileBytes)
+	}
+	s, err := skill.Read(writeSkill(t, "big", files))
+	require.NoError(t, err)
+	require.Contains(t, ruleSet(s.Errors()), skill.RuleTotalTooLarge)
+
+	kept := 0
+	for _, f := range s.Files {
+		require.True(t, f.Text, f.Path)
+		if data, ok := s.Text(f.Path); ok {
+			kept += len(data)
+		}
+	}
+	require.LessOrEqual(t, kept, skill.MaxTotalBytes)
+}
+
+// A file that becomes a link to a file outside the folder while Read reads the
+// files, and is back before the second walk, is never read through the link.
+// The test changes a package variable, so it does not run in parallel.
+func TestReadNeverFollowsASwappedLink(t *testing.T) {
+	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "public\n"})
+	secret := filepath.Join(t.TempDir(), "secret")
+	require.NoError(t, os.WriteFile(secret, []byte("secret\n"), 0o600))
+	file := filepath.Join(dir, "references", "a.md")
+	kept := filepath.Join(t.TempDir(), "a.md")
+	attempts := 0
+	skill.AroundReadFiles(t, func() {
+		if attempts++; attempts == 1 {
+			require.NoError(t, os.Rename(file, kept))
+			require.NoError(t, os.Symlink(secret, file))
+		}
+	}, func() {
+		if attempts == 1 {
+			require.NoError(t, os.Remove(file))
+			require.NoError(t, os.Rename(kept, file))
+		}
+	})
+	s, err := skill.Read(dir)
+	require.NoError(t, err)
+	data, ok := s.Text("references/a.md")
+	require.True(t, ok)
+	require.Equal(t, "public\n", string(data))
+}
+
+// A folder that changes during every attempt of Read is refused with the rule
+// changing. The test changes a package variable, so it does not run in
+// parallel.
+func TestReadOfAFolderThatNeverSettles(t *testing.T) {
+	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "a\n"})
+	attempts := 0
+	skill.AroundReadFiles(t, func() {
+		attempts++
+		name := filepath.Join(dir, "references", fmt.Sprintf("new%d.md", attempts))
+		require.NoError(t, os.WriteFile(name, []byte("new\n"), 0o644))
+	}, func() {})
+	s, err := skill.Read(dir)
+	require.NoError(t, err)
+	require.Len(t, s.Issues, 1)
+	require.Equal(t, skill.RuleChanging, s.Issues[0].Rule)
+	require.False(t, s.Valid())
+}
+
+// The folder rules: the layout, links, hidden files, depth, text and limits.
+func TestFolderRules(t *testing.T) {
+	t.Parallel()
+
+	// longPath is one byte over skill.MaxPathLength. Each name stays below the
+	// limit of 255 bytes of common file systems.
+	longPath := "references/" + strings.Repeat("a", 250) + "/" + strings.Repeat("b", 251)
+	require.Len(t, longPath, skill.MaxPathLength+1)
+
+	t.Run("full layout is valid", func(t *testing.T) {
+		t.Parallel()
+		dir := writeSkill(t, "demo", map[string]string{
+			"SKILL.md":                good,
+			"references/a.md":         "# A\n",
+			"references/.gitkeep":     "",
+			"scripts/run.sh":          "echo hi\n",
+			"scripts/lib/util.py":     "print(1)\n",
+			"assets/logo.png":         "\x89PNG\x00\xff",
+			"assets/deep/er/data.bin": "\x00\x01\x02",
+		})
+		s, err := skill.Read(dir)
+		require.NoError(t, err)
+		require.True(t, s.Valid(), "%v", s.Issues)
+		require.Len(t, s.Files, 7)
+		file, ok := s.File("assets/logo.png")
+		require.True(t, ok)
+		require.False(t, file.Text)
+	})
+
+	cases := []struct {
+		name  string
+		files map[string]string
+		rule  string
+		file  string
+		sev   string
+	}{
+		{name: "missing SKILL.md", files: map[string]string{"references/a.md": "x"}, rule: skill.RuleSkillMissing, file: "SKILL.md"},
+		{name: "root file", files: map[string]string{"SKILL.md": good, "README.md": "x"}, rule: skill.RuleRootEntry, file: "README.md"},
+		{name: "root directory", files: map[string]string{"SKILL.md": good, "docs/a.md": "x"}, rule: skill.RuleRootEntry, file: "docs"},
+		{name: "lower case skill.md", files: map[string]string{"skill.md": good}, rule: skill.RuleRootEntry, file: "skill.md"},
+		{name: "hidden file", files: map[string]string{"SKILL.md": good, "references/.env": "x"}, rule: skill.RuleHiddenFile, file: "references/.env"},
+		{name: "hidden directory", files: map[string]string{"SKILL.md": good, "assets/.cache/x": "x"}, rule: skill.RuleHiddenFile, file: "assets/.cache"},
+		{name: "root hidden file", files: map[string]string{"SKILL.md": good, ".gitkeep": ""}, rule: skill.RuleRootEntry, file: ".gitkeep"},
+		{name: "reference not utf8", files: map[string]string{"SKILL.md": good, "references/a.md": "\xff\xfe"}, rule: skill.RuleNotUTF8, file: "references/a.md"},
+		{name: "script not utf8", files: map[string]string{"SKILL.md": good, "scripts/a.sh": "\xff\xfe"}, rule: skill.RuleNotUTF8, file: "scripts/a.sh"},
+		{name: "file too large", files: map[string]string{"SKILL.md": good, "assets/big.bin": strings.Repeat("x", skill.MaxFileBytes+1)}, rule: skill.RuleFileTooLarge, file: "assets/big.bin"},
+		{name: "depth warning", files: map[string]string{"SKILL.md": good, "references/a/b.md": "x"}, rule: skill.RuleReferenceDepth, file: "references/a/b.md", sev: skill.SeverityWarning},
+		{name: "too large to read warning", files: map[string]string{"SKILL.md": good, "references/big.md": strings.Repeat("x", skill.MaxReadFileBytes+1)}, rule: skill.RuleReadTooLarge, file: "references/big.md", sev: skill.SeverityWarning},
+		{name: "backslash in name", files: map[string]string{"SKILL.md": good, "references/a\\b.md": "x"}, rule: skill.RulePath, file: "references/a\\b.md"},
+		{name: "path of 513 bytes", files: map[string]string{"SKILL.md": good, longPath: "x"}, rule: skill.RulePath, file: longPath},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if runtime.GOOS == "windows" && strings.Contains(tc.file, "\\") {
+				t.Skip("a file name cannot have a backslash on Windows")
+			}
+			dir := writeSkill(t, "demo", tc.files)
+			s, err := skill.Read(dir)
+			require.NoError(t, err)
+			issue, ok := ruleSet(s.Issues)[tc.rule]
+			require.True(t, ok, "rule %s not in %v", tc.rule, s.Issues)
+			require.Equal(t, tc.file, issue.File)
+			if tc.sev == skill.SeverityWarning {
+				require.True(t, s.Valid(), "%v", s.Issues)
+			} else {
+				require.False(t, s.Valid())
+				require.Contains(t, s.Err().Error(), tc.file)
+			}
+		})
+	}
+
+	t.Run("too many files", func(t *testing.T) {
+		t.Parallel()
+		files := map[string]string{"SKILL.md": good}
+		for i := 0; i <= skill.MaxFiles; i++ {
+			files[fmt.Sprintf("assets/f%04d", i)] = "x"
+		}
+		s, err := skill.Read(writeSkill(t, "demo", files))
+		require.NoError(t, err)
+		require.Contains(t, ruleSet(s.Issues), skill.RuleTooManyFiles)
+	})
+
+	// Directories count toward the limit of entries, also with few files.
+	t.Run("too many entries", func(t *testing.T) {
+		t.Parallel()
+		dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
+		for i := range 1024 {
+			require.NoError(t, os.MkdirAll(filepath.Join(dir, "assets", fmt.Sprintf("d%04d", i)), 0o755))
+		}
+		s, err := skill.Read(dir)
+		require.NoError(t, err)
+		issue, ok := ruleSet(s.Issues)[skill.RuleTooManyFiles]
+		require.True(t, ok, "%v", s.Issues)
+		require.Contains(t, issue.Message, "the limit is 1024 entries")
+	})
+
+	t.Run("named pipe", func(t *testing.T) {
+		t.Parallel()
+		dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "assets"), 0o755))
+		makeFIFO(t, filepath.Join(dir, "assets", "pipe"))
+		s, err := skill.Read(dir)
+		require.NoError(t, err)
+		issue, ok := ruleSet(s.Issues)[skill.RuleSpecialFile]
+		require.True(t, ok, "%v", s.Issues)
+		require.Equal(t, "assets/pipe", issue.File)
+		require.False(t, s.Valid())
+	})
+
+	t.Run("symlink to a file", func(t *testing.T) {
+		t.Parallel()
+		dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "x"})
+		secret := filepath.Join(t.TempDir(), "secret")
+		require.NoError(t, os.WriteFile(secret, []byte("top secret"), 0o600))
+		require.NoError(t, os.Symlink(secret, filepath.Join(dir, "references", "link.md")))
+		s, err := skill.Read(dir)
+		require.NoError(t, err)
+		require.Equal(t, "references/link.md", ruleSet(s.Issues)[skill.RuleSymlink].File)
+		require.False(t, s.Valid())
+		_, ok := s.Text("references/link.md")
+		require.False(t, ok, "a symbolic link is never read")
+	})
+
+	t.Run("symlinked SKILL.md", func(t *testing.T) {
+		t.Parallel()
+		dir := writeSkill(t, "demo", map[string]string{})
+		secret := filepath.Join(t.TempDir(), "SKILL.md")
+		require.NoError(t, os.WriteFile(secret, []byte(good), 0o600))
+		require.NoError(t, os.Symlink(secret, filepath.Join(dir, "SKILL.md")))
+		s, err := skill.Read(dir)
+		require.NoError(t, err)
+		require.Contains(t, ruleSet(s.Issues), skill.RuleSymlink)
+		require.False(t, s.Valid())
+		require.Empty(t, s.Raw())
+	})
+
+	t.Run("symlink to a directory that escapes", func(t *testing.T) {
+		t.Parallel()
+		dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
+		outside := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(outside, "x.md"), []byte("x"), 0o600))
+		require.NoError(t, os.Symlink(outside, filepath.Join(dir, "references")))
+		s, err := skill.Read(dir)
+		require.NoError(t, err)
+		issues := ruleSet(s.Issues)
+		require.Equal(t, "references", issues[skill.RuleSymlink].File, "%v", s.Issues)
+		// The name references is allowed at the root, so only the link is wrong.
+		require.NotContains(t, issues, skill.RuleRootEntry)
+		require.False(t, s.Valid())
+		for _, f := range s.Files {
+			require.NotContains(t, f.Path, "x.md")
+		}
+	})
+
+	t.Run("symlinked skill folder", func(t *testing.T) {
+		t.Parallel()
+		real := writeSkill(t, "real", map[string]string{"SKILL.md": good})
+		link := filepath.Join(t.TempDir(), "demo")
+		require.NoError(t, os.Symlink(real, link))
+		s, err := skill.Read(link)
+		require.NoError(t, err)
+		require.Contains(t, ruleSet(s.Issues), skill.RuleFolderLink)
+	})
+
+	t.Run("hard link", func(t *testing.T) {
+		t.Parallel()
+		dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "x"})
+		require.NoError(t, os.Link(filepath.Join(dir, "references", "a.md"), filepath.Join(dir, "references", "b.md")))
+		s, err := skill.Read(dir)
+		require.NoError(t, err)
+		require.Contains(t, ruleSet(s.Issues), skill.RuleHardlink)
+		require.False(t, s.Valid())
+	})
+
+	t.Run("hard link of SKILL.md", func(t *testing.T) {
+		t.Parallel()
+		dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
+		require.NoError(t, os.Link(filepath.Join(dir, "SKILL.md"), filepath.Join(t.TempDir(), "outside.md")))
+		s, err := skill.Read(dir)
+		require.NoError(t, err)
+		require.Contains(t, ruleSet(s.Issues), skill.RuleHardlink)
+		require.False(t, s.Valid())
+	})
+
+	t.Run("missing folder", func(t *testing.T) {
+		t.Parallel()
+		_, err := skill.Read(filepath.Join(t.TempDir(), "nope"))
+		require.ErrorIs(t, err, skill.ErrNotFound)
+	})
+}
