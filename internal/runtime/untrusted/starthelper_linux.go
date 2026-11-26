@@ -63,7 +63,7 @@ func runStartHelper(args []string) int {
 	if err := syscall.Chdir(dir); err != nil {
 		return helperFailed("enter "+dir, err)
 	}
-	err = syscall.Exec(path, argv, env) // #nosec G204 -- the command of the step.
+	err = syscall.Exec(path, argv, env) //nolint:gosec // Running the command of the step is the purpose of the helper.
 	code := helperFailed("run "+path, err)
 	if errors.Is(err, syscall.ENOENT) {
 		code = 127
