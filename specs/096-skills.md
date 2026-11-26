@@ -5,9 +5,10 @@
 Partially implemented.
 
 DAG discovery skips the skills directory, as [Terms](#terms) states. `GET /skills` lists the skill
-folders with their hash and the errors and the warnings of the format and the folder rules. Unit
-tests cover them, and a conformance test covers discovery. The other routes of the API, the writes
-and the ZIP download are specified but not built yet.
+folders with their hash and the errors and the warnings of the format and the folder rules.
+`GET /skills/{name}` reads one skill, and `GET /skills/{name}/files` streams one file. The reads use
+the cache of [Source of truth](#source-of-truth). Unit tests cover them, and a conformance test
+covers discovery. The writes, the file writes and the ZIP download are specified but not built yet.
 
 ## Scope
 
@@ -331,8 +332,11 @@ A write returns `SkillWriteResult`: the new `hash`, the `errors`, the `warnings`
 The client uses the new hash for its next write. `DELETE /skills/{name}` returns 204 with no body.
 `DELETE /skills/{name}/files` returns 200 with `SkillWriteResult`. `PUT /skills/{name}/files` refuses
 the path `SKILL.md` with 400, because `SKILL.md` has its own route. `GET /skills/{name}/files` gives 409
-when the skill changed while the server read the file. It gives 413 for a file above 4 MiB; the ZIP
-download includes such a file.
+when the file is gone or has another size than the read of the skill recorded. A file whose content
+changes during the stream stops the stream before its last bytes, so a complete body always has
+the hash in `ETag`. It gives 413 for a file above 4 MiB; the ZIP download includes such a file. The
+response has the type `application/octet-stream`, and the header `Content-Disposition` is an
+attachment.
 
 A write validates the file that it writes. `PUT /skills/{name}` refuses a `SKILL.md` that breaks a
 rule of the file. A write of another file refuses a path that breaks the layout, and a file above the
@@ -456,12 +460,20 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | `TestReadOfAFolderThatNeverSettles` (unit) | A folder that changes during every read attempt gives the rule `changing`. |
 | `TestHashCanonicalForm` (unit) | The hash is the SHA-256 of the `sha256sum` text of the files. The order, the times and the modes do not change it. |
 | `TestPartialSkillIsRefused` (unit) | A folder with no `SKILL.md` is refused, and the temporary file of a write is ignored. |
-| `TestReadBoundsTheTextItKeeps` (unit) | A folder above 16 MiB gives the rule `total-too-large`, and a read keeps at most 16 MiB of text. |
+| `TestReadBoundsTheTextItKeeps` (unit) | A folder above 16 MiB gives the rule `total-too-large`, a read keeps at most 16 MiB of text, and the text it does not keep still opens from disk. |
+| `TestReadCachesOnlyASettledFolder` (unit) | A second read of a folder with no change in the last 2 seconds reads no file. A folder with a newer change is read again. |
+| `TestReadSeesEveryChange` (unit) | A change of the size of a file shows in the next read, also when the time stamp stays. |
+| `TestReadSeesALayoutChange` (unit) | A new folder at the root, a hidden folder or a hard link shows in the next read of a cached folder. |
+| `TestOpenRefusesAChangedFile` (unit) | A file that changed after the read gives `ErrFileChanged`, at the open or at the end of the stream, and a link is never opened. |
+| `TestCheckExistingPathRefusesEveryEscape` (unit) | A path that is absolute, has an empty, `.` or `..` part, a backslash or a control character is refused. |
 | `TestUnreadableFolderNamesNoServerPath` (unit) | A folder that Dagu cannot read gives the rule `unreadable`, and the message names no server path. |
 | `TestSkillsList` (unit) | `GET /skills` lists every folder sorted by name, also one with errors, and no plain file or hidden folder. |
 | `TestSkillsListIsBounded` (unit) | `GET /skills` lists the first 1000 folders and sets `truncated` when the directory holds more. |
+| `TestSkillsGet` (unit) | `GET /skills/{name}` returns the raw `SKILL.md`, the files and the issues, 404 for an unknown skill and 400 for a name that is not a folder name. |
+| `TestSkillsReadFile` (unit) | `GET /skills/{name}/files` sends a text file and a binary file as stored, as an attachment of type `application/octet-stream` with the hash in `ETag`. A file above 4 MiB gives 413, a link 404 and a path that leaves the folder 400. |
+| `TestSkillsPathTraversal` (unit) | A skill name that leaves the skills directory gives 400 or 404. |
 
-The other routes of the API, the writes and the ZIP download have no test yet.
+The writes, the file writes and the ZIP download have no test yet.
 
 ## Open items
 
