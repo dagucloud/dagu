@@ -20,7 +20,7 @@ func TestNestedUntrustedStep(t *testing.T) {
 	t.Parallel()
 
 	ctx := WithStep(context.Background(), &Step{name: "code"})
-	_, err := Begin(ctx, Request{StepName: "verify", Config: config.UntrustedConfig{Enabled: true, UID: 10001, GID: 10001}})
+	_, err := Begin(ctx, Request{StepName: "verify", Config: config.UntrustedConfig{Enabled: true}})
 	assert.EqualError(t, err, `untrusted step "verify" cannot run inside the untrusted step "code"`)
 
 	step, err := Begin(ctx, Request{StepName: "verify", Config: config.UntrustedConfig{IsolationOff: true}, Log: io.Discard})
@@ -35,7 +35,7 @@ func TestBeginWithoutRestrictedUser(t *testing.T) {
 
 	_, err := Begin(context.Background(), Request{StepName: "verify", Log: io.Discard})
 	require.ErrorIs(t, err, ErrIsolationRequired)
-	for _, part := range []string{`untrusted step "verify"`, ReasonIsolationRequired, "untrusted.uid", "untrusted.gid", "untrusted.isolation"} {
+	for _, part := range []string{`untrusted step "verify"`, reasonIsolationRequired, "untrusted.uid", "untrusted.gid", "untrusted.isolation"} {
 		assert.Contains(t, err.Error(), part)
 	}
 
@@ -46,12 +46,12 @@ func TestBeginWithoutRestrictedUser(t *testing.T) {
 	assert.Equal(t, IsolationOffLine+"\n", log.String())
 }
 
-// FilterEnv drops the variables of Dagu, but DAGU_OUTPUT_FILE, and never
+// filterEnv drops the variables of Dagu, but DAGU_OUTPUT_FILE, and never
 // returns nil.
 func TestFilterEnv(t *testing.T) {
 	t.Parallel()
 
-	got := FilterEnv([]string{"PATH=/bin", "DAGU_HOME=/root/.dagu", "dagu_lower=x", "DAGU_OUTPUT_FILE=/out", "DAG_RUN_ID=1", "DAGUX=kept"})
+	got := filterEnv([]string{"PATH=/bin", "DAGU_HOME=/root/.dagu", "dagu_lower=x", "DAGU_OUTPUT_FILE=/out", "DAG_RUN_ID=1", "DAGUX=kept"})
 	assert.Equal(t, []string{"PATH=/bin", "DAGU_OUTPUT_FILE=/out", "DAG_RUN_ID=1", "DAGUX=kept"}, got)
-	assert.NotNil(t, FilterEnv(nil))
+	assert.NotNil(t, filterEnv(nil))
 }

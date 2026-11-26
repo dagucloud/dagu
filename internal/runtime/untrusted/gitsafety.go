@@ -54,8 +54,8 @@ func GitSafetyEntries(lookup func(string) (string, bool)) map[string]string {
 	}
 }
 
-// WithGitSafety returns env with the variables of GitSafetyEntries.
-func WithGitSafety(env []string) []string {
+// withGitSafety returns env with the variables of GitSafetyEntries.
+func withGitSafety(env []string) []string {
 	lookup := func(name string) (string, bool) {
 		for _, e := range slices.Backward(env) {
 			key, value, ok := strings.Cut(e, "=")
@@ -78,7 +78,7 @@ func WithGitSafety(env []string) []string {
 type gitSafetyKeyType struct{}
 
 // WithGitSafetyContext marks ctx as the context of a trusted step of a run with
-// an untrusted step: StartManagedProcess adds the variables of WithGitSafety.
+// an untrusted step: StartManagedProcess adds the variables of withGitSafety.
 func WithGitSafetyContext(ctx context.Context) context.Context {
 	return context.WithValue(ctx, gitSafetyKeyType{}, true)
 }

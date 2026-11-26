@@ -19,22 +19,22 @@ import (
 func TestWithGitSafety(t *testing.T) {
 	t.Parallel()
 
-	got := WithGitSafety([]string{"PATH=/bin"})
+	got := withGitSafety([]string{"PATH=/bin"})
 	assert.ElementsMatch(t, []string{
 		"PATH=/bin", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=safe.bareRepository", "GIT_CONFIG_VALUE_0=explicit",
 	}, got)
 
-	got = WithGitSafety([]string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.name", "GIT_CONFIG_VALUE_0=dagu"})
+	got = withGitSafety([]string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.name", "GIT_CONFIG_VALUE_0=dagu"})
 	assert.ElementsMatch(t, []string{
 		"GIT_CONFIG_KEY_0=user.name", "GIT_CONFIG_VALUE_0=dagu",
 		"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_1=safe.bareRepository", "GIT_CONFIG_VALUE_1=explicit",
 	}, got)
 
-	again := WithGitSafety(got)
+	again := withGitSafety(got)
 	assert.ElementsMatch(t, got, again, "the setting is added once")
 
 	// Git applies the last entry of a key, so a later "all" turns it off.
-	got = WithGitSafety([]string{
+	got = withGitSafety([]string{
 		"GIT_CONFIG_COUNT=2",
 		"GIT_CONFIG_KEY_0=safe.bareRepository", "GIT_CONFIG_VALUE_0=explicit",
 		"GIT_CONFIG_KEY_1=safe.bareRepository", "GIT_CONFIG_VALUE_1=all",

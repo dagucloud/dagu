@@ -24,25 +24,20 @@ func beginUntrustedStep(ctx context.Context, node *Node) (context.Context, *untr
 	if !step.IsUntrusted() {
 		return ctx, nil, nil
 	}
-	env, ok := LookupEnv(ctx)
-	if !ok {
-		env = NewEnv(ctx, step)
-	}
 	session, err := untrusted.Begin(ctx, untrusted.Request{
-		StepName:    step.Name,
-		Config:      config.GetConfig(ctx).Untrusted,
-		WorkDir:     GetDAGContext(ctx).RunWorkDir,
-		ManagedRoot: config.GetConfig(ctx).Paths.DAGRunWorkDir,
-		WorkingDir:  env.WorkingDir,
-		OutputLimit: maxOutputSize(ctx),
-		LockDir:     config.GetConfig(ctx).Paths.DataDir,
-		Log:         node.outputs.stderrLog(),
+		StepName: step.Name,
+		Config:   config.GetConfig(ctx).Untrusted,
+		Log:      node.outputs.stderrLog(),
 	})
 	if err != nil {
 		return ctx, nil, err
 	}
 	ctx = untrusted.WithStep(ctx, session)
 	if home := session.Home(); home != "" {
+		env, ok := LookupEnv(ctx)
+		if !ok {
+			env = NewEnv(ctx, step)
+		}
 		env.Scope = env.Scope.WithEntries(map[string]string{"HOME": home, "TMPDIR": home}, cmnvalue.EnvSourceStepEnv)
 		ctx = WithEnv(ctx, env)
 	}

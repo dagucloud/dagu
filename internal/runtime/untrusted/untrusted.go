@@ -38,20 +38,16 @@ var ErrRunAborted = errors.New("the run stops")
 // untrusted.isolation to off.
 const IsolationOffLine = "untrusted: isolation is off: the key untrusted.isolation is off"
 
-// ReasonIsolationRequired is the failure reason of an untrusted step that finds
+// reasonIsolationRequired is the failure reason of an untrusted step that finds
 // no restricted user in the configuration, while untrusted.isolation is on.
-const ReasonIsolationRequired = "isolation_required"
+const reasonIsolationRequired = "isolation_required"
 
 // ErrIsolationRequired is the error of an untrusted step that cannot start
 // because the configuration has no restricted user and does not turn the
 // isolation off. The step fails before it starts.
-var ErrIsolationRequired = errors.New(ReasonIsolationRequired +
+var ErrIsolationRequired = errors.New(reasonIsolationRequired +
 	": the configuration sets no untrusted.uid and no untrusted.gid, and untrusted.isolation is on:" +
 	" set untrusted.uid and untrusted.gid, or set untrusted.isolation to off for development")
-
-// WaitingLine is the line of the step log while the step waits for the end of
-// another untrusted step.
-const WaitingLine = "untrusted: waiting for the restricted user"
 
 // WaitingRunLine is the line of the step log while an isolated untrusted step
 // waits for the end of the other running steps of its run.
@@ -74,20 +70,6 @@ type Request struct {
 	StepName string
 	// Config is the block untrusted of the configuration.
 	Config config.UntrustedConfig
-	// WorkDir is the work directory of the run (DAG_RUN_WORK_DIR).
-	WorkDir string
-	// ManagedRoot is the root of the work directories that Dagu makes for
-	// its runs (paths.dag_run_work_dir). A folder of a run below it can get
-	// the bit x for others during the step, so that the restricted user can
-	// reach the work directory.
-	ManagedRoot string
-	// WorkingDir is the working directory of the step. It must be in WorkDir.
-	WorkingDir string
-	// OutputLimit is the size limit of the output file.
-	OutputLimit int64
-	// LockDir is the data directory of Dagu. Its folder untrusted holds the
-	// lock file of the host when /run/dagu is not available.
-	LockDir string
 	// Log is the step log for the lines of this package.
 	Log io.Writer
 }
@@ -198,7 +180,7 @@ func StartManagedProcess(ctx context.Context, cmd *exec.Cmd) (*cmdutil.ManagedPr
 	if step == nil || cmd == nil {
 		if cmd != nil && gitSafetyFrom(ctx) {
 			// Environ also gives the variables that a nil Env inherits.
-			cmd.Env = WithGitSafety(cmd.Environ())
+			cmd.Env = withGitSafety(cmd.Environ())
 		}
 		return cmdutil.StartManagedProcess(cmd)
 	}
@@ -220,7 +202,7 @@ func StartManagedProcess(ctx context.Context, cmd *exec.Cmd) (*cmdutil.ManagedPr
 
 // prepare applies the rules of the step to cmd before it starts.
 func (s *Step) prepare(cmd *exec.Cmd) error {
-	env := FilterEnv(cmd.Env)
+	env := filterEnv(cmd.Env)
 	if s.iso == nil {
 		cmd.Env = env
 		return nil
@@ -228,10 +210,10 @@ func (s *Step) prepare(cmd *exec.Cmd) error {
 	return s.iso.prepare(cmd, env)
 }
 
-// FilterEnv returns the variables without those whose names start with DAGU_,
+// filterEnv returns the variables without those whose names start with DAGU_,
 // except DAGU_OUTPUT_FILE. It never returns nil, so that a process never
 // inherits the variables of Dagu.
-func FilterEnv(env []string) []string {
+func filterEnv(env []string) []string {
 	filtered := make([]string, 0, len(env))
 	for _, entry := range env {
 		key, _, _ := strings.Cut(entry, "=")
