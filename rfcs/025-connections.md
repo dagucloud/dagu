@@ -1808,9 +1808,11 @@ All:
   Cloud](#dagu-cloud) describes. Both need their own RFC, and cloud-held
   connections amend RFC 002.
 - **Personal connections,** with a run-as-user model.
-- **Requests for a server connection.** A manager asks for one in Dagu, and
-  an admin approves it. Until then, the wizard shows what to ask an admin
-  for.
+- **Requests for a server connection.** A manager asks in Dagu for a new
+  server connection, or for an existing one to list their project, and an
+  admin approves it. Until then, the manager asks an admin outside Dagu.
+  The editor and the run error already name the server connection that
+  does not list the project.
 - **Expiry notifications.** A message before a refresh token expires. It
   needs a periodic check, which this RFC avoids for idle cost.
 - **More presets,** such as Slack, GitHub, and Salesforce, as their MCP
