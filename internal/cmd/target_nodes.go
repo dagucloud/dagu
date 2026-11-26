@@ -13,7 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-// flagNode narrows a run to the named inventory nodes (RFC 013 §Narrowing a
+// flagNode narrows a run to the named nodes (RFC 013 §Narrowing a
 // run), as repeatable names.
 const flagNode = "node"
 
@@ -23,7 +23,7 @@ var errNodeWithFromRunID = fmt.Errorf("--%s cannot be combined with --from-run-i
 
 var nodeFlag = commandLineFlag{
 	name:          flagNode,
-	usage:         "Inventory node the run is narrowed to: its steps with nodes run only on listed nodes, and a node: required DAG runs bound to the one node; repeatable",
+	usage:         "Node the run is narrowed to: its steps with nodes run only on listed nodes, and a node: required DAG runs bound to the one node; repeatable",
 	isStringArray: true,
 }
 

@@ -707,7 +707,7 @@ A completed `parallel` step publishes a JSON array of each successful child run'
 
 ## nodes: Run On Inventory Nodes
 
-`nodes:` runs a step once per inventory node a selector matches. The selector is the label filter that `dagu history --labels` takes: terms separated by commas, all of which must match, such as `web,env=prod,!canary`. Quote a selector that starts with `!`.
+`nodes:` runs a step once per node a selector matches: inventory (SSH) nodes and worker nodes, the workers that set `worker.id`, alike. The selector is the label filter that `dagu history --labels` takes: terms separated by commas, all of which must match, such as `web,env=prod,!canary`. Quote a selector that starts with `!`.
 
 ```yaml
 steps:
@@ -733,17 +733,18 @@ steps:
 ```
 
 - `nodes` works on `dag.run` and on command steps (`run`, `command`, `script` without an action, `ssh.run`, `sftp.*`), and not with `parallel`, `foreach`, `worker_selector`, `container`, or `repeat_policy`.
-- Each enabled matched node gets its own child run bound to it, in name order. A `dag.run` child must declare `node: required`. A command step runs alone in each child, reading the run's params, env, and earlier steps' outputs, with `timeout_sec` and `retry_policy` per node.
+- Each enabled matched node gets its own child run bound to it, in name order. A worker whose ID names an inventory node is not a node. A `dag.run` child must declare `node: required`. A command step runs alone in each child, reading the run's params, env, and earlier steps' outputs, with `timeout_sec` and `retry_policy` per node.
 - A reference in the selector must resolve to one label key or value, so `env=${params.env}` cannot be widened by a value such as `prod,!canary`.
-- The step fails before any node starts when the selector matches no nodes (`selector matched no nodes`) or only disabled ones. Disabled nodes do not run.
+- The step fails before any node starts when the selector matches no nodes (`selector matched no nodes`) or only disabled ones. Disabled nodes do not run. A worker node has no `disabled`.
+- A child bound to a worker node runs on that worker, dispatched by its ID, and every step of it runs there. A matched worker that is offline fails its node at once, and a worker lost during the run fails its node. In such a run `${node.host}` is the host the worker reports, `${node.port}`, `${node.user}`, and `${node.description}` are empty, and an `ssh.run` or `sftp.*` step without `with.host` fails the run before any step, since the node has no SSH connection.
 - With `keep_going: false`, no node starts after one fails. The step writes `parallel`'s aggregate with `node` on each entry, including `not_started`, `disabled`, and `removed` ones.
 - `dagu retry`, or **Retry failed nodes** in the UI, runs a step with `nodes` again only on the nodes that did not succeed, also after the run's process was killed. It keeps the nodes the step last recorded, which are the first attempt's unless a retry had to match the selector again; a node added to the inventory since is not added. Nodes whose child run succeeded or partially succeeded keep their results and do not rerun, even if they left the inventory. Any other node that left it is `removed`, does not run, and does not fail the step. A node disabled now does not run and keeps its child run for a later retry. The remaining nodes rerun their child run or start, with the connection settings the inventory holds now. The step fails before any node starts when every node it keeps is removed or disabled and none kept a result. A step whose previous attempt left no readable node records, or that the run reused from another run, matches its selector again, and later retries keep the nodes it then records.
 - A DAG with a `workspace` label cannot use `nodes` or `node: required`.
 - A bound child reaches its SSH node as DAG-level `ssh` reaches a host: steps with no action, `ssh.run`, and `sftp.*` run on the node, through its bastion, and other actions run on the Dagu host. `with` fields override the node's; `with.host` connects elsewhere; `with.strict_host_key`, `with.known_host_file`, and `with.bastion` are errors. The node's secret refs resolve once per run and are masked. With `strict_host_key` on, the default, only the node's `host_key` or a trusted key is accepted; a node with `strict_host_key: false` accepts any key. A key is trusted from the server: `POST /api/v1/node-connection-tests` reports the fingerprint of an unknown key without sending a credential, and `POST /api/v1/node-host-keys` with that node and fingerprint trusts it.
 - In a bound run, `${node.name}`, `${node.host}`, `${node.port}`, `${node.user}`, `${node.description}`, `${node.labels}` (sorted, comma-separated), `${node.labels.<key>}`, and `${node.labels."gpu.type"}` read the node. A label the node lacks, or a `${node.<path>}` not listed here, fails its run before any step. Quote them in shell commands: `"${node.labels.role}"`.
 - To see which nodes failed, `GET /api/v1/dag-runs/{name}/{id}/node-runs` lists one row per node with its run for each step with `nodes`, failed first (`failedOnly=true` keeps those). Each run names its child (`dagName`, `dagRunId`) and, once finished, how many of its steps succeeded (`steps.done` of `steps.total`) and the step that failed last (`failedStep`). Run details carry each such step's counts as `nodeRuns`, and a bound child's node as `boundNode`.
-- `dagu start --node web03` (API and MCP `targetNodes`) narrows a run: its steps with `nodes` run only on listed nodes, a step none of whose nodes is listed is skipped without blocking later steps, and the run fails with `no listed node was selected` if every such step is left without a node. A `node: required` DAG started with one `--node` runs bound to it. Names must be inventory nodes; retries, restarts, and queued runs keep the list.
-- Not available yet: bound runs and steps with `nodes` on workers.
+- `dagu start --node web03` (API and MCP `targetNodes`) narrows a run: its steps with `nodes` run only on listed nodes, a step none of whose nodes is listed is skipped without blocking later steps, and the run fails with `no listed node was selected` if every such step is left without a node. A `node: required` DAG started with one `--node` runs bound to it; that node must be an inventory node. Names must be nodes, inventory or worker; retries, restarts, and queued runs keep the list.
+- Not available yet: steps with `nodes` in runs on workers, and runs on workers bound to anything but that worker's own node.
 
 ## ssh.run / sftp.upload / sftp.download
 
@@ -2072,7 +2073,7 @@ Flags:
 - `--recursive-output` — Expand sub-DAG runs in the final summary tree, showing each child's steps and output inline. Failed sub-runs are expanded first; when a run has more sub-runs than the limits allow, the rest keep their reference line and a notice counts them. Not supported with a remote context
 - `--worker-id` — Worker ID executing this DAG run; auto-set in distributed mode and defaults to `local`
 - `--worker-label` — Worker label (`key=value`) this run requires, replacing the DAG's `worker_selector` for this run and kept with the run for retries; repeatable. Not with `--worker-id`
-- `--node` — Inventory node to narrow the run to; repeatable. Steps with `nodes`, in the run and its child runs, run only on listed nodes; a step none of whose nodes is listed is skipped without blocking later steps, and the run fails with `no listed node was selected` when every such step is left without a node. A `node: required` DAG takes exactly one `--node` and runs bound to it. Each name must be an inventory node; retries, `dagu restart`, and `--from-run-id` keep the list. Not with `--only` or `--from-run-id`
+- `--node` — Node to narrow the run to, inventory or worker; repeatable. Steps with `nodes`, in the run and its child runs, run only on listed nodes; a step none of whose nodes is listed is skipped without blocking later steps, and the run fails with `no listed node was selected` when every such step is left without a node. A `node: required` DAG takes exactly one `--node`, an inventory node, and runs bound to it. Each name must be a node; retries, `dagu restart`, and `--from-run-id` keep the list. Not with `--only` or `--from-run-id`
 - `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`, `restart`); defaults to `manual`
 
 A DAG with `restart_policy: always` or `unless-stopped` has one run at a time: while a run is active, `dagu start`, `dagu enqueue` and `dagu retry` are refused. With no active run they work, which is how a stopped service comes back.
@@ -2092,7 +2093,7 @@ Flags:
 - `--run-id/-r` — Custom run ID
 - `--queue/-u` — Override the DAG-level queue definition
 - `--worker-label` — Worker label (`key=value`) this run requires, replacing the DAG's `worker_selector` for this run and kept with the run so queued dispatch and retries route the same way; repeatable
-- `--node` — Inventory node to narrow the run to, as for `dagu start`; repeatable, and the queued run keeps the list
+- `--node` — Node to narrow the run to, as for `dagu start`; repeatable, and the queued run keeps the list
 - `--labels` — Additional labels (comma-separated key=value or key-only)
 - `--tags` — Deprecated alias for `--labels`
 - `--default-working-dir` — Default working directory for DAGs without explicit workingDir
@@ -2561,7 +2562,7 @@ Use scoped references when Dagu should resolve a named value before execution.
 | --- | --- |
 | `${consts.NAME}` | Top-level `consts:` value |
 | `${dates.NAME}` | Top-level `dates:` entry, resolved from the run's schedule slot |
-| `${node.name}`, `${node.labels.KEY}` | The inventory node a bound run runs on (`node: required`); also `host`, `port`, `user`, `description`, `labels` |
+| `${node.name}`, `${node.labels.KEY}` | The node a bound run runs on (`node: required`); also `host`, `port`, `user`, `description`, `labels`. A worker node has an empty `port`, `user`, and `description` |
 | `${params.NAME}` | Runtime parameter value |
 | `${env.NAME}` | Value in Dagu's runtime environment scope for the current step |
 | `${steps.<step_id>.outputs.<name>}` | Declared value output, human-task form value, or committed build path output |
