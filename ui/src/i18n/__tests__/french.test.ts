@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceModules } from '@/features/workflow-workspace/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
-import { nodeTestMessages } from '@/pages/nodes/messages';
+import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
 import { findFrenchTextProblems } from '@/testing/frenchText';
 import { messages } from '../messages';
 import { baseStaticMessages, staticMessages } from '../staticMessages';
@@ -23,6 +23,7 @@ const MODULES: Readonly<Record<string, MessageModule>> = {
   ...workspaceModules,
   backfills: backfillMessages,
   nodes: nodeTestMessages,
+  workerNodes: workerNodeMessages,
   inventories: inventoryMessages,
 };
 

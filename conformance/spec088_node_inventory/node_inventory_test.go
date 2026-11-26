@@ -18,6 +18,7 @@ import (
 // node is a node as `dagu nodes list --format json` prints it.
 type node struct {
 	Name      string `json:"name"`
+	Kind      string `json:"kind"`
 	Inventory struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
@@ -32,6 +33,9 @@ type node struct {
 	Timeout       string            `json:"timeout"`
 	Labels        []string          `json:"labels"`
 	Disabled      bool              `json:"disabled"`
+	// Online and LastSeenAt are a worker node's.
+	Online     bool   `json:"online"`
+	LastSeenAt string `json:"last_seen_at"`
 }
 
 // home returns the environment of one Dagu home, which the commands of a
@@ -112,6 +116,7 @@ func TestListSelectsNodes(t *testing.T) {
 
 	nodes := listNodes(t, dagu, env)
 	web := findNode(t, nodes, "tokyo-web01")
+	assert.Equal(t, "ssh", web.Kind)
 	assert.Equal(t, "Tokyo production", web.Inventory.Name)
 	assert.Regexp(t, `^inv_[a-z2-7]{10}$`, web.Inventory.ID)
 	assert.Equal(t, "deploy", web.User)
@@ -135,10 +140,10 @@ func TestListSelectsNodes(t *testing.T) {
 
 	table := dagu.RunWithEnv(env, "nodes", "list", "--labels=web")
 	table.ExpectExitCode(0)
-	assert.Equal(t, []string{"NAME", "INVENTORY", "HOST", "LABELS", "STATUS"}, lineFields(t, table.Stdout(), "NAME"))
-	assert.Equal(t, []string{"osaka-web01", "Osaka", "staging", "10.1.0.11", "env=stg,site=osaka,web", "disabled"},
+	assert.Equal(t, []string{"NAME", "INVENTORY", "KIND", "HOST", "LABELS", "STATUS"}, lineFields(t, table.Stdout(), "NAME"))
+	assert.Equal(t, []string{"osaka-web01", "Osaka", "staging", "ssh", "10.1.0.11", "env=stg,site=osaka,web", "disabled"},
 		lineFields(t, table.Stdout(), "osaka-web01"))
-	assert.Equal(t, "enabled", lineFields(t, table.Stdout(), "tokyo-web01")[5])
+	assert.Equal(t, "enabled", lineFields(t, table.Stdout(), "tokyo-web01")[6])
 }
 
 func TestShowNode(t *testing.T) {

@@ -14,7 +14,7 @@ const (
 func scopeForCommand(name string) commandScope {
 	switch name {
 	case "start", "enqueue", "status", "history", "stop", "retry", "restart", "dequeue",
-		"nodes list", "nodes show", "nodes add", "nodes remove", "nodes test", "nodes import", "nodes export":
+		"nodes list", "nodes show", "nodes add", "nodes remove", "nodes forget", "nodes test", "nodes import", "nodes export":
 		return commandScopeContextAware
 	case "version", "schema", "xlsx":
 		return commandScopeStatic

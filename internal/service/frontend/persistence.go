@@ -53,6 +53,7 @@ type Stores struct {
 	View                 view.Store
 	Inventory            inventory.Store
 	HostKeys             inventory.HostKeyStore
+	WorkerNodes          inventory.WorkerNodeStore
 	PublicWebhooks       publicwebhook.Store
 	// Projects is the project registry. It is nil while projects are off.
 	Projects project.Registry

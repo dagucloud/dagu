@@ -181,6 +181,10 @@ func newCoordinator(
 	if err != nil {
 		return nil, nil, err
 	}
+	workerNodes, err := ctx.workerNodeStore()
+	if err != nil {
+		return nil, nil, err
+	}
 	serverOpts = append(serverOpts,
 		grpc.ChainUnaryInterceptor(peerAuth.UnaryInterceptor()),
 		grpc.ChainStreamInterceptor(peerAuth.StreamInterceptor()),
@@ -233,6 +237,7 @@ func newCoordinator(
 		SecretStore:               secretStore,
 		ProfileStore:              profileStore,
 		AgentSessionCleanupQueue:  persistence.AgentSessionCleanupQueue,
+		WorkerNodeStore:           workerNodes,
 		WorkerWaitTimeout:         cfg.Coordinator.WorkerWaitTimeout,
 		EventService:              ctx.event,
 		EventSourceInstance:       ctx.EventSourceInstance,
