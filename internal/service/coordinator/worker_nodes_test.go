@@ -42,11 +42,12 @@ type workerNodeFixture struct {
 func newWorkerNodeFixture(t *testing.T) workerNodeFixture {
 	t.Helper()
 	backend := persistestutil.NewMemoryBackend()
-	nodes, err := store.NewWorkerNodeStore(backend.Collection(persis.CollectionWorkerNodes))
+	heartbeats := store.NewWorkerHeartbeatStore(backend.Collection(persis.CollectionWorkerHeartbeats))
+	nodes, err := store.NewWorkerNodeStore(backend.Collection(persis.CollectionWorkerNodes), heartbeats)
 	require.NoError(t, err)
 	return workerNodeFixture{
 		nodes:      &countingWorkerNodes{WorkerNodeStore: nodes},
-		heartbeats: store.NewWorkerHeartbeatStore(backend.Collection(persis.CollectionWorkerHeartbeats)),
+		heartbeats: heartbeats,
 	}
 }
 

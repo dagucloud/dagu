@@ -30,7 +30,7 @@ var workerLastSeen = time.Date(2026, 11, 25, 9, 0, 0, 0, time.UTC)
 func newWorkerNodeTestAPI(t *testing.T, opts ...apiv1.APIOption) *apiv1.API {
 	t.Helper()
 	ctx := context.Background()
-	workers, err := persiststore.NewWorkerNodeStore(testutil.NewMemoryBackend().Collection(persis.CollectionWorkerNodes))
+	workers, err := persiststore.NewWorkerNodeStore(testutil.NewMemoryBackend().Collection(persis.CollectionWorkerNodes), nil)
 	require.NoError(t, err)
 	for _, w := range []inventory.WorkerNode{
 		{Name: "tokyo-gw", Host: "gw.tokyo", Labels: ir.NewLabels([]string{"web", "site=tokyo"}), Online: true, LastSeenAt: workerLastSeen},

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -23,6 +24,8 @@ var _ inventory.WorkerNodeStore = (*WorkerNodeStore)(nil)
 // name.
 type WorkerNodeStore struct {
 	col persis.Collection
+	// heartbeats holds the workers' last heartbeats, or is nil.
+	heartbeats dispatch.WorkerHeartbeatStore
 }
 
 type workerNodeStoredRecord struct {
@@ -38,12 +41,15 @@ type workerNodeStoredRecord struct {
 // workerNodeSchemaVersion is the record format this version writes.
 const workerNodeSchemaVersion = 1
 
-// NewWorkerNodeStore creates a WorkerNodeStore backed by col.
-func NewWorkerNodeStore(col persis.Collection) (*WorkerNodeStore, error) {
+// NewWorkerNodeStore creates a WorkerNodeStore backed by col. Forget takes a
+// worker recorded as online to be offline once its last heartbeat in
+// heartbeats is stale or gone, since only a running coordinator records a
+// worker going offline. With a nil heartbeats, the record alone decides.
+func NewWorkerNodeStore(col persis.Collection, heartbeats dispatch.WorkerHeartbeatStore) (*WorkerNodeStore, error) {
 	if col == nil {
 		return nil, errors.New("worker node store: collection cannot be nil")
 	}
-	return &WorkerNodeStore{col: col}, nil
+	return &WorkerNodeStore{col: col, heartbeats: heartbeats}, nil
 }
 
 func (s *WorkerNodeStore) List(ctx context.Context) ([]inventory.WorkerNode, error) {
@@ -130,7 +136,13 @@ func (s *WorkerNodeStore) Forget(ctx context.Context, name string) error {
 		}
 		stored, err := decodeWorkerNode(current)
 		if err == nil && stored.Online {
-			return inventory.ErrWorkerNodeOnline
+			online, err := s.heartbeatFresh(ctx, stored.Name)
+			if err != nil {
+				return err
+			}
+			if online {
+				return inventory.ErrWorkerNodeOnline
+			}
 		}
 		err = s.col.CompareAndDelete(ctx, current)
 		if errors.Is(err, persis.ErrNotFound) {
@@ -138,6 +150,22 @@ func (s *WorkerNodeStore) Forget(ctx context.Context, name string) error {
 		}
 		return err
 	})
+}
+
+// heartbeatFresh reports whether the worker sent a heartbeat within the
+// stale threshold, or true when the store knows no heartbeats.
+func (s *WorkerNodeStore) heartbeatFresh(ctx context.Context, workerID string) (bool, error) {
+	if s.heartbeats == nil {
+		return true, nil
+	}
+	record, err := s.heartbeats.Get(ctx, workerID)
+	if errors.Is(err, dispatch.ErrWorkerHeartbeatNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("worker node store: read the heartbeat of worker %q: %w", workerID, err)
+	}
+	return dispatch.WorkerHeartbeatFresh(*record, time.Now(), dispatch.DefaultStaleWorkerHeartbeatThreshold), nil
 }
 
 // workerNodeRecordID keys a worker node's record by its name without case,

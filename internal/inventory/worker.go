@@ -50,7 +50,9 @@ type WorkerNodeStore interface {
 	MarkOffline(ctx context.Context, seen WorkerNode, lastSeen time.Time) error
 	// Forget removes an offline worker node until its worker connects
 	// again. It fails with ErrWorkerNodeOnline while the worker is online,
-	// and with ErrWorkerNodeNotFound when no worker node has the name.
+	// and with ErrWorkerNodeNotFound when no worker node has the name. A
+	// worker recorded as online whose heartbeats stopped is offline, even
+	// when no coordinator is left to record that.
 	Forget(ctx context.Context, name string) error
 }
 

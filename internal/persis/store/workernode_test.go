@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -20,7 +21,7 @@ import (
 
 func newWorkerNodeStore(t *testing.T) *store.WorkerNodeStore {
 	t.Helper()
-	s, err := store.NewWorkerNodeStore(testutil.NewMemoryBackend().Collection(persis.CollectionWorkerNodes))
+	s, err := store.NewWorkerNodeStore(testutil.NewMemoryBackend().Collection(persis.CollectionWorkerNodes), nil)
 	require.NoError(t, err)
 	return s
 }
@@ -117,4 +118,34 @@ func TestWorkerNodeStore_Forget(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, nodes, 1)
 	assert.Equal(t, "online-gw", nodes[0].Name)
+}
+
+// A worker recorded as online whose heartbeats stopped is forgotten, so no
+// running coordinator is needed to record it offline first. A worker with a
+// fresh heartbeat is still refused.
+func TestWorkerNodeStore_ForgetAfterHeartbeatsStop(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	backend := testutil.NewMemoryBackend()
+	heartbeats := store.NewWorkerHeartbeatStore(backend.Collection(persis.CollectionWorkerHeartbeats))
+	s, err := store.NewWorkerNodeStore(backend.Collection(persis.CollectionWorkerNodes), heartbeats)
+	require.NoError(t, err)
+	for _, hb := range []dispatch.WorkerHeartbeatRecord{
+		{WorkerID: "live-gw", LastHeartbeatAt: time.Now().UnixMilli()},
+		{WorkerID: "stale-gw", LastHeartbeatAt: time.Now().Add(-time.Hour).UnixMilli()},
+	} {
+		require.NoError(t, heartbeats.Upsert(ctx, hb))
+	}
+	for _, name := range []string{"live-gw", "stale-gw", "gone-gw"} {
+		require.NoError(t, s.Record(ctx, workerNode(name, true)))
+	}
+
+	assert.ErrorIs(t, s.Forget(ctx, "live-gw"), inventory.ErrWorkerNodeOnline)
+	require.NoError(t, s.Forget(ctx, "stale-gw"))
+	require.NoError(t, s.Forget(ctx, "gone-gw"))
+
+	nodes, err := s.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, nodes, 1)
+	assert.Equal(t, "live-gw", nodes[0].Name)
 }
