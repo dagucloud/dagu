@@ -20,4 +20,8 @@ export default defineMessages({
     'Execute the step to see the log.':
       'Schritt ausführen, um das Protokoll zu sehen.',
   },
+  fr: {
+    'Execute the step to see the log.':
+      'Exécutez l’étape pour voir le journal.',
+  },
 });

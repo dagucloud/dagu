@@ -163,5 +163,8 @@ export function editorLocale(): Locale {
   if (lang.toLowerCase().startsWith('de')) {
     return 'de';
   }
+  if (lang.toLowerCase().startsWith('fr')) {
+    return 'fr';
+  }
   return 'en';
 }

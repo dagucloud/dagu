@@ -38,4 +38,13 @@ export default defineMessages({
     'Some instances may have already completed or the worker is unavailable.':
       'Einige Instanzen sind vielleicht schon fertig, oder der Worker ist nicht erreichbar.',
   },
+  fr: {
+    'More run options': 'Autres options d’exécution',
+    'Stop signal sent to all running instances':
+      'Signal d’arrêt envoyé à toutes les instances en cours',
+    'Failed to stop all DAG instances':
+      'Impossible d’arrêter toutes les instances du DAG',
+    'Some instances may have already completed or the worker is unavailable.':
+      'Certaines instances sont peut-être déjà terminées, ou le worker est indisponible.',
+  },
 });

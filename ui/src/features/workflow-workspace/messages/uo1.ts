@@ -110,4 +110,31 @@ export default defineMessages({
     'Global environment': 'Globale Umgebung',
     'Workspace defaults': 'Vorgaben des Arbeitsbereichs',
   },
+  fr: {
+    'Manage profiles': 'Gérer les profils',
+    'A profile sets environment variables for every run of this workflow. A run can pick another profile in the Start dialog.':
+      'Un profil définit des variables d’environnement pour chaque exécution de ce workflow. Une exécution peut choisir un autre profil dans la boîte de dialogue de démarrage.',
+    Applies: 'S’applique',
+    'This profile is disabled. A run cannot use it.':
+      'Ce profil est désactivé. Aucune exécution ne peut l’utiliser.',
+    'The details of this profile are not available.':
+      'Les détails de ce profil ne sont pas disponibles.',
+    Variables: 'Variables',
+    '{variables} variables, {secrets} secrets':
+      'Variables\u00a0: {variables}, secrets\u00a0: {secrets}',
+    'Secret value hidden': 'Valeur secrète masquée',
+    'overrides {layers}': 'remplace {layers}',
+    'Global variables are visible to administrators only.':
+      'Les variables globales ne sont visibles que par les administrateurs.',
+    'The defaults of the workspace are not available to your role.':
+      'Les valeurs par défaut de l’espace de travail ne sont pas accessibles à votre rôle.',
+    'Yes: the default profile of this workflow':
+      'Oui\u00a0: le profil par défaut de ce workflow',
+    'Yes: the default profile of the workspace {workspace}':
+      'Oui\u00a0: le profil par défaut de l’espace de travail {workspace}',
+    'No profile applies to this workflow':
+      'Aucun profil ne s’applique à ce workflow',
+    'Global environment': 'Environnement global',
+    'Workspace defaults': 'Valeurs par défaut de l’espace de travail',
+  },
 });

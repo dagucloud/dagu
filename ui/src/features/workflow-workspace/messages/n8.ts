@@ -32,4 +32,11 @@ export default defineMessages({
     'Newer run': 'Neuerer Lauf',
     Latest: 'Neueste',
   },
+  fr: {
+    'No runs yet': 'Aucune exécution pour l’instant',
+    'Selected run': 'Exécution sélectionnée',
+    'Older run': 'Exécution précédente',
+    'Newer run': 'Exécution suivante',
+    Latest: 'Dernière',
+  },
 });

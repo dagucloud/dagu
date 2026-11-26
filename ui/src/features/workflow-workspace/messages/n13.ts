@@ -60,4 +60,18 @@ export default defineMessages({
     'Duplicate step': 'Schritt duplizieren',
     'Copy step': 'Schritt kopieren',
   },
+  fr: {
+    'Up to {count} tool calls': 'Limite d’appels d’outils\u00a0: {count}',
+    'Iterations: {count}': 'Itérations\u00a0: {count}',
+    'Tool calls: {count}': 'Appels d’outils\u00a0: {count}',
+    'Calls: {count}': 'Appels\u00a0: {count}',
+    'Filter tools by name': 'Filtrer les outils par nom',
+    'Clear the filter': 'Effacer le filtre',
+    '{count} of {total} tools': 'Outils\u00a0: {count} sur {total}',
+    'Task pending': 'Tâche en attente',
+    'Revert to the last save': 'Restaurer la dernière version enregistrée',
+    'Simplified view': 'Vue simplifiée',
+    'Duplicate step': 'Dupliquer l’étape',
+    'Copy step': 'Copier l’étape',
+  },
 });

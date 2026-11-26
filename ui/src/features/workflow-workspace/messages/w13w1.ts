@@ -30,4 +30,11 @@ export default defineMessages({
     'Format this step': 'Diesen Schritt formatieren',
     'The step is already formatted': 'Der Schritt ist schon formatiert',
   },
+  fr: {
+    'Apply quick fixes to this step':
+      'Appliquer les corrections rapides à cette étape',
+    'No quick fix': 'Aucune correction rapide',
+    'Format this step': 'Formater cette étape',
+    'The step is already formatted': 'L’étape est déjà formatée',
+  },
 });

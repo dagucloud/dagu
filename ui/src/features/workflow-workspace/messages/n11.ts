@@ -43,4 +43,14 @@ export default defineMessages({
     'Fix the YAML syntax error before you save':
       'Vor dem Speichern den YAML-Syntaxfehler beheben',
   },
+  fr: {
+    'Declared outputs': 'Sorties déclarées',
+    'This step declares no outputs': 'Cette étape ne déclare aucune sortie',
+    'Switch document': 'Changer de document',
+    'Workflow-level': 'Niveau du workflow',
+    'Discard {count} changed lines? This cannot be undone.':
+      'Abandonner les lignes modifiées ({count})\u00a0? Cette action est irréversible.',
+    'Fix the YAML syntax error before you save':
+      'Corrigez l’erreur de syntaxe YAML avant d’enregistrer',
+  },
 });

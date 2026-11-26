@@ -8,6 +8,7 @@ import {
   BackfillSlotState,
   BackfillStatus,
 } from '@/api/v1/schema';
+import { translateStatic } from '@/i18n/translateStatic';
 import {
   type Backfill,
   type BackfillSlot,
@@ -101,6 +102,73 @@ describe('summarizeBackfill', () => {
       const summary = summarizeBackfill(input);
       expect(summary.message).toBe(message);
       expect(summary.values).toEqual(values);
+    }
+  });
+
+  // French writes 0 and 1 in the singular, so no count sits in front of a
+  // noun it would agree with: a backfill of one slot reads right too.
+  it('gives each sentence in French', () => {
+    const cases: Array<[Backfill, string]> = [
+      [
+        backfill(BackfillStatus.running, {
+          succeeded: 12,
+          queued: 1,
+          pending: 15,
+        }),
+        'En cours – créneaux terminés\u00a0: 12 sur 28',
+      ],
+      [
+        backfill(BackfillStatus.running, { queued: 1 }),
+        'En cours – créneaux terminés\u00a0: 0 sur 1',
+      ],
+      [
+        backfill(BackfillStatus.running, {
+          succeeded: 11,
+          failed: 1,
+          running: 1,
+          pending: 15,
+        }),
+        'En cours – créneaux terminés\u00a0: 12 sur 28, en échec\u00a0: 1',
+      ],
+      [
+        backfill(BackfillStatus.running, { succeeded: 1 }),
+        'Finalisation – tous les créneaux sont terminés (1)',
+      ],
+      [
+        backfill(BackfillStatus.waiting_for_scheduler, {
+          succeeded: 2,
+          pending: 26,
+        }),
+        'En attente d’un planificateur – créneaux terminés\u00a0: 2 sur 28',
+      ],
+      [
+        backfill(BackfillStatus.succeeded, { succeeded: 1 }),
+        'Réussi – tous les créneaux (1)',
+      ],
+      [
+        backfill(BackfillStatus.succeeded, { succeeded: 25, skipped: 1 }),
+        'Réussi – créneaux exécutés\u00a0: 25, ignorés\u00a0: 1',
+      ],
+      [
+        backfill(BackfillStatus.failed, {
+          succeeded: 8,
+          failed: 1,
+          'not run': 14,
+        }),
+        'Arrêté – en échec\u00a0: 1, non exécutés\u00a0: 14',
+      ],
+      [
+        backfill(BackfillStatus.failed, { succeeded: 26, failed: 2 }),
+        'Échec – créneaux en échec\u00a0: 2 sur 28',
+      ],
+      [
+        backfill(BackfillStatus.cancelled, { succeeded: 3, cancelled: 1 }),
+        'Annulé – créneaux non exécutés\u00a0: 1',
+      ],
+    ];
+    for (const [input, sentence] of cases) {
+      const { message, values } = summarizeBackfill(input);
+      expect(translateStatic('fr', message, values)).toBe(sentence);
     }
   });
 });

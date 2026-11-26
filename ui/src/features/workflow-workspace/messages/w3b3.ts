@@ -21,4 +21,9 @@ export default defineMessages({
     'Back to current definition': 'Zurück zur aktuellen Definition',
     'Read-only: definition of run {id}': 'Nur lesen: Definition von Lauf {id}',
   },
+  fr: {
+    'Back to current definition': 'Revenir à la définition actuelle',
+    'Read-only: definition of run {id}':
+      'Lecture seule\u00a0: définition de l’exécution {id}',
+  },
 });

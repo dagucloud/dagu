@@ -56,4 +56,17 @@ export default defineMessages({
     Filter: 'Filtern',
     'Max Active Steps': 'Max. aktive Schritte',
   },
+  fr: {
+    'Part of the form to show': 'Partie du formulaire à afficher',
+    '{count} more levels': '{count} niveaux de plus',
+    '{count} more level': '{count} niveau de plus',
+    '{field} is required': 'Le champ {field} est obligatoire',
+    'No declared outputs': 'Aucune sortie déclarée',
+    'declared output': 'sortie déclarée',
+    'action output': 'sortie d’action',
+    'stdout field': 'champ stdout',
+    'output variable': 'variable de sortie',
+    Filter: 'Filtrer',
+    'Max Active Steps': 'Étapes actives max.',
+  },
 });

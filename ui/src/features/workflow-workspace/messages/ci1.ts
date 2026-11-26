@@ -112,4 +112,33 @@ export default defineMessages({
     'Retries only after the exit code {codes}.':
       'Wiederholt nur bei Exit-Code {codes}.',
   },
+  fr: {
+    'if {step} failed': 'si {step} a échoué',
+    'if {step} succeeded': 'si {step} a réussi',
+    'if {step} exits with {code}': 'si {step} se termine avec le code {code}',
+    'if {step} does not exit with {code}':
+      'si {step} ne se termine pas avec le code {code}',
+    'if {step}: {test}': 'si {step}\u00a0: {test}',
+    'Precondition: {text}': 'Précondition\u00a0: {text}',
+    'continues on failure': 'continue en cas d’échec',
+    'continues if skipped': 'continue si l’étape est ignorée',
+    'continues on exit code {codes}':
+      'continue en cas de code de sortie {codes}',
+    'continues on matching output': 'continue si la sortie correspond',
+    'The run goes on with the steps after this one.':
+      'L’exécution se poursuit avec les étapes suivantes.',
+    'The step then counts as a success.':
+      'L’étape est alors considérée comme réussie.',
+    'Runs only if:': 'S’exécute uniquement si\u00a0:',
+    'Retries the step up to {limit} times.':
+      'Réessaie l’étape jusqu’à {limit} fois.',
+    'Retries the step once.': 'Réessaie l’étape une fois.',
+    'Retries the step.': 'Réessaie l’étape.',
+    'Waits {interval} between the attempts.':
+      'Attend {interval} entre les tentatives.',
+    'Waits {interval} before the second attempt, then longer each time.':
+      'Attend {interval} avant la deuxième tentative, puis plus longtemps à chaque fois.',
+    'Retries only after the exit code {codes}.':
+      'Réessaie uniquement en cas de code de sortie {codes}.',
+  },
 });

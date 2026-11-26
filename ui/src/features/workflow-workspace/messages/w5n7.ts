@@ -56,4 +56,18 @@ export default defineMessages({
     'Validation errors': 'Prüffehler',
     'Please try again.': 'Bitte erneut versuchen.',
   },
+  fr: {
+    'Nothing to revert': 'Rien à restaurer',
+    'Nothing to undo': 'Rien à annuler',
+    'Nothing to redo': 'Rien à rétablir',
+    'No changes to save': 'Aucune modification à enregistrer',
+    'Make some edits before saving.':
+      'Apportez des modifications avant d’enregistrer.',
+    'Failed to save spec': 'Impossible d’enregistrer la spécification',
+    'Please check the YAML syntax and try again.':
+      'Vérifiez la syntaxe YAML, puis réessayez.',
+    'The spec was not saved': 'La spécification n’a pas été enregistrée',
+    'Validation errors': 'Erreurs de validation',
+    'Please try again.': 'Réessayez.',
+  },
 });

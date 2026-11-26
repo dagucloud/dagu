@@ -97,4 +97,29 @@ export default defineMessages({
     'Are you sure you want to {action} the webhooks of the {count} workflows of "{name}"?':
       'Webhooks der {count} Abläufe von "{name}" wirklich {action}?',
   },
+  fr: {
+    'Webhook of {name}': 'Webhook de {name}',
+    'Enable webhook': 'Activer le webhook',
+    'Disable webhook': 'Désactiver le webhook',
+    'Could not update the webhook': 'Impossible de mettre à jour le webhook',
+    'Rename view': 'Renommer la vue',
+    'Save the changes of “{name}”':
+      'Enregistrer les modifications de «\u00a0{name}\u00a0»',
+    'View actions': 'Actions de la vue',
+    'The view keeps its saved filters.':
+      'La vue conserve ses filtres enregistrés.',
+    'Pin group {name}': 'Épingler le groupe {name}',
+    'Pin group': 'Épingler le groupe',
+    'Unpin group': 'Désépingler le groupe',
+    'Gather the workflows by group': 'Regrouper les workflows par groupe',
+    'Could not update the schedules':
+      'Impossible de mettre à jour les planifications',
+    'Schedules of group {name}': 'Planifications du groupe {name}',
+    'Webhooks of group {name}': 'Webhooks du groupe {name}',
+    '{live} of {total} live': 'Actifs\u00a0: {live} sur {total}',
+    'Are you sure you want to {action} the schedules of the {count} workflows of "{name}"?':
+      'Voulez-vous vraiment {action} les planifications des workflows ({count}) du groupe «\u00a0{name}\u00a0»\u00a0?',
+    'Are you sure you want to {action} the webhooks of the {count} workflows of "{name}"?':
+      'Voulez-vous vraiment {action} les webhooks des workflows ({count}) du groupe «\u00a0{name}\u00a0»\u00a0?',
+  },
 });

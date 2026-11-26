@@ -29,4 +29,10 @@ export default defineMessages({
     'Values from the cache, {time}': 'Werte aus dem Zwischenspeicher, {time}',
     'Values from the cache': 'Werte aus dem Zwischenspeicher',
   },
+  fr: {
+    'Values from run {id}, {time}': 'Valeurs de l’exécution {id}, {time}',
+    'Values from run {id}': 'Valeurs de l’exécution {id}',
+    'Values from the cache, {time}': 'Valeurs du cache, {time}',
+    'Values from the cache': 'Valeurs du cache',
+  },
 });

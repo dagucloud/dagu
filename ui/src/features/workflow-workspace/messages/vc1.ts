@@ -30,4 +30,10 @@ export default defineMessages({
     'Show less': 'Weniger anzeigen',
     'Required key': 'Pflichtschlüssel',
   },
+  fr: {
+    'Reload the workflow, its runs and the latest run from the server':
+      'Recharger depuis le serveur le workflow, ses exécutions et la dernière exécution',
+    'Show less': 'Afficher moins',
+    'Required key': 'Clé obligatoire',
+  },
 });

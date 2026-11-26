@@ -22,4 +22,9 @@ export default defineMessages({
     'This workflow has unsaved changes':
       'Dieser Ablauf hat ungespeicherte Änderungen',
   },
+  fr: {
+    Unsaved: 'Non enregistré',
+    'This workflow has unsaved changes':
+      'Ce workflow comporte des modifications non enregistrées',
+  },
 });
