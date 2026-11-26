@@ -868,9 +868,10 @@ the default project's state moves too.
   entry, so migration cannot detect one; stopping it is the operator's
   step.
 - It then cancels every run whose process is still live, as `dagu stop`
-  does, and moves a run's files only after its process exits. A run on a
-  worker is marked cancelled, and the coordinator stops it when the worker
-  next connects.
+  does, and moves a run's files only after its process exits. Until every
+  such process exits, it moves nothing, and the health endpoint names each
+  run it waits for. A run on a worker is marked cancelled, and the
+  coordinator stops it when the worker next connects.
 - A process killed during migration resumes it on its next start.
 - While migration waits or runs, the health endpoint of every v3.0 process,
   one that waits for another to migrate included, answers `200` and reports
@@ -935,6 +936,14 @@ Rules:
   directories.
 - State moves by rename. A directory on another file system, such as one
   that `paths.queue_dir` placed, is copied.
+- A v2 directory that is a symbolic link moves as a link. The state stays
+  where the link leads, and the project's stores reach it through the
+  link.
+- Server-wide state that v2 keeps beside project state stays where it is:
+  the admin logs in the log directory, and the notification channels,
+  incident providers, and the scheduler's lock, pause flag, and restart
+  backoff beside the default project's routes, policies, and scheduler
+  state.
 - Runs waiting in a queue keep their order. Those in a queue defined in
   `config.yaml` move to `<data_dir>/server/`, and the others to their DAG's
   project.
