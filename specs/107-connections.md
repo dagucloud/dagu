@@ -25,8 +25,9 @@ these exceptions:
 - An `mcp.call` that receives HTTP 429 fails with kind `rate_limited`, not
   `transport`, whether or not it uses a connection. A DAG that branches on
   `transport` to catch rate limits must also check `rate_limited`.
-- The stdout and stderr logs of a step with at least one secret mask text
-  that matches a Google token pattern. See [Masking](#masking).
+- The stdout and stderr logs of every step of a run with at least one
+  secret mask text that matches a Google token pattern. See
+  [Masking](#masking).
 
 An `mcp.call` without a connection advertises no elicitation capability, as
 Spec 098 states.
@@ -870,14 +871,14 @@ the coordinator must be upgraded, and the run's other steps run.
   outputs, without becoming an environment variable.
 - A token minted while the step runs, such as by a forced refresh, is
   masked from then on.
-- The stdout and stderr logs of a step with at least one secret or
-  connection mask text that matches a Google access token,
-  `ya29\.[0-9A-Za-z._-]{20,}`, wherever it occurs, or a Google refresh
-  token, `1//[0-9A-Za-z_-]{40,}`, unless the refresh token match follows a
-  base64 or token character. This includes the output that a worker streams for such a
-  step. The patterns apply to those logs only, not to outputs, run status,
-  other masked text, or the logs of a step with neither a secret nor a
-  connection.
+- The stdout and stderr logs of every step of a run with at least one
+  secret, and of a step that uses a connection, mask text that matches a
+  Google access token, `ya29\.[0-9A-Za-z._-]{20,}`, wherever it occurs, or
+  a Google refresh token, `1//[0-9A-Za-z_-]{40,}`, unless the refresh token
+  match follows a base64 or token character. This includes the output that
+  a worker streams for such a step. The patterns apply to those logs only,
+  not to outputs, run status, other masked text, or the logs of a step that
+  uses no connection in a run with no secret.
 - Step output that a worker streams to the coordinator is masked as local
   output is.
 
