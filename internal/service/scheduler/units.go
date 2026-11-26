@@ -345,13 +345,22 @@ func (u *projectUnits) isMissing(ctx context.Context, p project.Project, stores 
 }
 
 func (u *projectUnits) startUnit(ctx context.Context, p project.Project, stores *persisfile.ProjectStores) {
+	// The check and the mark are one step, so a change that drops the
+	// project either finds the unit starting and waits for it, or comes
+	// first and the unit does not start.
 	done := make(chan struct{})
 	u.mu.Lock()
+	if _, ok := u.wanted(p.ID); !ok {
+		u.mu.Unlock()
+		return
+	}
 	u.busy[p.ID] = done
 	u.mu.Unlock()
 	defer func() {
 		u.mu.Lock()
-		delete(u.busy, p.ID)
+		if u.busy[p.ID] == done {
+			delete(u.busy, p.ID)
+		}
 		u.mu.Unlock()
 		close(done)
 	}()
@@ -439,7 +448,9 @@ func (u *projectUnits) stopUnit(id string) {
 
 	u.stopStarted(r)
 	u.mu.Lock()
-	delete(u.busy, id)
+	if u.busy[id] == done {
+		delete(u.busy, id)
+	}
 	u.mu.Unlock()
 	close(done)
 }

@@ -164,6 +164,64 @@ func TestProjectUnitsReleaseAfterUnitStops(t *testing.T) {
 	}
 }
 
+// A pass that starts several units reads the registry once. A project the
+// registry marks deleting while an earlier unit of the pass starts gets no
+// unit once its release is recorded.
+func TestProjectUnitsSkipProjectDroppedMidPass(t *testing.T) {
+	t.Parallel()
+	f := newUnitsFixture(t, 0)
+	weather, sim := f.create(t, "weather"), f.create(t, "sim")
+	released := make(chan struct{})
+	var once sync.Once
+	var dropped atomic.Value
+	var openedAfterRelease atomic.Bool
+	first := make(chan project.Project, 1)
+	f.onRelease = func(ids []string) {
+		if id, _ := dropped.Load().(string); id != "" && slices.Contains(ids, id) {
+			once.Do(func() { close(released) })
+		}
+	}
+	f.onOpen = func(p project.Project) {
+		select {
+		case <-released:
+			if p.ID == dropped.Load() {
+				openedAfterRelease.Store(true)
+			}
+			return
+		default:
+		}
+		select {
+		case first <- p:
+			// Hold the first unit of the pass until the other is released.
+			select {
+			case <-released:
+			case <-time.After(5 * time.Second):
+			}
+		default:
+		}
+	}
+
+	f.registry.show(f.defaults, weather, sim)
+	starting := <-first
+	other := weather
+	if starting.ID == weather.ID {
+		other = sim
+	}
+	dropped.Store(other.ID)
+	deleting := other
+	deleting.Deleting = true
+	f.registry.show(f.defaults, starting, deleting)
+	select {
+	case <-released:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "the release was not recorded")
+	}
+	f.requireRunning(t, starting.ID)
+	// Stopping waits for the pass to end.
+	f.units.stop()
+	assert.False(t, openedAfterRelease.Load(), "the unit of %s was opened after its release", other.Name)
+}
+
 // holdFor returns a hook that holds a step of the unit of p until released
 // fires, or a second passes: long enough for an early release to show.
 func holdFor(p project.Project, released <-chan struct{}) func(project.Project) {
