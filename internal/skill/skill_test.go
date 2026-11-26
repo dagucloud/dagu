@@ -440,7 +440,10 @@ func TestFolderRules(t *testing.T) {
 		require.NoError(t, os.Symlink(outside, filepath.Join(dir, "references")))
 		s, err := skill.Read(dir)
 		require.NoError(t, err)
-		require.Contains(t, ruleSet(s.Issues), skill.RuleRootEntry)
+		issues := ruleSet(s.Issues)
+		require.Equal(t, "references", issues[skill.RuleSymlink].File, "%v", s.Issues)
+		// The name references is allowed at the root, so only the link is wrong.
+		require.NotContains(t, issues, skill.RuleRootEntry)
 		require.False(t, s.Valid())
 		for _, f := range s.Files {
 			require.NotContains(t, f.Path, "x.md")

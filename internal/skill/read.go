@@ -234,6 +234,8 @@ func walk(dir string) (entries []entry, issues []Issue, err error) {
 						return err
 					}
 					continue
+				case mode&fs.ModeSymlink != 0:
+					// Whatever its name, a link gets the rule symlink in the switch below.
 				default:
 					add(RuleRootEntry, path, "%q is not allowed at the root of a skill folder; only SKILL.md, references/, assets/ and scripts/ are allowed", name)
 					if mode.IsRegular() {
