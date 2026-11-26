@@ -159,7 +159,13 @@ func TestNodes_RunOnWorker(t *testing.T) {
 
 	statusJSON, err := json.Marshal(status)
 	require.NoError(t, err)
-	require.NotContains(t, string(statusJSON), strings.TrimSpace(privateKey))
+	// JSON escapes the key's line breaks, so each line of its body is looked
+	// for on its own.
+	for _, line := range strings.Split(strings.TrimSpace(privateKey), "\n") {
+		if !strings.HasPrefix(line, "-----") {
+			require.NotContains(t, string(statusJSON), line)
+		}
+	}
 }
 
 // A worker checks host keys as the server does: a node whose key is not
