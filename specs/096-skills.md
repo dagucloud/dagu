@@ -445,11 +445,12 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | `TestDiscoverRecursiveSkipsSkillsDir` (unit) | Discovery neither lists nor returns for watching anything below `skills/` at the root, and reads a `skills` directory deeper in the tree. |
 | `TestDiscoverRecursiveSkipsSkillsDirInOtherCase` (unit) | On a file system that ignores case, discovery also skips a root directory spelled `Skills`. Where case matters, it reads it. |
 | `TestFormatRules` (unit) | Each rule of the format gives its issue with the file and the severity, and the error of a refused skill names each broken rule. |
-| `TestFolderRules` (unit) | Each folder rule gives its issue, and a link is never read. |
+| `TestFolderRules` (unit) | Each folder rule other than `total-too-large`, `changing` and `unreadable` gives its issue, and a link is never read. The case of `special-file` runs on Unix only. |
 | `TestReadNeverFollowsASwappedLink` (unit) | A file that becomes a link while Dagu reads the folder is never read through the link. |
+| `TestReadOfAFolderThatNeverSettles` (unit) | A folder that changes during every read attempt gives the rule `changing`. |
 | `TestHashCanonicalForm` (unit) | The hash is the SHA-256 of the `sha256sum` text of the files. The order, the times and the modes do not change it. |
 | `TestPartialSkillIsRefused` (unit) | A folder with no `SKILL.md` is refused, and the temporary file of a write is ignored. |
-| `TestReadBoundsTheTextItKeeps` (unit) | A read keeps at most 16 MiB of text. |
+| `TestReadBoundsTheTextItKeeps` (unit) | A folder above 16 MiB gives the rule `total-too-large`, and a read keeps at most 16 MiB of text. |
 | `TestUnreadableFolderNamesNoServerPath` (unit) | A folder that Dagu cannot read gives the rule `unreadable`, and the message names no server path. |
 | `TestSkillsList` (unit) | `GET /skills` lists every folder sorted by name, also one with errors, and no plain file or hidden folder. |
 | `TestSkillsListIsBounded` (unit) | `GET /skills` lists the first 1000 folders and sets `truncated` when the directory holds more. |

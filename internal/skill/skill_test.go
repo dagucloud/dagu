@@ -214,9 +214,32 @@ func TestReadNeverFollowsASwappedLink(t *testing.T) {
 	require.Equal(t, "public\n", string(data))
 }
 
+// A folder that changes during every attempt of Read is refused with the rule
+// changing. The test changes a package variable, so it does not run in
+// parallel.
+func TestReadOfAFolderThatNeverSettles(t *testing.T) {
+	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "a\n"})
+	attempts := 0
+	skill.AroundReadFiles(t, func() {
+		attempts++
+		name := filepath.Join(dir, "references", fmt.Sprintf("new%d.md", attempts))
+		require.NoError(t, os.WriteFile(name, []byte("new\n"), 0o644))
+	}, func() {})
+	s, err := skill.Read(dir)
+	require.NoError(t, err)
+	require.Len(t, s.Issues, 1)
+	require.Equal(t, skill.RuleChanging, s.Issues[0].Rule)
+	require.False(t, s.Valid())
+}
+
 // The folder rules: the layout, links, hidden files, depth, text and limits.
 func TestFolderRules(t *testing.T) {
 	t.Parallel()
+
+	// longPath is one byte over skill.MaxPathLength. Each name stays below the
+	// limit of 255 bytes of common file systems.
+	longPath := "references/" + strings.Repeat("a", 250) + "/" + strings.Repeat("b", 251)
+	require.Len(t, longPath, skill.MaxPathLength+1)
 
 	t.Run("full layout is valid", func(t *testing.T) {
 		t.Parallel()
@@ -258,6 +281,7 @@ func TestFolderRules(t *testing.T) {
 		{name: "depth warning", files: map[string]string{"SKILL.md": good, "references/a/b.md": "x"}, rule: skill.RuleReferenceDepth, file: "references/a/b.md", sev: skill.SeverityWarning},
 		{name: "too large to read warning", files: map[string]string{"SKILL.md": good, "references/big.md": strings.Repeat("x", skill.MaxReadFileBytes+1)}, rule: skill.RuleReadTooLarge, file: "references/big.md", sev: skill.SeverityWarning},
 		{name: "backslash in name", files: map[string]string{"SKILL.md": good, "references/a\\b.md": "x"}, rule: skill.RulePath, file: "references/a\\b.md"},
+		{name: "path of 513 bytes", files: map[string]string{"SKILL.md": good, longPath: "x"}, rule: skill.RulePath, file: longPath},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -303,6 +327,19 @@ func TestFolderRules(t *testing.T) {
 		issue, ok := ruleSet(s.Issues)[skill.RuleTooManyFiles]
 		require.True(t, ok, "%v", s.Issues)
 		require.Contains(t, issue.Message, "the limit is 1024 entries")
+	})
+
+	t.Run("named pipe", func(t *testing.T) {
+		t.Parallel()
+		dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "assets"), 0o755))
+		makeFIFO(t, filepath.Join(dir, "assets", "pipe"))
+		s, err := skill.Read(dir)
+		require.NoError(t, err)
+		issue, ok := ruleSet(s.Issues)[skill.RuleSpecialFile]
+		require.True(t, ok, "%v", s.Issues)
+		require.Equal(t, "assets/pipe", issue.File)
+		require.False(t, s.Valid())
 	})
 
 	t.Run("symlink to a file", func(t *testing.T) {
