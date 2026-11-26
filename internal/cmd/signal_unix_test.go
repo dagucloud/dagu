@@ -215,13 +215,18 @@ func TestSignalHandlerBudgets(t *testing.T) {
 }
 
 // Lifecycle handlers retain their own execution budgets after a CLI stop.
+// The abort handler holds until the run's cancel poll has redelivered the
+// stop, which happens after the one-second step cleanup budget has passed.
 func TestStopHandlers(t *testing.T) {
 	th := test.SetupCommand(t, test.WithBuiltExecutable())
 	dir := t.TempDir()
 	ready := filepath.Join(dir, "ready")
+	aborting := filepath.Join(dir, "aborting")
+	release := newHoldFile(t)
 	aborted := filepath.Join(dir, "aborted")
 	exited := filepath.Join(dir, "exited")
 	dag := th.DAG(t, fmt.Sprintf(`
+max_clean_up_time_sec: 1
 steps:
   - script: |
       printf ready > %s
@@ -229,11 +234,12 @@ steps:
 handler_on:
   abort:
     script: |
-      sleep 10
+      printf started > %s
+      while [ ! -f %s ]; do sleep 0.05; done
       printf done > %s
   exit:
     script: printf done > %s
-`, test.PosixQuote(ready), test.PosixQuote(aborted), test.PosixQuote(exited)))
+`, test.PosixQuote(ready), test.PosixQuote(aborting), test.PosixQuote(release), test.PosixQuote(aborted), test.PosixQuote(exited)))
 	command := exec.Command(th.Config.Paths.Executable, test.WithConfigFlag([]string{"start", dag.Location}, th.Config)...) //nolint:gosec // Test executes the repository binary.
 	command.Env = append(th.ChildEnv, "DAGU_SIGNAL_PROPAGATION=false")
 	logFile, err := os.CreateTemp(dir, "run-*.log")
@@ -254,13 +260,17 @@ handler_on:
 	stop.Env = command.Env
 	output, err := stop.CombinedOutput()
 	require.NoError(t, err, "output: %s", output)
-	select {
-	case err := <-waitCh:
-		run.exited = true
-		require.NoError(t, err)
-	case <-time.After(20 * time.Second):
-		t.Fatalf("run did not finish its handlers: %s", run.output())
+	run.waitForFile(t, aborting)
+	// The output only grows, so a match past this offset is a poll that ran
+	// while the handler was running.
+	offset := len(run.output())
+	if !assert.Eventually(t, func() bool {
+		return strings.Contains(run.output()[offset:], "Cancel request found for attempt")
+	}, commandLogWaitTimeout(), 20*time.Millisecond) {
+		t.Fatalf("run did not poll its cancel request; output: %s", run.output())
 	}
+	releaseHoldFile(t, release)
+	require.NoError(t, run.wait(t))
 	for _, marker := range []string{aborted, exited} {
 		data, err := os.ReadFile(marker)
 		require.NoError(t, err, "handler did not complete: %s", run.output())
