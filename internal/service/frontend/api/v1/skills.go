@@ -7,9 +7,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"path"
 	"path/filepath"
+	"strconv"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -135,15 +137,38 @@ func (a *API) GetSkillFile(ctx context.Context, request api.GetSkillFileRequestO
 		logger.Error(ctx, "Failed to open skill file", tag.Name(request.Name), tag.Error(err))
 		return nil, errFailedToReadSkill
 	}
-	etag := `"` + sk.Hash + `"`
-	return api.GetSkillFile200ApplicationoctetStreamResponse{
-		Body: body,
-		Headers: api.GetSkillFile200ResponseHeaders{
-			ContentDisposition: ptrOf(fmt.Sprintf("attachment; filename=%q", sanitizeFilename(path.Base(rel)))),
-			ETag:               &etag,
-		},
-		ContentLength: file.Size,
+	return &skillFileResponse{
+		ctx:      ctx,
+		body:     body,
+		size:     file.Size,
+		filename: sanitizeFilename(path.Base(rel)),
+		etag:     `"` + sk.Hash + `"`,
 	}, nil
+}
+
+// skillFileResponse streams one file of a skill as an attachment and closes it
+// afterwards.
+type skillFileResponse struct {
+	ctx      context.Context
+	body     io.ReadCloser
+	size     int64
+	filename string
+	etag     string
+}
+
+func (r *skillFileResponse) VisitGetSkillFileResponse(w http.ResponseWriter) error {
+	defer func() { _ = r.body.Close() }()
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.FormatInt(r.size, 10))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", r.filename))
+	w.Header().Set("ETag", r.etag)
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.Copy(w, r.body); err != nil {
+		logger.Warn(r.ctx, "Skill file stream ended early", tag.Error(err))
+		// Headers are committed; abort so no error body joins the partial file.
+		panic(http.ErrAbortHandler)
+	}
+	return nil
 }
 
 func (a *API) skillReadError(ctx context.Context, name string, err error) error {
