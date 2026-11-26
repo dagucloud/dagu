@@ -1259,6 +1259,30 @@ func TestHandler_Poll(t *testing.T) {
 		require.Equal(t, ir.TriggerTypeManual, status.TriggerType)
 	})
 
+	// A retry of a narrowed run keeps the list and the record of what its
+	// steps with nodes did, so an attempt lost before its agent starts does
+	// not reset them.
+	t.Run("WriteInitialStatusKeepsNodeList", func(t *testing.T) {
+		t.Parallel()
+
+		record := &ir.NodeListRecord{Skipped: true, Ran: true}
+		previous, err := convert.DAGRunStatusToProto(&ir.DAGRunStatus{TargetNodes: []string{"web01"}, NodeList: record})
+		require.NoError(t, err)
+		h := NewHandler(HandlerConfig{})
+		attempt := &mockAttempt{}
+		require.NoError(t, h.writeInitialStatus(context.Background(), attempt, &coordinatorv1.Task{
+			DagRunId:       "run-123",
+			Operation:      coordinatorv1.Operation_OPERATION_RETRY,
+			TargetNodes:    []string{"web01"},
+			PreviousStatus: previous,
+		}, "test-dag", ir.DAGRunRef{}, nil))
+
+		status, err := attempt.ReadStatus(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, []string{"web01"}, status.TargetNodes)
+		require.Equal(t, record, status.NodeList)
+	})
+
 	t.Run("WriteInitialStatusRecordsModelUsage", func(t *testing.T) {
 		t.Parallel()
 

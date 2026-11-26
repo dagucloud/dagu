@@ -1072,6 +1072,10 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 // writeInitialStatus writes an initial NotStarted status to the attempt.
 // This ensures the status file is not empty when read before the worker reports its first status.
 func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt, task *coordinatorv1.Task, dagName string, root ir.DAGRunRef, labels []string) error {
+	nodeList, err := retriedNodeList(task)
+	if err != nil {
+		return err
+	}
 	initialStatus := ir.DAGRunStatus{
 		Name:             dagName,
 		DAGRunID:         task.DagRunId,
@@ -1090,10 +1094,28 @@ func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt
 		DefinitionID:     task.DefinitionId,
 		ProfileName:      task.ProfileName,
 		TargetNodes:      task.TargetNodes,
+		NodeList:         nodeList,
 		// Every step's model usage is recorded from the start.
 		ModelUsageRecorded: true,
 	}
 	return attempt.Write(ctx, initialStatus)
+}
+
+// retriedNodeList returns the record of the node list that a retry of a
+// narrowed run continues, so an attempt lost before its agent writes a
+// status keeps it.
+func retriedNodeList(task *coordinatorv1.Task) (*ir.NodeListRecord, error) {
+	if len(task.TargetNodes) == 0 || task.Operation != coordinatorv1.Operation_OPERATION_RETRY || task.PreviousStatus == nil {
+		return nil, nil
+	}
+	previous, err := convert.ProtoToDAGRunStatus(task.PreviousStatus)
+	if err != nil {
+		return nil, fmt.Errorf("decode previous task status: %w", err)
+	}
+	if previous == nil {
+		return nil, nil
+	}
+	return previous.NodeList, nil
 }
 
 // applyTaskWorkerSelector records the selector the task was dispatched with in
