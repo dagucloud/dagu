@@ -2283,6 +2283,13 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	if len(latestStatus.Labels) > 0 {
 		dagRunStatus.Labels = append([]string(nil), latestStatus.Labels...)
 	}
+	// A worker's failure report is built from the task and lacks these.
+	if latestStatus.RetryDisabled {
+		dagRunStatus.RetryDisabled = true
+	}
+	if dagRunStatus.TriggerSubject == nil {
+		dagRunStatus.TriggerSubject = latestStatus.TriggerSubject
+	}
 
 	attempt := latestAttempt
 	if dagRunStatus.Status == ir.Waiting {
