@@ -91,6 +91,7 @@ func TestNewUpstreamErrorHidesTheRestOfTheURL(t *testing.T) {
 		"port":           "https://api.example.com:0/hunter2",
 		"no scheme":      "api.example.com/v1?key=hunter2",
 		"does not parse": "https://api.example.com:port/hunter2",
+		"URL in a query": "api.example.com/v1?key=hunter2&next=https://other.example",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

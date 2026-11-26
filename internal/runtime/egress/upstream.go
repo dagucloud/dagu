@@ -125,7 +125,8 @@ func describeURL(raw string) string {
 		return "a URL with an @"
 	}
 	hostStart := 0
-	if i := strings.Index(raw, "://"); i >= 0 {
+	// A :// after a path, a query or a fragment starts no host.
+	if i := strings.Index(raw, "://"); i >= 0 && !strings.ContainsAny(raw[:i], "/?#") {
 		hostStart = i + len("://")
 	}
 	if i := strings.IndexAny(raw[hostStart:], "/?#"); i >= 0 {
