@@ -37,6 +37,7 @@ import (
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/publicwebhook"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -123,6 +124,13 @@ type Scheduler struct {
 	incidentMonitor   *chatbridge.NotificationMonitor
 	publicWebhooks    *publicwebhook.Service
 	folderWatcher     *folderWatcher // Starts runs for files arriving in watched folders
+	// scope is the project the scheduler schedules.
+	scope scope
+	// events records the run events of the scheduler's project; nil when
+	// the event store is off.
+	events *eventstore.Service
+	// units runs the other projects' units; nil while projects are off.
+	units *projectUnits
 }
 
 type schedulerHooks struct {
@@ -177,6 +185,12 @@ type Dependencies struct {
 	// dead runs too. Nil checks none.
 	LibraryDAGRunRepository *persis.DAGRunRepository
 	LibraryProcRepository   *persis.ProcRepository
+	// Projects, while projects are on, holds the stores of every registered
+	// project. The other dependencies are the default project's; the
+	// scheduler also schedules each other project, from the dependencies
+	// OpenProject returns for it. Nil schedules the default project alone.
+	Projects    *persisfile.ProjectStoreCache
+	OpenProject func(ctx context.Context, p project.Project, stores *persisfile.ProjectStores) (Dependencies, error)
 }
 
 type startupState struct {
@@ -191,6 +205,25 @@ type startupState struct {
 
 // New constructs a Scheduler from its configuration and dependencies.
 func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
+	scheduler, err := newWithScope(cfg, deps, configScope(cfg))
+	if err != nil {
+		return nil, err
+	}
+	if deps.Projects != nil && deps.OpenProject != nil {
+		scheduler.units = newProjectUnits(deps.Projects,
+			func(ctx context.Context, p project.Project, stores *persisfile.ProjectStores) (*Scheduler, error) {
+				unitDeps, err := deps.OpenProject(ctx, p, stores)
+				if err != nil {
+					return nil, err
+				}
+				return scheduler.newUnit(cfg, p, stores, unitDeps)
+			})
+	}
+	return scheduler, nil
+}
+
+// newWithScope constructs a Scheduler of the project sc names.
+func newWithScope(cfg *config.Config, deps Dependencies, sc scope) (*Scheduler, error) {
 	var profileResolver DAGProfileResolver
 	if deps.DAGSettingsStore != nil {
 		profileResolver = NewDAGProfileResolver(deps.DAGSettingsStore, deps.ProfileStore, cfg.ProjectsEnabled)
@@ -209,6 +242,7 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 		deps.SchedulerPauseStore,
 		schedulerHooks{},
 		profileResolver,
+		sc,
 	)
 	if err != nil {
 		return nil, err
@@ -225,6 +259,7 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 			scheduler.backfills.Ended = scheduler.notifyBackfillEnded
 		}
 	}
+	scheduler.events = deps.EventService
 	if deps.EventService != nil {
 		scheduler.notificationMonitor = newNotificationMonitor(cfg, deps)
 		scheduler.incidentMonitor = newIncidentMonitor(cfg, deps)
@@ -266,6 +301,7 @@ func newScheduler(
 	pauseStore schedulerstate.PauseStore,
 	hooks schedulerHooks,
 	profileResolver DAGProfileResolver,
+	sc scope,
 ) (*Scheduler, error) {
 	if dagRepository == nil {
 		return nil, fmt.Errorf("DAG repository is required")
@@ -299,14 +335,17 @@ func newScheduler(
 	lockDir := filepath.Join(persisfile.SchedulerProcessDir(cfg.Paths), "locks")
 	dirLock := dirlock.New(lockDir, lockOpts)
 	subCmdBuilder := launcher.NewSubCmdBuilder(cfg)
-	workspaceBaseConfigDir := cfg.WorkspaceBaseConfigDir()
+	if sc.project != "" {
+		subCmdBuilder = subCmdBuilder.ForProject(sc.project)
+	}
 	dagExecutor := NewDAGExecutor(
 		coordinatorCli,
 		subCmdBuilder,
 		cfg.DefaultExecMode,
-		cfg.Paths.BaseConfig,
+		sc.baseConfig,
 		WithDAGExecutorProfileResolver(profileResolver),
-		WithDAGExecutorWorkspaceBaseConfigDir(workspaceBaseConfigDir),
+		WithDAGExecutorWorkspaceBaseConfigDir(sc.workspaceBaseConfigDir),
+		withDAGExecutorProject(sc.project),
 	)
 	healthServer := NewHealthServer(cfg.Scheduler.Port)
 
@@ -329,7 +368,6 @@ func newScheduler(
 	var isQueued IsQueuedFunc
 	var enqueueFunc EnqueueFunc
 	liveRun := liveRunChecker(dagRunRepository)
-	logDir, artifactDir := runDirs(cfg)
 	if queuesEnabled {
 		isQueued = liveQueuedChecker(queueStore, liveRun)
 		enqueueFunc = func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time, params string) error {
@@ -342,10 +380,10 @@ func newScheduler(
 				ctx,
 				dagRunRepository,
 				queueStore,
-				logDir,
-				artifactDir,
-				cfg.Paths.BaseConfig,
-				workspaceBaseConfigDir,
+				sc.logDir,
+				sc.artifactDir,
+				sc.baseConfig,
+				sc.workspaceBaseConfigDir,
 				entry.DefinitionID,
 				dag,
 				runID,
@@ -392,7 +430,7 @@ func newScheduler(
 		},
 		Clock:           defaultClock,
 		Location:        timeLoc,
-		SlotSeed:        cfg.Paths.DataDir,
+		SlotSeed:        sc.slotSeed,
 		Events:          eventCh,
 		ProfileResolver: profileResolver,
 		QueuesEnabled:   queuesEnabled,
@@ -489,6 +527,7 @@ func newScheduler(
 		clock:            defaultClock,
 		wakeHold:         newWakeHold(cfg.Scheduler.WakeHold, pauseStore),
 		pauseStore:       pauseStore,
+		scope:            sc,
 	}
 	s.folderWatcher = newFolderWatcher(folderWatcherConfig{
 		Entries:     er.Entries,
@@ -808,6 +847,32 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 	}
 
 	s.updateServiceStatus(ctx, serviceregistry.ServiceStatusActive, "Failed to update status to active", "Updated scheduler status to active")
+	if err := s.startUnit(ctx, &wg, &state); err != nil {
+		return err
+	}
+	s.units.start(ctx, &wg)
+
+	// A hold a previous process left behind would pause this one for nobody.
+	s.wakeHold.clearStale(ctx)
+
+	logger.Info(ctx, "Scheduler started")
+	cleanupOnFailure = false
+
+	wg.Add(1)
+	go func(ctx context.Context) {
+		defer wg.Done()
+		s.cronLoop(ctx, sig)
+	}(ctx)
+	wg.Wait()
+
+	return nil
+}
+
+// startUnit starts what schedules the scheduler's project, after the
+// suspension state is migrated: the queues, the DAG entries, the planner,
+// and the background loops. It records in state what needs stopping when
+// a later step fails.
+func (s *Scheduler) startUnit(ctx context.Context, wg *sync.WaitGroup, state *startupState) error {
 	if err := s.BootstrapMonitors(ctx); err != nil {
 		return err
 	}
@@ -883,20 +948,6 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 	wg.Go(func() {
 		s.entryReader.Start(ctx)
 	})
-
-	// A hold a previous process left behind would pause this one for nobody.
-	s.wakeHold.clearStale(ctx)
-
-	logger.Info(ctx, "Scheduler started")
-	cleanupOnFailure = false
-
-	wg.Add(1)
-	go func(ctx context.Context) {
-		defer wg.Done()
-		s.cronLoop(ctx, sig)
-	}(ctx)
-	wg.Wait()
-
 	return nil
 }
 
@@ -1122,11 +1173,21 @@ func (s *Scheduler) waitForTick(ctx context.Context, sig chan os.Signal, timer *
 	}
 }
 
-func (s *Scheduler) runTickSafely(ctx context.Context, tickTime time.Time) (processed time.Time) {
-	processed = tickTime
+func (s *Scheduler) runTickSafely(ctx context.Context, tickTime time.Time) time.Time {
 	if s.leaseExpired(ctx) {
-		return processed
+		return tickTime
 	}
+	processed := s.tickUnit(ctx, tickTime)
+	s.units.each(func(ctx context.Context, unit *Scheduler) {
+		unit.tickUnit(ctx, tickTime)
+	})
+	return processed
+}
+
+// tickUnit runs the tick due at tickTime for the scheduler's project,
+// recovering first the slots a late tick missed, and returns the tick run.
+func (s *Scheduler) tickUnit(ctx context.Context, tickTime time.Time) (processed time.Time) {
+	processed = tickTime
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error(ctx, "Scheduler tick panicked",
@@ -1156,11 +1217,21 @@ func (s *Scheduler) runTick(ctx context.Context, tickTime time.Time) {
 // host woke in through the minute under way, each run dispatched before the
 // next tick so that tick sees it. What the host slept through is recovered
 // first, as a late tick recovers it. It returns the last tick run.
-func (s *Scheduler) runHeldTicks(ctx context.Context, since time.Time) (processed time.Time) {
-	processed = since.Truncate(time.Minute)
+func (s *Scheduler) runHeldTicks(ctx context.Context, since time.Time) time.Time {
 	if s.leaseExpired(ctx) {
-		return processed
+		return since.Truncate(time.Minute)
 	}
+	processed := s.heldTicksUnit(ctx, since)
+	s.units.each(func(ctx context.Context, unit *Scheduler) {
+		unit.heldTicksUnit(ctx, since)
+	})
+	return processed
+}
+
+// heldTicksUnit runs the held ticks for the scheduler's project and
+// returns the last tick run.
+func (s *Scheduler) heldTicksUnit(ctx context.Context, since time.Time) (processed time.Time) {
+	processed = since.Truncate(time.Minute)
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error(ctx, "Scheduler tick panicked",
@@ -1249,6 +1320,9 @@ func (s *Scheduler) Stop(ctx context.Context) {
 
 		s.planner.Stop(ctx)
 
+		// Units dispatch runs only while the lock is held.
+		s.units.stop()
+
 		s.releaseDirLock(ctx, "Failed to release scheduler lock in Stop")
 
 		wg.Wait()
@@ -1274,15 +1348,14 @@ func (s *Scheduler) enqueueFileRun(ctx context.Context, entry DAGEntry, runID, p
 	if err != nil {
 		return fmt.Errorf("failed to resolve DAG profile: %w", err)
 	}
-	logDir, artifactDir := runDirs(s.config)
 	return enqueueTriggeredRun(
 		ctx,
 		s.dagRunRepository,
 		s.queueStore,
-		logDir,
-		artifactDir,
-		s.config.Paths.BaseConfig,
-		s.config.WorkspaceBaseConfigDir(),
+		s.scope.logDir,
+		s.scope.artifactDir,
+		s.scope.baseConfig,
+		s.scope.workspaceBaseConfigDir,
 		entry.DefinitionID,
 		entry.DAG,
 		runID,

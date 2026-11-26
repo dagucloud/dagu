@@ -29,6 +29,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
@@ -110,7 +111,13 @@ func newServer(ctx *Context, rs *resource.Service, stores frontend.Stores, opts 
 // does, and returns the server options that let webhook requests reach
 // them. It returns none while projects are off.
 func (c *Context) followServedProjects(ctx context.Context) []frontend.ServerOption {
-	cache := c.followProjects(ctx)
+	return c.servedProjects(c.followProjects(ctx))
+}
+
+// servedProjects returns the server options that let webhook requests
+// reach the projects whose stores cache holds. It returns none on a nil
+// cache.
+func (c *Context) servedProjects(cache *persisfile.ProjectStoreCache) []frontend.ServerOption {
 	if cache == nil {
 		return nil
 	}

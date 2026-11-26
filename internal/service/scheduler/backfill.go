@@ -125,7 +125,7 @@ func (s *Scheduler) backfillDAGExists(ctx context.Context, record *backfill.Reco
 		return true, nil
 	}
 	if !filepath.IsAbs(path) {
-		path = filepath.Join(s.config.Paths.DAGsDir, path)
+		path = filepath.Join(s.scope.dagsDir, path)
 	}
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -172,12 +172,12 @@ func (s *Scheduler) backfillTarget(ctx context.Context, record *backfill.Record)
 	opts := []spec.LoadOption{
 		spec.WithoutEval(),
 		spec.WithName(record.DAGName),
-		spec.WithDAGsDir(s.config.Paths.DAGsDir),
-		spec.WithWorkspaceBaseConfigDir(s.config.WorkspaceBaseConfigDir()),
+		spec.WithDAGsDir(s.scope.dagsDir),
+		spec.WithWorkspaceBaseConfigDir(s.scope.workspaceBaseConfigDir),
 		spec.WithCalendarsDir(s.config.Paths.CalendarsDir),
 	}
-	if s.config.Paths.BaseConfig != "" {
-		opts = append(opts, spec.WithBaseConfig(s.config.Paths.BaseConfig))
+	if s.scope.baseConfig != "" {
+		opts = append(opts, spec.WithBaseConfig(s.scope.baseConfig))
 	}
 	dag, err := spec.LoadYAML(ctx, record.Definition, opts...)
 	if err != nil {
@@ -204,18 +204,17 @@ func (s *Scheduler) enqueueBackfillRun(ctx context.Context, record *backfill.Rec
 	); ok && len(sched.Params) > 0 {
 		params = string(sched.Params)
 	}
-	dag, err := rehydrateExecutionDAG(ctx, target.DAG, params, s.config.Paths.BaseConfig, s.config.WorkspaceBaseConfigDir())
+	dag, err := rehydrateExecutionDAG(ctx, target.DAG, params, s.scope.baseConfig, s.scope.workspaceBaseConfigDir)
 	if err != nil {
 		return err
 	}
-	logDir, artifactDir := runDirs(s.config)
 	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
 		DAGRunRepository: s.dagRunRepository,
 		QueueStore:       s.queueStore,
 		DAG:              dag,
 		DAGRunID:         runID,
-		LogBaseDir:       logDir,
-		ArtifactBaseDir:  artifactDir,
+		LogBaseDir:       s.scope.logDir,
+		ArtifactBaseDir:  s.scope.artifactDir,
 		TriggerType:      ir.TriggerTypeBackfill,
 		TriggerActor:     record.Actor,
 		ScheduleTime:     stringutil.FormatTime(slot.At),

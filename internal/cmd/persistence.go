@@ -66,10 +66,18 @@ func openProject(
 // that holds them. It does nothing and returns nil while projects are off,
 // since the default project is then the only one.
 func (c *Context) followProjects(ctx context.Context) *file.ProjectStoreCache {
+	cache := c.newProjectStoreCache()
+	runProjectStores(ctx, cache)
+	return cache
+}
+
+// newProjectStoreCache returns the cache that followProjects runs, or nil
+// while projects are off.
+func (c *Context) newProjectStoreCache() *file.ProjectStoreCache {
 	if !c.Config.ProjectsEnabled {
 		return nil
 	}
-	cache := file.NewProjectStoreCache(
+	return file.NewProjectStoreCache(
 		projectregistry.New(c.Config.Paths.DataDir),
 		c.projectStores,
 		func(ctx context.Context, p project.Project) (*file.ProjectStores, error) {
@@ -77,8 +85,14 @@ func (c *Context) followProjects(ctx context.Context) *file.ProjectStoreCache {
 		},
 		c.serverStores.ProjectReleases,
 	)
-	go cache.Run(ctx)
-	return cache
+}
+
+// runProjectStores runs cache until ctx ends. It does nothing on a nil
+// cache.
+func runProjectStores(ctx context.Context, cache *file.ProjectStoreCache) {
+	if cache != nil {
+		go cache.Run(ctx)
+	}
 }
 
 // newPersistence gathers the stores that commands and services use from
