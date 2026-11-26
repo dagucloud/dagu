@@ -57,10 +57,13 @@ func (store *Store) locateInProject(ctx context.Context, target string) (Resolve
 			return ResolvedFile{}, false, err
 		}
 	}
+	// The project's base config lies in its DAG directory but is no DAG.
 	baseConfig := store.resolvedBaseConfig()
+	isBaseConfig := func(resolved ResolvedFile) bool {
+		return baseConfig != "" && resolved.ResolvedPath == baseConfig
+	}
 	accept := func(resolved ResolvedFile) (bool, error) {
-		// The project's base config lies in its DAG directory but is no DAG.
-		if baseConfig != "" && resolved.ResolvedPath == baseConfig {
+		if isBaseConfig(resolved) {
 			return false, nil
 		}
 		owner, err := scope.owners.OfIn(ctx, scope.name, resolved.ResolvedPath)
@@ -125,8 +128,13 @@ func (store *Store) locateInProject(ctx context.Context, target string) (Resolve
 		}
 		if exists && (owner.Library || owner.Is(scope.name)) {
 			resolved, ok, err := resolveTargetFile(file)
-			if err != nil || ok {
-				return resolved, err
+			switch {
+			case err != nil:
+				return ResolvedFile{}, err
+			case ok && isBaseConfig(resolved):
+				return ResolvedFile{}, scope.lookupError(target, other, linkOut)
+			case ok:
+				return resolved, nil
 			}
 		}
 		if other.Project == "" {

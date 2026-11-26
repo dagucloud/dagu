@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -124,15 +125,24 @@ func TestNotificationChannels_ProjectsAdminOnly(t *testing.T) {
 				WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t).Unmarshal(t, &channel)
 			listed := server.Client().Get("/api/v1/notification-channels").
 				WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
+			var list api.NotificationChannelListResponse
+			listed.Unmarshal(t, &list)
+			idx := slices.IndexFunc(list.Channels, func(c api.NotificationChannel) bool { return c.Id == channel.Id })
+			require.NotEqual(t, -1, idx)
 			got := server.Client().Get("/api/v1/notification-channels/" + channel.Id).
 				WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
 			var fetched api.NotificationChannel
 			got.Unmarshal(t, &fetched)
-			assert.Equal(t, "Ops", fetched.Name)
-			assert.Equal(t, api.NotificationProviderTypeWebhook, fetched.Type)
-			assert.Equal(t, !projectsOn, fetched.Webhook != nil)
+			// Each answer is checked on its own, since the list and the
+			// detail endpoint build theirs separately.
+			for _, seen := range []api.NotificationChannel{list.Channels[idx], fetched} {
+				assert.Equal(t, "Ops", seen.Name)
+				assert.Equal(t, api.NotificationProviderTypeWebhook, seen.Type)
+				assert.Equal(t, !projectsOn, seen.Webhook != nil)
+			}
 			for _, body := range []string{listed.Body, got.Body} {
 				assert.Equal(t, !projectsOn, strings.Contains(body, "urlPreview"), body)
+				assert.NotContains(t, body, "hooks.example.com")
 			}
 			server.Client().Get("/api/v1/notification-channels/"+channel.Id).
 				WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &fetched)

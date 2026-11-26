@@ -6,6 +6,7 @@ package api_test
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -83,15 +84,24 @@ func TestIncidentManagement_ProjectsAdminOnlyProviders(t *testing.T) {
 				WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t).Unmarshal(t, &provider)
 			listed := server.Client().Get("/api/v1/incident-providers").
 				WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
+			var list api.IncidentProviderListResponse
+			listed.Unmarshal(t, &list)
+			idx := slices.IndexFunc(list.Providers, func(p api.IncidentProvider) bool { return p.Id == provider.Id })
+			require.NotEqual(t, -1, idx)
 			got := server.Client().Get("/api/v1/incident-providers/" + provider.Id).
 				WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
 			var fetched api.IncidentProvider
 			got.Unmarshal(t, &fetched)
-			assert.Equal(t, "PagerDuty", fetched.Name)
-			assert.Equal(t, api.IncidentProviderTypePagerduty, fetched.Type)
-			assert.Equal(t, !projectsOn, fetched.PagerDuty != nil)
+			// Each answer is checked on its own, since the list and the
+			// detail endpoint build theirs separately.
+			for _, seen := range []api.IncidentProvider{list.Providers[idx], fetched} {
+				assert.Equal(t, "PagerDuty", seen.Name)
+				assert.Equal(t, api.IncidentProviderTypePagerduty, seen.Type)
+				assert.Equal(t, !projectsOn, seen.PagerDuty != nil)
+			}
 			for _, body := range []string{listed.Body, got.Body} {
 				assert.Equal(t, !projectsOn, strings.Contains(body, "routingKeyPreview"), body)
+				assert.NotContains(t, body, "pagerduty-routing-key")
 			}
 			server.Client().Get("/api/v1/incident-providers/"+provider.Id).
 				WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &fetched)
