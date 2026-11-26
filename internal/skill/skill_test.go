@@ -5,6 +5,7 @@ package skill_test
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -255,7 +256,10 @@ func TestReadBoundsTheTextItKeeps(t *testing.T) {
 			kept += len(data)
 			continue
 		}
-		data, err := s.ReadVerified(f.Path)
+		r, err := s.Open(f.Path)
+		require.NoError(t, err, f.Path)
+		data, err := io.ReadAll(r)
+		require.NoError(t, r.Close())
 		require.NoError(t, err, f.Path)
 		require.Len(t, data, int(f.Size), f.Path)
 	}
@@ -509,5 +513,52 @@ func TestCheckExistingPathRefusesEveryEscape(t *testing.T) {
 	for _, bad := range []string{"", "../x", "../../x", "a/../../x", "/abs", "a//b", "./a", "a/.", "a\\b", ".locks/x", "references/.locks/x", "a/\x00"} {
 		_, err := skill.CheckExistingPath(bad)
 		require.Error(t, err, bad)
+	}
+}
+
+// A file that changed after the read of its skill is refused with
+// ErrFileChanged, and a reader never gets its new content in full.
+func TestOpenRefusesAChangedFile(t *testing.T) {
+	t.Parallel()
+	outside := filepath.Join(t.TempDir(), "secret.bin")
+	require.NoError(t, os.WriteFile(outside, []byte("abcd"), 0o600))
+	cases := []struct {
+		name   string
+		change func(t *testing.T, file string)
+		atOpen bool
+	}{
+		{name: "same size", change: func(t *testing.T, file string) {
+			require.NoError(t, os.WriteFile(file, []byte("abce"), 0o600))
+		}},
+		{name: "other size", atOpen: true, change: func(t *testing.T, file string) {
+			require.NoError(t, os.WriteFile(file, []byte("abcdef"), 0o600))
+		}},
+		{name: "removed", atOpen: true, change: func(t *testing.T, file string) {
+			require.NoError(t, os.Remove(file))
+		}},
+		{name: "link", atOpen: true, change: func(t *testing.T, file string) {
+			require.NoError(t, os.Remove(file))
+			require.NoError(t, os.Symlink(outside, file))
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "assets/a.bin": "abcd"})
+			s, err := skill.Read(dir)
+			require.NoError(t, err)
+			tc.change(t, filepath.Join(dir, "assets", "a.bin"))
+
+			r, err := s.Open("assets/a.bin")
+			if tc.atOpen {
+				require.ErrorIs(t, err, skill.ErrFileChanged)
+				return
+			}
+			require.NoError(t, err)
+			data, err := io.ReadAll(r)
+			require.NoError(t, r.Close())
+			require.ErrorIs(t, err, skill.ErrFileChanged)
+			require.Less(t, len(data), 4)
+		})
 	}
 }

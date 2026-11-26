@@ -4,10 +4,12 @@
 package api_test
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
@@ -128,6 +130,51 @@ func TestSkillsGet(t *testing.T) {
 		server.Client().Get("/api/v1/skills/.hidden").ExpectStatus(http.StatusBadRequest).Send(t)
 		server.Client().Get("/api/v1/skills/a%5Cb").ExpectStatus(http.StatusBadRequest).Send(t)
 	})
+}
+
+// A file is sent as stored, as an attachment of type application/octet-stream,
+// with the hash of the skill in ETag. A link in the folder is never followed.
+func TestSkillsReadFile(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	writeSkillFile(t, server, "refund-policy", validSkill)
+	folder := filepath.Join(skillsDir(server), "refund-policy")
+	write := func(rel string, data []byte) {
+		t.Helper()
+		full := filepath.Join(folder, filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
+		require.NoError(t, os.WriteFile(full, data, 0o600))
+	}
+	write("references/faq.md", []byte("# FAQ\n"))
+	write("assets/logo.bin", []byte{0, 1, 2, 255})
+	write("assets/page.html", []byte("<script>alert(1)</script>"))
+	secret := filepath.Join(t.TempDir(), "secret.md")
+	require.NoError(t, os.WriteFile(secret, []byte("secret"), 0o600))
+	require.NoError(t, os.Symlink(secret, filepath.Join(folder, "references", "link.md")))
+	hash := getSkill(t, server, "refund-policy").Hash
+	get := func(rel string, status int) *test.Response {
+		return server.Client().Get("/api/v1/skills/refund-policy/files?path=" + rel).ExpectStatus(status).Send(t)
+	}
+
+	for rel, want := range map[string][]byte{
+		"references/faq.md": []byte("# FAQ\n"),
+		"assets/logo.bin":   {0, 1, 2, 255},
+		"assets/page.html":  []byte("<script>alert(1)</script>"),
+	} {
+		resp := get(rel, http.StatusOK)
+		assert.Equal(t, want, resp.Response.Body(), rel)
+		assert.Equal(t, `"`+hash+`"`, resp.Response.Header().Get("ETag"), rel)
+		assert.Equal(t, "application/octet-stream", resp.Response.Header().Get("Content-Type"), rel)
+		assert.True(t, strings.HasPrefix(resp.Response.Header().Get("Content-Disposition"), "attachment;"), rel)
+	}
+
+	write("assets/big.bin", bytes.Repeat([]byte("x"), skill.MaxFileBytes+1))
+	get("assets/big.bin", http.StatusRequestEntityTooLarge)
+	get("references/none.md", http.StatusNotFound)
+	assert.NotContains(t, get("references/link.md", http.StatusNotFound).Body, "secret")
+	get("..%2F..%2FSKILL.md", http.StatusBadRequest)
+	get("%2Fetc%2Fpasswd", http.StatusBadRequest)
+	server.Client().Get("/api/v1/skills/missing/files?path=SKILL.md").ExpectStatus(http.StatusNotFound).Send(t)
 }
 
 func TestSkillsPathTraversal(t *testing.T) {

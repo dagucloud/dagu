@@ -4,10 +4,12 @@
 package skill
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"io/fs"
 	"os"
@@ -27,6 +29,10 @@ var ErrNotFound = errors.New("skill not found")
 
 // ErrFileTooLarge is returned when a file of the skill is above MaxFileBytes.
 var ErrFileTooLarge = errors.New("the file is above the size limit")
+
+// ErrFileChanged is returned when a file of the skill no longer has the content
+// that the read of the skill recorded.
+var ErrFileChanged = errors.New("the file changed after Dagu read the skill")
 
 // errFolderChanged is returned when the skill folder is no longer the folder
 // that the path named a moment before, for example because it became a link.
@@ -514,34 +520,94 @@ func hashFile(root *os.Root, rel string) (string, int64, error) {
 	return hex.EncodeToString(h.Sum(nil)), n, nil
 }
 
-// ReadVerified returns the content of one file of the skill. A text file that
-// the read kept comes from the read. Any other file is read from disk, and the
-// call fails when its content no longer has the size and the SHA-256 that the
-// read recorded: the skill has changed since. A file above MaxFileBytes fails
-// with ErrFileTooLarge.
-func (s *Skill) ReadVerified(rel string) ([]byte, error) {
+// Open returns the content of one file of the skill as the read recorded it.
+// The reader gives the recorded size, and the caller closes it. Open fails
+// with ErrFileTooLarge for a file above MaxFileBytes, and with ErrFileChanged
+// when the file is no longer a regular file of the recorded size. A file whose
+// content changes while the caller reads it ends the reader with
+// ErrFileChanged in place of its last bytes, so a complete read always has
+// the recorded SHA-256.
+func (s *Skill) Open(rel string) (io.ReadCloser, error) {
 	file, ok := s.File(rel)
 	if !ok {
-		return nil, fmt.Errorf("skill %q has no file %q", s.Name, rel)
+		return nil, fmt.Errorf("skill %q has no file %q: %w", s.Name, rel, fs.ErrNotExist)
 	}
 	if data, ok := s.text[rel]; ok {
-		return data, nil
+		return io.NopCloser(bytes.NewReader(data)), nil
 	}
 	if file.Size > MaxFileBytes {
 		return nil, fmt.Errorf("skill %q: file %q: %w", s.Name, rel, ErrFileTooLarge)
 	}
+	changed := fmt.Errorf("skill %q: file %q: %w", s.Name, rel, ErrFileChanged)
 	root, err := openFolder(s.Dir)
 	if err != nil {
-		return nil, fmt.Errorf("skill %q: %w", s.Name, err)
+		return nil, openFailure(changed, err)
 	}
 	defer func() { _ = root.Close() }()
-	data, err := readAtMost(root, filepath.FromSlash(rel), file.Size)
+	name := filepath.FromSlash(rel)
+	// A link or a special file is never opened.
+	before, err := root.Lstat(name)
 	if err != nil {
-		return nil, fmt.Errorf("skill %q: %w", s.Name, err)
+		return nil, openFailure(changed, err)
 	}
-	sum := sha256.Sum256(data)
-	if hex.EncodeToString(sum[:]) != file.SHA256 {
-		return nil, fmt.Errorf("skill %q: file %q changed after Dagu read the skill (hash %s)", s.Name, rel, s.Hash)
+	if !before.Mode().IsRegular() || before.Size() != file.Size {
+		return nil, changed
 	}
-	return data, nil
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, openFailure(changed, err)
+	}
+	if opened, err := f.Stat(); err != nil || !os.SameFile(before, opened) {
+		_ = f.Close()
+		return nil, changed
+	}
+	return &checkedFile{f: f, sum: sha256.New(), left: file.Size, want: file.SHA256}, nil
 }
+
+// openFailure gives changed for a file or a folder that is gone or replaced,
+// and the error itself otherwise.
+func openFailure(changed, err error) error {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, errFolderChanged) {
+		return changed
+	}
+	return err
+}
+
+// checkedFile reads the recorded size of a file and checks its SHA-256 before
+// it gives the last bytes.
+type checkedFile struct {
+	f    *os.File
+	sum  hash.Hash
+	left int64
+	want string
+	err  error
+}
+
+func (c *checkedFile) Read(p []byte) (int, error) {
+	if c.err != nil {
+		return 0, c.err
+	}
+	if c.left == 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > c.left {
+		p = p[:c.left]
+	}
+	n, err := c.f.Read(p)
+	c.sum.Write(p[:n])
+	c.left -= int64(n)
+	switch {
+	case c.left == 0 && hex.EncodeToString(c.sum.Sum(nil)) != c.want:
+		c.err = ErrFileChanged
+		return 0, c.err
+	case c.left == 0:
+		return n, nil
+	case errors.Is(err, io.EOF):
+		// The file is shorter than the read recorded.
+		c.err = ErrFileChanged
+		return n, c.err
+	}
+	return n, err
+}
+
+func (c *checkedFile) Close() error { return c.f.Close() }

@@ -3844,7 +3844,7 @@ export interface paths {
         };
         /**
          * Get one file of a skill
-         * @description Streams the bytes of one file of a skill, exactly as stored. The header ETag holds the hash of the skill.
+         * @description Streams the bytes of one file of a skill, exactly as stored, as an attachment. The header ETag holds the hash of the skill. A file that changes during the stream ends the stream before its last bytes.
          */
         get: operations["getSkillFile"];
         put?: never;
@@ -5461,7 +5461,7 @@ export interface components {
         SkillDetail: {
             /** @description Name of the skill */
             name: string;
-            /** @description The raw content of SKILL.md. Empty when the file does not exist. */
+            /** @description The raw content of SKILL.md. Empty when the file does not exist, is above 4 MiB or is not UTF-8. */
             content: string;
             /** @description Hash of the version of the skill. Send it in If-Match for a write. */
             hash: string;
@@ -22289,6 +22289,15 @@ export interface operations {
             };
             /** @description The skill changed while the server read the file; read it again */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The file is above 4 MiB */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };

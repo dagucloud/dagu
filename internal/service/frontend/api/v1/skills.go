@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"path"
 	"path/filepath"
-	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -108,7 +107,8 @@ func (a *API) GetSkill(ctx context.Context, request api.GetSkillRequestObject) (
 	return api.GetSkill200JSONResponse(detail), nil
 }
 
-// GetSkillFile streams one file of a skill, exactly as stored.
+// GetSkillFile streams one file of a skill, exactly as stored. A file that
+// changes during the stream ends the stream before its last bytes.
 func (a *API) GetSkillFile(ctx context.Context, request api.GetSkillFileRequestObject) (api.GetSkillFileResponseObject, error) {
 	if !skill.IsSafeFolderName(request.Name) {
 		return nil, errInvalidSkillName
@@ -121,25 +121,28 @@ func (a *API) GetSkillFile(ctx context.Context, request api.GetSkillFileRequestO
 	if err != nil {
 		return nil, a.skillReadError(ctx, request.Name, err)
 	}
-	if _, ok := sk.File(rel); !ok {
+	file, ok := sk.File(rel)
+	if !ok {
 		return nil, &Error{Code: api.ErrorCodeNotFound, Message: "Skill file not found", HTTPStatus: http.StatusNotFound}
 	}
-	data, err := sk.ReadVerified(rel)
-	if errors.Is(err, skill.ErrFileTooLarge) {
+	body, err := sk.Open(rel)
+	switch {
+	case errors.Is(err, skill.ErrFileTooLarge):
 		return nil, errSkillFileTooLarge
-	}
-	if err != nil {
-		logger.Error(ctx, "Failed to read skill file", tag.Name(request.Name), tag.Error(err))
+	case errors.Is(err, skill.ErrFileChanged):
 		return nil, &Error{Code: api.ErrorCodeConflict, Message: "The skill changed while it was read; try again", HTTPStatus: http.StatusConflict}
+	case err != nil:
+		logger.Error(ctx, "Failed to open skill file", tag.Name(request.Name), tag.Error(err))
+		return nil, errFailedToReadSkill
 	}
 	etag := `"` + sk.Hash + `"`
 	return api.GetSkillFile200ApplicationoctetStreamResponse{
-		Body: strings.NewReader(string(data)),
+		Body: body,
 		Headers: api.GetSkillFile200ResponseHeaders{
 			ContentDisposition: ptrOf(fmt.Sprintf("attachment; filename=%q", sanitizeFilename(path.Base(rel)))),
 			ETag:               &etag,
 		},
-		ContentLength: int64(len(data)),
+		ContentLength: file.Size,
 	}, nil
 }
 

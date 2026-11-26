@@ -9755,7 +9755,7 @@ paths:
   /skills/{name}/files:
     get:
       summary: "Get one file of a skill"
-      description: "Streams the bytes of one file of a skill, exactly as stored. The header ETag holds the hash of the skill."
+      description: "Streams the bytes of one file of a skill, exactly as stored, as an attachment. The header ETag holds the hash of the skill. A file that changes during the stream ends the stream before its last bytes."
       operationId: "getSkillFile"
       tags:
         - "skills"
@@ -9800,6 +9800,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         "409":
           description: "The skill changed while the server read the file; read it again"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: "The file is above 4 MiB"
           content:
             application/json:
               schema:
@@ -15232,7 +15238,7 @@ components:
           description: "Name of the skill"
         content:
           type: string
-          description: "The raw content of SKILL.md. Empty when the file does not exist."
+          description: "The raw content of SKILL.md. Empty when the file does not exist, is above 4 MiB or is not UTF-8."
         hash:
           type: string
           description: "Hash of the version of the skill. Send it in If-Match for a write."
