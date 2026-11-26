@@ -165,39 +165,11 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	commandName := commandFamilyName(cmd)
 	scope := scopeForCommand(commandName)
 
-	v := viper.New()
-	bindFlags(v, cmd, flags...)
-
 	quiet, err := cmd.Flags().GetBool("quiet")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get quiet flag: %w", err)
 	}
-	daguHome, err := cmd.Flags().GetString("dagu-home")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get dagu-home flag: %w", err)
-	}
-
-	var configLoaderOpts []config.ConfigLoaderOption
-	if daguHome != "" {
-		if resolvedHome := fileutil.ResolvePathOrBlank(daguHome); resolvedHome != "" {
-			configLoaderOpts = append(configLoaderOpts, config.WithAppHomeDir(resolvedHome))
-		}
-	}
-
-	// Use a custom config file if provided via the command flag "config"
-	cfgPath, err := cmd.Flags().GetString("config")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get config flag: %w", err)
-	}
-	if cfgPath != "" {
-		configLoaderOpts = append(configLoaderOpts, config.WithConfigFile(cfgPath))
-	}
-
-	// Set service type based on command to load only necessary config sections
-	configLoaderOpts = append(configLoaderOpts, config.WithService(serviceForCommand(commandName)))
-
-	loader := config.NewConfigLoader(v, configLoaderOpts...)
-	cfg, err := loader.Load()
+	cfg, loader, err := loadCommandConfig(cmd, flags)
 	if err != nil {
 		return nil, err
 	}
@@ -383,7 +355,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		ArtifactRecordCache: artifactRecordCache,
 	}
 	addressed := defaultProject()
-	if cfg.ProjectsEnabled && !servesProjects(cmd.Name()) {
+	if cfg.ProjectsEnabled && !servesProjects(cmd.Name()) && !managesProjects(commandName) {
 		if addressed, err = addressedProject(ctx, cmd, cfg); err != nil {
 			return nil, err
 		}
@@ -468,6 +440,44 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		ContextName:         selectedContextName,
 		Scope:               scope,
 	}, nil
+}
+
+// loadCommandConfig loads the configuration that cmd runs with, from its
+// --dagu-home and --config flags and the flags bound to configuration keys.
+func loadCommandConfig(cmd *cobra.Command, flags []commandLineFlag) (*config.Config, *config.ConfigLoader, error) {
+	v := viper.New()
+	bindFlags(v, cmd, flags...)
+
+	daguHome, err := cmd.Flags().GetString("dagu-home")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get dagu-home flag: %w", err)
+	}
+
+	var configLoaderOpts []config.ConfigLoaderOption
+	if daguHome != "" {
+		if resolvedHome := fileutil.ResolvePathOrBlank(daguHome); resolvedHome != "" {
+			configLoaderOpts = append(configLoaderOpts, config.WithAppHomeDir(resolvedHome))
+		}
+	}
+
+	// Use a custom config file if provided via the command flag "config"
+	cfgPath, err := cmd.Flags().GetString("config")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get config flag: %w", err)
+	}
+	if cfgPath != "" {
+		configLoaderOpts = append(configLoaderOpts, config.WithConfigFile(cfgPath))
+	}
+
+	// Set service type based on command to load only necessary config sections
+	configLoaderOpts = append(configLoaderOpts, config.WithService(serviceForCommand(commandFamilyName(cmd))))
+
+	loader := config.NewConfigLoader(v, configLoaderOpts...)
+	cfg, err := loader.Load()
+	if err != nil {
+		return nil, nil, err
+	}
+	return cfg, loader, nil
 }
 
 func commandFamilyName(cmd *cobra.Command) string {
@@ -745,7 +755,7 @@ func NewCommand(cmd *cobra.Command, flags []commandLineFlag, runFunc func(cmd *C
 
 		ctx, err := NewContext(cmd, flags)
 		if errors.Is(err, errProjectFlagUnknown) {
-			return err
+			return cmd.FlagErrorFunc()(cmd, err)
 		}
 		if err != nil {
 			return fmt.Errorf("initialization error: %w", err)

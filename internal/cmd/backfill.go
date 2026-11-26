@@ -545,6 +545,9 @@ type backfillStartOptions struct {
 }
 
 func runBackfillStart(ctx *Context, args []string) error {
+	if err := ctx.checkProjectEnqueue(); err != nil {
+		return err
+	}
 	opts, err := parseBackfillStartFlags(ctx)
 	if err != nil {
 		return err

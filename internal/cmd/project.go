@@ -34,14 +34,19 @@ var projectFlag = commandLineFlag{
 // are off, as it did before the flag existed.
 var errProjectFlagUnknown = errors.New("unknown flag: --project")
 
-// checkProjectFlag refuses --project while projects are off, and for a
-// command that serves every project or that runs on a worker.
+// checkProjectFlag refuses --project for a command that serves every
+// project or that runs on a worker. While projects are off, it accepts only
+// the default project, which a parent started while projects were on still
+// names, and refuses any other as the unknown flag it was.
 func checkProjectFlag(cmd *cobra.Command, cfg *config.Config) error {
 	flag := cmd.Flags().Lookup(projectFlag.name)
 	if flag == nil || !flag.Changed {
 		return nil
 	}
 	if !cfg.ProjectsEnabled {
+		if strings.EqualFold(strings.TrimSpace(flag.Value.String()), project.DefaultName) {
+			return nil
+		}
 		return errProjectFlagUnknown
 	}
 	if servesProjects(cmd.Name()) || cmd.Name() == "worker" {
@@ -125,17 +130,18 @@ func takesDAGFile(commandName string) bool {
 	}
 }
 
-// checkDAGFile refuses a DAG file given by path that lies in the DAG
-// directory of a project other than the addressed one. A file in the
-// library, or in no project's DAG directory, is the addressed project's to
-// run.
+// checkDAGFile refuses a DAG argument whose file, found as the loader finds
+// it, lies in the DAG directory of a project other than the addressed one. A
+// file in the library, or in no project's DAG directory, is the addressed
+// project's to run.
 func (c *Context) checkDAGFile(args []string) error {
 	if !c.Config.ProjectsEnabled || c.projectStores == nil || len(args) == 0 ||
 		!takesDAGFile(commandFamilyName(c.Command)) {
 		return nil
 	}
-	path := args[0]
-	if !fileutil.IsYAMLFile(path) || spec.IsTestFile(path) || !fileutil.FileExists(path) {
+	path, err := spec.ResolveDAGFile(args[0], c.projectPaths().DAGsDir)
+	// A name that finds no file loads from elsewhere, or fails as before.
+	if err != nil || spec.IsTestFile(path) || !fileutil.FileExists(path) {
 		return nil
 	}
 	owner, err := c.projectOf(path)
@@ -143,7 +149,7 @@ func (c *Context) checkDAGFile(args []string) error {
 		return err
 	}
 	return fmt.Errorf("%s belongs to project %s, not to project %s that this command addresses; run it with --project %s",
-		path, owner, c.project.Name, owner)
+		args[0], owner, c.project.Name, owner)
 }
 
 // projectOf returns the name of the project whose DAG directory holds path,
@@ -155,6 +161,38 @@ func (c *Context) projectOf(path string) (string, error) {
 	}
 	owner, _ := c.Config.DAGPathOwner(path, projectNames(projects))
 	return owner, nil
+}
+
+// managesProjects reports whether the command manages projects rather than
+// acting in one, so it addresses none.
+func managesProjects(commandName string) bool {
+	return commandName == projectCommandName || strings.HasPrefix(commandName, projectCommandName+" ")
+}
+
+// inOtherProject reports whether the command addresses a project other than
+// the default one.
+func (c *Context) inOtherProject() bool {
+	return c.Config.ProjectsEnabled && c.project.Name != "" && !strings.EqualFold(c.project.Name, project.DefaultName)
+}
+
+// checkProjectDispatch refuses to send a run of a project other than the
+// default one to a worker: a dispatch task does not carry its project until
+// P12, so the coordinator would record the run in the default project.
+func (c *Context) checkProjectDispatch() error {
+	if !c.inOtherProject() {
+		return nil
+	}
+	return fmt.Errorf("project %s cannot run DAGs on workers yet (P12); only the default project's runs are dispatched", c.project.Name)
+}
+
+// checkProjectEnqueue refuses to queue a run of a project other than the
+// default one: no scheduler reads that project's queues until P10, so the
+// run would never start.
+func (c *Context) checkProjectEnqueue() error {
+	if !c.inOtherProject() {
+		return nil
+	}
+	return fmt.Errorf("project %s cannot queue runs yet (P10); only the default project's queues are processed", c.project.Name)
 }
 
 // ownTestFiles keeps the test files that lie in the addressed project's DAG

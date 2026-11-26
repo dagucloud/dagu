@@ -811,8 +811,8 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 			Dates:                    opts.dates,
 			DefaultSlot:              opts.defaultSlot,
 			ArtifactDir:              artifactDir,
-			DAGRunLogDir:             ctx.Config.Paths.LogDir,
-			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
+			DAGRunLogDir:             ctx.projectPaths().LogDir,
+			DAGRunArtifactDir:        ctx.projectPaths().ArtifactDir,
 			ExpandSubRuns:            opts.recursiveOutput,
 		}),
 	)
@@ -944,7 +944,11 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 		taskOpts...,
 	)
 
-	if err := coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task}); err != nil {
+	err := ctx.checkProjectDispatch()
+	if err == nil {
+		err = coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task})
+	}
+	if err != nil {
 		if opts.seed != nil {
 			intake.MarkSeedFailed(ctx, ctx.Persistence.DAGRunRepository, opts.seed, err)
 		}
@@ -952,7 +956,7 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	}
 
 	logger.Info(ctx, "DAG dispatched to coordinator; awaiting completion")
-	err := waitForDAGCompletionWithProgress(signalAwareCtx, d, dagRunID, coordinatorCli, progress)
+	err = waitForDAGCompletionWithProgress(signalAwareCtx, d, dagRunID, coordinatorCli, progress)
 
 	// If context was cancelled (e.g., Ctrl+C), request cancellation on coordinator
 	if signalCtx.Err() != nil {

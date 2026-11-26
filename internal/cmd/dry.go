@@ -135,8 +135,8 @@ func runDry(ctx *Context, args []string) error {
 			ScheduleWindow:           slot.window,
 			Dates:                    dates,
 			DefaultSlot:              slot.isDefault,
-			DAGRunLogDir:             ctx.Config.Paths.LogDir,
-			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
+			DAGRunLogDir:             ctx.projectPaths().LogDir,
+			DAGRunArtifactDir:        ctx.projectPaths().ArtifactDir,
 		},
 	)
 

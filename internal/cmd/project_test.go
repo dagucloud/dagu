@@ -6,6 +6,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,6 +14,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -145,6 +148,50 @@ func TestProjectsOff(t *testing.T) {
 	assert.Empty(t, ctx.DAGRunMgr.Project())
 	assert.Equal(t, h.dags, ctx.projectPaths().DAGsDir)
 	require.NoError(t, ctx.checkDAGFile([]string{h.file(t, "projects/weather/forecast.yaml")}))
+
+	// A child that a parent started while projects were on still names the
+	// default project.
+	ctx, err = NewContext(h.command(t, "status", "default"), nil)
+	require.NoError(t, err)
+	assert.Empty(t, ctx.DAGRunMgr.Project())
+
+	// Each command keeps its own handling of a flag error.
+	_, _, err = h.runDagu(t, []*cobra.Command{Test()}, "test", "--project", "weather")
+	var exit *exitStatusError
+	require.ErrorAs(t, err, &exit)
+	assert.Equal(t, testExitInvalid, exit.ExitStatus())
+}
+
+// TestProjectCommandsAddressNoProject proves that DAGU_PROJECT naming a
+// project not created yet does not keep dagu project from creating it. It
+// sets the environment, so it does not run in parallel.
+func TestProjectCommandsAddressNoProject(t *testing.T) {
+	h := newProjectsHome(t, true)
+	t.Setenv(runenv.EnvKeyProject, "ops")
+
+	for _, args := range [][]string{{"project", "create", "ops"}, {"project", "list"}} {
+		_, stderr, err := h.runDagu(t, []*cobra.Command{Project()}, args...)
+		require.NoError(t, err, "%v: %s", args, stderr)
+	}
+	stdout, _, err := h.runDagu(t, []*cobra.Command{Project()}, "project", "--help")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "Create and list projects")
+}
+
+// TestProjectEnqueue proves that a project other than the default one does
+// not queue a run that no scheduler would start.
+func TestProjectEnqueue(t *testing.T) {
+	t.Parallel()
+	h := newProjectsHome(t, true)
+	h.file(t, "projects/weather/forecast.yaml")
+
+	_, _, err := h.runDagu(t, []*cobra.Command{Enqueue()}, "enqueue", "--project", "weather", "forecast")
+	require.ErrorContains(t, err, "project weather cannot queue runs yet")
+	ctx, err := NewContext(h.command(t, "enqueue", "weather"), nil)
+	require.NoError(t, err)
+	items, err := ctx.Persistence.QueueStore.All(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, items)
 }
 
 func TestProjectFlagHidden(t *testing.T) {
@@ -189,6 +236,9 @@ func TestCheckDAGFile(t *testing.T) {
 		err := ctx.checkDAGFile([]string{h.file(t, rel)})
 		require.ErrorContains(t, err, "belongs to project "+owner+", not to project weather", rel)
 	}
+	// A name is checked at the file the loader finds for it.
+	err = ctx.checkDAGFile([]string{filepath.Join("..", "intraday", "auction")})
+	require.ErrorContains(t, err, "belongs to project intraday")
 
 	ctx.Command = &cobra.Command{Use: "secret"}
 	require.NoError(t, ctx.checkDAGFile([]string{h.file(t, "cleanup.yaml")}), "only a DAG argument is checked")
@@ -245,9 +295,12 @@ func (h projectsHome) runDagu(t *testing.T, commands []*cobra.Command, args ...s
 // TestProjectCommandOff proves the dark rule for dagu project: with projects
 // off, the root help does not list it, and running it prints what an
 // unknown command prints.
+// It replaces how help ends the process, so it does not run in parallel.
 func TestProjectCommandOff(t *testing.T) {
-	t.Parallel()
 	h := newProjectsHome(t, false)
+	exitCode := 0
+	exitProjectHelp = func(code int) { exitCode = code }
+	t.Cleanup(func() { exitProjectHelp = os.Exit })
 
 	_, before, beforeErr := h.runDagu(t, []*cobra.Command{Version()}, "project", "list")
 	require.Error(t, beforeErr)
@@ -256,6 +309,13 @@ func TestProjectCommandOff(t *testing.T) {
 		_, stderr, err := h.runDagu(t, []*cobra.Command{Version(), Project()}, args...)
 		require.EqualError(t, err, beforeErr.Error(), args)
 		assert.Equal(t, before, stderr, args)
+	}
+	for _, args := range [][]string{{"project", "--help"}, {"project", "create", "--help"}} {
+		exitCode = 0
+		stdout, stderr, _ := h.runDagu(t, []*cobra.Command{Version(), Project()}, args...)
+		assert.Equal(t, 1, exitCode, args)
+		assert.Equal(t, before, stderr, args)
+		assert.Empty(t, stdout, args)
 	}
 
 	root := &cobra.Command{Use: "dagu"}
@@ -282,11 +342,16 @@ func TestProjectCommands(t *testing.T) {
 	require.NoError(t, err)
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
 	require.Len(t, lines, 5, stdout)
-	assert.Equal(t, []string{"NAME", "DISPLAY", "NAME", "STATE", "DAG", "DIRECTORY"}, strings.Fields(lines[0]))
-	assert.Equal(t, []string{"default", "default", "active", h.dags}, strings.Fields(lines[1]))
-	assert.Equal(t, []string{"intraday", "intraday", "missing", filepath.Join(h.dags, "projects", "intraday")}, strings.Fields(lines[2]))
-	assert.Equal(t, "ops", strings.Fields(lines[3])[0])
-	assert.Equal(t, "weather", strings.Fields(lines[4])[0])
+	// The DAG directory, the last column, may hold spaces.
+	row := func(line, dir string) []string {
+		require.True(t, strings.HasSuffix(line, dir), "%q ends in %q", line, dir)
+		return strings.Fields(strings.TrimSuffix(line, dir))
+	}
+	assert.Equal(t, []string{"NAME", "DISPLAY", "NAME", "STATE", "DAG"}, row(lines[0], "DIRECTORY"))
+	assert.Equal(t, []string{"default", "default", "active"}, row(lines[1], h.dags))
+	assert.Equal(t, []string{"intraday", "intraday", "missing"}, row(lines[2], filepath.Join(h.dags, "projects", "intraday")))
+	assert.Equal(t, []string{"ops", "ops", "active"}, row(lines[3], filepath.Join(h.dags, "projects", "ops")))
+	assert.Equal(t, []string{"weather", "weather", "active"}, row(lines[4], filepath.Join(h.dags, "projects", "weather")))
 }
 
 // TestStartGivesStepsTheProject proves Spec 102 "Steps": each step of a run
@@ -322,6 +387,22 @@ func TestStartGivesStepsTheProject(t *testing.T) {
 	_, stderr, err := on.runDagu(t, []*cobra.Command{Start()}, "start", "--project", "weather", "forecast")
 	require.NoError(t, err, stderr)
 	assert.Equal(t, "weather", readOut(t, forecast))
+
+	// The run, and one of selected steps, logs in the project's directory.
+	_, stderr, err = on.runDagu(t, []*cobra.Command{Start()}, "start", "--project", "weather", "--only", "record", "forecast")
+	require.NoError(t, err, stderr)
+	assert.Equal(t, "weather", readOut(t, forecast))
+	weather, err := NewContext(on.command(t, "status", "weather"), nil)
+	require.NoError(t, err)
+	runs, err := weather.Persistence.DAGRunRepository.ListStatuses(weather, persis.DAGRunListOptions{})
+	require.NoError(t, err)
+	require.Len(t, runs, 2)
+	for _, run := range runs {
+		rel, err := filepath.Rel(weather.projectPaths().LogDir, run.Log)
+		require.NoError(t, err)
+		assert.False(t, strings.HasPrefix(rel, ".."), "%s is not under %s", run.Log, weather.projectPaths().LogDir)
+	}
+
 	_, stderr, err = on.runDagu(t, []*cobra.Command{Start()}, "start", "cleanup")
 	require.NoError(t, err, stderr)
 	assert.Equal(t, "default", readOut(t, cleanup))
@@ -331,4 +412,27 @@ func TestStartGivesStepsTheProject(t *testing.T) {
 	_, stderr, err = off.runDagu(t, []*cobra.Command{Start()}, "start", "cleanup")
 	require.NoError(t, err, stderr)
 	assert.Empty(t, readOut(t, cleanup))
+}
+
+// A dispatch task does not carry its project yet, so only the default
+// project's runs go to workers.
+func TestProjectDispatch(t *testing.T) {
+	t.Parallel()
+	h := newProjectsHome(t, true)
+	stop := errors.New("stop after dispatch")
+
+	for projectName, dispatched := range map[string]bool{"weather": false, "default": true} {
+		ctx, err := NewContext(h.command(t, "start", projectName), nil)
+		require.NoError(t, err)
+		ctx.Quiet = true
+		client := &smtpDispatchClient{err: stop}
+		err = dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "gpu"}, "run", runOptions{}, client)
+		if dispatched {
+			require.ErrorIs(t, err, stop)
+			require.NotNil(t, client.task)
+			continue
+		}
+		require.ErrorContains(t, err, "project weather cannot run DAGs on workers yet")
+		require.Nil(t, client.task)
+	}
 }

@@ -263,8 +263,8 @@ func executeDAGWithRunID(
 			ScheduleWindow:           opts.scheduleWindow,
 			Dates:                    opts.dates,
 			ArtifactDir:              artifactDir,
-			DAGRunLogDir:             ctx.Config.Paths.LogDir,
-			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
+			DAGRunLogDir:             ctx.projectPaths().LogDir,
+			DAGRunArtifactDir:        ctx.projectPaths().ArtifactDir,
 		})
 
 	ctx.LogToFile(logFile)

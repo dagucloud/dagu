@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -36,8 +37,35 @@ func Project() *cobra.Command {
 	}, cobra.NoArgs, func(ctx *Context, _ []string) error {
 		return ctx.Command.Help()
 	})
+	// Cobra shows the help of a hidden command too, so the help of the group
+	// and its subcommands answers as an unknown command while projects are
+	// off.
+	help := cmd.HelpFunc()
+	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
+		if cfg, _, err := loadCommandConfig(c, nil); err == nil && cfg.ProjectsEnabled {
+			help(c, args)
+			return
+		}
+		_ = unknownProjectCommand(c)
+		exitProjectHelp(1)
+	})
 	cmd.AddCommand(projectCreateCommand(), projectListCommand())
 	return cmd
+}
+
+// exitProjectHelp ends the process after the help of a project command
+// refuses, which Cobra would end with status 0.
+var exitProjectHelp = os.Exit
+
+// unknownProjectCommand prints and returns the error of a command that does
+// not exist.
+func unknownProjectCommand(cmd *cobra.Command) error {
+	root := cmd.Root()
+	err := fmt.Errorf("unknown command %q for %q", projectCommandName, root.Name())
+	cmd.SilenceErrors = true
+	cmd.PrintErrln(cmd.ErrPrefix(), err.Error())
+	cmd.PrintErrf("Run '%v --help' for usage.\n", root.CommandPath())
+	return err
 }
 
 // newProjectCommand returns a command that, while projects are off, answers
@@ -46,12 +74,7 @@ func newProjectCommand(cmd *cobra.Command, args cobra.PositionalArgs, run func(*
 	cmd.Args = cobra.ArbitraryArgs
 	return NewCommand(cmd, nil, func(ctx *Context, values []string) error {
 		if !ctx.Config.ProjectsEnabled {
-			root := ctx.Command.Root()
-			err := fmt.Errorf("unknown command %q for %q", projectCommandName, root.Name())
-			ctx.Command.SilenceErrors = true
-			ctx.Command.PrintErrln(ctx.Command.ErrPrefix(), err.Error())
-			ctx.Command.PrintErrf("Run '%v --help' for usage.\n", root.CommandPath())
-			return err
+			return unknownProjectCommand(ctx.Command)
 		}
 		if err := args(ctx.Command, values); err != nil {
 			return err
