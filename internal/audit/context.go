@@ -37,6 +37,9 @@ type SourceContext struct {
 	CloudWorkspace            string
 	MCPTool                   string
 	MCPAction                 string
+	// ProjectID and ProjectName identify the project the request acts in.
+	ProjectID   string
+	ProjectName string
 }
 
 // WithSourceContext stores a copy of source context on ctx.
@@ -76,6 +79,9 @@ func ApplySourceContext(entry *Entry, source *SourceContext) {
 	}
 	if entry.Workspace == "" {
 		entry.Workspace = source.ResolvedWorkspace
+	}
+	if entry.ProjectID == "" {
+		entry.ProjectID, entry.Project = source.ProjectID, source.ProjectName
 	}
 	if entry.CredentialID == "" {
 		entry.CredentialID = source.CredentialID

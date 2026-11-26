@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/wiki"
@@ -178,7 +177,7 @@ func (a *API) CreateWikiPage(ctx context.Context, request api.CreateWikiPageRequ
 		return nil, internalError(err)
 	}
 
-	a.logAudit(ctx, audit.CategoryWiki, auditActionWikiPageCreate, map[string]any{
+	a.logWikiAudit(ctx, auditActionWikiPageCreate, map[string]any{
 		"doc_id":    id,
 		"workspace": workspaceName,
 	})
@@ -361,7 +360,7 @@ func (a *API) UploadWikiPageAttachment(ctx context.Context, request api.UploadWi
 		return nil, internalError(err)
 	}
 
-	a.logAudit(ctx, audit.CategoryWiki, auditActionWikiPageAttachmentUpload, map[string]any{
+	a.logWikiAudit(ctx, auditActionWikiPageAttachmentUpload, map[string]any{
 		"workspace": workspaceName,
 		"path":      request.Params.Path,
 		"name":      attachment.Name,
@@ -549,7 +548,7 @@ func (a *API) UpdateWikiPage(ctx context.Context, request api.UpdateWikiPageRequ
 		return nil, internalError(err)
 	}
 
-	a.logAudit(ctx, audit.CategoryWiki, auditActionWikiPageUpdate, map[string]any{
+	a.logWikiAudit(ctx, auditActionWikiPageUpdate, map[string]any{
 		"doc_id":    request.Params.Path,
 		"workspace": workspaceName,
 	})
@@ -589,7 +588,7 @@ func (a *API) DeleteWikiPage(ctx context.Context, request api.DeleteWikiPageRequ
 		return nil, internalError(err)
 	}
 
-	a.logAudit(ctx, audit.CategoryWiki, auditActionWikiPageDelete, map[string]any{
+	a.logWikiAudit(ctx, auditActionWikiPageDelete, map[string]any{
 		"doc_id":    request.Params.Path,
 		"workspace": workspaceName,
 	})
@@ -638,7 +637,7 @@ func (a *API) RenameWikiPage(ctx context.Context, request api.RenameWikiPageRequ
 		return nil, internalError(err)
 	}
 
-	a.logAudit(ctx, audit.CategoryWiki, auditActionWikiPageRename, map[string]any{
+	a.logWikiAudit(ctx, auditActionWikiPageRename, map[string]any{
 		"old_path":  request.Params.Path,
 		"new_path":  request.Body.NewPath,
 		"workspace": workspaceName,
@@ -693,10 +692,11 @@ func (a *API) DeleteWikiPageBatch(ctx context.Context, request api.DeleteWikiPag
 	}
 
 	visibleDeleted := make([]string, 0, len(deleted))
+	auditCtx := a.wikiAuditContext(ctx)
 	for _, id := range deleted {
 		visibleID := visibleWikiPagePath(workspaceName, id)
 		visibleDeleted = append(visibleDeleted, visibleID)
-		a.logAudit(ctx, audit.CategoryWiki, auditActionWikiPageDelete, map[string]any{
+		a.logWikiAudit(auditCtx, auditActionWikiPageDelete, map[string]any{
 			"doc_id":    visibleID,
 			"workspace": workspaceName,
 		})
