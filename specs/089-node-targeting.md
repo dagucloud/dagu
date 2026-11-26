@@ -153,7 +153,10 @@ keys are checked on the worker, against the node's `host_key` or the key
 trusted when the run looked the node up. A run never trusts a key.
 
 The child runs of a step with `nodes` run on the worker that runs their
-parent. Each child run reads its own node again, so a run never reuses an
+parent. A child DAG file whose name holds a reference, such as
+`dag: deploy-${params.app}`, reads no nodes on a worker: the coordinator
+serves only the child DAGs a run names as written, in its steps, `foreach`
+bodies, and handlers. Each child run reads its own node again, so a run never reuses an
 answer another run read. A worker that cannot reach the coordinator, or
 whose coordinator answers no lookup, fails the step or the run as an
 unreadable inventory does.
