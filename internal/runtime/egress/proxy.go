@@ -35,8 +35,8 @@ type DialFunc func(ctx context.Context, network, address string) (net.Conn, erro
 
 // Options configures a proxy.
 type Options struct {
-	// Rules is the allow list. A proxy with no rule is not valid, because it
-	// would deny everything.
+	// Rules is the allow list. Rules and CredentialRules together need at least
+	// one rule: a proxy with none would deny everything.
 	Rules *Rules
 	// Resolver resolves the names of the allowed destinations. The default is the
 	// resolver of the process.
@@ -51,7 +51,8 @@ type Options struct {
 	// CredentialRules are the destinations that need the proxy credential. A
 	// client that sends it in the header Proxy-Authorization (Basic, the password
 	// part) reaches them. Other clients get the status 407. A rule of this list
-	// MUST NOT overlap a rule of Rules. It can be nil.
+	// MUST NOT overlap a rule of Rules, and Rules MUST NOT then hold a wildcard.
+	// It can be nil.
 	CredentialRules *Rules
 	// ProxyCredential is the value that CredentialRules need. It is set exactly
 	// when CredentialRules has a rule.
@@ -352,7 +353,7 @@ func (p *Proxy) dialAllowed(ctx context.Context, network, address string) (net.C
 		return nil, fmt.Errorf("the destination %q has no valid port", address)
 	}
 	// A destination of CredentialRules gets here only after admit checked the
-	// credential.
+	// credential, or as the upstream of the origin route, which needs none.
 	if !p.rules.Allows(host, port) && !p.credentialRules.Allows(host, port) {
 		return nil, &DeniedError{Host: host, Port: port}
 	}
