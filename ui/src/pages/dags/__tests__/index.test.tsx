@@ -15,11 +15,14 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import { SearchStateProvider } from '@/contexts/SearchStateContext';
 import {
+  RestartPolicy,
+  Status,
   ViewSortField,
   ViewSortOrder,
   ViewSpecType,
   ViewWorkspaceScope,
 } from '@/api/v1/schema';
+import { ACTIVITY_WINDOW_SECONDS } from '@/features/dags/components/dag-list/activityBarsModel';
 import { useQuery } from '@/hooks/api';
 import type { View, ViewSpec } from '@/hooks/useViews';
 import {
@@ -37,6 +40,7 @@ const {
   createViewMock,
   deleteResultsMock,
   deleteViewMock,
+  feedState,
   listMutateMock,
   sharedWorkflowViewState,
   showErrorMock,
@@ -51,6 +55,7 @@ const {
   createViewMock: vi.fn(),
   deleteResultsMock: vi.fn(),
   deleteViewMock: vi.fn(),
+  feedState: { current: undefined as unknown },
   listMutateMock: vi.fn(),
   sharedWorkflowViewState: { views: [] as View[] },
   showErrorMock: vi.fn(),
@@ -96,6 +101,7 @@ vi.mock('@/features/dags/components/dag-editor', () => ({
 vi.mock('@/features/dags/components/dag-list', () => ({
   DAGTable: ({
     dags,
+    activity,
     searchText,
     handleSearchTextChange,
     activeOnly,
@@ -120,6 +126,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       fileName: string;
       dag: { name: string; workspace?: string };
     }>;
+    activity?: ReadonlyMap<string, { runs: unknown[] }>;
     searchText: string;
     handleSearchTextChange: (value: string) => void;
     activeOnly: boolean;
@@ -264,6 +271,9 @@ vi.mock('@/features/dags/components/dag-list', () => ({
             key={dag.fileName}
             data-can-edit={String(canEditDAG?.(dag))}
             data-can-pin={String(canPinDAG?.(dag))}
+            data-activity-runs={String(
+              activity?.get(dag.fileName)?.runs.length ?? 'none'
+            )}
           >
             {dag.fileName}
           </li>
@@ -295,6 +305,13 @@ vi.mock('@/hooks/useDAGsListSSE', () => ({
   }),
 }));
 
+vi.mock('@/hooks/useDAGRunChangesSSE', () => ({
+  useDAGRunChangesSSE: () => ({
+    isConnected: true,
+    shouldUseFallback: false,
+  }),
+}));
+
 vi.mock('@/hooks/useSSECacheSync', () => ({
   sseFallbackOptions: () => ({}),
   useSSECacheSync: () => undefined,
@@ -311,6 +328,7 @@ type DagsPageResponse = {
     fileName: string;
     dag: {
       name: string;
+      restartPolicy?: RestartPolicy;
     };
     latestDAGRun: Record<string, unknown>;
   }>;
@@ -484,6 +502,16 @@ describe('DagsPage', () => {
     clientDeleteMock.mockResolvedValue({});
     deleteResultsMock.mockReset();
     clientGetMock.mockReset();
+    // The activity of the rows is empty unless a test answers it.
+    clientGetMock.mockImplementation(async (path: string) =>
+      path === '/dag-list-activity'
+        ? {
+            data: { dags: [], errors: [], readAt: '2026-11-25T00:00:00.000Z' },
+            response: { status: 200 },
+          }
+        : undefined
+    );
+    feedState.current = undefined;
     clientPostMock.mockReset();
     clientPostMock.mockResolvedValue({});
     clientPutMock.mockReset();
@@ -575,6 +603,10 @@ describe('DagsPage', () => {
           isLoading: false,
           mutate: vi.fn(),
         };
+      }
+
+      if (path === '/dag-run-changes') {
+        return { data: feedState.current, isLoading: false, mutate: vi.fn() };
       }
 
       if (path === '/dags') {
@@ -1238,7 +1270,7 @@ describe('DagsPage', () => {
         prevPage: 0,
       },
     };
-    clientGetMock.mockResolvedValueOnce({
+    const nextPage = {
       data: {
         dags: [
           {
@@ -1258,7 +1290,12 @@ describe('DagsPage', () => {
           prevPage: 1,
         },
       },
-    });
+    };
+    // The activity of the rows reads through the same client.
+    const answerActivity = clientGetMock.getMockImplementation();
+    clientGetMock.mockImplementation(async (path: string, init: unknown) =>
+      path === '/dags' ? nextPage : answerActivity?.(path, init)
+    );
 
     renderPage();
 
@@ -1286,6 +1323,199 @@ describe('DagsPage', () => {
         },
       })
     );
+  });
+
+  // The rows draw their activity. The list reads it in requests that name the
+  // rows, and reads again the rows that the change feed names.
+  describe('activity of the rows', () => {
+    const READ_AT = '2026-11-25T00:00:10.000Z';
+    const dagFile = (name: string, restartPolicy?: RestartPolicy) => ({
+      fileName: `${name}.yaml`,
+      dag: { name, restartPolicy },
+      latestDAGRun: {},
+    });
+    const activityOf = (fileName: string, runs: number) => ({
+      fileName,
+      activity: {
+        runs: Array.from({ length: runs }, (_, index) => ({
+          dagRunId: `${fileName}-${index}`,
+          status: Status.Success,
+          startedAt: '2026-11-25T00:00:00Z',
+        })),
+        truncated: false,
+      },
+    });
+    const runsOf = (fileName: string) =>
+      screen.getByText(fileName).getAttribute('data-activity-runs');
+    const settle = async () => {
+      for (let tick = 0; tick < 10; tick++) await Promise.resolve();
+    };
+    type ActivityInit = {
+      params: { query: { fileName: string[]; window: number } };
+    };
+    // The runs of each workflow that the activity requests answer with.
+    let runs: Record<string, number> = {};
+    const answerActivity = (init: ActivityInit) => ({
+      data: {
+        dags: init.params.query.fileName.map((fileName) =>
+          activityOf(fileName, runs[fileName] ?? 0)
+        ),
+        errors: [],
+        readAt: READ_AT,
+      },
+      response: { status: 200 },
+    });
+    const activityReads = () =>
+      clientGetMock.mock.calls
+        .filter(([path]) => path === '/dag-list-activity')
+        .map(([, init]) => (init as ActivityInit).params.query);
+    const renderSettled = async () => {
+      const view = renderPage();
+      await act(settle);
+      return view;
+    };
+    // The list has a second page, next.yaml.
+    const answerNextPage = () => {
+      dagsPageResponse.pagination = {
+        totalRecords: 2,
+        currentPage: 1,
+        totalPages: 2,
+        nextPage: 2,
+        prevPage: 0,
+      };
+      clientGetMock.mockImplementation(async (path: string, init: unknown) =>
+        path === '/dags'
+          ? {
+              data: {
+                dags: [dagFile('next')],
+                errors: [],
+                pagination: {
+                  totalRecords: 2,
+                  currentPage: 2,
+                  totalPages: 2,
+                  nextPage: 0,
+                  prevPage: 1,
+                },
+              },
+            }
+          : answerActivity(init as ActivityInit)
+      );
+    };
+    const loadMore = async () => {
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole('button', { name: 'Load more workflows' })
+        );
+        await settle();
+      });
+      await act(settle);
+    };
+
+    beforeEach(() => {
+      runs = {};
+      clientGetMock.mockImplementation(async (path: string, init: unknown) =>
+        path === '/dag-list-activity'
+          ? answerActivity(init as ActivityInit)
+          : undefined
+      );
+    });
+
+    it('asks the activity of the listed workflows', async () => {
+      await renderSettled();
+
+      expect(activityReads()).toEqual([
+        {
+          fileName: ['demo.yaml'],
+          window: ACTIVITY_WINDOW_SECONDS,
+          remoteNode: 'remote-a',
+        },
+      ]);
+    });
+
+    it('joins the activity to the rows by file name', async () => {
+      dagsPageResponse.dags = [dagFile('demo'), dagFile('other')];
+      runs = { 'demo.yaml': 2, 'other.yaml': 1 };
+
+      await renderSettled();
+
+      expect(runsOf('demo.yaml')).toBe('2');
+      expect(runsOf('other.yaml')).toBe('1');
+    });
+
+    it('shows the rows without activity when its request fails', async () => {
+      clientGetMock.mockImplementation(async () => ({
+        error: { code: 'internal_error', message: 'activity failed' },
+        response: { status: 500 },
+      }));
+
+      await renderSettled();
+
+      expect(screen.getByText('demo.yaml')).toBeVisible();
+      expect(runsOf('demo.yaml')).toBe('none');
+    });
+
+    // A service workflow draws no strip, so its activity is not read.
+    it('leaves service workflows out', async () => {
+      dagsPageResponse.dags = [
+        dagFile('demo'),
+        dagFile('keeper', RestartPolicy.always),
+      ];
+
+      await renderSettled();
+
+      expect(activityReads().map((query) => query.fileName)).toEqual([
+        ['demo.yaml'],
+      ]);
+    });
+
+    it('reads the rows of a later page once', async () => {
+      runs = { 'next.yaml': 3 };
+      answerNextPage();
+      await renderSettled();
+
+      await loadMore();
+
+      expect(runsOf('next.yaml')).toBe('3');
+      expect(activityReads().map((query) => query.fileName)).toEqual([
+        ['demo.yaml'],
+        ['next.yaml'],
+      ]);
+    });
+
+    // All loaded pages are live: the feed names a row of a later page, and
+    // only that row is read again.
+    it('reads again a row of a later page that the feed names', async () => {
+      runs = { 'next.yaml': 3 };
+      answerNextPage();
+      const view = await renderSettled();
+      await loadMore();
+
+      runs = { 'next.yaml': 4 };
+      feedState.current = {
+        since: '2026-11-25T00:00:00.000Z',
+        readAt: '2026-11-25T00:00:30.000Z',
+        changes: [
+          { fileName: 'next.yaml', changedAt: '2026-11-25T00:00:20.000Z' },
+        ],
+      };
+      view.rerender(
+        <MemoryRouter initialEntries={['/dags']}>
+          <LocationProbe />
+          <DagsPageHarness
+            setTitle={vi.fn()}
+            workspaceSelection={{ kind: WorkspaceKind.all }}
+          />
+        </MemoryRouter>
+      );
+      await act(settle);
+
+      expect(activityReads().map((query) => query.fileName)).toEqual([
+        ['demo.yaml'],
+        ['next.yaml'],
+        ['next.yaml'],
+      ]);
+      expect(runsOf('next.yaml')).toBe('4');
+    });
   });
 
   // The first page is live and the next pages are read once. A workflow that
@@ -1324,6 +1554,21 @@ describe('DagsPage', () => {
       await Promise.resolve();
       await Promise.resolve();
     };
+    // Answers the reads of the next page in turn, and the activity of the
+    // rows with no run.
+    const nextPageReads = (...responses: unknown[]) =>
+      clientGetMock.mockImplementation((path: string) =>
+        path === '/dags'
+          ? responses.shift()
+          : Promise.resolve({
+              data: {
+                dags: [],
+                errors: [],
+                readAt: '2026-11-25T00:00:00.000Z',
+              },
+              response: { status: 200 },
+            })
+      );
     const expectEveryWorkflow = () => {
       for (const name of ['a', 'b', 'c', 'd']) {
         expect(screen.getByText(`${name}.yaml`)).toBeVisible();
@@ -1332,9 +1577,7 @@ describe('DagsPage', () => {
 
     it('keeps every workflow when one crosses into the first page', async () => {
       dagsPageResponse = firstPage(['a', 'b']);
-      clientGetMock
-        .mockResolvedValueOnce(pageTwo(['c', 'd']))
-        .mockResolvedValueOnce(pageTwo(['b', 'c']));
+      nextPageReads(pageTwo(['c', 'd']), pageTwo(['b', 'c']));
       const view = render(tree());
 
       await act(async () => {
@@ -1360,14 +1603,12 @@ describe('DagsPage', () => {
     it('reads a page again that arrived after the first page changed', async () => {
       dagsPageResponse = firstPage(['a', 'b']);
       let deliver: (response: unknown) => void = () => undefined;
-      clientGetMock
-        .mockImplementationOnce(
-          () =>
-            new Promise((resolve) => {
-              deliver = resolve;
-            })
-        )
-        .mockResolvedValueOnce(pageTwo(['b', 'c']));
+      nextPageReads(
+        new Promise((resolve) => {
+          deliver = resolve;
+        }),
+        pageTwo(['b', 'c'])
+      );
       const view = render(tree());
 
       await act(async () => {

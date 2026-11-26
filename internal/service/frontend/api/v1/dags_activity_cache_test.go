@@ -95,8 +95,8 @@ func TestActivityCacheSkipsActivitiesThatChangeUnseen(t *testing.T) {
 // While the run events are followed, a list reuses the activity of a plain
 // DAG for one bucket of its window, also when an older run is in progress,
 // until an event tells that the runs of the DAG changed. An activity whose read
-// began before that change is not reused. A service DAG keeps its activity by
-// age only.
+// began before that change is not reused. A change drops the activity of a
+// service DAG too, so that a list that reads after the change sees it.
 func TestActivityCacheFollowsRunChanges(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
@@ -127,9 +127,8 @@ func TestActivityCacheFollowsRunChanges(t *testing.T) {
 	assert.False(t, ok, "a run of the DAG changed")
 	_, ok = cache.get(other, running, later)
 	assert.True(t, ok, "the runs of another DAG did not change")
-	cache.put(service, running, later.Add(-time.Second), olderRunning)
 	_, ok = cache.get(service, running, later)
-	assert.True(t, ok, "a service DAG keeps its activity by age")
+	assert.False(t, ok, "a run of the service DAG changed")
 
 	cache.put(plain, running, later.Add(-time.Second), olderRunning)
 	_, ok = cache.get(plain, running, later)
@@ -139,6 +138,30 @@ func TestActivityCacheFollowsRunChanges(t *testing.T) {
 	cache.changed(nil, end)
 	_, ok = cache.get(other, running, end)
 	assert.False(t, ok, "older than one bucket of the window")
+}
+
+// While the run events are followed, a kept activity is reused without the
+// latest run of its DAG, until an event tells that the runs of the DAG
+// changed.
+func TestActivityCacheReusesFollowedActivity(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	key := activityKey{dag: "d", window: 24 * time.Hour}
+	kept := &openapiv1.DAGListActivity{}
+	var cache activityCache
+	cache.put(key, ir.DAGRunStatus{DAGRunID: "r1", AttemptID: "a1", Status: ir.Succeeded}, at, kept)
+
+	_, ok := cache.getFollowed(key, at)
+	assert.False(t, ok, "the run events are not followed yet")
+
+	cache.changed(nil, at)
+	got, ok := cache.getFollowed(key, at.Add(time.Second))
+	assert.True(t, ok)
+	assert.Same(t, kept, got)
+
+	cache.changed([]string{"d"}, at.Add(2*time.Second))
+	_, ok = cache.getFollowed(key, at.Add(3*time.Second))
+	assert.False(t, ok, "a run of the DAG changed")
 }
 
 // A change of a DAG drops its kept activity also when the changes of more DAGs

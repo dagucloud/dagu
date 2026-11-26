@@ -72,6 +72,10 @@ type DAGDefinitionStore interface {
 	UpdateIfMatch(ctx context.Context, id, expectedSHA256 string, source []byte) error
 	Rename(ctx context.Context, oldID, newID string) error
 	GetMetadata(ctx context.Context, id string) (*ir.DAG, error)
+	// MetadataByIDs returns the metadata of each DAG that an id names, by id.
+	// An id that names no DAG, or a DAG whose metadata cannot be read, is
+	// left out.
+	MetadataByIDs(ctx context.Context, ids []string) (map[string]*ir.DAG, error)
 	Catalog(ctx context.Context) (DAGCatalog, error)
 	// CatalogIncludingSearchPaths is like Catalog but also includes DAG
 	// definitions found under the store's additional search paths (for example

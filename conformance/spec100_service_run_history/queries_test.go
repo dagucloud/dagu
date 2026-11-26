@@ -80,8 +80,8 @@ func TestQueryParamsAreValidated(t *testing.T) {
 	}
 }
 
-// The activity of a DAG list page gives a service DAG buckets, at most 60, and
-// no run. A DAG that is not a service DAG keeps its runs.
+// The activity of the DAGs that a request names gives a service DAG buckets,
+// at most 60, and no run. A DAG that is not a service DAG keeps its runs.
 func TestActivityInDAGList(t *testing.T) {
 	t.Parallel()
 	p := newProject(t, "mixed")
@@ -90,7 +90,7 @@ func TestActivityInDAGList(t *testing.T) {
 	p.startScheduler()
 
 	list := func() map[string]*api.DAGListActivity {
-		resp := getJSON[api.DAGListActivityPage](p, http.StatusOK, "/dag-list-activity", url.Values{"window": {"86400"}})
+		resp := getJSON[api.DAGListActivityPage](p, http.StatusOK, "/dag-list-activity", url.Values{"window": {"86400"}, "fileName": {"service_ok", "plain"}})
 		byName := map[string]*api.DAGListActivity{}
 		for _, entry := range resp.Dags {
 			byName[entry.FileName] = &entry.Activity

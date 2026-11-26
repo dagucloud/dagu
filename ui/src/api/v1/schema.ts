@@ -1026,19 +1026,44 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get the activity of a DAG list page
-         * @description Gives the activity of each DAG of one page of `GET /dags` over a window
-         *     that ends now. The paging, filters, and sort select the same DAGs in
-         *     the same order as `GET /dags` with the same values, and a `perPage`
-         *     above 200 reads 200 DAGs, as `GET /dags` does. A plain DAG lists its
-         *     runs that started in the window, the last started first, and its runs
-         *     still in progress. It finds them among the runs created since one
-         *     window before the window, at most the 1000 created last, so a run that
-         *     waited in a queue for longer shows only while it is the latest run. A service DAG gives the buckets
-         *     of its run history instead.
+         * Get the activity of DAGs of a DAG list
+         * @description Gives the activity over a window that ends now of each DAG that a
+         *     `fileName` names, in the order of the request, each name once. A name
+         *     that names no DAG of `GET /dags` that the caller can see is left out,
+         *     with no error. A plain DAG lists its runs that started in the window,
+         *     the last started first, and its runs still in progress. It finds them
+         *     among the runs created since one window before the window, at most the
+         *     1000 created last, so a run that waited in a queue for longer shows
+         *     only while it is the latest run. A service DAG gives the buckets of its
+         *     run history instead.
          *
          */
         get: operations["getDAGListActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-run-changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the DAG files whose runs changed lately
+         * @description Lists the DAG files whose root runs changed lately, as the run events
+         *     that this server reads tell, so that a DAG list reads the activity of
+         *     those DAGs again. The `dagrunchanges:all` topic of the stream gives the
+         *     same feed, at most once a minute. A file is listed when the caller can
+         *     see the run, by the workspace label of the run.
+         *
+         */
+        get: operations["getDAGRunChanges"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7454,15 +7479,45 @@ export interface components {
          * @example 2026-11-09
          */
         ScheduleSlotValue: string;
-        /** @description The activity of the DAGs of one DAG list page, in page order */
+        /** @description The activity of the DAGs that a request names, in the order of the request */
         DAGListActivityPage: {
             dags: components["schemas"]["DAGListActivityEntry"][];
-            /** @description Errors encountered while listing the DAGs or reading their activity */
+            /** @description Errors encountered while reading the activity of the DAGs */
             errors: string[];
+            /**
+             * Format: date-time
+             * @description Server time when the activity was read, rounded down to the millisecond
+             */
+            readAt: string;
         };
-        /** @description The activity of one DAG of a list page */
-        DAGListActivityEntry: {
+        /** @description Every change of the root runs of a DAG file that the caller can see, after `since` and up to `readAt`. A list reads the activity again of a row whose file has a `changedAt` at or after the `readAt` of its activity, and of every row whose activity it read before `since`. Any other row is current as of `readAt`. */
+        DAGRunChanges: {
+            /**
+             * Format: date-time
+             * @description The feed holds every change after this time, rounded up to the millisecond. It moves when the server starts reading run events and when the feed drops a change older than 3 minutes or beyond 2000 files. A pause in the reads of the run events delays changes and does not move it. Equal to `readAt` before the first read of the run events.
+             */
+            since: string;
+            /**
+             * Format: date-time
+             * @description Server time when the feed was read, rounded down to the millisecond
+             */
+            readAt: string;
+            /** @description Each DAG file once, with its latest change, the newest first */
+            changes: components["schemas"]["DAGRunChange"][];
+        };
+        /** @description The latest change of the root runs of a DAG file */
+        DAGRunChange: {
             /** @description The fileName of the DAG in `GET /dags` */
+            fileName: string;
+            /**
+             * Format: date-time
+             * @description Server time of the change, rounded up to the millisecond. A read of the activity of the DAG that begins after it shows the change.
+             */
+            changedAt: string;
+        };
+        /** @description The activity of one DAG that a request names */
+        DAGListActivityEntry: {
+            /** @description The fileName of the DAG, as the request names it */
             fileName: string;
             activity: components["schemas"]["DAGListActivity"];
         };
@@ -13508,31 +13563,12 @@ export interface operations {
     getDAGListActivity: {
         parameters: {
             query: {
-                /** @description page number of items to fetch (default is 1) */
-                page?: components["parameters"]["Page"];
-                /** @description number of items per page (default is 30, max is 100) */
-                perPage?: components["parameters"]["PerPage"];
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
-                workspace?: components["parameters"]["Workspace"];
+                /** @description The fileName of a DAG in `GET /dags`. Repeat the parameter for each DAG, at most 100 times, so that the request line stays under 8 KiB. */
+                fileName: string[];
                 /** @description Length in seconds of the window that ends now */
                 window: number;
-                /** @description Same as `name` of `GET /dags` */
-                name?: string;
-                /** @description Same as `labels` of `GET /dags` */
-                labels?: string;
-                /** @description Same as `active` of `GET /dags` */
-                active?: boolean;
-                /**
-                 * @deprecated
-                 * @description Same as `tags` of `GET /dags`
-                 */
-                tags?: string;
-                /** @description Same as `sort` of `GET /dags` */
-                sort?: PathsDagListActivityGetParametersQuerySort;
-                /** @description Same as `order` of `GET /dags` */
-                order?: PathsDagListActivityGetParametersQueryOrder;
             };
             header?: never;
             path?: never;
@@ -13549,8 +13585,49 @@ export interface operations {
                     "application/json": components["schemas"]["DAGListActivityPage"];
                 };
             };
-            /** @description The window or a filter is invalid */
+            /** @description The window is invalid, or no fileName or more than 100 are given */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGRunChanges: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DAGRunChanges"];
+                };
+            };
+            /** @description The server does not run the event store, which alone feeds the change feed */
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -27313,16 +27390,6 @@ export enum PathsDagsGetParametersQuerySort {
     lastRun = "lastRun"
 }
 export enum PathsDagsGetParametersQueryOrder {
-    asc = "asc",
-    desc = "desc"
-}
-export enum PathsDagListActivityGetParametersQuerySort {
-    name = "name",
-    nextRun = "nextRun",
-    status = "status",
-    lastRun = "lastRun"
-}
-export enum PathsDagListActivityGetParametersQueryOrder {
     asc = "asc",
     desc = "desc"
 }
