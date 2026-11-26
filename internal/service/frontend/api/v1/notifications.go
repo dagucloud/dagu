@@ -46,7 +46,31 @@ func (a *API) GetNotificationSettings(ctx context.Context, _ api.GetNotification
 	if err != nil {
 		return nil, err
 	}
-	return api.GetNotificationSettings200JSONResponse(toAPINotificationWorkspaceSettings(settings)), nil
+	out := toAPINotificationWorkspaceSettings(settings)
+	if !a.deliveryDetailsVisible(ctx) {
+		out = notificationSettingsSummary(out)
+	}
+	return api.GetNotificationSettings200JSONResponse(out), nil
+}
+
+// notificationSettingsSummary keeps what every user who sends email may see
+// of the notification settings: whether SMTP and its secrets are set, and
+// the OAuth provider, but no host, account, or sender.
+func notificationSettingsSummary(settings api.NotificationWorkspaceSettings) api.NotificationWorkspaceSettings {
+	if settings.Smtp == nil {
+		return settings
+	}
+	smtp := api.NotificationSMTPSettings{PasswordConfigured: settings.Smtp.PasswordConfigured}
+	if oauth := settings.Smtp.Oauth; oauth != nil {
+		smtp.Oauth = &api.NotificationSMTPOAuthSettings{
+			Provider:                     oauth.Provider,
+			ClientSecretConfigured:       oauth.ClientSecretConfigured,
+			RefreshTokenConfigured:       oauth.RefreshTokenConfigured,
+			ServiceAccountJsonConfigured: oauth.ServiceAccountJsonConfigured,
+		}
+	}
+	settings.Smtp = &smtp
+	return settings
 }
 
 func (a *API) UpdateNotificationSettings(ctx context.Context, request api.UpdateNotificationSettingsRequestObject) (api.UpdateNotificationSettingsResponseObject, error) {

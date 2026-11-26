@@ -147,6 +147,27 @@ func TestNotificationChannels_ProjectsAdminOnly(t *testing.T) {
 			server.Client().Get("/api/v1/notification-channels/"+channel.Id).
 				WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &fetched)
 			assert.NotNil(t, fetched.Webhook)
+
+			// The notification settings show a developer whether SMTP is set,
+			// but no host, account, or sender.
+			server.Client().Put("/api/v1/notification-settings", api.UpdateNotificationSettingsJSONRequestBody{
+				Smtp: &api.NotificationSMTPSettingsInput{
+					Host:     new("smtp.example.com"),
+					Port:     new("587"),
+					Username: new("mailer-account"),
+					Password: new("smtp-password"),
+					From:     new("dagu@example.com"),
+				},
+			}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+			var settings api.NotificationWorkspaceSettings
+			smtpBody := server.Client().Get("/api/v1/notification-settings").
+				WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
+			smtpBody.Unmarshal(t, &settings)
+			require.NotNil(t, settings.Smtp)
+			assert.True(t, settings.Smtp.PasswordConfigured)
+			for _, value := range []string{"smtp.example.com", "mailer-account", "dagu@example.com"} {
+				assert.Equal(t, !projectsOn, strings.Contains(smtpBody.Body, value), value)
+			}
 			if !projectsOn {
 				return
 			}
