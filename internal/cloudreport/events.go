@@ -65,6 +65,8 @@ const (
 	warnMarkStale       = "Failed to record that DAG-run events stopped being reported to Dagu Console"
 	warnClearStale      = "Failed to clear the record that DAG-run events stopped being reported to Dagu Console"
 	warnServices        = "Failed to read the service DAGs; reports to Dagu Console leave them out until reading succeeds"
+	// warnRunKeyOnServer names the setting, never the value.
+	warnRunKeyOnServer = "cloud.run_key (DAGU_CLOUD_RUN_KEY) is set, but this server reports its DAG runs to Dagu Console, so the runs report through it; a run key is for machines without a Dagu server"
 )
 
 // Events configures the DAG runs that reports carry: the runs that finish,
@@ -94,6 +96,10 @@ type Events struct {
 	// Services reads the service DAGs, which reports list as services and
 	// whose runs they never carry. A nil Services lists none.
 	Services ServiceDAGs
+	// RunKeySet says the configuration sets a run key. Taking the lease then
+	// warns that the key goes unused, since the data directory's runs report
+	// through this process.
+	RunKeySet bool
 }
 
 // StateStore persists encoded reporter state.
@@ -450,6 +456,8 @@ type eventFeed struct {
 	rebuildAfter time.Time
 	standby      bool
 	warning      string
+	// runKeySet warns, on taking the lease, that a run key goes unused.
+	runKeySet bool
 	// services reads the service DAGs; serviceWatch counts down the checks
 	// that read a service DAG whose run ended for a new failed or recovered
 	// event, and sentServices is what the prepared report sent of each, nil
@@ -476,6 +484,7 @@ func newEventFeed(events Events) *eventFeed {
 		statuses:      events.Statuses,
 		steps:         &stepReader{runs: events.Runs},
 		services:      events.Services,
+		runKeySet:     events.RunKeySet,
 		now:           time.Now,
 		spawn:         func(fn func()) { go fn() },
 	}
@@ -519,6 +528,9 @@ func (f *eventFeed) hold(ctx context.Context) bool {
 		f.held, f.standby = true, false
 		f.recovered(warnLease, warnLeaseLost)
 		logger.Info(ctx, "This process reports DAG-run events to Dagu Console")
+		if f.runKeySet {
+			logger.Warn(ctx, warnRunKeyOnServer)
+		}
 		return true
 	case errors.Is(err, dirlock.ErrLockConflict):
 		if !f.standby {
