@@ -402,10 +402,10 @@ Rules:
 
 - No server-wide layer of base config, secrets, profiles, routes, or
   policies applies to any project.
-- A run reads its secrets and profiles in its project, whether it is
-  started, retried, queued, or a sub-DAG run. A DAG's `workspace` label
-  adds no layer of secrets or profile defaults, and chooses no default
-  profile for its runs.
+- A run reads its base config, secrets, profiles, notification routes, and
+  incident policies in its project, whether it is started, retried, queued,
+  or a sub-DAG run. A DAG's `workspace` label adds no layer of any of them,
+  and chooses no default profile for its runs.
 - A change to one project's settings never changes what another project's
   DAGs run with, except as
   [Base Config of Migrated Projects](#base-config-of-migrated-projects)

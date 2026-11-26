@@ -44,7 +44,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // Clock is a function that returns the current time.
@@ -286,7 +285,7 @@ func newScheduler(
 	lockDir := filepath.Join(persisfile.SchedulerProcessDir(cfg.Paths), "locks")
 	dirLock := dirlock.New(lockDir, lockOpts)
 	subCmdBuilder := launcher.NewSubCmdBuilder(cfg)
-	workspaceBaseConfigDir := workspace.BaseConfigDir(cfg.Paths.DAGsDir)
+	workspaceBaseConfigDir := cfg.WorkspaceBaseConfigDir()
 	dagExecutor := NewDAGExecutor(
 		coordinatorCli,
 		subCmdBuilder,
@@ -1264,7 +1263,7 @@ func (s *Scheduler) enqueueFileRun(ctx context.Context, entry DAGEntry, runID, p
 		s.config.Paths.LogDir,
 		s.config.Paths.ArtifactDir,
 		s.config.Paths.BaseConfig,
-		workspace.BaseConfigDir(s.config.Paths.DAGsDir),
+		s.config.WorkspaceBaseConfigDir(),
 		entry.DefinitionID,
 		entry.DAG,
 		runID,

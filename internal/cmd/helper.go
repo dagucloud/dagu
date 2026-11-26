@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -23,7 +22,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/rundates"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // parseTriggerTypeParam parses and validates the trigger-type flag from the command context.
@@ -234,14 +232,10 @@ func boundStartSchedules(ctx *Context, dag *ir.DAG) []ir.Schedule {
 
 // restoreDAGFromStatus restores a DAG from a previous run's status and YAML.
 // It restores params from the status, loads dotenv, and rebuilds fields excluded
-// from JSON serialization (env, params JSON, registryAuths, etc.).
-func restoreDAGFromStatus(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, repository *persis.DAGRunRepository) (*ir.DAG, error) {
-	cfg := config.GetConfig(ctx)
-	opts := []spec.LoadOption{spec.WithBaseConfig(cfg.Paths.BaseConfig)}
-	if cfg.Paths.DAGsDir != "" {
-		opts = append(opts, spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)))
-	}
-	dag, err := refreshRunBaseSMTP(ctx, dag, status, repository, opts)
+// from JSON serialization (env, params JSON, registryAuths, etc.). SMTP is
+// refreshed from the base config that baseOpts apply.
+func restoreDAGFromStatus(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, repository *persis.DAGRunRepository, baseOpts []spec.LoadOption) (*ir.DAG, error) {
+	dag, err := refreshRunBaseSMTP(ctx, dag, status, repository, baseOpts)
 	if err != nil {
 		return nil, err
 	}

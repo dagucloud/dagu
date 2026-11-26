@@ -43,7 +43,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // maxRunSortDAGs caps how many matching DAGs the server will read when sorting
@@ -315,7 +314,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 		spec.WithName(request.FileName),
 		spec.WithAllowBuildErrors(),
 		spec.WithoutEval(),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+		spec.WithWorkspaceBaseConfigDir(a.config.WorkspaceBaseConfigDir()),
 		spec.WithCalendars(a.calendarSource()),
 	}
 	if a.config.Paths.BaseConfig != "" {

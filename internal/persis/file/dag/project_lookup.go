@@ -57,7 +57,12 @@ func (store *Store) locateInProject(ctx context.Context, target string) (Resolve
 			return ResolvedFile{}, false, err
 		}
 	}
+	baseConfig := store.resolvedBaseConfig()
 	accept := func(resolved ResolvedFile) (bool, error) {
+		// The project's base config lies in its DAG directory but is no DAG.
+		if baseConfig != "" && resolved.ResolvedPath == baseConfig {
+			return false, nil
+		}
 		owner, err := scope.owners.OfIn(ctx, scope.name, resolved.ResolvedPath)
 		if err != nil {
 			return false, err

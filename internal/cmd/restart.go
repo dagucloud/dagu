@@ -94,7 +94,7 @@ func runRestart(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to read DAG from execution history: %w", readErr)
 	}
 
-	dag, err = restoreDAGFromStatus(ctx.Context, dag, dagStatus, ctx.Persistence.DAGRunRepository)
+	dag, err = restoreDAGFromStatus(ctx.Context, dag, dagStatus, ctx.Persistence.DAGRunRepository, ctx.projectBaseConfigOptions())
 	if err != nil {
 		return fmt.Errorf("failed to restore DAG from status: %w", err)
 	}

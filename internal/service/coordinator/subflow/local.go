@@ -35,7 +35,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	daguaqua "github.com/dagucloud/dagu/v2/internal/tools/aqua"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // Local runs child workflows in the current process through the runtime agent.
@@ -701,7 +700,7 @@ func inProcessLoadOptions(
 		loadOpts = append(loadOpts, spec.WithSourceFile(req.DAG.SourceFile))
 	}
 	if cfg != nil {
-		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)))
+		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(cfg.WorkspaceBaseConfigDir()))
 	}
 	// Params are always applied so that a child started without params still
 	// enforces its required params. A command step's child is the parent's
@@ -717,10 +716,24 @@ func inProcessLoadOptions(
 
 	if baseConfig := subWorkflowBaseConfig(req); len(baseConfig) > 0 {
 		loadOpts = append(loadOpts, spec.WithBaseConfigContent(baseConfig))
-	} else if req.Workspace == nil && cfg != nil && cfg.Paths.BaseConfig != "" {
-		loadOpts = append(loadOpts, spec.WithBaseConfig(cfg.Paths.BaseConfig))
+	} else if req.Workspace == nil && cfg != nil {
+		if baseConfig := runBaseConfig(ctx, cfg); baseConfig != "" {
+			loadOpts = append(loadOpts, spec.WithBaseConfig(baseConfig))
+		}
 	}
 	return loadOpts
+}
+
+// runBaseConfig returns the base config file of the project of the run that
+// ctx carries, so a child gets its caller's project's base config, or "" when
+// none applies.
+func runBaseConfig(ctx context.Context, cfg *config.Config) string {
+	if !cfg.ProjectsEnabled {
+		return cfg.Paths.BaseConfig
+	}
+	// The name of a running project always places a DAG directory.
+	baseConfig, _ := cfg.ProjectBaseConfig(runProject(ctx))
+	return baseConfig
 }
 
 // inProcessExtraEnvs returns the execution-scoped values a local child run

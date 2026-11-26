@@ -178,6 +178,29 @@ func TestProjectPaths(t *testing.T) {
 	})
 }
 
+func TestProjectBaseConfig(t *testing.T) {
+	t.Parallel()
+
+	for _, projectsOn := range []bool{false, true} {
+		cfg := projectsTestConfig(t, projectsOn)
+		cfg.Paths.BaseConfig = filepath.Join(filepath.Dir(cfg.Paths.DAGsDir), "base.yaml")
+		for _, name := range []string{"", "default", "Default"} {
+			base, err := cfg.ProjectBaseConfig(name)
+			require.NoError(t, err)
+			assert.Equal(t, cfg.Paths.BaseConfig, base, "name %q", name)
+		}
+		base, err := cfg.ProjectBaseConfig("weather")
+		if !projectsOn {
+			assert.Error(t, err)
+			assert.Equal(t, filepath.Join(cfg.Paths.DAGsDir, "workspaces"), cfg.WorkspaceBaseConfigDir())
+			continue
+		}
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(cfg.Paths.ProjectsDir, "weather", "base.yaml"), base)
+		assert.Empty(t, cfg.WorkspaceBaseConfigDir())
+	}
+}
+
 func TestDiscoverySkipRoots(t *testing.T) {
 	t.Parallel()
 
