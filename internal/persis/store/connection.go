@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 
@@ -28,6 +30,8 @@ const connectionStoreName = "connection store"
 // notificationSegment holds the notification connection's records. It is
 // not a valid workspace name, so no workspace shares it.
 const notificationSegment = ".notification"
+
+const upperCaseEscape = '~'
 
 // ConnectionStore persists OAuth apps, connections, token state, and tool
 // catalogs in four collections.
@@ -172,7 +176,7 @@ func (s *ConnectionStore) Create(ctx context.Context, conn *connection.Connectio
 	}
 	// The metadata claims the key first, so a failed create never replaces
 	// the token state of a connection that holds the key.
-	if err := s.resetConnectionState(ctx, &stored); err != nil {
+	if err := s.resetTokenState(ctx, &stored); err != nil {
 		if rollbackErr := s.conns.col.CompareAndDelete(ctx, rec); rollbackErr != nil {
 			err = errors.Join(err, rollbackErr)
 		}
@@ -181,16 +185,28 @@ func (s *ConnectionStore) Create(ctx context.Context, conn *connection.Connectio
 	return &stored, nil
 }
 
-// resetConnectionState replaces any token state and catalogs left under the
-// key of conn, so a new connection never inherits an earlier one's tokens.
-func (s *ConnectionStore) resetConnectionState(ctx context.Context, conn *connection.Connection) error {
-	if err := s.deleteCatalogs(ctx, conn.Key()); err != nil {
-		return err
-	}
+// resetTokenState gives conn pending token state, replacing any left under
+// its key, so a new connection never inherits an earlier one's tokens.
+// Catalogs need no reset: Catalog returns only those saved for conn.
+//
+// It writes only while conn holds its key, and the write is a swap of the
+// record read after that check. A connection that takes the key later
+// writes its own state first, so the swap fails and the check then fails.
+func (s *ConnectionStore) resetTokenState(ctx context.Context, conn *connection.Connection) error {
 	id := connectionRecordID(conn.Key())
 	return retryConflict(ctx, func(ctx context.Context) error {
 		current, err := s.tokens.Get(ctx, id)
 		if err != nil && !errors.Is(err, persis.ErrNotFound) {
+			return err
+		}
+		if current != nil {
+			state, err := s.decodeTokenState(current)
+			if err == nil && state.ConnectionID == conn.ID {
+				// A writer already updated the new connection's state.
+				return nil
+			}
+		}
+		if err := s.ensureCurrent(ctx, conn); err != nil {
 			return err
 		}
 		data, err := s.encodeTokenState(pendingTokenState(conn))
@@ -210,7 +226,7 @@ func (s *ConnectionStore) Get(ctx context.Context, key connection.Key) (*connect
 	if err != nil {
 		return nil, err
 	}
-	return decodeConnection(rec)
+	return decodeConnectionFor(rec, key)
 }
 
 func (s *ConnectionStore) List(ctx context.Context, workspace string) ([]*connection.Connection, error) {
@@ -225,6 +241,9 @@ func (s *ConnectionStore) List(ctx context.Context, workspace string) ([]*connec
 			logger.Warn(ctx, "connection store: failed to load connection", slog.String("record", rec.ID), tag.Error(err))
 			continue
 		}
+		if conn.Workspace != workspace {
+			continue
+		}
 		conns = append(conns, conn)
 	}
 	slices.SortFunc(conns, func(a, b *connection.Connection) int { return cmp.Compare(a.Name, b.Name) })
@@ -237,7 +256,7 @@ func (s *ConnectionStore) Update(ctx context.Context, key connection.Key, fn fun
 	}
 	var updated *connection.Connection
 	err := swapRecord(ctx, s.conns.col, connectionRecordID(key), connection.ErrNotFound, func(current *persis.Record) ([]byte, error) {
-		conn, err := decodeConnection(current)
+		conn, err := decodeConnectionFor(current, key)
 		if err != nil {
 			return nil, err
 		}
@@ -270,17 +289,71 @@ func (s *ConnectionStore) Delete(ctx context.Context, key connection.Key) error 
 		return connection.ErrNotFound
 	}
 	id := connectionRecordID(key)
-	if _, err := s.conns.get(ctx, id, connection.ErrNotFound); err != nil {
+	conn, err := s.Get(ctx, key)
+	if err != nil {
 		return err
 	}
-	// Secrets go first, so an interrupted delete leaves no tokens behind.
-	if err := s.tokens.Delete(ctx, id); err != nil {
+	// Each step removes only records that belong to conn, so a delete that
+	// resumes after the key was taken again leaves the new connection
+	// alone. Secrets go first, so an interrupted delete leaves no tokens.
+	err = s.deleteOwned(ctx, s.tokens, id, conn.ID, func(rec *persis.Record) (string, error) {
+		var stored tokenStateRecord
+		err := persis.Decode(rec, &stored)
+		return stored.ConnectionID, err
+	})
+	if err != nil {
 		return fmt.Errorf("connection store: delete token state: %w", err)
 	}
-	if err := s.deleteCatalogs(ctx, key); err != nil {
-		return err
+	catalogs, err := listAll(ctx, s.catalogs.col, persis.ListQuery{Prefix: id + "/"})
+	if err != nil {
+		return fmt.Errorf("connection store: list catalogs: %w", err)
 	}
-	return s.conns.delete(ctx, id, connection.ErrNotFound, "connection")
+	for _, rec := range catalogs {
+		err := s.deleteOwned(ctx, s.catalogs.col, rec.ID, conn.ID, func(rec *persis.Record) (string, error) {
+			var stored catalogRecord
+			err := persis.Decode(rec, &stored)
+			return stored.ConnectionID, err
+		})
+		if err != nil {
+			return fmt.Errorf("connection store: delete catalog: %w", err)
+		}
+	}
+	err = s.deleteOwned(ctx, s.conns.col, id, conn.ID, func(rec *persis.Record) (string, error) {
+		var stored connectionRecord
+		err := persis.Decode(rec, &stored)
+		return stored.ID, err
+	})
+	if err != nil {
+		return fmt.Errorf("connection store: delete connection: %w", err)
+	}
+	return nil
+}
+
+// deleteOwned removes record id of col while owner reads connectionID from
+// it. A record that is missing or belongs to another connection is kept.
+func (s *ConnectionStore) deleteOwned(
+	ctx context.Context,
+	col persis.Collection,
+	id, connectionID string,
+	owner func(*persis.Record) (string, error),
+) error {
+	return retryConflict(ctx, func(ctx context.Context) error {
+		rec, err := col.Get(ctx, id)
+		if errors.Is(err, persis.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if got, err := owner(rec); err != nil || got != connectionID {
+			return err
+		}
+		err = col.CompareAndDelete(ctx, rec)
+		if errors.Is(err, persis.ErrNotFound) {
+			return nil
+		}
+		return err
+	})
 }
 
 func (s *ConnectionStore) TokenState(ctx context.Context, conn *connection.Connection) (*connection.TokenState, error) {
@@ -315,23 +388,21 @@ func (s *ConnectionStore) UpdateTokenState(
 	id := connectionRecordID(conn.Key())
 	var updated *connection.TokenState
 	err := retryConflict(ctx, func(ctx context.Context) error {
+		// Only Create writes a new record, so a write that races Delete
+		// fails instead of bringing the tokens back.
 		current, err := s.tokens.Get(ctx, id)
-		if err != nil && !errors.Is(err, persis.ErrNotFound) {
+		if errors.Is(err, persis.ErrNotFound) {
+			return connection.ErrNotFound
+		}
+		if err != nil {
 			return err
 		}
-		var state *connection.TokenState
-		if current != nil {
-			if state, err = s.decodeTokenState(current); err != nil {
-				return err
-			}
+		state, err := s.decodeTokenState(current)
+		if err != nil {
+			return err
 		}
-		if state == nil || state.ConnectionID != conn.ID {
-			// State that is missing or left by an earlier connection is
-			// replaced only while conn still holds its key.
-			if err := s.ensureCurrent(ctx, conn); err != nil {
-				return err
-			}
-			state = pendingTokenState(conn)
+		if state.ConnectionID != conn.ID {
+			return connection.ErrNotFound
 		}
 		if err := fn(state); err != nil {
 			return err
@@ -341,11 +412,7 @@ func (s *ConnectionStore) UpdateTokenState(
 		if err != nil {
 			return err
 		}
-		now := time.Now().UTC()
-		next := &persis.Record{ID: id, Data: data, CreatedAt: now, UpdatedAt: now}
-		if current != nil {
-			next.CreatedAt = current.CreatedAt
-		}
+		next := &persis.Record{ID: id, Data: data, CreatedAt: current.CreatedAt, UpdatedAt: time.Now().UTC()}
 		if err := createOrSwap(ctx, s.tokens, current, next); err != nil {
 			return err
 		}
@@ -371,11 +438,11 @@ func (s *ConnectionStore) ensureCurrent(ctx context.Context, conn *connection.Co
 	return nil
 }
 
-func (s *ConnectionStore) Catalog(ctx context.Context, key connection.Key, service string) (*connection.Catalog, error) {
-	if key.Validate() != nil || connection.ValidateName(service) != nil {
+func (s *ConnectionStore) Catalog(ctx context.Context, conn *connection.Connection, service string) (*connection.Catalog, error) {
+	if conn == nil || conn.Key().Validate() != nil || connection.ValidateName(service) != nil {
 		return nil, connection.ErrCatalogNotFound
 	}
-	rec, err := s.catalogs.get(ctx, catalogRecordID(key, service), connection.ErrCatalogNotFound)
+	rec, err := s.catalogs.get(ctx, catalogRecordID(conn.Key(), service), connection.ErrCatalogNotFound)
 	if err != nil {
 		return nil, err
 	}
@@ -383,36 +450,29 @@ func (s *ConnectionStore) Catalog(ctx context.Context, key connection.Key, servi
 	if err := persis.Decode(rec, &stored); err != nil {
 		return nil, fmt.Errorf("connection store: decode catalog: %w", err)
 	}
+	if stored.ConnectionID != conn.ID {
+		return nil, connection.ErrCatalogNotFound
+	}
 	return catalogFromRecord(&stored), nil
 }
 
-func (s *ConnectionStore) SaveCatalog(ctx context.Context, key connection.Key, catalog *connection.Catalog) error {
-	if catalog == nil {
-		return errors.New("connection store: catalog cannot be nil")
-	}
-	if err := key.Validate(); err != nil {
-		return err
+func (s *ConnectionStore) SaveCatalog(ctx context.Context, conn *connection.Connection, catalog *connection.Catalog) (*connection.Catalog, error) {
+	if conn == nil || catalog == nil {
+		return nil, errors.New("connection store: connection and catalog cannot be nil")
 	}
 	if err := connection.ValidateName(catalog.Service); err != nil {
-		return fmt.Errorf("service: %w", err)
+		return nil, fmt.Errorf("service: %w", err)
 	}
-	if _, err := s.conns.get(ctx, connectionRecordID(key), connection.ErrNotFound); err != nil {
-		return err
+	if err := s.ensureCurrent(ctx, conn); err != nil {
+		return nil, err
 	}
-	return s.catalogs.put(ctx, catalogRecordID(key, catalog.Service), catalogToRecord(catalog))
-}
-
-func (s *ConnectionStore) deleteCatalogs(ctx context.Context, key connection.Key) error {
-	recs, err := listAll(ctx, s.catalogs.col, persis.ListQuery{Prefix: connectionRecordID(key) + "/"})
-	if err != nil {
-		return fmt.Errorf("connection store: list catalogs: %w", err)
+	// A catalog saved for a connection that was replaced meanwhile keeps
+	// the old ID, so Catalog never returns it for the new connection.
+	stored := catalogToRecord(conn.ID, catalog)
+	if err := s.catalogs.put(ctx, catalogRecordID(conn.Key(), catalog.Service), stored); err != nil {
+		return nil, err
 	}
-	for _, rec := range recs {
-		if err := s.catalogs.col.Delete(ctx, rec.ID); err != nil {
-			return fmt.Errorf("connection store: delete catalog: %w", err)
-		}
-	}
-	return nil
+	return catalogFromRecord(stored), nil
 }
 
 func (s *ConnectionStore) encodeApp(app *connection.App) ([]byte, error) {
@@ -429,6 +489,19 @@ func (s *ConnectionStore) decodeApp(rec *persis.Record) (*connection.App, error)
 		return nil, fmt.Errorf("connection store: decode app: %w", err)
 	}
 	return s.codec.appFromRecord(&stored)
+}
+
+// decodeConnectionFor decodes rec and returns ErrNotFound unless it holds
+// the connection with key.
+func decodeConnectionFor(rec *persis.Record, key connection.Key) (*connection.Connection, error) {
+	conn, err := decodeConnection(rec)
+	if err != nil {
+		return nil, err
+	}
+	if conn.Key() != key {
+		return nil, connection.ErrNotFound
+	}
+	return conn, nil
 }
 
 func decodeConnection(rec *persis.Record) (*connection.Connection, error) {
@@ -497,6 +570,21 @@ func catalogRecordID(key connection.Key, service string) string {
 	return connectionRecordID(key) + "/" + service
 }
 
+// workspaceSegment writes each uppercase letter as upperCaseEscape and its
+// lowercase form. Workspace names differ in case, and a file system that
+// ignores case would otherwise give two workspaces one record. The escape
+// is not a workspace name character, so no two names share a segment.
 func workspaceSegment(workspace string) string {
-	return cmp.Or(workspace, notificationSegment)
+	if workspace == "" {
+		return notificationSegment
+	}
+	var b strings.Builder
+	for _, r := range workspace {
+		if unicode.IsUpper(r) {
+			b.WriteRune(upperCaseEscape)
+			r = unicode.ToLower(r)
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }

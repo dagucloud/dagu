@@ -55,22 +55,25 @@ type Store interface {
 	// catalogs, or returns ErrNotFound.
 	Delete(ctx context.Context, key Key) error
 
-	// TokenState returns the token state of conn. A connection whose state
-	// is missing has pending state.
+	// TokenState returns the token state of conn. When the state is missing
+	// or belongs to another connection with the same key, it returns
+	// pending state without tokens.
 	TokenState(ctx context.Context, conn *Connection) (*TokenState, error)
 	// UpdateTokenState applies fn to the token state of conn and stores the
 	// result only when no other write came between the read and the write;
-	// otherwise it reads again and reapplies fn. It returns ErrNotFound when
-	// conn was removed or replaced by a connection with the same key.
+	// otherwise it reads again and reapplies fn. It never creates token
+	// state: it returns ErrNotFound when the state is missing, or when conn
+	// was removed or replaced by a connection with the same key.
 	UpdateTokenState(ctx context.Context, conn *Connection, fn func(*TokenState) error) (*TokenState, error)
 
-	// Catalog returns the catalog of service for the connection with key,
-	// or ErrCatalogNotFound.
-	Catalog(ctx context.Context, key Key, service string) (*Catalog, error)
-	// SaveCatalog replaces the catalog of catalog.Service for the
-	// connection with key, setting each tool's hash. It returns
-	// ErrNotFound when the connection does not exist.
-	SaveCatalog(ctx context.Context, key Key, catalog *Catalog) error
+	// Catalog returns the catalog of service that was saved for conn, or
+	// ErrCatalogNotFound.
+	Catalog(ctx context.Context, conn *Connection, service string) (*Catalog, error)
+	// SaveCatalog replaces the catalog of catalog.Service for conn and
+	// returns the stored catalog, with each tool's hash set. catalog is not
+	// modified. It returns ErrNotFound when conn was removed or replaced by
+	// a connection with the same key.
+	SaveCatalog(ctx context.Context, conn *Connection, catalog *Catalog) (*Catalog, error)
 }
 
 func invalidf(format string, args ...any) error {

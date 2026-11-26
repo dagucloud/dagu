@@ -21,9 +21,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/secret"
 )
 
+// connectionFixture exposes the collections so tests can leave records
+// behind as an interrupted write would.
 type connectionFixture struct {
-	store *store.ConnectionStore
-	conns persis.Collection
+	store  *store.ConnectionStore
+	conns  persis.Collection
+	tokens persis.Collection
 }
 
 func newConnectionFixture(t *testing.T) connectionFixture {
@@ -32,15 +35,16 @@ func newConnectionFixture(t *testing.T) connectionFixture {
 	require.NoError(t, err)
 	backend := testutil.NewMemoryBackend()
 	conns := backend.Collection(persis.CollectionConnections)
+	tokens := backend.Collection(persis.CollectionConnectionTokens)
 	s, err := store.NewConnectionStore(
 		backend.Collection(persis.CollectionOAuthApps),
 		conns,
-		backend.Collection(persis.CollectionConnectionTokens),
+		tokens,
 		backend.Collection(persis.CollectionConnectionCatalogs),
 		enc,
 	)
 	require.NoError(t, err)
-	return connectionFixture{store: s, conns: conns}
+	return connectionFixture{store: s, conns: conns, tokens: tokens}
 }
 
 func newTestApp() *connection.App {
@@ -135,7 +139,8 @@ func TestConnectionCreateReplacesLeftState(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.store.UpdateTokenState(ctx, old, setRefreshToken("old-refresh"))
 	require.NoError(t, err)
-	require.NoError(t, f.store.SaveCatalog(ctx, old.Key(), &connection.Catalog{Service: "gmail"}))
+	_, err = f.store.SaveCatalog(ctx, old, &connection.Catalog{Service: "gmail"})
+	require.NoError(t, err)
 	require.NoError(t, f.conns.Delete(ctx, "payments/mail"))
 
 	created, err := f.store.Create(ctx, newTestConnection("payments", "mail"))
@@ -145,13 +150,14 @@ func TestConnectionCreateReplacesLeftState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, state.RefreshToken)
 	assert.Equal(t, connection.TokenStatusPending, state.Status)
-	_, err = f.store.Catalog(ctx, created.Key(), "gmail")
+	_, err = f.store.Catalog(ctx, created, "gmail")
 	assert.ErrorIs(t, err, connection.ErrCatalogNotFound)
 }
 
 // A writer that read a connection before it was removed and created again
-// under the same name cannot write the new connection's token state.
-func TestUpdateTokenStateRefusesReplacedConnection(t *testing.T) {
+// under the same name can neither read nor write the new connection's token
+// state or catalogs.
+func TestStaleConnectionCannotReachReplacement(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	f := newConnectionFixture(t)
@@ -160,11 +166,39 @@ func TestUpdateTokenStateRefusesReplacedConnection(t *testing.T) {
 	require.NoError(t, f.store.Delete(ctx, old.Key()))
 	created, err := f.store.Create(ctx, newTestConnection("payments", "mail"))
 	require.NoError(t, err)
+	_, err = f.store.UpdateTokenState(ctx, created, setRefreshToken("new-refresh"))
+	require.NoError(t, err)
+	_, err = f.store.SaveCatalog(ctx, created, &connection.Catalog{Service: "gmail"})
+	require.NoError(t, err)
 
 	_, err = f.store.UpdateTokenState(ctx, old, setRefreshToken("old-refresh"))
 	assert.ErrorIs(t, err, connection.ErrNotFound)
+	stale, err := f.store.TokenState(ctx, old)
+	require.NoError(t, err)
+	assert.Empty(t, stale.RefreshToken)
+	_, err = f.store.Catalog(ctx, old, "gmail")
+	assert.ErrorIs(t, err, connection.ErrCatalogNotFound)
+	_, err = f.store.SaveCatalog(ctx, old, &connection.Catalog{Service: "gmail"})
+	assert.ErrorIs(t, err, connection.ErrNotFound)
 
 	state, err := f.store.TokenState(ctx, created)
+	require.NoError(t, err)
+	assert.Equal(t, "new-refresh", state.RefreshToken)
+}
+
+// Only Create writes token state, so a write that finds none, as one that
+// lands while Delete runs does, fails instead of bringing tokens back.
+func TestUpdateTokenStateNeverCreatesState(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := newConnectionFixture(t)
+	conn, err := f.store.Create(ctx, newTestConnection("payments", "mail"))
+	require.NoError(t, err)
+	require.NoError(t, f.tokens.Delete(ctx, "payments/mail"))
+
+	_, err = f.store.UpdateTokenState(ctx, conn, setRefreshToken("refresh"))
+	assert.ErrorIs(t, err, connection.ErrNotFound)
+	state, err := f.store.TokenState(ctx, conn)
 	require.NoError(t, err)
 	assert.Empty(t, state.RefreshToken)
 }
@@ -306,26 +340,21 @@ func TestSaveCatalogHashesTools(t *testing.T) {
 
 	hashOf := func(description, schema string) string {
 		t.Helper()
-		require.NoError(t, f.store.SaveCatalog(ctx, conn.Key(), &connection.Catalog{
+		saved, err := f.store.SaveCatalog(ctx, conn, &connection.Catalog{
 			Service: "gmail",
 			Tools:   []connection.Tool{{Name: "search", Description: description, InputSchema: json.RawMessage(schema)}},
-		}))
-		catalog, err := f.store.Catalog(ctx, conn.Key(), "gmail")
+		})
 		require.NoError(t, err)
+		catalog, err := f.store.Catalog(ctx, conn, "gmail")
+		require.NoError(t, err)
+		assert.Equal(t, saved, catalog)
 		require.Len(t, catalog.Tools, 1)
 		return catalog.Tools[0].Hash
 	}
 
-	original := hashOf("Search mail", `{"type":"object"}`)
+	original := hashOf("Search mail", `{"type":"object","required":["q"]}`)
 	assert.NotEmpty(t, original)
-	assert.Equal(t, original, hashOf("Search mail", `{ "type": "object" }`))
-	assert.NotEqual(t, original, hashOf("Search and delete mail", `{"type":"object"}`))
-}
-
-func TestSaveCatalogRequiresConnection(t *testing.T) {
-	t.Parallel()
-	f := newConnectionFixture(t)
-
-	err := f.store.SaveCatalog(context.Background(), connection.Key{Workspace: "payments", Name: "mail"}, &connection.Catalog{Service: "gmail"})
-	assert.ErrorIs(t, err, connection.ErrNotFound)
+	assert.Equal(t, original, hashOf("Search mail", `{ "type": "object", "required": ["q"] }`))
+	assert.Equal(t, original, hashOf("Search mail", `{"required":["q"],"type":"object"}`))
+	assert.NotEqual(t, original, hashOf("Search and delete mail", `{"type":"object","required":["q"]}`))
 }

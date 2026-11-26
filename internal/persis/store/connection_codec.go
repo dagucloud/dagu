@@ -104,9 +104,10 @@ type sessionRecord struct {
 }
 
 type catalogRecord struct {
-	Service  string       `json:"service"`
-	ListedAt time.Time    `json:"listed_at"`
-	Tools    []toolRecord `json:"tools"`
+	ConnectionID string       `json:"connection_id"`
+	Service      string       `json:"service"`
+	ListedAt     time.Time    `json:"listed_at"`
+	Tools        []toolRecord `json:"tools"`
 }
 
 type toolRecord struct {
@@ -329,8 +330,13 @@ func (c connectionCodec) tokensFromRecord(rec tokensRecord) (connection.Tokens, 
 	return tokens, nil
 }
 
-func catalogToRecord(catalog *connection.Catalog) *catalogRecord {
-	rec := &catalogRecord{Service: catalog.Service, ListedAt: catalog.ListedAt, Tools: make([]toolRecord, 0, len(catalog.Tools))}
+func catalogToRecord(connectionID string, catalog *connection.Catalog) *catalogRecord {
+	rec := &catalogRecord{
+		ConnectionID: connectionID,
+		Service:      catalog.Service,
+		ListedAt:     catalog.ListedAt,
+		Tools:        make([]toolRecord, 0, len(catalog.Tools)),
+	}
 	for _, tool := range catalog.Tools {
 		rec.Tools = append(rec.Tools, toolRecord{
 			Name:        tool.Name,
@@ -352,24 +358,35 @@ func catalogFromRecord(rec *catalogRecord) *connection.Catalog {
 }
 
 // toolHash covers the parts of a tool that change what a caller of it
-// agrees to. JSON is compacted, so a listing that differs only in
-// whitespace hashes the same, and each part is length-prefixed, so no two
-// tools share an encoding.
+// agrees to. JSON is canonicalized, so a listing that differs only in
+// whitespace or key order hashes the same, and each part is
+// length-prefixed, so no two tools share an encoding.
 func toolHash(tool connection.Tool) string {
 	h := sha256.New()
-	for _, part := range [][]byte{[]byte(tool.Description), compactJSON(tool.InputSchema), compactJSON(tool.Annotations)} {
+	for _, part := range [][]byte{[]byte(tool.Description), canonicalJSON(tool.InputSchema), canonicalJSON(tool.Annotations)} {
 		_, _ = fmt.Fprintf(h, "%d:", len(part))
 		_, _ = h.Write(part)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func compactJSON(raw json.RawMessage) []byte {
-	var buf bytes.Buffer
-	if json.Compact(&buf, raw) != nil {
+// canonicalJSON re-encodes raw with sorted object keys, keeping numbers as
+// written. Input that is not JSON is returned as is.
+func canonicalJSON(raw json.RawMessage) []byte {
+	if len(raw) == 0 {
 		return raw
 	}
-	return buf.Bytes()
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if dec.Decode(&v) != nil {
+		return raw
+	}
+	canonical, err := json.Marshal(v)
+	if err != nil {
+		return raw
+	}
+	return canonical
 }
 
 // encrypt leaves an empty value empty, so an absent secret stays absent.
