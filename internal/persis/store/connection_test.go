@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,10 +33,15 @@ type connectionFixture struct {
 func newConnectionFixture(t *testing.T) connectionFixture {
 	t.Helper()
 	backend := testutil.NewMemoryBackend()
-	return newConnectionFixtureWithTokens(t, backend, backend.Collection(persis.CollectionConnectionTokens))
+	return newConnectionFixtureWith(t, backend, backend.Collection(persis.CollectionConnectionTokens), backend.Lock(persis.CollectionConnections))
 }
 
-func newConnectionFixtureWithTokens(t *testing.T, backend *testutil.MemoryBackend, tokens persis.Collection) connectionFixture {
+func newConnectionFixtureWith(
+	t *testing.T,
+	backend *testutil.MemoryBackend,
+	tokens persis.Collection,
+	lifecycle persis.Lock,
+) connectionFixture {
 	t.Helper()
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
@@ -45,7 +51,7 @@ func newConnectionFixtureWithTokens(t *testing.T, backend *testutil.MemoryBacken
 		conns,
 		tokens,
 		backend.Collection(persis.CollectionConnectionCatalogs),
-		backend.Lock(persis.CollectionConnections),
+		lifecycle,
 		enc,
 	)
 	require.NoError(t, err)
@@ -230,18 +236,19 @@ func TestDeleteWaitsForCreate(t *testing.T) {
 	ctx := context.Background()
 	backend := testutil.NewMemoryBackend()
 	tokens := &claimingCollection{Collection: backend.Collection(persis.CollectionConnectionTokens)}
-	f := newConnectionFixtureWithTokens(t, backend, tokens)
+	lock := &enteringLock{Lock: backend.Lock(persis.CollectionConnections), entered: make(chan struct{})}
+	f := newConnectionFixtureWith(t, backend, tokens, lock)
 	deleted := make(chan error, 1)
 	finishedEarly := false
 	tokens.during = func() {
+		lock.armed.Store(true)
 		go func() { deleted <- f.store.Delete(ctx, connection.Key{Workspace: "payments", Name: "mail"}) }()
-		// An unserialized Delete finishes at once, before Create writes the
-		// token state. The wait only gives it the chance to; a serialized
-		// Delete passes either way.
+		// Create holds the lock here, so a Delete that asks for it cannot
+		// finish until Create does.
 		select {
 		case <-deleted:
 			finishedEarly = true
-		case <-time.After(100 * time.Millisecond):
+		case <-lock.entered:
 		}
 	}
 	tokens.armed.Store(true)
@@ -253,6 +260,21 @@ func TestDeleteWaitsForCreate(t *testing.T) {
 
 	_, err = f.store.UpdateTokenState(ctx, conn, setRefreshToken("refresh"))
 	assert.ErrorIs(t, err, connection.ErrNotFound)
+}
+
+// enteringLock, once armed, closes entered when the next caller asks for
+// the lock, before it waits for it.
+type enteringLock struct {
+	persis.Lock
+	armed   atomic.Bool
+	entered chan struct{}
+}
+
+func (l *enteringLock) Do(ctx context.Context, fn func(held func() error) error) error {
+	if l.armed.CompareAndSwap(true, false) {
+		close(l.entered)
+	}
+	return l.Lock.Do(ctx, fn)
 }
 
 // Concurrent writers each see the previous writer's result, so none is lost.
