@@ -53,6 +53,13 @@ type SubWorkflowRunnerConfig struct {
 	// Nodes, when set, gives each child run the nodes of its DAG in place of
 	// its parent's.
 	Nodes func(*ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys)
+	// StateStoreFor, when set, finds each child DAG's state store from the
+	// DAG's file, in place of StateStore.
+	StateStoreFor func(ctx context.Context, path string) (dagrun.StateStore, error)
+	// EnqueueStoresFor, when set, finds from a DAG's file the stores that
+	// record a run of it that dag.enqueue admits, in place of
+	// DAGRunRepository and QueueStore.
+	EnqueueStoresFor func(ctx context.Context, path string) (*persis.DAGRunRepository, queue.QueueStore, error)
 }
 
 // NewSubWorkflowRunnerFactory creates recursive child workflow runners.
@@ -79,6 +86,8 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 				subflow.WithLocalRunStateStore(cfg.RunStateStore),
 				subflow.WithLocalQueueStore(cfg.QueueStore),
 				subflow.WithLocalStateStore(cfg.StateStore),
+				subflow.WithLocalStateStoreFor(cfg.StateStoreFor),
+				subflow.WithLocalEnqueueStoresFor(cfg.EnqueueStoresFor),
 				subflow.WithLocalSecretStore(cfg.SecretStore),
 				subflow.WithLocalSecretResolver(cfg.SecretResolver),
 				subflow.WithLocalNodes(cfg.Nodes),

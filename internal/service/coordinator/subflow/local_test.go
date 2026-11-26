@@ -21,7 +21,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -144,6 +147,77 @@ func TestLocalEnqueueRecognizesExistingRunWithoutStatus(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.AlreadyExists)
 	require.Equal(t, ir.Queued, result.Status)
+}
+
+// Enqueue records the run it admits in the stores that its option picks for
+// the DAG, and refuses the run when the option does.
+func TestLocalEnqueueUsesStoresForDAG(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	child := th.DAG(t, "name: child\nsteps:\n  - name: ok\n    run: echo ok\n")
+	refused := errors.New("refused")
+	var picked string
+	runner := subflow.NewLocal(
+		th.DAGRunMgr,
+		th.DAGRepository,
+		subflow.WithLocalDAGRunDirs(t.TempDir(), t.TempDir()),
+		subflow.WithLocalEnqueueStoresFor(func(_ context.Context, path string) (*persis.DAGRunRepository, queue.QueueStore, error) {
+			if picked != "" {
+				return nil, nil, refused
+			}
+			picked = path
+			return th.DAGRunRepository, th.QueueStore, nil
+		}),
+	)
+	enqueue := func() error {
+		_, err := runner.Enqueue(th.Context, executor.EnqueueRequest{
+			DAG:      child.DAG,
+			RunID:    uuid.Must(uuid.NewV7()).String(),
+			Location: child.Location,
+		})
+		return err
+	}
+
+	require.NoError(t, enqueue())
+	require.Equal(t, child.Location, picked)
+	items, err := th.QueueStore.List(th.Context, child.DAG.ProcGroup())
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+
+	require.ErrorIs(t, enqueue(), refused)
+}
+
+// A child agent keeps its DAG state in the store that its option picks for
+// the child DAG.
+func TestLocalRunUsesStateStoreForDAG(t *testing.T) {
+	th := test.Setup(t)
+	child := th.DAG(t, "name: state-child\nsteps:\n  - name: set\n    action: state.set\n    with:\n      key: owner\n      value: child\n")
+	picked := store.NewDAGStateStore(persisfile.NewCollection(t.TempDir()))
+	root := ir.NewDAGRunRef("parent", uuid.Must(uuid.NewV7()).String())
+	parentCtx := runctx.NewContext(th.Context, &ir.DAG{Name: root.Name}, root.ID,
+		filepath.Join(t.TempDir(), "parent.log"), runctx.WithStateStore(th.StateStore))
+	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGRepository,
+		subflow.WithLocalStateStoreFor(func(_ context.Context, path string) (dagrun.StateStore, error) {
+			require.Equal(t, child.Location, path)
+			return picked, nil
+		}),
+	)
+
+	result, err := runner.Run(parentCtx, executor.SubWorkflowRequest{
+		DAG:          child.DAG,
+		RootDAGRun:   root,
+		ParentDAGRun: root,
+		RunID:        uuid.Must(uuid.NewV7()).String(),
+	})
+	require.NoError(t, err)
+	require.Equal(t, ir.Succeeded, result.Status)
+
+	ref := dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: child.DAG.Name, Key: "owner"}
+	_, err = picked.Get(th.Context, ref)
+	require.NoError(t, err)
+	_, err = th.StateStore.Get(th.Context, ref)
+	require.ErrorIs(t, err, dagrun.ErrStateNotFound)
 }
 
 func TestLocalRunRejectsBuildWorkflowOnRemoteWorker(t *testing.T) {

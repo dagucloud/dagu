@@ -46,6 +46,8 @@ type Local struct {
 	runStateStore            runstate.Store
 	queueStore               queue.QueueStore
 	stateStore               dagrun.StateStore
+	stateStoreFor            func(ctx context.Context, path string) (dagrun.StateStore, error)
+	enqueueStoresFor         func(ctx context.Context, path string) (*persis.DAGRunRepository, queue.QueueStore, error)
 	secretStore              secretpkg.Store
 	secretResolver           func(*ir.DAG) providers.ReferenceResolver
 	nodes                    func(*ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys)
@@ -104,6 +106,25 @@ func WithLocalQueueStore(store queue.QueueStore) LocalOption {
 func WithLocalStateStore(store dagrun.StateStore) LocalOption {
 	return func(r *Local) {
 		r.stateStore = store
+	}
+}
+
+// WithLocalStateStoreFor sets how each child workflow agent finds its state
+// store from the file of its DAG. It takes the place of WithLocalStateStore.
+func WithLocalStateStoreFor(pick func(ctx context.Context, path string) (dagrun.StateStore, error)) LocalOption {
+	return func(r *Local) {
+		r.stateStoreFor = pick
+	}
+}
+
+// WithLocalEnqueueStoresFor sets how Enqueue finds, from the file of a DAG,
+// the stores that record the run it admits. Without it, Enqueue uses the
+// DAG-run repository and the queue store.
+func WithLocalEnqueueStoresFor(
+	pick func(ctx context.Context, path string) (*persis.DAGRunRepository, queue.QueueStore, error),
+) LocalOption {
+	return func(r *Local) {
+		r.enqueueStoresFor = pick
 	}
 }
 
@@ -286,15 +307,22 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*ir.R
 
 // Enqueue admits a child workflow to the local control-plane queue.
 func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (executor.EnqueueResult, error) {
-	if r.dagRunRepository == nil {
+	dagRunRepository, queueStore := r.dagRunRepository, r.queueStore
+	if r.enqueueStoresFor != nil {
+		var err error
+		if dagRunRepository, queueStore, err = r.enqueueStoresFor(ctx, req.Location); err != nil {
+			return executor.EnqueueResult{}, err
+		}
+	}
+	if dagRunRepository == nil {
 		return executor.EnqueueResult{}, fmt.Errorf("dag.enqueue requires a DAG-run repository")
 	}
-	if r.queueStore == nil {
+	if queueStore == nil {
 		return executor.EnqueueResult{}, fmt.Errorf("dag.enqueue requires a queue store")
 	}
 
 	ref := ir.NewDAGRunRef(req.DAG.Name, req.RunID)
-	attempt, err := r.dagRunRepository.FindAttempt(ctx, ref)
+	attempt, err := dagRunRepository.FindAttempt(ctx, ref)
 	switch {
 	case errors.Is(err, dagrun.ErrNoStatusData):
 		return executor.EnqueueResult{Status: ir.Queued, AlreadyExists: true}, nil
@@ -318,8 +346,8 @@ func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (execu
 		artifactDir = rCtx.DAGRunArtifactDir
 	}
 	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
-		DAGRunRepository: r.dagRunRepository,
-		QueueStore:       r.queueStore,
+		DAGRunRepository: dagRunRepository,
+		QueueStore:       queueStore,
 		DAG:              req.DAG,
 		DAGRunID:         req.RunID,
 		QueueName:        req.QueueName,
@@ -531,6 +559,11 @@ func (r *Local) newAgent(
 	opts.LogWriterFactory = r.logWriterFactory
 	opts.RunStateStore = r.runStateStoreFromContext(ctx)
 	opts.StateStore = r.stateStoreFromContext(ctx)
+	if r.stateStoreFor != nil {
+		if opts.StateStore, err = r.stateStoreFor(ctx, dag.Location); err != nil {
+			return nil, err
+		}
+	}
 	opts.MaterializationStore = rCtx.MaterializationStore
 	opts.NoReuse = rCtx.NoReuse
 	opts.SecretStore = r.secretStore

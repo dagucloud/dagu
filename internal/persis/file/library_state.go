@@ -48,7 +48,7 @@ func (s scopedStateStore) of(scope dagrun.StateScope) dagrun.StateStore {
 		return s.dag
 	case dagrun.StateScopeRootDAG:
 		return s.rootDAG
-	default:
-		return s.other
+	case dagrun.StateScopeGlobal, dagrun.StateScopeCustom:
 	}
+	return s.other
 }
