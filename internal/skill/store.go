@@ -22,9 +22,6 @@ type Store struct {
 // NewStore returns the store of the skills directory root.
 func NewStore(root string) *Store { return &Store{root: root} }
 
-// Root returns the skills directory.
-func (s *Store) Root() string { return s.root }
-
 // Dir returns the folder of a skill.
 func (s *Store) Dir(name string) string { return filepath.Join(s.root, name) }
 
