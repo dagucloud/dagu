@@ -82,6 +82,7 @@ steps:
 	require.NoError(t, err)
 	for _, step := range dag.Steps {
 		require.Empty(t, step.Depends, step.ID)
+		require.Empty(t, step.InferredDepends, step.ID)
 	}
 }
 

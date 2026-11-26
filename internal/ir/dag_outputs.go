@@ -63,25 +63,26 @@ func nodeByStepID(nodes []*Node, id string) *Node {
 	return nil
 }
 
-// declaredOutput returns the declaration of the referenced step output, or nil
-// when the step does not declare it, such as when its names are known only at
-// run time.
+// declaredOutput returns the step's outputs contract entry (Spec 012) for the
+// referenced output, or nil for any other published output, such as a captured
+// one or one whose name is known only at run time.
 func declaredOutput(dag *DAG, out DAGOutput) *StepOutputDeclaration {
 	for _, step := range dag.Steps {
 		if step.ID != out.Step {
 			continue
 		}
-		if i := slices.IndexFunc(step.Outputs, func(d StepOutputDeclaration) bool { return d.Name == out.Output }); i >= 0 {
-			return &step.Outputs[i]
+		declared := step.ValueOutputs()
+		if i := slices.IndexFunc(declared, func(d StepOutputDeclaration) bool { return d.Name == out.Output }); i >= 0 {
+			return &declared[i]
 		}
 	}
 	return nil
 }
 
 // projectValue turns the stored value of a published output into a result. A
-// run stores each declared output as a JSON string holding its text, so a json
+// run stores each contract output as a JSON string holding its text, so a json
 // output is parsed from that text when it is valid JSON, and a string output
-// stays a JSON string. An output with no declaration keeps its stored JSON.
+// stays a JSON string. Any other output keeps the JSON it was published as.
 func projectValue(decl *StepOutputDeclaration, raw json.RawMessage) (json.RawMessage, bool) {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 {

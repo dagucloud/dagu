@@ -116,3 +116,25 @@ func TestProjectDAGOutputsRuntimeOnlyStep(t *testing.T) {
 	status := &DAGRunStatus{Status: Succeeded, Nodes: []*Node{{Step: Step{ID: "sub"}, Status: NodeSucceeded, StepOutputsValue: &value}}}
 	require.JSONEq(t, `{"a":1}`, string(ProjectDAGOutputs(dag, status)["r"]))
 }
+
+// Captured outputs, such as those of outputs.write or stdout.outputs, are
+// stored as JSON values and carry no declared type.
+func TestProjectDAGOutputsCaptured(t *testing.T) {
+	t.Parallel()
+
+	dag := &DAG{
+		Outputs: map[string]DAGOutput{
+			"report": {Step: "pub", Output: "report"},
+			"count":  {Step: "pub", Output: "count"},
+		},
+		Steps: []Step{{ID: "pub", Outputs: []StepOutputDeclaration{
+			{Name: "report", Source: StepDeclaredOutputSourceCapture},
+			{Name: "count", Source: StepDeclaredOutputSourceCapture},
+		}}},
+	}
+	value := `{"report":{"ok":true},"count":3}`
+	status := &DAGRunStatus{Status: Succeeded, Nodes: []*Node{{Step: Step{ID: "pub"}, Status: NodeSucceeded, StepOutputsValue: &value}}}
+	encoded, err := json.Marshal(ProjectDAGOutputs(dag, status))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"report":{"ok":true},"count":3}`, string(encoded))
+}
