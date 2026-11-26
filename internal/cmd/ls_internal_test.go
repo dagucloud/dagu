@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -133,4 +134,58 @@ func lsRowNames(rows []lsRow) []string {
 		names = append(names, row.dag.Name)
 	}
 	return names
+}
+
+func TestRenderLsTableNextRunLocal(t *testing.T) {
+	t.Parallel()
+
+	nextRun := time.Date(2026, time.November, 30, 11, 0, 0, 0, time.UTC)
+	cet := time.FixedZone("CET", 3600)
+
+	cases := []struct {
+		name    string
+		nextRun time.Time
+		loc     *time.Location
+		want    string
+	}{
+		{
+			name:    "ConfiguredLocation",
+			nextRun: nextRun,
+			loc:     cet,
+			want:    "2026-11-30T12:00:00+01:00",
+		},
+		{
+			name:    "NilLocationUsesUTC",
+			nextRun: nextRun,
+			loc:     nil,
+			want:    "2026-11-30T11:00:00Z",
+		},
+		{
+			name:    "UTCLocationUsesZ",
+			nextRun: nextRun,
+			loc:     time.UTC,
+			want:    "2026-11-30T11:00:00Z",
+		},
+		{
+			name:    "ZeroNextRunStaysDash",
+			nextRun: time.Time{},
+			loc:     cet,
+			want:    "-",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			rows := []lsRow{{dag: &ir.DAG{Name: "daily"}, nextRun: tc.nextRun}}
+			require.NoError(t, renderLsTable(&out, rows, true, false, false, tc.loc))
+
+			lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+			require.Len(t, lines, 2)
+			fields := strings.Fields(lines[1])
+			require.Equal(t, []string{"daily", tc.want}, fields)
+		})
+	}
 }
