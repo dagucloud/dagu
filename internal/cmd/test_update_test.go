@@ -162,6 +162,62 @@ handler_on:
 	assert.NotContains(t, stdout, "\n  expect ")
 }
 
+// --update rewrites each called_with value that does not hold from the
+// step's call: a run text in its quotes and with its comment, the listed
+// keys of a with object, and a variable, a secret as its placeholder. A run
+// given as contains, and an input the call lacks, stay and still fail.
+func TestTestUpdateCalledWith(t *testing.T) {
+	t.Parallel()
+
+	home := writeInitDAG(t, "release.yaml", calledWithDAG)
+	testPath := filepath.Join(home, "dags", "release.test.yaml")
+	const kept = `  - name: the tag is in the run
+    expect:
+      steps:
+        build: succeeded
+        deploy:
+          called_with:
+            run:
+              contains: v1.2.2
+        notify: succeeded
+        handler_on.failure: not_started
+`
+	stale := func(tag, token string) string {
+		return `  - name: deploy takes the built tag
+    expect:
+      steps:
+        build: succeeded
+        deploy:
+          called_with:
+            run: './deploy.sh "` + tag + `"'  # the last release
+            env:
+              IMAGE_TAG: ` + tag + `
+              REGION: eu-west-1
+        notify:
+          called_with:
+            with:
+              method: POST
+              headers:
+                Authorization: Bearer ` + token + `
+              timeout: 30
+        handler_on.failure: not_started
+`
+	}
+	require.NoError(t, os.WriteFile(testPath, []byte(calledWithMocks+"cases:\n"+stale("v1.2.2", "old")+kept), 0o600))
+
+	reported := testReportPath(testPath)
+	timeout := "  step notify called_with.with.timeout: expected 30, got nothing\n"
+	contains := `  step deploy called_with.run: expected to contain "v1.2.2", got "./deploy.sh \"v1.2.3\""` + "\n"
+	stdout, err := runTestCommand(t, home, "--update", testPath)
+	var exit *exitStatusError
+	require.ErrorAs(t, err, &exit)
+	assert.Equal(t, testExitFailed, exit.code)
+	assertInOrder(t, stdout,
+		"FAIL "+reported+": deploy takes the built tag (", timeout, "  expect updated\n",
+		"FAIL "+reported+": the tag is in the run (", contains, "  expect unchanged\n")
+	assertFileContent(t, testPath, calledWithMocks+"cases:\n"+stale("v1.2.3", "<secret:API_TOKEN>")+kept)
+}
+
 // --update rewrites only the cases --run selects, and keeps the expect of
 // an invalid case and of a run that does not finish. The JSON report names
 // each outcome, and a second update finds the rewritten case unchanged.

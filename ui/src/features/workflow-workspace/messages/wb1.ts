@@ -33,4 +33,11 @@ export default defineMessages({
     'Show more': 'Mehr anzeigen',
     'Waiting for the step to run': 'Wartet auf die Ausführung des Schritts',
   },
+  fr: {
+    'Run the step {name} with its {count} upstream steps?':
+      'Exécuter l’étape {name} avec ses étapes en amont ({count})\u00a0?',
+    'Not run': 'Non exécuté',
+    'Show more': 'Afficher plus',
+    'Waiting for the step to run': 'En attente de l’exécution de l’étape',
+  },
 });

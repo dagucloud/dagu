@@ -91,6 +91,22 @@ describe('UserPreferencesProvider', () => {
     expect(result.current.preferences.locale).toBe('ja');
   });
 
+  it('loads a saved French locale', () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'fr' }));
+
+    const { result } = renderHook(() => useUserPreferences(), { wrapper });
+
+    expect(result.current.preferences.locale).toBe('fr');
+  });
+
+  it('drops a saved locale that is not supported', () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ko' }));
+
+    const { result } = renderHook(() => useUserPreferences(), { wrapper });
+
+    expect(result.current.preferences.locale).toBe('en');
+  });
+
   it('keeps migrated preferences when storage is read-only', () => {
     localStorage.setItem(
       'user_preferences',

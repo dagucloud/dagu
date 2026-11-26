@@ -3,4 +3,4 @@
 
 import { defineMessages } from './define';
 
-export default defineMessages({ en: {}, 'zh-CN': {}, ja: {}, de: {} });
+export default defineMessages({ en: {}, 'zh-CN': {}, ja: {}, de: {}, fr: {} });

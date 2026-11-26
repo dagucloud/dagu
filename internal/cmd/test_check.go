@@ -13,10 +13,12 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/dagtest"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 )
 
 // notStartedToken is the status of a step or handler that never started.
@@ -157,7 +159,81 @@ func (c *testCase) checkStep(s dagtest.StepExpect, status *ir.DAGRunStatus) []ca
 	}
 	failures = append(failures, c.checkStream(s.Key, streamStdout, s.Stdout, stdout)...)
 	failures = append(failures, c.checkStream(s.Key, streamStderr, s.Stderr, stderr)...)
+	return append(failures, c.checkCall(s, node)...)
+}
+
+// lastCall returns what the latest execution of the step or handler that s
+// names was called with, or false when its node shows no execution. node is
+// its node in the run's last attempt.
+func (c *testCase) lastCall(s dagtest.StepExpect, node *ir.Node) (stepmock.Call, bool) {
+	if c.scripts == nil || nodeAttempts(node, s.Handler != "") == 0 {
+		return stepmock.Call{}, false
+	}
+	if s.Handler != "" {
+		return c.scripts.LastHandlerCall(s.Handler)
+	}
+	return c.scripts.LastCall(s.Step)
+}
+
+// checkCall returns the failed parts of a called_with assertion: run, its
+// text, contains, then matches; with inputs in the order listed; then env
+// in the order listed. A step with no execution fails it once. Both values
+// of a failure are compact JSON with the call's secrets masked, and a
+// failure has no actual value for an input or variable the call lacks.
+func (c *testCase) checkCall(s dagtest.StepExpect, node *ir.Node) []caseFailure {
+	expect := s.CalledWith
+	if expect == nil {
+		return nil
+	}
+	call, ok := c.lastCall(s, node)
+	if !ok {
+		return []caseFailure{{step: s.Key, field: failureCall}}
+	}
+	masker := masking.NewValueMasker(call.Secrets)
+	var failures []caseFailure
+	// fail adds a failed part. A part the call lacks has no actual value.
+	fail := func(field string, expected, actual any, present bool) {
+		f := caseFailure{step: s.Key, field: field, expected: maskedJSON(masker, expected)}
+		if present {
+			f.actual = maskedJSON(masker, actual)
+		}
+		failures = append(failures, f)
+	}
+	if r := expect.Run; r != nil {
+		if r.Text != nil && *r.Text != call.Run {
+			fail(failureCallRun, *r.Text, call.Run, true)
+		}
+		if r.Contains != nil && !strings.Contains(call.Run, *r.Contains) {
+			fail(failureCallRun+failureContains, *r.Contains, call.Run, true)
+		}
+		if r.Matches != nil && !r.Matches.MatchString(call.Run) {
+			fail(failureCallRun+failureMatches, r.Matches.String(), call.Run, true)
+		}
+	}
+	for _, in := range expect.With {
+		value, ok := call.With[in.Name]
+		if !ok || !outputMatches(dagtest.OutputExpect{Value: in.Value}, outputText(value)) {
+			fail(failureCallInputPrefix+in.Name, in.Value, value, ok)
+		}
+	}
+	for _, e := range expect.Env {
+		value, ok := call.Env[e.Name]
+		if !ok || value != e.Value {
+			fail(failureCallEnvPrefix+e.Name, e.Value, value, ok)
+		}
+	}
 	return failures
+}
+
+// maskedJSON returns v as compact JSON with masker's values masked. Masked
+// text that is no longer JSON, such as a masked number, is a JSON string.
+func maskedJSON(masker *masking.Masker, v any) json.RawMessage {
+	data, _ := jsonutil.MarshalUnescaped(v)
+	masked := masker.MaskString(string(data))
+	if !json.Valid([]byte(masked)) {
+		masked = quoteJSON(masked)
+	}
+	return json.RawMessage(masked)
 }
 
 // stepAttempts counts the executions of a step or handler in every attempt

@@ -19,6 +19,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testNamedDAG is a DAG to save under a test file name, which discovery
+// skips.
+const testNamedDAG = "steps:\n  - run: echo smoke\n"
+
 func cancelWhenLogContains(t *testing.T, th test.Command, want ...string) {
 	t.Helper()
 

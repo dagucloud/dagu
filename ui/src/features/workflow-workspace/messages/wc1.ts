@@ -50,4 +50,15 @@ export default defineMessages({
       'Ablauf starten, um seine Läufe hier zu sehen.',
     'Failed to delete DAG': 'DAG konnte nicht gelöscht werden',
   },
+  fr: {
+    Run: 'Exécuter',
+    Runs: 'Exécutions',
+    'Run timeline': 'Chronologie des exécutions',
+    'Run {id}': 'Exécution {id}',
+    latest: 'la plus récente',
+    Latest: 'Dernière',
+    'Start the workflow to see its runs here.':
+      'Démarrez le workflow pour voir ses exécutions ici.',
+    'Failed to delete DAG': 'Impossible de supprimer le DAG',
+  },
 });

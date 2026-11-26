@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BackfillOnFailure,
   BackfillPlanSlotAction,
@@ -10,6 +10,8 @@ import {
   BackfillStatus,
   type components,
 } from '@/api/v1/schema';
+import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import { ResumeBackfillDialog } from '../ResumeBackfillDialog';
 
 type Backfill = components['schemas']['Backfill'];
@@ -152,5 +154,40 @@ describe('ResumeBackfillDialog', () => {
         screen.getByRole('button', { name: 'Resume 2 runs' })
       ).toBeEnabled()
     );
+  });
+
+  describe('in French', () => {
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    // With no run to resume, the disabled button still shows the count.
+    // French writes 0 in the singular, so the label puts the count in
+    // brackets, away from the noun.
+    it('labels a plan with no run', async () => {
+      localStorage.setItem(
+        'user_preferences',
+        JSON.stringify({ locale: 'fr' })
+      );
+      post.mockResolvedValueOnce({ data: { plan: plan('r1', 0) } });
+      render(
+        <UserPreferencesProvider>
+          <I18nProvider>
+            <ResumeBackfillDialog
+              backfill={BACKFILL}
+              remoteNode="local"
+              open
+              onOpenChange={vi.fn()}
+              onResumed={vi.fn()}
+            />
+          </I18nProvider>
+        </UserPreferencesProvider>
+      );
+
+      expect(await screen.findByText(/^Rien à reprendre/)).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Reprendre les exécutions (0)' })
+      ).toBeDisabled();
+    });
   });
 });

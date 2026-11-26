@@ -48,4 +48,15 @@ export default defineMessages({
     'The editor has unsaved changes. The definition of this run replaces them.':
       'Der Editor hat ungespeicherte Änderungen. Die Definition dieses Laufs ersetzt sie.',
   },
+  fr: {
+    'This run has no stored definition. The current definition is shown.':
+      'Aucune définition n’est stockée pour cette exécution. La définition actuelle est affichée.',
+    'No runs yet': 'Aucune exécution pour l’instant',
+    "Revert to this run's YAML": 'Restaurer le YAML de cette exécution',
+    'Replaces the editor text with the YAML of this run. Nothing is saved until you save.':
+      'Remplace le texte de l’éditeur par le YAML de cette exécution. Rien n’est enregistré tant que vous n’enregistrez pas.',
+    'Replace the editor text?': 'Remplacer le texte de l’éditeur\u00a0?',
+    'The editor has unsaved changes. The definition of this run replaces them.':
+      'L’éditeur contient des modifications non enregistrées. La définition de cette exécution les remplace.',
+  },
 });

@@ -3,13 +3,15 @@
 
 /**
  * Declares the static messages of one task module. The English value of each
- * key is the key itself. The zh-CN, ja and de catalogs must have the same keys.
+ * key is the key itself. The zh-CN, ja, de and fr catalogs must have the same
+ * keys.
  */
 export function defineMessages<const E extends Record<string, string>>(m: {
   en: E;
   'zh-CN': { [K in keyof E]: string };
   ja: { [K in keyof E]: string };
   de: { [K in keyof E]: string };
+  fr: { [K in keyof E]: string };
 }): typeof m {
   return m;
 }

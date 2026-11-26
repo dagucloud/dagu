@@ -39,4 +39,12 @@ export default defineMessages({
       'Der eine Knoten, der nicht erfolgreich war, läuft erneut, und erfolgreiche Knoten behalten ihre Ergebnisse.',
     Removed: 'Entfernt',
   },
+  fr: {
+    'Retry failed nodes ({count})': 'Réessayer les nœuds en échec ({count})',
+    'The {count} nodes that did not succeed run again, and nodes that succeeded keep their results.':
+      'Les {count} nœuds qui n’ont pas réussi sont réexécutés, et ceux qui ont réussi conservent leurs résultats.',
+    'The 1 node that did not succeed runs again, and nodes that succeeded keep their results.':
+      'Le nœud qui n’a pas réussi est réexécuté, et ceux qui ont réussi conservent leurs résultats.',
+    Removed: 'Supprimé',
+  },
 });

@@ -24,4 +24,9 @@ export default defineMessages({
     'No steps': 'Keine Schritte',
     'Add a step to route {port}': 'Schritt für Weg {port} hinzufügen',
   },
+  fr: {
+    'Add first step': 'Ajouter la première étape',
+    'No steps': 'Aucune étape',
+    'Add a step to route {port}': 'Ajouter une étape à la route {port}',
+  },
 });

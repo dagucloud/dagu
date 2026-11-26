@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
 // stepTarget is a step or lifecycle handler of the tested DAG that a step key
@@ -370,10 +371,76 @@ func (b *caseBuilder) stepExpect(label string, t *stepTarget, s stepExpectSpec) 
 		Stdout:   b.stream(label+".stdout", s.stdout),
 		Stderr:   b.stream(label+".stderr", s.stderr),
 	}
+	if s.calledWith != nil {
+		out.CalledWith = b.callExpect(label+".called_with", *t.step, *s.calledWith)
+	}
 	if t.handler == "" {
 		out.Step = t.step.Name
 	}
 	return out
+}
+
+// callExpect reads a called_with assertion on step. run takes a step
+// written with run, and with a step written with action. A step whose
+// action never runs in the step itself takes neither, nor env.
+func (b *caseBuilder) callExpect(label string, step ir.Step, c callSpec) *CallExpect {
+	out := &CallExpect{With: c.with}
+	switch {
+	case c.run == nil && c.with == nil && c.env == nil:
+		b.fail(label, "holds no assertion")
+		return out
+	case step.HumanTask != nil:
+		b.fail(label, "a human.task step has no action to call")
+		return out
+	case step.Foreach != nil:
+		b.fail(label, "a foreach step calls only its body steps, which have no step key")
+		return out
+	case step.Nodes != nil:
+		b.fail(label, "a step with nodes resolves its command in the child run of each node; assert on the child DAG's steps")
+		return out
+	}
+	if c.run != nil {
+		out.Run = b.runExpect(label+".run", step, *c.run)
+	}
+	switch {
+	case c.with == nil:
+	case step.ActionWith == nil && hasRun(step):
+		b.fail(label+".with", "the step runs a command, which takes no with; assert run")
+	case step.ActionWith == nil:
+		b.fail(label+".with", "the step is not written with action, so it takes no with")
+	case len(c.with) == 0:
+		b.fail(label+".with", "holds no assertion")
+	}
+	if c.env != nil && len(c.env) == 0 {
+		b.fail(label+".env", "holds no assertion")
+	}
+	for _, e := range c.env {
+		out.Env = append(out.Env, EnvExpect{Name: e.name, Value: e.value})
+	}
+	return out
+}
+
+// runExpect reads a run assertion on step.
+func (b *caseBuilder) runExpect(label string, step ir.Step, r runSpec) *RunExpect {
+	switch {
+	case step.ActionWith != nil:
+		b.fail(label, "the step runs action %s, which takes no run; assert with", spec.ActionName(&step))
+	case !hasRun(step):
+		b.fail(label, "the step has no command or script")
+	}
+	if r.stream == nil {
+		return &RunExpect{Text: r.text}
+	}
+	if r.stream.contains == nil && r.stream.matches == nil {
+		b.fail(label, "must set contains, matches, or both")
+	}
+	stream := b.stream(label, r.stream)
+	return &RunExpect{Contains: stream.Contains, Matches: stream.Matches}
+}
+
+// hasRun reports whether a step runs a command or a script of its own.
+func hasRun(step ir.Step) bool {
+	return len(step.Commands) > 0 || step.Script != ""
 }
 
 func (b *caseBuilder) notification(label string, n notificationSpec) Notification {

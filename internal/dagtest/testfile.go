@@ -23,8 +23,9 @@ type File struct {
 	Path string
 	// DAGPath is the path of the tested DAG file.
 	DAGPath string
-	// DAG is the tested DAG. Every params[].eval of it waits for the run,
-	// and a map-form worker_selector stays as written.
+	// DAG is the tested DAG. Every params[].eval of it waits for the run, a
+	// map-form worker_selector stays as written, and each action step keeps
+	// its with as written.
 	DAG *ir.DAG
 	// Cases holds the cases in file order, each with the file's fields
 	// merged in.
@@ -154,6 +155,46 @@ type StepExpect struct {
 	// Stdout and Stderr are the stream assertions, or nil.
 	Stdout *StreamExpect
 	Stderr *StreamExpect
+	// CalledWith asserts on what the step's last execution was called with,
+	// or is nil.
+	CalledWith *CallExpect
+}
+
+// CallExpect asserts on what a step's last execution was called with, as
+// Dagu resolved it.
+type CallExpect struct {
+	// Run asserts on the command or script text of a step written with run,
+	// or is nil.
+	Run *RunExpect
+	// With holds the expected with inputs of a step written with action, in
+	// the order listed.
+	With []InputExpect
+	// Env holds the expected environment variables in the order listed.
+	Env []EnvExpect
+}
+
+// RunExpect asserts on a step's resolved command or script text.
+type RunExpect struct {
+	// Text is the text the run equals, or nil.
+	Text *string
+	// Contains is text the run contains, or nil.
+	Contains *string
+	// Matches is an expression that matches somewhere in the run, or nil.
+	Matches *regexp.Regexp
+}
+
+// InputExpect is the expected value of one with input. A string matches
+// the input's text exactly, and any other value matches by the JSON rule of
+// outputs.
+type InputExpect struct {
+	Name  string
+	Value any
+}
+
+// EnvExpect is the expected text of one environment variable.
+type EnvExpect struct {
+	Name  string
+	Value string
 }
 
 // OutputExpect is the expected value of one named output.
@@ -206,8 +247,9 @@ func joinFindings(findings []Finding) string {
 	return strings.Join(lines, "; ")
 }
 
-// LoadFile reads the test file at path, loads the DAG it tests with opts and
-// with every params[].eval deferred to the run, and returns its cases as
+// LoadFile reads the test file at path, loads the DAG it tests with opts,
+// with every params[].eval deferred to the run, and with each action step's
+// with kept as written, and returns its cases as
 // Spec 101 merges and validates them. A case's Errors report what makes it
 // invalid. An error is an *InvalidFileError.
 func LoadFile(ctx context.Context, path string, opts ...spec.LoadOption) (*File, error) {
@@ -217,7 +259,7 @@ func LoadFile(ctx context.Context, path string, opts ...spec.LoadOption) (*File,
 	if err != nil {
 		return nil, invalid(Finding{Message: err.Error()})
 	}
-	decoded, errs := decodeFile(data)
+	decoded, errs := decodeFile(path, data)
 	if len(errs) > 0 {
 		return nil, invalid(errs...)
 	}
@@ -234,11 +276,12 @@ func LoadFile(ctx context.Context, path string, opts ...spec.LoadOption) (*File,
 	return file, nil
 }
 
-// loadTestedDAG loads the DAG a test file tests with opts and with every
-// params[].eval deferred to the run. A DAG that fails to load, and a
+// loadTestedDAG loads the DAG a test file tests with opts, with every
+// params[].eval deferred to the run, and with each action step's with kept
+// as written. A DAG that fails to load, and a
 // type: build DAG, return the findings that make the test file invalid.
 func loadTestedDAG(ctx context.Context, dagPath string, opts []spec.LoadOption) (*ir.DAG, []Finding) {
-	dag, err := spec.Load(ctx, dagPath, append(slices.Clip(opts), spec.DeferAllParamEvals())...)
+	dag, err := spec.Load(ctx, dagPath, append(slices.Clip(opts), spec.DeferAllParamEvals(), spec.KeepActionWith())...)
 	if err != nil {
 		return nil, loadFindings(err)
 	}

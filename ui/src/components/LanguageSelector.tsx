@@ -19,6 +19,7 @@ const languages = [
   { locale: 'zh-CN', key: 'language.chinese' },
   { locale: 'ja', key: 'language.japanese' },
   { locale: 'de', key: 'language.german' },
+  { locale: 'fr', key: 'language.french' },
 ] as const;
 
 export function LanguageSelector({

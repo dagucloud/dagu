@@ -163,6 +163,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		tag.Host(serviceCtx.Config.Server.Host),
 		tag.Port(serviceCtx.Config.Server.Port),
 	)
+	warnTestNamedDAGs(serviceCtx)
 
 	// Initialize tunnel service if enabled
 	tunnelService, err = initTunnelService(ctx.Config)

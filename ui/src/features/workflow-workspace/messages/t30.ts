@@ -16,4 +16,7 @@ export default defineMessages({
   de: {
     '{step} run': 'Lauf von {step}',
   },
+  fr: {
+    '{step} run': 'Exécution de l’étape {step}',
+  },
 });

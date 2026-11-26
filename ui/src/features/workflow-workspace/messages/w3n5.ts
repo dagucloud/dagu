@@ -21,4 +21,8 @@ export default defineMessages({
     while: 'während',
     until: 'bis',
   },
+  fr: {
+    while: 'tant que',
+    until: 'jusqu’à',
+  },
 });

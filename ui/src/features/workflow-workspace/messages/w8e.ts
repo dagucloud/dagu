@@ -50,4 +50,16 @@ export default defineMessages({
     'iteration {n} of {limit}': 'Durchgang {n} von {limit}',
     'iteration {n}': 'Durchgang {n}',
   },
+  fr: {
+    'repeat while "{condition}"': 'répéter tant que «\u00a0{condition}\u00a0»',
+    'repeat until "{condition}"': 'répéter jusqu’à «\u00a0{condition}\u00a0»',
+    'repeat while exit {codes}':
+      'répéter tant que le code de sortie est {codes}',
+    'repeat until exit {codes}': 'répéter jusqu’au code de sortie {codes}',
+    'every {interval}': 'à intervalles de {interval}',
+    'max {limit}': 'max. {limit}',
+    'no limit': 'sans limite',
+    'iteration {n} of {limit}': 'itération {n} sur {limit}',
+    'iteration {n}': 'itération {n}',
+  },
 });

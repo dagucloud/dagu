@@ -28,4 +28,10 @@ export default defineMessages({
     'Resize logs': 'Protokollgröße ändern',
     '{count} waiting': '{count} wartend',
   },
+  fr: {
+    More: 'Plus',
+    Maximize: 'Agrandir',
+    'Resize logs': 'Redimensionner le panneau des journaux',
+    '{count} waiting': '{count} en attente',
+  },
 });

@@ -84,6 +84,20 @@ describe('I18nProvider', () => {
     await waitFor(() => expect(document.documentElement.lang).toBe('ja'));
   });
 
+  it('sets French as the document language', async () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'fr' }));
+
+    render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <div />
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+
+    await waitFor(() => expect(document.documentElement.lang).toBe('fr'));
+  });
+
   it('holds the first render until the saved locale loads', async () => {
     localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
     const { UserPreferencesProvider, I18nProvider, I18nText, ...i18n } =

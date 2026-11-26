@@ -50,4 +50,16 @@ export default defineMessages({
     'Showing the latest {count} runs.':
       'Die neuesten {count} Läufe werden angezeigt.',
   },
+  fr: {
+    'The workflow has unsaved changes. Leave and discard them?':
+      'Le workflow comporte des modifications non enregistrées. Quitter et les abandonner\u00a0?',
+    'Back to Workflows': 'Retour aux workflows',
+    'Show in all workspaces': 'Afficher dans tous les espaces de travail',
+    'Show in workspace {name}': 'Afficher dans l’espace de travail {name}',
+    'Back to latest': 'Revenir à la dernière exécution',
+    'Latest run': 'Dernière exécution',
+    'Following the latest run': 'Suivi de la dernière exécution',
+    'Showing the latest {count} runs.':
+      'Affichage des dernières exécutions ({count}).',
+  },
 });

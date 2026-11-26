@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BackfillOnFailure,
   BackfillPlanSlotAction,
@@ -10,6 +10,8 @@ import {
   BackfillStatus,
   type components,
 } from '@/api/v1/schema';
+import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import {
   type BackfillTarget,
   loadsRange,
@@ -385,6 +387,46 @@ describe('StartBackfillDialog', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Start 3 runs' })).toBeEnabled()
     );
+  });
+
+  describe('in French', () => {
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    // With no run to start, the disabled button still shows the count.
+    // French writes 0 in the singular, so the label puts the count in
+    // brackets, away from the noun.
+    it('labels a plan with no run', async () => {
+      localStorage.setItem(
+        'user_preferences',
+        JSON.stringify({ locale: 'fr' })
+      );
+      post.mockResolvedValue({
+        data: {
+          plan: { ...plan('r1', 0), runCounts: { none: 0, failed: 0, all: 0 } },
+        },
+      });
+      render(
+        <UserPreferencesProvider>
+          <I18nProvider>
+            <StartBackfillDialog
+              fileName="etl"
+              remoteNode="local"
+              target={{ kind: 'range', from: '2026-10-01T00:00:00Z' }}
+              open
+              onOpenChange={vi.fn()}
+              onStarted={vi.fn()}
+            />
+          </I18nProvider>
+        </UserPreferencesProvider>
+      );
+
+      expect(await screen.findByText(/^Rien à exécuter/)).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Démarrer les exécutions (0)' })
+      ).toBeDisabled();
+    });
   });
 });
 

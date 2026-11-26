@@ -58,4 +58,18 @@ export default defineMessages({
     'Step {step} of the selected run ran this workflow {count} times.':
       'Schritt {step} des gewählten Laufs hat diesen Ablauf {count}-mal ausgeführt.',
   },
+  fr: {
+    'This step ran {name} as a sub-run.':
+      'Cette étape a exécuté {name} dans une sous-exécution.',
+    'This step ran {name} as {count} sub-runs.':
+      'Cette étape a exécuté {name} dans {count} sous-exécutions.',
+    'Choose sub-run': 'Choisir une sous-exécution',
+    'Open sub-run: {name}': 'Ouvrir la sous-exécution\u00a0: {name}',
+    'Choose one of {count} sub-runs of {name}':
+      'Choisir l’une des {count} sous-exécutions de {name}',
+    'Step {step} of the selected run ran this workflow.':
+      'L’étape {step} de l’exécution sélectionnée a exécuté ce workflow.',
+    'Step {step} of the selected run ran this workflow {count} times.':
+      'L’étape {step} de l’exécution sélectionnée a exécuté ce workflow {count} fois.',
+  },
 });

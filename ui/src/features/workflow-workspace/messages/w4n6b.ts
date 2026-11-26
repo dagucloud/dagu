@@ -21,4 +21,8 @@ export default defineMessages({
     'This is the first step': 'Das ist der erste Schritt',
     'This is the last step': 'Das ist der letzte Schritt',
   },
+  fr: {
+    'This is the first step': 'C’est la première étape',
+    'This is the last step': 'C’est la dernière étape',
+  },
 });

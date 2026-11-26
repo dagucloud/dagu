@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"gopkg.in/yaml.v3"
 )
 
@@ -101,6 +102,22 @@ type stepExpectSpec struct {
 	outputs  []OutputExpect
 	stdout   *streamSpec
 	stderr   *streamSpec
+	// calledWith is nil when the step sets no called_with.
+	calledWith *callSpec
+}
+
+// callSpec is a called_with assertion as written. A field it leaves out is
+// nil, and one written as an empty map is empty but not nil.
+type callSpec struct {
+	run  *runSpec
+	with []InputExpect
+	env  []entry
+}
+
+// runSpec is a run assertion: text, or a map with contains and matches.
+type runSpec struct {
+	text   *string
+	stream *streamSpec
 }
 
 type streamSpec struct {
@@ -114,34 +131,50 @@ type notificationSpec struct {
 	to   []string
 }
 
-// decodeFile decodes a test file strictly: a field Spec 101 does not define
-// or a value of the wrong type is an error labeled with its path in the
-// file. A file with top-level steps and no cases reads as a DAG and gets one
-// error that asks for a rename.
-func decodeFile(data []byte) (fileSpec, []Finding) {
+// decodeFile decodes the test file at path strictly: a field Spec 101 does
+// not define or a value of the wrong type is an error labeled with its path
+// in the file. A file whose first document has top-level steps and no cases
+// reads as a DAG, even with sub-DAGs after it, and gets one error that
+// suggests a rename.
+func decodeFile(path string, data []byte) (fileSpec, []Finding) {
 	var root yaml.Node
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(&root); err != nil && !errors.Is(err, io.EOF) {
 		return fileSpec{}, []Finding{{Message: "not valid YAML: " + err.Error()}}
 	}
+	if err := checkAliases(&root); err != nil {
+		return fileSpec{}, []Finding{{Message: "not valid YAML: " + err.Error()}}
+	}
+	if readsAsDAG(&root) {
+		return fileSpec{}, []Finding{{Message: spec.TestNamedDAGHint(path)}}
+	}
 	var next yaml.Node
 	if err := dec.Decode(&next); !errors.Is(err, io.EOF) {
 		return fileSpec{}, []Finding{{Message: "holds more than one YAML document"}}
-	}
-	if err := checkAliases(&root); err != nil {
-		return fileSpec{}, []Finding{{Message: "not valid YAML: " + err.Error()}}
 	}
 	if len(root.Content) == 0 || resolve(root.Content[0]).Kind != yaml.MappingNode {
 		return fileSpec{}, []Finding{{Message: "the top level must be a map"}}
 	}
 	top := resolve(root.Content[0])
-	if hasKey(top, "steps") && !hasKey(top, "cases") {
-		return fileSpec{}, []Finding{{Message: "reads as a DAG, with steps and no cases; rename it so its name does not end in .test.yaml or .test.yml"}}
-	}
 
 	d := &decoder{}
 	f := d.file(top)
 	return f, d.errs
+}
+
+// readsAsDAG reports whether the document root is a map with top-level steps
+// and no cases, merge keys expanded, the shape of a DAG. Its aliases must
+// have passed checkAliases.
+func readsAsDAG(root *yaml.Node) bool {
+	if len(root.Content) == 0 {
+		return false
+	}
+	var steps, cases bool
+	for _, f := range (&decoder{}).fields(root.Content[0], "") {
+		steps = steps || f.key == "steps"
+		cases = cases || f.key == "cases"
+	}
+	return steps && !cases
 }
 
 // maxExpandedNodes bounds the nodes of a test file with its aliases
@@ -180,15 +213,6 @@ func checkAliases(root *yaml.Node) error {
 	}
 	_, err := expand(root)
 	return err
-}
-
-func hasKey(mapping *yaml.Node, key string) bool {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			return true
-		}
-	}
-	return false
 }
 
 // decoder reads YAML nodes into a test file's fields and collects every
@@ -448,11 +472,41 @@ func (d *decoder) stepExpect(f field) stepExpectSpec {
 			s.stdout = d.stream(fd.value, fd.path)
 		case "stderr":
 			s.stderr = d.stream(fd.value, fd.path)
+		case "called_with":
+			s.calledWith = d.call(fd.value, fd.path)
 		default:
 			d.unknown(fd)
 		}
 	}
 	return s
+}
+
+func (d *decoder) call(n *yaml.Node, path string) *callSpec {
+	c := &callSpec{}
+	for _, fd := range d.fields(n, path) {
+		switch fd.key {
+		case "run":
+			c.run = &runSpec{}
+			if resolve(fd.value).Kind == yaml.MappingNode {
+				c.run.stream = d.stream(fd.value, fd.path)
+			} else {
+				c.run.text = d.optStr(fd.value, fd.path)
+			}
+		case "with":
+			c.with = []InputExpect{}
+			for _, in := range d.fields(fd.value, fd.path) {
+				c.with = append(c.with, InputExpect{Name: in.key, Value: d.value(in.value, in.path)})
+			}
+		case "env":
+			c.env = d.entries(fd.value, fd.path)
+			if c.env == nil {
+				c.env = []entry{}
+			}
+		default:
+			d.unknown(fd)
+		}
+	}
+	return c
 }
 
 func (d *decoder) stream(n *yaml.Node, path string) *streamSpec {

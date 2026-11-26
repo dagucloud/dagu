@@ -27,4 +27,11 @@ export default defineMessages({
     "Couldn't load older runs. Retry":
       'Ältere Läufe konnten nicht geladen werden. Erneut versuchen',
   },
+  fr: {
+    'Loading older runs...': 'Chargement des exécutions plus anciennes…',
+    "Couldn't load older runs":
+      'Impossible de charger les exécutions plus anciennes',
+    "Couldn't load older runs. Retry":
+      'Impossible de charger les exécutions plus anciennes. Réessayer',
+  },
 });

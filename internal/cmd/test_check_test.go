@@ -4,6 +4,9 @@
 package cmd
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/dagtest"
@@ -159,4 +162,182 @@ func TestCheckNotifications(t *testing.T) {
 			assert.Equal(t, []string{tt.failure}, failureLines(failures))
 		})
 	}
+}
+
+// calledWithDAG passes an upstream output, an env entry, and a secret into a
+// command step and an action step. Its failure handler never runs in a run
+// that succeeds.
+const calledWithDAG = `secrets:
+  - name: API_TOKEN
+    provider: env
+    key: DAGU_TEST_UNSET_CALLED_WITH_TOKEN
+env:
+  - REGION: eu-west-1
+steps:
+  - id: build
+    run: ./build.sh
+    outputs:
+      - name: image_tag
+  - id: deploy
+    depends: build
+    run: ./deploy.sh "${steps.build.outputs.image_tag}"
+    env:
+      - IMAGE_TAG: ${steps.build.outputs.image_tag}
+  - id: notify
+    depends: deploy
+    action: http.request
+    with:
+      method: POST
+      url: https://hooks.example.invalid/deploys
+      headers:
+        Authorization: Bearer ${API_TOKEN}
+      body: deployed ${steps.build.outputs.image_tag}
+handler_on:
+  failure:
+    run: ./rollback.sh
+`
+
+// calledWithMocks handle every source of calledWithDAG.
+const calledWithMocks = `mocks:
+  build:
+    outputs:
+      image_tag: v1.2.3
+  deploy: {}
+  notify: {}
+  handler_on.failure: {}
+`
+
+// called_with checks what each mocked step would have been called with:
+// the run text with the upstream output in it, the listed with inputs only,
+// and the listed variables, a secret as its placeholder. Each mismatch is
+// reported with its actual value, the secret masked, and a step that never
+// ran fails its assertion.
+func TestCheckCalledWith(t *testing.T) {
+	t.Parallel()
+
+	home := writeInitDAG(t, "release.yaml", calledWithDAG)
+	testPath := filepath.Join(home, "dags", "release.test.yaml")
+	require.NoError(t, os.WriteFile(testPath, []byte(calledWithMocks+`cases:
+  - name: deploy takes the built tag
+    expect:
+      steps:
+        deploy:
+          called_with:
+            run: ./deploy.sh "v1.2.3"
+            env:
+              IMAGE_TAG: v1.2.3
+              REGION: eu-west-1
+        notify:
+          called_with:
+            with:
+              method: POST
+              headers:
+                Authorization: Bearer <secret:API_TOKEN>
+  - name: the run contains and matches the tag
+    expect:
+      steps:
+        deploy:
+          called_with:
+            run:
+              contains: v1.2.3
+              matches: 'deploy\.sh "v\d+\.\d+\.\d+"$'
+  - name: every mismatch is reported
+    mocks:
+      build:
+        outputs:
+          image_tag: v1.2.4
+    expect:
+      steps:
+        deploy:
+          called_with:
+            run:
+              contains: v1.2.3
+            env:
+              IMAGE_TAG: v1.2.3
+              DAGU_TEST_UNSET_CALLED_WITH_VAR: x
+        notify:
+          called_with:
+            with:
+              body: deployed v1.2.3
+              headers:
+                Authorization: Bearer other
+              timeout: 30
+        handler_on.failure:
+          called_with:
+            run: ./rollback.sh
+`), 0o600))
+
+	reported := testReportPath(testPath)
+	stdout, err := runTestCommand(t, home, testPath)
+	var exit *exitStatusError
+	require.ErrorAs(t, err, &exit)
+	assert.Equal(t, testExitFailed, exit.code)
+	assertInOrder(t, stdout,
+		"PASS "+reported+": deploy takes the built tag (",
+		"PASS "+reported+": the run contains and matches the tag (",
+		"FAIL "+reported+": every mismatch is reported (",
+		`  step deploy called_with.run: expected to contain "v1.2.3", got "./deploy.sh \"v1.2.4\""`+"\n"+
+			`  step deploy called_with.env.IMAGE_TAG: expected "v1.2.3", got "v1.2.4"`+"\n"+
+			`  step deploy called_with.env.DAGU_TEST_UNSET_CALLED_WITH_VAR: expected "x", got nothing`+"\n"+
+			`  step notify called_with.with.body: expected "deployed v1.2.3", got "deployed v1.2.4"`+"\n"+
+			`  step notify called_with.with.headers: expected {"Authorization":"Bearer other"}, got {"Authorization":"Bearer *******"}`+"\n"+
+			`  step notify called_with.with.timeout: expected 30, got nothing`+"\n"+
+			`  step handler_on.failure called_with: expected a call, got none`+"\n",
+		"3 cases: 2 passed, 1 failed\n")
+
+	stdout, err = runTestCommand(t, home, "--format", "json", "--run", "every mismatch", testPath)
+	require.ErrorAs(t, err, &exit)
+	var report struct {
+		Cases []struct {
+			Failures []map[string]any `json:"failures"`
+		} `json:"cases"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &report))
+	require.Len(t, report.Cases, 1)
+	failures := report.Cases[0].Failures
+	require.Len(t, failures, 7)
+	assert.Equal(t, map[string]any{
+		"step": "deploy", "field": "called_with.run.contains", "expected": "v1.2.3", "actual": `./deploy.sh "v1.2.4"`,
+	}, failures[0])
+	assert.Equal(t, map[string]any{
+		"step": "notify", "field": "called_with.with.headers",
+		"expected": map[string]any{"Authorization": "Bearer other"},
+		"actual":   map[string]any{"Authorization": "Bearer *******"},
+	}, failures[4])
+	assert.Equal(t, map[string]any{"step": "notify", "field": "called_with.with.timeout", "expected": float64(30)}, failures[5])
+	assert.Equal(t, map[string]any{"step": "handler_on.failure", "field": "called_with"}, failures[6])
+}
+
+// A real step is checked against what it ran with, as a mocked one is.
+func TestCheckCalledWithRealStep(t *testing.T) {
+	t.Parallel()
+
+	home := writeInitDAG(t, "greet.yaml", `params:
+  - name: who
+    default: world
+steps:
+  - id: greet
+    run: echo "hello ${params.who}"
+    env:
+      - GREETING: hello
+`)
+	testPath := filepath.Join(home, "dags", "greet.test.yaml")
+	require.NoError(t, os.WriteFile(testPath, []byte(`real: [greet]
+cases:
+  - name: greets the param
+    params:
+      who: dagu
+    expect:
+      steps:
+        greet:
+          status: succeeded
+          called_with:
+            run: echo "hello dagu"
+            env:
+              GREETING: hello
+`), 0o600))
+
+	stdout, err := runTestCommand(t, home, testPath)
+	require.NoError(t, err, stdout)
+	assert.Contains(t, stdout, "PASS "+testReportPath(testPath)+": greets the param (")
 }
