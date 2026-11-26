@@ -101,9 +101,10 @@ func (s *safeBufferedWriter) Flush() error {
 	return nil
 }
 
-// maskingStreamWriter masks secrets in step output streamed to a remote log.
-// A partial line is held until it completes or Flush or Close is called, so a
-// secret split across writes is masked whole.
+// maskingStreamWriter masks secrets and provider token formats in step output
+// streamed to a remote log, as local step logs do. A partial line is held
+// until it completes or Flush or Close is called, so a secret split across
+// writes is masked whole.
 type maskingStreamWriter struct {
 	mu     sync.Mutex
 	masked *masking.MaskingWriter
@@ -111,7 +112,7 @@ type maskingStreamWriter struct {
 }
 
 func newMaskingStreamWriter(stream io.WriteCloser, masker *masking.Masker) *maskingStreamWriter {
-	return &maskingStreamWriter{masked: masking.NewMaskingWriter(stream, masker), stream: stream}
+	return &maskingStreamWriter{masked: masking.NewLogMaskingWriter(stream, masker), stream: stream}
 }
 
 func (w *maskingStreamWriter) Write(p []byte) (int, error) {

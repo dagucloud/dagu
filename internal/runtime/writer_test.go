@@ -284,6 +284,17 @@ func TestMaskingStreamWriter_PartialLine(t *testing.T) {
 	assert.True(t, stream.closed)
 }
 
+// A streamed log masks provider token formats the step's secrets do not list.
+func TestMaskingStreamWriter_ProviderToken(t *testing.T) {
+	stream := &recordingStream{}
+	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: []string{"TOKEN=s3cr3t"}})
+	w := newMaskingStreamWriter(stream, masker)
+
+	_, err := w.Write([]byte("Bearer ya29." + "a0AfB_byC1x2y3z4ExampleAccessToken-abc\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer *******\n", stream.String())
+}
+
 // Helper types for testing
 
 type errorWriter struct {
