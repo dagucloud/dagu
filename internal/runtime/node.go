@@ -1974,7 +1974,18 @@ func (node *Node) evalPreconditions(ctx context.Context, scripted *bool) error {
 	env := GetEnv(ctx)
 	shell := env.Shell(ctx)
 	checkCtx, stopCheck := node.watchPreconditionStop(ctx)
+	leaveGate, err := enterTrustedGate(checkCtx, node)
+	if err != nil {
+		if checkCtx.Err() != nil {
+			// A stop or a timeout that ends the wait for the gate interrupts
+			// the check, as it interrupts a running one.
+			err = fmt.Errorf("%w: %w", errConditionInterrupted, err)
+		}
+		stopCheck()
+		return err
+	}
 	results, err := evaluateConditions(checkCtx, shell, conditions, scripted)
+	leaveGate()
 	stopCheck()
 	node.SetPreconditionResults(results)
 	if err != nil {

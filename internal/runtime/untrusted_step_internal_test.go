@@ -54,6 +54,23 @@ func enterAsync(ctx context.Context, enter func(context.Context, *Node) (func(),
 	return in
 }
 
+// isolatedContext returns the context of a run of steps in a process with a
+// restricted user.
+func isolatedContext(steps ...ir.Step) context.Context {
+	ctx := config.WithConfig(context.Background(), &config.Config{Untrusted: config.UntrustedConfig{Enabled: true}})
+	return NewContext(ctx, &ir.DAG{Steps: steps}, "run-1", "dag.log")
+}
+
+// holdRun lets an isolated untrusted step hold the run of ctx until the test
+// ends.
+func holdRun(t *testing.T, ctx context.Context, step ir.Step) {
+	t.Helper()
+	node, _ := gateNode(step)
+	leave, err := enterStepGate(ctx, node)
+	require.NoError(t, err)
+	t.Cleanup(leave)
+}
+
 func assertWaits(t *testing.T, in <-chan func()) {
 	t.Helper()
 	select {
@@ -71,9 +88,7 @@ func TestStepGateOrdersIsolatedRun(t *testing.T) {
 
 	agentStep := ir.Step{Name: "agent", Untrusted: true}
 	checkStep := ir.Step{Name: "check"}
-	dag := &ir.DAG{Steps: []ir.Step{agentStep, checkStep}}
-	ctx := config.WithConfig(context.Background(), &config.Config{Untrusted: config.UntrustedConfig{Enabled: true}})
-	ctx = NewContext(ctx, dag, "run-1", "dag.log")
+	ctx := isolatedContext(agentStep, checkStep)
 
 	running, _ := gateNode(checkStep)
 	leaveRunning, err := enterStepGate(ctx, running)
@@ -124,4 +139,69 @@ func TestStepGateLetsStepsPass(t *testing.T) {
 			leaveOther()
 		})
 	}
+}
+
+// A stop of the run that ends the wait of a precondition for an isolated
+// untrusted step interrupts the check: the step is aborted, not failed.
+func TestStepGateStopInterruptsPrecondition(t *testing.T) {
+	t.Parallel()
+
+	agentStep := ir.Step{Name: "agent", Untrusted: true}
+	checkStep := ir.Step{Name: "check", Preconditions: []*ir.Condition{{Condition: "1", Expected: "1"}}}
+	ctx := isolatedContext(agentStep, checkStep)
+	holdRun(t, ctx, agentStep)
+
+	check, checkLog := gateNode(checkStep)
+	check.SetStatus(ir.NodeRunning)
+	stepCtx, stop := context.WithCancel(WithEnv(ctx, NewEnv(ctx, checkStep)))
+	defer stop()
+	done := make(chan error, 1)
+	go func() {
+		_, err := New(&Config{}).meetsPreconditions(stepCtx, check, nil)
+		done <- err
+	}()
+	require.Eventually(t, func() bool { return checkLog.has(untrusted.WaitingTrustedLine) }, 5*time.Second, 5*time.Millisecond)
+	stop()
+
+	require.ErrorIs(t, <-done, errConditionInterrupted)
+	require.Equal(t, ir.NodeAborted, check.State().Status)
+}
+
+// A repeat condition waits for an isolated untrusted step. A step with no
+// repeat condition runs no trusted code after its attempt, so it does not
+// wait.
+func TestStepGateHoldsRepeatCondition(t *testing.T) {
+	t.Parallel()
+
+	agentStep := ir.Step{Name: "agent", Untrusted: true}
+	pollStep := ir.Step{Name: "poll", RepeatPolicy: ir.RepeatPolicy{
+		RepeatMode: ir.RepeatModeUntil,
+		Condition:  &ir.Condition{Condition: "1", Expected: "1"},
+	}}
+	onceStep := ir.Step{Name: "once"}
+	ctx := isolatedContext(agentStep, pollStep, onceStep)
+	holdRun(t, ctx, agentStep)
+	r := New(&Config{})
+
+	once, _ := gateNode(onceStep)
+	onceDone := make(chan bool, 1)
+	go func() { onceDone <- r.shouldRepeatNode(WithEnv(ctx, NewEnv(ctx, onceStep)), once, nil) }()
+	select {
+	case repeat := <-onceDone:
+		require.False(t, repeat)
+	case <-time.After(5 * time.Second):
+		t.Fatal("a step with no repeat condition waited for the untrusted step")
+	}
+
+	// A stop or a timeout that ends the wait interrupts the check.
+	poll, pollLog := gateNode(pollStep)
+	poll.SetStatus(ir.NodeRunning)
+	pollCtx, stop := context.WithCancel(WithEnv(ctx, NewEnv(ctx, pollStep)))
+	defer stop()
+	pollDone := make(chan bool, 1)
+	go func() { pollDone <- r.shouldRepeatNode(pollCtx, poll, nil) }()
+	require.Eventually(t, func() bool { return pollLog.has(untrusted.WaitingTrustedLine) }, 5*time.Second, 5*time.Millisecond)
+	stop()
+	require.False(t, <-pollDone)
+	require.Equal(t, ir.NodeAborted, poll.State().Status)
 }

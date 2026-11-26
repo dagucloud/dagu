@@ -730,16 +730,7 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 	if buildSession != nil {
 		preconditionProgress = nil
 	}
-	leaveGate, err := enterTrustedGate(ctx, node)
-	if err != nil {
-		r.setLastError(err)
-		node.MarkError(err)
-		node.SetStatus(ir.NodeFailed)
-		reportPreparedNode()
-		return
-	}
 	met, err := r.meetsPreconditions(ctx, node, preconditionProgress)
-	leaveGate()
 	if err != nil {
 		r.markBuildPrecondition(ctx, buildSession, node, ir.BuildReasonPreconditionError, "", progressCh)
 		r.handlePreconditionError(plan, err)
@@ -1043,15 +1034,7 @@ func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progr
 			return
 		}
 	}
-	leaveGate, err := enterTrustedGate(ctx, node)
-	if err != nil {
-		r.setLastError(err)
-		node.MarkError(err)
-		node.SetStatus(ir.NodeFailed)
-		return
-	}
 	met, err := r.meetsPreconditions(ctx, node, progressCh)
-	leaveGate()
 	if err != nil {
 		r.handlePreconditionError(plan, err)
 		return
@@ -1795,14 +1778,7 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 	}
 	defer func() { _ = node.Teardown() }()
 
-	leaveGate, err := enterTrustedGate(ctx, node)
-	if err != nil {
-		node.SetStatus(ir.NodeFailed)
-		return err
-	}
-	err = node.evalPreconditions(ctx, r.scriptedPrecondition(ctx, node))
-	leaveGate()
-	if err != nil {
+	if err := node.evalPreconditions(ctx, r.scriptedPrecondition(ctx, node)); err != nil {
 		if errors.Is(err, ErrConditionNotMet) {
 			node.SetStatus(ir.NodeSkipped)
 			return nil
@@ -2356,22 +2332,15 @@ func (r *Runner) shouldRepeatNode(ctx context.Context, node *Node, execErr error
 	shell := GetEnv(ctx).Shell(ctx)
 
 	var repeat bool
-	leaveGate, err := enterTrustedGate(ctx, node)
-	if err != nil {
-		node.MarkError(err)
-		r.setLastError(err)
-		return false
-	}
+	var err error
 	switch rp.RepeatMode {
 	case ir.RepeatModeWhile:
 		repeat, err = r.evalWhileCondition(ctx, shell, node, rp, execErr)
 	case ir.RepeatModeUntil:
 		repeat, err = r.evalUntilCondition(ctx, shell, node, rp, execErr)
 	default:
-		leaveGate()
 		return false
 	}
-	leaveGate()
 	// Abort and timeout take precedence over a repeat condition result.
 	if r.isCanceled() || node.State().Status == ir.NodeAborted {
 		return false
@@ -2420,8 +2389,14 @@ func (r *Runner) reloadNodeOutputs(ctx context.Context, node *Node) context.Cont
 
 // evalRepeatCondition evaluates the node's repeat condition. One that runs a
 // command takes the outcome the condition override scripts for the node's
-// latest execution, when it scripts one.
+// latest execution, when it scripts one. It first waits for the end of an
+// isolated untrusted step of the run.
 func (r *Runner) evalRepeatCondition(ctx context.Context, shell []string, node *Node, c *ir.Condition) error {
+	leaveGate, err := enterTrustedGate(ctx, node)
+	if err != nil {
+		return err
+	}
+	defer leaveGate()
 	var scripted *bool
 	if r.conditions != nil {
 		scripted = r.conditions.RepeatCondition(node.Step())
