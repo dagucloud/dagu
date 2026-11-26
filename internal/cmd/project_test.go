@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/project"
+	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -301,7 +302,11 @@ func TestStartGivesStepsTheProject(t *testing.T) {
 		target := filepath.ToSlash(filepath.Join(out, name))
 		path := filepath.Join(h.dags, rel)
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
-		require.NoError(t, os.WriteFile(path, []byte("steps:\n  - id: record\n    run: printf '%s' \"$"+runenv.EnvKeyProject+"\" > '"+target+"'\n"), 0o600))
+		run := test.ForOS(
+			"printf '%s' \"$"+runenv.EnvKeyProject+"\" > '"+target+"'",
+			"Set-Content -NoNewline -LiteralPath '"+target+"' -Value ([string]$env:"+runenv.EnvKeyProject+")",
+		)
+		require.NoError(t, os.WriteFile(path, []byte("steps:\n  - id: record\n    run: "+strconv.Quote(run)+"\n"), 0o600))
 		return filepath.Join(out, name)
 	}
 	readOut := func(t *testing.T, path string) string {
