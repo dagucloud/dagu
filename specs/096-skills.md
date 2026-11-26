@@ -4,9 +4,10 @@
 
 Partially implemented.
 
-DAG discovery skips the skills directory, as [Terms](#terms) states. Unit tests and a conformance
-test cover it. The format, the folder rules, the files and the hash, the API and the ZIP download are
-specified but not built yet.
+DAG discovery skips the skills directory, as [Terms](#terms) states. `GET /skills` lists the skill
+folders with their hash and the errors and the warnings of the format and the folder rules. Unit
+tests cover them, and a conformance test covers discovery. The other routes of the API, the writes
+and the ZIP download are specified but not built yet.
 
 ## Scope
 
@@ -436,15 +437,24 @@ If-Match: 3701b8400dca3109de303137c868e09c754b46fbe652a2694b7b3510f2ca6094
 ## Conformance
 
 The binary-level tests are in `conformance/spec096_skills/`. The unit tests are in
-`internal/persis/file/dag/`.
+`internal/persis/file/dag/`, `internal/skill/` and `internal/service/frontend/api/v1/`.
 
 | Test | Proves |
 | --- | --- |
 | `TestRecursiveDiscoverySkipsTheSkillsDirectory` | With recursive discovery, `dagu ls` lists no DAG file below `skills/` at the root of the DAGs directory, and lists the DAG files of a `skills` directory deeper in the tree. |
 | `TestDiscoverRecursiveSkipsSkillsDir` (unit) | Discovery neither lists nor returns for watching anything below `skills/` at the root, and reads a `skills` directory deeper in the tree. |
 | `TestDiscoverRecursiveSkipsSkillsDirInOtherCase` (unit) | On a file system that ignores case, discovery also skips a root directory spelled `Skills`. Where case matters, it reads it. |
+| `TestFormatRules` (unit) | Each rule of the format gives its issue with the file and the severity, and the error of a refused skill names each broken rule. |
+| `TestFolderRules` (unit) | Each folder rule gives its issue, and a link is never read. |
+| `TestReadNeverFollowsASwappedLink` (unit) | A file that becomes a link while Dagu reads the folder is never read through the link. |
+| `TestHashCanonicalForm` (unit) | The hash is the SHA-256 of the `sha256sum` text of the files. The order, the times and the modes do not change it. |
+| `TestPartialSkillIsRefused` (unit) | A folder with no `SKILL.md` is refused, and the temporary file of a write is ignored. |
+| `TestReadBoundsTheTextItKeeps` (unit) | A read keeps at most 16 MiB of text. |
+| `TestUnreadableFolderNamesNoServerPath` (unit) | A folder that Dagu cannot read gives the rule `unreadable`, and the message names no server path. |
+| `TestSkillsList` (unit) | `GET /skills` lists every folder sorted by name, also one with errors, and no plain file or hidden folder. |
+| `TestSkillsListIsBounded` (unit) | `GET /skills` lists the first 1000 folders and sets `truncated` when the directory holds more. |
 
-The format, the folder rules, the hash, the API and the ZIP download have no test yet.
+The other routes of the API, the writes and the ZIP download have no test yet.
 
 ## Open items
 
