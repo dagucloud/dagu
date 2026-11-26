@@ -72,4 +72,12 @@ func TestDAGPathOwnerFollowsLinks(t *testing.T) {
 
 	owner, _ := cfg.DAGPathOwner(filepath.Join(link, "forecast.yaml"), []string{"intraday"})
 	assert.Equal(t, "intraday", owner)
+
+	// A project's DAG directory that links out of paths.projects_dir still
+	// holds its files.
+	outside := filepath.Join(root, "checkout")
+	require.NoError(t, os.MkdirAll(outside, 0o750))
+	require.NoError(t, os.Symlink(outside, filepath.Join(projects, "weather")))
+	owner, _ = cfg.DAGPathOwner(filepath.Join(outside, "job.yaml"), []string{"intraday", "weather"})
+	assert.Equal(t, "weather", owner)
 }

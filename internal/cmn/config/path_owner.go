@@ -23,29 +23,30 @@ func (c *Config) DAGPathOwner(path string, names []string) (owner string, librar
 	fs := newLookups()
 	target := locateDir(abs, fs)
 	depth := -1
-	consider := func(dir, name string, isLibrary bool) bool {
+	consider := func(dir, name string, isLibrary bool) {
 		if dir == "" {
-			return false
+			return
 		}
 		root := locateDir(dir, fs)
 		if !root.same(target) && !root.contains(target) {
-			return false
+			return
 		}
 		if d := root.depth(); d > depth {
 			depth, owner, library = d, name, isLibrary
 		}
-		return true
 	}
 
 	consider(c.Paths.DAGsDir, defaultProjectName, false)
 	consider(c.Paths.AltDAGsDir, "", true)
-	// Only a path under paths.projects_dir can lie in a project other than
-	// the default one.
-	if consider(c.Paths.ProjectsDir, "", false) {
-		for _, name := range names {
-			if isPathElement(name) && !strings.EqualFold(name, defaultProjectName) {
-				consider(filepath.Join(c.Paths.ProjectsDir, name), name, false)
-			}
+	if c.Paths.ProjectsDir == "" {
+		return owner, library
+	}
+	consider(c.Paths.ProjectsDir, "", false)
+	// A project's DAG directory may link out of paths.projects_dir, so each
+	// one is located on its own.
+	for _, name := range names {
+		if isPathElement(name) && !strings.EqualFold(name, defaultProjectName) {
+			consider(filepath.Join(c.Paths.ProjectsDir, name), name, false)
 		}
 	}
 	return owner, library

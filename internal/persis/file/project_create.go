@@ -71,12 +71,19 @@ func CreateProject(ctx context.Context, cfg *config.Config, registry project.Reg
 	return created, nil
 }
 
+// prepareProjectDirs makes the DAG directory and records p in each state
+// directory. When a record cannot be written, it removes the ones it wrote,
+// so a retry of the create is not refused.
 func prepareProjectDirs(paths config.ProjectPaths, p project.Project) error {
 	if err := fileutil.MkdirAll(paths.DAGsDir, projectDirPermission); err != nil {
 		return fmt.Errorf("create the DAG directory of project %s: %w", p.Name, err)
 	}
-	for _, dir := range paths.RecordDirs {
-		if err := projectrecord.Write(dir, projectrecord.Record{ID: p.ID, Name: p.Name}); err != nil {
+	record := projectrecord.Record{ID: p.ID, Name: p.Name}
+	for i, dir := range paths.RecordDirs {
+		if err := projectrecord.Write(dir, record); err != nil {
+			for _, written := range paths.RecordDirs[:i] {
+				err = errors.Join(err, projectrecord.Remove(written, record))
+			}
 			return err
 		}
 	}

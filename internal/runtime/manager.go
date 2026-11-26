@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -23,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/project"
 )
 
 const staleLocalRunStartupGrace = 2 * time.Second
@@ -504,7 +506,9 @@ func (m *Manager) currentStatus(_ context.Context, dagRun ir.DAGRunRef, dag *ir.
 func (m *Manager) dagSocketCandidates(dagRun ir.DAGRunRef, dag *ir.DAG) []string {
 	canonical := proc.ProjectDAGSocketAddr(m.project, dagRun)
 	addrs := []string{canonical}
-	if dag == nil || dag.Location == "" {
+	// Only a run of the default project may listen at the address of an
+	// older version, which no project shaped.
+	if dag == nil || dag.Location == "" || (m.project != "" && !strings.EqualFold(m.project, project.DefaultName)) {
 		return addrs
 	}
 	legacy := sock.Addr(dag.Location, dagRun.ID)

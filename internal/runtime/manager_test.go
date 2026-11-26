@@ -134,6 +134,14 @@ func TestManager(t *testing.T) {
 
 		_, err = th.DAGRunMgr.GetCurrentStatus(ctx, dag.DAG, dagRunID)
 		require.Error(t, err, "the default project's Manager does not reach the run of another project")
+
+		// The address of an older version belongs to the default project.
+		stopSocket()
+		legacyStatus := testNewStatus(dag.DAG, dagRunID, ir.Waiting, ir.NodeWaiting)
+		stopLegacy := startStatusSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), legacyStatus)
+		defer stopLegacy()
+		_, err = weather.GetCurrentStatus(ctx, dag.DAG, dagRunID)
+		require.Error(t, err, "another project's Manager does not reach the default project's run")
 	})
 	t.Run("GetCurrentStatusSkipsStaleCanonicalSocket", func(t *testing.T) {
 		dag := th.DAG(t, `steps:

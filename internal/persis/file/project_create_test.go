@@ -5,6 +5,8 @@ package file_test
 
 import (
 	"context"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -53,4 +55,28 @@ func TestCreateProject(t *testing.T) {
 	projects, err := registry.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, projects, 1, "only the first create registered a project")
+}
+
+// A create that cannot record the project in a later state directory removes
+// the records it wrote, so a retry succeeds once the cause is gone.
+func TestCreateProjectRollsBackRecords(t *testing.T) {
+	ctx := context.Background()
+	cfg := projectStoresConfig(t, true)
+	cfg.Paths.Explicit.LogDir = true
+	registry := projectregistry.New(cfg.Paths.DataDir)
+	blocker := filepath.Join(cfg.Paths.LogDir, ".projects")
+	require.NoError(t, os.MkdirAll(cfg.Paths.LogDir, 0o750))
+	require.NoError(t, os.WriteFile(blocker, nil, 0o600))
+
+	_, err := persisfile.CreateProject(ctx, cfg, registry, project.CreateInput{Name: "ops"})
+	require.Error(t, err)
+	_, err = projectrecord.Read(filepath.Join(cfg.Paths.DataDir, "projects", "ops"))
+	require.ErrorIs(t, err, fs.ErrNotExist)
+	projects, err := registry.List(ctx)
+	require.NoError(t, err)
+	require.Empty(t, projects)
+
+	require.NoError(t, os.Remove(blocker))
+	_, err = persisfile.CreateProject(ctx, cfg, registry, project.CreateInput{Name: "ops"})
+	require.NoError(t, err)
 }
