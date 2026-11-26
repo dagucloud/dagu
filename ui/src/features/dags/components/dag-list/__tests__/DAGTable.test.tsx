@@ -1650,10 +1650,13 @@ describe('DAGTable', () => {
         {
           ...workflow({ name: 'service' }),
           dag: { name: 'service', restartPolicy: RestartPolicy.always },
+          // A run, so that only the service rule hides the chevron. Not a
+          // running one: its chip animates and needs matchMedia, which
+          // jsdom lacks.
           latestDAGRun: {
-            dagRunId: 'serving',
-            status: Status.Running,
-            statusLabel: 'Running',
+            dagRunId: 'served',
+            status: Status.Success,
+            statusLabel: 'Success',
           },
           activity: { runs: [], truncated: false },
         } as never,
