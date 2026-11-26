@@ -286,6 +286,10 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			Scope:               scope,
 		}, nil
 	}
+	// Before any store opens v2 state.
+	if err := migrateState(ctx, cmd.Name(), scope, cfg); err != nil {
+		return nil, err
+	}
 	backend := file.NewBackend(cfg.Paths)
 
 	workerCommand := cmd.Name() == "worker"

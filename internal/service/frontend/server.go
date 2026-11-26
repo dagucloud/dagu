@@ -1370,6 +1370,16 @@ func (srv *Server) setupRoutes(ctx context.Context, r *chi.Mux) error {
 	return nil
 }
 
+// HealthPath returns the path of the health endpoint that a server with cfg
+// serves.
+func HealthPath(ctx context.Context, cfg *config.Config) (string, error) {
+	basePath, err := evaluateConfiguredBasePath(ctx, cfg.Server.BasePath)
+	if err != nil {
+		return "", err
+	}
+	return pathutil.BuildMountedAPIEndpointPath(basePath, cfg.Server.APIBasePath, "health"), nil
+}
+
 func evaluateConfiguredBasePath(ctx context.Context, basePath string) (string, error) {
 	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{})
 	evaluated, err := resolver.String(ctx, basePath, cmnvalue.ServerBasePathField("server.base_path"))
