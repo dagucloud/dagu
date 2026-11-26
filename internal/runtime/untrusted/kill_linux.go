@@ -71,11 +71,7 @@ func runKillHelper(uidArg, gidArg string) int {
 
 // runKillHelperAs runs the helper for the restricted user and waits for it.
 func runKillHelperAs(uid, gid uint32) error {
-	self, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("find the binary of the kill helper: %w", err)
-	}
-	cmd := exec.Command(self, killHelperArg, strconv.FormatUint(uint64(uid), 10), strconv.FormatUint(uint64(gid), 10)) //nolint:gosec
+	cmd := exec.Command(selfExe, killHelperArg, strconv.FormatUint(uint64(uid), 10), strconv.FormatUint(uint64(gid), 10)) //nolint:gosec
 	cmd.Dir = "/"
 	cmd.Env = []string{}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

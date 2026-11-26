@@ -33,6 +33,10 @@ const startHelperArg = "__dagu-untrusted-start__"
 // arguments, which any user can read.
 const startHelperEnvFD = 3
 
+// selfExe is the binary that the worker runs, also once its file is replaced
+// or removed. The child of the worker resolves it, so no path is looked up.
+const selfExe = "/proc/self/exe"
+
 func init() {
 	if len(os.Args) >= 7 && os.Args[1] == startHelperArg {
 		os.Exit(runStartHelper(os.Args[2:]))
@@ -121,10 +125,6 @@ func helperFailed(action string, err error) int {
 // isolation, in the session of cmd. The returned file holds the variables of
 // the command; the caller closes it once the start returns.
 func (iso *isolation) viaStartHelper(cmd *exec.Cmd, dir string, env []string) (*os.File, error) {
-	self, err := os.Executable()
-	if err != nil {
-		return nil, fmt.Errorf("find the binary of the start helper: %w", err)
-	}
 	envFile, err := helperEnvFile(env)
 	if err != nil {
 		return nil, fmt.Errorf("pass the variables to the start helper: %w", err)
@@ -134,11 +134,11 @@ func (iso *isolation) viaStartHelper(cmd *exec.Cmd, dir string, env []string) (*
 		argv = []string{cmd.Path}
 	}
 	cmd.Args = append([]string{
-		self, startHelperArg,
+		selfExe, startHelperArg,
 		strconv.FormatUint(uint64(iso.uid), 10), strconv.FormatUint(uint64(iso.gid), 10),
 		dir, cmd.Path,
 	}, argv...)
-	cmd.Path = self
+	cmd.Path = selfExe
 	cmd.Dir = "/"
 	cmd.Env = []string{}
 	cmd.ExtraFiles = []*os.File{envFile}
