@@ -206,13 +206,24 @@ func (l dirLockOn) Do(ctx context.Context, fn func(held func() error) error) err
 	if err := lock.Lock(ctx); err != nil {
 		return err
 	}
-	defer func() { _ = lock.Unlock() }()
+	held, release := renewHeld(ctx, lock, l.staleThreshold, l.renewEvery)
+	defer release()
+	return fn(held)
+}
 
-	// The holder renews the lock while fn runs, so a slow write does not let
-	// another client take it over. held refuses a write once the last
-	// renewal is three quarters of the stale threshold old, before any
-	// contender can judge the lock stale, so a failed renewal or a paused
-	// process stops the next write.
+// renewHeld renews lock, which the caller holds, until release, which also
+// unlocks it. A zero renewEvery means a quarter of staleThreshold.
+//
+// The holder renews the lock while it works, so a slow write does not let
+// another client take it over. held refuses a write once the last renewal
+// is three quarters of the stale threshold old, before any contender can
+// judge the lock stale, so a failed renewal or a paused process stops the
+// next write.
+func renewHeld(
+	ctx context.Context,
+	lock dirlock.DirLock,
+	staleThreshold, renewEvery time.Duration,
+) (held func() error, release func()) {
 	var renewedAt atomic.Pointer[time.Time]
 	markRenewed := func() {
 		now := time.Now()
@@ -223,7 +234,7 @@ func (l dirLockOn) Do(ctx context.Context, fn func(held func() error) error) err
 	renewed := make(chan struct{})
 	go func() {
 		defer close(renewed)
-		ticker := time.NewTicker(cmp.Or(l.renewEvery, l.staleThreshold/4))
+		ticker := time.NewTicker(cmp.Or(renewEvery, staleThreshold/4))
 		defer ticker.Stop()
 		for {
 			select {
@@ -236,18 +247,20 @@ func (l dirLockOn) Do(ctx context.Context, fn func(held func() error) error) err
 			}
 		}
 	}()
-	defer func() {
-		stopRenewing()
-		<-renewed
-	}()
 
-	maxAge := l.staleThreshold * 3 / 4
-	return fn(func() error {
+	maxAge := staleThreshold * 3 / 4
+	held = func() error {
 		if time.Since(*renewedAt.Load()) > maxAge || !lock.IsHeldByMe() {
 			return fmt.Errorf("file backend: lock lost before the write: %w", dirlock.ErrLockNotHeld)
 		}
 		return nil
-	})
+	}
+	release = func() {
+		stopRenewing()
+		<-renewed
+		_ = lock.Unlock()
+	}
+	return held, release
 }
 
 func validCollectionName(name string) bool {
