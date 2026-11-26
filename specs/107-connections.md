@@ -709,7 +709,7 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
 | Success | The access token is saved, with its expiry. A rotated refresh token replaces the old one. `refreshed_at` is set |
 | `invalid_grant` | Dagu reads the token state once more. When the refresh token or `generation` changed, it retries once with the new state. Otherwise the connection becomes `needs_reconnect` |
 | `invalid_client` or `unauthorized_client` | When the app's client ID and secret are the ones the refresh used, the app becomes `invalid`, and every connection of the app fails at once until an admin changes the app's client ID or secret. When an admin changed them during the refresh, the app keeps its status and the refresh is retried once with the current app |
-| HTTP 5xx, a network error, or `temporarily_unavailable` | Transient. The status stays. The error is recorded, and processes waiting on this refresh fail with it. The step's retry policy applies |
+| HTTP 5xx, a network error, or `temporarily_unavailable` | Transient. The status stays. The error is recorded for the refreshed resource. Processes waiting on this refresh for the same resource fail with it. Waiters for another resource start again, as [One Refresh per Host](#one-refresh-per-host) states. The step's retry policy applies |
 | Service account key unknown, disabled, or deleted | As for `invalid_client`, with the key in place of the secret |
 | Service account clock error | Transient. Reported on the connection. The status stays |
 
