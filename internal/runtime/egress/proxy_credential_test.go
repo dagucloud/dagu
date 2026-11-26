@@ -106,6 +106,8 @@ func TestCredentialRulesNeedTheProxyCredential(t *testing.T) {
 	}{
 		{"no credential", nil},
 		{"wrong credential", []string{basic("git", "wrong-credential-000000")}},
+		{"credential with a suffix", []string{basic("git", testProxyCredential+"x")}},
+		{"start of the credential", []string{basic("git", testProxyCredential[:16])}},
 		{"credential as the user name", []string{basic(testProxyCredential, "")}},
 		{"bearer form", []string{"Bearer " + testProxyCredential}},
 		{"two headers", []string{basic("git", testProxyCredential), basic("git", testProxyCredential)}},

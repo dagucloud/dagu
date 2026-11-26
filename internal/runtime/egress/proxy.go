@@ -5,6 +5,7 @@ package egress
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
@@ -297,7 +298,8 @@ func clientCredential(header http.Header) string {
 
 // hasCredential reports whether the request carries the proxy credential in its
 // only header Proxy-Authorization, in the form Basic with any user name. The
-// check takes the same time for each wrong value of the same length.
+// check compares digests, so its time tells neither the bytes nor the length
+// of the credential.
 func (p *Proxy) hasCredential(r *http.Request) bool {
 	values := r.Header.Values("Proxy-Authorization")
 	if p.credential == "" || len(values) != 1 {
@@ -312,7 +314,8 @@ func (p *Proxy) hasCredential(r *http.Request) bool {
 		return false
 	}
 	_, password, ok := strings.Cut(string(decoded), ":")
-	return ok && subtle.ConstantTimeCompare([]byte(password), []byte(p.credential)) == 1
+	got, want := sha256.Sum256([]byte(password)), sha256.Sum256([]byte(p.credential))
+	return ok && subtle.ConstantTimeCompare(got[:], want[:]) == 1
 }
 
 // admit decides for a destination of a request in absolute form or of CONNECT.
