@@ -136,36 +136,6 @@ func workerGroups() []int {
 	return append(groups, os.Getegid())
 }
 
-// checkRunnable reports whether the user uid of the group gid can run the
-// regular file at path.
-func checkRunnable(path string, uid, gid uint32) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("binary %s: %w", path, err)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("binary %s is not a regular file", path)
-	}
-	if err := checkTraversable(path); err != nil {
-		return fmt.Errorf("binary %s: %w", path, err)
-	}
-	owner, group := ownerOf(info)
-	perm := info.Mode().Perm()
-	var runnable bool
-	switch {
-	case owner == int(uid):
-		runnable = perm&0o100 != 0
-	case group == int(gid):
-		runnable = perm&0o010 != 0
-	default:
-		runnable = perm&0o001 != 0
-	}
-	if !runnable {
-		return fmt.Errorf("binary %s has the mode %04o: the restricted user %d cannot run it", path, perm, uid)
-	}
-	return nil
-}
-
 // procHidePID returns the option hidepid of the mount /proc when it hides
 // processes from the worker. With the option gid of a group of the worker
 // (groups), the worker sees each process, and the mount is accepted.

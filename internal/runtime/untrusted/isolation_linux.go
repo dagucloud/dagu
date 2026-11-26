@@ -139,9 +139,6 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 	if err := checkIsolationSupport(); err != nil {
 		return iso, stepError(req.StepName, "check the process", "", err)
 	}
-	if _, err := killHelperBinary(iso.uid, iso.gid); err != nil {
-		return iso, stepError(req.StepName, "check the kill helper", "", err)
-	}
 	// A process of the restricted user that an earlier run left would watch
 	// this step.
 	if err := killUser(iso.uid, iso.gid); err != nil {

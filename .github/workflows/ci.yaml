@@ -408,8 +408,7 @@ jobs:
 
       # The isolation tests of untrusted steps need the user ID 0 and
       # no-new-privileges; DAGU_TEST_REQUIRE_ISOLATION=1 makes them fail, not
-      # skip, without these. The binary sits in /tmp so that the restricted
-      # user can run it as the kill helper.
+      # skip, without these.
       - name: Test untrusted step isolation as root
         run: |
           go test -c -o /tmp/untrusted.test ./internal/runtime/untrusted

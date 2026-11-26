@@ -33,16 +33,11 @@ const requireIsolationEnv = "DAGU_TEST_REQUIRE_ISOLATION"
 
 func requireIsolation(t *testing.T) {
 	t.Helper()
-	err := checkIsolationSupport()
-	if err == nil {
-		// go test builds the binary in a folder that only its owner can pass.
-		_, err = killHelperBinary(testUID, testGID)
-	}
-	if err != nil {
+	if err := checkIsolationSupport(); err != nil {
 		if os.Getenv(requireIsolationEnv) == "1" {
 			t.Fatalf("%s=1 and the process cannot isolate a step: %v", requireIsolationEnv, err)
 		}
-		t.Skipf("the isolation tests need a root process with no-new-privileges and a binary the restricted user can run: %v", err)
+		t.Skipf("the isolation tests need a root process with no-new-privileges: %v", err)
 	}
 }
 
@@ -179,25 +174,6 @@ func TestIsolatedStepPlace(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "symbolic link")
 	assert.NoDirExists(t, filepath.Join(outside, "x"))
-}
-
-// Spec 103, "Isolation", rule 7: Begin fails the step when the restricted user
-// cannot run the binary of the process, which is the kill helper.
-func TestIsolatedStepNeedsTheKillHelper(t *testing.T) {
-	requireIsolation(t)
-	self, err := os.Executable()
-	require.NoError(t, err)
-	info, err := os.Stat(self)
-	require.NoError(t, err)
-	// No other isolation test runs meanwhile: none of them is parallel.
-	require.NoError(t, os.Chmod(self, 0o700))
-	t.Cleanup(func() { _ = os.Chmod(self, info.Mode().Perm()) })
-
-	workDir := testWorkDir(t)
-	_, err = beginStep(t, context.Background(), testRequest(t, workDir, workDir))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `untrusted step "verify": check the kill helper: binary `+self+" has the mode 0700")
-	assert.NoError(t, Poisoned())
 }
 
 // Untrusted steps run one at a time. The second step waits with a line in its

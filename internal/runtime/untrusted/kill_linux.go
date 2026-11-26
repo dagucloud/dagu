@@ -35,18 +35,32 @@ import (
 // zombie holds no code: the scan does not count it.
 
 // killHelperArg is the argument that makes a Dagu binary the helper of the
-// kill. The helper refuses to run as the user ID 0.
+// kill. Dagu starts the helper as root with the user ID and the group ID as the
+// next two arguments. A child that runs as the restricted user before its
+// execve could be stopped there by a process of that user, and Go would wait
+// for that execve forever; so the helper changes to the user itself, after its
+// execve. The change also makes it non-dumpable.
 const killHelperArg = "__dagu-untrusted-kill-all__"
 
 func init() {
-	if len(os.Args) == 2 && os.Args[1] == killHelperArg {
-		os.Exit(runKillHelper())
+	if len(os.Args) == 4 && os.Args[1] == killHelperArg {
+		os.Exit(runKillHelper(os.Args[2], os.Args[3]))
 	}
 }
 
-// runKillHelper sends SIGKILL to each process of its user, but itself.
-func runKillHelper() int {
-	if os.Getuid() == 0 || os.Geteuid() == 0 {
+// runKillHelper changes to the user and the group of its arguments, with no
+// supplementary group, and sends SIGKILL to each process of that user, but
+// itself. It refuses to send it as the user ID 0.
+func runKillHelper(uidArg, gidArg string) int {
+	uid, uidErr := strconv.Atoi(uidArg)
+	gid, gidErr := strconv.Atoi(gidArg)
+	if uidErr != nil || gidErr != nil || uid <= 0 || gid <= 0 {
+		return 2
+	}
+	if syscall.Setgroups([]int{}) != nil || syscall.Setgid(gid) != nil || syscall.Setuid(uid) != nil {
+		return 3
+	}
+	if os.Getuid() != uid || os.Geteuid() != uid || os.Getgid() != gid || os.Getegid() != gid {
 		return 3
 	}
 	for range 5 {
@@ -58,32 +72,16 @@ func runKillHelper() int {
 	return 0
 }
 
-// killHelperBinary returns the binary of the process, which runs as the kill
-// helper, or an error when the restricted user cannot run it.
-func killHelperBinary(uid, gid uint32) (string, error) {
+// runKillHelperAs runs the helper for the restricted user and waits for it.
+func runKillHelperAs(uid, gid uint32) error {
 	self, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("find the binary of the kill helper: %w", err)
+		return fmt.Errorf("find the binary of the kill helper: %w", err)
 	}
-	if err := checkRunnable(self, uid, gid); err != nil {
-		return "", err
-	}
-	return self, nil
-}
-
-// runKillHelperAs runs the helper as the restricted user and waits for it.
-func runKillHelperAs(uid, gid uint32) error {
-	self, err := killHelperBinary(uid, gid)
-	if err != nil {
-		return err
-	}
-	cmd := exec.Command(self, killHelperArg) //nolint:gosec
+	cmd := exec.Command(self, killHelperArg, strconv.FormatUint(uint64(uid), 10), strconv.FormatUint(uint64(gid), 10)) //nolint:gosec
 	cmd.Dir = "/"
 	cmd.Env = []string{}
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Credential: &syscall.Credential{Uid: uid, Gid: gid, Groups: []uint32{}},
-		Setsid:     true,
-	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start the kill helper: %w", err)
 	}
