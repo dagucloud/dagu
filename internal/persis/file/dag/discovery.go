@@ -42,6 +42,9 @@ type DiscoveryOptions struct {
 	// one, along with file symlinks into them. A directory matches by
 	// identity, whatever the case or links of its path.
 	SkipRoots []string
+	// ConfineSymlinks omits every file symlink whose target lies outside
+	// root, whatever Symlinks says.
+	ConfineSymlinks bool
 }
 
 // ResolvedFile describes a DAG file entry and its canonical read target.
@@ -69,7 +72,7 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 func discover(root string, opts DiscoveryOptions, match func(name string) bool) (DiscoveryResult, error) {
 	root = filepath.Clean(root)
 	if !opts.Recursive {
-		return scanRoot(root, opts.Symlinks, opts.SkipRoots, match)
+		return scanRoot(root, opts, match)
 	}
 
 	walkRoot, err := filepath.EvalSymlinks(root)
@@ -117,9 +120,9 @@ func discover(root string, opts DiscoveryOptions, match func(name string) bool) 
 				result.Errors = append(result.Errors, fmt.Errorf("%s: %w", relPath, err))
 				return nil
 			}
-			if !opts.Symlinks {
+			if !opts.Symlinks || resolved.ExternalSymlink && opts.ConfineSymlinks {
 				if resolved.ExternalSymlink {
-					result.Errors = append(result.Errors, externalSymlinkDisabledError(relPath))
+					result.Errors = append(result.Errors, externalSymlinkError(relPath, opts.ConfineSymlinks))
 				}
 				return nil
 			}
@@ -305,13 +308,13 @@ func sameAsSkipRoot(roots []skipRoot, path string) bool {
 	})
 }
 
-func scanRoot(root string, symlinks bool, skipRootDirs []string, match func(name string) bool) (DiscoveryResult, error) {
+func scanRoot(root string, opts DiscoveryOptions, match func(name string) bool) (DiscoveryResult, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return DiscoveryResult{}, err
 	}
 
-	skipRoots, skipErrs := statSkipRoots(skipRootDirs)
+	skipRoots, skipErrs := statSkipRoots(opts.SkipRoots)
 	realRoot, err := realDir(skipRoots, root)
 	if err != nil {
 		return DiscoveryResult{}, err
@@ -326,8 +329,8 @@ func scanRoot(root string, symlinks bool, skipRootDirs []string, match func(name
 			result.Errors = append(result.Errors, fmt.Errorf("%s: %w", entry.Name(), err))
 			continue
 		}
-		if resolved.ExternalSymlink && !symlinks {
-			result.Errors = append(result.Errors, externalSymlinkDisabledError(entry.Name()))
+		if resolved.ExternalSymlink && (!opts.Symlinks || opts.ConfineSymlinks) {
+			result.Errors = append(result.Errors, externalSymlinkError(entry.Name(), opts.ConfineSymlinks))
 			continue
 		}
 		// An entry of root lies below no skip root; only its target can.
@@ -454,10 +457,18 @@ func appendResolvedFile(result *DiscoveryResult, relPath string, resolved Resolv
 	})
 }
 
-func externalSymlinkDisabledError(relPath string) error {
+// externalSymlinkError reports a file symlink that discovery does not
+// follow out of its DAG directory. A confined directory follows none, so
+// no setting loads it.
+func externalSymlinkError(relPath string, confined bool) error {
+	hint := "enable dag_discovery.symlinks to load it"
+	if confined {
+		hint = "a project never follows a symbolic link out of its DAG directory"
+	}
 	return fmt.Errorf(
-		"%s: DAG file symlink resolves outside the configured DAG directory; enable dag_discovery.symlinks to load it: %w",
+		"%s: DAG file symlink resolves outside the configured DAG directory; %s: %w",
 		filepath.ToSlash(relPath),
+		hint,
 		ErrExternalSymlinkDisabled,
 	)
 }

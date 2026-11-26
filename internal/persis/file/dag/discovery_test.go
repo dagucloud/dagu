@@ -376,3 +376,30 @@ func TestDiscoverRecursiveAllowsConfiguredSymlinkRoot(t *testing.T) {
 	assert.Equal(t, "nested/child.yaml", result.Files[0].RelPath)
 	assert.Equal(t, []string{linkRoot, filepath.Join(linkRoot, "nested")}, result.Dirs)
 }
+
+// A confined discovery follows file symlinks inside its root as Symlinks
+// says, and none out of it.
+func TestDiscoverConfinedSymlinks(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "team", "inside.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(inside), 0o750))
+	require.NoError(t, os.WriteFile(inside, []byte("steps: []\n"), 0o600))
+	external := filepath.Join(t.TempDir(), "external.yaml")
+	require.NoError(t, os.WriteFile(external, []byte("steps: []\n"), 0o600))
+	symlinkOrSkip(t, inside, filepath.Join(root, "inside-link.yaml"))
+	symlinkOrSkip(t, external, filepath.Join(root, "external-link.yaml"))
+
+	for _, recursive := range []bool{false, true} {
+		result, err := Discover(root, DiscoveryOptions{Recursive: recursive, Symlinks: true, ConfineSymlinks: true})
+		require.NoError(t, err)
+		var files []string
+		for _, file := range result.Files {
+			files = append(files, file.RelPath)
+		}
+		assert.Contains(t, files, "inside-link.yaml")
+		assert.NotContains(t, files, "external-link.yaml")
+		require.Len(t, result.Errors, 1)
+		assert.ErrorIs(t, result.Errors[0], ErrExternalSymlinkDisabled)
+		assert.ErrorContains(t, result.Errors[0], "a project never follows a symbolic link out of its DAG directory")
+	}
+}
