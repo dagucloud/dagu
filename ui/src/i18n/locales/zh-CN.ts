@@ -1696,6 +1696,10 @@ export const baseChinese = {
   'Retry selected': '重试所选',
   'Retry step': '重试步骤',
   'Retry this step?': '重试此步骤？',
+  'Retry unavailable while the DAG run is running.':
+    'DAG 运行正在运行，无法重试。',
+  'Retry unavailable while the root DAG run is running.':
+    '顶层 DAG 运行正在运行，无法重试。',
   'Retrying...': '正在重试...',
   'Reuse previous output': '重用上次输出',
   Revert: '还原',
