@@ -53,6 +53,10 @@ const maxWalkEntries = MaxFiles * 4
 // cache: a later change could keep the same size and the same time stamp.
 const cacheRacyWindow = 2 * time.Second
 
+// now is the clock of the racy window. A test moves it forward, because a
+// test cannot set the status change time of a file back.
+var now = time.Now
+
 // maxCacheEntries bounds the number of folders that the cache keeps.
 const maxCacheEntries = 128
 
@@ -82,6 +86,7 @@ type entry struct {
 	kind  entryKind
 	size  int64
 	mtime int64
+	ctime int64
 	mode  fs.FileMode
 }
 
@@ -181,7 +186,7 @@ func Read(dir string) (*Skill, error) {
 
 // lookup returns the cached read of dir when its walk had the same signature.
 func lookup(dir, signature string, newest time.Time) (*Skill, bool) {
-	if time.Since(newest) < cacheRacyWindow {
+	if now().Sub(newest) < cacheRacyWindow {
 		return nil, false
 	}
 	cache.mu.Lock()
@@ -195,7 +200,7 @@ func lookup(dir, signature string, newest time.Time) (*Skill, bool) {
 
 // store keeps the read of dir, unless an entry of the folder is too recent.
 func store(dir, signature string, newest time.Time, s *Skill) {
-	if time.Since(newest) < cacheRacyWindow {
+	if now().Sub(newest) < cacheRacyWindow {
 		return
 	}
 	size := cacheCost(signature, s)
@@ -247,6 +252,8 @@ func signatureOf(entries []entry, issues []Issue) string {
 		b.WriteString(strconv.FormatInt(e.size, 10))
 		b.WriteByte('|')
 		b.WriteString(strconv.FormatInt(e.mtime, 10))
+		b.WriteByte('|')
+		b.WriteString(strconv.FormatInt(e.ctime, 10))
 		b.WriteByte('|')
 		b.WriteString(strconv.FormatUint(uint64(e.mode), 8))
 		b.WriteByte('\n')
@@ -305,8 +312,11 @@ func walk(dir string) (entries []entry, issues []Issue, newest time.Time, err er
 			if err != nil {
 				return err
 			}
-			if mt := info.ModTime(); mt.After(newest) {
-				newest = mt
+			ct := changeTime(info)
+			for _, at := range []time.Time{info.ModTime(), ct} {
+				if at.After(newest) {
+					newest = at
+				}
 			}
 			mode := info.Mode()
 			if !mode.IsDir() && tempNamePattern.MatchString(name) {
@@ -317,18 +327,18 @@ func walk(dir string) (entries []entry, issues []Issue, newest time.Time, err er
 				case name == FileName:
 					if mode&fs.ModeSymlink != 0 {
 						add(RuleSymlink, path, "SKILL.md is a symbolic link; a symbolic link is not allowed")
-						entries = append(entries, entry{rel: path, kind: kindLink, mtime: info.ModTime().UnixNano(), mode: mode})
+						entries = append(entries, entry{rel: path, kind: kindLink, mtime: info.ModTime().UnixNano(), ctime: ct.UnixNano(), mode: mode})
 						continue
 					}
 					if !mode.IsRegular() {
 						add(RuleSpecialFile, path, "SKILL.md must be a regular file")
-						entries = append(entries, entry{rel: path, kind: kindSpecial, mtime: info.ModTime().UnixNano(), mode: mode})
+						entries = append(entries, entry{rel: path, kind: kindSpecial, mtime: info.ModTime().UnixNano(), ctime: ct.UnixNano(), mode: mode})
 						continue
 					}
 					if err := checkLinks(path, info); err != nil {
 						return err
 					}
-					entries = append(entries, entry{rel: path, kind: kindFile, size: info.Size(), mtime: info.ModTime().UnixNano(), mode: mode.Perm()})
+					entries = append(entries, entry{rel: path, kind: kindFile, size: info.Size(), mtime: info.ModTime().UnixNano(), ctime: ct.UnixNano(), mode: mode.Perm()})
 					continue
 				case (name == DirReferences || name == DirAssets || name == DirScripts) && mode.IsDir():
 					if err := visit(path); err != nil {
@@ -340,9 +350,9 @@ func walk(dir string) (entries []entry, issues []Issue, newest time.Time, err er
 				default:
 					add(RuleRootEntry, path, "%q is not allowed at the root of a skill folder; only SKILL.md, references/, assets/ and scripts/ are allowed", name)
 					if mode.IsRegular() {
-						entries = append(entries, entry{rel: path, kind: kindFile, size: info.Size(), mtime: info.ModTime().UnixNano(), mode: mode.Perm()})
+						entries = append(entries, entry{rel: path, kind: kindFile, size: info.Size(), mtime: info.ModTime().UnixNano(), ctime: ct.UnixNano(), mode: mode.Perm()})
 					} else if !mode.IsDir() {
-						entries = append(entries, entry{rel: path, kind: kindSpecial, mtime: info.ModTime().UnixNano(), mode: mode})
+						entries = append(entries, entry{rel: path, kind: kindSpecial, mtime: info.ModTime().UnixNano(), ctime: ct.UnixNano(), mode: mode})
 					}
 					continue
 				}
@@ -350,7 +360,7 @@ func walk(dir string) (entries []entry, issues []Issue, newest time.Time, err er
 			switch {
 			case mode&fs.ModeSymlink != 0:
 				add(RuleSymlink, path, "a symbolic link is not allowed")
-				entries = append(entries, entry{rel: path, kind: kindLink, mtime: info.ModTime().UnixNano(), mode: mode})
+				entries = append(entries, entry{rel: path, kind: kindLink, mtime: info.ModTime().UnixNano(), ctime: ct.UnixNano(), mode: mode})
 			case mode.IsDir():
 				if strings.HasPrefix(name, ".") {
 					add(RuleHiddenFile, path, "the hidden directory %q is not allowed", name)
@@ -366,10 +376,10 @@ func walk(dir string) (entries []entry, issues []Issue, newest time.Time, err er
 				if err := checkLinks(path, info); err != nil {
 					return err
 				}
-				entries = append(entries, entry{rel: path, kind: kindFile, size: info.Size(), mtime: info.ModTime().UnixNano(), mode: mode.Perm()})
+				entries = append(entries, entry{rel: path, kind: kindFile, size: info.Size(), mtime: info.ModTime().UnixNano(), ctime: ct.UnixNano(), mode: mode.Perm()})
 			default:
 				add(RuleSpecialFile, path, "only regular files are allowed")
-				entries = append(entries, entry{rel: path, kind: kindSpecial, mtime: info.ModTime().UnixNano(), mode: mode})
+				entries = append(entries, entry{rel: path, kind: kindSpecial, mtime: info.ModTime().UnixNano(), ctime: ct.UnixNano(), mode: mode})
 			}
 		}
 		return nil

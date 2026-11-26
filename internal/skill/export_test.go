@@ -3,7 +3,10 @@
 
 package skill
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // MaxFrontMatterBytes is the size limit of the front matter.
 const MaxFrontMatterBytes = maxFrontMatterBytes
@@ -32,4 +35,14 @@ func AroundReadFiles(t *testing.T, before, after func()) {
 		return orig(dir, name, entries, issues)
 	}
 	t.Cleanup(func() { readFiles = orig })
+}
+
+// SettleClock moves the clock of the cache one hour forward, so the cache
+// sees every entry as settled. It changes a package variable, so the test
+// must not be parallel.
+func SettleClock(t *testing.T) {
+	t.Helper()
+	orig := now
+	now = func() time.Time { return orig().Add(time.Hour) }
+	t.Cleanup(func() { now = orig })
 }

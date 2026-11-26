@@ -72,15 +72,12 @@ func TestHashCanonicalForm(t *testing.T) {
 
 // A repeated read of an unchanged folder gives the same skill, and a change of
 // a file that keeps its time stamp still shows in the next read when it
-// changes the size.
+// changes the size. The test changes a package variable, so it does not run
+// in parallel.
 func TestReadSeesEveryChange(t *testing.T) {
-	t.Parallel()
+	skill.SettleClock(t)
 	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "one"})
-	// Make the files old, so that the cache is allowed to keep them.
 	old := time.Now().Add(-time.Hour)
-	for _, p := range []string{"SKILL.md", "references/a.md"} {
-		require.NoError(t, os.Chtimes(filepath.Join(dir, p), old, old))
-	}
 	first, err := skill.Read(dir)
 	require.NoError(t, err)
 	again, err := skill.Read(dir)
@@ -100,7 +97,7 @@ func TestReadSeesEveryChange(t *testing.T) {
 
 // A read of a folder whose entries are older than 2 seconds is served from
 // the cache and reads no file again. A recent change is always read from the
-// files (Spec 096, "Source of truth"). The test changes a package variable,
+// files (Spec 096, "Source of truth"). The test changes package variables,
 // so it does not run in parallel.
 func TestReadCachesOnlyASettledFolder(t *testing.T) {
 	reads := 0
@@ -121,8 +118,7 @@ func TestReadCachesOnlyASettledFolder(t *testing.T) {
 	require.Equal(t, 2, reads, "a change younger than 2 seconds is never cached")
 
 	settled := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
-	old := time.Now().Add(-time.Hour)
-	require.NoError(t, os.Chtimes(filepath.Join(settled, "SKILL.md"), old, old))
+	skill.SettleClock(t)
 	reads = 0
 	read(settled)
 	read(settled)
@@ -147,10 +143,11 @@ func TestCacheCountsTheFileList(t *testing.T) {
 
 // A change of the layout that leaves every file as it was shows in the next
 // read, also when the cache holds the folder (Spec 096, "Source of truth").
+// The test changes a package variable, so it does not run in parallel.
 func TestReadSeesALayoutChange(t *testing.T) {
-	t.Parallel()
-	// age gives every entry of dir the same old time, so that the cache keeps
-	// the folder and the change leaves the times of the files as they were.
+	skill.SettleClock(t)
+	// age gives every entry of dir the same old time, so that the change leaves
+	// the times of the files as they were.
 	old := time.Now().Add(-time.Hour)
 	age := func(t *testing.T, dir string) {
 		require.NoError(t, filepath.WalkDir(dir, func(p string, _ fs.DirEntry, err error) error {
