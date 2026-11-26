@@ -18,7 +18,7 @@ import (
 var (
 	// errLibraryEnqueue refuses to queue a library DAG's run: no scheduler
 	// reads a project's library queues, so the run would never start.
-	errLibraryEnqueue = errors.New("library DAGs cannot be queued; start the run instead")
+	errLibraryEnqueue = errors.New("library DAGs cannot be queued; no scheduler reads a project's library queues")
 	// errLibraryDispatch refuses to send a library DAG's run to a worker: a
 	// dispatch task does not carry the library, so the coordinator would
 	// record the run among the project's own DAGs.

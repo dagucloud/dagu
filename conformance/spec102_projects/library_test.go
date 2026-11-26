@@ -320,7 +320,7 @@ func TestLibraryQueueRefused(t *testing.T) {
 	in := newLibraryInstall(t)
 	library := in.write(t, "library/etl.yaml", "steps:\n  - id: noop\n    run: \"true\"\n")
 	caller := in.write(t, "dags/caller.yaml", "steps:\n  - id: queue\n    action: dag.enqueue\n    with:\n      dag: etl\n")
-	const refusal = "library DAGs cannot be queued"
+	const refusal = "library DAGs cannot be queued; no scheduler reads a project's library queues; run it with dagu start instead"
 
 	result := in.run(true, nil, "enqueue", library)
 	result.ExpectNonZeroExitCode()
