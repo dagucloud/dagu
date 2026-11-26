@@ -134,6 +134,8 @@ type NodeRun struct {
 	// Reuse reports a node of a retried step whose child run succeeded. The
 	// step keeps that run's result without running it again.
 	Reuse bool
+	// Worker reports a worker node, whose child run runs on that worker.
+	Worker bool
 	// Run starts the child run bound to the node.
 	Run RunParams
 }
@@ -154,8 +156,11 @@ type RunParams struct {
 	// PassedEnv holds resolved "KEY=value" pairs the parent opted to share
 	// with the child run via the step's pass_env field.
 	PassedEnv []string
-	// Node names the inventory node the child run is bound to (RFC 013).
+	// Node names the node the child run is bound to (RFC 013).
 	Node string
+	// TargetWorkerID names the worker the child run runs on: the worker node
+	// it is bound to.
+	TargetWorkerID string
 }
 
 // ChatMessageHandler is an interface for executors that handle chat session messages.

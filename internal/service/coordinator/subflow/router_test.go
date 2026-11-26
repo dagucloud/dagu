@@ -221,6 +221,19 @@ func TestLocalForceLocalOverridesWorkerSelector(t *testing.T) {
 	assert.True(t, runner.ShouldRun(context.Background(), req))
 }
 
+// A child bound to a worker node runs only on that worker, even under
+// ForceLocal.
+func TestLocalRejectsTargetWorker(t *testing.T) {
+	t.Parallel()
+
+	req := validSubWorkflowRequest()
+	req.DAG.ForceLocal = true
+	req.Node, req.TargetWorkerID = "tokyo-gw", "tokyo-gw"
+	runner := subflow.NewLocal(runtime.Manager{}, nil)
+
+	assert.False(t, runner.ShouldRun(context.Background(), req))
+}
+
 func validSubWorkflowRequest() executor.SubWorkflowRequest {
 	return executor.SubWorkflowRequest{
 		DAG: &ir.DAG{
