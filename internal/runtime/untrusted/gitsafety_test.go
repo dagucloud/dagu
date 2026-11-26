@@ -8,6 +8,7 @@ import (
 	"context"
 	"os/exec"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -44,6 +45,14 @@ func TestWithGitSafety(t *testing.T) {
 		"GIT_CONFIG_KEY_1=safe.bareRepository", "GIT_CONFIG_VALUE_1=all",
 		"GIT_CONFIG_COUNT=3", "GIT_CONFIG_KEY_2=safe.bareRepository", "GIT_CONFIG_VALUE_2=explicit",
 	}, got)
+
+	// Git reads GIT_CONFIG_PARAMETERS after the counted entries.
+	got = withGitSafety([]string{"GIT_CONFIG_PARAMETERS='core.editor=vi' 'safe.bareRepository=all'"})
+	assert.ElementsMatch(t, []string{
+		"GIT_CONFIG_PARAMETERS='core.editor=vi' 'safe.bareRepository=all' 'safe.bareRepository=explicit'",
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=safe.bareRepository", "GIT_CONFIG_VALUE_0=explicit",
+	}, got)
+	assert.ElementsMatch(t, got, withGitSafety(got), "the setting is added once")
 }
 
 // Git refuses a count with a missing entry, so the check stops at the first
@@ -62,6 +71,20 @@ func TestGitSafetyStopsAtMissingEntry(t *testing.T) {
 		return value, ok
 	})
 	assert.Equal(t, gitSafetyValue, entries["GIT_CONFIG_VALUE_2147483647"])
+}
+
+// A setting of GIT_CONFIG_PARAMETERS does not turn the setting off in git.
+func TestGitSafetyOverridesParameters(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	cmd := exec.Command("git", "config", "--get", gitSafetyKey)
+	cmd.Env = withGitSafety(append(cmd.Environ(), "GIT_CONFIG_PARAMETERS='safe.bareRepository=all'"))
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	assert.Equal(t, gitSafetyValue, strings.TrimSpace(string(out)))
 }
 
 // A trusted command with a nil Env inherits the variables of Dagu. It gets the

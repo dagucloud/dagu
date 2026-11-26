@@ -16,17 +16,34 @@ import (
 // look like a repository does not give its config to git, for example
 // core.fsmonitor. The setting goes through the variables GIT_CONFIG_COUNT,
 // GIT_CONFIG_KEY_<n> and GIT_CONFIG_VALUE_<n>, after the entries that the
-// variables already have.
+// variables already have. Git reads GIT_CONFIG_PARAMETERS after them, so the
+// setting also goes at its end when it is set.
 
 const (
 	gitSafetyKey   = "safe.bareRepository"
 	gitSafetyValue = "explicit"
+	// gitSafetyParameter is the setting as an entry of GIT_CONFIG_PARAMETERS.
+	gitSafetyParameter = "'" + gitSafetyKey + "=" + gitSafetyValue + "'"
 )
 
-// GitSafetyEntries returns the variables to add so that git applies
+// GitSafetyEntries returns the variables to set so that git applies
 // safe.bareRepository=explicit, given the variables that lookup reads. It
 // returns nil when the variables already apply it.
 func GitSafetyEntries(lookup func(string) (string, bool)) map[string]string {
+	entries := countedGitSafety(lookup)
+	params, _ := lookup("GIT_CONFIG_PARAMETERS")
+	if params = strings.TrimSpace(params); params != "" && !endsWithGitSafety(params) {
+		if entries == nil {
+			entries = make(map[string]string, 1)
+		}
+		entries["GIT_CONFIG_PARAMETERS"] = params + " " + gitSafetyParameter
+	}
+	return entries
+}
+
+// countedGitSafety returns the counted entries to add, or nil when the last
+// counted entry of the key applies the setting.
+func countedGitSafety(lookup func(string) (string, bool)) map[string]string {
 	count := 0
 	if raw, ok := lookup("GIT_CONFIG_COUNT"); ok {
 		n, err := strconv.Atoi(strings.TrimSpace(raw))
@@ -59,6 +76,13 @@ func GitSafetyEntries(lookup func(string) (string, bool)) map[string]string {
 		"GIT_CONFIG_KEY_" + index:   gitSafetyKey,
 		"GIT_CONFIG_VALUE_" + index: gitSafetyValue,
 	}
+}
+
+// endsWithGitSafety reports whether the last entry of the quoted list params
+// is gitSafetyParameter.
+func endsWithGitSafety(params string) bool {
+	rest, ok := strings.CutSuffix(params, gitSafetyParameter)
+	return ok && (rest == "" || strings.HasSuffix(rest, " "))
 }
 
 // withGitSafety returns env with the variables of GitSafetyEntries.
