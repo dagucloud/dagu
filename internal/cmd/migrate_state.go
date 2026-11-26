@@ -183,7 +183,10 @@ func (s *v2RunStopper) stop(ctx context.Context) ([]string, error) {
 		}
 		// Migration still waits for the run; only the requests end.
 		s.requested[key] = struct{}{}
-		logger.Error(runCtx, "Gave up cancelling a live run before migrating state to projects; stop it with dagu stop",
+		// With projects on, dagu stop waits for this migration.
+		logger.Error(runCtx, "Gave up cancelling a live run before migrating state to projects; "+
+			"kill the run's process, or run dagu stop with projects off. Migration goes on once the "+
+			"process exits or its heartbeat goes stale",
 			tag.Error(err))
 	}
 
