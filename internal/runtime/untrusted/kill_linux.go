@@ -56,16 +56,24 @@ func runKillHelper() int {
 	return 0
 }
 
-// runKillHelperAs starts the helper as the restricted user and waits for it.
-// It returns false when the helper cannot run, for example when the
-// restricted user cannot run the binary of the process.
-func runKillHelperAs(uid, gid uint32) bool {
+// killHelperBinary returns the binary of the process, which runs as the kill
+// helper, or an error when the restricted user cannot run it.
+func killHelperBinary(uid, gid uint32) (string, error) {
 	self, err := os.Executable()
 	if err != nil {
-		return false
+		return "", fmt.Errorf("find the binary of the kill helper: %w", err)
 	}
 	if err := checkRunnable(self, uid, gid); err != nil {
-		return false
+		return "", err
+	}
+	return self, nil
+}
+
+// runKillHelperAs runs the helper as the restricted user and waits for it.
+func runKillHelperAs(uid, gid uint32) error {
+	self, err := killHelperBinary(uid, gid)
+	if err != nil {
+		return err
 	}
 	cmd := exec.Command(self, killHelperArg) //nolint:gosec
 	cmd.Dir = "/"
@@ -75,38 +83,43 @@ func runKillHelperAs(uid, gid uint32) bool {
 		Setsid:     true,
 	}
 	if err := cmd.Start(); err != nil {
-		return false
+		return fmt.Errorf("start the kill helper: %w", err)
 	}
-	done := make(chan struct{})
-	go func() {
-		_ = cmd.Wait()
-		close(done)
-	}()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
 	select {
-	case <-done:
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("kill helper: %w", err)
+		}
+		return nil
 	case <-time.After(5 * time.Second):
 		_ = cmd.Process.Kill()
 		<-done
+		return errors.New("the kill helper did not end in 5 s")
 	}
-	return true
 }
 
 // killUser stops each process of the user and waits until no live task of the
-// user is left.
+// user is left. A round counts only when the kill helper ran: the /proc scan
+// alone can miss a process that forks in a loop.
 func killUser(uid, gid uint32) error {
 	deadline := time.Now().Add(killTimeout)
 	for {
-		runKillHelperAs(uid, gid)
+		helperErr := runKillHelperAs(uid, gid)
 		pids, err := userProcesses(uid)
 		if err != nil {
 			return err
 		}
-		if len(pids) == 0 {
+		if len(pids) == 0 && helperErr == nil {
 			return nil
 		}
 		killTaskGroups(uid)
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%d processes of the user ID %d are left after SIGKILL", len(pids), uid)
+			if len(pids) == 0 {
+				return fmt.Errorf("the kill helper of the user ID %d failed: %w", uid, helperErr)
+			}
+			return errors.Join(fmt.Errorf("%d processes of the user ID %d are left after SIGKILL", len(pids), uid), helperErr)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
