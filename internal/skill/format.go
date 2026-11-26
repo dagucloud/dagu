@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -27,6 +28,10 @@ var xmlTagPattern = regexp.MustCompile(`</?[A-Za-z][^<>]*>`)
 // maxShownLength is the number of characters of a value that an issue quotes,
 // so a large SKILL.md gives short messages.
 const maxShownLength = 128
+
+// maxShownKeys is the number of keys that one issue names. A front matter with
+// many bad keys gives one issue per rule, not one per key.
+const maxShownKeys = 5
 
 // CheckName checks a name against the name rule of the format. It returns one
 // issue for each rule that the name breaks. The name of the folder uses the
@@ -147,10 +152,17 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	var unknown []string
 	for _, k := range keys {
 		if !isAllowedKey(k) {
-			errorf(RuleFrontMatterKey, "the front matter key %q is not allowed; the keys are %s. Put custom data in metadata", shorten(k), strings.Join(allowedKeys, ", "))
+			unknown = append(unknown, k)
 		}
+	}
+	switch {
+	case len(unknown) == 1:
+		errorf(RuleFrontMatterKey, "the front matter key %s is not allowed; the keys are %s. Put custom data in metadata", quoteKeys(unknown), strings.Join(allowedKeys, ", "))
+	case len(unknown) > 1:
+		errorf(RuleFrontMatterKey, "the front matter keys %s are not allowed; the keys are %s. Put custom data in metadata", quoteKeys(unknown), strings.Join(allowedKeys, ", "))
 	}
 
 	str := func(key string) (string, bool, bool) { // value, present, ok
@@ -254,13 +266,20 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 				mk = append(mk, k)
 			}
 			sort.Strings(mk)
+			var notStrings []string
 			for _, k := range mk {
 				s, isString := m[k].(string)
 				if !isString {
-					errorf(RuleMetadata, "metadata.%s must be a string; quote the value", shorten(k))
+					notStrings = append(notStrings, k)
 					continue
 				}
 				meta.Metadata[k] = s
+			}
+			switch {
+			case len(notStrings) == 1:
+				errorf(RuleMetadata, "the metadata value of %s must be a string; quote the value", quoteKeys(notStrings))
+			case len(notStrings) > 1:
+				errorf(RuleMetadata, "the metadata values of %s must be strings; quote the values", quoteKeys(notStrings))
 			}
 		}
 	}
@@ -308,6 +327,21 @@ func shorten(s string) string {
 		return s
 	}
 	return cutRunes(s, maxShownLength) + "..."
+}
+
+// quoteKeys quotes the first maxShownKeys keys, each shortened, and counts the
+// rest.
+func quoteKeys(keys []string) string {
+	shown := keys[:min(len(keys), maxShownKeys)]
+	quoted := make([]string, len(shown))
+	for i, k := range shown {
+		quoted[i] = strconv.Quote(shorten(k))
+	}
+	text := strings.Join(quoted, ", ")
+	if rest := len(keys) - len(shown); rest > 0 {
+		text += fmt.Sprintf(" and %d more", rest)
+	}
+	return text
 }
 
 // cutRunes returns the first n characters of s.

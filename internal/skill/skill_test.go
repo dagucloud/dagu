@@ -172,6 +172,33 @@ func TestUnknownKeyIsNamed(t *testing.T) {
 	require.Contains(t, s.Err().Error(), `"when_to_use"`)
 }
 
+// Many bad keys give one issue per rule, which names the first keys and counts
+// the rest, so a large front matter gives few issues.
+func TestManyBadKeysGiveOneIssue(t *testing.T) {
+	t.Parallel()
+	var front strings.Builder
+	front.WriteString("name: demo\ndescription: A description of the skill.\n")
+	for i := range 1000 {
+		fmt.Fprintf(&front, "k%04d: v\n", i)
+	}
+	front.WriteString("metadata:\n")
+	for i := range 1000 {
+		fmt.Fprintf(&front, "  m%04d: 1\n", i)
+	}
+	s, err := skill.Read(writeSkill(t, "demo", map[string]string{"SKILL.md": skillMD(front.String())}))
+	require.NoError(t, err)
+
+	counts := map[string]int{}
+	for _, issue := range s.Issues {
+		counts[issue.Rule]++
+	}
+	require.Equal(t, 1, counts[skill.RuleFrontMatterKey], "%v", counts)
+	require.Equal(t, 1, counts[skill.RuleMetadata], "%v", counts)
+	issues := ruleSet(s.Issues)
+	require.Contains(t, issues[skill.RuleFrontMatterKey].Message, `"k0000", "k0001", "k0002", "k0003", "k0004" and 995 more`)
+	require.Contains(t, issues[skill.RuleMetadata].Message, `"m0000", "m0001", "m0002", "m0003", "m0004" and 995 more`)
+}
+
 // A folder that the server cannot read gives the rule unreadable, and the
 // message names no path of the server. The test needs a user other than root.
 func TestUnreadableFolderNamesNoServerPath(t *testing.T) {
