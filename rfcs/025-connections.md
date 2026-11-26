@@ -236,6 +236,7 @@ connections share.
 | `client_secret` | Encrypted. Optional for public clients. For a service account, its private key |
 | `client_type` | `web`, `desktop`, `public` (no secret, as the device code flow needs), or `service_account` (a Google service account key). Decides which grants and redirect modes work |
 | `agent` | The user attests that the client has "Use this client for an AI-powered agent" set |
+| `tenant` | Only for `microsoft`: `common`, `organizations`, or a tenant ID. Client credentials need a tenant ID |
 | `endpoints` | Only for `oauth2` and `mcp`: authorize, token, revoke, and device URLs |
 | `status`, `status_reason` | `ok` or `invalid`, with the provider's error. The broker sets `invalid` with a CAS write when the provider rejects the client. An admin's update to the client ID or secret resets it to `ok` |
 
@@ -253,11 +254,12 @@ admins:
 | `grant` | `authorization_code`, `device_code`, `client_credentials`, or `service_account` |
 | `services` | Presets such as `gmail` or `calendar`, each with `read` or `write` |
 | `scopes` | Scopes added beyond the services' presets. The presets' own scopes are not stored |
-| `account` | Identity read after consent, such as an email address or subject |
+| `account` | The account's name read after consent, such as an email address. Shown to people |
+| `account_id` | The provider's immutable ID for the account: Google's `sub`, or Microsoft's tenant and object IDs. Accounts are compared by it, never by `account` |
 | `subject` | For a service account, the impersonated user. For Microsoft client credentials, the mailbox that mail and SMTP use. Fixed by the admin |
 | `bound_hosts` | Hosts added beyond the services' presets that may receive the token. Required for `oauth2` |
 | `resource` | MCP connections: the canonical server URL (RFC 8707) |
-| `projects` | Server connections only: the projects that may use it, or `*` for every project. Set by admins |
+| `projects` | Server connections only: the projects that may use it, or `*` for every project, `.global` included. Set by admins |
 | `allow_token_export` | Admin opt-in for the `connection` secret provider. Off by default |
 | `holder` | Who keeps the tokens: `local`, this server. `cloud` is reserved for a connection Dagu Cloud keeps, which this server reads but does not change. The app's `kind` says who owns the client; `holder` says who keeps the tokens |
 
@@ -348,6 +350,12 @@ workspace.
   as Spec 102 keeps them, so they use a server connection, which needs no
   `projects` entry for that use. A DAG's `smtp` resolves in the run's
   project, as a step does.
+- **Deleting a project.** A project that owns connections, or that a
+  server connection lists, cannot be deleted until they are removed or it
+  is unlisted, as a workspace with wiki pages cannot today
+  (`internal/service/frontend/api/v1/workspaces.go:246`). Before v3.0 a
+  name is the key, so a project created later under a deleted one's name
+  would otherwise inherit its connections.
 - **v3.0.** RFC 003's migration moves each project connection, with its
   token state and catalogs, into its project's state directory, and a
   `.global` one into the default project. A server connection stays
@@ -446,9 +454,11 @@ UI or CLI                 Dagu server                         provider
   confirms the account. One CAS write moves the tokens into the live fields,
   increments `generation`, sets `connected`, and clears the session. Until
   then, runs keep the previous tokens. A caller may name the expected account
-  when starting, and a matching account is then confirmed without asking.
-  With authentication off, any caller of the API may confirm, as it may take
-  any other API action.
+  when starting, and a matching account is then confirmed without asking,
+  but only when the provider vouches for the address: a verified Google
+  email, or a Microsoft account in the tenant ID the app names. Otherwise
+  the starter confirms as usual. With authentication off, any caller of the
+  API may confirm, as it may take any other API action.
 - **Sign-in by someone else.** The account's owner need not use Dagu. In
   server callback and Cloud relay modes, the starter can copy the
   authorization URL to the owner, who consents in their own browser. The
@@ -478,9 +488,11 @@ client type, and show the exact redirect URI to register.
 
 - **Granted scopes.** Google lets the user untick scopes. A missing scope is
   shown on the service that needs it, with Reconnect.
-- **Identity.** Dagu reads the account, and asks the user to confirm it in
-  the UI or CLI that started the session. This stops a consent completed in
-  someone else's browser.
+- **Identity.** Dagu reads the account and its `account_id`, and asks the
+  user to confirm it in the UI or CLI that started the session, showing the
+  Microsoft tenant too. This stops a consent completed in someone else's
+  browser. Every comparison of accounts in this RFC compares `account_id`,
+  since another Microsoft tenant can claim any email address.
 - **Service probes.** One cheap call per service: `tools/list` on each MCP
   service, and a profile read on REST services. A rejected MCP probe says
   that the client may lack the agent flag, and links to the client's page in
@@ -502,13 +514,21 @@ tokens stay live until the user confirms, and confirming increments
 `generation`. A different account than before is never confirmed without
 asking.
 
+Each connect gets a new refresh token from the provider. The token that a
+confirmed reconnect replaces, and the token of a session that expires
+unconfirmed, are revoked where revoking one token leaves the rest of the
+grant. Where it ends the whole grant, as M0 checks for Google, they are left
+unused, and the docs state Google's limit of 100 refresh tokens per account
+and client, past which Google revokes the oldest.
+
 **Remove** takes the connection's lock, revokes the refresh token where the
 provider supports revocation, then deletes both records. A provider may end
 the account's whole grant to the client on revocation, so Dagu does not
 revoke while another connection on this server holds the same account and
 client. Connections on other servers that use that client can still lose
-access, and the confirmation says so. A DAG that still
-names the connection fails at run start, naming it. Creating a connection
+access, and the confirmation says so. A DAG that still names the
+connection fails at run start, or for mail and SMTP when it uses the
+account, naming it. Creating a connection
 replaces any token state record left under its name, so a new connection
 never inherits an old one's tokens.
 
@@ -589,8 +609,8 @@ the caller learns the real lifetime from `expiresIn`.
 
 A caller whose token the resource rejected reports that token. The broker
 refreshes only while it is still the stored token, so one rejection that
-many callers see causes one refresh. A worker reports it through the
-coordinator RPC.
+many callers see causes one refresh. Every consumer does this: `mcp.call`,
+`http.request`, and mail. A worker reports it through the coordinator RPC.
 
 Local path, used by the server, the scheduler, and local runs:
 
@@ -881,6 +901,9 @@ print it. Masking is the second line of defense.
 - `connection` cannot be combined with `debug: true`, because resty's debug
   output prints request headers. It also cannot be combined with
   `headers.Authorization`.
+- A 401 is handled as `mcp.call` handles one: one refresh and one retry
+  when the rejected token is the stored one, and the current token
+  otherwise.
 
 #### Mail
 
@@ -928,6 +951,9 @@ smtp:
     holds the key, so rotating the key is one update.
 - **When checked.** These checks run when a step or notification uses the
   account, as [Runs](#runs) describes. The editor reports them earlier.
+- **Rejected tokens.** An IMAP or SMTP server that refuses the token, or a
+  Gmail API 401, is handled as `mcp.call` handles a 401: one refresh and
+  one retry when the rejected token is the stored one.
 - **The old form.** The `oauth` blocks keep working, unchanged, and are
   deprecated. The editor warns on each one, and `dagu connection import`
   moves its refresh token into a connection.
@@ -1092,6 +1118,10 @@ dagu connection apps list | remove APP
   `connection:`. A copy left behind refreshes on its own, and with a
   provider that rotates refresh tokens, the two copies can break each
   other.
+- `call` handles a server's confirmation request as Try it does. On a
+  terminal it shows the form and sends the person's answer. Without one,
+  it fails with `confirmation_required`. `--yes` skips only Dagu's own
+  question before a tool that is not read-only, never the server's.
 
 A first Google connection, from a laptop:
 
@@ -1210,10 +1240,11 @@ The connection page shows status and the reason for it, the account,
 services and scopes, its project or, for a server connection, the projects
 it lists, and Reconnect, Test, and Remove, with three panels:
 
-- **Used by:** the DAGs that name the connection, read from the DAG index.
-  Remove, a reconnect with a different account, and dropping a project
-  from a server connection each show this list before they apply, across
-  projects for a server connection.
+- **Used by:** the DAGs that name the connection, read from the DAG index,
+  and the notification SMTP settings when they use it. Remove, a reconnect
+  with a different account, and dropping a project from a server
+  connection each show this list before they apply, across projects for a
+  server connection.
 - **Add service:** runs the wizard's Services, OAuth app, and Consent steps
   again for the new service only. The OAuth app step shows just the APIs to
   enable for it, and Consent reconnects with the added scopes.
@@ -1341,6 +1372,9 @@ account's data, while a route only sends to a channel.
   - A callback is single-use and expires.
   - Only the user who started a session confirms it, in the UI or CLI that
     started it. Tokens go live only on confirmation.
+  - Accounts are compared by the provider's immutable ID, never by email
+    alone. An expected account is confirmed without asking only when the
+    provider vouches for its address.
   - The callback page shows no token, and closes the popup.
   - In Cloud relay mode, Dagu Cloud holds only the code and the encrypted
     state, until the server fetches them. Without the server's PKCE
@@ -1350,12 +1384,13 @@ account's data, while a route only sends to a channel.
   Rollout step 0 extends masking to log streams from workers, which are not
   masked today (`internal/runtime/output.go:484`). Token export waits for
   that fix.
-- **SSRF.** Managers and admins set `oauth2` endpoints and `mcp` server URLs,
-  but an `mcp` server's metadata names its authorization server, token, and
-  registration URLs. Every URL Dagu fetches, and every redirect it follows,
-  must be HTTPS. Plain HTTP to a loopback address, for local testing, is
-  allowed only for a URL an admin enters. Authorization server metadata is
-  accepted only when its `issuer` matches the URL it came from (RFC 8414).
+- **SSRF.** Admins set `oauth2` endpoints on apps, and managers set `mcp`
+  server URLs, but an `mcp` server's metadata names its authorization
+  server, token, and registration URLs. Every URL Dagu fetches, and every
+  redirect it follows, must be HTTPS. Plain HTTP to a loopback address, for
+  local testing, is allowed only for a URL an admin enters. Authorization
+  server metadata is accepted only when its `issuer` matches the URL it
+  came from (RFC 8414).
 - **Audit.** These are written to the audit log:
   - app and connection changes;
   - connects, reconnects, and removals;
@@ -1402,6 +1437,10 @@ account's data, while a route only sends to a channel.
 | A mail address does not fit the connection's account or `subject` | The step or notification fails, naming both |
 | The connection that email notifications use breaks | Email notifications fail, and each failure is logged. Its event reaches the other channels of its routes, and the badge and the notification settings page show it to admins |
 | A name would collide between a project connection and a server connection that lists the project | Creating the connection, or listing the project, fails and names both |
+| An admin deletes a project that owns connections, or that a server connection lists | Refused, naming them |
+| An account from another Microsoft tenant claims the expected email | It is not confirmed without asking. The starter sees its tenant and decides |
+| A reconnect is confirmed, or a session expires unconfirmed | The unused refresh token is revoked where that leaves the rest of the grant, and left unused otherwise |
+| The connection that the notification SMTP settings use is removed | The confirmation names the settings. Email notifications then fail until an admin picks another connection |
 | An admin drops a project from a server connection | That project's runs that name it fail at admission, naming it. Other projects are unaffected |
 | A worker's coordinator is older and lacks the token RPC | The step fails, saying the coordinator must be upgraded |
 | A worker is older than the token RPC | The coordinator does not dispatch a DAG that declares connections to it |
@@ -1436,7 +1475,8 @@ account's data, while a route only sends to a channel.
 - **Cloud relay.** One request to Dagu Cloud every 3 seconds per waiting
   session, for at most the session's 10 minutes. It stops when the session
   completes, fails, or is cancelled, and nothing polls outside a connect.
-- **Requests.** Connection lists read one small record per connection. A
+- **Requests.** Connection lists read two small records per connection: its
+  metadata and its token state. A
   server holds tens of connections, not thousands, and no request reads run
   or DAG directories.
 - **Tool lists.** One `tools/list` per connection and service per 10
@@ -1581,64 +1621,70 @@ Connect:
 5. Each consent error in [Consent errors](#consent-errors) shows its fix.
 6. A person without a Dagu login consents through a copied sign-in link,
    and the starter confirms the account.
+7. A Microsoft account from another tenant that claims the expected email
+   is not confirmed without asking.
 
 Scopes:
 
-7. A project connection serves only its project's DAGs, locally and on a
+8. A project connection serves only its project's DAGs, locally and on a
    worker.
-8. A server connection that lists two projects serves both from one token
+9. A server connection that lists two projects serves both from one token
    state record. Dropping a project from it stops that project's runs at
    admission.
-9. A name that would collide in a project is refused when the connection is
-   created and when the project is listed.
-10. After RFC 003's migration, each connection exists once, and its refresh
+10. A name that would collide in a project is refused when the connection is
+    created and when the project is listed.
+11. After RFC 003's migration, each connection exists once, and its refresh
     keeps working.
-11. Removing one of two connections that share an account and client leaves
+12. Removing one of two connections that share an account and client leaves
     the other working.
+13. A project that owns connections, or that a server connection lists,
+    cannot be deleted.
 
 Broker:
 
-12. With 100 concurrent runs using one connection whose access token has
+14. With 100 concurrent runs using one connection whose access token has
     expired, the provider receives exactly one refresh request, and only one
     process takes the connection's lock.
-13. When that refresh fails transiently, the provider still receives one
+15. When that refresh fails transiently, the provider still receives one
     request, and the waiting runs fail with its error.
-14. A rotated refresh token is saved, and the next refresh uses it, across
+16. A rotated refresh token is saved, and the next refresh uses it, across
     process restarts.
-15. A reconnect confirmed during a refresh leaves the reconnected token in
+17. A reconnect confirmed during a refresh leaves the reconnected token in
     place. Runs keep the previous token until the reconnect is confirmed.
-16. A connect session written during a Microsoft refresh keeps the rotated
+18. A connect session written during a Microsoft refresh keeps the rotated
     refresh token. A connection removed during a refresh stays removed, and
     a new connection with its name starts without tokens.
-17. A token endpoint that hangs for one connection does not delay another
+19. A token endpoint that hangs for one connection does not delay another
     connection's refresh.
-18. Two hosts sharing the data directory both keep working after one of them
+20. Two hosts sharing the data directory both keep working after one of them
     rotates a Microsoft refresh token.
-19. One Microsoft connection serves a Graph `http.request` and an IMAP mail
+21. One Microsoft connection serves a Graph `http.request` and an IMAP mail
     action in the same run, each with a token for its own resource.
-20. After an upgrade that adds a scope to a preset, existing connections keep
+22. A token that `mcp.call`, `http.request`, or a mail server rejects before
+    it expires is refreshed once, and the call succeeds on the retry.
+23. After an upgrade that adds a scope to a preset, existing connections keep
     refreshing.
 
 Mail:
 
-21. Mail accounts and a DAG's `smtp` send through a Google and a Microsoft
+24. Mail accounts and a DAG's `smtp` send through a Google and a Microsoft
     connection, locally and on a worker, and the notification SMTP settings
     send through a server connection.
-22. A base config whose mail account names a connection that one project
+25. A base config whose mail account names a connection that one project
     cannot use leaves that project's DAGs that send no mail unaffected.
-23. No mail account or `smtp` with a connection sends the token to a host
+26. No mail account or `smtp` with a connection sends the token to a host
     outside its preset or without a verified certificate.
-24. A mail address that does not fit a Google user connection's account, or
+27. A mail address that does not fit a Google user connection's account, or
     a service account's `subject`, fails, naming both.
-25. A Microsoft mail account imported with `dagu connection import` from a
+28. A Microsoft mail account imported with `dagu connection import` from a
     secret keeps working after the provider rotates the refresh token.
 
 Failures and notifications:
 
-26. Revoking access at the provider makes the connection `needs_reconnect`
+29. Revoking access at the provider makes the connection `needs_reconnect`
     once. Every later step fails without calling the token endpoint.
     Reconnect restores it.
-27. While 100 runs fail on a revoked connection, each channel receives
+30. While 100 runs fail on a revoked connection, each channel receives
     exactly one `connection.needs_attention`, also when the routes of several
     projects reach it, and a reconnect sends one `connection.restored`. A
     channel that receives connection events sends no run failure messages
@@ -1647,28 +1693,28 @@ Failures and notifications:
 
 Security:
 
-28. No refresh token, access token, or client secret appears in any API
+31. No refresh token, access token, or client secret appears in any API
     response, CLI output, MCP result, run status, step log, worker log
     stream, or audit entry. A test searches each of them for the values.
-29. `http.request` with a connection, locally and on a worker, never sends
+32. `http.request` with a connection, locally and on a worker, never sends
     the token to a host outside the bound hosts or over plain HTTP,
     including through a redirect.
-30. A run on a worker cannot obtain a token for a connection its DAG does
+33. A run on a worker cannot obtain a token for a connection its DAG does
     not declare, or one its project may not use.
-31. Each role can do what [Permissions](#permissions) lists and nothing
+34. Each role can do what [Permissions](#permissions) lists and nothing
     more.
 
 Steps:
 
-32. An `mcp.call` step with `connection` and `server: gmail` succeeds, both
+35. An `mcp.call` step with `connection` and `server: gmail` succeeds, both
     locally and on a worker with no shared filesystem.
-33. A Google tool that sends a confirmation request fails with
+36. A Google tool that sends a confirmation request fails with
     `confirmation_required` in `mcp.call`, and Try it shows its form. No path
     accepts a request without a person.
 
 All:
 
-34. Every case in [Failure behavior](#failure-behavior) ends as stated.
+37. Every case in [Failure behavior](#failure-behavior) ends as stated.
 
 ## Alternatives considered
 
