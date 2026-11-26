@@ -19,9 +19,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/sshconn"
 )
 
-// localWorkerID is the worker ID of a run on the Dagu host itself.
-const localWorkerID = "local"
-
 // defaultSSHPort is the port ${node.port} reads for a node that sets none.
 const defaultSSHPort = "22"
 
@@ -82,26 +79,11 @@ func (a *Agent) nodeListRecord() *ir.NodeListRecord {
 	return a.nodeList.Record()
 }
 
-// nodeTargetingError fails, before any step starts, a run that uses node
-// targeting (RFC 013) in a way that is not built yet:
-//
-//   - a node: required DAG started without a node;
-//   - a run on a worker that is bound to a node or has a step that sets
-//     nodes.
-func nodeTargetingError(dag *ir.DAG, boundNode, workerID string) error {
+// nodeTargetingError fails, before any step starts, a node: required DAG
+// started without a node (RFC 013).
+func nodeTargetingError(dag *ir.DAG, boundNode string) error {
 	if dag.NodeRequired && boundNode == "" {
 		return fmt.Errorf("DAG %q declares node: required, so it runs only bound to a node, as the child of a dag.run step with nodes or started with one node (--node)", dag.Name)
-	}
-	if workerID == "" || workerID == localWorkerID {
-		return nil
-	}
-	if boundNode != "" {
-		return fmt.Errorf("the run is bound to inventory node %q, and running a bound run on a worker is not available yet", boundNode)
-	}
-	for _, step := range allSteps(dag) {
-		if step.Nodes != nil {
-			return fmt.Errorf("step %q sets nodes, and running a step on inventory nodes from a worker is not available yet", step.Name)
-		}
 	}
 	return nil
 }

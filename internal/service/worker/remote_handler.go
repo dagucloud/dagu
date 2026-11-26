@@ -723,6 +723,15 @@ func (h *remoteTaskHandler) executeDAGRun(
 			WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID,
 		})
 	}
+	// Each run reads the nodes of its own DAG, so a child run gets its own.
+	nodes := func(current *ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys) {
+		nodeRun := coordinator.SecretReferenceRun{WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID}
+		if current != nil {
+			nodeRun.DAGName = current.Name
+		}
+		return newRemoteNodes(h.coordinatorClient, run.owner, nodeRun)
+	}
+	nodeSelector, hostKeys := nodes(dag)
 
 	toolEnvs, err := h.prepareDAGTools(ctx, dag)
 	if err != nil {
@@ -766,6 +775,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		StateStore:         h.stateStore,
 		SecretStore:        runtimeStores.SecretStore,
 		SecretResolver:     secretResolver,
+		Nodes:              nodes,
 		ProfileStore:       runtimeStores.ProfileStore,
 		ProfileResolver:    profileResolver,
 		ServiceRegistry:    h.serviceRegistry,
@@ -794,6 +804,8 @@ func (h *remoteTaskHandler) executeDAGRun(
 		StateStore:               h.stateStore,
 		SecretStore:              runtimeStores.SecretStore,
 		SecretReferenceResolver:  secretResolver(dag),
+		NodeSelector:             nodeSelector,
+		HostKeys:                 hostKeys,
 		ProfileStore:             runtimeStores.ProfileStore,
 		ProfileResolver:          profileResolver(dag),
 		ProfileName:              run.profileName,

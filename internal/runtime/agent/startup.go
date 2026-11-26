@@ -83,7 +83,7 @@ func (a *Agent) resolveStartup(ctx context.Context) (startupResolution, error) {
 		if result.nodeErr != nil || ctx.Err() != nil {
 			return
 		}
-		result.credentials, result.secretErr = snapshot.resolveCredentialRefs(ctx, result.binding.credentialRefs())
+		result.credentials, result.secretErr = snapshot.resolveCredentialRefs(ctx, result.binding)
 	}()
 	select {
 	case result := <-resolved:
