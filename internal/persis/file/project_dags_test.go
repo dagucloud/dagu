@@ -129,10 +129,12 @@ func TestProjectStoresBaseConfig(t *testing.T) {
 		forecast, err := weather.DAGRepository.GetMetadata(context.Background(), "forecast")
 		require.NoError(t, err)
 		assert.Equal(t, []string{"FROM_WEATHER=yes"}, forecast.Env)
-		for _, target := range []string{"base", filepath.Join(weather.Paths.DAGsDir, "base.yaml")} {
-			_, err = weather.DAGRepository.GetMetadata(context.Background(), target)
-			assert.ErrorIs(t, err, persis.ErrDAGNotFound, target)
-		}
+		_, err = weather.DAGRepository.GetMetadata(context.Background(), "base")
+		assert.ErrorIs(t, err, persis.ErrDAGNotFound)
+		basePath := filepath.Join(weather.Paths.DAGsDir, "base.yaml")
+		_, err = weather.DAGRepository.GetMetadata(context.Background(), basePath)
+		assert.ErrorIs(t, err, persis.ErrDAGNotFound)
+		assert.ErrorContains(t, err, basePath+` is the base config of project "weather", not a DAG`)
 		listed, _, err := weather.DAGRepository.List(context.Background(), persis.DAGListOptions{})
 		require.NoError(t, err)
 		require.Len(t, listed.Items, 1)

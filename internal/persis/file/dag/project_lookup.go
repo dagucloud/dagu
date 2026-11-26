@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -58,8 +59,19 @@ func (store *Store) locateInProject(ctx context.Context, target string) (Resolve
 		}
 	}
 	// The project's base config lies in its DAG directory but is no DAG.
-	baseConfig := store.resolvedBaseConfig()
+	// Its links are resolved only for a match of the same file name.
+	var (
+		baseConfig         string
+		baseConfigResolved bool
+	)
 	isBaseConfig := func(resolved ResolvedFile) bool {
+		if store.baseConfigPath == "" ||
+			!strings.EqualFold(filepath.Base(resolved.ResolvedPath), filepath.Base(store.baseConfigPath)) {
+			return false
+		}
+		if !baseConfigResolved {
+			baseConfig, baseConfigResolved = store.resolvedBaseConfig(), true
+		}
 		return baseConfig != "" && resolved.ResolvedPath == baseConfig
 	}
 	accept := func(resolved ResolvedFile) (bool, error) {
@@ -132,7 +144,9 @@ func (store *Store) locateInProject(ctx context.Context, target string) (Resolve
 			case err != nil:
 				return ResolvedFile{}, err
 			case ok && isBaseConfig(resolved):
-				return ResolvedFile{}, scope.lookupError(target, other, linkOut)
+				return ResolvedFile{}, &projectLookupError{
+					msg: fmt.Sprintf("%s is the base config of project %q, not a DAG", target, scope.name),
+				}
 			case ok:
 				return resolved, nil
 			}
