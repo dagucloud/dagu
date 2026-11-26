@@ -412,8 +412,14 @@ Google presets:
   `get_notification_settings` tool needs `chat.users.spacesettings`, which
   also allows changing them.
 - `mailbox` asks for `https://mail.google.com/`. `gmail` does not.
-- Every Google connection also asks for `openid` and `email`, so Dagu can
-  show the account.
+- Every Google `authorization_code` connection also asks for `openid` and
+  `email`, so Dagu can show the account. A `service_account` connection
+  asks for neither: its account is its `subject`, and domain-wide
+  delegation fails the token request for any scope the admin did not
+  authorize for the client.
+- `people` and `search` are in Google's Workspace Developer Preview. They
+  work only for an account in Google's preview program, and the presets
+  mark them as preview.
 
 Microsoft presets:
 

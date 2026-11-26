@@ -22,6 +22,9 @@ type Preset struct {
 	WriteScopes []string
 	// APIs are the Google API IDs to enable in the app's project.
 	APIs []string
+	// Preview marks a service that works only for members of the
+	// provider's developer preview program.
+	Preview bool
 }
 
 const googleScopePrefix = "https://www.googleapis.com/auth/"
@@ -115,7 +118,8 @@ var presets = []Preset{
 			"userinfo.profile",
 			"contacts.readonly",
 		),
-		APIs: []string{"people.googleapis.com"},
+		APIs:    []string{"people.googleapis.com"},
+		Preview: true,
 	},
 	{
 		Provider: ProviderGoogle,
@@ -129,20 +133,28 @@ var presets = []Preset{
 			"chat.spaces.readonly",
 			"chat.memberships.readonly",
 		),
-		APIs: []string{"workspacemcp.googleapis.com"},
+		APIs:    []string{"workspacemcp.googleapis.com"},
+		Preview: true,
 	},
 }
 
-// providerScopes are asked for by every connection of a provider, whatever
-// its services. Google's let Dagu show the account.
-var providerScopes = map[Provider][]string{
+// userScopes are asked for by every connection of a provider that signs in
+// a user, whatever its services. Google's let Dagu show the account. A
+// service account connection takes its account from its subject instead,
+// and domain-wide delegation fails a token request for a scope the admin
+// did not authorize.
+var userScopes = map[Provider][]string{
 	ProviderGoogle: {"openid", "email"},
 }
 
-// LookupPreset returns the preset of provider named service.
+// LookupPreset returns a copy of the preset of provider named service.
 func LookupPreset(provider Provider, service string) (Preset, bool) {
 	for _, p := range presets {
 		if p.Provider == provider && p.Name == service {
+			p.RESTHosts = slices.Clone(p.RESTHosts)
+			p.ReadScopes = slices.Clone(p.ReadScopes)
+			p.WriteScopes = slices.Clone(p.WriteScopes)
+			p.APIs = slices.Clone(p.APIs)
 			return p, true
 		}
 	}
@@ -168,10 +180,13 @@ func (p *Preset) Hosts() []string {
 }
 
 // RequestedScopes returns the scopes c asks for: those every connection of
-// its provider asks for, those of each service's preset for its access,
-// and its Scopes, each once.
+// its provider with a user asks for, when its grant signs in a user; those
+// of each service's preset for its access; and its Scopes, each once.
 func (c *Connection) RequestedScopes() []string {
-	scopes := appendUnique(nil, providerScopes[c.Provider]...)
+	var scopes []string
+	if c.Grant.signsInUser() {
+		scopes = appendUnique(scopes, userScopes[c.Provider]...)
+	}
 	for _, svc := range c.Services {
 		if p, ok := LookupPreset(c.Provider, svc.Name); ok {
 			scopes = appendUnique(scopes, p.Scopes(svc.Access)...)

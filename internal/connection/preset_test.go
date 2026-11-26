@@ -15,23 +15,39 @@ const scope = "https://www.googleapis.com/auth/"
 
 func TestRequestedScopes(t *testing.T) {
 	t.Parallel()
-	conn := &connection.Connection{
-		Provider: connection.ProviderGoogle,
-		Services: []connection.Service{
-			{Name: "gmail", Access: connection.AccessWrite},
-			{Name: "drive", Access: connection.AccessRead},
-		},
-		Scopes: []string{scope + "drive.readonly", scope + "tasks"},
+	services := []connection.Service{
+		{Name: "gmail", Access: connection.AccessWrite},
+		{Name: "drive", Access: connection.AccessRead},
 	}
-	assert.Equal(t, []string{
-		"openid",
-		"email",
+	serviceScopes := []string{
 		scope + "gmail.readonly",
 		scope + "gmail.compose",
 		scope + "gmail.modify",
 		scope + "drive.readonly",
 		scope + "tasks",
-	}, conn.RequestedScopes())
+	}
+	t.Run("User", func(t *testing.T) {
+		t.Parallel()
+		conn := &connection.Connection{
+			Provider: connection.ProviderGoogle,
+			Grant:    connection.GrantAuthorizationCode,
+			Services: services,
+			Scopes:   []string{scope + "drive.readonly", scope + "tasks"},
+		}
+		assert.Equal(t, append([]string{"openid", "email"}, serviceScopes...), conn.RequestedScopes())
+	})
+	// A service account's account is its subject, so it asks for no
+	// identity scope that domain-wide delegation would have to allow.
+	t.Run("ServiceAccount", func(t *testing.T) {
+		t.Parallel()
+		conn := &connection.Connection{
+			Provider: connection.ProviderGoogle,
+			Grant:    connection.GrantServiceAccount,
+			Services: services,
+			Scopes:   []string{scope + "tasks"},
+		}
+		assert.Equal(t, serviceScopes, conn.RequestedScopes())
+	})
 }
 
 func TestAllBoundHosts(t *testing.T) {
@@ -86,6 +102,13 @@ func TestLookupPreset(t *testing.T) {
 	assert.Equal(t, "https://people.googleapis.com/mcp/v1", people.MCPURL)
 	assert.Equal(t, []string{"people.googleapis.com"}, people.Hosts())
 	assert.Equal(t, people.Scopes(connection.AccessRead), people.Scopes(connection.AccessWrite))
+
+	assert.True(t, people.Preview)
+
+	// A caller that changes its copy leaves the compiled preset intact.
+	people.ReadScopes[0] = scope + "contacts"
+	again, _ := connection.LookupPreset(connection.ProviderGoogle, "people")
+	assert.Equal(t, scope+"directory.readonly", again.ReadScopes[0])
 
 	_, ok = connection.LookupPreset(connection.ProviderMicrosoft, "gmail")
 	assert.False(t, ok)

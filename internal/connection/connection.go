@@ -150,3 +150,8 @@ func ValidateName(name string) error {
 	}
 	return nil
 }
+
+// signsInUser reports whether g obtains tokens for a user who signs in.
+func (g Grant) signsInUser() bool {
+	return g == GrantAuthorizationCode || g == GrantDeviceCode
+}
