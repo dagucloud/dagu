@@ -205,21 +205,14 @@ A worker has neither.
 | `grant` | `authorization_code`, `device_code`, `client_credentials`, or `service_account` |
 | `services` | Presets, such as `gmail`, each with `read` or `write` |
 | `scopes` | Scopes added beyond the presets' scopes. The presets' own scopes are not stored |
-| `account` | The account's display name read after consent, such as an email address |
-| `account_id` | The provider's immutable account ID: Google's `sub`, or Microsoft's tenant and object IDs |
 | `subject` | Service account: the impersonated user. Microsoft client credentials: the mailbox. Set only by an admin |
 | `bound_hosts` | Hosts added beyond the presets' hosts. Required for `oauth2` |
 | `resource` | `mcp` only: the server's canonical URL (RFC 8707) |
 | `allow_token_export` | Off by default. Set only by an admin |
 | `holder` | `local`. `cloud` is reserved and refused |
 
-- A connection's account is compared with a session's, or with another
-  connection's, by `account_id`, never by `account`. An expected account is
-  compared with the email the provider vouches for, as
-  [Confirmation](#confirmation) states.
-- `account` and `account_id` change only with a confirm, as
-  [Confirmation](#confirmation) states. A metadata change by a person never
-  changes token state, and a token refresh never changes metadata.
+- A metadata change by a person never changes token state, and a token
+  refresh never changes metadata.
 
 #### Token State
 
@@ -229,15 +222,26 @@ A worker has neither.
 | `access_tokens` | Per resource: one encrypted access token and its expiry |
 | `refresh_token_expires_at` | Only when the provider reports it |
 | `granted_scopes` | The scopes the provider granted. May be fewer than requested |
+| `account` | The account's display name, such as an email address. Shown to people |
+| `account_id` | The provider's immutable account ID: Google's `sub`, or Microsoft's tenant and object IDs |
 | `status` | `pending`, `connected`, or `needs_reconnect`. See [Status Transitions](#status-transitions) |
 | `status_reason` | The provider's error code and text, without secrets |
-| `generation` | Starts at 0. Increases by 1 on each confirm, and on each successful token fetch of a create or reconnect without a session |
+| `generation` | Starts at 0. Increases by 1 on each confirm, on an import, and on each successful token fetch of a create or reconnect without a session |
 | `session` | The session in progress, if any. See [Sessions](#sessions) |
 | `refreshed_at` | Time of the last successful refresh |
 
 - Only the connect flow and the broker write token state.
-- Creating a connection replaces any token state left under its name, so a
-  new connection never has an earlier connection's tokens.
+- `account` and `account_id` are written only with tokens, in the same
+  write: by a confirm, from the session; by an import, from the provider;
+  and by a `service_account` or `client_credentials` token fetch, where
+  both are the connection's `subject`. A refresh never changes them.
+- A connection's account is compared with a session's, or with another
+  connection's, by `account_id`, never by `account`. An expected account is
+  compared with the email the provider vouches for, as
+  [Confirmation](#confirmation) states.
+- Creating a connection replaces any token state and tool catalogs left
+  under its name, so a new connection never has an earlier connection's
+  tokens and never reads its catalogs.
 - The broker never creates a token state record.
 
 #### Status Transitions
@@ -245,12 +249,14 @@ A worker has neither.
 | From | To | When |
 | --- | --- | --- |
 | none | `pending` | The connection is created. It has no tokens |
+| none | `connected` | An import succeeds, as [Import](#import) states. `generation` is 1 |
 | `pending` | `connected` | A session is confirmed, for `authorization_code` and `device_code`. For `service_account` and `client_credentials`, the first token fetch succeeds |
 | `connected` | `connected` | A reconnect is confirmed, or its token fetch succeeds for a grant without a refresh token. `generation` increases |
 | `connected` | `needs_reconnect` | A refresh fails with `invalid_grant`, as [Refresh Results](#refresh-results) states |
 | `needs_reconnect` | `connected` | A reconnect is confirmed |
 
-- No other transition exists. Remove deletes the records in any status.
+- No other transition exists. Remove deletes the records and tool catalogs
+  in any status.
 - A `service_account` or `client_credentials` connection fetches a token
   when it is created, with no session. When the fetch fails, the
   connection stays `pending` with the provider's error in
@@ -401,7 +407,8 @@ Microsoft presets:
 
 - A connection's requested scopes are its presets' scopes for the chosen
   `read` or `write`, plus its `scopes`. Its bound hosts are its presets'
-  hosts, plus its `bound_hosts`, plus the host of its `resource`. Both are
+  hosts, plus its `bound_hosts`, plus the host of its `resource`, as
+  `host:port` when the resource URL names a port. Both are
   derived each time they are read.
 - A `bound_hosts` entry is a hostname, or `host:port`. It has no scheme,
   path, or wildcard.
@@ -472,10 +479,10 @@ starter (UI or CLI)          Dagu server                       provider
 - Only the starter confirms a session. A confirm by another user is refused,
   and the session stays in `confirm`.
 - With authentication off, any API caller may confirm.
-- A confirm makes, in one atomic change, the session's tokens live, sets
-  the connection's `account` and `account_id` to the session's, increases
-  `generation` by 1, sets `status: connected`, and clears the session. No
-  reader sees the new tokens with the previous account.
+- A confirm is one atomic write of the token state record. It makes the
+  session's tokens live, sets `account` and `account_id` to the session's,
+  increases `generation` by 1, sets `status: connected`, and clears the
+  session. No reader sees the new tokens with the previous account.
 - A session that nobody confirms expires, and the previous tokens stay
   live.
 - The starter may name an expected account, an email address, when
@@ -578,7 +585,7 @@ Each of these fails the session.
   confirmed without asking, even when an expected account matches.
 - A confirmed reconnect sets `account` and `account_id` from the session,
   clears `needs_reconnect`, and increases `generation`, in the one atomic
-  change of [Confirmation](#confirmation).
+  write of [Confirmation](#confirmation).
 
 #### Token Cleanup
 
@@ -602,8 +609,13 @@ Each of these fails the session.
   connection from an existing refresh token, with no consent. The import
   takes an existing app, or registers one from a client file, which needs
   `admin`.
-- Dagu reads the account, `account_id`, and granted scopes from the
-  provider, and runs the [checks after consent](#checks-after-consent).
+- The import fetches a token with the imported refresh token. When the
+  provider accepts it, the connection is created `connected`, with
+  `generation` 1, and `account`, `account_id`, and granted scopes read from
+  the provider. Dagu then runs the
+  [checks after consent](#checks-after-consent).
+- When the provider rejects the refresh token, the import fails and nothing
+  is stored.
 - An import is refused when another connection on the server already holds
   the same refresh token.
 - The output says to replace every mail `oauth` block that holds the token
@@ -612,7 +624,8 @@ Each of these fails the session.
 #### Remove
 
 - Remove revokes the refresh token where the provider supports revocation,
-  then deletes the metadata and token state records.
+  then deletes the metadata and token state records and the connection's
+  tool catalogs.
 - Remove does not revoke while another connection on this server holds the
   same `account_id` and app. That connection keeps working.
 - Remove is exclusive with a refresh of the same connection. A refresh that
@@ -738,8 +751,8 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
   without a token. A worker uses it for admission.
 - A worker reports a rejected token through the coordinator, which applies
   the broker's rejected-token rule.
-- A run on a worker makes one check-only request per declared connection
-  at admission, one token request per connection and resource each time
+- A run on a worker makes one check-only request per connection that
+  admission checks, one token request per connection and resource each time
   its token falls below the `minTTL`, and one request per rejected token.
 - A worker enforces the binding it receives as a local run does.
 - The coordinator dispatches a DAG that declares connections only to a
@@ -828,9 +841,13 @@ the coordinator must be upgraded, and the run's other steps run.
 - A step that uses a connection records the connection's name and account
   in its node status.
 - A failed run records a broken connection as its failure cause only when
-  every failed step of the run failed with `reconnect_required` or on an
-  `invalid` app. The cause names those steps' connections. A run with any
-  other failed step records no connection as its cause.
+  every failed step of the run failed on a connection in `needs_reconnect`
+  or on an `invalid` app, the states that send
+  `connection.needs_attention`. The cause names those steps' connections. A
+  run with any other failed step records no connection as its cause.
+- A step that fails on a `pending` connection fails with
+  `reconnect_required`, but its run records no connection as its cause, so
+  every channel still sends the run's failure message.
 
 #### Masking
 
@@ -1133,6 +1150,8 @@ Token issuance is not audited. No audit entry holds a secret.
   fails, saying so, and the UI or CLI offers the next mode. Runs and
   existing connections are unaffected.
 - An import of a refresh token that another connection holds is refused.
+- An import whose refresh token the provider rejects fails, and nothing is
+  stored.
 - Authorization server metadata whose `issuer` does not match its URL is
   refused, and the connect fails.
 - A redirect mode that does not work for the server or the app's client
@@ -1229,7 +1248,7 @@ with the access token of `ops`'s `work-google`, and its node status records
 | `mcp.call` with `connection: work-google` and `server: drive` | Fails before its first step: `drive` is not one of the connection's services |
 | `mcp.call` with `connection: ${CONN}` | Fails validation: not a literal |
 | `mcp.call` with `connection: work-google` and `headers: { Authorization: x }` | Fails validation |
-| `http.request` with `connection: ops-mail` and `url: http://www.googleapis.com/...` | Fails before its first step: not HTTPS |
+| `http.request` with `connection: ops-mail` and `url: http://gmail.googleapis.com/...` | Fails before its first step: not HTTPS |
 
 A DAG in a workspace without `work-google`, or a DAG without a `workspace`
 label when `.global` has no `work-google`, fails before its first step,
