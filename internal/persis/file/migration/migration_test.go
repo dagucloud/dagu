@@ -377,6 +377,29 @@ func TestRunStopsWaitingForV2WithoutLock(t *testing.T) {
 	assert.True(t, done, "the status of the finished migration stays")
 }
 
+// A process whose last renewal of the lock is three quarters of the stale
+// threshold old changes nothing, though it still holds the lock: a process
+// that waits for the lock may judge it stale before the next renewal.
+func TestRunStopsWhenLockRenewalIsLate(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	mv := move{From: v2Dir(t, dataDir, "dag-runs", "etl", "f"), To: filepath.Join(dataDir, "projects", "default", "runs", "etl")}
+	m, _ := newTestMigrator(t, dataDir, &fakeServices{}, nil)
+	var clock atomic.Int64
+	clock.Store(time.Now().UnixNano())
+	m.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	m.planMoves = func(context.Context) ([]move, error) {
+		// The process stalls while it plans, so no renewal happens.
+		clock.Add(int64(lockStaleThreshold*3/4 + time.Second))
+		return []move{mv}, nil
+	}
+
+	require.ErrorIs(t, m.Run(context.Background()), dirlock.ErrLockNotHeld)
+	assert.DirExists(t, mv.From)
+	assert.NoDirExists(t, mv.To)
+	assert.NoFileExists(t, filepath.Join(dataDir, dirName, planFileName))
+}
+
 // A destination that exists when the plan is made is refused before any
 // move, rather than at its move after earlier ones were made.
 func TestRunRefusesPlanOverExistingState(t *testing.T) {

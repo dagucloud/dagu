@@ -101,6 +101,9 @@ type Migrator struct {
 	// pollTicks returns the ticks on which a waiting process checks again,
 	// and a function that stops them.
 	pollTicks func() (<-chan time.Time, func())
+	// now returns the current time, by which held judges the age of the
+	// last renewal of the lock.
+	now func() time.Time
 	// afterMove, when set by tests, runs after each move and before the
 	// journal records it.
 	afterMove func(index int) error
@@ -133,6 +136,7 @@ func New(dataDir string, services serviceregistry.ServiceRegistry) *Migrator {
 		mover:     newMover(),
 		planMoves: planNoMoves,
 		pollTicks: newPollTicker,
+		now:       time.Now,
 		progress:  Progress{Phase: phaseStarting},
 	}
 }
@@ -340,7 +344,7 @@ func (m *Migrator) moveOne(ctx context.Context, index int, mv move, recorded boo
 // threshold old, before a waiting process could judge the lock stale.
 func (m *Migrator) keepLock(ctx context.Context) (held func() error, stop func()) {
 	var renewedAt atomic.Int64
-	renewedAt.Store(time.Now().UnixNano())
+	renewedAt.Store(m.now().UnixNano())
 	ctx, cancel := context.WithCancel(ctx)
 	stopped := make(chan struct{})
 	go func() {
@@ -352,7 +356,7 @@ func (m *Migrator) keepLock(ctx context.Context) (held func() error, stop func()
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				start := time.Now()
+				start := m.now()
 				if err := m.lock.Heartbeat(ctx); err != nil {
 					logger.Warn(ctx, "Failed to renew the migration lock", tag.Error(err))
 					continue
@@ -363,7 +367,7 @@ func (m *Migrator) keepLock(ctx context.Context) (held func() error, stop func()
 	}()
 	held = func() error {
 		renewed := time.Unix(0, renewedAt.Load())
-		if time.Since(renewed) > lockStaleThreshold*3/4 || !m.lock.IsHeldByMe() {
+		if m.now().Sub(renewed) > lockStaleThreshold*3/4 || !m.lock.IsHeldByMe() {
 			return fmt.Errorf("lost the migration lock: %w", dirlock.ErrLockNotHeld)
 		}
 		return nil
