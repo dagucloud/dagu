@@ -98,14 +98,14 @@ func NewManager(dagRunRepository *persis.DAGRunRepository, processes processRepo
 // restarting, and retrieving status information. It communicates with the DAG
 // through a socket interface and manages dag-run data.
 type Manager struct {
-	dagRunRepository *persis.DAGRunRepository // Repository for persisted run data
-	procRepository   processRepository
-	subCmdBuilder    *launcher.SubCmdBuilder // Command builder for constructing command specs
-	// project names the project whose runs the Manager handles. It is
-	// empty while projects are off.
-	project              string
+	dagRunRepository     *persis.DAGRunRepository // Repository for persisted run data
+	procRepository       processRepository
+	subCmdBuilder        *launcher.SubCmdBuilder // Command builder for constructing command specs
 	nowFunc              func() time.Time
 	latestAttemptOptions persis.DAGRunLatestAttemptOptions
+	// project names the project whose runs the Manager handles. It is
+	// empty while projects are off.
+	project string
 }
 
 // Project returns the name of the project whose runs the Manager handles,
