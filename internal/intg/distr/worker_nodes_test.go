@@ -7,13 +7,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/noderuns"
@@ -100,7 +100,7 @@ func nodeStepResults(t *testing.T, stdout string) []struct {
 	Outputs  map[string]string `json:"outputs"`
 } {
 	t.Helper()
-	data, err := os.ReadFile(stdout)
+	data, err := fileutil.ReadFile(stdout)
 	require.NoError(t, err)
 	var aggregate struct {
 		Results []struct {
