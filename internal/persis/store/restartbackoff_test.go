@@ -34,3 +34,35 @@ func TestRestartBackoffStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, backoff, "a save replaces what was there")
 }
+
+// Each project's backoff is saved apart, so one project's save keeps
+// every other project's backoff, the default project's included.
+func TestRestartBackoffStoreForProject(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewRestartBackoffStore(testutil.NewMemoryBackend().Collection("scheduler"))
+	weather, sim := s.ForProject("weather-id"), s.ForProject("sim-id")
+
+	defaults := map[string]schedulerstate.RestartBackoff{"svc": {RunID: "run-1", Failures: 1}}
+	forecast := map[string]schedulerstate.RestartBackoff{"svc": {RunID: "run-2", Failures: 2}}
+	require.NoError(t, s.Save(ctx, defaults))
+	require.NoError(t, weather.Save(ctx, forecast))
+	require.NoError(t, sim.Save(ctx, nil))
+
+	for _, tt := range []struct {
+		store schedulerstate.RestartBackoffStore
+		want  map[string]schedulerstate.RestartBackoff
+	}{
+		{store: s, want: defaults},
+		{store: weather, want: forecast},
+		{store: sim, want: nil},
+	} {
+		backoff, err := tt.store.Load(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, tt.want, backoff)
+	}
+
+	require.NoError(t, s.Save(ctx, nil))
+	backoff, err := weather.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, forecast, backoff, "the default project's save keeps another project's backoff")
+}

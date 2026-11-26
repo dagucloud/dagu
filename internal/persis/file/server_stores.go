@@ -40,7 +40,9 @@ type ServerStores struct {
 	DAGRunLeaseStore          dispatch.DAGRunLeaseStore
 	ActiveDistributedRunStore dispatch.ActiveDistributedRunStore
 	SchedulerPauseStore       schedulerstate.PauseStore
-	RestartBackoffStore       schedulerstate.RestartBackoffStore
+	// RestartBackoffStore holds the default project's restart backoff and
+	// gives every other project's.
+	RestartBackoffStore *store.RestartBackoffStore
 	// Calendars is the one source of business calendars for every
 	// project's DAGs.
 	Calendars *spec.CalendarSource
