@@ -240,6 +240,7 @@ func newCoordinator(
 		DAGRepository:             persistence.DAGRepository,
 		SecretStore:               secretStore,
 		ProfileStore:              profileStore,
+		ProjectsEnabled:           cfg.ProjectsEnabled,
 		NodeInventory:             nodeInventory,
 		TrustedHostKeys:           hostKeys,
 		AgentSessionCleanupQueue:  persistence.AgentSessionCleanupQueue,

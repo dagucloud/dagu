@@ -179,6 +179,7 @@ type Handler struct {
 	dagRepository             *persis.DAGRepository              // DAG definitions for the GetDAG RPC
 	secretStore               secretpkg.Store                    // Secret registry for workers
 	profileStore              profilepkg.Store                   // Runtime profiles for workers
+	projectsEnabled           bool                               // Resolve secrets and profiles without workspace layers
 	nodeInventory             runctx.NodeSelector                // Inventory nodes for runs on workers
 	trustedHostKeys           runctx.TrustedHostKeys             // Host keys trusted for inventory nodes
 	agentSessionCleanupQueue  *agentsession.CleanupQueue         // Deferred provider cleanup owned by workers
@@ -259,6 +260,10 @@ type HandlerConfig struct {
 	// ProfileStore resolves runtime profiles for workers.
 	// Optional - when nil, ResolveRuntimeProfile returns FailedPrecondition.
 	ProfileStore profilepkg.Store
+
+	// ProjectsEnabled resolves secrets and runtime profiles in the
+	// project alone: the workspace a request names adds no layer.
+	ProjectsEnabled bool
 
 	// NodeInventory finds the project's inventory nodes for runs on workers.
 	// Optional - when nil, ResolveNodes and node secret refs return
@@ -341,6 +346,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		dagRepository:             cfg.DAGRepository,
 		secretStore:               cfg.SecretStore,
 		profileStore:              cfg.ProfileStore,
+		projectsEnabled:           cfg.ProjectsEnabled,
 		nodeInventory:             cfg.NodeInventory,
 		trustedHostKeys:           cfg.TrustedHostKeys,
 		agentSessionCleanupQueue:  cfg.AgentSessionCleanupQueue,
