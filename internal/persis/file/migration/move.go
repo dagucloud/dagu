@@ -199,26 +199,40 @@ func (mr mover) pendingCopies(moves []move, floors map[string]uint64, held func(
 // shortage returns the first file system that lacks the space of every
 // copy to it, or nil when each fits.
 func (mr mover) shortage(copies []pendingCopy) (*SpaceShortage, error) {
-	for i, c := range copies {
-		needed := c.size
-		for j, other := range copies {
-			if i == j {
-				continue
-			}
-			same, err := mr.sameFileSystem(c.To, other.To)
+	type fileSystem struct {
+		// at is the destination of the first copy to the file system.
+		at     string
+		needed uint64
+	}
+	// Each copy is compared with one copy per file system found so far, not
+	// with every other copy: a store can have thousands of copies, and each
+	// comparison stats both paths.
+	var systems []*fileSystem
+	for _, c := range copies {
+		var target *fileSystem
+		for _, system := range systems {
+			same, err := mr.sameFileSystem(system.at, c.To)
 			if err != nil {
 				return nil, err
 			}
 			if same {
-				needed += other.size
+				target = system
+				break
 			}
 		}
-		free, err := mr.freeSpace(c.To)
-		if err != nil {
-			return nil, fmt.Errorf("check free space for %s: %w", c.To, err)
+		if target == nil {
+			target = &fileSystem{at: c.To}
+			systems = append(systems, target)
 		}
-		if free < needed {
-			return &SpaceShortage{Path: filepath.Dir(c.To), Needed: needed, Free: free}, nil
+		target.needed += c.size
+	}
+	for _, system := range systems {
+		free, err := mr.freeSpace(system.at)
+		if err != nil {
+			return nil, fmt.Errorf("check free space for %s: %w", system.at, err)
+		}
+		if free < system.needed {
+			return &SpaceShortage{Path: filepath.Dir(system.at), Needed: system.needed, Free: free}, nil
 		}
 	}
 	return nil, nil

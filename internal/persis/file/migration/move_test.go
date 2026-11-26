@@ -148,6 +148,40 @@ func TestCopySizeCountsAllocationUnits(t *testing.T) {
 	assert.Equal(t, units*allocationUnit+units*allocationUnit/16, size)
 }
 
+// Copies to one file system need room for all of them together, and copies
+// to another file system do not count against it.
+func TestShortageSumsCopiesPerFileSystem(t *testing.T) {
+	t.Parallel()
+	// Each parent directory stands for a file system.
+	mr := mover{sameFileSystem: func(a, b string) (bool, error) {
+		return filepath.Dir(a) == filepath.Dir(b), nil
+	}}
+	copies := []pendingCopy{
+		{move: move{To: filepath.Join("a", "x")}, size: 3},
+		{move: move{To: filepath.Join("b", "z")}, size: 4},
+		{move: move{To: filepath.Join("a", "y")}, size: 3},
+	}
+
+	for _, tc := range []struct {
+		name string
+		free map[string]uint64
+		want *SpaceShortage
+	}{
+		{name: "Fits", free: map[string]uint64{"a": 6, "b": 4}},
+		{name: "Short", free: map[string]uint64{"a": 5, "b": 100}, want: &SpaceShortage{Path: "a", Needed: 6, Free: 5}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			mr := mr
+			mr.freeSpace = func(path string) (uint64, error) { return tc.free[filepath.Dir(path)], nil }
+
+			got, err := mr.shortage(copies)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func holding() error { return nil }
 
 // fresh is the install record of a move that no earlier attempt started.
