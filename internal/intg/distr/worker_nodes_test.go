@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -114,14 +113,14 @@ func nodeStepResults(t *testing.T, stdout string) []struct {
 	return aggregate.Results
 }
 
-// childWorkerID returns the worker that ran a child run of root.
-func childWorkerID(t *testing.T, f *testFixture, root ir.DAGRunRef, runID string) string {
+// childStatus returns the status of a child run of root.
+func childStatus(t *testing.T, f *testFixture, root ir.DAGRunRef, runID string) *ir.DAGRunStatus {
 	t.Helper()
 	attempt, err := f.coord.DAGRunRepository.FindSubAttempt(f.coord.Context, root, runID)
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(f.coord.Context)
 	require.NoError(t, err)
-	return status.WorkerID
+	return status
 }
 
 // A step with nodes on the Dagu host that matches worker nodes dispatches one
@@ -165,25 +164,26 @@ steps:
 		require.Equal(t, id, results[i].Node)
 		require.Equal(t, "succeeded", results[i].Status)
 		require.Equal(t, fmt.Sprintf("%s %s", id, node.Host), results[i].Outputs["WHERE"])
-		require.Equal(t, id, childWorkerID(t, f, root, results[i].DAGRunID), "the child runs on its worker")
+		require.Equal(t, id, childStatus(t, f, root, results[i].DAGRunID).WorkerID, "the child runs on its worker")
 	}
 }
 
 // A command step with nodes in a run on a worker runs once on each of an SSH
 // node and a worker node, and lists them in name order (RFC 013 acceptance
-// item 2). The worker node's child runs on that worker.
+// item 2). The worker node's child runs on that worker. The command's output
+// depends on the shell that runs it, so the test reads how often each node
+// was reached and how each child run ended instead.
 func TestWorkerNodes_CommandStepOnSSHAndWorkerNodes(t *testing.T) {
 	t.Parallel()
 
-	journal := filepath.Join(t.TempDir(), "journal")
-	f := newTestFixture(t, fmt.Sprintf(`
+	f := newTestFixture(t, `
 worker_selector:
   test: "true"
 steps:
   - id: check
-    run: echo checked ${node.name} >> %s
+    run: echo checked ${node.name}
     nodes: role=web
-`, test.ShellQuote(journal)))
+`)
 	startWorkerNodes(t, f, map[string]string{"role": "web"}, "gw-1")
 	servers, _ := startFleet(t, f, fleetNode{name: "web01", label: "role=web"})
 
@@ -192,15 +192,20 @@ steps:
 	status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
 	f.assertWorkerID(status, "worker-1")
 
-	require.Equal(t, []string{"checked gw-1", "checked web01"}, journalLines(t, journal))
 	require.Len(t, servers["web01"].Commands(), 1, "web01 runs the step once")
+
 	// The step's aggregate stays on the worker; its child runs are listed in
-	// the same order.
+	// node name order.
 	children := status.Nodes[0].SubRuns
 	require.Len(t, children, 2)
 	require.Equal(t, "gw-1", children[0].Node)
 	require.Equal(t, "web01", children[1].Node)
 	root := ir.DAGRunRef{Name: status.Name, ID: runID}
-	require.Equal(t, "gw-1", childWorkerID(t, f, root, children[0].DAGRunID))
-	require.Equal(t, "worker-1", childWorkerID(t, f, root, children[1].DAGRunID), "an SSH node's child runs where its parent runs")
+	onWorker := childStatus(t, f, root, children[0].DAGRunID)
+	require.Equal(t, "gw-1", onWorker.WorkerID)
+	require.Equal(t, "gw-1", onWorker.BoundNode)
+	require.Len(t, onWorker.Nodes, 1, "the child runs the step alone")
+	require.Equal(t, "check", onWorker.Nodes[0].Step.Name)
+	require.Equal(t, ir.NodeSucceeded, onWorker.Nodes[0].Status)
+	require.Equal(t, "worker-1", childStatus(t, f, root, children[1].DAGRunID).WorkerID, "an SSH node's child runs where its parent runs")
 }
