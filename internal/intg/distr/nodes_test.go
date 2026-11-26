@@ -161,7 +161,7 @@ func TestNodes_RunOnWorker(t *testing.T) {
 	require.NoError(t, err)
 	// JSON escapes the key's line breaks, so each line of its body is looked
 	// for on its own.
-	for _, line := range strings.Split(strings.TrimSpace(privateKey), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(privateKey), "\n") {
 		if !strings.HasPrefix(line, "-----") {
 			require.NotContains(t, string(statusJSON), line)
 		}
