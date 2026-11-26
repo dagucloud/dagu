@@ -132,6 +132,10 @@ func (e *foreachExecutor) Run(ctx context.Context) error {
 	e.statusDetails = foreachStatusDetails(items, results, e.step.Foreach.Key != "")
 	e.outcome = summarize(results, dispatchErr)
 	if err := e.writeAggregate(results); err != nil {
+		if errors.Is(e.outcome.err, untrusted.ErrRunAborted) {
+			// The run still stops.
+			err = errors.Join(e.outcome.err, err)
+		}
 		e.outcome.err = err
 		return err
 	}
