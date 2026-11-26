@@ -436,25 +436,39 @@ func TestRefreshKeepsAcceptedResult(t *testing.T) {
 	tests := []struct {
 		name     string
 		lockLost bool
+		// access is the access token the provider grants with rt-2.
+		access string
 		// during runs while the provider handles the refresh.
 		during      func(t *testing.T, f *fixture, cancel context.CancelFunc)
 		wantRefresh string
-		wantErr     bool
+		// wantToken, when set, is the token the call returns.
+		wantToken string
+		wantErr   bool
 	}{
 		{
 			name:        "CallerCanceled",
+			access:      "at-2",
 			during:      func(_ *testing.T, _ *fixture, cancel context.CancelFunc) { cancel() },
 			wantRefresh: "rt-2",
 		},
 		{
 			name:        "LockLost",
 			lockLost:    true,
+			access:      "at-2",
 			during:      func(*testing.T, *fixture, context.CancelFunc) {},
 			wantRefresh: "rt-2",
+			wantToken:   "at-2",
+		},
+		{
+			name:        "EmptyAccessToken",
+			during:      func(*testing.T, *fixture, context.CancelFunc) {},
+			wantRefresh: "rt-2",
+			wantErr:     true,
 		},
 		{
 			name:     "LockLostAfterRotation",
 			lockLost: true,
+			access:   "at-2",
 			during: func(t *testing.T, f *fixture, _ context.CancelFunc) {
 				f.update(t, func(st *connection.TokenState) { st.RefreshToken = "rt-other" })
 			},
@@ -470,16 +484,20 @@ func TestRefreshKeepsAcceptedResult(t *testing.T) {
 			var f *fixture
 			f = newFixture(t, func(w http.ResponseWriter, _ tokenRequest) {
 				tt.during(t, f, cancel)
-				grantToken(w, "at-2", "rt-2")
+				grantToken(w, tt.access, "rt-2")
 			})
 			var opts []func(*broker.Config)
 			if tt.lockLost {
 				opts = append(opts, loseLocks)
 			}
 
-			_, _, err := f.process(t, opts...).Token(ctx, f.conn, "", minTTL)
-			if tt.wantErr {
+			token, _, err := f.process(t, opts...).Token(ctx, f.conn, "", minTTL)
+			switch {
+			case tt.wantErr:
 				assert.Error(t, err)
+			case tt.wantToken != "":
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantToken, token)
 			}
 			assert.Equal(t, tt.wantRefresh, f.state(t).RefreshToken)
 		})
@@ -561,6 +579,33 @@ func TestRejected(t *testing.T) {
 			assert.Equal(t, tt.wantCalls, f.endpoint.calls())
 		})
 	}
+}
+
+// A run process stops serving a cached token once a resource rejected it.
+func TestRejectedLeavesCache(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, func(w http.ResponseWriter, _ tokenRequest) {
+		grantToken(w, "at-2", "rt-1")
+	})
+	f.update(t, func(st *connection.TokenState) {
+		st.AccessTokens[""] = connection.AccessToken{Token: "at-1", ExpiresAt: time.Now().Add(time.Hour)}
+	})
+	b := f.process(t, cacheTokens)
+	token, _, err := b.Token(f.ctx(t), f.conn, "", minTTL)
+	require.NoError(t, err)
+	require.Equal(t, "at-1", token)
+
+	// Another process stored a newer token.
+	f.update(t, func(st *connection.TokenState) {
+		st.AccessTokens[""] = connection.AccessToken{Token: "at-3", ExpiresAt: time.Now().Add(time.Hour)}
+	})
+	token, _, err = b.Rejected(f.ctx(t), f.conn, "", "at-1", minTTL)
+	require.NoError(t, err)
+	assert.Equal(t, "at-3", token)
+	token, _, err = b.Token(f.ctx(t), f.conn, "", minTTL)
+	require.NoError(t, err)
+	assert.Equal(t, "at-3", token)
+	assert.Zero(t, f.endpoint.calls())
 }
 
 // A run process caches the token it holds. Any other process reads the

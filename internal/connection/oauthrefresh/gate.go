@@ -69,6 +69,15 @@ func (g *Gate) Cached() *oauth2.Token {
 	return g.current()
 }
 
+// Forget drops the cached token when its access token is accessToken.
+func (g *Gate) Forget(accessToken string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.token != nil && g.token.AccessToken == accessToken {
+		g.token = nil
+	}
+}
+
 func (g *Gate) current() *oauth2.Token {
 	g.mu.Lock()
 	defer g.mu.Unlock()
