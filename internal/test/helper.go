@@ -35,6 +35,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filebaseconfig "github.com/dagucloud/dagu/v2/internal/persis/file/baseconfig"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/migration"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -314,6 +315,12 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	cfg.Paths.ConfigFileUsed = configFile
 	cfg.Core.BaseEnv = config.NewBaseEnv(buildHelperChildEnv(cfg.Core.BaseEnv.AsSlice(), tmpDir, configFile, executablePath, cfg.Core.DefaultShell))
 	writeHelperConfigFile(t, cfg, configFile)
+	if cfg.ProjectsEnabled {
+		// A first start migrates the data directory before any service
+		// registers. Services that a test starts in-process skip that step,
+		// and a command would take them for v2 ones and wait.
+		require.NoError(t, migration.New(cfg.Paths.DataDir, file.NewServiceRegistry(cfg)).Run(ctx))
+	}
 
 	ctx = config.WithConfig(ctx, cfg)
 
