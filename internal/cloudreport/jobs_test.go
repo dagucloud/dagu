@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -491,6 +492,41 @@ func TestJobAttemptClosedWhileWaiting(t *testing.T) {
 
 	assert.Equal(t, "waiting", console.next(t).entry(t, "active")["status"])
 	assert.Empty(t, console.calls)
+}
+
+// A run sends nothing while a server reports it, and sends its finish when
+// the server has stopped by then, so a run is never left unreported.
+func TestJobRunLeavesItsReportsToAServer(t *testing.T) {
+	t.Parallel()
+	for name, serverAtFinish := range map[string]bool{
+		"ServerStillReports": true,
+		"ServerStopped":      false,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			console := newFakeJobConsole(t)
+			clock := newJobClock()
+			var server atomic.Bool
+			server.Store(true)
+			attempt := newJobAttempt(t.Context(), t, console, clock, func(r *JobReports) {
+				r.ServerReports = server.Load
+			})
+
+			require.NoError(t, attempt.RecordStatus(t.Context(), jobStatus(ir.Running)))
+			clock.wait(t)
+			assert.Empty(t, console.calls, "the server reports the run in progress")
+
+			server.Store(serverAtFinish)
+			require.NoError(t, attempt.RecordStatus(t.Context(), jobStatus(ir.Failed)))
+			require.NoError(t, attempt.Close(t.Context()))
+			if serverAtFinish {
+				assert.Empty(t, console.calls)
+				return
+			}
+			assert.Equal(t, "failed", console.next(t).entry(t, "finished")["status"])
+			assert.Empty(t, console.calls)
+		})
+	}
 }
 
 // dirRunState begins attempts that live in a directory, as the file store's

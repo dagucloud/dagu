@@ -7,7 +7,9 @@ import (
 	"context"
 	"net"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/egress"
 	"github.com/spf13/cobra"
 )
@@ -22,4 +24,10 @@ var WorkerFlagsForTest = workerFlags
 // dial functions.
 func EgressProxyForTest(listen func(network, address string) (net.Listener, error), dial egress.DialFunc) *cobra.Command {
 	return egressProxy(listen, dial)
+}
+
+// CloudReportLeaseForTest returns the lease a server holds while it reports
+// the DAG runs of cfg's data directory.
+func CloudReportLeaseForTest(cfg *config.Config) *filemonitor.Lease {
+	return cloudReportLease(cfg)
 }
