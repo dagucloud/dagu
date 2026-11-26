@@ -27,12 +27,17 @@ import (
 
 // migrateState moves v2 state into the state directories of projects before
 // the command opens a store, or waits for the process that does. It does
-// nothing while projects are off, for a worker, which keeps no state of its
-// own, and for a command that reads no state. Meanwhile a server, scheduler,
-// or coordinator answers its health endpoint with the progress, and every
-// other request with 503.
+// nothing for a worker, which keeps no state of its own, and for a command
+// that reads no state. While projects are off, it only warns when the state
+// was migrated, since the process then does not see it. Meanwhile a server,
+// scheduler, or coordinator answers its health endpoint with the progress,
+// and every other request with 503.
 func migrateState(ctx context.Context, cmdName string, scope commandScope, cfg *config.Config) error {
-	if !cfg.ProjectsEnabled || scope == commandScopeStatic || cmdName == "worker" {
+	if scope == commandScopeStatic || cmdName == "worker" {
+		return nil
+	}
+	if !cfg.ProjectsEnabled {
+		warnMigrated(ctx, cfg)
 		return nil
 	}
 	migrator := migration.New(cfg, file.NewServiceRegistry(cfg), newV2RunStopper(cfg).stop)
@@ -57,6 +62,19 @@ func migrateState(ctx context.Context, cmdName string, scope commandScope, cfg *
 		}()
 	}
 	return migrator.Run(ctx)
+}
+
+// warnMigrated warns when the state in paths.data_dir was migrated to
+// projects, which a process with projects off neither reads nor writes.
+func warnMigrated(ctx context.Context, cfg *config.Config) {
+	if cfg.Paths.DataDir == "" {
+		return
+	}
+	if done, err := migration.New(cfg, nil, nil).Done(); err == nil && done {
+		logger.Warn(ctx, "The state in paths.data_dir was migrated to projects; with projects off, "+
+			"this process does not see it and writes to the directories that migration emptied",
+			tag.Dir(cfg.Paths.DataDir))
+	}
 }
 
 // migrationGateEndpoints returns where the command serves its health
@@ -98,7 +116,13 @@ type v2RunStopper struct {
 	remote    dispatch.ActiveDistributedRunStore
 	manager   runtime.Manager
 	requested map[string]struct{}
+	// failures counts, by run, the stop requests that failed.
+	failures map[string]int
 }
+
+// maxStopAttempts bounds how often a run's stop is requested again after a
+// request fails, about once a second.
+const maxStopAttempts = 30
 
 // newV2RunStopper opens the run stores in v2's directories. It does not
 // access the filesystem.
@@ -111,11 +135,14 @@ func newV2RunStopper(cfg *config.Config) *v2RunStopper {
 		remote:    file.NewServerStores(cfg).ActiveDistributedRunStore,
 		manager:   runtime.NewManager(runs, procs, cfg),
 		requested: make(map[string]struct{}),
+		failures:  make(map[string]int),
 	}
 }
 
-// stop requests the stop of each run not requested before, and returns the
-// runs whose process is still live. A run on a worker has no local process.
+// stop requests the stop of each run whose stop was not requested yet, and
+// returns the runs whose process is still live. A run on a worker has no
+// local process. A failed request is made again on a later call, up to
+// maxStopAttempts times.
 func (s *v2RunStopper) stop(ctx context.Context) ([]string, error) {
 	entries, err := s.procs.ListAllEntries(ctx)
 	if err != nil {
@@ -139,11 +166,25 @@ func (s *v2RunStopper) stop(ctx context.Context) ([]string, error) {
 		}
 	}
 	for _, ref := range stop {
-		if _, done := s.requested[ref.String()]; done {
+		key := ref.String()
+		if _, done := s.requested[key]; done {
 			continue
 		}
-		s.requested[ref.String()] = struct{}{}
-		s.stopRun(ctx, ref)
+		err := s.stopRun(ctx, ref)
+		if err == nil {
+			s.requested[key] = struct{}{}
+			continue
+		}
+		s.failures[key]++
+		runCtx := logger.WithValues(ctx, tag.DAG(ref.Name), tag.RunID(ref.ID))
+		if s.failures[key] < maxStopAttempts {
+			logger.Warn(runCtx, "Failed to cancel a live run before migrating state to projects; retrying", tag.Error(err))
+			continue
+		}
+		// Migration still waits for the run; only the requests end.
+		s.requested[key] = struct{}{}
+		logger.Error(runCtx, "Gave up cancelling a live run before migrating state to projects; stop it with dagu stop",
+			tag.Error(err))
 	}
 
 	names := make([]string, 0, len(live))
@@ -154,25 +195,24 @@ func (s *v2RunStopper) stop(ctx context.Context) ([]string, error) {
 	return slices.Compact(names), nil
 }
 
-// stopRun requests the stop of the root run ref. A run whose record cannot
-// be read is left to exit, or for its process heartbeat to go stale.
-func (s *v2RunStopper) stopRun(ctx context.Context, ref ir.DAGRunRef) {
-	ctx = logger.WithValues(ctx, tag.DAG(ref.Name), tag.RunID(ref.ID))
+// stopRun requests the stop of the root run ref. The request also marks
+// the stop as an operator's, so a DAG with a restart_policy does not start
+// again once a scheduler runs.
+func (s *v2RunStopper) stopRun(ctx context.Context, ref ir.DAGRunRef) error {
 	attempt, err := s.runs.FindAttempt(ctx, ref)
 	if err != nil {
-		logger.Warn(ctx, "Cannot cancel a live run before migrating state to projects", tag.Error(err))
-		return
+		return err
 	}
 	dag, err := attempt.ReadDAG(ctx)
 	if err != nil {
-		logger.Warn(ctx, "Cannot cancel a live run before migrating state to projects", tag.Error(err))
-		return
+		return err
 	}
 	if err := s.manager.Stop(ctx, dag, ref.ID); err != nil {
-		logger.Warn(ctx, "Failed to cancel a live run before migrating state to projects", tag.Error(err))
-		return
+		return err
 	}
-	logger.Info(ctx, "Cancelled a live run before migrating state to projects")
+	logger.Info(logger.WithValues(ctx, tag.DAG(ref.Name), tag.RunID(ref.ID)),
+		"Cancelled a live run before migrating state to projects")
+	return nil
 }
 
 // healthPortEndpoints returns the endpoint of a health server on port, which
