@@ -5,7 +5,9 @@ package file
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -166,6 +168,33 @@ func NewProjectStores(
 // NewDAGRepository.
 func (s *ProjectStores) OpenDAGRepository(opts ...DAGRepositoryOption) (*persis.DAGRepository, error) {
 	return newDAGRepository(s.cfg, s.dags, opts...)
+}
+
+// CheckStart refuses an explicit start of the library DAG file at path in
+// the project when the project has a DAG of the same name, since the name
+// there addresses the project's own DAG. Any other file passes. It passes
+// everything while projects are off.
+func (s *ProjectStores) CheckStart(ctx context.Context, path string) error {
+	if s.dags.owners == nil {
+		return nil
+	}
+	owner, err := s.dags.owners.Of(ctx, path)
+	if err != nil || !owner.Library {
+		return err
+	}
+	name := fileutil.TrimYAMLFileExtension(filepath.Base(path))
+	own, err := s.DAGRepository.GetMetadata(ctx, name)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	case err != nil:
+		return err
+	}
+	shadow, err := s.dags.owners.Of(ctx, own.Location)
+	if err != nil || shadow.Library {
+		return err
+	}
+	return fmt.Errorf("library DAG %s cannot start in project %q, which has a DAG named %s", path, s.dags.project, name)
 }
 
 // NewProjectSettings returns the settings of the project called name, for a
