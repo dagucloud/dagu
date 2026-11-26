@@ -24,12 +24,18 @@ import (
 
 // The isolation tests need the user ID 0, the six capabilities and the flag
 // no-new-privileges, as in a root container started with
-// --security-opt no-new-privileges. CI runs them in the job Test compatibility.
+// --security-opt no-new-privileges. CI runs them in the job Test compatibility,
+// with requireIsolationEnv set so that a missing condition fails them.
 const testUID, testGID = 64011, 64011
+
+const requireIsolationEnv = "DAGU_TEST_REQUIRE_ISOLATION"
 
 func requireIsolation(t *testing.T) {
 	t.Helper()
 	if err := checkIsolationSupport(); err != nil {
+		if os.Getenv(requireIsolationEnv) == "1" {
+			t.Fatalf("%s=1 and the process cannot isolate a step: %v", requireIsolationEnv, err)
+		}
 		t.Skipf("the isolation tests need a root process with no-new-privileges: %v", err)
 	}
 }
