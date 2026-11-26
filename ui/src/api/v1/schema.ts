@@ -3795,6 +3795,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List skills
+         * @description Lists the skill folders of the DAGs directory, sorted by name. A skill that is not in the Agent Skills format is listed too, with its errors: Dagu refuses to load it.
+         */
+        get: operations["listSkills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/calendars": {
         parameters: {
             query?: never;
@@ -5338,6 +5358,46 @@ export interface components {
             stepStatusLabel: components["schemas"]["NodeStatusLabel"];
             /** @description True if step is still running and more messages may arrive */
             hasMore: boolean;
+        };
+        /** @description One finding of the check of a skill against the Agent Skills format */
+        SkillIssue: {
+            /**
+             * @description An error makes Dagu refuse the skill. A warning does not.
+             * @enum {string}
+             */
+            severity: SkillIssueSeverity;
+            /** @description Identifier of the rule, for example name-folder */
+            rule: string;
+            /** @description File of the skill, relative to its folder. Empty when the issue concerns the folder. */
+            file?: string;
+            /** @description What is wrong and what the rule is */
+            message: string;
+        };
+        /** @description A skill folder of the skills directory */
+        SkillSummary: {
+            /** @description Name of the skill, the name of its folder. A chat.completion step names it in with.skills. */
+            name: string;
+            /** @description Description of the skill. Empty when the front matter is not valid. */
+            description: string;
+            /** @description Hash of the version of the skill: the SHA-256 of the sorted list of the path and the SHA-256 of each file */
+            hash: string;
+            /** @description False when the skill has an error. Dagu refuses a skill that is not valid. */
+            valid: boolean;
+            /** @description Errors of the format. Not empty when valid is false. */
+            errors: components["schemas"]["SkillIssue"][];
+            /** @description Warnings of the format. They do not refuse the skill. */
+            warnings: components["schemas"]["SkillIssue"][];
+            /** @description Number of files, with SKILL.md */
+            fileCount: number;
+            /**
+             * Format: int64
+             * @description Size of all files in bytes
+             */
+            totalBytes: number;
+            /** @description Number of lines of the Markdown body */
+            bodyLines: number;
+            /** @description Estimate of the tokens of the body: bytes divided by 3.7. Approximate. */
+            bodyTokens: number;
         };
         /** @description A tool definition that was available to the LLM */
         ToolDefinition: {
@@ -21960,6 +22020,49 @@ export interface operations {
             };
         };
     };
+    listSkills: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Skills */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        skills: components["schemas"]["SkillSummary"][];
+                    };
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listCalendars: {
         parameters: {
             query?: {
@@ -27420,6 +27523,10 @@ export enum ChatMessageRole {
     user = "user",
     assistant = "assistant",
     tool = "tool"
+}
+export enum SkillIssueSeverity {
+    error = "error",
+    warning = "warning"
 }
 export enum AgentInteractionResponseRequestDecision {
     once = "once",
