@@ -7,7 +7,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
@@ -64,15 +67,7 @@ func TestProjectUnitsReplayAfterTakeover(t *testing.T) {
 	f := newUnitsFixture(t, 10*time.Minute)
 	weather := f.create(t, "weather")
 	f.writeDAG(t, weather, "forecast")
-	lastTick := time.Now().Truncate(time.Minute).Add(-5 * time.Minute)
-	stores, err := persisfile.NewProjectStores(context.Background(), f.cfg, f.server, weather, persisfile.ProjectStoreOptions{})
-	require.NoError(t, err)
-	require.NoError(t, stores.SchedulerStateStore.Save(context.Background(), &schedulerstate.State{
-		LastTick: lastTick,
-		DAGs: map[string]schedulerstate.DAGWatermark{
-			"forecast": {LastScheduledTime: lastTick, FirstSeen: lastTick.Add(-time.Hour)},
-		},
-	}))
+	f.saveLastTick(t, weather, "forecast", time.Now().Truncate(time.Minute).Add(-5*time.Minute))
 
 	f.registry.show(f.defaults, weather)
 	f.requireRunning(t, weather.ID)
@@ -83,10 +78,124 @@ func TestProjectUnitsReplayAfterTakeover(t *testing.T) {
 	}
 }
 
+// A unit that starts after the scheduler became active replays no slot,
+// even after a takeover: only the units that start with the scheduler
+// replay what the failover missed.
+func TestProjectUnitsStartedLaterReplayNothing(t *testing.T) {
+	t.Parallel()
+	f := newUnitsFixture(t, 10*time.Minute)
+	sim := f.create(t, "sim")
+	f.registry.show(f.defaults, sim)
+	f.requireRunning(t, sim.ID)
+
+	weather := f.create(t, "weather")
+	f.writeDAG(t, weather, "forecast")
+	f.saveLastTick(t, weather, "forecast", time.Now().Truncate(time.Minute).Add(-5*time.Minute))
+	f.registry.show(f.defaults, sim, weather)
+	f.requireRunning(t, weather.ID)
+	assert.Equal(t, "weather/forecast", f.nextRun(t), "the slot of the minute the unit starts in")
+	f.process.runTickSafely(context.Background(), time.Now().Truncate(time.Minute).Add(time.Minute))
+	assert.Equal(t, "weather/forecast", f.nextRun(t), "the slot of the scheduler's next tick")
+	assert.Empty(t, f.queuedRuns(), "a catch-up run of a unit started after the takeover")
+}
+
+// A project the registry marks deleting is recorded as released only once
+// its unit has stopped, also while the unit is still starting or already
+// stopping when the change comes.
+func TestProjectUnitsReleaseAfterUnitStops(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name string
+		// hold makes the unit of p hold in that step until released fires.
+		hold func(f *unitsFixture, p project.Project, released <-chan struct{})
+		// begin brings the unit of p into that step.
+		begin func(t *testing.T, f *unitsFixture, p project.Project)
+	}{
+		{
+			name: "starting",
+			hold: func(f *unitsFixture, p project.Project, released <-chan struct{}) {
+				f.onOpen = holdFor(p, released)
+			},
+			begin: func(_ *testing.T, f *unitsFixture, p project.Project) {
+				f.registry.show(f.defaults, p)
+			},
+		},
+		{
+			name: "stopping",
+			hold: func(f *unitsFixture, p project.Project, released <-chan struct{}) {
+				f.onStop = holdFor(p, released)
+			},
+			begin: func(t *testing.T, f *unitsFixture, p project.Project) {
+				f.registry.show(f.defaults, p)
+				f.requireRunning(t, p.ID)
+				require.NoError(t, os.RemoveAll(filepath.Join(f.cfg.Paths.ProjectsDir, p.Name)))
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newUnitsFixture(t, 0)
+			weather := f.create(t, "weather")
+			released := make(chan struct{})
+			var once sync.Once
+			var early atomic.Bool
+			f.onRelease = func(ids []string) {
+				if slices.Contains(ids, weather.ID) {
+					early.Store(!f.units.idle(weather.ID))
+					once.Do(func() { close(released) })
+				}
+			}
+			tt.hold(f, weather, released)
+			tt.begin(t, f, weather)
+			require.Eventually(t, func() bool { return f.units.isBusy(weather.ID) },
+				5*time.Second, 10*time.Millisecond)
+
+			deleting := weather
+			deleting.Deleting = true
+			f.registry.show(f.defaults, deleting)
+			select {
+			case <-released:
+			case <-time.After(5 * time.Second):
+				require.FailNow(t, "the release was not recorded")
+			}
+			assert.False(t, early.Load(), "the release was recorded while the unit was %s", tt.name)
+			assert.False(t, f.units.isRunning(weather.ID))
+		})
+	}
+}
+
+// holdFor returns a hook that holds a step of the unit of p until released
+// fires, or a second passes: long enough for an early release to show.
+func holdFor(p project.Project, released <-chan struct{}) func(project.Project) {
+	return func(q project.Project) {
+		if q.ID != p.ID {
+			return
+		}
+		select {
+		case <-released:
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+// idle reports whether no unit of the project is running, starting, or
+// stopping.
+func (u *projectUnits) idle(id string) bool {
+	return !u.isBusy(id) && !u.isRunning(id)
+}
+
+func (u *projectUnits) isBusy(id string) bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	_, ok := u.busy[id]
+	return ok
+}
+
 // unitsFixture runs the units of an install whose registry a test changes,
 // in a scheduler process with the given recovery window. Each unit reports
 // a run it starts as "<project>/<DAG>", and a run it queues to catch up as
-// "<project>/<DAG> catch-up".
+// "<project>/<DAG> catch-up". A test sets the hooks before it shows the
+// registry anything.
 type unitsFixture struct {
 	cfg      *config.Config
 	server   *persisfile.ServerStores
@@ -95,6 +204,12 @@ type unitsFixture struct {
 	process  *Scheduler
 	units    *projectUnits
 	runs     chan string
+
+	// onOpen runs as a unit is built, onStop as it stops, and onRelease
+	// as the cache records released projects.
+	onOpen    func(project.Project)
+	onStop    func(project.Project)
+	onRelease func([]string)
 }
 
 func newUnitsFixture(t *testing.T, recovery time.Duration) *unitsFixture {
@@ -127,7 +242,7 @@ func newUnitsFixture(t *testing.T, recovery time.Duration) *unitsFixture {
 	cache := persisfile.NewProjectStoreCache(f.registry, nil,
 		func(ctx context.Context, p project.Project) (*persisfile.ProjectStores, error) {
 			return persisfile.NewProjectStores(ctx, cfg, server, p, persisfile.ProjectStoreOptions{})
-		}, noReleases{})
+		}, fixtureReleases{f})
 	f.units = newProjectUnits(f.process, cache, f.openUnit)
 	f.units.recheck = 10 * time.Millisecond
 	f.process.units = f.units
@@ -145,6 +260,9 @@ func newUnitsFixture(t *testing.T, recovery time.Duration) *unitsFixture {
 }
 
 func (f *unitsFixture) openUnit(_ context.Context, p project.Project, stores *persisfile.ProjectStores) (*Scheduler, error) {
+	if f.onOpen != nil {
+		f.onOpen(p)
+	}
 	baseConfig, workspaceDir := stores.BaseConfig()
 	unit, err := f.process.newUnit(f.cfg, p, stores, Dependencies{
 		EntryReader: filedag.NewFileEntryReader(stores.Paths.DAGsDir, stores.DAGRepository,
@@ -155,6 +273,11 @@ func (f *unitsFixture) openUnit(_ context.Context, p project.Project, stores *pe
 		QueueStore:          stores.QueueStore,
 		ProcRepository:      stores.ProcRepository,
 		SchedulerStateStore: stores.SchedulerStateStore,
+		CoordinatorClient: stopHook{onStop: func() {
+			if f.onStop != nil {
+				f.onStop(p)
+			}
+		}},
 	})
 	if err != nil {
 		return nil, err
@@ -180,6 +303,33 @@ func (f *unitsFixture) nextRun(t *testing.T) string {
 		require.FailNow(t, "no unit started or queued a run")
 		return ""
 	}
+}
+
+// queuedRuns returns the runs started or queued since the last read.
+func (f *unitsFixture) queuedRuns() []string {
+	var runs []string
+	for {
+		select {
+		case run := <-f.runs:
+			runs = append(runs, run)
+		default:
+			return runs
+		}
+	}
+}
+
+// saveLastTick saves the state of a scheduler of p that last ticked, and
+// last scheduled the DAG name, at lastTick.
+func (f *unitsFixture) saveLastTick(t *testing.T, p project.Project, name string, lastTick time.Time) {
+	t.Helper()
+	stores, err := persisfile.NewProjectStores(context.Background(), f.cfg, f.server, p, persisfile.ProjectStoreOptions{})
+	require.NoError(t, err)
+	require.NoError(t, stores.SchedulerStateStore.Save(context.Background(), &schedulerstate.State{
+		LastTick: lastTick,
+		DAGs: map[string]schedulerstate.DAGWatermark{
+			name: {LastScheduledTime: lastTick, FirstSeen: lastTick.Add(-time.Hour)},
+		},
+	}))
 }
 
 // create creates a project, its DAG directory included.
@@ -236,6 +386,24 @@ func (r *unitsRegistry) Watch(ctx context.Context, onChange func([]project.Proje
 	}
 }
 
-type noReleases struct{}
+// fixtureReleases hands each record of released projects to onRelease.
+type fixtureReleases struct{ f *unitsFixture }
 
-func (noReleases) SetReleasedProjects(context.Context, []string) error { return nil }
+func (r fixtureReleases) SetReleasedProjects(_ context.Context, ids []string) error {
+	if r.f.onRelease != nil {
+		r.f.onRelease(ids)
+	}
+	return nil
+}
+
+// stopHook is the coordinator client of a unit, which the unit cleans up as
+// it stops. It dispatches nothing.
+type stopHook struct {
+	dispatch.Dispatcher
+	onStop func()
+}
+
+func (h stopHook) Cleanup(context.Context) error {
+	h.onStop()
+	return nil
+}

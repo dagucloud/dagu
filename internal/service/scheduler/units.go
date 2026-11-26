@@ -83,9 +83,9 @@ func projectScope(p project.Project, stores *persisfile.ProjectStores) scope {
 }
 
 // newUnit builds the unit of project p from deps. The unit leaves the
-// lock, health server, and service registration to s, and keeps s's clock,
-// OpenCode host, and recovery window, so after a takeover it replays the
-// slots s replays.
+// lock, health server, and service registration to s, and keeps s's clock
+// and OpenCode host. It replays no missed slot unless projectUnits gives
+// it the recovery window of a takeover.
 func (s *Scheduler) newUnit(cfg *config.Config, p project.Project, stores *persisfile.ProjectStores, deps Dependencies) (*Scheduler, error) {
 	unit, err := newWithScope(cfg, deps, projectScope(p, stores))
 	if err != nil {
@@ -95,7 +95,6 @@ func (s *Scheduler) newUnit(cfg *config.Config, p project.Project, stores *persi
 	unit.serviceRegistry = nil
 	unit.SetClock(s.clock)
 	unit.dagExecutor.openCodeHost = s.dagExecutor.openCodeHost
-	unit.planner.cfg.RecoveryWindow = s.planner.cfg.RecoveryWindow
 	return unit, nil
 }
 
@@ -132,13 +131,20 @@ type projectUnits struct {
 	done     chan struct{}
 	stopOnce sync.Once
 
-	// mu guards projects and started. A unit joins running under mu, so it
-	// never joins after a change that drops its project was heard.
+	// mu guards projects, started, and busy. A unit joins running under mu,
+	// so it never joins after a change that drops its project was heard.
 	mu sync.Mutex
 	// projects is the registry's content as last heard.
 	projects []project.Project
 	// started reports that run started, so stop waits for it.
 	started bool
+	// busy holds, by project ID, the units starting or stopping, each with
+	// a channel that closes when it is done.
+	busy map[string]chan struct{}
+	// recovery is the window in which the units that start when the
+	// scheduler becomes active replay the slots their projects missed; 0
+	// once they have started. Only run touches it.
+	recovery time.Duration
 
 	// tickMu keeps a unit from stopping during a tick of it, and guards
 	// running and each unit's ticked.
@@ -175,6 +181,7 @@ func newProjectUnits(
 		done:    make(chan struct{}),
 		running: make(map[string]*unit),
 		missing: make(map[string]bool),
+		busy:    make(map[string]chan struct{}),
 	}
 	stores.OnChange(u.heard)
 	return u
@@ -182,12 +189,13 @@ func newProjectUnits(
 
 // heard records the registry's content and wakes run. It returns once the
 // units of the projects the content drops or marks deleting have stopped,
-// so the cache records their release only after that.
+// those starting or stopping included, so the cache records their release
+// only after that.
 func (u *projectUnits) heard(projects []project.Project) {
 	u.mu.Lock()
 	u.projects = projects
 	var gone []string
-	for id := range u.snapshot() {
+	for _, id := range slices.Concat(slices.Collect(maps.Keys(u.snapshot())), slices.Collect(maps.Keys(u.busy))) {
 		if _, ok := u.wanted(id); !ok {
 			gone = append(gone, id)
 		}
@@ -264,6 +272,9 @@ func (u *projectUnits) run(ctx context.Context) {
 	defer u.stopAll()
 	ticker := time.NewTicker(u.recheck)
 	defer ticker.Stop()
+	// Only the units that start with the scheduler replay what a takeover
+	// missed: a unit that starts later missed nothing to a failover.
+	u.recovery = u.parent.planner.cfg.RecoveryWindow()
 	for {
 		u.follow(ctx)
 		select {
@@ -283,6 +294,9 @@ func (u *projectUnits) follow(ctx context.Context) {
 	u.mu.Lock()
 	projects := u.projects
 	u.mu.Unlock()
+	if projects != nil {
+		defer func() { u.recovery = 0 }()
+	}
 
 	want := make(map[string]project.Project)
 	stores := make(map[string]*persisfile.ProjectStores)
@@ -331,12 +345,25 @@ func (u *projectUnits) isMissing(ctx context.Context, p project.Project, stores 
 }
 
 func (u *projectUnits) startUnit(ctx context.Context, p project.Project, stores *persisfile.ProjectStores) {
+	done := make(chan struct{})
+	u.mu.Lock()
+	u.busy[p.ID] = done
+	u.mu.Unlock()
+	defer func() {
+		u.mu.Lock()
+		delete(u.busy, p.ID)
+		u.mu.Unlock()
+		close(done)
+	}()
+
 	ctx = logger.WithValues(ctx, slog.String("project", p.Name))
 	scheduler, err := u.open(ctx, p, stores)
 	if err != nil {
 		logger.Error(ctx, "Failed to build the scheduler unit of a project", tag.Error(err))
 		return
 	}
+	recovery := u.recovery
+	scheduler.planner.cfg.RecoveryWindow = func() time.Duration { return recovery }
 	// The unit's runs record their events in the unit's project.
 	if source, ok := eventstore.SourceFromContext(ctx); ok {
 		if scheduler.events == nil {
@@ -390,14 +417,31 @@ func (u *projectUnits) stopUnits(ids []string) {
 	wg.Wait()
 }
 
+// stopUnit stops the running unit of the project with the given ID. It
+// also waits for a unit of the project that is starting or stopping.
 func (u *projectUnits) stopUnit(id string) {
+	u.mu.Lock()
 	u.tickMu.Lock()
 	r := u.running[id]
 	delete(u.running, id)
 	u.tickMu.Unlock()
-	if r != nil {
-		u.stopStarted(r)
+	if r == nil {
+		busy := u.busy[id]
+		u.mu.Unlock()
+		if busy != nil {
+			<-busy
+		}
+		return
 	}
+	done := make(chan struct{})
+	u.busy[id] = done
+	u.mu.Unlock()
+
+	u.stopStarted(r)
+	u.mu.Lock()
+	delete(u.busy, id)
+	u.mu.Unlock()
+	close(done)
 }
 
 // stopStarted stops a started unit and waits for its loops.
