@@ -285,7 +285,7 @@ func (a *API) DeleteDAG(ctx context.Context, request api.DeleteDAGRequestObject)
 		return nil, fmt.Errorf("error deleting DAG: %w", err)
 	}
 
-	if a.authService != nil && a.authService.HasWebhookStore() {
+	if a.ownsWebhooks() {
 		webhook, _ := a.authService.GetWebhookByDAGName(ctx, request.FileName)
 		if err := a.authService.DeleteWebhook(ctx, request.FileName); err != nil && !errors.Is(err, auth.ErrWebhookNotFound) {
 			logger.Warn(ctx, "Failed to delete webhook for deleted DAG",
@@ -719,7 +719,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 // env includes the env of the global base config, which only developers and
 // above may read.
 func (a *API) redactDAGEnvValues(ctx context.Context, details *api.DAGDetails) {
-	if details == nil || details.Env == nil || a.requireDeveloperOrAbove(ctx) == nil {
+	if details == nil || details.Env == nil || a.requireDeveloperInScope(ctx) == nil {
 		return
 	}
 	redacted := make([]string, len(*details.Env))

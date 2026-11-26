@@ -45,6 +45,9 @@ func (a *API) ResumeDAGRun(ctx context.Context, request api.ResumeDAGRunRequestO
 	if err != nil {
 		return nil, err
 	}
+	if err := a.refuseQueuedResume(ctx, attempt, status); err != nil {
+		return nil, err
+	}
 	if !hasRootApproval(status) {
 		return &api.ResumeDAGRun409JSONResponse{Code: api.ErrorCodeConflict, Message: "DAG-run has no saved root approval to resume"}, nil
 	}

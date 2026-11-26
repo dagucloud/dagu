@@ -1523,6 +1523,9 @@ func (a *API) ApproveDAGRunStep(ctx context.Context, request api.ApproveDAGRunSt
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for dag-run to settle: %w", err)
 	}
+	if err := a.refuseQueuedResume(ctx, attempt, dagStatus); err != nil {
+		return nil, err
+	}
 	if dagStatus.Status != ir.Waiting {
 		return &api.ApproveDAGRunStep400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
@@ -2087,6 +2090,9 @@ func (a *API) PushBackDAGRunStep(ctx context.Context, request api.PushBackDAGRun
 	dagStatus, err = a.waitForManualStepMutationReady(ctx, attempt, dagStatus)
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for dag-run to settle: %w", err)
+	}
+	if err := a.refuseQueuedResume(ctx, attempt, dagStatus); err != nil {
+		return nil, err
 	}
 	if dagStatus.Status != ir.Waiting {
 		return &api.PushBackDAGRunStep400JSONResponse{

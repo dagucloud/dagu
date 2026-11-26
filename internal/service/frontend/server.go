@@ -885,11 +885,12 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			root:   func() *apiv1.API { return srv.apiV1 },
 			apis:   make(map[string]projectAPI),
 		}
-		allAPIOptions = append(allAPIOptions, apiv1.WithProjectAPIs(apis.get))
+		snapshot := projectSnapshot{Registry: stores.Projects, stores: setup.ProjectStores}
+		allAPIOptions = append(allAPIOptions, apiv1.WithProjectAPIs(snapshot, apis.get, apis.dags))
 		base := allAPIOptions
 		apis.build = func(p project.Project, stores *persisfile.ProjectStores) (*apiv1.API, error) {
 			pcfg := projectConfig(cfg, stores)
-			opts, err := projectAPIOptions(pcfg, stores, base)
+			opts, err := projectAPIOptions(ctx, pcfg, stores, base)
 			if err != nil {
 				return nil, err
 			}

@@ -126,7 +126,9 @@ type API struct {
 	projectAccess        *projectaccess.Checker
 	runLogDir            string // Logs of the runs that the API queues
 	runArtifactDir       string // Artifacts of the runs that the API queues
+	projectRequests      *projectaccess.Checker // Decides the projects a request may name
 	projectAPIs          func(project.Project) (*API, bool)
+	projectDAGs          func(project.Project) (*persis.DAGRepository, bool)
 	routesOnce           sync.Once // Builds routes, which serve the API while projects are on
 	routes               http.Handler
 	leaseStaleThreshold  time.Duration
@@ -699,7 +701,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 			},
 			ResponseErrorHandlerFunc: a.handleError,
 		}
-		if a.projectAccess != nil {
+		if a.projectAPIs != nil {
 			r.Mount("/", a.dispatchProjects(swagger, middlewares, options))
 			return
 		}

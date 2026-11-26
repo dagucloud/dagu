@@ -21,9 +21,17 @@ import (
 // the named projects. The default project gets no example DAGs.
 func setupProjectsAuthServer(t *testing.T, projects ...string) test.Server {
 	t.Helper()
+	return setupProjectsAuthServerWith(t, func(*config.Config) {}, projects...)
+}
+
+// setupProjectsAuthServerWith is setupProjectsAuthServer with mutate also
+// applied to the configuration.
+func setupProjectsAuthServerWith(t *testing.T, mutate func(*config.Config), projects ...string) test.Server {
+	t.Helper()
 	server := setupBuiltinAuthServer(t, func(cfg *config.Config) {
 		cfg.ProjectsEnabled = true
 		cfg.Core.SkipExamples = true
+		mutate(cfg)
 	})
 	registry := projectregistry.New(server.Config.Paths.DataDir)
 	for _, name := range projects {

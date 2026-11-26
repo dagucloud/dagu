@@ -14,6 +14,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/service/projectaccess"
@@ -50,13 +52,20 @@ func projectScopeFrom(ctx context.Context) (projectaccess.Access, bool) {
 	return access, ok
 }
 
-// WithProjectAPIs sets the APIs that serve the DAGs and runs of each
-// project while projects are on. lookup returns the API of a registered
-// project, the default one included, and false while the project's stores
+// WithProjectAPIs sets what serves the DAGs and runs of each project while
+// projects are on. projects holds the projects a request may name. lookup
+// returns the API of a registered project, the default one included, and
+// dags returns its DAG store. Each reports false while the project's stores
 // are not open, as while the project is being deleted.
-func WithProjectAPIs(lookup func(project.Project) (*API, bool)) APIOption {
+func WithProjectAPIs(
+	projects project.Registry,
+	lookup func(project.Project) (*API, bool),
+	dags func(project.Project) (*persis.DAGRepository, bool),
+) APIOption {
 	return func(a *API) {
+		a.projectRequests = projectaccess.New(projects)
 		a.projectAPIs = lookup
+		a.projectDAGs = dags
 	}
 }
 
@@ -158,7 +167,7 @@ func (a *API) projectAccessFor(ctx context.Context, name string) (projectaccess.
 	if err != nil {
 		return projectaccess.Access{}, err
 	}
-	access, err := a.projectAccess.Get(ctx, user, name)
+	access, err := a.projectRequests.Get(ctx, user, name)
 	if errors.Is(err, project.ErrNotFound) {
 		return projectaccess.Access{}, projectNotFound(name)
 	}
@@ -197,14 +206,14 @@ func (a *API) dagNotFoundInProject(ctx context.Context, name string, err error) 
 		return err
 	}
 	scope, ok := projectScopeFrom(ctx)
-	if !ok || hasDAG(ctx, a, name) {
+	if !ok || hasDAG(ctx, a.dagRepository, name) {
 		return err
 	}
 	user, callerErr := a.projectCaller(ctx)
 	if callerErr != nil {
 		return err
 	}
-	visible, listErr := a.projectAccess.List(ctx, user)
+	visible, listErr := a.projectRequests.List(ctx, user)
 	if listErr != nil {
 		return err
 	}
@@ -213,7 +222,7 @@ func (a *API) dagNotFoundInProject(ctx context.Context, name string, err error) 
 		if access.Project.ID == scope.Project.ID {
 			continue
 		}
-		if other, ok := a.projectAPIs(access.Project); ok && hasDAG(ctx, other, name) {
+		if dags, ok := a.projectDAGs(access.Project); ok && hasDAG(ctx, dags, name) {
 			others = append(others, access.Project.Name)
 		}
 	}
@@ -224,10 +233,10 @@ func (a *API) dagNotFoundInProject(ctx context.Context, name string, err error) 
 	return &Error{HTTPStatus: http.StatusNotFound, Code: api.ErrorCodeNotFound, Message: message}
 }
 
-// hasDAG reports whether the project of a has a DAG called name. A DAG that
-// cannot be read counts, since its file exists.
-func hasDAG(ctx context.Context, a *API, name string) bool {
-	_, err := a.dagRepository.GetMetadata(ctx, name)
+// hasDAG reports whether dags has a DAG called name. A DAG that cannot be
+// read counts, since its file exists.
+func hasDAG(ctx context.Context, dags *persis.DAGRepository, name string) bool {
+	_, err := dags.GetMetadata(ctx, name)
 	return !errors.Is(err, os.ErrNotExist) && !errors.Is(err, persis.ErrDAGNotFound)
 }
 
@@ -241,6 +250,55 @@ func (a *API) refuseQueuedRun() error {
 // worker, since the coordinator records it in the default project.
 func (a *API) refuseWorkerRun() error {
 	return a.refuseInProject(project.ErrWorkerRun)
+}
+
+// refuseQueuedResume refuses a manual action on the run of attempt, whose
+// status is status, when resuming the run would queue it outside the default
+// project. It runs before the action is saved, so a refused action changes
+// nothing.
+func (a *API) refuseQueuedResume(ctx context.Context, attempt dagrun.Attempt, status *ir.DAGRunStatus) error {
+	if !a.inOtherProject() {
+		return nil
+	}
+	group := status.ProcGroup
+	if group == "" {
+		dag, err := attempt.ReadDAG(ctx)
+		if err != nil {
+			return fmt.Errorf("read DAG: %w", err)
+		}
+		group = dag.ProcGroup()
+	}
+	if a.config.FindQueueConfig(group) == nil {
+		return nil
+	}
+	return a.refuseQueuedRun()
+}
+
+// inOtherProject reports whether the API serves a project other than the
+// default one.
+func (a *API) inOtherProject() bool {
+	name := a.dagRunMgr.Project()
+	return name != "" && !strings.EqualFold(name, project.DefaultName)
+}
+
+// ownsWebhooks reports whether the API keeps the webhooks of its DAGs. The
+// webhook store holds the default project's webhooks only, so the API of
+// another project leaves them alone when its DAGs are deleted or renamed.
+func (a *API) ownsWebhooks() bool {
+	return a.authService != nil && a.authService.HasWebhookStore() && !a.inOtherProject()
+}
+
+// requireDeveloperInScope requires the developer role or above: in the
+// project a request addresses, and otherwise server-wide.
+func (a *API) requireDeveloperInScope(ctx context.Context) error {
+	scope, ok := projectScopeFrom(ctx)
+	if !ok || !a.rolesApply(ctx) {
+		return a.requireDeveloperOrAbove(ctx)
+	}
+	if !scope.Role.CanWrite() {
+		return errInsufficientPermissions
+	}
+	return nil
 }
 
 func (a *API) refuseInProject(reason error) error {

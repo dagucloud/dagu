@@ -249,7 +249,7 @@ const webhookRestoreTimeout = time.Minute
 // behind, where its local endpoint and public URL could no longer start the
 // DAG. It reports whether the DAG had a webhook to move.
 func (a *API) moveWebhookForRename(ctx context.Context, oldName, newName string) (bool, error) {
-	if a.authService == nil || !a.authService.HasWebhookStore() {
+	if !a.ownsWebhooks() {
 		return false, nil
 	}
 	err := a.authService.RenameWebhook(ctx, oldName, newName)

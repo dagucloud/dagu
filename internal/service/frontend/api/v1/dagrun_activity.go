@@ -362,7 +362,7 @@ func (a *API) activityQueues(ctx context.Context, query activityQuery) []api.DAG
 // it is nearly full and the caller may view system status. Whole percents
 // keep the live payload unchanged while usage creeps.
 func (a *API) activityDiskUsedPercent(ctx context.Context) *int {
-	if a.resourceService == nil || a.requireDeveloperOrAbove(ctx) != nil {
+	if a.resourceService == nil || a.requireDeveloperInScope(ctx) != nil {
 		return nil
 	}
 	used, ok := a.resourceService.DiskUsedPercent()
