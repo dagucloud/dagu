@@ -4,10 +4,12 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
@@ -224,4 +226,64 @@ func TestProjectTestFiles(t *testing.T) {
 	assert.Equal(t, "weather", fileCtx.project.Name)
 	assert.Equal(t, "weather", fileCtx.DAGRunMgr.Project())
 	assert.Equal(t, "default", ctx.project.Name, "the addressed project stays as it was")
+}
+
+// runDagu runs args with the home's flags on a root that holds commands.
+func (h projectsHome) runDagu(t *testing.T, commands []*cobra.Command, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	root := &cobra.Command{Use: "dagu"}
+	root.AddCommand(commands...)
+	var out, errOut bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+	root.SetArgs(append(args, "--dagu-home="+h.home, "--config="+h.config))
+	err = root.ExecuteContext(context.Background())
+	return out.String(), errOut.String(), err
+}
+
+// TestProjectCommandOff proves the dark rule for dagu project: with projects
+// off, the root help does not list it, and running it prints what an
+// unknown command prints.
+func TestProjectCommandOff(t *testing.T) {
+	t.Parallel()
+	h := newProjectsHome(t, false)
+
+	_, before, beforeErr := h.runDagu(t, []*cobra.Command{Version()}, "project", "list")
+	require.Error(t, beforeErr)
+	require.Contains(t, before, `unknown command "project" for "dagu"`)
+	for _, args := range [][]string{{"project"}, {"project", "list"}, {"project", "create", "ops"}} {
+		_, stderr, err := h.runDagu(t, []*cobra.Command{Version(), Project()}, args...)
+		require.EqualError(t, err, beforeErr.Error(), args)
+		assert.Equal(t, before, stderr, args)
+	}
+
+	root := &cobra.Command{Use: "dagu"}
+	root.AddCommand(Version(), Project())
+	assert.NotContains(t, root.UsageString(), projectCommandName)
+	assert.NoDirExists(t, filepath.Join(h.dags, "projects", "ops"))
+}
+
+func TestProjectCommands(t *testing.T) {
+	t.Parallel()
+	h := newProjectsHome(t, true)
+	commands := []*cobra.Command{Project()}
+
+	stdout, _, err := h.runDagu(t, commands, "project", "create", "ops")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "Created project ops")
+	assert.DirExists(t, filepath.Join(h.dags, "projects", "ops"))
+
+	_, _, err = h.runDagu(t, commands, "project", "create", "OPS")
+	require.ErrorIs(t, err, project.ErrNameTaken)
+
+	require.NoError(t, os.RemoveAll(filepath.Join(h.dags, "projects", "intraday")))
+	stdout, _, err = h.runDagu(t, commands, "project", "list")
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	require.Len(t, lines, 5, stdout)
+	assert.Equal(t, []string{"NAME", "DISPLAY", "NAME", "STATE", "DAG", "DIRECTORY"}, strings.Fields(lines[0]))
+	assert.Equal(t, []string{"default", "default", "active", h.dags}, strings.Fields(lines[1]))
+	assert.Equal(t, []string{"intraday", "intraday", "missing", filepath.Join(h.dags, "projects", "intraday")}, strings.Fields(lines[2]))
+	assert.Equal(t, "ops", strings.Fields(lines[3])[0])
+	assert.Equal(t, "weather", strings.Fields(lines[4])[0])
 }
