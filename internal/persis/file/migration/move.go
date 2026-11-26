@@ -58,6 +58,9 @@ type installRecord struct {
 // journal records no copy for.
 var errForeignDestination = errors.New("the destination exists, and the journal records no copy there")
 
+// errCopyFull reports a copy that filled the file system of its destination.
+var errCopyFull = errors.New("the copy filled its file system")
+
 func newMover() mover {
 	return mover{sameFileSystem: fileutil.SameFileSystem, freeSpace: fileutil.FreeSpace}
 }
@@ -109,7 +112,7 @@ func (mr mover) move(ctx context.Context, mv move, install installRecord, held f
 // copyMove copies mv.From beside mv.To, records the copy once it is
 // durable, gives it mv.To's name, and then removes mv.From. A copy that
 // fills its file system is discarded, so its space is free again while the
-// caller waits.
+// caller waits, and its error wraps errCopyFull.
 func (mr mover) copyMove(ctx context.Context, mv move, record func() error, held func() error) error {
 	staging := mv.To + copySuffix
 	if err := discardStaging(staging, held); err != nil {
@@ -120,7 +123,7 @@ func (mr mover) copyMove(ctx context.Context, mv move, record func() error, held
 		err = mr.beforeInstall()
 	}
 	if isNoSpace(err) {
-		return errors.Join(err, discardStaging(staging, held))
+		return errors.Join(errCopyFull, err, discardStaging(staging, held))
 	}
 	if err != nil {
 		return err

@@ -320,6 +320,32 @@ func TestRunWaitsWhenCopyFillsDisk(t *testing.T) {
 	assert.Equal(t, int32(2), attempts.Load())
 }
 
+// A write that finds the journal's file system full while a copy is recorded
+// is no shortage of the copy's file system: the move retries after a tick
+// instead of waiting for the copy's file system to grow.
+func TestRunRetriesWhenJournalFills(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	mv := move{From: v2Dir(t, dataDir, "queue", "etl", "item.json"), To: filepath.Join(dataDir, "projects", "default", "state", "queue", "etl")}
+	m, ticks := newTestMigrator(t, dataDir, &fakeServices{}, []move{mv})
+	m.mover.sameFileSystem = otherFileSystem
+	m.mover.freeSpace = func(string) (uint64, error) { return 1 << 20, nil }
+	var records atomic.Int32
+	m.beforeRecordCopy = func(int) error {
+		if records.Add(1) == 1 {
+			return errNoSpace
+		}
+		return nil
+	}
+
+	done := runAsync(m)
+	tickWaiting(t, ticks, done)
+	requireNoWait(t, done, ticks)
+	assert.FileExists(t, filepath.Join(mv.To, "item.json"))
+	assert.NoDirExists(t, mv.From)
+	assert.Equal(t, int32(2), records.Load())
+}
+
 // A process that lost the lock while it waits for v2 processes stops: the
 // schedulers it sees may be v3.0 ones that registered after the process that
 // took the lock over finished, and it must not replace that one's status.

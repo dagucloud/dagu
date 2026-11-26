@@ -104,6 +104,9 @@ type Migrator struct {
 	// afterMove, when set by tests, runs after each move and before the
 	// journal records it.
 	afterMove func(index int) error
+	// beforeRecordCopy, when set by tests, runs before the journal records
+	// a copy as installing.
+	beforeRecordCopy func(index int) error
 
 	mu       sync.Mutex
 	progress Progress
@@ -281,8 +284,9 @@ func (m *Migrator) makeMoves(ctx context.Context, ticks <-chan time.Time, moves 
 		_, recorded := installing[i]
 		err := m.moveOne(ctx, i, moves[i], recorded, held)
 		if isNoSpace(err) {
-			// The estimate fell short, or another writer took the room.
-			err = m.waitAfterFull(ctx, ticks, moves[i], pendingMoves(moves, moved, i), floors, progress, held)
+			// The estimate fell short, another writer took the room, or the
+			// journal's file system is full.
+			err = m.waitAfterFull(ctx, ticks, moves[i], err, pendingMoves(moves, moved, i), floors, progress, held)
 			if err != nil {
 				return Progress{}, err
 			}
@@ -310,7 +314,14 @@ func (m *Migrator) makeMoves(ctx context.Context, ticks <-chan time.Time, moves 
 func (m *Migrator) moveOne(ctx context.Context, index int, mv move, recorded bool, held func() error) error {
 	install := installRecord{
 		recorded: recorded,
-		record:   func() error { return m.journal.markInstalling(index) },
+		record: func() error {
+			if m.beforeRecordCopy != nil {
+				if err := m.beforeRecordCopy(index); err != nil {
+					return err
+				}
+			}
+			return m.journal.markInstalling(index)
+		},
 	}
 	if err := m.mover.move(ctx, mv, install, held); err != nil {
 		return fmt.Errorf("move %s to %s: %w", mv.From, mv.To, err)
@@ -537,23 +548,29 @@ func (m *Migrator) waitForSpace(
 	}
 }
 
-// waitAfterFull waits after the file system of mv filled up during the
-// move: at least one tick, and, for a copy, until its file system has more
-// room than the copy ran out of.
+// waitAfterFull waits after a file system filled up during the move of mv:
+// at least one tick, and, when moveErr reports that the copy filled the file
+// system of mv.To, until that one has more room than the copy ran out of.
+// Any other write that found its file system full, such as the journal's,
+// sets no floor, since the destination is not what lacks room.
 func (m *Migrator) waitAfterFull(
-	ctx context.Context, ticks <-chan time.Time, mv move, pending []move, floors map[string]uint64,
-	progress Progress, held func() error,
+	ctx context.Context, ticks <-chan time.Time, mv move, moveErr error, pending []move,
+	floors map[string]uint64, progress Progress, held func() error,
 ) error {
-	free, err := m.mover.freeSpace(mv.To)
-	if err != nil {
-		return fmt.Errorf("check free space for %s: %w", mv.To, err)
-	}
-	floors[mv.To] = free + free/4 + allocationUnit
-	shortage := &SpaceShortage{Path: filepath.Dir(mv.To), Needed: floors[mv.To], Free: free}
-	logger.Warn(ctx, "File system filled up while migrating state; waiting for free space",
-		tag.Path(shortage.Path), slog.Uint64("free-bytes", free))
-	if err := m.publishShortage(progress, shortage, held); err != nil {
-		return err
+	if errors.Is(moveErr, errCopyFull) {
+		free, err := m.mover.freeSpace(mv.To)
+		if err != nil {
+			return fmt.Errorf("check free space for %s: %w", mv.To, err)
+		}
+		floors[mv.To] = free + free/4 + allocationUnit
+		shortage := &SpaceShortage{Path: filepath.Dir(mv.To), Needed: floors[mv.To], Free: free}
+		logger.Warn(ctx, "File system filled up while migrating state; waiting for free space",
+			tag.Path(shortage.Path), slog.Uint64("free-bytes", free))
+		if err := m.publishShortage(progress, shortage, held); err != nil {
+			return err
+		}
+	} else {
+		logger.Warn(ctx, "File system filled up while migrating state; retrying", tag.Error(moveErr))
 	}
 	if err := waitTick(ctx, ticks); err != nil {
 		return err
