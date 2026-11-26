@@ -49,13 +49,19 @@ func (f fakeInventories) Nodes(context.Context) ([]inventory.ResolvedNode, error
 	return f.nodes, nil
 }
 
-// fakeWorkers holds fixed worker nodes.
+// fakeWorkers holds fixed worker nodes and counts the reads of them.
 type fakeWorkers struct {
 	inventory.WorkerNodeStore
 	workers []inventory.WorkerNode
+	reads   *int
 }
 
-func (f fakeWorkers) List(context.Context) ([]inventory.WorkerNode, error) { return f.workers, nil }
+func (f fakeWorkers) List(context.Context) ([]inventory.WorkerNode, error) {
+	if f.reads != nil {
+		*f.reads++
+	}
+	return f.workers, nil
+}
 
 // Worker nodes join a project's nodes in name order and match alike, except
 // a worker whose ID an inventory node holds.
@@ -90,4 +96,33 @@ func TestProjectNodes(t *testing.T) {
 	inventoryOnly, err := inventory.NewProjectNodes(ssh, nil).Nodes(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, ssh.nodes, inventoryOnly)
+}
+
+// Named answers worker nodes by name too, and reads the worker nodes only
+// when a name is no inventory node's.
+func TestProjectNodesNamed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	ssh := fakeInventories{nodes: []inventory.ResolvedNode{
+		{Name: "jump", Host: "10.0.1.1"},
+		{Name: "web01", Host: "10.0.1.11", Bastion: "jump"},
+	}}
+	var reads int
+	workers := fakeWorkers{workers: []inventory.WorkerNode{{Name: "tokyo-gw", Host: "gw.tokyo"}}, reads: &reads}
+	nodes := inventory.NewProjectNodes(ssh, workers)
+
+	named, err := nodes.Named(ctx, []string{"WEB01"})
+	require.NoError(t, err)
+	assert.Equal(t, ssh.nodes, named, "the node and its bastion")
+	assert.Zero(t, reads, "every name is an inventory node's")
+
+	named, err = nodes.Named(ctx, []string{"Tokyo-GW", "web01", "gone"})
+	require.NoError(t, err)
+	assert.Equal(t, []inventory.ResolvedNode{
+		ssh.nodes[0],
+		{Name: "tokyo-gw", Kind: inventory.NodeKindWorker, Host: "gw.tokyo"},
+		ssh.nodes[1],
+	}, named)
+	assert.Equal(t, 1, reads)
 }
