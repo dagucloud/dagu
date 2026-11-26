@@ -129,6 +129,10 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 		}
 	}()
 
+	// The locks can be free when ctx has ended: the step then does not run.
+	if err := ctx.Err(); err != nil {
+		return iso, stepError(req.StepName, "wait for the restricted user", "", err)
+	}
 	if err := Poisoned(); err != nil {
 		return iso, stepError(req.StepName, "start", "", err)
 	}

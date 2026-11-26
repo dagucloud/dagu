@@ -218,6 +218,19 @@ func TestIsolatedStepsOneAtATime(t *testing.T) {
 	require.NoError(t, second.End(context.Background()))
 }
 
+// Begin with an ended context fails before it checks the process or stops a
+// process of the restricted user, also when both locks are free.
+func TestBeginWithEndedContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	workDir := testWorkDir(t)
+	req := testRequest(t, workDir, workDir)
+	req.LockDir = t.TempDir()
+	step, err := beginStep(t, ctx, req)
+	assert.Nil(t, step)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 // taskOfUser reads the four user IDs of a status, and skips a zombie task.
 func TestTaskOfUser(t *testing.T) {
 	t.Parallel()
