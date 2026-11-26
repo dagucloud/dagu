@@ -12,6 +12,7 @@ import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  NodeStatus,
   RestartPolicy,
   ScheduleKind,
   ServiceDAGState,
@@ -30,14 +31,20 @@ import { WorkspaceKind } from '@/lib/workspace';
 import DAGTable from '../DAGTable';
 
 const api = vi.hoisted(() => ({ post: vi.fn() }));
+const recentRuns = vi.hoisted(() => ({
+  dagRuns: [] as unknown[],
+}));
 
 vi.mock('@/hooks/api', () => ({
   useClient: () => ({ POST: api.post }),
-  useQuery: () => ({
-    data: {
-      labels: ['team=ops'],
-    },
-  }),
+  useQuery: (path: string) =>
+    path === '/dags/{fileName}/dag-runs'
+      ? { data: { dagRuns: recentRuns.dagRuns }, isLoading: false }
+      : {
+          data: {
+            labels: ['team=ops'],
+          },
+        },
 }));
 
 const serviceDAGs = vi.hoisted(() => ({
@@ -1283,11 +1290,23 @@ describe('DAGTable', () => {
         activity: { runs, truncated },
       } as never;
     }
-    function run(id: string, agoMs: number) {
+    // A workflow that has a run: only then does its row hold the chevron.
+    function withLatestRun() {
+      return {
+        ...workflow({ name: 'alpha' }),
+        latestDAGRun: {
+          dagRunId: 'latest',
+          status: Status.Success,
+          statusLabel: 'Success',
+        },
+        activity: { runs: [], truncated: false },
+      } as never;
+    }
+    function run(id: string, agoMs: number, status = Status.Success) {
       const start = Date.now() - agoMs;
       return {
         dagRunId: id,
-        status: Status.Success,
+        status,
         startedAt: new Date(start).toISOString(),
         finishedAt: new Date(start + 60_000).toISOString(),
       };
@@ -1311,6 +1330,7 @@ describe('DAGTable', () => {
     }
 
     beforeEach(() => {
+      recentRuns.dagRuns = [];
       vi.stubGlobal('ResizeObserver', MeasuringObserver);
     });
 
@@ -1399,6 +1419,202 @@ describe('DAGTable', () => {
       );
     });
 
+    it('has no chevron for a workflow without run', () => {
+      renderTable('', { dags: [withActivity([])] });
+      const table = screen.getByRole('table');
+
+      expect(within(table).getByTestId('dag-activity')).toBeInTheDocument();
+      expect(within(table).queryByTestId('dag-activity-toggle')).toBeNull();
+    });
+
+    it('has a chevron for a workflow whose window holds a run', () => {
+      renderTable('', {
+        dags: [
+          {
+            ...workflow({ name: 'alpha' }),
+            activity: { runs: [run('r1', HOUR)], truncated: false },
+          } as never,
+        ],
+      });
+
+      expect(
+        within(screen.getByRole('table')).getByTestId('dag-activity-toggle')
+      ).toBeInTheDocument();
+    });
+
+    it('unfolds the recent runs under the row from the chevron', () => {
+      recentRuns.dagRuns = [
+        run('older', 3 * HOUR, Status.Failed),
+        run('newer', HOUR),
+      ];
+      renderTable('', { dags: [withActivity([run('r1', HOUR)])] });
+      const table = screen.getByRole('table');
+      expect(within(table).queryByTestId('dag-recent-runs')).toBeNull();
+
+      const toggle = within(table).getByTestId('dag-activity-toggle');
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      fireEvent.click(toggle);
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      const panel = within(table).getByTestId('dag-recent-runs');
+      expect(within(panel).getByText('older')).toBeInTheDocument();
+      expect(within(panel).getByText('newer')).toBeInTheDocument();
+      // The runs have no "Open the workflow" link: a line opens its run.
+      expect(within(panel).queryByText('Open the workflow')).toBeNull();
+      // The chevron neither opens the workflow nor selects the row.
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/dags$/);
+
+      fireEvent.click(within(panel).getByText('older'));
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        '/dags/alpha.yaml?remoteNode=local&run=older'
+      );
+
+      fireEvent.click(toggle);
+      expect(within(table).queryByTestId('dag-recent-runs')).toBeNull();
+    });
+
+    // A run of a service DAG that never ends reads Healthy.
+    it('reads a continuous run of a service DAG as Healthy and its start as "3h ago"', () => {
+      recentRuns.dagRuns = [
+        {
+          ...run('service', 3 * HOUR, Status.Running),
+          nodes: [
+            {
+              step: {
+                name: 'serve',
+                repeatPolicy: { repeat: 'while', condition: 'true' },
+              },
+              status: NodeStatus.Running,
+            },
+          ],
+        },
+        run('plain', 5 * 60_000),
+      ];
+      const alpha = withLatestRun() as { dag: object };
+      renderTable('', {
+        dags: [
+          {
+            ...alpha,
+            dag: { ...alpha.dag, restartPolicy: RestartPolicy.always },
+          },
+        ] as never,
+      });
+      const table = screen.getByRole('table');
+      fireEvent.click(within(table).getByTestId('dag-activity-toggle'));
+
+      const panel = within(table).getByTestId('dag-recent-runs');
+      // The status is a dot alone: its name is the accessible label.
+      expect(
+        within(panel).getByRole('img', { name: 'Healthy' })
+      ).toBeInTheDocument();
+      expect(within(panel).queryByRole('img', { name: 'Running' })).toBeNull();
+      expect(within(panel).queryByText('Healthy')).toBeNull();
+      // A run without a scheduled time tells when it ended next to the dot:
+      // one minute after its start, which rounds to the same "3h ago".
+      expect(within(panel).getAllByText('3h ago')).toHaveLength(2);
+      expect(within(panel).getByText('5m ago')).toBeInTheDocument();
+      expect(within(panel).getByText('4m ago')).toBeInTheDocument();
+      expect(within(panel).getAllByText('·')).toHaveLength(2);
+    });
+
+    // A cron or manual workflow keeps the normal status for a step that never ends.
+    it('reads a continuous run of a workflow that is not a service DAG as Running', () => {
+      recentRuns.dagRuns = [
+        {
+          ...run('service', 3 * HOUR, Status.Running),
+          nodes: [
+            {
+              step: {
+                name: 'serve',
+                repeatPolicy: { repeat: 'while', condition: 'true' },
+              },
+              status: NodeStatus.Running,
+            },
+          ],
+        },
+        run('plain', 5 * 60_000),
+      ];
+      renderTable('', { dags: [withLatestRun()] });
+      const table = screen.getByRole('table');
+      fireEvent.click(within(table).getByTestId('dag-activity-toggle'));
+
+      const panel = within(table).getByTestId('dag-recent-runs');
+      expect(
+        within(panel).getByRole('img', { name: 'Running' })
+      ).toBeInTheDocument();
+      expect(within(panel).queryByRole('img', { name: 'Healthy' })).toBeNull();
+    });
+
+    it('tells the trigger, the cause of a failure, the labels and the queue wait', () => {
+      recentRuns.dagRuns = [
+        {
+          ...run('broken', HOUR, Status.Failed),
+          triggerType: 'scheduler',
+          queuedAt: new Date(Date.now() - HOUR - 12_000).toISOString(),
+          labels: ['env=prod', 'team=data', 'extra'],
+          workerId: 'worker-7',
+          nodes: [
+            {
+              step: { name: 'load' },
+              status: NodeStatus.Failed,
+              error: 'exit status 2\nmore',
+            },
+          ],
+        },
+        {
+          ...run('param', 2 * HOUR),
+          triggerType: 'manual',
+          params: 'DATE=2026-10-29',
+        },
+      ];
+      renderTable('', { dags: [withLatestRun()] });
+      const table = screen.getByRole('table');
+      fireEvent.click(within(table).getByTestId('dag-activity-toggle'));
+
+      const panel = within(table).getByTestId('dag-recent-runs');
+      expect(within(panel).getByText('Scheduled')).toBeInTheDocument();
+      expect(within(panel).getByText('Manual')).toBeInTheDocument();
+      expect(
+        within(panel).getByText('load: exit status 2')
+      ).toBeInTheDocument();
+      expect(within(panel).getByText('DATE=2026-10-29')).toBeInTheDocument();
+      expect(within(panel).getByText(/queued 1\ds/)).toBeInTheDocument();
+      expect(within(panel).getByText('env=prod')).toBeInTheDocument();
+      expect(within(panel).getByText('team=data')).toBeInTheDocument();
+      expect(within(panel).getByText('+1')).toBeInTheDocument();
+      expect(within(panel).getByText('worker-7')).toBeInTheDocument();
+    });
+
+    it('counts the cached time of a run in its time', () => {
+      recentRuns.dagRuns = [
+        {
+          ...run('stepwise', HOUR),
+          startedAt: '2026-10-29T12:00:00Z',
+          finishedAt: '2026-10-29T12:00:05Z',
+          reusedInputs: [
+            {
+              step: 'slow',
+              runId: 'source',
+              via: 'run',
+              startedAt: '2026-10-29T11:00:00Z',
+              finishedAt: '2026-10-29T11:00:55Z',
+            },
+          ],
+        },
+      ];
+      renderTable('', { dags: [withLatestRun()] });
+      const table = screen.getByRole('table');
+      fireEvent.click(within(table).getByTestId('dag-activity-toggle'));
+
+      // 5 s of its own and 55 s that it took from the earlier run.
+      const panel = within(table).getByTestId('dag-recent-runs');
+      expect(within(panel).getByText('1m').parentElement).toHaveAttribute(
+        'title',
+        'Total 1m = own 5s + cached 55s'
+      );
+      expect(within(panel).getByText(/5s \+ 55s cached/)).toBeInTheDocument();
+    });
+
     // The table and the cards are both in the DOM, one of them hidden. jsdom
     // has no matchMedia, so the window counts as a wide one.
     it('draws the strips of the view on screen only', () => {
@@ -1473,6 +1689,12 @@ describe('DAGTable', () => {
     });
   });
 
+      renderTable('', { dags: [service()], panelWidth: 600 });
+      const table = renderTable('', { dags: [service()] });
+      expect(row.querySelectorAll('*').length).toBeLessThan(77);
+
+      table.unmount();
+      renderTable('', { dags: [service()], panelWidth: 600 });
   // The Last Run column of a service DAG shows the state of the service.
   describe('state of a service DAG', () => {
     function svc(name: string) {

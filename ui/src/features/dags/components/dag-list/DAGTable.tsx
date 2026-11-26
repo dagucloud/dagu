@@ -20,6 +20,7 @@ import {
   ArrowUp,
   Calendar,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   PencilLine,
   Search,
@@ -41,6 +42,7 @@ import { CreateDAGButton, DAGPagination } from '../common';
 import DAGActions from '../common/DAGActions';
 import LiveSwitch from '../common/LiveSwitch';
 import ActivityBars from './ActivityBars';
+import { DAGRecentRuns } from './DAGRecentRuns';
 import { LastRunCell, ServiceStateChip } from './LastRunCell';
 import { ScheduleLine } from './ScheduleSummary';
 import { ServiceDAGNextRun } from '@/features/service-dags/components/ServiceDAGState';
@@ -212,6 +214,38 @@ function EditDAGButton({ dag }: { dag: components['schemas']['DAGFile'] }) {
   );
 }
 
+/** The chevron that unfolds the recent runs under the row of a workflow. */
+function ActivityToggle({
+  expanded,
+  onToggle,
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const { ts } = useI18n();
+  const label = ts(expanded ? 'Hide recent runs' : 'Show recent runs');
+  return (
+    <button
+      type="button"
+      aria-expanded={expanded}
+      aria-label={label}
+      title={label}
+      data-testid="dag-activity-toggle"
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+      className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {expanded ? (
+        <ChevronDown className="h-4 w-4" />
+      ) : (
+        <ChevronRight className="h-4 w-4" />
+      )}
+    </button>
+  );
+}
+
 /**
  * The mark of the card that the overlay shows: PEEK_SHOWN_ROW with a tint.
  * card-obsidian is plain CSS, which wins over the utility layer, so the
@@ -340,10 +374,12 @@ function DAGCard({
         )}
       </div>
 
-      {/* A service DAG has no runs to draw as bars. */}
-      {showActivity && !isService && (
-        <ActivityBars activity={activity} className="mb-1.5" />
-      )}
+      {showActivity &&
+        (isService ? (
+          activity?.buckets && (
+        ) : (
+          <ActivityBars activity={activity} className="mb-1.5" />
+        ))}
 
       {/* Labels */}
       {labels.length > 0 && (
@@ -430,26 +466,50 @@ function ActionSlot({ children }: { children: React.ReactNode }) {
  * `onOpenRun` does, so a render of the table alone does not redraw the strip.
  */
 function ActivityCell({
-  fileName,
+  dag,
   activity,
   onOpenRun,
+  expanded,
+  onToggleActivity,
 }: {
-  fileName: string;
+  dag: components['schemas']['DAGFile'];
   activity?: components['schemas']['DAGListActivity'];
   onOpenRun?: (
     fileName: string,
     runId: string,
     event: React.MouseEvent
   ) => void;
+  expanded: boolean;
+  onToggleActivity?: (fileName: string) => void;
 }) {
+  const fileName = dag.fileName;
   const openRun = useCallback(
     (runId: string, event: React.MouseEvent) =>
       onOpenRun?.(fileName, runId, event),
     [fileName, onOpenRun]
   );
+  const toggle = useCallback(
+    () => onToggleActivity?.(fileName),
+    [fileName, onToggleActivity]
+  );
+  // A service DAG draws the buckets of its run history, and nothing when the
+  // server sends no buckets. Any other workflow draws its runs as bars.
+  const strip = isServiceDAG(dag.dag) ? (
+    activity?.buckets ? (
+      <ServiceActivityStrip activity={activity} fileName={fileName} fluid />
+    ) : null
+  ) : (
+    <ActivityBars activity={activity} fluid onOpenRun={openRun} />
+  );
   return (
-    <div className="flex items-center">
-      <ActivityBars activity={activity} fluid onOpenRun={openRun} />
+    <div className="flex items-center gap-1">
+      {strip}
+      {dag.latestDAGRun?.dagRunId || (activity?.runs.length ?? 0) > 0 ? (
+        <ActivityToggle expanded={expanded} onToggle={toggle} />
+      ) : (
+        // A workflow with no run has nothing to unfold; the space stays.
+        <span aria-hidden="true" className="size-6 shrink-0" />
+      )}
     </div>
   );
 }
@@ -624,6 +684,8 @@ declare module '@tanstack/react-table' {
     services?: ReadonlyMap<string, components['schemas']['ServiceDAG']>;
     /** The activity of the listed workflows, by file name. */
     activity?: ReadonlyMap<string, components['schemas']['DAGListActivity']>;
+    isActivityExpanded?: (fileName: string) => boolean;
+    onToggleActivity?: (fileName: string) => void;
     onOpenRun?: (
       fileName: string,
       runId: string,
@@ -979,17 +1041,18 @@ const defaultColumns = [
     ),
     cell: ({ row, table }) => {
       const data = row.original!;
-      // A service DAG has no runs to draw as bars.
-      if (data.kind !== ItemKind.DAG || isServiceDAG(data.dag.dag)) {
+      if (data.kind !== ItemKind.DAG) {
         return null;
       }
       const meta = table.options.meta;
       const fileName = data.dag.fileName;
       return (
         <ActivityCell
-          fileName={fileName}
+          dag={data.dag}
           activity={meta?.activity?.get(fileName)}
           onOpenRun={meta?.onOpenRun}
+          expanded={meta?.isActivityExpanded?.(fileName) ?? false}
+          onToggleActivity={meta?.onToggleActivity}
         />
       );
     },
@@ -1293,6 +1356,17 @@ function DAGTable({
   const [deleteSelection, setDeleteSelection] = useState<Set<string>>(
     () => new Set()
   );
+  // The workflows whose recent runs are unfolded under their row.
+  const [expandedActivity, setExpandedActivity] = useState<Set<string>>(
+    () => new Set()
+  );
+  const toggleActivity = useCallback((fileName: string) => {
+    setExpandedActivity((current) => {
+      const next = new Set(current);
+      if (!next.delete(fileName)) next.add(fileName);
+      return next;
+    });
+  }, []);
   const openRun = useCallback(
     (fileName: string, run: string, event: React.MouseEvent) =>
       peekOrOpen({ dag: fileName, run }, event),
@@ -1712,6 +1786,8 @@ function DAGTable({
       onToggleGroupPin: (dags) => void toggleGroupPin(dags),
       groupMembers,
       showGroupPrefix: !groupByGroup,
+      isActivityExpanded: (fileName) => expandedActivity.has(fileName),
+      onToggleActivity: toggleActivity,
       onOpenRun: openRun,
       services,
       activity: rowActivity,
@@ -2091,51 +2167,76 @@ function DAGTable({
                   isShown({ dag: (row.original as DAGRow).dag.fileName });
                 // Type guard to ensure we only access dag property when it exists
 
+                const recentRunsOf =
+                  isDAGRow &&
+                  'dag' in row.original &&
+                  expandedActivity.has((row.original as DAGRow).dag.fileName)
+                    ? (row.original as DAGRow).dag.fileName
+                    : null;
+                const recentRunsService =
+                  isDAGRow &&
+                  'dag' in row.original &&
+                  isServiceDAG((row.original as DAGRow).dag.dag);
+
                 return (
-                  <TableRow
-                    key={row.id}
-                    data-state={isDeleteSelected ? 'selected' : undefined}
-                    data-peek-shown={rowShown || undefined}
-                    className={`text-[0.8125rem] ${rowShown ? PEEK_SHOWN_ROW : ''} ${
-                      row.original?.kind === ItemKind.Group
-                        ? 'bg-muted/50 font-semibold cursor-pointer hover:bg-muted/70'
-                        : 'cursor-pointer hover:bg-muted/50'
-                    } ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''} group/row ${isDAGRow ? 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring' : ''} ${endsPinnedSection ? 'border-b-2' : ''}`}
-                    tabIndex={isDAGRow ? 0 : undefined}
-                    onKeyDown={
-                      isDAGRow && 'dag' in row.original
-                        ? onOwnEnter((e) =>
-                            peekOrOpen(
-                              { dag: (row.original as DAGRow).dag.fileName },
-                              e
+                  <React.Fragment key={row.id}>
+                    <TableRow
+                      data-state={isDeleteSelected ? 'selected' : undefined}
+                      data-peek-shown={rowShown || undefined}
+                      className={`text-[0.8125rem] ${rowShown ? PEEK_SHOWN_ROW : ''} ${
+                        row.original?.kind === ItemKind.Group
+                          ? 'bg-muted/50 font-semibold cursor-pointer hover:bg-muted/70'
+                          : 'cursor-pointer hover:bg-muted/50'
+                      } ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''} group/row ${isDAGRow ? 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring' : ''} ${endsPinnedSection ? 'border-b-2' : ''}`}
+                      tabIndex={isDAGRow ? 0 : undefined}
+                      onKeyDown={
+                        isDAGRow && 'dag' in row.original
+                          ? onOwnEnter((e) =>
+                              peekOrOpen(
+                                { dag: (row.original as DAGRow).dag.fileName },
+                                e
+                              )
                             )
-                          )
-                        : undefined
-                    }
-                    onClick={(e) => {
-                      // Handle group row clicks - toggle expanded state
-                      if ((row.original as Data)?.kind === ItemKind.Group) {
-                        row.toggleExpanded();
+                          : undefined
                       }
-                      // Handle DAG row clicks - show the peek, or a new tab with Cmd/Ctrl
-                      else if (isDAGRow && 'dag' in row.original) {
-                        const dagRow = row.original as DAGRow;
-                        peekOrOpen({ dag: dagRow.dag.fileName }, e);
-                      }
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell
-                        key={cell.id}
-                        className={`py-1 align-middle overflow-hidden truncate ${cell.column.id === 'Select' || cell.column.id === 'Pin' ? 'px-0' : 'px-2'} ${cell.column.id === 'Activity' ? activityColumn.cell : ''}`}
-                      >
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </TableCell>
-                    ))}
-                  </TableRow>
+                      onClick={(e) => {
+                        // Handle group row clicks - toggle expanded state
+                        if ((row.original as Data)?.kind === ItemKind.Group) {
+                          row.toggleExpanded();
+                        }
+                        // Handle DAG row clicks - show the peek, or a new tab with Cmd/Ctrl
+                        else if (isDAGRow && 'dag' in row.original) {
+                          const dagRow = row.original as DAGRow;
+                          peekOrOpen({ dag: dagRow.dag.fileName }, e);
+                        }
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          className={`py-1 align-middle overflow-hidden truncate ${cell.column.id === 'Select' || cell.column.id === 'Pin' ? 'px-0' : 'px-2'} ${cell.column.id === 'Activity' ? activityColumn.cell : ''}`}
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                    {recentRunsOf !== null && (
+                      <TableRow className="bg-muted/20 hover:bg-muted/20">
+                        <TableCell
+                          colSpan={instance.getVisibleLeafColumns().length}
+                          className="px-2 py-1 pl-12"
+                        >
+                          <DAGRecentRuns
+                            fileName={recentRunsOf}
+                            service={recentRunsService}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </React.Fragment>
                 );
               })
             ) : (
