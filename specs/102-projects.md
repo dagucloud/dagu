@@ -532,6 +532,9 @@ Rules:
   project that does not exist.
 - A request for a DAG the project lacks gets `404`. The error names the
   projects the caller can see that have a DAG of that name.
+- A request that names a project on a path that takes no `project`
+  parameter gets `400`, so it never reads or writes another project's
+  data.
 - Every path that reads or writes base config, secrets, profiles,
   notification routes, or incident policies addresses one project. No path
   addresses them outside a project, so a client that writes v2's global
@@ -1257,6 +1260,8 @@ Delete is refused, and changes nothing, when:
   does not exist, gets `404`.
 - An API request for a DAG the project lacks gets `404`, and the error
   names the projects the caller can see that have a DAG of that name.
+- An API request that names a project on a path that takes no `project`
+  parameter gets `400`.
 
 ### Loading
 

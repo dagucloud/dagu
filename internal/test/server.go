@@ -4,6 +4,7 @@
 package test
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -120,6 +122,10 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 		srv.Backend.Collection(persis.CollectionSchedulerProcess),
 		pauses,
 	)
+	projects, err := srv.followProjects(serverStores)
+	if err != nil {
+		return nil, err
+	}
 	server, err := frontend.NewServer(frontend.ServerConfig{
 		Context:              srv.Context,
 		Config:               srv.Config,
@@ -137,12 +143,31 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 		BackfillStore:        filebackfill.New(filebackfill.Dir(srv.Config.Paths.DataDir)),
 		PeriodStore:          periods,
 		Stores:               stores,
+		ProjectStores:        projects,
 	}, serverOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create server: %w", err)
 	}
 
 	return server, nil
+}
+
+// followProjects keeps the stores of every registered project open while
+// projects are on, and returns them. It returns nil while projects are off.
+func (srv *Server) followProjects(server *file.ServerStores) (*file.ProjectStoreCache, error) {
+	if !srv.Config.ProjectsEnabled {
+		return nil, nil
+	}
+	open := func(ctx context.Context, p project.Project) (*file.ProjectStores, error) {
+		return file.NewProjectStores(ctx, srv.Config, server, p, file.ProjectStoreOptions{})
+	}
+	defaults, err := open(srv.Context, project.Project{Name: project.DefaultName})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open the default project's stores: %w", err)
+	}
+	cache := file.NewProjectStoreCache(projectregistry.New(srv.Config.Paths.DataDir), defaults, open, server.ProjectReleases)
+	go cache.Run(srv.Context)
+	return cache, nil
 }
 
 func (srv *Server) healthURL() string {
