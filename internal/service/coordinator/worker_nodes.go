@@ -41,6 +41,16 @@ func newWorkerNodeRecorder(store inventory.WorkerNodeStore) *workerNodeRecorder 
 	return &workerNodeRecorder{store: store, recorded: make(map[string]inventory.WorkerNode)}
 }
 
+// list returns the recorded worker nodes in name order, or none when no
+// store is configured. A worker whose ID an inventory node holds is listed
+// too; inventory.SplitWorkers tells it apart.
+func (r *workerNodeRecorder) list(ctx context.Context) ([]inventory.WorkerNode, error) {
+	if r == nil {
+		return nil, nil
+	}
+	return r.store.List(ctx)
+}
+
 // observe records the worker of a heartbeat received at the given time as
 // online, when the worker is a node and its record differs.
 func (r *workerNodeRecorder) observe(ctx context.Context, workerID, host string, labels map[string]string, at time.Time) {
@@ -74,7 +84,7 @@ func (r *workerNodeRecorder) reconcile(ctx context.Context, staleBefore time.Tim
 	if r == nil {
 		return
 	}
-	nodes, err := r.store.List(ctx)
+	nodes, err := r.list(ctx)
 	if err != nil {
 		logger.Warn(ctx, "Failed to list worker nodes", tag.Error(err))
 		return
