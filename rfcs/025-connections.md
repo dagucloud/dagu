@@ -984,10 +984,26 @@ connection. It belongs in the DAG.
 
 Google's MCP servers "still return form elicitation prompts for
 human-in-the-loop confirmation on sensitive tool calls", service accounts
-included. Dagu's MCP clients advertise form elicitation:
+included. Sensitive actions include sending email, changing shared calendar
+events, sharing or trashing files, and reading shared data. The Workspace
+admin's rules decide, and Google publishes no list per tool, so a read can
+ask too.
 
-- **`mcp.call`** declines at once, since a step cannot wait mid-call, and
-  fails with kind `confirmation_required`.
+Dagu's MCP clients advertise form elicitation and use Google's `/mcp/v1`
+endpoints. Google serves clients that do not on `/mcp/v1self`, with only
+the tools and results that need no confirmation. Advertising therefore
+never skips Google's check, and a declined request fails only its call.
+
+- **`mcp.call`** declines at once and fails with kind
+  `confirmation_required`. Holding the call open for a person is a future
+  enhancement. The error names the ways to let the action through:
+  - approve it once in Try it, and save the approval where Google's form
+    offers that;
+  - ask the Workspace admin to change the confirmation rules under API
+    Controls;
+  - for automation without AI, use `http.request` with a standard
+    connection, since the confirmation requests belong to Google's MCP
+    servers.
 - **Try it in the UI.** The person is present, so the form is shown inline.
   The call request returns the form and a call ID. The server holds the call
   open in memory, for up to 10 minutes, and the page posts the answer to
@@ -1723,8 +1739,9 @@ or a default, not the design:
 
 37. A Google MCP call from a client with the agent flag succeeds, and one
     without it fails as Google's rules for 2027-02-01 state.
-38. The docs list the tools that send confirmation requests, and how long
-    Google keeps one open.
+38. The docs say which kinds of actions Google confirms, that the Workspace
+    admin's rules decide, how long Google keeps a request open, and whether
+    a saved approval lets later calls through.
 39. The docs say whether Google's MCP tools carry `readOnlyHint`. Without it,
     Try it asks before every tool.
 40. The docs say whether Google refuses a client that does not advertise
@@ -1811,6 +1828,8 @@ All:
   needs a periodic check, which this RFC avoids for idle cost.
 - **More presets,** such as Slack, GitHub, and Salesforce, as their MCP
   servers settle.
+- **Waiting for a person on a confirmation request in `mcp.call`,** with
+  the call held open, as RFC 026 describes for AI steps.
 
 ## References
 
