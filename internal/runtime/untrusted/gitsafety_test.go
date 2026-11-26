@@ -46,6 +46,24 @@ func TestWithGitSafety(t *testing.T) {
 	}, got)
 }
 
+// Git refuses a count with a missing entry, so the check stops at the first
+// missing entry instead of reading every counted one.
+func TestGitSafetyStopsAtMissingEntry(t *testing.T) {
+	t.Parallel()
+
+	env := map[string]string{"GIT_CONFIG_COUNT": "2147483647", "GIT_CONFIG_KEY_0": "core.editor", "GIT_CONFIG_VALUE_0": "vi"}
+	lookups := 0
+	entries := GitSafetyEntries(func(name string) (string, bool) {
+		lookups++
+		if lookups > 10 {
+			t.Fatalf("looked up %s after the first missing entry", name)
+		}
+		value, ok := env[name]
+		return value, ok
+	})
+	assert.Equal(t, gitSafetyValue, entries["GIT_CONFIG_VALUE_2147483647"])
+}
+
 // A trusted command with a nil Env inherits the variables of Dagu. It gets the
 // setting too, next to the inherited variables.
 func TestGitSafetyInheritedEnv(t *testing.T) {
