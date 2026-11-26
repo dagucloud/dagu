@@ -2890,25 +2890,34 @@ paths:
 
   /dag-list-activity:
     get:
-      summary: "Get the activity of a DAG list page"
+      summary: "Get the activity of DAGs of a DAG list"
       description: |
-        Gives the activity of each DAG of one page of `GET /dags` over a window
-        that ends now. The paging, filters, and sort select the same DAGs in
-        the same order as `GET /dags` with the same values, and a `perPage`
-        above 200 reads 200 DAGs, as `GET /dags` does. A plain DAG lists its
-        runs that started in the window, the last started first, and its runs
-        still in progress. It finds them among the runs created since one
-        window before the window, at most the 1000 created last, so a run that
-        waited in a queue for longer shows only while it is the latest run. A service DAG gives the buckets
-        of its run history instead.
+        Gives the activity over a window that ends now of each DAG that a
+        `fileName` names, in the order of the request, each name once. A name
+        that names no DAG of `GET /dags` that the caller can see is left out,
+        with no error. A plain DAG lists its runs that started in the window,
+        the last started first, and its runs still in progress. It finds them
+        among the runs created since one window before the window, at most the
+        1000 created last, so a run that waited in a queue for longer shows
+        only while it is the latest run. A service DAG gives the buckets of its
+        run history instead.
       operationId: "getDAGListActivity"
       tags:
         - "dags"
       parameters:
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
         - $ref: "#/components/parameters/RemoteNode"
-        - $ref: "#/components/parameters/Workspace"
+        - name: "fileName"
+          in: "query"
+          required: true
+          style: "form"
+          explode: true
+          schema:
+            type: "array"
+            minItems: 1
+            maxItems: 100
+            items:
+              type: "string"
+          description: "The fileName of a DAG in `GET /dags`. Repeat the parameter for each DAG, at most 100 times, so that the request line stays under 8 KiB."
         - name: "window"
           in: "query"
           required: true
@@ -2917,48 +2926,6 @@ paths:
             minimum: 60
             maximum: 604800
           description: "Length in seconds of the window that ends now"
-        - name: "name"
-          in: "query"
-          required: false
-          schema:
-            type: "string"
-          description: "Same as `name` of `GET /dags`"
-        - name: "labels"
-          in: "query"
-          required: false
-          schema:
-            type: "string"
-          description: "Same as `labels` of `GET /dags`"
-        - name: "active"
-          in: "query"
-          required: false
-          schema:
-            type: "boolean"
-            default: false
-          description: "Same as `active` of `GET /dags`"
-        - name: "tags"
-          in: "query"
-          required: false
-          schema:
-            type: "string"
-          deprecated: true
-          description: "Same as `tags` of `GET /dags`"
-        - name: "sort"
-          in: "query"
-          required: false
-          schema:
-            type: "string"
-            enum: ["name", "nextRun", "status", "lastRun"]
-            default: "name"
-          description: "Same as `sort` of `GET /dags`"
-        - name: "order"
-          in: "query"
-          required: false
-          schema:
-            type: "string"
-            enum: ["asc", "desc"]
-            default: "asc"
-          description: "Same as `order` of `GET /dags`"
       responses:
         "200":
           description: "A successful response"
@@ -2967,7 +2934,41 @@ paths:
               schema:
                 $ref: "#/components/schemas/DAGListActivityPage"
         "400":
-          description: "The window or a filter is invalid"
+          description: "The window is invalid, or no fileName or more than 100 are given"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-run-changes:
+    get:
+      summary: "List the DAG files whose runs changed lately"
+      description: |
+        Lists the DAG files whose root runs changed lately, as the run events
+        that this server reads tell, so that a DAG list reads the activity of
+        those DAGs again. The `dagrunchanges:all` topic of the stream gives the
+        same feed, at most once a minute. A file is listed when the caller can
+        see the run, by the workspace label of the run.
+      operationId: "getDAGRunChanges"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DAGRunChanges"
+        "501":
+          description: "The server does not run the event store, which alone feeds the change feed"
           content:
             application/json:
               schema:
@@ -18977,7 +18978,7 @@ components:
 
     DAGListActivityPage:
       type: object
-      description: "The activity of the DAGs of one DAG list page, in page order"
+      description: "The activity of the DAGs that a request names, in the order of the request"
       properties:
         dags:
           type: array
@@ -18985,20 +18986,63 @@ components:
             $ref: "#/components/schemas/DAGListActivityEntry"
         errors:
           type: array
-          description: "Errors encountered while listing the DAGs or reading their activity"
+          description: "Errors encountered while reading the activity of the DAGs"
           items:
             type: string
+        readAt:
+          type: string
+          format: date-time
+          description: "Server time when the activity was read, rounded down to the millisecond"
       required:
         - dags
         - errors
+        - readAt
 
-    DAGListActivityEntry:
+    DAGRunChanges:
       type: object
-      description: "The activity of one DAG of a list page"
+      description: "Every change of the root runs of a DAG file that the caller can see, after `since` and up to `readAt`. A list reads the activity again of a row whose file has a `changedAt` at or after the `readAt` of its activity, and of every row whose activity it read before `since`. Any other row is current as of `readAt`."
+      properties:
+        since:
+          type: string
+          format: date-time
+          description: "The feed holds every change after this time, rounded up to the millisecond. It moves when the server starts reading run events and when the feed drops a change older than 3 minutes or beyond 2000 files. A pause in the reads of the run events delays changes and does not move it. Equal to `readAt` before the first read of the run events."
+        readAt:
+          type: string
+          format: date-time
+          description: "Server time when the feed was read, rounded down to the millisecond"
+        changes:
+          type: array
+          maxItems: 2000
+          description: "Each DAG file once, with its latest change, the newest first"
+          items:
+            $ref: "#/components/schemas/DAGRunChange"
+      required:
+        - since
+        - readAt
+        - changes
+
+    DAGRunChange:
+      type: object
+      description: "The latest change of the root runs of a DAG file"
       properties:
         fileName:
           type: string
           description: "The fileName of the DAG in `GET /dags`"
+        changedAt:
+          type: string
+          format: date-time
+          description: "Server time of the change, rounded up to the millisecond. A read of the activity of the DAG that begins after it shows the change."
+      required:
+        - fileName
+        - changedAt
+
+    DAGListActivityEntry:
+      type: object
+      description: "The activity of one DAG that a request names"
+      properties:
+        fileName:
+          type: string
+          description: "The fileName of the DAG, as the request names it"
         activity:
           $ref: "#/components/schemas/DAGListActivity"
       required:

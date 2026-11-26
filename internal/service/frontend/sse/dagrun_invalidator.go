@@ -7,7 +7,6 @@ import (
 	"context"
 	"log/slog"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -102,10 +101,10 @@ func wakeOrLimit(mux *Multiplexer, service bool, fire func()) {
 // called for each batch of events, so it must not wait on such a build.
 type ServiceDAGNames func() ([]string, bool)
 
-// DAGRunsChanged is told, after each read of DAG-run events, the names of the
-// DAGs whose root runs changed in them, possibly none. It hears of a change
-// before the topics that show the run wake.
-type DAGRunsChanged func(dagNames []string)
+// DAGRunsChanged is told, after each read of DAG-run events, the snapshots of
+// the root runs whose state changed in them, in event order, possibly none. It
+// hears of a change before the topics that show the run wake.
+type DAGRunsChanged func(changes []*eventstore.DAGRunStatusSnapshot)
 
 // StartDAGRunEventInvalidation wakes the topics that show the runs of new
 // DAG-run events. serviceDAGs tells which events concern a service DAG;
@@ -171,16 +170,16 @@ func StartDAGRunEventInvalidation(
 	}()
 }
 
-// handleDAGRunEvents tells changed the DAGs whose root runs the events
+// handleDAGRunEvents tells changed the root runs whose state the events
 // change, then wakes the topics that show the runs. changed hears first, so
 // that a topic it serves reads the changed runs when it wakes.
 func handleDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, serviceDAGs ServiceDAGNames, changed DAGRunsChanged) {
-	names := changedDAGNames(events)
+	changes := changedRootRuns(events)
 	if changed != nil {
-		changed(names)
+		changed(changes)
 	}
-	if len(names) > 0 {
-		mux.WakeTopicType(TopicTypeDAGListActivity)
+	if len(changes) > 0 {
+		mux.WakeTopicType(TopicTypeDAGRunChanges)
 	}
 	if len(events) == 0 {
 		return
@@ -188,11 +187,12 @@ func handleDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, serviceDAG
 	wakeTopicsForDAGRunEvents(mux, events, readServiceDAGs(serviceDAGs))
 }
 
-// changedDAGNames returns the names of the DAGs whose root runs the events
-// change, each once. A sub-DAG run is not a run of a DAG list, so its events
-// name no DAG, and an update that keeps the state of a run changes no list.
-func changedDAGNames(events []*eventstore.Event) []string {
-	var names []string
+// changedRootRuns returns the snapshots of the root runs whose state the
+// events change, in event order. A sub-DAG run is not a run of a DAG list, so
+// its events are left out, and an update that keeps the state of a run changes
+// no list.
+func changedRootRuns(events []*eventstore.Event) []*eventstore.DAGRunStatusSnapshot {
+	var changes []*eventstore.DAGRunStatusSnapshot
 	for _, event := range events {
 		if event == nil {
 			continue
@@ -207,11 +207,9 @@ func changedDAGNames(events []*eventstore.Event) []string {
 		if len(affectedDAGRunListStatuses(event.Type, snapshot.Status)) == 0 {
 			continue
 		}
-		if !slices.Contains(names, snapshot.Name) {
-			names = append(names, snapshot.Name)
-		}
+		changes = append(changes, snapshot)
 	}
-	return names
+	return changes
 }
 
 // readServiceDAGs returns the set of service DAG names, or nil when they are

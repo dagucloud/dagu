@@ -45,14 +45,18 @@ func TestParseTopicSharesActivityAcrossConnections(t *testing.T) {
 	assert.Equal(t, "dagrunactivity:hours=24&workspace=ops", parsed.Key)
 }
 
-// Browsers that show the same DAG list page share one list activity topic,
-// so per-connection parameters are dropped from its key.
-func TestParseTopicSharesListActivityAcrossConnections(t *testing.T) {
-	parsed, err := ParseTopic("daglistactivity:window=86400&perPage=100&page=1&token=secret&remoteNode=edge")
+// The change feed has one topic, with a fixed identifier that an older
+// server rejects for this topic alone.
+func TestParseTopicTakesOneRunChangesTopic(t *testing.T) {
+	parsed, err := ParseTopic("dagrunchanges:all")
 	require.NoError(t, err)
+	assert.Equal(t, TopicTypeDAGRunChanges, parsed.Type)
+	assert.Equal(t, "dagrunchanges:all", parsed.Key)
 
-	assert.Equal(t, TopicTypeDAGListActivity, parsed.Type)
-	assert.Equal(t, "daglistactivity:page=1&perPage=100&window=86400", parsed.Key)
+	for _, bad := range []string{"dagrunchanges:", "dagrunchanges:window=86400"} {
+		_, err := ParseTopic(bad)
+		assert.Error(t, err, bad)
+	}
 }
 
 func TestParseTopicRejectsMalformedQuery(t *testing.T) {

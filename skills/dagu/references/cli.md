@@ -260,6 +260,7 @@ dagu ls [flags] [pattern]
 Flags:
 
 - `--next/-n` — Show next scheduled run time
+- `--local-time` — Show next scheduled run time in the configured timezone instead of UTC (with `--next`)
 - `--last/-l` — Show last run status and time
 - `--history/-H` — Show a compact recent-history summary
 - `--sort-last/-t` — Sort by last run time, newest first

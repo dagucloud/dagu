@@ -111,6 +111,7 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 	}{
 		{name: "viewer lists DAGs", method: http.MethodGet, path: "/api/v1/dags", user: viewer, wantCall: true},
 		{name: "viewer reads DAG list activity", method: http.MethodGet, path: "/api/v1/dag-list-activity", user: viewer, wantCall: true},
+		{name: "viewer reads DAG run changes", method: http.MethodGet, path: "/api/v1/dag-run-changes", user: viewer, wantCall: true},
 		{name: "viewer reads a step log", method: http.MethodGet, path: "/api/v1/dag-runs/deploy/run-1/steps/build/log", user: viewer, wantCall: true},
 		{name: "viewer reads missed slots", method: http.MethodGet, path: "/api/v1/dags/deploy/missed-slots", user: viewer, wantCall: true},
 		{name: "viewer reads run history samples", method: http.MethodGet, path: "/api/v1/dags/deploy/run-history/samples", user: viewer, wantCall: true},
