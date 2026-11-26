@@ -103,9 +103,10 @@ type Props = {
   onEditRetry?: () => void;
   /**
    * The restart policy of the workflow and its latest run. A service workflow
-   * with an active latest run has one run at a time: Retry is not shown, and
-   * the Stop tooltip says when a policy restarts the run. Retry is not shown
-   * either while the scheduler restarts the workflow by itself (`serviceDAG`).
+   * with an active latest run has one run at a time: Retry is not shown.
+   * Retry is not shown either while the scheduler restarts the workflow by
+   * itself (`serviceDAG`). With `serviceDAG`, the Stop tooltip says when a
+   * policy restarts the run.
    */
   service?: {
     dag: components['schemas']['DAG'] | components['schemas']['DAGDetails'];
@@ -241,10 +242,11 @@ function DAGRunActions({
     !!service?.dag &&
     isServiceDAG(service.dag) &&
     restartsByItself(service.serviceDAG);
-  const restartAfterSec = getRestartAfterStopSec(
-    service?.dag,
-    service?.serviceDAG
-  );
+  // Only the state of the service tells whether a run follows the stop: a
+  // suspended DAG or one on hold does not restart.
+  const restartAfterSec = service?.serviceDAG
+    ? getRestartAfterStopSec(service.dag, service.serviceDAG)
+    : null;
   const offersStopAll = Boolean(stopAll) && terminateDetails.offersStopAll;
   const stopsAll = offersStopAll && stopAllRunning;
   const hasManagedAgentSession = Boolean(

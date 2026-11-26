@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   NodeStatus,
   RestartPolicy,
+  ServiceDAGRestartHold,
   ServiceDAGState,
   Status,
   StatusLabel,
@@ -999,7 +1000,11 @@ describe('DAGRunActions of a service workflow', () => {
         name="etl"
         displayMode="full"
         hideUnavailable
-        service={{ dag, latestRun: runningRun }}
+        service={{
+          dag,
+          latestRun: runningRun,
+          serviceDAG: { state: ServiceDAGState.running, suspended: false },
+        }}
       />
     );
     await userEvent.hover(screen.getByRole('button', { name: 'Stop' }));
@@ -1008,5 +1013,50 @@ describe('DAGRunActions of a service workflow', () => {
     ).toHaveTextContent(
       'Stop this run. It restarts after 5 s. Suspend the restarts to stop it for good.'
     );
+  });
+
+  // No run follows the stop of such a DAG, or none is known to follow it.
+  it.each<[string, ComponentProps<typeof DAGRunActions>['service']]>([
+    ['with no known state', { dag, latestRun: runningRun }],
+    [
+      'suspended',
+      {
+        dag,
+        latestRun: runningRun,
+        serviceDAG: { state: ServiceDAGState.suspended, suspended: true },
+      },
+    ],
+    [
+      'on hold',
+      {
+        dag,
+        latestRun: runningRun,
+        serviceDAG: {
+          state: ServiceDAGState.running,
+          restartHold: ServiceDAGRestartHold.paused,
+        },
+      },
+    ],
+    [
+      'unless-stopped',
+      {
+        dag: { ...dag, restartPolicy: RestartPolicy.unless_stopped },
+        latestRun: runningRun,
+        serviceDAG: { state: ServiceDAGState.running },
+      },
+    ],
+  ])('keeps the plain Stop tooltip %s', async (_, service) => {
+    render(
+      <DAGRunActions
+        dagRun={runningRun}
+        name="etl"
+        displayMode="full"
+        hideUnavailable
+        service={service}
+      />
+    );
+    await userEvent.hover(screen.getByRole('button', { name: 'Stop' }));
+    expect((await screen.findAllByText('Stop this run'))[0]).toBeTruthy();
+    expect(screen.queryByText(/It restarts after/)).toBeNull();
   });
 });
