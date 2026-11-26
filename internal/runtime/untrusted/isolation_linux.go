@@ -36,9 +36,6 @@ import (
 // user after SIGKILL.
 const killTimeout = 30 * time.Second
 
-// pidfdOpen opens a descriptor that follows a process. A test replaces it.
-var pidfdOpen = unix.PidfdOpen
-
 // gitConfig is the global git config of the restricted user. The folders that
 // hold an entry .git belong to the user of the worker, and git refuses a
 // repository of another owner without it.
@@ -82,8 +79,6 @@ func Poisoned() error {
 type isolation struct {
 	step        string
 	uid, gid    uint32
-	workerUID   int
-	workerGID   int
 	workDir     string
 	lexicalWork string
 	privateDir  string
@@ -91,25 +86,10 @@ type isolation struct {
 	outputCopy  string
 	nodeOutput  string
 	outputLimit int64
-	// passDirs keeps each folder above the work directory that got the bit x
-	// for others, with its mode.
-	passDirs map[string]protectedDir
 	// hostLock is the lock file of the restricted user on the host.
 	hostLock *os.File
 
-	watchers sync.WaitGroup
-	stopping atomic.Bool
-	ended    atomic.Bool
-	// startMu guards starting and running. The processes of the restricted
-	// user cannot be told apart by their root process, so a watcher stops them
-	// only while no other root process of the step runs or is starting.
-	startMu sync.Mutex
-	// starting counts the processes that prepare accepted and that have
-	// neither started nor failed to start.
-	starting int
-	// running counts the root processes that a watcher follows and that have
-	// not ended.
-	running int
+	ended atomic.Bool
 	// outputMu guards nodeOutput.
 	outputMu sync.Mutex
 }
@@ -141,10 +121,7 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 		step:        req.StepName,
 		uid:         req.Config.UID,
 		gid:         req.Config.GID,
-		workerUID:   os.Geteuid(),
-		workerGID:   os.Getegid(),
 		outputLimit: req.OutputLimit,
-		passDirs:    make(map[string]protectedDir),
 		hostLock:    hostLock,
 	}
 	defer func() {
@@ -166,7 +143,7 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 		poison(err)
 		return iso, fmt.Errorf("%w: %w", ErrRunAborted, stepError(req.StepName, "stop the processes of the restricted user", "", err))
 	}
-	if err := iso.place(req.WorkDir, req.WorkingDir, req.ManagedRoot); err != nil {
+	if err := iso.place(req.WorkDir, req.WorkingDir); err != nil {
 		return iso, err
 	}
 	if err := iso.makePrivateDir(); err != nil {
@@ -290,21 +267,20 @@ func (iso *isolation) releaseSlot() {
 
 // abort undoes a Begin that failed. No process of the restricted user started.
 func (iso *isolation) abort() error {
-	var errs []error
-	errs = append(errs, iso.restoreModes())
+	var err error
 	if iso.privateDir != "" {
-		if err := os.RemoveAll(iso.privateDir); err != nil {
-			errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, err))
+		if removeErr := os.RemoveAll(iso.privateDir); removeErr != nil {
+			err = stepError(iso.step, "remove the folder", iso.privateDir, removeErr)
 		}
 	}
 	iso.releaseSlot()
-	return errors.Join(errs...)
+	return err
 }
 
 // place checks that the working directory of the step is in the work
 // directory of the run, and makes the folders that are absent. No folder on the
 // way can be a symbolic link.
-func (iso *isolation) place(workDir, workingDir, managedRoot string) error {
+func (iso *isolation) place(workDir, workingDir string) error {
 	if strings.TrimSpace(workDir) == "" {
 		return fmt.Errorf("untrusted step %q: the run has no work directory", iso.step)
 	}
@@ -323,7 +299,7 @@ func (iso *isolation) place(workDir, workingDir, managedRoot string) error {
 	if !info.IsDir() {
 		return stepError(iso.step, "read the work directory", real, errors.New("not a folder"))
 	}
-	if err := iso.openPath(real, managedRoot); err != nil {
+	if err := checkTraversable(real); err != nil {
 		return stepError(iso.step, "reach the work directory", real, err)
 	}
 	iso.workDir = real
@@ -375,63 +351,6 @@ func checkTraversable(path string) error {
 			return nil
 		}
 	}
-}
-
-// openPath lets the restricted user pass each folder above path. A folder of
-// a run below managedRoot (paths.dag_run_work_dir) that belongs to the user of
-// the worker gets the bit x for others until the end of the step. Any other
-// folder that the restricted user cannot pass stops the step.
-func (iso *isolation) openPath(path, managedRoot string) error {
-	managed := ""
-	if managedRoot != "" {
-		if resolved, err := filepath.EvalSymlinks(managedRoot); err == nil {
-			managed = resolved
-		}
-	}
-	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
-		info, err := os.Stat(dir)
-		if err != nil {
-			return err
-		}
-		if info.Mode().Perm()&0o001 == 0 {
-			uid, _ := ownerOf(info)
-			if managed == "" || !within(managed, dir) || uid != iso.workerUID {
-				return fmt.Errorf("the folder %s has the mode %04o: the restricted user cannot pass it", dir, info.Mode().Perm())
-			}
-			if err := iso.passDir(dir); err != nil {
-				return err
-			}
-		}
-		if parent := filepath.Dir(dir); parent == dir {
-			return nil
-		}
-	}
-}
-
-// passDir gives the bit x for others to the folder, through a descriptor that
-// the isolation keeps for the restore of its mode.
-func (iso *isolation) passDir(dir string) error {
-	if _, done := iso.passDirs[dir]; done {
-		return nil
-	}
-	fd, err := unix.Open(dir, unix.O_PATH|unix.O_NOFOLLOW|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return &fs.PathError{Op: "open", Path: dir, Err: err}
-	}
-	var st unix.Stat_t
-	if err := unix.Fstat(fd, &st); err != nil {
-		_ = unix.Close(fd)
-		return &fs.PathError{Op: "stat", Path: dir, Err: err}
-	}
-	mode := st.Mode & 0o7777
-	iso.passDirs[dir] = protectedDir{fd: fd, mode: mode}
-	return chmodFDPath(fd, dir, mode|0o001)
-}
-
-// within reports whether path is root or a path below it.
-func within(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 // relativeToWork returns the path of dir relative to the work directory. ok is
@@ -517,8 +436,7 @@ func (iso *isolation) writeRestrictedFile(path string, data []byte, mode fs.File
 	return nil
 }
 
-// prepare applies the isolation to cmd. The process counts as starting until
-// started or abandon settles it.
+// prepare applies the isolation to cmd.
 func (iso *isolation) prepare(cmd *exec.Cmd, env []string) error {
 	if iso.ended.Load() {
 		return fmt.Errorf("untrusted step %q: the step ended", iso.step)
@@ -557,95 +475,14 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) error {
 	cmd.SysProcAttr.Setctty = false
 	cmd.SysProcAttr.Noctty = false
 	cmd.SysProcAttr.Pgid = 0
-
-	iso.startMu.Lock()
-	defer iso.startMu.Unlock()
-	iso.starting++
 	return nil
 }
 
-// started watches the root process of the step. When it ends and no other
-// root process of the step runs, Dagu stops each process of the restricted
-// user, so that a process that it left cannot keep the pipes of the step open.
-// It does not stop the processes while another root process runs.
-func (iso *isolation) started(pid int) {
-	fd := -1
-	if pid > 0 {
-		// The process is not reaped yet: its caller has not called Wait.
-		if opened, err := pidfdOpen(pid, 0); err == nil {
-			fd = opened
-		}
-	}
-	// One step moves the process from starting to running, so that no check
-	// in between sees neither. A process that no watcher can follow counts as
-	// running until the end of the step, so that no watcher stops it.
-	iso.startMu.Lock()
-	iso.starting--
-	if pid > 0 {
-		iso.running++
-	}
-	iso.startMu.Unlock()
-	if fd < 0 {
-		return
-	}
-	iso.watchers.Go(func() {
-		defer func() { _ = unix.Close(fd) }()
-		fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}} // #nosec G115 -- a file descriptor fits in int32.
-		ended := false
-		for !ended && !iso.stopping.Load() {
-			n, err := unix.Poll(fds, 200)
-			if err != nil && !errors.Is(err, unix.EINTR) {
-				break
-			}
-			ended = n > 0
-		}
-		iso.startMu.Lock()
-		iso.running--
-		iso.startMu.Unlock()
-		if ended {
-			iso.killLeftovers()
-		}
-	})
-}
+// started and abandon have nothing to do: end stops each process of the
+// restricted user.
+func (*isolation) started(int) {}
 
-// abandon settles a process that failed to start.
-func (iso *isolation) abandon() {
-	iso.startMu.Lock()
-	defer iso.startMu.Unlock()
-	iso.starting--
-}
-
-// otherProcesses reports whether a root process of the step runs, and whether
-// one is starting.
-func (iso *isolation) otherProcesses() (running, starting bool) {
-	iso.startMu.Lock()
-	defer iso.startMu.Unlock()
-	return iso.running > 0, iso.starting > 0
-}
-
-// killLeftovers stops the processes of the restricted user once no root
-// process of the step runs. It returns when one runs, whose watcher stops them
-// at its own end, and waits while one is starting. The check comes after each
-// scan: a root process that the scan sees was counted before the check.
-func (iso *isolation) killLeftovers() {
-	deadline := time.Now().Add(killTimeout)
-	for !iso.stopping.Load() && time.Now().Before(deadline) {
-		pids, err := userProcesses(iso.uid)
-		if err != nil || len(pids) == 0 {
-			return
-		}
-		running, starting := iso.otherProcesses()
-		if running {
-			return
-		}
-		if !starting {
-			for _, pid := range pids {
-				_ = syscall.Kill(pid, syscall.SIGKILL)
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
+func (*isolation) abandon() {}
 
 // end runs the actions of the end of the step (Spec 092, "End"). An error that
 // wraps ErrRunAborted stops the run.
@@ -653,8 +490,6 @@ func (iso *isolation) end(_ context.Context) error {
 	iso.ended.Store(true)
 	defer iso.releaseSlot()
 
-	iso.stopping.Store(true)
-	iso.watchers.Wait()
 	if killErr := killUser(iso.uid, iso.gid); killErr != nil {
 		// A live process of the restricted user could watch the later steps.
 		err := stepError(iso.step, "stop the processes of the restricted user", "", killErr)
@@ -663,7 +498,6 @@ func (iso *isolation) end(_ context.Context) error {
 	}
 
 	var errs []error
-	errs = append(errs, iso.restoreModes())
 	errs = append(errs, iso.copyOutput())
 	if err := os.RemoveAll(iso.privateDir); err != nil {
 		errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, err))

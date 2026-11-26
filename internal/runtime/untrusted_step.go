@@ -32,7 +32,6 @@ func beginUntrustedStep(ctx context.Context, node *Node) (context.Context, *untr
 		StepName:    step.Name,
 		Config:      config.GetConfig(ctx).Untrusted,
 		WorkDir:     GetDAGContext(ctx).RunWorkDir,
-		ManagedRoot: config.GetConfig(ctx).Paths.DAGRunWorkDir,
 		WorkingDir:  env.WorkingDir,
 		OutputLimit: maxOutputSize(ctx),
 		LockDir:     config.GetConfig(ctx).Paths.DataDir,
