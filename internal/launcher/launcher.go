@@ -160,9 +160,7 @@ func (b *SubCmdBuilder) parentEnv(extra ...string) []string {
 func filterExecutionEnv(env []string) []string {
 	filtered := env[:0]
 	for _, entry := range env {
-		key, _, _ := strings.Cut(entry, "=")
 		if strings.HasPrefix(entry, runenv.EnvKeyQueueDispatchRetry+"=") ||
-			strings.EqualFold(key, runenv.EnvKeyServerRunReports) ||
 			strings.HasPrefix(entry, runenv.EnvKeyDAGDefinitionID+"=") ||
 			strings.HasPrefix(entry, runenv.EnvKeyParallelItem+"=") {
 			continue

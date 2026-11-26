@@ -64,7 +64,6 @@ type DAGExecutor struct {
 	workspaceBaseConfigDir string
 	profileResolver        DAGProfileResolver
 	openCodeHost           *opencodehost.Host
-	serverReportsRuns      func(context.Context) bool
 }
 
 type DAGProfileResolver interface {
@@ -322,7 +321,7 @@ func (e *DAGExecutor) executeDAG(
 			DefinitionID: definitionID,
 			NoReuse:      previousStatus != nil && previousStatus.NoReuse,
 		})
-		spec.Env = append(spec.Env, e.localLaunchEnv(ctx, dag)...)
+		spec.Env = append(spec.Env, e.managedOpenCodeEnv(ctx, dag)...)
 		return launcher.Start(ctx, spec)
 
 	case dispatch.DispatchOperationRetry:
@@ -331,7 +330,7 @@ func (e *DAGExecutor) executeDAG(
 			TriggerActor:  triggerActor,
 			QueueDispatch: true,
 		})
-		spec.Env = append(spec.Env, e.localLaunchEnv(ctx, dag)...)
+		spec.Env = append(spec.Env, e.managedOpenCodeEnv(ctx, dag)...)
 		// A queued run outlives the scheduler that started it, as a run started
 		// directly does.
 		return launcher.Run(context.WithoutCancel(ctx), spec)
@@ -441,16 +440,8 @@ func (e *DAGExecutor) Restart(ctx context.Context, entry DAGEntry, scheduleTime 
 		ScheduleTime: stringutil.FormatTime(scheduleTime),
 		DefinitionID: entry.DefinitionID,
 	})
-	spec.Env = append(spec.Env, e.localLaunchEnv(ctx, prepared)...)
+	spec.Env = append(spec.Env, e.managedOpenCodeEnv(ctx, prepared)...)
 	return launcher.Start(ctx, spec)
-}
-
-func (e *DAGExecutor) localLaunchEnv(ctx context.Context, dag *ir.DAG) []string {
-	env := e.managedOpenCodeEnv(ctx, dag)
-	if e.serverReportsRuns != nil && e.serverReportsRuns(ctx) {
-		env = append(env, runenv.EnvKeyServerRunReports+"=1")
-	}
-	return env
 }
 
 func (e *DAGExecutor) managedOpenCodeEnv(ctx context.Context, dag *ir.DAG) []string {

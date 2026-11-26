@@ -177,19 +177,6 @@ func Start(
 	return r
 }
 
-// HandlesRunReports reports whether the server is configured and connected
-// to send run reports, so its local scheduler children can skip their own.
-func (r *Reporter) HandlesRunReports(ctx context.Context) bool {
-	if r.events == nil {
-		return false
-	}
-	if _, ok := r.credentials(); !ok {
-		return false
-	}
-	level, err := r.monitoring.level(ctx)
-	return err == nil && level.ReportsRuns()
-}
-
 // Audit is what reports say about sending audit entries to Dagu Console.
 type Audit struct {
 	// Level is cloud.audit; empty is off.

@@ -4,12 +4,9 @@
 package cmd
 
 import (
-	"os"
-
 	"github.com/dagucloud/dagu/v2/internal/cloudreport"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 )
@@ -40,11 +37,9 @@ func withJobReports(ctx *Context, store runstate.Store, run jobRun) runstate.Sto
 
 // jobReports returns how the run reports itself to Dagu Console, or nil when
 // it does not: without a run key, at a level that sends no runs, and for a
-// sub-DAG run or one reported by a server.
+// sub-DAG run, one a worker runs, or one a server on this data directory
+// reports.
 func jobReports(ctx *Context, run jobRun) *cloudreport.JobReports {
-	if os.Getenv(runenv.EnvKeyServerRunReports) == "1" {
-		return nil
-	}
 	key := ctx.Config.Cloud.RunKey
 	if key == "" {
 		return nil
@@ -58,6 +53,11 @@ func jobReports(ctx *Context, run jobRun) *cloudreport.JobReports {
 		level = config.ReportRuns
 	}
 	if !level.ReportsRuns() || !run.parent.Zero() || run.workerID != "local" {
+		return nil
+	}
+	// The server reports every run of its data directory, whatever started
+	// it, so a job report would count the run twice.
+	if cloudReportLease(ctx.Config).IsLocked() {
 		return nil
 	}
 	return &cloudreport.JobReports{

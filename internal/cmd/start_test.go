@@ -21,7 +21,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
-	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -965,10 +964,12 @@ func TestCmdStart_JobRunTrigger(t *testing.T) {
 		})
 	}
 
-	t.Run("ServerOwnsReport", func(t *testing.T) {
-		t.Setenv(runenv.EnvKeyServerRunReports, "1")
+	t.Run("ServerReportsRuns", func(t *testing.T) {
 		th := test.SetupCommand(t)
 		dag := th.DAG(t, twoSteps)
+		lease := cmd.CloudReportLeaseForTest(th.Config)
+		require.NoError(t, lease.TryLock())
+		t.Cleanup(func() { _ = lease.Unlock() })
 		reportsBefore := len(console.reports())
 
 		th.RunCommand(t, cmd.Start(), test.CmdTest{

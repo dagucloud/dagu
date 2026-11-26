@@ -13,7 +13,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 )
@@ -25,7 +24,10 @@ func jobContext(t *testing.T, cloud config.CloudConfig, logs *bytes.Buffer) *Con
 	t.Helper()
 	ctx := logger.WithLogger(t.Context(), logger.NewLogger(
 		logger.WithFormat("text"), logger.WithWriter(logs), logger.WithQuiet()))
-	return &Context{Context: ctx, Config: &config.Config{Cloud: cloud}}
+	return &Context{Context: ctx, Config: &config.Config{
+		Cloud: cloud,
+		Paths: config.PathsConfig{DataDir: t.TempDir()},
+	}}
 }
 
 // localRun is a top-level run this machine runs itself.
@@ -85,14 +87,18 @@ func TestJobReportsDespiteALicense(t *testing.T) {
 	assert.NotNil(t, jobReports(ctx, localRun))
 }
 
-func TestJobReportsSkipServerOwnedRun(t *testing.T) {
-	t.Setenv(runenv.EnvKeyServerRunReports, "1")
+// A run sends no job report while a server reports the data directory's
+// runs, and reports again once the server stops.
+func TestJobReportsSkipServerReportedRun(t *testing.T) {
+	t.Parallel()
 	var logs bytes.Buffer
 	ctx := jobContext(t, config.CloudConfig{RunKey: testRunKey}, &logs)
+	lease := cloudReportLease(ctx.Config)
+	require.NoError(t, lease.TryLock())
 
 	assert.Nil(t, jobReports(ctx, localRun))
-	baseEnv := config.LoadBaseEnvWithExtras([]string{runenv.EnvKeyServerRunReports}, nil)
-	assert.NotContains(t, baseEnv.AsSlice(), runenv.EnvKeyServerRunReports+"=1")
+	require.NoError(t, lease.Unlock())
+	assert.NotNil(t, jobReports(ctx, localRun))
 }
 
 // A key that is not a run key warns, naming the setting and not the value.

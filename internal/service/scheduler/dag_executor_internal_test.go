@@ -12,27 +12,12 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/stretchr/testify/require"
 )
-
-func TestLocalLaunchEnvMarksServerReportedRuns(t *testing.T) {
-	t.Parallel()
-	dag := &ir.DAG{}
-	executor := &DAGExecutor{}
-	require.Empty(t, executor.localLaunchEnv(t.Context(), dag))
-
-	enabled := false
-	executor.serverReportsRuns = func(context.Context) bool { return enabled }
-	require.Empty(t, executor.localLaunchEnv(t.Context(), dag))
-
-	enabled = true
-	require.Equal(t, []string{runenv.EnvKeyServerRunReports + "=1"}, executor.localLaunchEnv(t.Context(), dag))
-}
 
 func TestDAGExecutorPrepareScheduledDAGUsesWorkspaceBaseConfig(t *testing.T) {
 	t.Parallel()

@@ -76,9 +76,6 @@ const (
 	// an already-queued run from the scheduler/worker queue dispatch path.
 	EnvKeyQueueDispatchRetry = "DAGU_QUEUE_DISPATCH_RETRY"
 
-	// EnvKeyServerRunReports marks a child whose server owns run reporting.
-	EnvKeyServerRunReports = "_DAGU_INTERNAL_SERVER_RUN_REPORTS"
-
 	// EnvKeyDAGDefinitionID carries the stable persistence identity into subprocesses.
 	EnvKeyDAGDefinitionID = "DAGU_DAG_DEFINITION_ID"
 
@@ -120,7 +117,6 @@ var reservedRunEnvNames = []string{
 	EnvKeyDAGPushBackPreviousStdoutFile,
 	EnvKeyExternalStepRetry,
 	EnvKeyQueueDispatchRetry,
-	EnvKeyServerRunReports,
 }
 
 // ReservedRunEnvNames returns the run-managed environment variable names.
