@@ -276,6 +276,12 @@ func TestLogMaskingWriter_ProviderTokens(t *testing.T) {
 			expected: base64Blob + "\n",
 		},
 		{
+			// The match that starts inside "xya29." holds the real token.
+			name:     "token inside a rejected match",
+			input:    "xya29." + googleAccessToken + "\n",
+			expected: "xya29.*******\n",
+		},
+		{
 			name:     "secret value beside a token",
 			input:    "secret123 " + googleAccessToken + "\n",
 			expected: "******* *******\n",

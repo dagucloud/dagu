@@ -203,14 +203,31 @@ func (m *Masker) spans(text string, tokens bool) []span {
 	}
 	if tokens {
 		for _, pattern := range providerTokenPatterns {
-			for _, match := range pattern.FindAllStringIndex(text, -1) {
-				if tokenStart(text, match[0]) {
-					spans = append(spans, span{start: match[0], end: match[1]})
-				}
-			}
+			spans = appendTokenSpans(spans, text, pattern)
 		}
 	}
 	return joinSpans(spans)
+}
+
+// appendTokenSpans appends to spans the provider tokens in text that
+// pattern matches. A match that does not start a token can hold one, as
+// "ya29." does inside "xya29.ya29.<token>", so the search resumes just
+// after its start.
+func appendTokenSpans(spans []span, text string, pattern *regexp.Regexp) []span {
+	for offset := 0; offset < len(text); {
+		match := pattern.FindStringIndex(text[offset:])
+		if match == nil {
+			break
+		}
+		start, end := offset+match[0], offset+match[1]
+		if !tokenStart(text, start) {
+			offset = start + 1
+			continue
+		}
+		spans = append(spans, span{start: start, end: end})
+		offset = end
+	}
+	return spans
 }
 
 // tokenStart reports whether a provider token can start at offset start of
