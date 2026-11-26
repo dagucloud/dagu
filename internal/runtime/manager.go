@@ -110,8 +110,8 @@ type Manager struct {
 	// project names the project whose runs the Manager handles. It is
 	// empty while projects are off.
 	project string
-	// dataDir is the data directory of the home, which keeps the control
-	// sockets of its runs apart from those of other homes on the host.
+	// dataDir is the data directory of the install, which keeps the control
+	// sockets of its runs apart from those of other installs on the host.
 	dataDir string
 }
 
@@ -263,7 +263,7 @@ func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *ir.DAG, dagRunID st
 				return err
 			}
 		}
-		for _, addr := range m.dagSocketCandidates(runRef, dag) {
+		for _, addr := range m.stopSocketCandidates(runRef, dag) {
 			if !fileutil.FileExists(addr) {
 				continue
 			}
@@ -370,7 +370,11 @@ func (m *Manager) waitingCheckpointSettled(ctx context.Context, dag *ir.DAG, sta
 // status and falls back to a fresh proc heartbeat plus persisted running status.
 func (m *Manager) IsRunning(ctx context.Context, dag *ir.DAG, dagRunID string) bool {
 	runRef := ir.NewDAGRunRef(dag.Name, dagRunID)
-	st, _ := m.currentStatus(ctx, runRef, dag)
+	// Only this install's address counts here: the addresses of earlier
+	// versions name no data directory, so another install can listen there.
+	// The proc store below finds a run of this install that such a version
+	// started.
+	st, _ := m.currentStatusAt(dagRunID, m.SocketAddr(runRef))
 	if st != nil && st.DAGRunID == dagRunID && st.Status == ir.Running {
 		return true
 	}
@@ -405,7 +409,9 @@ func (m *Manager) GetCurrentStatus(ctx context.Context, dag *ir.DAG, dagRunID st
 	if err == nil {
 		return status, nil
 	}
-	currentStatus, currentErr := m.currentStatus(ctx, ir.NewDAGRunRef(dag.Name, dagRunID), dag)
+	// With no attempt of this install, an address of an earlier version can
+	// belong to another install, so only this install's address is read.
+	currentStatus, currentErr := m.currentStatusAt(dagRunID, m.SocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)))
 	if currentErr == nil {
 		return currentStatus, nil
 	}
@@ -495,10 +501,16 @@ func (m *Manager) FindSubDAGRunStatus(ctx context.Context, rootDAGRun ir.DAGRunR
 	return m.resolveRunningStatus(ctx, dag, attempt, status, false), nil
 }
 
-// currentStatus retrieves the current status of a running DAG by querying its socket.
-// This is a private method used internally by other status-related methods.
+// currentStatus retrieves the current status of a running DAG by querying its
+// socket. The caller holds a stored Running status of this install, so an
+// address of an earlier version reaches a run that such a version started.
 func (m *Manager) currentStatus(_ context.Context, dagRun ir.DAGRunRef, dag *ir.DAG) (*ir.DAGRunStatus, error) {
-	for _, addr := range m.dagSocketCandidates(dagRun, dag) {
+	return m.currentStatusAt(dagRun.ID, m.dagSocketCandidates(dagRun, dag)...)
+}
+
+// currentStatusAt asks the first of addrs that answers for the status of a run.
+func (m *Manager) currentStatusAt(dagRunID string, addrs ...string) (*ir.DAGRunStatus, error) {
+	for _, addr := range addrs {
 		if !fileutil.FileExists(addr) {
 			continue
 		}
@@ -511,22 +523,35 @@ func (m *Manager) currentStatus(_ context.Context, dagRun ir.DAGRunRef, dag *ir.
 		}
 		return ir.StatusFromJSON(statusJSON)
 	}
-	return nil, fmt.Errorf("socket file does not exist for dag-run ID %s", dagRun.ID)
+	return nil, fmt.Errorf("socket file does not exist for dag-run ID %s", dagRunID)
 }
 
 // dagSocketCandidates returns the addresses at which a run can listen: its
-// own, then those of earlier versions, which named no home.
+// own, then those of earlier versions, which named no data directory.
 func (m *Manager) dagSocketCandidates(dagRun ir.DAGRunRef, dag *ir.DAG) []string {
-	addrs := []string{m.SocketAddr(dagRun), proc.LegacyProjectDAGSocketAddr(m.project, dagRun)}
-	// Only a run of the default project may listen at the address of the
-	// oldest versions, which named the DAG by its file and no project.
-	if dag == nil || dag.Location == "" || (m.project != "" && !strings.EqualFold(m.project, project.DefaultName)) {
+	addrs := []string{m.SocketAddr(dagRun)}
+	// Earlier versions served the default project only.
+	if m.project != "" && !strings.EqualFold(m.project, project.DefaultName) {
 		return addrs
 	}
-	if legacy := sock.LegacyAddr(dag.Location, dagRun.ID); !slices.Contains(addrs, legacy) {
-		addrs = append(addrs, legacy)
+	addrs = append(addrs, sock.LegacyAddr(dagRun.Name, dagRun.ID))
+	if dag != nil && dag.Location != "" {
+		if legacy := sock.LegacyAddr(dag.Location, dagRun.ID); !slices.Contains(addrs, legacy) {
+			addrs = append(addrs, legacy)
+		}
 	}
 	return addrs
+}
+
+// stopSocketCandidates returns the addresses that a stop request goes to. A
+// run of this install whose own address exists listens there. An address of
+// an earlier version is tried only without it, as another install can listen
+// at that address.
+func (m *Manager) stopSocketCandidates(dagRun ir.DAGRunRef, dag *ir.DAG) []string {
+	if own := m.SocketAddr(dagRun); fileutil.FileExists(own) {
+		return []string{own}
+	}
+	return m.dagSocketCandidates(dagRun, dag)
 }
 
 func isLocalWorkerID(workerID string) bool {

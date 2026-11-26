@@ -24,8 +24,8 @@ const (
 )
 
 // Addr returns the local socket address for an identity and run ID of the
-// home whose data lives in dataDir. Two homes on one host never share an
-// address, even for the same identity and run ID.
+// install whose data lives in dataDir. Two installs on one host never share
+// an address, even for the same identity and run ID.
 func Addr(dataDir, identity, runID string) string {
 	return addr(identity, runID, "_"+hashOf(dataDirKey(dataDir)))
 }
@@ -43,7 +43,7 @@ func addr(identity, runID, scope string) string {
 	hash := scope + "_" + hashOf(identity+runID)
 	safeName := fileutil.SafeName(identity)
 	// The name sits between a prefix and a hash, so a Windows device name is
-	// no device here, and it keeps the address that earlier versions used.
+	// no device here. LegacyAddr keeps the bytes earlier versions used.
 	if fileutil.SafeNameEscapesDevice(identity) {
 		safeName = identity
 	}
@@ -60,7 +60,7 @@ func hashOf(s string) string {
 }
 
 // dataDirKey gives one key for every spelling of a data directory that the
-// processes of one home can use.
+// processes of one install can use.
 func dataDirKey(dataDir string) string {
 	if abs, err := filepath.Abs(dataDir); err == nil {
 		dataDir = abs

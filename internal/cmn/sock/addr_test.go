@@ -29,18 +29,19 @@ func TestAddr(t *testing.T) {
 		require.True(t, strings.HasSuffix(addr, ".sock"))
 	})
 
-	// The processes of one home can spell its data directory in more than
-	// one way; the processes of two homes never share an address.
-	t.Run("OneAddressForEachHome", func(t *testing.T) {
+	// The processes of one install can spell its data directory in more
+	// than one way; the processes of two installs never share an address.
+	t.Run("OneAddressForEachInstall", func(t *testing.T) {
 		t.Parallel()
 		addr := Addr(dataDir, "mydag", "run123")
 		require.Equal(t, addr, Addr(dataDir+string(filepath.Separator), "mydag", "run123"))
-		require.Equal(t, addr, Addr(filepath.Join(dataDir, "..", "data"), "mydag", "run123"))
+		sep := string(filepath.Separator)
+		require.Equal(t, addr, Addr(dataDir+sep+".."+sep+"data", "mydag", "run123"))
 		require.NotEqual(t, addr, Addr(filepath.Join(t.TempDir(), "data"), "mydag", "run123"))
 		require.NotEqual(t, addr, LegacyAddr("mydag", "run123"))
 	})
 
-	// Two processes of one home can reach its data directory through a
+	// Two processes of one install can reach its data directory through a
 	// symlink and through its target.
 	t.Run("SymlinkResolves", func(t *testing.T) {
 		t.Parallel()
@@ -54,12 +55,13 @@ func TestAddr(t *testing.T) {
 		require.Equal(t, Addr(target, "mydag", "run123"), Addr(link, "mydag", "run123"))
 	})
 
-	// The socket name embeds the identity, so even a Windows device name
-	// such as con is no device there. LegacyAddr keeps the name earlier
-	// versions used, so a run they started stays reachable.
+	// LegacyAddr keeps the bytes earlier versions used, so a run they
+	// started stays reachable. The socket name embeds the identity, so even
+	// a Windows device name such as con is no device there.
 	t.Run("DeviceNameUnchanged", func(t *testing.T) {
 		t.Parallel()
 		hash := fmt.Sprintf("%x", md5.Sum([]byte("con"+"run123")))[:6] //nolint:gosec
+		require.Equal(t, filepath.Join(socketDir(), "@dagu_mydag_c2a8cc.sock"), LegacyAddr("mydag", "run123"))
 		require.Equal(t, "@dagu_con_"+hash+".sock", filepath.Base(LegacyAddr("con", "run123")))
 		require.True(t, strings.HasPrefix(filepath.Base(Addr(dataDir, "con", "run123")), "@dagu_con_"))
 	})
