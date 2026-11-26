@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -175,6 +176,29 @@ func TestSkillsReadFile(t *testing.T) {
 	get("..%2F..%2FSKILL.md", http.StatusBadRequest)
 	get("%2Fetc%2Fpasswd", http.StatusBadRequest)
 	server.Client().Get("/api/v1/skills/missing/files?path=SKILL.md").ExpectStatus(http.StatusNotFound).Send(t)
+}
+
+// A file of a skill that the server cannot read gives 500, not 404, and the
+// body names no server path. The test needs a user other than root.
+func TestSkillsReadFileUnreadable(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a folder of mode 0000")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("a folder mode of 0 does not stop a read on Windows")
+	}
+	server := test.SetupServer(t)
+	writeSkillFile(t, server, "refund-policy", validSkill)
+	locked := filepath.Join(skillsDir(server), "refund-policy", "references")
+	require.NoError(t, os.MkdirAll(locked, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(locked, "faq.md"), []byte("# FAQ\n"), 0o600))
+	require.NoError(t, os.Chmod(locked, 0))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+
+	resp := server.Client().Get("/api/v1/skills/refund-policy/files?path=references/faq.md").
+		ExpectStatus(http.StatusInternalServerError).Send(t)
+	assert.NotContains(t, resp.Body, skillsDir(server))
 }
 
 func TestSkillsPathTraversal(t *testing.T) {

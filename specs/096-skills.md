@@ -333,7 +333,9 @@ A write returns `SkillWriteResult`: the new `hash`, the `errors`, the `warnings`
 The client uses the new hash for its next write. `DELETE /skills/{name}` returns 204 with no body.
 `DELETE /skills/{name}/files` returns 200 with `SkillWriteResult`. `PUT /skills/{name}/files` refuses
 the path `SKILL.md` with 400, because `SKILL.md` has its own route. `GET /skills/{name}/files` gives 409
-when the file is gone or has another size than the read of the skill recorded. A file whose content
+when the file is gone or has another size than the read of the skill recorded, or when the skill
+did not settle while the server read it (`changing`). It gives 500 for a skill that the server
+cannot read (`unreadable`). A file whose content
 changes during the stream stops the stream before its last bytes, so a complete body always has
 the hash in `ETag`. The server then closes the connection and adds nothing to the body. It gives 413 for a file above 4 MiB; the ZIP download includes such a file. The
 response has the type `application/octet-stream`, and the header `Content-Disposition` is an
@@ -474,6 +476,7 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | `TestSkillsGet` (unit) | `GET /skills/{name}` returns the raw `SKILL.md`, the files and the issues, 404 for an unknown skill and 400 for a name that is not a folder name. |
 | `TestSkillsReadFile` (unit) | `GET /skills/{name}/files` sends a text file and a binary file as stored, as an attachment of type `application/octet-stream` with the hash in `ETag`. A file above 4 MiB gives 413, a link 404 and a path that leaves the folder 400. |
 | `TestSkillFileStreamAborts` (unit) | A file that changes during the stream aborts the response, and no error body joins the partial file. |
+| `TestSkillsReadFileUnreadable` (unit) | `GET /skills/{name}/files` gives 500, not 404, for a skill that the server cannot read, and the body names no server path. |
 | `TestSkillsPathTraversal` (unit) | A skill name that leaves the skills directory gives 400 or 404. |
 
 The writes, the file writes and the ZIP download have no test yet.

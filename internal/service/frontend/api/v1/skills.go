@@ -39,6 +39,11 @@ var (
 		Message:    "Failed to read skill",
 		HTTPStatus: http.StatusInternalServerError,
 	}
+	errSkillChanged = &Error{
+		Code:       api.ErrorCodeConflict,
+		Message:    "The skill changed while it was read; try again",
+		HTTPStatus: http.StatusConflict,
+	}
 	errSkillFileTooLarge = &Error{
 		Code:       api.ErrorCodePayloadTooLarge,
 		Message:    fmt.Sprintf("A skill file must not be larger than %d bytes", skill.MaxFileBytes),
@@ -123,6 +128,9 @@ func (a *API) GetSkillFile(ctx context.Context, request api.GetSkillFileRequestO
 	if err != nil {
 		return nil, a.skillReadError(ctx, request.Name, err)
 	}
+	if err := unsettledReadError(ctx, sk); err != nil {
+		return nil, err
+	}
 	file, ok := sk.File(rel)
 	if !ok {
 		return nil, &Error{Code: api.ErrorCodeNotFound, Message: "Skill file not found", HTTPStatus: http.StatusNotFound}
@@ -132,7 +140,7 @@ func (a *API) GetSkillFile(ctx context.Context, request api.GetSkillFileRequestO
 	case errors.Is(err, skill.ErrFileTooLarge):
 		return nil, errSkillFileTooLarge
 	case errors.Is(err, skill.ErrFileChanged):
-		return nil, &Error{Code: api.ErrorCodeConflict, Message: "The skill changed while it was read; try again", HTTPStatus: http.StatusConflict}
+		return nil, errSkillChanged
 	case err != nil:
 		logger.Error(ctx, "Failed to open skill file", tag.Name(request.Name), tag.Error(err))
 		return nil, errFailedToReadSkill
@@ -167,6 +175,21 @@ func (r *skillFileResponse) VisitGetSkillFileResponse(w http.ResponseWriter) err
 		logger.Warn(r.ctx, "Skill file stream ended early", tag.Error(err))
 		// Headers are committed; abort so no error body joins the partial file.
 		panic(http.ErrAbortHandler)
+	}
+	return nil
+}
+
+// unsettledReadError gives the error of a read that saw no file of the skill
+// because the folder kept changing or could not be read, and nil otherwise.
+func unsettledReadError(ctx context.Context, sk *skill.Skill) error {
+	for _, issue := range sk.Issues {
+		switch issue.Rule {
+		case skill.RuleChanging:
+			return errSkillChanged
+		case skill.RuleUnreadable:
+			logger.Error(ctx, "Failed to read skill", tag.Name(sk.Name), tag.Dir(sk.Dir))
+			return errFailedToReadSkill
+		}
 	}
 	return nil
 }
