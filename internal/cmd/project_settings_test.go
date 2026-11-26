@@ -4,6 +4,7 @@
 package cmd_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -149,8 +150,11 @@ func requireProjectSettingsRun(t *testing.T, th test.Command, dag test.DAG, runI
 	log, err := os.ReadFile(status.Nodes[1].Stdout)
 	require.NoError(t, err)
 	assert.Contains(t, string(log), "token=******* profile=*******")
+	stored, err := json.Marshal(status)
+	require.NoError(t, err)
 	for _, value := range []string{"project-token", "workspace-token", "profile-token"} {
 		assert.NotContains(t, string(log), value)
+		assert.NotContains(t, string(stored), value)
 	}
 	return status
 }
