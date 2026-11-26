@@ -441,13 +441,14 @@ func (m *Migrator) loadOrPlan(ctx context.Context, held func() error) (planFile,
 // checkPlan refuses a plan that would stop partway or lose state, before any
 // move is made:
 //   - a destination that exists, which its move would refuse;
-//   - a path, source or destination, that names another path of the plan
-//     again or lies in one, so that one move would change what another
-//     moves, or create the destination another finds.
+//   - a path, source or destination or the staging copy of a destination,
+//     that names another path of the plan again or lies in one, so that one
+//     move would change or discard what another moves, or create the
+//     destination another finds.
 func checkPlan(moves []move) error {
-	paths := make(map[string]string, 2*len(moves))
+	paths := make(map[string]string, 3*len(moves))
 	for _, mv := range moves {
-		for _, path := range []string{mv.From, mv.To} {
+		for _, path := range []string{mv.From, mv.To, mv.To + copySuffix} {
 			key := planKey(path)
 			if other, dup := paths[key]; dup {
 				return fmt.Errorf("plan the migration: %s and %s name one path", other, path)

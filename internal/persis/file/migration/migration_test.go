@@ -263,6 +263,27 @@ func TestRunRefusesForeignDestination(t *testing.T) {
 	assert.False(t, done)
 }
 
+// Queue directories keep the dots of DAG names, so one move's destination
+// may be another's name plus a suffix. The staging copy of one move never
+// replaces what another moved, whatever their order.
+func TestRunCopiesBesideDottedNames(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	dest := filepath.Join(dataDir, "projects", "default", "state", "queue")
+	moves := []move{
+		{From: v2Dir(t, dataDir, "queue", "etl.migrating", "item.json"), To: filepath.Join(dest, "etl.migrating")},
+		{From: v2Dir(t, dataDir, "queue", "etl", "item.json"), To: filepath.Join(dest, "etl")},
+	}
+	m, _ := newTestMigrator(t, dataDir, &fakeServices{}, moves)
+	m.mover.sameFileSystem = otherFileSystem
+
+	require.NoError(t, m.Run(context.Background()))
+	for _, mv := range moves {
+		assert.NoDirExists(t, mv.From)
+		assert.FileExists(t, filepath.Join(mv.To, "item.json"))
+	}
+}
+
 // A copy that fills its file system despite the estimate frees its space
 // again and waits for more room than it ran out of, instead of exiting.
 func TestRunWaitsWhenCopyFillsDisk(t *testing.T) {
@@ -400,6 +421,12 @@ func TestRunRefusesOverlappingPlan(t *testing.T) {
 			return []move{
 				{From: a, To: filepath.Join(dataDir, "projects", "a")},
 				{From: a, To: filepath.Join(dataDir, "projects", "b")},
+			}
+		}},
+		{name: "DestinationNamesStagingCopy", plan: func(dataDir, a, b string) []move {
+			return []move{
+				{From: a, To: filepath.Join(dataDir, "projects", "a")},
+				{From: b, To: filepath.Join(dataDir, "projects", "a"+copySuffix)},
 			}
 		}},
 		{name: "DestinationsDifferInCase", foldsCase: true, plan: func(dataDir, a, b string) []move {

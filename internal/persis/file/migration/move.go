@@ -20,8 +20,10 @@ import (
 const (
 	dirPerm = 0o750
 	// copySuffix names the directory a copy fills before it takes the
-	// destination's name, so a destination never holds part of a copy.
-	copySuffix = ".migrating"
+	// destination's name, so a destination never holds part of a copy. A
+	// store writes "%" only to escape a byte, never before "m", so no state
+	// has a name with this suffix; checkPlan refuses a plan where one would.
+	copySuffix = "%migrating"
 	// allocationUnit is the block size of common file systems. A copy takes
 	// at least one per file and per directory, whatever their length.
 	allocationUnit = 4096
