@@ -14,9 +14,12 @@ import (
 	"net/netip"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/llm/anthropicbeta"
 )
 
 // Resolver looks up the addresses of a host name. *net.Resolver implements it.
@@ -38,6 +41,10 @@ type Options struct {
 	// Dial opens the connection to the address that the proxy resolved. The
 	// default is a TCP dial with a connect timeout.
 	Dial DialFunc
+	// Upstream is the route of a request in origin form. It can be nil: the proxy
+	// then refuses such a request. The host and the port of the upstream MUST
+	// match a rule of Rules.
+	Upstream *Upstream
 	// Log receives one line for each decision. It can be nil.
 	Log func(format string, args ...any)
 	// MaxConnections bounds the client connections that the proxy holds at
@@ -49,12 +56,14 @@ type Options struct {
 // Proxy is an HTTP proxy that forwards a connection to a listed destination
 // only. It supports the method CONNECT, for TLS and for any TCP stream, and the
 // forward of a plain HTTP request. A connection to another destination gets the
-// status 403 and no connection leaves the proxy.
+// status 403 and no connection leaves the proxy. With an upstream, it also sends
+// a request in origin form to the upstream, with the key of the upstream.
 type Proxy struct {
 	rules    *Rules
 	resolver Resolver
 	dial     DialFunc
 	log      func(format string, args ...any)
+	upstream *Upstream
 
 	// tunnelIdle ends a tunnel in which no byte moved for this time.
 	tunnelIdle time.Duration
@@ -63,8 +72,13 @@ type Proxy struct {
 	// maxConnections bounds the client connections that Serve holds at once.
 	maxConnections int
 
-	reverse *httputil.ReverseProxy
+	transport *http.Transport
+	reverse   *httputil.ReverseProxy
+	origin    *httputil.ReverseProxy
 }
+
+// ErrUpstreamNotAllowed is the error of an upstream that no rule lists.
+var ErrUpstreamNotAllowed = errors.New("the upstream is not in the allow list")
 
 // connectTimeout limits the time to open one upstream connection.
 const connectTimeout = 15 * time.Second
@@ -78,8 +92,11 @@ func New(opts Options) (*Proxy, error) {
 	if opts.Rules == nil || opts.Rules.Len() == 0 {
 		return nil, errors.New("egress proxy: the allow list is empty; a policy with no destination uses no proxy")
 	}
+	if up := opts.Upstream; up != nil && !opts.Rules.Allows(up.host, up.port) {
+		return nil, fmt.Errorf("%w: %s:%d", ErrUpstreamNotAllowed, up.host, up.port)
+	}
 	p := &Proxy{
-		rules: opts.Rules, resolver: opts.Resolver, dial: opts.Dial, log: opts.Log,
+		rules: opts.Rules, resolver: opts.Resolver, dial: opts.Dial, log: opts.Log, upstream: opts.Upstream,
 		tunnelIdle: tunnelIdleTimeout, keepAliveIdle: keepAliveIdleTimeout,
 		maxConnections: opts.MaxConnections,
 	}
@@ -96,7 +113,7 @@ func New(opts Options) (*Proxy, error) {
 	if p.log == nil {
 		p.log = func(string, ...any) {}
 	}
-	transport := &http.Transport{
+	p.transport = &http.Transport{
 		// The dial goes through the same check as a CONNECT, so a redirect or a
 		// second request on a kept connection cannot leave the policy.
 		DialContext:           p.dialAllowed,
@@ -117,7 +134,7 @@ func New(opts Options) (*Proxy, error) {
 			r.Out.Header.Del("Proxy-Connection")
 			declineUpgrade(r.Out.Header)
 		},
-		Transport: transport,
+		Transport: p.transport,
 		// No forwarded request asks for an upgrade, so a 101 answer is an error.
 		// Refusing it here also closes the connection that the answer hands
 		// over, which the reverse proxy leaves open on its own refusal.
@@ -136,7 +153,40 @@ func New(opts Options) (*Proxy, error) {
 			http.Error(w, "egress proxy: the connection to the destination failed", http.StatusBadGateway)
 		},
 	}
+	if p.upstream != nil {
+		p.origin = &httputil.ReverseProxy{
+			Rewrite:   p.rewriteOrigin,
+			Transport: p.transport,
+			// A model API streams its answer: send each chunk at once.
+			FlushInterval: -1,
+			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+				p.log("egress proxy: %s %s:%d failed: %v", r.Method, p.upstream.host, p.upstream.port, err)
+				http.Error(w, "egress proxy: the connection to the destination failed", http.StatusBadGateway)
+			},
+		}
+	}
 	return p, nil
+}
+
+// rewriteOrigin points a request in origin form at the upstream. It joins the
+// paths, keeps the query, sets the host of the upstream, drops the credentials of
+// the client and sets the key.
+func (p *Proxy) rewriteOrigin(r *httputil.ProxyRequest) {
+	r.SetURL(p.upstream.target)
+	header := r.Out.Header
+	for _, name := range []string{"X-Api-Key", "Authorization", "Proxy-Authorization", "Proxy-Connection"} {
+		header.Del(name)
+	}
+	declineUpgrade(header)
+	switch p.upstream.auth {
+	case AuthXAPIKey:
+		header.Set("X-Api-Key", p.upstream.key)
+	case AuthBearer:
+		header.Set("Authorization", "Bearer "+p.upstream.key)
+	case AuthAnthropicOAuth:
+		header.Set("Authorization", "Bearer "+p.upstream.key)
+		header.Set("Anthropic-Beta", anthropicbeta.Join(header.Values("Anthropic-Beta"), AnthropicOAuthBeta))
+	}
 }
 
 // declineUpgrade removes the protocol upgrade from an outgoing request, so the
@@ -147,6 +197,22 @@ func New(opts Options) (*Proxy, error) {
 func declineUpgrade(header http.Header) {
 	header.Del("Connection")
 	header.Del("Upgrade")
+}
+
+// clientCredential describes the credential that a client sent to the route of
+// the upstream: the header and the digest of its value, never the value.
+func clientCredential(header http.Header) string {
+	if value := header.Get("X-Api-Key"); value != "" {
+		return "x-api-key sha256:" + Digest(value)
+	}
+	if value := header.Get("Authorization"); value != "" {
+		scheme, token, ok := strings.Cut(value, " ")
+		if !ok {
+			return "authorization sha256:" + Digest(value)
+		}
+		return "authorization " + scheme + " sha256:" + Digest(token)
+	}
+	return "none"
 }
 
 // admit decides for a destination of a request in absolute form or of CONNECT.
@@ -290,8 +356,20 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.serveConnect(w, r)
 		return
 	}
+	if p.origin != nil && r.URL.Scheme == "" && r.URL.Host == "" && strings.HasPrefix(r.URL.Path, "/") {
+		// The log has no path, which can hold a secret, and only digests of the
+		// credentials.
+		p.log("egress proxy: allow %s %s:%d (upstream): client credential %s replaced by the key sha256:%s (%s)",
+			r.Method, p.upstream.host, p.upstream.port, clientCredential(r.Header), p.upstream.keyDigest, p.upstream.auth)
+		p.origin.ServeHTTP(w, r)
+		return
+	}
 	if !r.URL.IsAbs() || r.URL.Host == "" {
-		http.Error(w, "egress proxy: send a request with an absolute URL, or use the method CONNECT", http.StatusBadRequest)
+		message := "egress proxy: send a request with an absolute URL, or use the method CONNECT"
+		if p.origin != nil {
+			message = "egress proxy: send a request with a path that starts with /, an absolute URL, or use the method CONNECT"
+		}
+		http.Error(w, message, http.StatusBadRequest)
 		return
 	}
 	if r.URL.Scheme != "http" {
