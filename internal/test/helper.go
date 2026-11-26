@@ -33,6 +33,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/migration"
 	filebaseconfig "github.com/dagucloud/dagu/v2/internal/persis/file/baseconfig"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/migration"
@@ -342,6 +343,12 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	queueStore := store.NewQueueStore(backend.Collection(persis.CollectionQueue))
 	stateStore := store.NewDAGStateStore(backend.Collection(persis.CollectionDAGState))
 	serviceMonitor := file.NewServiceRegistry(cfg)
+	if cfg.ProjectsEnabled {
+		// A subprocess with projects on migrates first. The test's own
+		// services would look like v2 ones and keep it waiting, so the
+		// migration of the empty home finishes before any of them starts.
+		require.NoError(t, migration.New(cfg.Paths.DataDir, serviceMonitor).Run(ctx))
+	}
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(backend.Collection(persis.CollectionWorkerHeartbeats))
 	leaseCollection := backend.Collection(persis.CollectionDAGRunLeases)
 	activeRunCollection := backend.Collection(persis.CollectionActiveDistributedRuns)
@@ -418,6 +425,10 @@ func writeHelperConfigFile(t *testing.T, cfg *config.Config, configPath string) 
 	}
 	if cfg.Core.TZ != "" {
 		configData["tz"] = cfg.Core.TZ
+	}
+	if cfg.ProjectsEnabled {
+		// A subprocess must serve projects as its parent does.
+		configData["experimental_projects"] = true
 	}
 
 	paths := map[string]any{
