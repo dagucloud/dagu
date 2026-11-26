@@ -36,6 +36,8 @@ type ProjectStoreCache struct {
 	// a later record failed. Only the goroutine that runs Run touches them.
 	released   []string
 	unrecorded bool
+	// onChange is called after each change the cache follows.
+	onChange []func([]project.Project)
 }
 
 // ProjectStoreOpener opens the stores of a project other than the default
@@ -68,7 +70,18 @@ func (c *ProjectStoreCache) Run(ctx context.Context) {
 	}
 	c.registry.Watch(ctx, func(projects []project.Project) {
 		c.follow(ctx, projects)
+		for _, fn := range c.onChange {
+			fn(projects)
+		}
 	})
+}
+
+// OnChange calls fn with every registered project each time the cache has
+// followed a change of the registry, once Get serves the stores of the
+// projects it opened. Calls are made one at a time from the goroutine that
+// runs Run, so fn must return quickly. OnChange must be called before Run.
+func (c *ProjectStoreCache) OnChange(fn func([]project.Project)) {
+	c.onChange = append(c.onChange, fn)
 }
 
 // Default returns the default project's stores.

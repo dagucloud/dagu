@@ -167,7 +167,10 @@ func NewProjectStores(
 	s.projectState = s.StateStore
 	dagOpts := []DAGRepositoryOption{WithDAGFileCache(opts.DAGCache)}
 	if !isDefault {
-		dagOpts = append(dagOpts, WithDAGSkipExamples(true))
+		// Creating a project makes its DAG directory. A directory gone
+		// later marks the project missing, so opening its stores must not
+		// make it again.
+		dagOpts = append(dagOpts, WithDAGSkipExamples(true), WithDAGSkipDirectoryCreation(true))
 	}
 	if s.DAGRepository, err = s.OpenDAGRepository(dagOpts...); err != nil {
 		return nil, fmt.Errorf("open the DAG store of project %s: %w", p.Name, err)
