@@ -246,6 +246,11 @@ func (s *ProjectSettings) HostKeyStore() (*store.HostKeyStore, error) {
 	return store.NewHostKeyStore(s.backend.Collection(persis.CollectionHostKeys))
 }
 
+// WorkerNodeStore opens the worker nodes, which every project shares.
+func (s *ProjectSettings) WorkerNodeStore() (*store.WorkerNodeStore, error) {
+	return store.NewWorkerNodeStore(s.server.backend.Collection(persis.CollectionWorkerNodes), s.server.WorkerHeartbeatStore)
+}
+
 // InventoryStore opens the project's node inventories.
 func (s *ProjectSettings) InventoryStore() (inventory.Store, error) {
 	hostKeys, err := s.HostKeyStore()
