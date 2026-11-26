@@ -64,14 +64,12 @@ type connectReply struct {
 // the answer. The test closes the connection.
 func connectWith(t *testing.T, proxyAddr, target string, auth ...string) connectReply {
 	t.Helper()
-	conn, err := net.Dial("tcp", proxyAddr)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	conn := dialProxy(t, proxyAddr)
 	request := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n", target, target)
 	for _, value := range auth {
 		request += "Proxy-Authorization: " + value + "\r\n"
 	}
-	_, err = io.WriteString(conn, request+"\r\n")
+	_, err := io.WriteString(conn, request+"\r\n")
 	require.NoError(t, err)
 	reader := bufio.NewReader(conn)
 	response, err := http.ReadResponse(reader, nil)
