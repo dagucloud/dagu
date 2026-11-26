@@ -15,13 +15,8 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	// lockDirName holds the lock directories of the writers. It is hidden, so
-	// that the listing of skills ignores it.
-	lockDirName = ".locks"
-)
-
-// InvalidError is returned when the content of a write breaks a rule.
+// InvalidError is returned when a path, or the content of a write, breaks a
+// rule.
 type InvalidError struct{ Issues []Issue }
 
 func (e *InvalidError) Error() string {
@@ -107,9 +102,6 @@ func CheckExistingPath(rel string) (string, error) {
 	for p := range strings.SplitSeq(rel, "/") {
 		if msg := checkPathSegment(p); msg != "" {
 			return "", &InvalidError{Issues: []Issue{pathIssue(rel, "%s", msg)}}
-		}
-		if p == lockDirName {
-			return "", &InvalidError{Issues: []Issue{pathIssue(rel, "reserved name")}}
 		}
 	}
 	return rel, nil
