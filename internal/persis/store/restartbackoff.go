@@ -5,6 +5,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -70,10 +71,14 @@ func (s *RestartBackoffStore) load(ctx context.Context, id string) (map[string]s
 func (s *RestartBackoffStore) save(ctx context.Context, id string, backoff map[string]schedulerstate.RestartBackoff) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// A record that cannot be read is replaced. The backoff only lengthens
-	// waits, so losing it costs less than never saving again.
+	// A record that does not decode is replaced: the backoff only lengthens
+	// waits, so losing it costs less than never saving again. A read that
+	// fails keeps the record, which holds other projects' backoff.
 	var record restartBackoffRecord
 	if _, err := s.rec.Load(ctx, &record); err != nil {
+		if !errors.Is(err, ErrCorrupt) {
+			return fmt.Errorf("restart backoff store: save: %w", err)
+		}
 		record = restartBackoffRecord{}
 	}
 	switch {
