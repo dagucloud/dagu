@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -65,30 +66,54 @@ func WithDAGSkipDirectoryCreation(skip bool) DAGRepositoryOption {
 
 // NewDAGRepository connects the file-backed definition store to the shared repository.
 func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.DAGRepository, error) {
+	return newDAGRepository(cfg, dagSource{
+		paths:                  v2ProjectPaths(cfg.Paths),
+		baseConfig:             cfg.Paths.BaseConfig,
+		workspaceBaseConfigDir: workspace.BaseConfigDir(cfg.Paths.DAGsDir),
+		calendars:              spec.NewCalendarSource(cfg.Paths.CalendarsDir),
+		records:                dagRecords(cfg.Paths),
+	}, opts...)
+}
+
+// dagSource places the DAG files of one project and what goes with them.
+type dagSource struct {
+	paths                  config.ProjectPaths
+	baseConfig             string
+	workspaceBaseConfigDir string
+	// calendars serves the store and the repository, so every load shares
+	// the parsed calendars.
+	calendars *spec.CalendarSource
+	// records holds the scheduler records that move with a DAG; nil keeps
+	// none.
+	records persis.Collection
+	// library is searched after the search paths of the options.
+	library string
+}
+
+func newDAGRepository(cfg *config.Config, src dagSource, opts ...DAGRepositoryOption) (*persis.DAGRepository, error) {
 	options := DAGRepositoryOptions{Symlinks: cfg.DAGDiscovery.Symlinks}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&options)
 		}
 	}
+	if src.library != "" {
+		options.SearchPaths = append(options.SearchPaths, src.library)
+	}
 
 	skipExamples := cfg.Core.SkipExamples
 	if options.SkipExamples != nil {
 		skipExamples = *options.SkipExamples
 	}
-	workspaceBaseConfigDir := workspace.BaseConfigDir(cfg.Paths.DAGsDir)
-	// One source for the store and the repository, so every load shares the
-	// parsed calendars.
-	calendars := spec.NewCalendarSource(cfg.Paths.CalendarsDir)
 	dagStore := filedag.NewStore(
-		cfg.Paths.DAGsDir,
-		filedag.WithFlagsBaseDir(cfg.Paths.SuspendFlagsDir),
-		filedag.WithLegacyFlagsBaseDir(cfg.Paths.SuspendFlagsDirLegacy),
-		filedag.WithIndexDir(dagIndexDir(cfg)),
+		src.paths.DAGsDir,
+		filedag.WithFlagsBaseDir(src.paths.SuspendFlagsDir),
+		filedag.WithLegacyFlagsBaseDir(src.paths.LegacySuspendFlagsDir),
+		filedag.WithIndexDir(dagIndexDir(src.paths.OtherStateDir)),
 		filedag.WithSearchPaths(options.SearchPaths),
-		filedag.WithBaseConfig(cfg.Paths.BaseConfig),
-		filedag.WithWorkspaceBaseConfigDir(workspaceBaseConfigDir),
-		filedag.WithCalendars(calendars),
+		filedag.WithBaseConfig(src.baseConfig),
+		filedag.WithWorkspaceBaseConfigDir(src.workspaceBaseConfigDir),
+		filedag.WithCalendars(src.calendars),
 		filedag.WithFileCache(options.Cache),
 		filedag.WithSkipExamples(skipExamples),
 		filedag.WithRecursiveDiscovery(cfg.DAGDiscovery.Recursive),
@@ -96,15 +121,15 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 		filedag.WithSkipDirs(cfg.DAGDiscovery.SkipDirs),
 		filedag.WithSkipRoots(cfg.DiscoverySkipRoots()),
 		filedag.WithSkipDirectoryCreation(options.SkipDirectoryCreation),
-		filedag.WithDAGRecords(dagRecords(cfg.Paths)),
+		filedag.WithDAGRecords(src.records),
 	)
 	if err := dagStore.Initialize(); err != nil {
 		return nil, fmt.Errorf("initialize DAG definition store: %w", err)
 	}
 	return persis.NewDAGRepository(dagStore, persis.DAGRepositoryOptions{
-		BaseConfigPath:         cfg.Paths.BaseConfig,
-		WorkspaceBaseConfigDir: workspaceBaseConfigDir,
-		Calendars:              calendars,
+		BaseConfigPath:         src.baseConfig,
+		WorkspaceBaseConfigDir: src.workspaceBaseConfigDir,
+		Calendars:              src.calendars,
 	}), nil
 }
 
@@ -118,17 +143,25 @@ func dagRecords(paths config.PathsConfig) persis.Collection {
 }
 
 // dagIndexDir keeps the rebuildable DAG index out of the DAGs directory, which
-// may be read-only. Without a data directory the store's default applies.
-func dagIndexDir(cfg *config.Config) string {
-	if cfg.Paths.DataDir == "" {
+// may be read-only. Without a state directory the store's default applies.
+func dagIndexDir(stateDir string) string {
+	if stateDir == "" {
 		return ""
 	}
-	return filepath.Join(cfg.Paths.DataDir, "cache", "dag-index")
+	return filepath.Join(stateDir, "cache", "dag-index")
 }
 
 // DAGChangeMarkerPath returns this host's file that signals DAG definition
 // changes to readers on other hosts, or "" when there is no data directory to
 // keep it in.
 func DAGChangeMarkerPath(cfg *config.Config) string {
-	return filedag.ChangeMarkerPath(dagIndexDir(cfg), cfg.Paths.DAGsDir)
+	return filedag.ChangeMarkerPath(dagIndexDir(cfg.Paths.DataDir), cfg.Paths.DAGsDir)
+}
+
+// v2ProjectPaths returns the directories where v2 keeps the stores of its one
+// project, which are the default project's while projects are off.
+func v2ProjectPaths(paths config.PathsConfig) config.ProjectPaths {
+	// The default project always resolves while projects are off.
+	p, _ := (&config.Config{Paths: paths}).ProjectPaths(project.DefaultName)
+	return p
 }

@@ -55,6 +55,21 @@ func WithDAGRunLatestStatusToday(latestStatusToday bool) DAGRunRepositoryOption 
 
 // NewDAGRunRepository connects file storage to the shared DAG-run repository.
 func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *persis.DAGRunRepository {
+	paths := v2ProjectPaths(cfg.Paths)
+	return newDAGRunRepository(cfg, paths, EphemeralDAGRunsDir(paths.DAGRunsDir), runPaths(cfg, paths, true), opts...)
+}
+
+// newDAGRunRepository opens the runs of the project whose directories are p.
+// Ephemeral runs live in ephemeralDir, a tree of their own outside the
+// history, so no listing, retention pass or index of the history reaches
+// them.
+func newDAGRunRepository(
+	cfg *config.Config,
+	p config.ProjectPaths,
+	ephemeralDir string,
+	paths runpath.Mapper,
+	opts ...DAGRunRepositoryOption,
+) *persis.DAGRunRepository {
 	options := dagRunRepositoryOptions{
 		LatestStatusToday: cfg.Server.LatestStatusToday,
 	}
@@ -65,25 +80,23 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 	}
 
 	storeOpts := []filedagrun.StoreOption{
-		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
-		filedagrun.WithRunPaths(runPaths(cfg)),
+		filedagrun.WithArtifactDir(p.ArtifactDir),
+		filedagrun.WithRunPaths(paths),
 		filedagrun.WithRetryCandidateCacheLimit(cfg.Cache.Limits().DAGRun.Limit),
 	}
 	if options.HistoryFileCache != nil {
 		storeOpts = append(storeOpts, filedagrun.WithHistoryFileCache(options.HistoryFileCache))
 	}
-	store := filedagrun.NewStore(cfg.Paths.DAGRunsDir, storeOpts...)
-	// Ephemeral runs live in a tree of their own, outside the history, so no
-	// listing, retention pass or index of the history reaches them.
-	ephemeralStore := filedagrun.NewStore(EphemeralDAGRunsDir(cfg.Paths.DAGRunsDir), storeOpts...)
-	workDirs := filedagrun.NewWorkDirStore(cfg.Paths.DAGRunWorkDir, cfg.Paths.DAGRunsDir)
+	store := filedagrun.NewStore(p.DAGRunsDir, storeOpts...)
+	ephemeralStore := filedagrun.NewStore(ephemeralDir, storeOpts...)
+	workDirs := filedagrun.NewWorkDirStore(p.DAGRunWorkDir, p.DAGRunsDir)
 	var (
 		slots   persis.SlotIndex
 		onRetry func(context.Context, *ir.DAGRunStatus) error
 	)
-	if cfg.Paths.DataDir != "" {
-		slots = slotindex.New(filepath.Join(cfg.Paths.DataDir, slotIndexDirName))
-		onRetry = followBackfillRetry(filebackfill.New(filebackfill.Dir(cfg.Paths.DataDir)))
+	if p.OtherStateDir != "" {
+		slots = slotindex.New(filepath.Join(p.OtherStateDir, slotIndexDirName))
+		onRetry = followBackfillRetry(filebackfill.New(filebackfill.Dir(p.OtherStateDir)))
 	}
 	return persis.NewDAGRunRepository(store, workDirs, persis.DAGRunRepositoryOptions{
 		LatestStatusToday: options.LatestStatusToday,
@@ -96,12 +109,17 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 	})
 }
 
-// runPaths returns how run records store the paths of logs, step output, and
-// artifacts. Runs write them under paths.log_dir and paths.artifact_dir, and
-// records store them relative to those directories while projects are on.
-func runPaths(cfg *config.Config) runpath.Mapper {
-	dirs := runpath.Dirs{Log: cfg.Paths.LogDir, Artifact: cfg.Paths.ArtifactDir}
-	return runpath.New(dirs, dirs, cfg.ProjectsEnabled)
+// runPaths returns how the run records of the project whose directories are
+// p store the paths of logs, step output, and artifacts. Records store them
+// relative to p's log and artifact directories while projects are on. With
+// v2Runs, an absolute path under a v2 directory reads as the same path under
+// p's.
+func runPaths(cfg *config.Config, p config.ProjectPaths, v2Runs bool) runpath.Mapper {
+	var v2 runpath.Dirs
+	if v2Runs {
+		v2 = runpath.Dirs{Log: cfg.Paths.LogDir, Artifact: cfg.Paths.ArtifactDir}
+	}
+	return runpath.New(runpath.Dirs{Log: p.LogDir, Artifact: p.ArtifactDir}, v2, cfg.ProjectsEnabled)
 }
 
 // followBackfillRetry has the backfill of a retried run follow the retry.

@@ -5,10 +5,12 @@ package serviceregistry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -25,6 +27,9 @@ type registrationInfo struct {
 	serviceName  serviceregistry.ServiceName
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
+	// unwritten reports that the last write of the instance file failed,
+	// so the heartbeat writes it again.
+	unwritten bool
 }
 
 // registry implements models.ServiceRegistry using file-based service registry
@@ -37,9 +42,14 @@ type registry struct {
 	registrations     map[serviceregistry.ServiceName]*registrationInfo
 	registrationsMu   sync.Mutex
 	heartbeatInterval time.Duration
+	// releasedProjects goes into every registration's instance file.
+	releasedProjects []string
 }
 
-var _ serviceregistry.ServiceRegistry = (*registry)(nil)
+var (
+	_ serviceregistry.ServiceRegistry        = (*registry)(nil)
+	_ serviceregistry.ProjectReleaseRecorder = (*registry)(nil)
+)
 
 // New creates a new file-based service registry
 func New(serviceRegistryDir string) *registry {
@@ -77,12 +87,13 @@ func (r *registry) Register(ctx context.Context, serviceName serviceregistry.Ser
 	reg := &registrationInfo{
 		serviceName: serviceName,
 		instanceInfo: &instanceInfo{
-			ID:        hostInfo.ID,
-			Host:      hostInfo.Host,
-			Port:      hostInfo.Port,
-			PID:       os.Getpid(),
-			Status:    hostInfo.Status,
-			StartedAt: time.Now(),
+			ID:               hostInfo.ID,
+			Host:             hostInfo.Host,
+			Port:             hostInfo.Port,
+			PID:              os.Getpid(),
+			Status:           hostInfo.Status,
+			StartedAt:        time.Now(),
+			ReleasedProjects: r.releasedProjects,
 		},
 	}
 
@@ -215,6 +226,41 @@ func (r *registry) UpdateStatus(_ context.Context, serviceName serviceregistry.S
 	return writeInstanceFile(reg.fileName, reg.instanceInfo)
 }
 
+// SetReleasedProjects records projectIDs in the instance file of every
+// service this process registers, now or later. A file that fails to write
+// is written again on the next heartbeat.
+func (r *registry) SetReleasedProjects(_ context.Context, projectIDs []string) error {
+	r.registrationsMu.Lock()
+	defer r.registrationsMu.Unlock()
+
+	r.releasedProjects = slices.Clone(projectIDs)
+	var errs []error
+	for _, reg := range r.registrations {
+		reg.instanceInfo.ReleasedProjects = r.releasedProjects
+		reg.unwritten = false
+		if err := writeInstanceFile(reg.fileName, reg.instanceInfo); err != nil {
+			reg.unwritten = true
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// rewrite writes reg's instance file when it is missing or its last write
+// failed.
+func (r *registry) rewrite(reg *registrationInfo, missing bool) error {
+	r.registrationsMu.Lock()
+	defer r.registrationsMu.Unlock()
+	if !missing && !reg.unwritten {
+		return nil
+	}
+	if err := writeInstanceFile(reg.fileName, reg.instanceInfo); err != nil {
+		return err
+	}
+	reg.unwritten = false
+	return nil
+}
+
 // startHeartbeat starts a background goroutine to update heartbeat for a specific service instance
 // Must be called with registrationsMu held
 func (r *registry) startHeartbeat(ctx context.Context, serviceName serviceregistry.ServiceName, interval time.Duration) error {
@@ -236,15 +282,13 @@ func (r *registry) startHeartbeat(ctx context.Context, serviceName serviceregist
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				// Check if file exists, recreate if needed
-				if _, err := os.Stat(reg.fileName); os.IsNotExist(err) {
-					// File doesn't exist, recreate it
-					if err := writeInstanceFile(reg.fileName, reg.instanceInfo); err != nil {
-						logger.Error(ctx, "Failed to recreate instance file",
-							tag.Error(err),
-							tag.File(reg.fileName))
-						continue
-					}
+				// Recreate the file when it is missing or a write failed.
+				_, statErr := os.Stat(reg.fileName)
+				if err := r.rewrite(reg, os.IsNotExist(statErr)); err != nil {
+					logger.Error(ctx, "Failed to recreate instance file",
+						tag.Error(err),
+						tag.File(reg.fileName))
+					continue
 				}
 
 				// Update modification time
