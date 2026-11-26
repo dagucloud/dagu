@@ -186,7 +186,7 @@ func TestProjectEnqueue(t *testing.T) {
 	h.file(t, "projects/weather/forecast.yaml")
 
 	_, _, err := h.runDagu(t, []*cobra.Command{Enqueue()}, "enqueue", "--project", "weather", "forecast")
-	require.ErrorContains(t, err, "project weather cannot queue runs yet")
+	require.ErrorContains(t, err, "project weather cannot queue runs outside the default project")
 	ctx, err := NewContext(h.command(t, "enqueue", "weather"), nil)
 	require.NoError(t, err)
 	items, err := ctx.Persistence.QueueStore.All(ctx)
@@ -445,7 +445,7 @@ func TestProjectDispatch(t *testing.T) {
 			require.NotNil(t, client.task)
 			continue
 		}
-		require.ErrorContains(t, err, "project weather cannot run DAGs on workers yet")
+		require.ErrorContains(t, err, "project weather cannot run DAGs on workers")
 		require.Nil(t, client.task)
 	}
 }

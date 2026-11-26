@@ -9,11 +9,12 @@ import (
 	"strings"
 )
 
-// Errors for the runs a project other than the default one cannot make yet,
-// since the coordinator and the scheduler serve only the default project.
+// Errors for the runs that a project other than the default one cannot
+// make: the coordinator records dispatched runs in the default project, and
+// the scheduler reads only the default project's queues.
 var (
-	ErrWorkerRun = errors.New("cannot run DAGs on workers yet (P12)")
-	ErrQueuedRun = errors.New("cannot queue runs yet (P10)")
+	ErrWorkerRun = errors.New("cannot run DAGs on workers; only the default project's runs are dispatched")
+	ErrQueuedRun = errors.New("cannot queue runs outside the default project; start the run instead")
 )
 
 // RefuseOtherProject returns an error wrapping err for the project called

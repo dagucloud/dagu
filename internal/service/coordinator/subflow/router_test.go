@@ -225,7 +225,7 @@ func TestLocalForceLocalOverridesWorkerSelector(t *testing.T) {
 
 // A child of a run of a project other than the default one runs in
 // process, and is refused where the coordinator or a queue would take it,
-// since those serve only the default project for now.
+// since those serve only the default project.
 func TestRouterRefusesRoutesOfOtherProjects(t *testing.T) {
 	t.Parallel()
 

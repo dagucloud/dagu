@@ -216,15 +216,15 @@ func (c *Context) projectName() string {
 }
 
 // checkProjectDispatch refuses to send a run of a project other than the
-// default one to a worker: a dispatch task does not carry its project until
-// P12, so the coordinator would record the run in the default project.
+// default one to a worker: a dispatch task does not carry its project, so
+// the coordinator records the run in the default project.
 func (c *Context) checkProjectDispatch() error {
 	return project.RefuseOtherProject(c.projectName(), project.ErrWorkerRun)
 }
 
 // checkProjectEnqueue refuses to queue a run of a project other than the
-// default one: no scheduler reads that project's queues until P10, so the
-// run would never start.
+// default one: the scheduler reads only the default project's queues, so
+// the run would never start.
 func (c *Context) checkProjectEnqueue() error {
 	return project.RefuseOtherProject(c.projectName(), project.ErrQueuedRun)
 }
