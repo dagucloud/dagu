@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/intake"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -25,10 +26,15 @@ func (a *API) checkTargetNodes(ctx context.Context, dag *ir.DAG, names []string)
 	if a.inventoryStore == nil {
 		return nil, inventoryStoreUnavailable()
 	}
-	known, err := a.inventoryStore.Nodes(ctx)
+	nodes, err := a.inventoryStore.Nodes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read inventory nodes: %w", err)
 	}
+	workers, _, err := a.listWorkerNodes(ctx, nodes)
+	if err != nil {
+		return nil, err
+	}
+	known := inventory.WithWorkers(nodes, workers)
 	listed, err := intake.CheckTargetNodes(dag, names, known)
 	if err != nil {
 		return nil, &Error{

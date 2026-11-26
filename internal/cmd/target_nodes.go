@@ -63,7 +63,7 @@ func narrowRun(ctx *Context, dag *ir.DAG, names []string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the node inventory: %w", err)
 	}
-	known, err := nodes.Nodes(ctx.Context)
+	known, err := projectNodes{inventories: nodes, workers: ctx.runtimeWorkerNodeStore()}.Nodes(ctx.Context)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the node inventory: %w", err)
 	}

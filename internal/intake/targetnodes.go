@@ -19,9 +19,11 @@ import (
 //
 // Every name must be a node of the project, so a mistyped name never starts
 // a run. A node: required DAG takes exactly one node, which binds the run, so
-// it refuses an empty list too. Any other DAG takes a list only when a step
-// sets nodes or runs a child DAG, and only when it runs on the Dagu host,
-// since steps with nodes do not run on workers.
+// it refuses an empty list too; that node is an SSH node, since a run bound
+// to a worker node starts only as the child of a step with nodes. Any other
+// DAG takes a list only when a step sets nodes or runs a child DAG, and only
+// when it runs on the Dagu host, since steps with nodes do not run on
+// workers.
 func CheckTargetNodes(dag *ir.DAG, names []string, known []inventory.ResolvedNode) ([]string, error) {
 	if len(names) == 0 && !dag.NodeRequired {
 		return nil, nil
@@ -47,6 +49,11 @@ func CheckTargetNodes(dag *ir.DAG, names []string, known []inventory.ResolvedNod
 	slices.Sort(listed)
 	if dag.NodeRequired && len(listed) != 1 {
 		return nil, fmt.Errorf("DAG %q declares node: required, so it starts with exactly one node, not %d", dag.Name, len(listed))
+	}
+	if dag.NodeRequired && slices.ContainsFunc(known, func(node inventory.ResolvedNode) bool {
+		return node.Name == listed[0] && node.Kind == inventory.NodeKindWorker
+	}) {
+		return nil, fmt.Errorf("node %q is a worker node, which runs a node: required DAG only as the child of a step with nodes", listed[0])
 	}
 	return listed, nil
 }

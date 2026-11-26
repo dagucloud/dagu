@@ -781,7 +781,7 @@ func withRetryAgent(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts run
 			NoReuse:                  opts.noReuse,
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
-			NodeSelector:             as.Inventory,
+			NodeSelector:             as.Nodes,
 			HostKeys:                 as.HostKeys,
 			ProfileName:              opts.profileName,
 			DAGDefinitionID:          opts.definitionID,

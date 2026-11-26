@@ -258,7 +258,7 @@ func executeDAGWithRunID(
 			ParallelItem:             parallelItemFromEnv(dag.Env),
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
-			NodeSelector:             as.Inventory,
+			NodeSelector:             as.Nodes,
 			HostKeys:                 as.HostKeys,
 			TargetNodes:              opts.targetNodes,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
