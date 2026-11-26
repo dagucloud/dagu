@@ -152,8 +152,7 @@ func newCatalog(entries []*indexv1.DAGIndexEntry, scanErrors []error, checkConfl
 
 	for _, err := range scanErrors {
 		result.errors = append(result.errors, fmt.Sprintf("DAG discovery failed: %s", err))
-		var skipped *skippedSymlinkError
-		if errors.As(err, &skipped) {
+		if skipped, ok := errors.AsType[*skippedSymlinkError](err); ok {
 			result.skippedLinks[fileutil.TrimYAMLFileExtension(path.Base(skipped.relPath))] = struct{}{}
 		}
 	}
