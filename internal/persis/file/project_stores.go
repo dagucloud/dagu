@@ -65,15 +65,15 @@ type ProjectStores struct {
 	AgentSessionCleanupQueue *agentsession.CleanupQueue
 	BackfillStore            backfill.Store
 	MaterializationStore     build.MaterializationStore
-	// Library records the runs of the library DAGs that run in the
+
+	dags dagSource
+	// library records the runs of the library DAGs that run in the
 	// project, with their logs, artifacts, processes, queues, and DAG
 	// state, apart from the project's DAGs of the same names. Its Paths are
 	// the project's library paths; its other stores and its settings are
-	// the project's. It is nil while projects are off, and in Library
+	// the project's. It is nil while projects are off, and in library
 	// itself.
-	Library *ProjectStores
-
-	dags dagSource
+	library *ProjectStores
 	// projectState and libraryState hold the project's DAG state and its
 	// library's. libraryState is nil while projects are off.
 	projectState dagrun.StateStore
@@ -203,7 +203,7 @@ func (s *ProjectStores) openRuns(
 	s.StateStore = store.NewDAGStateStore(backend.Collection(persis.CollectionDAGState))
 }
 
-// openLibrary opens s.Library on the library paths of the project called
+// openLibrary opens s.library on the library paths of the project called
 // name. A library DAG runs with the project's settings, and its run events
 // are the project's.
 func (s *ProjectStores) openLibrary(cfg *config.Config, name string, opts ProjectStoreOptions) error {
@@ -223,7 +223,7 @@ func (s *ProjectStores) openLibrary(cfg *config.Config, name string, opts Projec
 	library.StateStore = scopedStateStore{dag: library.libraryState, rootDAG: library.libraryState, other: s.projectState}
 	library.project = s
 	s.libraryState = library.libraryState
-	s.Library = &library
+	s.library = &library
 	return nil
 }
 
@@ -235,7 +235,7 @@ func (s *ProjectStores) RunStores(ctx context.Context, path string) (*ProjectSto
 	if s.project != nil {
 		project = s.project
 	}
-	if project.Library == nil {
+	if project.library == nil {
 		return s, nil
 	}
 	inLibrary, err := s.isLibraryDAG(ctx, path)
@@ -243,13 +243,22 @@ func (s *ProjectStores) RunStores(ctx context.Context, path string) (*ProjectSto
 	case err != nil:
 		return nil, err
 	case inLibrary:
-		return project.Library, nil
+		return project.library, nil
 	default:
 		return project, nil
 	}
 }
 
-// InLibrary reports whether s is a project's Library.
+// LibraryRuns returns the run and process stores of the library DAGs that
+// run in the project. Both are nil while projects are off.
+func (s *ProjectStores) LibraryRuns() (*persis.DAGRunRepository, *persis.ProcRepository) {
+	if s.library == nil {
+		return nil, nil
+	}
+	return s.library.DAGRunRepository, s.library.ProcRepository
+}
+
+// InLibrary reports whether s records the runs of a project's library DAGs.
 func (s *ProjectStores) InLibrary() bool {
 	return s.project != nil
 }

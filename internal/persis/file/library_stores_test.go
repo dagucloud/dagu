@@ -42,7 +42,10 @@ func TestLibraryStoresKeepRunsApart(t *testing.T) {
 			stores := openProject(t, cfg, server, name)
 			library, err := stores.RunStores(ctx, libraryDAG)
 			require.NoError(t, err)
-			require.Same(t, stores.Library, library)
+			require.True(t, library.InLibrary())
+			runs, procs := stores.LibraryRuns()
+			require.Same(t, library.DAGRunRepository, runs)
+			require.Same(t, library.ProcRepository, procs)
 			ownDAG := filepath.Join(stores.Paths.DAGsDir, sampleDAG+".yaml")
 			own, err := stores.RunStores(ctx, ownDAG)
 			require.NoError(t, err)
@@ -94,6 +97,8 @@ func TestLibraryStoresStateFor(t *testing.T) {
 	cfg, libraryDAG := libraryConfig(t, true)
 	stores := openProject(t, cfg, persisfile.NewServerStores(cfg), "weather")
 	projectDAG := writeDAGFile(t, filepath.Join(stores.Paths.DAGsDir, sampleDAG+".yaml"))
+	library, err := stores.RunStores(ctx, libraryDAG)
+	require.NoError(t, err)
 
 	for _, tc := range []struct {
 		name         string
@@ -103,8 +108,8 @@ func TestLibraryStoresStateFor(t *testing.T) {
 		rootDAGInLib bool
 	}{
 		{name: "ProjectCallsLibrary", root: stores, path: libraryDAG, dagInLib: true},
-		{name: "LibraryCallsProject", root: stores.Library, path: projectDAG, rootDAGInLib: true},
-		{name: "LibraryRoot", root: stores.Library, path: libraryDAG, dagInLib: true, rootDAGInLib: true},
+		{name: "LibraryCallsProject", root: library, path: projectDAG, rootDAGInLib: true},
+		{name: "LibraryRoot", root: library, path: libraryDAG, dagInLib: true, rootDAGInLib: true},
 		{name: "ProjectRoot", root: stores, path: projectDAG},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -138,7 +143,9 @@ func TestLibraryStoresOff(t *testing.T) {
 	stores, err := persisfile.NewProjectStores(ctx, cfg, persisfile.NewServerStores(cfg),
 		project.Project{Name: project.DefaultName}, persisfile.ProjectStoreOptions{})
 	require.NoError(t, err)
-	require.Nil(t, stores.Library)
+	libraryRuns, libraryProcs := stores.LibraryRuns()
+	require.Nil(t, libraryRuns)
+	require.Nil(t, libraryProcs)
 
 	runs, err := stores.RunStores(ctx, libraryDAG)
 	require.NoError(t, err)
