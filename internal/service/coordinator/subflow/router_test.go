@@ -7,7 +7,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator/subflow"
@@ -219,6 +221,35 @@ func TestLocalForceLocalOverridesWorkerSelector(t *testing.T) {
 	runner := subflow.NewLocal(runtime.Manager{}, nil)
 
 	assert.True(t, runner.ShouldRun(context.Background(), req))
+}
+
+// A child of a run of a project other than the default one runs in
+// process, and is refused where the coordinator or a queue would take it,
+// since those serve only the default project.
+func TestRouterRefusesRoutesOfOtherProjects(t *testing.T) {
+	t.Parallel()
+
+	inProject := func(name string) context.Context {
+		return runtime.NewContext(context.Background(), &ir.DAG{Name: "parent"}, "parent-run", "",
+			runtime.WithProject(name))
+	}
+	distributed := subflow.New(&mockDispatcher{}, config.ExecutionModeDistributed)
+	local := &stubEnqueuer{stubRunner: &stubRunner{shouldRun: true, result: &ir.RunStatus{Status: ir.Succeeded}}}
+
+	_, err := subflow.NewRouter(distributed, local).Run(inProject("weather"), validSubWorkflowRequest())
+	require.ErrorIs(t, err, project.ErrWorkerRun)
+	got, err := subflow.NewRouter(local).Run(inProject("weather"), validSubWorkflowRequest())
+	require.NoError(t, err)
+	assert.Equal(t, ir.Succeeded, got.Status)
+
+	enqueue := executor.EnqueueRequest{DAG: &ir.DAG{Name: "child"}, RootDAGRun: ir.NewDAGRunRef("root", "root-run"), RunID: "child-run"}
+	_, err = subflow.NewRouter(local).Enqueue(inProject("weather"), enqueue)
+	require.ErrorIs(t, err, project.ErrQueuedRun)
+	for _, name := range []string{"default", ""} {
+		_, err = subflow.NewRouter(local).Enqueue(inProject(name), enqueue)
+		require.NoError(t, err, name)
+	}
+	assert.Equal(t, 2, local.enqueueCount)
 }
 
 func validSubWorkflowRequest() executor.SubWorkflowRequest {

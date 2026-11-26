@@ -937,6 +937,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		runtime.WithBypassPreconditions(a.bypassPreconditions),
 		runtime.WithAttemptID(a.dagRunAttemptID),
 		runtime.WithWorkerID(a.workerID),
+		runtime.WithProject(a.dagRunMgr.Project()),
 		runtime.WithTriggerType(a.triggerType),
 		runtime.WithTriggerActor(a.triggerActor),
 		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),
@@ -2868,6 +2869,7 @@ func (a *Agent) dryRun(ctx context.Context) error {
 		runtime.WithBypassPreconditions(a.bypassPreconditions),
 		runtime.WithAttemptID(a.dagRunAttemptID),
 		runtime.WithWorkerID(a.workerID),
+		runtime.WithProject(a.dagRunMgr.Project()),
 		runtime.WithTriggerType(a.triggerType),
 		runtime.WithTriggerActor(a.triggerActor),
 		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),
@@ -3135,7 +3137,7 @@ func (a *Agent) setupSocketServer(ctx context.Context) error {
 }
 
 func (a *Agent) socketAddr() string {
-	return proc.DAGSocketAddr(ir.NewDAGRunRef(a.dag.Name, a.dagRunID))
+	return proc.ProjectDAGSocketAddr(a.dagRunMgr.Project(), ir.NewDAGRunRef(a.dag.Name, a.dagRunID))
 }
 
 // checkIsAlreadyRunning returns error if the DAG is already running.

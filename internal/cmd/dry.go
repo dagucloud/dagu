@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -136,8 +135,8 @@ func runDry(ctx *Context, args []string) error {
 			ScheduleWindow:           slot.window,
 			Dates:                    dates,
 			DefaultSlot:              slot.isDefault,
-			DAGRunLogDir:             ctx.Config.Paths.LogDir,
-			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
+			DAGRunLogDir:             ctx.projectPaths().LogDir,
+			DAGRunArtifactDir:        ctx.projectPaths().ArtifactDir,
 		},
 	)
 
@@ -232,11 +231,7 @@ func writeDryDates(out io.Writer, dates []ir.DateValue) {
 
 // loadDAGForDryRun loads the DAG with parameters from flags or command-line arguments.
 func loadDAGForDryRun(ctx *Context, args []string) (*ir.DAG, error) {
-	loadOpts := []spec.LoadOption{
-		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
-		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
-	}
+	loadOpts := ctx.projectLoadOptions()
 
 	nameOverride, err := ctx.StringParam("name")
 	if err != nil {

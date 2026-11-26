@@ -23,7 +23,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -150,7 +149,10 @@ func runTest(ctx *Context, args []string) error {
 	if opts.init {
 		return runTestInit(ctx, args[0], opts)
 	}
-	files, err := selectTestFiles(ctx, ctx.Config.Paths.DAGsDir, args)
+	files, err := selectTestFiles(ctx, ctx.projectPaths().DAGsDir, args)
+	if err == nil && len(args) == 0 {
+		files, err = ctx.ownTestFiles(files)
+	}
 	if err != nil {
 		return &exitStatusError{code: testExitInvalid, err: err}
 	}
@@ -162,7 +164,12 @@ func runTest(ctx *Context, args []string) error {
 	// A test file that --update cannot write does not stop the others.
 	var updateErrs []error
 	for _, file := range files {
-		if err := runTestFile(ctx, file, opts, report); err != nil {
+		// A test file runs in the project of the DAG it tests.
+		fileCtx, err := ctx.inProjectOf(file.path)
+		if err != nil {
+			return &exitStatusError{code: testExitInvalid, err: err}
+		}
+		if err := runTestFile(fileCtx, file, opts, report); err != nil {
 			if ctx.Err() != nil {
 				return err
 			}
@@ -397,11 +404,7 @@ func runTestFile(ctx *Context, file testFileRef, opts testOptions, report *testR
 // testLoadOptions returns the options a tested DAG loads with, as dagu start
 // loads it.
 func testLoadOptions(ctx *Context) []spec.LoadOption {
-	return []spec.LoadOption{
-		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
-		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
-	}
+	return ctx.projectLoadOptions()
 }
 
 // caseExpect returns the assertions that a case's run is checked against,

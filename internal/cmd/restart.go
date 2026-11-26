@@ -17,7 +17,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -58,11 +57,7 @@ func runRestart(ctx *Context, args []string) error {
 	// The scheduler follows the current definition, so it decides whether the
 	// DAG is a service. The snapshot of a run decides only once the definition
 	// is gone.
-	current, loadErr := spec.Load(ctx, args[0],
-		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
-		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
-	)
+	current, loadErr := spec.Load(ctx, args[0], ctx.projectLoadOptions()...)
 	if loadErr == nil && current.RestartPolicy.Enabled() {
 		return errRestartServiceDAG(current.Name, current.RestartPolicy)
 	}
@@ -268,8 +263,8 @@ func executeDAGWithRunID(
 			ScheduleWindow:           opts.scheduleWindow,
 			Dates:                    opts.dates,
 			ArtifactDir:              artifactDir,
-			DAGRunLogDir:             ctx.Config.Paths.LogDir,
-			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
+			DAGRunLogDir:             ctx.projectPaths().LogDir,
+			DAGRunArtifactDir:        ctx.projectPaths().ArtifactDir,
 		})
 
 	ctx.LogToFile(logFile)

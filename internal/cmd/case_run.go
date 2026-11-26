@@ -548,7 +548,7 @@ func (c *Context) inCaseDir(dir string) (*Context, error) {
 	cfg := *c.Config
 	cfg.Paths = casePaths(c.Config.Paths, dir)
 	server := file.NewServerStores(&cfg)
-	stores, err := openDefaultProject(c.Context, &cfg, server, file.ProjectStoreOptions{})
+	stores, err := openProject(c.Context, &cfg, server, c.project, file.ProjectStoreOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -560,7 +560,8 @@ func (c *Context) inCaseDir(dir string) (*Context, error) {
 	// The case's log file is its only log output.
 	clone.Quiet = true
 	clone.Persistence = persistence
-	clone.DAGRunMgr = runtime.NewManager(persistence.DAGRunRepository, persistence.ProcRepository, &cfg)
+	clone.DAGRunMgr = runtime.NewManager(persistence.DAGRunRepository, persistence.ProcRepository, &cfg,
+		projectManagerOptions(&cfg, c.project)...)
 	clone.serverStores = server
 	clone.projectStores = stores
 	clone.settings = stores.ProjectSettings
