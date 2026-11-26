@@ -26,4 +26,9 @@ export default defineMessages({
     'Shown after {step} (times are rounded to the second)':
       'Angezeigt nach {step} (Zeiten auf Sekunden gerundet)',
   },
+  fr: {
+    '<1s': '<1\u00a0s',
+    'Shown after {step} (times are rounded to the second)':
+      'Affiché après l’étape {step} (heures arrondies à la seconde)',
+  },
 });

@@ -5,6 +5,7 @@ package file_test
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"os"
@@ -66,34 +67,47 @@ func TestFileBackendPreservesCollectionLayout(t *testing.T) {
 		{persis.CollectionDAGState, paths.DAGStateDir, false},
 		{persis.CollectionDispatchTasks, distributedDir, false},
 		{persis.CollectionHostKeys, filepath.Join(dataDir, "host-keys"), true},
+		{persis.CollectionIncidentProviders, filepath.Join(dataDir, "incidents"), true},
 		{persis.CollectionIncidents, filepath.Join(dataDir, "incidents"), true},
 		{persis.CollectionInventories, filepath.Join(dataDir, "inventories"), true},
 		{persis.CollectionLicense, filepath.Join(dataDir, "license"), true},
+		{persis.CollectionNotificationChannels, filepath.Join(dataDir, "notifications"), true},
 		{persis.CollectionNotifications, filepath.Join(dataDir, "notifications"), true},
 		{persis.CollectionProfiles, filepath.Join(dataDir, "profiles"), true},
 		{persis.CollectionQueue, paths.QueueDir, false},
 		{persis.CollectionRemoteNodes, paths.RemoteNodesDir, true},
+		{persis.CollectionSchedulerProcess, filepath.Join(dataDir, "scheduler"), true},
 		{persis.CollectionSchedulerState, filepath.Join(dataDir, "scheduler"), true},
 		{persis.CollectionSecrets, filepath.Join(dataDir, "secrets"), true},
 		{persis.CollectionUpgradeCheck, filepath.Join(dataDir, "upgrade"), true},
 		{persis.CollectionUsers, paths.UsersDir, true},
 		{persis.CollectionViews, paths.ViewsDir, true},
+		{persis.CollectionWatchState, filepath.Join(dataDir, "watch_state"), false},
 		{persis.CollectionWebhooks, paths.WebhooksDir, true},
 		{persis.CollectionWorkerHeartbeats, filepath.Join(distributedDir, "workers"), false},
+		{persis.CollectionWorkerNodes, filepath.Join(dataDir, "worker-nodes"), true},
 		{persis.CollectionWorkspaces, paths.WorkspacesDir, true},
 		{"custom", filepath.Join(dataDir, "custom"), false},
 	}
 
+	// Collections that accept only some record IDs are probed with one of
+	// their own.
+	probeIDs := map[string]string{
+		persis.CollectionDispatchTasks:        "pending/probe",
+		persis.CollectionIncidentProviders:    "providers/probe",
+		persis.CollectionIncidents:            "states/probe",
+		persis.CollectionNotificationChannels: "channels/probe",
+		persis.CollectionNotifications:        "routes/probe",
+		persis.CollectionSchedulerProcess:     "paused",
+		persis.CollectionSchedulerState:       "state",
+	}
 	compact := []byte(`{"value":1}`)
 	var indented bytes.Buffer
 	require.NoError(t, json.Indent(&indented, compact, "", "  "))
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			col := backend.Collection(tt.name)
-			id := "probe"
-			if tt.name == persis.CollectionDispatchTasks {
-				id = "pending/probe"
-			}
+			id := cmp.Or(probeIDs[tt.name], "probe")
 			require.NoError(t, col.Put(t.Context(), &persis.Record{ID: id, Data: compact}))
 
 			raw, err := os.ReadFile(filepath.Join(tt.dir, filepath.FromSlash(id)+".json"))
@@ -133,6 +147,61 @@ func TestFileBackendCollectionsAreIsolated(t *testing.T) {
 
 	_, err = dispatchTasks.Get(t.Context(), "active-runs/run-1")
 	assert.ErrorIs(t, err, persis.ErrNotFound)
+}
+
+// A server-wide collection and a project collection that share a directory
+// each read, write, and list only their own records, and list each once.
+func TestFileBackendSplitCollectionsKeepTheirRecords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		server, project       string
+		serverIDs, projectIDs []string
+	}{
+		{
+			persis.CollectionSchedulerProcess, persis.CollectionSchedulerState,
+			[]string{"down", "paused", "restart_backoff"},
+			[]string{"catchup", "checkpoint", "dags/etl", "state"},
+		},
+		{
+			persis.CollectionNotificationChannels, persis.CollectionNotifications,
+			[]string{"channels/ops", "workspace"},
+			[]string{"dags/etl", "routes/global", "routes/workspaces/ops"},
+		},
+		{
+			persis.CollectionIncidentProviders, persis.CollectionIncidents,
+			[]string{"providers/pagerduty"},
+			[]string{"policies/global", "policies/dags/etl", "states/open"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.server, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			backend := file.NewBackend(config.PathsConfig{DataDir: t.TempDir()})
+			server, project := backend.Collection(tt.server), backend.Collection(tt.project)
+			for _, side := range []struct {
+				col, other persis.Collection
+				ids        []string
+			}{{server, project, tt.serverIDs}, {project, server, tt.projectIDs}} {
+				for _, id := range side.ids {
+					require.NoError(t, side.col.Put(ctx, &persis.Record{ID: id, Data: []byte(`{}`)}), id)
+					_, err := side.other.Get(ctx, id)
+					assert.ErrorIs(t, err, persis.ErrNotFound, id)
+					assert.Error(t, side.other.Put(ctx, &persis.Record{ID: id, Data: []byte(`{}`)}), id)
+				}
+			}
+			for col, want := range map[persis.Collection][]string{server: tt.serverIDs, project: tt.projectIDs} {
+				page, err := col.List(ctx, persis.ListQuery{})
+				require.NoError(t, err)
+				var ids []string
+				for _, rec := range page.Records {
+					ids = append(ids, rec.ID)
+				}
+				assert.ElementsMatch(t, want, ids)
+			}
+		})
+	}
 }
 
 func TestFileBackendRejectsInvalidCollectionNames(t *testing.T) {

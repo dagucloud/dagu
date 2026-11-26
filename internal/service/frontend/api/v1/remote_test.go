@@ -111,6 +111,7 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 	}{
 		{name: "viewer lists DAGs", method: http.MethodGet, path: "/api/v1/dags", user: viewer, wantCall: true},
 		{name: "viewer reads DAG list activity", method: http.MethodGet, path: "/api/v1/dag-list-activity", user: viewer, wantCall: true},
+		{name: "viewer reads DAG run changes", method: http.MethodGet, path: "/api/v1/dag-run-changes", user: viewer, wantCall: true},
 		{name: "viewer reads a step log", method: http.MethodGet, path: "/api/v1/dag-runs/deploy/run-1/steps/build/log", user: viewer, wantCall: true},
 		{name: "viewer reads missed slots", method: http.MethodGet, path: "/api/v1/dags/deploy/missed-slots", user: viewer, wantCall: true},
 		{name: "viewer reads run history samples", method: http.MethodGet, path: "/api/v1/dags/deploy/run-history/samples", user: viewer, wantCall: true},
@@ -133,6 +134,7 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 		{name: "developer reads AI endpoint choices", method: http.MethodGet, path: "/api/v1/ai/endpoint-choices", user: developer, permissions: writeOnly, wantCall: true},
 		{name: "viewer cannot read MCP server choices", method: http.MethodGet, path: "/api/v1/ai/mcp-server-choices", user: viewer, permissions: writeOnly},
 		{name: "developer cannot list AI endpoints", method: http.MethodGet, path: "/api/v1/ai/endpoints", user: developer, permissions: writeOnly},
+		{name: "viewer lists skills", method: http.MethodGet, path: "/api/v1/skills", user: viewer, wantCall: true},
 		{name: "node lists are never forwarded", method: http.MethodGet, path: "/api/v1/nodes", user: admin, permissions: writeAndRun},
 		{name: "nodes are never forwarded", method: http.MethodGet, path: "/api/v1/nodes/web01", user: admin, permissions: writeAndRun},
 		{name: "node labels are never forwarded", method: http.MethodGet, path: "/api/v1/node-labels", user: admin, permissions: writeAndRun},

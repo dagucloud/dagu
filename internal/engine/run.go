@@ -28,8 +28,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/profile"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -482,7 +484,9 @@ func (e *Engine) runLocal(ctx context.Context, dag *ir.DAG, runID string, opts R
 			MaterializationStore:     stores.MaterializationStore,
 			NoReuse:                  opts.NoReuse,
 			SecretStore:              stores.SecretStore,
+			SecretReferenceResolver:  stores.secretResolver,
 			ProfileStore:             stores.ProfileStore,
+			ProfileResolver:          stores.profileResolver,
 			ServiceRegistry:          e.serviceRegistry,
 			SubWorkflowRunnerFactory: e.subWorkflowRunnerFactory(stores),
 			RootDAGRun:               root,
@@ -737,6 +741,14 @@ func (e *Engine) runtimeStores(ctx context.Context) RuntimeStores {
 	}
 	if stores.MaterializationStore == nil {
 		stores.MaterializationStore = filematerialization.New(filepath.Join(e.cfg.Paths.DataDir, "materializations"))
+	}
+	if e.cfg.ProjectsEnabled {
+		if stores.SecretStore != nil {
+			stores.secretResolver = secret.NewProjectReferenceResolver(stores.SecretStore)
+		}
+		if stores.ProfileStore != nil {
+			stores.profileResolver = profile.NewProjectResolver(stores.ProfileStore, stores.SecretStore)
+		}
 	}
 	return stores
 }

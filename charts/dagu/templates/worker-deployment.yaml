@@ -1,4 +1,5 @@
 {{- if eq .Values.deploymentMode "distributed" }}
+{{- $workerIds := dict }}
 {{- range $poolName, $pool := .Values.workerPools }}
 {{- $dataSizeLimit := dig "dataVolume" "sizeLimit" "" $pool }}
 {{- $resources := default (dict) $pool.resources }}
@@ -17,6 +18,16 @@
 {{- if gt (len $poolName) 54 }}
 {{- fail (printf "invalid workerPool name %q: must not exceed 54 characters" $poolName) }}
 {{- end }}
+{{- with $pool.workerId }}
+{{- /* Pods of a Deployment share the pool's ID, so only one may run. */}}
+{{- if gt (int $pool.replicas) 1 }}
+{{- fail (printf "workerPool %q sets workerId, so its replicas must be 0 or 1" $poolName) }}
+{{- end }}
+{{- if hasKey $workerIds (lower .) }}
+{{- fail (printf "workerPool %q sets workerId %q, which another pool also sets" $poolName .) }}
+{{- end }}
+{{- $_ := set $workerIds (lower .) true }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -28,6 +39,11 @@ metadata:
     dagu.sh/worker-pool: {{ $poolName }}
 spec:
   replicas: {{ $pool.replicas }}
+  {{- if $pool.workerId }}
+  # The replacement pod takes the same worker ID, so the old pod stops first.
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "dagu.selectorLabels" $ | nindent 6 }}
@@ -80,10 +96,10 @@ spec:
           env:
             - name: DAGU_HOME
               value: /data
+{{- with $pool.workerId }}
             - name: DAGU_WORKER_ID
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
+              value: {{ . | quote }}
+{{- end }}
 {{- with $.Values.shutdown.drainTimeoutSeconds }}
             - name: DAGU_SIGNAL_DRAIN_TIMEOUT
               value: {{ printf "%ds" (int .) | quote }}

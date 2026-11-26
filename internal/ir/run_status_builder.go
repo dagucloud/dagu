@@ -166,6 +166,20 @@ func WithBackfillID(backfillID string) StatusOption {
 	}
 }
 
+// WithTriggerSubject sets the subject the run was started for. Nil clears it.
+func WithTriggerSubject(subject *TriggerSubject) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.TriggerSubject = subject
+	}
+}
+
+// WithRetryDisabled marks the run as not retryable once terminal.
+func WithRetryDisabled(disabled bool) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.RetryDisabled = disabled
+	}
+}
+
 // WithTriggerActor sets the attributable trigger actor.
 func WithTriggerActor(actor string) StatusOption {
 	return func(status *DAGRunStatus) {

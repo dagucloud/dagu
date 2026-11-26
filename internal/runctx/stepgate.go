@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-// StepGate lets an isolated untrusted step hold its run alone (Spec 092,
+// StepGate lets an isolated untrusted step hold its run alone (Spec 103,
 // "Isolation"). A trusted step is a reader: trusted steps run at the same time.
 // An isolated untrusted step is the writer: it waits for the end of the
 // running steps of its run, then no other step of the run starts until it
@@ -35,7 +35,8 @@ func (g *StepGate) notify() {
 
 // Read waits until no untrusted step holds or waits for the run, and takes a
 // place for a trusted step. onWait runs once when the step must wait. The
-// returned function gives the place back.
+// returned function gives the place back. Read is not reentrant: a caller
+// that holds a place and calls Read again waits for ever once a writer waits.
 func (g *StepGate) Read(ctx context.Context, onWait func()) (func(), error) {
 	if g == nil {
 		return func() {}, nil

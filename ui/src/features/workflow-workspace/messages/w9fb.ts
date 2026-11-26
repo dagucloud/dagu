@@ -34,4 +34,11 @@ export default defineMessages({
     cached: 'zwischengespeichert',
     'Test run, not kept': 'Testlauf, wird nicht aufbewahrt',
   },
+  fr: {
+    'Inputs from your cache ({time})': 'Entrées issues de votre cache ({time})',
+    'Inputs from run {id} and your cache':
+      'Entrées issues de l’exécution {id} et de votre cache',
+    cached: 'en cache',
+    'Test run, not kept': 'Exécution de test, non conservée',
+  },
 });

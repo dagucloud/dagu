@@ -253,7 +253,13 @@ type DAGRunStatus struct {
 	// started without one, rather than a slot it named or was fired for.
 	DefaultSlot bool `json:"defaultSlot,omitempty"`
 	// BackfillID names the backfill that started the run. Retries keep it.
-	BackfillID     string `json:"backfillId,omitempty"`
+	BackfillID string `json:"backfillId,omitempty"`
+	// TriggerSubject names the external subject that owns the run, such as an
+	// A2A task. Later attempts keep it.
+	TriggerSubject *TriggerSubject `json:"triggerSubject,omitempty"`
+	// RetryDisabled refuses any retry of the run once it is terminal.
+	// Later attempts keep it.
+	RetryDisabled  bool   `json:"retryDisabled,omitempty"`
 	StartedAt      string `json:"startedAt,omitempty"`
 	FinishedAt     string `json:"finishedAt,omitempty"`
 	AutoRetryCount int    `json:"autoRetryCount,omitempty"`
@@ -682,4 +688,10 @@ func DefinitionDigest(yaml []byte) string {
 	}
 	sum := sha256.Sum256(yaml)
 	return hex.EncodeToString(sum[:8])
+}
+
+// TriggerSubject identifies the external subject a run was started for.
+type TriggerSubject struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
 }

@@ -125,10 +125,23 @@ type NodesExecutor interface {
 type NodeRun struct {
 	// Node is the node's name.
 	Node string
-	// Disabled reports a node that does not run, and so has no Run.
+	// Disabled reports a node that does not run. It has a Run only when an
+	// earlier attempt of the step gave it a child run.
 	Disabled bool
+	// Removed reports a node of a retried step that has left the inventory.
+	// It does not run.
+	Removed bool
+	// Reuse reports a node of a retried step whose child run succeeded. The
+	// step keeps that run's result without running it again.
+	Reuse bool
 	// Run starts the child run bound to the node.
 	Run RunParams
+}
+
+// Runs reports whether the node has a child run in the step: one that runs,
+// or one whose earlier result the step keeps.
+func (n NodeRun) Runs() bool {
+	return !n.Disabled && !n.Removed
 }
 
 // RunParams holds the parameters for running a sub DAG.
@@ -201,7 +214,7 @@ type SkillDefinitionProvider interface {
 }
 
 // UntrustedRunner is implemented by executors that can run an untrusted step
-// (Spec 092). Such an executor starts each process of the step through
+// (Spec 103). Such an executor starts each process of the step through
 // untrusted.StartManagedProcess, which applies the rules of an untrusted step.
 // The runtime refuses an untrusted step whose executor does not implement it.
 type UntrustedRunner interface {

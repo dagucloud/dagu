@@ -41,6 +41,7 @@ import {
 import { buildDAGPageURL } from '../../features/dag-runs/lib/dagRunUrls';
 import { useDAGListActivity } from '../../features/dags/hooks/useDAGListActivity';
 import { setDAGPinned } from '../../features/dags/lib/dagPins';
+import { isServiceDAG } from '../../lib/dagSchedule';
 import { PeekHost } from '../../features/peek/PeekHost';
 import { withoutPeek } from '../../features/peek/peekParams';
 import { useClient, useQuery } from '../../hooks/api';
@@ -649,14 +650,6 @@ function DAGsContent() {
     }
   );
   useSSECacheSync(dagsListSSE, mutate);
-  // The activity is read once the list has rows to draw it in, so that the
-  // list does not wait for it.
-  const showsActivity = useListShowsActivity();
-  const activity = useDAGListActivity(
-    queryParams,
-    { through: loadedPages.through, readWith: loadedPages.headOrder },
-    filtersReady && showsActivity && (data?.dags.length ?? 0) > 0
-  );
 
   React.useEffect(() => {
     resetLoadedPages();
@@ -1093,6 +1086,23 @@ function DAGsContent() {
       errorCount: mergedDags.filter((dag) => dag.errors?.length).length,
     };
   }, [data?.dags, olderDAGFiles]);
+
+  // The activity is read once the list has rows to draw it in, so that the
+  // list does not wait for it. A service DAG draws no strip, so its activity
+  // is not read.
+  const showsActivity = useListShowsActivity();
+  const activityFileNames = React.useMemo(
+    () =>
+      dagFiles
+        .filter((dag) => !isServiceDAG(dag.dag))
+        .map((dag) => dag.fileName),
+    [dagFiles]
+  );
+  const activity = useDAGListActivity(
+    activityFileNames,
+    remoteNode,
+    filtersReady && showsActivity && activityFileNames.length > 0
+  );
 
   // The order of the first page: its workflows and the total.
   const headOrder = React.useMemo(

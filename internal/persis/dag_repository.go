@@ -78,6 +78,12 @@ func (r *DAGRepository) GetMetadata(ctx context.Context, id string) (*ir.DAG, er
 	return r.store.GetMetadata(ctx, id)
 }
 
+// MetadataByIDs returns the metadata of each DAG that an id names, by id. An
+// id that names no DAG, or a DAG whose metadata cannot be read, is left out.
+func (r *DAGRepository) MetadataByIDs(ctx context.Context, ids []string) (map[string]*ir.DAG, error) {
+	return r.store.MetadataByIDs(ctx, ids)
+}
+
 // ServiceDAGNames returns the names of the DAGs that set a restart policy.
 func (r *DAGRepository) ServiceDAGNames(ctx context.Context) ([]string, error) {
 	return r.store.ServiceDAGNames(ctx)

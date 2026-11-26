@@ -90,7 +90,7 @@ It must not be treated as product behavior until implementation catches up.
 | [089: Node Targeting](089-node-targeting.md) | Partially implemented |
 | [090: Agent Tools](090-agent-tools.md) | Partially implemented |
 | [091: Agent Node](091-agent-node.md) | Partially implemented |
-| [092: Agent Workers](092-agent-workers.md) | Partially implemented |
+| [092: Agent Workers](092-agent-workers.md) | Not implemented |
 | [093: AI Endpoints](093-ai-endpoints.md) | Implemented |
 | [094: AI Gateway](094-ai-gateway.md) | Implemented |
 | [095: MCP Servers](095-mcp-servers.md) | Implemented |
@@ -101,6 +101,10 @@ It must not be treated as product behavior until implementation catches up.
 | [100: Service Run History](100-service-run-history.md) | Implemented |
 | [101: Workflow Tests](101-workflow-tests.md) | Partially implemented |
 | [102: Projects](102-projects.md) | Not implemented |
+| [103: Untrusted Steps and Step Secrets](103-untrusted-steps.md) | Partially implemented |
+| [104: References to Agent Output](104-agent-output.md) | Not implemented |
+| [105: Egress Proxy](105-egress-proxy.md) | Partially implemented |
+| [106: DAG Outputs](106-dag-outputs.md) | Implemented |
 
 **Writing guidelines:**
 

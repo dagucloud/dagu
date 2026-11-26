@@ -19,13 +19,20 @@ func projectsTestConfig(t *testing.T, enabled bool) *config.Config {
 	return &config.Config{
 		ProjectsEnabled: enabled,
 		Paths: config.PathsConfig{
-			DAGsDir:       filepath.Join(root, "dags"),
-			ProjectsDir:   filepath.Join(root, "projects"),
-			DataDir:       filepath.Join(root, "data"),
-			LogDir:        filepath.Join(root, "logs"),
-			ArtifactDir:   filepath.Join(root, "data", "artifacts"),
-			DAGRunsDir:    filepath.Join(root, "data", "dag-runs"),
-			DAGRunWorkDir: filepath.Join(root, "data", "dag-run-work"),
+			DAGsDir:               filepath.Join(root, "dags"),
+			ProjectsDir:           filepath.Join(root, "projects"),
+			DataDir:               filepath.Join(root, "data"),
+			LogDir:                filepath.Join(root, "logs"),
+			ArtifactDir:           filepath.Join(root, "data", "artifacts"),
+			DAGRunsDir:            filepath.Join(root, "data", "dag-runs"),
+			DAGRunWorkDir:         filepath.Join(root, "data", "dag-run-work"),
+			EventStoreDir:         filepath.Join(root, "logs", "admin", "events"),
+			DAGStateDir:           filepath.Join(root, "data", "dag-state"),
+			QueueDir:              filepath.Join(root, "queue"),
+			ProcDir:               filepath.Join(root, "data", "proc"),
+			SuspendFlagsDir:       filepath.Join(root, "data", "suspend"),
+			SuspendFlagsDirLegacy: filepath.Join(root, "suspend"),
+			ViewsDir:              filepath.Join(root, "data", "views"),
 		},
 	}
 }
@@ -40,12 +47,21 @@ func TestProjectPaths(t *testing.T) {
 		paths, err := cfg.ProjectPaths("default")
 		require.NoError(t, err)
 		assert.Equal(t, config.ProjectPaths{
-			DAGsDir:       cfg.Paths.DAGsDir,
-			StateDir:      cfg.Paths.DataDir,
-			LogDir:        cfg.Paths.LogDir,
-			ArtifactDir:   cfg.Paths.ArtifactDir,
-			DAGRunsDir:    cfg.Paths.DAGRunsDir,
-			DAGRunWorkDir: cfg.Paths.DAGRunWorkDir,
+			DAGsDir:               cfg.Paths.DAGsDir,
+			StateDir:              cfg.Paths.DataDir,
+			LogDir:                cfg.Paths.LogDir,
+			ArtifactDir:           cfg.Paths.ArtifactDir,
+			DAGRunsDir:            cfg.Paths.DAGRunsDir,
+			DAGRunWorkDir:         cfg.Paths.DAGRunWorkDir,
+			EventStoreDir:         cfg.Paths.EventStoreDir,
+			SettingsDir:           cfg.Paths.DataDir,
+			OtherStateDir:         cfg.Paths.DataDir,
+			DAGStateDir:           cfg.Paths.DAGStateDir,
+			QueueDir:              cfg.Paths.QueueDir,
+			ProcDir:               cfg.Paths.ProcDir,
+			SuspendFlagsDir:       cfg.Paths.SuspendFlagsDir,
+			LegacySuspendFlagsDir: cfg.Paths.SuspendFlagsDirLegacy,
+			ViewsDir:              cfg.Paths.ViewsDir,
 		}, paths)
 	})
 
@@ -62,17 +78,27 @@ func TestProjectPaths(t *testing.T) {
 
 		// The registry spells the default project "default"; another case
 		// still resolves to that one spelling on disk.
+		// paths.queue_dir and the other paths settings of project stores
+		// only tell migration where v2 kept their data.
 		for _, name := range []string{"default", "Default"} {
 			paths, err := cfg.ProjectPaths(name)
 			require.NoError(t, err)
 			assert.Equal(t, config.ProjectPaths{
-				DAGsDir:       cfg.Paths.DAGsDir,
-				StateDir:      state,
-				LogDir:        filepath.Join(state, "logs"),
-				ArtifactDir:   filepath.Join(state, "artifacts"),
-				DAGRunsDir:    filepath.Join(state, "runs"),
-				DAGRunWorkDir: filepath.Join(state, "state", "dag-run-work"),
-				RecordDirs:    []string{state},
+				DAGsDir:         cfg.Paths.DAGsDir,
+				StateDir:        state,
+				LogDir:          filepath.Join(state, "logs"),
+				ArtifactDir:     filepath.Join(state, "artifacts"),
+				DAGRunsDir:      filepath.Join(state, "runs"),
+				DAGRunWorkDir:   filepath.Join(state, "state", "dag-run-work"),
+				EventStoreDir:   filepath.Join(state, "state", "events"),
+				SettingsDir:     filepath.Join(state, "settings"),
+				OtherStateDir:   filepath.Join(state, "state"),
+				DAGStateDir:     filepath.Join(state, "state", "dag-state"),
+				QueueDir:        filepath.Join(state, "state", "queue"),
+				ProcDir:         filepath.Join(state, "state", "proc"),
+				SuspendFlagsDir: filepath.Join(state, "state", "suspend"),
+				ViewsDir:        filepath.Join(state, "state", "views"),
+				RecordDirs:      []string{state},
 			}, paths)
 		}
 	})
@@ -112,6 +138,20 @@ func TestProjectPaths(t *testing.T) {
 		assert.Equal(t, runs, paths.DAGRunsDir)
 		assert.Equal(t, work, paths.DAGRunWorkDir)
 		assert.Equal(t, []string{state, logs, artifacts, runs, work}, paths.RecordDirs)
+	})
+
+	// paths.event_store_dir only tells migration where v2 kept run events,
+	// so each project keeps its own in its state directory.
+	t.Run("OnEventStoreIgnoresPath", func(t *testing.T) {
+		t.Parallel()
+		cfg := projectsTestConfig(t, true)
+		cfg.Paths.EventStoreDir = filepath.Join(t.TempDir(), "events")
+
+		paths, err := cfg.ProjectPaths("weather")
+		require.NoError(t, err)
+		state := filepath.Join(cfg.Paths.DataDir, "projects", "weather")
+		assert.Equal(t, filepath.Join(state, "state", "events"), paths.EventStoreDir)
+		assert.Equal(t, []string{state}, paths.RecordDirs)
 	})
 
 	t.Run("OnSharedSetApartRoot", func(t *testing.T) {

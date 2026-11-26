@@ -388,7 +388,8 @@ function NodeStatusTableRow({
   });
   const canRetry = showStepActions && retryGate.ok;
   const retryDisabled = retryGate.disabled;
-  const retryTitle = rootRunning ? retryGate.reason : 'Retry this step';
+  const retryTitle =
+    rootRunning || retryGate.disabled ? retryGate.reason : 'Retry this step';
 
   const subDAGLogQuery = useQuery(
     '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/log',

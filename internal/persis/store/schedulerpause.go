@@ -32,7 +32,7 @@ type schedulerPauseRecord struct {
 }
 
 // SchedulerPauseStore persists the cluster-wide scheduler pause flag as a
-// record in the scheduler state collection.
+// record in the scheduler process collection.
 //
 // The flag is written by the API and read by the scheduler on every dispatch
 // decision. Reads are served from a cache validated against the backing

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { messages, translate } from '../messages';
 import { staticMessages } from '../staticMessages';
 import { translateStatic } from '../translateStatic';
@@ -37,6 +37,28 @@ describe('translations', () => {
     );
   });
 
+  it('names French in every language', () => {
+    expect(translate('en', 'language.french')).toBe('French');
+    expect(translate('zh-CN', 'language.french')).toBe('法语');
+    expect(translate('ja', 'language.french')).toBe('フランス語');
+    expect(translate('de', 'language.french')).toBe('Französisch');
+    expect(translate('fr', 'language.french')).toBe('Français');
+  });
+
+  it('provides French translations for the shell', () => {
+    expect(translate('fr', 'navigation.overview')).toBe('Vue d’ensemble');
+    expect(translate('fr', 'auth.signIn')).toBe('Se connecter');
+    expect(translate('fr', 'common.selected', { count: 3 })).toBe(
+      'Sélection\u00a0: 3'
+    );
+  });
+
+  it('keeps every French catalog key aligned with English', () => {
+    expect(Object.keys(messages.fr).sort()).toEqual(
+      Object.keys(messages.en).sort()
+    );
+  });
+
   it('interpolates dynamic values', () => {
     expect(translate('ja', 'common.selected', { count: 3 })).toBe('3 件を選択');
   });
@@ -46,6 +68,17 @@ describe('translations', () => {
 
     expect(Object.keys(staticMessages['zh-CN']).sort()).toEqual(englishKeys);
     expect(Object.keys(staticMessages.ja).sort()).toEqual(englishKeys);
+    expect(Object.keys(staticMessages.fr).sort()).toEqual(englishKeys);
+  });
+
+  it('translates first-party UI copy into French', () => {
+    expect(translateStatic('fr', 'No runs found')).toBe(
+      'Aucune exécution trouvée'
+    );
+    expect(
+      translateStatic('fr', 'No runs on {date}', { date: '2026-09-02' })
+    ).toBe('Aucune exécution le 2026-09-02');
+    expect(translateStatic('fr', '__proto__')).toBe('__proto__');
   });
 
   it('translates first-party UI copy', () => {
@@ -77,6 +110,33 @@ describe('translations', () => {
     await fresh.loadStaticMessages('ja');
     expect(fresh.translateStatic('ja', 'No runs found')).toBe(
       '実行が見つかりません'
+    );
+  });
+
+  // A reader downloads only the catalog of the locale in use. The German
+  // module records its import, so a Japanese load that brought every locale
+  // fails here even if it kept only Japanese.
+  it('loads only the requested locale', async () => {
+    vi.resetModules();
+    const germanImported = vi.fn();
+    vi.doMock('../locales/de', async (importOriginal) => {
+      germanImported();
+      return importOriginal();
+    });
+    onTestFinished(() => {
+      vi.doUnmock('../locales/de');
+    });
+    const fresh = await import('../translateStatic');
+
+    await fresh.loadStaticMessages('ja');
+    expect(germanImported).not.toHaveBeenCalled();
+    expect(fresh.hasStaticMessages('de')).toBe(false);
+    expect(fresh.translateStatic('de', 'No runs found')).toBe('No runs found');
+
+    await fresh.loadStaticMessages('de');
+    expect(germanImported).toHaveBeenCalledOnce();
+    expect(fresh.translateStatic('de', 'No runs found')).toBe(
+      'Keine Läufe gefunden'
     );
   });
 

@@ -1,0 +1,10 @@
+working_dir: .
+outputs:
+  summary: '\${diagnose.outputs.summary}'
+steps:
+  - id: diagnose
+    run: echo ok
+    outputs:
+      - name: summary
+      - name: findings
+        type: json

@@ -6,6 +6,7 @@ import { CommandPaletteProvider } from '@/components/command-palette/CommandPale
 import { LicenseBanner } from '@/components/LicenseBanner';
 import { MonitoringNotice } from '@/components/MonitoringNotice';
 import { SchedulerPauseBanner } from '@/components/SchedulerPauseBanner';
+import { TranslationLoadBanner } from '@/components/TranslationLoadBanner';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { useConfig } from '@/contexts/ConfigContext';
 import {
@@ -309,6 +310,7 @@ function Content({ navbarColor, children }: LayoutProps) {
         {/* Scrollable Content - More Compact Padding */}
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {!noBreadcrumb && <ContentNavigation pathname={location.pathname} />}
+          <TranslationLoadBanner />
           <UpdateBanner />
           {/* The Settings page states these itself, with their actions. */}
           {location.pathname !== '/settings' && (

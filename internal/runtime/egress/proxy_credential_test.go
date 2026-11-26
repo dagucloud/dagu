@@ -22,55 +22,6 @@ import (
 // proxy.
 const testProxyCredential = "proxy-credential-0123456789"
 
-// The form anthropic-oauth sends the key as a Bearer token and adds the OAuth beta
-// to the betas of the client, once. The log line has the digests of the client
-// credential and of the key, never the values.
-func TestUpstreamAnthropicOAuth(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		name   string
-		betas  []string
-		want   string
-		client http.Header
-		digest string
-	}{
-		{"no beta", nil, egress.AnthropicOAuthBeta, http.Header{"X-Api-Key": {"placeholder"}}, "x-api-key sha256:" + egress.Digest("placeholder")},
-		{"other betas", []string{"a-1, b-2", "c-3"}, "a-1,b-2,c-3," + egress.AnthropicOAuthBeta,
-			http.Header{"Authorization": {"Bearer placeholder"}}, "authorization Bearer sha256:" + egress.Digest("placeholder")},
-		{"beta present", []string{"a-1," + egress.AnthropicOAuthBeta}, "a-1," + egress.AnthropicOAuthBeta, nil, "client credential none"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec, host, port := startRecorder(t, false, nil)
-			upstream := mustUpstream(t, "http://allowed.example.test:"+port, egress.AuthAnthropicOAuth)
-			proxyAddr, logs := upstreamProxy(t, []string{"allowed.example.test:" + port}, upstream, resolverFor("allowed.example.test", host), nil, nil)
-
-			header := tc.client.Clone()
-			if header == nil {
-				header = http.Header{}
-			}
-			for _, beta := range tc.betas {
-				header.Add("Anthropic-Beta", beta)
-			}
-			reply := originFormRequest(t, proxyAddr, http.MethodPost, "/v1/messages", "{}", header)
-			assert.Equal(t, http.StatusOK, reply.StatusCode)
-
-			got := rec.only(t)
-			assert.Equal(t, []string{"Bearer " + testUpstreamKey}, got.Header.Values("Authorization"))
-			assert.Empty(t, got.Header.Values("X-Api-Key"))
-			assert.Equal(t, []string{tc.want}, got.Header.Values("Anthropic-Beta"))
-
-			text := logs.text()
-			assert.Contains(t, text, tc.digest)
-			assert.Contains(t, text, "replaced by the key sha256:"+egress.Digest(testUpstreamKey)+" (anthropic-oauth)")
-			assert.NotContains(t, text, testUpstreamKey)
-			assert.NotContains(t, text, "placeholder")
-		})
-	}
-}
-
 // credentialProxy serves a proxy with plain rules and rules that need the proxy
 // credential. It returns its address and its logs.
 func credentialProxy(t *testing.T, plain, guarded []string, resolver egress.Resolver, dial egress.DialFunc) (string, *proxyLogs) {

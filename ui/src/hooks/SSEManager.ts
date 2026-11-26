@@ -46,6 +46,8 @@ interface ManagedConnection {
   drainTimeout: ReturnType<typeof setTimeout> | null;
   mutationTimeout: ReturnType<typeof setTimeout> | null;
   mutationInFlight: boolean;
+  /** Topic changes that failed in a row; the next waits longer. */
+  mutationFailures: number;
   topics: Map<string, TopicSubscription>;
   serverTopics: Set<string>;
   pendingAdd: Set<string>;
@@ -132,8 +134,9 @@ export function endpointToTopic(endpoint: string): string {
   if (segments.length === 2 && segments[1] === 'dag-run-activity') {
     return buildTopic('dagrunactivity', query);
   }
-  if (segments.length === 2 && segments[1] === 'dag-list-activity') {
-    return buildTopic('daglistactivity', query);
+  if (segments.length === 2 && segments[1] === 'dag-run-changes') {
+    // The change feed has one topic, with a fixed identifier.
+    return buildTopic('dagrunchanges', 'all');
   }
   if (segments.length === 4 && segments[1] === 'dag-runs') {
     return buildTopic('dagrun', `${segments[2]}/${segments[3]}`);
@@ -255,6 +258,24 @@ function calculateRetryDelay(retryCount: number): number {
   return Math.min(1000 * 2 ** retryCount, MAX_RETRY_DELAY_MS);
 }
 
+/** The wait before a topic change that failed is asked for again. */
+function mutationRetryDelay(failures: number): number {
+  return Math.min(MUTATION_DEBOUNCE_MS * 2 ** failures, MAX_RETRY_DELAY_MS);
+}
+
+/**
+ * Client errors that a later topic change can pass: Request Timeout and Too
+ * Many Requests, as a proxy in front of the server can answer.
+ */
+const TRANSIENT_CLIENT_STATUSES: ReadonlySet<number> = new Set([408, 429]);
+
+/** Whether the server rejects a topic change again when asked again. */
+function rejectsTopicChange(status: number): boolean {
+  return (
+    status >= 400 && status < 500 && !TRANSIENT_CLIENT_STATUSES.has(status)
+  );
+}
+
 export class SSEManager {
   private connections = new Map<string, ManagedConnection>();
 
@@ -350,6 +371,7 @@ export class SSEManager {
       drainTimeout: null,
       mutationTimeout: null,
       mutationInFlight: false,
+      mutationFailures: 0,
       topics: new Map(),
       serverTopics: new Set(),
       pendingAdd: new Set(),
@@ -512,6 +534,7 @@ export class SSEManager {
         conn.sessionId = control.sessionID;
         conn.serverTopics = new Set(control.subscribed ?? []);
         conn.retryCount = 0;
+        conn.mutationFailures = 0;
 
         if (conn.connectTimeout) {
           clearTimeout(conn.connectTimeout);
@@ -671,6 +694,8 @@ export class SSEManager {
       conn.eventSource !== mutationEventSource;
 
     conn.mutationInFlight = true;
+    // Set when the change failed and can be asked for again later.
+    let retryDelay: number | null = null;
     try {
       const response = await fetch(
         buildMutationUrl(conn.apiURL, conn.remoteNode),
@@ -710,12 +735,29 @@ export class SSEManager {
       }
 
       if (!response.ok && response.status !== 403) {
-        throw new Error(
+        const message =
           'message' in body && typeof body.message === 'string'
             ? body.message
-            : 'Failed to update SSE topics'
-        );
+            : 'Failed to update SSE topics';
+        if (rejectsTopicChange(response.status)) {
+          // The server rejects the same change again: the topics that it
+          // would add fall back to polling instead. Its removals are asked
+          // for again on their own, so that the server stops sending those
+          // topics, unless they were the whole change.
+          for (const topic of add) {
+            conn.pendingAdd.delete(topic);
+          }
+          if (add.length === 0) {
+            for (const topic of remove) {
+              conn.pendingRemove.delete(topic);
+            }
+          }
+          this.updateState(conn, { error: new Error(message) });
+          return;
+        }
+        throw new Error(message);
       }
+      conn.mutationFailures = 0;
 
       if ('subscribed' in body) {
         conn.serverTopics = new Set(body.subscribed ?? []);
@@ -751,6 +793,8 @@ export class SSEManager {
             ? error
             : new Error('Failed to update SSE topics'),
       });
+      retryDelay = mutationRetryDelay(conn.mutationFailures);
+      conn.mutationFailures += 1;
     } finally {
       conn.mutationInFlight = false;
       if (
@@ -758,7 +802,7 @@ export class SSEManager {
         conn.sessionId &&
         conn.state.isConnected
       ) {
-        this.scheduleMutation(conn, 0);
+        this.scheduleMutation(conn, retryDelay ?? 0);
       }
     }
   }

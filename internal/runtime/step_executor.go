@@ -88,12 +88,17 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 
 	leaveGate, err := enterStepGate(ctx, node)
 	if err != nil {
+		if ctx.Err() != nil {
+			// A timeout or a stop ends the wait as it ends an attempt that
+			// has not started.
+			return recordPreRunAbort(ctx, node, err, stepTimeout, attemptStarted)
+		}
 		node.SetError(err)
 		node.SetExitCode(1)
 		return err
 	}
 	defer leaveGate()
-	if (GetDAGContext(ctx).DAG.HasUntrustedStep() || untrusted.InChildRun(ctx)) && !node.Step().IsUntrusted() {
+	if untrustedRun(ctx) && !node.Step().IsUntrusted() {
 		ctx = untrusted.WithGitSafetyContext(ctx)
 		if ctx, err = withTrustedHome(ctx, node); err != nil {
 			node.SetError(err)
@@ -219,6 +224,10 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		// its action published before it failed.
 		node.clearOutputsValue()
 		node.clearStepOutputsValue()
+		if errors.Is(err, untrusted.ErrRunAborted) {
+			// The run still stops.
+			return errors.Join(err, outputErr)
+		}
 		return outputErr
 	}
 

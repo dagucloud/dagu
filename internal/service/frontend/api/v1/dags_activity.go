@@ -6,15 +6,14 @@ package api
 import (
 	"context"
 	"fmt"
-	"net/url"
+	"maps"
 	"slices"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/samples"
 )
@@ -26,9 +25,10 @@ const (
 	activityRunLimit = 60
 	// activityBucketLimit bounds the buckets that the activity of a service DAG lists.
 	activityBucketLimit = 60
-	// maxActivityPageSize is the most DAGs whose activity one request reads,
-	// the size of the largest DAG list page.
-	maxActivityPageSize = 200
+	// maxActivityFileNames is the most DAGs that one activity request names,
+	// so that the request line stays under the 8 KiB that common proxies
+	// accept.
+	maxActivityFileNames = 100
 	// activityScanLimit bounds the runs that the activity of one DAG reads to
 	// find the runs that started last: the runs created last since one window
 	// before the window.
@@ -51,122 +51,91 @@ func activityWindowFromSeconds(seconds int) (time.Duration, error) {
 	return window, nil
 }
 
-// activityWindowFromQuery reads the window from the query string of an
-// activity topic.
-func activityWindowFromQuery(params url.Values) (time.Duration, error) {
-	raw := params.Get("window")
-	if raw == "" {
-		return 0, activityBadRequest("window is required")
-	}
-	seconds, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, activityBadRequest(fmt.Sprintf("window must be an integer, got %q", raw))
-	}
-	return activityWindowFromSeconds(seconds)
-}
-
-// GetDAGListActivity returns the activity of the DAGs of one DAG list page.
+// GetDAGListActivity returns the activity of the DAGs that fileName names, in
+// request order, each once. A name that names no DAG of the list that the
+// caller can see is left out.
 func (a *API) GetDAGListActivity(ctx context.Context, request api.GetDAGListActivityRequestObject) (api.GetDAGListActivityResponseObject, error) {
 	p := request.Params
 	window, err := activityWindowFromSeconds(p.Window)
 	if err != nil {
 		return nil, err
 	}
-	listOpts, err := a.dagListOptions(ctx, dagListParams{
-		page: p.Page, perPage: p.PerPage, workspace: p.Workspace,
-		name: p.Name, labels: p.Labels, tags: p.Tags, active: p.Active,
-		sort: (*string)(p.Sort), order: (*string)(p.Order),
-	})
+	names, err := activityFileNames(p.FileName)
 	if err != nil {
 		return nil, err
 	}
-	limitActivityPage(&listOpts, valueOf(p.Page))
-	page, err := a.dagListActivity(ctx, listOpts, window)
+	page, err := a.dagActivities(ctx, names, window)
 	if err != nil {
 		return nil, err
 	}
 	return api.GetDAGListActivity200JSONResponse(page), nil
 }
 
-// GetDAGListActivityData returns the activity of a DAG list page for SSE. The
-// identifier is the query string of the list topic of the page, with window.
-func (a *API) GetDAGListActivityData(ctx context.Context, queryString string) (any, error) {
-	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
-		endpoint: "/dag-list-activity",
-	}, func(readCtx context.Context) (any, error) {
-		listOpts, window, err := a.dagListActivityQuery(readCtx, queryString)
-		if err != nil {
-			return nil, err
+// activityFileNames checks the count of the names of an activity request and
+// drops repeats, keeping the first.
+func activityFileNames(names []string) ([]string, error) {
+	if len(names) == 0 || len(names) > maxActivityFileNames {
+		return nil, activityBadRequest(fmt.Sprintf("fileName must be given from 1 to %d times, got %d",
+			maxActivityFileNames, len(names)))
+	}
+	unique := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if _, ok := seen[name]; ok {
+			continue
 		}
-		return a.dagListActivity(readCtx, listOpts, window)
-	})
+		seen[name] = struct{}{}
+		unique = append(unique, name)
+	}
+	return unique, nil
 }
 
-// ValidateDAGListActivityQuery returns a 400 *Error when
-// GetDAGListActivityData would reject the query string.
-func (a *API) ValidateDAGListActivityQuery(ctx context.Context, queryString string) error {
-	_, _, err := a.dagListActivityQuery(ctx, queryString)
-	return err
-}
-
-// dagListActivityQuery reads the list options and the window of an activity
-// topic.
-func (a *API) dagListActivityQuery(ctx context.Context, queryString string) (persis.DAGListOptions, time.Duration, error) {
-	params, err := url.ParseQuery(queryString)
-	if err != nil {
-		return persis.DAGListOptions{}, 0, activityBadRequest(fmt.Sprintf("invalid query parameters: %s", err))
-	}
-	window, err := activityWindowFromQuery(params)
-	if err != nil {
-		return persis.DAGListOptions{}, 0, err
-	}
-	if sort := params.Get("sort"); sort != "" && !api.GetDAGListActivityParamsSort(sort).Valid() {
-		return persis.DAGListOptions{}, 0, activityBadRequest(fmt.Sprintf("sort must be name, nextRun, status, or lastRun, got %q", sort))
-	}
-	if order := params.Get("order"); order != "" && !api.GetDAGListActivityParamsOrder(order).Valid() {
-		return persis.DAGListOptions{}, 0, activityBadRequest(fmt.Sprintf("order must be asc or desc, got %q", order))
-	}
-	listOpts, err := a.buildDAGListOptions(ctx, queryString)
-	if err != nil {
-		return persis.DAGListOptions{}, 0, err
-	}
-	limitActivityPage(&listOpts, parseIntParam(params.Get("page"), 1))
-	return listOpts, window, nil
-}
-
-// limitActivityPage limits the page of listOpts to the DAGs of the largest
-// list page, as a list limits its page. A list reads the largest integer as
-// all DAGs; the activity reads those 200 too.
-func limitActivityPage(listOpts *persis.DAGListOptions, page int) {
-	if listOpts.Paginator.Limit() > maxActivityPageSize {
-		limited := pagination.NewPaginator(page, maxActivityPageSize)
-		listOpts.Paginator = &limited
-	}
-}
-
-// dagListActivity gives the activity of each DAG of the DAG list page that
-// listOpts select, in page order. The page, its order, and its errors are
-// those of the DAG list with the same options.
-func (a *API) dagListActivity(ctx context.Context, listOpts persis.DAGListOptions, window time.Duration) (api.DAGListActivityPage, error) {
+// dagActivities gives the activity over the window that ends now of each DAG
+// that a name names and the caller can see, in the order of names.
+func (a *API) dagActivities(ctx context.Context, names []string, window time.Duration) (api.DAGListActivityPage, error) {
+	// The time is taken before any read, so that a change after it has a
+	// later time in the change feed than readAt.
 	now := time.Now()
-	page := api.DAGListActivityPage{Dags: []api.DAGListActivityEntry{}}
-	var activityErrs []string
-	list, err := a.listDAGsDataWithSearchPaths(ctx, listOpts, dagListSource{
-		pinnedFirst:   true,
-		skipBackfills: true,
-		visit: func(item persis.DAGListItem, latest ir.DAGRunStatus) {
-			activity, err := a.cachedDAGActivity(ctx, item.DAG, latest, now, window)
-			if err != nil {
-				activityErrs = append(activityErrs, err.Error())
-			}
-			page.Dags = append(page.Dags, api.DAGListActivityEntry{FileName: item.ID, Activity: *activity})
-		},
-	})
+	page := api.DAGListActivityPage{
+		Dags:   []api.DAGListActivityEntry{},
+		Errors: []string{},
+		ReadAt: now.UTC().Truncate(time.Millisecond),
+	}
+	dags, err := a.visibleDAGsByFile(ctx, names)
 	if err != nil {
 		return api.DAGListActivityPage{}, err
 	}
-	page.Errors = append(list.Errors, activityErrs...)
+	for _, name := range names {
+		dag, ok := dags[name]
+		if !ok {
+			continue
+		}
+		activity, err := a.listedDAGActivity(ctx, dag, now, window)
+		if err != nil {
+			page.Errors = append(page.Errors, err.Error())
+		}
+		page.Dags = append(page.Dags, api.DAGListActivityEntry{FileName: name, Activity: *activity})
+	}
 	return page, nil
+}
+
+// visibleDAGsByFile returns the DAGs that a name names and the caller can
+// see, by file name. It reads the named DAGs only, so a request costs the
+// count of its names, not of all DAGs. A name that is not a file name of the
+// list, such as a path, names no DAG.
+func (a *API) visibleDAGsByFile(ctx context.Context, names []string) (map[string]*ir.DAG, error) {
+	fileNames := slices.DeleteFunc(slices.Clone(names), func(name string) bool {
+		return name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`)
+	})
+	dags, err := a.dagRepository.MetadataByIDs(ctx, fileNames)
+	if err != nil {
+		return nil, fmt.Errorf("error reading DAGs: %w", err)
+	}
+	filter := a.workspaceFilterForContext(ctx)
+	maps.DeleteFunc(dags, func(_ string, dag *ir.DAG) bool {
+		return !filter.MatchesLabels(dag.Labels)
+	})
+	return dags, nil
 }
 
 // serviceActivity gives the activity of a service DAG as buckets of its run

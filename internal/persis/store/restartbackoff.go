@@ -18,7 +18,7 @@ type restartBackoffRecord struct {
 }
 
 // RestartBackoffStore keeps the restart backoff as a record in the scheduler
-// state collection.
+// process collection.
 type RestartBackoffStore struct {
 	rec *SingleRecord[restartBackoffRecord]
 }

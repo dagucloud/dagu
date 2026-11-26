@@ -55,6 +55,7 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"PreviewCalendar":                 remoteNodeAccessRead,
 	"GetDAGRunActivity":               remoteNodeAccessRead,
 	"GetDAGListActivity":              remoteNodeAccessRead,
+	"GetDAGRunChanges":                remoteNodeAccessRead,
 	"ListDAGRuns":                     remoteNodeAccessRead,
 	"ListDAGRunsByName":               remoteNodeAccessRead,
 	"GetDAGRunDetails":                remoteNodeAccessRead,
@@ -122,6 +123,7 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"SearchWikiPageFeed":              remoteNodeAccessRead,
 	"SearchWikiPageMatches":           remoteNodeAccessRead,
 	"ListServiceDAGs":                 remoteNodeAccessRead,
+	"ListSkills":                      remoteNodeAccessRead,
 	"GetSchedulerPauseState":          remoteNodeAccessRead,
 	"GetWorkspaceBaseConfig":          remoteNodeAccessRead,
 	"GetSyncConfig":                   remoteNodeAccessRead,
@@ -247,6 +249,7 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"TestInventoryNodeConnections": remoteNodeAccessDenied,
 	"TestNewInventoryNode":         remoteNodeAccessDenied,
 	"TrustInventoryNodeHostKeys":   remoteNodeAccessDenied,
+	"ForgetWorkerNode":             remoteNodeAccessDenied,
 }
 
 // remoteNodeProfileOperations take a runtime profile in the request body.

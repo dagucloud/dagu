@@ -31,6 +31,10 @@ type Step struct {
 	Dir string `json:"dir,omitempty"`
 	// ExecutorConfig contains the configuration for the executor.
 	ExecutorConfig ExecutorConfig `json:"executorConfig,omitzero"`
+	// ActionWith is the with object of a step written with action, as
+	// written, before any of its inputs move into other fields. Only a load
+	// that asks for it sets it, and it is never persisted.
+	ActionWith map[string]any `json:"-"`
 	// CmdWithArgs is the command with arguments for display purposes.
 	// Deprecated: Use Commands[0].CmdWithArgs instead. Kept for JSON backward compatibility.
 	CmdWithArgs string `json:"cmdWithArgs,omitempty"`
@@ -138,9 +142,8 @@ type Step struct {
 	// Secrets lists the names of the DAG secrets that the step gets (Spec 092).
 	Secrets []string `json:"secrets,omitempty"`
 	// Untrusted marks a step that runs code that an agent wrote or controls. It
-	// is the effective value (Spec 092, "Default of the key"): the loader sets it
-	// for an agent.run step, and, in a DAG that has an agent.run step, for each
-	// step that runs a process and does not opt out.
+	// is the effective value of the key untrusted (Spec 103, "Default of the
+	// key").
 	Untrusted bool `json:"untrusted,omitempty"`
 	// UntrustedKey is the value of the key untrusted that the author wrote, or nil
 	// when the key is absent. The loader reads it once to set Untrusted for the

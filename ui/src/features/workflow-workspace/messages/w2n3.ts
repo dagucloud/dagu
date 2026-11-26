@@ -25,4 +25,9 @@ export default defineMessages({
     'the outputs of this step': 'die Ausgaben dieses Schritts',
     'the run {runId}': 'der Lauf {runId}',
   },
+  fr: {
+    'Could not load {thing}': 'Impossible de charger {thing}',
+    'the outputs of this step': 'les sorties de cette étape',
+    'the run {runId}': 'l’exécution {runId}',
+  },
 });

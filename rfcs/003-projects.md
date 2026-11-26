@@ -254,8 +254,10 @@ request, scheduler unit, or task ──▶ project ID ──▶ that project's s
   unchanged. A project directory copied to another server decrypts there
   only with the same key.
 - **Paths in run records.** Run records store the paths of logs, step
-  output, and artifacts inside the project's state directory relative to
-  it, so moving a DAG leaves them valid. Records written before v3.0 hold
+  output, and artifacts relative to the project's log or artifact
+  directory, which may lie outside its state directory when
+  `paths.log_dir` or `paths.artifact_dir` is set, so moving a DAG leaves
+  them valid. Records written before v3.0 hold
   absolute paths, and migration does not rewrite them: a project maps a
   path under its v2 directories to the new place when it reads the record.
   A later move of the DAG rewrites them. A path a DAG sets outside the

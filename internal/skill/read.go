@@ -28,6 +28,10 @@ var ErrNotFound = errors.New("skill not found")
 // ErrFileTooLarge is returned when a file of the skill is above MaxFileBytes.
 var ErrFileTooLarge = errors.New("the file is above the size limit")
 
+// errFolderChanged is returned when the skill folder is no longer the folder
+// that the path named a moment before, for example because it became a link.
+var errFolderChanged = errors.New("the skill folder changed while Dagu opened it")
+
 // maxReadAttempts is the number of times that a read starts again when the
 // folder changes while Dagu reads it.
 const maxReadAttempts = 4
@@ -85,11 +89,9 @@ type cacheEntry struct {
 // folder. It never fails on a violation of the format: the violations are
 // issues of the result. It returns ErrNotFound when the folder does not exist.
 //
-// Read does not trust a shared state. It reads the folder from disk. It keeps a
-// cache that is keyed by the paths, the sizes and the modification times of
-// all entries and by the issues of the layout, and it ignores the cache for a
-// change that is too recent. A folder that changes while Read reads it is read
-// again. A folder that does not settle gives an error with the rule "changing".
+// Read does not trust a shared state. It reads the folder from disk. A folder
+// that changes while Read reads it is read again. A folder that does not settle
+// gives an error with the rule "changing".
 //
 // The caller MUST NOT change the result.
 func Read(dir string) (*Skill, error) {
@@ -137,9 +139,9 @@ func Read(dir string) (*Skill, error) {
 		if cached, ok := lookup(abs, signature, newest); ok {
 			return cached, nil
 		}
-		s, err := build(abs, name, before, folderIssues)
+		s, err := readFiles(abs, name, before, folderIssues)
 		if err != nil {
-			unreadable = !errors.Is(err, fs.ErrNotExist)
+			unreadable = !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, errFolderChanged)
 			continue
 		}
 		after, afterIssues, _, err := walk(abs)
@@ -201,9 +203,9 @@ func store(dir, signature string, newest time.Time, s *Skill) {
 
 func emptyHash() string { return hashLines(nil) }
 
-// signatureOf is the cache key of one walk: the entries and the issues of the
-// layout. A directory or a link count is not part of an entry, so its issue
-// stands for it.
+// signatureOf identifies one walk: the entries and the issues of the layout. A
+// directory or a link count is not part of an entry, so its issue stands for
+// it.
 func signatureOf(entries []entry, issues []Issue) string {
 	var b strings.Builder
 	for _, e := range entries {
@@ -302,6 +304,8 @@ func walk(dir string) (entries []entry, issues []Issue, newest time.Time, err er
 						return err
 					}
 					continue
+				case mode&fs.ModeSymlink != 0:
+					// Whatever its name, a link gets the rule symlink in the switch below.
 				default:
 					add(RuleRootEntry, path, "%q is not allowed at the root of a skill folder; only SKILL.md, references/, assets/ and scripts/ are allowed", name)
 					if mode.IsRegular() {
@@ -343,7 +347,7 @@ func walk(dir string) (entries []entry, issues []Issue, newest time.Time, err er
 		return nil, nil, time.Time{}, err
 	}
 	if count > maxWalkEntries {
-		add(RuleTooManyFiles, "", "the folder holds more than %d entries; the limit is %d files", maxWalkEntries, MaxFiles)
+		add(RuleTooManyFiles, "", "the folder holds more than %d entries (files and directories); the limit is %d entries", maxWalkEntries, maxWalkEntries)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].rel < entries[j].rel })
 	return entries, issues, newest, nil
@@ -362,8 +366,17 @@ func checkPathSegment(name string) string {
 	return ""
 }
 
+// readFiles is build. A test wraps it to change the folder between the two
+// walks of Read.
+var readFiles = build
+
 // build reads the content of the files and checks the skill.
 func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, error) {
+	root, err := openFolder(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
 	s := &Skill{Name: name, Dir: dir, text: map[string][]byte{}}
 	s.Issues = append(s.Issues, folderIssues...)
 
@@ -376,7 +389,7 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 		}
 		total += e.size
 		file := File{Path: e.rel, Size: e.size, Text: IsTextPath(e.rel)}
-		full := filepath.Join(dir, filepath.FromSlash(e.rel))
+		rel := filepath.FromSlash(e.rel)
 		switch {
 		case e.size > MaxFileBytes:
 			s.Issues = append(s.Issues, Issue{Severity: SeverityError, Rule: RuleFileTooLarge, File: e.rel,
@@ -385,7 +398,7 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 			file.SHA256 = hex.EncodeToString(sum[:])
 			file.Text = false
 		case file.Text:
-			data, err := readAtMost(full, e.size)
+			data, err := readAtMost(root, rel, e.size)
 			if err != nil {
 				return nil, err
 			}
@@ -403,7 +416,7 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 				kept += file.Size
 			}
 		default:
-			sum, n, err := hashFile(full)
+			sum, n, err := hashFile(root, rel)
 			if err != nil {
 				return nil, err
 			}
@@ -456,11 +469,30 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 	return s, nil
 }
 
+// openFolder opens the skill folder dir. The root keeps every read inside the
+// folder, also when a file becomes a link after the walk.
+func openFolder(dir string) (*os.Root, error) {
+	before, err := os.Lstat(dir)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	// The root opens the target of a link, which is not the entry that Lstat saw.
+	if opened, err := root.Stat("."); err != nil || !os.SameFile(before, opened) {
+		_ = root.Close()
+		return nil, errFolderChanged
+	}
+	return root, nil
+}
+
 // readAtMost reads at most size+1 bytes of a file of the skill, so a file that
 // grows after the walk cannot fill the memory. The caller sees the extra byte
 // as a change of the file.
-func readAtMost(path string, size int64) ([]byte, error) {
-	f, err := os.Open(path) //nolint:gosec // The path comes from the walk of the skill folder.
+func readAtMost(root *os.Root, rel string, size int64) ([]byte, error) {
+	f, err := root.Open(rel)
 	if err != nil {
 		return nil, err
 	}
@@ -468,8 +500,8 @@ func readAtMost(path string, size int64) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(f, size+1))
 }
 
-func hashFile(path string) (string, int64, error) {
-	f, err := os.Open(path) //nolint:gosec // The path comes from the walk of the skill folder.
+func hashFile(root *os.Root, rel string) (string, int64, error) {
+	f, err := root.Open(rel)
 	if err != nil {
 		return "", 0, err
 	}
@@ -498,7 +530,12 @@ func (s *Skill) ReadVerified(rel string) ([]byte, error) {
 	if file.Size > MaxFileBytes {
 		return nil, fmt.Errorf("skill %q: file %q: %w", s.Name, rel, ErrFileTooLarge)
 	}
-	data, err := readAtMost(filepath.Join(s.Dir, filepath.FromSlash(rel)), file.Size)
+	root, err := openFolder(s.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("skill %q: %w", s.Name, err)
+	}
+	defer func() { _ = root.Close() }()
+	data, err := readAtMost(root, filepath.FromSlash(rel), file.Size)
 	if err != nil {
 		return nil, fmt.Errorf("skill %q: %w", s.Name, err)
 	}

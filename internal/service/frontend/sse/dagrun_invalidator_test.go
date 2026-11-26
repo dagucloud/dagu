@@ -626,15 +626,26 @@ func TestDAGRunInvalidatorWakesServiceDAGListOnlyForItsDAGs(t *testing.T) {
 	require.Eventually(t, func() bool { return refreshes(topic) == 3 }, time.Second, 10*time.Millisecond)
 }
 
-// After each read of events, the DAGs whose root runs changed are told, each
-// once, also when no event came, which tells that the events are read. A
-// sub-DAG run names no DAG, and neither does an update that keeps the state
-// of a run, such as a step change.
-func TestHandleDAGRunEventsTellsTheChangedDAGs(t *testing.T) {
+// After each read of events, the root runs whose state changed are told, in
+// event order, also when no event came, which tells that the events are read.
+// A sub-DAG run is not told, and neither is an update that keeps the state of
+// a run, such as a step change. A snapshot keeps the DAG file of its event.
+func TestHandleDAGRunEventsTellsTheChangedRuns(t *testing.T) {
 	mux := NewMultiplexer(StreamConfig{}, nil)
 	t.Cleanup(mux.Shutdown)
-	var told [][]string
-	changed := func(names []string) { told = append(told, names) }
+	var names [][]string
+	var files []string
+	changed := func(changes []*eventstore.DAGRunStatusSnapshot) {
+		var told []string
+		for _, change := range changes {
+			told = append(told, change.Name)
+			files = append(files, change.DAGFile)
+		}
+		names = append(names, told)
+	}
+	withFile := eventstore.NewDAGRunEvent(eventstore.Source{Service: eventstore.SourceServiceServer},
+		eventstore.TypeDAGRunFailed, &ir.DAGRunStatus{Name: "d", DAGRunID: "r5", AttemptID: "attempt-1", Status: ir.Failed},
+		map[string]any{eventstore.DAGFileNameDataKey: "d.yaml"})
 
 	handleDAGRunEvents(mux, []*eventstore.Event{
 		runEvent(eventstore.TypeDAGRunRunning, ir.Running, "a", "r1", ""),
@@ -642,18 +653,20 @@ func TestHandleDAGRunEventsTellsTheChangedDAGs(t *testing.T) {
 		runEvent(eventstore.TypeDAGRunSucceeded, ir.Succeeded, "a", "r1", ""),
 		runEvent(eventstore.TypeDAGRunRunning, ir.Running, "child", "c1", "a"),
 		runEvent(eventstore.TypeDAGRunUpdated, ir.Running, "c", "r4", ""),
+		withFile,
 	}, nil, changed)
 	handleDAGRunEvents(mux, nil, nil, changed)
 
-	require.Equal(t, [][]string{{"a", "b"}, nil}, told)
+	require.Equal(t, [][]string{{"a", "b", "a", "d"}, nil}, names)
+	require.Equal(t, []string{"", "", "", "d.yaml"}, files)
 }
 
-// A batch with a lifecycle event of a root run wakes the DAG list activity
-// topics. A batch with no event, or with only updates that keep the state of
-// runs or only sub-DAG runs, wakes none.
-func TestHandleDAGRunEventsWakesListActivity(t *testing.T) {
-	const topic = "daglistactivity:page=1&window=86400"
-	mux, refreshes := countingTopics(t, TopicTypeDAGListActivity, topic)
+// A batch with a lifecycle event of a root run wakes the change feed. A batch
+// with no event, or with only updates that keep the state of runs or only
+// sub-DAG runs, does not.
+func TestHandleDAGRunEventsWakesRunChanges(t *testing.T) {
+	const topic = "dagrunchanges:all"
+	mux, refreshes := countingTopics(t, TopicTypeDAGRunChanges, topic)
 
 	for _, events := range [][]*eventstore.Event{
 		nil,

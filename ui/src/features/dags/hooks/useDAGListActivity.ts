@@ -1,183 +1,428 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useMemo, useState } from 'react';
-import {
-  PathsDagListActivityGetParametersQueryOrder as ActivityOrder,
-  PathsDagListActivityGetParametersQuerySort as ActivitySort,
-  PathsDagsGetParametersQueryOrder as ListOrder,
-  PathsDagsGetParametersQuerySort as ListSort,
-  type components,
-  type operations,
-} from '@/api/v1/schema';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { components } from '@/api/v1/schema';
 import { ACTIVITY_WINDOW_SECONDS } from '@/features/dags/components/dag-list/activityBarsModel';
 import { useClient, useQuery } from '@/hooks/api';
-import { useDAGListActivitySSE } from '@/hooks/useDAGListActivitySSE';
+import { useDAGRunChangesSSE } from '@/hooks/useDAGRunChangesSSE';
 import { usePageVisible } from '@/hooks/usePageVisible';
+import { SSEPausedContext } from '@/hooks/useSSE';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
 import { getQueryErrorStatus, isNotFoundQueryError } from '@/lib/queryErrors';
 
 type Activity = components['schemas']['DAGListActivity'];
-type ActivityEntry = components['schemas']['DAGListActivityEntry'];
-/** The query of one page of `GET /dags`. */
-type ListQuery = NonNullable<operations['listDAGs']['parameters']['query']>;
-type ActivityQuery = operations['getDAGListActivity']['parameters']['query'];
+type ActivityPage = components['schemas']['DAGListActivityPage'];
+type RunChanges = components['schemas']['DAGRunChanges'];
+type Client = ReturnType<typeof useClient>;
 
-/** The pages after the first that a list holds. */
-export interface LaterListPages {
-  /** The last page that the list holds, 1 while it holds only the first. */
-  through: number;
-  /** The order of the first page that those pages were read with. */
-  readWith: string;
-}
-
-type LaterPageActivity = { readWith: string; dags: ActivityEntry[] };
-
+/** The most DAGs that one activity request names, as the server allows. */
+const NAMES_PER_READ = 100;
 /**
- * The polling interval while the stream is unavailable. The live topic also
- * reads the activity at most once in 10 seconds.
+ * The most bytes of names in one activity request, so that long names keep
+ * the request line under the 8 KiB that common proxies accept.
  */
-const FALLBACK_INTERVAL_MS = 10_000;
+const NAME_BYTES_PER_READ = 6_000;
+/**
+ * The most activity requests in flight, so that a long list leaves the other
+ * requests of the page a connection.
+ */
+const READS_AT_ONCE = 4;
+/** The polling interval of the change feed while the stream is unavailable. */
+const FALLBACK_INTERVAL_MS = 60_000;
+/** The wait after a first failed read; it doubles up to RETRY_MAX_MS. */
+const RETRY_MIN_MS = 5_000;
+const RETRY_MAX_MS = 60_000;
 
-const NO_PAGES: ReadonlyMap<number, LaterPageActivity> = new Map();
-
-// The two endpoints declare the same sort values, each in an enum of its own.
-const ACTIVITY_SORT: Record<ListSort, ActivitySort> = {
-  [ListSort.name]: ActivitySort.name,
-  [ListSort.nextRun]: ActivitySort.nextRun,
-  [ListSort.status]: ActivitySort.status,
-  [ListSort.lastRun]: ActivitySort.lastRun,
-};
-const ACTIVITY_ORDER: Record<ListOrder, ActivityOrder> = {
-  [ListOrder.asc]: ActivityOrder.asc,
-  [ListOrder.desc]: ActivityOrder.desc,
-};
-
-/** The activity request of `page` of the list that `list` reads. */
-function activityQuery(list: ListQuery, page: number): ActivityQuery {
-  const { sort, order, ...filters } = list;
-  return {
-    ...filters,
-    page,
-    sort: sort === undefined ? undefined : ACTIVITY_SORT[sort],
-    order: order === undefined ? undefined : ACTIVITY_ORDER[order],
-    window: ACTIVITY_WINDOW_SECONDS,
-  };
+/** The change feed, with its times in ms. */
+interface Feed {
+  since: number;
+  readAt: number;
+  changedAt: ReadonlyMap<string, number>;
 }
 
-/** The numbers of the pages after the first, up to `through`. */
-function laterPageNumbers(through: number): number[] {
-  return Array.from({ length: Math.max(0, through - 1) }, (_, i) => i + 2);
+/** What the list knows of the activity of the DAGs of one node. */
+interface NodeActivity {
+  node: string;
+  /** The activity of each DAG read, null when the server left it out. */
+  activity: ReadonlyMap<string, Activity | null>;
+  /**
+   * The server time, in ms, up to which the activity of each DAG read is
+   * known current. It moves with each feed, apart from the activity, so that
+   * a feed redraws no strip.
+   */
+  currentAt: ReadonlyMap<string, number>;
+  /** DAGs read that are to be read again. */
+  stale: ReadonlySet<string>;
+  /** DAGs whose read is in flight. */
+  reading: ReadonlySet<string>;
+  /** The last change feed applied. */
+  feed: Feed | null;
+  /** Failed reads in a row. */
+  failures: number;
+  /** The client time before which no read starts, after a failure. */
+  retryAt: number | null;
+  /** The node gives no activity, as an older remote node does. */
+  missing: boolean;
 }
 
-/** A node without the endpoint, such as an older remote node. */
-function isMissingEndpointError(error: unknown): boolean {
-  return isNotFoundQueryError(error) || getQueryErrorStatus(error) === 501;
-}
+type ReadResult =
+  | { page: ActivityPage }
+  | { missing: true }
+  | { error: unknown };
 
 /**
- * The activity of the DAGs that a DAG list holds, by file name, over the
- * window of its strips. `firstPage` is the query of the first page of the
- * list. That page is live: its `daglistactivity` topic sends its activity,
- * which is polled only while the stream is unavailable. Each page after it
- * is read once for each order of the first page that the list read it with.
- * Nothing is read while `enabled` is false or the tab is hidden. Undefined
- * for a node that gives no activity, such as an older remote node.
+ * The activity of the DAGs that a list shows, by file name, over the window of
+ * its strips. The list reads the activity of each DAG once, then again only
+ * when the change feed names the DAG, or when the feed cannot tell what
+ * changed since the read. Nothing is read while `enabled` is false or the tab
+ * is hidden. Undefined for a node that gives no activity, such as an older
+ * remote node.
  */
 export function useDAGListActivity(
-  firstPage: ListQuery,
-  laterPages: LaterListPages,
+  fileNames: readonly string[],
+  remoteNode: string,
   enabled: boolean
 ): ReadonlyMap<string, Activity> | undefined {
+  const client = useClient();
   const visible = usePageVisible();
-  const remoteNode = firstPage.remoteNode ?? 'local';
-  const [failedNode, setFailedNode] = useState<string | null>(null);
-  const unavailable = failedNode === remoteNode;
-  const live = enabled && visible && !unavailable;
+  const paused = useContext(SSEPausedContext);
+  const [state, setState] = useState(() => initialState(remoteNode));
+  // One file name can name another workflow on another node.
+  if (state.node !== remoteNode) {
+    setState(initialState(remoteNode));
+  }
+  const live = enabled && visible && !paused && !state.missing;
 
-  const firstQuery = useMemo(() => activityQuery(firstPage, 1), [firstPage]);
-  const sse = useDAGListActivitySSE(firstQuery, live, remoteNode);
-  const { data, error, mutate } = useQuery(
-    '/dag-list-activity',
-    live ? { params: { query: firstQuery } } : null,
+  const sse = useDAGRunChangesSSE(live, remoteNode);
+  const {
+    data: feedData,
+    error: feedError,
+    mutate,
+  } = useQuery(
+    '/dag-run-changes',
+    live ? { params: { query: { remoteNode } } } : null,
     {
       ...sseFallbackOptions(sse, FALLBACK_INTERVAL_MS),
-      keepPreviousData: true,
-      shouldRetryOnError: false,
+      shouldRetryOnError: shouldRetryFeed,
     }
   );
   useSSECacheSync(sse, mutate);
-
   useEffect(() => {
-    if (isMissingEndpointError(error)) {
-      setFailedNode(remoteNode);
+    if (feedData) {
+      setState(onNode(remoteNode, (s) => applyFeed(s, parseFeed(feedData))));
     }
-  }, [error, remoteNode]);
-
-  const client = useClient();
-  const { through, readWith } = laterPages;
-  const listKey = JSON.stringify(firstQuery);
-  const [later, setLater] = useState<{
-    listKey: string;
-    pages: ReadonlyMap<number, LaterPageActivity>;
-  }>({ listKey: '', pages: NO_PAGES });
-  const held = later.listKey === listKey ? later.pages : NO_PAGES;
-  const unread = live
-    ? laterPageNumbers(through)
-        .filter((page) => held.get(page)?.readWith !== readWith)
-        .join(',')
-    : '';
-
+  }, [feedData, remoteNode]);
+  // A node without the feed, as one without the event store, would have the
+  // list read every row each minute: it gives no activity instead.
   useEffect(() => {
-    if (!unread) return;
+    if (isMissingEndpoint(feedError)) {
+      setState(
+        onNode(remoteNode, (s) => (s.missing ? s : { ...s, missing: true }))
+      );
+    }
+  }, [feedError, remoteNode]);
+
+  // The list keeps the activity of the DAGs it shows only.
+  useEffect(() => {
+    setState(onNode(remoteNode, (s) => keepListed(s, fileNames)));
+  }, [fileNames, remoteNode, state.activity]);
+
+  // Declared before the reads, so that the reads of a node find its signal.
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
     const controller = new AbortController();
-    void Promise.all(
-      unread
-        .split(',')
-        .map(Number)
-        .map(async (page) => {
-          try {
-            const response = await client.GET('/dag-list-activity', {
-              params: { query: { ...firstQuery, page } },
-              signal: controller.signal,
-            });
-            return { page, dags: response.data?.dags };
-          } catch {
-            return { page, dags: undefined };
-          }
-        })
-    ).then((results) => {
-      if (controller.signal.aborted) return;
-      setLater((current) => {
-        const pages = new Map(
-          current.listKey === listKey ? current.pages : NO_PAGES
-        );
-        // A failed read keeps what the page showed until the list reads the
-        // page again.
-        for (const { page, dags } of results) {
-          pages.set(page, {
-            readWith,
-            dags: dags ?? pages.get(page)?.dags ?? [],
-          });
-        }
-        return { listKey, pages };
-      });
-    });
+    abortRef.current = controller;
     return () => controller.abort();
-  }, [client, firstQuery, listKey, readWith, unread]);
+  }, [remoteNode]);
 
-  return useMemo(() => {
-    if (unavailable) return undefined;
-    const byFile = new Map<string, Activity>();
-    for (const page of laterPageNumbers(through)) {
-      for (const entry of held.get(page)?.dags ?? []) {
-        byFile.set(entry.fileName, entry.activity);
-      }
+  // One batch of reads at a time. The reads are not aborted when the effect
+  // runs again: it runs on each change of the state, and the reads in flight
+  // are part of that state.
+  useEffect(() => {
+    const signal = abortRef.current?.signal;
+    if (!live || !signal || state.reading.size > 0 || state.retryAt !== null) {
+      return;
     }
-    // The first page is live: its activity wins over a later page read before.
-    for (const entry of data?.dags ?? []) {
-      byFile.set(entry.fileName, entry.activity);
+    const batches = readBatches(namesToRead(state, fileNames)).slice(
+      0,
+      READS_AT_ONCE
+    );
+    if (batches.length === 0) {
+      return;
     }
-    return byFile;
-  }, [data, held, through, unavailable]);
+    const feedAtStart = state.feed;
+    setState(onNode(remoteNode, (s) => startReading(s, batches.flat())));
+    for (const names of batches) {
+      void readActivity(client, remoteNode, names, signal).then((result) => {
+        setState(
+          onNode(remoteNode, (s) => {
+            if (signal.aborted) {
+              return releaseReading(s, names);
+            }
+            if ('page' in result) {
+              return finishReading(s, names, result.page, feedAtStart);
+            }
+            return failReading(s, names, result);
+          })
+        );
+      });
+    }
+  }, [client, fileNames, live, remoteNode, state]);
+
+  useEffect(() => {
+    if (state.retryAt === null) {
+      return;
+    }
+    const timer = setTimeout(
+      () => setState(onNode(remoteNode, (s) => ({ ...s, retryAt: null }))),
+      Math.max(0, state.retryAt - Date.now())
+    );
+    return () => clearTimeout(timer);
+  }, [remoteNode, state.retryAt]);
+
+  return useMemo(
+    () => (state.missing ? undefined : shownActivity(state.activity)),
+    [state.activity, state.missing]
+  );
+}
+
+function initialState(node: string): NodeActivity {
+  return {
+    node,
+    activity: new Map(),
+    currentAt: new Map(),
+    stale: new Set(),
+    reading: new Set(),
+    feed: null,
+    failures: 0,
+    retryAt: null,
+    missing: false,
+  };
+}
+
+/** A state update that leaves the state of another node as it is. */
+function onNode(node: string, change: (s: NodeActivity) => NodeActivity) {
+  return (s: NodeActivity) => (s.node === node ? change(s) : s);
+}
+
+/**
+ * Whether the activity of a DAG may miss a change: the feed may miss changes
+ * before its `since`, and it names the DAG with a later change. A change at
+ * the very time of the read reads the DAG again, which costs one read at most.
+ */
+function isStale(currentAt: number, feed: Feed, name: string): boolean {
+  return (
+    feed.since >= currentAt ||
+    (feed.changedAt.get(name) ?? -Infinity) >= currentAt
+  );
+}
+
+/**
+ * Marks the DAGs read that the feed tells may have changed, and moves the
+ * others to the time of the feed.
+ */
+function applyFeed(s: NodeActivity, feed: Feed): NodeActivity {
+  const currentAt = new Map(s.currentAt);
+  const stale = new Set(s.stale);
+  for (const [name, at] of s.currentAt) {
+    if (s.reading.has(name) || stale.has(name)) {
+      continue;
+    }
+    if (isStale(at, feed, name)) {
+      stale.add(name);
+    } else {
+      currentAt.set(name, Math.max(at, feed.readAt));
+    }
+  }
+  return { ...s, currentAt, stale, feed };
+}
+
+function keepListed(
+  s: NodeActivity,
+  fileNames: readonly string[]
+): NodeActivity {
+  const listed = new Set(fileNames);
+  if ([...s.activity.keys()].every((name) => listed.has(name))) {
+    return s;
+  }
+  return {
+    ...s,
+    activity: new Map([...s.activity].filter(([name]) => listed.has(name))),
+    currentAt: new Map([...s.currentAt].filter(([name]) => listed.has(name))),
+    stale: new Set([...s.stale].filter((name) => listed.has(name))),
+  };
+}
+
+/** The DAGs to read, in list order: those never read, then the stale ones. */
+function namesToRead(s: NodeActivity, fileNames: readonly string[]): string[] {
+  const listed = [...new Set(fileNames)].filter((name) => !s.reading.has(name));
+  return [
+    ...listed.filter((name) => !s.activity.has(name)),
+    ...listed.filter((name) => s.stale.has(name)),
+  ];
+}
+
+function startReading(s: NodeActivity, names: string[]): NodeActivity {
+  const reading = new Set(s.reading);
+  const stale = new Set(s.stale);
+  for (const name of names) {
+    reading.add(name);
+    stale.delete(name);
+  }
+  return { ...s, reading, stale };
+}
+
+function finishReading(
+  s: NodeActivity,
+  names: string[],
+  page: ActivityPage,
+  feedAtStart: Feed | null
+): NodeActivity {
+  const readAt = Date.parse(page.readAt);
+  const found = new Map(page.dags.map((entry) => [entry.fileName, entry]));
+  const activity = new Map(s.activity);
+  const currentAt = new Map(s.currentAt);
+  const stale = new Set(s.stale);
+  const reading = new Set(s.reading);
+  for (const name of names) {
+    reading.delete(name);
+    activity.set(name, found.get(name)?.activity ?? null);
+    currentAt.set(name, readAt);
+    // A feed that came during the read can name a change that it missed.
+    if (s.feed && s.feed !== feedAtStart && isStale(readAt, s.feed, name)) {
+      stale.add(name);
+    }
+  }
+  return { ...s, activity, currentAt, stale, reading, failures: 0 };
+}
+
+/** Ends the reads of names with no result: those read before are read again. */
+function releaseReading(s: NodeActivity, names: string[]): NodeActivity {
+  const reading = new Set(s.reading);
+  const stale = new Set(s.stale);
+  for (const name of names) {
+    reading.delete(name);
+    if (s.activity.has(name)) {
+      stale.add(name);
+    }
+  }
+  return { ...s, reading, stale };
+}
+
+/**
+ * Keeps the activity that the DAGs had. A node without the endpoint gives no
+ * activity; after any other failure, the reads wait longer each time.
+ */
+function failReading(
+  s: NodeActivity,
+  names: string[],
+  result: Exclude<ReadResult, { page: ActivityPage }>
+): NodeActivity {
+  const released = releaseReading(s, names);
+  const error = 'error' in result ? result.error : undefined;
+  if ('missing' in result || isMissingEndpoint(error)) {
+    return { ...released, missing: true };
+  }
+  const failures = s.failures + 1;
+  return {
+    ...released,
+    failures,
+    retryAt: Date.now() + retryDelay(failures, error),
+  };
+}
+
+function retryDelay(failures: number, error: unknown): number {
+  // An expired session does not mend soon.
+  if (getQueryErrorStatus(error) === 401) {
+    return RETRY_MAX_MS;
+  }
+  return Math.min(RETRY_MIN_MS * 2 ** (failures - 1), RETRY_MAX_MS);
+}
+
+/** A node without the endpoint, such as an older remote node. */
+function isMissingEndpoint(error: unknown): boolean {
+  return isNotFoundQueryError(error) || getQueryErrorStatus(error) === 501;
+}
+
+function shouldRetryFeed(error: unknown): boolean {
+  return !isMissingEndpoint(error) && getQueryErrorStatus(error) !== 401;
+}
+
+function parseFeed(changes: RunChanges): Feed {
+  return {
+    since: Date.parse(changes.since),
+    readAt: Date.parse(changes.readAt),
+    changedAt: new Map(
+      changes.changes.map((change) => [
+        change.fileName,
+        Date.parse(change.changedAt),
+      ])
+    ),
+  };
+}
+
+async function readActivity(
+  client: Client,
+  remoteNode: string,
+  names: string[],
+  signal: AbortSignal
+): Promise<ReadResult> {
+  try {
+    const { data, error, response } = await client.GET('/dag-list-activity', {
+      params: {
+        query: { fileName: names, window: ACTIVITY_WINDOW_SECONDS, remoteNode },
+      },
+      signal,
+    });
+    if (!data) {
+      return { error: { ...error, response } };
+    }
+    // A node with the earlier form of the endpoint gives no readAt.
+    if (!data.readAt) {
+      return { missing: true };
+    }
+    return { page: data };
+  } catch (error) {
+    return { error };
+  }
+}
+
+function shownActivity(
+  read: ReadonlyMap<string, Activity | null>
+): ReadonlyMap<string, Activity> {
+  const shown = new Map<string, Activity>();
+  for (const [name, activity] of read) {
+    if (activity) {
+      shown.set(name, activity);
+    }
+  }
+  return shown;
+}
+
+/**
+ * The names of each activity request: at most NAMES_PER_READ names and
+ * NAME_BYTES_PER_READ bytes of them. A longer name goes alone.
+ */
+function readBatches(names: readonly string[]): string[][] {
+  const batches: string[][] = [];
+  let batch: string[] = [];
+  let bytes = 0;
+  for (const name of names) {
+    const size = '&fileName='.length + encodeURIComponent(name).length;
+    if (
+      batch.length > 0 &&
+      (batch.length === NAMES_PER_READ || bytes + size > NAME_BYTES_PER_READ)
+    ) {
+      batches.push(batch);
+      batch = [];
+      bytes = 0;
+    }
+    batch.push(name);
+    bytes += size;
+  }
+  if (batch.length > 0) {
+    batches.push(batch);
+  }
+  return batches;
 }

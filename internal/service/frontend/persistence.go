@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/publicwebhook"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/secret"
@@ -55,5 +56,8 @@ type Stores struct {
 	View                 view.Store
 	Inventory            inventory.Store
 	HostKeys             inventory.HostKeyStore
+	WorkerNodes          inventory.WorkerNodeStore
 	PublicWebhooks       publicwebhook.Store
+	// Projects is the project registry. It is nil while projects are off.
+	Projects project.Registry
 }

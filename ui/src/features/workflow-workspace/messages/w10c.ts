@@ -58,4 +58,17 @@ export default defineMessages({
     'The outputs of a step of a sub-run are not available here.':
       'Die Ausgaben eines Schritts in einem Unterlauf sind hier nicht verfügbar.',
   },
+  fr: {
+    'from run {id}': 'de l’exécution {id}',
+    'cached {time}': 'mis en cache {time}',
+    'Outputs reused from run {id}': 'Sorties réutilisées de l’exécution {id}',
+    'From your cache': 'Depuis votre cache',
+    'From your cache ({time})': 'Depuis votre cache ({time})',
+    'Inputs used': 'Entrées utilisées',
+    'Inputs used ({count})': 'Entrées utilisées ({count})',
+    'Show values': 'Afficher les valeurs',
+    'Hide values': 'Masquer les valeurs',
+    'The outputs of a step of a sub-run are not available here.':
+      'Les sorties d’une étape de sous-exécution ne sont pas disponibles ici.',
+  },
 });

@@ -43,10 +43,13 @@ interface CompactUnits {
 }
 
 // ja and zh-CN write the unit as a word ("5時間前"), not as a Latin letter.
+// French writes its unit symbols after a no-break space ("5 min"), and j
+// for jour.
 const EN_UNITS: CompactUnits = { s: 's', m: 'm', h: 'h', d: 'd' };
 const COMPACT_UNITS: Record<string, CompactUnits | undefined> = {
   'zh-CN': { s: '秒', m: '分钟', h: '小时', d: '天' },
   ja: { s: '秒', m: '分', h: '時間', d: '日' },
+  fr: { s: '\u00a0s', m: '\u00a0min', h: '\u00a0h', d: '\u00a0j' },
 };
 
 function formatCompact(

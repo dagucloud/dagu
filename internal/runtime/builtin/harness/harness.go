@@ -341,7 +341,7 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 	hasRootContainer := rootContainerConfigured(ctx)
 	if untrusted.FromContext(ctx) != nil {
 		// An untrusted step runs its agent as a process of the host, never in a
-		// container or in the managed OpenCode service of the server (Spec 092).
+		// container or in the managed OpenCode service of the server (Spec 103).
 		if e.step.Container != nil || hasRootContainer {
 			return nil, fmt.Errorf("harness: untrusted step %q cannot run in a container", e.step.Name)
 		}

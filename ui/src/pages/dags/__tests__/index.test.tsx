@@ -15,6 +15,7 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import { SearchStateProvider } from '@/contexts/SearchStateContext';
 import {
+  RestartPolicy,
   Status,
   ViewSortField,
   ViewSortOrder,
@@ -32,7 +33,6 @@ import {
 import DagsPage from '../index';
 
 const {
-  activityState,
   clientDeleteMock,
   clientGetMock,
   clientPostMock,
@@ -40,6 +40,7 @@ const {
   createViewMock,
   deleteResultsMock,
   deleteViewMock,
+  feedState,
   listMutateMock,
   sharedWorkflowViewState,
   showErrorMock,
@@ -47,9 +48,6 @@ const {
   userPreferences,
   workspaceWriteCheckMock,
 } = vi.hoisted(() => ({
-  activityState: {
-    response: {} as { data?: unknown; error?: unknown },
-  },
   clientDeleteMock: vi.fn(),
   clientGetMock: vi.fn(),
   clientPostMock: vi.fn(),
@@ -57,6 +55,7 @@ const {
   createViewMock: vi.fn(),
   deleteResultsMock: vi.fn(),
   deleteViewMock: vi.fn(),
+  feedState: { current: undefined as unknown },
   listMutateMock: vi.fn(),
   sharedWorkflowViewState: { views: [] as View[] },
   showErrorMock: vi.fn(),
@@ -306,8 +305,8 @@ vi.mock('@/hooks/useDAGsListSSE', () => ({
   }),
 }));
 
-vi.mock('@/hooks/useDAGListActivitySSE', () => ({
-  useDAGListActivitySSE: () => ({
+vi.mock('@/hooks/useDAGRunChangesSSE', () => ({
+  useDAGRunChangesSSE: () => ({
     isConnected: true,
     shouldUseFallback: false,
   }),
@@ -329,6 +328,7 @@ type DagsPageResponse = {
     fileName: string;
     dag: {
       name: string;
+      restartPolicy?: RestartPolicy;
     };
     latestDAGRun: Record<string, unknown>;
   }>;
@@ -502,13 +502,16 @@ describe('DagsPage', () => {
     clientDeleteMock.mockResolvedValue({});
     deleteResultsMock.mockReset();
     clientGetMock.mockReset();
-    // The activity of a later page is empty unless a test answers it.
+    // The activity of the rows is empty unless a test answers it.
     clientGetMock.mockImplementation(async (path: string) =>
       path === '/dag-list-activity'
-        ? { data: { dags: [], errors: [] } }
+        ? {
+            data: { dags: [], errors: [], readAt: '2026-11-25T00:00:00.000Z' },
+            response: { status: 200 },
+          }
         : undefined
     );
-    activityState.response = {};
+    feedState.current = undefined;
     clientPostMock.mockReset();
     clientPostMock.mockResolvedValue({});
     clientPutMock.mockReset();
@@ -602,8 +605,8 @@ describe('DagsPage', () => {
         };
       }
 
-      if (path === '/dag-list-activity') {
-        return { ...activityState.response, isLoading: false, mutate: vi.fn() };
+      if (path === '/dag-run-changes') {
+        return { data: feedState.current, isLoading: false, mutate: vi.fn() };
       }
 
       if (path === '/dags') {
@@ -1267,7 +1270,7 @@ describe('DagsPage', () => {
         prevPage: 0,
       },
     };
-    clientGetMock.mockResolvedValueOnce({
+    const nextPage = {
       data: {
         dags: [
           {
@@ -1287,7 +1290,12 @@ describe('DagsPage', () => {
           prevPage: 1,
         },
       },
-    });
+    };
+    // The activity of the rows reads through the same client.
+    const answerActivity = clientGetMock.getMockImplementation();
+    clientGetMock.mockImplementation(async (path: string, init: unknown) =>
+      path === '/dags' ? nextPage : answerActivity?.(path, init)
+    );
 
     renderPage();
 
@@ -1317,12 +1325,13 @@ describe('DagsPage', () => {
     );
   });
 
-  // The rows draw the activity of their page, which one request per page
-  // reads with the paging, filters and sort of the list.
+  // The rows draw their activity. The list reads it in requests that name the
+  // rows, and reads again the rows that the change feed names.
   describe('activity of the rows', () => {
-    const dagFile = (name: string) => ({
+    const READ_AT = '2026-11-25T00:00:10.000Z';
+    const dagFile = (name: string, restartPolicy?: RestartPolicy) => ({
       fileName: `${name}.yaml`,
-      dag: { name },
+      dag: { name, restartPolicy },
       latestDAGRun: {},
     });
     const activityOf = (fileName: string, runs: number) => ({
@@ -1336,72 +1345,37 @@ describe('DagsPage', () => {
         truncated: false,
       },
     });
-    const lastQuery = (path: string) =>
-      (
-        [...calls].reverse().find((call) => call.path === path && call.init)
-          ?.init as { params: { query: Record<string, unknown> } } | undefined
-      )?.params.query;
     const runsOf = (fileName: string) =>
       screen.getByText(fileName).getAttribute('data-activity-runs');
     const settle = async () => {
       for (let tick = 0; tick < 10; tick++) await Promise.resolve();
     };
-
-    it('asks the activity of the page with the query of the list', () => {
-      renderPage();
-
-      expect(lastQuery('/dag-list-activity')).toEqual({
-        ...lastQuery('/dags'),
-        window: ACTIVITY_WINDOW_SECONDS,
-      });
+    type ActivityInit = {
+      params: { query: { fileName: string[]; window: number } };
+    };
+    // The runs of each workflow that the activity requests answer with.
+    let runs: Record<string, number> = {};
+    const answerActivity = (init: ActivityInit) => ({
+      data: {
+        dags: init.params.query.fileName.map((fileName) =>
+          activityOf(fileName, runs[fileName] ?? 0)
+        ),
+        errors: [],
+        readAt: READ_AT,
+      },
+      response: { status: 200 },
     });
-
-    it('joins the activity to the rows by file name', () => {
-      dagsPageResponse.dags = [dagFile('demo'), dagFile('other')];
-      activityState.response = {
-        data: {
-          dags: [activityOf('other.yaml', 1), activityOf('demo.yaml', 2)],
-          errors: [],
-        },
-      };
-
-      renderPage();
-
-      expect(runsOf('demo.yaml')).toBe('2');
-      expect(runsOf('other.yaml')).toBe('1');
-    });
-
-    it('shows the rows without activity when its request fails', () => {
-      activityState.response = {
-        error: { code: 'internal_error', message: 'activity failed' },
-      };
-
-      renderPage();
-
-      expect(screen.getByText('demo.yaml')).toBeVisible();
-      expect(runsOf('demo.yaml')).toBe('none');
-    });
-
-    it('asks again when the filters of the list change', async () => {
-      renderPage();
-
-      await act(async () => {
-        fireEvent.change(screen.getByRole('textbox', { name: 'Search DAGs' }), {
-          target: { value: 'demo' },
-        });
-        vi.advanceTimersByTime(500);
-      });
-      expect(lastQuery('/dag-list-activity')).toEqual(
-        expect.objectContaining({ name: 'demo' })
-      );
-
-      fireEvent.click(screen.getByRole('button', { name: 'Active only' }));
-      expect(lastQuery('/dag-list-activity')).toEqual(
-        expect.objectContaining({ name: 'demo', active: true })
-      );
-    });
-
-    it('reads the activity of a later page once, with its page number', async () => {
+    const activityReads = () =>
+      clientGetMock.mock.calls
+        .filter(([path]) => path === '/dag-list-activity')
+        .map(([, init]) => (init as ActivityInit).params.query);
+    const renderSettled = async () => {
+      const view = renderPage();
+      await act(settle);
+      return view;
+    };
+    // The list has a second page, next.yaml.
+    const answerNextPage = () => {
       dagsPageResponse.pagination = {
         totalRecords: 2,
         currentPage: 1,
@@ -1409,7 +1383,7 @@ describe('DagsPage', () => {
         nextPage: 2,
         prevPage: 0,
       };
-      clientGetMock.mockImplementation(async (path: string) =>
+      clientGetMock.mockImplementation(async (path: string, init: unknown) =>
         path === '/dags'
           ? {
               data: {
@@ -1424,10 +1398,10 @@ describe('DagsPage', () => {
                 },
               },
             }
-          : { data: { dags: [activityOf('next.yaml', 3)], errors: [] } }
+          : answerActivity(init as ActivityInit)
       );
-      renderPage();
-
+    };
+    const loadMore = async () => {
       await act(async () => {
         fireEvent.click(
           screen.getByRole('button', { name: 'Load more workflows' })
@@ -1435,22 +1409,112 @@ describe('DagsPage', () => {
         await settle();
       });
       await act(settle);
+    };
+
+    beforeEach(() => {
+      runs = {};
+      clientGetMock.mockImplementation(async (path: string, init: unknown) =>
+        path === '/dag-list-activity'
+          ? answerActivity(init as ActivityInit)
+          : undefined
+      );
+    });
+
+    it('asks the activity of the listed workflows', async () => {
+      await renderSettled();
+
+      expect(activityReads()).toEqual([
+        {
+          fileName: ['demo.yaml'],
+          window: ACTIVITY_WINDOW_SECONDS,
+          remoteNode: 'remote-a',
+        },
+      ]);
+    });
+
+    it('joins the activity to the rows by file name', async () => {
+      dagsPageResponse.dags = [dagFile('demo'), dagFile('other')];
+      runs = { 'demo.yaml': 2, 'other.yaml': 1 };
+
+      await renderSettled();
+
+      expect(runsOf('demo.yaml')).toBe('2');
+      expect(runsOf('other.yaml')).toBe('1');
+    });
+
+    it('shows the rows without activity when its request fails', async () => {
+      clientGetMock.mockImplementation(async () => ({
+        error: { code: 'internal_error', message: 'activity failed' },
+        response: { status: 500 },
+      }));
+
+      await renderSettled();
+
+      expect(screen.getByText('demo.yaml')).toBeVisible();
+      expect(runsOf('demo.yaml')).toBe('none');
+    });
+
+    // A service workflow draws no strip, so its activity is not read.
+    it('leaves service workflows out', async () => {
+      dagsPageResponse.dags = [
+        dagFile('demo'),
+        dagFile('keeper', RestartPolicy.always),
+      ];
+
+      await renderSettled();
+
+      expect(activityReads().map((query) => query.fileName)).toEqual([
+        ['demo.yaml'],
+      ]);
+    });
+
+    it('reads the rows of a later page once', async () => {
+      runs = { 'next.yaml': 3 };
+      answerNextPage();
+      await renderSettled();
+
+      await loadMore();
 
       expect(runsOf('next.yaml')).toBe('3');
-      const reads = clientGetMock.mock.calls.filter(
-        ([path]) => path === '/dag-list-activity'
+      expect(activityReads().map((query) => query.fileName)).toEqual([
+        ['demo.yaml'],
+        ['next.yaml'],
+      ]);
+    });
+
+    // All loaded pages are live: the feed names a row of a later page, and
+    // only that row is read again.
+    it('reads again a row of a later page that the feed names', async () => {
+      runs = { 'next.yaml': 3 };
+      answerNextPage();
+      const view = await renderSettled();
+      await loadMore();
+
+      runs = { 'next.yaml': 4 };
+      feedState.current = {
+        since: '2026-11-25T00:00:00.000Z',
+        readAt: '2026-11-25T00:00:30.000Z',
+        changes: [
+          { fileName: 'next.yaml', changedAt: '2026-11-25T00:00:20.000Z' },
+        ],
+      };
+      view.rerender(
+        <MemoryRouter initialEntries={['/dags']}>
+          <LocationProbe />
+          <DagsPageHarness
+            setTitle={vi.fn()}
+            workspaceSelection={{ kind: WorkspaceKind.all }}
+          />
+        </MemoryRouter>
       );
-      expect(reads).toHaveLength(1);
-      expect(reads[0]?.[1]).toEqual(
-        expect.objectContaining({
-          params: {
-            query: {
-              ...lastQuery('/dag-list-activity'),
-              page: 2,
-            },
-          },
-        })
-      );
+      await act(settle);
+
+      expect(activityReads().map((query) => query.fileName)).toEqual([
+        ['demo.yaml'],
+        ['next.yaml'],
+        ['next.yaml'],
+      ]);
+      expect(runsOf('next.yaml')).toBe('4');
     });
   });
 
@@ -1490,13 +1554,20 @@ describe('DagsPage', () => {
       await Promise.resolve();
       await Promise.resolve();
     };
-    // Answers the reads of the next page in turn. The activity of a page reads
-    // nothing.
+    // Answers the reads of the next page in turn, and the activity of the
+    // rows with no run.
     const nextPageReads = (...responses: unknown[]) =>
       clientGetMock.mockImplementation((path: string) =>
         path === '/dags'
           ? responses.shift()
-          : Promise.resolve({ data: { dags: [], errors: [] } })
+          : Promise.resolve({
+              data: {
+                dags: [],
+                errors: [],
+                readAt: '2026-11-25T00:00:00.000Z',
+              },
+              response: { status: 200 },
+            })
       );
     const expectEveryWorkflow = () => {
       for (const name of ['a', 'b', 'c', 'd']) {

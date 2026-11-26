@@ -114,6 +114,21 @@ describe('RelativeTime', () => {
     expect(screen.getByText('3分前')).toBeInTheDocument();
   });
 
+  it('formats relative time in French', () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'fr' }));
+
+    render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <RelativeTime timestamp={secondsAgo(180)} />
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+
+    expect(screen.getByText('il y a 3 minutes')).toBeInTheDocument();
+    localStorage.clear();
+  });
+
   it.each([
     ['ja', 5 * 3600, '5時間前'],
     ['ja', 3 * 60, '3分前'],
@@ -151,6 +166,43 @@ describe('RelativeTime', () => {
     );
 
     expect(screen.getByText(text)).toBeInTheDocument();
+    localStorage.clear();
+  });
+
+  // French puts a no-break space before its unit symbol and writes j for
+  // jour; the matcher reads that space as a space.
+  it.each([
+    [5 * 3600, 'il y a 5 h'],
+    [3 * 60, 'il y a 3 min'],
+    [2 * 86400, 'il y a 2 j'],
+    [30, 'il y a 30 s'],
+  ])('writes the compact French form of %i seconds', (seconds, text) => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'fr' }));
+
+    render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <RelativeTime timestamp={secondsAgo(seconds)} compact ago />
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+
+    expect(screen.getByText(text)).toBeInTheDocument();
+    localStorage.clear();
+  });
+
+  it('writes the compact French countdown', () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'fr' }));
+
+    render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <RelativeTime timestamp={secondsAgo(-3 * 60)} compact until />
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+
+    expect(screen.getByText('dans 3 min')).toBeInTheDocument();
     localStorage.clear();
   });
 

@@ -36,4 +36,12 @@ export default defineMessages({
       'Dieser Link nennt keinen Schritt. Schrittprotokoll aus dem Ablauf öffnen.',
     'Open the workflow': 'Ablauf öffnen',
   },
+  fr: {
+    'Show in workflow': 'Afficher dans le workflow',
+    'Open in workflow': 'Ouvrir dans le workflow',
+    'Step log': 'Journal de l’étape',
+    'This link names no step. Open a step log from the workflow.':
+      'Ce lien n’indique aucune étape. Ouvrez un journal d’étape depuis le workflow.',
+    'Open the workflow': 'Ouvrir le workflow',
+  },
 });

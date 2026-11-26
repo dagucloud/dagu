@@ -9,11 +9,14 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/ast"
+	"github.com/goccy/go-yaml/parser"
 )
 
 // allowedKeys are the keys that the front matter can hold. Every other key,
@@ -25,6 +28,14 @@ var xmlTagPattern = regexp.MustCompile(`</?[A-Za-z][^<>]*>`)
 // NamePattern describes the rule of a name for a message.
 const NamePattern = "1 to 64 characters: lower case letters, digits and single hyphens, no hyphen at the start or at the end"
 
+// maxShownLength is the number of characters of a value that an issue quotes,
+// so a large SKILL.md gives short messages.
+const maxShownLength = 128
+
+// maxShownKeys is the number of keys that one issue names. A front matter with
+// many bad keys gives one issue per rule, not one per key.
+const maxShownKeys = 5
+
 // CheckName checks a name against the name rule of the format. It returns one
 // issue for each rule that the name breaks. The name of the folder uses the
 // same rule.
@@ -33,22 +44,23 @@ func CheckName(name, file string) []Issue {
 	add := func(rule, format string, args ...any) {
 		issues = append(issues, Issue{Severity: SeverityError, Rule: rule, File: file, Message: fmt.Sprintf(format, args...)})
 	}
+	shown := shorten(name)
 	n := utf8.RuneCountInString(name)
 	if n < 1 || n > MaxNameLength {
-		add(RuleNameLength, "the name %q has %d characters; it must have 1 to %d", name, n, MaxNameLength)
+		add(RuleNameLength, "the name %q has %d characters; it must have 1 to %d", shown, n, MaxNameLength)
 	}
 	for _, r := range name {
 		if r == '-' || unicode.IsDigit(r) || (unicode.IsLetter(r) && unicode.IsLower(r)) {
 			continue
 		}
-		add(RuleNameCharset, "the name %q holds the character %q; only lower case letters, digits and - are allowed", name, r)
+		add(RuleNameCharset, "the name %q holds the character %q; only lower case letters, digits and - are allowed", shown, r)
 		break
 	}
 	if strings.HasPrefix(name, "-") || strings.HasSuffix(name, "-") {
-		add(RuleNameHyphenEdge, "the name %q starts or ends with a hyphen", name)
+		add(RuleNameHyphenEdge, "the name %q starts or ends with a hyphen", shown)
 	}
 	if strings.Contains(name, "--") {
-		add(RuleNameHyphenDouble, "the name %q holds two hyphens in a row", name)
+		add(RuleNameHyphenDouble, "the name %q holds two hyphens in a row", shown)
 	}
 	return issues
 }
@@ -103,7 +115,8 @@ func splitFrontMatter(data []byte) (front []byte, body string, issue *Issue) {
 
 // CheckSkillFile checks the content of SKILL.md of the folder name. It returns
 // the front matter, the body and the issues of the file. The front matter
-// values are set even when a rule fails, as far as they can be read.
+// values are set even when a rule fails, as far as they can be read. A
+// description above MaxDescriptionLength is cut to that length.
 func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 	var issues []Issue
 	errorf := func(rule, format string, args ...any) {
@@ -122,13 +135,21 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 		return FrontMatter{}, "", []Issue{*issue}
 	}
 
+	if len(front) > maxFrontMatterBytes {
+		errorf(RuleFrontMatterYAML, "the front matter is %d bytes, above the limit of %d bytes", len(front), maxFrontMatterBytes)
+		return FrontMatter{}, body, issues
+	}
+	if usesMergeKey(front) {
+		errorf(RuleFrontMatterYAML, "the front matter must not use the merge key <<")
+		return FrontMatter{}, body, issues
+	}
 	var raw map[string]any
 	if err := yaml.UnmarshalWithOptions(front, &raw, yaml.Strict()); err != nil {
 		rule := RuleFrontMatterYAML
 		if strings.Contains(err.Error(), "already defined") {
 			rule = RuleFrontMatterDup
 		}
-		errorf(rule, "the front matter is not valid YAML or repeats a key: %s", firstLine(err.Error()))
+		errorf(rule, "the front matter is not valid YAML or repeats a key: %s", shorten(firstLine(err.Error())))
 		return FrontMatter{}, body, issues
 	}
 
@@ -138,10 +159,17 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	var unknown []string
 	for _, k := range keys {
 		if !isAllowedKey(k) {
-			errorf(RuleFrontMatterKey, "the front matter key %q is not allowed; the keys are %s. Put custom data in metadata", k, strings.Join(allowedKeys, ", "))
+			unknown = append(unknown, k)
 		}
+	}
+	switch {
+	case len(unknown) == 1:
+		errorf(RuleFrontMatterKey, "the front matter key %s is not allowed; the keys are %s. Put custom data in metadata", quoteKeys(unknown), strings.Join(allowedKeys, ", "))
+	case len(unknown) > 1:
+		errorf(RuleFrontMatterKey, "the front matter keys %s are not allowed; the keys are %s. Put custom data in metadata", quoteKeys(unknown), strings.Join(allowedKeys, ", "))
 	}
 
 	str := func(key string) (string, bool, bool) { // value, present, ok
@@ -161,7 +189,7 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 	} else {
 		meta.Name = s
 		if s != name {
-			errorf(RuleNameFolder, "the front matter name is %q, but the folder name is %q; they must be equal", s, name)
+			errorf(RuleNameFolder, "the front matter name is %q, but the folder name is %q; they must be equal", shorten(s), name)
 		}
 		issues = append(issues, CheckName(s, FileName)...)
 	}
@@ -183,6 +211,13 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 		if xmlTagPattern.MatchString(meta.Description) {
 			errorf(RuleDescriptionXML, "the description must not contain XML tags")
 		}
+		if n > MaxDescriptionLength {
+			// A list keeps the description of every skill, so a long one is cut.
+			meta.Description = cutRunes(meta.Description, MaxDescriptionLength)
+		}
+		// The description can be a part of a larger value. The copy lets that
+		// value be freed.
+		meta.Description = strings.Clone(meta.Description)
 		if n > 0 && n < WarnDescriptionLength {
 			warnf(RuleDescriptionShort, "the description has %d characters; say what the skill does and when to use it", n)
 		}
@@ -238,13 +273,20 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 				mk = append(mk, k)
 			}
 			sort.Strings(mk)
+			var notStrings []string
 			for _, k := range mk {
 				s, isString := m[k].(string)
 				if !isString {
-					errorf(RuleMetadata, "metadata.%s must be a string; quote the value", k)
+					notStrings = append(notStrings, k)
 					continue
 				}
 				meta.Metadata[k] = s
+			}
+			switch {
+			case len(notStrings) == 1:
+				errorf(RuleMetadata, "the metadata value of %s must be a string; quote the value", quoteKeys(notStrings))
+			case len(notStrings) > 1:
+				errorf(RuleMetadata, "the metadata values of %s must be strings; quote the values", quoteKeys(notStrings))
 			}
 		}
 	}
@@ -265,6 +307,17 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 	return meta, body, issues
 }
 
+// usesMergeKey reports whether the YAML holds a merge key. The decoder decodes
+// the source of a merge again at each use, so nested merges in a short file
+// take exponential time.
+func usesMergeKey(front []byte) bool {
+	file, err := parser.ParseBytes(front, 0)
+	if err != nil {
+		return false // the decode reports the error
+	}
+	return len(ast.FilterFile(ast.MergeKeyType, file)) > 0
+}
+
 func isAllowedKey(k string) bool {
 	return slices.Contains(allowedKeys, k)
 }
@@ -272,4 +325,39 @@ func isAllowedKey(k string) bool {
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return line
+}
+
+// shorten returns s, or its first maxShownLength characters and "..." when it
+// is longer.
+func shorten(s string) string {
+	if utf8.RuneCountInString(s) <= maxShownLength {
+		return s
+	}
+	return cutRunes(s, maxShownLength) + "..."
+}
+
+// quoteKeys quotes the first maxShownKeys keys, each shortened, and counts the
+// rest.
+func quoteKeys(keys []string) string {
+	shown := keys[:min(len(keys), maxShownKeys)]
+	quoted := make([]string, len(shown))
+	for i, k := range shown {
+		quoted[i] = strconv.Quote(shorten(k))
+	}
+	text := strings.Join(quoted, ", ")
+	if rest := len(keys) - len(shown); rest > 0 {
+		text += fmt.Sprintf(" and %d more", rest)
+	}
+	return text
+}
+
+// cutRunes returns the first n characters of s.
+func cutRunes(s string, n int) string {
+	for i := range s {
+		if n == 0 {
+			return s[:i]
+		}
+		n--
+	}
+	return s
 }

@@ -326,7 +326,7 @@ func (c *secretResolvingRemoteCoordinatorClient) Metrics() coordinator.Metrics {
 }
 
 func (c *secretResolvingRemoteCoordinatorClient) ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run coordinator.SecretReferenceRun) (string, error) {
-	if owner == (serviceregistry.HostInfo{}) {
+	if owner.Host == "" {
 		return "", fmt.Errorf("secret resolution for %q did not target the owner coordinator", ref.Ref)
 	}
 	c.mu.Lock()

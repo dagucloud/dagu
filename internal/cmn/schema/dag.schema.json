@@ -719,6 +719,20 @@
       "default": 1048576,
       "description": "Maximum size in bytes for the output of each step. If a step's output exceeds this limit, it will fail with an error. Defaults to 1MB (1048576 bytes). This limit also applies to pattern matching in preconditions and continue_on conditions."
     },
+    "outputs": {
+      "type": "object",
+      "description": "Named results of the DAG, each mapped to one declared step output (Spec 106). A value is exactly one step output reference, either ${<step id>.outputs.<name>} or ${steps.<step id>.outputs.<name>}. The step must be a top-level step that declares the output. The results are read from a succeeded or partially succeeded run.",
+      "propertyNames": {
+        "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^\\$\\{\\s*(steps\\.)?[A-Za-z][A-Za-z0-9_]*\\.outputs\\.[A-Za-z][A-Za-z0-9_]*\\s*\\}$"
+      },
+      "examples": [
+        { "summary": "${diagnose.outputs.summary}" }
+      ]
+    },
     "preconditions": {
       "examples": ["test -f /tmp/input.csv"],
       "oneOf": [

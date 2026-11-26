@@ -401,6 +401,10 @@ Rules:
 
 - No server-wide layer of base config, secrets, profiles, routes, or
   policies applies to any project.
+- A run reads its secrets and profiles in its project, whether it is
+  started, retried, queued, or a sub-DAG run. A DAG's `workspace` label
+  adds no layer of secrets or profile defaults, and chooses no default
+  profile for its runs.
 - A change to one project's settings never changes what another project's
   DAGs run with, except as
   [Base Config of Migrated Projects](#base-config-of-migrated-projects)
@@ -845,7 +849,9 @@ the default project's state moves too.
 - Every v2 server, scheduler, and coordinator is stopped before the first
   v3.0 start. Workers may keep running.
 - The first v3.0 process to start for a `DAGU_HOME` migrates under a lock
-  in `<data_dir>`. Other v3.0 processes wait for it.
+  in `<data_dir>`. Other v3.0 processes wait for it. A worker, which keeps
+  no state of its own, and a command that reads no state, such as
+  `dagu version`, neither migrate nor wait.
 - Migration waits while a v2 scheduler or coordinator is in the service
   registry, and logs what it waits for. A v2 server has no service registry
   entry, so migration cannot detect one; stopping it is the operator's

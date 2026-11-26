@@ -359,7 +359,7 @@ func TestWriteAndDeleteRefuseSymbolicLinks(t *testing.T) {
 		s := newStore(t)
 		outside := newOutside(t)
 		require.NoError(t, os.WriteFile(filepath.Join(outside, "SKILL.md"), []byte(good), 0o644))
-		require.NoError(t, os.MkdirAll(s.Root(), 0o755))
+		require.NoError(t, os.MkdirAll(skill.Root(s), 0o755))
 		require.NoError(t, os.Symlink(outside, s.Dir("demo")))
 
 		cur, err := s.Read("demo")
@@ -461,7 +461,7 @@ func TestWriteAndDeleteRefuseSymbolicLinks(t *testing.T) {
 // of a stale lock by another instance would.
 func loseLock(t *testing.T, s *skill.Store, name string) {
 	t.Helper()
-	dir := filepath.Join(s.Root(), ".locks", name)
+	dir := filepath.Join(skill.Root(s), ".locks", name)
 	require.NoError(t, os.RemoveAll(filepath.Join(dir, dirlock.LockDirectoryName)))
 	other := dirlock.New(dir, nil)
 	require.NoError(t, other.TryLock())
@@ -627,17 +627,19 @@ func TestNamesListsFoldersWithErrors(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	create(t, s, "good")
-	require.NoError(t, os.MkdirAll(filepath.Join(s.Root(), "empty"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(s.Root(), ".hidden"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(s.Root(), "README.md"), []byte("x"), 0o644))
-	names, err := s.Names()
+	require.NoError(t, os.MkdirAll(filepath.Join(skill.Root(s), "empty"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(skill.Root(s), ".hidden"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skill.Root(s), "README.md"), []byte("x"), 0o644))
+	names, more, err := s.Names()
 	require.NoError(t, err)
+	require.False(t, more)
 	require.Equal(t, []string{"empty", "good"}, names)
-	all, err := s.List()
+	empty, err := s.Read("empty")
 	require.NoError(t, err)
-	require.Len(t, all, 2)
-	require.False(t, all[0].Valid())
-	require.True(t, all[1].Valid())
+	require.False(t, empty.Valid())
+	good, err := s.Read("good")
+	require.NoError(t, err)
+	require.True(t, good.Valid())
 }
 
 func TestZip(t *testing.T) {
@@ -651,8 +653,8 @@ func TestZip(t *testing.T) {
 	_, err = s.WriteFile(ctx, "beta", "assets/img.bin", []byte{0, 1, 2, 255}, skill.Precondition{IfMatch: b.Hash})
 	require.NoError(t, err)
 	// An invalid skill can be downloaded.
-	require.NoError(t, os.MkdirAll(filepath.Join(s.Root(), "broken", "references"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(s.Root(), "broken", "references", "x.md"), []byte("x"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(skill.Root(s), "broken", "references"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skill.Root(s), "broken", "references", "x.md"), []byte("x"), 0o644))
 
 	build := func(names ...string) []byte {
 		skills, err := s.DownloadSkills(names)
@@ -674,7 +676,7 @@ func TestZip(t *testing.T) {
 			require.NoError(t, err)
 			got, _ := io.ReadAll(rc)
 			_ = rc.Close()
-			want, err := os.ReadFile(filepath.Join(s.Root(), filepath.FromSlash(f.Name)))
+			want, err := os.ReadFile(filepath.Join(skill.Root(s), filepath.FromSlash(f.Name)))
 			require.NoError(t, err)
 			require.Equal(t, want, got, f.Name)
 		}
@@ -682,7 +684,7 @@ func TestZip(t *testing.T) {
 	})
 	t.Run("deterministic", func(t *testing.T) {
 		first := build("alpha", "beta")
-		require.NoError(t, os.Chtimes(filepath.Join(s.Root(), "alpha", "SKILL.md"), time.Unix(5, 0), time.Unix(5, 0)))
+		require.NoError(t, os.Chtimes(filepath.Join(skill.Root(s), "alpha", "SKILL.md"), time.Unix(5, 0), time.Unix(5, 0)))
 		require.Equal(t, first, build("beta", "alpha"))
 	})
 	t.Run("invalid skill is included", func(t *testing.T) {
@@ -707,9 +709,9 @@ func TestZip(t *testing.T) {
 	})
 	t.Run("file above the size limit is included", func(t *testing.T) {
 		big := bytes.Repeat([]byte{7}, skill.MaxFileBytes+1)
-		require.NoError(t, os.MkdirAll(filepath.Join(s.Root(), "large", "assets"), 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(s.Root(), "large", "SKILL.md"), []byte(strings.Replace(good, "name: demo", "name: large", 1)), 0o644))
-		require.NoError(t, os.WriteFile(filepath.Join(s.Root(), "large", "assets", "big.bin"), big, 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Join(skill.Root(s), "large", "assets"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(skill.Root(s), "large", "SKILL.md"), []byte(strings.Replace(good, "name: demo", "name: large", 1)), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(skill.Root(s), "large", "assets", "big.bin"), big, 0o644))
 		data := build("large")
 		zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 		require.NoError(t, err)
@@ -730,9 +732,9 @@ func TestZip(t *testing.T) {
 		for i := range big {
 			big[i] = byte(rng.Uint32())
 		}
-		path := filepath.Join(s.Root(), "huge", "assets", "big.bin")
+		path := filepath.Join(skill.Root(s), "huge", "assets", "big.bin")
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(s.Root(), "huge", "SKILL.md"), []byte(strings.Replace(good, "name: demo", "name: huge", 1)), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(skill.Root(s), "huge", "SKILL.md"), []byte(strings.Replace(good, "name: demo", "name: huge", 1)), 0o644))
 		require.NoError(t, os.WriteFile(path, big, 0o644))
 		skills, err := s.DownloadSkills([]string{"huge"})
 		require.NoError(t, err)
@@ -760,7 +762,7 @@ func TestZip(t *testing.T) {
 		require.NoError(t, err)
 		skills, err := s.DownloadSkills([]string{"gamma"})
 		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(filepath.Join(s.Root(), "gamma", "references", "r.md"), []byte("new\n"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(skill.Root(s), "gamma", "references", "r.md"), []byte("new\n"), 0o644))
 		require.Error(t, skill.WriteZip(io.Discard, skills))
 	})
 	t.Run("file names", func(t *testing.T) {

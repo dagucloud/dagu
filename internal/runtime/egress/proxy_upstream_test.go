@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/llm/anthropicbeta"
 	"github.com/dagucloud/dagu/v2/internal/runtime/egress"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,6 +27,10 @@ import (
 // The real key of the tests. Each test checks that it never leaves the proxy by
 // a path other than the request to the upstream.
 const testUpstreamKey = "sk-ant-real-key-0123456789"
+
+// exchangeTimeout bounds each exchange of a test client with the proxy, so a
+// proxy that never answers fails the test instead of hanging it.
+const exchangeTimeout = 10 * time.Second
 
 // proxyLogs collects the lines that the proxy logs.
 type proxyLogs struct {
@@ -136,6 +141,17 @@ func mustUpstream(t *testing.T, rawURL string, auth egress.UpstreamAuth) *egress
 	return upstream
 }
 
+// dialProxy opens a raw connection to the proxy, which ends with the test. A read
+// or a write fails after exchangeTimeout.
+func dialProxy(t *testing.T, proxyAddr string) net.Conn {
+	t.Helper()
+	conn, err := net.Dial("tcp", proxyAddr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	require.NoError(t, conn.SetDeadline(time.Now().Add(exchangeTimeout)))
+	return conn
+}
+
 // originReply is the answer of the proxy, with the body read and closed.
 type originReply struct {
 	StatusCode int
@@ -156,7 +172,7 @@ func originFormRequest(t *testing.T, proxyAddr, method, target, body string, hea
 	}
 	client := &http.Client{
 		Transport:     &http.Transport{DisableKeepAlives: true},
-		Timeout:       10 * time.Second,
+		Timeout:       exchangeTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	response, err := client.Do(request)
@@ -214,6 +230,86 @@ func TestUpstreamInjectsTheKey(t *testing.T) {
 			assert.Equal(t, "application/json", got.Header.Get("Content-Type"), "the other headers pass")
 			assert.Equal(t, "2023-06-01", got.Header.Get("Anthropic-Version"), "the other headers pass")
 			assert.Empty(t, got.Header.Values("X-Forwarded-For"), "the proxy adds no header that names the client")
+		})
+	}
+}
+
+// The form anthropic-oauth sends the key as a Bearer token and adds the OAuth beta
+// to the betas of the client, once. The log line has the digests of the client
+// credential and of the key, never the values.
+func TestUpstreamAnthropicOAuth(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		betas  []string
+		want   string
+		client http.Header
+		digest string
+	}{
+		{"no beta", nil, anthropicbeta.OAuth, http.Header{"X-Api-Key": {"placeholder"}}, "x-api-key sha256:" + egress.Digest("placeholder")},
+		{"other betas", []string{"a-1, b-2", "c-3"}, "a-1,b-2,c-3," + anthropicbeta.OAuth,
+			http.Header{"Authorization": {"Bearer placeholder"}}, "authorization Bearer sha256:" + egress.Digest("placeholder")},
+		{"beta present", []string{"a-1," + anthropicbeta.OAuth}, "a-1," + anthropicbeta.OAuth, nil, "client credential none"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec, host, port := startRecorder(t, false, nil)
+			upstream := mustUpstream(t, "http://allowed.example.test:"+port, egress.AuthAnthropicOAuth)
+			proxyAddr, logs := upstreamProxy(t, []string{"allowed.example.test:" + port}, upstream, resolverFor("allowed.example.test", host), nil, nil)
+
+			header := tc.client.Clone()
+			if header == nil {
+				header = http.Header{}
+			}
+			for _, beta := range tc.betas {
+				header.Add("Anthropic-Beta", beta)
+			}
+			reply := originFormRequest(t, proxyAddr, http.MethodPost, "/v1/messages", "{}", header)
+			assert.Equal(t, http.StatusOK, reply.StatusCode)
+
+			got := rec.only(t)
+			assert.Equal(t, []string{"Bearer " + testUpstreamKey}, got.Header.Values("Authorization"))
+			assert.Empty(t, got.Header.Values("X-Api-Key"))
+			assert.Equal(t, []string{tc.want}, got.Header.Values("Anthropic-Beta"))
+
+			text := logs.text()
+			assert.Contains(t, text, tc.digest)
+			assert.Contains(t, text, "replaced by the key sha256:"+egress.Digest(testUpstreamKey)+" (anthropic-oauth)")
+			assert.NotContains(t, text, testUpstreamKey)
+			assert.NotContains(t, text, "placeholder")
+		})
+	}
+}
+
+// The log line names the scheme of a client authorization only when it is Bearer
+// or Basic. Another first word can be the credential itself, so the line then has
+// only the digest of the whole value.
+func TestUpstreamLogHidesTheClientCredential(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"bearer", "Bearer client-secret", "authorization Bearer sha256:" + egress.Digest("client-secret")},
+		{"basic", "basic client-secret", "authorization basic sha256:" + egress.Digest("client-secret")},
+		{"other first word", "client-secret extra", "authorization sha256:" + egress.Digest("client-secret extra")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, host, port := startRecorder(t, false, nil)
+			upstream := mustUpstream(t, "http://allowed.example.test:"+port, egress.AuthBearer)
+			proxyAddr, logs := upstreamProxy(t, []string{"allowed.example.test:" + port}, upstream, resolverFor("allowed.example.test", host), nil, nil)
+
+			reply := originFormRequest(t, proxyAddr, http.MethodPost, "/v1/messages", "{}", http.Header{"Authorization": {tc.value}})
+			assert.Equal(t, http.StatusOK, reply.StatusCode)
+			text := logs.text()
+			assert.Contains(t, text, "client credential "+tc.want+" replaced")
+			assert.NotContains(t, text, "client-secret")
 		})
 	}
 }
@@ -315,7 +411,7 @@ func TestUpstreamStreamsTheAnswer(t *testing.T) {
 	upstream := mustUpstream(t, "http://allowed.example.test:"+port, egress.AuthXAPIKey)
 	proxyAddr, _ := upstreamProxy(t, []string{"allowed.example.test:" + port}, upstream, resolverFor("allowed.example.test", host), nil, nil)
 
-	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}, Timeout: 10 * time.Second}
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}, Timeout: exchangeTimeout}
 	response, err := client.Post("http://"+proxyAddr+"/v1/messages", "application/json", strings.NewReader("{}"))
 	require.NoError(t, err)
 	defer func() { _ = response.Body.Close() }()
@@ -364,9 +460,7 @@ func TestUpstreamLeavesTheOtherRoutesAsTheyAre(t *testing.T) {
 	assert.Contains(t, string(body), "not in the egress policy")
 	assert.NotContains(t, string(body), testUpstreamKey)
 
-	conn, err := net.Dial("tcp", proxyAddr)
-	require.NoError(t, err)
-	defer func() { _ = conn.Close() }()
+	conn := dialProxy(t, proxyAddr)
 	_, err = io.WriteString(conn, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
 	require.NoError(t, err)
 	status, err := bufio.NewReader(conn).ReadString('\n')
@@ -381,10 +475,8 @@ func TestOriginFormNeedsAnUpstream(t *testing.T) {
 	t.Parallel()
 
 	raw := func(proxyAddr, request string) string {
-		conn, err := net.Dial("tcp", proxyAddr)
-		require.NoError(t, err)
-		defer func() { _ = conn.Close() }()
-		_, err = io.WriteString(conn, request)
+		conn := dialProxy(t, proxyAddr)
+		_, err := io.WriteString(conn, request)
 		require.NoError(t, err)
 		status, err := bufio.NewReader(conn).ReadString('\n')
 		require.NoError(t, err)
@@ -462,52 +554,83 @@ func TestUpstreamRedirectDoesNotLeave(t *testing.T) {
 	assert.Empty(t, other.all(), "the redirect target gets no request from the proxy")
 }
 
+// TRACE asks the upstream to echo the request, and so the key, back to the
+// client. TRACK is the same method on IIS. A request in origin form with either
+// method gets 405 and reaches no upstream.
+func TestUpstreamRefusesTrace(t *testing.T) {
+	t.Parallel()
+
+	// The upstream echoes the request headers, as a server with TRACE on does.
+	rec, host, port := startRecorder(t, false, func(w http.ResponseWriter, r *http.Request) {
+		_ = r.Header.Write(w)
+	})
+	upstream := mustUpstream(t, "http://allowed.example.test:"+port, egress.AuthXAPIKey)
+	proxyAddr, _ := upstreamProxy(t, []string{"allowed.example.test:" + port}, upstream, resolverFor("allowed.example.test", host), nil, nil)
+
+	for _, method := range []string{http.MethodTrace, "TRACK", "trace"} {
+		reply := originFormRequest(t, proxyAddr, method, "/v1/messages", "", nil)
+		assert.Equal(t, http.StatusMethodNotAllowed, reply.StatusCode, method)
+		assert.NotContains(t, reply.Body, testUpstreamKey, method)
+	}
+	assert.Empty(t, rec.all(), "the upstream gets no request")
+}
+
 // A switched protocol would hold a raw connection that no idle limit covers, and
 // no route needs one. On both routes the proxy sends the request without the
-// upgrade, and a destination that switches protocols anyway gives 502.
+// upgrade, and a destination that switches protocols anyway gives 502 and loses
+// its connection, which the proxy would otherwise keep open.
 func TestUpstreamProtocolUpgradeIsNotForwarded(t *testing.T) {
 	t.Parallel()
 
-	switchProtocols := func(w http.ResponseWriter, _ *http.Request) {
-		conn, buffered, err := http.NewResponseController(w).Hijack()
-		if err != nil {
-			return
-		}
-		defer func() { _ = conn.Close() }()
-		_, _ = io.WriteString(conn, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
-		_, _ = io.Copy(io.Discard, buffered)
-	}
 	for _, tc := range []struct {
-		name    string
-		handler http.HandlerFunc
-		want    int
+		name   string
+		always bool
+		want   int
 	}{
-		{name: "switches when asked", want: http.StatusOK, handler: func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("Upgrade") != "" {
-				switchProtocols(w, r)
-				return
-			}
-			_, _ = io.WriteString(w, "ok")
-		}},
-		{name: "always switches", want: http.StatusBadGateway, handler: switchProtocols},
+		{name: "switches when asked", want: http.StatusOK},
+		{name: "always switches", always: true, want: http.StatusBadGateway},
 	} {
-		rec, host, port := startRecorder(t, false, tc.handler)
-		destination := "allowed.example.test:" + port
-		upstream := mustUpstream(t, "http://"+destination, egress.AuthXAPIKey)
-		proxyAddr, _ := upstreamProxy(t, []string{destination}, upstream, resolverFor("allowed.example.test", host), nil, nil)
-		for _, target := range []string{"http://" + destination + "/ws", "/ws"} {
-			conn, err := net.Dial("tcp", proxyAddr)
-			require.NoError(t, err)
-			_, err = fmt.Fprintf(conn, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", target, destination)
-			require.NoError(t, err)
-			response, err := http.ReadResponse(bufio.NewReader(conn), nil)
-			require.NoError(t, err)
-			_ = response.Body.Close()
-			_ = conn.Close()
-			assert.Equal(t, tc.want, response.StatusCode, "%s: %s", tc.name, target)
-		}
-		for _, req := range rec.all() {
-			assert.Empty(t, req.Header.Get("Upgrade"), "%s: the destination gets no upgrade", tc.name)
+		for _, route := range []string{"absolute form", "origin form"} {
+			t.Run(tc.name+", "+route, func(t *testing.T) {
+				t.Parallel()
+
+				released := make(chan struct{})
+				rec, host, port := startRecorder(t, false, func(w http.ResponseWriter, r *http.Request) {
+					defer close(released)
+					if !tc.always && r.Header.Get("Upgrade") == "" {
+						_, _ = io.WriteString(w, "ok")
+						return
+					}
+					conn, buffered, err := http.NewResponseController(w).Hijack()
+					if err != nil {
+						return
+					}
+					defer func() { _ = conn.Close() }()
+					_, _ = io.WriteString(conn, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+					_, _ = io.Copy(io.Discard, buffered)
+				})
+				destination := "allowed.example.test:" + port
+				upstream := mustUpstream(t, "http://"+destination, egress.AuthXAPIKey)
+				proxyAddr, _ := upstreamProxy(t, []string{destination}, upstream, resolverFor("allowed.example.test", host), nil, nil)
+
+				target := "/ws"
+				if route == "absolute form" {
+					target = "http://" + destination + "/ws"
+				}
+				conn := dialProxy(t, proxyAddr)
+				_, err := fmt.Fprintf(conn, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", target, destination)
+				require.NoError(t, err)
+				response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+				require.NoError(t, err)
+				_ = response.Body.Close()
+				assert.Equal(t, tc.want, response.StatusCode)
+				assert.Empty(t, rec.only(t).Header.Get("Upgrade"), "the destination gets no upgrade")
+				select {
+				case <-released:
+				case <-time.After(5 * time.Second):
+					t.Fatal("the proxy keeps the connection of the upstream open")
+				}
+			})
 		}
 	}
 }

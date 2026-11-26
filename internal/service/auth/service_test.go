@@ -570,7 +570,7 @@ func TestService_UpdateUserPreservesAuthorizationSynchronizedAfterRead(t *testin
 	case <-time.After(time.Second):
 		t.Fatal("UpdateUser did not reach the store read")
 	}
-	_, syncErr := baseStore.SyncAuthorization(ctx, user.ID, auth.RoleViewer, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}})
+	_, syncErr := baseStore.SyncAuthorization(ctx, user.ID, auth.RoleViewer, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}}, nil)
 	close(pausingStore.resume)
 	require.NoError(t, syncErr)
 
@@ -1119,6 +1119,40 @@ func TestService_CreateAPIKey(t *testing.T) {
 	assert.NotEmpty(t, result.APIKey.KeyPrefix)
 	assert.NotEmpty(t, result.APIKey.KeyHash)
 	assert.Equal(t, apiKeyDigest(result.FullKey), result.APIKey.KeyDigest)
+}
+
+// A key with project grants may have no server-wide role: viewer limited to
+// no workspace. Without grants, that access stays invalid.
+func TestService_CreateAPIKey_ProjectGrants(t *testing.T) {
+	svc, cleanup := setupTestServiceWithAPIKeys(t)
+	defer cleanup()
+	ctx := context.Background()
+	noWorkspace := &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}}
+	grants := []auth.ProjectGrant{{ProjectID: "project-a", Role: auth.RoleOperator}}
+
+	result, err := svc.CreateAPIKey(ctx, CreateAPIKeyInput{
+		Name: "project-key", Role: auth.RoleViewer, WorkspaceAccess: noWorkspace, ProjectGrants: grants,
+	}, "creator-id")
+	require.NoError(t, err)
+	assert.Equal(t, grants, result.APIKey.ProjectGrants)
+	stored, err := svc.GetAPIKey(ctx, result.APIKey.ID)
+	require.NoError(t, err)
+	assert.Equal(t, grants, stored.ProjectGrants)
+
+	updated, err := svc.UpdateAPIKey(ctx, result.APIKey.ID, UpdateAPIKeyInput{ProjectGrants: &[]auth.ProjectGrant{}})
+	assert.ErrorIs(t, err, auth.ErrInvalidWorkspaceAccess, "no grants and no workspace leave the key nothing")
+	assert.Nil(t, updated)
+
+	_, err = svc.CreateAPIKey(ctx, CreateAPIKeyInput{
+		Name: "operator-key", Role: auth.RoleOperator, WorkspaceAccess: noWorkspace, ProjectGrants: grants,
+	}, "creator-id")
+	assert.ErrorIs(t, err, auth.ErrInvalidWorkspaceAccess)
+
+	_, err = svc.CreateAPIKey(ctx, CreateAPIKeyInput{
+		Name: "admin-grant", Role: auth.RoleViewer, WorkspaceAccess: noWorkspace,
+		ProjectGrants: []auth.ProjectGrant{{ProjectID: "project-a", Role: auth.RoleAdmin}},
+	}, "creator-id")
+	assert.ErrorIs(t, err, auth.ErrInvalidProjectGrant)
 }
 
 func TestService_CreateAPIKey_EmptyName(t *testing.T) {

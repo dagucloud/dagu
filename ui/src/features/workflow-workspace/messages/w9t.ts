@@ -50,4 +50,15 @@ export default defineMessages({
     '{n} more run overlaps': '{n} weiterer Lauf überschneidet sich',
     '{n} more runs overlap': '{n} weitere Läufe überschneiden sich',
   },
+  fr: {
+    'Run durations': 'Durées d’exécution',
+    'Long run': 'Exécution longue',
+    'Started before this view': 'Démarré avant cette vue',
+    'Still running': 'Toujours en cours',
+    'Ended {time}': 'Fin\u00a0: {time}',
+    'overlaps {n} other run': 'chevauche {n} autre exécution',
+    'overlaps {n} other runs': 'chevauche {n} autres exécutions',
+    '{n} more run overlaps': '{n} autre exécution se superpose',
+    '{n} more runs overlap': '{n} autres exécutions se superposent',
+  },
 });

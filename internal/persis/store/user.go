@@ -4,11 +4,14 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -424,6 +427,7 @@ func (s *UserStore) SyncAuthorization(
 	id string,
 	role auth.Role,
 	workspaceAccess *auth.WorkspaceAccess,
+	projectGrants *[]auth.ProjectGrant,
 ) (auth.AuthorizationSyncResult, error) {
 	if id == "" {
 		return auth.AuthorizationSyncResult{}, auth.ErrInvalidUserID
@@ -456,9 +460,11 @@ func (s *UserStore) SyncAuthorization(
 	result := auth.AuthorizationSyncResult{
 		PreviousRole:            stored.Role,
 		PreviousWorkspaceAccess: auth.CloneWorkspaceAccess(stored.WorkspaceAccess),
+		PreviousProjectGrants:   slices.Clone(stored.ProjectGrants),
 	}
 	if stored.Role == role &&
-		(workspaceAccess == nil || auth.WorkspaceAccessEqual(stored.WorkspaceAccess, workspaceAccess)) {
+		(workspaceAccess == nil || auth.WorkspaceAccessEqual(stored.WorkspaceAccess, workspaceAccess)) &&
+		(projectGrants == nil || projectGrantsEqual(stored.ProjectGrants, *projectGrants)) {
 		result.User = stored.ToUser()
 		return result, nil
 	}
@@ -466,6 +472,9 @@ func (s *UserStore) SyncAuthorization(
 	stored.Role = role
 	if workspaceAccess != nil {
 		stored.WorkspaceAccess = auth.CloneWorkspaceAccess(workspaceAccess)
+	}
+	if projectGrants != nil {
+		stored.ProjectGrants = slices.Clone(*projectGrants)
 	}
 	stored.UpdatedAt = time.Now().UTC()
 	data, err := persis.Encode(&stored)
@@ -483,6 +492,15 @@ func (s *UserStore) SyncAuthorization(
 	result.User = stored.ToUser()
 	result.Changed = true
 	return result, nil
+}
+
+// projectGrantsEqual reports whether left and right hold the same grants in
+// any order.
+func projectGrantsEqual(left, right []auth.ProjectGrant) bool {
+	compare := func(a, b auth.ProjectGrant) int {
+		return cmp.Or(strings.Compare(a.ProjectID, b.ProjectID), strings.Compare(string(a.Role), string(b.Role)))
+	}
+	return slices.Equal(slices.SortedFunc(slices.Values(left), compare), slices.SortedFunc(slices.Values(right), compare))
 }
 
 // Delete removes a user by their ID.

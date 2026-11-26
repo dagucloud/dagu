@@ -164,6 +164,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		tag.Port(serviceCtx.Config.Server.Port),
 	)
 	logAIConfig(serviceCtx)
+	warnTestNamedDAGs(serviceCtx)
 
 	// Initialize tunnel service if enabled
 	tunnelService, err = initTunnelService(ctx.Config)
@@ -525,6 +526,31 @@ func startCloudAccess(ctx *Context, access *cloudaccess.Service, server *fronten
 // reporter's lease heartbeats: an event check followed by a report request.
 const cloudReportLeaseStaleThreshold = time.Minute
 
+// cloudReportStateFile records where reports to Dagu Console stopped reading
+// the data directory's DAG-run events.
+func cloudReportStateFile(cfg *config.Config) string {
+	return filepath.Join(cfg.Paths.DataDir, "cloud", "report-state.json")
+}
+
+// cloudReportLease is held while a process reports the data directory's DAG
+// runs to Dagu Console.
+func cloudReportLease(cfg *config.Config) *filemonitor.Lease {
+	return filemonitor.NewLease(cloudReportStateFile(cfg), &dirlock.LockOptions{StaleThreshold: cloudReportLeaseStaleThreshold})
+}
+
+// cloudReportLeaseFresh is how recently the lease must have been renewed for
+// a run to leave its reports to the server, which renews it about every 5
+// seconds. Taking a live server for stopped only sends a report Dagu Console
+// keeps once; taking a stopped one for live loses the run, so the window is
+// far shorter than the lease's own.
+const cloudReportLeaseFresh = 15 * time.Second
+
+// serverReportsRuns returns whether a server reports the data directory's DAG
+// runs to Dagu Console at the time it is called.
+func serverReportsRuns(cfg *config.Config) func() bool {
+	return filemonitor.NewLease(cloudReportStateFile(cfg), &dirlock.LockOptions{StaleThreshold: cloudReportLeaseFresh}).IsLocked
+}
+
 // cloudReportEvents configures the DAG runs that reports to Dagu Console carry
 // at the runs level: finished runs from the event store, runs in progress
 // followed through it, and the service DAGs, listed as services. A reporter below runs uses them only to discard where
@@ -534,19 +560,20 @@ func cloudReportEvents(ctx *Context) cloudreport.Events {
 	if ctx.event == nil {
 		return cloudreport.Events{}
 	}
-	stateFile := filepath.Join(ctx.Config.Paths.DataDir, "cloud", "report-state.json")
+	stateFile := cloudReportStateFile(ctx.Config)
 	return cloudreport.Events{
 		Reader:        ctx.event,
 		RetentionDays: ctx.Config.EventStore.RetentionDays,
 		State:         filemonitor.NewStateStore(stateFile),
 		Stale:         filemonitor.NewStateStore(stateFile + ".stale"),
-		Lease:         filemonitor.NewLease(stateFile, &dirlock.LockOptions{StaleThreshold: cloudReportLeaseStaleThreshold}),
+		Lease:         cloudReportLease(ctx.Config),
 		Statuses:      ctx.Persistence.DAGRunRepository,
 		Runs:          ctx.Persistence.DAGRunRepository,
 		Services: cloudReportServices{
 			dags: ctx.Persistence.DAGRepository, runs: ctx.Persistence.DAGRunRepository, history: ctx.DAGRunMgr,
 			backoff: ctx.Persistence.RestartBackoffStore, pause: ctx.Persistence.SchedulerPauseStore,
 		},
+		RunKeySet: ctx.Config.Cloud.RunKey != "",
 	}
 }
 

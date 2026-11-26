@@ -179,6 +179,8 @@ func runStartAll(ctx *Context, _ []string) error {
 		}
 	}()
 
+	warnTestNamedDAGs(serviceCtx)
+
 	// Initialize all services using the signal-aware context
 	scheduler, err := newScheduler(serviceCtx, schedulerDeps)
 	if err != nil {
@@ -219,7 +221,9 @@ func runStartAll(ctx *Context, _ []string) error {
 	var coord *coordinator.Service
 	if ctx.Config.Coordinator.Enabled {
 		var err error
-		coord, _, err = newCoordinator(serviceCtx, stores.Secret, stores.Profile)
+		// The coordinator shares the server's inventory, so a change through
+		// the server reaches it at once.
+		coord, _, err = newCoordinator(serviceCtx, stores.Secret, stores.Profile, stores.Inventory, stores.HostKeys)
 		if err != nil {
 			return fmt.Errorf("failed to initialize coordinator: %w", withPortInUseHint(err, coordinatorPortInUseHint))
 		}

@@ -12,7 +12,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/secret"
@@ -70,7 +69,7 @@ the value is not printed if the entry cannot be written.`,
 		if err != nil {
 			return err
 		}
-		secrets := file.NewSecretStore(ctx, ctx.Config, ctx.backend.Collection(persis.CollectionSecrets))
+		secrets := ctx.settings.SecretStore(ctx)
 		if secrets == nil {
 			return fmt.Errorf("secret store is not configured")
 		}

@@ -44,13 +44,13 @@ func TestSchemaAccepts(t *testing.T) {
 	for name, data := range specExamples(t) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			_, errs := decodeFile(data)
+			_, errs := decodeFile(name, data)
 			err := validateYAML(full, data)
 			require.Equal(t, len(errs) == 0, err == nil, "decoder: %v\nschema: %v", errs, err)
 		})
 	}
 	for name, data := range testdataFiles(t) {
-		if _, errs := decodeFile(data); len(errs) > 0 {
+		if _, errs := decodeFile(name, data); len(errs) > 0 {
 			continue
 		}
 		t.Run(name, func(t *testing.T) {
@@ -81,6 +81,9 @@ func TestSchemaRejects(t *testing.T) {
 		{name: "UnknownExpectField", yaml: "{cases: [{name: c, expect: {status: succeeded, duration: 1s}}]}"},
 		{name: "UnknownStepAssertion", yaml: "{cases: [{name: c, expect: {steps: {build: {exit_code: 0}}}}]}"},
 		{name: "UnknownStreamAssertion", yaml: "{cases: [{name: c, expect: {steps: {build: {stdout: {equals: ok}}}}}]}"},
+		{name: "UnknownCallAssertion", yaml: "{cases: [{name: c, expect: {steps: {build: {called_with: {args: [a]}}}}}]}"},
+		{name: "CallRunList", yaml: "{cases: [{name: c, expect: {steps: {build: {called_with: {run: [a]}}}}}]}"},
+		{name: "CallEnvNotScalar", yaml: "{cases: [{name: c, expect: {steps: {build: {called_with: {env: {A: [b]}}}}}}]}"},
 		{name: "UnknownNotificationField", yaml: "{cases: [{name: c, expect: {notifications: [{kind: mail_on.failure, subject: x}]}}]}"},
 		{name: "ReadsAsDAG", yaml: "{steps: [{run: ./smoke.sh}]}"},
 		{name: "NoCases", yaml: "{mocks: {build: {}}}"},
@@ -117,7 +120,7 @@ func TestSchemaRejects(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			data := []byte(tt.yaml)
-			_, errs := decodeFile(data)
+			_, errs := decodeFile(tt.name, data)
 			require.Error(t, validateYAML(full, data))
 			if tt.caseError {
 				require.Empty(t, errs)
@@ -146,6 +149,7 @@ func TestSchemaFields(t *testing.T) {
 		{resultSpec{}, root.Definitions["result"]},
 		{reviewSpec{}, root.Definitions["review"]},
 		{streamSpec{}, root.Definitions["stream"]},
+		{callSpec{}, root.Definitions["calledWith"]},
 		{notificationSpec{}, root.Definitions["notification"]},
 	}
 	for _, tt := range tests {

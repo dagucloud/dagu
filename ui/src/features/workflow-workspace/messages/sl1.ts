@@ -54,4 +54,16 @@ export default defineMessages({
     'The CLI reads a skill with its tool Skill.':
       'Die CLI liest einen Skill mit ihrem Tool Skill.',
   },
+  fr: {
+    'Open {name}': 'Ouvrir {name}',
+    'Opens in a new tab': 'S’ouvre dans un nouvel onglet',
+    'Open the skill': 'Ouvrir la compétence',
+    'No skills yet': 'Aucune compétence pour le moment',
+    'Invalid skill entry': 'Entrée de compétence non valide',
+    'Remove skill {name}': 'Retirer la compétence {name}',
+    'The model reads a skill with the tool load_skill.':
+      'Le modèle lit une compétence avec l’outil load_skill.',
+    'The CLI reads a skill with its tool Skill.':
+      'La CLI lit une compétence avec son outil Skill.',
+  },
 });

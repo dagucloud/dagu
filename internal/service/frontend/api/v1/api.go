@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/sync/singleflight"
 	"log/slog"
 	"net/http"
 	"reflect"
@@ -54,6 +55,7 @@ import (
 	frontendauth "github.com/dagucloud/dagu/v2/internal/service/frontend/auth"
 	incidentservice "github.com/dagucloud/dagu/v2/internal/service/incident"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
+	"github.com/dagucloud/dagu/v2/internal/service/projectaccess"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
@@ -115,12 +117,14 @@ type API struct {
 	viewStore            view.Store
 	inventoryStore       inventory.Store
 	hostKeyStore         inventory.HostKeyStore
+	workerNodeStore      inventory.WorkerNodeStore
 	licenseManager       *license.Manager
 	publicWebhookStore   publicwebhook.Store
 	cloudReport          CloudReportService
 	cloudAccess          CloudAccessService
-	apiKeyCreateMu       sync.Mutex
+	apiKeyWriteMu        sync.Mutex // Serializes API key writes, so each checks the state it changes
 	workspaceStore       workspace.Store
+	projectAccess        *projectaccess.Checker
 	leaseStaleThreshold  time.Duration
 	runSortDAGLimit      int
 	schedulerStateStore  schedulerstate.Store
@@ -135,6 +139,8 @@ type API struct {
 	workspaceDeprecation deprecation.Sources
 	serviceDAGFailures   failureStreaks
 	activities           activityCache
+	activityReads        singleflight.Group
+	runChanges           runChanges
 	restartBackoffStore  schedulerstate.RestartBackoffStore
 	periodStore          schedulerstate.PeriodStore
 }
@@ -368,6 +374,14 @@ func WithHostKeyStore(store inventory.HostKeyStore) APIOption {
 	}
 }
 
+// WithWorkerNodeStore returns an APIOption that sets the store of the
+// workers that are nodes.
+func WithWorkerNodeStore(store inventory.WorkerNodeStore) APIOption {
+	return func(a *API) {
+		a.workerNodeStore = store
+	}
+}
+
 // WithDAGSettingsStore returns an APIOption that sets the DAG settings store.
 func WithDAGSettingsStore(store dagsettings.Store) APIOption {
 	return func(a *API) {
@@ -451,6 +465,14 @@ func WithWorkspaceStore(s workspace.Store) APIOption {
 func WithWorkspaceDeprecation(src deprecation.Sources) APIOption {
 	return func(a *API) {
 		a.workspaceDeprecation = src
+	}
+}
+
+// WithProjectAccess sets the project access checker. Setting it turns on the
+// API surface of projects, which stays off while projects are off.
+func WithProjectAccess(c *projectaccess.Checker) APIOption {
+	return func(a *API) {
+		a.projectAccess = c
 	}
 }
 

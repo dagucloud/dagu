@@ -48,4 +48,15 @@ export default defineMessages({
     'Save or fix the step to see its upstream data':
       'Schritt speichern oder korrigieren, um seine Eingangsdaten zu sehen',
   },
+  fr: {
+    Input: 'Entrée',
+    Output: 'Sortie',
+    'Previous step': 'Étape précédente',
+    'Next step': 'Étape suivante',
+    'Dock to the side': 'Ancrer sur le côté',
+    'Step data': 'Données de l’étape',
+    'Select a step first': 'Sélectionnez d’abord une étape',
+    'Save or fix the step to see its upstream data':
+      'Enregistrez ou corrigez l’étape pour voir ses données en amont',
+  },
 });

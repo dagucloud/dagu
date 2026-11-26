@@ -146,6 +146,7 @@ func runScheduler(ctx *Context, _ []string) error {
 		tag.Dir(ctx.Config.Paths.DAGsDir),
 		slog.String("log-format", ctx.Config.Core.LogFormat),
 	)
+	warnTestNamedDAGs(ctx)
 
 	ctx.Context = ctx.withRunRegistry(ctx.Context)
 	schedulerCtx := ctx.WithEventSource(eventstore.SourceServiceScheduler)

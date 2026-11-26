@@ -10,10 +10,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -77,14 +81,37 @@ type Review struct {
 	Values map[string]any
 }
 
+// Call is what one execution of a step's action was called with, as Dagu
+// resolved it before the action, or the result that replaced it, ran.
+type Call struct {
+	// Run is the command or script text of a step written without action:
+	// its script, or its commands one per line.
+	Run string
+	// With holds the with inputs of a step written with action, when the
+	// DAG was loaded keeping them (spec.KeepActionWith), or nil.
+	With map[string]any
+	// Env holds the step's environment by name, secrets included.
+	Env map[string]string
+	// Secrets lists the values that output masks as secrets.
+	Secrets []string
+}
+
 // Set scripts the steps it holds in place of their actions and of the
 // conditions that would run a command. A step that is not in the set runs
 // its own action and must not repeat without a limit. A step's next result
-// depends on its earlier executions, so a Set serves a single run.
+// depends on its earlier executions, so a Set serves a single run. A Set
+// also records the call of the latest execution of every step and handler,
+// whether or not it holds the step.
 type Set struct {
 	steps           map[string]*script
 	handlers        map[ir.HandlerType]*script
 	dagPrecondition *bool
+
+	mu sync.Mutex
+	// calls and handlerCalls hold the call of each step's latest execution,
+	// by step name, and of each handler's, by handler type.
+	calls        map[string]Call
+	handlerCalls map[ir.HandlerType]Call
 }
 
 var (
@@ -97,8 +124,10 @@ var (
 // handler takes only its own script.
 func New(steps map[string]Step, handlers map[ir.HandlerType]Step) *Set {
 	set := &Set{
-		steps:    make(map[string]*script, len(steps)),
-		handlers: make(map[ir.HandlerType]*script, len(handlers)),
+		steps:        make(map[string]*script, len(steps)),
+		handlers:     make(map[ir.HandlerType]*script, len(handlers)),
+		calls:        make(map[string]Call),
+		handlerCalls: make(map[ir.HandlerType]Call),
 	}
 	for name, step := range steps {
 		set.steps[name] = newScript(step)
@@ -171,8 +200,10 @@ func (s *Set) ContinuousLimit(step ir.Step) (limit int, ok bool) {
 }
 
 // Executor returns an executor that runs the next result of the step or
-// handler, or false when the set does not replace its action.
+// handler, or false when the set does not replace its action. Either way, it
+// records the call of the execution.
 func (s *Set) Executor(ctx context.Context, step ir.Step) (executor.Executor, bool) {
+	s.record(ctx, step)
 	script, ok := s.lookup(ctx, step)
 	if !ok || !script.replaces() {
 		return nil, false
@@ -182,6 +213,64 @@ func (s *Set) Executor(ctx context.Context, step ir.Step) (executor.Executor, bo
 		stdout: io.Discard,
 		stderr: io.Discard,
 	}, true
+}
+
+// LastCall returns the call of the named step's latest execution, or false
+// when the step never executed.
+func (s *Set) LastCall(step string) (Call, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	call, ok := s.calls[step]
+	return call, ok
+}
+
+// LastHandlerCall returns the call of the lifecycle handler's latest
+// execution, or false when it never executed.
+func (s *Set) LastHandlerCall(kind ir.HandlerType) (Call, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	call, ok := s.handlerCalls[kind]
+	return call, ok
+}
+
+// record keeps the call of an execution of step, whose fields are resolved
+// as they are for its own action. The with object resolves as the action's
+// with does, without counting as a read of the step. A with that does not
+// resolve is not recorded, so no assertion holds on it.
+func (s *Set) record(ctx context.Context, step ir.Step) {
+	call := Call{Env: runtime.AllEnvsMap(ctx)}
+	if scope := runtime.GetEnv(ctx).Scope; scope != nil {
+		call.Secrets = slices.Collect(maps.Values(scope.AllSecrets()))
+	}
+	if step.ActionWith == nil {
+		call.Run = runText(step)
+	} else {
+		resolved, err := runtime.ValueResolver(ctx).Object(cmnvalue.UntrackMaskedReads(ctx), step.ActionWith, registry.ConfigField(step, "with"))
+		if with, ok := resolved.(map[string]any); err == nil && ok {
+			call.With = with
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if kind := runtime.LifecycleHandler(ctx); kind != "" {
+		s.handlerCalls[kind] = call
+		return
+	}
+	s.calls[step.Name] = call
+}
+
+// runText returns the command or script text of a step: its script, or its
+// commands one per line.
+func runText(step ir.Step) string {
+	if step.Script != "" {
+		return step.Script
+	}
+	lines := make([]string, 0, len(step.Commands))
+	for _, command := range step.Commands {
+		lines = append(lines, command.CmdWithArgs)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // script holds one scripted step and how many executions took a result.

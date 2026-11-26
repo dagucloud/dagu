@@ -1026,19 +1026,44 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get the activity of a DAG list page
-         * @description Gives the activity of each DAG of one page of `GET /dags` over a window
-         *     that ends now. The paging, filters, and sort select the same DAGs in
-         *     the same order as `GET /dags` with the same values, and a `perPage`
-         *     above 200 reads 200 DAGs, as `GET /dags` does. A plain DAG lists its
-         *     runs that started in the window, the last started first, and its runs
-         *     still in progress. It finds them among the runs created since one
-         *     window before the window, at most the 1000 created last, so a run that
-         *     waited in a queue for longer shows only while it is the latest run. A service DAG gives the buckets
-         *     of its run history instead.
+         * Get the activity of DAGs of a DAG list
+         * @description Gives the activity over a window that ends now of each DAG that a
+         *     `fileName` names, in the order of the request, each name once. A name
+         *     that names no DAG of `GET /dags` that the caller can see is left out,
+         *     with no error. A plain DAG lists its runs that started in the window,
+         *     the last started first, and its runs still in progress. It finds them
+         *     among the runs created since one window before the window, at most the
+         *     1000 created last, so a run that waited in a queue for longer shows
+         *     only while it is the latest run. A service DAG gives the buckets of its
+         *     run history instead.
          *
          */
         get: operations["getDAGListActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-run-changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the DAG files whose runs changed lately
+         * @description Lists the DAG files whose root runs changed lately, as the run events
+         *     that this server reads tell, so that a DAG list reads the activity of
+         *     those DAGs again. The `dagrunchanges:all` topic of the stream gives the
+         *     same feed, at most once a minute. A file is listed when the caller can
+         *     see the run, by the workspace label of the run.
+         *
+         */
+        get: operations["getDAGRunChanges"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3779,7 +3804,7 @@ export interface paths {
         };
         /**
          * List skills
-         * @description Lists the skill folders of the DAGs directory, sorted by name. A skill that is not in the Agent Skills format is listed too, with its errors: Dagu refuses to load it.
+         * @description Lists the skill folders of the DAGs directory, sorted by name: at most the first 1000. A skill that is not in the Agent Skills format is listed too, with its errors: Dagu refuses to load it.
          */
         get: operations["listSkills"];
         put?: never;
@@ -5058,7 +5083,7 @@ export interface paths {
         };
         /**
          * List inventory nodes
-         * @description Lists the nodes of the inventories with their inventory's defaults applied, in name order, one page at a time. Credentials appear as secret references and key paths, never as values.
+         * @description Lists the nodes in name order, one page at a time: the nodes of the inventories, with their inventory's defaults applied, and the workers that set `worker.id`. A worker whose ID names a node of an inventory is not a node; the response lists it in `workerConflicts`. Credentials appear as secret references and key paths, never as values.
          */
         get: operations["listInventoryNodes"];
         put?: never;
@@ -5078,12 +5103,16 @@ export interface paths {
         };
         /**
          * Get an inventory node
-         * @description Returns one node with its inventory's defaults applied. Credentials appear as secret references and key paths, never as values.
+         * @description Returns one node: a node of an inventory with its inventory's defaults applied, or a worker node. Credentials appear as secret references and key paths, never as values.
          */
         get: operations["getInventoryNode"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Forget an offline worker node
+         * @description Forgets an offline worker node until its worker connects again. A node of an inventory is removed from its inventory instead. Workers are shared by the whole server, so this requires the admin role, and is audited. Remote nodes do not manage nodes, so a request for a remote node is refused with 403.
+         */
+        delete: operations["forgetWorkerNode"];
         options?: never;
         head?: never;
         patch?: never;
@@ -5098,7 +5127,7 @@ export interface paths {
         };
         /**
          * List inventory node labels
-         * @description Lists the labels of the inventory nodes, with their inventory's defaults applied, for completion.
+         * @description Lists the labels of the nodes, with their inventory's defaults applied, and of the worker nodes, for completion.
          */
         get: operations["listInventoryNodeLabels"];
         put?: never;
@@ -5736,7 +5765,7 @@ export interface components {
         };
         /** @description A skill folder of the skills directory */
         SkillSummary: {
-            /** @description Name of the skill, the name of its folder. A chat.completion step names it in with.skills. */
+            /** @description Name of the skill, the name of its folder */
             name: string;
             /** @description Description of the skill. Empty when the front matter is not valid. */
             description: string;
@@ -7950,15 +7979,45 @@ export interface components {
          * @example 2026-11-09
          */
         ScheduleSlotValue: string;
-        /** @description The activity of the DAGs of one DAG list page, in page order */
+        /** @description The activity of the DAGs that a request names, in the order of the request */
         DAGListActivityPage: {
             dags: components["schemas"]["DAGListActivityEntry"][];
-            /** @description Errors encountered while listing the DAGs or reading their activity */
+            /** @description Errors encountered while reading the activity of the DAGs */
             errors: string[];
+            /**
+             * Format: date-time
+             * @description Server time when the activity was read, rounded down to the millisecond
+             */
+            readAt: string;
         };
-        /** @description The activity of one DAG of a list page */
-        DAGListActivityEntry: {
+        /** @description Every change of the root runs of a DAG file that the caller can see, after `since` and up to `readAt`. A list reads the activity again of a row whose file has a `changedAt` at or after the `readAt` of its activity, and of every row whose activity it read before `since`. Any other row is current as of `readAt`. */
+        DAGRunChanges: {
+            /**
+             * Format: date-time
+             * @description The feed holds every change after this time, rounded up to the millisecond. It moves when the server starts reading run events and when the feed drops a change older than 3 minutes or beyond 2000 files. A pause in the reads of the run events delays changes and does not move it. Equal to `readAt` before the first read of the run events.
+             */
+            since: string;
+            /**
+             * Format: date-time
+             * @description Server time when the feed was read, rounded down to the millisecond
+             */
+            readAt: string;
+            /** @description Each DAG file once, with its latest change, the newest first */
+            changes: components["schemas"]["DAGRunChange"][];
+        };
+        /** @description The latest change of the root runs of a DAG file */
+        DAGRunChange: {
             /** @description The fileName of the DAG in `GET /dags` */
+            fileName: string;
+            /**
+             * Format: date-time
+             * @description Server time of the change, rounded up to the millisecond. A read of the activity of the DAG that begins after it shows the change.
+             */
+            changedAt: string;
+        };
+        /** @description The activity of one DAG that a request names */
+        DAGListActivityEntry: {
+            /** @description The fileName of the DAG, as the request names it */
             fileName: string;
             activity: components["schemas"]["DAGListActivity"];
         };
@@ -8031,6 +8090,8 @@ export interface components {
             triggerActor?: string;
             /** @description Backfill that started the DAG-run. A retry keeps it. */
             backfillId?: string;
+            /** @description True when the DAG-run cannot be retried once it is terminal. Later attempts keep it. */
+            retryDisabled?: boolean;
             /** @description Type-keyed current-state runtime conditions for the DAG-run. This list reports the latest condition for each type, not a history of queued reasons. */
             conditions?: components["schemas"]["DAGRunCondition"][];
             /** @description List of labels for categorizing and filtering DAG runs */
@@ -8919,9 +8980,9 @@ export interface components {
             /** @description Name of the step with nodes */
             step: string;
             status: components["schemas"]["NodeRunStatus"];
-            /** @description Name of the DAG of the child run. Absent for a disabled node. */
+            /** @description Name of the DAG of the child run. Absent for a node that has none, such as one disabled when the step first matched it. */
             dagName?: string;
-            /** @description ID of the child run, a sub DAG-run of the root run. Absent for a disabled node. */
+            /** @description ID of the child run, a sub DAG-run of the root run. Absent for a node that has none, such as one disabled when the step first matched it. */
             dagRunId?: string;
             /** @description RFC 3339 timestamp with millisecond precision when the child run started */
             startedAt?: string;
@@ -8932,7 +8993,7 @@ export interface components {
             failedStep?: string;
         };
         /**
-         * @description Status of a node's run: the status its child run reached, or not_started, running, or disabled
+         * @description Status of a node's run: the status its child run reached, or not_started, running, disabled, or removed. A removed node is one a retry kept from the step's first attempt that has left the inventory since.
          * @enum {string}
          */
         NodeRunStatus: NodeRunStatus;
@@ -8946,6 +9007,7 @@ export interface components {
             failed: number;
             aborted: number;
             disabled: number;
+            removed: number;
         };
         /** @description Number of a run's steps that succeeded, once the run finished. Handlers are not counted. */
         StepProgress: {
@@ -9476,6 +9538,14 @@ export interface components {
             /** @description Workspace-specific grants used when all=false */
             grants: components["schemas"]["WorkspaceGrant"][];
         };
+        /** @description Role granted in one project. Read and written only while projects are on. */
+        ProjectGrant: {
+            /** @description Project name */
+            project: string;
+            role: components["schemas"]["UserRole"];
+        };
+        /** @description Roles in single projects, read and written only while projects are on. A key whose workspaceAccess has all=false and no grants has no role outside these grants. */
+        ProjectGrants: components["schemas"]["ProjectGrant"][];
         /** @description Request body for initial admin account setup */
         SetupRequest: {
             /** @description Admin username */
@@ -9697,6 +9767,7 @@ export interface components {
             description?: string;
             role: components["schemas"]["UserRole"];
             workspaceAccess: components["schemas"]["WorkspaceAccess"];
+            projectGrants?: components["schemas"]["ProjectGrants"];
             /** @description Interfaces where this API key may be accepted */
             allowedSurfaces: APIKeyAllowedSurfaces[];
             /**
@@ -9750,6 +9821,7 @@ export interface components {
             description?: string;
             role: components["schemas"]["UserRole"];
             workspaceAccess?: components["schemas"]["WorkspaceAccess"];
+            projectGrants?: components["schemas"]["ProjectGrants"];
             /** @description Interfaces where this API key may be accepted */
             allowedSurfaces: CreateAPIKeyRequestAllowedSurfaces[];
             /**
@@ -9776,6 +9848,7 @@ export interface components {
             description?: string;
             role?: components["schemas"]["UserRole"];
             workspaceAccess?: components["schemas"]["WorkspaceAccess"];
+            projectGrants?: components["schemas"]["ProjectGrants"];
             /** @description Interfaces where this API key may be accepted */
             allowedSurfaces?: UpdateAPIKeyRequestAllowedSurfaces[];
             /**
@@ -10360,7 +10433,7 @@ export interface components {
             views: components["schemas"]["View"][];
         };
         /**
-         * @description How Dagu reaches a node. An `ssh` node is a host of an inventory.
+         * @description How Dagu reaches a node. An `ssh` node is a host of an inventory, and a `worker` node is a worker that sets `worker.id`.
          * @enum {string}
          */
         InventoryNodeKind: InventoryNodeKind;
@@ -10380,33 +10453,52 @@ export interface components {
             /** @description Secret reference of the private key's passphrase */
             passphraseSecret?: string;
         };
-        /** @description A node of an inventory with its inventory's defaults applied */
+        /** @description A node: a host of an inventory with its inventory's defaults applied, or a worker that sets `worker.id`. The connection fields, `inventory` through `timeout`, are set for an `ssh` node only, and `online` and `lastSeenAt` for a `worker` node only. */
         InventoryNode: {
+            /** @description Node name. A worker node's name is its worker ID */
             name: string;
             kind: components["schemas"]["InventoryNodeKind"];
-            inventory: components["schemas"]["InventoryRef"];
+            inventory?: components["schemas"]["InventoryRef"];
+            /** @description Host name or IP address. A worker node's is the host its worker reports, shown only */
             host: string;
-            port: number;
+            port?: number;
             user?: string;
-            auth: components["schemas"]["InventoryNodeAuth"];
+            auth?: components["schemas"]["InventoryNodeAuth"];
             /** @description Name of the node of the same inventory that the connection goes through */
             bastion?: string;
             /** @description Public key the host must present */
             hostKey?: string;
             /** @description Whether the host key is checked */
-            strictHostKey: boolean;
+            strictHostKey?: boolean;
             shell?: string;
             /** @description Connect timeout, such as `30s` */
-            timeout: string;
+            timeout?: string;
             /** @description Labels as `key` or `key=value`, sorted */
             labels: string[];
             description?: string;
-            /** @description Whether runs are kept off the node. A disabled node is still listed and matched. */
+            /** @description Whether runs are kept off the node. A disabled node is still listed and matched. A worker node is never disabled. */
             disabled: boolean;
+            /** @description Whether the worker is connected. A worker stays listed while it is offline. */
+            online?: boolean;
+            /**
+             * Format: date-time
+             * @description When the coordinator last recorded the worker: when it connected, changed its host or labels, or went offline
+             */
+            lastSeenAt?: string;
         };
         InventoryNodeListResponse: {
             nodes: components["schemas"]["InventoryNode"][];
             pagination: components["schemas"]["Pagination"];
+            /** @description Count of every node, whatever the filters */
+            nodeCount: number;
+            /** @description Workers whose ID names a node of an inventory, so they are not nodes, whatever the filters */
+            workerConflicts: components["schemas"]["InventoryWorkerConflict"][];
+        };
+        /** @description A worker that is not a node, because a node of an inventory has its ID as its name */
+        InventoryWorkerConflict: {
+            /** @description The worker ID */
+            worker: string;
+            inventory: components["schemas"]["InventoryRef"];
         };
         /** @description A key path, `{"file": <path>}`, or `{"secret": <ref>}`. A password and a passphrase take only `{"secret": <ref>}`. */
         InventoryCredential: unknown;
@@ -14275,31 +14367,12 @@ export interface operations {
     getDAGListActivity: {
         parameters: {
             query: {
-                /** @description page number of items to fetch (default is 1) */
-                page?: components["parameters"]["Page"];
-                /** @description number of items per page (default is 30, max is 100) */
-                perPage?: components["parameters"]["PerPage"];
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
-                workspace?: components["parameters"]["Workspace"];
+                /** @description The fileName of a DAG in `GET /dags`. Repeat the parameter for each DAG, at most 100 times, so that the request line stays under 8 KiB. */
+                fileName: string[];
                 /** @description Length in seconds of the window that ends now */
                 window: number;
-                /** @description Same as `name` of `GET /dags` */
-                name?: string;
-                /** @description Same as `labels` of `GET /dags` */
-                labels?: string;
-                /** @description Same as `active` of `GET /dags` */
-                active?: boolean;
-                /**
-                 * @deprecated
-                 * @description Same as `tags` of `GET /dags`
-                 */
-                tags?: string;
-                /** @description Same as `sort` of `GET /dags` */
-                sort?: PathsDagListActivityGetParametersQuerySort;
-                /** @description Same as `order` of `GET /dags` */
-                order?: PathsDagListActivityGetParametersQueryOrder;
             };
             header?: never;
             path?: never;
@@ -14316,8 +14389,49 @@ export interface operations {
                     "application/json": components["schemas"]["DAGListActivityPage"];
                 };
             };
-            /** @description The window or a filter is invalid */
+            /** @description The window is invalid, or no fileName or more than 100 are given */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGRunChanges: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DAGRunChanges"];
+                };
+            };
+            /** @description The server does not run the event store, which alone feeds the change feed */
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -22670,6 +22784,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         skills: components["schemas"]["SkillSummary"][];
+                        /** @description True when the skills directory holds more than 1000 folders */
+                        truncated: boolean;
                     };
                 };
             };
@@ -28063,7 +28179,7 @@ export interface operations {
                 perPage?: components["parameters"]["PerPage"];
                 /** @description Node selector: label filter terms separated by commas, as a step's `nodes` field takes them. A node is listed when it matches every term. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400 naming the term. */
                 labels?: string;
-                /** @description Lists only the nodes of one inventory, given by its ID or by its name compared without case. An inventory that does not exist returns HTTP 400. */
+                /** @description Lists only the nodes of one inventory, given by its ID or by its name compared without case, so no worker node. An inventory that does not exist returns HTTP 400. */
                 inventory?: string;
                 /** @description Lists only the nodes whose name contains this text, compared without case. */
                 name?: string;
@@ -28144,6 +28260,81 @@ export interface operations {
             };
             /** @description No node has this name */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    forgetWorkerNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Node name, compared without case */
+                nodeName: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The worker node was forgotten */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The node is a node of an inventory, not a worker node */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No node has this name */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The worker is online */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -29823,16 +30014,6 @@ export enum PathsDagsGetParametersQueryOrder {
     asc = "asc",
     desc = "desc"
 }
-export enum PathsDagListActivityGetParametersQuerySort {
-    name = "name",
-    nextRun = "nextRun",
-    status = "status",
-    lastRun = "lastRun"
-}
-export enum PathsDagListActivityGetParametersQueryOrder {
-    asc = "asc",
-    desc = "desc"
-}
 export enum PathsDagRunsGetParametersQueryBackfill {
     exclude = "exclude",
     only = "only"
@@ -30298,7 +30479,8 @@ export enum NodeRunStatus {
     failed = "failed",
     aborted = "aborted",
     rejected = "rejected",
-    disabled = "disabled"
+    disabled = "disabled",
+    removed = "removed"
 }
 export enum ForeachItemStatusFilter {
     not_started = "not_started",
@@ -30543,7 +30725,8 @@ export enum ViewSpecType {
     artifact = "artifact"
 }
 export enum InventoryNodeKind {
-    ssh = "ssh"
+    ssh = "ssh",
+    worker = "worker"
 }
 export enum InventoryHostKeyRefusalHop {
     node = "node",

@@ -105,4 +105,32 @@ export default defineMessages({
     'Nothing matches: Esc clears the search':
       'Kein Treffer: Esc löscht die Suche',
   },
+  fr: {
+    'Route {port} of {router}': 'Route {port} de l’étape {router}',
+    'First step': 'Première étape',
+    Favourites: 'Favoris',
+    'Add to favourites': 'Ajouter aux favoris',
+    'Remove from favourites': 'Retirer des favoris',
+    'Details of the action': 'Détails de l’action',
+    'Required keys': 'Clés obligatoires',
+    'No required keys': 'Aucune clé obligatoire',
+    'Up and Down to move, Enter to add, Shift+Enter to add another, Esc to clear or close':
+      'Haut et Bas pour se déplacer, Entrée pour ajouter, Maj+Entrée pour en ajouter une autre, Échap pour effacer ou fermer',
+    'Run a command in a shell.': 'Exécuter une commande dans un shell.',
+    'Call a URL and keep the response.':
+      'Appeler une URL et conserver la réponse.',
+    'Run another workflow as a step.':
+      'Exécuter un autre workflow comme étape.',
+    'Send the run down one branch by a value.':
+      'Diriger l’exécution vers une branche selon une valeur.',
+    'Reshape JSON with a jq expression.':
+      'Transformer du JSON avec une expression jq.',
+    'Write a message to the log.': 'Écrire un message dans le journal.',
+    Core: 'Essentielles',
+    'Pattern {pattern}': 'Motif {pattern}',
+    'Arrow keys select a step, Enter opens it':
+      'Les touches fléchées sélectionnent une étape, Entrée l’ouvre',
+    'Nothing matches: Esc clears the search':
+      'Aucun résultat\u00a0: Échap efface la recherche',
+  },
 });

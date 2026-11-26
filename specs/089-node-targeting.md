@@ -5,12 +5,13 @@
 Partially implemented. The `nodes` step field, the `node` DAG field, their
 validation, running a step as one child run per node, binding SSH nodes into
 their child runs, the `node` namespace, the records of node runs with the
-API that reads them, and narrowing a run to listed nodes are implemented.
-Conformance covers validation through `dagu validate`, runs through `dagu
-start` against SSH servers the test harness starts, node runs through the
-API, and narrowed runs through `dagu start`, `dagu start --from-run-id`,
-and `dagu retry`. Bound runs and steps with nodes do not run on workers
-yet. Further sections are added as RFC 013 lands.
+API that reads them, narrowing a run to listed nodes, and retrying only the
+nodes that did not succeed are implemented. Conformance covers validation
+through `dagu validate`, runs through `dagu start` against SSH servers the
+test harness starts, node runs through the API, narrowed runs through `dagu
+start`, `dagu start --from-run-id`, and `dagu retry`, and retries of steps
+with nodes through `dagu retry`. Bound runs and steps with nodes do not run
+on workers yet. Further sections are added as RFC 013 lands.
 
 ## Scope
 
@@ -97,7 +98,8 @@ the running children. Otherwise the step's status follows `parallel`
 
 The step writes `parallel`'s aggregate to its standard output, with one entry
 per matched node, in name order. Each entry adds `node`. A node that did not
-run has the status `not_started`, or `disabled`, and counts in
+run has the status `not_started`, `disabled`, or `removed`
+([Retrying a step with nodes](#retrying-a-step-with-nodes)), and counts in
 `summary.total` only. When the aggregate would exceed `max_output_size`, its
 entries and `outputs` leave out the outputs, which each child run keeps.
 
@@ -114,7 +116,7 @@ entries and `outputs` leave out the outputs, which each child run keeps.
 ```
 
 The step's status details list the matched nodes in name order. A disabled
-node shows as skipped.
+or removed node shows as skipped.
 
 ### Bound runs
 
@@ -211,6 +213,46 @@ fails the step that starts it. A `dag.run` child run does not fail for the
 list: its steps count toward the run it is part of. A `dag.enqueue` child
 run is a run of its own, and fails for the list as any run does.
 
+### Retrying a step with nodes
+
+A retry of a run, by `dagu retry` or the retry request, with or without a
+step, runs a step with nodes again only on the nodes that did not succeed:
+
+- The step takes its nodes from the records of the latest attempt that
+  recorded them ([Viewing node runs](#viewing-node-runs)) when it can read
+  them, and does not match its selector again. Those are the nodes its first
+  attempt matched, unless an attempt since matched the selector again, as
+  described below. A node added to the inventory since is not added. A later
+  retry keeps the same nodes, also after an attempt that reset the step
+  without running it.
+- A node whose child run succeeded or partially succeeded keeps its result
+  and does not run.
+- Any other node runs its recorded child run again, as `dagu retry` retries
+  a run, or starts it if it never started. The node is read from the
+  inventory as it is now: its connection settings and credentials, and
+  whether it is disabled. A node disabled now does not run, and keeps its
+  child run for a later retry.
+- A node that has left the inventory since, and whose child run did not
+  succeed, is `removed`. It does not run, does not fail the step, and counts
+  in `summary.total` only. The step fails when every node it keeps is
+  removed or disabled and none kept a result ([Errors](#errors)).
+- After the run's process died during the step, the retry does the same.
+  A child run still recorded as running runs its unfinished steps again.
+
+A step whose previous attempt recorded no nodes, such as one whose selector
+failed or one recorded before this version, matches its selector again, and
+so does a step whose records cannot be read or parsed, with a warning in the
+run log. Such a step can then run on a node added since, and a later retry
+keeps the nodes it records then. A step that a run
+reused from another run, as `--reuse-from`, `--only` with `--outputs-from`,
+and edit and retry reuse steps, matches its selector too, since that run's
+child runs are not this run's.
+
+The run view labels the retry of a step with nodes **Retry failed nodes**,
+with the number of its nodes that failed, were aborted, or did not start.
+The confirmation of a retry of a root run states that number for all its
+steps with nodes.
+
 ### Viewing node runs
 
 A step with nodes records the run of each node it matched beside its log
@@ -220,9 +262,9 @@ started and finished. Once the child run returns, the times are the child
 run's own, so a child that a retry reused keeps the times it ran. Once the
 child run finishes, the record adds how many
 of its steps succeeded and the step that failed last. A node's status is one
-its child run reached, or `not_started`, `running`, or `disabled`. A child
-run that returned while still queued, running, or not started, as one that a
-retry reused can, is `failed`, as the step counts it. One that returned
+its child run reached, or `not_started`, `running`, `disabled`, or
+`removed`. A child run that returned while still queued, running, or not
+started, as one that a retry reused can, is `failed`, as the step counts it. One that returned
 waiting for approval stays `waiting`. The step
 records its nodes before any of them starts, again at most once a second
 while they change, and once more when it ends. A node running when the step
@@ -284,6 +326,8 @@ A step with `nodes` fails before any node starts, with the error, when:
   value;
 - its selector matches no nodes (`selector matched no nodes`), only disabled
   nodes, or more than 1,000;
+- it is retried, and each of its recorded nodes has left the inventory or is
+  disabled, with none that keeps a result;
 - the inventory cannot be read;
 - it is a `dag.run` step whose child DAG does not declare `node: required`.
 

@@ -82,6 +82,13 @@ func (r Role) IsAdmin() bool {
 	return r == RoleAdmin
 }
 
+// Outranks reports whether r is more privileged than other. Every valid role
+// outranks RoleNone and roles this version does not know, which outrank no
+// role.
+func (r Role) Outranks(other Role) bool {
+	return r.rank() > other.rank()
+}
+
 // rank orders roles by privilege. RoleNone and unknown roles rank lowest.
 func (r Role) rank() int {
 	switch r {

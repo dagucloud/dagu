@@ -17,13 +17,17 @@ import (
 type OIDCPolicyLoader struct {
 	configFiles []string
 	fallback    OIDCPolicy
+	projects    bool
 }
 
 // NewOIDCPolicyLoader creates a loader for the files used at startup.
-func NewOIDCPolicyLoader(configFiles []string, fallback OIDCPolicy) *OIDCPolicyLoader {
+// projects reports whether projects are on, which decides the mapping keys
+// the loader reads.
+func NewOIDCPolicyLoader(configFiles []string, fallback OIDCPolicy, projects bool) *OIDCPolicyLoader {
 	return &OIDCPolicyLoader{
 		configFiles: append([]string(nil), configFiles...),
 		fallback:    fallback,
+		projects:    projects,
 	}
 }
 
@@ -61,6 +65,11 @@ func (l *OIDCPolicyLoader) Load() (OIDCPolicy, error) {
 	if err := configLoader.loadOIDCWorkspaceMappingsEnv(); err != nil {
 		return OIDCPolicy{}, err
 	}
+	if l.projects {
+		if err := configLoader.loadOIDCProjectMappingsEnv(); err != nil {
+			return OIDCPolicy{}, err
+		}
+	}
 
 	var def Definition
 	if err := v.Unmarshal(&def); err != nil {
@@ -72,12 +81,21 @@ func (l *OIDCPolicyLoader) Load() (OIDCPolicy, error) {
 		configLoader.loadOIDCAuth(&cfg, def.Auth)
 	}
 	configLoader.setAuthDefaults(&cfg)
+	roleMapping := &cfg.Server.Auth.OIDC.RoleMapping
+	if l.projects {
+		// Startup already warned about each workspace key read in place.
+		if _, err := configLoader.readOIDCProjectAccess(roleMapping); err != nil {
+			return OIDCPolicy{}, err
+		}
+	} else {
+		roleMapping.ProjectMappings, roleMapping.DefaultProjectAccess = nil, ""
+	}
 
 	policy := cfg.Server.Auth.OIDC.Policy()
 	if _, err := auth.ParseRole(policy.RoleMapping.DefaultRole); err != nil {
 		return OIDCPolicy{}, fmt.Errorf("OIDC roleMapping.defaultRole: %w", err)
 	}
-	if err := validateOIDCWorkspaceMappings(policy.RoleMapping); err != nil {
+	if err := validateOIDCMappings(policy.RoleMapping, l.projects); err != nil {
 		return OIDCPolicy{}, err
 	}
 	return policy, nil

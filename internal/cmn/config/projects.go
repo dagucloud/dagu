@@ -20,7 +20,11 @@ const projectsSwitchKey = "experimental_projects"
 //	<projects_dir>/<name>/          DAG directory (paths.dags_dir for default)
 //	<data_dir>/projects/<name>/     state directory
 //	  logs/ artifacts/ runs/        unless the matching path is set
-//	  state/dag-run-work/           unless paths.dag_run_work_dir is set
+//	  settings/                     secrets, profiles, routes, policies, ...
+//	  state/                        the project's other stores, among them:
+//	    dag-run-work/               unless paths.dag_run_work_dir is set
+//	    events/                     whatever paths.event_store_dir says
+//	    dag-state/ queue/ proc/ suspend/ views/
 //	<log_dir>/.projects/<name>/     when paths.log_dir is set; likewise for
 //	                                artifact_dir, dag_runs_dir, dag_run_work_dir
 const (
@@ -30,8 +34,15 @@ const (
 	projectLogsDirName       = "logs"
 	projectArtifactsDirName  = "artifacts"
 	projectRunsDirName       = "runs"
+	projectSettingsDirName   = "settings"
 	projectOtherStateDirName = "state"
 	projectRunWorkDirName    = "dag-run-work"
+	projectEventsDirName     = "events"
+	projectDAGStateDirName   = "dag-state"
+	projectQueueDirName      = "queue"
+	projectProcDirName       = "proc"
+	projectSuspendDirName    = "suspend"
+	projectViewsDirName      = "views"
 )
 
 // ProjectPaths holds the directories of one project.
@@ -44,6 +55,22 @@ type ProjectPaths struct {
 	ArtifactDir   string
 	DAGRunsDir    string
 	DAGRunWorkDir string
+	// EventStoreDir holds the project's run events.
+	EventStoreDir string
+	// SettingsDir holds the stores of the project's settings, such as its
+	// secrets and profiles, each in a directory of its own.
+	SettingsDir string
+	// OtherStateDir holds the project's stores that no other field places,
+	// each in a directory of its own.
+	OtherStateDir   string
+	DAGStateDir     string
+	QueueDir        string
+	ProcDir         string
+	SuspendFlagsDir string
+	// LegacySuspendFlagsDir is where an older version kept suspend flags.
+	// It is empty while projects are on.
+	LegacySuspendFlagsDir string
+	ViewsDir              string
 	// RecordDirs lists the state directories that record the project's ID
 	// and name: StateDir, then each directory above that a set path places
 	// outside it. It is empty while projects are off.
@@ -61,12 +88,21 @@ func (c *Config) ProjectPaths(name string) (ProjectPaths, error) {
 			return ProjectPaths{}, fmt.Errorf("project %q: projects are off", name)
 		}
 		return ProjectPaths{
-			DAGsDir:       c.Paths.DAGsDir,
-			StateDir:      c.Paths.DataDir,
-			LogDir:        c.Paths.LogDir,
-			ArtifactDir:   c.Paths.ArtifactDir,
-			DAGRunsDir:    c.Paths.DAGRunsDir,
-			DAGRunWorkDir: c.Paths.DAGRunWorkDir,
+			DAGsDir:               c.Paths.DAGsDir,
+			StateDir:              c.Paths.DataDir,
+			LogDir:                c.Paths.LogDir,
+			ArtifactDir:           c.Paths.ArtifactDir,
+			DAGRunsDir:            c.Paths.DAGRunsDir,
+			DAGRunWorkDir:         c.Paths.DAGRunWorkDir,
+			EventStoreDir:         c.Paths.EventStoreDir,
+			SettingsDir:           c.Paths.DataDir,
+			OtherStateDir:         c.Paths.DataDir,
+			DAGStateDir:           c.Paths.DAGStateDir,
+			QueueDir:              c.Paths.QueueDir,
+			ProcDir:               c.Paths.ProcDir,
+			SuspendFlagsDir:       c.Paths.SuspendFlagsDir,
+			LegacySuspendFlagsDir: c.Paths.SuspendFlagsDirLegacy,
+			ViewsDir:              c.Paths.ViewsDir,
 		}, nil
 	}
 
@@ -81,10 +117,21 @@ func (c *Config) ProjectPaths(name string) (ProjectPaths, error) {
 	}
 
 	stateDir := filepath.Join(c.Paths.DataDir, projectStatesDirName, name)
+	otherDir := filepath.Join(stateDir, projectOtherStateDirName)
+	// The paths settings that place these stores only tell migration where
+	// v2 kept their data.
 	paths := ProjectPaths{
-		DAGsDir:    dagsDir,
-		StateDir:   stateDir,
-		RecordDirs: []string{stateDir},
+		DAGsDir:         dagsDir,
+		StateDir:        stateDir,
+		EventStoreDir:   filepath.Join(otherDir, projectEventsDirName),
+		SettingsDir:     filepath.Join(stateDir, projectSettingsDirName),
+		OtherStateDir:   otherDir,
+		DAGStateDir:     filepath.Join(otherDir, projectDAGStateDirName),
+		QueueDir:        filepath.Join(otherDir, projectQueueDirName),
+		ProcDir:         filepath.Join(otherDir, projectProcDirName),
+		SuspendFlagsDir: filepath.Join(otherDir, projectSuspendDirName),
+		ViewsDir:        filepath.Join(otherDir, projectViewsDirName),
+		RecordDirs:      []string{stateDir},
 	}
 	// place returns inState, or <root>/.projects/<name> when the
 	// configuration sets root.
@@ -106,7 +153,7 @@ func (c *Config) ProjectPaths(name string) (ProjectPaths, error) {
 	paths.DAGRunsDir = place(explicit.DAGRunsDir, c.Paths.DAGRunsDir,
 		filepath.Join(stateDir, projectRunsDirName))
 	paths.DAGRunWorkDir = place(explicit.DAGRunWorkDir, c.Paths.DAGRunWorkDir,
-		filepath.Join(stateDir, projectOtherStateDirName, projectRunWorkDirName))
+		filepath.Join(otherDir, projectRunWorkDirName))
 	return paths, nil
 }
 

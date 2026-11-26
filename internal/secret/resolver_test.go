@@ -138,6 +138,32 @@ func TestReferenceResolver_WorkspaceSecretOverridesGlobalSecret(t *testing.T) {
 	assert.Equal(t, "workspace-secret", value)
 }
 
+// A project's resolver reads the project's own secret of a ref and never
+// one a workspace holds.
+func TestProjectReferenceResolver_SkipsWorkspaces(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newMemoryStoreForTest()
+	now := time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC)
+	create := func(workspace, ref, value string) {
+		t.Helper()
+		sec, err := New(CreateInput{Workspace: workspace, Ref: ref, ProviderType: ProviderDaguManaged, CreatedBy: "alice"}, now)
+		require.NoError(t, err)
+		require.NoError(t, store.Create(ctx, sec, &WriteValueInput{Value: value, CreatedBy: "alice", CreatedAt: now}))
+	}
+	create(GlobalWorkspace, "prod/db-password", "project-secret")
+	create("payments", "prod/db-password", "workspace-secret")
+	create("payments", "prod/api-token", "workspace-token")
+
+	resolver := NewProjectReferenceResolver(store)
+	value, err := resolver.ResolveReference(ctx, secretref.Ref{Name: "DB_PASSWORD", Ref: "prod/db-password"})
+	require.NoError(t, err)
+	assert.Equal(t, "project-secret", value)
+	_, err = resolver.ResolveReference(ctx, secretref.Ref{Name: "API_TOKEN", Ref: "prod/api-token"})
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestReferenceResolver_UnlabelledDAGUsesGlobalScope(t *testing.T) {
 	t.Parallel()
 

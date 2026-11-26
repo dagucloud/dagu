@@ -1,0 +1,23 @@
+secrets:
+  - name: API_TOKEN
+    provider: env
+    key: DAGU_SPEC101_UNSET_NOTIFY_TOKEN
+steps:
+  - id: build
+    run: touch build.ran
+    outputs:
+      - name: image_tag
+  - id: deploy
+    depends: build
+    run: touch deploy.ran "${steps.build.outputs.image_tag}"
+    env:
+      - IMAGE_TAG: ${steps.build.outputs.image_tag}
+  - id: notify
+    depends: deploy
+    action: http.request
+    with:
+      method: POST
+      url: https://hooks.example.invalid/releases
+      headers:
+        Authorization: Bearer ${API_TOKEN}
+      body: deployed ${steps.build.outputs.image_tag}

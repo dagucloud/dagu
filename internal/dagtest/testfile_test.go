@@ -72,7 +72,15 @@ func TestLoadFileInvalid(t *testing.T) {
 		},
 		{
 			file: "smoke.test.yaml",
-			want: []string{"reads as a DAG, with steps and no cases; rename it so its name does not end in .test.yaml or .test.yml"},
+			want: []string{"reads as a DAG, with steps and no cases, but Dagu treats it as a test file and does not run it as a DAG; rename it, for example to smoke-test.yaml"},
+		},
+		{
+			file: "subdag.test.yaml",
+			want: []string{"reads as a DAG, with steps and no cases, but Dagu treats it as a test file and does not run it as a DAG; rename it, for example to subdag-test.yaml"},
+		},
+		{
+			file: "merged.test.yaml",
+			want: []string{"reads as a DAG, with steps and no cases, but Dagu treats it as a test file and does not run it as a DAG; rename it, for example to merged-test.yaml"},
 		},
 		{file: "list.test.yaml", want: []string{"the top level must be a map"}},
 		{file: "syntax.test.yaml", want: []string{"not valid YAML: yaml: line 1: did not find expected node content"}},
@@ -211,6 +219,17 @@ func TestLoadFileCaseErrors(t *testing.T) {
 			"expect.steps.route.stdout.matches: is not a valid RE2 expression: error parsing regexp: missing closing ): `(`",
 		},
 		"empty expect": {"expect: holds no assertion"},
+		"bad called_with": {
+			"expect.steps.build.called_with.with: the step runs a command, which takes no with; assert run",
+			"expect.steps.child.called_with.env: holds no assertion",
+			"expect.steps.child.called_with.with: holds no assertion",
+			"expect.steps.fanout.called_with: a foreach step calls only its body steps, which have no step key",
+			"expect.steps.gate.called_with.run: must set contains, matches, or both",
+			"expect.steps.poll.called_with.run.matches: is not a valid RE2 expression: error parsing regexp: missing closing ): `(`",
+			"expect.steps.route.called_with.run: the step runs action router.route, which takes no run; assert with",
+			"expect.steps.ship.called_with: holds no assertion",
+			"expect.steps.sign_off.called_with: a human.task step has no action to call",
+		},
 	}
 
 	file := loadTestFile(t, "release.test.yaml")

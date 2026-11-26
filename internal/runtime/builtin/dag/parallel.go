@@ -150,7 +150,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 	targeted = targeted && hop.Step == e.step.Name
 	targetFound := false
 	for _, params := range e.runParamsList {
-		attempt := scheduledAttempt{runParams: params}
+		attempt := scheduledAttempt{runParams: params, reuse: !targeted && e.reusesNode(params.RunID)}
 		if targeted {
 			if params.RunID == hop.RunID {
 				switch path.NextLeaf() {

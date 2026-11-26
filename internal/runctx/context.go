@@ -80,7 +80,10 @@ type Context struct {
 	// RunWorkDir is the work directory of the run (DAG_RUN_WORK_DIR). Unlike
 	// the variable, a step cannot change it.
 	RunWorkDir string
-	// StepGate lets an isolated untrusted step hold the run alone.
+	// HasUntrustedStep reports whether a step of DAG is untrusted.
+	HasUntrustedStep bool
+	// StepGate lets an isolated untrusted step hold the run alone. It is nil
+	// in a run without an untrusted step.
 	StepGate *StepGate
 	// TargetNodes narrows the steps with nodes of the run and of its child
 	// runs to the nodes it names (RFC 013 §Narrowing a run).
@@ -676,8 +679,9 @@ func NewContext(
 		scope = scope.WithEntries(secretEnvs, cmnvalue.EnvSourceSecret)
 	}
 	// In a run with an untrusted step, git opens a bare repository only when
-	// the command names it (Spec 092).
-	if dag.HasUntrustedStep() {
+	// the command names it (Spec 103, "Protections for later trusted steps").
+	hasUntrustedStep := dag.HasUntrustedStep()
+	if hasUntrustedStep {
 		scope = scope.WithEntries(untrusted.GitSafetyEntries(scope.Get), cmnvalue.EnvSourceDAGEnv)
 	}
 	scope = scope.WithMaskedSecrets(options.maskedSecrets)
@@ -690,7 +694,10 @@ func NewContext(
 	options.BaseEnv = config.GetBaseEnv(ctx)
 	options.EnvScope = scope
 	options.RunWorkDir = options.workDir
-	options.StepGate = NewStepGate()
+	options.HasUntrustedStep = hasUntrustedStep
+	if hasUntrustedStep {
+		options.StepGate = NewStepGate()
+	}
 	if options.RunSecrets == nil {
 		options.RunSecrets = NewRunSecrets(nil, nil, nil)
 	}

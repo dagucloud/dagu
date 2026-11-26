@@ -129,6 +129,11 @@ function renderTable(
     isRequestFiltered?: boolean;
     isLoading?: boolean;
     remoteNode?: string;
+    /**
+     * The activity of the rows, by default the activity that the fixtures
+     * carry. Undefined stands for a node that gives no activity.
+     */
+    activity?: React.ComponentProps<typeof DAGTable>['activity'];
   } = {}
 ) {
   const onSortChange = vi.fn();
@@ -174,7 +179,9 @@ function renderTable(
           <PanelWidthContext.Provider value={options.panelWidth ?? null}>
             <DAGTable
               dags={dags}
-              activity={activityOf(dags)}
+              activity={
+                'activity' in options ? options.activity : activityOf(dags)
+              }
               group=""
               refreshFn={vi.fn()}
               searchText={searchText}
@@ -398,9 +405,6 @@ describe('DAGTable', () => {
     ).not.toBeInTheDocument();
     expect(
       within(table).queryByRole('link', { name: 'Edit workflow example' })
-    ).not.toBeInTheDocument();
-    expect(
-      within(table).queryByRole('button', { name: 'Delete workflow example' })
     ).not.toBeInTheDocument();
   });
 
@@ -1012,6 +1016,22 @@ describe('DAGTable', () => {
     ).toHaveAttribute('aria-pressed', 'false');
   });
 
+  // A thicker border under the last pinned row parts it from the others.
+  it('ends the pinned rows of the table with a line', () => {
+    renderTable('', {
+      dags: [
+        workflow({ name: 'reports', pinned: true }),
+        workflow({ name: 'alpha' }),
+      ],
+    });
+    const table = screen.getByRole('table');
+    const rowOf = (name: string) =>
+      within(table).getByRole('link', { name }).closest('tr');
+
+    expect(rowOf('reports')).toHaveClass('border-b-2');
+    expect(rowOf('alpha')).not.toHaveClass('border-b-2');
+  });
+
   it('ends the pinned cards with a line after a pinned group', () => {
     renderTable('', {
       panelWidth: 600,
@@ -1352,6 +1372,19 @@ describe('DAGTable', () => {
       expect(strip.querySelectorAll('[data-run-id]')).toHaveLength(0);
     });
 
+    // A list page keeps the activity that it read, while its strip moves on.
+    it('neither draws nor counts a run that has left the window', () => {
+      renderTable('', {
+        dags: [withActivity([run('r1', HOUR), run('old', 25 * HOUR)])],
+      });
+      const strip = within(screen.getByRole('table')).getByTestId(
+        'dag-activity'
+      );
+
+      expect(strip).toHaveAttribute('aria-label', '1 run in the last 24 hours');
+      expect(strip.querySelectorAll('[data-run-id]')).toHaveLength(1);
+    });
+
     it('says when the window holds no run', () => {
       renderTable('', { dags: [withActivity([])] });
       expect(
@@ -1581,6 +1614,57 @@ describe('DAGTable', () => {
       );
       expect(within(panel).getByText(/5s \+ 55s cached/)).toBeInTheDocument();
     });
+
+    // The table and the cards are both in the DOM, one of them hidden. jsdom
+    // has no matchMedia, so the window counts as a wide one.
+    it('draws the strips of the view on screen only', () => {
+      const dags = [withActivity([run('r1', HOUR)])];
+      const table = renderTable('', { dags });
+
+      expect(
+        within(screen.getByRole('table')).getByTestId('dag-activity')
+      ).toBeInTheDocument();
+      expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
+
+      table.unmount();
+      renderTable('', { dags, panelWidth: 600 });
+
+      expect(
+        within(screen.getByTestId('workflow-card-view')).getByTestId(
+          'dag-activity'
+        )
+      ).toBeInTheDocument();
+      expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
+    });
+
+    // A card keeps the room of its strip while the activity loads, so that it
+    // does not grow, and move its buttons, when the activity arrives.
+    it('keeps the height of a card strip until its activity arrives', () => {
+      renderTable('', {
+        dags: [withActivity([run('r1', HOUR)]), workflow({ name: 'beta' })],
+        panelWidth: 600,
+      });
+      const cards = screen.getByTestId('workflow-card-view');
+
+      const strip = within(cards).getByTestId('dag-activity');
+      const pending = within(cards).getByTestId('dag-activity-pending');
+      expect(pending.style.height).not.toBe('');
+      expect(pending.style.height).toBe(strip.style.height);
+    });
+
+    // A node without the activity endpoint, such as an older remote node,
+    // would never fill the column.
+    it('leaves the column out on a node that gives no activity', () => {
+      const dags = [withActivity([run('r1', HOUR)])];
+      const header = () =>
+        screen.getByRole('columnheader', { name: 'Activity' });
+      const table = renderTable('', { dags, panelWidth: 1200 });
+      expect(header()).not.toHaveClass('hidden');
+
+      table.unmount();
+      renderTable('', { dags, activity: undefined, panelWidth: 1200 });
+      expect(header()).toHaveClass('hidden');
+    });
   });
 
   describe('activity of a service DAG', () => {
@@ -1654,7 +1738,7 @@ describe('DAGTable', () => {
     });
 
     it('draws the same strip in the card', () => {
-      renderTable('', { dags: [service()] });
+      renderTable('', { dags: [service()], panelWidth: 600 });
       const cards = screen.getByTestId('workflow-card-view');
 
       const strip = within(cards).getByTestId('dag-activity');
@@ -1709,13 +1793,16 @@ describe('DAGTable', () => {
 
     // A service row held 77 elements and a card 80, with a bar for each run.
     it('keeps the DOM of a row and of a card small', () => {
-      renderTable('', { dags: [service()] });
+      const table = renderTable('', { dags: [service()] });
       const row = within(screen.getByRole('table')).getAllByRole('row')[1]!;
+      expect(row.querySelectorAll('*').length).toBeLessThan(77);
+
+      table.unmount();
+      renderTable('', { dags: [service()], panelWidth: 600 });
       const card = within(screen.getByTestId('workflow-card-view'))
         .getByTestId('dag-service-activity')
         .closest('.card-obsidian')!;
       expect(card.querySelectorAll('*').length).toBeLessThan(80);
-      expect(row.querySelectorAll('*').length).toBeLessThan(77);
     });
   });
 

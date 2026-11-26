@@ -967,6 +967,7 @@ describe('StepNode issues and run', () => {
         failed: 1,
         aborted: 0,
         disabled: 1,
+        removed: 0,
       },
     };
 

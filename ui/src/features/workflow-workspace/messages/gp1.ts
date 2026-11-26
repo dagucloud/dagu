@@ -32,4 +32,11 @@ export default defineMessages({
       'Eine Benutzeraufgabe eines Unterlaufs kann hier nicht erledigt werden.',
     'Copy failed': 'Kopieren fehlgeschlagen',
   },
+  fr: {
+    'Show activity': 'Afficher l’activité',
+    'Hide activity': 'Masquer l’activité',
+    'A human task of a sub-run cannot be completed here.':
+      'Une tâche humaine d’une sous-exécution ne peut pas être accomplie ici.',
+    'Copy failed': 'Échec de la copie',
+  },
 });

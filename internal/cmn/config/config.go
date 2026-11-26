@@ -564,12 +564,23 @@ type OIDCRoleMapping struct {
 	RoleAttributePath      string                          // jq expression for role extraction
 	RoleAttributeStrict    bool                            // Deny login if no global or workspace mapping matches
 	SkipOrgRoleSync        bool                            // Keep first-login role and workspace access assignments
+	// ProjectMappings and DefaultProjectAccess apply in place of the
+	// workspace keys while projects are on, and are empty while they are off.
+	ProjectMappings      map[string][]ProjectMappingGrant // IdP group -> project grants
+	DefaultProjectAccess string                           // Default: "all"; required with project mappings
 }
 
 // OIDCWorkspaceGrant assigns an OIDC group member a role in one workspace.
 type OIDCWorkspaceGrant struct {
 	Workspace string `mapstructure:"workspace" json:"workspace"`
 	Role      string `mapstructure:"role" json:"role"`
+}
+
+// ProjectMappingGrant assigns a group member a role in the project with the
+// given name.
+type ProjectMappingGrant struct {
+	Project string `mapstructure:"project" json:"project" yaml:"project"`
+	Role    string `mapstructure:"role" json:"role" yaml:"role"`
 }
 
 const (
@@ -580,8 +591,11 @@ const (
 )
 
 // WorkspaceAccessPolicyActive reports whether OIDC login manages workspace access.
+// While projects are on, it also reports whether login manages project
+// grants.
 func (m OIDCRoleMapping) WorkspaceAccessPolicyActive() bool {
-	return len(m.WorkspaceMappings) > 0 || m.DefaultWorkspaceAccess == OIDCDefaultWorkspaceAccessNone
+	return len(m.WorkspaceMappings) > 0 || m.DefaultWorkspaceAccess == OIDCDefaultWorkspaceAccessNone ||
+		len(m.ProjectMappings) > 0 || m.DefaultProjectAccess == projectAccessNone
 }
 
 // AuthTrustedProxy configures authentication delegated to an authenticating reverse proxy.
@@ -608,6 +622,10 @@ type TrustedProxyRoleMapping struct {
 	DefaultWorkspaceAccess string
 	RequireMapping         bool
 	SkipOrgRoleSync        bool
+	// ProjectMappings and DefaultProjectAccess apply in place of the
+	// workspace keys while projects are on, and are empty while they are off.
+	ProjectMappings      map[string][]ProjectMappingGrant
+	DefaultProjectAccess string
 }
 
 // TrustedProxyWorkspaceGrant assigns a proxy group member a role in one workspace.
@@ -1214,7 +1232,7 @@ func (c *Config) validateBuiltinAuth() error {
 	if (ia.Username == "") != (ia.Password == "") {
 		return fmt.Errorf("auth.builtin.initial_admin requires both username and password to be set, or neither")
 	}
-	if err := validateOIDCWorkspaceMappings(c.Server.Auth.OIDC.RoleMapping); err != nil {
+	if err := validateOIDCMappings(c.Server.Auth.OIDC.RoleMapping, c.ProjectsEnabled); err != nil {
 		return err
 	}
 
@@ -1329,7 +1347,8 @@ func (c *Config) validateTrustedProxyAuth() error {
 	if err := validateTrustedProxyHeaderName("auth.proxy.headers.user", trustedProxy.Headers.User); err != nil {
 		return err
 	}
-	hasMappings := len(trustedProxy.RoleMapping.GroupMappings) > 0 || len(trustedProxy.RoleMapping.WorkspaceMappings) > 0
+	hasMappings := len(trustedProxy.RoleMapping.GroupMappings) > 0 || len(trustedProxy.RoleMapping.WorkspaceMappings) > 0 ||
+		len(trustedProxy.RoleMapping.ProjectMappings) > 0
 	if trustedProxy.RoleMapping.RequireMapping && !hasMappings {
 		return fmt.Errorf("auth.proxy.role_mapping.require_mapping requires at least one group_mappings or workspace_mappings entry")
 	}
@@ -1349,7 +1368,13 @@ func (c *Config) validateTrustedProxyAuth() error {
 	if err := validateProxyButtonLabel(trustedProxy.ButtonLabel); err != nil {
 		return err
 	}
-	return validateTrustedProxyRoleMapping(trustedProxy.RoleMapping)
+	if err := validateTrustedProxyRoleMapping(trustedProxy.RoleMapping); err != nil {
+		return err
+	}
+	if c.ProjectsEnabled {
+		return validateTrustedProxyProjectMappings(trustedProxy.RoleMapping)
+	}
+	return nil
 }
 
 func validateTrustedProxySource(source string) error {

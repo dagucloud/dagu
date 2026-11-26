@@ -51,6 +51,8 @@ export function NodeEditor({
   const [removing, setRemoving] = useState(false);
   // Counts the reads, so an older read that finishes late is dropped.
   const readsRef = useRef(0);
+  // The editor is shown only for an SSH node, which has an inventory.
+  const inventoryId = node.inventory?.id ?? '';
 
   const show = useCallback(
     (inventory: Inventory) => {
@@ -71,7 +73,7 @@ export function NodeEditor({
 
   const read = useCallback(async () => {
     const attempt = ++readsRef.current;
-    const read = await readInventory(client, node.inventory.id);
+    const read = await readInventory(client, inventoryId);
     if (attempt !== readsRef.current) {
       return;
     }
@@ -80,7 +82,7 @@ export function NodeEditor({
       return;
     }
     show(read);
-  }, [client, node.inventory.id, show, ts]);
+  }, [client, inventoryId, show, ts]);
 
   useEffect(() => {
     void read();

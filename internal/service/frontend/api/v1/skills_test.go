@@ -7,6 +7,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/skill"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -89,10 +91,11 @@ func TestSkillsList(t *testing.T) {
 		writeSkillFile(t, server, "refund-policy", validSkill)
 		writeSkillFile(t, server, "broken", "no front matter\n")
 		require.NoError(t, os.MkdirAll(filepath.Join(skillsDir(server), "empty"), 0o750))
+		require.NoError(t, os.MkdirAll(filepath.Join(skillsDir(server), ".hidden"), 0o750))
 		require.NoError(t, os.WriteFile(filepath.Join(skillsDir(server), "README.md"), []byte("x"), 0o600))
 
 		got := list()
-		require.Len(t, got, 4, "a folder with errors is listed, a plain file is not")
+		require.Len(t, got, 4, "a folder with errors is listed, a plain file and a hidden folder are not")
 		assert.Equal(t, "broken", got[0].Name)
 		assert.False(t, got[0].Valid)
 		require.NotEmpty(t, got[0].Errors)
@@ -583,4 +586,29 @@ func TestSkillsWriteNeedsDeveloper(t *testing.T) {
 	got, err := apiImpl.GetSkill(viewer, api.GetSkillRequestObject{Name: "refund-policy"})
 	require.NoError(t, err)
 	require.Equal(t, h, got.(api.GetSkill200JSONResponse).Hash, "the refused changes left the skill as it was")
+}
+
+// A listing reads at most skill.MaxListedSkills folders, the first in name
+// order, and says when the directory holds more.
+func TestSkillsListIsBounded(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	for i := range skill.MaxListedSkills + 1 {
+		require.NoError(t, os.MkdirAll(filepath.Join(skillsDir(server), fmt.Sprintf("s%04d", i)), 0o750))
+	}
+	list := func() api.ListSkills200JSONResponse {
+		var out api.ListSkills200JSONResponse
+		server.Client().Get("/api/v1/skills").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &out)
+		return out
+	}
+
+	got := list()
+	require.Len(t, got.Skills, skill.MaxListedSkills)
+	assert.True(t, got.Truncated)
+	assert.Equal(t, "s0000", got.Skills[0].Name)
+
+	require.NoError(t, os.Remove(filepath.Join(skillsDir(server), "s0000")))
+	got = list()
+	require.Len(t, got.Skills, skill.MaxListedSkills)
+	assert.False(t, got.Truncated)
 }

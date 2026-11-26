@@ -26,8 +26,8 @@ import (
 // Every nodes subcommand runs against a remote context.
 func TestNodesCommandsAreContextAware(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"list", "show", "add", "remove", "test", "import", "export"} {
-		assert.Equal(t, commandScopeContextAware, scopeForCommand("nodes "+name), name)
+	for _, sub := range Nodes().Commands() {
+		assert.Equal(t, commandScopeContextAware, scopeForCommand("nodes "+sub.Name()), sub.Name())
 	}
 }
 
@@ -64,11 +64,11 @@ func TestResolvedNodeOf(t *testing.T) {
 	keyPath, secret := "/etc/dagu/id", "ssh/db"
 	node, err := resolvedNodeOf(api.InventoryNode{
 		Name:      "db01",
-		Inventory: api.InventoryRef{Id: "inv_tokyo", Name: "Tokyo"},
+		Inventory: &api.InventoryRef{Id: "inv_tokyo", Name: "Tokyo"},
 		Host:      "db01.internal",
-		Port:      2222,
-		Auth:      api.InventoryNodeAuth{KeyPath: &keyPath, PassphraseSecret: &secret},
-		Timeout:   "1m30s",
+		Port:      new(2222),
+		Auth:      &api.InventoryNodeAuth{KeyPath: &keyPath, PassphraseSecret: &secret},
+		Timeout:   new("1m30s"),
 		Labels:    []string{"role=db", "site=tokyo"},
 	})
 	require.NoError(t, err)

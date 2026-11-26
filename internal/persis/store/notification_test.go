@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/notification"
@@ -19,24 +20,83 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 )
 
-func newMemoryNotificationStore(t *testing.T, encrypted bool) (*store.NotificationStore, persis.Collection) {
+// newMemoryNotificationStore returns a notification store, the collection
+// that holds its routes, and the collection that holds its channels and
+// notification settings.
+func newMemoryNotificationStore(t *testing.T, encrypted bool) (*store.NotificationStore, persis.Collection, persis.Collection) {
 	t.Helper()
-	col := testutil.NewMemoryBackend().Collection(persis.CollectionNotifications)
-	var err error
-	var s *store.NotificationStore
+	backend := testutil.NewMemoryBackend()
+	routes := backend.Collection(persis.CollectionNotifications)
+	channels := backend.Collection(persis.CollectionNotificationChannels)
+	var enc *crypto.Encryptor
 	if encrypted {
-		s, err = store.NewNotificationStore(col, newTestEncryptor(t))
-	} else {
-		s, err = store.NewNotificationStore(col, nil)
+		enc = newTestEncryptor(t)
 	}
+	channelStore, err := store.NewNotificationChannelStore(channels, enc)
 	require.NoError(t, err)
-	return s, col
+	s, err := store.NewNotificationStore(routes, channelStore, enc)
+	require.NoError(t, err)
+	return s, routes, channels
+}
+
+// Two projects' stores share the server's channels and notification
+// settings and keep their own DAG routes and route sets.
+func TestNotificationStoreSharesChannelsAcrossProjects(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	enc := newTestEncryptor(t)
+	channels, err := store.NewNotificationChannelStore(
+		testutil.NewMemoryBackend().Collection(persis.CollectionNotificationChannels),
+		enc,
+	)
+	require.NoError(t, err)
+	newProjectStore := func() *store.NotificationStore {
+		s, err := store.NewNotificationStore(testutil.NewMemoryBackend().Collection(persis.CollectionNotifications), channels, enc)
+		require.NoError(t, err)
+		return s
+	}
+	weather, billing := newProjectStore(), newProjectStore()
+
+	channel, err := notification.NormalizeChannel(&notification.Channel{
+		ID: "ops", Name: "Ops", Type: notification.ProviderSlack, Enabled: true,
+		Slack: &notification.SlackTarget{WebhookURL: "https://hooks.slack.com/services/test"},
+	}, "admin")
+	require.NoError(t, err)
+	require.NoError(t, weather.SaveChannel(ctx, channel))
+	smtp, err := notification.NormalizeWorkspaceSettings(&notification.WorkspaceSettings{
+		SMTP: &notification.SMTPConfig{Host: "smtp.example.com", Port: "587", From: "dagu@example.com"},
+	}, "admin")
+	require.NoError(t, err)
+	require.NoError(t, billing.SaveWorkspaceSettings(ctx, smtp))
+
+	shared, err := billing.GetChannel(ctx, "ops")
+	require.NoError(t, err)
+	assert.Equal(t, "Ops", shared.Name)
+	sharedSMTP, err := weather.GetWorkspaceSettings(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, sharedSMTP.SMTP)
+	assert.Equal(t, "smtp.example.com", sharedSMTP.SMTP.Host)
+
+	settings, err := notification.NewSettings("daily-report", "admin")
+	require.NoError(t, err)
+	require.NoError(t, weather.Save(ctx, settings))
+	routeSet, err := notification.NormalizeRouteSet(&notification.RouteSet{
+		Scope: notification.RouteScopeGlobal, Enabled: true,
+		Routes: []notification.Route{{ChannelID: "ops", Enabled: true}},
+	}, "admin")
+	require.NoError(t, err)
+	require.NoError(t, weather.SaveRouteSet(ctx, routeSet))
+
+	_, err = billing.GetByDAGName(ctx, "daily-report")
+	assert.ErrorIs(t, err, notification.ErrSettingsNotFound)
+	_, err = billing.GetRouteSet(ctx, notification.RouteScopeGlobal, "")
+	assert.ErrorIs(t, err, notification.ErrRouteSetNotFound)
 }
 
 func TestNotificationStoreEncryptsTargetSecrets(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, col := newMemoryNotificationStore(t, true)
+	s, col, _ := newMemoryNotificationStore(t, true)
 	settings := &notification.Settings{
 		ID:      "settings-1",
 		DAGName: "daily-report",
@@ -99,7 +159,7 @@ func TestNotificationStoreEncryptsTargetSecrets(t *testing.T) {
 func TestNotificationStoreRejectsInvalidRouteScope(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _ := newMemoryNotificationStore(t, false)
+	s, _, _ := newMemoryNotificationStore(t, false)
 	global, err := notification.NormalizeRouteSet(&notification.RouteSet{
 		ID: "global", Scope: notification.RouteScopeGlobal, Enabled: true,
 	}, "tester")
@@ -122,7 +182,7 @@ func TestNotificationStoreRejectsInvalidRouteScope(t *testing.T) {
 func TestNotificationStorePersistsChannelsAndSubscriptions(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, col := newMemoryNotificationStore(t, true)
+	s, _, col := newMemoryNotificationStore(t, true)
 	channel, err := notification.NormalizeChannel(&notification.Channel{
 		ID: "channel-1", Name: "Ops Webhook", Type: notification.ProviderWebhook, Enabled: true,
 		Webhook: &notification.WebhookTarget{
@@ -165,7 +225,7 @@ func TestNotificationStorePersistsChannelsAndSubscriptions(t *testing.T) {
 func TestNotificationStorePersistsWorkspaceSMTPSettings(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, col := newMemoryNotificationStore(t, true)
+	s, _, col := newMemoryNotificationStore(t, true)
 	settings, err := notification.NormalizeWorkspaceSettings(&notification.WorkspaceSettings{
 		SMTP: &notification.SMTPConfig{
 			Host: "smtp.example.com", Port: "587", Username: "sender@example.com",
@@ -246,7 +306,7 @@ func TestNotificationStorePersistsWorkspaceSMTPSettings(t *testing.T) {
 func TestNotificationStorePersistsRouteSets(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _ := newMemoryNotificationStore(t, false)
+	s, _, _ := newMemoryNotificationStore(t, false)
 	global, err := notification.NormalizeRouteSet(&notification.RouteSet{
 		ID: "global-routes", Scope: notification.RouteScopeGlobal, Enabled: true, InheritGlobal: true,
 		Routes: []notification.Route{{
@@ -279,7 +339,7 @@ func TestNotificationStorePersistsRouteSets(t *testing.T) {
 func TestNotificationStoreRequiresEncryptorForSecrets(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _ := newMemoryNotificationStore(t, false)
+	s, _, _ := newMemoryNotificationStore(t, false)
 
 	settings := &notification.Settings{
 		ID: "settings-1", DAGName: "daily-report", Enabled: true,
@@ -314,7 +374,7 @@ func TestNotificationStoreRequiresEncryptorForSecrets(t *testing.T) {
 func TestNotificationStoreRoundTripsCommandChannelWithoutEncryptor(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _ := newMemoryNotificationStore(t, false)
+	s, _, _ := newMemoryNotificationStore(t, false)
 
 	channel, err := notification.NormalizeChannel(&notification.Channel{
 		Name:    "Desktop",
@@ -337,7 +397,7 @@ func TestNotificationStoreRoundTripsCommandChannelWithoutEncryptor(t *testing.T)
 func TestNotificationStoreMissingRecords(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _ := newMemoryNotificationStore(t, false)
+	s, _, _ := newMemoryNotificationStore(t, false)
 
 	_, err := s.GetByDAGName(ctx, "missing")
 	assert.ErrorIs(t, err, notification.ErrSettingsNotFound)

@@ -36,6 +36,7 @@ import (
 	fileartifact "github.com/dagucloud/dagu/v2/internal/persis/file/artifact"
 	filebaseconfig "github.com/dagucloud/dagu/v2/internal/persis/file/baseconfig"
 	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
@@ -62,7 +63,15 @@ type Context struct {
 	Persistence         Persistence
 	DAGRunMgr           runtime.Manager
 	backend             persis.Backend
-	event               *eventstore.Service
+	// serverStores are the stores every project shares.
+	serverStores *file.ServerStores
+	// projectStores are the default project's stores, and settings the
+	// stores of its settings. A worker opens only settings.
+	projectStores *file.ProjectStores
+	settings      *file.ProjectSettings
+	// storeOptions opens every project's stores with the process's caches.
+	storeOptions file.ProjectStoreOptions
+	event        *eventstore.Service
 
 	Caches         []fileutil.CacheMetrics
 	Proc           proc.ProcHandle
@@ -286,7 +295,12 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			Scope:               scope,
 		}, nil
 	}
+	// Before any store opens v2 state.
+	if err := migrateState(ctx, cmd.Name(), scope, cfg); err != nil {
+		return nil, err
+	}
 	backend := file.NewBackend(cfg.Paths)
+	serverStores := file.NewServerStores(cfg)
 
 	workerCommand := cmd.Name() == "worker"
 	var eventService *eventstore.Service
@@ -308,6 +322,10 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		logger.Debug(ctx, "Worker mode: skipping file-based run stores",
 			slog.Any("coordinators", cfg.Worker.Coordinators),
 		)
+		settings, err := file.NewProjectSettings(cfg, serverStores, project.DefaultName)
+		if err != nil {
+			return nil, err
+		}
 		return &Context{
 			Context:             baseCtx,
 			Command:             cmd,
@@ -321,6 +339,8 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			ContextName:         selectedContextName,
 			Scope:               scope,
 			backend:             backend,
+			serverStores:        serverStores,
+			settings:            settings,
 			// Run stores are nil; worker execution reports runtime state to the coordinator.
 			// Status is pushed to coordinator, DAG definitions come from task payload
 		}, nil
@@ -349,14 +369,16 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		caches = append(caches, dagCache, hc, ac)
 	}
 
-	persistence, err := newFilePersistence(ctx, cfg, backend, filePersistenceOptions{
+	storeOptions := file.ProjectStoreOptions{
 		DAGCache:            dagCache,
 		DAGRunStatusCache:   dagRunStatusCache,
 		ArtifactRecordCache: artifactRecordCache,
-	})
+	}
+	projectStores, err := openDefaultProject(ctx, cfg, serverStores, storeOptions)
 	if err != nil {
 		return nil, err
 	}
+	persistence := newPersistence(serverStores, projectStores)
 	drm := runtime.NewManager(persistence.DAGRunRepository, persistence.ProcRepository, cfg)
 
 	// Initialize license manager for server commands
@@ -369,7 +391,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			break
 		}
 		licenseDir := file.LicenseDir(cfg)
-		licStore := file.NewLicenseStore(ctx, backend.Collection(persis.CollectionLicense))
+		licStore := serverStores.LicenseStore(ctx)
 		licMgr = license.NewManager(license.ManagerConfig{
 			LicenseDir: licenseDir,
 			ConfigKey:  cfg.License.Key,
@@ -416,6 +438,10 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		Persistence:         persistence,
 		DAGRunMgr:           drm,
 		backend:             backend,
+		serverStores:        serverStores,
+		projectStores:       projectStores,
+		settings:            projectStores.ProjectSettings,
+		storeOptions:        storeOptions,
 		event:               eventService,
 		Flags:               flags,
 		configLoader:        loader,
@@ -584,7 +610,9 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 		QueueStore:         c.Persistence.QueueStore,
 		StateStore:         c.Persistence.StateStore,
 		SecretStore:        stores.SecretStore,
+		SecretResolver:     stores.subDAGSecretResolver(),
 		ProfileStore:       stores.ProfileStore,
+		ProfileResolver:    stores.subDAGProfileResolver(),
 		ServiceRegistry:    c.Persistence.ServiceRegistry,
 		PeerConfig:         c.Config.Core.Peer,
 		WorkspaceBundleDir: workspacebundle.StoreDir(c.Config.Paths.DataDir),
@@ -630,9 +658,13 @@ type dagRepositoryConfig struct {
 	SkipDirectoryCreation bool                     // Skip directory creation (for distributed worker execution)
 }
 
-// dagRepository returns a new DAGRepository instance.
+// dagRepository opens another repository of the default project's DAGs.
 func (c *Context) dagRepository(cfg dagRepositoryConfig) (*persis.DAGRepository, error) {
-	return newDAGRepository(c.Config, cfg)
+	return c.projectStores.OpenDAGRepository(
+		file.WithDAGFileCache(cfg.Cache),
+		file.WithDAGSearchPaths(cfg.SearchPaths),
+		file.WithDAGSkipDirectoryCreation(cfg.SkipDirectoryCreation),
+	)
 }
 
 // OpenLogFile creates and opens a log file for a given dag-run.

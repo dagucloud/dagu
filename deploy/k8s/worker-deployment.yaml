@@ -32,19 +32,15 @@ spec:
           - dagu-server:50055
           - --worker.labels
           - environment=dev,region=local,cluster=k8s
-          # Uncomment to customize worker ID and max active runs:
-          # - --worker.id
-          # - $(WORKER_ID)
+          # Each pod reports <pod name>@<pid> as its worker ID. A stable
+          # --worker.id makes a worker a node, so set one only on a
+          # single-replica Deployment, never from the pod name.
+          # Uncomment to customize max active runs:
           # - --worker.max-active-runs
           # - "50"
         envFrom:
         - configMapRef:
             name: dagu-config
-        env:
-        - name: WORKER_ID
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
         volumeMounts:
         - name: dagu-data
           mountPath: /var/lib/dagu

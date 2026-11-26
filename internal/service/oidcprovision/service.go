@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
+	"github.com/dagucloud/dagu/v2/internal/service/authmapping"
 	"github.com/google/uuid"
 )
 
@@ -153,7 +154,7 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 
 		// Synchronize mapped authorization, or enforce strict matching when synchronization is disabled.
 		if snapshot.RoleMapping.SkipOrgRoleSync {
-			if err := validateStrictMapping(snapshot, claims); err != nil {
+			if err := validateStrictMapping(ctx, snapshot, claims); err != nil {
 				s.logger.Warn("OIDC login rejected: authorization mapping failed",
 					slog.String("user_id", user.ID),
 					slog.String("error", err.Error()))
@@ -195,7 +196,7 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 	}
 
 	// 5. Determine authorization for the new user.
-	role, workspaceAccess, err := s.determineAccess(ctx, snapshot, claims)
+	access, err := s.determineAccess(ctx, snapshot, claims)
 	if err != nil {
 		s.logger.Warn("OIDC login rejected: authorization mapping failed",
 			slog.String("email_domain", stringutil.ExtractEmailDomain(claims.Email)),
@@ -214,8 +215,9 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 		user = &auth.User{
 			ID:              uuid.New().String(),
 			Username:        username,
-			Role:            role,
-			WorkspaceAccess: auth.CloneWorkspaceAccess(workspaceAccess),
+			Role:            access.Role,
+			WorkspaceAccess: auth.CloneWorkspaceAccess(access.WorkspaceAccess),
+			ProjectGrants:   access.ProjectGrants,
 			AuthProvider:    "oidc",
 			OIDCIssuer:      s.config.Issuer,
 			OIDCSubject:     claims.Subject,
@@ -237,12 +239,17 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 	}
 
 	// Log audit event
-	s.logger.Info("OIDC user created",
+	attrs := []any{
 		slog.String("user_id", user.ID),
 		slog.String("username", username),
 		slog.String("email_domain", stringutil.ExtractEmailDomain(claims.Email)),
 		slog.String("role", string(user.Role)),
-		slog.Any("workspace_access", canonicalWorkspaceAccess(user.WorkspaceAccess)))
+		slog.Any("workspace_access", canonicalWorkspaceAccess(user.WorkspaceAccess)),
+	}
+	if snapshot.RoleMapping.Projects != nil {
+		attrs = append(attrs, slog.Any("project_grants", user.ProjectGrants))
+	}
+	s.logger.Info("OIDC user created", attrs...)
 
 	return user, true, nil // New user created
 }
@@ -284,11 +291,11 @@ func newPolicySnapshot(policy Policy) (*policySnapshot, error) {
 	}, nil
 }
 
-func validateStrictMapping(snapshot *policySnapshot, claims OIDCClaims) error {
+func validateStrictMapping(ctx context.Context, snapshot *policySnapshot, claims OIDCClaims) error {
 	if !snapshot.RoleMapping.RoleAttributeStrict || !snapshot.roleMapper.IsConfigured() {
 		return nil
 	}
-	_, _, err := snapshot.roleMapper.MapAccess(claims.RawClaims)
+	_, err := snapshot.roleMapper.MapAccess(ctx, claims.RawClaims)
 	return err
 }
 
@@ -297,17 +304,17 @@ func (s *Service) determineAccess(
 	ctx context.Context,
 	snapshot *policySnapshot,
 	claims OIDCClaims,
-) (auth.Role, *auth.WorkspaceAccess, error) {
+) (authmapping.Result, error) {
 	if snapshot.roleMapper.IsConfigured() {
-		role, workspaceAccess, err := snapshot.roleMapper.MapAccess(claims.RawClaims)
+		access, err := snapshot.roleMapper.MapAccess(ctx, claims.RawClaims)
 		if err != nil {
-			return "", nil, err
+			return authmapping.Result{}, err
 		}
-		s.warnForDormantGrants(ctx, workspaceAccess)
-		return role, workspaceAccess, nil
+		s.warnForDormantGrants(ctx, access)
+		return access, nil
 	}
 
-	return snapshot.RoleMapping.DefaultRole, auth.AllWorkspaceAccess(), nil
+	return authmapping.Result{Role: snapshot.RoleMapping.DefaultRole, WorkspaceAccess: auth.AllWorkspaceAccess()}, nil
 }
 
 // syncUserAccess updates mapped authorization without exposing unpersisted values.
@@ -322,13 +329,20 @@ func (s *Service) syncUserAccess(
 	}
 
 	accessPolicyActive := snapshot.roleMapper.WorkspaceAccessPolicyActive()
+	syncGrants := accessPolicyActive && snapshot.RoleMapping.Projects != nil
 	var (
 		newRole   auth.Role
 		newAccess *auth.WorkspaceAccess
+		newGrants *[]auth.ProjectGrant
 		err       error
 	)
 	if accessPolicyActive {
-		newRole, newAccess, err = s.determineAccess(ctx, snapshot, claims)
+		var access authmapping.Result
+		access, err = s.determineAccess(ctx, snapshot, claims)
+		newRole, newAccess = access.Role, access.WorkspaceAccess
+		if syncGrants {
+			newGrants = &access.ProjectGrants
+		}
 	} else {
 		newRole, err = snapshot.roleMapper.MapRole(claims.RawClaims)
 	}
@@ -340,7 +354,7 @@ func (s *Service) syncUserAccess(
 	if !accessPolicyActive {
 		workspaceAccess = nil
 	}
-	syncResult, err := s.userStore.SyncAuthorization(ctx, user.ID, newRole, workspaceAccess)
+	syncResult, err := s.userStore.SyncAuthorization(ctx, user.ID, newRole, workspaceAccess, newGrants)
 	if err != nil {
 		return fmt.Errorf("failed to update OIDC user authorization: %w", err)
 	}
@@ -353,19 +367,29 @@ func (s *Service) syncUserAccess(
 	if accessPolicyActive {
 		user.WorkspaceAccess = auth.CloneWorkspaceAccess(updated.WorkspaceAccess)
 	}
+	if syncGrants {
+		user.ProjectGrants = updated.ProjectGrants
+	}
 	user.UpdatedAt = updated.UpdatedAt
 	if !syncResult.Changed {
 		return nil
 	}
 
 	if accessPolicyActive {
-		s.logger.Info("OIDC user authorization updated",
+		attrs := []any{
 			slog.String("user_id", user.ID),
 			slog.String("username", user.Username),
 			slog.String("old_role", string(syncResult.PreviousRole)),
 			slog.String("new_role", string(newRole)),
 			slog.Any("old_workspace_access", canonicalWorkspaceAccess(syncResult.PreviousWorkspaceAccess)),
-			slog.Any("new_workspace_access", canonicalWorkspaceAccess(updated.WorkspaceAccess)))
+			slog.Any("new_workspace_access", canonicalWorkspaceAccess(updated.WorkspaceAccess)),
+		}
+		if syncGrants {
+			attrs = append(attrs,
+				slog.Any("old_project_grants", syncResult.PreviousProjectGrants),
+				slog.Any("new_project_grants", updated.ProjectGrants))
+		}
+		s.logger.Info("OIDC user authorization updated", attrs...)
 	} else {
 		s.logger.Info("OIDC user role updated",
 			slog.String("user_id", user.ID),
@@ -377,12 +401,15 @@ func (s *Service) syncUserAccess(
 	return nil
 }
 
-func (s *Service) warnForDormantGrants(ctx context.Context, workspaceAccess *auth.WorkspaceAccess) {
+func (s *Service) warnForDormantGrants(ctx context.Context, access authmapping.Result) {
+	for _, name := range access.UnknownProjects {
+		s.logger.Warn("OIDC project grant references a nonexistent project", slog.String("project", name))
+	}
 	if s.config.WorkspaceExists == nil {
 		return
 	}
 
-	normalized := canonicalWorkspaceAccess(workspaceAccess)
+	normalized := canonicalWorkspaceAccess(access.WorkspaceAccess)
 	if normalized.All {
 		return
 	}

@@ -1,0 +1,12 @@
+working_dir: .
+outputs:
+  x: ${onfail.outputs.x}
+steps:
+  - id: a
+    run: echo ok
+handler_on:
+  failure:
+    id: onfail
+    run: echo no
+    outputs:
+      - name: x

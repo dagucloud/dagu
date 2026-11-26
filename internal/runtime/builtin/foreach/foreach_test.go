@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/command"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -120,6 +122,44 @@ func TestRunItemRemovesScratchLogDir(t *testing.T) {
 	leftover, err := filepath.Glob(filepath.Join(tmpDir, scratchLogDirPrefix+"*"))
 	require.NoError(t, err)
 	assert.Empty(t, leftover, "the scratch log directory should be removed")
+}
+
+// abortingExecutor stands for a body step whose end stops the run.
+type abortingExecutor struct{}
+
+func (abortingExecutor) SetStdout(io.Writer)  {}
+func (abortingExecutor) SetStderr(io.Writer)  {}
+func (abortingExecutor) Kill(os.Signal) error { return nil }
+func (abortingExecutor) Run(context.Context) error {
+	return fmt.Errorf("end: %w", untrusted.ErrRunAborted)
+}
+
+// failingWriter refuses every write.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
+
+// A failed write of the aggregate does not hide that a body stopped its run.
+func TestRunAbortedSurvivesFailedAggregate(t *testing.T) {
+	executorType := "test-foreach-run-aborted"
+	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
+		return abortingExecutor{}, nil
+	}, nil, registry.ExecutorCapabilities{})
+	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
+
+	e := &foreachExecutor{step: ir.Step{
+		Name: "each",
+		Foreach: &ir.ForeachConfig{
+			Items: []any{"a"},
+			Steps: []ir.Step{{Name: "agent", ID: "agent", ExecutorConfig: ir.ExecutorConfig{Type: executorType}}},
+		},
+	}}
+	e.SetStdout(failingWriter{})
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "each"}, "run-1", "", runtime.WithDAGRunLogDir(t.TempDir()))
+
+	err := e.Run(ctx)
+	require.ErrorIs(t, err, untrusted.ErrRunAborted)
+	assert.ErrorContains(t, err, "disk full")
 }
 
 // An item whose body cannot even be planned has no body logs, but its

@@ -169,7 +169,10 @@ func (h *Handler) ResolveSecretReference(ctx context.Context, req *coordinatorv1
 		Name: req.GetName(),
 		Ref:  req.GetRef(),
 	}
-	if ref.Name == "" {
+	switch {
+	case ref.Name != "" && req.GetNode() != "":
+		return nil, status.Error(codes.InvalidArgument, "secret name and node cannot both be set")
+	case ref.Name == "" && req.GetNode() == "":
 		return nil, status.Error(codes.InvalidArgument, "secret name is required")
 	}
 	if ref.Ref == "" {
@@ -182,7 +185,7 @@ func (h *Handler) ResolveSecretReference(ctx context.Context, req *coordinatorv1
 		return nil, err
 	}
 
-	resolver := secretpkg.NewReferenceResolver(h.secretStore, req.GetWorkspace())
+	resolver := h.secretReferenceResolver(req.GetWorkspace())
 	if req.GetCheckOnly() {
 		if err := resolver.CheckReferenceAccessibility(ctx, ref); err != nil {
 			return nil, secretReferenceRPCError(err)
@@ -197,41 +200,17 @@ func (h *Handler) ResolveSecretReference(ctx context.Context, req *coordinatorv1
 	return &coordinatorv1.ResolveSecretReferenceResponse{Value: value}, nil
 }
 
+// secretReferenceResolver returns the resolver for a request that names
+// workspace. While projects are on, the workspace adds no layer.
+func (h *Handler) secretReferenceResolver(workspace string) *secretpkg.ReferenceResolver {
+	if h.projectsEnabled {
+		return secretpkg.NewProjectReferenceResolver(h.secretStore)
+	}
+	return secretpkg.NewReferenceResolver(h.secretStore, workspace)
+}
+
 func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinatorv1.ResolveSecretReferenceRequest, ref secretref.Ref) error {
-	if req.GetWorkerId() == "" {
-		return status.Error(codes.InvalidArgument, "worker_id is required")
-	}
-	if req.GetAttemptKey() == "" {
-		return status.Error(codes.InvalidArgument, "attempt_key is required")
-	}
-	if req.GetAttemptId() == "" {
-		return status.Error(codes.InvalidArgument, "attempt_id is required")
-	}
-	if h.dagRunLeaseStore == nil {
-		return status.Error(codes.FailedPrecondition, "dag-run lease store is not configured")
-	}
-	if h.dagRunRepository == nil {
-		return status.Error(codes.FailedPrecondition, "DAG-run repository is not configured")
-	}
-
-	lease, err := h.dagRunLeaseStore.Get(ctx, req.GetAttemptKey())
-	if err != nil {
-		if errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) {
-			return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
-		}
-		return status.Error(codes.Internal, err.Error())
-	}
-	if lease.WorkerID != req.GetWorkerId() || lease.AttemptID != req.GetAttemptId() {
-		return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
-	}
-	if err := h.checkLeasePool(ctx, lease.WorkerPool); err != nil {
-		return err
-	}
-	if !lease.IsFresh(time.Now().UTC(), h.staleLeaseThreshold) {
-		return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
-	}
-
-	attempt, err := h.authorizedAttempt(ctx, lease, secretReferenceAccessDenied)
+	attempt, err := h.leaseAttempt(ctx, req.GetWorkerId(), req.GetAttemptKey(), req.GetAttemptId(), secretReferenceAccessDenied)
 	if err != nil {
 		return err
 	}
@@ -242,10 +221,64 @@ func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinator
 	if secretpkg.NormalizeWorkspace(req.GetWorkspace()) != dagWorkspace(dag) {
 		return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
 	}
+	if node := req.GetNode(); node != "" {
+		return h.authorizeNodeSecret(ctx, dag, node, ref.Ref)
+	}
 	if !secretReferenceDeclared(dag, ref) {
 		return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
 	}
 	return h.authorizeStepSecretReference(ctx, attempt, dag, req, ref)
+}
+
+// leaseDAG returns the DAG a worker's request acts for: the DAG of the
+// attempt whose lease the worker holds, or dagName when a declared edge
+// reaches it. The lease must be the worker's and fresh. Each refusal of
+// access carries deniedMessage.
+func (h *Handler) leaseDAG(ctx context.Context, workerID, attemptKey, attemptID, dagName, deniedMessage string) (*ir.DAG, error) {
+	attempt, err := h.leaseAttempt(ctx, workerID, attemptKey, attemptID, deniedMessage)
+	if err != nil {
+		return nil, err
+	}
+	return h.authorizedDAG(ctx, attempt, dagName, deniedMessage)
+}
+
+// leaseAttempt returns the attempt whose lease the worker holds. The lease
+// must be the worker's, of the pool of the caller, and fresh.
+func (h *Handler) leaseAttempt(ctx context.Context, workerID, attemptKey, attemptID, deniedMessage string) (dagrun.Attempt, error) {
+	if workerID == "" {
+		return nil, status.Error(codes.InvalidArgument, "worker_id is required")
+	}
+	if attemptKey == "" {
+		return nil, status.Error(codes.InvalidArgument, "attempt_key is required")
+	}
+	if attemptID == "" {
+		return nil, status.Error(codes.InvalidArgument, "attempt_id is required")
+	}
+	if h.dagRunLeaseStore == nil {
+		return nil, status.Error(codes.FailedPrecondition, "dag-run lease store is not configured")
+	}
+	if h.dagRunRepository == nil {
+		return nil, status.Error(codes.FailedPrecondition, "DAG-run repository is not configured")
+	}
+
+	lease, err := h.dagRunLeaseStore.Get(ctx, attemptKey)
+	if err != nil {
+		if errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) {
+			return nil, status.Error(codes.PermissionDenied, deniedMessage)
+		}
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if lease.WorkerID != workerID || lease.AttemptID != attemptID {
+		return nil, status.Error(codes.PermissionDenied, deniedMessage)
+	}
+	if err := h.checkLeasePool(ctx, lease.WorkerPool); err != nil {
+		return nil, err
+	}
+	if !lease.IsFresh(time.Now().UTC(), h.staleLeaseThreshold) {
+		return nil, status.Error(codes.PermissionDenied, deniedMessage)
+	}
+
+	return h.authorizedAttempt(ctx, lease, deniedMessage)
 }
 
 func (h *Handler) authorizedAttempt(ctx context.Context, lease *dispatch.DAGRunLease, deniedMessage string) (dagrun.Attempt, error) {

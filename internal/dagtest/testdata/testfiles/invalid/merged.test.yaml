@@ -1,0 +1,4 @@
+name: merged
+<<:
+  steps:
+    - run: ./smoke.sh

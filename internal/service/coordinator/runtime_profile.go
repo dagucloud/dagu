@@ -140,7 +140,7 @@ func (h *Handler) ResolveRuntimeProfile(
 		return nil, err
 	}
 
-	resolved, err := profilepkg.NewResolver(h.profileStore, h.secretStore).ResolveRuntime(ctx, profilepkg.RuntimeRequest{
+	resolved, err := h.runtimeProfileResolver().ResolveRuntime(ctx, profilepkg.RuntimeRequest{
 		ProfileName: req.GetProfileName(),
 		Workspace:   req.GetWorkspace(),
 	})
@@ -148,6 +148,15 @@ func (h *Handler) ResolveRuntimeProfile(
 		return nil, runtimeProfileRPCError(err)
 	}
 	return runtimeProfileToProto(resolved), nil
+}
+
+// runtimeProfileResolver returns the resolver for workers' requests. While
+// projects are on, the workspace a request names adds no layer.
+func (h *Handler) runtimeProfileResolver() profilepkg.RuntimeResolver {
+	if h.projectsEnabled {
+		return profilepkg.NewProjectResolver(h.profileStore, h.secretStore)
+	}
+	return profilepkg.NewResolver(h.profileStore, h.secretStore)
 }
 
 func (h *Handler) authorizeRuntimeProfile(ctx context.Context, req *coordinatorv1.ResolveRuntimeProfileRequest) error {

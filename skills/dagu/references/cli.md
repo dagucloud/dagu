@@ -146,6 +146,8 @@ dagu retry <dag> --run-id/-r <id> [--step <name>] [--downstream] [--bypass-preco
 
 `--step` retries only the selected step. Add `--downstream` to also reset every reachable descendant; unrelated branches keep their current status. `--downstream` requires `--step`. Add `--bypass-preconditions` to skip step precondition evaluation for this retry; it also requires `--step` and a local CLI context. DAG-level preconditions and lifecycle handlers still apply. With `--sub-run-id <child-id>`, the bypass also reaches the selected child retry, including children dispatched to workers.
 
+A retried step with `nodes` runs again only on the nodes that did not succeed, keeping the nodes it last recorded, or matching its selector again when it has no readable records; see `nodes:` in the step types reference.
+
 ### dagu human-task complete
 
 Complete a waiting human task in a root DAG run. The run may be local or distributed, but the command operates on the local Dagu data store.
@@ -202,7 +204,7 @@ For a build DAG, `--no-reuse` previews the decisions with manifest reuse disable
 
 Run workflow tests: `dagu test [--run <regexp>] [--timeout 5m] [--format/-f text|json] [--keep] [--update] [<test file or directory>...]`, or write a test file with `dagu test --init <dag file>` (below). With no argument, it runs every test file under the DAGs directory. `--run` selects cases by name (RE2, matches anywhere). `--format json` prints one JSON object, `{"cases":[...]}`, once every case has ended. `--keep` keeps each case's temporary directory, with its logs and redirect files, and prints its path.
 
-A test file sits beside its DAG and ends in `.test.yaml` or `.test.yml`: `release.test.yaml` tests `release.yaml`, or set `dag:` to another file. Each case runs the unchanged DAG through the real runner in a temporary directory, with step actions replaced by mocks. Every step whose action has side effects must be mocked, listed under `real`, or covered by `default_mock`; otherwise the case is invalid and nothing runs. Only `router.route`, `outputs.write`, `log.write`, and `noop` run for real unmocked. Retry and repeat intervals are not waited for, except by steps in `real`. A step or handler in `real` that starts a child run, such as `dag.run` or `parallel`, runs its child in the case. The child takes no mocks, so any step or source of it that a case would have to handle makes the case invalid; mock the parent step instead.
+A test file sits beside its DAG and ends in `.test.yaml` or `.test.yml`: `release.test.yaml` tests `release.yaml`, or set `dag:` to another file. A file named that way is never a DAG, so never name a DAG `*.test.yaml`: the scheduler and server warn at startup about such a file that holds `steps` and no `cases`, and `dagu test` reports it as invalid, both suggesting a rename such as `smoke-test.yaml`. Each case runs the unchanged DAG through the real runner in a temporary directory, with step actions replaced by mocks. Every step whose action has side effects must be mocked, listed under `real`, or covered by `default_mock`; otherwise the case is invalid and nothing runs. Only `router.route`, `outputs.write`, `log.write`, and `noop` run for real unmocked. Retry and repeat intervals are not waited for, except by steps in `real`. A step or handler in `real` that starts a child run, such as `dag.run` or `parallel`, runs its child in the case. The child takes no mocks, so any step or source of it that a case would have to handle makes the case invalid; mock the parent step instead.
 
 ```yaml
 # release.test.yaml
@@ -230,11 +232,27 @@ A mock also takes `stdout`, `stderr`, `precondition: met|not_met` for preconditi
 
 `expect` checks the run's `status` and `attempts` (DAG-level `retry_policy` retries count), and per step `status`, `attempts` (executions in every run attempt), `outputs`, and `stdout`/`stderr` with `contains` and `matches` (RE2) on the step's last execution. A text output matches a string exactly; a `type: json` output, or any expected value that is not a string, matches when each listed key matches, recursively, with arrays and scalars exact. `notifications: [{kind: mail_on.failure, to: [oncall@example.com]}]` compares the mail the run would have sent in any order (`kind`, optional `step` and `to`); `[]` asserts none.
 
+`called_with` checks what a step's last execution was called with, as Dagu resolved it from params, upstream outputs, env, and secrets, for mocked and real steps alike. `run` is the resolved command or script text of a `run` step (list-form commands joined by line breaks): a string matches exactly, or use `contains`/`matches`. `with` holds the resolved inputs of an `action` step as written under `with` (for a custom action, the inputs passed to it): listed keys only, by the output rule. `env` checks listed variables by exact text. A secret compares as its placeholder `<secret:NAME>` when no step is real, and the report masks it. A step with no execution fails it (`step deploy called_with: expected a call, got none`); `run` on an action step, `with` on a `run` step, or `called_with` on a `human.task`, `foreach`, or `nodes` step makes the case invalid.
+
+```yaml
+    expect:
+      steps:
+        deploy:
+          called_with:
+            run: ./deploy.sh "v1.2.3"   # ${steps.build.outputs.image_tag} resolved
+            env:
+              IMAGE_TAG: v1.2.3
+        notify:
+          called_with:
+            with:
+              channel: "#releases"
+```
+
 The report prints `PASS`, `FAIL`, or `INVALID` per case, every failed assertion, and the unhandled sources of an invalid case. An invalid case ends with `fix, ready to paste:`, the `params`, `precondition`, and `mocks` that handle every listed source, and `fix for the test file, ready to paste:` for missing `secrets` (`fix` and `file_fix` in JSON); paste them into the case and the test file. Under each case that ran, it lists the steps that took the default mock, the waits approved automatically, and the notifications the run would have sent (`default_mocked`, `auto_approved`, and `notifications` in JSON). Exit status: 0 all passed, 1 a case failed, 2 a file or case is invalid.
 
 Start a test file with `dagu test --init [--timeout 5m] <dag file>`: it writes `<name>.test.yaml` (or `.test.yml`) beside the DAG, with the mocks and params the fix would print and one case, `initial`, whose `expect` holds the run status, each step's and handler's status (with `attempts` when above 1), and any notifications of a run with those mocks, then prints the file's path. It never replaces a test file, and exits 2 for a test file, a non-DAG argument, more than one argument, or `--update`, `--run`, `--keep`, or `--format json`. When the case is still invalid (such as a form value marked `# replace with a value the form accepts`) or its run does not finish, the file expects `status: succeeded`, which no run observed, the case's report follows the path, and the exit status is 2 or 1. Edit the written case into the scenarios you want to test.
 
-After a change in behavior, `dagu test --update [<test file or directory>...]` runs the selected cases (`--run`, `--timeout`, `--keep`, and `--format` apply) and rewrites each `expect` from its run; review the result as a diff. An asserted `status`, `attempts`, output value (only the listed keys of an object), or `notifications` list that does not hold takes the run's value, and a step or handler without an assertion gains its status (with `attempts` when above 1) after the last step entry. It never removes an assertion: `stdout`/`stderr` `contains` and `matches` stay as written and still fail, as does an output the step did not publish. Only the changed text is rewritten, so comments and other cases stay. Invalid cases, runs that do not finish, cases written in flow style, and cases that use YAML anchors, aliases, or merge keys keep their `expect`; a flow-style `expect` or list inside a block case is fine. Each rewrite is read back first, and a case whose new text would not read back as the run's facts keeps its `expect` too. Each case's report ends with `expect updated`, `expect unchanged`, or `expect kept: <reason>` (`update` in JSON), and the exit status is that of the rewritten cases. One exception: a test file edited while its cases ran is left unwritten, the other files still run, and the command exits 1 (2 when a case or file is invalid) with an error naming that file, even when its rewritten cases would pass.
+After a change in behavior, `dagu test --update [<test file or directory>...]` runs the selected cases (`--run`, `--timeout`, `--keep`, and `--format` apply) and rewrites each `expect` from its run; review the result as a diff. An asserted `status`, `attempts`, output value (only the listed keys of an object), `notifications` list, or `called_with` value (a `run` string, listed `with` keys, listed `env` names) that does not hold takes the run's value, and a step or handler without an assertion gains its status (with `attempts` when above 1) after the last step entry; `called_with` is never added. It never removes an assertion: `stdout`/`stderr` and `called_with.run` `contains` and `matches` stay as written and still fail, as do an output the step did not publish and a `called_with` input or variable the call lacked. Only the changed text is rewritten, so comments and other cases stay. Invalid cases, runs that do not finish, cases written in flow style, and cases that use YAML anchors, aliases, or merge keys keep their `expect`; a flow-style `expect` or list inside a block case is fine. Each rewrite is read back first, and a case whose new text would not read back as the run's facts keeps its `expect` too. Each case's report ends with `expect updated`, `expect unchanged`, or `expect kept: <reason>` (`update` in JSON), and the exit status is that of the rewritten cases. One exception: a test file edited while its cases ran is left unwritten, the other files still run, and the command exits 1 (2 when a case or file is invalid) with an error naming that file, even when its rewritten cases would pass.
 
 `dagu schema test` prints the JSON Schema of test files. Save it with `dagu schema test > workflow-test.schema.json` and map it to `*.test.yaml` and `*.test.yml` in an editor's YAML schema settings to validate and complete test files.
 
@@ -283,6 +301,7 @@ dagu ls [flags] [pattern]
 Flags:
 
 - `--next/-n` — Show next scheduled run time
+- `--local-time` — Show next scheduled run time in the configured timezone instead of UTC (with `--next`)
 - `--last/-l` — Show last run status and time
 - `--history/-H` — Show a compact recent-history summary
 - `--sort-last/-t` — Sort by last run time, newest first
@@ -441,22 +460,24 @@ dagu config
 
 ### dagu nodes
 
-Work with node inventories: named lists of SSH hosts with labels, stored as JSON records (Spec 088). Every subcommand also runs against a remote context (`--context`), through the server's API, with the same output; `add` and `test` then connect from the server, and a remote `add` needs a `--key` path the server can read: absolute, or starting with `~` or `$`.
+Work with nodes: the hosts of node inventories, named lists of SSH hosts with labels stored as JSON records, and the workers that set `worker.id` (Spec 088). Every subcommand also runs against a remote context (`--context`), through the server's API, with the same output; `add` and `test` then connect from the server, and a remote `add` needs a `--key` path the server can read: absolute, or starting with `~` or `$`.
 
 ```sh
 dagu nodes list [--labels <selector>] [--inventory <name|id>] [--format/-f table|json]
 dagu nodes show <name> [--format/-f table|json]
 dagu nodes add <name> --host <host> [--inventory <name|id>] [--port N] [--user U] [--key <path>|--key-secret <ref>] [--password-secret <ref>] [--passphrase-secret <ref>] [--bastion <node>] [--labels a,b] [--description <text>] [--no-test]
 dagu nodes remove <name>
+dagu nodes forget <name>
 dagu nodes test [<name>...] [--labels <selector>]
 dagu nodes import <file> [--replace] [--dry-run]
 dagu nodes export [--inventory <name|id>]
 ```
 
-- `list` — Nodes the selector matches, in name order, with each inventory's defaults applied; every node without `--labels`. The selector takes the terms of `dagu history --labels`. Disabled nodes are listed with status `disabled`
+- `list` — Nodes the selector matches, in name order, with each inventory's defaults applied; every node without `--labels`. The selector takes the terms of `dagu history --labels`. The table's `KIND` is `ssh` or `worker`. Disabled nodes are listed with status `disabled`. Worker nodes have inventory `-` and status `online` or `offline`, and are left out with `--inventory`; JSON gives them `kind`, `host`, `labels`, `online`, and `last_seen_at`. A worker whose ID names an inventory node is not a node, and `list` says so on stderr
 - `show` — One node with its inventory, labels, and connection settings. The name is compared without case
 - `add` — Adds a new node; a name the inventory already holds is refused, before any test. It first tests the connection (host key, authentication, `true`); when the host key is unknown it shows the fingerprint and asks, then tests again with that key accepted and saves the node and trusts the key only if that test passes. A node whose test fails is not added unless `--no-test`. `--inventory` may be left out when there is one inventory
 - `remove` — Removes a node. Removing, renaming, or adding a node forgets the host key trusted for that name, so the next host of that name is trusted again
+- `forget` — Forgets an offline worker node until its worker connects again; refused while the worker is online and for an inventory node. Remotely it needs the admin role
 - `test` — Tests the named nodes, the nodes `--labels` selects, or every node: host key, authentication, `true`, printing each result as it ends. It lists unknown keys and asks once before it trusts them, and lists changed keys with the trusted and presented fingerprints and asks again before it replaces them. It then tests again the nodes a trusted key stopped. Fails when any node fails its last test. A key that differs only from the node's `host_key` is not offered; fix `host_key` in the inventory
 - `import` — Reads a JSON array of inventories. A new name is created; an existing name is refused unless `--replace`, which replaces it and keeps its ID. When any inventory breaks a rule, nothing is stored and every broken rule is listed. `--dry-run` only checks. A record that sets `id` is refused
 - `export` — Prints inventories as a JSON array without IDs, which `import` reads back unchanged
@@ -501,7 +522,7 @@ Start gRPC coordinator: `dagu coordinator [--coordinator.host/-H <host>] [--coor
 
 ### dagu worker
 
-Start distributed worker: `dagu worker --worker.coordinators <host:port,...> [--worker.id/-w <id>] [--worker.max-active-runs/-m <n>] [--worker.labels/-l <k=v,...>] [--peer.*]`. Coordinator addresses are required. Every worker advertises immutable `os` and `arch` platform labels in addition to configured labels. `worker.labels` takes a comma-separated string, a list of `key=value` entries, or a map. Worker labels follow the DAG label rules: keys and values are lowercased, a label with no value (`gpu`) is kept, and a worker with an invalid label, or with one key given twice in different case, does not start and names the label. `worker_selector` and `--worker-label` match worker labels without case.
+Start distributed worker: `dagu worker --worker.coordinators <host:port,...> [--worker.id/-w <id>] [--worker.max-active-runs/-m <n>] [--worker.labels/-l <k=v,...>] [--peer.*]`. Coordinator addresses are required. Every worker advertises immutable `os` and `arch` platform labels in addition to configured labels. `worker.labels` takes a comma-separated string, a list of `key=value` entries, or a map. Worker labels follow the DAG label rules: keys and values are lowercased, a label with no value (`gpu`) is kept, and a worker with an invalid label, or with one key given twice in different case, does not start and names the label. `worker_selector` and `--worker-label` match worker labels without case. A worker whose `worker.id` is a valid node name (a letter or digit, then letters, digits, `-`, `_`, or `.`) is a node of kind `worker` that `dagu nodes list` shows with its labels, `online` or `offline` with its last-seen time; without `worker.id` it gets a new `hostname@pid` ID on every start and is not a node.
 
 ## Git Sync
 

@@ -22,4 +22,9 @@ export default defineMessages({
     'Run duration': 'Laufdauer',
     'Run duration (square root scale)': 'Laufdauer (Wurzelskala)',
   },
+  fr: {
+    'Run duration': 'Durée d’exécution',
+    'Run duration (square root scale)':
+      'Durée d’exécution (échelle en racine carrée)',
+  },
 });

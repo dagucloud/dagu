@@ -25,4 +25,9 @@ export default defineMessages({
     'Redo the last change': 'Letzte Änderung wiederherstellen',
     'Open step': 'Schritt öffnen',
   },
+  fr: {
+    'Undo the last change': 'Annuler la dernière modification',
+    'Redo the last change': 'Rétablir la dernière modification',
+    'Open step': 'Ouvrir l’étape',
+  },
 });

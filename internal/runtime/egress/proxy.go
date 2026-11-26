@@ -165,16 +165,8 @@ func New(opts Options) (*Proxy, error) {
 			r.Out.Header.Del("Proxy-Connection")
 			declineUpgrade(r.Out.Header)
 		},
-		Transport: p.transport,
-		// No forwarded request asks for an upgrade, so a 101 answer is an error.
-		// Refusing it here also closes the connection that the answer hands
-		// over, which the reverse proxy leaves open on its own refusal.
-		ModifyResponse: func(res *http.Response) error {
-			if res.StatusCode == http.StatusSwitchingProtocols {
-				return errors.New("the destination switched protocols without an upgrade request")
-			}
-			return nil
-		},
+		Transport:      p.transport,
+		ModifyResponse: refuseSwitch,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			p.log("egress proxy: %s %s failed: %v", r.Method, r.URL.Host, err)
 			if denied, ok := errors.AsType[*DeniedError](err); ok {
@@ -186,8 +178,9 @@ func New(opts Options) (*Proxy, error) {
 	}
 	if p.upstream != nil {
 		p.origin = &httputil.ReverseProxy{
-			Rewrite:   p.rewriteOrigin,
-			Transport: p.transport,
+			Rewrite:        p.rewriteOrigin,
+			Transport:      p.transport,
+			ModifyResponse: refuseSwitch,
 			// A model API streams its answer: send each chunk at once.
 			FlushInterval: -1,
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -244,6 +237,16 @@ func checkCredentialRules(plain, guarded *Rules, credential string) error {
 	return nil
 }
 
+// refuseSwitch fails a 101 answer: no forwarded request asks for an upgrade.
+// Refusing it here also closes the connection that the answer hands over, which
+// the reverse proxy leaves open on its own refusal.
+func refuseSwitch(res *http.Response) error {
+	if res.StatusCode == http.StatusSwitchingProtocols {
+		return errors.New("the destination switched protocols without an upgrade request")
+	}
+	return nil
+}
+
 // rewriteOrigin points a request in origin form at the upstream. It joins the
 // paths, keeps the query, sets the host of the upstream, drops the credentials of
 // the client and sets the key.
@@ -261,7 +264,7 @@ func (p *Proxy) rewriteOrigin(r *httputil.ProxyRequest) {
 		header.Set("Authorization", "Bearer "+p.upstream.key)
 	case AuthAnthropicOAuth:
 		header.Set("Authorization", "Bearer "+p.upstream.key)
-		header.Set("Anthropic-Beta", anthropicbeta.Join(header.Values("Anthropic-Beta"), AnthropicOAuthBeta))
+		header.Set("Anthropic-Beta", anthropicbeta.Join(header.Values("Anthropic-Beta"), anthropicbeta.OAuth))
 	}
 }
 
@@ -279,14 +282,15 @@ func declineUpgrade(header http.Header) {
 // the upstream: the header and the digest of its value, never the value.
 func clientCredential(header http.Header) string {
 	if value := header.Get("X-Api-Key"); value != "" {
-		return "x-api-key sha256:" + Digest(value)
+		return "x-api-key sha256:" + digest(value)
 	}
 	if value := header.Get("Authorization"); value != "" {
+		// Only a known scheme is named: another first word can be the credential.
 		scheme, token, ok := strings.Cut(value, " ")
-		if !ok {
-			return "authorization sha256:" + Digest(value)
+		if ok && (strings.EqualFold(scheme, "Bearer") || strings.EqualFold(scheme, "Basic")) {
+			return "authorization " + scheme + " sha256:" + digest(token)
 		}
-		return "authorization " + scheme + " sha256:" + Digest(token)
+		return "authorization sha256:" + digest(value)
 	}
 	return "none"
 }
@@ -466,6 +470,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.origin != nil && r.URL.Scheme == "" && r.URL.Host == "" && strings.HasPrefix(r.URL.Path, "/") {
+		// TRACE asks the upstream to echo the request, with the key, back to the
+		// client. TRACK is the same method on IIS.
+		if strings.EqualFold(r.Method, http.MethodTrace) || strings.EqualFold(r.Method, "TRACK") {
+			p.log("egress proxy: deny %s %s:%d (upstream): the answer would echo the key", r.Method, p.upstream.host, p.upstream.port)
+			http.Error(w, "egress proxy: the upstream route does not forward TRACE or TRACK", http.StatusMethodNotAllowed)
+			return
+		}
 		// The log has no path, which can hold a secret, and only digests of the
 		// credentials.
 		p.log("egress proxy: allow %s %s:%d (upstream): client credential %s replaced by the key sha256:%s (%s)",

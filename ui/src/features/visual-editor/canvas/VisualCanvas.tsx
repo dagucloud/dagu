@@ -835,7 +835,6 @@ function CanvasView({
               size,
               {
                 minZoom: zoomLimits.min,
-                maxZoom: zoomLimits.max,
                 ...fitOptionsRef.current,
               },
               getViewport()

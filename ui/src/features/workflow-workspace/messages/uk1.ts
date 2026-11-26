@@ -30,4 +30,10 @@ export default defineMessages({
     'Parallel to {name}': 'Parallel zu {name}',
     'New step': 'Neuer Schritt',
   },
+  fr: {
+    'Restore the link': 'Rétablir le lien',
+    'Add a parallel step': 'Ajouter une étape parallèle',
+    'Parallel to {name}': 'En parallèle avec {name}',
+    'New step': 'Nouvelle étape',
+  },
 });

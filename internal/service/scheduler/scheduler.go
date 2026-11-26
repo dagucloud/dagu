@@ -181,7 +181,7 @@ type startupState struct {
 func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	var profileResolver DAGProfileResolver
 	if deps.DAGSettingsStore != nil {
-		profileResolver = NewDAGProfileResolver(deps.DAGSettingsStore, deps.ProfileStore)
+		profileResolver = NewDAGProfileResolver(deps.DAGSettingsStore, deps.ProfileStore, cfg.ProjectsEnabled)
 	}
 	scheduler, err := newScheduler(
 		cfg,
@@ -283,7 +283,7 @@ func newScheduler(
 			logger.Warn(context.Background(), "Took over the scheduler lock from a failed instance")
 		},
 	}
-	lockDir := filepath.Join(persisfile.SchedulerStateDir(cfg.Paths), "locks")
+	lockDir := filepath.Join(persisfile.SchedulerProcessDir(cfg.Paths), "locks")
 	dirLock := dirlock.New(lockDir, lockOpts)
 	subCmdBuilder := launcher.NewSubCmdBuilder(cfg)
 	workspaceBaseConfigDir := workspace.BaseConfigDir(cfg.Paths.DAGsDir)

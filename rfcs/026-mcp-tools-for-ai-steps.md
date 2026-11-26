@@ -21,8 +21,9 @@ requests reach a person in agent DAGs.
 
 From 2027-02-01, Google requires AI agents to reach Workspace data through
 its MCP servers. RFC 025 lets `mcp.call` reach them; this RFC lets AI steps
-do so. It ships after RFC 025, once confirmation requests are tested
-against Google's servers.
+do so. Harness steps ship in RFC 025's first milestone, M1. Agent DAGs and
+chat steps follow in M3, once confirmation requests are tested against
+Google's servers.
 
 ```text
  harness agent ---- loopback MCP ----+
@@ -90,6 +91,8 @@ mcp_servers:
     unattended: [create_draft]      # label_thread still waits for a person
 ```
 
+- A name resolves to the project's own connection, as RFC 025's Ownership
+  describes.
 - `tools` is an allow-list. When it is left out, every tool listed when the
   run starts is offered.
 - **Write tools wait for a person by default.** Every tool that is not
@@ -100,6 +103,11 @@ mcp_servers:
   provider itself, so Dagu trusts their annotations. The MCP spec calls
   annotations from other servers untrusted, so on an `mcp` connection every
   tool counts as a write tool unless it is listed in `unattended`.
+- **When a preset has no annotation.** MCP annotations are optional. For a
+  Google tool without `readOnlyHint`, Dagu uses a list of read-only tools
+  for each preset, compiled into the binary. A tool on neither counts as a
+  write tool, so a tool Google adds later waits for a person until the list
+  names it.
 - **Why tool kind, not content.** The rule depends on what a tool does, not on
   what the agent read. Dagu cannot tell which tool output is untrusted:
   `search_threads` returns email bodies, which is exactly the content that can
@@ -120,7 +128,9 @@ show them to the person present. AI steps handle them by the kind of step:
   it waits, because the request is part of a call in flight. The person's
   answer, accept with the form's values, decline, or cancel, goes back to
   the server. After `llm.confirmation_timeout`, 10 minutes by default, Dagu
-  declines.
+  declines. This needs Google to keep the request open while a person
+  answers. If RFC 025's tests against Google show it does not, agent DAGs
+  decline confirmation requests, as harness steps do.
 - **Delivering the answer.** A human task today is answered while its run
   has no process. A confirmation needs a path to a live process, and reuses
   the ones that stop a run:
@@ -407,19 +417,19 @@ tasks:
 - **Specs.** 032 (agent DAGs), 059 (chat), and 067 (harness) gain
   `mcp_servers`.
 
-Rollout, in pull requests that each work on their own. Both need RFC 025's
-records, broker, and steps (its rollout steps 1 to 3), and ship once
-confirmation requests are tested against Google's servers ([Open
-questions](#open-questions)).
+Rollout follows RFC 025's milestones, in pull requests that each work on
+their own.
 
-1. **Gateway and harness steps.** Claude Code, Codex, and ACP adapters with
-   pre-approved gateway tools, `unattended`, pinned tools, and declining
-   confirmation requests. Write tools not listed in `unattended` are
-   refused, with the editor warning and the refused count.
-2. **Agent DAGs and chat steps.** MCP tools, approval tasks before write
-   tools with approval for the rest of a run, confirmation tasks with their
-   delivery over the run socket and run heartbeat, and the Google policy
-   lint.
+1. **Gateway and harness steps, in M1.** Claude Code first, then Codex and
+   ACP adapters, with pre-approved gateway tools, `unattended`, pinned
+   tools, the compiled read-only lists, and declining confirmation requests.
+   Write tools not listed in `unattended` are refused, with the editor
+   warning and the refused count. Declining confirmation requests needs no
+   Google test to be safe.
+2. **Agent DAGs and chat steps, in M3,** after RFC 025's tests against
+   Google. MCP tools, approval tasks before write tools with approval for
+   the rest of a run, confirmation tasks with their delivery over the run
+   socket and run heartbeat, and the Google policy lint.
 
 ## Verification and acceptance criteria
 
@@ -437,15 +447,17 @@ questions](#open-questions)).
    such a tool is refused.
 4. A Gmail read-only tool runs unattended. Every tool of a generic `mcp`
    connection waits for a person unless `unattended` lists it.
-5. 100 agent DAG runs that start together cause one `tools/list` per
+5. A Google tool without `readOnlyHint` runs unattended only when the
+   compiled list names it read-only. Any other tool waits for a person.
+6. 100 agent DAG runs that start together cause one `tools/list` per
    service, locally and on workers.
-6. An agent that retries a call at once after HTTP 429 does not reach the
+7. An agent that retries a call at once after HTTP 429 does not reach the
    provider again before `Retry-After` passes.
-7. A Google tool that sends a confirmation request waits for a person in
+8. A Google tool that sends a confirmation request waits for a person in
    an agent DAG, and the answer reaches the waiting call both in a local run
    and on a worker. Harness and chat steps decline it. No path accepts a
    request without a person.
-8. Every case in [Failure behavior](#failure-behavior) ends as stated.
+9. Every case in [Failure behavior](#failure-behavior) ends as stated.
 
 ## Alternatives considered
 
@@ -479,13 +491,16 @@ questions](#open-questions)).
    access during validation, or only when it runs, as this RFC proposes?
 2. Does Google refuse a call, or skip its check, from a client that does
    not advertise elicitation? Harness and chat steps decline every request,
-   so the answer decides how much works there. It needs testing against
-   Google before this RFC ships.
+   so the answer decides how much works there. RFC 025's tests against
+   Google answer it.
 3. Do ACP agents name the MCP server in a permission request? The adapter
    accepts only gateway tools, so an agent that does not name it falls back
    to `acp_permission` for every MCP call. This needs checking against each
    agent before this RFC ships.
-4. Should a person be able to approve a tool across runs, for one DAG and a
+4. How long does Google keep a confirmation request open? RFC 025's tests
+   against Google answer it, and the answer decides whether agent DAGs wait
+   or decline.
+5. Should a person be able to approve a tool across runs, for one DAG and a
    time window? Approval per run does not scale to 100 concurrent runs, each
    asking for the same tool, but a wider grant weakens the default that
    every write waits for a person.

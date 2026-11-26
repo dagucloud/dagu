@@ -255,4 +255,33 @@ describe('LoginPage', () => {
     ).toEqual(expect.objectContaining({ locale: 'ja' }));
     await waitFor(() => expect(document.documentElement.lang).toBe('ja'));
   });
+
+  it('switches the login page to French', async () => {
+    const user = userEvent.setup();
+    renderLogin(makeConfig());
+
+    await user.click(screen.getByRole('combobox', { name: 'Language' }));
+    await user.click(await screen.findByRole('option', { name: 'French' }));
+
+    const languageSelector = screen.getByRole('combobox', { name: 'Langue' });
+    expect(languageSelector).toHaveTextContent('Français');
+    expect(
+      screen.getByRole('button', { name: 'Se connecter' })
+    ).toBeInTheDocument();
+    expect(
+      JSON.parse(localStorage.getItem('user_preferences') ?? '{}')
+    ).toEqual(expect.objectContaining({ locale: 'fr' }));
+    await waitFor(() => expect(document.documentElement.lang).toBe('fr'));
+
+    await user.click(languageSelector);
+    expect(
+      (await screen.findAllByRole('option')).map((option) => option.textContent)
+    ).toEqual([
+      'Anglais',
+      'Chinois (simplifié)',
+      'Japonais',
+      'Allemand',
+      'Français',
+    ]);
+  });
 });

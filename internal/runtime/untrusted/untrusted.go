@@ -1,15 +1,11 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package untrusted runs an untrusted step (Spec 092, "Untrusted steps").
+// Package untrusted runs an untrusted step (Spec 103, "Untrusted steps").
 //
-// In each process, the process of an untrusted step gets no secret and no
-// variable whose name starts with DAGU_, except DAGU_OUTPUT_FILE. When the
-// configuration sets untrusted.uid and untrusted.gid, the step also runs with
-// isolation: one untrusted step at a time, as the restricted user, with its own
-// HOME, after Dagu gives the work directory of the run to the restricted user.
-// At the end of the step, Dagu stops each process of the restricted user and
-// gives the work directory back to the user of the worker.
+// In each process, the process of an untrusted step gets no variable whose
+// name starts with DAGU_, except DAGU_OUTPUT_FILE. When the configuration sets
+// a restricted user, the step also runs with isolation as that user.
 //
 // Begin prepares the step and End ends it. Between the two calls, each
 // process of the step starts through StartManagedProcess.
@@ -39,14 +35,14 @@ var ErrRunAborted = errors.New("the run stops")
 // untrusted.isolation to off.
 const IsolationOffLine = "untrusted: isolation is off: the key untrusted.isolation is off"
 
-// ReasonIsolationRequired is the failure reason of an untrusted step that finds
+// reasonIsolationRequired is the failure reason of an untrusted step that finds
 // no restricted user in the configuration, while untrusted.isolation is on.
-const ReasonIsolationRequired = "isolation_required"
+const reasonIsolationRequired = "isolation_required"
 
 // ErrIsolationRequired is the error of an untrusted step that cannot start
 // because the configuration has no restricted user and does not turn the
 // isolation off. The step fails before it starts.
-var ErrIsolationRequired = errors.New(ReasonIsolationRequired +
+var ErrIsolationRequired = errors.New(reasonIsolationRequired +
 	": the configuration sets no untrusted.uid and no untrusted.gid, and untrusted.isolation is on:" +
 	" set untrusted.uid and untrusted.gid, or set untrusted.isolation to off for development")
 
@@ -105,7 +101,7 @@ type Step struct {
 type stepKey struct{}
 
 // ancestorKey marks a context inside an untrusted step, also in a child run
-// that the step starts, such as a DAG tool of the tool bridge.
+// that the step starts.
 type ancestorKey struct{}
 
 // WithStep returns ctx with the untrusted step.
@@ -142,10 +138,8 @@ func FromContext(ctx context.Context) *Step {
 // Begin prepares an untrusted step. Without a restricted user in the
 // configuration, it fails the step with ErrIsolationRequired, unless the
 // configuration sets untrusted.isolation to off: then it writes IsolationOffLine
-// to the step log and the step runs without isolation. With a restricted user, it waits
-// for the end of the previous untrusted step, checks the place of the step,
-// and gives the work directory to the restricted user. A failure fails the
-// step; the error names the action and the path.
+// to the step log and the step runs without isolation. With a restricted user,
+// the step runs with isolation, and a failure of the isolation fails the step.
 func Begin(ctx context.Context, req Request) (*Step, error) {
 	step := &Step{name: req.StepName}
 	if !req.Config.Enabled {
@@ -212,7 +206,7 @@ func StartManagedProcess(ctx context.Context, cmd *exec.Cmd) (*cmdutil.ManagedPr
 	if step == nil || cmd == nil {
 		if cmd != nil && gitSafetyFrom(ctx) {
 			// Environ also gives the variables that a nil Env inherits.
-			cmd.Env = WithGitSafety(cmd.Environ())
+			cmd.Env = withGitSafety(cmd.Environ())
 		}
 		return cmdutil.StartManagedProcess(cmd)
 	}
@@ -234,7 +228,7 @@ func StartManagedProcess(ctx context.Context, cmd *exec.Cmd) (*cmdutil.ManagedPr
 
 // prepare applies the rules of the step to cmd before it starts.
 func (s *Step) prepare(cmd *exec.Cmd) error {
-	env := FilterEnv(cmd.Env)
+	env := filterEnv(cmd.Env)
 	if s.iso == nil {
 		cmd.Env = env
 		return nil
@@ -242,10 +236,10 @@ func (s *Step) prepare(cmd *exec.Cmd) error {
 	return s.iso.prepare(cmd, env)
 }
 
-// FilterEnv returns the variables without those whose names start with DAGU_,
+// filterEnv returns the variables without those whose names start with DAGU_,
 // except DAGU_OUTPUT_FILE. It never returns nil, so that a process never
 // inherits the variables of Dagu.
-func FilterEnv(env []string) []string {
+func filterEnv(env []string) []string {
 	filtered := make([]string, 0, len(env))
 	for _, entry := range env {
 		key, _, _ := strings.Cut(entry, "=")

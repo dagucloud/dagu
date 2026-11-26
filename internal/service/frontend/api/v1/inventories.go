@@ -30,7 +30,8 @@ func inventoryStoreUnavailable() *Error {
 }
 
 // ListInventoryNodes returns the nodes that match the request's selector,
-// inventory, and name, in name order, one page at a time.
+// inventory, and name, in name order, one page at a time: the nodes of the
+// inventories and the worker nodes.
 func (a *API) ListInventoryNodes(ctx context.Context, request api.ListInventoryNodesRequestObject) (api.ListInventoryNodesResponseObject, error) {
 	if a.inventoryStore == nil {
 		return nil, inventoryStoreUnavailable()
@@ -63,21 +64,38 @@ func (a *API) ListInventoryNodes(ctx context.Context, request api.ListInventoryN
 	if err != nil {
 		return nil, fmt.Errorf("failed to read inventory nodes: %w", err)
 	}
+	workers, conflicts, err := a.listWorkerNodes(ctx, nodes)
+	if err != nil {
+		return nil, err
+	}
 	name := strings.ToLower(valueOf(params.Name))
-	matched := slices.DeleteFunc(inventory.Select(nodes, filters), func(n inventory.ResolvedNode) bool {
-		return (inventoryID != "" && n.InventoryID != inventoryID) ||
-			!strings.Contains(strings.ToLower(n.Name), name)
-	})
+	listed := func(nodeName string, labels ir.Labels) bool {
+		return labels.MatchesFilters(filters) && strings.Contains(strings.ToLower(nodeName), name)
+	}
+	var matched []api.InventoryNode
+	for _, n := range nodes {
+		if (inventoryID == "" || n.InventoryID == inventoryID) && listed(n.Name, n.Labels) {
+			matched = append(matched, toInventoryNode(n))
+		}
+	}
+	// A worker node belongs to no inventory.
+	if inventoryID == "" {
+		for _, w := range workers {
+			if listed(w.Name, w.Labels) {
+				matched = append(matched, toWorkerNode(w))
+			}
+		}
+		slices.SortFunc(matched, func(a, b api.InventoryNode) int { return strings.Compare(a.Name, b.Name) })
+	}
 
 	pg := pagination.NewPaginator(valueOf(params.Page), valueOf(params.PerPage))
 	page := pageOf(matched, pg)
-	items := make([]api.InventoryNode, 0, len(page))
-	for _, n := range page {
-		items = append(items, toInventoryNode(n))
-	}
+	items := append(make([]api.InventoryNode, 0, len(page)), page...)
 	return api.ListInventoryNodes200JSONResponse{
-		Nodes:      items,
-		Pagination: toPagination(pagination.NewPaginatedResult(items, len(matched), pg)),
+		Nodes:           items,
+		Pagination:      toPagination(pagination.NewPaginatedResult(items, len(matched), pg)),
+		NodeCount:       len(nodes) + len(workers),
+		WorkerConflicts: toWorkerConflicts(conflicts),
 	}, nil
 }
 
@@ -90,16 +108,24 @@ func (a *API) GetInventoryNode(ctx context.Context, request api.GetInventoryNode
 	if err != nil {
 		return nil, fmt.Errorf("failed to read inventory nodes: %w", err)
 	}
-	i := slices.IndexFunc(nodes, func(n inventory.ResolvedNode) bool {
-		return strings.EqualFold(n.Name, request.NodeName)
+	if node, ok := findInventoryNode(nodes, request.NodeName); ok {
+		return api.GetInventoryNode200JSONResponse(toInventoryNode(node)), nil
+	}
+	workers, _, err := a.listWorkerNodes(ctx, nodes)
+	if err != nil {
+		return nil, err
+	}
+	i := slices.IndexFunc(workers, func(w inventory.WorkerNode) bool {
+		return strings.EqualFold(w.Name, request.NodeName)
 	})
 	if i < 0 {
 		return api.GetInventoryNode404JSONResponse{Code: api.ErrorCodeNotFound, Message: "Node not found"}, nil
 	}
-	return api.GetInventoryNode200JSONResponse(toInventoryNode(nodes[i])), nil
+	return api.GetInventoryNode200JSONResponse(toWorkerNode(workers[i])), nil
 }
 
-// ListInventoryNodeLabels returns the distinct labels of every node, sorted.
+// ListInventoryNodeLabels returns the distinct labels of every node, worker
+// nodes included, sorted.
 func (a *API) ListInventoryNodeLabels(ctx context.Context, _ api.ListInventoryNodeLabelsRequestObject) (api.ListInventoryNodeLabelsResponseObject, error) {
 	if a.inventoryStore == nil {
 		return nil, inventoryStoreUnavailable()
@@ -108,9 +134,16 @@ func (a *API) ListInventoryNodeLabels(ctx context.Context, _ api.ListInventoryNo
 	if err != nil {
 		return nil, fmt.Errorf("failed to read inventory nodes: %w", err)
 	}
+	workers, _, err := a.listWorkerNodes(ctx, nodes)
+	if err != nil {
+		return nil, err
+	}
 	var labels []string
 	for _, n := range nodes {
 		labels = append(labels, n.Labels.Strings()...)
+	}
+	for _, w := range workers {
+		labels = append(labels, w.Labels.Strings()...)
 	}
 	slices.Sort(labels)
 	return api.ListInventoryNodeLabels200JSONResponse{
@@ -333,11 +366,11 @@ func toInventoryNode(n inventory.ResolvedNode) api.InventoryNode {
 	return api.InventoryNode{
 		Name:      n.Name,
 		Kind:      api.InventoryNodeKindSsh,
-		Inventory: api.InventoryRef{Id: n.InventoryID, Name: n.InventoryName},
+		Inventory: &api.InventoryRef{Id: n.InventoryID, Name: n.InventoryName},
 		Host:      n.Host,
-		Port:      n.Port,
+		Port:      new(n.Port),
 		User:      ptrOf(n.User),
-		Auth: api.InventoryNodeAuth{
+		Auth: &api.InventoryNodeAuth{
 			KeyPath:          ptrOf(n.Auth.Key),
 			KeySecret:        ptrOf(n.Auth.KeySecret),
 			PasswordSecret:   ptrOf(n.Auth.PasswordSecret),
@@ -345,9 +378,9 @@ func toInventoryNode(n inventory.ResolvedNode) api.InventoryNode {
 		},
 		Bastion:       ptrOf(n.Bastion),
 		HostKey:       ptrOf(n.HostKey),
-		StrictHostKey: n.StrictHostKey,
+		StrictHostKey: new(n.StrictHostKey),
 		Shell:         ptrOf(n.Shell),
-		Timeout:       n.Timeout.String(),
+		Timeout:       new(n.Timeout.String()),
 		Labels:        append([]string{}, labels...),
 		Description:   ptrOf(n.Description),
 		Disabled:      n.Disabled,

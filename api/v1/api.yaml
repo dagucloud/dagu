@@ -64,7 +64,7 @@ tags:
   - name: "views"
     description: "Shared saved view configurations"
   - name: "skills"
-    description: "Skill folders that give instructions to chat steps"
+    description: "Skill folders of the skills directory in the Agent Skills format"
   - name: "ai"
     description: "AI endpoint management: the addresses and the keys of model APIs (admin only)"
   - name: "nodes"
@@ -2894,25 +2894,34 @@ paths:
 
   /dag-list-activity:
     get:
-      summary: "Get the activity of a DAG list page"
+      summary: "Get the activity of DAGs of a DAG list"
       description: |
-        Gives the activity of each DAG of one page of `GET /dags` over a window
-        that ends now. The paging, filters, and sort select the same DAGs in
-        the same order as `GET /dags` with the same values, and a `perPage`
-        above 200 reads 200 DAGs, as `GET /dags` does. A plain DAG lists its
-        runs that started in the window, the last started first, and its runs
-        still in progress. It finds them among the runs created since one
-        window before the window, at most the 1000 created last, so a run that
-        waited in a queue for longer shows only while it is the latest run. A service DAG gives the buckets
-        of its run history instead.
+        Gives the activity over a window that ends now of each DAG that a
+        `fileName` names, in the order of the request, each name once. A name
+        that names no DAG of `GET /dags` that the caller can see is left out,
+        with no error. A plain DAG lists its runs that started in the window,
+        the last started first, and its runs still in progress. It finds them
+        among the runs created since one window before the window, at most the
+        1000 created last, so a run that waited in a queue for longer shows
+        only while it is the latest run. A service DAG gives the buckets of its
+        run history instead.
       operationId: "getDAGListActivity"
       tags:
         - "dags"
       parameters:
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
         - $ref: "#/components/parameters/RemoteNode"
-        - $ref: "#/components/parameters/Workspace"
+        - name: "fileName"
+          in: "query"
+          required: true
+          style: "form"
+          explode: true
+          schema:
+            type: "array"
+            minItems: 1
+            maxItems: 100
+            items:
+              type: "string"
+          description: "The fileName of a DAG in `GET /dags`. Repeat the parameter for each DAG, at most 100 times, so that the request line stays under 8 KiB."
         - name: "window"
           in: "query"
           required: true
@@ -2921,48 +2930,6 @@ paths:
             minimum: 60
             maximum: 604800
           description: "Length in seconds of the window that ends now"
-        - name: "name"
-          in: "query"
-          required: false
-          schema:
-            type: "string"
-          description: "Same as `name` of `GET /dags`"
-        - name: "labels"
-          in: "query"
-          required: false
-          schema:
-            type: "string"
-          description: "Same as `labels` of `GET /dags`"
-        - name: "active"
-          in: "query"
-          required: false
-          schema:
-            type: "boolean"
-            default: false
-          description: "Same as `active` of `GET /dags`"
-        - name: "tags"
-          in: "query"
-          required: false
-          schema:
-            type: "string"
-          deprecated: true
-          description: "Same as `tags` of `GET /dags`"
-        - name: "sort"
-          in: "query"
-          required: false
-          schema:
-            type: "string"
-            enum: ["name", "nextRun", "status", "lastRun"]
-            default: "name"
-          description: "Same as `sort` of `GET /dags`"
-        - name: "order"
-          in: "query"
-          required: false
-          schema:
-            type: "string"
-            enum: ["asc", "desc"]
-            default: "asc"
-          description: "Same as `order` of `GET /dags`"
       responses:
         "200":
           description: "A successful response"
@@ -2971,7 +2938,41 @@ paths:
               schema:
                 $ref: "#/components/schemas/DAGListActivityPage"
         "400":
-          description: "The window or a filter is invalid"
+          description: "The window is invalid, or no fileName or more than 100 are given"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-run-changes:
+    get:
+      summary: "List the DAG files whose runs changed lately"
+      description: |
+        Lists the DAG files whose root runs changed lately, as the run events
+        that this server reads tell, so that a DAG list reads the activity of
+        those DAGs again. The `dagrunchanges:all` topic of the stream gives the
+        same feed, at most once a minute. A file is listed when the caller can
+        see the run, by the workspace label of the run.
+      operationId: "getDAGRunChanges"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DAGRunChanges"
+        "501":
+          description: "The server does not run the event store, which alone feeds the change feed"
           content:
             application/json:
               schema:
@@ -9675,7 +9676,7 @@ paths:
   /skills:
     get:
       summary: "List skills"
-      description: "Lists the skill folders of the DAGs directory, sorted by name. A skill that is not in the Agent Skills format is listed too, with its errors: Dagu refuses to load it."
+      description: "Lists the skill folders of the DAGs directory, sorted by name: at most the first 1000. A skill that is not in the Agent Skills format is listed too, with its errors: Dagu refuses to load it."
       operationId: "listSkills"
       tags:
         - "skills"
@@ -9693,8 +9694,12 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/SkillSummary"
+                  truncated:
+                    type: boolean
+                    description: "True when the skills directory holds more than 1000 folders"
                 required:
                   - skills
+                  - truncated
         "401":
           description: "Not authenticated"
           content:
@@ -13935,7 +13940,7 @@ paths:
   /nodes:
     get:
       summary: "List inventory nodes"
-      description: "Lists the nodes of the inventories with their inventory's defaults applied, in name order, one page at a time. Credentials appear as secret references and key paths, never as values."
+      description: "Lists the nodes in name order, one page at a time: the nodes of the inventories, with their inventory's defaults applied, and the workers that set `worker.id`. A worker whose ID names a node of an inventory is not a node; the response lists it in `workerConflicts`. Credentials appear as secret references and key paths, never as values."
       operationId: "listInventoryNodes"
       tags:
         - "nodes"
@@ -13953,7 +13958,7 @@ paths:
           required: false
           schema:
             type: "string"
-          description: "Lists only the nodes of one inventory, given by its ID or by its name compared without case. An inventory that does not exist returns HTTP 400."
+          description: "Lists only the nodes of one inventory, given by its ID or by its name compared without case, so no worker node. An inventory that does not exist returns HTTP 400."
         - name: "name"
           in: "query"
           required: false
@@ -13989,7 +13994,7 @@ paths:
   /nodes/{nodeName}:
     get:
       summary: "Get an inventory node"
-      description: "Returns one node with its inventory's defaults applied. Credentials appear as secret references and key paths, never as values."
+      description: "Returns one node: a node of an inventory with its inventory's defaults applied, or a worker node. Credentials appear as secret references and key paths, never as values."
       operationId: "getInventoryNode"
       tags:
         - "nodes"
@@ -14025,11 +14030,63 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+    delete:
+      summary: "Forget an offline worker node"
+      description: "Forgets an offline worker node until its worker connects again. A node of an inventory is removed from its inventory instead. Workers are shared by the whole server, so this requires the admin role, and is audited. Remote nodes do not manage nodes, so a request for a remote node is refused with 403."
+      operationId: "forgetWorkerNode"
+      tags:
+        - "nodes"
+      parameters:
+        - name: nodeName
+          in: path
+          required: true
+          description: "Node name, compared without case"
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "The worker node was forgotten"
+        "400":
+          description: "The node is a node of an inventory, not a worker node"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No node has this name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The worker is online"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /node-labels:
     get:
       summary: "List inventory node labels"
-      description: "Lists the labels of the inventory nodes, with their inventory's defaults applied, for completion."
+      description: "Lists the labels of the nodes, with their inventory's defaults applied, and of the worker nodes, for completion."
       operationId: "listInventoryNodeLabels"
       tags:
         - "nodes"
@@ -16371,7 +16428,7 @@ components:
       properties:
         name:
           type: string
-          description: "Name of the skill, the name of its folder. A chat.completion step names it in with.skills."
+          description: "Name of the skill, the name of its folder"
         description:
           type: string
           description: "Description of the skill. Empty when the front matter is not valid."
@@ -20547,7 +20604,7 @@ components:
 
     DAGListActivityPage:
       type: object
-      description: "The activity of the DAGs of one DAG list page, in page order"
+      description: "The activity of the DAGs that a request names, in the order of the request"
       properties:
         dags:
           type: array
@@ -20555,20 +20612,63 @@ components:
             $ref: "#/components/schemas/DAGListActivityEntry"
         errors:
           type: array
-          description: "Errors encountered while listing the DAGs or reading their activity"
+          description: "Errors encountered while reading the activity of the DAGs"
           items:
             type: string
+        readAt:
+          type: string
+          format: date-time
+          description: "Server time when the activity was read, rounded down to the millisecond"
       required:
         - dags
         - errors
+        - readAt
 
-    DAGListActivityEntry:
+    DAGRunChanges:
       type: object
-      description: "The activity of one DAG of a list page"
+      description: "Every change of the root runs of a DAG file that the caller can see, after `since` and up to `readAt`. A list reads the activity again of a row whose file has a `changedAt` at or after the `readAt` of its activity, and of every row whose activity it read before `since`. Any other row is current as of `readAt`."
+      properties:
+        since:
+          type: string
+          format: date-time
+          description: "The feed holds every change after this time, rounded up to the millisecond. It moves when the server starts reading run events and when the feed drops a change older than 3 minutes or beyond 2000 files. A pause in the reads of the run events delays changes and does not move it. Equal to `readAt` before the first read of the run events."
+        readAt:
+          type: string
+          format: date-time
+          description: "Server time when the feed was read, rounded down to the millisecond"
+        changes:
+          type: array
+          maxItems: 2000
+          description: "Each DAG file once, with its latest change, the newest first"
+          items:
+            $ref: "#/components/schemas/DAGRunChange"
+      required:
+        - since
+        - readAt
+        - changes
+
+    DAGRunChange:
+      type: object
+      description: "The latest change of the root runs of a DAG file"
       properties:
         fileName:
           type: string
           description: "The fileName of the DAG in `GET /dags`"
+        changedAt:
+          type: string
+          format: date-time
+          description: "Server time of the change, rounded up to the millisecond. A read of the activity of the DAG that begins after it shows the change."
+      required:
+        - fileName
+        - changedAt
+
+    DAGListActivityEntry:
+      type: object
+      description: "The activity of one DAG that a request names"
+      properties:
+        fileName:
+          type: string
+          description: "The fileName of the DAG, as the request names it"
         activity:
           $ref: "#/components/schemas/DAGListActivity"
       required:
@@ -20696,6 +20796,9 @@ components:
         backfillId:
           type: string
           description: "Backfill that started the DAG-run. A retry keeps it."
+        retryDisabled:
+          type: boolean
+          description: "True when the DAG-run cannot be retried once it is terminal. Later attempts keep it."
         conditions:
           type: array
           description: "Type-keyed current-state runtime conditions for the DAG-run. This list reports the latest condition for each type, not a history of queued reasons."
@@ -22433,10 +22536,10 @@ components:
           $ref: "#/components/schemas/NodeRunStatus"
         dagName:
           type: string
-          description: "Name of the DAG of the child run. Absent for a disabled node."
+          description: "Name of the DAG of the child run. Absent for a node that has none, such as one disabled when the step first matched it."
         dagRunId:
           type: string
-          description: "ID of the child run, a sub DAG-run of the root run. Absent for a disabled node."
+          description: "ID of the child run, a sub DAG-run of the root run. Absent for a node that has none, such as one disabled when the step first matched it."
         startedAt:
           type: string
           description: "RFC 3339 timestamp with millisecond precision when the child run started"
@@ -22454,7 +22557,7 @@ components:
 
     NodeRunStatus:
       type: string
-      description: "Status of a node's run: the status its child run reached, or not_started, running, or disabled"
+      description: "Status of a node's run: the status its child run reached, or not_started, running, disabled, or removed. A removed node is one a retry kept from the step's first attempt that has left the inventory since."
       enum:
         - "not_started"
         - "running"
@@ -22465,6 +22568,7 @@ components:
         - "aborted"
         - "rejected"
         - "disabled"
+        - "removed"
 
     NodeRunCounts:
       type: object
@@ -22486,6 +22590,8 @@ components:
           type: integer
         disabled:
           type: integer
+        removed:
+          type: integer
       required:
         - total
         - notStarted
@@ -22495,6 +22601,7 @@ components:
         - failed
         - aborted
         - disabled
+        - removed
 
     StepProgress:
       type: object
@@ -23469,6 +23576,25 @@ components:
         - all
         - grants
 
+    ProjectGrant:
+      type: object
+      description: "Role granted in one project. Read and written only while projects are on."
+      properties:
+        project:
+          type: string
+          description: "Project name"
+        role:
+          $ref: "#/components/schemas/UserRole"
+      required:
+        - project
+        - role
+
+    ProjectGrants:
+      type: array
+      description: "Roles in single projects, read and written only while projects are on. A key whose workspaceAccess has all=false and no grants has no role outside these grants."
+      items:
+        $ref: "#/components/schemas/ProjectGrant"
+
     SetupRequest:
       type: object
       description: "Request body for initial admin account setup"
@@ -23866,6 +23992,8 @@ components:
           $ref: "#/components/schemas/UserRole"
         workspaceAccess:
           $ref: "#/components/schemas/WorkspaceAccess"
+        projectGrants:
+          $ref: "#/components/schemas/ProjectGrants"
         allowedSurfaces:
           type: array
           minItems: 1
@@ -23961,6 +24089,8 @@ components:
           $ref: "#/components/schemas/UserRole"
         workspaceAccess:
           $ref: "#/components/schemas/WorkspaceAccess"
+        projectGrants:
+          $ref: "#/components/schemas/ProjectGrants"
         allowedSurfaces:
           type: array
           minItems: 1
@@ -24015,6 +24145,8 @@ components:
           $ref: "#/components/schemas/UserRole"
         workspaceAccess:
           $ref: "#/components/schemas/WorkspaceAccess"
+        projectGrants:
+          $ref: "#/components/schemas/ProjectGrants"
         allowedSurfaces:
           type: array
           minItems: 1
@@ -25185,9 +25317,10 @@ components:
 
     InventoryNodeKind:
       type: string
-      description: "How Dagu reaches a node. An `ssh` node is a host of an inventory."
+      description: "How Dagu reaches a node. An `ssh` node is a host of an inventory, and a `worker` node is a worker that sets `worker.id`."
       enum:
         - "ssh"
+        - "worker"
 
     InventoryRef:
       type: object
@@ -25220,16 +25353,18 @@ components:
 
     InventoryNode:
       type: object
-      description: "A node of an inventory with its inventory's defaults applied"
+      description: "A node: a host of an inventory with its inventory's defaults applied, or a worker that sets `worker.id`. The connection fields, `inventory` through `timeout`, are set for an `ssh` node only, and `online` and `lastSeenAt` for a `worker` node only."
       properties:
         name:
           type: string
+          description: "Node name. A worker node's name is its worker ID"
         kind:
           $ref: "#/components/schemas/InventoryNodeKind"
         inventory:
           $ref: "#/components/schemas/InventoryRef"
         host:
           type: string
+          description: "Host name or IP address. A worker node's is the host its worker reports, shown only"
         port:
           type: integer
         user:
@@ -25259,16 +25394,18 @@ components:
           type: string
         disabled:
           type: boolean
-          description: "Whether runs are kept off the node. A disabled node is still listed and matched."
+          description: "Whether runs are kept off the node. A disabled node is still listed and matched. A worker node is never disabled."
+        online:
+          type: boolean
+          description: "Whether the worker is connected. A worker stays listed while it is offline."
+        lastSeenAt:
+          type: string
+          format: date-time
+          description: "When the coordinator last recorded the worker: when it connected, changed its host or labels, or went offline"
       required:
         - name
         - kind
-        - inventory
         - host
-        - port
-        - auth
-        - strictHostKey
-        - timeout
         - labels
         - disabled
 
@@ -25281,9 +25418,32 @@ components:
             $ref: "#/components/schemas/InventoryNode"
         pagination:
           $ref: "#/components/schemas/Pagination"
+        nodeCount:
+          type: integer
+          description: "Count of every node, whatever the filters"
+        workerConflicts:
+          type: array
+          description: "Workers whose ID names a node of an inventory, so they are not nodes, whatever the filters"
+          items:
+            $ref: "#/components/schemas/InventoryWorkerConflict"
       required:
         - nodes
         - pagination
+        - nodeCount
+        - workerConflicts
+
+    InventoryWorkerConflict:
+      type: object
+      description: "A worker that is not a node, because a node of an inventory has its ID as its name"
+      properties:
+        worker:
+          type: string
+          description: "The worker ID"
+        inventory:
+          $ref: "#/components/schemas/InventoryRef"
+      required:
+        - worker
+        - inventory
 
     InventoryCredential:
       description: "A key path, `{\"file\": <path>}`, or `{\"secret\": <ref>}`. A password and a passphrase take only `{\"secret\": <ref>}`."

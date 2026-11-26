@@ -92,6 +92,7 @@ type DAGRunSummary struct {
 	ProcGroup            string
 	DefinitionID         string
 	BackfillID           string
+	RetryDisabled        bool
 	ArchiveDir           string
 	Dates                []ir.DateValue
 }

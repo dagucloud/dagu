@@ -61,9 +61,15 @@ type DiscoveryResult struct {
 
 // Discover enumerates DAG definitions beneath root.
 func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
+	return discover(root, opts, isDAGFile)
+}
+
+// discover enumerates the files beneath root whose names match, under the
+// rules Discover applies to DAG definitions.
+func discover(root string, opts DiscoveryOptions, match func(name string) bool) (DiscoveryResult, error) {
 	root = filepath.Clean(root)
 	if !opts.Recursive {
-		return scanRoot(root, opts.Symlinks, opts.SkipRoots)
+		return scanRoot(root, opts.Symlinks, opts.SkipRoots, match)
 	}
 
 	walkRoot, err := filepath.EvalSymlinks(root)
@@ -103,7 +109,7 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 		}
 
 		if path != walkRoot && entry.Type()&os.ModeSymlink != 0 {
-			if !isDAGFile(entry.Name()) {
+			if !match(entry.Name()) {
 				return nil
 			}
 			resolved, err := ResolveFile(root, relPath)
@@ -142,7 +148,7 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 			result.Dirs = append(result.Dirs, dir)
 			return nil
 		}
-		if !isDAGFile(entry.Name()) {
+		if !match(entry.Name()) {
 			return nil
 		}
 
@@ -299,7 +305,7 @@ func sameAsSkipRoot(roots []skipRoot, path string) bool {
 	})
 }
 
-func scanRoot(root string, symlinks bool, skipRootDirs []string) (DiscoveryResult, error) {
+func scanRoot(root string, symlinks bool, skipRootDirs []string, match func(name string) bool) (DiscoveryResult, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return DiscoveryResult{}, err
@@ -312,7 +318,7 @@ func scanRoot(root string, symlinks bool, skipRootDirs []string) (DiscoveryResul
 	}
 	result := DiscoveryResult{Dirs: []string{root}, Errors: skipErrs}
 	for _, entry := range entries {
-		if entry.IsDir() || !isDAGFile(entry.Name()) {
+		if entry.IsDir() || !match(entry.Name()) {
 			continue
 		}
 		resolved, err := ResolveFile(root, entry.Name())

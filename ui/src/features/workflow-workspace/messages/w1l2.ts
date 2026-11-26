@@ -22,4 +22,8 @@ export default defineMessages({
     'Exit code {code}': 'Exit-Code {code}',
     'This step needs no action.': 'Dieser Schritt braucht keine Aktion.',
   },
+  fr: {
+    'Exit code {code}': 'Code de sortie {code}',
+    'This step needs no action.': 'Cette étape ne nécessite aucune action.',
+  },
 });

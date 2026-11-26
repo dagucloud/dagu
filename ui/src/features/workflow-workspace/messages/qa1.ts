@@ -285,4 +285,82 @@ export default defineMessages({
     'Publish values as outputs of the run.':
       'Werte als Ausgaben des Laufs veröffentlichen.',
   },
+  fr: {
+    Calls: 'Workflow appelé',
+    'Open the sub-run (Cmd/Ctrl+Click opens a new tab)':
+      'Ouvrir la sous-exécution (Cmd/Ctrl+clic pour ouvrir dans un nouvel onglet)',
+    'Multiple executions: {count} sub-runs':
+      'Exécutions multiples\u00a0: {count} sous-exécutions',
+    'Multiple executions: {visible} of {total} sub-runs':
+      'Exécutions multiples\u00a0: {visible} sur {total} sous-exécutions',
+    '{visible} of {total} sub-runs':
+      'Sous-exécutions\u00a0: {visible} sur {total}',
+    'No sub-runs match the selected filter':
+      'Aucune sous-exécution ne correspond au filtre sélectionné',
+    'Pack files into an archive.': 'Regrouper des fichiers dans une archive.',
+    'Unpack an archive into a folder.': 'Extraire une archive dans un dossier.',
+    'List the files in an archive.': 'Lister les fichiers d’une archive.',
+    'List the artifacts of the run.': 'Lister les artefacts de l’exécution.',
+    'Read an artifact of the run.': 'Lire un artefact de l’exécution.',
+    'Write content to an artifact of the run.':
+      'Écrire du contenu dans un artefact de l’exécution.',
+    'Copy a file or folder.': 'Copier un fichier ou un dossier.',
+    'Delete a file or folder.': 'Supprimer un fichier ou un dossier.',
+    'List the files in a folder.': 'Lister les fichiers d’un dossier.',
+    'Create a folder.': 'Créer un dossier.',
+    'Move or rename a file or folder.':
+      'Déplacer ou renommer un fichier ou un dossier.',
+    'Read the content of a file.': 'Lire le contenu d’un fichier.',
+    'Read the size, type and times of a file.':
+      'Lire la taille, le type et les dates d’un fichier.',
+    'Write content to a file.': 'Écrire du contenu dans un fichier.',
+    'Delete a key of the workflow state.':
+      'Supprimer une clé de l’état du workflow.',
+    'Tell whether a value changed since the last run, and store it.':
+      'Indiquer si une valeur a changé depuis la dernière exécution, puis la stocker.',
+    'Read a key of the workflow state.': 'Lire une clé de l’état du workflow.',
+    'List the keys of the workflow state.':
+      'Lister les clés de l’état du workflow.',
+    'Store a value in the workflow state.':
+      'Stocker une valeur dans l’état du workflow.',
+    'Wait for a length of time.': 'Attendre pendant une durée donnée.',
+    'Wait until a file exists, or is gone.':
+      'Attendre qu’un fichier existe ou disparaisse.',
+    'Wait until a URL answers with the expected status.':
+      'Attendre qu’une URL réponde avec le statut attendu.',
+    'Wait until a time of day or a date.':
+      'Attendre jusqu’à une heure ou une date.',
+    'Run a SQL query on PostgreSQL.':
+      'Exécuter une requête SQL sur PostgreSQL.',
+    'Import a data file into a PostgreSQL table.':
+      'Importer un fichier de données dans une table PostgreSQL.',
+    'Run a SQL query on SQLite.': 'Exécuter une requête SQL sur SQLite.',
+    'Import a data file into a SQLite table.':
+      'Importer un fichier de données dans une table SQLite.',
+    'Run a command in a container.': 'Exécuter une commande dans un conteneur.',
+    'Run a command in a Docker container.':
+      'Exécuter une commande dans un conteneur Docker.',
+    'Run a command as a Kubernetes job.':
+      'Exécuter une commande en tant que job Kubernetes.',
+    'Read a key from Redis.': 'Lire une clé dans Redis.',
+    'Store a value in Redis.': 'Stocker une valeur dans Redis.',
+    'Delete objects from S3.': 'Supprimer des objets dans S3.',
+    'Download objects from S3.': 'Télécharger des objets depuis S3.',
+    'List the objects in an S3 bucket.': 'Lister les objets d’un bucket S3.',
+    'Upload files to S3.': 'Importer des fichiers dans S3.',
+    'Download files over SFTP.':
+      'Télécharger des fichiers depuis un serveur SFTP.',
+    'Upload files over SFTP.': 'Importer des fichiers sur un serveur SFTP.',
+    'Send an email.': 'Envoyer un e-mail.',
+    'Call a tool on a remote MCP server.':
+      'Appeler un outil sur un serveur MCP distant.',
+    'Send a message to a remote A2A agent.':
+      'Envoyer un message à un agent A2A distant.',
+    'Read the state and artifacts of a remote A2A task.':
+      'Lire l’état et les artefacts d’une tâche A2A distante.',
+    'Ask a person to review or fill in a form.':
+      'Demander à une personne d’examiner ou de remplir un formulaire.',
+    'Publish values as outputs of the run.':
+      'Publier des valeurs comme sorties de l’exécution.',
+  },
 });

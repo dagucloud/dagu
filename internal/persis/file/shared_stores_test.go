@@ -16,17 +16,26 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/incident"
+	"github.com/dagucloud/dagu/v2/internal/notification"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 )
 
 func TestNewIncidentStorePreservesFileLayout(t *testing.T) {
 	t.Parallel()
-	dir := filepath.Join(t.TempDir(), "incidents")
+	dataDir := t.TempDir()
+	dir := filepath.Join(dataDir, "incidents")
+	backend := persisfile.NewBackend(config.PathsConfig{DataDir: dataDir})
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
-	s, err := persisfile.NewIncidentStore(persisfile.NewCollection(dir, persisfile.WithIndentedJSON()), enc)
+	s, err := persisfile.NewIncidentStore(
+		backend.Collection(persis.CollectionIncidents),
+		backend.Collection(persis.CollectionIncidentProviders),
+		enc,
+	)
 	require.NoError(t, err)
 
 	for _, subdir := range []string{"providers", "policies/workspaces", "policies/dags", "states"} {
@@ -64,12 +73,21 @@ func TestNewIncidentStorePreservesFileLayout(t *testing.T) {
 	assert.Equal(t, provider.PagerDuty.RoutingKey, loaded.PagerDuty.RoutingKey)
 }
 
+// The store reads every record where released versions wrote it in one
+// directory: DAG routes, route sets, channels, and notification settings.
 func TestNewNotificationStoreReadsExistingFileLayout(t *testing.T) {
 	t.Parallel()
-	dir := filepath.Join(t.TempDir(), "notifications")
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	dir := filepath.Join(dataDir, "notifications")
+	backend := persisfile.NewBackend(config.PathsConfig{DataDir: dataDir})
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
-	s, err := persisfile.NewNotificationStore(persisfile.NewCollection(dir, persisfile.WithIndentedJSON()), enc)
+	s, err := persisfile.NewNotificationStore(
+		backend.Collection(persis.CollectionNotifications),
+		backend.Collection(persis.CollectionNotificationChannels),
+		enc,
+	)
 	require.NoError(t, err)
 
 	for _, subdir := range []string{"dags", "channels", "routes/workspaces"} {
@@ -81,23 +99,32 @@ func TestNewNotificationStoreReadsExistingFileLayout(t *testing.T) {
 		}
 	}
 
-	path := filepath.Join(dir, "dags", hashedFileName("daily-report"))
-	existing := []byte(`{
-  "id": "settings-1",
-  "dagName": "daily-report",
-  "enabled": true,
-  "events": ["dag-run.failed"],
-  "targets": [],
-  "createdAt": "2026-08-15T00:00:00Z",
-  "updatedAt": "2026-08-15T00:00:00Z"
-}`)
-	require.NoError(t, os.WriteFile(path, existing, 0o600))
+	stamps := `"createdAt": "2026-08-15T00:00:00Z", "updatedAt": "2026-08-15T00:00:00Z"`
+	for rel, content := range map[string]string{
+		"dags/" + hashedFileName("daily-report"): `{"id": "settings-1", "dagName": "daily-report", "enabled": true,
+			"events": ["dag-run.failed"], "targets": [], ` + stamps + `}`,
+		"routes/global.json":                `{"id": "routes-1", "scope": "global", "enabled": true, "routes": [], ` + stamps + `}`,
+		"channels/" + hashedFileName("ops"): `{"id": "ops", "name": "Ops", "type": "slack", "enabled": true, ` + stamps + `}`,
+		"workspace.json":                    `{"smtp": {"host": "smtp.example.com"}, ` + stamps + `}`,
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, filepath.FromSlash(rel)), []byte(content), 0o600))
+	}
 
-	settings, err := s.GetByDAGName(context.Background(), "daily-report")
+	settings, err := s.GetByDAGName(ctx, "daily-report")
 	require.NoError(t, err)
 	assert.Equal(t, "settings-1", settings.ID)
 	assert.Equal(t, "daily-report", settings.DAGName)
 	assert.True(t, settings.Enabled)
+	routeSet, err := s.GetRouteSet(ctx, notification.RouteScopeGlobal, "")
+	require.NoError(t, err)
+	assert.Equal(t, "routes-1", routeSet.ID)
+	channel, err := s.GetChannel(ctx, "ops")
+	require.NoError(t, err)
+	assert.Equal(t, "Ops", channel.Name)
+	smtp, err := s.GetWorkspaceSettings(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, smtp.SMTP)
+	assert.Equal(t, "smtp.example.com", smtp.SMTP.Host)
 }
 
 func TestCollectionStoresPreserveCorruptFileHandling(t *testing.T) {
@@ -106,9 +133,12 @@ func TestCollectionStoresPreserveCorruptFileHandling(t *testing.T) {
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
 
-	notificationDir := filepath.Join(t.TempDir(), "notifications")
+	dataDir := t.TempDir()
+	backend := persisfile.NewBackend(config.PathsConfig{DataDir: dataDir})
+	notificationDir := filepath.Join(dataDir, "notifications")
 	notificationStore, err := persisfile.NewNotificationStore(
-		persisfile.NewCollection(notificationDir, persisfile.WithIndentedJSON()),
+		backend.Collection(persis.CollectionNotifications),
+		backend.Collection(persis.CollectionNotificationChannels),
 		enc,
 	)
 	require.NoError(t, err)
@@ -120,9 +150,10 @@ func TestCollectionStoresPreserveCorruptFileHandling(t *testing.T) {
 	_, err = notificationStore.GetByDAGName(ctx, "daily-report")
 	assert.Error(t, err)
 
-	incidentDir := filepath.Join(t.TempDir(), "incidents")
+	incidentDir := filepath.Join(dataDir, "incidents")
 	incidentStore, err := persisfile.NewIncidentStore(
-		persisfile.NewCollection(incidentDir, persisfile.WithIndentedJSON()),
+		backend.Collection(persis.CollectionIncidents),
+		backend.Collection(persis.CollectionIncidentProviders),
 		enc,
 	)
 	require.NoError(t, err)

@@ -83,6 +83,50 @@ func TestRetryResumeFlag(t *testing.T) {
 	assert.True(t, backend.status.Resume)
 }
 
+func TestRetryDisabled(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		status   ir.Status
+		disabled bool
+		refused  bool
+	}{
+		{"failed disabled", ir.Failed, true, true},
+		{"aborted disabled", ir.Aborted, true, true},
+		{"failed ordinary", ir.Failed, false, false},
+		{"waiting disabled resumes", ir.Waiting, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			status := &ir.DAGRunStatus{Name: "task", DAGRunID: "run", AttemptID: "attempt", Status: tc.status, RetryDisabled: tc.disabled}
+			backend := &stubDAGRunStore{status: cloneDAGRunStatus(status)}
+			repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{})
+			admission, err := queue.PrepareRetry(t.Context(), repository, nil, status, queue.EnqueueRetryOptions{})
+			if tc.refused {
+				require.ErrorIs(t, err, queue.ErrRetryDisabled)
+				assert.Nil(t, admission)
+				assert.Equal(t, tc.status, backend.status.Status)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, admission)
+			assert.Equal(t, ir.Queued, admission.Status.Status)
+			assert.Equal(t, tc.disabled, admission.Status.RetryDisabled)
+		})
+	}
+}
+
+// The caller's status may be a summary that lacks the flag; the stored latest decides.
+func TestRetryDisabledStoredFlag(t *testing.T) {
+	stored := &ir.DAGRunStatus{Name: "task", DAGRunID: "run", AttemptID: "attempt", Status: ir.Failed, RetryDisabled: true}
+	backend := &stubDAGRunStore{status: cloneDAGRunStatus(stored)}
+	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{})
+	summary := cloneDAGRunStatus(stored)
+	summary.RetryDisabled = false
+	_, err := queue.PrepareRetry(t.Context(), repository, nil, summary, queue.EnqueueRetryOptions{AutoRetry: true})
+	require.ErrorIs(t, err, queue.ErrRetryDisabled)
+	assert.Equal(t, ir.Failed, backend.status.Status)
+	assert.Zero(t, backend.status.AutoRetryCount)
+}
+
 func TestRetryAdmissionUsesChildStorageRoot(t *testing.T) {
 	status := &ir.DAGRunStatus{
 		Name:      "child",

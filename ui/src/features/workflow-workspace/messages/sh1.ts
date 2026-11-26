@@ -99,4 +99,28 @@ export default defineMessages({
     'Failures only': 'Nur Fehler',
     'No failures in these runs': 'Keine Fehler in diesen Läufen',
   },
+  fr: {
+    'History of {step}': 'Historique de {step}',
+    'Runs of {step}': 'Exécutions de {step}',
+    'Steps by run': 'Étapes par exécution',
+    '{percent}% succeeded': '{percent}\u00a0% de réussite',
+    '{succeeded} of {count} finished run succeeded':
+      'Exécutions réussies\u00a0: {succeeded} sur {count} exécution terminée',
+    '{succeeded} of {count} finished runs succeeded':
+      'Exécutions réussies\u00a0: {succeeded} sur {count} exécutions terminées',
+    'usually {duration}': 'habituellement {duration}',
+    'Failing since {time}': 'En échec depuis l’exécution lancée {time}',
+    'No finished runs of this step':
+      'Aucune exécution terminée pour cette étape',
+    Longest: 'Durée la plus longue',
+    'Open the log of run {id}': 'Ouvrir le journal de l’exécution {id}',
+    'This step repeats without a limit: one run holds every repeat.':
+      'Cette étape se répète sans limite\u00a0: une seule exécution contient toutes les répétitions.',
+    'Open Continuous': 'Ouvrir l’onglet Continu',
+    'The status is the one of this step, not of its sub-runs.':
+      'Le statut est celui de cette étape, pas celui de ses sous-exécutions.',
+    Show: 'Afficher',
+    'Failures only': 'Échecs uniquement',
+    'No failures in these runs': 'Aucun échec dans ces exécutions',
+  },
 });

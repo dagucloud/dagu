@@ -47,7 +47,23 @@ const (
 	CollectionWebhooks              = "webhooks"
 	CollectionWebhookDAGClaims      = "webhook_dag_claims"
 	CollectionWorkerHeartbeats      = "worker_heartbeats"
+	CollectionWorkerNodes           = "worker_nodes"
 	CollectionWorkspaces            = "workspaces"
+)
+
+// Server-wide collections whose counterparts hold a project's records.
+const (
+	// CollectionIncidentProviders holds incident providers. A project's
+	// incident policies and states are in CollectionIncidents.
+	CollectionIncidentProviders = "incident_providers"
+	// CollectionNotificationChannels holds notification channels and
+	// notification settings. A project's DAG routes and route sets are in
+	// CollectionNotifications.
+	CollectionNotificationChannels = "notification_channels"
+	// CollectionSchedulerProcess holds the scheduler process's pause flag,
+	// restart backoff, and outages. A project's scheduler state is in
+	// CollectionSchedulerState.
+	CollectionSchedulerProcess = "scheduler_process"
 )
 
 // SchedulerDAGRecordID names a DAG's record in the scheduler state

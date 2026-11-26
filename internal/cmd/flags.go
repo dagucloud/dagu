@@ -398,6 +398,12 @@ var (
 		isBool:    true,
 	}
 
+	lsLocalTimeFlag = commandLineFlag{
+		name:   "local-time",
+		usage:  "Show next scheduled run time in the configured timezone instead of UTC",
+		isBool: true,
+	}
+
 	lsLastFlag = commandLineFlag{
 		name:      "last",
 		shorthand: "l",

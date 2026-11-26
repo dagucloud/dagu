@@ -16,24 +16,58 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
-var _ notification.Store = (*NotificationStore)(nil)
+var (
+	_ notification.Store        = (*NotificationStore)(nil)
+	_ notification.ChannelStore = (*NotificationChannelStore)(nil)
+)
 
 const notificationGlobalRouteSetID = "routes/global"
 
-// NotificationStore persists notification configuration in a collection.
+// NotificationStore persists a project's DAG routes and route sets in a
+// collection, and reaches the server-wide channels and notification settings
+// through a notification.ChannelStore.
 type NotificationStore struct {
 	recordHelper
-	encryptor *crypto.Encryptor
+	notificationCodec
+	channels notification.ChannelStore
 }
 
-// NewNotificationStore creates a notification store backed by col.
-func NewNotificationStore(col persis.Collection, enc *crypto.Encryptor) (*NotificationStore, error) {
+// NewNotificationStore creates a notification store that keeps routes in col
+// and reaches channels and notification settings through channels.
+func NewNotificationStore(
+	col persis.Collection,
+	channels notification.ChannelStore,
+	enc *crypto.Encryptor,
+) (*NotificationStore, error) {
 	if col == nil {
 		return nil, errors.New("notification store: collection cannot be nil")
 	}
+	if channels == nil {
+		return nil, errors.New("notification store: channel store cannot be nil")
+	}
 	return &NotificationStore{
-		recordHelper: recordHelper{col: col, name: "notification store"},
-		encryptor:    enc,
+		recordHelper:      recordHelper{col: col, name: "notification store"},
+		notificationCodec: notificationCodec{encryptor: enc},
+		channels:          channels,
+	}, nil
+}
+
+// NotificationChannelStore persists the notification channels and
+// notification settings that every project shares in a collection.
+type NotificationChannelStore struct {
+	recordHelper
+	notificationCodec
+}
+
+// NewNotificationChannelStore creates a notification channel store backed by
+// col.
+func NewNotificationChannelStore(col persis.Collection, enc *crypto.Encryptor) (*NotificationChannelStore, error) {
+	if col == nil {
+		return nil, errors.New("notification store: channel collection cannot be nil")
+	}
+	return &NotificationChannelStore{
+		recordHelper:      recordHelper{col: col, name: "notification store"},
+		notificationCodec: notificationCodec{encryptor: enc},
 	}, nil
 }
 
@@ -86,7 +120,7 @@ func (s *NotificationStore) DeleteByDAGName(ctx context.Context, dagName string)
 	return s.delete(ctx, notificationSettingsID(dagName), notification.ErrSettingsNotFound, "settings")
 }
 
-func (s *NotificationStore) SaveChannel(ctx context.Context, channel *notification.Channel) error {
+func (s *NotificationChannelStore) SaveChannel(ctx context.Context, channel *notification.Channel) error {
 	if channel == nil {
 		return errors.New("notification store: channel cannot be nil")
 	}
@@ -100,7 +134,7 @@ func (s *NotificationStore) SaveChannel(ctx context.Context, channel *notificati
 	return s.put(ctx, notificationChannelID(channel.ID), stored)
 }
 
-func (s *NotificationStore) GetChannel(ctx context.Context, channelID string) (*notification.Channel, error) {
+func (s *NotificationChannelStore) GetChannel(ctx context.Context, channelID string) (*notification.Channel, error) {
 	if channelID == "" {
 		return nil, notification.ErrChannelNotFound
 	}
@@ -111,7 +145,7 @@ func (s *NotificationStore) GetChannel(ctx context.Context, channelID string) (*
 	return s.channelFromRecord(rec)
 }
 
-func (s *NotificationStore) ListChannels(ctx context.Context) ([]*notification.Channel, error) {
+func (s *NotificationChannelStore) ListChannels(ctx context.Context) ([]*notification.Channel, error) {
 	recs, err := s.listTolerant(ctx, "channels/", "channel")
 	if err != nil {
 		return nil, fmt.Errorf("notification store: list channels: %w", err)
@@ -128,14 +162,14 @@ func (s *NotificationStore) ListChannels(ctx context.Context) ([]*notification.C
 	return result, nil
 }
 
-func (s *NotificationStore) DeleteChannel(ctx context.Context, channelID string) error {
+func (s *NotificationChannelStore) DeleteChannel(ctx context.Context, channelID string) error {
 	if channelID == "" {
 		return notification.ErrChannelNotFound
 	}
 	return s.delete(ctx, notificationChannelID(channelID), notification.ErrChannelNotFound, "channel")
 }
 
-func (s *NotificationStore) SaveWorkspaceSettings(ctx context.Context, settings *notification.WorkspaceSettings) error {
+func (s *NotificationChannelStore) SaveWorkspaceSettings(ctx context.Context, settings *notification.WorkspaceSettings) error {
 	if settings == nil {
 		return errors.New("notification store: workspace settings cannot be nil")
 	}
@@ -146,7 +180,7 @@ func (s *NotificationStore) SaveWorkspaceSettings(ctx context.Context, settings 
 	return s.put(ctx, "workspace", stored)
 }
 
-func (s *NotificationStore) GetWorkspaceSettings(ctx context.Context) (*notification.WorkspaceSettings, error) {
+func (s *NotificationChannelStore) GetWorkspaceSettings(ctx context.Context) (*notification.WorkspaceSettings, error) {
 	rec, err := s.col.Get(ctx, "workspace")
 	if errors.Is(err, persis.ErrNotFound) {
 		return &notification.WorkspaceSettings{}, nil
@@ -218,6 +252,30 @@ func (s *NotificationStore) DeleteRouteSet(ctx context.Context, scope notificati
 		return err
 	}
 	return s.delete(ctx, id, notification.ErrRouteSetNotFound, "route set")
+}
+
+func (s *NotificationStore) SaveWorkspaceSettings(ctx context.Context, settings *notification.WorkspaceSettings) error {
+	return s.channels.SaveWorkspaceSettings(ctx, settings)
+}
+
+func (s *NotificationStore) GetWorkspaceSettings(ctx context.Context) (*notification.WorkspaceSettings, error) {
+	return s.channels.GetWorkspaceSettings(ctx)
+}
+
+func (s *NotificationStore) SaveChannel(ctx context.Context, channel *notification.Channel) error {
+	return s.channels.SaveChannel(ctx, channel)
+}
+
+func (s *NotificationStore) GetChannel(ctx context.Context, channelID string) (*notification.Channel, error) {
+	return s.channels.GetChannel(ctx, channelID)
+}
+
+func (s *NotificationStore) ListChannels(ctx context.Context) ([]*notification.Channel, error) {
+	return s.channels.ListChannels(ctx)
+}
+
+func (s *NotificationStore) DeleteChannel(ctx context.Context, channelID string) error {
+	return s.channels.DeleteChannel(ctx, channelID)
 }
 
 func notificationSettingsID(dagName string) string {

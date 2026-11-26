@@ -4,23 +4,27 @@
 package cmd
 
 import (
-	"path/filepath"
-
 	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/persis/file"
-	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 )
 
 type executionStores struct {
-	SecretStore          secret.Store
-	ProfileStore         profile.Store
+	SecretStore  secret.Store
+	ProfileStore profile.Store
+	// SecretResolver and ProfileResolver resolve a run's secrets and
+	// profiles in the command's project alone while projects are on. Both
+	// are nil while projects are off, and a run then adds the layers of the
+	// workspace its DAG's label names.
+	SecretResolver       providers.ReferenceResolver
+	ProfileResolver      profile.RuntimeResolver
 	MaterializationStore build.MaterializationStore
 	Inventory            inventory.Store
 	HostKeys             inventory.HostKeyStore
@@ -28,30 +32,45 @@ type executionStores struct {
 
 // runtimeStores creates the runtime store bundle for this command context.
 func (c *Context) runtimeStores() executionStores {
-	return executionStores{
-		SecretStore:          file.NewSecretStore(c.Context, c.Config, c.backend.Collection(persis.CollectionSecrets)),
-		ProfileStore:         file.NewProfileStore(c.Context, c.Config, c.backend.Collection(persis.CollectionProfiles)),
-		MaterializationStore: filematerialization.New(filepath.Join(c.Config.Paths.DataDir, "materializations")),
+	stores := executionStores{
+		SecretStore:          c.settings.SecretStore(c),
+		ProfileStore:         c.settings.ProfileStore(c),
+		MaterializationStore: c.projectStores.MaterializationStore,
 		Inventory:            c.runtimeInventoryStore(),
 		HostKeys:             c.runtimeHostKeyStore(),
 	}
+	if c.Config.ProjectsEnabled {
+		if stores.SecretStore != nil {
+			stores.SecretResolver = secret.NewProjectReferenceResolver(stores.SecretStore)
+		}
+		if stores.ProfileStore != nil {
+			stores.ProfileResolver = profile.NewProjectResolver(stores.ProfileStore, stores.SecretStore)
+		}
+	}
+	return stores
+}
+
+// subDAGSecretResolver returns the resolver a sub-DAG run uses for its
+// secrets, or nil when the run builds its own.
+func (s executionStores) subDAGSecretResolver() func(*ir.DAG) providers.ReferenceResolver {
+	if s.SecretResolver == nil {
+		return nil
+	}
+	return func(*ir.DAG) providers.ReferenceResolver { return s.SecretResolver }
+}
+
+// subDAGProfileResolver returns the resolver a sub-DAG run uses for its
+// profiles, or nil when the run builds its own.
+func (s executionStores) subDAGProfileResolver() func(*ir.DAG) profile.RuntimeResolver {
+	if s.ProfileResolver == nil {
+		return nil
+	}
+	return func(*ir.DAG) profile.RuntimeResolver { return s.ProfileResolver }
 }
 
 // inventoryStore opens the node inventories of this installation.
 func (c *Context) inventoryStore() (inventory.Store, error) {
-	hostKeys, err := c.hostKeyStore()
-	if err != nil {
-		return nil, err
-	}
-	s, err := store.NewInventoryStore(
-		c.backend.Collection(persis.CollectionInventories),
-		c.backend.Lock(persis.CollectionInventories),
-		hostKeys,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return s, nil
+	return c.settings.InventoryStore()
 }
 
 // runtimeInventoryStore returns the node inventories for runs, or nil when
@@ -65,10 +84,35 @@ func (c *Context) runtimeInventoryStore() inventory.Store {
 	return inventories
 }
 
+// serviceInventoryStore returns the node inventories for a long-running
+// service, which keeps them in memory, or nil when the backend cannot hold
+// them.
+func (c *Context) serviceInventoryStore() inventory.Store {
+	hostKeys, err := c.hostKeyStore()
+	if err == nil {
+		var s *store.InventoryStore
+		s, err = store.NewCachedInventoryStore(
+			c.backend.Collection(persis.CollectionInventories),
+			c.backend.Lock(persis.CollectionInventories),
+			hostKeys,
+		)
+		if err == nil {
+			return s
+		}
+	}
+	logger.Warn(c, "Node inventory is unavailable", tag.Error(err))
+	return nil
+}
+
 // hostKeyStore opens the host keys trusted for the nodes of this
 // installation.
 func (c *Context) hostKeyStore() (*store.HostKeyStore, error) {
-	return store.NewHostKeyStore(c.backend.Collection(persis.CollectionHostKeys))
+	return c.settings.HostKeyStore()
+}
+
+// workerNodeStore opens the worker nodes of this installation.
+func (c *Context) workerNodeStore() (*store.WorkerNodeStore, error) {
+	return store.NewWorkerNodeStore(c.backend.Collection(persis.CollectionWorkerNodes), c.Persistence.WorkerHeartbeatStore)
 }
 
 // runtimeHostKeyStore returns the host keys trusted for nodes, or nil when

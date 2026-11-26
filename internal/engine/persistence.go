@@ -11,10 +11,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
@@ -49,6 +51,29 @@ type RuntimeStores struct {
 	SecretStore          secret.Store
 	ProfileStore         profile.Store
 	MaterializationStore build.MaterializationStore
+
+	// secretResolver and profileResolver resolve in the project alone while
+	// projects are on, and are nil while they are off.
+	secretResolver  providers.ReferenceResolver
+	profileResolver profile.RuntimeResolver
+}
+
+// subDAGSecretResolver returns the resolver a sub-DAG run uses for its
+// secrets, or nil when the run builds its own.
+func (s RuntimeStores) subDAGSecretResolver() func(*ir.DAG) providers.ReferenceResolver {
+	if s.secretResolver == nil {
+		return nil
+	}
+	return func(*ir.DAG) providers.ReferenceResolver { return s.secretResolver }
+}
+
+// subDAGProfileResolver returns the resolver a sub-DAG run uses for its
+// profiles, or nil when the run builds its own.
+func (s RuntimeStores) subDAGProfileResolver() func(*ir.DAG) profile.RuntimeResolver {
+	if s.profileResolver == nil {
+		return nil
+	}
+	return func(*ir.DAG) profile.RuntimeResolver { return s.profileResolver }
 }
 
 func buildPersistence(ctx context.Context, cfg *config.Config, opts Options) (Persistence, error) {

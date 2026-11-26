@@ -148,8 +148,10 @@ func newNotificationTestStore(t *testing.T, cfg *config.Config) notificationmode
 	require.NoError(t, err)
 	encryptor, err := crypto.NewEncryptor(key)
 	require.NoError(t, err)
+	backend := persisfile.NewBackend(cfg.Paths)
 	store, err := persisfile.NewNotificationStore(
-		persisfile.NewBackend(cfg.Paths).Collection(persis.CollectionNotifications),
+		backend.Collection(persis.CollectionNotifications),
+		backend.Collection(persis.CollectionNotificationChannels),
 		encryptor,
 	)
 	require.NoError(t, err)

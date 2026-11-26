@@ -194,8 +194,8 @@ Targets:
 - step_log reads stdout and stderr for one DAG-run step. With subRunId, it reads a child-run step. With item and bodyStepName, it reads one body step of a foreach item. Use the stream, tail, head, offset, and limit query parameters to bound the returned lines; without positioning parameters the last 1000 lines are returned.
 - foreach_items lists the items a foreach step expanded to, with total, counts per status, and one page of items sorted failed first. A run's step entry links here through foreachUri. Use status to keep one status, page and perPage to page, and parent to list the items of a nested foreach body step.
 - foreach_item reads one foreach item: its status, error, and each body step with status, timestamps, error, hasStdout, hasStderr, and for a nested foreach body step the foreachParent to pass to foreach_items.
-- nodes lists inventory nodes in name order, one page at a time, with each inventory's defaults applied: name, inventory, host, port, user, auth, labels, timeout, disabled, and the other connection settings. auth holds key paths and secret names, never secret values.
-- node reads one inventory node by name, compared without case.
+- nodes lists nodes in name order, one page at a time: inventory nodes, with each inventory's defaults applied, have kind ssh, name, inventory, host, port, user, auth, labels, timeout, disabled, and the other connection settings; workers that set worker.id have kind worker, name, host, labels, online, and lastSeenAt. auth holds key paths and secret names, never secret values.
+- node reads one node by name, compared without case.
 - inventories lists every inventory with its id, name, description, nodeCount, and version.
 
 Query parameters:

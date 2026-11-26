@@ -991,77 +991,48 @@ func (a *API) readHistoryData(_ context.Context, dag *ir.DAG, statusList []ir.DA
 }
 
 func (a *API) ListDAGs(ctx context.Context, request api.ListDAGsRequestObject) (api.ListDAGsResponseObject, error) {
-	p := request.Params
-	listOpts, err := a.dagListOptions(ctx, dagListParams{
-		page: p.Page, perPage: p.PerPage, workspace: p.Workspace,
-		name: p.Name, labels: p.Labels, tags: p.Tags, active: p.Active,
-		sort: (*string)(p.Sort), order: (*string)(p.Order),
-	})
-	if err != nil {
-		return nil, err
-	}
-	resp, err := a.listDAGsDataWithSearchPaths(ctx, listOpts, dagListSource{pinnedFirst: true})
-	if err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// dagListParams are the paging, filters, and sort of a REST request for a
-// DAG list page.
-type dagListParams struct {
-	page      *api.Page
-	perPage   *api.PerPage
-	workspace *api.Workspace
-	name      *string
-	labels    *string
-	tags      *string
-	active    *bool
-	sort      *string
-	order     *string
-}
-
-// dagListOptions gives the list options of a REST request for a DAG list
-// page.
-func (a *API) dagListOptions(ctx context.Context, p dagListParams) (persis.DAGListOptions, error) {
 	sortField := a.config.UI.DAGs.SortField
 	if sortField == "" {
 		sortField = "name"
 	}
-	if p.sort != nil {
-		sortField = *p.sort
+	if request.Params.Sort != nil {
+		sortField = string(*request.Params.Sort)
 	}
 
 	sortOrder := a.config.UI.DAGs.SortOrder
 	if sortOrder == "" {
 		sortOrder = "asc"
 	}
-	if p.order != nil {
-		sortOrder = *p.order
+	if request.Params.Order != nil {
+		sortOrder = string(*request.Params.Order)
 	}
 
-	labelsParam, err := queryLabelsParam(p.labels, p.tags)
+	labelsParam, err := queryLabelsParam(request.Params.Labels, request.Params.Tags)
 	if err != nil {
-		return persis.DAGListOptions{}, err
+		return nil, err
 	}
-	pg := pagination.NewPaginator(valueOf(p.page), valueOf(p.perPage))
+	pg := pagination.NewPaginator(valueOf(request.Params.Page), valueOf(request.Params.PerPage))
 	labels, err := parseCommaSeparatedLabels(labelsParam)
 	if err != nil {
-		return persis.DAGListOptions{}, err
+		return nil, err
 	}
-	workspaceFilter, err := a.workspaceFilterForParams(ctx, p.workspace)
+	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
-		return persis.DAGListOptions{}, err
+		return nil, err
 	}
-	return persis.DAGListOptions{
+	resp, err := a.listDAGsDataWithSearchPaths(ctx, persis.DAGListOptions{
 		Paginator:       &pg,
-		Name:            valueOf(p.name),
+		Name:            valueOf(request.Params.Name),
 		Labels:          labels,
-		ActiveOnly:      valueOf(p.active),
+		ActiveOnly:      valueOf(request.Params.Active),
 		Sort:            sortField,
 		Order:           sortOrder,
 		WorkspaceFilter: workspaceFilter,
-	}, nil
+	}, dagListSource{pinnedFirst: true})
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 func (a *API) GetAllDAGLabels(ctx context.Context, request api.GetAllDAGLabelsRequestObject) (api.GetAllDAGLabelsResponseObject, error) {
@@ -2508,12 +2479,6 @@ func (a *API) GetDAGsListDataIncludingAltDirs(ctx context.Context, queryString s
 type dagListSource struct {
 	includeSearchPaths bool
 	pinnedFirst        bool
-	// skipBackfills leaves out the backfills of the DAGs, for a caller that
-	// does not read them.
-	skipBackfills bool
-	// visit, when set, is told each DAG of the page with its latest run, in
-	// page order.
-	visit func(item persis.DAGListItem, latest ir.DAGRunStatus)
 }
 
 func (a *API) getDAGsListData(ctx context.Context, queryString string, source dagListSource) (any, error) {
@@ -2648,15 +2613,10 @@ func (a *API) listDAGsDataWithSearchPaths(ctx context.Context, listOpts persis.D
 		if statusErr != nil {
 			errList = append(errList, statusErr.Error())
 		}
-		if source.visit != nil {
-			source.visit(item, dagStatus)
-		}
 		dagFiles = append(dagFiles, dagFile)
 	}
 
-	if !source.skipBackfills {
-		errList = a.attachBackfills(ctx, dagFiles, errList)
-	}
+	errList = a.attachBackfills(ctx, dagFiles, errList)
 	return api.ListDAGs200JSONResponse{
 		Dags:       dagFiles,
 		Errors:     errList,
@@ -2812,15 +2772,10 @@ func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGLi
 		if k.statusErr != nil {
 			errList = append(errList, k.statusErr.Error())
 		}
-		if source.visit != nil {
-			source.visit(item, k.dagStatus)
-		}
 		dagFiles = append(dagFiles, dagFile)
 	}
 
-	if !source.skipBackfills {
-		errList = a.attachBackfills(ctx, dagFiles, errList)
-	}
+	errList = a.attachBackfills(ctx, dagFiles, errList)
 	return api.ListDAGs200JSONResponse{
 		Dags:       dagFiles,
 		Errors:     errList,

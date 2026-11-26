@@ -8,7 +8,7 @@ import React, {
 import { writeLocalStorage } from '@/lib/local-storage-migration';
 
 export type DAGRunsViewMode = 'list' | 'grouped';
-export type Locale = 'en' | 'zh-CN' | 'ja' | 'de';
+export type Locale = 'en' | 'zh-CN' | 'ja' | 'de' | 'fr';
 
 /** Which end of a log is at the top of the viewer. */
 export type LogOrder = 'oldToNew' | 'newToOld';
@@ -67,7 +67,11 @@ function isLogOrder(value: unknown): value is LogOrder {
 
 function isLocale(value: unknown): value is Locale {
   return (
-    value === 'en' || value === 'zh-CN' || value === 'ja' || value === 'de'
+    value === 'en' ||
+    value === 'zh-CN' ||
+    value === 'ja' ||
+    value === 'de' ||
+    value === 'fr'
   );
 }
 

@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Spec 092, "Isolation": an isolated untrusted step waits for the running
+// Spec 103, "Isolation": an isolated untrusted step waits for the running
 // steps of its run, then holds the run alone. A trusted step that comes while
 // it waits or runs waits for its end.
 func TestStepGate(t *testing.T) {

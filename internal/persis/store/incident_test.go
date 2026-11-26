@@ -20,12 +20,63 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 )
 
+// newMemoryIncidentStore returns an incident store and the collection that
+// holds its providers.
 func newMemoryIncidentStore(t *testing.T) (*store.IncidentStore, persis.Collection) {
 	t.Helper()
-	col := testutil.NewMemoryBackend().Collection(persis.CollectionIncidents)
-	s, err := store.NewIncidentStore(col, newTestEncryptor(t))
+	backend := testutil.NewMemoryBackend()
+	providers := backend.Collection(persis.CollectionIncidentProviders)
+	providerStore, err := store.NewIncidentProviderStore(providers, newTestEncryptor(t))
 	require.NoError(t, err)
-	return s, col
+	s, err := store.NewIncidentStore(backend.Collection(persis.CollectionIncidents), providerStore)
+	require.NoError(t, err)
+	return s, providers
+}
+
+// Two projects' stores share the server's providers and keep their own
+// policies and incident states.
+func TestIncidentStoreSharesProvidersAcrossProjects(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	providers, err := store.NewIncidentProviderStore(
+		testutil.NewMemoryBackend().Collection(persis.CollectionIncidentProviders),
+		newTestEncryptor(t),
+	)
+	require.NoError(t, err)
+	newProjectStore := func() *store.IncidentStore {
+		s, err := store.NewIncidentStore(testutil.NewMemoryBackend().Collection(persis.CollectionIncidents), providers)
+		require.NoError(t, err)
+		return s
+	}
+	weather, billing := newProjectStore(), newProjectStore()
+
+	provider, err := incident.NormalizeProvider(&incident.Provider{
+		Name: "PagerDuty", Type: incident.ProviderPagerDuty, Enabled: true,
+		PagerDuty: &incident.PagerDutyProvider{RoutingKey: "routing-key"},
+	}, "admin")
+	require.NoError(t, err)
+	require.NoError(t, weather.SaveProvider(ctx, provider))
+	shared, err := billing.GetProvider(ctx, provider.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "PagerDuty", shared.Name)
+
+	policySet, err := incident.NormalizePolicySet(&incident.PolicySet{
+		ID: "global", Scope: incident.PolicyScopeGlobal, Enabled: true,
+	}, "admin")
+	require.NoError(t, err)
+	require.NoError(t, weather.SavePolicySet(ctx, policySet))
+	state, err := incident.NormalizeState(&incident.IncidentState{
+		ProviderID: provider.ID, PolicyID: "policy-1", DAGName: "daily", DedupKey: "dagu:daily",
+		Status: incident.IncidentStatusOpen,
+	})
+	require.NoError(t, err)
+	require.NoError(t, weather.SaveState(ctx, state))
+
+	_, err = billing.GetPolicySet(ctx, incident.PolicyScopeGlobal, "", "")
+	assert.ErrorIs(t, err, incident.ErrPolicySetNotFound)
+	open, err := billing.ListOpenStates(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, open)
 }
 
 func TestIncidentStoreEncryptsProviderSecrets(t *testing.T) {
@@ -61,7 +112,7 @@ func TestIncidentStoreEncryptsProviderSecrets(t *testing.T) {
 	require.NotNil(t, loaded.PagerDuty)
 	assert.Equal(t, "pagerduty-routing-key", loaded.PagerDuty.RoutingKey)
 
-	unencrypted, err := store.NewIncidentStore(testutil.NewMemoryBackend().Collection(persis.CollectionIncidents), nil)
+	unencrypted, err := store.NewIncidentProviderStore(testutil.NewMemoryBackend().Collection(persis.CollectionIncidentProviders), nil)
 	require.NoError(t, err)
 	assert.ErrorIs(t, unencrypted.SaveProvider(ctx, provider), incident.ErrSecretStoreMissing)
 }

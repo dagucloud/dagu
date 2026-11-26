@@ -230,7 +230,11 @@ func TestSchedulerPauseResumeRecordsTheEndedPause(t *testing.T) {
 	ctx := t.Context()
 	col := &writeCounter{Collection: testutil.NewMemoryBackend().Collection("scheduler")}
 	pauses := store.NewSchedulerPauseStore(col)
-	periods := store.NewPeriodStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), pauses)
+	periods := store.NewPeriodStore(
+		testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState),
+		testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerProcess),
+		pauses,
+	)
 
 	require.NoError(t, pauses.Set(ctx, true, "alice", "db migration"))
 	pause, err := pauses.Get(ctx)
@@ -254,7 +258,11 @@ func TestSchedulerPauseFailedResumeRecordsNothing(t *testing.T) {
 	ctx := t.Context()
 	col := &writeCounter{Collection: testutil.NewMemoryBackend().Collection("scheduler")}
 	pauses := store.NewSchedulerPauseStore(col)
-	periods := store.NewPeriodStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), pauses)
+	periods := store.NewPeriodStore(
+		testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState),
+		testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerProcess),
+		pauses,
+	)
 	require.NoError(t, pauses.Set(ctx, true, "alice", ""))
 
 	col.fail = true
@@ -273,7 +281,11 @@ func TestSchedulerPauseFailedResumeRecordsNothing(t *testing.T) {
 func TestSchedulerPauseHoldRecordsNoPeriod(t *testing.T) {
 	ctx := t.Context()
 	pauses := store.NewSchedulerPauseStore(testutil.NewMemoryBackend().Collection("scheduler"))
-	periods := store.NewPeriodStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), pauses)
+	periods := store.NewPeriodStore(
+		testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState),
+		testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerProcess),
+		pauses,
+	)
 	require.NoError(t, pauses.Set(ctx, true, "alice", ""))
 	require.NoError(t, pauses.Set(ctx, false, "", ""))
 

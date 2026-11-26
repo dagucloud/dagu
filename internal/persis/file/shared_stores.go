@@ -121,37 +121,45 @@ func NewDAGSettingsStore(cfg *config.Config, col persis.Collection) (dagsettings
 	return store.NewDAGSettingsStore(col)
 }
 
-// NewIncidentStore creates an incident store backed by col.
-func NewIncidentStore(col persis.Collection, enc *crypto.Encryptor) (incident.Store, error) {
+// NewIncidentStore creates an incident store that keeps a project's policies
+// and states in col and the server-wide providers in providers.
+func NewIncidentStore(col, providers persis.Collection, enc *crypto.Encryptor) (incident.Store, error) {
+	if err := createCollectionDirs(providers, "incident store", 0o750, "", "providers"); err != nil {
+		return nil, err
+	}
 	if err := createCollectionDirs(
 		col,
 		"incident store",
 		0o750,
 		"",
-		"providers",
 		"policies/workspaces",
 		"policies/dags",
 		"states",
 	); err != nil {
 		return nil, err
 	}
-	return store.NewIncidentStore(col, enc)
-}
-
-// NewNotificationStore creates a notification store backed by col.
-func NewNotificationStore(col persis.Collection, enc *crypto.Encryptor) (notification.Store, error) {
-	if err := createCollectionDirs(
-		col,
-		"notification store",
-		0o750,
-		"",
-		"dags",
-		"channels",
-		"routes/workspaces",
-	); err != nil {
+	providerStore, err := store.NewIncidentProviderStore(providers, enc)
+	if err != nil {
 		return nil, err
 	}
-	return store.NewNotificationStore(col, enc)
+	return store.NewIncidentStore(col, providerStore)
+}
+
+// NewNotificationStore creates a notification store that keeps a project's
+// routes in col and the server-wide channels and notification settings in
+// channels.
+func NewNotificationStore(col, channels persis.Collection, enc *crypto.Encryptor) (notification.Store, error) {
+	if err := createCollectionDirs(channels, "notification store", 0o750, "", "channels"); err != nil {
+		return nil, err
+	}
+	if err := createCollectionDirs(col, "notification store", 0o750, "", "dags", "routes/workspaces"); err != nil {
+		return nil, err
+	}
+	channelStore, err := store.NewNotificationChannelStore(channels, enc)
+	if err != nil {
+		return nil, err
+	}
+	return store.NewNotificationStore(col, channelStore, enc)
 }
 
 func NewLicenseStore(ctx context.Context, col persis.Collection) license.ActivationStore {

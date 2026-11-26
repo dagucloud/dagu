@@ -313,7 +313,11 @@ func TestDAGPeriodsFollowRenameAndDelete(t *testing.T) {
 	ctx := context.Background()
 	helper := test.Setup(t, test.WithStatusPersistence())
 	writePinTestDAGs(t, helper, "alpha")
-	periods := store.NewPeriodStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
+	periods := store.NewPeriodStore(
+		helper.Backend.Collection(persis.CollectionSchedulerState),
+		helper.Backend.Collection(persis.CollectionSchedulerProcess),
+		nil,
+	)
 	suspended := schedulerstate.Period{From: time.Now().Add(-2 * time.Hour).UTC(), To: time.Now().Add(-time.Hour).UTC()}
 	require.NoError(t, periods.AddSuspended(ctx, "alpha", suspended))
 	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithPeriodStore(periods))

@@ -318,7 +318,13 @@ func (n *Node) runCommand(ctx context.Context, cmd executor.Executor, stepTimeou
 
 		// Check if this is a timeout error
 		if stepTimeout > 0 && (errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded || elapsed >= stepTimeout) {
-			return n.handleTimeout(ctx, step, stepTimeout, elapsed)
+			exitCode, timeoutErr := n.handleTimeout(ctx, step, stepTimeout, elapsed)
+			if errors.Is(err, untrusted.ErrRunAborted) {
+				// The run still stops.
+				timeoutErr = errors.Join(timeoutErr, err)
+				n.SetError(timeoutErr)
+			}
+			return exitCode, timeoutErr
 		}
 
 		return n.handleCommandError(cmd, err)
@@ -1046,7 +1052,7 @@ func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error)
 
 	env := GetEnv(ctx)
 	// The process of an isolated untrusted step writes a file of the restricted
-	// user, which Dagu copies to path at the end of the step (Spec 092).
+	// user, which Dagu copies to path at the end of the step (Spec 103).
 	processPath := untrusted.FromContext(ctx).OutputFile(path)
 	env.Scope = env.Scope.WithEntry(runenv.EnvKeyDAGUOutputFile, processPath, cmnvalue.EnvSourceStepEnv)
 	return WithEnv(ctx, env), nil
@@ -1978,7 +1984,18 @@ func (node *Node) evalPreconditions(ctx context.Context, scripted *bool) error {
 	env := GetEnv(ctx)
 	shell := env.Shell(ctx)
 	checkCtx, stopCheck := node.watchPreconditionStop(ctx)
+	leaveGate, err := enterTrustedGate(checkCtx, node)
+	if err != nil {
+		if checkCtx.Err() != nil {
+			// A stop or a timeout that ends the wait for the gate interrupts
+			// the check, as it interrupts a running one.
+			err = fmt.Errorf("%w: %w", errConditionInterrupted, err)
+		}
+		stopCheck()
+		return err
+	}
 	results, err := evaluateConditions(checkCtx, shell, conditions, scripted)
+	leaveGate()
 	stopCheck()
 	node.SetPreconditionResults(results)
 	if err != nil {

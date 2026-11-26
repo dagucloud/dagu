@@ -1,0 +1,37 @@
+# prepare fails until the file ok-prepare exists in DIR. deploy then runs
+# deploy-one on each web node, one at a time. A node's run fails until the
+# file ok-<node> exists in DIR, and then writes the node's host to ran-<node>.
+working_dir: .
+params:
+  - DIR: ""
+steps:
+  - id: prepare
+    action: file.stat
+    with:
+      path: ${params.DIR}/ok-prepare
+  - id: deploy
+    depends: [prepare]
+    action: dag.run
+    stdout: nodes.json
+    with:
+      dag: deploy-one
+      params:
+        DIR: ${params.DIR}
+    nodes: web
+---
+name: deploy-one
+node: required
+params:
+  - DIR: ""
+steps:
+  - id: gate
+    action: file.stat
+    with:
+      path: ${params.DIR}/ok-${node.name}
+  - id: mark
+    depends: [gate]
+    action: file.write
+    with:
+      path: ${params.DIR}/ran-${node.name}
+      content: ${node.host}
+      overwrite: true

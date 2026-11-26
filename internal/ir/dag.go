@@ -235,6 +235,8 @@ type DAG struct {
 	// MaxOutputSize is the maximum size of step output to capture in bytes.
 	// Default is 1MB. Output exceeding this will return an error.
 	MaxOutputSize int `json:"maxOutputSize,omitempty"`
+	// Outputs maps result names to the step outputs they publish (Spec 106).
+	Outputs map[string]DAGOutput `json:"outputs,omitempty"`
 	// OTel contains the OpenTelemetry configuration for the DAG.
 	OTel *OTelConfig `json:"otel,omitempty"`
 	// BuildErrors contains any errors encountered while building the DAG.
@@ -441,6 +443,7 @@ func (d *DAG) Clone() *DAG {
 	if d.Consts != nil {
 		clone.Consts = maps.Clone(d.Consts)
 	}
+	clone.Outputs = maps.Clone(d.Outputs)
 	if d.Artifacts != nil {
 		artifactsCopy := *d.Artifacts
 		clone.Artifacts = &artifactsCopy

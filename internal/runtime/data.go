@@ -73,6 +73,9 @@ type NodeState struct {
 	// SkippedByNodeList marks a step with nodes that the run's node list
 	// left with no node. It does not block downstream steps either.
 	SkippedByNodeList bool
+	// RetryNodeRunsDir is the directory of the node run records whose nodes
+	// a retry of a step with nodes keeps.
+	RetryNodeRunsDir string
 	// Error is the error that the executor encountered.
 	Error error
 	// PreconditionResults records the latest precondition evaluation.
@@ -883,7 +886,8 @@ func (d *Data) ClearState(s ir.Step) {
 // clearStateForRetry resets the step for another execution but keeps its
 // push-back context. A retry re-runs the step within the same push-back cycle,
 // so the reviewer feedback still applies. What the earlier attempts spent on
-// models stays, as the run still spent it.
+// models stays, as the run still spent it, and a step with nodes keeps the
+// records of the nodes it ran on.
 func (d *Data) clearStateForRetry(s ir.Step) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -895,6 +899,7 @@ func (d *Data) clearStateForRetry(s ir.Step) {
 		PushBackHistory:        previous.PushBackHistory,
 		PushBackPreviousStdout: previous.PushBackPreviousStdout,
 		ModelUsage:             previous.ModelUsage,
+		RetryNodeRunsDir:       nodeRunsToRetry(d.inner.Step, previous),
 	}
 	d.inner.Step = s
 }

@@ -25,7 +25,12 @@ import (
 )
 
 func newPeriodStore() *store.PeriodStore {
-	return store.NewPeriodStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), nil)
+	return newPeriodStoreOn(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState))
+}
+
+// newPeriodStoreOn returns a period store that keeps DAG records in col.
+func newPeriodStoreOn(col persis.Collection) *store.PeriodStore {
+	return store.NewPeriodStore(col, testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerProcess), nil)
 }
 
 // periodAt is an hour of a day counted from 25 days ago, inside the 30 days
@@ -40,8 +45,13 @@ func periodAt(day, hour int) time.Time {
 func TestPeriodStoreGivesThePeriodsOfADAG(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	pauses := store.NewSchedulerPauseStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState))
-	s := store.NewPeriodStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), pauses)
+	backend := testutil.NewMemoryBackend()
+	pauses := store.NewSchedulerPauseStore(backend.Collection(persis.CollectionSchedulerProcess))
+	s := store.NewPeriodStore(
+		backend.Collection(persis.CollectionSchedulerState),
+		backend.Collection(persis.CollectionSchedulerProcess),
+		pauses,
+	)
 	require.NoError(t, pauses.Set(ctx, true, "alice", ""))
 	require.NoError(t, pauses.Set(ctx, false, "", ""))
 
@@ -57,6 +67,31 @@ func TestPeriodStoreGivesThePeriodsOfADAG(t *testing.T) {
 		{From: periodAt(2, 9), To: periodAt(2, 11), Reason: schedulerstate.PeriodDown},
 	}, periods[:2])
 	assert.Equal(t, schedulerstate.PeriodPaused, periods[2].Reason)
+}
+
+// Two projects' period stores share the scheduler's outages and the
+// operator's pauses, and each keeps its DAGs' suspensions to itself.
+func TestPeriodStoreSharesProcessPeriodsAcrossProjects(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	process := testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerProcess)
+	pauses := store.NewSchedulerPauseStore(process)
+	newProjectStore := func() *store.PeriodStore {
+		return store.NewPeriodStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), process, pauses)
+	}
+	weather, billing := newProjectStore(), newProjectStore()
+
+	down := schedulerstate.Period{From: periodAt(1, 0), To: periodAt(1, 1)}
+	require.NoError(t, weather.AddDown(ctx, down))
+	require.NoError(t, weather.AddSuspended(ctx, "etl", schedulerstate.Period{From: periodAt(1, 9), To: periodAt(1, 10)}))
+	require.NoError(t, pauses.Set(ctx, true, "alice", ""))
+	require.NoError(t, pauses.Set(ctx, false, "", ""))
+
+	periods, _, err := billing.Ended(ctx, "etl")
+	require.NoError(t, err)
+	require.Len(t, periods, 2)
+	assert.Equal(t, schedulerstate.Period{From: down.From, To: down.To, Reason: schedulerstate.PeriodDown}, periods[0])
+	assert.Equal(t, schedulerstate.PeriodPaused, periods[1].Reason)
 }
 
 // Periods with the same bounds come in one order on every read: outages,
@@ -85,7 +120,7 @@ func TestPeriodStoreGivesPeriodsInOneOrder(t *testing.T) {
 func TestPeriodStoreRecordsAPeriodOnce(t *testing.T) {
 	t.Parallel()
 	col := &swapCounter{Collection: testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState)}
-	s := store.NewPeriodStore(col, nil)
+	s := newPeriodStoreOn(col)
 	ctx := t.Context()
 
 	require.NoError(t, s.AddSuspended(ctx, "etl", schedulerstate.Period{From: periodAt(1, 9), To: periodAt(1, 10)}))
@@ -165,7 +200,7 @@ func (c *swapCounter) CompareAndSwap(ctx context.Context, id string, expected, n
 // that a host reserves, or as names that normalize alike.
 func TestPeriodStoreKeepsARecordPerDAGName(t *testing.T) {
 	t.Parallel()
-	s := store.NewPeriodStore(file.NewCollection(t.TempDir()), nil)
+	s := newPeriodStoreOn(file.NewCollection(t.TempDir()))
 	ctx := t.Context()
 	names := []string{"CON", "nul", "-", "etl."}
 	for i, name := range names {
@@ -186,9 +221,16 @@ func TestPeriodStoreKeepsARecordPerDAGName(t *testing.T) {
 func TestPeriodStoreSharesPeriodsThroughFiles(t *testing.T) {
 	t.Parallel()
 	paths := config.PathsConfig{DataDir: t.TempDir()}
-	pauses := store.NewSchedulerPauseStore(file.NewBackend(paths).Collection(persis.CollectionSchedulerState))
-	writer := store.NewPeriodStore(file.NewBackend(paths).Collection(persis.CollectionSchedulerState), pauses)
-	reader := store.NewPeriodStore(file.NewBackend(paths).Collection(persis.CollectionSchedulerState), pauses)
+	pauses := store.NewSchedulerPauseStore(file.NewBackend(paths).Collection(persis.CollectionSchedulerProcess))
+	open := func() *store.PeriodStore {
+		backend := file.NewBackend(paths)
+		return store.NewPeriodStore(
+			backend.Collection(persis.CollectionSchedulerState),
+			backend.Collection(persis.CollectionSchedulerProcess),
+			pauses,
+		)
+	}
+	writer, reader := open(), open()
 	ctx := t.Context()
 
 	down := schedulerstate.Period{From: periodAt(1, 0), To: periodAt(1, 1)}
@@ -234,7 +276,7 @@ func TestPeriodStoreReadsReleasedRecords(t *testing.T) {
 			path := filepath.Join(file.SchedulerStateDir(paths), filepath.FromSlash(rel))
 			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
 			require.NoError(t, os.WriteFile(path, data, 0o600))
-			s := store.NewPeriodStore(file.NewBackend(paths).Collection(persis.CollectionSchedulerState), nil)
+			s := newPeriodStoreOn(file.NewBackend(paths).Collection(persis.CollectionSchedulerState))
 
 			periods, _, err := s.Ended(t.Context(), dag)
 			require.NoError(t, err)
@@ -249,7 +291,7 @@ func TestPeriodStoreReadsReleasedRecords(t *testing.T) {
 func TestPeriodStoreKeepsTheLaterDismissal(t *testing.T) {
 	t.Parallel()
 	col := &swapCounter{Collection: testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState)}
-	s := store.NewPeriodStore(col, nil)
+	s := newPeriodStoreOn(col)
 	ctx := t.Context()
 	dismissed := func() schedulerstate.Dismissal {
 		t.Helper()

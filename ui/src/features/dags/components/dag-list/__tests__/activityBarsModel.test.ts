@@ -10,6 +10,7 @@ import {
   ACTIVITY_HEIGHT_PX,
   ACTIVITY_WIDTH_PX,
   activityBars,
+  runsInWindow,
   type ActivityRun,
 } from '../activityBarsModel';
 
@@ -88,6 +89,23 @@ describe('activityBarsModel', () => {
     expect(bar?.left).toBe(0);
   });
 
+  // The activity of a later list page is read once, so its runs age past the
+  // window while the strip moves on.
+  it('leaves out a finished run that started before the window', () => {
+    const runs = [
+      run('recent', HOUR, 1000),
+      run('expired', 24 * HOUR + 60_000, 1000),
+      run('long', 30 * HOUR, 0, {
+        status: Status.Running,
+        finishedAt: undefined,
+      }),
+    ];
+    expect(runsInWindow(runs, NOW).map((r) => r.dagRunId)).toEqual([
+      'recent',
+      'long',
+    ]);
+  });
+
   it('gives the longest run the whole strip and no run less than the minimum', () => {
     const bars = activityBars(
       [run('quick', HOUR, 1), run('slow', 2 * HOUR, 60_000)],
@@ -95,21 +113,6 @@ describe('activityBarsModel', () => {
     );
     expect(bars[1]?.height).toBe(ACTIVITY_HEIGHT_PX);
     expect(bars[0]?.height).toBe(ACTIVITY_BAR_MIN_PX);
-  });
-
-  it('counts the cached time in the height and shows it as a foot', () => {
-    const [own, cached] = activityBars(
-      [
-        run('own', HOUR, 10_000),
-        run('cached', 2 * HOUR, 1_000, { cachedMs: 9_000 }),
-      ],
-      NOW
-    );
-    expect(own?.cachedPx).toBe(0);
-    expect(cached?.cached).toBe(9_000);
-    expect(cached?.cachedPx).toBeGreaterThan(0);
-    // 1 s own + 9 s cached stands as tall as 10 s of own time.
-    expect(cached?.height).toBe(own?.height);
   });
 
   it('draws a running run up to now', () => {
@@ -122,7 +125,7 @@ describe('activityBarsModel', () => {
       ],
       NOW
     );
-    expect(bar?.own).toBe(5 * 60_000);
+    expect(bar?.durationMs).toBe(5 * 60_000);
     expect(bar?.tone).toBe('running');
   });
 
@@ -136,8 +139,8 @@ describe('activityBarsModel', () => {
     const runs = Array.from({ length: 60 }, (_, i) =>
       run(`r${i}`, i * 10 * 60_000, 1_000)
     );
-    const narrow = activityBars(runs, NOW, undefined, 196);
-    const wide = activityBars(runs, NOW, undefined, 490);
+    const narrow = activityBars(runs, NOW, 196);
+    const wide = activityBars(runs, NOW, 490);
     expect(wide.length).toBeGreaterThan(narrow.length);
     const last = wide.reduce((a, b) => (b.left > a.left ? b : a));
     expect(last.left + ACTIVITY_BAR_PX).toBeLessThanOrEqual(490);

@@ -157,11 +157,10 @@ type PublicSolarWindsProvider struct {
 	AllowPrivateNetwork  bool   `json:"allowPrivateNetwork"`
 }
 
+// Store keeps a project's incident policies and incident states, and reaches
+// the server-wide providers through its ProviderStore.
 type Store interface {
-	SaveProvider(ctx context.Context, provider *Provider) error
-	GetProvider(ctx context.Context, providerID string) (*Provider, error)
-	ListProviders(ctx context.Context) ([]*Provider, error)
-	DeleteProvider(ctx context.Context, providerID string) error
+	ProviderStore
 
 	SavePolicySet(ctx context.Context, policySet *PolicySet) error
 	GetPolicySet(ctx context.Context, scope PolicyScope, workspace, dagName string) (*PolicySet, error)
@@ -172,6 +171,14 @@ type Store interface {
 	GetState(ctx context.Context, providerID, dedupKey string) (*IncidentState, error)
 	ListOpenStates(ctx context.Context) ([]*IncidentState, error)
 	DeleteState(ctx context.Context, providerID, dedupKey string) error
+}
+
+// ProviderStore keeps the incident providers that every project shares.
+type ProviderStore interface {
+	SaveProvider(ctx context.Context, provider *Provider) error
+	GetProvider(ctx context.Context, providerID string) (*Provider, error)
+	ListProviders(ctx context.Context) ([]*Provider, error)
+	DeleteProvider(ctx context.Context, providerID string) error
 }
 
 func NormalizeProvider(provider *Provider, updatedBy string) (*Provider, error) {

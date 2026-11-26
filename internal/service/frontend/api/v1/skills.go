@@ -23,8 +23,7 @@ import (
 )
 
 // Spec 096: the skills of the DAGs directory. The folder skills/<name>/ is the
-// only source of truth. Every call reads the disk, and every write carries the
-// hash that the client read.
+// only source of truth. Every call reads the disk.
 
 var (
 	errSkillNotFound = &Error{
@@ -68,16 +67,30 @@ func (a *API) skillStore() *skill.Store { return skill.NewStore(a.skillsDir()) }
 // ListSkills lists the skill folders of the DAGs directory, sorted by name. The
 // list holds the skills that break the format too, with their errors.
 func (a *API) ListSkills(ctx context.Context, _ api.ListSkillsRequestObject) (api.ListSkillsResponseObject, error) {
-	skills, err := a.skillStore().List()
+	store := a.skillStore()
+	names, truncated, err := store.Names()
 	if err != nil {
 		logger.Error(ctx, "Failed to list skills", tag.Dir(a.skillsDir()), tag.Error(err))
 		return nil, errFailedToReadSkill
 	}
-	out := make([]api.SkillSummary, 0, len(skills))
-	for _, sk := range skills {
+	// One skill at a time is read and dropped, so the request holds the text
+	// of one skill at most.
+	out := make([]api.SkillSummary, 0, len(names))
+	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		sk, err := skill.Read(store.Dir(name))
+		if errors.Is(err, skill.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			logger.Error(ctx, "Failed to read skill", tag.Dir(store.Dir(name)), tag.Error(err))
+			return nil, errFailedToReadSkill
+		}
 		out = append(out, toSkillSummary(sk))
 	}
-	return api.ListSkills200JSONResponse{Skills: out}, nil
+	return api.ListSkills200JSONResponse{Skills: out, Truncated: truncated}, nil
 }
 
 // GetSkill returns the raw SKILL.md, the hash, the files and the issues of a skill.

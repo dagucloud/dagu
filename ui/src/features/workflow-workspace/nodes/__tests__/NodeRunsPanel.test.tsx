@@ -60,6 +60,7 @@ const counts = (over: Partial<NodeRunCounts>): NodeRunCounts => ({
   failed: 0,
   aborted: 0,
   disabled: 0,
+  removed: 0,
   ...over,
 });
 
@@ -204,6 +205,21 @@ describe('NodeRunsPanel', () => {
     expect(within(row).getByText('5s')).toBeInTheDocument();
   });
 
+  it('shows a node that left the inventory before a retry as removed', () => {
+    api.list = {
+      ...list,
+      items: [
+        {
+          node: 'web04',
+          runs: [{ step: 'deploy', status: NodeRunStatus.removed }],
+        },
+      ],
+    };
+    renderPanel(details());
+
+    expect(screen.getByText('Removed')).toBeInTheDocument();
+  });
+
   it('opens the child run of a cell on the sub-run stack', () => {
     const { open } = renderPanel(details());
 
@@ -226,7 +242,7 @@ describe('NodeRunsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Failed only' }));
 
-    expect(api.calls.at(-1)?.query).toMatchObject({
+    expect(api.calls[api.calls.length - 1]?.query).toMatchObject({
       failedOnly: true,
       page: 1,
     });
@@ -316,7 +332,7 @@ describe('NodeRunsPanel', () => {
     api.list = pages(3);
     const { rerender } = renderPanel(details());
     fireEvent.click(screen.getByRole('button', { name: /Page 3/ }));
-    expect(api.calls.at(-1)?.query).toMatchObject({ page: 3 });
+    expect(api.calls[api.calls.length - 1]?.query).toMatchObject({ page: 3 });
 
     api.list = pages(1);
     rerender(
@@ -324,7 +340,7 @@ describe('NodeRunsPanel', () => {
         <NodeRunsPanel details={details()} />
       </SubRunOpenProvider>
     );
-    expect(api.calls.at(-1)?.query).toMatchObject({ page: 1 });
+    expect(api.calls[api.calls.length - 1]?.query).toMatchObject({ page: 1 });
   });
 
   it('says when the run recorded no node runs', () => {

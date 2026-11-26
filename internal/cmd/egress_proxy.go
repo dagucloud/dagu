@@ -165,8 +165,8 @@ func egressProxyServe(listen listenFunc) *cobra.Command {
 	return command
 }
 
-// maxUpstreamKeyBytes bounds the size of the key file.
-const maxUpstreamKeyBytes = 16 * 1024
+// maxSecretFileBytes bounds the size of a file that holds a secret.
+const maxSecretFileBytes = 16 * 1024
 
 // readUpstream reads the options of the upstream. It returns nil when the command
 // has no --upstream. It reads the key one time. No error holds the key.
@@ -288,7 +288,7 @@ func readSecretOption(cmd *cobra.Command, owner, envFlag, fileFlag string) (valu
 	return text, fileFlag, nil
 }
 
-// readKeyFile reads at most maxUpstreamKeyBytes. The error names the path and
+// readKeyFile reads at most maxSecretFileBytes. The error names the path and
 // never holds the content.
 func readKeyFile(path string) ([]byte, error) {
 	file, err := os.Open(path) // #nosec G304 -- the operator names the path of the key.
@@ -296,12 +296,12 @@ func readKeyFile(path string) ([]byte, error) {
 		return nil, fmt.Errorf("cannot read %q: %w", path, err)
 	}
 	defer func() { _ = file.Close() }()
-	data, err := io.ReadAll(io.LimitReader(file, maxUpstreamKeyBytes+1))
+	data, err := io.ReadAll(io.LimitReader(file, maxSecretFileBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("cannot read %q: %w", path, err)
 	}
-	if len(data) > maxUpstreamKeyBytes {
-		return nil, fmt.Errorf("the file %q is larger than %d bytes", path, maxUpstreamKeyBytes)
+	if len(data) > maxSecretFileBytes {
+		return nil, fmt.Errorf("the file %q is larger than %d bytes", path, maxSecretFileBytes)
 	}
 	return data, nil
 }

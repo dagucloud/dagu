@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Status, type components } from '@/api/v1/schema';
-import { CACHED_WASH } from '@/features/workflow-workspace/dock/runTimelineModel';
+import type { components } from '@/api/v1/schema';
 import { useClock } from '@/hooks/useClock';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
@@ -12,26 +11,24 @@ import { runStatusText } from '@/lib/status-utils';
 import { toneClasses } from '@/lib/statusPalette';
 import { cn } from '@/lib/utils';
 import {
-  ACTIVITY_BAND_PX,
   ACTIVITY_BAR_PX,
   ACTIVITY_HEIGHT_PX,
   ACTIVITY_WIDTH_PX,
   activityBars,
+  runsInWindow,
   type ActivityBar,
 } from './activityBarsModel';
 
 type Activity = components['schemas']['DAGListActivity'];
 
-// The bars stand again at each minute: a pixel of the strip is 13 minutes.
+// The bars move once a minute: a pixel of a 196 px strip spans about 7
+// minutes of the 24 hours.
 const REFRESH_MS = 60_000;
+/** The height of the strip: its bars and the axis under them. */
+const STRIP_HEIGHT_PX = ACTIVITY_HEIGHT_PX + 1;
 
 interface ActivityBarsProps {
   activity?: Activity;
-  /**
-   * The workflow is a heartbeat that runs well: its run is a band from its
-   * start to now, not a bar, since it has no end and no length to tell.
-   */
-  healthy?: boolean;
   /**
    * The strip fills the width of its cell and holds as many bars as fit, so
    * that the cell takes the changes of the width of the page. Without it, the
@@ -45,14 +42,13 @@ interface ActivityBarsProps {
 
 /**
  * The runs of a workflow in the last 24 hours as one thin vertical bar for
- * each run, at the time that it started. The height of a bar is the total
- * time of its run, with the cached time as a pale foot, as in the timeline of
- * the workflow page. The strip is cheap on purpose: a list shows hundreds of
- * them, so a bar is a plain element with a native tooltip.
+ * each run, at the time that it started. The height of a bar is the time of
+ * its run, as in the timeline of the workflow page. The strip is cheap on
+ * purpose: a list shows hundreds of them, so a bar is a plain element with a
+ * native tooltip.
  */
 function ActivityBars({
   activity,
-  healthy = false,
   fluid = false,
   onOpenRun,
   className,
@@ -66,7 +62,8 @@ function ActivityBars({
   const present = activity !== undefined;
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!fluid || !el) return;
+    // A strip without activity draws nothing and needs no width.
+    if (!fluid || !present || !el) return;
     const width = Math.floor(el.getBoundingClientRect().width);
     if (width > 0) setMeasured(width);
     if (typeof ResizeObserver === 'undefined') {
@@ -86,22 +83,39 @@ function ActivityBars({
   const minute = useClock(activity?.runs.length ? REFRESH_MS : null, (now) =>
     Math.floor(now / REFRESH_MS)
   );
-  const runs = activity?.runs;
+  const runs = useMemo(
+    () =>
+      activity ? runsInWindow(activity.runs, minute * REFRESH_MS) : undefined,
+    [activity, minute]
+  );
   const bars = useMemo(
     () =>
-      runs ? activityBars(runs, minute * REFRESH_MS, undefined, width) : [],
-    [runs, minute, width]
+      runs
+        ? activityBars(runs, minute * REFRESH_MS, width).map((bar) => ({
+            ...bar,
+            title: barTitle(bar, ts),
+          }))
+        : [],
+    [runs, minute, width, ts]
   );
-  if (!activity) {
+  if (!activity || !runs) {
+    // Until the activity arrives, the strip keeps its room and draws nothing:
+    // the layout does not move when it arrives, and a bare axis would read as
+    // no runs.
     return (
       <div
         ref={ref}
-        style={fluid ? undefined : { width: ACTIVITY_WIDTH_PX }}
+        aria-hidden="true"
+        data-testid="dag-activity-pending"
+        style={{
+          width: fluid ? undefined : ACTIVITY_WIDTH_PX,
+          height: STRIP_HEIGHT_PX,
+        }}
         className={cn(fluid && 'min-w-0 flex-1', className)}
       />
     );
   }
-  const count = activity.runs.length;
+  const count = runs.length;
   const summary = activity.truncated
     ? ts('{count}+ runs in the last 24 hours', { count })
     : count === 0
@@ -119,7 +133,7 @@ function ActivityBars({
       ref={ref}
       style={{
         width: fluid ? undefined : ACTIVITY_WIDTH_PX,
-        height: ACTIVITY_HEIGHT_PX + 1,
+        height: STRIP_HEIGHT_PX,
       }}
       className={cn(
         'relative',
@@ -145,8 +159,7 @@ function ActivityBars({
             <Bar
               key={bar.id}
               bar={bar}
-              band={healthy && bar.status === Status.Running}
-              title={barTitle(bar, ts)}
+              title={bar.title}
               onOpenRun={onOpenRun}
             />
           ))}
@@ -160,54 +173,20 @@ function barTitle(bar: ActivityBar, ts: ReturnType<typeof useI18n>['ts']) {
   const parts = [
     formatAbsoluteTime(bar.startedAt),
     ts(runStatusText(bar.status)),
-    bar.cached > 0
-      ? ts('Total {total} = own {own} + cached {cached}', {
-          total: formatDurationMs(bar.own + bar.cached),
-          own: formatDurationMs(bar.own),
-          cached: formatDurationMs(bar.cached),
-        })
-      : formatDurationMs(bar.own),
+    formatDurationMs(bar.durationMs),
   ];
   return parts.filter(Boolean).join(' · ');
 }
 
 function Bar({
   bar,
-  band,
   title,
   onOpenRun,
 }: {
   bar: ActivityBar;
-  /** Drawn as the band of a heartbeat, from its start to the end of the strip. */
-  band: boolean;
   title: string;
   onOpenRun?(runId: string, event: React.MouseEvent): void;
 }) {
-  const { ts } = useI18n();
-  if (band) {
-    return (
-      <span
-        title={`${ts('Healthy')} · ${formatAbsoluteTime(bar.startedAt) ?? ''}`}
-        data-run-id={bar.id}
-        data-tone="success"
-        data-band="true"
-        onClick={
-          onOpenRun
-            ? (event) => {
-                event.stopPropagation();
-                onOpenRun(bar.id, event);
-              }
-            : undefined
-        }
-        style={{ left: bar.left, right: 0, height: ACTIVITY_BAND_PX }}
-        className={cn(
-          'absolute bottom-px block rounded-sm opacity-60 hover:opacity-100',
-          toneClasses('success').dot,
-          onOpenRun && 'cursor-pointer'
-        )}
-      />
-    );
-  }
   return (
     <span
       title={title}
@@ -235,18 +214,7 @@ function Bar({
         bar.tone !== 'partial' && toneClasses(bar.tone).dot,
         onOpenRun && 'cursor-pointer'
       )}
-    >
-      {bar.cachedPx > 0 && (
-        <span
-          aria-hidden="true"
-          style={{
-            height: bar.cachedPx,
-            backgroundColor: CACHED_WASH,
-          }}
-          className="absolute inset-x-0 bottom-0 block"
-        />
-      )}
-    </span>
+    />
   );
 }
 

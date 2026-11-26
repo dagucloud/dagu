@@ -256,4 +256,68 @@ export const inventoryMessages = defineMessages({
     'The node is no longer in its inventory.':
       'Der Knoten ist nicht mehr in seinem Inventar.',
   },
+  fr: {
+    Inventories: 'Inventaires',
+    'New inventory': 'Nouvel inventaire',
+    'Edit inventory': 'Modifier l’inventaire',
+    'Edit JSON': 'Modifier le JSON',
+    'Delete inventory': 'Supprimer l’inventaire',
+    'Delete {name} and its {count} nodes? Their trusted host keys are forgotten, and steps no longer match them.':
+      'Supprimer {name} et ses nœuds ({count})\u00a0? Leurs clés d’hôte de confiance seront oubliées et les étapes ne les sélectionneront plus.',
+    "Couldn't read the inventory.": 'Impossible de lire l’inventaire.',
+    'Defaults fill the fields a node leaves unset. Credentials are key paths and secret refs, never values.':
+      'Les valeurs par défaut complètent les champs qu’un nœud ne définit pas. Les identifiants sont des chemins de clé et des références de secrets, jamais des valeurs.',
+    'Default user': 'Utilisateur par défaut',
+    'Default port': 'Port par défaut',
+    'Default labels': 'Étiquettes par défaut',
+    'Refuse host keys that are neither pinned nor trusted':
+      'Refuser les clés d’hôte qui ne sont ni épinglées ni de confiance',
+    'The default port must be a whole number.':
+      'Le port par défaut doit être un nombre entier.',
+    'Give a key file or a key secret, not both.':
+      'Indiquez un fichier de clé ou un secret de clé, pas les deux.',
+    'Someone changed this inventory after you opened it. Load it as it is now, then make your change again.':
+      'Quelqu’un a modifié cet inventaire après que vous l’avez ouvert. Chargez-le dans son état actuel, puis refaites votre modification.',
+    'Load current version': 'Charger la version actuelle',
+    'Edit {name} as JSON': 'Modifier {name} en JSON',
+    'The record that dagu nodes export prints. Removing or renaming a node forgets its trusted host key.':
+      'L’enregistrement affiché par dagu nodes export. Supprimer ou renommer un nœud efface sa clé d’hôte de confiance.',
+    'Inventory JSON': 'JSON de l’inventaire',
+    'The text is not valid JSON.': 'Le texte n’est pas un JSON valide.',
+    'An inventory is one JSON object.':
+      'Un inventaire est un objet JSON unique.',
+    'The server tests the connection before the node is added. An unknown host key is trusted only once the node is added.':
+      'Le serveur teste la connexion avant d’ajouter le nœud. Une clé d’hôte inconnue n’est enregistrée comme clé de confiance qu’une fois le nœud ajouté.',
+    'The host key of {hop} {node} is unknown: {fingerprint}':
+      'Clé d’hôte inconnue pour {node} ({hop})\u00a0: {fingerprint}',
+    'Trust this key and test again': 'Faire confiance à cette clé et retester',
+    'Add without testing': 'Ajouter sans tester',
+    'The port must be a whole number.': 'Le port doit être un nombre entier.',
+    'Adding...': 'Ajout…',
+    Import: 'Importer',
+    Export: 'Exporter',
+    Check: 'Vérifier',
+    'Import inventories': 'Importer des inventaires',
+    'Paste the JSON that dagu nodes export prints, or choose a file. The import is checked before it is stored.':
+      'Collez le JSON affiché par dagu nodes export, ou choisissez un fichier. L’importation est vérifiée avant d’être enregistrée.',
+    'Inventories JSON': 'JSON des inventaires',
+    'Choose file': 'Choisir un fichier',
+    'Replace inventories with the same name':
+      'Remplacer les inventaires de même nom',
+    'Nothing to import.': 'Rien à importer.',
+    'Would create: {names}': 'À créer\u00a0: {names}',
+    'Would replace: {names}': 'À remplacer\u00a0: {names}',
+    'An import is a JSON array of inventories, as dagu nodes export prints it.':
+      'Une importation est un tableau JSON d’inventaires, tel qu’affiché par dagu nodes export.',
+    'Edit node': 'Modifier le nœud',
+    'Node labels': 'Étiquettes du nœud',
+    "The inventory's default labels are added to these.":
+      'Les étiquettes par défaut de l’inventaire s’y ajoutent.',
+    'Save labels': 'Enregistrer les étiquettes',
+    'Remove node': 'Supprimer le nœud',
+    'Remove {name} from {inventory}? Its trusted host key is forgotten, and steps no longer run on it.':
+      'Supprimer {name} de l’inventaire {inventory}\u00a0? Sa clé d’hôte de confiance sera oubliée et les étapes ne s’y exécuteront plus.',
+    'The node is no longer in its inventory.':
+      'Le nœud ne fait plus partie de son inventaire.',
+  },
 });

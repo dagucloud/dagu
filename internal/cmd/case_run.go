@@ -96,6 +96,9 @@ type testCase struct {
 	// streamStarts maps a step log file to where the latest execution that
 	// wrote it starts, as the attempt that ran the execution recorded it.
 	streamStarts map[string]int64
+	// scripts scripts the steps of every attempt of the run and records
+	// what each execution was called with. It is set when the run starts.
+	scripts *stepmock.Set
 }
 
 // openCase creates a case directory and the stores rooted in it. The case
@@ -153,7 +156,8 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 	if err := ctx.DAGRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
 		return nil, err
 	}
-	scripts := c.scripts()
+	scripts := c.newScripts()
+	c.scripts = scripts
 	opts := runOptions{
 		root:           ir.NewDAGRunRef(dag.Name, dagRunID),
 		workerID:       "local",
@@ -314,11 +318,11 @@ func (c *testCase) latestStatus(ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
 	return attempt.ReadStatus(c.ctx)
 }
 
-// scripts returns the set that scripts the case's steps and handlers. A step
-// in real keeps its action and repeats as written. Every attempt of the run
-// shares the set, so the results of a step keep counting after a resume or
-// a retry.
-func (c *testCase) scripts() *stepmock.Set {
+// newScripts returns the set that scripts the case's steps and handlers. A
+// step in real keeps its action and repeats as written. Every attempt of the
+// run shares the set, so the results of a step keep counting after a resume
+// or a retry.
+func (c *testCase) newScripts() *stepmock.Set {
 	steps := make(map[string]stepmock.Step, len(c.opts.mocks)+len(c.opts.real))
 	maps.Copy(steps, c.opts.mocks)
 	for _, name := range c.opts.real {
@@ -543,11 +547,12 @@ func (c *testCase) close() error {
 func (c *Context) inCaseDir(dir string) (*Context, error) {
 	cfg := *c.Config
 	cfg.Paths = casePaths(c.Config.Paths, dir)
-	backend := file.NewBackend(cfg.Paths)
-	persistence, err := newFilePersistence(c.Context, &cfg, backend, filePersistenceOptions{})
+	server := file.NewServerStores(&cfg)
+	stores, err := openDefaultProject(c.Context, &cfg, server, file.ProjectStoreOptions{})
 	if err != nil {
 		return nil, err
 	}
+	persistence := newPersistence(server, stores)
 
 	clone := *c
 	clone.Context = config.WithConfig(c.Context, &cfg)
@@ -556,7 +561,10 @@ func (c *Context) inCaseDir(dir string) (*Context, error) {
 	clone.Quiet = true
 	clone.Persistence = persistence
 	clone.DAGRunMgr = runtime.NewManager(persistence.DAGRunRepository, persistence.ProcRepository, &cfg)
-	clone.backend = backend
+	clone.backend = file.NewBackend(cfg.Paths)
+	clone.serverStores = server
+	clone.projectStores = stores
+	clone.settings = stores.ProjectSettings
 	clone.Caches = nil
 	clone.Proc = nil
 	if c.event == nil {

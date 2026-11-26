@@ -60,7 +60,7 @@ func NewUpdate(f *File) (*Update, error) {
 	if len(doc.Content) == 0 {
 		return nil, fmt.Errorf("%s holds no test file", f.Path)
 	}
-	decoded, errs := decodeFile(f.data)
+	decoded, errs := decodeFile(f.Path, f.data)
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("%s: %s", f.Path, joinFindings(errs))
 	}
@@ -109,7 +109,7 @@ func (u *Update) Set(name string, expect Expect) (bool, error) {
 func (u *Update) accept(i int, expect Expect, edits []textEdit) error {
 	all := append(slices.Clone(u.edits), edits...)
 	text := u.text.apply(slices.Clone(all))
-	decoded, errs := decodeFile(text)
+	decoded, errs := decodeFile(u.file.Path, text)
 	if len(errs) > 0 || len(decoded.cases) != len(u.decoded.cases) {
 		return errNotInPlace
 	}
@@ -314,6 +314,27 @@ func (ed *expectEditor) step(at *slot, written, s StepExpect) {
 	outputs := at.child("outputs")
 	for i, o := range s.Outputs {
 		ed.value(outputs.child(o.Name), written.Outputs[i].Value, o.Value)
+	}
+	if s.CalledWith != nil {
+		ed.call(at.child("called_with"), *written.CalledWith, *s.CalledWith)
+	}
+}
+
+// call changes the called_with entry at from written to c. A run given as
+// contains and matches keeps its map.
+func (ed *expectEditor) call(at *slot, written, c CallExpect) {
+	if c.Run != nil && c.Run.Text != nil && *c.Run.Text != *written.Run.Text {
+		ed.set(at.child("run"), *c.Run.Text)
+	}
+	with := at.child("with")
+	for i, in := range c.With {
+		ed.value(with.child(in.Name), written.With[i].Value, in.Value)
+	}
+	env := at.child("env")
+	for i, e := range c.Env {
+		if e.Value != written.Env[i].Value {
+			ed.set(env.child(e.Name), e.Value)
+		}
 	}
 }
 

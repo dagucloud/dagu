@@ -316,6 +316,106 @@ describe('DAGRunActions', () => {
     expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
   });
 
+  it('disables Retry on a terminal run that cannot be retried', () => {
+    render(
+      <DAGRunActions
+        dagRun={{
+          ...runningRun,
+          status: Status.Failed,
+          statusLabel: StatusLabel.failed,
+          retryDisabled: true,
+        }}
+        name="etl"
+        displayMode="full"
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled();
+  });
+
+  describe('the nodes a retry runs again', () => {
+    const noNodeRuns = {
+      total: 0,
+      notStarted: 0,
+      running: 0,
+      waiting: 0,
+      succeeded: 0,
+      failed: 0,
+      aborted: 0,
+      disabled: 0,
+      removed: 0,
+    };
+
+    const openRetry = (
+      steps: { status: NodeStatus; nodeRuns: Partial<typeof noNodeRuns> }[]
+    ) => {
+      render(
+        <DAGRunActions
+          dagRun={
+            {
+              ...runningRun,
+              status: Status.Failed,
+              statusLabel: StatusLabel.failed,
+              nodes: steps.map(({ status, nodeRuns }, i) => ({
+                step: { name: `step${i}` },
+                status,
+                nodeRuns: { ...noNodeRuns, ...nodeRuns },
+              })),
+            } as unknown as ComponentProps<typeof DAGRunActions>['dagRun']
+          }
+          name="etl"
+          displayMode="full"
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      return within(screen.getByRole('dialog'));
+    };
+
+    // A retry runs a step with nodes again only on its nodes that failed,
+    // were aborted, or did not start. A step marked successful despite a
+    // failed node does not run again, so its nodes do not count.
+    it('counts the nodes of the steps that run again', () => {
+      const dialog = openRetry([
+        {
+          status: NodeStatus.Failed,
+          nodeRuns: {
+            total: 5,
+            notStarted: 1,
+            succeeded: 1,
+            failed: 1,
+            aborted: 1,
+            removed: 1,
+          },
+        },
+        {
+          status: NodeStatus.Success,
+          nodeRuns: { total: 2, succeeded: 1, failed: 1 },
+        },
+      ]);
+
+      expect(
+        dialog.getByText(
+          'The 3 nodes that did not succeed run again, and nodes that succeeded keep their results.'
+        )
+      ).toBeInTheDocument();
+    });
+
+    it('names one node in the singular', () => {
+      const dialog = openRetry([
+        {
+          status: NodeStatus.Failed,
+          nodeRuns: { total: 2, succeeded: 1, failed: 1 },
+        },
+      ]);
+
+      expect(
+        dialog.getByText(
+          'The 1 node that did not succeed runs again, and nodes that succeeded keep their results.'
+        )
+      ).toBeInTheDocument();
+    });
+  });
+
   it('hides actions that do not apply when asked', () => {
     const finishedRun = {
       name: 'nightly',

@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
@@ -132,6 +133,8 @@ func runWorker(ctx *Context, _ []string) error {
 			hostname = "unknown"
 		}
 		workerID = fmt.Sprintf("%s@%d", hostname, os.Getpid())
+	} else if !inventory.IsNodeName(workerID) {
+		logger.Warn(ctx, "worker.id is not a valid node name, so the worker is not a node", tag.WorkerID(workerID))
 	}
 
 	maxActiveRuns := ctx.Config.Worker.MaxActiveRuns
@@ -157,14 +160,13 @@ func runWorker(ctx *Context, _ []string) error {
 		}
 	}
 
-	stores := ctx.runtimeStores()
 	handlerCfg := worker.RemoteTaskHandlerConfig{
 		WorkerID:          workerID,
 		CoordinatorClient: coordinatorCli,
 		PeerConfig:        ctx.Config.Core.Peer,
 		Config:            ctx.Config,
-		SecretStore:       stores.SecretStore,
-		ProfileStore:      stores.ProfileStore,
+		SecretStore:       ctx.settings.SecretStore(ctx),
+		ProfileStore:      ctx.settings.ProfileStore(ctx),
 	}
 	if agent != nil {
 		handlerCfg.AgentProvider = agent.provider

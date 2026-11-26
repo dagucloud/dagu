@@ -5,6 +5,7 @@ package cmd_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
@@ -38,6 +39,16 @@ func TestStartAllCommand(t *testing.T) {
 			},
 			ExpectedOut: []string{"54322", "dagu_test", "Coordinator initialization"},
 		})
+	})
+	// The scheduler and the server share one process, which warns once.
+	t.Run("WarnTestNamedDAG", func(t *testing.T) {
+		th := test.SetupCommand(t)
+		th.CreateDAGFile(t, "smoke.test.yaml", testNamedDAG)
+		cancelWhenLogContains(t, th, "Scheduler started", "Server is starting")
+		th.RunCommand(t, cmd.StartAll(), test.CmdTest{
+			Args: []string{"start-all", fmt.Sprintf("--port=%s", findPort(t))},
+		})
+		require.Equal(t, 1, strings.Count(th.LoggingOutput.String(), "smoke.test.yaml reads as a DAG"))
 	})
 	t.Run("WebPortInUse", func(t *testing.T) {
 		th := test.SetupCommand(t)

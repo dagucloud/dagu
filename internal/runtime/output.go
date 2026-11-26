@@ -564,7 +564,7 @@ func (oc *OutputCoordinator) setupFile(ctx context.Context, stepName, filePath s
 		// Keep existing content until an attempt starts, and avoid append mode:
 		// Windows does not allow truncating an append-mode file.
 		open = fileutil.OpenOrCreateFileForRandomWrite
-	} else if GetDAGContext(ctx).DAG.HasUntrustedStep() {
+	} else if untrustedRun(ctx) {
 		open = func(path string) (*os.File, error) {
 			return OpenStepFile(ctx, path, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_SYNC, 0o600)
 		}

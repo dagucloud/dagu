@@ -32,6 +32,7 @@ import (
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	filewiki "github.com/dagucloud/dagu/v2/internal/persis/file/wiki"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
@@ -119,6 +120,10 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 		}
 	}
 
+	if cfg.ProjectsEnabled {
+		stores.Projects = projectregistry.New(cfg.Paths.DataDir)
+	}
+
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
 		builtinAuth, err := newBuiltinAuth(ctx, cfg, backend)
 		if err != nil {
@@ -165,7 +170,7 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 		return fmt.Errorf("failed to create host key store: %w", err)
 	}
 	stores.HostKeys = hostKeyStore
-	inventoryStore, err := store.NewInventoryStore(
+	inventoryStore, err := store.NewCachedInventoryStore(
 		backend.Collection(persis.CollectionInventories),
 		backend.Lock(persis.CollectionInventories),
 		hostKeyStore,
@@ -174,6 +179,14 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 		return fmt.Errorf("failed to create inventory store: %w", err)
 	}
 	stores.Inventory = inventoryStore
+	workerNodeStore, err := store.NewWorkerNodeStore(
+		backend.Collection(persis.CollectionWorkerNodes),
+		store.NewWorkerHeartbeatStore(backend.Collection(persis.CollectionWorkerHeartbeats)),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create worker node store: %w", err)
+	}
+	stores.WorkerNodes = workerNodeStore
 
 	dagPinStore, err := store.NewDAGPinStore(backend.Collection(persis.CollectionDAGPins))
 	if err != nil {
@@ -291,6 +304,7 @@ func initEncryptedStores(ctx context.Context, cfg *config.Config, backend persis
 
 	notificationStore, err := persisfile.NewNotificationStore(
 		backend.Collection(persis.CollectionNotifications),
+		backend.Collection(persis.CollectionNotificationChannels),
 		encryptor,
 	)
 	if err != nil {
@@ -304,6 +318,7 @@ func initEncryptedStores(ctx context.Context, cfg *config.Config, backend persis
 
 	incidentStore, err := persisfile.NewIncidentStore(
 		backend.Collection(persis.CollectionIncidents),
+		backend.Collection(persis.CollectionIncidentProviders),
 		encryptor,
 	)
 	if err != nil {

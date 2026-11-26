@@ -396,6 +396,7 @@ func retryCandidateRunExists(dayPath string, candidate *retryCandidateFile) (boo
 
 func isRetryCandidateStatus(status ir.DAGRunStatus) bool {
 	return status.Status == ir.Failed &&
+		!status.RetryDisabled &&
 		status.Parent.Zero() &&
 		status.AutoRetryLimit > 0 &&
 		status.ProcGroup != ""

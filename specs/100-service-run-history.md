@@ -329,15 +329,29 @@ Rules:
 
 ### Activity in the DAG List
 
-`GET /dag-list-activity` gives the activity of each DAG of one page of the DAG list, in the window
-that ends now (`window`, in seconds). It takes the paging, the filters and the sort of `GET /dags`,
-and gives the DAGs of the same page in the same order. For a service DAG, the activity holds
-buckets of the run history instead of runs. A service DAG with no run history has no bucket.
+`GET /dag-list-activity` gives the activity in the window that ends now (`window`, in seconds) of
+each DAG that a repeated `fileName` names, at most 100, in the order of the request, each once. A
+name that names no DAG of `GET /dags` that the caller can see is left out, with no error. `readAt`
+is the server time when the activity was read, rounded down to the millisecond. For a service DAG,
+the activity holds buckets of the run history instead of runs. A service DAG with no run history
+has no bucket.
 
-The `daglistactivity` topic of the stream gives the same activity. Its identifier is the query of
-the `dagslist` topic of the page with `window`. It reads the activity again at most once in 10
-seconds after a change of a run or of a DAG, and once in 60 seconds otherwise. It sends the
-activity only when it changed.
+The `dagrunchanges:all` topic of the stream and `GET /dag-run-changes` give a change feed: `since`,
+`readAt` and `changes`. Each change has a `fileName` and a `changedAt`, the newest first, each file
+once. The feed lists every change of the state of a root run of a DAG that the caller can see, by
+the workspace label of the run, after `since` and up to `readAt`. A list reads the activity again
+of the rows whose file has a `changedAt` at or after the `readAt` of their activity, and of the
+rows whose activity it read before `since`.
+
+- The topic reads the feed at most once a minute, and at least once a minute. It sends each read,
+  since its `readAt` moves, so that a list learns once a minute that its rows are still current.
+- The server keeps a change for 3 minutes, and at most 2000 files. `since` moves when the server
+  starts reading run events and when the feed drops a change. A pause in the reads of the run
+  events delays changes and does not move `since`, and neither does a reset of the app events.
+- A server without the event store answers `unsupported_topic` for the topic and `501` for
+  `GET /dag-run-changes`. Its lists draw no Activity column, rather than read every row each
+  minute.
+- `changedAt` and `since` are rounded up, and `readAt` down, to the millisecond.
 
 The activity of a service DAG has:
 
@@ -354,8 +368,8 @@ Rules:
 - The cost of the activity of a service DAG does not depend on its count of runs.
 - The activity of a service DAG does not depend on the status of its latest run. A queued run, or a
   run that has not started, does not empty it.
-- A `window` that is missing, or outside 60 to 604800 seconds, gets `400`. A `perPage` above 200
-  reads 200 DAGs, as `GET /dags` does.
+- A `window` that is missing, or outside 60 to 604800 seconds, gets `400`. No `fileName`, or more
+  than 100, gets `400`.
 - For a DAG that is not a service DAG, the activity lists the runs that started in the window, the
   last started first, at most 60, and the runs still in progress. It finds them among the runs
   created since one window before the window, at most the 1000 created last, so a run that waited
@@ -437,15 +451,17 @@ Rules:
 
 - The row and the card of a service DAG draw no element for each run.
 - When the activity of a service DAG has no `buckets`, the list draws no strip and no bar for it.
-- The list makes no request of its own for each DAG. The activity of the page comes in one
-  `GET /dag-list-activity` request and its `daglistactivity` topic, on the stream of the list. The
-  only exception is the detail of a strip that the user opens.
+- The list makes no request of its own for each DAG. The activity of its rows comes in
+  `GET /dag-list-activity` requests that name the rows, at most 100 each. After the first read, the
+  list reads only the rows that the `dagrunchanges` feed names, or the rows that it read before the
+  `since` of the feed. While the stream is down, it polls `GET /dag-run-changes` once a minute.
+  The only exception is the detail of a strip that the user opens.
 - The list adds the topic in a topic change of its own, so that the list does not wait for the
   activity.
 - Until the activity of a row arrives, its strip shows a placeholder. While the activity refreshes,
   the strip keeps the last activity.
-- A node that gives no activity, such as an older remote node that answers `404` or
-  `unsupported_topic`, draws no strip and no placeholder.
+- A node that gives no activity, such as an older remote node that answers `404`, or a node
+  without the event store that answers `501` for the feed, draws no strip and no placeholder.
 - The Last Run column of a service DAG shows the state of the service in the chip of the Runs list:
   Healthy for the states running and restarting, because a service that restarts as designed is
   well. Pending, failing, suspended and stopped keep their names. A DAG that is not a service DAG
@@ -580,7 +596,7 @@ The `gap` event of a scheduler that was stopped for 20 minutes:
  "gapSeconds": 1200}
 ```
 
-The entry of a service DAG in `GET /dag-list-activity?window=86400`:
+The entry of a service DAG in `GET /dag-list-activity?fileName=service_ok&window=86400`:
 
 ```json
 {
@@ -596,6 +612,16 @@ The entry of a service DAG in `GET /dag-list-activity?window=86400`:
        "minMs": 99, "maxMs": 2410, "p50Ms": 119, "p95Ms": 141}
     ]
   }
+}
+```
+
+The change feed of `GET /dag-run-changes` after a run of `plain` ended:
+
+```json
+{
+  "since": "2026-11-07T01:58:12.041Z",
+  "readAt": "2026-11-07T02:00:03.517Z",
+  "changes": [{"fileName": "plain", "changedAt": "2026-11-07T01:59:47.209Z"}]
 }
 ```
 
@@ -625,13 +651,13 @@ succeeds, and a service DAG whose runs fail when a file exists.
 - The run in progress counts in the uptime at the time of the query. A service DAG whose step lasts
   longer than the restart wait has an uptime near 1 while a run is in progress.
 - A run history that has no `up` directory gives no uptime, and its other figures do not change.
-- The samples query and the activity of a DAG list page give `upMs`. A bucket of a long run that has no
+- The samples query and the activity of the DAG list give `upMs`. A bucket of a long run that has no
   sample has `count` 0 and `upMs` more than 0. The run in progress has `upMs` in the buckets that it
   covers, and no sample.
 - The success rate does not change: a killed run is one failure.
 - A DAG that is not a service DAG and has no run history gets `404` from the three queries.
-- The activity of a DAG list page gives at most 60 buckets for a service DAG, and runs for the
-  other DAGs, for the DAGs of the page of `GET /dags` with the same query.
+- The activity of the DAG list gives at most 60 buckets for a service DAG, and runs for the other
+  DAGs, for the DAGs that the request names, in its order.
 - The response of the samples query for a window of three years has at most `points` buckets.
 - The events of a run history stay under 4 MiB after 100 000 runs that fail one time in two.
 - A service run that a worker executes has a sample.
@@ -640,5 +666,5 @@ succeeds, and a service DAG whose runs fail when a file exists.
 
 `conformance/spec100_service_run_history/` checks the samples, the events and the retention.
 It also checks the gap after a stop of the scheduler, and the three queries and their
-errors. It checks `upMs` in the buckets, and the live part of the run in progress. It checks a window of three years and the activity of a service DAG on a DAG list page. Each
+errors. It checks `upMs` in the buckets, and the live part of the run in progress. It checks a window of three years and the activity of a service DAG that a request names. Each
 test starts a scheduler and a server with static fixtures.

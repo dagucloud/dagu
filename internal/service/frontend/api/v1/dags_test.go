@@ -2184,7 +2184,11 @@ steps:
 		}).ExpectStatus(http.StatusOK).Send(t)
 	}
 
-	periods, _, err := store.NewPeriodStore(server.Backend.Collection(persis.CollectionSchedulerState), nil).Ended(t.Context(), dag.FileName())
+	periods, _, err := store.NewPeriodStore(
+		server.Backend.Collection(persis.CollectionSchedulerState),
+		server.Backend.Collection(persis.CollectionSchedulerProcess),
+		nil,
+	).Ended(t.Context(), dag.FileName())
 	require.NoError(t, err)
 	require.Len(t, periods, 1)
 	assert.Equal(t, schedulerstate.PeriodSuspended, periods[0].Reason)
@@ -2240,7 +2244,12 @@ func (s *suspendFlags) SuspendedSince(_ context.Context, id string) (time.Time, 
 func TestUpdateDAGSuspensionState_RecordsPeriodBeforeResume(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
-	periods := &flakyPeriods{PeriodStore: store.NewPeriodStore(persistestutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), nil)}
+	backend := persistestutil.NewMemoryBackend()
+	periods := &flakyPeriods{PeriodStore: store.NewPeriodStore(
+		backend.Collection(persis.CollectionSchedulerState),
+		backend.Collection(persis.CollectionSchedulerProcess),
+		nil,
+	)}
 	flags := &suspendFlags{since: map[string]time.Time{}}
 	apiImpl := localapi.New(
 		persis.NewDAGRepository(flags, persis.DAGRepositoryOptions{}), helper.DAGRunRepository, helper.QueueStore,

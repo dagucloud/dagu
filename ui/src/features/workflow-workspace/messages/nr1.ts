@@ -55,4 +55,19 @@ export default defineMessages({
     'This step matched {count} nodes.':
       'Dieser Schritt hat {count} Knoten ausgewählt.',
   },
+  fr: {
+    'Loading node runs...': 'Chargement des exécutions de nœud…',
+    'No node runs recorded yet.':
+      'Aucune exécution de nœud enregistrée pour l’instant.',
+    'Could not load the node runs.':
+      'Impossible de charger les exécutions de nœud.',
+    'Failed only': 'Échecs uniquement',
+    'The step did not select this node': 'L’étape n’a pas sélectionné ce nœud',
+    'Open the run of {node} for {step}':
+      'Ouvrir l’exécution du nœud {node} pour l’étape {step}',
+    'Open Nodes': 'Ouvrir l’onglet Nœuds',
+    'This step matched 1 node.': 'Cette étape a sélectionné 1 nœud.',
+    'This step matched {count} nodes.':
+      'Cette étape a sélectionné {count} nœuds.',
+  },
 });

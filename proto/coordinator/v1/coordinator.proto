@@ -82,6 +82,11 @@ service CoordinatorService {
   // ResolveRuntimeProfile resolves inherited and selected runtime profile layers.
   rpc ResolveRuntimeProfile (ResolveRuntimeProfileRequest) returns (ResolveRuntimeProfileResponse);
 
+  // ResolveNodes answers the nodes a run on a worker targets, the nodes they
+  // connect through, and the host keys trusted for them. Credentials appear
+  // as secret refs, never as values.
+  rpc ResolveNodes (ResolveNodesRequest) returns (ResolveNodesResponse);
+
   // CheckAIEndpoint checks, with no value, that a step may use a target (Spec 094).
   rpc CheckAIEndpoint (CheckAIEndpointRequest) returns (CheckAIEndpointResponse);
 
@@ -610,7 +615,10 @@ message ResolveSecretReferenceRequest {
   string attempt_key = 6; // Active distributed attempt lease key
   string attempt_id = 7;  // Attempt ID created by the coordinator
   string dag_name = 8;    // Current DAG definition; empty keeps legacy root behavior
-  string step_name = 9;   // Step that lists the secret; required for a value in a DAG with step scope
+  // Node whose connection uses ref, set in place of name. The ref is served
+  // only to an attempt that targets nodes.
+  string node = 9;
+  string step_name = 10;  // Step that lists the secret; required for a value in a DAG with step scope
 }
 
 message ResolveSecretReferenceResponse {
@@ -728,4 +736,62 @@ message RelayError {
 
 message RelayEnd {
   int64 response_bytes = 1;
+}
+
+// ResolveNodesRequest names the nodes a run on a worker targets, by a
+// selector or by exact names, never both.
+message ResolveNodesRequest {
+  string worker_id = 1;   // Worker currently owning the dispatched attempt
+  string attempt_key = 2; // Active distributed attempt lease key
+  string attempt_id = 3;  // Attempt ID created by the coordinator
+  string dag_name = 4;    // Current DAG definition; empty selects the attempt's DAG
+  string selector = 5;    // Label selector, such as "role=web,!canary"
+  repeated string names = 6; // Exact node names, compared without case
+}
+
+message ResolveNodesResponse {
+  // Nodes the selector matches or the names name, in name order. A name
+  // that names no node is left out.
+  repeated ResolvedNode nodes = 1;
+  // Each node that a node above connects through, once, in name order.
+  repeated ResolvedNode bastions = 2;
+  // Host keys trusted for the nodes and bastions above.
+  repeated TrustedHostKey trusted_host_keys = 3;
+}
+
+// How Dagu reaches a node.
+enum NodeKind {
+  NODE_KIND_UNSPECIFIED = 0;
+  NODE_KIND_SSH = 1; // A host of an inventory
+}
+
+// A node with its inventory's defaults applied. A credential is a key path
+// or a secret ref, never a secret value.
+message ResolvedNode {
+  string name = 1;
+  NodeKind kind = 2;
+  string inventory_id = 3;
+  string inventory_name = 4;
+  string host = 5;
+  int32 port = 6;
+  string user = 7;
+  string key_path = 8;
+  string key_secret = 9;
+  string password_secret = 10;
+  string passphrase_secret = 11;
+  string bastion = 12;           // Node of the same inventory to connect through
+  string host_key = 13;          // Pinned public key in authorized_keys form
+  bool strict_host_key = 14;
+  string shell = 15;
+  int64 timeout_nanos = 16;      // Connect timeout in nanoseconds
+  repeated string labels = 17;   // "key" or "key=value"
+  string description = 18;
+  bool disabled = 19;
+}
+
+// A host key a user trusted for a node.
+message TrustedHostKey {
+  string node = 1;
+  string key = 2;         // Public key in authorized_keys form
+  string fingerprint = 3; // SHA256 fingerprint
 }

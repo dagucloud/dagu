@@ -28,6 +28,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 )
 
 var (
@@ -131,6 +132,10 @@ func (e *foreachExecutor) Run(ctx context.Context) error {
 	e.statusDetails = foreachStatusDetails(items, results, e.step.Foreach.Key != "")
 	e.outcome = summarize(results, dispatchErr)
 	if err := e.writeAggregate(results); err != nil {
+		if errors.Is(e.outcome.err, untrusted.ErrRunAborted) {
+			// The run still stops.
+			err = errors.Join(e.outcome.err, err)
+		}
 		e.outcome.err = err
 		return err
 	}
@@ -140,11 +145,12 @@ func (e *foreachExecutor) Run(ctx context.Context) error {
 // summarize decides what a run reports. A run every item body failed, or
 // one cut short, is an error; a run some item bodies failed is not, since
 // the work of the others is done and published, and DetermineNodeStatus
-// reports it as partially succeeded.
+// reports it as partially succeeded. A body that stopped its run (Spec 103)
+// stops the run of the step too.
 func summarize(results []itemResult, dispatchErr error) runOutcome {
 	outcome := runOutcome{total: len(results)}
 	var first string
-	var read error
+	var read, runAborted error
 	for _, result := range results {
 		// An item a cancellation kept from starting neither succeeded nor
 		// failed; the cancellation itself decides the outcome.
@@ -155,6 +161,9 @@ func summarize(results []itemResult, dispatchErr error) runOutcome {
 		if found, ok := errors.AsType[*cmnvalue.MaskedReadError](result.err); ok && read == nil {
 			read = found
 		}
+		if runAborted == nil && errors.Is(result.err, untrusted.ErrRunAborted) {
+			runAborted = fmt.Errorf("item %q: %w", result.Key, result.err)
+		}
 		if first == "" {
 			first = result.Error
 			if first == "" {
@@ -163,6 +172,9 @@ func summarize(results []itemResult, dispatchErr error) runOutcome {
 		}
 	}
 	switch {
+	case runAborted != nil:
+		// The stop of the other items is not a cancellation of the step.
+		outcome.err = runAborted
 	case dispatchErr != nil:
 		// A cancelled run is aborted; a run that hit its deadline failed.
 		outcome.cancelled = errors.Is(dispatchErr, context.Canceled)
@@ -343,6 +355,8 @@ func (e *foreachExecutor) runItems(ctx context.Context, items []expandedItem) ([
 		maxConcurrent = ir.DefaultMaxConcurrent
 	}
 
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxConcurrent)
 	var dispatchErr error
@@ -360,6 +374,10 @@ dispatch:
 			defer wg.Done()
 			defer func() { <-sem }()
 			results[item.index] = e.runItem(ctx, item)
+			if errors.Is(results[item.index].err, untrusted.ErrRunAborted) {
+				// The body stopped its run, so no other item body runs.
+				stop()
+			}
 		}(item)
 	}
 	wg.Wait()

@@ -73,7 +73,7 @@ func TestEgressProxyCommandRejectsABadUpstream(t *testing.T) {
 		{"upstream with two keys", with("--upstream", upstream, "--upstream-key-env", "SOME_VAR", "--upstream-key-file", goodFile), nil, []string{"give exactly one", "--upstream-key-env", "--upstream-key-file"}, []string{"sk-secret"}},
 		{"empty upstream", with("--upstream", "", "--upstream-key-file", goodFile), nil, []string{"flag --upstream", "http or https", `""`}, []string{"sk-secret"}},
 		{"upstream scheme", with("--upstream", "ftp://api.example.com", "--upstream-key-file", goodFile), nil, []string{"flag --upstream", "http or https", `"ftp://api.example.com"`}, []string{"sk-secret"}},
-		{"upstream query", with("--upstream", upstream+"/v1?a=b", "--upstream-key-file", goodFile), nil, []string{"flag --upstream", "no query and no fragment", "a=b"}, []string{"sk-secret"}},
+		{"upstream query", with("--upstream", upstream+"/v1?key=sk-query", "--upstream-key-file", goodFile), nil, []string{"flag --upstream", "no query and no fragment", `"https://api.example.com"`}, []string{"sk-secret", "sk-query"}},
 		{"upstream fragment", with("--upstream", upstream+"#x", "--upstream-key-file", goodFile), nil, []string{"flag --upstream", "no query and no fragment"}, []string{"sk-secret"}},
 		{"upstream not allowed", with("--upstream", "https://other.example.com", "--upstream-key-file", goodFile), nil, []string{"flag --upstream", "--allow", "other.example.com:443"}, []string{"sk-secret"}},
 		{"upstream port not allowed", with("--upstream", "http://api.example.com", "--upstream-key-file", goodFile), nil, []string{"flag --upstream", "--allow", "api.example.com:80"}, []string{"sk-secret"}},

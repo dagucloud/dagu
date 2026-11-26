@@ -11,8 +11,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-
-	"github.com/dagucloud/dagu/v2/internal/llm/anthropicbeta"
 )
 
 // UpstreamAuth is the form in which the proxy gives the key to the upstream.
@@ -25,14 +23,10 @@ const (
 	AuthBearer UpstreamAuth = "bearer"
 	// AuthAnthropicOAuth sends an OAuth token of a subscription to the Anthropic API:
 	// the header authorization with the prefix Bearer, and the beta
-	// AnthropicOAuthBeta in the header anthropic-beta. A client with a placeholder
+	// anthropicbeta.OAuth in the header anthropic-beta. A client with a placeholder
 	// API key does not send this beta, and the API refuses the token without it.
 	AuthAnthropicOAuth UpstreamAuth = "anthropic-oauth"
 )
-
-// AnthropicOAuthBeta is the value of anthropic-beta that the Anthropic API needs
-// with an OAuth token.
-const AnthropicOAuthBeta = anthropicbeta.OAuth
 
 // ParseUpstreamAuth reads the name of a form.
 func ParseUpstreamAuth(text string) (UpstreamAuth, error) {
@@ -43,9 +37,9 @@ func ParseUpstreamAuth(text string) (UpstreamAuth, error) {
 	return "", fmt.Errorf("expected %q, %q or %q, got %q", AuthXAPIKey, AuthBearer, AuthAnthropicOAuth, text)
 }
 
-// Digest returns the first 12 hexadecimal digits of the SHA-256 of a value. A log
+// digest returns the first 12 hexadecimal digits of the SHA-256 of a value. A log
 // line uses it to tell two credentials apart. It does not give the value.
-func Digest(value string) string {
+func digest(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])[:12]
 }
@@ -72,7 +66,7 @@ type Upstream struct {
 	port   int
 	auth   UpstreamAuth
 	key    string
-	// keyDigest is Digest(key), for the log.
+	// keyDigest is digest(key), for the log.
 	keyDigest string
 }
 
@@ -119,15 +113,24 @@ func NewUpstream(rawURL string, auth UpstreamAuth, key string) (*Upstream, error
 		port:      port,
 		auth:      auth,
 		key:       key,
-		keyDigest: Digest(key),
+		keyDigest: digest(key),
 	}, nil
 }
 
-// describeURL quotes a URL for an error. A URL that holds an @ can hold a
-// credential, so the text does not repeat it.
+// describeURL quotes a URL for an error, up to the end of its host. User
+// information, a path, a query or a fragment can hold a credential, so the text
+// does not repeat them.
 func describeURL(raw string) string {
 	if strings.Contains(raw, "@") {
 		return "a URL with an @"
+	}
+	hostStart := 0
+	// A :// after a path, a query or a fragment starts no host.
+	if i := strings.Index(raw, "://"); i >= 0 && !strings.ContainsAny(raw[:i], "/?#") {
+		hostStart = i + len("://")
+	}
+	if i := strings.IndexAny(raw[hostStart:], "/?#"); i >= 0 {
+		return strconv.Quote(raw[:hostStart+i]) + " (the rest is not repeated)"
 	}
 	return strconv.Quote(raw)
 }

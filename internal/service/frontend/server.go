@@ -50,6 +50,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/license"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/allproviders" // Register LLM providers
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -68,6 +69,7 @@ import (
 	dagumcp "github.com/dagucloud/dagu/v2/internal/service/mcp"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/oidcprovision"
+	"github.com/dagucloud/dagu/v2/internal/service/projectaccess"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/trustedproxyprovision"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -89,14 +91,14 @@ const (
 	// when no run event wakes it, such as when a queued run records why it
 	// cannot start or the data disk fills.
 	dagRunActivityMaxInterval = 30 * time.Second
-	// dagListActivityMinInterval is the shortest gap between two refetches of
-	// the activity of one DAG list page. The strip of a list may lag behind
-	// the list, so bursts of run and DAG changes are merged.
-	dagListActivityMinInterval = 10 * time.Second
-	// dagListActivityMaxInterval bounds how stale the activity of a list page
-	// gets when nothing wakes it, as while a service run is in progress and
-	// its up time grows. It is one bucket of a window of an hour.
-	dagListActivityMaxInterval = 60 * time.Second
+	// dagRunChangesMinInterval is the shortest gap between two refetches of
+	// the change feed, so that a DAG list reads activity at most once a
+	// minute. The strip of a list may lag behind the list.
+	dagRunChangesMinInterval = time.Minute
+	// dagRunChangesMaxInterval bounds how long a list goes without the feed
+	// when no run changes: each read moves the readAt of the feed, so a list
+	// learns that its rows are still current.
+	dagRunChangesMaxInterval = time.Minute
 	// dagRunsMaxInterval bounds how stale a live run list gets when no run
 	// event wakes it, such as when a DAG gains or loses a restart policy and
 	// its runs move in or out of the lists that leave service DAG runs out.
@@ -265,22 +267,45 @@ func toOIDCWorkspaceMappings(mappings map[string][]config.OIDCWorkspaceGrant) ma
 	return result
 }
 
-func toOIDCPolicy(policy config.OIDCPolicy) oidcprovision.Policy {
+// toOIDCPolicy converts policy. projects is the project registry, which is
+// nil while projects are off.
+func toOIDCPolicy(policy config.OIDCPolicy, projects project.Registry) oidcprovision.Policy {
+	roleMapping := oidcprovision.RoleMapperConfig{
+		GroupsClaim:            policy.RoleMapping.GroupsClaim,
+		GroupMappings:          policy.RoleMapping.GroupMappings,
+		WorkspaceMappings:      toOIDCWorkspaceMappings(policy.RoleMapping.WorkspaceMappings),
+		DefaultWorkspaceAccess: policy.RoleMapping.DefaultWorkspaceAccess,
+		RoleAttributePath:      policy.RoleMapping.RoleAttributePath,
+		RoleAttributeStrict:    policy.RoleMapping.RoleAttributeStrict,
+		SkipOrgRoleSync:        policy.RoleMapping.SkipOrgRoleSync,
+		DefaultRole:            authmodel.Role(policy.RoleMapping.DefaultRole),
+	}
+	if projects != nil {
+		roleMapping.Projects = projects
+		roleMapping.ProjectMappings = toProjectGrantConfigs(policy.RoleMapping.ProjectMappings)
+		roleMapping.DefaultProjectAccess = policy.RoleMapping.DefaultProjectAccess
+	}
 	return oidcprovision.Policy{
 		AutoSignup:     policy.AutoSignup,
 		AllowedDomains: policy.AllowedDomains,
 		Whitelist:      policy.Whitelist,
-		RoleMapping: oidcprovision.RoleMapperConfig{
-			GroupsClaim:            policy.RoleMapping.GroupsClaim,
-			GroupMappings:          policy.RoleMapping.GroupMappings,
-			WorkspaceMappings:      toOIDCWorkspaceMappings(policy.RoleMapping.WorkspaceMappings),
-			DefaultWorkspaceAccess: policy.RoleMapping.DefaultWorkspaceAccess,
-			RoleAttributePath:      policy.RoleMapping.RoleAttributePath,
-			RoleAttributeStrict:    policy.RoleMapping.RoleAttributeStrict,
-			SkipOrgRoleSync:        policy.RoleMapping.SkipOrgRoleSync,
-			DefaultRole:            authmodel.Role(policy.RoleMapping.DefaultRole),
-		},
+		RoleMapping:    roleMapping,
 	}
+}
+
+func toProjectGrantConfigs(mappings map[string][]config.ProjectMappingGrant) map[string][]authmapping.ProjectGrantConfig {
+	if len(mappings) == 0 {
+		return nil
+	}
+	result := make(map[string][]authmapping.ProjectGrantConfig, len(mappings))
+	for group, grants := range mappings {
+		converted := make([]authmapping.ProjectGrantConfig, len(grants))
+		for i, grant := range grants {
+			converted[i] = authmapping.ProjectGrantConfig{Project: grant.Project, Role: authmodel.Role(grant.Role)}
+		}
+		result[group] = converted
+	}
+	return result
 }
 
 func toConfigOIDCWorkspaceMappings(mappings map[string][]oidcprovision.WorkspaceGrantConfig) map[string][]config.OIDCWorkspaceGrant {
@@ -311,7 +336,24 @@ func toConfigOIDCMapping(mapping oidcprovision.RoleMapperConfig) config.OIDCRole
 		RoleAttributeStrict:    mapping.RoleAttributeStrict,
 		SkipOrgRoleSync:        mapping.SkipOrgRoleSync,
 		DefaultRole:            string(mapping.DefaultRole),
+		ProjectMappings:        toConfigProjectMappings(mapping.ProjectMappings),
+		DefaultProjectAccess:   mapping.DefaultProjectAccess,
 	}
+}
+
+func toConfigProjectMappings(mappings map[string][]authmapping.ProjectGrantConfig) map[string][]config.ProjectMappingGrant {
+	if len(mappings) == 0 {
+		return nil
+	}
+	result := make(map[string][]config.ProjectMappingGrant, len(mappings))
+	for group, grants := range mappings {
+		converted := make([]config.ProjectMappingGrant, len(grants))
+		for i, grant := range grants {
+			converted[i] = config.ProjectMappingGrant{Project: grant.Project, Role: string(grant.Role)}
+		}
+		result[group] = converted
+	}
+	return result
 }
 
 func toTrustedProxyGroupMappings(mappings map[string]string) map[string]authmodel.Role {
@@ -483,6 +525,13 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		}
 	}
 
+	if cfg.ProjectsEnabled && stores.Projects == nil {
+		return nil, errors.New("project registry is not configured")
+	}
+	if stores.Projects != nil {
+		apiOpts = append(apiOpts, apiv1.WithProjectAccess(projectaccess.New(stores.Projects)))
+	}
+
 	var authSvc *authservice.Service
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
 		if stores.AuthService == nil || stores.UserStore == nil {
@@ -494,19 +543,25 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 
 		trustedProxy := cfg.Server.Auth.Proxy
 		if trustedProxy.Enabled {
+			roleMapping := authmapping.Config{
+				DefaultRole:            authmodel.Role(trustedProxy.RoleMapping.DefaultRole),
+				GroupMappings:          toTrustedProxyGroupMappings(trustedProxy.RoleMapping.GroupMappings),
+				WorkspaceMappings:      toTrustedProxyWorkspaceMappings(trustedProxy.RoleMapping.WorkspaceMappings),
+				DefaultWorkspaceAccess: trustedProxy.RoleMapping.DefaultWorkspaceAccess,
+				Strict:                 trustedProxy.RoleMapping.RequireMapping,
+			}
+			if cfg.ProjectsEnabled {
+				roleMapping.Projects = stores.Projects
+				roleMapping.ProjectMappings = toProjectGrantConfigs(trustedProxy.RoleMapping.ProjectMappings)
+				roleMapping.DefaultProjectAccess = trustedProxy.RoleMapping.DefaultProjectAccess
+			}
 			trustedProvisionSvc, err := trustedproxyprovision.New(stores.UserStore, trustedproxyprovision.Config{
 				UsersDir:        cfg.Paths.UsersDir,
 				Source:          trustedProxy.Source,
 				AutoSignup:      trustedProxy.AutoSignup,
 				SkipOrgRoleSync: trustedProxy.RoleMapping.SkipOrgRoleSync,
 				WorkspaceExists: workspaceExists,
-				RoleMapping: authmapping.Config{
-					DefaultRole:            authmodel.Role(trustedProxy.RoleMapping.DefaultRole),
-					GroupMappings:          toTrustedProxyGroupMappings(trustedProxy.RoleMapping.GroupMappings),
-					WorkspaceMappings:      toTrustedProxyWorkspaceMappings(trustedProxy.RoleMapping.WorkspaceMappings),
-					DefaultWorkspaceAccess: trustedProxy.RoleMapping.DefaultWorkspaceAccess,
-					Strict:                 trustedProxy.RoleMapping.RequireMapping,
-				},
+				RoleMapping:     roleMapping,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to create proxy authentication provisioning service: %w", err)
@@ -515,11 +570,14 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			if err != nil {
 				return nil, fmt.Errorf("configure IP access: %w", err)
 			}
+			groupsRequired := len(trustedProxy.RoleMapping.GroupMappings) > 0 ||
+				len(trustedProxy.RoleMapping.WorkspaceMappings) > 0 ||
+				len(trustedProxy.RoleMapping.ProjectMappings) > 0
 			trustedProxyCfg = &auth.TrustedProxyLoginConfig{
 				Enabled:        true,
 				UserHeader:     trustedProxy.Headers.User,
 				GroupsHeader:   trustedProxy.Headers.Groups,
-				GroupsRequired: len(trustedProxy.RoleMapping.GroupMappings) > 0 || len(trustedProxy.RoleMapping.WorkspaceMappings) > 0,
+				GroupsRequired: groupsRequired,
 				Provision:      trustedProvisionSvc,
 				AuthService:    stores.AuthService,
 				InitialSetupComplete: func(ctx context.Context) (bool, error) {
@@ -541,10 +599,11 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			oidcEnabled = true
 			oidcButtonLabel = oidcCfg.ButtonLabel
 			configPolicy := oidcCfg.Policy()
-			policy := toOIDCPolicy(configPolicy)
+			policy := toOIDCPolicy(configPolicy, stores.Projects)
 			loader := config.NewOIDCPolicyLoader(
 				cfg.Paths.ConfigFilesUsed,
 				configPolicy,
+				cfg.ProjectsEnabled,
 			)
 
 			provisionCfg := oidcprovision.Config{
@@ -559,7 +618,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 					if err != nil {
 						return oidcprovision.Policy{}, err
 					}
-					return toOIDCPolicy(policy), nil
+					return toOIDCPolicy(policy, stores.Projects), nil
 				},
 			}
 			provisionCfg.WorkspaceExists = workspaceExists
@@ -646,6 +705,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	}
 	if stores.HostKeys != nil {
 		apiOpts = append(apiOpts, apiv1.WithHostKeyStore(stores.HostKeys))
+	}
+	if stores.WorkerNodes != nil {
+		apiOpts = append(apiOpts, apiv1.WithWorkerNodeStore(stores.WorkerNodes))
 	}
 
 	var notificationSvc *notificationservice.Service
@@ -796,7 +858,6 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			return
 		}
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGListActivity)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 		srv.sseMultiplexer.WakeTopic(sse.TopicTypeDAG, fileName)
 	}))
@@ -1338,6 +1399,16 @@ func (srv *Server) setupRoutes(ctx context.Context, r *chi.Mux) error {
 	return nil
 }
 
+// HealthPath returns the path of the health endpoint that a server with cfg
+// serves.
+func HealthPath(ctx context.Context, cfg *config.Config) (string, error) {
+	basePath, err := evaluateConfiguredBasePath(ctx, cfg.Server.BasePath)
+	if err != nil {
+		return "", err
+	}
+	return pathutil.BuildMountedAPIEndpointPath(basePath, cfg.Server.APIBasePath, "health"), nil
+}
+
 func evaluateConfiguredBasePath(ctx context.Context, basePath string) (string, error) {
 	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{})
 	evaluated, err := resolver.String(ctx, basePath, cmnvalue.ServerBasePathField("server.base_path"))
@@ -1586,7 +1657,6 @@ func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
 	switch event.Type {
 	case sse.AppEventTypeDAGChanged:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGListActivity)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGHistory)
@@ -1617,7 +1687,6 @@ func (srv *Server) wakeAllMultiplexedFileBackedTopics() {
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
-	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGListActivity)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 	srv.wakeWikiTopics()
 }
@@ -1687,10 +1756,6 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	registrar.SetMaxInterval(sse.TopicTypeDAGRuns, dagRunsMaxInterval)
 	registrar.RegisterFetcher(sse.TopicTypeQueues, srv.apiV1.GetQueuesListData)
 	registrar.RegisterFetcher(sse.TopicTypeDAGsList, srv.apiV1.GetDAGsListData)
-	registrar.RegisterFetcher(sse.TopicTypeDAGListActivity, srv.apiV1.GetDAGListActivityData)
-	registrar.RegisterValidator(sse.TopicTypeDAGListActivity, srv.apiV1.ValidateDAGListActivityQuery)
-	registrar.SetMinInterval(sse.TopicTypeDAGListActivity, dagListActivityMinInterval)
-	registrar.SetMaxInterval(sse.TopicTypeDAGListActivity, dagListActivityMaxInterval)
 	registrar.RegisterFetcher(sse.TopicTypeServiceDAGs, srv.apiV1.GetServiceDAGsData)
 	// A service DAG restarts all the time, and a refetch reads the latest run
 	// of every service DAG, so bursts of run events are merged into one refetch.
@@ -1724,13 +1789,18 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 			sse.TopicTypeDAGHistory,
 			sse.TopicTypeDAGRuns,
 			sse.TopicTypeDAGRunActivity,
-			sse.TopicTypeDAGListActivity,
 			sse.TopicTypeQueues,
 			sse.TopicTypeBackfill,
 		} {
 			registrar.SetRefreshMode(topicType, sse.TopicRefreshModeOnDemand)
 		}
 		registrar.SetMaxInterval(sse.TopicTypeBackfill, backfillMaxInterval)
+		// Only the run events feed the change feed, so without them the
+		// topic is unsupported and a list polls the activity instead.
+		registrar.RegisterFetcher(sse.TopicTypeDAGRunChanges, srv.apiV1.GetDAGRunChangesData)
+		registrar.SetRefreshMode(sse.TopicTypeDAGRunChanges, sse.TopicRefreshModeOnDemand)
+		registrar.SetMinInterval(sse.TopicTypeDAGRunChanges, dagRunChangesMinInterval)
+		registrar.SetMaxInterval(sse.TopicTypeDAGRunChanges, dagRunChangesMaxInterval)
 		if appStreamAvailable {
 			registrar.SetRefreshMode(sse.TopicTypeDAGsList, sse.TopicRefreshModeOnDemand)
 			registrar.SetPublishOnWake(sse.TopicTypeDAGsList, true)
