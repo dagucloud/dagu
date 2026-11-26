@@ -30,6 +30,7 @@ type SourcedEnvVars struct {
 // providerTokenPatterns match the formats of provider OAuth tokens, which
 // a step can print without Dagu knowing the value: Google access tokens and
 // Google refresh tokens. Each starts with a literal, so a scan skips to it.
+// A match counts only where a token can start; see tokenStart.
 var providerTokenPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`ya29\.[0-9A-Za-z._-]{20,}`),
 	regexp.MustCompile(`1//[0-9A-Za-z_-]{40,}`),
@@ -60,15 +61,14 @@ type span struct {
 
 // NewMasker creates a masker from sourced environment variables. Each value
 // is masked as written and as it appears inside a JSON string, so a secret
-// that JSON escaping rewrites is still hidden in JSON text. It also masks
-// provider OAuth token formats, such as Google access and refresh tokens.
+// that JSON escaping rewrites is still hidden in JSON text.
 func NewMasker(sources SourcedEnvVars) *Masker {
 	values := make([]string, 0, len(sources.Secrets))
 	for _, env := range sources.Secrets {
 		_, val := splitEnv(env)
 		values = append(values, val)
 	}
-	return NewValueMasker(values, providerTokenPatterns...)
+	return NewValueMasker(values)
 }
 
 // NewValueMasker creates a masker that hides each of values, as NewMasker
@@ -169,12 +169,19 @@ func asciiOnly(body string) string {
 // Matches that overlap are masked as one span, so no match leaves part of
 // another visible.
 func (m *Masker) MaskString(input string) string {
-	return writeSpans(input, m.spans(input))
+	return m.mask(input, false)
+}
+
+// mask masks input as MaskString does, and also masks provider token
+// formats when tokens is set.
+func (m *Masker) mask(input string, tokens bool) string {
+	return writeSpans(input, m.spans(input, tokens))
 }
 
 // spans returns the ranges of text that values or patterns match, sorted,
-// with overlapping ranges joined.
-func (m *Masker) spans(text string) []span {
+// with overlapping ranges joined. With tokens set, the ranges include the
+// provider tokens in text.
+func (m *Masker) spans(text string, tokens bool) []span {
 	if m == nil {
 		return nil
 	}
@@ -194,7 +201,33 @@ func (m *Masker) spans(text string) []span {
 			spans = append(spans, span{start: match[0], end: match[1]})
 		}
 	}
+	if tokens {
+		for _, pattern := range providerTokenPatterns {
+			for _, match := range pattern.FindAllStringIndex(text, -1) {
+				if tokenStart(text, match[0]) {
+					spans = append(spans, span{start: match[0], end: match[1]})
+				}
+			}
+		}
+	}
 	return joinSpans(spans)
+}
+
+// tokenStart reports whether a provider token can start at offset start of
+// text. A match right after a base64 or token character lies inside other
+// text, such as base64 data.
+func tokenStart(text string, start int) bool {
+	if start == 0 {
+		return true
+	}
+	switch b := text[start-1]; {
+	case 'a' <= b && b <= 'z', 'A' <= b && b <= 'Z', '0' <= b && b <= '9':
+		return false
+	case b == '+', b == '/', b == '_', b == '-':
+		return false
+	default:
+		return true
+	}
 }
 
 // joinSpans sorts spans and joins the ones that overlap. Spans that only

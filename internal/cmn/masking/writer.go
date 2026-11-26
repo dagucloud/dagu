@@ -14,6 +14,8 @@ import (
 type MaskingWriter struct {
 	writer io.Writer
 	masker *Masker
+	// tokens reports that the writer also masks provider token formats.
+	tokens bool
 	buffer bytes.Buffer
 }
 
@@ -23,6 +25,18 @@ func NewMaskingWriter(w io.Writer, masker *Masker) *MaskingWriter {
 	return &MaskingWriter{
 		writer: w,
 		masker: masker,
+	}
+}
+
+// NewLogMaskingWriter creates a MaskingWriter for a step log. Besides the
+// values of masker, it masks provider OAuth token formats, such as Google
+// access and refresh tokens. If masker is nil, it passes through without
+// masking.
+func NewLogMaskingWriter(w io.Writer, masker *Masker) *MaskingWriter {
+	return &MaskingWriter{
+		writer: w,
+		masker: masker,
+		tokens: true,
 	}
 }
 
@@ -61,7 +75,7 @@ func (w *MaskingWriter) flushLines() error {
 	remaining := data[lastNewline+1:]
 
 	// Mask and write complete lines
-	masked := w.masker.MaskBytes(completeLines)
+	masked := w.mask(completeLines)
 	if _, err := w.writer.Write(masked); err != nil {
 		return err
 	}
@@ -83,7 +97,7 @@ func (w *MaskingWriter) Flush() error {
 
 	// Mask and write remaining buffer
 	if w.masker != nil {
-		masked := w.masker.MaskBytes(w.buffer.Bytes())
+		masked := w.mask(w.buffer.Bytes())
 		if _, err := w.writer.Write(masked); err != nil {
 			return err
 		}
@@ -95,6 +109,11 @@ func (w *MaskingWriter) Flush() error {
 
 	w.buffer.Reset()
 	return nil
+}
+
+// mask returns data with the values the writer hides masked.
+func (w *MaskingWriter) mask(data []byte) []byte {
+	return []byte(w.masker.mask(string(data), w.tokens))
 }
 
 // Close flushes any remaining data and closes the underlying writer if it implements io.Closer

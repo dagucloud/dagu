@@ -231,6 +231,72 @@ func TestMaskingWriter_AddedValue(t *testing.T) {
 	assert.Equal(t, "******* later\n******* *******\n", buf.String())
 }
 
+// Provider tokens are written split in two, so a secret scanner does not
+// take the test data for leaked tokens.
+var (
+	googleAccessToken  = "ya29." + "a0AfB_byC1x2y3z4ExampleAccessToken-abc"
+	googleServiceToken = "ya29." + "c.c0ASRK0GZExampleServiceToken"
+	googleRefreshToken = "1//" + "0gExampleRefreshTokenValue-abcdefghijklmnopqrstuvwxyz"
+)
+
+func TestLogMaskingWriter_ProviderTokens(t *testing.T) {
+	t.Parallel()
+
+	base64Blob := "iVBORw0KGgoAAAANSUhEUgAA1//" + strings.Repeat("Q2xhdWRlIGRhZ3U", 4) + "=="
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "google access token",
+			input:    "Authorization: Bearer " + googleAccessToken + "\n",
+			expected: "Authorization: Bearer *******\n",
+		},
+		{
+			name:     "google service account token",
+			input:    "token=" + googleServiceToken + "\n",
+			expected: "token=*******\n",
+		},
+		{
+			name:     "google refresh token in JSON",
+			input:    `{"refresh_token":"` + googleRefreshToken + `","expires_in":3599}` + "\n",
+			expected: `{"refresh_token":"*******","expires_in":3599}` + "\n",
+		},
+		{
+			// A doubled slash in a path is too short to be a refresh token.
+			name:     "doubled slash in a path",
+			input:    "POST /api/v1//license/deactivate\n",
+			expected: "POST /api/v1//license/deactivate\n",
+		},
+		{
+			// Inside base64 data, "1//" follows a base64 character.
+			name:     "refresh token prefix inside base64",
+			input:    base64Blob + "\n",
+			expected: base64Blob + "\n",
+		},
+		{
+			name:     "secret value beside a token",
+			input:    "secret123 " + googleAccessToken + "\n",
+			expected: "******* *******\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			writer := NewLogMaskingWriter(&buf, NewValueMasker([]string{"secret123"}))
+
+			_, err := writer.Write([]byte(tt.input))
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.expected, buf.String())
+		})
+	}
+}
+
 func TestMaskingWriter_CloseWithCloser(t *testing.T) {
 	t.Parallel()
 
