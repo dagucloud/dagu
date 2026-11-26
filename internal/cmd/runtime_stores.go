@@ -4,9 +4,6 @@
 package cmd
 
 import (
-	"context"
-	"fmt"
-
 	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -40,43 +37,9 @@ func (c *Context) runtimeStores() executionStores {
 		HostKeys:             c.runtimeHostKeyStore(),
 	}
 	if inventories != nil {
-		stores.Nodes = projectNodes{inventories: inventories, workers: c.runtimeWorkerNodeStore()}
+		stores.Nodes = inventory.NewProjectNodes(inventories, c.runtimeWorkerNodeStore())
 	}
 	return stores
-}
-
-// projectNodes reads the nodes a run on the Dagu host targets: the nodes of
-// the inventories and the worker nodes, which every project shares.
-type projectNodes struct {
-	inventories inventory.Store
-	// workers is nil when the worker nodes cannot be read.
-	workers inventory.WorkerNodeStore
-}
-
-// Nodes returns every node, in name order.
-func (n projectNodes) Nodes(ctx context.Context) ([]inventory.ResolvedNode, error) {
-	nodes, err := n.inventories.Nodes(ctx)
-	if err != nil || n.workers == nil {
-		return nodes, err
-	}
-	workers, err := n.workers.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read the worker nodes: %w", err)
-	}
-	return inventory.WithWorkers(nodes, workers), nil
-}
-
-// Select returns the nodes a selector matches, in name order.
-func (n projectNodes) Select(ctx context.Context, selector string) ([]inventory.ResolvedNode, error) {
-	filters, err := inventory.ParseSelector(selector)
-	if err != nil {
-		return nil, err
-	}
-	nodes, err := n.Nodes(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return inventory.Select(nodes, filters), nil
 }
 
 // inventoryStore opens the node inventories of this installation.

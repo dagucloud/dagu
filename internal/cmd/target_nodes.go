@@ -10,6 +10,7 @@ import (
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/intake"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -63,7 +64,7 @@ func narrowRun(ctx *Context, dag *ir.DAG, names []string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the node inventory: %w", err)
 	}
-	known, err := projectNodes{inventories: nodes, workers: ctx.runtimeWorkerNodeStore()}.Nodes(ctx.Context)
+	known, err := inventory.NewProjectNodes(nodes, ctx.runtimeWorkerNodeStore()).Nodes(ctx.Context)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the node inventory: %w", err)
 	}

@@ -26,15 +26,10 @@ func (a *API) checkTargetNodes(ctx context.Context, dag *ir.DAG, names []string)
 	if a.inventoryStore == nil {
 		return nil, inventoryStoreUnavailable()
 	}
-	nodes, err := a.inventoryStore.Nodes(ctx)
+	known, err := inventory.NewProjectNodes(a.inventoryStore, a.workerNodeStore).Nodes(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read inventory nodes: %w", err)
+		return nil, fmt.Errorf("failed to read nodes: %w", err)
 	}
-	workers, _, err := a.listWorkerNodes(ctx, nodes)
-	if err != nil {
-		return nil, err
-	}
-	known := inventory.WithWorkers(nodes, workers)
 	listed, err := intake.CheckTargetNodes(dag, names, known)
 	if err != nil {
 		return nil, &Error{

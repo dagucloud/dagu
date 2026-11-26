@@ -4,9 +4,11 @@
 package inventory_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -37,25 +39,53 @@ func TestSplitWorkers(t *testing.T) {
 	assert.Equal(t, []inventory.WorkerConflict{{Worker: workers[1], Node: ssh[0]}}, conflicts)
 }
 
-// Worker nodes join a project's nodes in name order, except a worker whose
-// ID an inventory node holds.
-func TestWithWorkers(t *testing.T) {
+// fakeInventories holds fixed inventory nodes.
+type fakeInventories struct {
+	inventory.Store
+	nodes []inventory.ResolvedNode
+}
+
+func (f fakeInventories) Nodes(context.Context) ([]inventory.ResolvedNode, error) { return f.nodes, nil }
+
+// fakeWorkers holds fixed worker nodes.
+type fakeWorkers struct {
+	inventory.WorkerNodeStore
+	workers []inventory.WorkerNode
+}
+
+func (f fakeWorkers) List(context.Context) ([]inventory.WorkerNode, error) { return f.workers, nil }
+
+// Worker nodes join a project's nodes in name order and match alike, except
+// a worker whose ID an inventory node holds.
+func TestProjectNodes(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
-	ssh := []inventory.ResolvedNode{
-		{Name: "tokyo-db01", Host: "10.0.1.21"},
-		{Name: "tokyo-web01", Host: "10.0.1.11"},
-	}
-	workers := []inventory.WorkerNode{
-		{Name: "osaka-gw", Host: "gw.osaka", Labels: ir.NewLabels([]string{"site=osaka"}), Online: true},
-		{Name: "Tokyo-Web01", Host: "other"},
+	ssh := fakeInventories{nodes: []inventory.ResolvedNode{
+		{Name: "tokyo-db01", Host: "10.0.1.21", Labels: ir.NewLabels([]string{"db"})},
+		{Name: "tokyo-web01", Host: "10.0.1.11", Labels: ir.NewLabels([]string{"web"})},
+	}}
+	workers := fakeWorkers{workers: []inventory.WorkerNode{
+		{Name: "osaka-gw", Host: "gw.osaka", Labels: ir.NewLabels([]string{"web"}), Online: true},
+		{Name: "Tokyo-Web01", Host: "other", Labels: ir.NewLabels([]string{"web"})},
 		{Name: "tokyo-gw", Host: "gw.tokyo"},
-	}
+	}}
+	nodes := inventory.NewProjectNodes(ssh, workers)
 
+	all, err := nodes.Nodes(ctx)
+	require.NoError(t, err)
 	assert.Equal(t, []inventory.ResolvedNode{
-		{Name: "osaka-gw", Kind: inventory.NodeKindWorker, Host: "gw.osaka", Labels: ir.NewLabels([]string{"site=osaka"})},
-		{Name: "tokyo-db01", Host: "10.0.1.21"},
+		{Name: "osaka-gw", Kind: inventory.NodeKindWorker, Host: "gw.osaka", Labels: ir.NewLabels([]string{"web"})},
+		ssh.nodes[0],
 		{Name: "tokyo-gw", Kind: inventory.NodeKindWorker, Host: "gw.tokyo"},
-		{Name: "tokyo-web01", Host: "10.0.1.11"},
-	}, inventory.WithWorkers(ssh, workers))
+		ssh.nodes[1],
+	}, all)
+
+	matched, err := nodes.Select(ctx, "web")
+	require.NoError(t, err)
+	assert.Equal(t, []inventory.ResolvedNode{all[0], all[3]}, matched)
+
+	inventoryOnly, err := inventory.NewProjectNodes(ssh, nil).Nodes(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, ssh.nodes, inventoryOnly)
 }

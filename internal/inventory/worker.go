@@ -6,6 +6,7 @@ package inventory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -76,22 +77,66 @@ func IsNodeName(name string) bool {
 	return nodeNameError(name) == nil && !strings.EqualFold(name, daguHostWorkerID)
 }
 
-// Node returns the worker node as a node that selectors match and runs bind
-// to.
-func (w WorkerNode) Node() ResolvedNode {
-	return ResolvedNode{Name: w.Name, Kind: NodeKindWorker, Host: w.Host, Labels: slices.Clone(w.Labels)}
+// ProjectNodes reads a project's nodes: the nodes of its inventories and the
+// worker nodes, which every project shares (RFC 012 §Selecting nodes).
+type ProjectNodes struct {
+	inventories nodeLister
+	workers     WorkerNodeStore
 }
 
-// WithWorkers returns a project's nodes, in name order: nodes, and the
-// workers that are nodes (SplitWorkers).
-func WithWorkers(nodes []ResolvedNode, workers []WorkerNode) []ResolvedNode {
+// nodeLister lists the nodes of a project's inventories, as Store does.
+type nodeLister interface {
+	Nodes(ctx context.Context) ([]ResolvedNode, error)
+}
+
+// NewProjectNodes returns the nodes of inventories, which lists them as
+// Store.Nodes does, and of workers. A nil workers holds no worker nodes.
+func NewProjectNodes(inventories nodeLister, workers WorkerNodeStore) ProjectNodes {
+	return ProjectNodes{inventories: inventories, workers: workers}
+}
+
+// Nodes returns every node in name order. A worker whose ID names an
+// inventory node is not a node (SplitWorkers).
+func (p ProjectNodes) Nodes(ctx context.Context) ([]ResolvedNode, error) {
+	nodes, err := p.inventories.Nodes(ctx)
+	if err != nil || p.workers == nil {
+		return nodes, err
+	}
+	workers, err := p.workers.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the worker nodes: %w", err)
+	}
+	return withWorkers(nodes, workers), nil
+}
+
+// Select returns the nodes a selector matches, in name order.
+func (p ProjectNodes) Select(ctx context.Context, selector string) ([]ResolvedNode, error) {
+	filters, err := ParseSelector(selector)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := p.Nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return Select(nodes, filters), nil
+}
+
+// withWorkers returns nodes and the workers that are nodes, in name order.
+func withWorkers(nodes []ResolvedNode, workers []WorkerNode) []ResolvedNode {
 	kept, _ := SplitWorkers(workers, nodes)
 	all := slices.Grow(slices.Clone(nodes), len(kept))
 	for _, w := range kept {
-		all = append(all, w.Node())
+		all = append(all, w.node())
 	}
 	slices.SortFunc(all, func(a, b ResolvedNode) int { return strings.Compare(a.Name, b.Name) })
 	return all
+}
+
+// node returns the worker node as a node that selectors match and runs bind
+// to.
+func (w WorkerNode) node() ResolvedNode {
+	return ResolvedNode{Name: w.Name, Kind: NodeKindWorker, Host: w.Host, Labels: slices.Clone(w.Labels)}
 }
 
 // SplitWorkers returns the workers that are nodes, and the workers whose

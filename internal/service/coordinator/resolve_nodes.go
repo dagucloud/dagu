@@ -77,15 +77,11 @@ func (h *Handler) ResolveNodes(ctx context.Context, req *coordinatorv1.ResolveNo
 // candidateNodes lists the nodes a run on a worker can target, in name
 // order: the project's inventory nodes and worker nodes.
 func (h *Handler) candidateNodes(ctx context.Context) ([]inventory.ResolvedNode, error) {
-	nodes, err := h.nodeInventory.Nodes(ctx)
-	if err != nil {
-		return nil, err
+	var workers inventory.WorkerNodeStore
+	if h.workerNodes != nil {
+		workers = h.workerNodes.store
 	}
-	workers, err := h.workerNodes.list(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return inventory.WithWorkers(nodes, workers), nil
+	return inventory.NewProjectNodes(h.nodeInventory, workers).Nodes(ctx)
 }
 
 // authorizeNodeSecret lets a run read ref for node when the run targets
