@@ -585,6 +585,12 @@ func loadDAGWithParams(ctx *Context, args []string, isSubDAGRun bool) (*ir.DAG, 
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to load DAG from %s: %w", dagPath, err)
 	}
+	// A child that dag.run started was resolved by its caller.
+	if !isSubDAGRun {
+		if err := ctx.projectStores.CheckStart(ctx, dag.Location); err != nil {
+			return nil, "", err
+		}
+	}
 	if ctx.Command.Flags().Changed(sourceFileFlag.name) {
 		sourceFile, err := ctx.StringParam(sourceFileFlag.name)
 		if err != nil {
