@@ -119,7 +119,8 @@ func (w *projectWikis) ownStore(p project.Project, paths config.ProjectPaths, di
 
 // migratedRoots returns the v2 workspace names of the projects that
 // migration made, whose directories under the default wiki directory are
-// theirs. It reads the registry at most once per check interval.
+// theirs, and the spellings those directories have on disk. It reads the
+// registry and that directory at most once per check interval.
 func (w *projectWikis) migratedRoots(ctx context.Context) ([]string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -145,7 +146,33 @@ func (w *projectWikis) migratedRoots(ctx context.Context) ([]string, error) {
 			delete(w.own, id)
 		}
 	}
+	// Listing and search exclude by the spelling a directory has on disk.
+	if roots, err = w.withDiskSpellings(roots); err != nil {
+		return nil, err
+	}
 	w.migrated, w.checkedAt = roots, time.Now()
+	return roots, nil
+}
+
+// withDiskSpellings adds to roots each directory of the default wiki
+// directory whose name matches one of them without regard to case.
+func (w *projectWikis) withDiskSpellings(roots []string) ([]string, error) {
+	if len(roots) == 0 {
+		return roots, nil
+	}
+	entries, err := os.ReadDir(w.cfg.Paths.WikiDir)
+	if os.IsNotExist(err) {
+		return roots, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read the wiki directory: %w", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() && ownedElsewhere(name, roots) && !slices.Contains(roots, name) {
+			roots = append(roots, name)
+		}
+	}
 	return roots, nil
 }
 
@@ -209,6 +236,7 @@ func (v *wikiView) relative(ctx context.Context) (func(id string) (string, bool)
 // scope returns the store's path prefix and excluded paths for a query of
 // the view under prefix that excludes the paths in excluded.
 func (v *wikiView) scope(ctx context.Context, prefix string, excluded []string) (string, []string, error) {
+	prefix = cleanPrefix(prefix)
 	if v.root == "" {
 		roots, err := v.excluded(ctx)
 		if err != nil {
@@ -224,6 +252,11 @@ func (v *wikiView) scope(ctx context.Context, prefix string, excluded []string) 
 		return v.root, scoped, nil
 	}
 	return v.root + "/" + prefix, scoped, nil
+}
+
+// cleanPrefix spells a path prefix as the store reads it.
+func cleanPrefix(prefix string) string {
+	return strings.Trim(strings.TrimSpace(prefix), "/")
 }
 
 func ownedElsewhere(id string, roots []string) bool {
@@ -444,8 +477,8 @@ func (v *wikiView) SearchCursor(ctx context.Context, opts wiki.SearchPagesOption
 
 func (v *wikiView) SearchMatches(ctx context.Context, id string, opts wiki.SearchPageMatchesOptions) (*pagination.CursorResult[*textsearch.Match], error) {
 	full := id
-	if opts.PathPrefix != "" {
-		full = opts.PathPrefix + "/" + id
+	if prefix := cleanPrefix(opts.PathPrefix); prefix != "" {
+		full = prefix + "/" + id
 	}
 	_, ok, err := v.stored(ctx, full)
 	if err != nil {
