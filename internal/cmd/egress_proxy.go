@@ -153,8 +153,8 @@ func egressProxyServe(listen listenFunc) *cobra.Command {
 		},
 	}
 	command.Flags().String("listen", "", "address to listen on, as host:port (required)")
-	command.Flags().StringArray("allow", nil, "allowed destination, as host, host:port or [IPv6 address]:port; repeat the flag (required)")
-	command.Flags().String("upstream", "", "http or https URL that receives each request in origin form; its host and port must match an --allow entry")
+	command.Flags().StringArray("allow", nil, "allowed destination, as host, host:port or [IPv6 address]:port; repeat the flag; give it, --allow-with-credential or both")
+	command.Flags().String("upstream", "", "http or https URL that receives each request in origin form; its host and port must match an --allow or an --allow-with-credential entry")
 	command.Flags().String("upstream-auth", string(egress.AuthXAPIKey), "form of the key for the upstream: x-api-key, bearer or anthropic-oauth")
 	command.Flags().String("upstream-key-env", "", "name of the environment variable that holds the key of the upstream")
 	command.Flags().String("upstream-key-file", "", "path of the file that holds the key of the upstream")
