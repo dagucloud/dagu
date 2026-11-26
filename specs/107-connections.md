@@ -211,8 +211,9 @@ A worker has neither.
 | `allow_token_export` | Off by default. Set only by an admin |
 | `holder` | `local`. `cloud` is reserved and refused |
 
-- A metadata change by a person never changes token state, and a token
-  refresh never changes metadata.
+- A metadata change by a person never changes token state, except a
+  change of `subject`, as [Status Transitions](#status-transitions) states.
+  A token refresh never changes metadata.
 
 #### Token State
 
@@ -229,12 +230,14 @@ A worker has neither.
 | `generation` | Starts at 0. Increases by 1 on each confirm, on an import, and on each successful token fetch of a create or reconnect without a session |
 | `session` | The session in progress, if any. See [Sessions](#sessions) |
 | `refreshed_at` | Time of the last successful refresh |
+| `import_hash` | Only for an imported connection: a hash of the refresh token the import was given. See [Import](#import) |
 
 - Only the connect flow and the broker write token state.
 - `account` and `account_id` are written only with tokens, in the same
   write: by a confirm, from the session; by an import, from the provider;
-  and by a `service_account` or `client_credentials` token fetch, where
-  both are the connection's `subject`. A refresh never changes them.
+  and by a `service_account` or `client_credentials` token fetch, at
+  create, reconnect, or a change of `subject`, where both are the
+  connection's `subject`. A refresh never changes them.
 - A connection's account is compared with a session's, or with another
   connection's, by `account_id`, never by `account`. An expected account is
   compared with the email the provider vouches for, as
@@ -254,6 +257,8 @@ A worker has neither.
 | `connected` | `connected` | A reconnect is confirmed, or its token fetch succeeds for a grant without a refresh token. `generation` increases |
 | `connected` | `needs_reconnect` | A refresh fails with `invalid_grant`, as [Refresh Results](#refresh-results) states |
 | `needs_reconnect` | `connected` | A reconnect is confirmed |
+| `pending` or `connected` | `connected` | An admin changes the `subject` of a `service_account` or `client_credentials` connection, and the new token fetch succeeds. `generation` increases |
+| `pending` or `connected` | `pending` | An admin changes the `subject`, and the new token fetch fails. `status_reason` holds the provider's error |
 
 - No other transition exists. Remove deletes the records and tool catalogs
   in any status.
@@ -262,6 +267,10 @@ A worker has neither.
   connection stays `pending` with the provider's error in
   `status_reason`. A reconnect of such a connection repeats the fetch. A
   failed fetch on reconnect changes no status.
+- A change of `subject` discards the stored access tokens and repeats the
+  token fetch for the new `subject`, as a reconnect replaces tokens. The
+  account fields then name the new `subject`. No token minted for the old
+  `subject` is used after the change.
 - A `device_code` connect runs a session and needs the starter's confirm,
   as the other modes do.
 - A grant without a refresh token never becomes `needs_reconnect`.
@@ -614,10 +623,14 @@ Each of these fails the session.
   `generation` 1, and `account`, `account_id`, and granted scopes read from
   the provider. Dagu then runs the
   [checks after consent](#checks-after-consent).
-- When the provider rejects the refresh token, the import fails and nothing
-  is stored.
-- An import is refused when another connection on the server already holds
-  the same refresh token.
+- When the provider rejects the refresh token, or the fetch fails for a
+  transient reason, the import fails and nothing is stored.
+- An imported connection records `import_hash`, a hash of the refresh
+  token it was given.
+- An import is refused when its refresh token equals a refresh token that
+  a connection on the server stores, or matches a connection's
+  `import_hash`. A token that a provider rotated after an import therefore
+  still counts as held.
 - The output says to replace every mail `oauth` block that holds the token
   with `connection:`.
 
@@ -1149,9 +1162,10 @@ Token issuance is not audited. No audit entry holds a secret.
 - When Dagu Cloud is unreachable during a Cloud relay connect, the session
   fails, saying so, and the UI or CLI offers the next mode. Runs and
   existing connections are unaffected.
-- An import of a refresh token that another connection holds is refused.
-- An import whose refresh token the provider rejects fails, and nothing is
-  stored.
+- An import of a refresh token that another connection stores, or was
+  imported from, is refused.
+- An import whose refresh token the provider rejects, or whose token fetch
+  fails for a transient reason, fails, and nothing is stored.
 - Authorization server metadata whose `issuer` does not match its URL is
   refused, and the connect fails.
 - A redirect mode that does not work for the server or the app's client
