@@ -178,6 +178,39 @@ jobs:
           grep -Fq 'name: dagu-worker-general' /tmp/dagu-distributed-render.yaml
           grep -Fq -- '- ReadWriteMany' /tmp/dagu-distributed-render.yaml
           test "$(grep -Fc 'serviceAccountName: dagu' /tmp/dagu-distributed-render.yaml)" -eq 4
+          # Workers report <pod>@<pid> unless a pool sets a stable workerId.
+          if grep -Fq 'name: DAGU_WORKER_ID' /tmp/dagu-distributed-render.yaml; then
+            echo "::error::Workers without workerId must not set DAGU_WORKER_ID"
+            exit 1
+          fi
+
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --kube-version 1.35.0 \
+            --set deploymentMode=distributed \
+            --set persistence.accessMode=ReadWriteMany \
+            --set persistence.storageClass=nfs-client \
+            --set workerPools.general.replicas=1 \
+            --set-string workerPools.general.workerId=general-01 \
+            --show-only templates/worker-deployment.yaml \
+            >/tmp/dagu-worker-id-render.yaml
+
+          grep -Fq 'value: "general-01"' /tmp/dagu-worker-id-render.yaml
+
+          # One ID names one worker, so a pool with more replicas is refused.
+          if output="$(helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --set deploymentMode=distributed \
+            --set persistence.accessMode=ReadWriteMany \
+            --set-string workerPools.general.workerId=general-01 2>&1)"; then
+            echo "::error::Expected a workerId on a pool of 2 replicas to be refused"
+            exit 1
+          fi
+          if [[ "${output}" != *"its replicas must be 0 or 1"* ]]; then
+            echo "::error::workerId rendering failed for an unexpected reason"
+            printf '%s\n' "${output}"
+            exit 1
+          fi
 
           helm template dagu ./charts/dagu \
             --namespace dagu \

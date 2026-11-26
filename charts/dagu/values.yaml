@@ -146,6 +146,11 @@ workerPools:
     tolerations: []
     affinity: {}
     priorityClassName: ""
+    # Without a workerId, each pod reports <pod name>@<pid> as its ID, which
+    # changes when the pod is replaced, so it is not a node. A pool that sets
+    # one has a stable worker that steps can select by label, which fits only
+    # replicas: 0 or 1. IDs are unique across pools, compared without case.
+    # workerId: "general-01"
 
 # Server and UI configuration. In standalone mode this configures the combined
 # start-all pod and replicas must remain 1.

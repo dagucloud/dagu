@@ -265,6 +265,19 @@ workerSelector:
   gpu: "true"
 ```
 
+Each worker pod reports `<pod name>@<pid>` as its worker ID. A Deployment replaces its pods with new names on every rollout, so these workers are not nodes and leave no offline nodes behind. To make a pool's worker a node that steps select by label, give the pool a stable `workerId`. One ID names one worker, so the chart refuses a `workerId` on a pool with more than one replica, and the same ID on two pools:
+
+```yaml
+workerPools:
+  gpu:
+    replicas: 1
+    workerId: gpu-01
+    labels:
+      gpu: "true"
+```
+
+Chart versions before 2.0.9 set the worker ID to the pod name. After an upgrade, worker IDs change from `<pod>` to `<pod>@<pid>`.
+
 ### Cross-Origin Browser Access
 
 Cross-origin browser access is disabled by default. This does not affect the bundled Dagu UI because it uses the same origin as the API. To allow a separate browser application to call Dagu, list its exact origins:
