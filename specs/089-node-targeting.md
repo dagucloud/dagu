@@ -213,9 +213,9 @@ and a mistake fails the request:
 - each name must be a node of the project, compared without case, so a
   mistyped name never starts a run;
 - a `node: required` DAG takes exactly one node, an inventory node, and
-  the run is bound to it as a child of a `dag.run` step with `nodes` is. The start and enqueue
-  requests refuse such a DAG without a node; `dagu start` and `dagu enqueue`
-  record a run that fails before any step;
+  the run is bound to it as a child of a `dag.run` step with `nodes` is.
+  The start and enqueue requests refuse such a DAG without a node; `dagu
+  start` and `dagu enqueue` record a run that fails before any step;
 - any other DAG takes a list only when a step, a `foreach` body, or a
   handler sets `nodes` or runs a child DAG;
 - a start of selected steps takes no list.

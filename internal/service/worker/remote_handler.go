@@ -482,7 +482,6 @@ type loadedTaskDAG struct {
 	cleanup       func()
 }
 
-// loadDAG loads the DAG from task definition.
 // loadDAG loads the DAG a task runs. The child of a command step with nodes
 // runs that step alone.
 func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Task) (*loadedTaskDAG, error) {
