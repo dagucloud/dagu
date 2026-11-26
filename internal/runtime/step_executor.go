@@ -93,7 +93,7 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		return err
 	}
 	defer leaveGate()
-	if GetDAGContext(ctx).DAG.HasUntrustedStep() && !node.Step().IsUntrusted() {
+	if untrustedRun(ctx) && !node.Step().IsUntrusted() {
 		ctx = untrusted.WithGitSafetyContext(ctx)
 	}
 

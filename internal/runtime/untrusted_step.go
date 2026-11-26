@@ -44,10 +44,16 @@ func beginUntrustedStep(ctx context.Context, node *Node) (context.Context, *untr
 	return ctx, session, nil
 }
 
+// untrustedRun reports whether the run of ctx has an untrusted step.
+func untrustedRun(ctx context.Context) bool {
+	rCtx, ok := LookupDAGContext(ctx)
+	return ok && rCtx.HasUntrustedStep
+}
+
 // isolatedRun reports whether the run has an untrusted step and the
 // configuration has a restricted user.
 func isolatedRun(ctx context.Context) bool {
-	return config.GetConfig(ctx).Untrusted.Enabled && GetDAGContext(ctx).DAG.HasUntrustedStep()
+	return untrustedRun(ctx) && config.GetConfig(ctx).Untrusted.Enabled
 }
 
 // gatedStep reports whether the step takes a place in the gate of its run. A
@@ -107,8 +113,8 @@ func checkUntrustedExecutor(ctx context.Context, node *Node, cmd executor.Execut
 // path in the work directory of the run cannot pass a symbolic link, which an
 // untrusted step could have made to a file of the worker (Spec 092).
 func OpenStepFile(ctx context.Context, path string, flags int, perm os.FileMode) (*os.File, error) {
-	rCtx := GetDAGContext(ctx)
-	if !rCtx.DAG.HasUntrustedStep() {
+	rCtx, ok := LookupDAGContext(ctx)
+	if !ok || !rCtx.HasUntrustedStep {
 		return os.OpenFile(path, flags, perm) // #nosec G304 -- the path comes from the workflow.
 	}
 	return untrusted.OpenWorkFile(rCtx.RunWorkDir, path, flags, perm)

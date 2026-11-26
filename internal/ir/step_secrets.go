@@ -3,10 +3,6 @@
 
 package ir
 
-// Spec 092, "Secrets of a step" and "Untrusted steps". The rules in this file
-// are the single source for the runtime, which filters the variables of a step,
-// and for the coordinator, which gives a registry secret to a step.
-
 // IsUntrusted reports whether the step runs as an untrusted step.
 func (s Step) IsUntrusted() bool {
 	return s.Untrusted
@@ -18,45 +14,22 @@ func (d *DAG) HasUntrustedStep() bool {
 	if d == nil {
 		return false
 	}
-	found := false
-	d.WalkSteps(func(step *Step) {
-		if step.IsUntrusted() {
-			found = true
-		}
-	})
-	return found
-}
-
-func (d *DAG) handlerSteps() []*Step {
-	return []*Step{
-		d.HandlerOn.Init,
-		d.HandlerOn.Failure,
-		d.HandlerOn.Success,
-		d.HandlerOn.Abort,
-		d.HandlerOn.Exit,
-		d.HandlerOn.Wait,
-	}
-}
-
-// WalkSteps calls visit for each step, each handler and each step in the
-// body of a foreach step.
-func (d *DAG) WalkSteps(visit func(*Step)) {
-	var walk func(*Step)
-	walk = func(step *Step) {
-		if step == nil {
-			return
-		}
-		visit(step)
-		if step.Foreach != nil {
-			for i := range step.Foreach.Steps {
-				walk(&step.Foreach.Steps[i])
+	var untrusted func(steps []Step) bool
+	untrusted = func(steps []Step) bool {
+		for i := range steps {
+			if steps[i].IsUntrusted() || steps[i].Foreach != nil && untrusted(steps[i].Foreach.Steps) {
+				return true
 			}
 		}
+		return false
 	}
-	for i := range d.Steps {
-		walk(&d.Steps[i])
+	if untrusted(d.Steps) {
+		return true
 	}
-	for _, handler := range d.handlerSteps() {
-		walk(handler)
+	for _, handler := range []*Step{d.HandlerOn.Init, d.HandlerOn.Failure, d.HandlerOn.Success, d.HandlerOn.Abort, d.HandlerOn.Exit, d.HandlerOn.Wait} {
+		if handler != nil && untrusted([]Step{*handler}) {
+			return true
+		}
 	}
+	return false
 }
