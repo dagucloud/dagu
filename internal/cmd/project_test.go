@@ -240,6 +240,19 @@ func TestCheckDAGFile(t *testing.T) {
 	err = ctx.checkDAGFile([]string{filepath.Join("..", "intraday", "auction")})
 	require.ErrorContains(t, err, "belongs to project intraday")
 
+	// A project's DAG directory that links out of paths.projects_dir still
+	// holds its files.
+	checkout := filepath.Join(h.home, "checkout")
+	require.NoError(t, os.MkdirAll(checkout, 0o750))
+	if err := os.Symlink(checkout, filepath.Join(h.dags, "projects", "linked")); err != nil {
+		t.Skipf("symbolic links unavailable: %v", err)
+	}
+	_, err = projectregistry.New(filepath.Join(h.home, "data")).Create(context.Background(), project.CreateInput{Name: "linked"})
+	require.NoError(t, err)
+	linked := filepath.Join(checkout, "job.yaml")
+	require.NoError(t, os.WriteFile(linked, []byte("steps: []\n"), 0o600))
+	require.ErrorContains(t, ctx.checkDAGFile([]string{linked}), "belongs to project linked")
+
 	ctx.Command = &cobra.Command{Use: "secret"}
 	require.NoError(t, ctx.checkDAGFile([]string{h.file(t, "cleanup.yaml")}), "only a DAG argument is checked")
 }

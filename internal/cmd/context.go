@@ -356,7 +356,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	}
 	addressed := defaultProject()
 	if cfg.ProjectsEnabled && !servesProjects(cmd.Name()) && !managesProjects(commandName) {
-		if addressed, err = addressedProject(ctx, cmd, cfg); err != nil {
+		if addressed, err = addressedProject(ctx, cmd, cfg, serverStores.DAGOwners()); err != nil {
 			return nil, err
 		}
 	}

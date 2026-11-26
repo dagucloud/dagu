@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -59,7 +61,7 @@ func checkProjectFlag(cmd *cobra.Command, cfg *config.Config) error {
 // by --project, else by DAGU_PROJECT, else the one whose DAG directory
 // holds the current directory, else the default project. A name that no
 // registered project has is an error.
-func addressedProject(ctx context.Context, cmd *cobra.Command, cfg *config.Config) (project.Project, error) {
+func addressedProject(ctx context.Context, cmd *cobra.Command, cfg *config.Config, owners *filedag.Owners) (project.Project, error) {
 	name := ""
 	if flag := cmd.Flags().Lookup(projectFlag.name); flag != nil {
 		name = strings.TrimSpace(flag.Value.String())
@@ -83,30 +85,49 @@ func addressedProject(ctx context.Context, cmd *cobra.Command, cfg *config.Confi
 	if err != nil {
 		return defaultProject(), nil
 	}
+	// Owners places files, so it is asked for a file the directory holds,
+	// which places the directory itself too.
+	owner, err := projectOf(ctx, owners, registry, filepath.Join(dir, directoryProbe))
+	if err != nil || owner == "" || strings.EqualFold(owner, project.DefaultName) {
+		return defaultProject(), err
+	}
+	return registry.Get(ctx, owner)
+}
+
+// directoryProbe names a file in a directory whose project is looked up.
+const directoryProbe = "dagu-project.yaml"
+
+// projectOf returns the name of the project the file at path belongs to, or
+// "" when it belongs to the library or to no project. A file outside every
+// DAG root belongs to the project whose DAG directory links to where it
+// lies.
+func projectOf(ctx context.Context, owners *filedag.Owners, registry project.Registry, path string) (string, error) {
+	owner, err := owners.Of(ctx, path)
+	if err != nil || owner.Project != "" || owner.Library {
+		return owner.Project, err
+	}
 	projects, err := registry.List(ctx)
 	if err != nil {
-		return project.Project{}, err
+		return "", err
 	}
-	owner, _ := cfg.DAGPathOwner(dir, projectNames(projects))
 	for _, p := range projects {
-		if p.Name == owner && owner != project.DefaultName {
-			return p, nil
+		if strings.EqualFold(p.Name, project.DefaultName) {
+			continue
+		}
+		linked, err := owners.OfIn(ctx, p.Name, path)
+		if err != nil {
+			return "", err
+		}
+		if linked.Is(p.Name) {
+			return p.Name, nil
 		}
 	}
-	return defaultProject(), nil
+	return "", nil
 }
 
 // defaultProject is the default project as the stores open it.
 func defaultProject() project.Project {
 	return project.Project{Name: project.DefaultName}
-}
-
-func projectNames(projects []project.Project) []string {
-	names := make([]string, len(projects))
-	for i, p := range projects {
-		names[i] = p.Name
-	}
-	return names
 }
 
 // projectManagerOptions binds a Manager to the project p while projects are
@@ -152,15 +173,10 @@ func (c *Context) checkDAGFile(args []string) error {
 		args[0], owner, c.project.Name, owner)
 }
 
-// projectOf returns the name of the project whose DAG directory holds path,
-// or "" when only the library or none holds it.
+// projectOf returns the name of the project the file at path belongs to,
+// or "" when it belongs to the library or to no project.
 func (c *Context) projectOf(path string) (string, error) {
-	projects, err := projectregistry.New(c.Config.Paths.DataDir).List(c)
-	if err != nil {
-		return "", err
-	}
-	owner, _ := c.Config.DAGPathOwner(path, projectNames(projects))
-	return owner, nil
+	return projectOf(c, c.serverStores.DAGOwners(), projectregistry.New(c.Config.Paths.DataDir), path)
 }
 
 // managesProjects reports whether the command manages projects rather than
@@ -201,15 +217,12 @@ func (c *Context) ownTestFiles(files []testFileRef) ([]testFileRef, error) {
 	if !c.Config.ProjectsEnabled || c.projectStores == nil {
 		return files, nil
 	}
-	projects, err := projectregistry.New(c.Config.Paths.DataDir).List(c)
-	if err != nil {
-		return nil, err
-	}
-	names := projectNames(projects)
+	var err error
 	return slices.DeleteFunc(files, func(f testFileRef) bool {
-		owner, _ := c.Config.DAGPathOwner(f.path, names)
+		owner, ownerErr := c.projectOf(f.path)
+		err = errors.Join(err, ownerErr)
 		return !strings.EqualFold(owner, c.project.Name)
-	}), nil
+	}), err
 }
 
 // inProjectOf returns c, or a copy of c that addresses the project whose
