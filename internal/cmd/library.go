@@ -28,7 +28,7 @@ var (
 // library stores when the DAG file that args name is a library DAG. A
 // sub-DAG run stays in the stores of its root's run.
 func (c *Context) inLibraryOf(args []string) (*Context, error) {
-	if c.projectStores == nil || c.projectStores.Library == nil || len(args) == 0 ||
+	if !c.Config.ProjectsEnabled || c.projectStores == nil || len(args) == 0 ||
 		!takesDAGFile(commandFamilyName(c.Command)) || c.isSubDAGRunCommand() {
 		return c, nil
 	}
@@ -59,6 +59,16 @@ func (c *Context) isSubDAGRunCommand() bool {
 // inLibrary reports whether the command records runs in a library's stores.
 func (c *Context) inLibrary() bool {
 	return c.projectStores != nil && c.projectStores.InLibrary()
+}
+
+// subDAGWorkerRefusal returns the error that refuses to send a child of a
+// library DAG's run to a worker, where the coordinator finds no root run
+// among the project's, or nil.
+func (c *Context) subDAGWorkerRefusal() error {
+	if c.inLibrary() {
+		return errLibraryDispatch
+	}
+	return nil
 }
 
 // subDAGStateStore returns how a child run finds its state store, or nil

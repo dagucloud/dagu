@@ -644,6 +644,7 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 		DAGRunArtifactDir:  c.projectPaths().ArtifactDir,
 		StateStoreFor:      c.subDAGStateStore(),
 		EnqueueStoresFor:   c.enqueueStores(),
+		WorkerRefusal:      c.subDAGWorkerRefusal(),
 	})
 }
 

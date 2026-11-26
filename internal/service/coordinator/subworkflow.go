@@ -64,6 +64,9 @@ type SubWorkflowRunnerConfig struct {
 	// directories that record a run of it that dag.enqueue admits, in place
 	// of DAGRunRepository, QueueStore, and the DAG-run directories.
 	EnqueueStoresFor func(ctx context.Context, path string) (EnqueueStores, error)
+	// WorkerRefusal, when set, refuses with it every child that would go to
+	// a worker.
+	WorkerRefusal error
 }
 
 // NewSubWorkflowRunnerFactory creates recursive child workflow runners.
@@ -106,7 +109,7 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 				subflow.WithLocalWorkerID(cfg.WorkerID),
 				subflow.WithLocalDAGRunDirs(cfg.DAGRunLogDir, cfg.DAGRunArtifactDir),
 			),
-		), nil
+		).RefuseWorkers(cfg.WorkerRefusal), nil
 	}
 	return factory
 }
