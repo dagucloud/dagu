@@ -460,8 +460,9 @@ An untrusted step can leave files behind that a later trusted step reads. Dagu c
   file that a later trusted step reads, such as `.gitconfig`.
 - **Bare repositories.** In a run with an untrusted step, every process gets the git setting
   `safe.bareRepository=explicit`. Dagu adds it through `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and
-  `GIT_CONFIG_VALUE_<n>`, after the entries these variables already have. So git opens a bare
-  repository only when the command names it.
+  `GIT_CONFIG_VALUE_<n>`, after the entries these variables already have. Git reads
+  `GIT_CONFIG_PARAMETERS` after them, so when that variable is set, Dagu also adds the setting at its
+  end. So git opens a bare repository only when the command names it.
 
 ## Errors
 
