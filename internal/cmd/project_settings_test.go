@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,7 +90,9 @@ func TestProjectSettingsSkipWorkspaceLabel(t *testing.T) {
 			th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: []string{"retry", "--run-id=" + started.DAGRunID, dag.Location}})
 			requireProjectSettingsRun(t, th, dag, started.DAGRunID)
 
-			const queuedRunID = "queued-project-settings"
+			// A run's control socket is named by its DAG and run ID and sits
+			// outside the test's directories, so each case needs its own ID.
+			queuedRunID := "queued-" + strings.ToLower(tc.name)
 			th.RunCommand(t, cmd.Enqueue(), test.CmdTest{Args: []string{"enqueue", "--run-id=" + queuedRunID, "--profile=prod", dag.Location}})
 			th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: []string{"retry", "--run-id=" + queuedRunID, dag.Location}})
 			requireProjectSettingsRun(t, th, dag, queuedRunID)
