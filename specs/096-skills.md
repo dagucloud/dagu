@@ -310,6 +310,10 @@ folder that breaks the format. It does not contain a plain file, a link or a hid
 skill folder that is a link gives the error `folder-link`. A skill with an
 error is a skill with the state ERROR.
 
+`GET /skills` returns `skills`, the `SkillSummary` of the first 1000 folders in name order, and
+`truncated`, which is true when the skills directory holds more folders. The server reads the
+folders one at a time, so a listing keeps the text of one skill in memory, at most 16 MiB.
+
 `SkillSummary` has `name`, `description`, `hash`, `valid`, `errors`, `warnings`, `fileCount`,
 `totalBytes`, `bodyLines` and `bodyTokens`. `SkillDetail` has `name`, `content`, `hash`, `errors`,
 `warnings`, `files`, the values of `license`, `compatibility`, `allowedTools` and `metadata`, and the

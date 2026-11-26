@@ -25,18 +25,21 @@ func NewStore(root string) *Store { return &Store{root: root} }
 // Dir returns the folder of a skill.
 func (s *Store) Dir(name string) string { return filepath.Join(s.root, name) }
 
-// Names returns the names of the folders of the skills directory, sorted. A
-// folder is listed even when it has no SKILL.md or breaks the format: it is a
-// skill with errors. Hidden folders and plain files are not listed.
-func (s *Store) Names() ([]string, error) {
+// MaxListedSkills is the number of folders that one listing reads at most.
+const MaxListedSkills = 1000
+
+// Names returns the names of the first MaxListedSkills folders of the skills
+// directory, sorted, and whether the directory holds more. A folder is listed
+// even when it has no SKILL.md or breaks the format: it is a skill with errors.
+// Hidden folders and plain files are not listed.
+func (s *Store) Names() (names []string, more bool, err error) {
 	entries, err := os.ReadDir(s.root)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
+			return nil, false, nil
 		}
-		return nil, err
+		return nil, false, err
 	}
-	var names []string
 	for _, e := range entries {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || !IsSafeFolderName(e.Name()) {
 			continue
@@ -44,25 +47,8 @@ func (s *Store) Names() ([]string, error) {
 		names = append(names, e.Name())
 	}
 	sort.Strings(names)
-	return names, nil
-}
-
-// List reads every skill of the directory, sorted by name.
-func (s *Store) List() ([]*Skill, error) {
-	names, err := s.Names()
-	if err != nil {
-		return nil, err
+	if len(names) > MaxListedSkills {
+		return names[:MaxListedSkills], true, nil
 	}
-	out := make([]*Skill, 0, len(names))
-	for _, name := range names {
-		sk, err := Read(s.Dir(name))
-		if errors.Is(err, ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, sk)
-	}
-	return out, nil
+	return names, false, nil
 }

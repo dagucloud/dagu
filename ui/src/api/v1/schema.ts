@@ -3804,7 +3804,7 @@ export interface paths {
         };
         /**
          * List skills
-         * @description Lists the skill folders of the DAGs directory, sorted by name. A skill that is not in the Agent Skills format is listed too, with its errors: Dagu refuses to load it.
+         * @description Lists the skill folders of the DAGs directory, sorted by name: at most the first 1000. A skill that is not in the Agent Skills format is listed too, with its errors: Dagu refuses to load it.
          */
         get: operations["listSkills"];
         put?: never;
@@ -22040,6 +22040,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         skills: components["schemas"]["SkillSummary"][];
+                        /** @description True when the skills directory holds more than 1000 folders */
+                        truncated: boolean;
                     };
                 };
             };
