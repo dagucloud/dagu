@@ -32,7 +32,7 @@ This command only lists DAGs from the local Dagu installation.
 
 Flags:
   -n, --next         Show next scheduled run time
-      --local        Show next scheduled run time in the configured timezone instead of UTC
+      --local-time   Show next scheduled run time in the configured timezone instead of UTC
   -l, --last         Show last run status and time
   -H, --history      Show a compact recent-history summary
   -t, --sort-last    Sort by last run time, newest first
@@ -54,7 +54,7 @@ Examples:
 
 var lsFlags = []commandLineFlag{
 	lsNextFlag,
-	lsLocalFlag,
+	lsLocalTimeFlag,
 	lsLastFlag,
 	lsHistoryFlag,
 	lsSortLastFlag,
@@ -72,7 +72,7 @@ type lsRow struct {
 
 func runLs(ctx *Context, args []string) error {
 	showNext, _ := ctx.Command.Flags().GetBool("next")
-	localTime, _ := ctx.Command.Flags().GetBool("local")
+	localTime, _ := ctx.Command.Flags().GetBool("local-time")
 	showLast, _ := ctx.Command.Flags().GetBool("last")
 	showHistory, _ := ctx.Command.Flags().GetBool("history")
 	sortLast, _ := ctx.Command.Flags().GetBool("sort-last")

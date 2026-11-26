@@ -198,12 +198,12 @@ steps:
 		assert.Equal(t, "2026-07-15T11:00:00Z", lsRowFields(t, outUTC, summer.Name)[1])
 		assert.Equal(t, "-", lsRowFields(t, outUTC, unscheduled.Name)[1])
 
-		outLocal := runLsWithStdout(t, th, cmd.Ls(), []string{"ls", "-n", "--local", "ls-local-"})
+		outLocal := runLsWithStdout(t, th, cmd.Ls(), []string{"ls", "-n", "--local-time", "ls-local-"})
 		assert.Equal(t, "2026-11-30T12:00:00+01:00", lsRowFields(t, outLocal, winter.Name)[1])
 		assert.Equal(t, "2026-07-15T13:00:00+02:00", lsRowFields(t, outLocal, summer.Name)[1])
 		assert.Equal(t, "-", lsRowFields(t, outLocal, unscheduled.Name)[1])
 
-		outNoNext := runLsWithStdout(t, th, cmd.Ls(), []string{"ls", "--local", winter.Name})
+		outNoNext := runLsWithStdout(t, th, cmd.Ls(), []string{"ls", "--local-time", winter.Name})
 		assert.NotContains(t, outNoNext, "NEXT_RUN")
 		assert.Equal(t, []string{winter.Name}, lsRowFields(t, outNoNext, winter.Name))
 	})
