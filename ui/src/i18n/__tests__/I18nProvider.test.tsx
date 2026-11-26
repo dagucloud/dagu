@@ -49,7 +49,7 @@ describe('I18nProvider', () => {
   });
 
   afterEach(() => {
-    vi.doUnmock('../staticMessages');
+    vi.doUnmock('../locales/ja');
     vi.restoreAllMocks();
   });
 
@@ -149,7 +149,7 @@ describe('I18nProvider', () => {
   // exists; the app must stay usable.
   it('shows English when the catalog fails to load', async () => {
     localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
-    vi.doMock('../staticMessages', () => {
+    vi.doMock('../locales/ja', () => {
       throw new Error('chunk not found');
     });
     vi.spyOn(console, 'error').mockImplementation(() => {});

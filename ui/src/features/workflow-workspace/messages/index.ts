@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Each module belongs to one task. Base catalog entries in
-// i18n/staticMessages.ts win over these on a shared key.
+// Each module belongs to one task. Base catalog entries in i18n/locales win
+// over these on a shared key.
 import q2 from './q2';
 import r2 from './r2';
 import t07 from './t07';
