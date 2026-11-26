@@ -136,6 +136,16 @@ describe('canRetryStep', () => {
     }
   });
 
+  it('disables the step retry of a run that cannot be retried', () => {
+    const gate = canRetryStep(
+      { status: Status.Failed, retryDisabled: true },
+      plain,
+      { runDags: true, rootRunning: false }
+    );
+    expect(gate.disabled).toBe(true);
+    expect(gate.reason).toContain('cannot be retried');
+  });
+
   it('gives the root run reason the step table shows', () => {
     expect(
       canRetryStep({ status: Status.Success }, plain, {

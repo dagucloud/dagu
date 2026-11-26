@@ -196,6 +196,7 @@ func (store *Store) resolveStatus(
 			DefinitionID:         s.DefinitionID,
 			ArchiveDir:           store.paths.ResolveArtifact(s.ArchiveDir),
 			BackfillID:           s.BackfillID,
+			RetryDisabled:        s.RetryDisabled,
 			Dates:                s.Dates,
 		}
 	}

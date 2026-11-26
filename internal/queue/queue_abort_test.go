@@ -102,6 +102,35 @@ func TestAbortQueuedDAGRun_KeepsRestartRunAsStopped(t *testing.T) {
 	assert.True(t, stopped, "the dequeue is recorded as a stop request")
 }
 
+// A retry-disabled run keeps its only attempt as a readable aborted run,
+// without a stop request.
+func TestAbortQueuedDAGRun_KeepsRetryDisabledRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	dag := testQueueAbortDAG()
+	runRef := ir.NewDAGRunRef(dag.Name, "run-5")
+
+	writeAttemptStatus(t, ctx, repository, dag, "run-5", ir.Queued, persis.DAGRunCreateAttemptOptions{}, time.Now(), func(status *ir.DAGRunStatus) {
+		status.RetryDisabled = true
+		status.TriggerSubject = &ir.TriggerSubject{Type: "a2a-task", ID: "t1"}
+	})
+
+	require.NoError(t, queue.AbortQueuedDAGRun(ctx, repository, runRef))
+
+	attempt, err := repository.FindAttempt(ctx, runRef)
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Aborted, status.Status)
+	assert.True(t, status.RetryDisabled)
+	assert.Equal(t, "t1", status.TriggerSubject.ID)
+	stopped, err := attempt.IsAborting(ctx)
+	require.NoError(t, err)
+	assert.False(t, stopped)
+}
+
 func testQueueAbortDAG() *ir.DAG {
 	return &ir.DAG{
 		Name: "queue-abort-test",

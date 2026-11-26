@@ -2600,6 +2600,38 @@ steps:
 	require.Equal(t, "alice", status.TriggerActor)
 }
 
+func TestRetryDAGRunRefusesRetryDisabledRun(t *testing.T) {
+	server := test.SetupServer(t)
+	dag := server.DAG(t, `
+name: retry_disabled_dag
+steps:
+  - name: main
+    run: echo hi
+`)
+	seedLatestDAGRunStatus(t, server, dag.DAG, "task-run", ir.Failed, seedDAGRunStatusOptions{
+		errorText:     "failed",
+		retryDisabled: true,
+	})
+
+	stepName := "main"
+	for _, body := range []api.RetryDAGRunJSONRequestBody{
+		{DagRunId: "task-run"},
+		{DagRunId: "task-run", StepName: &stepName},
+	} {
+		server.Client().Post(
+			fmt.Sprintf("/api/v1/dag-runs/%s/%s/retry", dag.Name, "task-run"),
+			body,
+		).ExpectStatus(http.StatusConflict).Send(t)
+	}
+
+	attempt, err := server.DAGRunRepository.FindAttempt(server.Context, ir.NewDAGRunRef(dag.Name, "task-run"))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(server.Context)
+	require.NoError(t, err)
+	require.Equal(t, ir.Failed, status.Status)
+	require.True(t, status.RetryDisabled)
+}
+
 func TestGetSubDAGRunsIncludesTopLevelDagEnqueueRun(t *testing.T) {
 	server := test.SetupServer(t)
 
@@ -3115,6 +3147,7 @@ type seedDAGRunStatusOptions struct {
 	paramsList     []string
 	profileName    string
 	triggerActor   string
+	retryDisabled  bool
 	nodeStatuses   map[string]ir.NodeStatus
 	subRuns        map[string][]ir.SubDAGRun
 }
@@ -3147,6 +3180,9 @@ func seedLatestDAGRunStatus(
 	}
 	if opts.profileName != "" {
 		statusOptions = append(statusOptions, ir.WithRuntimeProfile(opts.profileName, "", nil))
+	}
+	if opts.retryDisabled {
+		statusOptions = append(statusOptions, ir.WithRetryDisabled(true))
 	}
 	if opts.triggerActor != "" {
 		statusOptions = append(statusOptions, ir.WithTriggerActor(opts.triggerActor))

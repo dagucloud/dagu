@@ -185,6 +185,9 @@ func runRetry(ctx *Context, args []string) error {
 		}
 		return fmt.Errorf("failed to read status: status data is nil")
 	}
+	if err := queue.CheckRetryable(status); err != nil {
+		return err
+	}
 	if queueDispatchRetry && triggerActor == "" {
 		triggerActor = status.TriggerActor
 	}
