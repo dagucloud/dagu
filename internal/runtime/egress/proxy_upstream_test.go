@@ -513,49 +513,57 @@ func TestUpstreamRedirectDoesNotLeave(t *testing.T) {
 
 // A switched protocol would hold a raw connection that no idle limit covers, and
 // the route of the upstream needs none. The proxy sends a request in origin form
-// without the upgrade, and an upstream that switches protocols anyway gives 502.
+// without the upgrade, and an upstream that switches protocols anyway gives 502
+// and loses its connection, which the proxy would otherwise keep open.
 func TestUpstreamProtocolUpgradeIsNotForwarded(t *testing.T) {
 	t.Parallel()
 
-	switchProtocols := func(w http.ResponseWriter, _ *http.Request) {
-		conn, buffered, err := http.NewResponseController(w).Hijack()
-		if err != nil {
-			return
-		}
-		defer func() { _ = conn.Close() }()
-		_, _ = io.WriteString(conn, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
-		_, _ = io.Copy(io.Discard, buffered)
-	}
 	for _, tc := range []struct {
-		name    string
-		handler http.HandlerFunc
-		want    int
+		name   string
+		always bool
+		want   int
 	}{
-		{name: "switches when asked", want: http.StatusOK, handler: func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("Upgrade") != "" {
-				switchProtocols(w, r)
-				return
-			}
-			_, _ = io.WriteString(w, "ok")
-		}},
-		{name: "always switches", want: http.StatusBadGateway, handler: switchProtocols},
+		{name: "switches when asked", want: http.StatusOK},
+		{name: "always switches", always: true, want: http.StatusBadGateway},
 	} {
-		rec, host, port := startRecorder(t, false, tc.handler)
-		destination := "allowed.example.test:" + port
-		upstream := mustUpstream(t, "http://"+destination, egress.AuthXAPIKey)
-		proxyAddr, _ := upstreamProxy(t, []string{destination}, upstream, resolverFor("allowed.example.test", host), nil, nil)
-		conn, err := net.Dial("tcp", proxyAddr)
-		require.NoError(t, err)
-		_, err = fmt.Fprintf(conn, "GET /ws HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", destination)
-		require.NoError(t, err)
-		response, err := http.ReadResponse(bufio.NewReader(conn), nil)
-		require.NoError(t, err)
-		_ = response.Body.Close()
-		_ = conn.Close()
-		assert.Equal(t, tc.want, response.StatusCode, tc.name)
-		for _, req := range rec.all() {
-			assert.Empty(t, req.Header.Get("Upgrade"), "%s: the destination gets no upgrade", tc.name)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			released := make(chan struct{})
+			rec, host, port := startRecorder(t, false, func(w http.ResponseWriter, r *http.Request) {
+				defer close(released)
+				if !tc.always && r.Header.Get("Upgrade") == "" {
+					_, _ = io.WriteString(w, "ok")
+					return
+				}
+				conn, buffered, err := http.NewResponseController(w).Hijack()
+				if err != nil {
+					return
+				}
+				defer func() { _ = conn.Close() }()
+				_, _ = io.WriteString(conn, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+				_, _ = io.Copy(io.Discard, buffered)
+			})
+			destination := "allowed.example.test:" + port
+			upstream := mustUpstream(t, "http://"+destination, egress.AuthXAPIKey)
+			proxyAddr, _ := upstreamProxy(t, []string{destination}, upstream, resolverFor("allowed.example.test", host), nil, nil)
+
+			conn, err := net.Dial("tcp", proxyAddr)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = conn.Close() })
+			_, err = fmt.Fprintf(conn, "GET /ws HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", destination)
+			require.NoError(t, err)
+			response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+			require.NoError(t, err)
+			_ = response.Body.Close()
+			assert.Equal(t, tc.want, response.StatusCode)
+			assert.Empty(t, rec.only(t).Header.Get("Upgrade"), "the destination gets no upgrade")
+			select {
+			case <-released:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the proxy keeps the connection of the upstream open")
+			}
+		})
 	}
 }
 

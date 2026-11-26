@@ -134,16 +134,8 @@ func New(opts Options) (*Proxy, error) {
 			r.Out.Header.Del("Proxy-Connection")
 			declineUpgrade(r.Out.Header)
 		},
-		Transport: p.transport,
-		// No forwarded request asks for an upgrade, so a 101 answer is an error.
-		// Refusing it here also closes the connection that the answer hands
-		// over, which the reverse proxy leaves open on its own refusal.
-		ModifyResponse: func(res *http.Response) error {
-			if res.StatusCode == http.StatusSwitchingProtocols {
-				return errors.New("the destination switched protocols without an upgrade request")
-			}
-			return nil
-		},
+		Transport:      p.transport,
+		ModifyResponse: refuseSwitch,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			p.log("egress proxy: %s %s failed: %v", r.Method, r.URL.Host, err)
 			if denied, ok := errors.AsType[*DeniedError](err); ok {
@@ -155,8 +147,9 @@ func New(opts Options) (*Proxy, error) {
 	}
 	if p.upstream != nil {
 		p.origin = &httputil.ReverseProxy{
-			Rewrite:   p.rewriteOrigin,
-			Transport: p.transport,
+			Rewrite:        p.rewriteOrigin,
+			Transport:      p.transport,
+			ModifyResponse: refuseSwitch,
 			// A model API streams its answer: send each chunk at once.
 			FlushInterval: -1,
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -166,6 +159,16 @@ func New(opts Options) (*Proxy, error) {
 		}
 	}
 	return p, nil
+}
+
+// refuseSwitch fails a 101 answer: no forwarded request asks for an upgrade.
+// Refusing it here also closes the connection that the answer hands over, which
+// the reverse proxy leaves open on its own refusal.
+func refuseSwitch(res *http.Response) error {
+	if res.StatusCode == http.StatusSwitchingProtocols {
+		return errors.New("the destination switched protocols without an upgrade request")
+	}
+	return nil
 }
 
 // rewriteOrigin points a request in origin form at the upstream. It joins the
