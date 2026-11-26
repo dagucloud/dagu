@@ -158,11 +158,14 @@ describe('DAGSlotsView', () => {
         <DAGSlotsView fileName="etl" canExecute />
       </MemoryRouter>
     );
-    // Queried without roles: computing them for 2000 cells is slow.
+    // The cells make a large DOM. Queried without roles, and text only
+    // among buttons, so the queries stay fast.
     fireEvent.click(
       view.container.querySelector('button[aria-label^="Slot "]')!
     );
-    expect(screen.getByText('Backfill 1 slot')).toBeInTheDocument();
+    expect(
+      screen.getByText('Backfill 1 slot', { selector: 'button' })
+    ).toBeInTheDocument();
 
     useQueryMock.mockReturnValue({
       data: { slots: hourly(2001) },
@@ -173,7 +176,9 @@ describe('DAGSlotsView', () => {
         <DAGSlotsView fileName="etl" canExecute />
       </MemoryRouter>
     );
-    expect(screen.getByText('Backfill this range')).toBeInTheDocument();
+    expect(
+      screen.getByText('Backfill this range', { selector: 'button' })
+    ).toBeInTheDocument();
   });
 
   it('links slots to their runs for a user who may not run the DAG', () => {
