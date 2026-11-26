@@ -1,7 +1,8 @@
 # RFC 026: MCP Tools for AI Steps
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-25
+- **Accepted:** 2026-11-26
 - **Affected areas:** `spec` and `ir` (`mcp_servers`), `runtime` and
   `runtime/agentloop` (MCP tools, approval tasks, confirmation delivery),
   `runtime/agent` (run socket), `runtime/builtin` (`harness`, `chat`), the
