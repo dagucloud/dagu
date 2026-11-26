@@ -17,7 +17,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -137,22 +136,16 @@ func unitDependencies(ctx *Context, p project.Project, stores *persisfile.Projec
 	return deps, nil
 }
 
-// minUnitEventDedupeBytes is the least a unit's event collector keeps for
-// the IDs of the events it stored.
-const minUnitEventDedupeBytes = 64 << 10
+// unitEventDedupeShare is the part of a project's event dedupe budget that
+// the event collector of each unit keeps: a unit's project holds a share of
+// the server's events, and the size does not depend on how many projects
+// there are or the order they arrive in.
+const unitEventDedupeShare = 64
 
 // unitEventDedupeBytes returns what a unit's event collector keeps for the
-// IDs of the events it stored: an equal share, among the registered
-// projects other than the default one, of what the default project keeps.
-// The units together then take about what one project takes, whatever the
-// number of projects.
+// IDs of the events it stored.
 func unitEventDedupeBytes(ctx *Context) int {
-	budget := ctx.Config.Cache.Limits().EventStoreBytes
-	projects, err := projectregistry.New(ctx.Config.Paths.DataDir).List(ctx)
-	if err != nil {
-		return minUnitEventDedupeBytes
-	}
-	return max(budget/max(len(projects)-1, 1), minUnitEventDedupeBytes)
+	return ctx.Config.Cache.Limits().EventStoreBytes / unitEventDedupeShare
 }
 
 // newEntryReader returns the reader of the DAG files in dagsDir that the
