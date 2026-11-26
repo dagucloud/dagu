@@ -131,6 +131,8 @@ It is on only when all of these hold:
   `local`). A worker's runs belong to the server that dispatched them.
 - The command is not a workflow test (`internal/cmd/case_run.go`) or a dry
   run.
+- No server reports this data directory's DAG runs: no live process holds
+  the server reporter's lease, `<data>/cloud/report-state.json.lock`.
 
 The machine's license plays no part: a run key is how a machine without a
 server reports, and an activation left in an image or a volume can outlive
@@ -139,10 +141,10 @@ the server it belonged to.
 A Dagu scheduler starts each run as a `dagu start` child with its own
 environment, so a scheduler with a run key reports every run it starts as
 a job run. RFC 020 allows this: such a machine is measured as job runs and
-gets nothing a server gets. On a server's machine the server reporter sends
-the runs. When the combined `start-all` command has a connected server that
-reports runs, its scheduler's local children skip job-run reporting to avoid
-sending those runs twice. A standalone scheduler keeps using its run key.
+gets nothing a server gets. A server that reports runs sends every run of
+its data directory, whichever process started it, and holds its lease while
+it does. A run that finds the lease held sends no job report, so Console
+counts the run once.
 
 ### What it sends
 
@@ -262,7 +264,7 @@ reporter, which never blocks the agent.
 | Console answers `503` because the workspace is busy | The finish waits `Retry-After` and tries again within its budget. |
 | The key is revoked mid-run | The next report gets `401`; the sender stops. |
 | The process is killed with SIGKILL | Nothing more is sent. Console sees the run as it last reported. |
-| A run key on a connected `start-all` server reporting runs | The bundled scheduler's local children report through the server. A standalone scheduler or CLI still uses its run key. |
+| A run key where a server reports this data directory's runs | The run sends no job report; the server reports it. |
 | A malformed run key | The sender stays off and warns once; the run starts. |
 
 ### What the run prints
@@ -290,7 +292,8 @@ Console's answer carries no workspace name, so the sender has none to print.
 
 - A 5-minute run sends about seven requests: start, about five progress
   reports, and the finish. Each is one small JSON body.
-- No disk is written and no file is read beyond what the run already does.
+- No disk is written. Beyond what the run already does, the only read is
+  one stat of the server reporter's lease.
 - The start report is in the background, so the run starts at once. Only the
   finish adds to the process's exit, at most 10 seconds and usually one round
   trip.
