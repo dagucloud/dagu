@@ -83,7 +83,8 @@ provider other than `claude`. A `claude` step names an endpoint instead (Spec 09
 With `--upstream`, give exactly one of `--upstream-key-env` and `--upstream-key-file`. Without
 `--upstream`, the three other options are errors. A variable that does not exist, an empty value, a
 file that the proxy cannot read, an empty file, or a key with a control character stops the proxy at
-start. The error names the option and the variable or the path, and never holds the key.
+start. The error names the option and the variable or the path, and never holds the key. An error
+about the URL quotes it only up to the end of its host, because the rest can hold a credential.
 
 A request in origin form, such as `POST /v1/messages`, goes to the upstream. The proxy:
 

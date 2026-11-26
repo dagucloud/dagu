@@ -78,6 +78,31 @@ func TestNewUpstreamRefusesUserInformation(t *testing.T) {
 	assert.NotContains(t, err.Error(), "hunter2")
 }
 
+// An error names a refused URL by its scheme and host only. A path, a query or
+// a fragment can hold a credential, so the error does not repeat it.
+func TestNewUpstreamErrorHidesTheRestOfTheURL(t *testing.T) {
+	t.Parallel()
+
+	for name, raw := range map[string]string{
+		"query":          "https://api.example.com/v1?key=hunter2",
+		"query only":     "https://api.example.com?key=hunter2",
+		"fragment":       "https://api.example.com#hunter2",
+		"path":           "ftp://api.example.com/bot-hunter2/",
+		"port":           "https://api.example.com:0/hunter2",
+		"no scheme":      "api.example.com/v1?key=hunter2",
+		"does not parse": "https://api.example.com:port/hunter2",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := egress.NewUpstream(raw, egress.AuthXAPIKey, "k")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "api.example.com")
+			assert.NotContains(t, err.Error(), "hunter2")
+		})
+	}
+}
+
 // The forms are x-api-key, bearer and anthropic-oauth. Another name is an error
 // that names each of them.
 func TestUpstreamAuthForms(t *testing.T) {

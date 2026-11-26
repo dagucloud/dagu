@@ -117,11 +117,19 @@ func NewUpstream(rawURL string, auth UpstreamAuth, key string) (*Upstream, error
 	}, nil
 }
 
-// describeURL quotes a URL for an error. A URL that holds an @ can hold a
-// credential, so the text does not repeat it.
+// describeURL quotes a URL for an error, up to the end of its host. User
+// information, a path, a query or a fragment can hold a credential, so the text
+// does not repeat them.
 func describeURL(raw string) string {
 	if strings.Contains(raw, "@") {
 		return "a URL with an @"
+	}
+	hostStart := 0
+	if i := strings.Index(raw, "://"); i >= 0 {
+		hostStart = i + len("://")
+	}
+	if i := strings.IndexAny(raw[hostStart:], "/?#"); i >= 0 {
+		return strconv.Quote(raw[:hostStart+i]) + " (the rest is not repeated)"
 	}
 	return strconv.Quote(raw)
 }
