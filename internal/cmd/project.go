@@ -219,6 +219,9 @@ func (c *Context) projectName() string {
 // default one to a worker: a dispatch task does not carry its project, so
 // the coordinator records the run in the default project.
 func (c *Context) checkProjectDispatch() error {
+	if c.inLibrary() {
+		return errLibraryDispatch
+	}
 	return project.RefuseOtherProject(c.projectName(), project.ErrWorkerRun)
 }
 
@@ -226,6 +229,9 @@ func (c *Context) checkProjectDispatch() error {
 // default one: the scheduler reads only the default project's queues, so
 // the run would never start.
 func (c *Context) checkProjectEnqueue() error {
+	if c.inLibrary() {
+		return errLibraryEnqueue
+	}
 	return project.RefuseOtherProject(c.projectName(), project.ErrQueuedRun)
 }
 

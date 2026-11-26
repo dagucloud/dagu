@@ -642,6 +642,8 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 		WorkerID:           "local",
 		DAGRunLogDir:       c.projectPaths().LogDir,
 		DAGRunArtifactDir:  c.projectPaths().ArtifactDir,
+		StateStoreFor:      c.subDAGStateStore(),
+		EnqueueStoresFor:   c.enqueueStores(),
 	})
 }
 
@@ -757,6 +759,9 @@ func NewCommand(cmd *cobra.Command, flags []commandLineFlag, runFunc func(cmd *C
 			return fmt.Errorf("initialization error: %w", err)
 		}
 		if err := ctx.checkDAGFile(args); err != nil {
+			return err
+		}
+		if ctx, err = ctx.inLibraryOf(args); err != nil {
 			return err
 		}
 		return runFunc(ctx, args)

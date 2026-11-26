@@ -43,9 +43,17 @@ func TestLibraryStoresKeepRunsApart(t *testing.T) {
 			library, err := stores.RunStores(ctx, libraryDAG)
 			require.NoError(t, err)
 			require.Same(t, stores.Library, library)
-			own, err := stores.RunStores(ctx, filepath.Join(stores.Paths.DAGsDir, sampleDAG+".yaml"))
+			ownDAG := filepath.Join(stores.Paths.DAGsDir, sampleDAG+".yaml")
+			own, err := stores.RunStores(ctx, ownDAG)
 			require.NoError(t, err)
 			require.Same(t, stores, own)
+			// A library run that enqueues a project DAG records it in the
+			// project.
+			own, err = library.RunStores(ctx, ownDAG)
+			require.NoError(t, err)
+			require.Same(t, stores, own)
+			assert.True(t, library.InLibrary())
+			assert.False(t, stores.InLibrary())
 
 			writeRunState(t, library, "library")
 			writeRunState(t, stores, "project")

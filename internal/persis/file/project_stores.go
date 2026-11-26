@@ -78,7 +78,8 @@ type ProjectStores struct {
 	// library's. libraryState is nil while projects are off.
 	projectState dagrun.StateStore
 	libraryState dagrun.StateStore
-	inLibrary    bool
+	// project is the project's stores in Library, and nil in the project's.
+	project *ProjectStores
 }
 
 // ProjectStoreOptions configures NewProjectStores. The caches are keyed by
@@ -220,24 +221,37 @@ func (s *ProjectStores) openLibrary(cfg *config.Config, name string, opts Projec
 		filepath.Join(paths.OtherStateDir, ephemeralRunsDirName), opts)
 	library.libraryState = library.StateStore
 	library.StateStore = scopedStateStore{dag: library.libraryState, rootDAG: library.libraryState, other: s.projectState}
-	library.inLibrary = true
+	library.project = s
 	s.libraryState = library.libraryState
 	s.Library = &library
 	return nil
 }
 
 // RunStores returns the stores that record a run of the DAG file at path
-// that starts in the project: Library for a library DAG, else s. It returns
-// s while projects are off.
+// that starts in the project: Library for a library DAG, else the
+// project's. It returns s while projects are off.
 func (s *ProjectStores) RunStores(ctx context.Context, path string) (*ProjectStores, error) {
-	if s.Library == nil {
+	project := s
+	if s.project != nil {
+		project = s.project
+	}
+	if project.Library == nil {
 		return s, nil
 	}
 	inLibrary, err := s.isLibraryDAG(ctx, path)
-	if err != nil || !inLibrary {
-		return s, err
+	switch {
+	case err != nil:
+		return nil, err
+	case inLibrary:
+		return project.Library, nil
+	default:
+		return project, nil
 	}
-	return s.Library, nil
+}
+
+// InLibrary reports whether s is a project's Library.
+func (s *ProjectStores) InLibrary() bool {
+	return s.project != nil
 }
 
 // StateStoreFor returns the DAG state store that a step of the DAG file at
@@ -257,10 +271,10 @@ func (s *ProjectStores) StateStoreFor(ctx context.Context, path string) (dagrun.
 	if inLibrary {
 		dag = s.libraryState
 	}
-	if s.inLibrary {
+	if s.InLibrary() {
 		rootDAG = s.libraryState
 	}
-	if !inLibrary && !s.inLibrary {
+	if !inLibrary && !s.InLibrary() {
 		return s.projectState, nil
 	}
 	return scopedStateStore{dag: dag, rootDAG: rootDAG, other: s.projectState}, nil
