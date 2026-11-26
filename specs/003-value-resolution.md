@@ -324,6 +324,7 @@ Explicitly literal or excluded field surfaces:
 | --- | --- |
 | Root identity and metadata, such as `name` and `description` | Dagu does not resolve value references in these fields. |
 | Root run-control fields, such as `retry_policy`, `timeout_sec`, `delay_sec`, `max_active_steps`, `max_clean_up_time_sec`, and `max_output_size` | Dagu does not resolve value references in these fields unless an owning spec later opts in. |
+| Root `outputs` result declarations (Spec 106) | Dagu does not resolve value references in these fields and adds no inferred dependency from them. |
 | Step identity, graph, and action-selection fields, such as `steps[].id`, `steps[].name`, `steps[].description`, `steps[].depends`, and `steps[].action` | Dagu does not resolve value references in these fields. A value reference cannot select a step, dependency, or action. |
 | `steps[].foreach.as`, `steps[].foreach.max_concurrent`, and body step identity or dependency fields | Dagu does not resolve value references in these fields. A value reference cannot select an item alias, concurrency limit, body step, or body dependency. |
 | Step output declaration contracts, such as `steps[].outputs[].name` and `steps[].outputs[].type` | Dagu does not resolve value references in declaration metadata. Published output values are separate runtime data. |

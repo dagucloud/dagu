@@ -62,6 +62,7 @@ const LITERAL_ROOT_FIELDS = new Set([
   'max_active_runs',
   'max_clean_up_time_sec',
   'max_output_size',
+  'outputs',
   'secrets',
 ]);
 const LITERAL_STEP_FIELDS = new Set([
