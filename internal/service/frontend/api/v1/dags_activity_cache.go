@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -28,22 +29,44 @@ const (
 	activityFollowGrace = 10 * time.Second
 )
 
+// listedDAGActivity gives the activity of a DAG of a list over the window that
+// ends at now. While the run events are followed, a kept activity lasts until
+// an event tells that the runs of its DAG changed, so the latest run of the
+// DAG is read only when its activity is not kept.
+func (a *API) listedDAGActivity(ctx context.Context, dag *ir.DAG, now time.Time, window time.Duration) (*api.DAGListActivity, error) {
+	if activity, ok := a.activities.getFollowed(activityKeyOf(dag, window), now); ok {
+		return withRunsSince(activity, now.Add(-window)), nil
+	}
+	return a.cachedDAGActivity(ctx, dag, a.latestRunStatus(ctx, dag), now, window)
+}
+
 // cachedDAGActivity gives the activity of a DAG over the window that ends at
 // now.
 // It reuses the activity that an earlier list read while the runs of the DAG
 // did not change, so that a list reads the runs only of the DAGs whose runs
-// changed.
+// changed. The lists of several tabs ask for a changed DAG at once, and one
+// read serves them all.
 func (a *API) cachedDAGActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStatus, now time.Time, window time.Duration) (*api.DAGListActivity, error) {
 	since := now.Add(-window)
-	key := activityKey{dag: dag.Name, window: window, service: dag.RestartPolicy.Enabled()}
+	key := activityKeyOf(dag, window)
 	if activity, ok := a.activities.get(key, latest, now); ok {
 		return withRunsSince(activity, since), nil
 	}
-	activity, err := a.dagActivity(ctx, dag, latest, since, window)
-	if err == nil {
-		a.activities.put(key, latest, now, activity)
-	}
+	flight := fmt.Sprintf("%s\x00%d\x00%t\x00%v", key.dag, key.window, key.service, latestRunKeyOf(latest))
+	shared, err, _ := a.activityReads.Do(flight, func() (any, error) {
+		// One caller that goes away does not fail the others.
+		activity, err := a.dagActivity(context.WithoutCancel(ctx), dag, latest, since, window)
+		if err == nil {
+			a.activities.put(key, latest, now, activity)
+		}
+		return activity, err
+	})
+	activity, _ := shared.(*api.DAGListActivity)
 	return activity, err
+}
+
+func activityKeyOf(dag *ir.DAG, window time.Duration) activityKey {
+	return activityKey{dag: dag.Name, window: window, service: dag.RestartPolicy.Enabled()}
 }
 
 // activityCache keeps the activity of each listed DAG with the latest run
@@ -131,6 +154,27 @@ func (c *activityCache) get(key activityKey, latest ir.DAGRunStatus, now time.Ti
 		return nil, false
 	}
 	if !c.follows(now) && changesUnseen(latest, kept.activity) {
+		return nil, false
+	}
+	return kept.activity, true
+}
+
+// getFollowed returns the activity kept for key while the run events are
+// followed, when it is still recent at now and no event told of a change of
+// the runs of its DAG since it was read. It needs no latest run, as the
+// events tell of every change.
+func (c *activityCache) getFollowed(key activityKey, now time.Time) (*api.DAGListActivity, bool) {
+	if !c.follows(now) {
+		return nil, false
+	}
+	kept, ok := c.store().Get(key)
+	if !ok {
+		return nil, false
+	}
+	if age := now.Sub(kept.readAt); age < 0 || age >= c.maxAge(key, now) {
+		return nil, false
+	}
+	if c.changedSince(key.dag, kept.readAt) {
 		return nil, false
 	}
 	return kept.activity, true

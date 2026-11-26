@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/sync/singleflight"
 	"log/slog"
 	"net/http"
 	"reflect"
@@ -134,6 +135,7 @@ type API struct {
 	workspaceDeprecation deprecation.Sources
 	serviceDAGFailures   failureStreaks
 	activities           activityCache
+	activityReads        singleflight.Group
 	runChanges           runChanges
 	restartBackoffStore  schedulerstate.RestartBackoffStore
 	periodStore          schedulerstate.PeriodStore

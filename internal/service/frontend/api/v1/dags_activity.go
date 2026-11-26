@@ -110,7 +110,7 @@ func (a *API) dagActivities(ctx context.Context, names []string, window time.Dur
 		if !ok {
 			continue
 		}
-		activity, err := a.cachedDAGActivity(ctx, dag, a.latestRunStatus(ctx, dag), now, window)
+		activity, err := a.listedDAGActivity(ctx, dag, now, window)
 		if err != nil {
 			page.Errors = append(page.Errors, err.Error())
 		}
