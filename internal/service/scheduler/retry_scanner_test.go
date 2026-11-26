@@ -416,36 +416,74 @@ func TestRetryScannerScanSkipsDisabledRetryPolicy(t *testing.T) {
 	queueStore.AssertNotCalled(t, "Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityHigh, status.DAGRun())
 }
 
-func TestRetryScannerScanSkipsRetryDisabledRun(t *testing.T) {
+// The scanner skips a retry-disabled run without an error on each path,
+// including a listed summary that lacks the flag the stored status has.
+// processFailedRun is called directly because scan only logs errors.
+func TestRetryScannerSkipsRetryDisabledRun(t *testing.T) {
 	t.Parallel()
 
-	now := time.Date(2026, 3, 14, 14, 0, 0, 0, time.UTC)
-	dag := &ir.DAG{
-		Name:        "retry-disabled-run",
-		Location:    "/tmp/retry-disabled-run.yaml",
-		RetryPolicy: &ir.DAGRetryPolicy{Limit: 3, Interval: time.Minute, MaxInterval: 10 * time.Minute},
+	tests := []struct {
+		name   string
+		listed func(stored *ir.DAGRunStatus) *ir.DAGRunStatus
+	}{
+		{
+			name: "Summary",
+			listed: func(stored *ir.DAGRunStatus) *ir.DAGRunStatus {
+				return cloneRetryStatus(stored)
+			},
+		},
+		{
+			name: "SummaryWithoutFlag",
+			listed: func(stored *ir.DAGRunStatus) *ir.DAGRunStatus {
+				listed := cloneRetryStatus(stored)
+				listed.RetryDisabled = false
+				return listed
+			},
+		},
+		{
+			name: "Legacy",
+			listed: func(stored *ir.DAGRunStatus) *ir.DAGRunStatus {
+				listed := cloneRetryStatus(stored)
+				listed.ProcGroup = ""
+				return listed
+			},
+		},
 	}
-	status := &ir.DAGRunStatus{
-		Name:          dag.Name,
-		DAGRunID:      "run-1",
-		AttemptID:     "att-1",
-		Status:        ir.Failed,
-		RetryDisabled: true,
-		FinishedAt:    now.Add(-2 * time.Minute).Format(time.RFC3339),
-		ScheduleTime:  now.Add(-10 * time.Minute).Format(time.RFC3339),
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			now := time.Date(2026, 3, 14, 14, 0, 0, 0, time.UTC)
+			dag := &ir.DAG{
+				Name:        "retry-disabled-run",
+				Location:    "/tmp/retry-disabled-run.yaml",
+				RetryPolicy: &ir.DAGRetryPolicy{Limit: 3, Interval: time.Minute, MaxInterval: 10 * time.Minute},
+			}
+			status := &ir.DAGRunStatus{
+				Name:          dag.Name,
+				DAGRunID:      "run-1",
+				AttemptID:     "att-1",
+				Status:        ir.Failed,
+				RetryDisabled: true,
+				FinishedAt:    now.Add(-2 * time.Minute).Format(time.RFC3339),
+				ScheduleTime:  now.Add(-10 * time.Minute).Format(time.RFC3339),
+			}
+			store := newRetryScannerStore(dag, status)
+			queueStore := &testutil.MockQueueStore{}
+
+			scanner, err := NewRetryScanner(store.repository(), queueStore, nil, 24*time.Hour, func() time.Time { return now })
+			require.NoError(t, err)
+
+			listed := tt.listed(store.mustStatus(status.DAGRun()))
+			require.NoError(t, scanner.processFailedRun(context.Background(), listed, now))
+
+			latest := store.mustStatus(status.DAGRun())
+			assert.Equal(t, ir.Failed, latest.Status)
+			assert.Equal(t, 0, latest.AutoRetryCount)
+			queueStore.AssertNotCalled(t, "Enqueue", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		})
 	}
-	store := newRetryScannerStore(dag, status)
-	queueStore := &testutil.MockQueueStore{}
-
-	scanner, err := NewRetryScanner(store.repository(), queueStore, nil, 24*time.Hour, func() time.Time { return now })
-	require.NoError(t, err)
-
-	require.NoError(t, scanner.scan(context.Background()))
-
-	latest := store.mustStatus(status.DAGRun())
-	assert.Equal(t, ir.Failed, latest.Status)
-	assert.Equal(t, 0, latest.AutoRetryCount)
-	queueStore.AssertNotCalled(t, "Enqueue", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestRetryScannerScanEnqueuesRetryWithoutLiveTargets(t *testing.T) {
