@@ -993,6 +993,9 @@ func (store *Store) locateInDirs(ctx context.Context, nameOrPath string, dirs []
 		}
 		dirs = dirs[1:]
 		if len(dirs) == 0 {
+			if _, skipped := catalog.skippedLinks[fileName]; skipped && store.project != nil {
+				return ResolvedFile{}, externalSymlinkLookupError(nameOrPath, true)
+			}
 			return ResolvedFile{}, fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
 		}
 	}
@@ -1067,20 +1070,26 @@ func locateDAGInDirectories(
 	}
 
 	if externalSymlinkDisabled {
-		hint := "enable dag_discovery.symlinks"
-		if confined {
-			hint = "a project never follows a symbolic link out of its DAG directory"
-		}
-		return ResolvedFile{}, fmt.Errorf(
-			"DAG %s uses an external file symlink; %s: %w",
-			nameOrPath,
-			hint,
-			errors.Join(ErrExternalSymlinkDisabled, os.ErrNotExist),
-		)
+		return ResolvedFile{}, externalSymlinkLookupError(nameOrPath, confined)
 	}
 
 	// DAG not found
 	return ResolvedFile{}, fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
+}
+
+// externalSymlinkLookupError reports a lookup whose only match is a file
+// symlink out of its DAG directory. It is os.ErrNotExist.
+func externalSymlinkLookupError(nameOrPath string, confined bool) error {
+	hint := "enable dag_discovery.symlinks"
+	if confined {
+		hint = "a project never follows a symbolic link out of its DAG directory"
+	}
+	return fmt.Errorf(
+		"DAG %s uses an external file symlink; %s: %w",
+		nameOrPath,
+		hint,
+		errors.Join(ErrExternalSymlinkDisabled, os.ErrNotExist),
+	)
 }
 
 func (store *Store) stemExists(name, exceptPath string) bool {

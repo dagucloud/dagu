@@ -128,6 +128,39 @@ func (o *Owners) Of(ctx context.Context, path string) (Owner, error) {
 	}
 }
 
+// OfIn is Of for a lookup by the project called caller. A file that Of
+// places nowhere is the caller's when it lies in the caller's DAG directory
+// once that directory's links resolve, as when the directory is a symbolic
+// link to a checkout.
+func (o *Owners) OfIn(ctx context.Context, caller, path string) (Owner, error) {
+	owner, err := o.Of(ctx, path)
+	if err != nil || owner != (Owner{}) {
+		return owner, err
+	}
+	dir := o.dirs.DAGsDir
+	if !strings.EqualFold(caller, project.DefaultName) {
+		if o.dirs.ProjectsDir == "" {
+			return Owner{}, nil
+		}
+		dir = filepath.Join(o.dirs.ProjectsDir, caller)
+	}
+	if dir == "" {
+		return Owner{}, nil
+	}
+	realDir, err := resolveExisting(dir)
+	if err != nil {
+		return Owner{}, err
+	}
+	real, err := resolveExisting(path)
+	if err != nil {
+		return Owner{}, err
+	}
+	if pathWithinRoot(real, realDir) {
+		return Owner{Project: caller}, nil
+	}
+	return Owner{}, nil
+}
+
 // resolvedRoots returns the configured DAG roots with their links resolved.
 // A root whose links all resolve is kept, since the paths in effect do not
 // change while a process runs. One that does not yet exist in full, such as
@@ -178,7 +211,9 @@ func (o *Owners) configuredDir(kind ownerKind) string {
 // projectsDir, holds the file at rel below projectsDir.
 func (o *Owners) projectIn(ctx context.Context, projectsDir, rel string) (Owner, error) {
 	dirName, rest, found := strings.Cut(rel, string(filepath.Separator))
-	if !found || rest == "" || o.registry == nil {
+	// The default project's DAG directory is paths.dags_dir, so no project
+	// owns a directory of its name in paths.projects_dir.
+	if !found || rest == "" || o.registry == nil || strings.EqualFold(dirName, project.DefaultName) {
 		return Owner{}, nil
 	}
 	p, err := o.registry.Get(ctx, dirName)

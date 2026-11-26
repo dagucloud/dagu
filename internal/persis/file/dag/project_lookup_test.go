@@ -59,6 +59,8 @@ func newProjectLayout(t *testing.T) *projectLayout {
 		inPlace:  &inPlaceFixture{files: map[string][]string{}},
 	}
 	registry := projectregistry.New(filepath.Join(root, "data"))
+	_, err := registry.EnsureDefault(t.Context())
+	require.NoError(t, err)
 	for _, name := range []string{"weather", "day-ahead"} {
 		_, err := registry.Create(t.Context(), project.CreateInput{Name: name})
 		require.NoError(t, err)
@@ -197,10 +199,11 @@ func TestProjectLookupSymlinks(t *testing.T) {
 		assert.Empty(t, catalog.Items)
 		assert.Len(t, catalog.Issues, 2)
 
-		_, err = store.Get(t.Context(), "forecast")
-		require.ErrorIs(t, err, persis.ErrDAGNotFound)
-		_, err = store.Get(t.Context(), "shared")
-		require.ErrorIs(t, err, persis.ErrDAGNotFound)
+		for _, name := range []string{"forecast", "shared"} {
+			_, err = store.Get(t.Context(), name)
+			require.ErrorIs(t, err, persis.ErrDAGNotFound)
+			assert.ErrorContains(t, err, "a project never follows a symbolic link out of its DAG directory")
+		}
 	}
 
 	store := l.store("day-ahead", WithSymlinks(true))
@@ -239,18 +242,54 @@ func TestOwnersOf(t *testing.T) {
 	l := newProjectLayout(t)
 	unregistered := filepath.Join(l.projects, "scripts", "x.yaml")
 	for path, want := range map[string]Owner{
-		filepath.Join(l.dags, "a.yaml"):               {Project: project.DefaultName},
-		filepath.Join(l.dir("weather"), "a.yaml"):     {Project: "weather"},
-		filepath.Join(l.dir("weather"), "b", "a.yml"): {Project: "weather"},
-		filepath.Join(l.library, "a.yaml"):            {Library: true},
-		unregistered:                                  {},
-		filepath.Join(l.projects, "a.yaml"):           {},
-		filepath.Join(t.TempDir(), "a.yaml"):          {},
+		filepath.Join(l.dags, "a.yaml"):                {Project: project.DefaultName},
+		filepath.Join(l.dir("weather"), "a.yaml"):      {Project: "weather"},
+		filepath.Join(l.dir("weather"), "b", "a.yml"):  {Project: "weather"},
+		filepath.Join(l.library, "a.yaml"):             {Library: true},
+		unregistered:                                   {},
+		filepath.Join(l.projects, "default", "a.yaml"): {},
+		filepath.Join(l.projects, "a.yaml"):            {},
+		filepath.Join(t.TempDir(), "a.yaml"):           {},
 	} {
 		got, err := l.owners.Of(t.Context(), path)
 		require.NoError(t, err)
 		assert.Equal(t, want, got, path)
 	}
+}
+
+// The default project's DAG directory is paths.dags_dir only, so it does
+// not reach a directory named default in paths.projects_dir.
+func TestProjectLookupProjectsDirDefault(t *testing.T) {
+	l := newProjectLayout(t)
+	stray := writeDAG(t, filepath.Join(l.projects, "default", "stray.yaml"))
+	store := l.store(project.DefaultName)
+
+	for _, target := range []string{stray, "../projects/default/stray.yaml"} {
+		_, err := store.Get(t.Context(), target)
+		assert.ErrorContains(t, err, `is in neither project "default" nor the library`, target)
+	}
+}
+
+// A project whose DAG directory is a symbolic link, as to a checkout, finds
+// its own DAGs once the link resolves. Other projects still cannot reach
+// them.
+func TestProjectLookupLinkedProjectDir(t *testing.T) {
+	l := newProjectLayout(t)
+	checkout := t.TempDir()
+	forecast := writeDAG(t, filepath.Join(checkout, "forecast.yaml"))
+	require.NoError(t, os.Remove(l.dir("weather")))
+	symlinkOrSkip(t, checkout, l.dir("weather"))
+
+	for _, recursive := range []bool{false, true} {
+		weather := l.store("weather", WithRecursiveDiscovery(recursive))
+		catalog, err := weather.Catalog(t.Context())
+		require.NoError(t, err)
+		require.Len(t, catalog.Items, 1)
+		assert.Equal(t, sameAs(t, forecast), sourcePath(t, weather, "forecast"))
+		assert.Equal(t, sameAs(t, forecast), sourcePath(t, weather, filepath.Join(l.dir("weather"), "forecast.yaml")))
+	}
+	_, err := l.store("day-ahead").Get(t.Context(), filepath.Join(l.dir("weather"), "forecast.yaml"))
+	assert.ErrorIs(t, err, persis.ErrDAGNotFound)
 }
 
 // A root that links to a directory not yet made counts once the directory

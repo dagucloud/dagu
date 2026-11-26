@@ -461,17 +461,26 @@ func appendResolvedFile(result *DiscoveryResult, relPath string, resolved Resolv
 // follow out of its DAG directory. A confined directory follows none, so
 // no setting loads it.
 func externalSymlinkError(relPath string, confined bool) error {
+	return &skippedSymlinkError{relPath: filepath.ToSlash(relPath), confined: confined}
+}
+
+// skippedSymlinkError is a file symlink that discovery passed over because
+// it leads out of its DAG directory.
+type skippedSymlinkError struct {
+	relPath  string
+	confined bool
+}
+
+func (e *skippedSymlinkError) Error() string {
 	hint := "enable dag_discovery.symlinks to load it"
-	if confined {
+	if e.confined {
 		hint = "a project never follows a symbolic link out of its DAG directory"
 	}
-	return fmt.Errorf(
-		"%s: DAG file symlink resolves outside the configured DAG directory; %s: %w",
-		filepath.ToSlash(relPath),
-		hint,
-		ErrExternalSymlinkDisabled,
-	)
+	return fmt.Sprintf("%s: DAG file symlink resolves outside the configured DAG directory; %s: %s",
+		e.relPath, hint, ErrExternalSymlinkDisabled)
 }
+
+func (e *skippedSymlinkError) Unwrap() error { return ErrExternalSymlinkDisabled }
 
 func sortResult(result *DiscoveryResult) {
 	sort.Slice(result.Files, func(i, j int) bool {

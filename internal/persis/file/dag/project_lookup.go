@@ -58,7 +58,7 @@ func (store *Store) locateInProject(ctx context.Context, target string) (Resolve
 		}
 	}
 	accept := func(resolved ResolvedFile) (bool, error) {
-		owner, err := scope.owners.Of(ctx, resolved.ResolvedPath)
+		owner, err := scope.owners.OfIn(ctx, scope.name, resolved.ResolvedPath)
 		if err != nil {
 			return false, err
 		}
@@ -114,7 +114,7 @@ func (store *Store) locateInProject(ctx context.Context, target string) (Resolve
 		// A path may also reach the project's file or a library DAG by a
 		// symbolic link, or a file that runs in place as the project's.
 		file, exists := store.targetFile(target)
-		owner, err := scope.owners.Of(ctx, file)
+		owner, err := scope.owners.OfIn(ctx, scope.name, file)
 		if err != nil {
 			return ResolvedFile{}, err
 		}

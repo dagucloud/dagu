@@ -5,12 +5,15 @@ package dag
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 )
@@ -19,6 +22,9 @@ type catalog struct {
 	entries []*indexv1.DAGIndexEntry
 	byStem  map[string]*indexv1.DAGIndexEntry
 	errors  []string
+	// skippedLinks holds the stems of file symlinks that discovery passed
+	// over because they lead out of the DAG directory.
+	skippedLinks map[string]struct{}
 }
 
 func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*catalog, error) {
@@ -88,7 +94,8 @@ func (store *Store) withoutBaseConfig(files []DiscoveredFile) []DiscoveredFile {
 
 func newCatalog(entries []*indexv1.DAGIndexEntry, scanErrors []error, checkConflicts bool) *catalog {
 	result := &catalog{
-		byStem: make(map[string]*indexv1.DAGIndexEntry),
+		byStem:       make(map[string]*indexv1.DAGIndexEntry),
+		skippedLinks: make(map[string]struct{}),
 	}
 
 	stemGroups := make(map[string][]string)
@@ -145,6 +152,10 @@ func newCatalog(entries []*indexv1.DAGIndexEntry, scanErrors []error, checkConfl
 
 	for _, err := range scanErrors {
 		result.errors = append(result.errors, fmt.Sprintf("DAG discovery failed: %s", err))
+		var skipped *skippedSymlinkError
+		if errors.As(err, &skipped) {
+			result.skippedLinks[fileutil.TrimYAMLFileExtension(path.Base(skipped.relPath))] = struct{}{}
+		}
 	}
 	sort.Strings(result.errors)
 	return result
