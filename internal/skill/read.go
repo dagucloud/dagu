@@ -56,8 +56,13 @@ const cacheRacyWindow = 2 * time.Second
 // maxCacheEntries bounds the number of folders that the cache keeps.
 const maxCacheEntries = 128
 
-// maxCacheBytes bounds the text that the cache keeps for all folders.
+// maxCacheBytes bounds the memory that the cache keeps for all folders: the
+// text of the files and the lists of files and issues.
 const maxCacheBytes = 64 << 20
+
+// cacheItemOverhead estimates the memory of one file or issue of a cached read
+// beyond its strings.
+const cacheItemOverhead = 64
 
 // tempNamePattern matches the name of the temporary file that an atomic write
 // creates next to its target. A reader ignores it.
@@ -193,10 +198,7 @@ func store(dir, signature string, newest time.Time, s *Skill) {
 	if time.Since(newest) < cacheRacyWindow {
 		return
 	}
-	var size int64
-	for _, data := range s.text {
-		size += int64(len(data))
-	}
+	size := cacheCost(signature, s)
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	if old, ok := cache.entries[dir]; ok {
@@ -212,6 +214,22 @@ func store(dir, signature string, newest time.Time, s *Skill) {
 	}
 	cache.entries[dir] = cacheEntry{signature: signature, skill: s, bytes: size}
 	cache.bytes += size
+}
+
+// cacheCost estimates the memory of a cached read. A folder of many files
+// with long paths holds little text, so the text alone would not bound it.
+func cacheCost(signature string, s *Skill) int64 {
+	n := len(signature) + len(s.Body) + maxFrontMatterBytes
+	for _, data := range s.text {
+		n += len(data)
+	}
+	for _, f := range s.Files {
+		n += len(f.Path) + len(f.SHA256) + cacheItemOverhead
+	}
+	for _, i := range s.Issues {
+		n += len(i.Rule) + len(i.File) + len(i.Message) + cacheItemOverhead
+	}
+	return int64(n)
 }
 
 func emptyHash() string { return hashLines(nil) }

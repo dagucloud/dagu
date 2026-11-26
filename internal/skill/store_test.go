@@ -6,6 +6,7 @@ package skill_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -126,6 +127,22 @@ func TestReadCachesOnlyASettledFolder(t *testing.T) {
 	read(settled)
 	read(settled)
 	require.Equal(t, 1, reads, "the second read of a settled folder comes from the cache")
+}
+
+// The cache counts the list of files of a read, not only its text, so a folder
+// of many small files with long names cannot grow the cache past its bound.
+func TestCacheCountsTheFileList(t *testing.T) {
+	t.Parallel()
+	files := map[string]string{"SKILL.md": good}
+	var names int64
+	for i := range 200 {
+		rel := fmt.Sprintf("assets/%s%03d.bin", strings.Repeat("a", 200), i)
+		files[rel] = "x"
+		names += int64(len(rel))
+	}
+	s, err := skill.Read(writeSkill(t, "demo", files))
+	require.NoError(t, err)
+	require.Greater(t, skill.CacheCost(s), names+int64(len(good)))
 }
 
 // A change of the layout that leaves every file as it was shows in the next

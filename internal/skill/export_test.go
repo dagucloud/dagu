@@ -18,6 +18,9 @@ func HashFiles(files []File) string {
 	return hashLines(lines)
 }
 
+// CacheCost is the memory that the cache counts for a read.
+func CacheCost(s *Skill) int64 { return cacheCost("", s) }
+
 // AroundReadFiles runs before and after each attempt of Read reads the files of
 // the folder. It changes a package variable, so the test must not be parallel.
 func AroundReadFiles(t *testing.T, before, after func()) {
