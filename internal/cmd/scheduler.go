@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -155,6 +156,10 @@ func runScheduler(ctx *Context, _ []string) error {
 	}
 
 	defer scheduler.Stop(schedulerCtx)
+
+	followCtx, stopFollowing := context.WithCancel(schedulerCtx)
+	defer stopFollowing()
+	ctx.followProjects(followCtx)
 
 	if err := scheduler.Start(schedulerCtx); err != nil {
 		return fmt.Errorf("failed to start scheduler in directory %s: %w",

@@ -223,6 +223,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		cloudreport.Audit{Level: ctx.Config.Cloud.Audit, Backlog: auditShipper})
 	waitCloudAudit = watchCloudAudit(signalCtx, webStopped, auditShipper, ctx.Config.Cloud.AuditDrainTimeout)
 	stopCloudAccess = startCloudAccess(serviceCtx, cloudAccess, server)
+	serviceCtx.followProjects(serviceCtx)
 
 	err = restartExit(server.Serve(serviceCtx))
 	stop() // Let a second SIGINT end deferred cleanup; SIGTERM stays absorbed.
