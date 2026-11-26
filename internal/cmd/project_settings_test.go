@@ -4,6 +4,7 @@
 package cmd_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -23,14 +24,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// projectSettingsDAG returns a DAG that checks, in the run and in a sub-DAG
-// run, that its secret and profile default have the values given, and
-// prints the secrets so the test can see them masked.
-func projectSettingsDAG(token, tier string) string {
-	check := test.ForOS(
+// projectSettingsCheck returns a command that fails unless the secret and
+// the profile default have the values given.
+func projectSettingsCheck(token, tier string) string {
+	return test.ForOS(
 		fmt.Sprintf(`[ "$TOKEN" = %s ] && [ "$TIER" = %s ] && [ "$PROFILE_TOKEN" = profile-token ]`, token, tier),
 		fmt.Sprintf(`if ($env:TOKEN -ne '%s' -or $env:TIER -ne '%s' -or $env:PROFILE_TOKEN -ne 'profile-token') { exit 1 }`, token, tier),
 	)
+}
+
+// projectSettingsDAG returns a DAG that runs check in the run and in a
+// sub-DAG run, and prints the secrets so the test can see them masked.
+func projectSettingsDAG(check string) string {
 	return fmt.Sprintf(`name: project-settings
 labels: [workspace=ops]
 secrets:
@@ -62,8 +67,8 @@ steps:
 // With projects on, a run reads its project's secret and profile defaults,
 // never those of the workspace its DAG's label names. With projects off, the
 // workspace's layers apply as in v2. Either way this holds for a started
-// run, its sub-DAG run, a retry, and a queued run, and no secret value
-// reaches the run's log.
+// run, its sub-DAG run, a step retry, a queued run, a restarted run, and a
+// dry run, and no secret value reaches the run's log.
 func TestProjectSettingsSkipWorkspaceLabel(t *testing.T) {
 	t.Parallel()
 
@@ -82,12 +87,14 @@ func TestProjectSettingsSkipWorkspaceLabel(t *testing.T) {
 				cfg.ProjectsEnabled = tc.projectsOn
 			}))
 			seedProjectSettings(t, th)
-			dag := th.DAG(t, projectSettingsDAG(tc.token, tc.tier))
+			check := projectSettingsCheck(tc.token, tc.tier)
+			dag := th.DAG(t, projectSettingsDAG(check))
 
 			th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", "--profile=prod", dag.Location}})
 			started := requireProjectSettingsRun(t, th, dag, "")
 
-			th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: []string{"retry", "--run-id=" + started.DAGRunID, dag.Location}})
+			// A retry of a run that succeeded runs only the step it names.
+			th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: []string{"retry", "--run-id=" + started.DAGRunID, "--step=check", dag.Location}})
 			requireProjectSettingsRun(t, th, dag, started.DAGRunID)
 
 			// A run's control socket is named by its DAG and run ID and sits
@@ -96,22 +103,86 @@ func TestProjectSettingsSkipWorkspaceLabel(t *testing.T) {
 			th.RunCommand(t, cmd.Enqueue(), test.CmdTest{Args: []string{"enqueue", "--run-id=" + queuedRunID, "--profile=prod", dag.Location}})
 			th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: []string{"retry", "--run-id=" + queuedRunID, dag.Location}})
 			requireProjectSettingsRun(t, th, dag, queuedRunID)
+
+			requireProjectSettingsRestart(t, th, check)
+
+			// A dry run runs no command, but it resolves the DAG's secrets and
+			// lists each that does not resolve: with projects on, a ref that
+			// only the workspace holds.
+			dry := th.DAG(t, `name: project-settings-dry
+labels: [workspace=ops]
+secrets:
+  - name: TOKEN
+    ref: api/ops-only
+steps:
+  - run: echo dry
+`)
+			var checks bytes.Buffer
+			dryCmd := cmd.Dry()
+			dryCmd.SetOut(&checks)
+			th.RunCommand(t, dryCmd, test.CmdTest{Args: []string{"dry", "--format=json", dry.Location}})
+			if tc.projectsOn {
+				assert.Contains(t, checks.String(), "api/ops-only")
+			} else {
+				assert.NotContains(t, checks.String(), "api/ops-only")
+			}
 		})
 	}
 }
 
+// requireProjectSettingsRestart restarts a running DAG whose first step runs
+// check, and requires the restarted run to succeed.
+func requireProjectSettingsRestart(t *testing.T, th test.Command, check string) {
+	t.Helper()
+
+	release := newHoldFile(t)
+	dag := th.DAG(t, fmt.Sprintf(`labels: [workspace=ops]
+secrets:
+  - name: TOKEN
+    ref: api/token
+steps:
+  - name: check
+    run: |
+      %s
+  - name: hold
+    run: %q
+`, check, holdUntilFileExistsCommand(release)))
+	started := make(chan struct{})
+	go func() {
+		defer close(started)
+		_ = th.RunCommandWithError(t, cmd.Start(), test.CmdTest{Args: []string{"start", "--profile=prod", dag.Location}})
+	}()
+	dag.AssertCurrentStatus(t, ir.Running)
+
+	restarted := make(chan error, 1)
+	go func() {
+		restarted <- th.RunCommandWithError(t, cmd.Restart(), test.CmdTest{Args: []string{"restart", dag.Location}})
+	}()
+	require.NoError(t, <-releaseHoldFileWhenRecentStatusCountAtLeast(t, th, dag.Name, 2, release))
+	require.NoError(t, <-restarted)
+	<-started
+
+	latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	require.Equal(t, ir.Succeeded, latest.Status, "the restarted run read a value from the wrong settings")
+}
+
 // seedProjectSettings gives the default project and workspace ops the same
-// secret ref and profile default with different values, and the default
-// project a profile with a secret.
+// secret ref and profile default with different values, workspace ops a
+// secret of its own, and the default project a profile with a secret.
 func seedProjectSettings(t *testing.T, th test.Command) {
 	t.Helper()
 
 	secrets := file.NewSecretStore(th.Context, th.Config, th.Backend.Collection(persis.CollectionSecrets))
 	require.NotNil(t, secrets)
-	for workspace, value := range map[string]string{secret.GlobalWorkspace: "project-token", "ops": "workspace-token"} {
-		sec, err := secret.New(secret.CreateInput{Workspace: workspace, Ref: "api/token", ProviderType: secret.ProviderDaguManaged}, time.Now())
+	for _, seed := range []struct{ workspace, ref, value string }{
+		{workspace: secret.GlobalWorkspace, ref: "api/token", value: "project-token"},
+		{workspace: "ops", ref: "api/token", value: "workspace-token"},
+		{workspace: "ops", ref: "api/ops-only", value: "ops-only-token"},
+	} {
+		sec, err := secret.New(secret.CreateInput{Workspace: seed.workspace, Ref: seed.ref, ProviderType: secret.ProviderDaguManaged}, time.Now())
 		require.NoError(t, err)
-		require.NoError(t, secrets.Create(th.Context, sec, &secret.WriteValueInput{Value: value}))
+		require.NoError(t, secrets.Create(th.Context, sec, &secret.WriteValueInput{Value: seed.value}))
 	}
 
 	profiles := file.NewProfileStore(th.Context, th.Config, th.Backend.Collection(persis.CollectionProfiles))

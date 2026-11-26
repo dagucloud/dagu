@@ -24,7 +24,7 @@ import (
 func TestRuntimeStoresResolveInProject(t *testing.T) {
 	t.Parallel()
 
-	cfg := runtimeStoresConfig(t, true)
+	cfg := runtimeStoresConfig(t)
 	server := file.NewServerStores(cfg)
 	projects := []string{"alpha", "beta"}
 	contexts := make(map[string]*Context, len(projects))
@@ -49,10 +49,12 @@ func TestRuntimeStoresResolveInProject(t *testing.T) {
 	}
 }
 
-func runtimeStoresConfig(t *testing.T, projectsOn bool) *config.Config {
+// runtimeStoresConfig returns a config with projects on and its paths in a
+// temporary directory.
+func runtimeStoresConfig(t *testing.T) *config.Config {
 	t.Helper()
 	root := t.TempDir()
-	cfg := &config.Config{ProjectsEnabled: projectsOn}
+	cfg := &config.Config{ProjectsEnabled: true}
 	cfg.Paths.DAGsDir = filepath.Join(root, "dags")
 	cfg.Paths.ProjectsDir = filepath.Join(root, "projects")
 	cfg.Paths.DataDir = filepath.Join(root, "data")
