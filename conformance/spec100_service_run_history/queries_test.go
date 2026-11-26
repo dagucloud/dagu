@@ -4,6 +4,7 @@
 package spec100_service_run_history_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"testing"
@@ -98,7 +99,7 @@ func TestActivityInDAGList(t *testing.T) {
 		return byName
 	}
 	var activity *api.DAGListActivity
-	require.Eventually(t, func() bool {
+	if !assert.Eventually(t, func() bool {
 		activity = list()["service_ok"]
 		if activity == nil || activity.Buckets == nil {
 			return false
@@ -108,7 +109,13 @@ func TestActivityInDAGList(t *testing.T) {
 			n += b.Count
 		}
 		return n >= 2
-	}, wait, poll, "no buckets in the activity of the service DAG")
+	}, wait, poll, "no buckets in the activity of the service DAG") {
+		last, err := json.Marshal(activity)
+		require.NoError(t, err)
+		t.Logf("last activity of service_ok: %s", last)
+		p.logState("service_ok")
+		t.FailNow()
+	}
 
 	assert.Empty(t, activity.Runs)
 	assert.False(t, activity.Truncated)
