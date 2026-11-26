@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Proofs of the adversarial review of Spec 092, "Isolation". Each test states
+// Proofs of the adversarial review of Spec 103, "Isolation". Each test states
 // the property, and fails while the property is broken. They need root, as the
 // isolation tests of isolation_linux_test.go do.
 
@@ -123,7 +123,7 @@ int main(int argc, char **argv) {
 }
 `
 
-// Property (Spec 092, "End"): Dagu stops each process of the restricted user,
+// Property (Spec 103, "Isolation", rule 7): Dagu stops each process of the restricted user,
 // and waits until no process of that user is left. The attack: a process whose
 // main thread exits keeps its other threads. Its leader is a zombie and its
 // threads are not in the list of /proc, so a scan that skips Z processes or
@@ -164,7 +164,7 @@ func TestReviewZombieLeaderSurvivesEnd(t *testing.T) {
 	assert.Equal(t, string(first), string(second), "a thread of the restricted user runs after End")
 }
 
-// Property (Spec 092, "End"): Dagu stops each process of the restricted user,
+// Property (Spec 103, "Isolation", rule 7): Dagu stops each process of the restricted user,
 // and waits until no process of that user is left. The attack: a loop that
 // forks and lets its parent exit at once changes its PID while killUser scans
 // /proc, so that a scan could see no process. 200 idle processes of root make

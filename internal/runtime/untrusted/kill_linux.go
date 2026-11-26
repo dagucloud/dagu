@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// Spec 092, "End": Dagu sends SIGKILL to each process of the restricted user
+// Spec 103, "Isolation", rule 7: Dagu sends SIGKILL to each process of the restricted user
 // and waits until no process of that user is left. Two means stop the
 // processes:
 //

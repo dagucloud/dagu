@@ -25,12 +25,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Spec 092, "Isolation". The invariant of this file: Dagu changes the owner of
-// a file only while no process of the restricted user exists. Begin stops each
-// such process before it gives the work directory to the restricted user, and
-// End stops each such process before it gives the work directory back. The
-// walks also act on descriptors (fswalk_linux.go), so a path that changes
-// under a walk cannot redirect it.
+// Spec 103, "Isolation". The invariant of this file: Dagu makes a file of the
+// restricted user, or reads one, only while no process of that user exists.
+// Begin stops each such process before it makes the HOME of the step, and End
+// stops each such process before it copies the output file and removes the
+// HOME.
 
 // killTimeout limits the wait for the end of the processes of the restricted
 // user after SIGKILL.
@@ -50,8 +49,7 @@ var (
 )
 
 // poison makes each later step of a run with an isolated untrusted step fail.
-// Dagu uses it when a process of the restricted user survives SIGKILL, or when
-// a git folder changed during an untrusted step.
+// Dagu uses it when a process of the restricted user survives SIGKILL.
 func poison(err error) {
 	poisonMu.Lock()
 	defer poisonMu.Unlock()
@@ -484,8 +482,8 @@ func (*isolation) started(int) {}
 
 func (*isolation) abandon() {}
 
-// end runs the actions of the end of the step (Spec 092, "End"). An error that
-// wraps ErrRunAborted stops the run.
+// end runs the actions of the end of the step (Spec 103, "Isolation", rule 7).
+// An error that wraps ErrRunAborted stops the run.
 func (iso *isolation) end(_ context.Context) error {
 	iso.ended.Store(true)
 	defer iso.releaseSlot()
@@ -497,16 +495,11 @@ func (iso *isolation) end(_ context.Context) error {
 		return fmt.Errorf("%w: %w", ErrRunAborted, err)
 	}
 
-	var errs []error
-	errs = append(errs, iso.copyOutput())
+	errs := []error{iso.copyOutput()}
 	if err := os.RemoveAll(iso.privateDir); err != nil {
 		errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, err))
 	}
-	err := errors.Join(errs...)
-	if errors.Is(err, ErrRunAborted) {
-		poison(err)
-	}
-	return err
+	return errors.Join(errs...)
 }
 
 // copyOutput copies the output file that the restricted user wrote to the file
