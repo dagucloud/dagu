@@ -125,6 +125,29 @@ func TestReadCachesOnlyASettledFolder(t *testing.T) {
 	require.Equal(t, 1, reads, "the second read of a settled folder comes from the cache")
 }
 
+// A read that takes longer than 2 seconds does not make a recent change
+// settled: the time of the walk decides. The test changes package variables,
+// so it does not run in parallel.
+func TestSlowReadIsNotCached(t *testing.T) {
+	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
+	// A time stamp in the future keeps the change recent however slow the test
+	// runs, until the clock moves.
+	future := time.Now().Add(30 * time.Minute)
+	require.NoError(t, os.Chtimes(filepath.Join(dir, "SKILL.md"), future, future))
+	reads := 0
+	skill.AroundReadFiles(t, func() {
+		// The first read of the files ends after the change is settled.
+		if reads++; reads == 1 {
+			skill.SettleClock(t)
+		}
+	}, func() {})
+	for range 2 {
+		_, err := skill.Read(dir)
+		require.NoError(t, err)
+	}
+	require.Equal(t, 2, reads, "a read that began before the change settled is not cached")
+}
+
 // The cache counts the list of files of a read, not only its text, so a folder
 // of many small files with long names cannot grow the cache past its bound.
 func TestCacheCountsTheFileList(t *testing.T) {

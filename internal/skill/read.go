@@ -148,6 +148,7 @@ func Read(dir string) (*Skill, error) {
 		if attempt > 0 {
 			time.Sleep(time.Duration(attempt) * readRetryPause)
 		}
+		start := now()
 		before, folderIssues, newest, err := walk(abs)
 		if err != nil {
 			if _, statErr := os.Lstat(abs); errors.Is(statErr, fs.ErrNotExist) {
@@ -157,7 +158,11 @@ func Read(dir string) (*Skill, error) {
 			continue
 		}
 		signature := signatureOf(before, folderIssues)
-		if cached, ok := lookup(abs, signature, newest); ok {
+		// An entry that changed shortly before the walk can change again with the
+		// same key, so the cache neither gives nor keeps such a read. The time of
+		// the walk decides, so a slow read cannot make a recent change settled.
+		settled := start.Sub(newest) >= cacheRacyWindow
+		if cached, ok := lookup(abs, signature); settled && ok {
 			return cached, nil
 		}
 		s, err := readFiles(abs, name, before, folderIssues)
@@ -170,7 +175,9 @@ func Read(dir string) (*Skill, error) {
 			unreadable = false
 			continue
 		}
-		store(abs, signature, newest, s)
+		if settled {
+			store(abs, signature, s)
+		}
 		return s, nil
 	}
 	// The message names no path of the server.
@@ -185,10 +192,7 @@ func Read(dir string) (*Skill, error) {
 }
 
 // lookup returns the cached read of dir when its walk had the same signature.
-func lookup(dir, signature string, newest time.Time) (*Skill, bool) {
-	if now().Sub(newest) < cacheRacyWindow {
-		return nil, false
-	}
+func lookup(dir, signature string) (*Skill, bool) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	c, ok := cache.entries[dir]
@@ -198,11 +202,8 @@ func lookup(dir, signature string, newest time.Time) (*Skill, bool) {
 	return nil, false
 }
 
-// store keeps the read of dir, unless an entry of the folder is too recent.
-func store(dir, signature string, newest time.Time, s *Skill) {
-	if now().Sub(newest) < cacheRacyWindow {
-		return
-	}
+// store keeps the read of dir.
+func store(dir, signature string, s *Skill) {
 	size := cacheCost(signature, s)
 	cache.mu.Lock()
 	defer cache.mu.Unlock()

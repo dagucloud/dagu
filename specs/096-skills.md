@@ -202,7 +202,8 @@ rules. Each instance then reads the files that the sync leaves, with their hash.
 A read can use a cache in the process. The key of the cache is the path of the folder and the data of
 each entry: the path, the kind, the mode, the size, the modification time and, on Linux and macOS,
 the status change time. A tool can set the modification time back, but not the status change time.
-The cache gives a result only when every key matches. It does not give a result when the newest change is younger than 2 seconds.
+The cache gives a result only when every key matches. It neither gives nor keeps a result when the newest change is younger than 2 seconds at the
+start of the walk.
 It keeps at most 128 folders and at most 64 MiB of file content. The cache is a function of the disk.
 It never decides alone.
 
@@ -465,6 +466,7 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | `TestPartialSkillIsRefused` (unit) | A folder with no `SKILL.md` is refused, and the temporary file of a write is ignored. |
 | `TestReadBoundsTheTextItKeeps` (unit) | A folder above 16 MiB gives the rule `total-too-large`, a read keeps at most 16 MiB of text, and the text it does not keep still opens from disk. |
 | `TestReadCachesOnlyASettledFolder` (unit) | A second read of a folder with no change in the last 2 seconds reads no file. A folder with a newer change is read again. |
+| `TestSlowReadIsNotCached` (unit) | A read that began less than 2 seconds after a change is not cached, however long it takes. |
 | `TestReadSeesEveryChange` (unit) | A change of the size of a file shows in the next read, also when the time stamp stays. |
 | `TestReadSeesAnEditThatKeepsTheTimeStamp` (unit) | On Linux and macOS, an edit that keeps the size and sets the time stamp back shows in the next read of a cached folder. |
 | `TestReadSeesALayoutChange` (unit) | A new folder at the root, a hidden folder or a hard link shows in the next read of a cached folder. |
