@@ -188,7 +188,8 @@ func TestMasker_Add(t *testing.T) {
 }
 
 // Masking goroutines keep hiding the values held before Add while Add runs,
-// and the race detector checks that Add is safe beside them.
+// and the race detector checks that Add is safe beside them. Add starts
+// only once every goroutine masks, so the two overlap.
 func TestMasker_AddWhileMasking(t *testing.T) {
 	t.Parallel()
 
@@ -196,20 +197,27 @@ func TestMasker_AddWhileMasking(t *testing.T) {
 	added := []string{"second", "third", "fourth"}
 	text := "first " + strings.Join(added, " ")
 	stop := make(chan struct{})
-	var wg sync.WaitGroup
+	var started, wg sync.WaitGroup
 	for range 4 {
+		started.Add(1)
 		wg.Go(func() {
+			markStarted := sync.OnceFunc(started.Done)
 			for {
+				masked := assert.NotContains(t, m.MaskString(text), "first")
+				markStarted()
+				if !masked {
+					return
+				}
 				select {
 				case <-stop:
 					return
 				default:
 				}
-				assert.NotContains(t, m.MaskString(text), "first")
 			}
 		})
 	}
 
+	started.Wait()
 	for _, value := range added {
 		m.Add(value)
 	}
