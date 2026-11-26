@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -72,6 +74,66 @@ func runAs(t *testing.T, ctx context.Context, dir, script string, env ...string)
 	defer func() { _ = process.Release() }()
 	require.NoError(t, process.Wait(), "stderr: %s", stderr.String())
 	return stdout.String()
+}
+
+// Spec 103, "Isolation", rules 4, 5 and 7: the process runs as the restricted
+// user with no supplementary group, no capability, no descriptor of the worker
+// but 0, 1 and 2, in a session of its own, with a private HOME. It cannot read
+// a file of the worker or write the work directory. End stops each of its
+// processes, copies the output file and removes the HOME.
+func TestIsolatedStepRunsAsTheRestrictedUser(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	rootOnly := workDir + "-root-only"
+	require.NoError(t, os.WriteFile(rootOnly, []byte("worker secret"), 0o400))
+	t.Cleanup(func() { _ = os.Remove(rootOnly) })
+
+	step, err := Begin(ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	require.True(t, step.Isolated())
+	outputFile := filepath.Join(t.TempDir(), "step.output")
+	require.NoError(t, os.WriteFile(outputFile, nil, 0o600))
+	processOutput := step.OutputFile(outputFile)
+	assert.NotEqual(t, outputFile, processOutput)
+	home := step.Home()
+
+	script := strings.Join([]string{
+		`echo "ids=$(id -u) $(id -g) $(id -G)"`,
+		`echo "session=$(cut -d' ' -f6 /proc/$$/stat) pid=$$"`,
+		`grep -E '^Cap(Prm|Eff|Amb):' /proc/$$/status | tr -s '\t' ' '`,
+		// Outside a command substitution, sh holds no pipe while ls lists.
+		`echo fds:; ls /proc/$$/fd; echo end`,
+		`echo "home=$HOME tmp=$TMPDIR $(stat -c '%a %u' "$HOME")"`,
+		`cat ` + rootOnly + ` >/dev/null 2>&1 && echo read-worker:allowed || echo read-worker:denied`,
+		`touch new 2>/dev/null && echo write-work:allowed || echo write-work:denied`,
+		`echo "secret=${DAGU_SECRET:-none}"`,
+		`echo "answer=42" > "$DAGU_OUTPUT_FILE"`,
+		`setsid sleep 1000 </dev/null >/dev/null 2>&1 &`,
+	}, "\n")
+	out := runAs(t, WithStep(ctx, step), workDir, script, "DAGU_SECRET=hidden", "DAGU_OUTPUT_FILE="+processOutput)
+	ids := strconv.Itoa(testUID) + " " + strconv.Itoa(testGID)
+	assert.Contains(t, out, "ids="+ids+" "+strconv.Itoa(testGID)+"\n", "no supplementary group")
+	session := regexp.MustCompile(`session=(\d+) pid=(\d+)\n`).FindStringSubmatch(out)
+	require.Len(t, session, 3, out)
+	assert.Equal(t, session[2], session[1], "the process leads a new session")
+	for _, set := range []string{"CapPrm", "CapEff", "CapAmb"} {
+		assert.Contains(t, out, set+": 0000000000000000\n")
+	}
+	assert.Contains(t, out, "fds:\n0\n1\n2\nend\n")
+	assert.Contains(t, out, "home="+home+" tmp="+home+" 700 "+strconv.Itoa(testUID)+"\n")
+	assert.Contains(t, out, "read-worker:denied")
+	assert.Contains(t, out, "write-work:denied")
+	assert.Contains(t, out, "secret=none")
+
+	require.NoError(t, step.End(ctx))
+	pids, err := userProcesses(testUID)
+	require.NoError(t, err)
+	assert.Empty(t, pids, "each process of the restricted user is stopped")
+	assert.NoDirExists(t, home)
+	output, err := os.ReadFile(outputFile)
+	require.NoError(t, err)
+	assert.Equal(t, "answer=42\n", string(output))
 }
 
 // A working directory outside the work directory of the run fails the step.
