@@ -174,7 +174,10 @@ func (c *remoteClient) remoteNode(ctx context.Context, name string) (nodeListing
 		return nodeListing{}, err
 	}
 	var listing nodeListing
-	return listing, listing.add(out)
+	if err := listing.add(out); err != nil {
+		return nodeListing{}, err
+	}
+	return listing, nil
 }
 
 // remoteForgetWorkerNode forgets the offline worker node named name.
