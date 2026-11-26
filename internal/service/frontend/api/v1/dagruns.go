@@ -4023,8 +4023,47 @@ func (a *API) enqueuePreparedDAGRun(
 	targetNodes []string,
 	slot *requestedSlot,
 ) error {
+	return a.enqueuePreparedDAGRunIn(ctx, a.defaultRunQueue(), dag, params, dagRunID, triggerType,
+		profileName, noReuse, workerSelector, targetNodes, slot)
+}
+
+// runQueue is where a run is queued: the stores and directories of the
+// project it runs in.
+type runQueue struct {
+	runs        *persis.DAGRunRepository
+	queue       queue.QueueStore
+	logDir      string
+	artifactDir string
+	baseConfig  string
+}
+
+func (a *API) defaultRunQueue() runQueue {
+	return runQueue{
+		runs:        a.dagRunRepository,
+		queue:       a.queueStore,
+		logDir:      a.config.Paths.LogDir,
+		artifactDir: a.config.Paths.ArtifactDir,
+		baseConfig:  a.config.Paths.BaseConfig,
+	}
+}
+
+// enqueuePreparedDAGRunIn is enqueuePreparedDAGRun for the project whose
+// queue is target.
+func (a *API) enqueuePreparedDAGRunIn(
+	ctx context.Context,
+	target runQueue,
+	dag *ir.DAG,
+	params string,
+	dagRunID string,
+	triggerType ir.TriggerType,
+	profileName string,
+	noReuse bool,
+	workerSelector map[string]string,
+	targetNodes []string,
+	slot *requestedSlot,
+) error {
 	resolvedDAG, err := spec.ResolveRuntimeParams(ctx, dag, params, spec.ResolveRuntimeParamsOptions{
-		BaseConfig: a.config.Paths.BaseConfig,
+		BaseConfig: target.baseConfig,
 	})
 	if err != nil {
 		return &Error{
@@ -4058,12 +4097,12 @@ func (a *API) enqueuePreparedDAGRun(
 	queuedDAG.Location = ""
 
 	queued, err := intake.EnqueueRun(ctx, intake.QueueRequest{
-		DAGRunRepository:        a.dagRunRepository,
-		QueueStore:              a.queueStore,
+		DAGRunRepository:        target.runs,
+		QueueStore:              target.queue,
 		DAG:                     queuedDAG,
 		DAGRunID:                dagRunID,
-		LogBaseDir:              a.config.Paths.LogDir,
-		ArtifactBaseDir:         a.config.Paths.ArtifactDir,
+		LogBaseDir:              target.logDir,
+		ArtifactBaseDir:         target.artifactDir,
 		TriggerType:             triggerType,
 		TriggerActor:            triggerActorFromContext(ctx),
 		ProceedOnStatusCloseErr: true,

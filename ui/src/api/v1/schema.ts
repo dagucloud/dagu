@@ -2669,6 +2669,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/webhooks/{project}/{fileName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trigger a project's DAG via webhook
+         * @description Triggers a run of the project's DAG of the given name via its webhook.
+         *     Authentication, the request body, forwarded headers, and the response
+         *     are as for triggerWebhook.
+         *
+         */
+        post: operations["triggerProjectWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/webhooks": {
         parameters: {
             query?: never;
@@ -18310,6 +18333,104 @@ export interface operations {
                 };
             };
             /** @description DAG or webhook not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict - DAG run with the specified dagRunId already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    triggerProjectWebhook: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: {
+                /** @description Bearer token for webhook authentication (e.g., 'Bearer dagu_wh_...'). Accepts the webhook's default token or one of its profile tokens. Required only when the webhook auth mode includes token authentication. */
+                Authorization?: string;
+                /** @description HMAC webhook signature in the format `sha256=<hex>`. Required only
+                 *     when the webhook auth mode includes HMAC authentication with strict
+                 *     enforcement. Sign the raw request body when `X-Dagu-Profile` is
+                 *     absent. When it is present, sign
+                 *     `x-dagu-profile:<profile>\n<raw-request-body>`.
+                 *      */
+                "X-Dagu-Signature"?: string;
+                /** @description Runtime profile selected for this DAG run. With the default token, the profile must be allowed by the webhook profile-selection policy; omit the header to use the DAG's default profile resolution. With a profile token, the run always uses the token's profile; the header may be omitted or must name that profile. */
+                "X-Dagu-Profile"?: components["schemas"]["RuntimeProfileName"];
+            };
+            path: {
+                /** @description Name of the project, matched without regard to case */
+                project: string;
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["WebhookRequest"];
+            };
+        };
+        responses: {
+            /** @description DAG run triggered successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookResponse"];
+                };
+            };
+            /** @description Invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthorized - missing or invalid token, or invalid/missing X-Dagu-Signature when strict HMAC enforcement is active */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - webhook disabled or not configured, or the requested runtime profile is not allowed for the token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Project, DAG, or webhook not found */
             404: {
                 headers: {
                     [name: string]: unknown;

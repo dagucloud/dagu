@@ -527,10 +527,19 @@ Rules:
 
 - A per-DAG webhook URL is `/webhooks/{project}/{name}`. The URL selects the
   DAG, and the webhook's token or signature authenticates the request.
+- `{project}` matches a registered project's name without regard to case.
+  A URL that names no registered project gets `404`.
+- `/webhooks/{project}/{name}` reaches the project's DAG called `{name}`.
+  When the project has none, it reaches the library DAG of that name, which
+  runs in that project.
 - `/webhooks/{name}` reaches the DAG that migration placed in a project
   under that name while that DAG exists, and otherwise the default
-  project's DAG of that name. It never reaches a library DAG.
-- A project's webhooks, public ones included, belong to that project.
+  project's DAG of that name. It never reaches a library DAG: a request
+  for one gets `404`.
+- A project's webhooks, public ones included, belong to that project. Each
+  is the webhook of one DAG name in that project, so two projects may each
+  have a webhook for a DAG of the same name, each with its own token.
+- A run that a webhook starts belongs to the project the URL reached.
 
 #### Search
 
