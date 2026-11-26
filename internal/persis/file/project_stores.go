@@ -230,6 +230,23 @@ func NewProjectSettings(cfg *config.Config, server *ServerStores, name string) (
 // migration moves it, so turning this off goes with that move.
 const defaultProjectInV2Dirs = true
 
+// ProjectStorePaths returns the directories that the stores of the project
+// called name open on. A process that watches a project's state watches
+// these directories.
+func ProjectStorePaths(cfg *config.Config, name string) (config.ProjectPaths, error) {
+	paths, _, err := projectPaths(cfg, name)
+	return paths, err
+}
+
+// ProjectSchedulerStateDir returns the directory of the project's scheduler
+// state, or "" when the project has no state directory.
+func ProjectSchedulerStateDir(p config.ProjectPaths) string {
+	if p.OtherStateDir == "" {
+		return ""
+	}
+	return filepath.Join(p.OtherStateDir, schedulerStateDirName)
+}
+
 // projectPaths returns the directories that the stores of the project
 // called name open on, and whether they are the ones v2 uses. Every store
 // of a project, in every process, opens on these directories.
