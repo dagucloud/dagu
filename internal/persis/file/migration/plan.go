@@ -13,12 +13,16 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 )
 
+// setApartDefaultDir is where the default project keeps its state in a path
+// set apart, relative to that path.
+var setApartDefaultDir = filepath.Join(".projects", "default")
+
 // stateMovePlanner returns the planner of the moves of the default project's
-// state, and of the queues defined in config.yaml, out of the directories
-// where v2 keeps them.
+// state out of the directories where v2 keeps it.
 func stateMovePlanner(cfg *config.Config) func(context.Context) ([]move, error) {
 	return func(context.Context) ([]move, error) {
 		dirs := persisfile.DefaultProjectV2StateDirs(cfg)
@@ -55,6 +59,13 @@ func planDir(dir persisfile.V2StateDir, kept []string) ([]move, error) {
 	if dir.Holds == nil && !found && !holdsAny(dir.V2, kept) {
 		return []move{{From: dir.V2, To: dir.Dir}}, nil
 	}
+	if isLink(info.Mode()) && !inside(dir.Dir, dir.V2) {
+		store, err := linkBeside(dir, found)
+		if err != nil {
+			return nil, fmt.Errorf("plan the migration: %w", err)
+		}
+		kept = append(kept, store)
+	}
 
 	entries, err := os.ReadDir(dir.V2)
 	if err != nil {
@@ -69,6 +80,37 @@ func planDir(dir persisfile.V2StateDir, kept []string) ([]move, error) {
 		moves = append(moves, move{From: from, To: filepath.Join(dir.Dir, entry.Name())})
 	}
 	return moves, nil
+}
+
+// linkBeside keeps the entries that move out of dir.V2, a link that may
+// lead to another file system, on the file system it leads to. It makes
+// dir.Dir a link to a directory in the link's target, the one a project's
+// state set apart in a path takes, so each entry moves by rename. found
+// reports that dir.Dir exists: an earlier attempt made the link, or it is
+// not this migration's and the entries move into it. It returns the
+// directory as dir.V2 spells it, or "" when dir.Dir is not the link.
+func linkBeside(dir persisfile.V2StateDir, found bool) (string, error) {
+	real, err := filepath.EvalSymlinks(dir.V2)
+	if err != nil {
+		return "", err
+	}
+	store := filepath.Join(real, setApartDefaultDir)
+	if found {
+		if target, err := os.Readlink(dir.Dir); err != nil || filepath.Clean(target) != store {
+			return "", nil
+		}
+		return filepath.Join(dir.V2, setApartDefaultDir), nil
+	}
+	if err := fileutil.MkdirAll(store, dirPerm); err != nil {
+		return "", err
+	}
+	if err := fileutil.MkdirAll(filepath.Dir(dir.Dir), dirPerm); err != nil {
+		return "", err
+	}
+	if err := os.Symlink(store, dir.Dir); err != nil {
+		return "", fmt.Errorf("keep the state in %s on its disk with the link %s: %w", real, dir.Dir, err)
+	}
+	return filepath.Join(dir.V2, setApartDefaultDir), nil
 }
 
 // keptPaths returns the paths that the moves of dirs[index] leave in place:

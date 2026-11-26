@@ -18,8 +18,8 @@ import (
 )
 
 // v2Install returns the configuration of a v2 install in root, with the
-// paths v2 derives by default and a queue defined in config.yaml, after the
-// switch to projects.
+// paths v2 derives by default, the legacy suspend flags directory, and a
+// queue defined in config.yaml, after the switch to projects.
 func v2Install(root string) *config.Config {
 	data := filepath.Join(root, "data")
 	logs := filepath.Join(root, "logs")
@@ -27,32 +27,35 @@ func v2Install(root string) *config.Config {
 	cfg := &config.Config{ProjectsEnabled: true}
 	cfg.Queues.Config = []config.QueueConfig{{Name: "shared"}}
 	cfg.Paths = config.PathsConfig{
-		DAGsDir:            filepath.Join(root, "dags"),
-		ProjectsDir:        filepath.Join(root, "projects"),
-		DataDir:            data,
-		LogDir:             logs,
-		AdminLogsDir:       admin,
-		EventStoreDir:      filepath.Join(admin, "events"),
-		ArtifactDir:        filepath.Join(data, "artifacts"),
-		DAGRunsDir:         filepath.Join(data, "dag-runs"),
-		DAGRunWorkDir:      filepath.Join(data, "dag-run-work"),
-		DAGStateDir:        filepath.Join(data, "dag-state"),
-		QueueDir:           filepath.Join(data, "queue"),
-		ProcDir:            filepath.Join(data, "proc"),
-		SuspendFlagsDir:    filepath.Join(data, "suspend"),
-		ViewsDir:           filepath.Join(data, "views"),
-		ServiceRegistryDir: filepath.Join(data, "service-registry"),
-		UsersDir:           filepath.Join(data, "users"),
-		APIKeysDir:         filepath.Join(data, "apikeys"),
-		WebhooksDir:        filepath.Join(data, "webhooks"),
+		DAGsDir:               filepath.Join(root, "dags"),
+		ProjectsDir:           filepath.Join(root, "projects"),
+		DataDir:               data,
+		LogDir:                logs,
+		AdminLogsDir:          admin,
+		EventStoreDir:         filepath.Join(admin, "events"),
+		ArtifactDir:           filepath.Join(data, "artifacts"),
+		DAGRunsDir:            filepath.Join(data, "dag-runs"),
+		DAGRunWorkDir:         filepath.Join(data, "dag-run-work"),
+		DAGStateDir:           filepath.Join(data, "dag-state"),
+		QueueDir:              filepath.Join(data, "queue"),
+		ProcDir:               filepath.Join(data, "proc"),
+		SuspendFlagsDir:       filepath.Join(data, "suspend"),
+		SuspendFlagsDirLegacy: filepath.Join(root, "suspend"),
+		ViewsDir:              filepath.Join(data, "views"),
+		ServiceRegistryDir:    filepath.Join(data, "service-registry"),
+		UsersDir:              filepath.Join(data, "users"),
+		APIKeysDir:            filepath.Join(data, "apikeys"),
+		WebhooksDir:           filepath.Join(data, "webhooks"),
 	}
 	return cfg
 }
 
 // v2State maps each file of a v2 install, relative to its root, to where
 // the default project's stores read it once migration is done. A file
-// mapped to itself is server-wide state, or state the migration does not
-// own, and stays.
+// mapped to itself is server-wide state, state the migration does not own,
+// or a legacy suspend flag that v2 copied into the primary directory, and
+// stays. The items of a queue defined in config.yaml stay with the default
+// project's queue.
 var v2State = map[string]string{
 	"data/dag-runs/etl/2026/01/02/run_1/status.jsonl":                  "data/projects/default/runs/etl/2026/01/02/run_1/status.jsonl",
 	"data/dag-runs-ephemeral/etl/run_2/status.jsonl":                   "data/projects/default/state/dag-runs-ephemeral/etl/run_2/status.jsonl",
@@ -63,8 +66,10 @@ var v2State = map[string]string{
 	"data/artifacts/etl/run_1/report.md":                               "data/projects/default/artifacts/etl/run_1/report.md",
 	"data/proc/etl/etl/proc_1":                                         "data/projects/default/state/proc/etl/etl/proc_1",
 	"data/queue/etl/item_low_20260102_000000_000000000Z_run_3.json":    "data/projects/default/state/queue/etl/item_low_20260102_000000_000000000Z_run_3.json",
-	"data/queue/shared/item_low_20260102_000000_000000000Z_run_4.json": "data/server/queue/shared/item_low_20260102_000000_000000000Z_run_4.json",
+	"data/queue/shared/item_low_20260102_000000_000000000Z_run_4.json": "data/projects/default/state/queue/shared/item_low_20260102_000000_000000000Z_run_4.json",
 	"data/suspend/etl.suspend":                                         "data/projects/default/state/suspend/etl.suspend",
+	"suspend/etl.suspend":                                              "suspend/etl.suspend",
+	"suspend/old.suspend":                                              "data/projects/default/state/suspend/old.suspend",
 	"data/dag-state/etl.json":                                          "data/projects/default/state/dag-state/etl.json",
 	"data/views/v1.json":                                               "data/projects/default/state/views/v1.json",
 	"data/dag-settings/etl.json":                                       "data/projects/default/state/dag-settings/etl.json",
@@ -86,8 +91,8 @@ var v2State = map[string]string{
 }
 
 // TestRunMovesV2State proves that every store of the default project finds
-// its v2 state after migration, the queues defined in config.yaml move to
-// the server, and server-wide state and the default project's library stay.
+// its v2 state after migration, and that server-wide state and the default
+// project's library stay.
 // Migration moves state by rename, by copy to another file system, and
 // resumes a plan that a killed process left.
 func TestRunMovesV2State(t *testing.T) {
@@ -162,24 +167,34 @@ func TestRunMovesWithinSetApartDir(t *testing.T) {
 // A v2 directory that is a symbolic link to another disk moves as a link,
 // on any file system, so its state stays on that disk and the project's
 // stores reach it. A relative link keeps reaching its target from its new
-// place.
+// place, also when it climbs out of a linked data directory, which the
+// system resolves from the directory the link leads to.
 func TestRunMovesSymlinkedDirAsLink(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("creating symbolic links needs a privilege on Windows")
 	}
 	t.Parallel()
 	for _, tc := range []struct {
-		name      string
-		otherDisk bool
+		name       string
+		otherDisk  bool
+		linkedData bool
 	}{
 		{name: "SameFileSystem"},
 		{name: "OtherFileSystem", otherDisk: true},
+		{name: "LinkedDataDir", linkedData: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
 			cfg := v2Install(root)
-			disk := filepath.Join(root, "disk", "dag-runs")
+			// The link's "../disk" is resolved from the real data directory.
+			physical := cfg.Paths.DataDir
+			if tc.linkedData {
+				physical = filepath.Join(root, "phys", "data")
+				require.NoError(t, os.MkdirAll(physical, 0o750))
+				require.NoError(t, os.Symlink(physical, cfg.Paths.DataDir))
+			}
+			disk := filepath.Join(filepath.Dir(physical), "disk", "dag-runs")
 			writeFile(t, filepath.Join(disk, "etl", "status.jsonl"))
 			require.NoError(t, os.MkdirAll(cfg.Paths.DataDir, 0o750))
 			require.NoError(t, os.Symlink(filepath.Join("..", "disk", "dag-runs"), cfg.Paths.DAGRunsDir))
@@ -197,6 +212,73 @@ func TestRunMovesSymlinkedDirAsLink(t *testing.T) {
 			assert.NotZero(t, info.Mode()&os.ModeSymlink, "the runs stay on their disk")
 			assert.FileExists(t, filepath.Join(disk, "etl", "status.jsonl"))
 			assert.NoFileExists(t, cfg.Paths.DAGRunsDir)
+		})
+	}
+}
+
+// A linked v2 directory that holds state that stays, as the log directory
+// holds the admin logs, keeps the project's entries on the disk it leads
+// to: they move beside the admin logs into the directory a project's state
+// set apart there takes, and the project's directory links to it.
+func TestRunKeepsSplitLinkedDirOnItsDisk(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symbolic links needs a privilege on Windows")
+	}
+	t.Parallel()
+	root := t.TempDir()
+	cfg := v2Install(root)
+	disk := filepath.Join(root, "disk", "logs")
+	writeFile(t, filepath.Join(disk, "etl", "run_1.log"))
+	writeFile(t, filepath.Join(disk, "admin", "audit", "a.jsonl"))
+	require.NoError(t, os.Symlink(disk, cfg.Paths.LogDir))
+
+	require.NoError(t, newStateMigrator(t, cfg).Run(context.Background()))
+
+	logs := filepath.Join(cfg.Paths.DataDir, "projects", "default", "logs")
+	assert.FileExists(t, filepath.Join(logs, "etl", "run_1.log"))
+	assert.FileExists(t, filepath.Join(disk, ".projects", "default", "etl", "run_1.log"), "the logs stay on their disk")
+	assert.FileExists(t, filepath.Join(cfg.Paths.LogDir, "admin", "audit", "a.jsonl"))
+	assert.NoDirExists(t, filepath.Join(disk, "etl"))
+}
+
+// Links inside a moved directory keep leading where they led: one into the
+// directory leads to the moved entry, and a copy makes one that leads out
+// of the directory absolute.
+func TestRunKeepsLinksInMovedDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symbolic links needs a privilege on Windows")
+	}
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		otherDisk bool
+	}{
+		{name: "Rename"},
+		{name: "Copy", otherDisk: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			cfg := v2Install(root)
+			etl := filepath.Join(cfg.Paths.DAGRunsDir, "etl")
+			writeFile(t, filepath.Join(etl, "run_1", "status.jsonl"))
+			writeFile(t, filepath.Join(root, "shared.txt"))
+			require.NoError(t, os.Symlink("run_1", filepath.Join(etl, "latest")))
+			require.NoError(t, os.Symlink(filepath.Join("..", "..", "..", "shared.txt"), filepath.Join(etl, "shared")))
+
+			m := newStateMigrator(t, cfg)
+			if tc.otherDisk {
+				m.mover.sameFileSystem = otherFileSystem
+			}
+			require.NoError(t, m.Run(context.Background()))
+
+			moved := filepath.Join(cfg.Paths.DataDir, "projects", "default", "runs", "etl")
+			assert.FileExists(t, filepath.Join(moved, "latest", "status.jsonl"))
+			if tc.otherDisk {
+				// Stat follows the link, which FileExists does not.
+				_, err := os.Stat(filepath.Join(moved, "shared"))
+				assert.NoError(t, err, "the link leads to the file")
+			}
 		})
 	}
 }

@@ -936,17 +936,21 @@ Rules:
   directories.
 - State moves by rename. A directory on another file system, such as one
   that `paths.queue_dir` placed, is copied.
-- A v2 directory that is a symbolic link moves as a link. The state stays
-  where the link leads, and the project's stores reach it through the
-  link.
+- A v2 directory that is a symbolic link or a junction moves as a link.
+  The state stays where the link leads, and the project's stores reach it
+  through the link. When such a directory also holds state that stays, as
+  the log directory holds the admin logs, the project's state moves within
+  the link's target into `.projects/default/`, and the project's directory
+  is a link to it.
 - Server-wide state that v2 keeps beside project state stays where it is:
   the admin logs in the log directory, and the notification channels,
   incident providers, and the scheduler's lock, pause flag, and restart
   backoff beside the default project's routes, policies, and scheduler
   state.
-- Runs waiting in a queue keep their order. Those in a queue defined in
-  `config.yaml` move to `<data_dir>/server/`, and the others to their DAG's
-  project.
+- Runs waiting in a queue keep their order and move to their DAG's
+  project's queue, those in a queue defined in `config.yaml` included. The
+  release that admits queues defined in `config.yaml` across projects moves
+  their items to `<data_dir>/server/`.
 - A schedule slot gets the same run ID on v3.0 as on v2, so a slot that ran
   before the upgrade does not run again after it.
 - Per-DAG webhook URLs keep their paths and tokens and reach the DAG in its
@@ -1230,6 +1234,8 @@ Delete is refused, and changes nothing, when:
 
 ### Migration
 
+- A process with projects off on a `<data_dir>` that migration finished
+  logs a warning at startup: it does not see the migrated state.
 - While migration waits or runs, the health endpoint answers `200` with
   progress, and every other request gets `503`.
 - When free space is short, migration moves nothing and waits, and the

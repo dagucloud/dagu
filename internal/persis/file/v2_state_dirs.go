@@ -12,16 +12,9 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
 	"github.com/dagucloud/dagu/v2/internal/project"
 )
-
-// serverQueueDir holds the items of the queues defined in config.yaml, which
-// every project shares.
-func serverQueueDir(paths config.PathsConfig) string {
-	return filepath.Join(paths.DataDir, "server", "queue")
-}
 
 // V2StateDir is a directory where v2 keeps state that a store now keeps in
 // Dir.
@@ -34,9 +27,10 @@ type V2StateDir struct {
 }
 
 // DefaultProjectV2StateDirs returns each directory, or file, where v2 keeps
-// state of the default project or a queue defined in config.yaml, paired
-// with where its store keeps it while projects are on. It is empty while
-// projects are off, since the stores then keep the v2 directories.
+// state of the default project, paired with where its store keeps it while
+// projects are on. It is empty while projects are off, since the stores then
+// keep the v2 directories. The items of every queue, those defined in
+// config.yaml included, stay with the default project's queue.
 func DefaultProjectV2StateDirs(cfg *config.Config) []V2StateDir {
 	if !cfg.ProjectsEnabled {
 		return nil
@@ -58,7 +52,13 @@ func DefaultProjectV2StateDirs(cfg *config.Config) []V2StateDir {
 	add(v2.ArtifactDir, to.ArtifactDir, nil)
 	add(v2.EventStoreDir, to.EventStoreDir, nil)
 	add(v2.ProcDir, to.ProcDir, nil)
-	add(v2.SuspendFlagsDir, to.SuspendFlagsDir, nil)
+	// With a legacy directory, the flags of both directories move one by
+	// one into the same directory.
+	var primaryFlags func(fs.DirEntry) bool
+	if v2.LegacySuspendFlagsDir != "" {
+		primaryFlags = func(fs.DirEntry) bool { return true }
+	}
+	add(v2.SuspendFlagsDir, to.SuspendFlagsDir, primaryFlags)
 	// A legacy flag that v2 copied into the primary directory is left
 	// behind; projects read no legacy directory.
 	add(v2.LegacySuspendFlagsDir, to.SuspendFlagsDir, func(entry fs.DirEntry) bool {
@@ -80,17 +80,6 @@ func DefaultProjectV2StateDirs(cfg *config.Config) []V2StateDir {
 		if len(spec.idPrefixes) > 0 {
 			// The directory also holds server-wide records.
 			holds = holdsRecords(spec.idPrefixes)
-		}
-		if name == persis.CollectionQueue {
-			shared := make(map[string]bool, len(cfg.Queues.Config))
-			for _, q := range cfg.Queues.Config {
-				shared[q.Name] = true
-			}
-			isShared := func(entry fs.DirEntry) bool {
-				return entry.IsDir() && shared[segmentFromName(entry.Name(), true)]
-			}
-			add(spec.dir, serverQueueDir(cfg.Paths), isShared)
-			holds = func(entry fs.DirEntry) bool { return !isShared(entry) }
 		}
 		add(spec.dir, toSpecs[name].dir, holds)
 	}
