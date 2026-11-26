@@ -252,3 +252,21 @@ func TestOwnersOf(t *testing.T) {
 		assert.Equal(t, want, got, path)
 	}
 }
+
+// A root that links to a directory not yet made counts once the directory
+// exists, without a restart.
+func TestOwnersOfRootMadeLater(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "shared")
+	library := filepath.Join(root, "library")
+	symlinkOrSkip(t, target, library)
+	owners := NewOwners(OwnerDirs{DAGsDir: filepath.Join(root, "dags"), Library: library}, nil, nil)
+	got, err := owners.Of(t.Context(), filepath.Join(library, "ABC.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, Owner{Library: true}, got)
+
+	file := writeDAG(t, filepath.Join(target, "ABC.yaml"))
+	got, err = owners.Of(t.Context(), file)
+	require.NoError(t, err)
+	assert.Equal(t, Owner{Library: true}, got)
+}

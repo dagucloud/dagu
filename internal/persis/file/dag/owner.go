@@ -23,10 +23,10 @@ type Owners struct {
 	// inPlace is nil while no file runs in place.
 	inPlace project.InPlaceRecords
 
-	// roots are the DAG roots with their links resolved, on first use.
-	rootsOnce sync.Once
-	roots     []ownerRoot
-	rootsErr  error
+	// rootsMu guards roots, the DAG roots with their links resolved. A
+	// root not yet resolved in full is resolved again on each call.
+	rootsMu sync.Mutex
+	roots   []ownerRoot
 }
 
 // OwnerDirs places the DAG roots: paths.dags_dir, paths.projects_dir, and
@@ -68,6 +68,8 @@ func (o Owner) Is(name string) bool {
 type ownerRoot struct {
 	dir  string
 	kind ownerKind
+	// final reports that every link of dir resolved, so dir stays valid.
+	final bool
 }
 
 type ownerKind int
@@ -127,27 +129,49 @@ func (o *Owners) Of(ctx context.Context, path string) (Owner, error) {
 }
 
 // resolvedRoots returns the configured DAG roots with their links resolved.
-// They are resolved once, since the paths in effect do not change while a
-// process runs.
+// A root whose links all resolve is kept, since the paths in effect do not
+// change while a process runs. One that does not yet exist in full, such as
+// a link to a directory not yet made, is resolved again on the next call.
 func (o *Owners) resolvedRoots() ([]ownerRoot, error) {
-	o.rootsOnce.Do(func() {
+	o.rootsMu.Lock()
+	defer o.rootsMu.Unlock()
+	if o.roots == nil {
 		for _, root := range []ownerRoot{
 			{dir: o.dirs.DAGsDir, kind: ownedByDefault},
 			{dir: o.dirs.ProjectsDir, kind: ownedByProjects},
 			{dir: o.dirs.Library, kind: ownedByLibrary},
 		} {
-			if root.dir == "" {
-				continue
+			if root.dir != "" {
+				o.roots = append(o.roots, root)
 			}
-			dir, err := resolveExisting(root.dir)
-			if err != nil {
-				o.rootsErr = err
-				return
-			}
-			o.roots = append(o.roots, ownerRoot{dir: dir, kind: root.kind})
 		}
-	})
-	return o.roots, o.rootsErr
+	}
+	resolved := make([]ownerRoot, len(o.roots))
+	for i, root := range o.roots {
+		if !root.final {
+			dir, err := resolveExisting(o.configuredDir(root.kind))
+			if err != nil {
+				return nil, err
+			}
+			_, statErr := os.Stat(dir)
+			o.roots[i] = ownerRoot{dir: dir, kind: root.kind, final: statErr == nil}
+		}
+		resolved[i] = o.roots[i]
+	}
+	return resolved, nil
+}
+
+// configuredDir returns the configured directory of the root of kind.
+func (o *Owners) configuredDir(kind ownerKind) string {
+	switch kind {
+	case ownedByLibrary:
+		return o.dirs.Library
+	case ownedByProjects:
+		return o.dirs.ProjectsDir
+	case ownedByDefault:
+		return o.dirs.DAGsDir
+	}
+	return ""
 }
 
 // projectIn returns the registered project whose DAG directory, in
