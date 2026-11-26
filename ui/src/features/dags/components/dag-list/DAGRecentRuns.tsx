@@ -282,18 +282,18 @@ function RunLine({
             {shownLabels.length > 0 && (
               <span
                 title={labels.join(', ')}
-                className="flex shrink-0 items-center gap-0.5"
+                className="flex min-w-0 max-w-[50%] shrink-0 items-center gap-0.5"
               >
                 {shownLabels.map((label) => (
                   <span
                     key={label}
-                    className="rounded bg-muted px-1.5 text-[11px] leading-4 text-muted-foreground"
+                    className="min-w-0 truncate rounded bg-muted px-1.5 text-[11px] leading-4 text-muted-foreground"
                   >
                     {label}
                   </span>
                 ))}
                 {labels.length > shownLabels.length && (
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="shrink-0 text-[11px] text-muted-foreground">
                     +{labels.length - shownLabels.length}
                   </span>
                 )}
