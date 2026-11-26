@@ -4,7 +4,7 @@
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
-import { nodeTestMessages } from '@/pages/nodes/messages';
+import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
 import type { BaseStaticMessage, StaticMessage } from './en';
 
 // German translation by Wolfgang Weinbrecht, with the help of Claude (Anthropic's AI).
@@ -3355,8 +3355,6 @@ export const baseGerman = {
   'No nodes yet': 'Noch keine Knoten',
   'Import an inventory of SSH hosts with {command}.':
     'Ein Inventar von SSH-Hosts mit {command} importieren.',
-  "SSH hosts from this server's inventories. Steps select them by label.":
-    'SSH-Hosts aus den Inventaren dieses Servers. Schritte wählen sie per Label.',
   Inventory: 'Inventar',
   'All inventories': 'Alle Inventare',
   'Search by name...': 'Nach Namen suchen …',
@@ -3395,6 +3393,7 @@ export const german = {
   ...workspaceMessages.de,
   ...backfillMessages.de,
   ...nodeTestMessages.de,
+  ...workerNodeMessages.de,
   ...inventoryMessages.de,
   ...baseGerman,
 } as const satisfies Record<StaticMessage, string>;

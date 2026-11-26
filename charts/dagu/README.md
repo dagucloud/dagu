@@ -265,6 +265,28 @@ workerSelector:
   gpu: "true"
 ```
 
+Each worker pod reports `<pod name>@<pid>` as its worker ID. A Deployment replaces its pods with new names on every rollout, so these workers are not nodes and leave no offline nodes behind. To keep a pool's worker ID across rollouts, give the pool a stable `workerId`; Dagu releases after 2.27.0 list such a worker as a worker node, with its labels, in `dagu nodes list` and on the Nodes page. One ID names one worker, so the chart refuses a `workerId` on a pool with more than one replica, and the same ID on two pools:
+
+```yaml
+workerPools:
+  gpu:
+    replicas: 1
+    workerId: gpu-01
+    labels:
+      gpu: "true"
+```
+
+Such a pool uses the `Recreate` strategy, so a rollout stops the old pod before it starts the new one. A pod deleted by hand is replaced at once, so for its termination grace period two pods can report the same ID.
+
+Chart versions before 2.0.9 set the worker ID to the pod name. After an upgrade, worker IDs change from `<pod>` to `<pod>@<pid>`.
+
+The Deployment of an existing pool keeps the `rollingUpdate` settings that Kubernetes filled in, which the `Recreate` strategy forbids, so an upgrade that adds `workerId` to the pool fails with `spec.strategy.rollingUpdate: Forbidden`. Switch the pool's strategy in one request before the upgrade. The Deployment is `<fullname>-worker-<pool>`, such as `dagu-worker-gpu` for a release named `dagu`:
+
+```bash
+kubectl patch deployment dagu-worker-gpu --namespace dagu --type=json \
+  -p='[{"op":"replace","path":"/spec/strategy/type","value":"Recreate"},{"op":"remove","path":"/spec/strategy/rollingUpdate"}]'
+```
+
 ### Cross-Origin Browser Access
 
 Cross-origin browser access is disabled by default. This does not affect the bundled Dagu UI because it uses the same origin as the API. To allow a separate browser application to call Dagu, list its exact origins:

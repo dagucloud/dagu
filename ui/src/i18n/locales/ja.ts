@@ -4,7 +4,7 @@
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
-import { nodeTestMessages } from '@/pages/nodes/messages';
+import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
 import type { BaseStaticMessage, StaticMessage } from './en';
 
 export const baseJapanese = {
@@ -3345,8 +3345,6 @@ export const baseJapanese = {
   'No nodes yet': 'ノードはまだありません',
   'Import an inventory of SSH hosts with {command}.':
     '{command} で SSH ホストのインベントリをインポートします。',
-  "SSH hosts from this server's inventories. Steps select them by label.":
-    'このサーバーのインベントリにある SSH ホストです。ステップはラベルで選択します。',
   Inventory: 'インベントリ',
   'All inventories': 'すべてのインベントリ',
   'Search by name...': '名前で検索...',
@@ -3385,6 +3383,7 @@ export const japanese = {
   ...workspaceMessages.ja,
   ...backfillMessages.ja,
   ...nodeTestMessages.ja,
+  ...workerNodeMessages.ja,
   ...inventoryMessages.ja,
   ...baseJapanese,
 } as const satisfies Record<StaticMessage, string>;

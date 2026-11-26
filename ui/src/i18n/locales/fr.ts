@@ -4,7 +4,7 @@
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
-import { nodeTestMessages } from '@/pages/nodes/messages';
+import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
 import type { BaseStaticMessage, StaticMessage } from './en';
 
 export const baseFrench = {
@@ -3412,8 +3412,6 @@ export const baseFrench = {
   'No nodes yet': 'Aucun nœud pour l’instant',
   'Import an inventory of SSH hosts with {command}.':
     'Importez un inventaire d’hôtes SSH avec {command}.',
-  "SSH hosts from this server's inventories. Steps select them by label.":
-    'Hôtes SSH issus des inventaires de ce serveur. Les étapes les sélectionnent par étiquette.',
   Inventory: 'Inventaire',
   'All inventories': 'Tous les inventaires',
   'Search by name...': 'Rechercher par nom…',
@@ -3453,6 +3451,7 @@ export const french = {
   ...workspaceMessages.fr,
   ...backfillMessages.fr,
   ...nodeTestMessages.fr,
+  ...workerNodeMessages.fr,
   ...inventoryMessages.fr,
   ...baseFrench,
 } as const satisfies Record<StaticMessage, string>;

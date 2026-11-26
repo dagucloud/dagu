@@ -7,6 +7,7 @@ import {
   useCanEditInventories,
   useCanTestNodes,
   useCanTrustNodeHostKeys,
+  useIsAdmin,
 } from '@/contexts/AuthContext';
 import { useQuery } from '@/hooks/api';
 import {
@@ -22,9 +23,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import NodesPage from '..';
 
 // One client for every render, as the real hook returns.
-const client = vi.hoisted(() => ({ GET: vi.fn(), PUT: vi.fn() }));
+const client = vi.hoisted(() => ({
+  GET: vi.fn(),
+  PUT: vi.fn(),
+  DELETE: vi.fn(),
+}));
 const clientGet = client.GET;
 const clientPut = client.PUT;
+const clientDelete = client.DELETE;
 
 vi.mock('@/hooks/api', () => ({
   useQuery: vi.fn(),
@@ -34,6 +40,7 @@ vi.mock('@/contexts/AuthContext', () => ({
   useCanEditInventories: vi.fn(),
   useCanTestNodes: vi.fn(),
   useCanTrustNodeHostKeys: vi.fn(),
+  useIsAdmin: vi.fn(),
 }));
 vi.mock('@/contexts/ConfigContext', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/contexts/ConfigContext')>()),
@@ -48,6 +55,7 @@ const canTrustMock = useCanTrustNodeHostKeys as unknown as ReturnType<
 const canEditMock = useCanEditInventories as unknown as ReturnType<
   typeof vi.fn
 >;
+const isAdminMock = useIsAdmin as unknown as ReturnType<typeof vi.fn>;
 
 type InventoryNode = components['schemas']['InventoryNode'];
 
@@ -67,6 +75,17 @@ function node(overrides: Partial<InventoryNode>): InventoryNode {
     ...overrides,
   } as InventoryNode;
 }
+
+/** An offline worker node, which has no connection fields. */
+const WORKER = {
+  name: 'tokyo-gw',
+  kind: 'worker',
+  host: 'gw.tokyo',
+  labels: ['os=linux', 'site=tokyo'],
+  disabled: false,
+  online: false,
+  lastSeenAt: '2026-11-25T09:00:00Z',
+} as InventoryNode;
 
 const NODES = [
   node({}),
@@ -124,26 +143,36 @@ function respond({
           data: { labels: ['role=db', 'role=web'], errors: [] },
           mutate: vi.fn(),
         };
-      case '/nodes':
+      case '/nodes': {
+        // A server without inventories, or workers that are nodes, lists
+        // no node. Otherwise one node of the 3 is filtered out.
+        const listed = inventories?.length === 0 ? [] : NODES;
         return {
           data: nodes
-            ? nodes.data
+            ? nodes.data && {
+                nodeCount: 3,
+                workerConflicts: [],
+                ...(nodes.data as object),
+              }
             : {
-                nodes: NODES,
+                nodes: listed,
                 pagination: {
-                  totalRecords: 2,
+                  totalRecords: listed.length,
                   currentPage: 1,
                   totalPages: 1,
                   nextPage: 1,
                   prevPage: 1,
                   hasNextPage: false,
                 },
+                nodeCount: listed.length === 0 ? 0 : 3,
+                workerConflicts: [],
               },
           error: nodes?.error,
           isValidating: nodes?.isValidating ?? false,
           isLoading: false,
           mutate: vi.fn(),
         };
+      }
     }
     throw new Error(`unexpected query ${path}`);
   });
@@ -399,7 +428,7 @@ describe('NodesPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(retry).toHaveBeenCalled();
     expect(screen.getByText('web01')).toBeInTheDocument();
-    expect(screen.getByText('2 nodes')).toBeInTheDocument();
+    expect(screen.getByText('2 of 3 nodes')).toBeInTheDocument();
   });
 
   it('pages only from the rows of the current request', () => {
@@ -419,6 +448,126 @@ describe('NodesPage', () => {
     expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() => expect(lastNodesQuery()).toMatchObject({ page: 2 }));
+  });
+
+  it('lists a worker node with its kind and status, and offers no test of it', () => {
+    respond({
+      nodes: { data: { nodes: [...NODES, WORKER], pagination: pages(1, 1) } },
+    });
+    renderPage();
+
+    const row = screen.getByText('tokyo-gw').closest('tr')!;
+    expect(row).toHaveTextContent('worker');
+    expect(row).toHaveTextContent('—');
+    expect(row).toHaveTextContent('gw.tokyo');
+    expect(row).toHaveTextContent('Offline');
+    expect(row).not.toHaveTextContent('Any host key');
+    expect(
+      screen.queryByRole('checkbox', { name: 'Check tokyo-gw' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('lists the worker nodes of a server without inventories', () => {
+    respond({
+      inventories: [],
+      nodes: {
+        data: { nodes: [WORKER], pagination: pages(1, 1), nodeCount: 1 },
+      },
+    });
+    renderPage();
+
+    expect(
+      screen.queryByRole('heading', { name: 'No nodes yet' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('tokyo-gw')).toBeInTheDocument();
+  });
+
+  it('shows a worker whose ID names an inventory node', () => {
+    respond({
+      nodes: {
+        data: {
+          nodes: NODES,
+          pagination: pages(1, 1),
+          workerConflicts: [
+            {
+              worker: 'web01',
+              inventory: { id: 'inv-tokyo', name: 'Tokyo production' },
+            },
+          ],
+        },
+      },
+    });
+    renderPage();
+
+    expect(
+      screen.getByText((_, element) =>
+        element?.tagName === 'P'
+          ? element.textContent ===
+            'Worker web01 is not a node: inventory Tokyo production has a node with that name.'
+          : false
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('shows a worker node in its drawer and lets an admin forget it while it is offline', async () => {
+    isAdminMock.mockReturnValue(true);
+    clientDelete.mockResolvedValue({ error: undefined });
+    respond({
+      nodes: { data: { nodes: [WORKER], pagination: pages(1, 1) } },
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByText('tokyo-gw'));
+    const drawer = screen.getByRole('dialog');
+    expect(drawer).toHaveTextContent('Last seen');
+    expect(drawer).toHaveTextContent('Offline');
+    expect(drawer).toHaveTextContent('site=tokyo');
+    expect(drawer).not.toHaveTextContent('Connection');
+
+    fireEvent.click(
+      within(drawer).getByRole('button', { name: 'Forget worker' })
+    );
+    // The confirmation opens over the drawer.
+    const dialogs = screen.getAllByRole('dialog');
+    const confirm = dialogs[dialogs.length - 1]!;
+    fireEvent.click(
+      within(confirm).getByRole('button', { name: 'Forget worker' })
+    );
+
+    await waitFor(() =>
+      expect(clientDelete).toHaveBeenCalledWith('/nodes/{nodeName}', {
+        params: { path: { nodeName: 'tokyo-gw' } },
+      })
+    );
+    await waitFor(() =>
+      expect(screen.queryByText('Last seen')).not.toBeInTheDocument()
+    );
+  });
+
+  it('offers Forget only to an admin, and only while the worker is offline', () => {
+    isAdminMock.mockReturnValue(false);
+    respond({
+      nodes: {
+        data: {
+          nodes: [WORKER, { ...WORKER, name: 'osaka-gw', online: true }],
+          pagination: pages(1, 1),
+        },
+      },
+    });
+    renderPage();
+    fireEvent.click(screen.getByText('tokyo-gw'));
+    expect(
+      screen.queryByRole('button', { name: 'Forget worker' })
+    ).not.toBeInTheDocument();
+
+    isAdminMock.mockReturnValue(true);
+    fireEvent.click(screen.getByText('osaka-gw'));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Online');
+    // An online worker's record time is not when it was last seen.
+    expect(screen.getByRole('dialog')).not.toHaveTextContent('Last seen');
+    expect(
+      screen.queryByRole('button', { name: 'Forget worker' })
+    ).not.toBeInTheDocument();
   });
 
   it('reads no inventory while a remote node is selected', () => {
@@ -635,12 +784,66 @@ describe('NodesPage connection tests', () => {
     expect(panel).not.toHaveTextContent('SHA256:web01');
   });
 
-  it('refuses to test more than 1,000 matched nodes', async () => {
-    clientGet.mockResolvedValue({
+  it('tests only the SSH nodes of the matched nodes', async () => {
+    clientGet.mockResolvedValueOnce({
+      data: { nodes: [NODES[0], WORKER], pagination: pages(1, 1) },
+    });
+    fetchMock.mockResolvedValueOnce(finished(passed('web01')));
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test matched nodes' }));
+
+    await screen.findByText('1 passed, 0 failed');
+    expect(bodiesTo(fetchMock, '/node-connection-tests')).toEqual([
+      { nodes: ['web01'] },
+    ]);
+  });
+
+  // The limit counts the SSH nodes, not the worker nodes the total includes.
+  it('tests the SSH nodes of a match that is over 1,000 only with workers', async () => {
+    clientGet.mockResolvedValueOnce({
       data: {
-        nodes: NODES,
+        nodes: [NODES[0], WORKER],
         pagination: { ...pages(1, 1), totalRecords: 1001 },
       },
+    });
+    fetchMock.mockResolvedValueOnce(finished(passed('web01')));
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test matched nodes' }));
+
+    await screen.findByText('1 passed, 0 failed');
+    expect(bodiesTo(fetchMock, '/node-connection-tests')).toEqual([
+      { nodes: ['web01'] },
+    ]);
+  });
+
+  it('refuses to test when only worker nodes match', async () => {
+    clientGet.mockResolvedValueOnce({
+      data: { nodes: [WORKER], pagination: pages(1, 1) },
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test matched nodes' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'No SSH node matches these filters.'
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses to test more than 1,000 matched nodes', async () => {
+    // Six full pages of SSH nodes pass the limit.
+    clientGet.mockImplementation((_path, init) => {
+      const page = init.params.query.page as number;
+      return Promise.resolve({
+        data: {
+          nodes: Array.from({ length: 200 }, (_, i) =>
+            node({ name: `web${page}-${i}` })
+          ),
+          pagination: { ...pages(page, 10), totalRecords: 2000 },
+        },
+      });
     });
     renderPage();
 

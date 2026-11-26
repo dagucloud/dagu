@@ -54,15 +54,15 @@ var (
 func Nodes() *cobra.Command {
 	cmd := NewCommand(&cobra.Command{
 		Use:   "nodes",
-		Short: "List, show, add, remove, test, import, and export inventory nodes",
-		Long: `Work with the node inventories of this installation: named lists of SSH
-hosts with labels, which steps select with the label filter that
-'dagu history --labels' takes.
+		Short: "List, show, add, remove, forget, test, import, and export nodes",
+		Long: `Work with the nodes of this installation: the hosts of its node inventories,
+named lists of SSH hosts with labels, and the workers that set worker.id.
+Steps select nodes with the label filter that 'dagu history --labels' takes.
 
 Inventories are stored as JSON records. 'dagu nodes export' prints them, and
 'dagu nodes import' reads the same JSON. 'dagu nodes add' and 'dagu nodes
 remove' change one node. 'dagu nodes test' tests connections and trusts
-host keys.`,
+host keys. 'dagu nodes forget' forgets an offline worker.`,
 	}, nil, func(ctx *Context, _ []string) error {
 		return ctx.Command.Help()
 	})
@@ -71,6 +71,7 @@ host keys.`,
 	cmd.AddCommand(nodesShowCommand())
 	cmd.AddCommand(nodesAddCommand())
 	cmd.AddCommand(nodesRemoveCommand())
+	cmd.AddCommand(nodesForgetCommand())
 	cmd.AddCommand(nodesTestCommand())
 	cmd.AddCommand(nodesImportCommand())
 	cmd.AddCommand(nodesExportCommand())
@@ -80,7 +81,7 @@ host keys.`,
 func nodesListCommand() *cobra.Command {
 	return NewCommand(&cobra.Command{
 		Use:   "list",
-		Short: "List the nodes a label selector matches, in name order",
+		Short: "List the nodes a label selector matches, worker nodes included, in name order",
 		Example: `  dagu nodes list
   dagu nodes list --labels 'site=tokyo,web,!canary'
   dagu nodes list --inventory "Tokyo production" --format json`,
@@ -93,13 +94,26 @@ func nodesListCommand() *cobra.Command {
 		if ctx.IsRemote() {
 			return remoteNodesList(ctx, format)
 		}
+		filters, err := selectorFilters(ctx)
+		if err != nil {
+			return err
+		}
 		store, err := ctx.inventoryStore()
 		if err != nil {
 			return err
 		}
-		nodes, err := selectNodes(ctx, store)
+		all, err := store.Nodes(ctx)
 		if err != nil {
 			return err
+		}
+		workers, conflicts, err := localWorkerNodes(ctx, all)
+		if err != nil {
+			return err
+		}
+		listing := nodeListing{
+			nodes:     inventory.Select(all, filters),
+			workers:   selectWorkers(workers, filters),
+			conflicts: conflicts,
 		}
 		ref, err := ctx.StringParam("inventory")
 		if err != nil {
@@ -110,10 +124,12 @@ func nodesListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			nodes = slices.DeleteFunc(nodes, func(n inventory.ResolvedNode) bool { return n.InventoryID != inv.ID })
+			listing.nodes = slices.DeleteFunc(listing.nodes, func(n inventory.ResolvedNode) bool { return n.InventoryID != inv.ID })
+			// A worker node belongs to no inventory.
+			listing.workers = nil
 		}
 
-		return printNodes(ctx, format, nodes)
+		return printNodes(ctx, format, listing)
 	})
 }
 
@@ -122,8 +138,9 @@ func nodesShowCommand() *cobra.Command {
 		Use:   "show <name>",
 		Short: "Show one node with its inventory's defaults applied",
 		Long: `Show one node: its inventory, labels, and connection settings with the
-inventory's defaults applied. Credentials appear as secret refs or key paths,
-never as secret values.`,
+inventory's defaults applied, or a worker node's host, labels, and when its
+worker was last seen. Credentials appear as secret refs or key paths, never
+as secret values.`,
 		Args: cobra.ExactArgs(1),
 	}, []commandLineFlag{nodesFormatFlag}, func(ctx *Context, args []string) error {
 		format, err := nodesFormat(ctx)
@@ -146,11 +163,17 @@ never as secret values.`,
 			return err
 		}
 		// Node names are unique without regard to case.
-		i := slices.IndexFunc(nodes, func(n inventory.ResolvedNode) bool { return strings.EqualFold(n.Name, args[0]) })
-		if i < 0 {
-			return fmt.Errorf("node %q not found", args[0])
+		if i := slices.IndexFunc(nodes, func(n inventory.ResolvedNode) bool { return strings.EqualFold(n.Name, args[0]) }); i >= 0 {
+			return printNode(ctx, format, nodeListing{nodes: nodes[i : i+1]})
 		}
-		return printNode(ctx, format, nodes[i])
+		workers, _, err := localWorkerNodes(ctx, nodes)
+		if err != nil {
+			return err
+		}
+		if i := slices.IndexFunc(workers, func(w inventory.WorkerNode) bool { return strings.EqualFold(w.Name, args[0]) }); i >= 0 {
+			return printNode(ctx, format, nodeListing{workers: workers[i : i+1]})
+		}
+		return fmt.Errorf("node %q not found", args[0])
 	})
 }
 
@@ -253,32 +276,49 @@ func writeExport(ctx *Context, stored []inventory.Stored) error {
 	return writeNodesJSON(ctx.Command.OutOrStdout(), invs)
 }
 
-// printNodes prints nodes as a table, or as JSON.
-func printNodes(ctx *Context, format string, nodes []inventory.ResolvedNode) error {
+// printNodes prints the nodes of a listing in name order as a table, or as
+// JSON, and reports on stderr each worker that is not a node.
+func printNodes(ctx *Context, format string, listing nodeListing) error {
+	for _, c := range listing.conflicts {
+		_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "worker %q is not a node: inventory %q has a node of that name\n",
+			c.Worker.Name, c.Node.InventoryName)
+	}
 	out := ctx.Command.OutOrStdout()
 	if format == nodesFormatJSON {
-		views := make([]nodeView, 0, len(nodes))
-		for _, n := range nodes {
+		views := make([]any, 0, len(listing.nodes)+len(listing.workers))
+		_ = listing.each(func(n inventory.ResolvedNode) error {
 			views = append(views, nodeViewOf(n))
-		}
+			return nil
+		}, func(w inventory.WorkerNode) error {
+			views = append(views, workerNodeViewOf(w))
+			return nil
+		})
 		return writeNodesJSON(out, views)
 	}
-	return renderNodesTable(out, nodes)
+	return renderNodesTable(out, listing)
 }
 
-// printNode prints one node as a table, or as JSON.
-func printNode(ctx *Context, format string, node inventory.ResolvedNode) error {
+// printNode prints the one node of a listing as a table, or as JSON.
+func printNode(ctx *Context, format string, listing nodeListing) error {
 	out := ctx.Command.OutOrStdout()
-	if format == nodesFormatJSON {
-		return writeNodesJSON(out, nodeViewOf(node))
-	}
-	return renderNode(out, node)
+	return listing.each(func(n inventory.ResolvedNode) error {
+		if format == nodesFormatJSON {
+			return writeNodesJSON(out, nodeViewOf(n))
+		}
+		return renderNode(out, n)
+	}, func(w inventory.WorkerNode) error {
+		if format == nodesFormatJSON {
+			return writeNodesJSON(out, workerNodeViewOf(w))
+		}
+		return renderWorkerNode(out, w)
+	})
 }
 
 // nodeView is a node as the CLI prints it in JSON: its fields with the
 // inventory's defaults applied, and credentials as secret refs or key paths.
 type nodeView struct {
 	Name          string          `json:"name"`
+	Kind          string          `json:"kind"`
 	Inventory     inventoryRef    `json:"inventory"`
 	Host          string          `json:"host"`
 	Port          int             `json:"port"`
@@ -310,6 +350,7 @@ type credentialView struct {
 func nodeViewOf(n inventory.ResolvedNode) nodeView {
 	return nodeView{
 		Name:          n.Name,
+		Kind:          nodeKindSSH,
 		Inventory:     inventoryRef{ID: n.InventoryID, Name: n.InventoryName},
 		Host:          n.Host,
 		Port:          n.Port,
@@ -348,16 +389,24 @@ func (c *credentialView) String() string {
 	return "file " + c.File
 }
 
-func renderNodesTable(out io.Writer, nodes []inventory.ResolvedNode) error {
+func renderNodesTable(out io.Writer, listing nodeListing) error {
 	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
-	if _, err := fmt.Fprintln(w, "NAME\tINVENTORY\tHOST\tLABELS\tSTATUS"); err != nil {
+	if _, err := fmt.Fprintln(w, "NAME\tINVENTORY\tKIND\tHOST\tLABELS\tSTATUS"); err != nil {
 		return err
 	}
-	for _, n := range nodes {
-		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			n.Name, n.InventoryName, n.Host, strings.Join(sortedLabels(n.Labels), ","), nodeStatus(n)); err != nil {
-			return err
-		}
+	row := func(name, inventoryName, kind, host string, labels ir.Labels, status string) error {
+		_, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			name, inventoryName, kind, host, strings.Join(sortedLabels(labels), ","), status)
+		return err
+	}
+	err := listing.each(func(n inventory.ResolvedNode) error {
+		return row(n.Name, n.InventoryName, nodeKindSSH, n.Host, n.Labels, nodeStatus(n))
+	}, func(n inventory.WorkerNode) error {
+		// A worker node belongs to no inventory.
+		return row(n.Name, "-", nodeKindWorker, n.Host, n.Labels, workerNodeStatus(n))
+	})
+	if err != nil {
+		return err
 	}
 	return w.Flush()
 }
@@ -366,6 +415,7 @@ func renderNode(out io.Writer, n inventory.ResolvedNode) error {
 	v := nodeViewOf(n)
 	rows := [][2]string{
 		{"Name", v.Name},
+		{"Kind", v.Kind},
 		{"Inventory", v.Inventory.Name},
 		{"Host", v.Host},
 		{"Port", fmt.Sprint(v.Port)},
@@ -390,6 +440,12 @@ func renderNode(out io.Writer, n inventory.ResolvedNode) error {
 		[2]string{"Status", nodeStatus(n)},
 	)
 
+	return renderNodeRows(out, rows)
+}
+
+// renderNodeRows prints rows as a two-column table, leaving out the rows
+// without a value.
+func renderNodeRows(out io.Writer, rows [][2]string) error {
 	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
 	for _, row := range rows {
 		if row[1] == "" {
@@ -440,17 +496,18 @@ func nodesFormat(ctx *Context) (string, error) {
 	}
 }
 
-// selectNodes returns the nodes the --labels selector matches, or every node
-// when the flag is not given. A given selector without terms is an error.
-func selectNodes(ctx *Context, store inventory.Store) ([]inventory.ResolvedNode, error) {
+// selectorFilters returns the filters of the --labels selector, or none when
+// the flag is not given, so every node matches. A given selector without
+// terms is an error.
+func selectorFilters(ctx *Context) ([]ir.LabelFilter, error) {
 	if !ctx.Command.Flags().Changed("labels") {
-		return store.Nodes(ctx)
+		return nil, nil
 	}
 	selector, err := ctx.StringParam("labels")
 	if err != nil {
 		return nil, err
 	}
-	return store.Select(ctx, selector)
+	return inventory.ParseSelector(selector)
 }
 
 // findInventory returns the inventory with the given ID, or else the one with

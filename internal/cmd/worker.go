@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
@@ -103,6 +104,8 @@ func runWorker(ctx *Context, _ []string) error {
 			hostname = "unknown"
 		}
 		workerID = fmt.Sprintf("%s@%d", hostname, os.Getpid())
+	} else if !inventory.IsNodeName(workerID) {
+		logger.Warn(ctx, "worker.id is not a valid node name, so the worker is not a node", tag.WorkerID(workerID))
 	}
 
 	maxActiveRuns := ctx.Config.Worker.MaxActiveRuns

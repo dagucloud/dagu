@@ -119,9 +119,10 @@ describe('StartDAGModal', () => {
       useQueryMock.mockReturnValue({
         data: {
           nodes: [
-            { name: 'web01', disabled: false },
-            { name: 'web02', disabled: true },
-            { name: 'web03', disabled: false },
+            { name: 'gw01', kind: 'worker', disabled: false },
+            { name: 'web01', kind: 'ssh', disabled: false },
+            { name: 'web02', kind: 'ssh', disabled: true },
+            { name: 'web03', kind: 'ssh', disabled: false },
           ],
         },
       });
@@ -134,7 +135,8 @@ describe('StartDAGModal', () => {
       expect(useQueryMock).not.toHaveBeenCalled();
     });
 
-    // A disabled node fails a bound run, so it is not offered.
+    // A disabled node fails a bound run, and a run binds only to an SSH
+    // node, so neither a disabled node nor a worker node is offered.
     it('starts on the chosen enabled node', async () => {
       const user = userEvent.setup();
       const onSubmit = renderModal({ name: 'deploy-one', nodeRequired: true });

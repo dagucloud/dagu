@@ -12575,7 +12575,7 @@ paths:
   /nodes:
     get:
       summary: "List inventory nodes"
-      description: "Lists the nodes of the inventories with their inventory's defaults applied, in name order, one page at a time. Credentials appear as secret references and key paths, never as values."
+      description: "Lists the nodes in name order, one page at a time: the nodes of the inventories, with their inventory's defaults applied, and the workers that set `worker.id`. A worker whose ID names a node of an inventory is not a node; the response lists it in `workerConflicts`. Credentials appear as secret references and key paths, never as values."
       operationId: "listInventoryNodes"
       tags:
         - "nodes"
@@ -12593,7 +12593,7 @@ paths:
           required: false
           schema:
             type: "string"
-          description: "Lists only the nodes of one inventory, given by its ID or by its name compared without case. An inventory that does not exist returns HTTP 400."
+          description: "Lists only the nodes of one inventory, given by its ID or by its name compared without case, so no worker node. An inventory that does not exist returns HTTP 400."
         - name: "name"
           in: "query"
           required: false
@@ -12629,7 +12629,7 @@ paths:
   /nodes/{nodeName}:
     get:
       summary: "Get an inventory node"
-      description: "Returns one node with its inventory's defaults applied. Credentials appear as secret references and key paths, never as values."
+      description: "Returns one node: a node of an inventory with its inventory's defaults applied, or a worker node. Credentials appear as secret references and key paths, never as values."
       operationId: "getInventoryNode"
       tags:
         - "nodes"
@@ -12665,11 +12665,63 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+    delete:
+      summary: "Forget an offline worker node"
+      description: "Forgets an offline worker node until its worker connects again. A node of an inventory is removed from its inventory instead. Workers are shared by the whole server, so this requires the admin role, and is audited. Remote nodes do not manage nodes, so a request for a remote node is refused with 403."
+      operationId: "forgetWorkerNode"
+      tags:
+        - "nodes"
+      parameters:
+        - name: nodeName
+          in: path
+          required: true
+          description: "Node name, compared without case"
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "The worker node was forgotten"
+        "400":
+          description: "The node is a node of an inventory, not a worker node"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No node has this name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The worker is online"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /node-labels:
     get:
       summary: "List inventory node labels"
-      description: "Lists the labels of the inventory nodes, with their inventory's defaults applied, for completion."
+      description: "Lists the labels of the nodes, with their inventory's defaults applied, and of the worker nodes, for completion."
       operationId: "listInventoryNodeLabels"
       tags:
         - "nodes"
@@ -23639,9 +23691,10 @@ components:
 
     InventoryNodeKind:
       type: string
-      description: "How Dagu reaches a node. An `ssh` node is a host of an inventory."
+      description: "How Dagu reaches a node. An `ssh` node is a host of an inventory, and a `worker` node is a worker that sets `worker.id`."
       enum:
         - "ssh"
+        - "worker"
 
     InventoryRef:
       type: object
@@ -23674,16 +23727,18 @@ components:
 
     InventoryNode:
       type: object
-      description: "A node of an inventory with its inventory's defaults applied"
+      description: "A node: a host of an inventory with its inventory's defaults applied, or a worker that sets `worker.id`. The connection fields, `inventory` through `timeout`, are set for an `ssh` node only, and `online` and `lastSeenAt` for a `worker` node only."
       properties:
         name:
           type: string
+          description: "Node name. A worker node's name is its worker ID"
         kind:
           $ref: "#/components/schemas/InventoryNodeKind"
         inventory:
           $ref: "#/components/schemas/InventoryRef"
         host:
           type: string
+          description: "Host name or IP address. A worker node's is the host its worker reports, shown only"
         port:
           type: integer
         user:
@@ -23713,16 +23768,18 @@ components:
           type: string
         disabled:
           type: boolean
-          description: "Whether runs are kept off the node. A disabled node is still listed and matched."
+          description: "Whether runs are kept off the node. A disabled node is still listed and matched. A worker node is never disabled."
+        online:
+          type: boolean
+          description: "Whether the worker is connected. A worker stays listed while it is offline."
+        lastSeenAt:
+          type: string
+          format: date-time
+          description: "When the coordinator last recorded the worker: when it connected, changed its host or labels, or went offline"
       required:
         - name
         - kind
-        - inventory
         - host
-        - port
-        - auth
-        - strictHostKey
-        - timeout
         - labels
         - disabled
 
@@ -23735,9 +23792,32 @@ components:
             $ref: "#/components/schemas/InventoryNode"
         pagination:
           $ref: "#/components/schemas/Pagination"
+        nodeCount:
+          type: integer
+          description: "Count of every node, whatever the filters"
+        workerConflicts:
+          type: array
+          description: "Workers whose ID names a node of an inventory, so they are not nodes, whatever the filters"
+          items:
+            $ref: "#/components/schemas/InventoryWorkerConflict"
       required:
         - nodes
         - pagination
+        - nodeCount
+        - workerConflicts
+
+    InventoryWorkerConflict:
+      type: object
+      description: "A worker that is not a node, because a node of an inventory has its ID as its name"
+      properties:
+        worker:
+          type: string
+          description: "The worker ID"
+        inventory:
+          $ref: "#/components/schemas/InventoryRef"
+      required:
+        - worker
+        - inventory
 
     InventoryCredential:
       description: "A key path, `{\"file\": <path>}`, or `{\"secret\": <ref>}`. A password and a passphrase take only `{\"secret\": <ref>}`."

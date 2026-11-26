@@ -144,7 +144,7 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 		return fmt.Errorf("failed to create host key store: %w", err)
 	}
 	stores.HostKeys = hostKeyStore
-	inventoryStore, err := store.NewInventoryStore(
+	inventoryStore, err := store.NewCachedInventoryStore(
 		backend.Collection(persis.CollectionInventories),
 		backend.Lock(persis.CollectionInventories),
 		hostKeyStore,
@@ -153,6 +153,14 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 		return fmt.Errorf("failed to create inventory store: %w", err)
 	}
 	stores.Inventory = inventoryStore
+	workerNodeStore, err := store.NewWorkerNodeStore(
+		backend.Collection(persis.CollectionWorkerNodes),
+		store.NewWorkerHeartbeatStore(backend.Collection(persis.CollectionWorkerHeartbeats)),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create worker node store: %w", err)
+	}
+	stores.WorkerNodes = workerNodeStore
 
 	dagPinStore, err := store.NewDAGPinStore(backend.Collection(persis.CollectionDAGPins))
 	if err != nil {

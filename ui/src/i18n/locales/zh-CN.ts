@@ -4,7 +4,7 @@
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
-import { nodeTestMessages } from '@/pages/nodes/messages';
+import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
 import type { BaseStaticMessage, StaticMessage } from './en';
 
 export const baseChinese = {
@@ -3220,8 +3220,6 @@ export const baseChinese = {
   'No nodes yet': '还没有节点',
   'Import an inventory of SSH hosts with {command}.':
     '使用 {command} 导入 SSH 主机清单。',
-  "SSH hosts from this server's inventories. Steps select them by label.":
-    '此服务器清单中的 SSH 主机。步骤按标签选择它们。',
   Inventory: '清单',
   'All inventories': '所有清单',
   'Search by name...': '按名称搜索...',
@@ -3259,6 +3257,7 @@ export const chinese = {
   ...workspaceMessages['zh-CN'],
   ...backfillMessages['zh-CN'],
   ...nodeTestMessages['zh-CN'],
+  ...workerNodeMessages['zh-CN'],
   ...inventoryMessages['zh-CN'],
   ...baseChinese,
 } as const satisfies Record<StaticMessage, string>;

@@ -408,6 +408,11 @@
           },
           "priorityClassName": {
             "$ref": "#/definitions/priorityClassName"
+          },
+          "workerId": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
           }
         },
         "required": ["replicas"]

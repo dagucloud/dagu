@@ -65,10 +65,35 @@ func (c *Context) runtimeInventoryStore() inventory.Store {
 	return inventories
 }
 
+// serviceInventoryStore returns the node inventories for a long-running
+// service, which keeps them in memory, or nil when the backend cannot hold
+// them.
+func (c *Context) serviceInventoryStore() inventory.Store {
+	hostKeys, err := c.hostKeyStore()
+	if err == nil {
+		var s *store.InventoryStore
+		s, err = store.NewCachedInventoryStore(
+			c.backend.Collection(persis.CollectionInventories),
+			c.backend.Lock(persis.CollectionInventories),
+			hostKeys,
+		)
+		if err == nil {
+			return s
+		}
+	}
+	logger.Warn(c, "Node inventory is unavailable", tag.Error(err))
+	return nil
+}
+
 // hostKeyStore opens the host keys trusted for the nodes of this
 // installation.
 func (c *Context) hostKeyStore() (*store.HostKeyStore, error) {
 	return store.NewHostKeyStore(c.backend.Collection(persis.CollectionHostKeys))
+}
+
+// workerNodeStore opens the worker nodes of this installation.
+func (c *Context) workerNodeStore() (*store.WorkerNodeStore, error) {
+	return store.NewWorkerNodeStore(c.backend.Collection(persis.CollectionWorkerNodes), c.Persistence.WorkerHeartbeatStore)
 }
 
 // runtimeHostKeyStore returns the host keys trusted for nodes, or nil when

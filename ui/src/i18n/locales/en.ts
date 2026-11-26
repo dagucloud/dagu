@@ -4,7 +4,7 @@
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
-import { nodeTestMessages } from '@/pages/nodes/messages';
+import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
 
 export const baseEnglish = {
   'Plan & features': 'Plan & features',
@@ -3312,8 +3312,6 @@ export const baseEnglish = {
   'No nodes yet': 'No nodes yet',
   'Import an inventory of SSH hosts with {command}.':
     'Import an inventory of SSH hosts with {command}.',
-  "SSH hosts from this server's inventories. Steps select them by label.":
-    "SSH hosts from this server's inventories. Steps select them by label.",
   Inventory: 'Inventory',
   'All inventories': 'All inventories',
   'Search by name...': 'Search by name...',
@@ -3354,6 +3352,7 @@ export const english = {
   ...workspaceMessages.en,
   ...backfillMessages.en,
   ...nodeTestMessages.en,
+  ...workerNodeMessages.en,
   ...inventoryMessages.en,
   ...baseEnglish,
 } as const;

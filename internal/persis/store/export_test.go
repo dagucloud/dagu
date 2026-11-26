@@ -52,3 +52,23 @@ func DispatchNoMatchCacheSizeForTest(s *DispatchTaskStore) int {
 	}
 	return len(s.index.noMatch)
 }
+
+// ExpireInventoryCacheForTest ages the nodes s keeps in memory to the limit
+// after which a read loads them again.
+func ExpireInventoryCacheForTest(t testing.TB, s *InventoryStore) {
+	t.Helper()
+	if s == nil || s.cache == nil {
+		t.Fatal("inventory store keeps no nodes in memory")
+		return
+	}
+	s.cache.mu.Lock()
+	defer s.cache.mu.Unlock()
+	if s.cache.snap == nil {
+		t.Fatal("inventory store holds no nodes in memory")
+		return
+	}
+	// A copy, since a reader may hold the current snapshot.
+	aged := *s.cache.snap
+	aged.loadedAt = aged.loadedAt.Add(-maxInventorySnapshotAge)
+	s.cache.snap = &aged
+}

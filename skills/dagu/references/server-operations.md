@@ -45,6 +45,7 @@ Setting `DAGU_HOME` or `DAGU_DAGS_DIR` only points a local CLI at the server's f
 | Start, enqueue, retry, stop | `dagu_execute` | DAG and DAG-run endpoints | `start`, `enqueue`, `retry`, `stop`, `restart`, `dequeue` |
 | Run status, history, logs | `dagu_read` (`runs`, `run`, `run_logs`) | `GET /dag-runs`, `GET /dag-runs/{name}/{id}` | `history`, `status` |
 | List or read nodes and inventories | `dagu_read` (`nodes`, `node`, `inventories`) | `GET /nodes`, `GET /nodes/{name}`, `GET /inventories` | nodes: `dagu nodes list`, `show`; inventories: `dagu nodes export` prints them with their nodes |
+| Forget an offline worker node (admin; ask first) | not supported | `DELETE /nodes/{name}` | `dagu nodes forget` |
 | Approve, reject, push back a waiting step | `dagu_execute` | where supported | not supported |
 | Schedule | `schedule:` via `dagu_change` | edit the DAG spec | no separate command |
 
