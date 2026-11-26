@@ -17,8 +17,7 @@ import (
 )
 
 // Spec 096: the skills of the DAGs directory. The folder skills/<name>/ is the
-// only source of truth. Every call reads the disk, and every write carries the
-// hash that the client read.
+// only source of truth. Every call reads the disk.
 
 var (
 	errFailedToReadSkill = &Error{
