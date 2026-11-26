@@ -1682,8 +1682,9 @@ describe('DAGTable', () => {
 
       table.rerenderDAGs([
         {
-          ...withLatestRun(),
+          ...workflow({ name: 'alpha' }),
           dag: { name: 'alpha', restartPolicy: RestartPolicy.always },
+          activity: { runs: [], truncated: false },
         } as never,
       ]);
 
