@@ -174,6 +174,28 @@ steps:
 	require.NoError(t, err)
 	assert.Equal(t, "after", runtimeProfileEntryValue(rotated.GetSelected(), "ROTATED_SECRET"))
 
+	// While projects are on, the workspace the DAG names adds no layer: a
+	// worker gets the project's own defaults.
+	payments, err := profilepkg.WorkspaceInheritedRef("payments")
+	require.NoError(t, err)
+	for ref, value := range map[profilepkg.InheritedRef]string{profilepkg.GlobalInheritedRef(): "project", payments: "workspace"} {
+		defaults, err := profilepkg.NewInherited(ref, profilepkg.InheritedCreateInput{}, now)
+		require.NoError(t, err)
+		require.NoError(t, defaults.SetVariable("TIER", value, "test", now))
+		require.NoError(t, profileStore.Create(ctx, defaults))
+	}
+	projectHandler := coordinator.NewHandler(coordinator.HandlerConfig{
+		DAGRepository: dagRepository, DAGRunRepository: repository, DAGRunLeaseStore: leaseStore,
+		ProfileStore: profileStore, SecretStore: secretStore, StaleLeaseThreshold: time.Minute,
+		ProjectsEnabled: true,
+	})
+	projectResp, err := projectHandler.ResolveRuntimeProfile(ctx, valid)
+	require.NoError(t, err)
+	assert.Equal(t, "project", runtimeProfileEntryValue(projectResp.GetDefaults(), "TIER"))
+	workspaceResp, err := handler.ResolveRuntimeProfile(ctx, valid)
+	require.NoError(t, err)
+	assert.Equal(t, "workspace", runtimeProfileEntryValue(workspaceResp.GetDefaults(), "TIER"))
+
 	nestedAttemptKey := attemptKey + "-nested"
 	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
 		AttemptKey: nestedAttemptKey, DAGRun: ir.NewDAGRunRef(dag.Name, "run-1"),

@@ -1,7 +1,8 @@
 # RFC 025: Connections
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-25
+- **Accepted:** 2026-11-26
 - **Affected areas:** a new `connection` package (records, providers, connect
   flow, token broker), `cmn/mailer` (refresh code moves out, SMTP takes a
   connection), `spec` and `ir` (`connection` fields, declared connections),
@@ -42,8 +43,8 @@ bearer token, which expires after an hour.
                                   |
                                   v
   <data_dir>/oauth-apps/           client ID, client secret, agent flag, status
-             connections/          scope, account, services, added scopes
-                                   and hosts
+             connections/          project, account, services, added
+                                   scopes and hosts
              connection-tokens/    refresh token, access token per resource,
                                    expiry, status, generation, connect session
              connection-catalogs/  MCP tools per connection and service
@@ -148,8 +149,9 @@ Promised:
 - A run receives a token only for a connection that its DAG declares, and
   only when the connection belongs to the run's project. No DAG can use the
   notification connection.
-- A grant is never copied. Each connection's refresh token comes from its
-  own consent, so no two records hold the same token.
+- A grant is never copied between connections. Each connect gets its own
+  refresh token, and an import refuses a refresh token that another
+  connection already holds.
 - A refresh result never overwrites a newer reconnect.
 - A connection becomes `needs_reconnect`, or an app `invalid`, once per
   failure. Only a confirmed reconnect, or an update to the app, clears it.
@@ -164,11 +166,12 @@ Not promised:
 
 - **Isolation from DAG authors in local mode.** Steps run as Dagu's OS
   user, so a DAG author can read the encryption key and every connection's
-  tokens, as they can read secrets today. Scopes, roles, and export settings
-  prevent mistakes and govern the API and UI. They do not stop a malicious
-  author. Workers are the isolation boundary: a worker never holds the key,
-  and receives only the tokens its DAG declares. The wizard says this when a
-  connection is created on a server that runs DAGs locally.
+  tokens, as they can read secrets today. Project boundaries, roles, and
+  export settings prevent mistakes and govern the API and UI. They do not
+  stop a malicious author. Workers are the isolation boundary: a worker
+  never holds the key, and receives only the tokens its DAG declares. The
+  wizard says this when a connection is created on a server that runs DAGs
+  locally.
 - **Secrecy of an exported token.** A token exported to an environment
   variable can be printed by the script that receives it. Masking hides the
   exact value in Dagu's logs, nothing more. Export is off unless an admin
@@ -1054,11 +1057,9 @@ On a server, such a connection would appear in the list read-only, with its
 name and binding from Dagu Cloud. A worker would still ask its coordinator,
 and the coordinator would ask Dagu Cloud through the broker's third source.
 Dagu Cloud would grant the connection to projects on each server, where it
-would act as that project's connection. A cloud connection whose name
-collides with a connection in that project would not be offered there until
-one is renamed. Status and notifications
-would come from Dagu Cloud once, not from each server, though each run would
-still record its failure cause.
+would act as that project's connection. Status and notifications would come
+from Dagu Cloud once, not from each server, though each run would still
+record its failure cause.
 
 It breaks two of RFC 002's rules. Dagu Cloud would store refresh tokens for
 users' accounts, a valuable target that also gives Dagu Cloud the ability to
@@ -1092,10 +1093,10 @@ dagu connection call NAME --server gmail --tool search_threads --args '{"query":
 dagu connection apps list | remove APP
 ```
 
-- A connection belongs to the context's workspace, or to the one
-  `--workspace` names. `--notifications` adds the notification connection
-  instead. It and service account and client credentials connections need
-  `admin`.
+- A command acts in the context's workspace, or in the one `--workspace`
+  names. `--notifications` acts on the notification connection instead.
+  That connection, and service account and client credentials connections,
+  need `admin`.
 - `--client-file` registers an OAuth app, which needs `admin`. A manager
   names an app an admin registered with `--app`.
 - `connections` is an alias. The group follows
@@ -1113,7 +1114,8 @@ dagu connection apps list | remove APP
   consent. The token may come from any mail `oauth` block, or from the
   secret the block references. Dagu reads the account and the granted
   scopes from the provider, so the connection is checked like any other.
-  Its output says to replace every `oauth` block that holds the token with
+  It refuses a token that another connection already holds. Its output
+  says to replace every `oauth` block that holds the token with
   `connection:`. A copy left behind refreshes on its own and stops working
   when its token expires. With a provider that revokes reused tokens, the
   two copies can also break each other.
@@ -1158,8 +1160,9 @@ Connection work-google is ready. Try: dagu connection tools work-google --server
 - `GET /oauth/callback` and `GET /oauth/client-metadata.json` sit outside
   the generated API, as `oidc-callback` does.
 - A `workspace` parameter qualifies `{name}` in these paths, since a name
-  is unique only in its project. `notifications` in its place addresses the
-  notification connection, which needs `admin`.
+  is unique only in its project. The notification connection has the same
+  paths under `/notification-settings/connection` in place of
+  `/connections/{name}`, and needs `admin`.
 - The notification settings API's SMTP block gains `connection`. Setting it
   needs `admin`, since email notifications then send as that account.
 - Responses never include a secret. They report `clientSecretConfigured`,
@@ -1327,7 +1330,7 @@ and the tiers are new. Instead, the docs:
 | Create, change, or delete an OAuth app | `admin` |
 | Set `allow_token_export` | `admin` |
 | Create, connect, reconnect, change, or remove a connection | `manager` or above in its project |
-| Add a service account or Microsoft client credentials connection | `admin` |
+| Add a service account or Microsoft client credentials connection, or change its `subject` | `admin` |
 | Create, connect, reconnect, or remove the notification connection | `admin` |
 | Test a connection, list its tools | `developer` or above in its project |
 | Try a tool | `developer` or above in its project, audited |
@@ -1354,9 +1357,10 @@ server-wide and admin-only under RFC 003.
   and never follows a redirect off them. Mail fields that would change a
   host or relax certificate checks are refused with a connection. A worker
   enforces the binding it receives from the coordinator.
-- **Scope enforcement.** It is checked twice: at run admission, and by the
-  coordinator for each token. On workers it is a boundary. In local mode it
-  prevents mistakes, not a malicious DAG author, as
+- **Ownership enforcement.** A run gets only its project's declared
+  connections. This is checked twice: at run admission, or for mail when
+  used, and by the coordinator for each token. On workers it is a boundary.
+  In local mode it prevents mistakes, not a malicious DAG author, as
   [Guarantees](#guarantees) states.
 - **Service accounts and Microsoft client credentials.** Only admins add
   them, so only an admin fixes the `subject`. No step, parameter, tool
@@ -1375,9 +1379,9 @@ server-wide and admin-only under RFC 003.
     verifier and client secret, the code is useless, and a forged callback
     fails the server's state check.
 - **Masking.** Tokens are masked in local logs, status, and outputs.
-  Rollout step 0 extends masking to log streams from workers, which are not
-  masked today (`internal/runtime/output.go:484`). Token export waits for
-  that fix.
+  The first step of M1 extends masking to log streams from workers, which
+  are not masked today (`internal/runtime/output.go:484`). Token export
+  waits for that fix.
 - **SSRF.** Admins set `oauth2` endpoints on apps, and managers set `mcp`
   server URLs, but an `mcp` server's metadata names its authorization
   server, token, and registration URLs. Every URL Dagu fetches, and every
@@ -1562,7 +1566,7 @@ milestones span this RFC and RFC 026.
      `rate_limited` and `confirmation_required` kinds.
   4. RFC 026's gateway and harness steps.
 - **M2.**
-  - Microsoft: device code and client credentials.
+  - Microsoft: authorization code, device code, and client credentials.
   - Service account connections.
   - Mail: `connection` in mail accounts, a DAG's `smtp`, and the
     notification SMTP settings, the Google and Microsoft `mailbox` presets,
@@ -1664,8 +1668,9 @@ Failures and notifications:
     once. Every later step fails without calling the token endpoint.
     Reconnect restores it.
 29. While 100 runs fail on a revoked connection, each channel receives
-    exactly one `connection.needs_attention`, also when the routes of several
-    projects reach it, and a reconnect sends one `connection.restored`. A
+    exactly one `connection.needs_attention`, also when several routes reach
+    it, and a reconnect sends one `connection.restored`. An app that becomes
+    `invalid` sends one message per channel, however many projects use it. A
     channel that receives connection events sends no run failure messages
     for those runs, also when its monitor catches up after the reconnect. A
     channel that does not receive them sends every run failure.
@@ -1679,7 +1684,7 @@ Security:
     the token to a host outside the bound hosts or over plain HTTP,
     including through a redirect.
 32. A run on a worker cannot obtain a token for a connection its DAG does
-    not declare, or one of another project.
+    not declare, one of another project, or the notification connection.
 33. Each role can do what [Permissions](#permissions) lists and nothing
     more.
 
