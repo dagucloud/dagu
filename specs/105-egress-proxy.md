@@ -6,8 +6,9 @@ Partially implemented.
 
 `dagu egress-proxy serve` forwards a request only to a destination of `--allow` and refuses the
 others with the status 403. With `--upstream` and its key options, it sends a request in origin form
-to the upstream with the real key. The options `--allow-with-credential`, `--proxy-credential-env`
-and `--proxy-credential-file` are not built yet.
+to the upstream with the real key. With `--allow-with-credential` and its credential options, it
+opens a destination only to a client that sends the proxy credential. Each option is built. The
+black-box tests of [Conformance](#conformance) are not written yet.
 
 ## Scope
 
@@ -251,3 +252,4 @@ The built part has these tests:
 | --- | --- |
 | `internal/runtime/egress/` (unit) | The proxy allows the destinations of `--allow` and refuses the others. |
 | `internal/runtime/egress/` and `internal/cmd/` (unit) | The upstream route replaces the client credential with the key, and the key reaches no log line, error or answer of the proxy. |
+| `internal/runtime/egress/` and `internal/cmd/` (unit) | A destination of `--allow-with-credential` gets 407 and no dial without the proxy credential, the start checks refuse a bad credential or an overlap with `--allow`, and the credential reaches no log line, error or destination. |
