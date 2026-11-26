@@ -77,6 +77,8 @@ func TestWorkerNodes(t *testing.T) {
 	shown.ExpectExitCode(0)
 	assert.Equal(t, []string{"Kind", "worker"}, lineFields(t, shown.Stdout(), "Kind"))
 	assert.Equal(t, []string{"Status", "online"}, lineFields(t, shown.Stdout(), "Status"))
+	// Last seen is shown only once the worker is offline.
+	assert.NotContains(t, shown.Stdout(), "Last seen")
 
 	online := dagu.RunWithEnv(env, "nodes", "forget", "tokyo-gw")
 	online.ExpectNonZeroExitCode()

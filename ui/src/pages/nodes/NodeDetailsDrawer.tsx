@@ -215,10 +215,16 @@ function WorkerNodeDrawer({
                 label: 'Status',
                 value: ts(node.online ? 'Online' : 'Offline'),
               },
-              {
-                label: 'Last seen',
-                value: <RelativeTime timestamp={node.lastSeenAt} />,
-              },
+              // An online worker's record was last written when it
+              // connected, which is not when it was last seen.
+              ...(node.online
+                ? []
+                : [
+                    {
+                      label: 'Last seen',
+                      value: <RelativeTime timestamp={node.lastSeenAt} />,
+                    },
+                  ]),
               { label: 'Labels', value: labelBadges(node.labels) },
             ]}
           />

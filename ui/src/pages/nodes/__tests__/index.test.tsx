@@ -563,6 +563,8 @@ describe('NodesPage', () => {
     isAdminMock.mockReturnValue(true);
     fireEvent.click(screen.getByText('osaka-gw'));
     expect(screen.getByRole('dialog')).toHaveTextContent('Online');
+    // An online worker's record time is not when it was last seen.
+    expect(screen.getByRole('dialog')).not.toHaveTextContent('Last seen');
     expect(
       screen.queryByRole('button', { name: 'Forget worker' })
     ).not.toBeInTheDocument();

@@ -255,12 +255,14 @@ warning when it starts.
   selector matches their labels as it matches an inventory node's.
   `disabled` does not apply to a worker; a worker is kept out of a selector
   by changing its labels.
-- `show` of a worker node prints its `Name`, `Kind`, `Host`, `Labels`,
-  `Status`, and `Last seen`, in RFC 3339.
+- `show` of a worker node prints its `Name`, `Kind`, `Host`, `Labels`, and
+  `Status`, and while it is offline `Last seen`, in RFC 3339.
 - **`dagu nodes forget <name>`** forgets an offline worker node, compared
   without case, and prints `forgot <name>`. The worker is listed again when
   it connects. Forgetting a worker that is online is refused, and so is a
-  name only an inventory node has.
+  name only an inventory node has. A worker recorded as online whose last
+  heartbeat is 30 seconds old, or gone, is offline for this, so a worker
+  is forgotten even when no coordinator is left to record it offline.
 
 **Over the API**, `GET /nodes` and `GET /nodes/{name}` return worker nodes
 with `kind` `worker`, `host`, `labels`, `online`, and `lastSeenAt`, and

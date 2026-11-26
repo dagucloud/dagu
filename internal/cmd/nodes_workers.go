@@ -73,13 +73,19 @@ func workerNodeViewOf(w inventory.WorkerNode) workerNodeView {
 }
 
 func renderWorkerNode(out io.Writer, w inventory.WorkerNode) error {
+	// While the worker is online, its record was last written when it
+	// connected, which is not when it was last seen.
+	var lastSeen string
+	if !w.Online {
+		lastSeen = w.LastSeenAt.UTC().Format(time.RFC3339)
+	}
 	return renderNodeRows(out, [][2]string{
 		{"Name", w.Name},
 		{"Kind", nodeKindWorker},
 		{"Host", w.Host},
 		{"Labels", strings.Join(sortedLabels(w.Labels), ",")},
 		{"Status", workerNodeStatus(w)},
-		{"Last seen", w.LastSeenAt.UTC().Format(time.RFC3339)},
+		{"Last seen", lastSeen},
 	})
 }
 
