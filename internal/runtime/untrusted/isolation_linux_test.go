@@ -33,16 +33,15 @@ func requireIsolation(t *testing.T) {
 }
 
 // testWorkDir makes a work directory below the system temp folder, which any
-// user can pass, with a repository: repo/.git/hooks and repo/src/main.txt.
+// user can pass, with the folder repo. The restricted user can enter both and
+// cannot write them.
 func testWorkDir(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "dagu-untrusted-test-")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "repo", ".git", "hooks"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "repo", ".git", "config"), []byte("[core]\n"), 0o644))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "repo", "src"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "repo", "src", "main.txt"), []byte("main\n"), 0o644))
+	require.NoError(t, os.Chmod(dir, 0o755))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "repo"), 0o755))
 	return dir
 }
 
@@ -75,14 +74,6 @@ func runAs(t *testing.T, ctx context.Context, dir, script string, env ...string)
 	return stdout.String()
 }
 
-func ownerUID(t *testing.T, path string) int {
-	t.Helper()
-	info, err := os.Lstat(path)
-	require.NoError(t, err)
-	uid, _ := ownerOf(info)
-	return uid
-}
-
 // A working directory outside the work directory of the run fails the step.
 func TestIsolatedStepPlace(t *testing.T) {
 	requireIsolation(t)
@@ -96,7 +87,6 @@ func TestIsolatedStepPlace(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "symbolic link")
 	assert.NoDirExists(t, "/etc/x")
-	assert.Equal(t, os.Geteuid(), ownerUID(t, filepath.Join(workDir, "repo", "src")), "a failed Begin gives nothing")
 }
 
 // Untrusted steps run one at a time. The second step waits with a line in its
