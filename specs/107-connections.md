@@ -697,9 +697,13 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
   effective `minTTL`, or after a rejection of the stored token.
 - A caller whose token a resource rejected reports that token. The broker
   refreshes only while the reported token is still the stored one.
-  Otherwise it returns the stored token without a refresh.
+  Otherwise the report causes no refresh: it returns the stored token, as
+  any token request does, refreshing only when that token's remaining life
+  is shorter than the effective `minTTL`.
 - A connection in `pending` or `needs_reconnect`, or whose app is
-  `invalid`, fails at once, without calling the provider.
+  `invalid`, fails at once, without calling the provider. A run process
+  keeps using a token it already holds, as
+  [One Refresh per Host](#one-refresh-per-host) states.
 
 #### One Refresh per Host
 

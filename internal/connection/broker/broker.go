@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -661,11 +662,15 @@ func sameCredentials(a, b *connection.App) bool {
 }
 
 // redact removes the secrets a refresh sent from a provider's error text,
-// which is stored and shown to people.
+// which is stored and shown to people. A secret is also removed in the form
+// encoding the request carried it in.
 func redact(text string, secrets ...string) string {
 	for _, secret := range secrets {
-		if secret != "" {
-			text = strings.ReplaceAll(text, secret, redacted)
+		if secret == "" {
+			continue
+		}
+		for _, form := range []string{secret, url.QueryEscape(secret), url.PathEscape(secret)} {
+			text = strings.ReplaceAll(text, form, redacted)
 		}
 	}
 	return text

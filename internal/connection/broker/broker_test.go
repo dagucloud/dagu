@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -194,6 +195,68 @@ func TestInvalidGrantNeedsReconnect(t *testing.T) {
 	assert.Equal(t, connection.TokenStatusNeedsReconnect, got[0].ConnectionTo)
 	assert.Contains(t, got[0].Reason, "invalid_grant")
 	assert.False(t, changes.lockHeld(), "the hook runs after the lock is released")
+}
+
+// A provider's error text that echoes the refresh token or the client
+// secret, raw or form-encoded, is stored and returned without them.
+func TestReasonsRedactSecrets(t *testing.T) {
+	t.Parallel()
+	const (
+		refreshToken = "rt+1/="
+		clientSecret = "s+cret/="
+	)
+	tests := []struct {
+		name   string
+		status int
+		code   string
+		stored func(t *testing.T, f *fixture) string
+	}{
+		{
+			name:   "Transient",
+			status: http.StatusServiceUnavailable,
+			code:   "temporarily_unavailable",
+			stored: func(t *testing.T, f *fixture) string { return f.state(t).RefreshErrors[""].Reason },
+		},
+		{
+			name:   "NeedsReconnect",
+			status: http.StatusBadRequest,
+			code:   "invalid_grant",
+			stored: func(t *testing.T, f *fixture) string { return f.state(t).StatusReason },
+		},
+		{
+			name:   "InvalidApp",
+			status: http.StatusUnauthorized,
+			code:   "invalid_client",
+			stored: func(t *testing.T, f *fixture) string { return f.app(t).StatusReason },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t, func(w http.ResponseWriter, r tokenRequest) {
+				echo := r.refreshToken + " " + url.QueryEscape(r.refreshToken) + " " +
+					r.clientSecret + " " + url.QueryEscape(r.clientSecret)
+				tokenError(w, tt.status, tt.code, "refused "+echo)
+			})
+			f.update(t, func(st *connection.TokenState) { st.RefreshToken = refreshToken })
+			_, err := f.store.UpdateApp(context.Background(), f.conn.App, func(app *connection.App) error {
+				app.ClientSecret = clientSecret
+				return nil
+			})
+			require.NoError(t, err)
+
+			_, _, err = f.process(t).Token(f.ctx(t), f.conn, "", minTTL)
+			require.Error(t, err)
+			stored := tt.stored(t, f)
+			assert.Contains(t, stored, tt.code)
+			for _, secret := range []string{refreshToken, clientSecret} {
+				for _, form := range []string{secret, url.QueryEscape(secret)} {
+					assert.NotContains(t, stored, form)
+					assert.NotContains(t, err.Error(), form)
+				}
+			}
+		})
+	}
 }
 
 // The provider refuses the refresh token while another host rotates it.
