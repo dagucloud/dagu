@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -100,9 +101,13 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies, projects *persisfil
 
 // unitDependencies returns the dependencies of the scheduler unit of
 // project p, from its stores and the stores every project shares. A unit
-// holds no public webhook URL: the webhooks are the default project's.
+// holds no public webhook URL: the webhooks are the default project's. It
+// gets no store of distributed runs either: a unit sends no run to a
+// worker, and those stores do not record a run's project, so a run of the
+// default project would count against the unit's queue of the same name.
 func unitDependencies(ctx *Context, p project.Project, stores *persisfile.ProjectStores) (scheduler.Dependencies, error) {
-	deps, err := schedulerfile.NewDependencies(ctx, ctx.Config, ctx.serverStores, stores.ProjectSettings)
+	deps, err := schedulerfile.NewDependencies(ctx, ctx.Config, ctx.serverStores, stores.ProjectSettings,
+		unitEventDedupeBytes(ctx))
 	if err != nil {
 		return scheduler.Dependencies{}, err
 	}
@@ -128,11 +133,26 @@ func unitDependencies(ctx *Context, p project.Project, stores *persisfile.Projec
 	deps.PeriodStore = stores.PeriodStore
 	deps.BackfillStore = stores.BackfillStore
 	deps.WatchStore = stores.WatchStateStore
-	deps.DAGRunLeaseStore = server.DAGRunLeaseStore
-	deps.DispatchTaskStore = server.DispatchTaskStore
-	deps.WorkerHeartbeatStore = server.WorkerHeartbeatStore
 	deps.LicenseManager = ctx.LicenseManager
 	return deps, nil
+}
+
+// minUnitEventDedupeBytes is the least a unit's event collector keeps for
+// the IDs of the events it stored.
+const minUnitEventDedupeBytes = 64 << 10
+
+// unitEventDedupeBytes returns what a unit's event collector keeps for the
+// IDs of the events it stored: an equal share, among the registered
+// projects other than the default one, of what the default project keeps.
+// The units together then take about what one project takes, whatever the
+// number of projects.
+func unitEventDedupeBytes(ctx *Context) int {
+	budget := ctx.Config.Cache.Limits().EventStoreBytes
+	projects, err := projectregistry.New(ctx.Config.Paths.DataDir).List(ctx)
+	if err != nil {
+		return minUnitEventDedupeBytes
+	}
+	return max(budget/max(len(projects)-1, 1), minUnitEventDedupeBytes)
 }
 
 // newEntryReader returns the reader of the DAG files in dagsDir that the
@@ -191,7 +211,7 @@ func runScheduler(ctx *Context, _ []string) error {
 	if dagsDir, _ := ctx.Command.Flags().GetString("dags"); dagsDir != "" {
 		ctx.Config.Paths.DAGsDir = dagsDir
 	}
-	deps, err := schedulerfile.NewDependencies(ctx, ctx.Config, ctx.serverStores, ctx.settings)
+	deps, err := schedulerfile.NewDependencies(ctx, ctx.Config, ctx.serverStores, ctx.settings, 0)
 	if err != nil {
 		return err
 	}
