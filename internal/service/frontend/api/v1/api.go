@@ -41,6 +41,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/publicwebhook"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
@@ -125,6 +126,9 @@ type API struct {
 	projectAccess        *projectaccess.Checker
 	runLogDir            string // Logs of the runs that the API queues
 	runArtifactDir       string // Artifacts of the runs that the API queues
+	projectAPIs          func(project.Project) (*API, bool)
+	routesOnce           sync.Once // Builds routes, which serve the API while projects are on
+	routes               http.Handler
 	leaseStaleThreshold  time.Duration
 	runSortDAGLimit      int
 	schedulerStateStore  schedulerstate.Store
@@ -594,6 +598,10 @@ func New(
 		leaseStaleThreshold: dagrun.DefaultStaleLeaseThreshold,
 		runSortDAGLimit:     maxRunSortDAGs,
 	}
+	// Child commands address the project whose runs drm handles.
+	if name := drm.Project(); name != "" {
+		a.subCmdBuilder = a.subCmdBuilder.ForProject(name)
+	}
 	// A nil service must leave the field nil, not a typed nil.
 	if rs != nil {
 		a.resourceService = rs
@@ -690,6 +698,10 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 				a.handleError(w, r, ErrInvalidRequestBody)
 			},
 			ResponseErrorHandlerFunc: a.handleError,
+		}
+		if a.projectAccess != nil {
+			r.Mount("/", a.dispatchProjects(swagger, middlewares, options))
+			return
 		}
 		handler := api.NewStrictHandlerWithOptions(a, middlewares, options)
 		r.Mount("/", api.Handler(handler))

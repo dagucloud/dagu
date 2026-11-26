@@ -29,6 +29,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
@@ -76,7 +77,13 @@ const localAgentSessionShutdownTimeout = 10 * time.Second
 // webPortInUseHint explains a web UI listen failure caused by a taken port.
 const webPortInUseHint = "another Dagu may be running; stop it, or choose a free port with --port or DAGU_PORT"
 
-func newServer(ctx *Context, rs *resource.Service, stores frontend.Stores, opts ...frontend.ServerOption) (*frontend.Server, error) {
+func newServer(
+	ctx *Context,
+	rs *resource.Service,
+	stores frontend.Stores,
+	projects *file.ProjectStoreCache,
+	opts ...frontend.ServerOption,
+) (*frontend.Server, error) {
 	coordinatorClient, err := ctx.NewCoordinatorClient()
 	if err != nil {
 		return nil, err
@@ -103,6 +110,7 @@ func newServer(ctx *Context, rs *resource.Service, stores frontend.Stores, opts 
 		LicenseManager:       ctx.LicenseManager,
 		ResourceService:      rs,
 		Stores:               stores,
+		ProjectStores:        projects,
 	}, opts...)
 }
 
@@ -208,7 +216,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 
 	// Initialize server (includes auth setup). Use serviceCtx so auth providers can
 	// respond to termination signals during potentially slow network operations.
-	server, err := newServer(serviceCtx, resourceService, stores, serverOpts...)
+	server, err := newServer(serviceCtx, resourceService, stores, serviceCtx.followProjects(serviceCtx), serverOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
 	}

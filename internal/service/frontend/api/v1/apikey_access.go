@@ -42,13 +42,12 @@ func (a *API) apiKeyManager(ctx context.Context) (*apiKeyManager, error) {
 	}
 
 	manager := &apiKeyManager{projectsOn: true}
-	checkedUser := &auth.User{Role: auth.RoleAdmin}
+	checkedUser, err := a.projectCaller(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if a.rolesApply(ctx) {
-		user, ok := auth.UserFromContext(ctx)
-		if !ok {
-			return nil, errAuthRequired
-		}
-		manager.user, checkedUser = user, user
+		manager.user = checkedUser
 	}
 	manager.admin = checkedUser.Role.IsAdmin()
 

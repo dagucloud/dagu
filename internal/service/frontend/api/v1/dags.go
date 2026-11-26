@@ -1939,6 +1939,9 @@ func (a *API) startPreparedDAGRunWithOptions(
 		if dag.Type == ir.TypeBuild {
 			return nil, buildRequiresLocalAPIError()
 		}
+		if err := a.refuseWorkerRun(); err != nil {
+			return nil, err
+		}
 		timeout := 10 * time.Second
 		if osrt.GOOS == "windows" {
 			timeout = 20 * time.Second
@@ -2198,6 +2201,9 @@ type enqueueRequest struct {
 }
 
 func (a *API) enqueueDAGRun(ctx context.Context, dag *ir.DAG, req enqueueRequest) error {
+	if err := a.refuseQueuedRun(); err != nil {
+		return err
+	}
 	params, dagRunID := req.params, req.dagRunID
 	if err := launchParamsError(params); err != nil {
 		return err

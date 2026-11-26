@@ -52,6 +52,15 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 	if shouldDispatch && run.dag.Type == ir.TypeBuild {
 		return false, buildRequiresLocalAPIError()
 	}
+	refuse := a.refuseWorkerRun
+	if queueConfigured {
+		refuse = a.refuseQueuedRun
+	}
+	if queueConfigured || shouldDispatch {
+		if err := refuse(); err != nil {
+			return false, err
+		}
+	}
 
 	logDir, artifactDir := a.runDirs()
 	_, seedStatus, err := intake.SeedRun(ctx, intake.SeedRequest{

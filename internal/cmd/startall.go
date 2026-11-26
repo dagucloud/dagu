@@ -208,7 +208,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	serverOpts = append(serverOpts, serviceCtx.followServedProjects(serviceCtx)...)
 
 	// Use serviceCtx so auth initialization can respond to termination signals
-	server, err := newServer(serviceCtx, resourceService, stores, serverOpts...)
+	server, err := newServer(serviceCtx, resourceService, stores, serviceCtx.followProjects(serviceCtx), serverOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
 	}

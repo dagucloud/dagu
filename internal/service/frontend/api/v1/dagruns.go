@@ -3384,6 +3384,9 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		if dag.Type == ir.TypeBuild {
 			return retryDAGRunResult{}, buildRequiresLocalAPIError()
 		}
+		if err := a.refuseWorkerRun(); err != nil {
+			return retryDAGRunResult{}, err
+		}
 		dag, err = a.refreshBaseSMTP(ctx, dag, prevStatus)
 		if err != nil {
 			return retryDAGRunResult{}, err
@@ -3486,6 +3489,9 @@ func retryPathRequestError(err error) error {
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
 func (a *API) enqueueRetry(ctx context.Context, status *ir.DAGRunStatus, dag *ir.DAG) error {
+	if err := a.refuseQueuedRun(); err != nil {
+		return err
+	}
 	eventCtx := a.withEventContext(ctx)
 	opts := queue.EnqueueRetryOptions{Processes: a.procRepository}
 	if actor := triggerActorFromContext(ctx); actor != "" {
@@ -4022,6 +4028,9 @@ func (a *API) enqueuePreparedDAGRun(
 	targetNodes []string,
 	slot *requestedSlot,
 ) error {
+	if err := a.refuseQueuedRun(); err != nil {
+		return err
+	}
 	return a.enqueuePreparedDAGRunIn(ctx, a.defaultRunQueue(), dag, params, dagRunID, triggerType,
 		profileName, noReuse, workerSelector, targetNodes, slot)
 }
@@ -4402,6 +4411,9 @@ func (a *API) resumeWaitingDAGRun(ctx context.Context, ref ir.DAGRunRef, status 
 		opts.TriggerActor = &actor
 	}
 	if a.config.FindQueueConfig(group) != nil {
+		if err := a.refuseQueuedRun(); err != nil {
+			return err
+		}
 		_, err := queue.EnqueueRetry(ctx, a.dagRunRepository, a.queueStore, dag, status, opts)
 		return err
 	}
@@ -4623,6 +4635,9 @@ type retryAdmission interface {
 func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, runID string, admission retryAdmission, path dagrun.RetryPath) error {
 	step := path.RootStep()
 	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
+		if err := a.refuseWorkerRun(); err != nil {
+			return err
+		}
 		var err error
 		dag, err = a.refreshBaseSMTP(ctx, dag, status)
 		if err != nil {
