@@ -112,6 +112,12 @@ export default defineMessages({
       'Webhooks der {count} Abläufe von "{name}" wirklich {action}?',
   },
   fr: {
+    '1 run in the last 24 hours':
+      '1 exécution au cours des dernières 24 heures',
+    '{count} runs in the last 24 hours':
+      '{count} exécutions au cours des dernières 24 heures',
+    '{count}+ runs in the last 24 hours':
+      'Au moins {count} exécutions au cours des dernières 24 heures',
     'Webhook of {name}': 'Webhook de {name}',
     'Enable webhook': 'Activer le webhook',
     'Disable webhook': 'Désactiver le webhook',
