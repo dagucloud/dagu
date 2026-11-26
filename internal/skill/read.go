@@ -53,6 +53,7 @@ const maxWalkEntries = MaxFiles * 4
 // cache: a later change could keep the same size and the same time stamp.
 const cacheRacyWindow = 2 * time.Second
 
+// maxCacheEntries bounds the number of folders that the cache keeps.
 const maxCacheEntries = 128
 
 // maxCacheBytes bounds the text that the cache keeps for all folders.
@@ -79,6 +80,8 @@ type entry struct {
 	mode  fs.FileMode
 }
 
+// cache keeps the last result of Read for each folder, with the signature of
+// the walk that gave it. A full cache drops entries in no particular order.
 var cache = struct {
 	mu      sync.Mutex
 	entries map[string]cacheEntry
@@ -95,11 +98,13 @@ type cacheEntry struct {
 // folder. It never fails on a violation of the format: the violations are
 // issues of the result. It returns ErrNotFound when the folder does not exist.
 //
-// Read does not trust a shared state. It reads the folder from disk. A folder
-// that changes while Read reads it is read again. A folder that does not settle
-// gives an error with the rule "changing".
+// Read walks the folder on disk at each call. When the walk matches the walk of
+// an earlier read, and no entry changed in the last 2 seconds, it returns the
+// earlier result, which a bounded process cache keeps. Otherwise it reads the
+// files. A folder that changes while Read reads it is read again. A folder that
+// does not settle gives an error with the rule "changing".
 //
-// The caller MUST NOT change the result.
+// The caller MUST NOT change the result: the cache shares it.
 func Read(dir string) (*Skill, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -169,6 +174,7 @@ func Read(dir string) (*Skill, error) {
 		Message: "the skill is being changed and could not be read as one version; try again"}}}, nil
 }
 
+// lookup returns the cached read of dir when its walk had the same signature.
 func lookup(dir, signature string, newest time.Time) (*Skill, bool) {
 	if time.Since(newest) < cacheRacyWindow {
 		return nil, false
@@ -182,6 +188,7 @@ func lookup(dir, signature string, newest time.Time) (*Skill, bool) {
 	return nil, false
 }
 
+// store keeps the read of dir, unless an entry of the folder is too recent.
 func store(dir, signature string, newest time.Time, s *Skill) {
 	if time.Since(newest) < cacheRacyWindow {
 		return

@@ -69,8 +69,9 @@ func TestHashCanonicalForm(t *testing.T) {
 	require.NotEqual(t, s.Hash, s3.Hash)
 }
 
-// A reader that finds a change refuses the stale content: the cache never
-// serves a skill after a change.
+// A repeated read of an unchanged folder gives the same skill, and a change of
+// a file that keeps its time stamp still shows in the next read when it
+// changes the size.
 func TestReadSeesEveryChange(t *testing.T) {
 	t.Parallel()
 	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "one"})
@@ -85,8 +86,7 @@ func TestReadSeesEveryChange(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, first.Hash, again.Hash)
 
-	// Same size, same modification time: only a changed time stamp would show
-	// it, so the test changes the size.
+	// The time stamp is set back, so only the size tells the change.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "references", "a.md"), []byte("three"), 0o644))
 	require.NoError(t, os.Chtimes(filepath.Join(dir, "references", "a.md"), old, old))
 	next, err := skill.Read(dir)
@@ -95,6 +95,37 @@ func TestReadSeesEveryChange(t *testing.T) {
 	data, ok := next.Text("references/a.md")
 	require.True(t, ok)
 	require.Equal(t, "three", string(data))
+}
+
+// A read of a folder whose entries are older than 2 seconds is served from
+// the cache and reads no file again. A recent change is always read from the
+// files (Spec 096, "Source of truth"). The test changes a package variable,
+// so it does not run in parallel.
+func TestReadCachesOnlyASettledFolder(t *testing.T) {
+	reads := 0
+	skill.AroundReadFiles(t, func() { reads++ }, func() {})
+	read := func(dir string) {
+		t.Helper()
+		_, err := skill.Read(dir)
+		require.NoError(t, err)
+	}
+
+	// A time stamp in the future stays younger than 2 seconds however slow the
+	// test runs.
+	fresh := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
+	future := time.Now().Add(time.Hour)
+	require.NoError(t, os.Chtimes(filepath.Join(fresh, "SKILL.md"), future, future))
+	read(fresh)
+	read(fresh)
+	require.Equal(t, 2, reads, "a change younger than 2 seconds is never cached")
+
+	settled := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(filepath.Join(settled, "SKILL.md"), old, old))
+	reads = 0
+	read(settled)
+	read(settled)
+	require.Equal(t, 1, reads, "the second read of a settled folder comes from the cache")
 }
 
 // A change of the layout that leaves every file as it was shows in the next
