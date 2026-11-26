@@ -29,6 +29,7 @@ import (
 	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/runpath"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/project"
@@ -64,8 +65,20 @@ type ProjectStores struct {
 	AgentSessionCleanupQueue *agentsession.CleanupQueue
 	BackfillStore            backfill.Store
 	MaterializationStore     build.MaterializationStore
+	// Library records the runs of the library DAGs that run in the
+	// project, with their logs, artifacts, processes, queues, and DAG
+	// state, apart from the project's DAGs of the same names. Its Paths are
+	// the project's library paths; its other stores and its settings are
+	// the project's. It is nil while projects are off, and in Library
+	// itself.
+	Library *ProjectStores
 
 	dags dagSource
+	// projectState and libraryState hold the project's DAG state and its
+	// library's. libraryState is nil while projects are off.
+	projectState dagrun.StateStore
+	libraryState dagrun.StateStore
+	inLibrary    bool
 }
 
 // ProjectStoreOptions configures NewProjectStores. The caches are keyed by
@@ -131,23 +144,9 @@ func NewProjectStores(
 	if !settings.v2Dirs {
 		ephemeralDir = filepath.Join(paths.OtherStateDir, ephemeralRunsDirName)
 	}
-	cleanups := agentsession.NewCleanupQueue(backend.Collection(persis.CollectionAgentSessionCleanups))
-	dagRunOpts := []DAGRunRepositoryOption{WithDAGRunRemovalEnqueuer(cleanups)}
-	if opts.DAGRunStatusCache != nil {
-		dagRunOpts = append(dagRunOpts, WithDAGRunHistoryFileCache(opts.DAGRunStatusCache))
-	}
-	var artifactOpts []ArtifactRepositoryOption
-	if opts.ArtifactRecordCache != nil {
-		artifactOpts = append(artifactOpts, WithArtifactRecordCache(opts.ArtifactRecordCache))
-	}
 	schedulerState := backend.Collection(persis.CollectionSchedulerState)
 	s := &ProjectStores{
 		ProjectSettings:     settings,
-		DAGRunRepository:    newDAGRunRepository(cfg, paths, ephemeralDir, runPaths, dagRunOpts...),
-		ArtifactRepository:  newArtifactRepository(paths.ArtifactDir, runPaths, artifactOpts...),
-		ProcRepository:      newProcRepository(cfg, paths.ProcDir),
-		QueueStore:          store.NewQueueStore(backend.Collection(persis.CollectionQueue)),
-		StateStore:          store.NewDAGStateStore(backend.Collection(persis.CollectionDAGState)),
 		SchedulerStateStore: store.NewSchedulerStateStore(schedulerState),
 		PeriodStore: store.NewPeriodStore(
 			schedulerState,
@@ -155,11 +154,13 @@ func NewProjectStores(
 			server.pauses,
 		),
 		WatchStateStore:          store.NewWatchStateStore(backend.Collection(persis.CollectionWatchState)),
-		AgentSessionCleanupQueue: cleanups,
+		AgentSessionCleanupQueue: agentsession.NewCleanupQueue(backend.Collection(persis.CollectionAgentSessionCleanups)),
 		BackfillStore:            filebackfill.New(filebackfill.Dir(paths.OtherStateDir)),
 		MaterializationStore:     filematerialization.New(filepath.Join(paths.OtherStateDir, materializationsDirName)),
 		dags:                     dags,
 	}
+	s.openRuns(cfg, paths, backend, runPaths, ephemeralDir, opts)
+	s.projectState = s.StateStore
 	dagOpts := []DAGRepositoryOption{WithDAGFileCache(opts.DAGCache)}
 	if !isDefault {
 		dagOpts = append(dagOpts, WithDAGSkipExamples(true))
@@ -167,8 +168,114 @@ func NewProjectStores(
 	if s.DAGRepository, err = s.OpenDAGRepository(dagOpts...); err != nil {
 		return nil, fmt.Errorf("open the DAG store of project %s: %w", p.Name, err)
 	}
+	if cfg.ProjectsEnabled {
+		if err := s.openLibrary(cfg, p.Name, opts); err != nil {
+			return nil, fmt.Errorf("open the library stores of project %s: %w", p.Name, err)
+		}
+	}
 	logger.Debug(ctx, "Opened project stores", tag.Name(p.Name), tag.Dir(paths.StateDir))
 	return s, nil
+}
+
+// openRuns opens on paths the stores that record runs: their records and
+// logs, artifacts, processes, queues, and DAG state.
+func (s *ProjectStores) openRuns(
+	cfg *config.Config,
+	paths config.ProjectPaths,
+	backend *Backend,
+	runPaths runpath.Mapper,
+	ephemeralDir string,
+	opts ProjectStoreOptions,
+) {
+	dagRunOpts := []DAGRunRepositoryOption{WithDAGRunRemovalEnqueuer(s.AgentSessionCleanupQueue)}
+	if opts.DAGRunStatusCache != nil {
+		dagRunOpts = append(dagRunOpts, WithDAGRunHistoryFileCache(opts.DAGRunStatusCache))
+	}
+	var artifactOpts []ArtifactRepositoryOption
+	if opts.ArtifactRecordCache != nil {
+		artifactOpts = append(artifactOpts, WithArtifactRecordCache(opts.ArtifactRecordCache))
+	}
+	s.DAGRunRepository = newDAGRunRepository(cfg, paths, ephemeralDir, runPaths, dagRunOpts...)
+	s.ArtifactRepository = newArtifactRepository(paths.ArtifactDir, runPaths, artifactOpts...)
+	s.ProcRepository = newProcRepository(cfg, paths.ProcDir)
+	s.QueueStore = store.NewQueueStore(backend.Collection(persis.CollectionQueue))
+	s.StateStore = store.NewDAGStateStore(backend.Collection(persis.CollectionDAGState))
+}
+
+// openLibrary opens s.Library on the library paths of the project called
+// name. A library DAG runs with the project's settings, and its run events
+// are the project's.
+func (s *ProjectStores) openLibrary(cfg *config.Config, name string, opts ProjectStoreOptions) error {
+	paths, err := cfg.LibraryPaths(name)
+	if err != nil {
+		return err
+	}
+	paths.DAGsDir = s.Paths.DAGsDir
+	paths.SettingsDir = s.Paths.SettingsDir
+	paths.EventStoreDir = s.Paths.EventStoreDir
+
+	library := *s
+	library.ProjectSettings = &ProjectSettings{Paths: paths, cfg: cfg, server: s.server, backend: s.backend}
+	library.openRuns(cfg, paths, newProjectBackend(paths), runPaths(cfg, paths, false),
+		filepath.Join(paths.OtherStateDir, ephemeralRunsDirName), opts)
+	library.libraryState = library.StateStore
+	library.StateStore = scopedStateStore{dag: library.libraryState, rootDAG: library.libraryState, other: s.projectState}
+	library.inLibrary = true
+	s.libraryState = library.libraryState
+	s.Library = &library
+	return nil
+}
+
+// RunStores returns the stores that record a run of the DAG file at path
+// that starts in the project: Library for a library DAG, else s. It returns
+// s while projects are off.
+func (s *ProjectStores) RunStores(ctx context.Context, path string) (*ProjectStores, error) {
+	if s.Library == nil {
+		return s, nil
+	}
+	inLibrary, err := s.isLibraryDAG(ctx, path)
+	if err != nil || !inLibrary {
+		return s, err
+	}
+	return s.Library, nil
+}
+
+// StateStoreFor returns the DAG state store that a step of the DAG file at
+// path uses in a run whose root s records. State that a DAG's name
+// namespaces, scope dag by the step's DAG and scope root_dag by the root's,
+// is the library's when that DAG is a library DAG. Any other state is the
+// project's. It returns StateStore while projects are off.
+func (s *ProjectStores) StateStoreFor(ctx context.Context, path string) (dagrun.StateStore, error) {
+	if s.libraryState == nil {
+		return s.StateStore, nil
+	}
+	inLibrary, err := s.isLibraryDAG(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	dag, rootDAG := s.projectState, s.projectState
+	if inLibrary {
+		dag = s.libraryState
+	}
+	if s.inLibrary {
+		rootDAG = s.libraryState
+	}
+	if !inLibrary && !s.inLibrary {
+		return s.projectState, nil
+	}
+	return scopedStateStore{dag: dag, rootDAG: rootDAG, other: s.projectState}, nil
+}
+
+// isLibraryDAG reports whether the DAG file at path is in the library.
+func (s *ProjectStores) isLibraryDAG(ctx context.Context, path string) (bool, error) {
+	if path == "" || s.dags.owners == nil {
+		return false, nil
+	}
+	owner, err := s.dags.owners.Of(ctx, path)
+	if err != nil {
+		return false, fmt.Errorf("find the owner of DAG %s: %w", path, err)
+	}
+	return owner.Library, nil
 }
 
 // BaseConfig returns the project's base config file and the directory of
