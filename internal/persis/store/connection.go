@@ -345,8 +345,12 @@ func (s *ConnectionStore) deleteOwned(
 		if err != nil {
 			return err
 		}
-		if got, err := owner(rec); err != nil || got != connectionID {
+		got, err := owner(rec)
+		if err != nil {
 			return err
+		}
+		if got != connectionID {
+			return nil
 		}
 		err = col.CompareAndDelete(ctx, rec)
 		if errors.Is(err, persis.ErrNotFound) {
