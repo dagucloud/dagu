@@ -222,6 +222,8 @@ Load only the file you need:
 - `references/build.md` when creating or troubleshooting a `type: build` file workflow, path references, reuse decisions, or `--no-reuse`
 - `references/file-dependencies.md` when a DAG needs scripts, configuration, or other files from its working directory
 - `references/harnesses.md` only when the DAG invokes external CLI harnesses through `harness.run`
+- `references/coming-from-rundeck.md` when moving Rundeck nodes, node filters, or jobs that dispatch to nodes to Dagu inventories and steps with `nodes`
+- `references/coming-from-ansible.md` when moving Ansible inventories, plays, `serial`, `forks`, or `--limit` to Dagu inventories and steps with `nodes`
 
 ---
 
@@ -744,6 +746,7 @@ steps:
 - To see which nodes failed, `GET /api/v1/dag-runs/{name}/{id}/node-runs` lists one row per node with its run for each step with `nodes`, failed first (`failedOnly=true` keeps those). Each run names its child (`dagName`, `dagRunId`) and, once finished, how many of its steps succeeded (`steps.done` of `steps.total`) and the step that failed last (`failedStep`). Run details carry each such step's counts as `nodeRuns`, and a bound child's node as `boundNode`.
 - `dagu start --node web03` (API and MCP `targetNodes`) narrows a run: its steps with `nodes` run only on listed nodes, a step none of whose nodes is listed is skipped without blocking later steps, and the run fails with `no listed node was selected` if every such step is left without a node. A `node: required` DAG started with one `--node` runs bound to it. Names must be inventory nodes; retries, restarts, and queued runs keep the list.
 - On a worker, steps with `nodes` and bound children work the same. The worker reads nodes, their secret refs, and trusted host keys from the coordinator, checks host keys itself, and never trusts a new key. Bound children run on the worker that runs their parent. A child DAG file whose `dag` holds a reference, such as `deploy-${params.app}`, cannot read nodes on a worker. A narrowed run can select workers and keeps its list there; a `dag.run` child of a narrowed run cannot select workers.
+- Coming from Rundeck or Ansible: `coming-from-rundeck.md` and `coming-from-ansible.md` map node filters, dispatch settings, plays, and `--limit` to `nodes`.
 
 ## ssh.run / sftp.upload / sftp.download
 
@@ -3420,3 +3423,349 @@ Deleting DAGs, purging run history, editing the DAG directory by hand, or an unc
 - `dagu start <path>` proves only that a file can run, not that the server discovered it.
 - Before local CLI use against the server's data, match its paths and verify with `dagu config`.
 - To schedule a DAG by file, place it in the directory the running scheduler reads, which can differ from the CLI's: check the server's `--dags` flag, `DAGU_HOME`, `DAGU_DAGS_DIR` and `dag_discovery.symlinks` (`dagu schema config`), and confirm the DAG shows a next run on the server.
+
+---
+
+# Coming From Rundeck
+
+Map Rundeck nodes, node filters, and dispatch settings to Dagu. Nodes live in inventories (`dagu nodes`, `references/cli.md`), and a step reaches them with `nodes` (`references/steptypes.md`, `nodes: Run On Inventory Nodes`). Dagu connects to inventory nodes over SSH from the Dagu host.
+
+## Nodes
+
+Write the resource model's nodes as inventories: a JSON array that `dagu nodes import` reads.
+
+| Rundeck node | Dagu inventory node |
+| --- | --- |
+| `nodename` | `name`: a letter or digit, then letters, digits, `-`, `_`, or `.`; unique across inventories |
+| `hostname`, `host:port` | `host`, `port` (default `22`) |
+| `username` | `user` |
+| `description` | `description` |
+| `tags` | One label per tag, such as `web` |
+| Another attribute, `env: prod` | A label, `env=prod` |
+| `ssh-key-storage-path` | `key`: `{"secret": "<ref>"}` names a Dagu registry secret; a path names a key file |
+| `ssh-password-storage-path`, `ssh-key-passphrase-storage-path` | `password`, `passphrase`: `{"secret": "<ref>"}` only |
+| Settings every node shares | `defaults`; `defaults.labels` are added to each node's labels |
+
+- Label keys and values are lowercased. A key is a letter or digit, then letters, digits, `-`, `_`, or `.`; a value may also hold `/`. Rewrite a value that holds anything else, such as a space (`osName: Mac OS X` as `osname=mac-os-x`), or leave the attribute out.
+- An inventory never holds a secret value: a `password` or `passphrase` given as text is an error.
+- To refresh an inventory from its source, write the JSON again and run `dagu nodes import --replace`. A node that keeps its name keeps its trusted host key.
+
+```json
+[
+  {
+    "name": "production",
+    "defaults": {
+      "user": "deploy",
+      "key": { "secret": "ssh/deploy-key" },
+      "labels": ["env=prod"]
+    },
+    "nodes": [
+      { "name": "web01", "host": "10.0.1.11", "labels": ["web", "osfamily=unix"] },
+      { "name": "web02", "host": "10.0.1.12", "labels": ["web", "canary", "osfamily=unix"] },
+      { "name": "db01", "host": "db01.internal", "port": 2222, "labels": ["db"] }
+    ]
+  }
+]
+```
+
+```sh
+dagu nodes import inventories.json --dry-run   # check, store nothing
+dagu nodes import inventories.json
+dagu nodes test --labels web                   # connect; asks before it trusts a host key
+dagu nodes list --labels 'web,!canary'
+```
+
+## Node Filters
+
+A selector is the label filter that `dagu history --labels` takes: terms separated by commas, all of which must match.
+
+| Rundeck node filter | Dagu selector |
+| --- | --- |
+| Tags, `tags: a+b` | `nodes: a,b` |
+| An attribute, `env: prod` | `env=prod` |
+| An excluded tag or attribute, `!tags: dev`, `!env: dev` | `'!dev'`, `'!env=dev'` |
+| Names, a regular expression, OR (`tags: a,b`), or every node | No selector term. Add a label to the nodes the filter matched, in the inventory |
+
+- A comma means AND in a Dagu selector and OR in a Rundeck tag filter.
+- Quote a selector that starts with `!`, since YAML reads a leading `!` as a tag.
+- Keys and values take globs, `*` and `?`, as in `region=us-*`, not regular expressions.
+- To match every node of an inventory, label them all through `defaults.labels`.
+- Selectors match labels, never node names. To run named nodes once, narrow the run with `--node` (see Running Jobs).
+
+## Dispatch
+
+| Rundeck job | Dagu |
+| --- | --- |
+| `nodefilters.dispatch.threadcount` | `nodes.max_concurrent`, 1 to 1000. The default is `1` |
+| `nodefilters.dispatch.keepgoing` | `nodes.keep_going`. The default is `false`: no node starts after one fails, and running nodes finish |
+| `sequence.strategy: node-first` | A `node: required` DAG started by `dag.run` with `nodes` |
+| `sequence.strategy: step-first` | `nodes` on each command step |
+| `rankAttribute`, `rankOrder` | Not supported. Nodes start in name order |
+| `successOnEmptyNodeFilter` | Not supported. A step whose selector matches no nodes fails with `selector matched no nodes` |
+| Any other dispatch setting, strategy, or orchestrator | Not supported |
+
+Node-first: every step runs on one node before the next node starts.
+
+```yaml
+params:
+  - version: ""
+steps:
+  - id: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+      params:
+        version: ${params.version}  # a child reads only the params passed to it
+    nodes:
+      labels: web,env=prod
+      max_concurrent: 1             # threadcount
+      keep_going: false             # keepgoing
+---
+name: deploy-one
+node: required                      # runs only bound to one node
+params:
+  - version: ""
+steps:
+  - id: install
+    # ${params.version} is inserted as shell text, unescaped: pass only trusted values
+    run: sudo apt-get install -y "app=${params.version}"
+  - id: restart
+    depends: [install]
+    run: sudo systemctl restart app
+```
+
+Step-first: each step runs on all its nodes before the next step starts.
+
+```yaml
+steps:
+  - id: stop
+    run: sudo systemctl stop app
+    nodes:
+      labels: web,env=prod
+      max_concurrent: 5
+  - id: start
+    depends: [stop]
+    run: sudo systemctl start app
+    nodes:
+      labels: web,env=prod
+      max_concurrent: 5
+```
+
+- A step with `nodes` fails when any of its nodes failed. `continue_on` decides whether the steps after it run.
+- In a bound run, steps with no action, `ssh.run`, and `sftp.*` run on the node. Other actions, such as `http.request`, run on the Dagu host.
+- A disabled node (`"disabled": true`) is not run and does not fail the step. A step whose matched nodes are all disabled fails.
+
+## Node References
+
+| Rundeck | Dagu, in a bound run |
+| --- | --- |
+| `${node.name}` | `${node.name}` |
+| `${node.hostname}` | `${node.host}`, with the port in `${node.port}` |
+| `${node.username}` | `${node.user}` |
+| `${node.description}` | `${node.description}` |
+| `${node.<attr>}` | `${node.labels.<attr>}`; quote a key with a dot: `${node.labels."gpu.type"}` |
+| `${node.tags}` | `${node.labels}`: every label, sorted, comma-separated |
+| `@node.<attr>@` in a script, `$RD_NODE_*` variables | The same `${node.*}` references, in `run:` commands and scripts |
+
+- A reference to a label the node lacks fails the run before any step, naming the node and the key.
+- Outside a bound run, `${node.*}` stays as text, with a notice.
+- Quote references in shell commands: `"${node.labels.role}"`.
+
+## Running Jobs
+
+| Rundeck | Dagu |
+| --- | --- |
+| Job options, `${option.version}` | `params`, `${params.version}` |
+| Key Storage | Registry secrets, named in an inventory as `{"secret": "<ref>"}` |
+| Changing the target nodes when running a job | `dagu start --node web01 --node web03 deploy`; `targetNodes` in the API and MCP `dagu_execute` |
+| Job reference step | `dag.run` |
+| Execute locally | A step without `nodes`; it runs where the run runs |
+| Per-node output of an execution | The run's Nodes tab; `GET /api/v1/dag-runs/{name}/{id}/node-runs` |
+| Retry failed nodes | `dagu retry deploy --run-id <id>`, or **Retry failed nodes** on the step or **Retry** on the run in the UI: a step with `nodes` runs again only on the nodes that did not succeed, and the others keep their results |
+
+- Dagu inserts `${params.*}` and step outputs into `run:` as shell text, without escaping, so a value such as `$(...)` runs as a command. Pass only trusted values, or limit a param with `pattern`, as in `- name: version`, `type: string`, `pattern: '^[0-9A-Za-z.+~-]+$'`, which refuses any other value before the run starts.
+- A node list only removes nodes: a step runs on a node that its selector matches and the list names. A step none of whose nodes is listed is skipped without blocking later steps.
+- A `node: required` DAG started directly takes exactly one node: `--node`, or the Node field of the run dialog. The run dialog has no node list for other DAGs.
+- Each name must be an inventory node. Queued runs, retries, `dagu restart`, and `dagu start --from-run-id` keep the list.
+
+## Not Available Yet
+
+- Workers as nodes. Bound runs and steps with `nodes` run on the Dagu host and reach SSH nodes. A run on a worker that is bound or has a step with `nodes` fails before any step. With `default_execution_mode: distributed`, set `worker_selector: local` on a DAG with such steps.
+
+---
+
+# Coming From Ansible
+
+Map Ansible inventories, plays, and run limits to Dagu. Hosts live in inventories (`dagu nodes`, `references/cli.md`), and a step reaches them with `nodes` (`references/steptypes.md`, `nodes: Run On Inventory Nodes`). Dagu runs commands on nodes over SSH from the Dagu host. It has no modules or facts.
+
+## Inventory
+
+Write the Ansible inventory as Dagu inventories: a JSON array that `dagu nodes import` reads.
+
+| Ansible | Dagu inventory |
+| --- | --- |
+| Host name (`inventory_hostname`) | `name`: a letter or digit, then letters, digits, `-`, `_`, or `.`; unique across inventories |
+| `ansible_host`, `ansible_port`, `ansible_user` | `host`, `port` (default `22`), `user` |
+| `ansible_ssh_private_key_file` | `key`: a key file path, or `{"secret": "<ref>"}` for a Dagu registry secret |
+| `ansible_password`, a Vault value | `password: {"secret": "<ref>"}`; an inventory never holds a secret value |
+| `ProxyJump` in `ansible_ssh_common_args` | `bastion`: another node of the same inventory |
+| A group, and each parent group of a `:children` group | One label per group, such as `web` and `prod` |
+| `all` | A label every node carries, through `defaults.labels` |
+| A host or group variable with a short value | A label, `role=frontend`, read as `${node.labels.role}` |
+| Variables every host of the inventory shares | `defaults`, for connection fields and labels |
+| `host_key_checking = False` | `strict_host_key: false` on the node or in `defaults`: accepts any key |
+| `known_hosts` | Trusted host keys: `dagu nodes test` asks before it trusts one. Or pin `host_key` |
+| `ansible_connection` other than `ssh` | Not supported. Inventory nodes are SSH hosts |
+
+- Labels do not nest: give a host a label for every group it belongs to, directly or through a parent.
+- Label keys and values are lowercased. A key is a letter or digit, then letters, digits, `-`, `_`, or `.`; a value may also hold `/`. Keep other variables in the commands or params.
+- A group's variables apply to its hosts only, so set them on each node, or keep the group in its own inventory with them as `defaults`.
+- To refresh an inventory from a dynamic source, write the JSON again and run `dagu nodes import --replace`. A node that keeps its name keeps its trusted host key.
+
+```ini
+[web]
+web01 ansible_host=10.0.1.11 role=frontend
+web02 ansible_host=10.0.1.12 role=frontend
+
+[db]
+db01 ansible_host=10.0.2.11 ansible_port=2222 role=primary
+
+[prod:children]
+web
+db
+
+[prod:vars]
+ansible_user=deploy
+```
+
+```json
+[
+  {
+    "name": "prod",
+    "defaults": {
+      "user": "deploy",
+      "key": { "secret": "ssh/deploy-key" },
+      "labels": ["prod"]
+    },
+    "nodes": [
+      { "name": "web01", "host": "10.0.1.11", "labels": ["web", "role=frontend"] },
+      { "name": "web02", "host": "10.0.1.12", "labels": ["web", "role=frontend"] },
+      { "name": "db01", "host": "10.0.2.11", "port": 2222, "labels": ["db", "role=primary"] }
+    ]
+  }
+]
+```
+
+```sh
+dagu nodes import inventories.json --dry-run   # check, store nothing
+dagu nodes import inventories.json
+dagu nodes test --labels prod                  # like `ansible prod -m ping`; asks before it trusts a host key
+dagu nodes list --labels web                   # like `ansible-inventory --list`
+```
+
+## Plays
+
+| Ansible | Dagu |
+| --- | --- |
+| A play's `hosts:` naming groups | A `node: required` DAG started by `dag.run` with those groups as labels |
+| `hosts: web:&prod` | `nodes: web,prod` |
+| `hosts: web:!canary` | `nodes: web,!canary` |
+| `hosts: web:db`, a regular expression, or host names | No selector term. Add a label to the hosts it should match |
+| `serial: 1` | `max_concurrent: 1`: every task on one node before the next node starts |
+| `serial: N` | `max_concurrent: N`, a sliding window: a node starts when another finishes, not in batches |
+| `forks` | `nodes.max_concurrent`, 1 to 1000. The default is `1` |
+| `any_errors_fatal: true` | `keep_going: false`, the default: no node starts after one fails, and running nodes finish |
+| A play that goes on with the other hosts after one fails | `keep_going: true`: every node runs, and the step fails if any node failed |
+| A play on `localhost`, or `run_once` with `delegate_to: localhost` in a linear play without `serial` | A step outside the bound DAG |
+| `delegate_to: localhost` on each host, such as a load balancer call, or `run_once` with it under `serial: 1` | A step with an action such as `http.request` in the bound DAG: it runs on the Dagu host, once per node |
+| `serial` as a percentage or a list, `max_fail_percentage`, `order` | Not supported. Nodes start in name order |
+| `strategy: free` | A `node: required` DAG started by `dag.run` with `nodes`: each node runs its steps without waiting for the others, `max_concurrent` nodes at a time |
+| `run_once` under `strategy: free`, or under `serial` above 1, which runs once per batch | Not supported |
+
+- A comma means AND in a Dagu selector. Quote a selector that starts with `!`, since YAML reads a leading `!` as a tag.
+- Keys and values take globs, `*` and `?`, as in `role=front*`, not regular expressions.
+- In a bound run, steps with no action, `ssh.run`, and `sftp.*` run on the node. Other actions run on the Dagu host.
+- In a linear play without `serial`, a `run_once` task delegated to localhost runs after the tasks before it finish on every host, and before the tasks after it start. A step outside one bound DAG runs before or after all of that DAG's steps, so split the play at the task: a step with `nodes`, a command step or a `dag.run` of a bound DAG, for the tasks before it, the `run_once` task as a step without `nodes`, then a step with `nodes` for the tasks after it, each depending on the one before. A `run_once` task without `delegate_to` runs on one host instead: select that host with a label only it carries. A run narrowed with `--node` to other hosts skips that step, and the steps after it still run ([Limits](#limits)), where Ansible runs `run_once` on a host that `--limit` selects.
+- The linear strategy runs each task on every host before the next task. For that order, put `nodes` on each command step instead. A step with `nodes` fails when any of its nodes failed, and the steps after it then run on every matched node, or not at all, as `continue_on` decides.
+
+```yaml
+# site.yaml: hosts: web:&prod, serial: 1, any_errors_fatal: true
+params:
+  - version: ""
+steps:
+  - id: announce                # a play on localhost that runs first
+    action: http.request
+    with:
+      method: POST
+      url: https://chat.internal/hooks/deploy
+      body: "deploying ${params.version}"
+  - id: webservers
+    depends: [announce]
+    action: dag.run
+    with:
+      dag: webservers
+      params:
+        version: ${params.version}  # a child reads only the params passed to it
+    nodes:
+      labels: web,prod
+      max_concurrent: 1
+      keep_going: false
+---
+name: webservers
+node: required                  # runs only bound to one node
+params:
+  - version: ""
+steps:
+  - id: drain                   # delegate_to: localhost, once per node
+    action: http.request
+    with:
+      method: POST
+      url: https://lb.internal/pools/web/${node.name}/drain
+  - id: install                 # runs on the node
+    depends: [drain]
+    # ${params.version} is inserted as shell text, unescaped: pass only trusted values
+    run: sudo apt-get install -y "app=${params.version}"
+  - id: enable
+    depends: [install]
+    action: http.request
+    with:
+      method: POST
+      url: https://lb.internal/pools/web/${node.name}/enable
+```
+
+## Tasks And Variables
+
+| Ansible | Dagu, in a bound run |
+| --- | --- |
+| `command`, `shell` | `run:` |
+| `copy` | `sftp.upload` |
+| `fetch` | `sftp.download`. Put `${node.name}` in `destination` so nodes do not write one local path; a step with `nodes` must |
+| `template` | `template.render` writes the file on the Dagu host, then `sftp.upload` copies it. Give `with.output` a path no other run shares, as below |
+| `become: true` | `sudo` in the command. Dagu does not answer a `sudo` password prompt |
+| Other modules, facts, and handlers | Not supported. Run the commands they would run |
+| `{{ inventory_hostname }}` | `${node.name}` |
+| `{{ ansible_host }}`, `{{ ansible_port }}`, `{{ ansible_user }}` | `${node.host}`, `${node.port}`, `${node.user}` |
+| `{{ role }}`, a host variable kept as a label | `${node.labels.role}`; quote a key with a dot: `${node.labels."gpu.type"}` |
+| `-e version=1.2` | `dagu start site -- version=1.2`, read as `${params.version}` |
+
+- A reference to a label the node lacks fails the run before any step, naming the node and the key.
+- Outside a bound run, `${node.*}` stays as text, with a notice.
+- Quote references in shell commands: `"${node.labels.role}"`.
+- A relative path, such as `with.output` of `template.render`, resolves in the run's work directory, which each bound run has to itself. A bound DAG that sets `working_dir` shares that directory with every node and run, so put `${context.run.id}` in the path, as in `rendered/${context.run.id}/app.conf`.
+- Dagu inserts `${params.*}` and step outputs into `run:` as shell text, without escaping, so a value such as `$(...)` runs as a command. Pass only trusted values, or limit a param with `pattern`, as in `- name: version`, `type: string`, `pattern: '^[0-9A-Za-z.+~-]+$'`, which refuses any other value before the run starts.
+
+## Limits
+
+| Ansible | Dagu |
+| --- | --- |
+| `--limit web01,web03` | `dagu start --node web01 --node web03 site`; `targetNodes` in the API and MCP `dagu_execute` |
+| `--limit @site.retry` | `dagu retry site --run-id <id>`, or Retry failed nodes in the UI: a step with `nodes` runs again only on the nodes that did not succeed, and the others keep their results |
+
+- `--node` takes node names, not groups or patterns. Each must be an inventory node.
+- A node list only removes nodes: a step runs on a node that its selector matches and the list names. A step none of whose nodes is listed is skipped without blocking later steps.
+- A `node: required` DAG started directly takes exactly one node: `--node`, or the Node field of the run dialog. The run dialog has no node list for other DAGs.
+- Queued runs, retries, `dagu restart`, and `dagu start --from-run-id` keep the list.
+
+## Not Available Yet
+
+- Workers as nodes. Bound runs and steps with `nodes` run on the Dagu host and reach SSH nodes. A run on a worker that is bound or has a step with `nodes` fails before any step. With `default_execution_mode: distributed`, set `worker_selector: local` on a DAG with such steps.

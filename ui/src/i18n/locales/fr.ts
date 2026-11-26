@@ -1783,6 +1783,10 @@ export const baseFrench = {
   'Retry selected': 'Réessayer la sélection',
   'Retry step': 'Réessayer l’étape',
   'Retry this step?': 'Réessayer cette étape\u00a0?',
+  'Retry unavailable while the DAG run is running.':
+    'Nouvelle tentative impossible tant que l’exécution est en cours.',
+  'Retry unavailable while the root DAG run is running.':
+    'Nouvelle tentative impossible tant que l’exécution de premier niveau est en cours.',
   'Retrying...': 'Nouvelle tentative…',
   'Reuse previous output': 'Réutiliser la sortie précédente',
   Revert: 'Restaurer',

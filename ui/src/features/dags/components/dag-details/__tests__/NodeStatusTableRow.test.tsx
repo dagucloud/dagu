@@ -1135,6 +1135,9 @@ describe('NodeStatusTableRow', () => {
       expect(
         screen.getByRole('menuitem', { name: 'Retry step' })
       ).toHaveAttribute('data-disabled');
+      expect(
+        screen.getByText('Retry unavailable while the root DAG run is running.')
+      ).toBeVisible();
     }
   );
 

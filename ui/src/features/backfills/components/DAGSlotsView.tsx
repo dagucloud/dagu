@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { History } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { DAGSlotStatus } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
@@ -43,6 +43,17 @@ type RangeId = (typeof RANGES)[number]['id'];
 
 /** The most cells drawn at once; a longer range shows its newest slots. */
 const SHOWN_SLOTS = 2000;
+
+/** The picked slots, and the slot a Shift-pick extends from. */
+type Selection = { slots: ReadonlySet<string>; anchor: string | null };
+const NO_SELECTION: Selection = { slots: new Set(), anchor: null };
+
+// inView keeps the picked slots the view draws: a refresh can move slots out
+// of it, and they are picked no more.
+const inView = (
+  slots: ReadonlySet<string>,
+  index: ReadonlyMap<string, number>
+) => new Set([...slots].filter((slot) => index.has(slot)));
 
 const READ_ONCE = {
   revalidateOnFocus: false,
@@ -98,9 +109,7 @@ export function DAGSlotsView({
     { params: { path: { fileName }, query: { remoteNode, from } } },
     READ_ONCE
   );
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  // The slot a Shift-pick extends from.
-  const [anchor, setAnchor] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Selection>(NO_SELECTION);
   const [target, setTarget] = useState<BackfillTarget | null>(null);
 
   const slots = useMemo(() => data?.slots ?? [], [data]);
@@ -110,11 +119,9 @@ export function DAGSlotsView({
     () => new Map(shown.map((slot, i) => [slot.slot, i])),
     [shown]
   );
-  // A refresh can move slots out of the window drawn: they are picked no
-  // more.
   const picked = useMemo(
-    () => new Set([...selected].filter((slot) => index.has(slot))),
-    [selected, index]
+    () => inView(selection.slots, index),
+    [selection, index]
   );
   const counts = useMemo(() => {
     const result = new Map<DAGSlotStatus, number>();
@@ -126,19 +133,28 @@ export function DAGSlotsView({
 
   const pickRange = (next: RangeId) => {
     setRange(next);
-    setSelected(new Set());
-    setAnchor(null);
+    setSelection(NO_SELECTION);
   };
-  const pick = (slot: DAGSlot, extend: boolean) => {
-    const at = index.get(slot.slot);
-    if (at === undefined) return;
-    const from = anchor === null ? null : (index.get(anchor) ?? null);
-    setSelected(selectSlots(shown, picked, at, from, extend));
-    setAnchor(slot.slot);
-  };
+  // Kept across picks, so a pick re-renders only the cells it changes
+  // rather than every cell drawn.
+  const pick = useCallback(
+    (slot: DAGSlot, extend: boolean) => {
+      const at = index.get(slot.slot);
+      if (at === undefined) return;
+      setSelection((prev) => {
+        const from =
+          prev.anchor === null ? null : (index.get(prev.anchor) ?? null);
+        const slots = inView(prev.slots, index);
+        return {
+          slots: selectSlots(shown, slots, at, from, extend),
+          anchor: slot.slot,
+        };
+      });
+    },
+    [index, shown]
+  );
   const pickStates = (states: readonly DAGSlotStatus[]) => {
-    setSelected(slotsInStates(shown, states));
-    setAnchor(null);
+    setSelection({ slots: slotsInStates(shown, states), anchor: null });
   };
 
   return (
@@ -333,7 +349,7 @@ export function DAGSlotsView({
  * day it loads. Its name gives the slot, the dates it loads, and its state;
  * hovering it adds the window, every date, and how its run started.
  */
-function SlotCell({
+const SlotCell = memo(function SlotCell({
   slot,
   dayLabel,
   fileName,
@@ -351,7 +367,6 @@ function SlotCell({
 }) {
   const { ts } = useI18n();
   const look = DAG_SLOT_LOOK[slot.status];
-  const Icon = look.icon;
   const time = (value?: string) =>
     formatAbsoluteTime(value, { seconds: false }) ?? value ?? '';
   const first = slot.dates?.[0];
@@ -383,11 +398,7 @@ function SlotCell({
         backgroundColor: `color-mix(in srgb, ${look.color} 16%, transparent)`,
       }}
     >
-      <Icon
-        className="h-3.5 w-3.5"
-        style={{ color: look.color }}
-        aria-hidden="true"
-      />
+      <SlotIcon status={slot.status} />
       {day && (
         <span className="font-mono text-[10px] tabular-nums text-foreground">
           {day}
@@ -428,4 +439,18 @@ function SlotCell({
       {cell}
     </span>
   );
-}
+});
+
+// A slot's icon, kept while its state stays: a refresh redraws every cell,
+// and each icon is several SVG elements.
+const SlotIcon = memo(function SlotIcon({ status }: { status: DAGSlotStatus }) {
+  const look = DAG_SLOT_LOOK[status];
+  const Icon = look.icon;
+  return (
+    <Icon
+      className="h-3.5 w-3.5"
+      style={{ color: look.color }}
+      aria-hidden="true"
+    />
+  );
+});
