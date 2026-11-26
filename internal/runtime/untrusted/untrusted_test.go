@@ -53,11 +53,15 @@ func TestBeginWithoutRestrictedUser(t *testing.T) {
 func TestBeginWithRestrictedUserFails(t *testing.T) {
 	t.Parallel()
 
-	for _, cfg := range []config.UntrustedConfig{
+	configs := []config.UntrustedConfig{
 		{Enabled: true},
 		{Enabled: true, UID: 64011},
-		{Enabled: true, UID: uint32(os.Geteuid()), GID: 64011}, //nolint:gosec // The test runs as a user with a valid ID.
-	} {
+	}
+	// Windows has no user ID: Geteuid returns -1 there.
+	if euid := os.Geteuid(); euid >= 0 {
+		configs = append(configs, config.UntrustedConfig{Enabled: true, UID: uint32(euid), GID: 64011}) //nolint:gosec // A user ID fits in uint32.
+	}
+	for _, cfg := range configs {
 		step, err := Begin(context.Background(), Request{StepName: "verify", Config: cfg, Log: io.Discard})
 		assert.Nil(t, step)
 		assert.ErrorContains(t, err, `untrusted step "verify": untrusted.uid and untrusted.gid must not be 0 or the IDs of the worker user`)
