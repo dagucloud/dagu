@@ -93,6 +93,8 @@ func SetupCoordinator(t *testing.T, opts ...HelperOption) *Coordinator {
 	inventories, err := store.NewInventoryStore(helper.Backend.Collection(persis.CollectionInventories), helper.Backend.Lock(persis.CollectionInventories), hostKeys)
 	require.NoError(t, err)
 	cfg.NodeInventory, cfg.TrustedHostKeys = inventories, hostKeys
+	cfg.WorkerNodeStore, err = store.NewWorkerNodeStore(helper.Backend.Collection(persis.CollectionWorkerNodes), helper.WorkerHeartbeatStore)
+	require.NoError(t, err)
 	cfg.DispatchTaskStore = helper.DispatchTaskStore
 	cfg.WorkerHeartbeatStore = helper.WorkerHeartbeatStore
 	cfg.DAGRunLeaseStore = helper.DAGRunLeaseStore
