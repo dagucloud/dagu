@@ -25,11 +25,13 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	dockerexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -2420,6 +2422,25 @@ func TestRunContainerOnce_StdinScriptRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not support stdin")
 	assert.Equal(t, 1, exec.ExitCode())
+}
+
+// An untrusted step runs its agent as a process of the host: a container and
+// the required managed OpenCode service fail the attempt before it starts.
+func TestUntrustedHarnessRunsOnTheHost(t *testing.T) {
+	t.Parallel()
+
+	ctx := newHarnessTestContext(t, nil, ir.Step{Name: "review"})
+	step, err := untrusted.Begin(ctx, untrusted.Request{StepName: "review", Config: config.UntrustedConfig{IsolationOff: true}, Log: io.Discard})
+	require.NoError(t, err)
+	ctx = untrusted.WithStep(ctx, step)
+
+	inContainer := &harnessExecutor{step: ir.Step{Name: "review", Container: &ir.Container{Image: "localhost/reviewer:latest"}}}
+	_, err = inContainer.runOnce(ctx, providerConfig{name: "claude"})
+	assert.EqualError(t, err, `harness: untrusted step "review" cannot run in a container`)
+
+	managed := &harnessExecutor{step: ir.Step{Name: "review"}}
+	_, err = managed.runOnce(ctx, providerConfig{name: "opencode", managed: true, required: true})
+	assert.EqualError(t, err, `harness: untrusted step "review" cannot use the managed OpenCode service`)
 }
 
 func TestWaitForCanceledContainerRun(t *testing.T) {
