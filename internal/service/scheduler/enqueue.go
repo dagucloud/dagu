@@ -18,15 +18,16 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 // runDirs returns the log and artifact directories of the runs that the
-// scheduler queues, which are the default project's.
+// scheduler queues: the default project's, where its stores open.
 func runDirs(cfg *config.Config) (logDir, artifactDir string) {
 	// The default project always resolves.
-	p, _ := cfg.ProjectPaths(project.DefaultName)
+	p, _ := persisfile.ProjectStorePaths(cfg, project.DefaultName)
 	return p.LogDir, p.ArtifactDir
 }
 

@@ -4057,14 +4057,13 @@ func (a *API) enqueuePreparedDAGRun(
 	queuedDAG := dag.Clone()
 	queuedDAG.Location = ""
 
-	logDir, artifactDir := a.runDirs()
 	queued, err := intake.EnqueueRun(ctx, intake.QueueRequest{
 		DAGRunRepository:        a.dagRunRepository,
 		QueueStore:              a.queueStore,
 		DAG:                     queuedDAG,
 		DAGRunID:                dagRunID,
-		LogBaseDir:              logDir,
-		ArtifactBaseDir:         artifactDir,
+		LogBaseDir:              a.runLogDir,
+		ArtifactBaseDir:         a.runArtifactDir,
 		TriggerType:             triggerType,
 		TriggerActor:            triggerActorFromContext(ctx),
 		ProceedOnStatusCloseErr: true,

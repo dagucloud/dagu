@@ -476,6 +476,11 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		oidcButtonLabel string
 		setupRequired   bool
 	)
+	defaultPaths, err := persisfile.ProjectStorePaths(cfg, project.DefaultName)
+	if err != nil {
+		return nil, err
+	}
+	apiOpts = append(apiOpts, apiv1.WithRunDirs(defaultPaths.LogDir, defaultPaths.ArtifactDir))
 	if stores.WorkspaceBaseConfig != nil {
 		apiOpts = append(apiOpts, apiv1.WithWorkspaceBaseConfigProvider(stores.WorkspaceBaseConfig))
 	}

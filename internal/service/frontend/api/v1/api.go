@@ -41,7 +41,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
-	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/publicwebhook"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
@@ -123,6 +122,8 @@ type API struct {
 	apiKeyWriteMu        sync.Mutex // Serializes API key writes, so each checks the state it changes
 	workspaceStore       workspace.Store
 	projectAccess        *projectaccess.Checker
+	runLogDir            string // Logs of the runs that the API queues
+	runArtifactDir       string // Artifacts of the runs that the API queues
 	leaseStaleThreshold  time.Duration
 	runSortDAGLimit      int
 	schedulerStateStore  schedulerstate.Store
@@ -452,6 +453,15 @@ func WithWorkspaceDeprecation(src deprecation.Sources) APIOption {
 	}
 }
 
+// WithRunDirs sets the directories of the logs and artifacts of the runs
+// that the API queues, which are the default project's. Without it, they
+// are paths.log_dir and paths.artifact_dir.
+func WithRunDirs(logDir, artifactDir string) APIOption {
+	return func(a *API) {
+		a.runLogDir, a.runArtifactDir = logDir, artifactDir
+	}
+}
+
 // WithProjectAccess sets the project access checker. Setting it turns on the
 // API surface of projects, which stays off while projects are off.
 func WithProjectAccess(c *projectaccess.Checker) APIOption {
@@ -582,6 +592,8 @@ func New(
 		defaultExecMode:     cfg.DefaultExecMode,
 		leaseStaleThreshold: dagrun.DefaultStaleLeaseThreshold,
 		runSortDAGLimit:     maxRunSortDAGs,
+		runLogDir:           cfg.Paths.LogDir,
+		runArtifactDir:      cfg.Paths.ArtifactDir,
 	}
 	// A nil service must leave the field nil, not a typed nil.
 	if rs != nil {
@@ -604,14 +616,6 @@ func (a *API) requireValidBaseConfigWiring() {
 	if a.baseConfigStore != nil && a.baseConfigProvider == nil {
 		panic("api: workspace base config provider must be configured when base config store is configured")
 	}
-}
-
-// runDirs returns the log and artifact directories of the runs that the API
-// queues, which are the default project's.
-func (a *API) runDirs() (logDir, artifactDir string) {
-	// The default project always resolves.
-	p, _ := a.config.ProjectPaths(project.DefaultName)
-	return p.LogDir, p.ArtifactDir
 }
 
 func (a *API) notifyDAGMutation(fileName string) {
