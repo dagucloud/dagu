@@ -64,12 +64,12 @@ func (e *errorExecutor) Run(context.Context) error {
 	return e.err
 }
 
-// registerErrorExecutor registers exec under a type of its own for the test.
-func registerErrorExecutor(t *testing.T, exec *errorExecutor) string {
+// registerErrorExecutor registers action under a type of its own for the test.
+func registerErrorExecutor(t *testing.T, action *errorExecutor) string {
 	t.Helper()
 	executorType := "test-untrusted-" + t.Name()
 	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
-		return exec, nil
+		return action, nil
 	}, nil, registry.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
 	return executorType
@@ -116,13 +116,13 @@ func TestUntrustedStepWithIsolationOff(t *testing.T) {
 func TestUntrustedStepNeedsUntrustedRunner(t *testing.T) {
 	t.Parallel()
 
-	exec := &errorExecutor{}
+	action := &errorExecutor{}
 	result := untrustedPlan(t, config.UntrustedConfig{IsolationOff: true}, t.TempDir(),
-		newStep("verify", withUntrusted(), withExecutorType(registerErrorExecutor(t, exec)))).assertRun(t, ir.Failed)
+		newStep("verify", withUntrusted(), withExecutorType(registerErrorExecutor(t, action)))).assertRun(t, ir.Failed)
 
 	result.assertNodeStatus(t, "verify", ir.NodeFailed)
 	assert.ErrorContains(t, result.nodeByName(t, "verify").Error(), "cannot run as an untrusted step")
-	assert.False(t, exec.ran)
+	assert.False(t, action.ran)
 }
 
 // In a run with an untrusted step, git in a trusted process opens a bare
@@ -174,9 +174,9 @@ func TestUntrustedRunRedirectRefusesLink(t *testing.T) {
 func TestRunAbortedStopsTheRun(t *testing.T) {
 	t.Parallel()
 
-	exec := &errorExecutor{err: fmt.Errorf("end: %w", untrusted.ErrRunAborted)}
+	action := &errorExecutor{err: fmt.Errorf("end: %w", untrusted.ErrRunAborted)}
 	ph := untrustedPlan(t, config.UntrustedConfig{}, t.TempDir(),
-		newStep("verify", withExecutorType(registerErrorExecutor(t, exec)), withContinueOn(ir.ContinueOn{Failure: true})),
+		newStep("verify", withExecutorType(registerErrorExecutor(t, action)), withContinueOn(ir.ContinueOn{Failure: true})),
 		newStep("next", withDepends("verify"), withCommand("true")),
 	)
 	dag := &ir.DAG{Name: "test_dag", WorkingDir: ph.workDir, Steps: ph.steps}
@@ -185,7 +185,7 @@ func TestRunAbortedStopsTheRun(t *testing.T) {
 	err := ph.runner.Run(ctx, ph.Plan, nil)
 
 	require.ErrorIs(t, err, untrusted.ErrRunAborted)
-	assert.True(t, exec.ran)
+	assert.True(t, action.ran)
 	assert.Equal(t, ir.Aborted, ph.runner.Status(ctx, ph.Plan))
 	assert.Equal(t, ir.NodeNotStarted, ph.GetNodeByName("next").State().Status)
 }
