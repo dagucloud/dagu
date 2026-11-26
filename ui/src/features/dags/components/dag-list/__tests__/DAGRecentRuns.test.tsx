@@ -22,9 +22,6 @@ vi.mock('@/hooks/api', () => ({
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
-vi.mock('@/features/dag-runs/lib/useOpenPage', () => ({
-  useOpenPage: () => vi.fn(),
-}));
 
 function Wrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -33,6 +30,8 @@ function Wrapper({ children }: { children: React.ReactNode }) {
     </UserPreferencesProvider>
   );
 }
+
+const openRun = vi.fn();
 
 function activity() {
   return { runs: [], truncated: false };
@@ -49,7 +48,11 @@ describe('DAGRecentRuns', () => {
   it('reads the latest runs again only when the list reads a new activity', () => {
     const first = activity();
     const view = render(
-      <DAGRecentRuns fileName="alpha.yaml" activity={first} />,
+      <DAGRecentRuns
+        fileName="alpha.yaml"
+        activity={first}
+        onOpenRun={openRun}
+      />,
       { wrapper: Wrapper }
     );
     expect(h.reads[0]).toEqual({
@@ -59,11 +62,21 @@ describe('DAGRecentRuns', () => {
       },
     });
 
-    view.rerender(<DAGRecentRuns fileName="alpha.yaml" activity={first} />);
+    view.rerender(
+      <DAGRecentRuns
+        fileName="alpha.yaml"
+        activity={first}
+        onOpenRun={openRun}
+      />
+    );
     expect(h.mutate).not.toHaveBeenCalled();
 
     view.rerender(
-      <DAGRecentRuns fileName="alpha.yaml" activity={activity()} />
+      <DAGRecentRuns
+        fileName="alpha.yaml"
+        activity={activity()}
+        onOpenRun={openRun}
+      />
     );
     expect(h.mutate).toHaveBeenCalledTimes(1);
   });

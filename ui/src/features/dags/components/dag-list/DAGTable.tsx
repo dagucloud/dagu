@@ -2223,6 +2223,7 @@ function DAGTable({
                           <DAGRecentRuns
                             fileName={recentRunsOf}
                             activity={rowActivity?.get(recentRunsOf)}
+                            onOpenRun={openRun}
                           />
                         </TableCell>
                       </TableRow>

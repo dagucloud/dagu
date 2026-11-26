@@ -1476,6 +1476,27 @@ describe('DAGTable', () => {
       expect(within(table).queryByTestId('dag-recent-runs')).toBeNull();
     });
 
+    // A run line opens the run as a bar does: over the list, which keeps
+    // its unfolded rows.
+    it('shows the peek of a run from its line in the recent runs', () => {
+      recentRuns.dagRuns = [run('older', 3 * HOUR)];
+      const peek = { open: vi.fn(), isOpen: false };
+      renderTable('', { peek, dags: [withActivity([run('r1', HOUR)])] });
+      const table = screen.getByRole('table');
+
+      fireEvent.click(within(table).getByTestId('dag-activity-toggle'));
+      fireEvent.click(
+        within(within(table).getByTestId('dag-recent-runs')).getByText('older')
+      );
+
+      expect(peek.open).toHaveBeenCalledWith({
+        dag: 'alpha.yaml',
+        run: 'older',
+      });
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/dags$/);
+      expect(within(table).getByTestId('dag-recent-runs')).toBeInTheDocument();
+    });
+
     it('tells the time of a run next to its status dot', () => {
       recentRuns.dagRuns = [
         run('long', 3 * HOUR),

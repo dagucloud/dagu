@@ -6,8 +6,6 @@ import type { components } from '@/api/v1/schema';
 import RelativeTime from '@/components/ui/relative-time';
 import { StatusDot } from '@/components/ui/status-dot';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
-import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
-import { useOpenPage } from '@/features/dag-runs/lib/useOpenPage';
 import {
   cachedMsOf,
   runDurationMs,
@@ -38,14 +36,16 @@ const MAX_LABELS_SHOWN = 2;
 export function DAGRecentRuns({
   fileName,
   activity,
+  onOpenRun,
 }: {
   fileName: string;
   /** The activity of the workflow that the list holds. */
   activity?: components['schemas']['DAGListActivity'];
+  /** Opens a run of the workflow, as a bar of its row does. */
+  onOpenRun(fileName: string, runId: string, event: React.MouseEvent): void;
 }) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
-  const openPage = useOpenPage();
   const { data, error, isLoading, mutate } = useQuery(
     '/dags/{fileName}/dag-runs',
     {
@@ -64,8 +64,8 @@ export function DAGRecentRuns({
   }, [activity, mutate]);
   const runs = useMemo(() => data?.dagRuns ?? [], [data]);
   const columns = useMemo(() => runColumns(runs), [runs]);
-  const open = (run: string, event?: React.MouseEvent) =>
-    openPage(buildDAGPageURL({ fileName, remoteNode, run }), event);
+  const open = (run: string, event: React.MouseEvent) =>
+    onOpenRun(fileName, run, event);
 
   return (
     <div
@@ -166,7 +166,7 @@ function RunLine({
 }: {
   run: Run;
   columns: RunColumns;
-  onOpen(runId: string, event?: React.MouseEvent): void;
+  onOpen(runId: string, event: React.MouseEvent): void;
 }) {
   const { ts } = useI18n();
   // The time counts the cached time that the run took from other runs.
