@@ -517,9 +517,9 @@ asking.
 Each connect gets a new refresh token from the provider. The token that a
 confirmed reconnect replaces, and the token of a session that expires
 unconfirmed, are revoked where revoking one token leaves the rest of the
-grant. Where it ends the whole grant, as M0 checks for Google, they are left
-unused, and the docs state Google's limit of 100 refresh tokens per account
-and client, past which Google revokes the oldest.
+grant. Where it ends the whole grant, as the tests against Google check,
+they are left unused, and the docs state Google's limit of 100 refresh
+tokens per account and client, past which Google revokes the oldest.
 
 **Remove** takes the connection's lock, revokes the refresh token where the
 provider supports revocation, then deletes both records. A provider may end
@@ -1557,15 +1557,8 @@ account's data, while a route only sends to a channel.
 Rollout, in milestones of pull requests that each work on their own. The
 milestones span this RFC and RFC 026.
 
-- **M0, about a week: test against Google.** Before building on them,
-  confirm:
-  - what Google enforces on 2027-02-01, and for which clients;
-  - which tools send confirmation requests, and how long one stays open;
-  - whether Google's MCP tools carry `readOnlyHint`;
-  - whether a client that does not advertise elicitation is refused;
-  - whether revoking one refresh token ends every token of the account's
-    grant to the client.
-- **M1, before 2027-02-01.**
+- **M1, before 2027-02-01.** It is tested against Google before it ships,
+  as [Verification](#verification-and-acceptance-criteria) lists.
   0. Mask worker log streams. `setupRemoteWriters` writes step output to
      the coordinator without `MaskingWriter`. This is an existing bug that
      already exposes `secrets` values, fixed first and separately.
@@ -1712,9 +1705,24 @@ Steps:
     `confirmation_required` in `mcp.call`, and Try it shows its form. No path
     accepts a request without a person.
 
+Against Google, before M1 ships. Each result changes preset values, docs,
+or a default, not the design:
+
+37. A Google MCP call from a client with the agent flag succeeds, and one
+    without it fails as Google's rules for 2027-02-01 state.
+38. The docs list the tools that send confirmation requests, and how long
+    Google keeps one open.
+39. The docs say whether Google's MCP tools carry `readOnlyHint`. Without it,
+    Try it asks before every tool.
+40. The docs say whether Google refuses a client that does not advertise
+    elicitation, and Dagu's MCP clients advertise what Google needs.
+41. Revoking one refresh token is tested, and Remove and the cleanup of
+    unused tokens follow the result, as [Connect flow](#connect-flow)
+    describes.
+
 All:
 
-37. Every case in [Failure behavior](#failure-behavior) ends as stated.
+42. Every case in [Failure behavior](#failure-behavior) ends as stated.
 
 ## Alternatives considered
 
