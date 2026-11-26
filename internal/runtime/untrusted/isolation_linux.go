@@ -467,6 +467,7 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) (release func(), err 
 	if hasTarget {
 		env = setEnv(env, runenv.EnvKeyDAGUOutputFile, iso.outputCopy)
 	}
+	path, args, cmdDir := cmd.Path, cmd.Args, cmd.Dir
 	envFile, err := iso.viaStartHelper(cmd, dir, env)
 	if err != nil {
 		return nil, stepError(iso.step, "prepare the start of the process", "", err)
@@ -483,7 +484,11 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) (release func(), err 
 	cmd.SysProcAttr.Setctty = false
 	cmd.SysProcAttr.Noctty = false
 	cmd.SysProcAttr.Pgid = 0
-	return func() { _ = envFile.Close() }, nil
+	return func() {
+		_ = envFile.Close()
+		// The caller sees its own command after the start, not the helper's.
+		cmd.Path, cmd.Args, cmd.Dir, cmd.Env, cmd.ExtraFiles = path, args, cmdDir, env, nil
+	}, nil
 }
 
 // closeOnExec marks each descriptor of the process from 3 up close-on-exec.

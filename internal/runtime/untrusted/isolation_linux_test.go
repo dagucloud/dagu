@@ -91,6 +91,9 @@ func runAs(t *testing.T, ctx context.Context, dir, script string, env ...string)
 	process, err := StartManagedProcess(ctx, cmd)
 	require.NoError(t, err)
 	defer func() { _ = process.Release() }()
+	// A caller such as the ACP harness reads the directory after the start.
+	assert.Equal(t, dir, cmd.Dir)
+	assert.Equal(t, []string{"/bin/sh", "-c", script}, cmd.Args)
 	require.NoError(t, process.Wait(), "stderr: %s", stderr.String())
 	return stdout.String()
 }
