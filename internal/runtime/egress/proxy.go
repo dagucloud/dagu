@@ -320,23 +320,23 @@ func (p *Proxy) hasCredential(r *http.Request) bool {
 
 // admit decides for a destination of a request in absolute form or of CONNECT.
 // It writes the answer of a refused request and returns false. A destination of
-// CredentialRules needs the proxy credential.
-func (p *Proxy) admit(w http.ResponseWriter, r *http.Request, host string, port int) bool {
+// CredentialRules needs the proxy credential. The suffix is the one of the allow
+// log line: it names the proxy credential for such a destination.
+func (p *Proxy) admit(w http.ResponseWriter, r *http.Request, host string, port int) (allowed bool, suffix string) {
 	if p.rules.Allows(host, port) {
-		return true
+		return true, ""
 	}
 	if !p.credentialRules.Allows(host, port) {
 		p.deny(w, host, port)
-		return false
+		return false, ""
 	}
 	if !p.hasCredential(r) {
 		p.log("egress proxy: deny %s %s:%d: no valid proxy credential", r.Method, host, port)
 		w.Header().Set("Proxy-Authenticate", `Basic realm="`+proxyRealm+`"`)
 		http.Error(w, fmt.Sprintf("egress proxy: the destination %s:%d needs the proxy credential", host, port), http.StatusProxyAuthRequired)
-		return false
+		return false, ""
 	}
-	p.log("egress proxy: allow %s %s:%d (proxy credential)", r.Method, host, port)
-	return true
+	return true, " (proxy credential)"
 }
 
 // dialAllowed checks the destination and dials the address that the name
@@ -508,12 +508,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		port = parsed
 	}
-	if !p.admit(w, r, host, port) {
+	allowed, suffix := p.admit(w, r, host, port)
+	if !allowed {
 		return
 	}
-	if p.rules.Allows(host, port) {
-		p.log("egress proxy: allow %s %s:%d", r.Method, host, port)
-	}
+	p.log("egress proxy: allow %s %s:%d%s", r.Method, host, port, suffix)
 	p.reverse.ServeHTTP(w, r)
 }
 
@@ -533,7 +532,8 @@ func (p *Proxy) serveConnect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "egress proxy: the port is not valid", http.StatusBadRequest)
 		return
 	}
-	if !p.admit(w, r, host, port) {
+	allowed, suffix := p.admit(w, r, host, port)
+	if !allowed {
 		return
 	}
 	upstream, err := p.dialAllowed(r.Context(), "tcp", net.JoinHostPort(host, portText))
@@ -557,9 +557,7 @@ func (p *Proxy) serveConnect(w http.ResponseWriter, r *http.Request) {
 		_ = upstream.Close()
 		return
 	}
-	if p.rules.Allows(host, port) {
-		p.log("egress proxy: allow CONNECT %s:%d", host, port)
-	}
+	p.log("egress proxy: allow CONNECT %s:%d%s", host, port, suffix)
 	_, _ = io.WriteString(client, "HTTP/1.1 200 Connection Established\r\n\r\n")
 	pipe(client, buffered, upstream, p.tunnelIdle)
 }
