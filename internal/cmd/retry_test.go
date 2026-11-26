@@ -314,6 +314,55 @@ steps:
 		require.Equal(t, ir.TriggerTypeWebhook, latestStatus.TriggerType)
 	})
 
+	t.Run("QueueDispatchKeepsRetryDisabledAndTriggerSubject", func(t *testing.T) {
+		th := test.SetupCommand(t)
+		t.Setenv(runenv.EnvKeyQueueDispatchRetry, "1")
+
+		dagFile := th.DAG(t, `name: queue-dispatch-retry-disabled
+steps:
+  - name: "1"
+    run: echo ok
+`)
+		runID := "queue-dispatch-retry-disabled-run"
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+		logPath := filepath.Join(th.Config.Paths.LogDir, "queue-dispatch-retry-disabled.log")
+		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
+
+		subject := &ir.TriggerSubject{Type: "a2a", ID: "caller"}
+		status := ir.NewStatusBuilder(dagFile.DAG).Create(
+			runID,
+			ir.Queued,
+			0,
+			time.Time{},
+			ir.WithAttemptID(attempt.ID()),
+			ir.WithTriggerType(ir.TriggerTypeWebhook),
+			ir.WithQueuedAt(stringutil.FormatTime(time.Now())),
+			ir.WithLogFilePath(logPath),
+			ir.WithTriggerSubject(subject),
+			ir.WithRetryDisabled(true),
+		)
+		writeStatus(t, th.Context, attempt, status)
+
+		th.RunCommand(t, cmd.Retry(), test.CmdTest{
+			Args: []string{"retry", "--run-id=" + runID, dagFile.Location},
+		})
+
+		latest, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
+		require.NoError(t, err)
+		got, err := latest.ReadStatus(th.Context)
+		require.NoError(t, err)
+		require.Equal(t, ir.Succeeded, got.Status)
+		require.True(t, got.RetryDisabled)
+		require.Equal(t, subject, got.TriggerSubject)
+
+		t.Setenv(runenv.EnvKeyQueueDispatchRetry, "")
+		err = th.RunCommandWithError(t, cmd.Retry(), test.CmdTest{
+			Args: []string{"retry", "--run-id=" + runID, dagFile.Location},
+		})
+		require.ErrorIs(t, err, queue.ErrRetryDisabled)
+	})
+
 	t.Run("QueueDispatchRetryTriggerCreatesNewAttempt", func(t *testing.T) {
 		th := test.SetupCommand(t)
 		t.Setenv(runenv.EnvKeyQueueDispatchRetry, "1")

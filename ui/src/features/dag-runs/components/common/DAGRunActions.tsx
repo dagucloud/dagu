@@ -238,17 +238,21 @@ function DAGRunActions({
         ) ?? 0)
       : 0;
 
+  const retryEligible =
+    isRootLevel &&
+    dagRun?.status !== Status.Running &&
+    dagRun?.status !== Status.Queued &&
+    !isWaiting &&
+    dagRun?.dagRunId !== '';
+  // A finished run that refuses retries keeps a disabled Retry, even where
+  // unavailable actions are hidden, so the reason stays readable.
+  const showRetryDisabledReason = retryEligible && !!dagRun?.retryDisabled;
+
   // Determine which buttons should be enabled based on current status and root level
   const buttonState = {
     terminate: terminateAction !== 'none',
     reject: isRootLevel && isWaiting && hasWaitingApprovals,
-    retry:
-      isRootLevel &&
-      dagRun?.status !== Status.Running &&
-      dagRun?.status !== Status.Queued &&
-      !isWaiting &&
-      !dagRun?.retryDisabled &&
-      dagRun?.dagRunId !== '',
+    retry: retryEligible && !dagRun?.retryDisabled,
     dequeue: isRootLevel && dagRun?.status === Status.Queued,
   };
 
@@ -329,12 +333,19 @@ function DAGRunActions({
         )}
 
         {/* Retry Button */}
-        {(!hideUnavailable || buttonState.retry || !isRootLevel) && (
+        {(!hideUnavailable ||
+          buttonState.retry ||
+          !isRootLevel ||
+          showRetryDisabledReason) && (
           <Tooltip>
             {/* On a sub-run the disabled button cannot take focus, so the
                 wrapper does, letting keyboard users read why. */}
             <TooltipTrigger asChild>
-              <span tabIndex={isRootLevel ? undefined : 0}>
+              <span
+                tabIndex={
+                  !isRootLevel || showRetryDisabledReason ? 0 : undefined
+                }
+              >
                 <ActionButton
                   label={buttonLabel}
                   icon={<RotateCcw className="h-4 w-4" />}
