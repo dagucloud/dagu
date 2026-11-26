@@ -45,7 +45,9 @@ type fakeInventories struct {
 	nodes []inventory.ResolvedNode
 }
 
-func (f fakeInventories) Nodes(context.Context) ([]inventory.ResolvedNode, error) { return f.nodes, nil }
+func (f fakeInventories) Nodes(context.Context) ([]inventory.ResolvedNode, error) {
+	return f.nodes, nil
+}
 
 // fakeWorkers holds fixed worker nodes.
 type fakeWorkers struct {
