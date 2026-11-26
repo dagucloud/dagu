@@ -872,9 +872,9 @@ the coordinator must be upgraded, and the run's other steps run.
   masked from then on.
 - The stdout and stderr logs of a step with at least one secret or
   connection mask text that matches a Google access token,
-  `ya29\.[0-9A-Za-z._-]{20,}`, or a Google refresh token,
-  `1//[0-9A-Za-z_-]{40,}`, unless the match follows a base64 or token
-  character. This includes the output that a worker streams for such a
+  `ya29\.[0-9A-Za-z._-]{20,}`, wherever it occurs, or a Google refresh
+  token, `1//[0-9A-Za-z_-]{40,}`, unless the refresh token match follows a
+  base64 or token character. This includes the output that a worker streams for such a
   step. The patterns apply to those logs only, not to outputs, run status,
   other masked text, or the logs of a step with neither a secret nor a
   connection.
