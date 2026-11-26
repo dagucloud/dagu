@@ -82,7 +82,7 @@ type Step struct {
 type stepKey struct{}
 
 // ancestorKey marks a context inside an untrusted step, also in a child run
-// that the step starts, such as a DAG tool of the tool bridge.
+// that the step starts.
 type ancestorKey struct{}
 
 // WithStep returns ctx with the untrusted step.
