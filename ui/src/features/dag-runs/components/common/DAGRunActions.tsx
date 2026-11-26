@@ -338,8 +338,9 @@ function DAGRunActions({
           !isRootLevel ||
           showRetryDisabledReason) && (
           <Tooltip>
-            {/* On a sub-run the disabled button cannot take focus, so the
-                wrapper does, letting keyboard users read why. */}
+            {/* A disabled button cannot take focus, so on a sub-run or a
+                retry-disabled run the wrapper does, letting keyboard users
+                read why. */}
             <TooltipTrigger asChild>
               <span
                 tabIndex={
