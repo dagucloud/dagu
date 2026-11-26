@@ -2178,7 +2178,7 @@ function DAGTable({
                         row.original?.kind === ItemKind.Group
                           ? 'bg-muted/50 font-semibold cursor-pointer hover:bg-muted/70'
                           : 'cursor-pointer hover:bg-muted/50'
-                      } ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''} group/row ${isDAGRow ? 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring' : ''} ${endsPinnedSection ? 'border-b-2' : ''}`}
+                      } ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''} group/row ${isDAGRow ? 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring' : ''} ${endsPinnedSection && recentRunsOf === null ? 'border-b-2' : ''}`}
                       tabIndex={isDAGRow ? 0 : undefined}
                       onKeyDown={
                         isDAGRow && 'dag' in row.original
@@ -2215,7 +2215,9 @@ function DAGTable({
                       ))}
                     </TableRow>
                     {recentRunsOf !== null && (
-                      <TableRow className="bg-muted/20 hover:bg-muted/20">
+                      <TableRow
+                        className={`bg-muted/20 hover:bg-muted/20 ${endsPinnedSection ? 'border-b-2' : ''}`}
+                      >
                         <TableCell
                           colSpan={instance.getVisibleLeafColumns().length}
                           className="px-2 py-1 pl-12"

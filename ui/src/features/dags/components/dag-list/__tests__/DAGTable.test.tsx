@@ -1497,6 +1497,31 @@ describe('DAGTable', () => {
       expect(within(table).getByTestId('dag-recent-runs')).toBeInTheDocument();
     });
 
+    // The line that ends the pinned rows goes under the runs of the last
+    // pinned row, so that they read as part of that row.
+    it('ends the pinned rows under the runs of an unfolded pinned row', () => {
+      renderTable('', {
+        dags: [
+          {
+            ...workflow({ name: 'reports', pinned: true }),
+            activity: { runs: [run('r1', HOUR)], truncated: false },
+          } as never,
+          withActivity([]),
+        ],
+      });
+      const table = screen.getByRole('table');
+      const row = within(table)
+        .getByRole('link', { name: 'reports' })
+        .closest('tr');
+
+      fireEvent.click(within(row!).getByTestId('dag-activity-toggle'));
+
+      expect(row).not.toHaveClass('border-b-2');
+      expect(
+        within(table).getByTestId('dag-recent-runs').closest('tr')
+      ).toHaveClass('border-b-2');
+    });
+
     it('tells the time of a run next to its status dot', () => {
       recentRuns.dagRuns = [
         run('long', 3 * HOUR),
