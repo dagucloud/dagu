@@ -213,6 +213,24 @@ func TestMaskingWriter_NilMasker(t *testing.T) {
 	assert.Equal(t, input, buf.String())
 }
 
+// A value added to the masker after the writer wraps it is masked in the
+// lines written from then on.
+func TestMaskingWriter_AddedValue(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	masker := NewValueMasker([]string{"first"})
+	writer := NewMaskingWriter(&buf, masker)
+
+	_, err := writer.Write([]byte("first later\n"))
+	require.NoError(t, err)
+	masker.Add("later")
+	_, err = writer.Write([]byte("first later\n"))
+	require.NoError(t, err)
+
+	assert.Equal(t, "******* later\n******* *******\n", buf.String())
+}
+
 func TestMaskingWriter_CloseWithCloser(t *testing.T) {
 	t.Parallel()
 

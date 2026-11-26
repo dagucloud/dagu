@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"unicode/utf16"
 	"unicode/utf8"
 )
@@ -25,12 +27,19 @@ type SourcedEnvVars struct {
 	Secrets []string // Environment variables from secrets
 }
 
-// Masker provides masking functionality for sensitive data
+// Masker provides masking functionality for sensitive data. It is safe for
+// concurrent use.
 type Masker struct {
-	// values finds the values to mask; nil when there are none.
-	values *valueTrie
+	// values finds the values to mask; nil when there are none. Add
+	// replaces it, so a reader loads it once per text.
+	values atomic.Pointer[valueTrie]
 	// patterns match further text to mask, such as token formats.
 	patterns []*regexp.Regexp
+
+	// mu serializes Add.
+	mu sync.Mutex
+	// secrets holds the values given so far, from which Add rebuilds values.
+	secrets []string
 }
 
 // span is a range of text to mask, from start up to end.
@@ -57,6 +66,33 @@ func NewMasker(sources SourcedEnvVars) *Masker {
 // does for the values of environment variables, and every match of
 // patterns. Empty values are ignored.
 func NewValueMasker(values []string, patterns ...*regexp.Regexp) *Masker {
+	m := &Masker{patterns: patterns, secrets: slices.Clone(values)}
+	m.values.Store(newValueTrie(maskForms(m.secrets)))
+	return m
+}
+
+// Add makes m also mask each of values, as NewValueMasker does, in every
+// text masked after Add returns. Writers that already wrap m, such as a
+// MaskingWriter, mask them in the lines they write from then on. Empty
+// values are ignored.
+func (m *Masker) Add(values ...string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	added := false
+	for _, val := range values {
+		if val != "" && !slices.Contains(m.secrets, val) {
+			m.secrets = append(m.secrets, val)
+			added = true
+		}
+	}
+	if added {
+		m.values.Store(newValueTrie(maskForms(m.secrets)))
+	}
+}
+
+// maskForms returns the distinct forms of values to mask: each as written
+// and as it appears inside a JSON string. Empty values are skipped.
+func maskForms(values []string) []string {
 	seen := make(map[string]bool)
 	forms := make([]string, 0, len(values))
 	for _, val := range values {
@@ -71,7 +107,7 @@ func NewValueMasker(values []string, patterns ...*regexp.Regexp) *Masker {
 			}
 		}
 	}
-	return &Masker{values: newValueTrie(forms), patterns: patterns}
+	return forms
 }
 
 // jsonForms returns val and its distinct spellings inside a JSON string:
@@ -134,12 +170,12 @@ func (m *Masker) spans(text string) []span {
 		return nil
 	}
 	var spans []span
-	if m.values != nil {
+	if values := m.values.Load(); values != nil {
 		for i := range len(text) {
-			if !m.values.starts(text[i]) {
+			if !values.starts(text[i]) {
 				continue
 			}
-			if n := m.values.longestPrefix(text[i:]); n > 0 {
+			if n := values.longestPrefix(text[i:]); n > 0 {
 				spans = append(spans, span{start: i, end: i + n})
 			}
 		}

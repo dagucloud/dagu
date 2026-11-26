@@ -5,6 +5,8 @@ package masking
 
 import (
 	"regexp"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -174,6 +176,47 @@ func TestNewValueMasker_JoinsPatternMatches(t *testing.T) {
 	m := NewValueMasker([]string{"key-tok_"}, regexp.MustCompile(`tok_[a-z]+`))
 
 	assert.Equal(t, "use *******!", m.MaskString("use key-tok_abc!"))
+}
+
+func TestMasker_Add(t *testing.T) {
+	t.Parallel()
+
+	m := NewValueMasker([]string{"first"})
+	m.Add("", `later"value`)
+
+	assert.Equal(t, `******* ******* {"k":"*******"}`, m.MaskString(`first later"value {"k":"later\"value"}`))
+}
+
+// Masking goroutines keep hiding the values held before Add while Add runs,
+// and the race detector checks that Add is safe beside them.
+func TestMasker_AddWhileMasking(t *testing.T) {
+	t.Parallel()
+
+	m := NewValueMasker([]string{"first"})
+	added := []string{"second", "third", "fourth"}
+	text := "first " + strings.Join(added, " ")
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				assert.NotContains(t, m.MaskString(text), "first")
+			}
+		})
+	}
+
+	for _, value := range added {
+		m.Add(value)
+	}
+	close(stop)
+	wg.Wait()
+
+	assert.Equal(t, "******* ******* ******* *******", m.MaskString(text))
 }
 
 func TestMasker_MaskBytes(t *testing.T) {
