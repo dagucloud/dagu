@@ -80,6 +80,18 @@ describe('DAGSlotsView', () => {
     });
   });
 
+  it('picks a run of slots with Shift', () => {
+    renderView();
+
+    fireEvent.click(screen.getByRole('button', { name: /· Succeeded$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /· Failed$/ }), {
+      shiftKey: true,
+    });
+    expect(
+      screen.getByRole('button', { name: 'Backfill 3 slots' })
+    ).toBeInTheDocument();
+  });
+
   // A slot of a DAG with dates is labeled by the date it loads, and its
   // row by that date's month, so choosing October chooses the cells that
   // load October. Its name tells every date and how its run started.
