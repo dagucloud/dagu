@@ -13,6 +13,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	fileserviceregistry "github.com/dagucloud/dagu/v2/internal/persis/file/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
@@ -42,6 +44,7 @@ type ServerStores struct {
 	cfg     *config.Config
 	backend *Backend
 	pauses  *store.SchedulerPauseStore
+	owners  *filedag.Owners
 
 	encryptorMu sync.Mutex
 	encryptor   *crypto.Encryptor
@@ -76,7 +79,18 @@ func NewServerStores(cfg *config.Config) *ServerStores {
 		cfg:                       cfg,
 		backend:                   backend,
 		pauses:                    pauses,
+		owners: filedag.NewOwners(filedag.OwnerDirs{
+			DAGsDir:     cfg.Paths.DAGsDir,
+			ProjectsDir: cfg.Paths.ProjectsDir,
+			Library:     cfg.Paths.AltDAGsDir,
+		}, projectregistry.New(cfg.Paths.DataDir), nil),
 	}
+}
+
+// DAGOwners tells which project or library a DAG file belongs to, by the
+// paths and the project registry in effect.
+func (s *ServerStores) DAGOwners() *filedag.Owners {
+	return s.owners
 }
 
 // Encryptor returns the encryptor of the server's key, which every project
