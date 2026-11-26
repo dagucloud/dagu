@@ -227,10 +227,12 @@ func TestReviewForkHopIsKilled(t *testing.T) {
 }
 
 // stopperSource waits 500 ms, so that the shell that starts it can end, then
-// sends SIGSTOP to each process of its user from four threads for 45 s.
-// kill(-1) spares the thread group of the caller.
+// sends SIGSTOP to each process of its user from four threads for 45 s, and
+// makes the file of its argument once they run. kill(-1) spares the thread
+// group of the caller.
 const stopperSource = `#include <pthread.h>
 #include <signal.h>
+#include <stdio.h>
 #include <time.h>
 #include <unistd.h>
 static void *stop(void *arg) {
@@ -239,10 +241,13 @@ static void *stop(void *arg) {
 	while (time(0) < end) kill(-1, SIGSTOP);
 	return 0;
 }
-int main(void) {
+int main(int argc, char **argv) {
+	if (argc < 2) return 2;
 	usleep(500000);
 	pthread_t t[4];
 	for (int i = 0; i < 4; i++) pthread_create(&t[i], 0, stop, 0);
+	FILE *f = fopen(argv[1], "w");
+	if (f) fclose(f);
 	for (int i = 0; i < 4; i++) pthread_join(t[i], 0);
 	return 0;
 }
@@ -278,7 +283,15 @@ func TestReviewStopperBlocksNoStart(t *testing.T) {
 	step, err := beginStep(t, ctx, testRequest(t, workDir, repo))
 	require.NoError(t, err)
 	stepCtx := WithStep(ctx, step)
-	runAs(t, stepCtx, repo, bin+" </dev/null >/dev/null 2>&1 &")
+	// The stopper makes its marker in /tmp, which any user can write.
+	marker := filepath.Join(os.TempDir(), "dagu-review-stopper-"+strconv.Itoa(os.Getpid()))
+	_ = os.Remove(marker)
+	t.Cleanup(func() { _ = os.Remove(marker) })
+	runAs(t, stepCtx, repo, bin+" "+marker+" </dev/null >/dev/null 2>&1 &")
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(marker)
+		return err == nil
+	}, 5*time.Second, 20*time.Millisecond, "the stopper does not run")
 
 	// Up to 200 starts in 3 s, while the stopper runs. A blocked start shows
 	// within startTimeout and 10 s of slack.
