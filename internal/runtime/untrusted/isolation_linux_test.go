@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -211,6 +212,34 @@ func TestTaskOfUser(t *testing.T) {
 	assert.True(t, taskOfUser(status, 64011))
 	assert.False(t, taskOfUser(status, 64012))
 	assert.False(t, taskOfUser(strings.Replace(status, "S (sleeping)", "Z (zombie)", 1), 64011))
+}
+
+// killTaskGroup kills a process only while it has a task of the user, so a PID
+// that a process of another user took since the scan is spared. Each process
+// then gets SIGTERM: one that SIGKILL already reached ends with SIGKILL, as the
+// kernel drops a signal to a dying process.
+func TestKillTaskGroup(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		uid  uint32
+		want syscall.Signal
+	}{
+		"owner":      {uid: uint32(os.Getuid()), want: syscall.SIGKILL},
+		"other user": {uid: testUID, want: syscall.SIGTERM},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			sleep := exec.Command("/bin/sleep", "60")
+			require.NoError(t, sleep.Start())
+			killTaskGroup(sleep.Process.Pid, tc.uid)
+			require.NoError(t, sleep.Process.Signal(syscall.SIGTERM))
+			var exitErr *exec.ExitError
+			require.ErrorAs(t, sleep.Wait(), &exitErr)
+			status, ok := exitErr.Sys().(syscall.WaitStatus)
+			require.True(t, ok)
+			assert.Equal(t, tc.want, status.Signal())
+		})
+	}
 }
 
 // The parser of /proc/self/status reads the effective user ID, the effective

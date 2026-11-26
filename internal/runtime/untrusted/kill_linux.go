@@ -15,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // Spec 103, "Isolation", rule 7: Dagu sends SIGKILL to each process of the restricted user
@@ -133,11 +135,32 @@ func killTaskGroups(uid uint32) {
 		return
 	}
 	for _, pid := range pids {
+		killTaskGroup(pid, uid)
+	}
+}
+
+// killTaskGroup sends SIGKILL to the thread group pid only while it has a live
+// task of the user. The PID can be reused since the scan: the check runs after
+// the pidfd is open, so a PID reused before the open fails the check, and one
+// reused after it gets no signal.
+func killTaskGroup(pid int, uid uint32) {
+	fd, err := unix.PidfdOpen(pid, 0)
+	if errors.Is(err, unix.ENOSYS) {
+		// Linux before 5.3 has no pidfd.
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 		for _, tid := range liveTasks(pid, uid) {
 			_ = syscall.Tgkill(pid, tid, syscall.SIGKILL)
 		}
+		return
 	}
+	if err != nil {
+		return
+	}
+	defer func() { _ = unix.Close(fd) }()
+	if len(liveTasks(pid, uid)) == 0 {
+		return
+	}
+	_ = unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0)
 }
 
 // userProcesses returns each thread group that has a live task with the user ID
