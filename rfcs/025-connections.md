@@ -383,10 +383,12 @@ into the binary and served by `GET /connection-providers`.
 
 The scope sets follow Google's MCP setup guide. For example, `gmail` with
 `read` asks for `gmail.readonly`, and with `write` it adds `gmail.compose`
-and `gmail.modify`. Every Google connection also asks for `openid` and
-`email`, so Dagu can show the account. Gmail's MCP server has no send tool,
-so sending stays with `mail.send` on a mail account that uses a standard,
-non-agent connection. Google also has a `mailbox` preset, with no MCP
+and `gmail.modify`. Every Google connection that signs in a user also asks
+for `openid` and `email`, so Dagu can show the account. A service account
+asks for neither: it acts as its `subject`, and domain-wide delegation
+refuses a scope the Workspace admin did not allow. Gmail's MCP server has
+no send tool, so sending stays with `mail.send` on a mail account that uses
+a standard, non-agent connection. Google also has a `mailbox` preset, with no MCP
 endpoint, for IMAP and SMTP at `imap.gmail.com` and `smtp.gmail.com`. Those
 need the full `https://mail.google.com/` scope, which `gmail` does not ask
 for.
