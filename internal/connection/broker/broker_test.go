@@ -259,6 +259,43 @@ func TestReasonsRedactSecrets(t *testing.T) {
 	}
 }
 
+// A status hook may ask the same broker for a token that needs a refresh:
+// the hook runs after the call has given up its turn at the gate, so the
+// nested call does not wait for the call that runs the hook.
+func TestStatusHookCallsBroker(t *testing.T) {
+	t.Parallel()
+	var f *fixture
+	f = newFixture(t, func(w http.ResponseWriter, r tokenRequest) {
+		if r.refreshToken == "rt-1" {
+			tokenError(w, http.StatusBadRequest, "invalid_grant", "")
+			return
+		}
+		grantToken(w, "at-2", "rt-2")
+	})
+	var b *broker.Broker
+	nested := make(chan string, 1)
+	b = f.process(t, func(cfg *broker.Config) {
+		cfg.OnStatusChange = func(ctx context.Context, _ broker.StatusChange) {
+			// A reconnect leaves an expired token, so the nested call
+			// refreshes through the gate.
+			f.update(t, func(st *connection.TokenState) {
+				st.Status = connection.TokenStatusConnected
+				st.Generation++
+				st.RefreshToken = "rt-2"
+			})
+			ctx, cancel := context.WithTimeout(ctx, tokenTimeout)
+			defer cancel()
+			token, _, err := b.Token(ctx, f.conn, "", minTTL)
+			assert.NoError(t, err)
+			nested <- token
+		}
+	})
+
+	_, _, err := b.Token(f.ctx(t), f.conn, "", minTTL)
+	require.ErrorIs(t, err, broker.ErrReconnectRequired)
+	assert.Equal(t, "at-2", <-nested)
+}
+
 // The provider refuses the refresh token while another host rotates it.
 func TestInvalidGrantRetriesRotated(t *testing.T) {
 	t.Parallel()
