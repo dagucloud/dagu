@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"sync/atomic"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -50,17 +51,17 @@ func skipWithoutPosixShell(t *testing.T) {
 	}
 }
 
-// errorExecutor returns err from Run and records that Run ran.
+// errorExecutor returns err from Run and counts the runs.
 type errorExecutor struct {
-	err error
-	ran bool
+	err  error
+	runs atomic.Int32
 }
 
 func (e *errorExecutor) SetStdout(io.Writer)  {}
 func (e *errorExecutor) SetStderr(io.Writer)  {}
 func (e *errorExecutor) Kill(os.Signal) error { return nil }
 func (e *errorExecutor) Run(context.Context) error {
-	e.ran = true
+	e.runs.Add(1)
 	return e.err
 }
 
@@ -122,7 +123,7 @@ func TestUntrustedStepNeedsUntrustedRunner(t *testing.T) {
 
 	result.assertNodeStatus(t, "verify", ir.NodeFailed)
 	assert.ErrorContains(t, result.nodeByName(t, "verify").Error(), "cannot run as an untrusted step")
-	assert.False(t, action.ran)
+	assert.Zero(t, action.runs.Load())
 }
 
 // In a run with an untrusted step, git in a trusted process opens a bare
@@ -171,23 +172,41 @@ func TestUntrustedRunRedirectRefusesLink(t *testing.T) {
 
 // A step error that marks the run as unsafe fails the step and stops the run:
 // a later step does not start, even when the failed step lets the run
-// continue.
+// continue. In the body of a foreach step, the error also keeps the next item
+// from running its body.
 func TestRunAbortedStopsTheRun(t *testing.T) {
 	t.Parallel()
 
-	action := &errorExecutor{err: fmt.Errorf("end: %w", untrusted.ErrRunAborted)}
-	ph := untrustedPlan(t, config.UntrustedConfig{}, t.TempDir(),
-		newStep("verify", withExecutorType(registerErrorExecutor(t, action)), withContinueOn(ir.ContinueOn{Failure: true})),
-		newStep("next", withDepends("verify"), withCommand("true")),
-	)
-	dag := &ir.DAG{Name: "test_dag", WorkingDir: ph.workDir, Steps: ph.steps}
-	ctx := runtime.NewContext(ph.Context, dag, ph.cfg.DAGRunID, filepath.Join(ph.cfg.LogDir, "run.log"), ph.contextOpts...)
+	for name, inForeach := range map[string]bool{"step": false, "foreach body": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	err := ph.runner.Run(ctx, ph.Plan, nil)
+			action := &errorExecutor{err: fmt.Errorf("end: %w", untrusted.ErrRunAborted)}
+			actionType := registerErrorExecutor(t, action)
+			continueOn := withContinueOn(ir.ContinueOn{Failure: true})
+			verify := newStep("verify", withExecutorType(actionType), continueOn)
+			if inForeach {
+				verify = newStep("verify", withExecutorType(ir.ExecutorTypeForeach), continueOn)
+				verify.Foreach = &ir.ForeachConfig{
+					Items:         []any{"a", "b"},
+					MaxConcurrent: 1,
+					Steps:         []ir.Step{newStep("agent", withExecutorType(actionType))},
+				}
+			}
+			ph := untrustedPlan(t, config.UntrustedConfig{}, t.TempDir(),
+				verify,
+				newStep("next", withDepends("verify"), withCommand("true")),
+			)
+			dag := &ir.DAG{Name: "test_dag", WorkingDir: ph.workDir, Steps: ph.steps}
+			ctx := runtime.NewContext(ph.Context, dag, ph.cfg.DAGRunID, filepath.Join(ph.cfg.LogDir, "run.log"), ph.contextOpts...)
 
-	require.ErrorIs(t, err, untrusted.ErrRunAborted)
-	assert.True(t, action.ran)
-	assert.Equal(t, ir.Aborted, ph.runner.Status(ctx, ph.Plan))
-	assert.Equal(t, ir.NodeFailed, ph.GetNodeByName("verify").State().Status)
-	assert.Equal(t, ir.NodeNotStarted, ph.GetNodeByName("next").State().Status)
+			err := ph.runner.Run(ctx, ph.Plan, nil)
+
+			require.ErrorIs(t, err, untrusted.ErrRunAborted)
+			assert.Equal(t, int32(1), action.runs.Load())
+			assert.Equal(t, ir.Aborted, ph.runner.Status(ctx, ph.Plan))
+			assert.Equal(t, ir.NodeFailed, ph.GetNodeByName("verify").State().Status)
+			assert.Equal(t, ir.NodeNotStarted, ph.GetNodeByName("next").State().Status)
+		})
+	}
 }
