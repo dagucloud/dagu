@@ -449,3 +449,30 @@ func TestProjectDispatch(t *testing.T) {
 		require.Nil(t, client.task)
 	}
 }
+
+// A retry, a restart, or a start from a past run refreshes SMTP from the
+// base config of the run's project: base.yaml in a project's DAG directory,
+// and paths.base_config only in the default project.
+func TestRestoreRunDAGUsesProjectBaseConfig(t *testing.T) {
+	h := newProjectsHome(t, true)
+	for path, host := range map[string]string{
+		filepath.Join(h.home, "base.yaml"):                        "server.example",
+		filepath.Join(h.dags, "projects", "weather", "base.yaml"): "weather.example",
+	} {
+		require.NoError(t, os.WriteFile(path, []byte("smtp:\n  host: "+host+"\n"), 0o600))
+	}
+
+	for projectName, want := range map[string]string{"weather": "weather.example", "": "server.example"} {
+		ctx, err := NewContext(h.command(t, "retry", projectName), nil)
+		require.NoError(t, err)
+		dag := &ir.DAG{
+			Name:           "forecast",
+			YamlData:       []byte("steps:\n  - run: echo ok\n"),
+			BaseConfigData: []byte("smtp:\n  host: old.example\n"),
+		}
+		restored, err := ctx.restoreRunDAG(dag, &ir.DAGRunStatus{})
+		require.NoError(t, err)
+		require.NotNil(t, restored.SMTP)
+		assert.Equal(t, want, restored.SMTP.Host, "project %q", projectName)
+	}
+}

@@ -230,6 +230,13 @@ func boundStartSchedules(ctx *Context, dag *ir.DAG) []ir.Schedule {
 	return schedules
 }
 
+// restoreRunDAG restores a DAG of the addressed project from a previous run's
+// status and YAML, as restoreDAGFromStatus does, with SMTP from the
+// project's base config.
+func (c *Context) restoreRunDAG(dag *ir.DAG, status *ir.DAGRunStatus) (*ir.DAG, error) {
+	return restoreDAGFromStatus(c.Context, dag, status, c.Persistence.DAGRunRepository, c.projectBaseConfigOptions())
+}
+
 // restoreDAGFromStatus restores a DAG from a previous run's status and YAML.
 // It restores params from the status, loads dotenv, and rebuilds fields excluded
 // from JSON serialization (env, params JSON, registryAuths, etc.). SMTP is

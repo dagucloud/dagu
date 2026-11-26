@@ -269,7 +269,7 @@ func runStart(ctx *Context, args []string) error {
 		}
 
 		params = status.Params
-		dag, err = restoreDAGFromStatus(ctx.Context, snapshot, status, ctx.Persistence.DAGRunRepository, ctx.projectBaseConfigOptions())
+		dag, err = ctx.restoreRunDAG(snapshot, status)
 		if err != nil {
 			return fmt.Errorf("failed to restore DAG from status: %w", err)
 		}
