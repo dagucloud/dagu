@@ -4,6 +4,7 @@
 package skill
 
 import (
+	"io/fs"
 	"testing"
 	"time"
 )
@@ -20,6 +21,9 @@ func HashFiles(files []File) string {
 	}
 	return hashLines(lines)
 }
+
+// ChangeTime is the status change time that the cache records for a file.
+func ChangeTime(info fs.FileInfo) time.Time { return changeTime(info) }
 
 // CacheCost is the memory that the cache counts for a read.
 func CacheCost(s *Skill) int64 { return cacheCost("", s) }

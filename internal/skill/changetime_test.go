@@ -24,11 +24,21 @@ func TestReadSeesAnEditThatKeepsTheTimeStamp(t *testing.T) {
 	file := filepath.Join(dir, "references", "a.md")
 	old := time.Now().Add(-time.Hour)
 	require.NoError(t, os.Chtimes(file, old, old))
+	info, err := os.Lstat(file)
+	require.NoError(t, err)
+	cached := skill.ChangeTime(info)
 	first, err := skill.Read(dir)
 	require.NoError(t, err)
 
-	require.NoError(t, os.WriteFile(file, []byte("two"), 0o644))
-	require.NoError(t, os.Chtimes(file, old, old))
+	// A coarse file system clock (Linux before 6.13) can give the edit the
+	// cached ctime, so the edit repeats until the ctime moves.
+	require.Eventually(t, func() bool {
+		if os.WriteFile(file, []byte("two"), 0o644) != nil || os.Chtimes(file, old, old) != nil {
+			return false
+		}
+		info, err := os.Lstat(file)
+		return err == nil && !skill.ChangeTime(info).Equal(cached)
+	}, 5*time.Second, time.Millisecond)
 	next, err := skill.Read(dir)
 	require.NoError(t, err)
 	require.NotEqual(t, first.Hash, next.Hash)
