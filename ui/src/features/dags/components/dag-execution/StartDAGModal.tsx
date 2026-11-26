@@ -37,7 +37,11 @@ import {
 } from 'lucide-react';
 import React from 'react';
 
-import { components, RuntimeProfileStatus } from '../../../../api/v1/schema';
+import {
+  components,
+  InventoryNodeKind,
+  RuntimeProfileStatus,
+} from '../../../../api/v1/schema';
 import { DAGParamsFields, useDAGParamsForm } from './DAGParamsForm';
 import { SlotDatesPreview } from './SlotDatesPreview';
 import type { StartRequest } from './startRequest';
@@ -126,11 +130,12 @@ function BoundNodeField({
         }
       : null
   );
-  // A disabled node fails a bound run, so it is not suggested.
+  // A disabled node fails a bound run, so it is not suggested, and a run
+  // binds only to an SSH node.
   const suggestions = React.useMemo(
     () =>
       (data?.nodes ?? [])
-        .filter((node) => !node.disabled)
+        .filter((node) => !node.disabled && node.kind === InventoryNodeKind.ssh)
         .map((node) => node.name),
     [data]
   );

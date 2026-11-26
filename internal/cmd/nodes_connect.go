@@ -68,8 +68,8 @@ type nodeTester interface {
 // nodesTester returns every node, and the tester that reaches them.
 func nodesTester(ctx *Context) ([]inventory.ResolvedNode, nodeTester, error) {
 	if ctx.IsRemote() {
-		nodes, err := ctx.Remote.remoteNodes(ctx, nil, "")
-		return nodes, remoteTester{client: ctx.Remote}, err
+		listing, err := ctx.Remote.remoteNodes(ctx, nil, "")
+		return listing.nodes, remoteTester{client: ctx.Remote}, err
 	}
 	stores, err := ctx.nodeStores()
 	if err != nil {

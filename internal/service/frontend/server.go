@@ -698,6 +698,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	if stores.HostKeys != nil {
 		apiOpts = append(apiOpts, apiv1.WithHostKeyStore(stores.HostKeys))
 	}
+	if stores.WorkerNodes != nil {
+		apiOpts = append(apiOpts, apiv1.WithWorkerNodeStore(stores.WorkerNodes))
+	}
 
 	var notificationSvc *notificationservice.Service
 	if stores.Notification != nil && eventSvc != nil && stores.NotificationState != nil {

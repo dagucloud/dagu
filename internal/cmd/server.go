@@ -572,6 +572,7 @@ func cloudReportEvents(ctx *Context) cloudreport.Events {
 			dags: ctx.Persistence.DAGRepository, runs: ctx.Persistence.DAGRunRepository, history: ctx.DAGRunMgr,
 			backoff: ctx.Persistence.RestartBackoffStore, pause: ctx.Persistence.SchedulerPauseStore,
 		},
+		RunKeySet: ctx.Config.Cloud.RunKey != "",
 	}
 }
 

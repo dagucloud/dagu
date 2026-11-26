@@ -155,7 +155,9 @@ costs a report Console keeps once; taking a stopped one for live would lose
 the run, hence a window far shorter than the lease's own minute.
 
 A run key of a workspace other than the server's is not told apart: while
-the server reports, its runs go only to the server's workspace.
+the server reports, its runs go only to the server's workspace. A run key on
+a server is a misconfiguration, so the server warns when it takes the lease
+while one is set, naming the setting and not the value.
 
 ### What it sends
 

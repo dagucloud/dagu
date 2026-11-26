@@ -249,17 +249,17 @@ func TestInventoryAPI_Node(t *testing.T) {
 	assert.Equal(t, apigen.GetInventoryNode200JSONResponse{
 		Name:      "tokyo-db01",
 		Kind:      apigen.InventoryNodeKindSsh,
-		Inventory: apigen.InventoryRef{Id: node.Inventory.Id, Name: "Tokyo production"},
+		Inventory: &apigen.InventoryRef{Id: node.Inventory.Id, Name: "Tokyo production"},
 		Host:      "db01.internal",
-		Port:      2222,
+		Port:      new(2222),
 		User:      new("postgres"),
-		Auth: apigen.InventoryNodeAuth{
+		Auth: &apigen.InventoryNodeAuth{
 			KeyPath:          new("/etc/dagu/keys/db"),
 			PassphraseSecret: new("ssh/db-passphrase"),
 		},
 		Bastion:       new("tokyo-jump"),
-		StrictHostKey: true,
-		Timeout:       "30s",
+		StrictHostKey: new(true),
+		Timeout:       new("30s"),
 		Labels:        []string{"db", "env=prod", "site=tokyo"},
 		Disabled:      false,
 	}, node)
@@ -268,7 +268,7 @@ func TestInventoryAPI_Node(t *testing.T) {
 	require.NoError(t, err)
 	node, ok = resp.(apigen.GetInventoryNode200JSONResponse)
 	require.True(t, ok, "expected 200, got %T", resp)
-	assert.Equal(t, apigen.InventoryNodeAuth{KeySecret: new("ssh/tokyo")}, node.Auth, "a default key reaches the node")
+	assert.Equal(t, &apigen.InventoryNodeAuth{KeySecret: new("ssh/tokyo")}, node.Auth, "a default key reaches the node")
 
 	resp, err = api.GetInventoryNode(ctx, apigen.GetInventoryNodeRequestObject{NodeName: "nagoya-web01"})
 	require.NoError(t, err)

@@ -44,6 +44,7 @@ const (
 	CollectionWebhooks              = "webhooks"
 	CollectionWebhookDAGClaims      = "webhook_dag_claims"
 	CollectionWorkerHeartbeats      = "worker_heartbeats"
+	CollectionWorkerNodes           = "worker_nodes"
 	CollectionWorkspaces            = "workspaces"
 )
 

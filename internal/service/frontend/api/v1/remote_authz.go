@@ -244,6 +244,7 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"TestInventoryNodeConnections": remoteNodeAccessDenied,
 	"TestNewInventoryNode":         remoteNodeAccessDenied,
 	"TrustInventoryNodeHostKeys":   remoteNodeAccessDenied,
+	"ForgetWorkerNode":             remoteNodeAccessDenied,
 }
 
 // remoteNodeProfileOperations take a runtime profile in the request body.
