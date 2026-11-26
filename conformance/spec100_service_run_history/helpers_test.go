@@ -102,7 +102,8 @@ func (p *project) env() []string {
 func (p *project) startScheduler() *harness.Process {
 	p.t.Helper()
 	// Each scheduler has its own health port: the tests run in parallel.
-	env := append(p.env(), fmt.Sprintf("DAGU_SCHEDULER_PORT=%d", harness.FreePort(p.t)))
+	// Debug output tells why the scheduler starts no run; logState prints it.
+	env := append(p.env(), fmt.Sprintf("DAGU_SCHEDULER_PORT=%d", harness.FreePort(p.t)), "DAGU_DEBUG=true")
 	proc := p.dagu.StartWithEnv(env, "scheduler", "--dags="+p.dags)
 	p.schedulers = append(p.schedulers, proc)
 	select {

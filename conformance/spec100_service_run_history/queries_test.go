@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -90,8 +91,12 @@ func TestActivityInDAGList(t *testing.T) {
 	p.dagu.RunWithEnv(p.env(), "start", "--run-id=plain-1", "mixed/plain.yaml").ExpectExitCode(0)
 	p.startScheduler()
 
+	// last is the page that the poll read last. A poll still in flight when
+	// the wait ends can write it, so it is stored atomically.
+	var last atomic.Pointer[api.DAGListActivityPage]
 	list := func() map[string]*api.DAGListActivity {
 		resp := getJSON[api.DAGListActivityPage](p, http.StatusOK, "/dag-list-activity", url.Values{"window": {"86400"}, "fileName": {"service_ok", "plain"}})
+		last.Store(&resp)
 		byName := map[string]*api.DAGListActivity{}
 		for _, entry := range resp.Dags {
 			byName[entry.FileName] = &entry.Activity
@@ -110,9 +115,9 @@ func TestActivityInDAGList(t *testing.T) {
 		}
 		return n >= 2
 	}, wait, poll, "no buckets in the activity of the service DAG") {
-		last, err := json.Marshal(activity)
+		page, err := json.Marshal(last.Load())
 		require.NoError(t, err)
-		t.Logf("last activity of service_ok: %s", last)
+		t.Logf("last activity page: %s", page)
 		p.logState("service_ok")
 		t.FailNow()
 	}
