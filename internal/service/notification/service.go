@@ -519,7 +519,9 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 	if event.Status.BackfillID != "" && event.Type != eventstore.TypeDAGRunWaiting {
 		return nil
 	}
-	if _, state := eventWorkspace(event); state == workspace.WorkspaceLabelInvalid {
+	// While projects are on, a workspace label is an ordinary label, so a
+	// malformed one stops nothing.
+	if _, state := eventWorkspace(event); state == workspace.WorkspaceLabelInvalid && !s.projectsEnabled {
 		return nil
 	}
 	ctx := context.Background()
@@ -1257,7 +1259,7 @@ func (s *Service) routeSetDestinationsForEvent(
 
 func (s *Service) effectiveRouteSetForEvent(ctx context.Context, event chatbridge.NotificationEvent) *notificationmodel.RouteSet {
 	workspaceName, state := eventWorkspace(event)
-	if state == workspace.WorkspaceLabelInvalid {
+	if state == workspace.WorkspaceLabelInvalid && !s.projectsEnabled {
 		return nil
 	}
 	if workspaceName != "" && !s.projectsEnabled {

@@ -393,7 +393,7 @@ func (s *Service) NotificationDestinations() []string {
 }
 
 func (s *Service) NotificationDestinationsForEvent(event chatbridge.NotificationEvent) []string {
-	if !s.incidentsAllowed() || !incidentEventSupported(event) {
+	if !s.incidentsAllowed() || !s.incidentEventSupported(event) {
 		return nil
 	}
 	if isRecoveryEvent(event.Type) {
@@ -428,7 +428,7 @@ func (s *Service) resolveDestinationsForEvent(ctx context.Context, event chatbri
 	}
 	destinations := make([]string, 0, len(states))
 	for _, state := range states {
-		if !stateMatchesEvent(state, event) {
+		if !s.stateMatchesEvent(state, event) {
 			continue
 		}
 		if state.ProviderID == "" || state.DedupKey == "" {
@@ -504,7 +504,7 @@ func (s *Service) deliverIncidentEvent(
 	provider *incidentmodel.Provider,
 	event chatbridge.NotificationEvent,
 ) bool {
-	if !incidentEventSupported(event) || !policyMatchesEvent(policy, event.Type) {
+	if !s.incidentEventSupported(event) || !policyMatchesEvent(policy, event.Type) {
 		return true
 	}
 	if effective := s.effectivePolicySetForEvent(ctx, event); policySetID(effective) != policySetID(policySet) {
@@ -609,7 +609,7 @@ func (s *Service) resolveIncident(ctx context.Context, provider *incidentmodel.P
 	if state.Status != incidentmodel.IncidentStatusOpen {
 		return true
 	}
-	if !stateMatchesEvent(state, event) {
+	if !s.stateMatchesEvent(state, event) {
 		return true
 	}
 	delivery, err := s.withRetry(ctx, func() (*providerDeliveryResult, error) {
@@ -725,13 +725,15 @@ func isRecoveryEvent(eventType eventstore.EventType) bool {
 		eventType == eventstore.TypeDAGRunPartiallySucceeded
 }
 
-func incidentEventSupported(event chatbridge.NotificationEvent) bool {
+func (s *Service) incidentEventSupported(event chatbridge.NotificationEvent) bool {
 	// An incident follows a DAG's live state, which a backfill run of an
 	// old slot does not change.
 	if event.Status == nil || event.Status.Name == "" || event.Status.BackfillID != "" {
 		return false
 	}
-	if _, state := eventWorkspace(event); state == workspace.WorkspaceLabelInvalid {
+	// While projects are on, a workspace label is an ordinary label, so a
+	// malformed one stops nothing.
+	if _, state := eventWorkspace(event); state == workspace.WorkspaceLabelInvalid && !s.projectsEnabled {
 		return false
 	}
 	if event.Type == eventstore.TypeDAGRunFailed {
@@ -762,9 +764,15 @@ func eventWorkspace(event chatbridge.NotificationEvent) (string, workspace.Works
 	return workspace.WorkspaceLabelFromLabels(ir.NewLabels(event.Status.Labels))
 }
 
-func stateMatchesEvent(state *incidentmodel.IncidentState, event chatbridge.NotificationEvent) bool {
+// stateMatchesEvent reports whether event is a run of the DAG whose
+// incident state is state. While projects are on, a DAG name is unique in
+// its project, and the workspace label takes no part.
+func (s *Service) stateMatchesEvent(state *incidentmodel.IncidentState, event chatbridge.NotificationEvent) bool {
 	if state == nil || event.Status == nil || state.DAGName != event.Status.Name {
 		return false
+	}
+	if s.projectsEnabled {
+		return true
 	}
 	workspaceName, workspaceState := eventWorkspace(event)
 	return workspaceState != workspace.WorkspaceLabelInvalid && state.Workspace == workspaceName

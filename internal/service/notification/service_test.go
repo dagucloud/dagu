@@ -1631,9 +1631,18 @@ func TestService_ProjectsIgnoreWorkspaceRoutes(t *testing.T) {
 		assert.Equal(t, []string{want}, svc.NotificationDestinationsForEvent(event), "projects on: %t", projectsOn)
 	}
 
-	batch := chatbridge.NotificationBatch{Events: []chatbridge.NotificationEvent{event}}
-	require.True(t, New(store, nil, WithProjectsEnabled(true)).FlushNotificationBatch(context.Background(), projectRoute, batch, false))
-	assert.Equal(t, int32(1), requestCount.Load())
+	// A malformed workspace label is an ordinary label while projects are
+	// on, and stops every delivery while they are off.
+	malformed := event
+	malformed.Status = &ir.DAGRunStatus{Name: "daily-report", Status: ir.Failed, Labels: []string{"workspace=ops", "workspace=engineering"}}
+	assert.Equal(t, []string{projectRoute}, New(store, nil, WithProjectsEnabled(true)).NotificationDestinationsForEvent(malformed))
+	assert.Empty(t, New(store, nil).NotificationDestinationsForEvent(malformed))
+
+	for i, sent := range []chatbridge.NotificationEvent{event, malformed} {
+		batch := chatbridge.NotificationBatch{Events: []chatbridge.NotificationEvent{sent}}
+		require.True(t, New(store, nil, WithProjectsEnabled(true)).FlushNotificationBatch(context.Background(), projectRoute, batch, false))
+		assert.Equal(t, int32(i+1), requestCount.Load())
+	}
 }
 
 func TestService_ConfiguredWorkspaceWithoutRoutesSuppressesGlobalRoutes(t *testing.T) {

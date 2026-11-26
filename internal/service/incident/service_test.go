@@ -6,6 +6,7 @@ package incident
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -313,6 +314,47 @@ func TestServiceIgnoresBackfillRuns(t *testing.T) {
 	backfillSuccess.Status = cloneStatus(backfillFailure.Status)
 	backfillSuccess.Status.Status = ir.Succeeded
 	assert.Empty(t, svc.NotificationDestinationsForEvent(backfillSuccess), "a backfill run leaves the live incident open")
+}
+
+// While projects are on, a malformed workspace label is an ordinary label:
+// a failure of its run opens an incident, and its recovery resolves it.
+// While projects are off, the label stops both.
+func TestServiceProjectsIgnoreMalformedWorkspaceLabel(t *testing.T) {
+	store := newMemoryStore(t)
+	provider := store.saveProvider(t, "PagerDuty", incidentmodel.ProviderPagerDuty)
+	store.savePolicySet(t, &incidentmodel.PolicySet{
+		Scope:    incidentmodel.PolicyScopeGlobal,
+		Enabled:  true,
+		Policies: []incidentmodel.Policy{{ProviderID: provider.ID, Enabled: true, ResolveOnRecovery: true}},
+	})
+	var actions []string
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		defer func() { _ = req.Body.Close() }()
+		var payload map[string]any
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			return nil, err
+		}
+		actions = append(actions, fmt.Sprint(payload["event_action"]))
+		return &http.Response{StatusCode: http.StatusAccepted, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+	})}
+	failure := failedEvent("daily", "run-1")
+	failure.Status.Labels = []string{"workspace=ops", "workspace=engineering"}
+	recovery := failure
+	recovery.Type = eventstore.TypeDAGRunSucceeded
+	recovery.Status = cloneStatus(failure.Status)
+	recovery.Status.Status = ir.Succeeded
+
+	assert.Empty(t, New(store, WithHTTPClient(client)).NotificationDestinationsForEvent(failure))
+
+	svc := New(store, WithHTTPClient(client), WithProjectsEnabled(true))
+	for _, event := range []chatbridge.NotificationEvent{failure, recovery} {
+		destinations := svc.NotificationDestinationsForEvent(event)
+		require.Len(t, destinations, 1, event.Type)
+		require.True(t, svc.FlushNotificationBatch(context.Background(), destinations[0], chatbridge.NotificationBatch{
+			Events: []chatbridge.NotificationEvent{event},
+		}, false))
+	}
+	assert.Equal(t, []string{"trigger", "resolve"}, actions)
 }
 
 func TestMonitorKeepsIncidentRecoveryWithinWorkspace(t *testing.T) {
