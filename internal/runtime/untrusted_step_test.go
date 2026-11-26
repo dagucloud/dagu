@@ -13,6 +13,7 @@ import (
 	goruntime "runtime"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
@@ -51,17 +52,22 @@ func skipWithoutPosixShell(t *testing.T) {
 	}
 }
 
-// errorExecutor returns err from Run and counts the runs.
+// errorExecutor returns err from Run and counts the runs. With wait set, Run
+// returns only once its context ends.
 type errorExecutor struct {
 	err  error
+	wait bool
 	runs atomic.Int32
 }
 
 func (e *errorExecutor) SetStdout(io.Writer)  {}
 func (e *errorExecutor) SetStderr(io.Writer)  {}
 func (e *errorExecutor) Kill(os.Signal) error { return nil }
-func (e *errorExecutor) Run(context.Context) error {
+func (e *errorExecutor) Run(ctx context.Context) error {
 	e.runs.Add(1)
+	if e.wait {
+		<-ctx.Done()
+	}
 	return e.err
 }
 
@@ -173,20 +179,31 @@ func TestUntrustedRunRedirectRefusesLink(t *testing.T) {
 // A step error that marks the run as unsafe fails the step and stops the run:
 // a later step does not start, even when the failed step lets the run
 // continue. In the body of a foreach step, the error also keeps the next item
-// from running its body.
+// from running its body, and it stops the run when the timeout of the foreach
+// step ends the body.
 func TestRunAbortedStopsTheRun(t *testing.T) {
 	t.Parallel()
 
-	for name, inForeach := range map[string]bool{"step": false, "foreach body": true} {
+	tests := map[string]struct {
+		inForeach bool
+		// timeout ends the foreach step while its body waits. It leaves the
+		// body time to start its action.
+		timeout time.Duration
+	}{
+		"step":            {},
+		"foreach body":    {inForeach: true},
+		"foreach timeout": {inForeach: true, timeout: platformTestDuration(time.Second, 3*time.Second)},
+	}
+	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			action := &errorExecutor{err: fmt.Errorf("end: %w", untrusted.ErrRunAborted)}
+			action := &errorExecutor{err: fmt.Errorf("end: %w", untrusted.ErrRunAborted), wait: tc.timeout > 0}
 			actionType := registerErrorExecutor(t, action)
 			continueOn := withContinueOn(ir.ContinueOn{Failure: true})
 			verify := newStep("verify", withExecutorType(actionType), continueOn)
-			if inForeach {
-				verify = newStep("verify", withExecutorType(ir.ExecutorTypeForeach), continueOn)
+			if tc.inForeach {
+				verify = newStep("verify", withExecutorType(ir.ExecutorTypeForeach), continueOn, withStepTimeout(tc.timeout))
 				verify.Foreach = &ir.ForeachConfig{
 					Items:         []any{"a", "b"},
 					MaxConcurrent: 1,

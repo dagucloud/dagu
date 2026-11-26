@@ -318,7 +318,13 @@ func (n *Node) runCommand(ctx context.Context, cmd executor.Executor, stepTimeou
 
 		// Check if this is a timeout error
 		if stepTimeout > 0 && (errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded || elapsed >= stepTimeout) {
-			return n.handleTimeout(ctx, step, stepTimeout, elapsed)
+			exitCode, timeoutErr := n.handleTimeout(ctx, step, stepTimeout, elapsed)
+			if errors.Is(err, untrusted.ErrRunAborted) {
+				// The run still stops.
+				timeoutErr = errors.Join(timeoutErr, err)
+				n.SetError(timeoutErr)
+			}
+			return exitCode, timeoutErr
 		}
 
 		return n.handleCommandError(cmd, err)
