@@ -1021,6 +1021,10 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 		loadOpts = append(loadOpts, spec.WithBaseConfigContent([]byte(task.BaseConfig)))
 	}
 	dag, err := spec.LoadYAML(ctx, []byte(task.Definition), loadOpts...)
+	// The child of a command step with nodes runs that step alone.
+	if err == nil && task.NodeStep != "" {
+		dag, err = dag.NodeStepChild(task.NodeStep)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse DAG definition: %w", err)
 	}

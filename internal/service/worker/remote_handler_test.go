@@ -965,6 +965,26 @@ func TestLoadDAG(t *testing.T) {
 		}
 	})
 
+	// The child of a command step with nodes runs that step alone, with the
+	// parent run's params.
+	t.Run("NodeStep", func(t *testing.T) {
+		t.Parallel()
+		handler := &remoteTaskHandler{config: &config.Config{}}
+		loaded, err := handler.loadDAG(context.Background(), &coordinatorv1.Task{
+			Target:     "rollout",
+			Definition: "params:\n  - version: \"\"\nsteps:\n  - name: prepare\n    run: echo prepare\n  - name: deploy\n    run: echo ${params.version}\n    nodes: web\n",
+			Params:     "version=1.2",
+			BoundNode:  "tokyo-gw",
+			NodeStep:   "deploy",
+		})
+		require.NoError(t, err)
+		t.Cleanup(loaded.cleanup)
+		require.Len(t, loaded.dag.Steps, 1)
+		assert.Equal(t, "deploy", loaded.dag.Steps[0].Name)
+		assert.True(t, loaded.dag.NodeRequired)
+		assert.Contains(t, loaded.dag.Params, "version=1.2")
+	})
+
 	t.Run("FromDefinition", func(t *testing.T) {
 		t.Parallel()
 
