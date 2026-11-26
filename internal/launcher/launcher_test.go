@@ -144,6 +144,18 @@ func TestSubCmdBuilderPropagatesDefinitionID(t *testing.T) {
 	}
 }
 
+func TestSubCmdBuilderDropsParentReportOwnership(t *testing.T) {
+	key := strings.ToLower(runenv.EnvKeyServerRunReports)
+	marker := key + "=1"
+	t.Setenv(key, "1")
+	builder := launcher.NewSubCmdBuilder(&config.Config{})
+	dag := &ir.DAG{Location: "/tmp/test.yaml"}
+
+	assert.NotContains(t, builder.Start(dag, launcher.StartOptions{}).Env, marker)
+	assert.NotContains(t, builder.Retry(dag, launcher.RetryOptions{}).Env, marker)
+	assert.NotContains(t, builder.Restart(dag, launcher.RestartOptions{}).Env, marker)
+}
+
 func TestRunRetryWithBuiltExecutable(t *testing.T) {
 	th := test.Setup(t, test.WithBuiltExecutable())
 

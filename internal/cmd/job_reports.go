@@ -4,9 +4,12 @@
 package cmd
 
 import (
+	"os"
+
 	"github.com/dagucloud/dagu/v2/internal/cloudreport"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 )
@@ -37,8 +40,11 @@ func withJobReports(ctx *Context, store runstate.Store, run jobRun) runstate.Sto
 
 // jobReports returns how the run reports itself to Dagu Console, or nil when
 // it does not: without a run key, at a level that sends no runs, and for a
-// sub-DAG run or one a worker runs.
+// sub-DAG run or one reported by a server.
 func jobReports(ctx *Context, run jobRun) *cloudreport.JobReports {
+	if os.Getenv(runenv.EnvKeyServerRunReports) == "1" {
+		return nil
+	}
 	key := ctx.Config.Cloud.RunKey
 	if key == "" {
 		return nil

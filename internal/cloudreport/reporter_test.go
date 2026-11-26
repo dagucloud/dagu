@@ -38,6 +38,25 @@ var (
 	testClockStart = time.Date(2026, 10, 10, 9, 30, 0, 0, time.UTC)
 )
 
+func TestReporterHandlesRunReports(t *testing.T) {
+	t.Parallel()
+	connected := true
+	reporter := newReporter(func() (license.CloudCredentials, bool) {
+		return license.CloudCredentials{}, connected
+	}, nil, fixedLevel(config.ReportRuns))
+
+	assert.False(t, reporter.HandlesRunReports(t.Context()), "no run event feed")
+	reporter.events = &eventFeed{}
+	assert.True(t, reporter.HandlesRunReports(t.Context()))
+
+	connected = false
+	assert.False(t, reporter.HandlesRunReports(t.Context()), "not connected")
+
+	connected = true
+	reporter.monitoring = fixedLevel(config.ReportHealth)
+	assert.False(t, reporter.HandlesRunReports(t.Context()), "health-only reporting")
+}
+
 func TestReportPayload(t *testing.T) {
 	t.Parallel()
 

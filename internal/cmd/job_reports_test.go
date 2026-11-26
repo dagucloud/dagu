@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 )
@@ -82,6 +83,16 @@ func TestJobReportsDespiteALicense(t *testing.T) {
 	ctx.LicenseManager = license.NewConnectedTestManager()
 
 	assert.NotNil(t, jobReports(ctx, localRun))
+}
+
+func TestJobReportsSkipServerOwnedRun(t *testing.T) {
+	t.Setenv(runenv.EnvKeyServerRunReports, "1")
+	var logs bytes.Buffer
+	ctx := jobContext(t, config.CloudConfig{RunKey: testRunKey}, &logs)
+
+	assert.Nil(t, jobReports(ctx, localRun))
+	baseEnv := config.LoadBaseEnvWithExtras([]string{runenv.EnvKeyServerRunReports}, nil)
+	assert.NotContains(t, baseEnv.AsSlice(), runenv.EnvKeyServerRunReports+"=1")
 }
 
 // A key that is not a run key warns, naming the setting and not the value.

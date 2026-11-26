@@ -538,6 +538,12 @@ func (s *Scheduler) SetOpenCodeHost(host *opencodehost.Host) {
 	s.dagExecutor.openCodeHost = host
 }
 
+// SetServerRunReporting configures the bundled server's reporting check
+// before the scheduler starts. Standalone schedulers leave it unset.
+func (s *Scheduler) SetServerRunReporting(reportsRuns func(context.Context) bool) {
+	s.dagExecutor.serverReportsRuns = reportsRuns
+}
+
 func (s *Scheduler) registerStartupCancel(cancel context.CancelFunc) bool {
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()

@@ -244,6 +244,9 @@ func runStartAll(ctx *Context, _ []string) error {
 	if cloudReporter := startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService,
 		cloudreport.Audit{Level: ctx.Config.Cloud.Audit, Backlog: auditShipper}); cloudReporter != nil {
 		defer cloudReporter.Stop()
+		if ctx.Config.Cloud.RunKey != "" {
+			scheduler.SetServerRunReporting(cloudReporter.HandlesRunReports)
+		}
 	}
 	// The drain runs alongside the scheduler's and coordinator's shutdown.
 	defer watchCloudAudit(signalCtx, webStopped, auditShipper, ctx.Config.Cloud.AuditDrainTimeout)()

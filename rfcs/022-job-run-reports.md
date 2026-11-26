@@ -140,9 +140,9 @@ A Dagu scheduler starts each run as a `dagu start` child with its own
 environment, so a scheduler with a run key reports every run it starts as
 a job run. RFC 020 allows this: such a machine is measured as job runs and
 gets nothing a server gets. On a server's machine the server reporter sends
-the same runs, and Console keeps each run once: RFC 020 names a run by its
-workspace, project, DAG name, and run ID, whoever sends it, and keeps the
-latest report of it.
+the runs. When the combined `start-all` command has a connected server that
+reports runs, its scheduler's local children skip job-run reporting to avoid
+sending those runs twice. A standalone scheduler keeps using its run key.
 
 ### What it sends
 
@@ -262,7 +262,7 @@ reporter, which never blocks the agent.
 | Console answers `503` because the workspace is busy | The finish waits `Retry-After` and tries again within its budget. |
 | The key is revoked mid-run | The next report gets `401`; the sender stops. |
 | The process is killed with SIGKILL | Nothing more is sent. Console sees the run as it last reported. |
-| A run key on a licensed server | The run reports as a job run too, besides the server reporter; Console keeps one run. |
+| A run key on a connected `start-all` server reporting runs | The bundled scheduler's local children report through the server. A standalone scheduler or CLI still uses its run key. |
 | A malformed run key | The sender stays off and warns once; the run starts. |
 
 ### What the run prints

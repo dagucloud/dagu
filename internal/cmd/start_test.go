@@ -21,6 +21,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -963,6 +964,22 @@ func TestCmdStart_JobRunTrigger(t *testing.T) {
 			console.requireAttemptReported(t, status.AttemptID, tc.want)
 		})
 	}
+
+	t.Run("ServerOwnsReport", func(t *testing.T) {
+		t.Setenv(runenv.EnvKeyServerRunReports, "1")
+		th := test.SetupCommand(t)
+		dag := th.DAG(t, twoSteps)
+		reportsBefore := len(console.reports())
+
+		th.RunCommand(t, cmd.Start(), test.CmdTest{
+			Args: []string{"start", "--trigger-type=scheduler", dag.Location},
+		})
+
+		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+		require.NoError(t, err)
+		require.Equal(t, ir.Succeeded, status.Status)
+		require.Len(t, console.reports(), reportsBefore)
+	})
 }
 
 // jobConsole is a fake Dagu Console that keeps the job reports it takes.
