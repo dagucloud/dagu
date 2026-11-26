@@ -64,7 +64,7 @@ tags:
   - name: "views"
     description: "Shared saved view configurations"
   - name: "skills"
-    description: "Skill folders that give instructions to chat steps"
+    description: "Skill folders of the skills directory in the Agent Skills format"
   - name: "nodes"
     description: "Node inventories: named lists of SSH hosts that steps select by label"
 
@@ -14977,7 +14977,7 @@ components:
       properties:
         name:
           type: string
-          description: "Name of the skill, the name of its folder. A chat.completion step names it in with.skills."
+          description: "Name of the skill, the name of its folder"
         description:
           type: string
           description: "Description of the skill. Empty when the front matter is not valid."

@@ -60,11 +60,9 @@ type entry struct {
 // folder. It never fails on a violation of the format: the violations are
 // issues of the result. It returns ErrNotFound when the folder does not exist.
 //
-// Read does not trust a shared state. It reads the folder from disk. It keeps a
-// cache that is keyed by the paths, the sizes and the modification times of
-// all entries and by the issues of the layout, and it ignores the cache for a
-// change that is too recent. A folder that changes while Read reads it is read
-// again. A folder that does not settle gives an error with the rule "changing".
+// Read does not trust a shared state. It reads the folder from disk. A folder
+// that changes while Read reads it is read again. A folder that does not settle
+// gives an error with the rule "changing".
 //
 // The caller MUST NOT change the result.
 func Read(dir string) (*Skill, error) {
@@ -134,9 +132,9 @@ func Read(dir string) (*Skill, error) {
 
 func emptyHash() string { return hashLines(nil) }
 
-// signatureOf is the cache key of one walk: the entries and the issues of the
-// layout. A directory or a link count is not part of an entry, so its issue
-// stands for it.
+// signatureOf identifies one walk: the entries and the issues of the layout. A
+// directory or a link count is not part of an entry, so its issue stands for
+// it.
 func signatureOf(entries []entry, issues []Issue) string {
 	var b strings.Builder
 	for _, e := range entries {

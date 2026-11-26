@@ -5375,7 +5375,7 @@ export interface components {
         };
         /** @description A skill folder of the skills directory */
         SkillSummary: {
-            /** @description Name of the skill, the name of its folder. A chat.completion step names it in with.skills. */
+            /** @description Name of the skill, the name of its folder */
             name: string;
             /** @description Description of the skill. Empty when the front matter is not valid. */
             description: string;
