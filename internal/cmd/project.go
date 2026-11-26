@@ -225,14 +225,13 @@ func (c *Context) checkProjectDispatch() error {
 	return project.RefuseOtherProject(c.projectName(), project.ErrWorkerRun)
 }
 
-// checkProjectEnqueue refuses to queue a run of a project other than the
-// default one: the scheduler reads only the default project's queues, so
-// the run would never start.
-func (c *Context) checkProjectEnqueue() error {
+// checkLibraryEnqueue refuses to queue a run of a library DAG: no
+// scheduler reads a project's library queues, so the run would never start.
+func (c *Context) checkLibraryEnqueue() error {
 	if c.inLibrary() {
 		return errLibraryEnqueue
 	}
-	return project.RefuseOtherProject(c.projectName(), project.ErrQueuedRun)
+	return nil
 }
 
 // ownTestFiles keeps the test files that lie in the addressed project's DAG

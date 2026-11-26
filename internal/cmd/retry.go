@@ -549,7 +549,7 @@ func newQueueDispatchNotQueuedError(status *ir.DAGRunStatus) *queue.DAGRunNotQue
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
 func enqueueRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, triggerActor string) error {
-	if err := ctx.checkProjectEnqueue(); err != nil {
+	if err := ctx.checkLibraryEnqueue(); err != nil {
 		return err
 	}
 	if _, err := queue.EnqueueRetry(ctx.Context, ctx.Persistence.DAGRunRepository, ctx.Persistence.QueueStore, dag, status, queue.EnqueueRetryOptions{

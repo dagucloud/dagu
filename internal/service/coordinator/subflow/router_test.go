@@ -238,8 +238,9 @@ func TestLocalRejectsTargetWorker(t *testing.T) {
 }
 
 // A child of a run of a project other than the default one runs in
-// process, and is refused where the coordinator or a queue would take it,
-// since those serve only the default project.
+// process or waits in its project's queues, and is refused where the
+// coordinator would take it, since the coordinator serves only the default
+// project.
 func TestRouterRefusesRoutesOfOtherProjects(t *testing.T) {
 	t.Parallel()
 
@@ -257,13 +258,11 @@ func TestRouterRefusesRoutesOfOtherProjects(t *testing.T) {
 	assert.Equal(t, ir.Succeeded, got.Status)
 
 	enqueue := executor.EnqueueRequest{DAG: &ir.DAG{Name: "child"}, RootDAGRun: ir.NewDAGRunRef("root", "root-run"), RunID: "child-run"}
-	_, err = subflow.NewRouter(local).Enqueue(inProject("weather"), enqueue)
-	require.ErrorIs(t, err, project.ErrQueuedRun)
-	for _, name := range []string{"default", ""} {
+	for _, name := range []string{"weather", "default", ""} {
 		_, err = subflow.NewRouter(local).Enqueue(inProject(name), enqueue)
 		require.NoError(t, err, name)
 	}
-	assert.Equal(t, 2, local.enqueueCount)
+	assert.Equal(t, 3, local.enqueueCount)
 }
 
 // A router that refuses workers refuses a child that would go to one, in any

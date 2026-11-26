@@ -164,10 +164,8 @@ func (s *projectWebhookServer) requireRunIn(t *testing.T, owner string, run api.
 }
 
 // A per-project URL authenticates with that project's webhook, matching the
-// project's name in any case. A run of a project other than the default one
-// cannot be queued yet, so the request is refused with a status senders
-// retry and nothing is queued. A project that is not registered is not
-// found.
+// project's name in any case, and queues the run in that project. A project
+// that is not registered is not found.
 func TestProjectWebhookAuthenticatesWithProjectWebhook(t *testing.T) {
 	webhookParallel(t)
 	server := setupProjectWebhookServer(t)
@@ -176,16 +174,15 @@ func TestProjectWebhookAuthenticatesWithProjectWebhook(t *testing.T) {
 	token := server.createWebhook(t, "weather", "hook")
 
 	for _, path := range []string{"weather/hook", "Weather/hook"} {
-		resp := server.Client().Post("/api/v1/webhooks/"+path, api.WebhookRequest{}).
-			WithBearerToken(token).ExpectStatus(http.StatusServiceUnavailable).Send(t)
-		assert.Contains(t, resp.Body, project.ErrQueuedRun.Error())
+		run := server.trigger(t, path, token, http.StatusOK)
+		server.requireRunIn(t, "weather", run, "weather", project.DefaultName)
 	}
 	stores, err := persisfile.NewProjectStores(context.Background(), server.Config, server.stores,
 		project.Project{Name: "weather"}, persisfile.ProjectStoreOptions{})
 	require.NoError(t, err)
 	queued, err := stores.QueueStore.Len(context.Background(), "hook")
 	require.NoError(t, err)
-	assert.Zero(t, queued)
+	assert.Equal(t, 2, queued)
 
 	server.trigger(t, "weather/hook", "dagu_wh_wrong", http.StatusUnauthorized)
 	// The URL without a project reaches the default project, which has no

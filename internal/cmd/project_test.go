@@ -178,20 +178,23 @@ func TestProjectCommandsAddressNoProject(t *testing.T) {
 	assert.Contains(t, stdout, "Create and list projects")
 }
 
-// TestProjectEnqueue proves that a project other than the default one does
-// not queue a run that no scheduler would start.
+// TestProjectEnqueue proves that a run queued in a project other than the
+// default one waits in that project's queue, where its scheduler unit
+// finds it.
 func TestProjectEnqueue(t *testing.T) {
 	t.Parallel()
 	h := newProjectsHome(t, true)
 	h.file(t, "projects/weather/forecast.yaml")
 
 	_, _, err := h.runDagu(t, []*cobra.Command{Enqueue()}, "enqueue", "--project", "weather", "forecast")
-	require.ErrorContains(t, err, "project weather cannot queue runs; only the default project's queues are processed; run it with dagu start instead")
-	ctx, err := NewContext(h.command(t, "enqueue", "weather"), nil)
 	require.NoError(t, err)
-	items, err := ctx.Persistence.QueueStore.All(ctx)
-	require.NoError(t, err)
-	assert.Empty(t, items)
+	for project, want := range map[string]int{"weather": 1, "default": 0} {
+		ctx, err := NewContext(h.command(t, "enqueue", project), nil)
+		require.NoError(t, err)
+		items, err := ctx.Persistence.QueueStore.All(ctx)
+		require.NoError(t, err)
+		assert.Len(t, items, want, project)
+	}
 }
 
 func TestProjectFlagHidden(t *testing.T) {
