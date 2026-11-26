@@ -53,6 +53,10 @@ type QueueRequest struct {
 	// BackfillID names the backfill the run belongs to, which also gives
 	// the run low queue priority.
 	BackfillID string
+	// TriggerSubject and RetryDisabled are run ownership attributes kept by
+	// every later attempt.
+	TriggerSubject *ir.TriggerSubject
+	RetryDisabled  bool
 	// TargetNodes narrows the run's steps with nodes to the nodes it names.
 	TargetNodes []string
 
@@ -207,6 +211,8 @@ func queuedStatus(req QueueRequest, dagRun ir.DAGRunRef, attemptID, logFile, arc
 		ir.WithNoReuse(req.NoReuse),
 		ir.WithEphemeral(req.AttemptOptions.Ephemeral),
 		ir.WithBackfillID(req.BackfillID),
+		ir.WithTriggerSubject(req.TriggerSubject),
+		ir.WithRetryDisabled(req.RetryDisabled),
 		ir.WithTargetNodes(req.TargetNodes),
 	}
 	if req.ScheduleTime != "" {

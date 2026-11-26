@@ -50,6 +50,10 @@ type SeedRequest struct {
 	// BackfillID names the backfill the run belongs to, as a retry of a
 	// backfill run does.
 	BackfillID string
+	// TriggerSubject and RetryDisabled are run ownership attributes kept by
+	// every later attempt.
+	TriggerSubject *ir.TriggerSubject
+	RetryDisabled  bool
 	// Ephemeral stores the run apart from the history and marks it so that it
 	// leaves no trace.
 	Ephemeral bool
@@ -109,6 +113,8 @@ func SeedRun(ctx context.Context, req SeedRequest) (dagrun.Attempt, *ir.DAGRunSt
 		ir.WithHierarchyRefs(ir.NewDAGRunRef(dag.Name, req.DAGRunID), ir.DAGRunRef{}),
 		ir.WithTriggerType(req.TriggerType),
 		ir.WithBackfillID(req.BackfillID),
+		ir.WithTriggerSubject(req.TriggerSubject),
+		ir.WithRetryDisabled(req.RetryDisabled),
 		ir.WithTriggerActor(req.TriggerActor),
 		ir.WithRuntimeProfile(req.ProfileName, "", nil),
 		ir.WithDAGDefinitionID(req.DefinitionID),

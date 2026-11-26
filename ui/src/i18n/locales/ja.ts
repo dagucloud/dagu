@@ -1748,6 +1748,8 @@ export const baseJapanese = {
   'Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation.':
     '再試行は既存の OpenCode 会話を継続し、ステップのプロンプトを再送信します。新しい会話を開始するには、Agent セッションタブで「クリーンセッションを開始」を使用してください。',
   'Retry this run': 'この実行を再試行',
+  'This run cannot be retried. Start a new run by sending a new message.':
+    'この実行は再試行できません。新しいメッセージを送信して新しい実行を開始してください。',
   'Retry edited run': '編集済みの実行を再試行',
   'Retry load more': 'さらに読み込むを再試行',
   'Retry loading more': 'さらに読み込むのを再試行',

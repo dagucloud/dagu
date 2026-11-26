@@ -309,6 +309,23 @@ describe('DAGRunActions', () => {
     expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
   });
 
+  it('disables Retry on a terminal run that cannot be retried', () => {
+    render(
+      <DAGRunActions
+        dagRun={{
+          ...runningRun,
+          status: Status.Failed,
+          statusLabel: StatusLabel.failed,
+          retryDisabled: true,
+        }}
+        name="etl"
+        displayMode="full"
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled();
+  });
+
   describe('the nodes a retry runs again', () => {
     const noNodeRuns = {
       total: 0,

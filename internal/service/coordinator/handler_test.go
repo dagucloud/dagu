@@ -3980,6 +3980,45 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.Equal(t, []string{"workspace=ops"}, persisted.Labels)
 	})
 
+	// A worker that fails to load or start a DAG reports a status built from
+	// the task alone, without the run's ownership attributes.
+	t.Run("PreservesRunOwnershipAttributes", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		h := NewHandler(HandlerConfig{DAGRunRepository: store.repository})
+		ctx := context.Background()
+
+		ref := ir.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		subject := &ir.TriggerSubject{Type: "a2a", ID: "caller-1"}
+		attempt := store.addAttempt(ref, &ir.DAGRunStatus{
+			Name:           ref.Name,
+			DAGRunID:       ref.ID,
+			AttemptID:      "attempt-1",
+			Status:         ir.Queued,
+			TriggerSubject: subject,
+			RetryDisabled:  true,
+		})
+
+		protoStatus, convErr := convert.DAGRunStatusToProto(&ir.DAGRunStatus{
+			Name:      ref.Name,
+			DAGRunID:  ref.ID,
+			AttemptID: "attempt-1",
+			Status:    ir.Failed,
+		})
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{Status: protoStatus})
+		require.NoError(t, err)
+		require.True(t, resp.Accepted)
+
+		persisted, err := attempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, ir.Failed, persisted.Status)
+		assert.True(t, persisted.RetryDisabled)
+		assert.Equal(t, subject, persisted.TriggerSubject)
+	})
+
 	t.Run("WaitingStatusClosesCachedAttemptBeforePersisting", func(t *testing.T) {
 		t.Parallel()
 

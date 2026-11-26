@@ -192,6 +192,27 @@ func TestEditRetryDAGRun_DispatchesSeededRetryWithSkippedOutputs(t *testing.T) {
 
 // An edit-retry of a backfill run is still the backfill's: it keeps the
 // backfill ID and the trigger type backfill.
+func TestEditRetryDAGRun_RefusesRetryDisabledRun(t *testing.T) {
+	ctx := context.Background()
+	api, dag := setupEditRetryAPI(t, t.TempDir(), editRetrySourceYAML())
+	seedEditRetrySourceAttemptWithProfileName(t, ctx, api.dagRunRepository, dag, "source-run", "", ir.WithRetryDisabled(true))
+
+	_, err := api.EditRetryDAGRun(ctx, openapiv1.EditRetryDAGRunRequestObject{
+		Name:     dag.Name,
+		DagRunId: "source-run",
+		Body: &openapiv1.EditRetryDAGRunJSONRequestBody{
+			DagRunId: ptrOf("edit-run"),
+			Spec:     editRetryEditedYAMLWithWorkerSelector(),
+		},
+	})
+
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, http.StatusConflict, apiErr.HTTPStatus)
+	_, err = api.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, "edit-run"))
+	require.Error(t, err)
+}
+
 func TestEditRetryDAGRun_KeepsBackfillIdentity(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()

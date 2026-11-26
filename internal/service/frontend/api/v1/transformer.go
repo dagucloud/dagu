@@ -430,6 +430,7 @@ func toDAGRunSummary(s ir.DAGRunStatus) api.DAGRunSummary {
 		TriggerType:        toTriggerType(s.TriggerType),
 		TriggerActor:       ptrOf(s.TriggerActor),
 		BackfillId:         ptrOf(s.BackfillID),
+		RetryDisabled:      retryDisabledPtr(s),
 		Labels:             &s.Labels,
 		Tags:               &s.Labels,
 	}
@@ -566,6 +567,7 @@ func toDAGRunDetails(s ir.DAGRunStatus, convertNode func(*ir.Node) api.Node) api
 		TriggerType:            toTriggerType(s.TriggerType),
 		TriggerActor:           ptrOf(s.TriggerActor),
 		BackfillId:             ptrOf(s.BackfillID),
+		RetryDisabled:          retryDisabledPtr(s),
 		Preconditions:          ptrOf(preconditions),
 		Nodes:                  nodes,
 		OnInit:                 ptrOf(convertNode(s.OnInit)),
@@ -1254,4 +1256,12 @@ func boolOrNil(b bool) *bool {
 		return nil
 	}
 	return &b
+}
+
+// retryDisabledPtr reports the flag only when set, so other runs serialize as before.
+func retryDisabledPtr(s ir.DAGRunStatus) *bool {
+	if !s.RetryDisabled {
+		return nil
+	}
+	return ptrOf(true)
 }

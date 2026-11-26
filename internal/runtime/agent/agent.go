@@ -1883,6 +1883,8 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 				ir.WithSkipHandlers(source.SkipHandlers),
 				ir.WithReusedInputs(source.ReusedInputs),
 				ir.WithBackfillID(source.BackfillID),
+				ir.WithTriggerSubject(source.TriggerSubject),
+				ir.WithRetryDisabled(source.RetryDisabled),
 			)
 		}
 		statusOpts = append(statusOpts, a.slotStatusOptions(source)...)
@@ -1950,6 +1952,8 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithSkipHandlers(source.SkipHandlers),
 			ir.WithReusedInputs(source.ReusedInputs),
 			ir.WithBackfillID(source.BackfillID),
+			ir.WithTriggerSubject(source.TriggerSubject),
+			ir.WithRetryDisabled(source.RetryDisabled),
 		)
 	}
 	opts = append(opts, a.slotStatusOptions(source)...)

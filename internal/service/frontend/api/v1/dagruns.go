@@ -3333,6 +3333,9 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 			Message:    message,
 		}
 	}
+	if err := queue.CheckRetryable(prevStatus); err != nil {
+		return retryDAGRunResult{}, retryDisabledError(err)
+	}
 	if err := a.checkServiceRunOfDefinition(ctx, dag, sourceDagRunID); err != nil {
 		return retryDAGRunResult{}, err
 	}
@@ -3465,6 +3468,10 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 	return retryDAGRunResult{}, nil
 }
 
+func retryDisabledError(err error) *Error {
+	return &Error{HTTPStatus: http.StatusConflict, Code: api.ErrorCodeConflict, Message: err.Error()}
+}
+
 func retryPathRequestError(err error) error {
 	switch {
 	case errors.Is(err, dagrun.ErrRetryStepNotFound), errors.Is(err, dagrun.ErrDAGRunIDNotFound):
@@ -3486,6 +3493,9 @@ func (a *API) enqueueRetry(ctx context.Context, status *ir.DAGRunStatus, dag *ir
 		opts.TriggerActor = &actor
 	}
 	if _, err := queue.EnqueueRetry(eventCtx, a.dagRunRepository, a.queueStore, dag, status, opts); err != nil {
+		if errors.Is(err, queue.ErrRetryDisabled) {
+			return retryDisabledError(err)
+		}
 		if errors.Is(err, queue.ErrRetryStaleLatest) {
 			return &Error{
 				HTTPStatus: http.StatusBadRequest,
