@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { components } from '@/api/v1/schema';
 import RelativeTime from '@/components/ui/relative-time';
 import { StatusDot } from '@/components/ui/status-dot';
@@ -25,28 +25,44 @@ import { failureCause, queueWaitMs, statusMoment } from './recentRunFacts';
 type Run = components['schemas']['DAGRunDetails'];
 
 /** The runs that the list under a workflow shows. */
-export const RECENT_RUNS_SHOWN = 10;
-const REFRESH_MS = 15_000;
+const RECENT_RUNS_SHOWN = 10;
 /** The labels of a run that its line shows; the others go in the tooltip. */
 const MAX_LABELS_SHOWN = 2;
 
 /**
- * The latest runs of a workflow, under its row in the list. It reads the
- * history of the workflow when it mounts, so a collapsed row costs nothing.
+ * The latest runs of a workflow, under its row in the list. It reads them
+ * when it mounts, so a folded row costs nothing, and again each time the
+ * list reads a new `activity` of the workflow, which the run change feed
+ * of the list drives. It does not poll.
  */
-export function DAGRecentRuns({ fileName }: { fileName: string }) {
+export function DAGRecentRuns({
+  fileName,
+  activity,
+}: {
+  fileName: string;
+  /** The activity of the workflow that the list holds. */
+  activity?: components['schemas']['DAGListActivity'];
+}) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
   const openPage = useOpenPage();
-  const { data, error, isLoading } = useQuery(
+  const { data, error, isLoading, mutate } = useQuery(
     '/dags/{fileName}/dag-runs',
-    { params: { query: { remoteNode }, path: { fileName } } },
-    { refreshInterval: REFRESH_MS, revalidateOnFocus: false }
+    {
+      params: {
+        query: { remoteNode, limit: RECENT_RUNS_SHOWN },
+        path: { fileName },
+      },
+    }
   );
-  const runs = useMemo(
-    () => (data?.dagRuns ?? []).slice(0, RECENT_RUNS_SHOWN),
-    [data]
-  );
+  // The activity that the runs on screen were read with.
+  const readWith = useRef(activity);
+  useEffect(() => {
+    if (readWith.current === activity) return;
+    readWith.current = activity;
+    void mutate();
+  }, [activity, mutate]);
+  const runs = useMemo(() => data?.dagRuns ?? [], [data]);
   const columns = useMemo(() => runColumns(runs), [runs]);
   const open = (run: string, event?: React.MouseEvent) =>
     openPage(buildDAGPageURL({ fileName, remoteNode, run }), event);

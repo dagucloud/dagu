@@ -33,13 +33,15 @@ import DAGTable from '../DAGTable';
 const api = vi.hoisted(() => ({ post: vi.fn() }));
 const recentRuns = vi.hoisted(() => ({
   dagRuns: [] as unknown[],
+  reads: [] as unknown[],
 }));
 
 vi.mock('@/hooks/api', () => ({
   useClient: () => ({ POST: api.post }),
-  useQuery: (path: string) =>
+  useQuery: (path: string, init: unknown) =>
     path === '/dags/{fileName}/dag-runs'
-      ? { data: { dagRuns: recentRuns.dagRuns }, isLoading: false }
+      ? (recentRuns.reads.push(init),
+        { data: { dagRuns: recentRuns.dagRuns }, isLoading: false })
       : {
           data: {
             labels: ['team=ops'],
@@ -1331,6 +1333,7 @@ describe('DAGTable', () => {
 
     beforeEach(() => {
       recentRuns.dagRuns = [];
+      recentRuns.reads = [];
       vi.stubGlobal('ResizeObserver', MeasuringObserver);
     });
 
@@ -1450,6 +1453,8 @@ describe('DAGTable', () => {
       renderTable('', { dags: [withActivity([run('r1', HOUR)])] });
       const table = screen.getByRole('table');
       expect(within(table).queryByTestId('dag-recent-runs')).toBeNull();
+      // A folded row reads no runs.
+      expect(recentRuns.reads).toEqual([]);
 
       const toggle = within(table).getByTestId('dag-activity-toggle');
       expect(toggle).toHaveAttribute('aria-expanded', 'false');

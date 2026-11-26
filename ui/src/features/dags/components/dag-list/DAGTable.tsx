@@ -2160,7 +2160,9 @@ function DAGTable({
                   isShown({ dag: (row.original as DAGRow).dag.fileName });
                 // Type guard to ensure we only access dag property when it exists
 
+                // The table off screen reads no runs: rowActivity is unset.
                 const recentRunsOf =
+                  rowActivity !== undefined &&
                   isDAGRow &&
                   'dag' in row.original &&
                   expandedActivity.has((row.original as DAGRow).dag.fileName)
@@ -2218,7 +2220,10 @@ function DAGTable({
                           colSpan={instance.getVisibleLeafColumns().length}
                           className="px-2 py-1 pl-12"
                         >
-                          <DAGRecentRuns fileName={recentRunsOf} />
+                          <DAGRecentRuns
+                            fileName={recentRunsOf}
+                            activity={rowActivity?.get(recentRunsOf)}
+                          />
                         </TableCell>
                       </TableRow>
                     )}
