@@ -59,6 +59,18 @@ func testWorkDir(t *testing.T) string {
 	return dir
 }
 
+// beginStep calls Begin and ends the step it returns when the test ends, so
+// that a failed assertion does not keep the restricted user from the next
+// test.
+func beginStep(t *testing.T, ctx context.Context, req Request) (*Step, error) {
+	t.Helper()
+	step, err := Begin(ctx, req)
+	if step != nil {
+		t.Cleanup(func() { _ = step.End(context.Background()) })
+	}
+	return step, err
+}
+
 func testRequest(t *testing.T, workDir, workingDir string) Request {
 	t.Helper()
 	return Request{
@@ -101,7 +113,7 @@ func TestIsolatedStepRunsAsTheRestrictedUser(t *testing.T) {
 	require.NoError(t, os.WriteFile(rootOnly, []byte("worker secret"), 0o400))
 	t.Cleanup(func() { _ = os.Remove(rootOnly) })
 
-	step, err := Begin(ctx, testRequest(t, workDir, workDir))
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
 	require.NoError(t, err)
 	require.True(t, step.Isolated())
 	outputFile := filepath.Join(t.TempDir(), "step.output")
@@ -152,15 +164,16 @@ func TestIsolatedStepRunsAsTheRestrictedUser(t *testing.T) {
 func TestIsolatedStepPlace(t *testing.T) {
 	requireIsolation(t)
 	workDir := testWorkDir(t)
-	_, err := Begin(context.Background(), testRequest(t, workDir, "/srv"))
+	_, err := beginStep(t, context.Background(), testRequest(t, workDir, "/srv"))
 	require.Error(t, err)
 	assert.Equal(t, `untrusted step "verify": the working directory /srv is not in the work directory of the run`, err.Error())
 
-	require.NoError(t, os.Symlink("/etc", filepath.Join(workDir, "link")))
-	_, err = Begin(context.Background(), testRequest(t, workDir, filepath.Join(workDir, "link", "x")))
+	outside := t.TempDir()
+	require.NoError(t, os.Symlink(outside, filepath.Join(workDir, "link")))
+	_, err = beginStep(t, context.Background(), testRequest(t, workDir, filepath.Join(workDir, "link", "x")))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "symbolic link")
-	assert.NoDirExists(t, "/etc/x")
+	assert.NoDirExists(t, filepath.Join(outside, "x"))
 }
 
 // Spec 103, "Isolation", rule 7: Begin fails the step when the restricted user
@@ -176,7 +189,7 @@ func TestIsolatedStepNeedsTheKillHelper(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(self, info.Mode().Perm()) })
 
 	workDir := testWorkDir(t)
-	_, err = Begin(context.Background(), testRequest(t, workDir, workDir))
+	_, err = beginStep(t, context.Background(), testRequest(t, workDir, workDir))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `untrusted step "verify": check the kill helper: binary `+self+" has the mode 0700")
 	assert.NoError(t, Poisoned())
@@ -187,7 +200,7 @@ func TestIsolatedStepNeedsTheKillHelper(t *testing.T) {
 func TestIsolatedStepsOneAtATime(t *testing.T) {
 	requireIsolation(t)
 	workDir := testWorkDir(t)
-	first, err := Begin(context.Background(), testRequest(t, workDir, workDir))
+	first, err := beginStep(t, context.Background(), testRequest(t, workDir, workDir))
 	require.NoError(t, err)
 
 	req := testRequest(t, workDir, workDir)
@@ -195,12 +208,12 @@ func TestIsolatedStepsOneAtATime(t *testing.T) {
 	req.Log = log
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	_, err = Begin(ctx, req)
+	_, err = beginStep(t, ctx, req)
 	require.Error(t, err)
 	assert.Contains(t, log.String(), WaitingLine)
 
 	require.NoError(t, first.End(context.Background()))
-	second, err := Begin(context.Background(), testRequest(t, workDir, workDir))
+	second, err := beginStep(t, context.Background(), testRequest(t, workDir, workDir))
 	require.NoError(t, err)
 	require.NoError(t, second.End(context.Background()))
 }

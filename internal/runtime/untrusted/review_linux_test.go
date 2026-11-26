@@ -149,17 +149,22 @@ func TestReviewZombieLeaderSurvivesEnd(t *testing.T) {
 
 	ctx := context.Background()
 	workDir := testWorkDir(t)
-	step, err := Begin(ctx, testRequest(t, workDir, filepath.Join(workDir, "repo")))
+	step, err := beginStep(t, ctx, testRequest(t, workDir, filepath.Join(workDir, "repo")))
 	require.NoError(t, err)
 	// The agent writes its count in /tmp, which any user can write.
 	marker := filepath.Join(os.TempDir(), "dagu-review-zombie-"+strconv.Itoa(os.Getpid()))
 	t.Cleanup(func() { _ = os.Remove(marker) })
 	runAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"), bin+" "+marker+" </dev/null >/dev/null 2>&1 &\nsleep 1")
+	// The thread makes the file, so an equal count below means a stopped
+	// thread, not a fixture that never started.
+	require.FileExists(t, marker, "the thread of the agent did not run")
 	require.NoError(t, step.End(ctx))
 
-	first, _ := os.ReadFile(marker)
+	first, err := os.ReadFile(marker)
+	require.NoError(t, err)
 	time.Sleep(time.Second)
-	second, _ := os.ReadFile(marker)
+	second, err := os.ReadFile(marker)
+	require.NoError(t, err)
 	t.Logf("count of the thread of the agent after End: %q, 1 s later: %q", strings.TrimSpace(string(first)), strings.TrimSpace(string(second)))
 	assert.Equal(t, string(first), string(second), "a thread of the restricted user runs after End")
 }
@@ -186,7 +191,7 @@ func TestReviewForkHopIsKilled(t *testing.T) {
 	escaped := 0
 	for round := range rounds {
 		workDir := testWorkDir(t)
-		step, err := Begin(ctx, testRequest(t, workDir, filepath.Join(workDir, "repo")))
+		step, err := beginStep(t, ctx, testRequest(t, workDir, filepath.Join(workDir, "repo")))
 		require.NoError(t, err)
 		// The script waits 1 s so that the loop runs before End.
 		out := runAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"),
