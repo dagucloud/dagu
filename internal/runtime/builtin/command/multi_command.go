@@ -93,6 +93,10 @@ func (e *multiCommandExecutor) Kill(sig os.Signal) error {
 	return nil
 }
 
+// RunsUntrusted implements executor.UntrustedRunner: each command runs through
+// a commandExecutor.
+func (*multiCommandExecutor) RunsUntrusted() {}
+
 func (e *multiCommandExecutor) Run(ctx context.Context) error {
 	for i, cfg := range e.configs {
 		// Create a new single command executor for this command

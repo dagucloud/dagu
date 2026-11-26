@@ -4,9 +4,10 @@
 
 Partially implemented.
 
-DAG discovery skips the skills directory, as [Terms](#terms) states. Unit tests and a conformance
-test cover it. The format, the folder rules, the files and the hash, the API and the ZIP download are
-specified but not built yet.
+DAG discovery skips the skills directory, as [Terms](#terms) states. `GET /skills` lists the skill
+folders with their hash and the errors and the warnings of the format and the folder rules. Unit
+tests cover them, and a conformance test covers discovery. The other routes of the API, the writes
+and the ZIP download are specified but not built yet.
 
 ## Scope
 
@@ -85,7 +86,8 @@ names the key. This includes the extension keys of Claude Code, such as `argumen
 | `metadata` | map | Optional. A map from string keys to string values. A number or a boolean value is an error: quote it. |
 | `allowed-tools` | string | Optional. A string of tool names, separated by spaces. Informational. See [Security](#security). |
 
-The body MUST NOT be empty. The body MUST NOT be larger than 65536 bytes (64 KiB).
+The front matter MUST NOT be larger than 16384 bytes (16 KiB). The body MUST NOT be empty. The body
+MUST NOT be larger than 65536 bytes (64 KiB).
 
 ### The rules
 
@@ -97,7 +99,7 @@ Each rule has an identifier. The message of an issue gives the identifier, the f
 | `not-utf8` | error | `SKILL.md` or a file of `references/` or `scripts/` is not valid UTF-8. |
 | `front-matter-start` | error | The file does not start with a `---` line. |
 | `front-matter-end` | error | The front matter has no closing `---` line. |
-| `front-matter-yaml` | error | The front matter is not valid YAML. |
+| `front-matter-yaml` | error | The front matter is not valid YAML, is larger than 16 KiB, or uses the merge key `<<`. |
 | `front-matter-duplicate-key` | error | A key occurs twice. |
 | `front-matter-key` | error | A key is not in the table. |
 | `name-missing`, `name-type` | error | `name` is absent or is not a string. |
@@ -135,6 +137,10 @@ Dagu makes the standard limits errors, except the 500 lines and the 5000 tokens,
 These rules are Dagu rules. The standard does not state them in its specification page:
 
 - The 64 KiB limit of the body.
+- The 16 KiB limit of the front matter. The time to parse a large mapping grows faster than its
+  size.
+- The ban on the merge key `<<` in the front matter. Nested merges in a short file take exponential
+  time to decode.
 - The ban on an XML tag in the description. The Anthropic API variant of the standard states it.
 - The limit of 128 characters for `license`. The standard asks for a short value.
 - The ban on every key that the standard does not list. The standard does not forbid other keys, and many clients ignore them.
@@ -310,8 +316,13 @@ folder that breaks the format. It does not contain a plain file, a link or a hid
 skill folder that is a link gives the error `folder-link`. A skill with an
 error is a skill with the state ERROR.
 
+`GET /skills` returns `skills`, the `SkillSummary` of the first 1000 folders in name order, and
+`truncated`, which is true when the skills directory holds more folders. The server reads the
+folders one at a time, so a listing keeps the text of one skill in memory, at most 16 MiB.
+
 `SkillSummary` has `name`, `description`, `hash`, `valid`, `errors`, `warnings`, `fileCount`,
-`totalBytes`, `bodyLines` and `bodyTokens`. `SkillDetail` has `name`, `content`, `hash`, `errors`,
+`totalBytes`, `bodyLines` and `bodyTokens`. A description above 1024 characters is cut to 1024
+characters. `SkillDetail` has `name`, `content`, `hash`, `errors`,
 `warnings`, `files`, the values of `license`, `compatibility`, `allowedTools` and `metadata`, and the
 `SkillSummary` of the skill in `summary`. A `SkillIssue` has `severity`, `rule`,
 `file` and `message`. A `SkillFile` has `path`, `size`, `sha256` and `text`.
@@ -432,15 +443,25 @@ If-Match: 3701b8400dca3109de303137c868e09c754b46fbe652a2694b7b3510f2ca6094
 ## Conformance
 
 The binary-level tests are in `conformance/spec096_skills/`. The unit tests are in
-`internal/persis/file/dag/`.
+`internal/persis/file/dag/`, `internal/skill/` and `internal/service/frontend/api/v1/`.
 
 | Test | Proves |
 | --- | --- |
 | `TestRecursiveDiscoverySkipsTheSkillsDirectory` | With recursive discovery, `dagu ls` lists no DAG file below `skills/` at the root of the DAGs directory, and lists the DAG files of a `skills` directory deeper in the tree. |
 | `TestDiscoverRecursiveSkipsSkillsDir` (unit) | Discovery neither lists nor returns for watching anything below `skills/` at the root, and reads a `skills` directory deeper in the tree. |
 | `TestDiscoverRecursiveSkipsSkillsDirInOtherCase` (unit) | On a file system that ignores case, discovery also skips a root directory spelled `Skills`. Where case matters, it reads it. |
+| `TestFormatRules` (unit) | Each rule of the format gives its issue with the file and the severity, and the error of a refused skill names each broken rule. |
+| `TestFolderRules` (unit) | Each folder rule other than `total-too-large`, `changing` and `unreadable` gives its issue, and a link is never read. The case of `special-file` runs on Unix only. |
+| `TestReadNeverFollowsASwappedLink` (unit) | A file that becomes a link while Dagu reads the folder is never read through the link. |
+| `TestReadOfAFolderThatNeverSettles` (unit) | A folder that changes during every read attempt gives the rule `changing`. |
+| `TestHashCanonicalForm` (unit) | The hash is the SHA-256 of the `sha256sum` text of the files. The order, the times and the modes do not change it. |
+| `TestPartialSkillIsRefused` (unit) | A folder with no `SKILL.md` is refused, and the temporary file of a write is ignored. |
+| `TestReadBoundsTheTextItKeeps` (unit) | A folder above 16 MiB gives the rule `total-too-large`, and a read keeps at most 16 MiB of text. |
+| `TestUnreadableFolderNamesNoServerPath` (unit) | A folder that Dagu cannot read gives the rule `unreadable`, and the message names no server path. |
+| `TestSkillsList` (unit) | `GET /skills` lists every folder sorted by name, also one with errors, and no plain file or hidden folder. |
+| `TestSkillsListIsBounded` (unit) | `GET /skills` lists the first 1000 folders and sets `truncated` when the directory holds more. |
 
-The format, the folder rules, the hash, the API and the ZIP download have no test yet.
+The other routes of the API, the writes and the ZIP download have no test yet.
 
 ## Open items
 

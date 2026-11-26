@@ -3,7 +3,19 @@
 
 package egress
 
-import "time"
+import (
+	"crypto/tls"
+	"time"
+)
+
+// Digest is the digest of a credential in a log line.
+var Digest = digest
+
+// SetTLSConfigForTest sets the TLS configuration that the proxy uses to reach an
+// https upstream. A test uses it to trust the certificate of a test server.
+func (p *Proxy) SetTLSConfigForTest(config *tls.Config) {
+	p.transport.TLSClientConfig = config
+}
 
 // SetTunnelIdleForTest sets the time after which an idle tunnel ends.
 func (p *Proxy) SetTunnelIdleForTest(idle time.Duration) {

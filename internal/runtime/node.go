@@ -37,6 +37,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	"github.com/goccy/go-yaml"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -317,7 +318,13 @@ func (n *Node) runCommand(ctx context.Context, cmd executor.Executor, stepTimeou
 
 		// Check if this is a timeout error
 		if stepTimeout > 0 && (errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded || elapsed >= stepTimeout) {
-			return n.handleTimeout(ctx, step, stepTimeout, elapsed)
+			exitCode, timeoutErr := n.handleTimeout(ctx, step, stepTimeout, elapsed)
+			if errors.Is(err, untrusted.ErrRunAborted) {
+				// The run still stops.
+				timeoutErr = errors.Join(timeoutErr, err)
+				n.SetError(timeoutErr)
+			}
+			return exitCode, timeoutErr
 		}
 
 		return n.handleCommandError(cmd, err)
@@ -708,7 +715,7 @@ func (n *Node) readStructuredOutputSource(ctx context.Context, key string, entry
 		}
 		path = filepath.Clean(path)
 
-		data, err := readStructuredOutputFile(path, maxOutputSize(ctx))
+		data, err := readStructuredOutputFile(ctx, path, maxOutputSize(ctx))
 		if err != nil {
 			return "", fmt.Errorf("%s: failed to read file %q: %w", key, path, err)
 		}
@@ -764,9 +771,8 @@ func decodeStructuredOutputValue(ctx context.Context, key, raw, selectPath, deco
 	return selected, nil
 }
 
-func readStructuredOutputFile(path string, limit int64) (string, error) {
-	// #nosec G304 -- file source paths come from the loaded workflow spec and are intentionally user-configurable.
-	file, err := os.Open(path)
+func readStructuredOutputFile(ctx context.Context, path string, limit int64) (string, error) {
+	file, err := OpenStepFile(ctx, path, os.O_RDONLY, 0)
 	if err != nil {
 		return "", err
 	}
@@ -1045,7 +1051,10 @@ func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error)
 	}
 
 	env := GetEnv(ctx)
-	env.Scope = env.Scope.WithEntry(runenv.EnvKeyDAGUOutputFile, path, cmnvalue.EnvSourceStepEnv)
+	// The process of an isolated untrusted step writes a file of the restricted
+	// user, which Dagu copies to path at the end of the step (Spec 103).
+	processPath := untrusted.FromContext(ctx).OutputFile(path)
+	env.Scope = env.Scope.WithEntry(runenv.EnvKeyDAGUOutputFile, processPath, cmnvalue.EnvSourceStepEnv)
 	return WithEnv(ctx, env), nil
 }
 
@@ -1971,7 +1980,18 @@ func (node *Node) evalPreconditions(ctx context.Context, scripted *bool) error {
 	env := GetEnv(ctx)
 	shell := env.Shell(ctx)
 	checkCtx, stopCheck := node.watchPreconditionStop(ctx)
+	leaveGate, err := enterTrustedGate(checkCtx, node)
+	if err != nil {
+		if checkCtx.Err() != nil {
+			// A stop or a timeout that ends the wait for the gate interrupts
+			// the check, as it interrupts a running one.
+			err = fmt.Errorf("%w: %w", errConditionInterrupted, err)
+		}
+		stopCheck()
+		return err
+	}
 	results, err := evaluateConditions(checkCtx, shell, conditions, scripted)
+	leaveGate()
 	stopCheck()
 	node.SetPreconditionResults(results)
 	if err != nil {

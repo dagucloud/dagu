@@ -24,6 +24,7 @@ type Config struct {
 	Core            Core
 	OpenCode        OpenCodeConfig
 	Browser         BrowserConfig
+	Untrusted       UntrustedConfig
 	Server          Server
 	EventStore      EventStoreConfig
 	Webhooks        WebhooksConfig

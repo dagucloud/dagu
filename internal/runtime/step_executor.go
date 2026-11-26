@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 )
 
 var errNodeExecutionAborted = errors.New("node execution aborted before start")
@@ -68,7 +69,7 @@ func (e *StepExecutor) ExecuteWithProgress(ctx context.Context, node *Node, onSe
 	return e.execute(ctx, node, setup, onProgress)
 }
 
-func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func(), onProgress func()) error {
+func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func(), onProgress func()) (retErr error) {
 	attemptStarted := time.Now()
 	node.SetStatusDetails(nil)
 	ctx, cancel, stepTimeout := node.setupContextWithTimeout(ctx)
@@ -83,6 +84,42 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 
 	if err := preRunAbortErr(ctx, node); err != nil {
 		return recordPreRunAbort(ctx, node, err, stepTimeout, attemptStarted)
+	}
+
+	leaveGate, err := enterStepGate(ctx, node)
+	if err != nil {
+		if ctx.Err() != nil {
+			// A timeout or a stop ends the wait as it ends an attempt that
+			// has not started.
+			return recordPreRunAbort(ctx, node, err, stepTimeout, attemptStarted)
+		}
+		node.SetError(err)
+		node.SetExitCode(1)
+		return err
+	}
+	defer leaveGate()
+	if untrustedRun(ctx) && !node.Step().IsUntrusted() {
+		ctx = untrusted.WithGitSafetyContext(ctx)
+	}
+
+	ctx, untrustedStep, err := beginUntrustedStep(ctx, node)
+	if err != nil {
+		node.SetError(err)
+		node.SetExitCode(1)
+		return err
+	}
+	untrustedEnded := false
+	if untrustedStep != nil {
+		// End runs once; this call covers an early return and a panic.
+		defer func() {
+			if untrustedEnded {
+				return
+			}
+			if endErr := untrustedStep.End(ctx); endErr != nil {
+				retErr = errors.Join(retErr, endErr)
+				node.SetError(retErr)
+			}
+		}()
 	}
 
 	ctx, cmd, err := node.setupExecutor(ctx, e.override)
@@ -151,12 +188,28 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		defer flusher.Stop()
 	}
 
+	if err := checkUntrustedExecutor(ctx, node, cmd); err != nil {
+		node.SetError(err)
+		node.SetExitCode(1)
+		return err
+	}
+
 	flusher := node.startOutputFlusher()
 	defer func() {
 		node.stopOutputFlusher(flusher)
 	}()
 
 	exitCode, err := node.runCommand(ctx, cmd, stepTimeout)
+	if untrustedStep != nil {
+		// The end of an untrusted step comes before Dagu reads its outputs.
+		untrustedEnded = true
+		if endErr := untrustedStep.End(ctx); endErr != nil {
+			err = errors.Join(err, endErr)
+			if exitCode == 0 {
+				exitCode = 1
+			}
+		}
+	}
 	node.SetError(err)
 	node.SetExitCode(exitCode)
 
@@ -166,6 +219,10 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		// its action published before it failed.
 		node.clearOutputsValue()
 		node.clearStepOutputsValue()
+		if errors.Is(err, untrusted.ErrRunAborted) {
+			// The run still stops.
+			return errors.Join(err, outputErr)
+		}
 		return outputErr
 	}
 

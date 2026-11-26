@@ -334,10 +334,12 @@ no other workspace.
   manager who finds no fitting app is shown what to ask an admin for: the
   client type, the redirect URI, and whether the agent flag is needed.
 - **The notification connection.** The notification SMTP settings are
-  server-wide and admin-only, as Spec 102 keeps them, so they own one
-  connection that belongs to no project. Only admins manage it, and no DAG
-  can name it. A DAG's `smtp` uses its project's connections, as a step
-  does.
+  server-wide, so they own one connection that belongs to no project. No
+  DAG can name it. It is managed by whoever may change the notification
+  settings: `developer` or above before v3.0, as an SMTP password is today
+  (`internal/service/frontend/api/v1/notifications.go:458`), and `admin`
+  from v3.0, as Spec 102 rules. A DAG's `smtp` uses its project's
+  connections, as a step does.
 - **Deleting a project.** A project that owns connections cannot be
   deleted until they are removed, as a workspace with wiki pages cannot
   today (`internal/service/frontend/api/v1/workspaces.go:246`). Before v3.0
@@ -350,8 +352,8 @@ no other workspace.
   migration copies into each project (`rfcs/003-projects.md:737`).
 
 This follows Spec 102: a project owns its connections as it owns its
-secrets, and the notification connection is admin-owned infrastructure, as
-notification channels are (`specs/102-projects.md:402`).
+secrets, and the notification connection is server-wide infrastructure, as
+notification settings are (`specs/102-projects.md:408`).
 
 ### Providers and services
 
@@ -756,9 +758,13 @@ routes reach gets one message. Both events are in the default event set for
 new channels. A failure produces one message per channel, however
 many runs then fail on it.
 
-The notification connection belongs to no project, so its events reach no
-route, and it cannot report its own failure by email. The navigation badge
-and the notification settings page show its status to admins.
+The notification connection belongs to no project, so its events go
+through the global routes. From v3.0 they go through the default project's
+routes, where RFC 003 moves the global routes
+(`specs/102-projects.md:885`). Email cannot report this connection's own
+failure, so the message reaches only the routes' other channels, such as
+chat. The navigation badge and the notification settings page also show
+its status.
 
 Runs that fail on a broken connection would still send their own
 `dag.run.failed` messages, one per run. Such a run records the connection
@@ -942,8 +948,9 @@ smtp:
     access.
   - A service account or client credentials connection acts as its
     `subject`, so the address must be the `subject`. A team with several
-    mailboxes adds one connection per mailbox. They share one app, which
-    holds the key, so rotating the key is one update.
+    mailboxes adds one connection per mailbox, with Add mailbox on the
+    connection page. They share one app, which holds the key, so rotating
+    the key is one update.
 - **When checked.** These checks run when a step or notification uses the
   account, as [Runs](#runs) describes. The editor reports them earlier.
 - **Rejected tokens.** An IMAP or SMTP server that refuses the token, or a
@@ -977,10 +984,26 @@ connection. It belongs in the DAG.
 
 Google's MCP servers "still return form elicitation prompts for
 human-in-the-loop confirmation on sensitive tool calls", service accounts
-included. Dagu's MCP clients advertise form elicitation:
+included. Sensitive actions include sending email, changing shared calendar
+events, sharing or trashing files, and reading shared data. The Workspace
+admin's rules decide, and Google publishes no list per tool, so a read can
+ask too.
 
-- **`mcp.call`** declines at once, since a step cannot wait mid-call, and
-  fails with kind `confirmation_required`.
+Dagu's MCP clients advertise form elicitation and use Google's `/mcp/v1`
+endpoints. Google serves clients that do not on `/mcp/v1self`, with only
+the tools and results that need no confirmation. Advertising therefore
+never skips Google's check, and a declined request fails only its call.
+
+- **`mcp.call`** declines at once and fails with kind
+  `confirmation_required`. Holding the call open for a person is a future
+  enhancement. The error names the ways to let the action through:
+  - approve it once in Try it, and save the approval where Google's form
+    offers that;
+  - ask the Workspace admin to change the confirmation rules under API
+    Controls;
+  - for automation without AI, use `http.request` with a standard
+    connection, since the confirmation requests belong to Google's MCP
+    servers.
 - **Try it in the UI.** The person is present, so the form is shown inline.
   The call request returns the form and a call ID. The server holds the call
   open in memory, for up to 10 minutes, and the page posts the answer to
@@ -1094,9 +1117,10 @@ dagu connection apps list | remove APP
 ```
 
 - A command acts in the context's workspace, or in the one `--workspace`
-  names. `--notifications` acts on the notification connection instead.
-  That connection, and service account and client credentials connections,
-  need `admin`.
+  names. `--notifications` acts on the notification connection instead,
+  with the role that changes the notification settings. Service account
+  and client credentials connections need `admin`. Another mailbox for the
+  same key takes `--app APP --subject ADDRESS`, as Add mailbox does.
 - `--client-file` registers an OAuth app, which needs `admin`. A manager
   names an app an admin registered with `--app`.
 - `connections` is an alias. The group follows
@@ -1162,9 +1186,9 @@ Connection work-google is ready. Try: dagu connection tools work-google --server
 - A `workspace` parameter qualifies `{name}` in these paths, since a name
   is unique only in its project. The notification connection has the same
   paths under `/notification-settings/connection` in place of
-  `/connections/{name}`, and needs `admin`.
-- The notification settings API's SMTP block gains `connection`. Setting it
-  needs `admin`, since email notifications then send as that account.
+  `/connections/{name}`.
+- The notification settings API's SMTP block gains `connection`. It needs
+  the role the rest of the settings need, as an SMTP password does today.
 - Responses never include a secret. They report `clientSecretConfigured`,
   `refreshTokenConfigured`, and similar flags, as notification channels do
   (`internal/notification/model.go:253`). A `PATCH` with a blank secret keeps
@@ -1237,9 +1261,15 @@ Google wizard has five steps:
 5. **Done.** The account to confirm, granted scopes, a result per service,
    and two buttons: **Start from a template** and **Browse tools**.
 
+The Microsoft wizard starts with a user's sign-in, which a manager
+completes, also for a shared mailbox that the account can open. The
+mailbox's owner can consent through a copied sign-in link. Client
+credentials are marked as admin-only, with what to ask an admin for: the
+tenant ID, the mailbox, and the Exchange Online access to grant.
+
 The connection page shows status and the reason for it, the account,
 services and scopes, its project, and Reconnect, Test, and Remove, with
-three panels:
+these panels:
 
 - **Used by:** the DAGs that name the connection, read from the DAG index,
   or the notification SMTP settings for the notification connection. Remove
@@ -1248,6 +1278,9 @@ three panels:
 - **Add service:** runs the wizard's Services, OAuth app, and Consent steps
   again for the new service only. The OAuth app step shows just the APIs to
   enable for it, and Consent reconnects with the added scopes.
+- **Add mailbox:** for a service account or client credentials connection,
+  creates another connection with the same app, asking only for the
+  mailbox and a name. It needs `admin`, as the first one did.
 - **Tools:** each MCP service's tools, with a form built from each tool's
   input schema.
   - **Try it** shows the result. A tool that is not read-only acts on the
@@ -1331,7 +1364,7 @@ and the tiers are new. Instead, the docs:
 | Set `allow_token_export` | `admin` |
 | Create, connect, reconnect, change, or remove a connection | `manager` or above in its project |
 | Add a service account or Microsoft client credentials connection, or change its `subject` | `admin` |
-| Create, connect, reconnect, or remove the notification connection | `admin` |
+| Create, connect, reconnect, or remove the notification connection | Whoever may change the notification settings: `developer` or above before v3.0, `admin` from v3.0 |
 | Test a connection, list its tools | `developer` or above in its project |
 | Try a tool | `developer` or above in its project, audited |
 | Use a connection in a DAG | Whoever may edit the DAG, if the name resolves in the DAG's project |
@@ -1344,8 +1377,8 @@ other connection may use it.
 
 Connections follow the secret store, where managers manage a workspace's
 secrets (`requireSecretManageForWorkspace`, `secrets.go:414`). OAuth apps
-and the notification connection follow notification channels, which stay
-server-wide and admin-only under RFC 003.
+follow notification channels, which stay server-wide and admin-only under
+RFC 003. The notification connection follows the notification settings.
 
 ## Security
 
@@ -1432,11 +1465,11 @@ server-wide and admin-only under RFC 003.
 | A base config's mail account or `smtp` names a connection that a project does not have | That project's DAGs that never use the account run as before. A step or notification that uses it fails, naming the connection |
 | A mail account with a connection sets an `imap` or `smtp` block, or a DAG's `smtp` with a connection sets a host or port | Validation fails, naming the field |
 | A mail address does not fit the connection's account or `subject` | The step or notification fails, naming both |
-| The notification connection breaks | Email notifications fail, and each failure is logged. The badge and the notification settings page show it to admins |
+| The notification connection breaks | Email notifications fail, and each failure is logged. One message goes to the global routes' other channels, and the badge and the notification settings page show it |
 | An admin deletes a project that owns connections | Refused, naming them |
 | An account from another Microsoft tenant claims the expected email | It is not confirmed without asking. The starter sees its tenant and decides |
 | A reconnect is confirmed, or a session expires unconfirmed | The unused refresh token is revoked where that leaves the rest of the grant, and left unused otherwise |
-| The notification connection is removed | The confirmation names the settings. Email notifications then fail until an admin connects one again |
+| The notification connection is removed | The confirmation names the settings. Email notifications then fail until one is connected again |
 | A worker's coordinator is older and lacks the token RPC | The step fails, saying the coordinator must be upgraded |
 | A worker is older than the token RPC | The coordinator does not dispatch a DAG that declares connections to it |
 | A server sends a confirmation request | `mcp.call` declines it and fails with `confirmation_required`. Try it shows the form to the person |
@@ -1564,23 +1597,26 @@ milestones span this RFC and RFC 026.
      `dagu connection add`, test, and reconnect.
   3. `mcp.call` with connections and the Google presets, with the
      `rate_limited` and `confirmation_required` kinds.
-  4. RFC 026's gateway and harness steps.
-- **M2.**
-  - Microsoft: authorization code, device code, and client credentials.
-  - Service account connections.
-  - Mail: `connection` in mail accounts, a DAG's `smtp`, and the
-    notification SMTP settings, the Google and Microsoft `mailbox` presets,
+  4. The `connection.*` events and the navigation badge, so a broken
+     connection, such as one from an app in Testing status after seven
+     days, is reported once with Reconnect.
+  5. RFC 026's gateway and harness steps.
+- **M2.** Mail comes first, since it fixes the Microsoft rotation bug that
+  mail accounts have today.
+  - Microsoft authorization code, and mail: `connection` in mail accounts,
+    a DAG's `smtp`, and the notification SMTP settings, the Google and
+    Microsoft `mailbox` presets, the notification connection's events,
     `dagu connection import`, and the deprecation of `oauth` blocks. This
-    fixes Microsoft rotation for mail, and leaves mail with one refresh
-    path.
+    leaves mail with one refresh path.
+  - Microsoft device code and client credentials, and service account
+    connections, with Add mailbox.
   - `http.request` with bound hosts.
   - Token export, behind `allow_token_export`.
   - Authoring: editor completion, the tool browser and Try it, Used by from
     the DAG index, Add service, paired Google connections, the expiry
     display, templates, and `dagu_read`.
-  - Notifications: the `connection.*` events, run records of the
-    connection and account, and skipping the run failure messages a broken
-    connection causes.
+  - Notifications: run records of the connection and account, and skipping
+    the run failure messages a broken connection causes.
 - **M3.**
   - Any MCP server: discovery, registration, and the gallery tile.
   - Cloud relay, once Dagu Cloud serves its endpoints.
@@ -1674,48 +1710,51 @@ Failures and notifications:
     channel that receives connection events sends no run failure messages
     for those runs, also when its monitor catches up after the reconnect. A
     channel that does not receive them sends every run failure.
+30. A broken notification connection sends one message to the global
+    routes' channels other than email.
 
 Security:
 
-30. No refresh token, access token, or client secret appears in any API
+31. No refresh token, access token, or client secret appears in any API
     response, CLI output, MCP result, run status, step log, worker log
     stream, or audit entry. A test searches each of them for the values.
-31. `http.request` with a connection, locally and on a worker, never sends
+32. `http.request` with a connection, locally and on a worker, never sends
     the token to a host outside the bound hosts or over plain HTTP,
     including through a redirect.
-32. A run on a worker cannot obtain a token for a connection its DAG does
+33. A run on a worker cannot obtain a token for a connection its DAG does
     not declare, one of another project, or the notification connection.
-33. Each role can do what [Permissions](#permissions) lists and nothing
+34. Each role can do what [Permissions](#permissions) lists and nothing
     more.
 
 Steps:
 
-34. An `mcp.call` step with `connection` and `server: gmail` succeeds, both
+35. An `mcp.call` step with `connection` and `server: gmail` succeeds, both
     locally and on a worker with no shared filesystem.
-35. A Google tool that sends a confirmation request fails with
+36. A Google tool that sends a confirmation request fails with
     `confirmation_required` in `mcp.call`, and Try it shows its form. No path
     accepts a request without a person.
 
 Against Google, before M1 ships. Each result changes preset values, docs,
 or a default, not the design:
 
-36. A Google MCP call from a client with the agent flag succeeds, and one
+37. A Google MCP call from a client with the agent flag succeeds, and one
     without it fails as Google's rules for 2027-02-01 state.
-37. The docs list the tools that send confirmation requests, and how long
-    Google keeps one open.
-38. The docs say whether Google's MCP tools carry `readOnlyHint`. Without it,
+38. The docs say which kinds of actions Google confirms, that the Workspace
+    admin's rules decide, how long Google keeps a request open, and whether
+    a saved approval lets later calls through.
+39. The docs say whether Google's MCP tools carry `readOnlyHint`. Without it,
     Try it asks before every tool.
-39. The docs say whether Google refuses a client that does not advertise
+40. The docs say whether Google refuses a client that does not advertise
     elicitation, and Dagu's MCP clients advertise what Google needs.
-40. A personal `@gmail.com` account connects and calls the Gmail MCP
+41. A personal `@gmail.com` account connects and calls the Gmail MCP
     server, as Google's guide for personal use describes.
-41. Revoking one refresh token is tested, and Remove and the cleanup of
+42. Revoking one refresh token is tested, and Remove and the cleanup of
     unused tokens follow the result, as [Connect flow](#connect-flow)
     describes.
 
 All:
 
-42. Every case in [Failure behavior](#failure-behavior) ends as stated.
+43. Every case in [Failure behavior](#failure-behavior) ends as stated.
 
 ## Alternatives considered
 
@@ -1732,6 +1771,11 @@ All:
   `smtp` and the notification SMTP settings would keep their own refresh
   path, with refresh tokens in YAML and settings, and Microsoft rotation
   would still break them.
+- **One service account or client credentials connection for several
+  mailboxes.** Fewer records. But a connection would then act as several
+  accounts, so its status, Used by, and run records would need a mailbox
+  each, and `mcp.call` would need a field to pick one. Add mailbox gives
+  the same setup in one step.
 - **Static headers with a token refreshed by a command step.** Works today,
   but the token passes through step output. It expires during long steps,
   and every DAG repeats the plumbing.
@@ -1784,6 +1828,8 @@ All:
   needs a periodic check, which this RFC avoids for idle cost.
 - **More presets,** such as Slack, GitHub, and Salesforce, as their MCP
   servers settle.
+- **Waiting for a person on a confirmation request in `mcp.call`,** with
+  the call held open, as RFC 026 describes for AI steps.
 
 ## References
 
