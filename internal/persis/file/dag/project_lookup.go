@@ -59,20 +59,12 @@ func (store *Store) locateInProject(ctx context.Context, target string) (Resolve
 		}
 	}
 	// The project's base config lies in its DAG directory but is no DAG.
-	// Its links are resolved only for a match of the same file name.
-	var (
-		baseConfig         string
-		baseConfigResolved bool
-	)
+	// Only a match of the same file name is compared by identity, which
+	// also holds where the file system ignores case.
 	isBaseConfig := func(resolved ResolvedFile) bool {
-		if store.baseConfigPath == "" ||
-			!strings.EqualFold(filepath.Base(resolved.ResolvedPath), filepath.Base(store.baseConfigPath)) {
-			return false
-		}
-		if !baseConfigResolved {
-			baseConfig, baseConfigResolved = store.resolvedBaseConfig(), true
-		}
-		return baseConfig != "" && resolved.ResolvedPath == baseConfig
+		return store.baseConfigPath != "" &&
+			strings.EqualFold(filepath.Base(resolved.ResolvedPath), filepath.Base(store.baseConfigPath)) &&
+			sameFile(resolved.ResolvedPath, store.baseConfigPath)
 	}
 	accept := func(resolved ResolvedFile) (bool, error) {
 		if isBaseConfig(resolved) {

@@ -149,6 +149,24 @@ func TestProjectStoresBaseConfig(t *testing.T) {
 	}
 }
 
+// Where the file system ignores case, a project's base config is no DAG by
+// any spelling of its name or path.
+func TestProjectStoresBaseConfigIgnoresCase(t *testing.T) {
+	cfg := projectStoresConfig(t, true)
+	weather := openProject(t, cfg, persisfile.NewServerStores(cfg), "weather")
+	writeBaseConfig(t, filepath.Join(weather.Paths.DAGsDir, "base.yaml"), "weather")
+	// On a case-sensitive file system BASE.yaml is another file, which no
+	// lookup finds, so the test proves nothing there.
+	if _, err := os.Stat(filepath.Join(weather.Paths.DAGsDir, "BASE.yaml")); err != nil {
+		t.Skip("the file system is case-sensitive")
+	}
+
+	for _, target := range []string{"BASE", filepath.Join(weather.Paths.DAGsDir, "BASE.yaml")} {
+		_, err := weather.DAGRepository.GetMetadata(context.Background(), target)
+		assert.ErrorIs(t, err, persis.ErrDAGNotFound, target)
+	}
+}
+
 // writeBaseConfig writes a base config that sets FROM_<SOURCE> to yes.
 func writeBaseConfig(t *testing.T, path, source string) {
 	t.Helper()
