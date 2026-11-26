@@ -540,8 +540,8 @@ type Task struct {
 	xxx_hidden_NextScheduledAt            string                 `protobuf:"bytes,44,opt,name=next_scheduled_at,json=nextScheduledAt,proto3"`
 	xxx_hidden_ScheduleTimezone           string                 `protobuf:"bytes,45,opt,name=schedule_timezone,json=scheduleTimezone,proto3"`
 	xxx_hidden_DatesJson                  string                 `protobuf:"bytes,46,opt,name=dates_json,json=datesJson,proto3"`
-	xxx_hidden_BoundNode                  string                 `protobuf:"bytes,47,opt,name=bound_node,json=boundNode,proto3"`
-	xxx_hidden_NodeStep                   string                 `protobuf:"bytes,48,opt,name=node_step,json=nodeStep,proto3"`
+	xxx_hidden_BoundNode                  string                 `protobuf:"bytes,48,opt,name=bound_node,json=boundNode,proto3"`
+	xxx_hidden_NodeStep                   string                 `protobuf:"bytes,49,opt,name=node_step,json=nodeStep,proto3"`
 	XXX_raceDetectHookData                protoimpl.RaceDetectHookData
 	XXX_presence                          [2]uint32
 	unknownFields                         protoimpl.UnknownFields
@@ -7389,8 +7389,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\n" +
 	"dates_json\x18. \x01(\tR\tdatesJson\x12\x1d\n" +
 	"\n" +
-	"bound_node\x18/ \x01(\tR\tboundNode\x12\x1b\n" +
-	"\tnode_step\x180 \x01(\tR\bnodeStep\x1aA\n" +
+	"bound_node\x180 \x01(\tR\tboundNode\x12\x1b\n" +
+	"\tnode_step\x181 \x01(\tR\bnodeStep\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x18\n" +

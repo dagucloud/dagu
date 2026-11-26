@@ -571,10 +571,10 @@ type Task struct {
 	DatesJson string `protobuf:"bytes,46,opt,name=dates_json,json=datesJson,proto3" json:"dates_json,omitempty"`
 	// Node the run is bound to (RFC 013): a worker node, whose run is
 	// dispatched to that worker by target_worker_id.
-	BoundNode string `protobuf:"bytes,47,opt,name=bound_node,json=boundNode,proto3" json:"bound_node,omitempty"`
+	BoundNode string `protobuf:"bytes,48,opt,name=bound_node,json=boundNode,proto3" json:"bound_node,omitempty"`
 	// Command step with nodes of the definition that the run runs alone, bound
 	// to bound_node. Empty for a run of the whole definition.
-	NodeStep      string `protobuf:"bytes,48,opt,name=node_step,json=nodeStep,proto3" json:"node_step,omitempty"`
+	NodeStep      string `protobuf:"bytes,49,opt,name=node_step,json=nodeStep,proto3" json:"node_step,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7387,8 +7387,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\n" +
 	"dates_json\x18. \x01(\tR\tdatesJson\x12\x1d\n" +
 	"\n" +
-	"bound_node\x18/ \x01(\tR\tboundNode\x12\x1b\n" +
-	"\tnode_step\x180 \x01(\tR\bnodeStep\x1aA\n" +
+	"bound_node\x180 \x01(\tR\tboundNode\x12\x1b\n" +
+	"\tnode_step\x181 \x01(\tR\bnodeStep\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x18\n" +

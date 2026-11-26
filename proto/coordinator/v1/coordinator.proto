@@ -189,10 +189,10 @@ message Task {
   string dates_json = 46;
   // Node the run is bound to (RFC 013): a worker node, whose run is
   // dispatched to that worker by target_worker_id.
-  string bound_node = 47;
+  string bound_node = 48;
   // Command step with nodes of the definition that the run runs alone, bound
   // to bound_node. Empty for a run of the whole definition.
-  string node_step = 48;
+  string node_step = 49;
 }
 
 enum Operation {
