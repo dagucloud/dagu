@@ -41,7 +41,11 @@ vi.mock('@/hooks/api', () => ({
   useQuery: (path: string, init: unknown) =>
     path === '/dags/{fileName}/dag-runs'
       ? (recentRuns.reads.push(init),
-        { data: { dagRuns: recentRuns.dagRuns }, isLoading: false })
+        {
+          data: { dagRuns: recentRuns.dagRuns },
+          isLoading: false,
+          mutate: vi.fn(),
+        })
       : {
           data: {
             labels: ['team=ops'],
@@ -164,7 +168,7 @@ function renderTable(
       errors: [],
     } as never,
   ];
-  const result = render(
+  const tree = (rows: typeof dags) => (
     <MemoryRouter initialEntries={['/dags']}>
       <LocationProbe />
       <ConfigContext.Provider
@@ -180,9 +184,9 @@ function renderTable(
         >
           <PanelWidthContext.Provider value={options.panelWidth ?? null}>
             <DAGTable
-              dags={dags}
+              dags={rows}
               activity={
-                'activity' in options ? options.activity : activityOf(dags)
+                'activity' in options ? options.activity : activityOf(rows)
               }
               group=""
               refreshFn={vi.fn()}
@@ -223,19 +227,21 @@ function renderTable(
           </PanelWidthContext.Provider>
         </AppBarContext.Provider>
       </ConfigContext.Provider>
-    </MemoryRouter>,
-    {
-      wrapper: ({ children }) => (
-        <I18nWrapper>
-          <PeekContext.Provider value={options.peek ?? null}>
-            {children}
-          </PeekContext.Provider>
-        </I18nWrapper>
-      ),
-    }
+    </MemoryRouter>
   );
+  const result = render(tree(dags), {
+    wrapper: ({ children }) => (
+      <I18nWrapper>
+        <PeekContext.Provider value={options.peek ?? null}>
+          {children}
+        </PeekContext.Provider>
+      </I18nWrapper>
+    ),
+  });
   return {
     ...result,
+    /** Renders the table again with other workflows, as a refetch does. */
+    rerenderDAGs: (rows: typeof dags) => result.rerender(tree(rows)),
     handleActiveOnlyChange,
     onDeleteDAGs,
     onSetDAGPinned,
@@ -1663,6 +1669,26 @@ describe('DAGTable', () => {
 
       // The card of alpha.
       expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
+    });
+
+    // A workflow that becomes a service DAG loses its chevron, so its panel
+    // folds too: no panel stays without a control to fold it.
+    it('folds the recent runs of a workflow that becomes a service DAG', () => {
+      const table = renderTable('', { dags: [withLatestRun()] });
+      fireEvent.click(
+        within(screen.getByRole('table')).getByTestId('dag-activity-toggle')
+      );
+      expect(screen.getByTestId('dag-recent-runs')).toBeInTheDocument();
+
+      table.rerenderDAGs([
+        {
+          ...withLatestRun(),
+          dag: { name: 'alpha', restartPolicy: RestartPolicy.always },
+        } as never,
+      ]);
+
+      expect(screen.queryByTestId('dag-activity-toggle')).toBeNull();
+      expect(screen.queryByTestId('dag-recent-runs')).toBeNull();
     });
 
     // A card keeps the room of its strip while the activity loads, so that it

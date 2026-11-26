@@ -2161,10 +2161,12 @@ function DAGTable({
                 // Type guard to ensure we only access dag property when it exists
 
                 // The table off screen reads no runs: rowActivity is unset.
+                // A service DAG has no chevron, so it shows no panel either.
                 const recentRunsOf =
                   rowActivity !== undefined &&
                   isDAGRow &&
                   'dag' in row.original &&
+                  !isServiceDAG((row.original as DAGRow).dag.dag) &&
                   expandedActivity.has((row.original as DAGRow).dag.fileName)
                     ? (row.original as DAGRow).dag.fileName
                     : null;
