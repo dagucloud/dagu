@@ -15,9 +15,9 @@ account's whole grant to the client. Until they record it here,
 [Token Cleanup](#token-cleanup) applies to Google as a provider whose answer
 is unknown.
 
-[Service Presets](#service-presets) lists the scope sets of `gmail` and
-`mailbox` only. The parts that compile the other presets (C4 for Google,
-C20 and C21 for Microsoft) add their scope sets to that section.
+[Service Presets](#service-presets) lists the scope sets of the Google
+presets only. The parts that compile the Microsoft presets (C20 and C21)
+add their scope sets to that section.
 
 A DAG that names no connection behaves as it does without this spec, with
 these exceptions:
@@ -391,10 +391,26 @@ Google presets:
 
 - A preset's hosts are its MCP URL's host, its REST hosts, and its IMAP
   and SMTP hosts.
-- Scope sets follow Google's MCP setup guide. `gmail` with `read` asks for
-  `https://www.googleapis.com/auth/gmail.readonly`. `gmail` with `write`
-  adds `https://www.googleapis.com/auth/gmail.compose` and
-  `https://www.googleapis.com/auth/gmail.modify`.
+- Scope sets follow each product's MCP setup guide, which lists every
+  scope its tools use. `read` asks for the scopes that allow no change.
+  `write` asks for those and adds the rest. Each scope below is under
+  `https://www.googleapis.com/auth/`:
+
+| Service | `read` | `write` adds |
+| --- | --- | --- |
+| `gmail` | `gmail.readonly` | `gmail.compose`, `gmail.modify` |
+| `calendar` | `calendar.calendarlist.readonly`, `calendar.events.freebusy`, `calendar.events.readonly` | `calendar.events` |
+| `drive` | `drive.readonly` | `drive.file` |
+| `docs` | `drive.readonly`, `documents.readonly` | `drive.file`, `documents` |
+| `sheets` | `drive.readonly`, `spreadsheets.readonly` | `drive.file`, `spreadsheets` |
+| `slides` | `drive.readonly`, `presentations.readonly` | `drive.file`, `presentations` |
+| `chat` | `chat.spaces.readonly`, `chat.memberships.readonly`, `chat.messages.readonly` | `chat.messages.create`, `chat.users.readstate`, `chat.users.spacesettings` |
+| `people` | `directory.readonly`, `userinfo.profile`, `contacts.readonly` | none |
+| `search` | `gmail.readonly`, `drive.readonly`, `calendar.readonly`, `chat.messages.readonly`, `chat.spaces.readonly`, `chat.memberships.readonly` | none |
+
+- `chat` with `read` cannot read notification settings: Google's
+  `get_notification_settings` tool needs `chat.users.spacesettings`, which
+  also allows changing them.
 - `mailbox` asks for `https://mail.google.com/`. `gmail` does not.
 - Every Google connection also asks for `openid` and `email`, so Dagu can
   show the account.
