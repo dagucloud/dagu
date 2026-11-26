@@ -18,6 +18,17 @@ type TokenState struct {
 	// Session is the connect session in progress, or nil.
 	Session     *Session
 	RefreshedAt time.Time
+	// RefreshErrors are keyed by resource and hold the error of the last
+	// refresh of each, until a refresh of the resource succeeds.
+	RefreshErrors map[string]RefreshError
+}
+
+// RefreshError is a failed refresh whose error the processes that waited
+// on it return.
+type RefreshError struct {
+	// Reason is the provider's error, without secrets.
+	Reason string
+	At     time.Time
 }
 
 // Tokens are the tokens one consent produced, with the account it signed
@@ -42,8 +53,20 @@ type Tokens struct {
 
 // AccessToken is an access token and when it expires.
 type AccessToken struct {
-	Token     string
+	Token string
+	// ExpiresAt is zero when the provider reported no expiry.
 	ExpiresAt time.Time
+	// IssuedAt is zero when the token's lifetime is unknown.
+	IssuedAt time.Time
+}
+
+// Lifetime returns how long the token was issued for, or zero when that is
+// unknown.
+func (t AccessToken) Lifetime() time.Duration {
+	if t.IssuedAt.IsZero() || t.ExpiresAt.IsZero() {
+		return 0
+	}
+	return t.ExpiresAt.Sub(t.IssuedAt)
 }
 
 // Session is a connect or reconnect in progress. Its tokens go live only
