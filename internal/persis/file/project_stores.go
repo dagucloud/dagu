@@ -188,7 +188,8 @@ func (s *ProjectStores) CheckStart(ctx context.Context, path string) error {
 	case errors.Is(err, os.ErrNotExist):
 		return nil
 	case err != nil:
-		return err
+		return fmt.Errorf("library DAG %s cannot start in project %q: read its DAG named %s in %s: %w",
+			path, s.dags.project, name, s.Paths.DAGsDir, err)
 	}
 	shadow, err := s.dags.owners.Of(ctx, own.Location)
 	if err != nil || shadow.Library {

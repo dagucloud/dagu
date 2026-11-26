@@ -65,6 +65,12 @@ func TestProjectStoresLibraryDAGs(t *testing.T) {
 	assert.EqualError(t, err, `library DAG `+shared+` cannot start in project "weather", which has a DAG named ABC`)
 	assert.NoError(t, weather.CheckStart(context.Background(), cleanup))
 	assert.NoError(t, defaultProject.CheckStart(context.Background(), shared))
+
+	// A shadowing DAG that does not load still refuses the start, and the
+	// error says why.
+	require.NoError(t, os.WriteFile(filepath.Join(weather.Paths.DAGsDir, "cleanup.yaml"), []byte("steps: [\n"), 0o600))
+	err = weather.CheckStart(context.Background(), cleanup)
+	assert.ErrorContains(t, err, `library DAG `+cleanup+` cannot start in project "weather": read its DAG named cleanup in `+weather.Paths.DAGsDir)
 }
 
 // A file symlink out of the DAG directory loads as before while projects
