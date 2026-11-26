@@ -546,6 +546,33 @@ func TestRemoteNodeProxyPreservesStructuredError(t *testing.T) {
 	assert.JSONEq(t, responseBody, recorder.Body.String())
 }
 
+// A skill file read through a remote node keeps the headers that name the
+// skill version and the file.
+func TestRemoteNodeProxyKeepsFileHeaders(t *testing.T) {
+	remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", `attachment; filename="a.bin"`)
+		w.Header().Set("ETag", `"abc123"`)
+		_, _ = w.Write([]byte("bytes"))
+	}))
+	t.Cleanup(remoteServer.Close)
+
+	resolver := remotenode.NewResolver([]config.RemoteNode{{
+		Name:       "edge",
+		APIBaseURL: remoteServer.URL + "/api/v1",
+	}}, nil)
+	handler := WithRemoteNode(resolver, "/api/v1")(http.NotFoundHandler())
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/skills/demo/files?path=a.bin&remoteNode=edge", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, `"abc123"`, recorder.Header().Get("ETag"))
+	assert.Equal(t, `attachment; filename="a.bin"`, recorder.Header().Get("Content-Disposition"))
+	assert.Equal(t, "bytes", recorder.Body.String())
+}
+
 func TestLegacyWikiProxyPath(t *testing.T) {
 	tests := map[string]string{
 		"/api/v1/wiki":                        "/api/v1/docs",
