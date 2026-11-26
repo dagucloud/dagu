@@ -210,7 +210,7 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 		return nil, err
 	}
 	if deps.Projects != nil && deps.OpenProject != nil {
-		scheduler.units = newProjectUnits(deps.Projects,
+		scheduler.units = newProjectUnits(scheduler, deps.Projects,
 			func(ctx context.Context, p project.Project, stores *persisfile.ProjectStores) (*Scheduler, error) {
 				unitDeps, err := deps.OpenProject(ctx, p, stores)
 				if err != nil {
@@ -1178,8 +1178,8 @@ func (s *Scheduler) runTickSafely(ctx context.Context, tickTime time.Time) time.
 		return tickTime
 	}
 	processed := s.tickUnit(ctx, tickTime)
-	s.units.each(func(ctx context.Context, unit *Scheduler) {
-		unit.tickUnit(ctx, tickTime)
+	s.units.tick(tickTime, func(ctx context.Context, unit *Scheduler) time.Time {
+		return unit.tickUnit(ctx, tickTime)
 	})
 	return processed
 }
@@ -1222,8 +1222,8 @@ func (s *Scheduler) runHeldTicks(ctx context.Context, since time.Time) time.Time
 		return since.Truncate(time.Minute)
 	}
 	processed := s.heldTicksUnit(ctx, since)
-	s.units.each(func(ctx context.Context, unit *Scheduler) {
-		unit.heldTicksUnit(ctx, since)
+	s.units.tick(since, func(ctx context.Context, unit *Scheduler) time.Time {
+		return unit.heldTicksUnit(ctx, since)
 	})
 	return processed
 }
@@ -1264,6 +1264,15 @@ func (s *Scheduler) leaseExpired(ctx context.Context) bool {
 	return true
 }
 
+// wakeHeld reports whether the scheduler holds its ticks after a wake.
+func (s *Scheduler) wakeHeld(ctx context.Context) bool {
+	if s.pauseStore == nil {
+		return false
+	}
+	pause, err := s.pauseStore.Get(ctx)
+	return err == nil && pause.WakeHold()
+}
+
 // NextTick returns the next tick time for the scheduler.
 func (*Scheduler) NextTick(now time.Time) time.Time {
 	return now.Truncate(time.Minute).Add(time.Minute)
@@ -1277,6 +1286,10 @@ func (s *Scheduler) IsRunning() bool {
 // Stop stops the scheduler.
 func (s *Scheduler) Stop(ctx context.Context) {
 	s.stopOnce.Do(func() {
+		// Units dispatch runs only while the lock is held, so they stop
+		// first, while the lock is still renewed.
+		s.units.stop()
+
 		var wg sync.WaitGroup
 		wg.Add(3)
 
@@ -1319,9 +1332,6 @@ func (s *Scheduler) Stop(ctx context.Context) {
 		}
 
 		s.planner.Stop(ctx)
-
-		// Units dispatch runs only while the lock is held.
-		s.units.stop()
 
 		s.releaseDirLock(ctx, "Failed to release scheduler lock in Stop")
 

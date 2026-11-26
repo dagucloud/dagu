@@ -8,7 +8,9 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -81,8 +83,9 @@ func projectScope(p project.Project, stores *persisfile.ProjectStores) scope {
 }
 
 // newUnit builds the unit of project p from deps. The unit leaves the
-// lock, health server, and service registration to s, and keeps s's clock
-// and OpenCode host.
+// lock, health server, and service registration to s, and keeps s's clock,
+// OpenCode host, and recovery window, so after a takeover it replays the
+// slots s replays.
 func (s *Scheduler) newUnit(cfg *config.Config, p project.Project, stores *persisfile.ProjectStores, deps Dependencies) (*Scheduler, error) {
 	unit, err := newWithScope(cfg, deps, projectScope(p, stores))
 	if err != nil {
@@ -92,6 +95,7 @@ func (s *Scheduler) newUnit(cfg *config.Config, p project.Project, stores *persi
 	unit.serviceRegistry = nil
 	unit.SetClock(s.clock)
 	unit.dagExecutor.openCodeHost = s.dagExecutor.openCodeHost
+	unit.planner.cfg.RecoveryWindow = s.planner.cfg.RecoveryWindow
 	return unit, nil
 }
 
@@ -114,6 +118,8 @@ func (s *Scheduler) startAsUnit(ctx context.Context, wg *sync.WaitGroup) error {
 // default one, while the project is not marked deleting and its DAG
 // directory exists. It opens no store: the cache does.
 type projectUnits struct {
+	// parent is the scheduler the units run in.
+	parent *Scheduler
 	stores *persisfile.ProjectStoreCache
 	open   func(context.Context, project.Project, *persisfile.ProjectStores) (*Scheduler, error)
 	// recheck is how often the DAG directories are checked.
@@ -126,6 +132,8 @@ type projectUnits struct {
 	done     chan struct{}
 	stopOnce sync.Once
 
+	// mu guards projects and started. A unit joins running under mu, so it
+	// never joins after a change that drops its project was heard.
 	mu sync.Mutex
 	// projects is the registry's content as last heard.
 	projects []project.Project
@@ -133,7 +141,7 @@ type projectUnits struct {
 	started bool
 
 	// tickMu keeps a unit from stopping during a tick of it, and guards
-	// running.
+	// running and each unit's ticked.
 	tickMu  sync.Mutex
 	running map[string]*unit
 	// missing holds the projects whose DAG directory was last found gone,
@@ -148,13 +156,17 @@ type unit struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	loops     sync.WaitGroup
+	// ticked is the last tick the unit ran, so no minute runs twice.
+	ticked time.Time
 }
 
 func newProjectUnits(
+	parent *Scheduler,
 	stores *persisfile.ProjectStoreCache,
 	open func(context.Context, project.Project, *persisfile.ProjectStores) (*Scheduler, error),
 ) *projectUnits {
 	u := &projectUnits{
+		parent:  parent,
 		stores:  stores,
 		open:    open,
 		recheck: missingCheckInterval,
@@ -168,15 +180,35 @@ func newProjectUnits(
 	return u
 }
 
-// heard records the registry's content and wakes run.
+// heard records the registry's content and wakes run. It returns once the
+// units of the projects the content drops or marks deleting have stopped,
+// so the cache records their release only after that.
 func (u *projectUnits) heard(projects []project.Project) {
 	u.mu.Lock()
 	u.projects = projects
+	var gone []string
+	for id := range u.snapshot() {
+		if _, ok := u.wanted(id); !ok {
+			gone = append(gone, id)
+		}
+	}
 	u.mu.Unlock()
+	u.stopUnits(gone)
 	select {
 	case u.changed <- struct{}{}:
 	default:
 	}
+}
+
+// wanted returns the project with the given ID when it is to have a unit
+// by the registry's content. The caller holds mu.
+func (u *projectUnits) wanted(id string) (project.Project, bool) {
+	for _, p := range u.projects {
+		if p.ID == id {
+			return p, !p.Deleting && !strings.EqualFold(p.Name, project.DefaultName)
+		}
+	}
+	return project.Project{}, false
 }
 
 // start runs the units on wg until ctx ends or stop is called. It does
@@ -211,16 +243,19 @@ func (u *projectUnits) stop() {
 	}
 }
 
-// each calls fn with each running unit and the context it runs in. It does
+// tick calls fn with each running unit that has not run the tick at
+// tickTime, and records the tick fn returns as the unit's last. It does
 // nothing on a nil u.
-func (u *projectUnits) each(fn func(context.Context, *Scheduler)) {
+func (u *projectUnits) tick(tickTime time.Time, fn func(context.Context, *Scheduler) time.Time) {
 	if u == nil {
 		return
 	}
 	u.tickMu.Lock()
 	defer u.tickMu.Unlock()
 	for _, r := range u.running {
-		fn(r.ctx, r.scheduler)
+		if tickTime.After(r.ticked) {
+			r.ticked = fn(r.ctx, r.scheduler)
+		}
 	}
 }
 
@@ -262,11 +297,13 @@ func (u *projectUnits) follow(ctx context.Context) {
 		want[p.ID], stores[p.ID] = p, opened
 	}
 
+	var gone []string
 	for id, r := range u.snapshot() {
 		if _, ok := want[id]; !ok || stores[id] != r.stores {
-			u.stopUnit(id)
+			gone = append(gone, id)
 		}
 	}
+	u.stopUnits(gone)
 	for id, p := range want {
 		if u.isRunning(id) || u.stopping() {
 			continue
@@ -316,10 +353,41 @@ func (u *projectUnits) startUnit(ctx context.Context, p project.Project, stores 
 		logger.Error(ctx, "Failed to start the scheduler unit of a project", tag.Error(err))
 		return
 	}
-	u.tickMu.Lock()
-	u.running[p.ID] = r
-	u.tickMu.Unlock()
+
+	u.mu.Lock()
+	_, ok := u.wanted(p.ID)
+	if ok {
+		u.tickMu.Lock()
+		u.firstTick(r)
+		u.running[p.ID] = r
+		u.tickMu.Unlock()
+	}
+	u.mu.Unlock()
+	if !ok {
+		u.stopStarted(r)
+		return
+	}
 	logger.Info(ctx, "Started the scheduler unit of a project", tag.Dir(stores.Paths.DAGsDir))
+}
+
+// firstTick runs a new unit's tick of the minute under way, as the
+// scheduler's first tick runs it for the default project. While the
+// scheduler may not dispatch, or holds its ticks after a wake, the unit
+// waits for the scheduler's next tick, which recovers what it missed.
+func (u *projectUnits) firstTick(r *unit) {
+	if u.parent.leaseExpired(r.ctx) || u.parent.wakeHeld(r.ctx) {
+		return
+	}
+	r.ticked = r.scheduler.tickUnit(r.ctx, r.scheduler.clock().Truncate(time.Minute))
+}
+
+// stopUnits stops the running units with the given IDs, all at once.
+func (u *projectUnits) stopUnits(ids []string) {
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		wg.Go(func() { u.stopUnit(id) })
+	}
+	wg.Wait()
 }
 
 func (u *projectUnits) stopUnit(id string) {
@@ -327,9 +395,13 @@ func (u *projectUnits) stopUnit(id string) {
 	r := u.running[id]
 	delete(u.running, id)
 	u.tickMu.Unlock()
-	if r == nil {
-		return
+	if r != nil {
+		u.stopStarted(r)
 	}
+}
+
+// stopStarted stops a started unit and waits for its loops.
+func (u *projectUnits) stopStarted(r *unit) {
 	// The unit flushes its state as it stops, so stopping must not be cut
 	// short by the context that ended it.
 	stopCtx := context.WithoutCancel(r.ctx)
@@ -340,19 +412,13 @@ func (u *projectUnits) stopUnit(id string) {
 }
 
 func (u *projectUnits) stopAll() {
-	for id := range u.snapshot() {
-		u.stopUnit(id)
-	}
+	u.stopUnits(slices.Collect(maps.Keys(u.snapshot())))
 }
 
 func (u *projectUnits) snapshot() map[string]*unit {
 	u.tickMu.Lock()
 	defer u.tickMu.Unlock()
-	running := make(map[string]*unit, len(u.running))
-	for id, r := range u.running {
-		running[id] = r
-	}
-	return running
+	return maps.Clone(u.running)
 }
 
 func (u *projectUnits) isRunning(id string) bool {
