@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 )
 
 const runtimeProfileOrigin = "runtime_profile"
@@ -73,6 +74,11 @@ type Context struct {
 	// SecretValues, when non-nil, holds the secret values the run resolved
 	// its secrets from in place of their providers.
 	SecretValues map[string]string
+	// RunWorkDir is the work directory of the run (DAG_RUN_WORK_DIR). Unlike
+	// the variable, a step cannot change it.
+	RunWorkDir string
+	// StepGate lets an isolated untrusted step hold the run alone.
+	StepGate *StepGate
 	// TargetNodes narrows the steps with nodes of the run and of its child
 	// runs to the nodes it names (RFC 013 §Narrowing a run).
 	TargetNodes []string
@@ -654,6 +660,11 @@ func NewContext(
 	if len(secretEnvs) > 0 {
 		scope = scope.WithEntries(secretEnvs, cmnvalue.EnvSourceSecret)
 	}
+	// In a run with an untrusted step, git opens a bare repository only when
+	// the command names it (Spec 092).
+	if dag.HasUntrustedStep() {
+		scope = scope.WithEntries(untrusted.GitSafetyEntries(scope.Get), cmnvalue.EnvSourceDAGEnv)
+	}
 	scope = scope.WithMaskedSecrets(options.maskedSecrets)
 
 	// Fields the caller cannot set through an option, because they are derived
@@ -663,6 +674,8 @@ func NewContext(
 	options.Shell = dag.Shell
 	options.BaseEnv = config.GetBaseEnv(ctx)
 	options.EnvScope = scope
+	options.RunWorkDir = options.workDir
+	options.StepGate = NewStepGate()
 
 	return context.WithValue(ctx, dagCtxKey{}, options.Context)
 }

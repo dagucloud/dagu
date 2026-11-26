@@ -37,6 +37,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	"github.com/goccy/go-yaml"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -708,7 +709,7 @@ func (n *Node) readStructuredOutputSource(ctx context.Context, key string, entry
 		}
 		path = filepath.Clean(path)
 
-		data, err := readStructuredOutputFile(path, maxOutputSize(ctx))
+		data, err := readStructuredOutputFile(ctx, path, maxOutputSize(ctx))
 		if err != nil {
 			return "", fmt.Errorf("%s: failed to read file %q: %w", key, path, err)
 		}
@@ -764,9 +765,8 @@ func decodeStructuredOutputValue(ctx context.Context, key, raw, selectPath, deco
 	return selected, nil
 }
 
-func readStructuredOutputFile(path string, limit int64) (string, error) {
-	// #nosec G304 -- file source paths come from the loaded workflow spec and are intentionally user-configurable.
-	file, err := os.Open(path)
+func readStructuredOutputFile(ctx context.Context, path string, limit int64) (string, error) {
+	file, err := OpenStepFile(ctx, path, os.O_RDONLY, 0)
 	if err != nil {
 		return "", err
 	}
@@ -1045,7 +1045,10 @@ func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error)
 	}
 
 	env := GetEnv(ctx)
-	env.Scope = env.Scope.WithEntry(runenv.EnvKeyDAGUOutputFile, path, cmnvalue.EnvSourceStepEnv)
+	// The process of an isolated untrusted step writes a file of the restricted
+	// user, which Dagu copies to path at the end of the step (Spec 092).
+	processPath := untrusted.FromContext(ctx).OutputFile(path)
+	env.Scope = env.Scope.WithEntry(runenv.EnvKeyDAGUOutputFile, processPath, cmnvalue.EnvSourceStepEnv)
 	return WithEnv(ctx, env), nil
 }
 

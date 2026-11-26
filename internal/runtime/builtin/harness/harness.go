@@ -32,6 +32,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/dagucloud/dagu/v2/internal/runtime/resourcelimit"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 	"github.com/goccy/go-yaml"
 	dockerclient "github.com/moby/moby/client"
 )
@@ -325,6 +326,10 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 	return nil
 }
 
+// RunsUntrusted implements executor.UntrustedRunner: each process of the
+// harness starts through untrusted.StartManagedProcess.
+func (*harnessExecutor) RunsUntrusted() {}
+
 func (e *harnessExecutor) isStopRequested() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -333,12 +338,26 @@ func (e *harnessExecutor) isStopRequested() bool {
 
 // runOnce dispatches one provider attempt to its protocol and execution backend.
 func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
+	hasRootContainer := rootContainerConfigured(ctx)
+	if untrusted.FromContext(ctx) != nil {
+		// An untrusted step runs its agent as a process of the host, never in a
+		// container or in the managed OpenCode service of the server (Spec 092).
+		if e.step.Container != nil || hasRootContainer {
+			return nil, fmt.Errorf("harness: untrusted step %q cannot run in a container", e.step.Name)
+		}
+		if cfg.managed {
+			if cfg.required {
+				return nil, fmt.Errorf("harness: untrusted step %q cannot use the managed OpenCode service", e.step.Name)
+			}
+			_, _ = fmt.Fprintln(e.stderrWriter(), "harness: using legacy OpenCode CLI because the step is untrusted")
+			cfg.managed = false
+		}
+	}
 	if cfg.definition != nil && cfg.definition.Protocol == ir.HarnessProtocolACP {
 		// An ACP agent does not report what its models used.
 		modelusage.FromContext(ctx).MarkNotReported(cfg.name)
 		return e.runACP(ctx, cfg)
 	}
-	hasRootContainer := rootContainerConfigured(ctx)
 	if cfg.managed && e.step.Container == nil && !hasRootContainer {
 		host, available, err := opencodehost.ConfigFromContext(ctx)
 		if err != nil && cfg.required {
@@ -869,7 +888,7 @@ func sharedContainerHarnessEnv(userEnv map[string]string) []string {
 }
 
 func (e *harnessExecutor) startAndWaitLocked(ctx context.Context, cmd *exec.Cmd, stdout *os.File, tw *executor.TailWriter, logEncoding string) (*os.File, error) {
-	process, err := cmdutil.StartManagedProcess(cmd)
+	process, err := untrusted.StartManagedProcess(ctx, cmd)
 	if err != nil {
 		e.exitCode = exitCodeFromError(err)
 		_ = cleanupStdoutSpool(stdout)

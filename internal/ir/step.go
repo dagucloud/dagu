@@ -136,6 +136,11 @@ type Step struct {
 	Approval *ApprovalConfig `json:"approval,omitempty"`
 	// HumanTask configures a processless step completed by a local operator.
 	HumanTask *HumanTaskConfig `json:"humanTask,omitempty"`
+	// Untrusted marks a step that runs code that an agent wrote or controls. It
+	// is the effective value (Spec 092, "Default of the key"): the loader sets it
+	// for an agent.run step, and, in a DAG that has an agent.run step, for each
+	// step that runs a process and does not opt out.
+	Untrusted bool `json:"untrusted,omitempty"`
 }
 
 const (
