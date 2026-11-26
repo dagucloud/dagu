@@ -181,7 +181,7 @@ type startupState struct {
 func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	var profileResolver DAGProfileResolver
 	if deps.DAGSettingsStore != nil {
-		profileResolver = NewDAGProfileResolver(deps.DAGSettingsStore, deps.ProfileStore)
+		profileResolver = NewDAGProfileResolver(deps.DAGSettingsStore, deps.ProfileStore, cfg.ProjectsEnabled)
 	}
 	scheduler, err := newScheduler(
 		cfg,

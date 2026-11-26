@@ -170,7 +170,7 @@ func (h *Handler) ResolveSecretReference(ctx context.Context, req *coordinatorv1
 		return nil, err
 	}
 
-	resolver := secretpkg.NewReferenceResolver(h.secretStore, req.GetWorkspace())
+	resolver := h.secretReferenceResolver(req.GetWorkspace())
 	if req.GetCheckOnly() {
 		if err := resolver.CheckReferenceAccessibility(ctx, ref); err != nil {
 			return nil, secretReferenceRPCError(err)
@@ -183,6 +183,15 @@ func (h *Handler) ResolveSecretReference(ctx context.Context, req *coordinatorv1
 		return nil, secretReferenceRPCError(err)
 	}
 	return &coordinatorv1.ResolveSecretReferenceResponse{Value: value}, nil
+}
+
+// secretReferenceResolver returns the resolver for a request that names
+// workspace. While projects are on, the workspace adds no layer.
+func (h *Handler) secretReferenceResolver(workspace string) *secretpkg.ReferenceResolver {
+	if h.projectsEnabled {
+		return secretpkg.NewProjectReferenceResolver(h.secretStore)
+	}
+	return secretpkg.NewReferenceResolver(h.secretStore, workspace)
 }
 
 func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinatorv1.ResolveSecretReferenceRequest, ref secretref.Ref) error {
