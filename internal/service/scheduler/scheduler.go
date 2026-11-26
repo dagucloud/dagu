@@ -316,6 +316,7 @@ func newScheduler(
 	var isQueued IsQueuedFunc
 	var enqueueFunc EnqueueFunc
 	liveRun := liveRunChecker(dagRunRepository)
+	logDir, artifactDir := runDirs(cfg)
 	if queuesEnabled {
 		isQueued = liveQueuedChecker(queueStore, liveRun)
 		enqueueFunc = func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time, params string) error {
@@ -328,8 +329,8 @@ func newScheduler(
 				ctx,
 				dagRunRepository,
 				queueStore,
-				cfg.Paths.LogDir,
-				cfg.Paths.ArtifactDir,
+				logDir,
+				artifactDir,
 				cfg.Paths.BaseConfig,
 				workspaceBaseConfigDir,
 				entry.DefinitionID,
@@ -1257,12 +1258,13 @@ func (s *Scheduler) enqueueFileRun(ctx context.Context, entry DAGEntry, runID, p
 	if err != nil {
 		return fmt.Errorf("failed to resolve DAG profile: %w", err)
 	}
+	logDir, artifactDir := runDirs(s.config)
 	return enqueueTriggeredRun(
 		ctx,
 		s.dagRunRepository,
 		s.queueStore,
-		s.config.Paths.LogDir,
-		s.config.Paths.ArtifactDir,
+		logDir,
+		artifactDir,
 		s.config.Paths.BaseConfig,
 		workspace.BaseConfigDir(s.config.Paths.DAGsDir),
 		entry.DefinitionID,

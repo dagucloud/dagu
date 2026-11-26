@@ -671,7 +671,7 @@ func (f *testFixture) latestStatus() (ir.DAGRunStatus, error) {
 }
 
 func (f *testFixture) latestStoredStatus() (ir.DAGRunStatus, error) {
-	repository := file.NewDAGRunRepository(f.coord.Config)
+	repository := f.coord.DAGRunRepository
 
 	attempt, err := repository.LatestAttempt(f.coord.Context, f.dagWrapper.Name, persis.DAGRunLatestAttemptOptions{})
 	if err != nil {

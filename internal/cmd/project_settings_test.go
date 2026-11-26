@@ -15,9 +15,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -173,7 +173,9 @@ steps:
 func seedProjectSettings(t *testing.T, th test.Command) {
 	t.Helper()
 
-	secrets := file.NewSecretStore(th.Context, th.Config, th.Backend.Collection(persis.CollectionSecrets))
+	settings, err := file.NewProjectSettings(th.Config, file.NewServerStores(th.Config), project.DefaultName)
+	require.NoError(t, err)
+	secrets := settings.SecretStore(th.Context)
 	require.NotNil(t, secrets)
 	for _, seed := range []struct{ workspace, ref, value string }{
 		{workspace: secret.GlobalWorkspace, ref: "api/token", value: "project-token"},
@@ -185,7 +187,7 @@ func seedProjectSettings(t *testing.T, th test.Command) {
 		require.NoError(t, secrets.Create(th.Context, sec, &secret.WriteValueInput{Value: seed.value}))
 	}
 
-	profiles := file.NewProfileStore(th.Context, th.Config, th.Backend.Collection(persis.CollectionProfiles))
+	profiles := settings.ProfileStore(th.Context)
 	require.NotNil(t, profiles)
 	opsRef, err := profile.WorkspaceInheritedRef("ops")
 	require.NoError(t, err)

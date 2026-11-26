@@ -209,13 +209,14 @@ func (s *Scheduler) enqueueBackfillRun(ctx context.Context, record *backfill.Rec
 	if err != nil {
 		return err
 	}
+	logDir, artifactDir := runDirs(s.config)
 	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
 		DAGRunRepository: s.dagRunRepository,
 		QueueStore:       s.queueStore,
 		DAG:              dag,
 		DAGRunID:         runID,
-		LogBaseDir:       s.config.Paths.LogDir,
-		ArtifactBaseDir:  s.config.Paths.ArtifactDir,
+		LogBaseDir:       logDir,
+		ArtifactBaseDir:  artifactDir,
 		TriggerType:      ir.TriggerTypeBackfill,
 		TriggerActor:     record.Actor,
 		ScheduleTime:     stringutil.FormatTime(slot.At),

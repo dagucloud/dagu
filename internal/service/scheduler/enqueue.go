@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -17,8 +18,17 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
+
+// runDirs returns the log and artifact directories of the runs that the
+// scheduler queues, which are the default project's.
+func runDirs(cfg *config.Config) (logDir, artifactDir string) {
+	// The default project always resolves.
+	p, _ := cfg.ProjectPaths(project.DefaultName)
+	return p.LogDir, p.ArtifactDir
+}
 
 // EnqueueCatchupRun enqueues a catchup run for a DAG. Restarts of a DAG with a
 // restart_policy are enqueued the same way, with their own trigger type.

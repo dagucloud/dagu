@@ -93,8 +93,7 @@ type ProjectSettings struct {
 // NewProjectStores opens the stores of p on its paths. Only the default
 // project gets example DAGs. The run records of the default project and of
 // each migrated one map paths under the v2 log and artifact directories to
-// the project's own. The default project keeps the directories v2 uses; see
-// NewProjectSettings.
+// the project's own.
 func NewProjectStores(
 	ctx context.Context,
 	cfg *config.Config,
@@ -214,8 +213,7 @@ func (s *ProjectStores) CheckStart(ctx context.Context, path string) error {
 
 // NewProjectSettings returns the settings of the project called name, for a
 // process that opens no run store of the project. It does not access the
-// filesystem. The default project keeps the directories v2 uses, also while
-// projects are on, until migration moves its state.
+// filesystem.
 func NewProjectSettings(cfg *config.Config, server *ServerStores, name string) (*ProjectSettings, error) {
 	paths, v2Dirs, err := projectPaths(cfg, name)
 	if err != nil {
@@ -229,12 +227,6 @@ func NewProjectSettings(cfg *config.Config, server *ServerStores, name string) (
 		v2Dirs:  v2Dirs,
 	}, nil
 }
-
-// defaultProjectInV2Dirs keeps the default project's stores in the
-// directories v2 uses while projects are on. Runs still write the default
-// project's logs and artifacts there, and its state stays there until
-// migration moves it, so turning this off goes with that move.
-const defaultProjectInV2Dirs = true
 
 // ProjectStorePaths returns the directories that the stores of the project
 // called name open on. A process that watches a project's state watches
@@ -257,9 +249,6 @@ func ProjectSchedulerStateDir(p config.ProjectPaths) string {
 // called name open on, and whether they are the ones v2 uses. Every store
 // of a project, in every process, opens on these directories.
 func projectPaths(cfg *config.Config, name string) (config.ProjectPaths, bool, error) {
-	if defaultProjectInV2Dirs && strings.EqualFold(name, project.DefaultName) {
-		return v2ProjectPaths(cfg.Paths), true, nil
-	}
 	paths, err := cfg.ProjectPaths(name)
 	return paths, !cfg.ProjectsEnabled, err
 }

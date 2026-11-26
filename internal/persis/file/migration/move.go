@@ -72,7 +72,8 @@ func newMover() mover {
 // source stays. held is called before each step that changes state, and an
 // error from it stops the move.
 func (mr mover) move(ctx context.Context, mv move, install installRecord, held func() error) error {
-	if _, err := os.Lstat(mv.From); err != nil {
+	info, err := os.Lstat(mv.From)
+	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
@@ -95,6 +96,9 @@ func (mr mover) move(ctx context.Context, mv move, install installRecord, held f
 	parent := filepath.Dir(mv.To)
 	if err := fileutil.MkdirAll(parent, dirPerm); err != nil {
 		return err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return moveLink(mv, install.record, held)
 	}
 	same, err := mr.sameFileSystem(mv.From, parent)
 	if err != nil {
@@ -146,6 +150,33 @@ func (mr mover) copyMove(ctx context.Context, mv move, record func() error, held
 	return fileutil.RemoveAll(mv.From)
 }
 
+// moveLink moves the symbolic link mv.From, which may lead to another file
+// system, as a link: the state it leads to stays where it is. A relative
+// target is made absolute, so the link at mv.To still reaches it. The link
+// is recorded before it takes mv.To's name.
+func moveLink(mv move, record func() error, held func() error) error {
+	target, err := os.Readlink(mv.From)
+	if err != nil {
+		return err
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(mv.From), target)
+	}
+	if err := held(); err != nil {
+		return err
+	}
+	if err := record(); err != nil {
+		return err
+	}
+	if err := os.Symlink(target, mv.To); err != nil {
+		return err
+	}
+	if err := held(); err != nil {
+		return err
+	}
+	return fileutil.Remove(mv.From)
+}
+
 // discardStaging removes the part of a copy that a killed attempt left.
 func discardStaging(staging string, held func() error) error {
 	found, err := exists(staging)
@@ -165,7 +196,9 @@ func discardStaging(staging string, held func() error) error {
 func (mr mover) pendingCopies(moves []move, floors map[string]uint64, held func() error) ([]pendingCopy, error) {
 	var copies []pendingCopy
 	for _, mv := range moves {
-		if _, err := os.Lstat(mv.From); errors.Is(err, fs.ErrNotExist) {
+		// A missing source was moved, and a link moves as a link.
+		if info, err := os.Lstat(mv.From); errors.Is(err, fs.ErrNotExist) ||
+			(err == nil && info.Mode()&fs.ModeSymlink != 0) {
 			continue
 		}
 		// A destination that exists needs no room: the move removes the

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/stretchr/testify/assert"
@@ -383,7 +384,7 @@ func TestRunStopsWaitingForV2WithoutLock(t *testing.T) {
 		}
 	}
 	require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
-	done, err := New(dataDir, &fakeServices{}).Done()
+	done, err := New(dataDirConfig(dataDir), &fakeServices{}, noLiveRuns).Done()
 	require.NoError(t, err)
 	assert.True(t, done, "the status of the finished migration stays")
 }
@@ -561,7 +562,7 @@ func TestRunPlansAgainAfterEarlierRelease(t *testing.T) {
 				assert.FileExists(t, filepath.Join(mv.To, "f"))
 			}
 			assert.Equal(t, Progress{Phase: phaseDone, Moved: 1, Total: 1}, m.Progress())
-			done, err = New(dataDir, &fakeServices{}).Done()
+			done, err = New(dataDirConfig(dataDir), &fakeServices{}, noLiveRuns).Done()
 			require.NoError(t, err)
 			assert.True(t, done)
 		})
@@ -575,19 +576,28 @@ func TestDoneRefusesUnreadableStatus(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, statusFileName), []byte("{"), 0o600))
 
-	_, err := New(dataDir, &fakeServices{}).Done()
+	_, err := New(dataDirConfig(dataDir), &fakeServices{}, noLiveRuns).Done()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), statusFileName)
 }
 
 func newTestMigrator(t *testing.T, dataDir string, services serviceregistry.ServiceRegistry, moves []move) (*Migrator, chan time.Time) {
 	t.Helper()
-	m := New(dataDir, services)
+	m := New(dataDirConfig(dataDir), services, noLiveRuns)
 	ticks := make(chan time.Time)
 	m.pollTicks = func() (<-chan time.Time, func()) { return ticks, func() {} }
 	m.planMoves = func(context.Context) ([]move, error) { return moves, nil }
 	return m, ticks
 }
+
+// dataDirConfig is the configuration of a data directory that projects
+// migrate.
+func dataDirConfig(dataDir string) *config.Config {
+	return &config.Config{ProjectsEnabled: true, Paths: config.PathsConfig{DataDir: dataDir}}
+}
+
+// noLiveRuns stops no run, as in a data directory without live runs.
+func noLiveRuns(context.Context) ([]string, error) { return nil, nil }
 
 // refusePlan fails the test when a resumed or waiting process plans.
 func refusePlan(t *testing.T) func(context.Context) ([]move, error) {

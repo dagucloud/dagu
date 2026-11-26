@@ -41,6 +41,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/publicwebhook"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
@@ -603,6 +604,14 @@ func (a *API) requireValidBaseConfigWiring() {
 	if a.baseConfigStore != nil && a.baseConfigProvider == nil {
 		panic("api: workspace base config provider must be configured when base config store is configured")
 	}
+}
+
+// runDirs returns the log and artifact directories of the runs that the API
+// queues, which are the default project's.
+func (a *API) runDirs() (logDir, artifactDir string) {
+	// The default project always resolves.
+	p, _ := a.config.ProjectPaths(project.DefaultName)
+	return p.LogDir, p.ArtifactDir
 }
 
 func (a *API) notifyDAGMutation(fileName string) {
