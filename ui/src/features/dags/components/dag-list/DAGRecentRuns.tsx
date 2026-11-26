@@ -74,14 +74,18 @@ export function DAGRecentRuns({
       data-testid="dag-recent-runs"
       className="animate-in fade-in-0 slide-in-from-top-1 border-l-2 border-border/60 py-1 pl-3 text-xs duration-200"
     >
-      {error ? (
+      {/* A failed read again keeps the runs read before on screen. */}
+      {error && (
         <p role="alert" className="py-1 text-destructive">
           <I18nText text={'Could not load the recent runs'} />
         </p>
-      ) : isLoading ? (
-        <p className="py-1 text-muted-foreground">
-          <I18nText text={'Loading...'} />
-        </p>
+      )}
+      {!data && (isLoading || error) ? (
+        !error && (
+          <p className="py-1 text-muted-foreground">
+            <I18nText text={'Loading...'} />
+          </p>
+        )
       ) : runs.length === 0 ? (
         <p className="py-1 text-muted-foreground">
           <I18nText text={'No runs'} />

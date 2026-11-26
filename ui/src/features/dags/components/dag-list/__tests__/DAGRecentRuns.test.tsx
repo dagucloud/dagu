@@ -1,9 +1,10 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Status } from '@/api/v1/schema';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { DAGRecentRuns } from '../DAGRecentRuns';
@@ -11,12 +12,14 @@ import { DAGRecentRuns } from '../DAGRecentRuns';
 const h = vi.hoisted(() => ({
   reads: [] as unknown[],
   mutate: vi.fn(),
+  /** What the read of the runs gives, past the mutate. */
+  result: {} as { data?: unknown; error?: unknown; isLoading: boolean },
 }));
 
 vi.mock('@/hooks/api', () => ({
   useQuery: (_path: string, init: unknown) => {
     h.reads.push(init);
-    return { data: { dagRuns: [] }, isLoading: false, mutate: h.mutate };
+    return { ...h.result, mutate: h.mutate };
   },
 }));
 vi.mock('@/contexts/RemoteNodeContext', () => ({
@@ -41,6 +44,7 @@ describe('DAGRecentRuns', () => {
   beforeEach(() => {
     h.reads = [];
     h.mutate.mockClear();
+    h.result = { data: { dagRuns: [] }, isLoading: false };
   });
 
   // The panel reads one page of the latest runs. It does not poll: a new
@@ -79,5 +83,51 @@ describe('DAGRecentRuns', () => {
       />
     );
     expect(h.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  // SWR keeps the data of the last read when a read again fails.
+  it('keeps the runs read before on screen when a read again fails', () => {
+    h.result = {
+      data: {
+        dagRuns: [
+          {
+            dagRunId: 'r1',
+            status: Status.Success,
+            startedAt: '2026-10-29T11:00:00Z',
+            finishedAt: '2026-10-29T11:01:00Z',
+          },
+        ],
+      },
+      error: new Error('offline'),
+      isLoading: false,
+    };
+    render(
+      <DAGRecentRuns
+        fileName="alpha.yaml"
+        activity={activity()}
+        onOpenRun={openRun}
+      />,
+      { wrapper: Wrapper }
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Could not load the recent runs'
+    );
+    expect(screen.getByText('r1')).toBeInTheDocument();
+  });
+
+  it('tells only of the error when no read has succeeded', () => {
+    h.result = { error: new Error('offline'), isLoading: false };
+    render(
+      <DAGRecentRuns
+        fileName="alpha.yaml"
+        activity={activity()}
+        onOpenRun={openRun}
+      />,
+      { wrapper: Wrapper }
+    );
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('No runs')).toBeNull();
   });
 });
