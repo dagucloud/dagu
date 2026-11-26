@@ -82,8 +82,8 @@ provider other than `claude`. A `claude` step names an endpoint instead (Spec 09
 
 With `--upstream`, give exactly one of `--upstream-key-env` and `--upstream-key-file`. Without
 `--upstream`, the three other options are errors. A variable that does not exist, an empty value, a
-file that the proxy cannot read, or an empty file stops the proxy at start. The error names the
-option and the variable or the path, and never holds the key.
+file that the proxy cannot read, an empty file, or a key with a control character stops the proxy at
+start. The error names the option and the variable or the path, and never holds the key.
 
 A request in origin form, such as `POST /v1/messages`, goes to the upstream. The proxy:
 
@@ -105,8 +105,8 @@ A request in absolute form and a `CONNECT` request keep their rules. A destinati
 does not list gets the status 403. Without `--upstream`, a request in origin form gets the status
 400.
 
-The proxy never writes the key in a log, an error or a response, and the key is never an argument of
-a command.
+The proxy never writes the key in its own log lines, errors or answers, and the key is never an
+argument of a command. An answer of the upstream goes to the client as it is (see Limits).
 
 The proxy writes one line for each request to the upstream. The line has the method, the host and
 the port, the client credential header and the form. For the client credential and for the key, it
@@ -178,7 +178,8 @@ These cases stop the proxy at start with exit code 1:
 
 - an invalid option, or an invalid combination of options, as listed above
 - an upstream key variable that does not exist or is empty, or an upstream key file that the proxy
-  cannot read or that is empty
+  cannot read, that is empty or that has more than 16384 bytes
+- an upstream key with a control character
 
 These cases give an HTTP status:
 
@@ -228,6 +229,8 @@ sends `POST https://api.openai.com/v1/chat/completions` with the real key.
   can call each endpoint of the upstream that the key opens. The upstream route asks for no
   credential: each client that reaches the address of `--listen` can use the key. The network of
   the deployment limits who reaches the proxy.
+- An upstream endpoint that echoes request headers returns the key to the client. The proxy does not
+  scan answers. It refuses only `TRACE` and `TRACK`.
 
 ## Open items
 
@@ -246,4 +249,4 @@ The built part has these tests:
 | Test | Proves |
 | --- | --- |
 | `internal/runtime/egress/` (unit) | The proxy allows the destinations of `--allow` and refuses the others. |
-| `internal/runtime/egress/` and `internal/cmd/` (unit) | The upstream route replaces the client credential with the key, and the key reaches no log, error or response. |
+| `internal/runtime/egress/` and `internal/cmd/` (unit) | The upstream route replaces the client credential with the key, and the key reaches no log line, error or answer of the proxy. |
