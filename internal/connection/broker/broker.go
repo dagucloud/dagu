@@ -6,12 +6,12 @@
 // lock, so callers on one host that need the same refresh cause one
 // provider request:
 //
-//	Token -> in-process cache (one per connection and resource)
-//	           |  miss: one caller per cache entry at a time
+//	Token -> in-process cache, in run processes only
+//	           |  miss
 //	           v
 //	         token state usable? -- yes --> return it
-//	           |  no
-//	           v
+//	           |  no: one caller per connection and resource
+//	           v  in this process at a time
 //	         TryLock -- held by another --> wait for release,
 //	           |                            read the state once
 //	           v
@@ -42,6 +42,9 @@ const (
 	codeUnauthorizedClient = "unauthorized_client"
 )
 
+// redacted replaces a secret in a provider's error text.
+const redacted = "[redacted]"
+
 // ErrReconnectRequired reports a connection that cannot hand out tokens
 // until it is reconnected or its app is fixed: it is pending or needs a
 // reconnect, or its app is invalid.
@@ -61,9 +64,10 @@ var (
 type Source interface {
 	// Token returns an access token of conn, valid at resource, that stays
 	// valid for at least minTTL, and how long it stays valid. An empty
-	// resource selects the connection's only resource. A minTTL longer than
-	// half the token's lifetime is cut to half. expiresIn is zero when the
-	// provider reported no expiry.
+	// resource selects the connection's only resource; a resource the
+	// connection does not serve fails. A minTTL longer than half the
+	// token's lifetime is cut to half. expiresIn is zero when the provider
+	// reported no expiry.
 	Token(ctx context.Context, conn *connection.Connection, resource string, minTTL time.Duration) (token string, expiresIn time.Duration, err error)
 	// Rejected reports that resource rejected token, and returns a token as
 	// Token does. It refreshes only while token is still the stored token;
@@ -73,35 +77,47 @@ type Source interface {
 
 // StatusChange is a status change that a broker's write made. Of the
 // processes that see the same failure, only the one whose write changed the
-// status reports it.
+// status reports it. It holds no secret.
 type StatusChange struct {
-	Connection *connection.Connection
-	// State is set when the connection's status changed.
-	State *connection.TokenState
-	// App is set when the status of the connection's app changed.
-	App *connection.App
+	Connection   connection.Key
+	ConnectionID string
+	// App is the ID of the connection's app.
+	App string
+	// ConnectionFrom and ConnectionTo are set when the connection's status
+	// changed.
+	ConnectionFrom, ConnectionTo connection.TokenStatus
+	// AppFrom and AppTo are set when the app's status changed.
+	AppFrom, AppTo connection.AppStatus
+	// Reason is the provider's error, without secrets.
+	Reason string
 }
 
 // Config is what a Broker needs.
 type Config struct {
 	Store connection.Store
 	Locks connection.Locks
+	// CacheTokens keeps tokens in memory per connection and resource, so a
+	// request that the cached token serves reads no state. A cached token
+	// counts as one the process holds: it is handed out until it falls
+	// below the minTTL asked for or is rejected, even after a reconnect or
+	// a status change. Only a run process sets it.
+	CacheTokens bool
 	// OnStatusChange, when set, receives each status change that the
-	// broker's own writes make.
+	// broker's own writes make, after the connection's lock is released.
 	OnStatusChange func(context.Context, StatusChange)
 }
 
 var _ Source = (*Broker)(nil)
 
-// Broker is the Source of a process that has the connection store. It
-// caches tokens in memory per connection and resource.
+// Broker is the Source of a process that has the connection store.
 type Broker struct {
 	store          connection.Store
 	locks          connection.Locks
+	cache          bool
 	onStatusChange func(context.Context, StatusChange)
 
 	mu    sync.Mutex
-	gates map[gateKey]*oauthrefresh.Gate
+	gates map[gateKey]*gateEntry
 }
 
 type gateKey struct {
@@ -109,15 +125,24 @@ type gateKey struct {
 	resource     string
 }
 
+// gateEntry is the gate of one connection and resource, and how many calls
+// use it.
+type gateEntry struct {
+	gate  *oauthrefresh.Gate
+	users int
+}
+
 // request is what one call needs: a token for resource that stays valid
 // for minTTL and is not the rejected one.
 type request struct {
+	// resource is the token's key in the token state.
 	resource string
 	minTTL   time.Duration
 	rejected string
-	// start is when the call began. A refresh error recorded since then
-	// is the outcome of a refresh the call waited for.
-	start time.Time
+	// failures is the count of failed refreshes of resource that the call
+	// read first. A higher count is the failure of a refresh the call
+	// waited for.
+	failures int64
 }
 
 // New returns a broker over cfg's store and locks.
@@ -128,26 +153,60 @@ func New(cfg Config) (*Broker, error) {
 	return &Broker{
 		store:          cfg.Store,
 		locks:          cfg.Locks,
+		cache:          cfg.CacheTokens,
 		onStatusChange: cfg.OnStatusChange,
-		gates:          make(map[gateKey]*oauthrefresh.Gate),
+		gates:          make(map[gateKey]*gateEntry),
 	}, nil
 }
 
 func (b *Broker) Token(ctx context.Context, conn *connection.Connection, resource string, minTTL time.Duration) (string, time.Duration, error) {
-	return b.token(ctx, conn, request{resource: resource, minTTL: minTTL})
+	return b.token(ctx, conn, resource, request{minTTL: minTTL})
 }
 
 func (b *Broker) Rejected(ctx context.Context, conn *connection.Connection, resource, token string, minTTL time.Duration) (string, time.Duration, error) {
-	return b.token(ctx, conn, request{resource: resource, minTTL: minTTL, rejected: token})
+	return b.token(ctx, conn, resource, request{minTTL: minTTL, rejected: token})
 }
 
-func (b *Broker) token(ctx context.Context, conn *connection.Connection, req request) (string, time.Duration, error) {
+func (b *Broker) token(ctx context.Context, conn *connection.Connection, resource string, req request) (string, time.Duration, error) {
 	if conn == nil {
 		return "", 0, connection.ErrNotFound
 	}
-	req.start = time.Now()
-	gate := b.gate(gateKey{connectionID: conn.ID, resource: req.resource})
-	token, err := gate.TokenIf(ctx, req.usableCached, func(ctx context.Context, _ *oauth2.Token) (*oauth2.Token, error) {
+	key, err := resourceKey(conn, resource)
+	if err != nil {
+		return "", 0, err
+	}
+	req.resource = key
+	gate, release := b.acquire(gateKey{connectionID: conn.ID, resource: key})
+	defer release()
+
+	// A rejection is settled against the stored token, never the cache.
+	cached := b.cache && req.rejected == ""
+	if token := gate.Cached(); cached && req.usableCached(token) {
+		return result(token)
+	}
+	// The state is read before queuing behind a refresh of this process,
+	// so that the call takes that refresh's failure as its own.
+	app, state, err := b.read(ctx, conn)
+	if err != nil {
+		return "", 0, err
+	}
+	req.failures = state.RefreshErrors[key].Failures
+	stored, done, err := req.settle(conn, app, state)
+	if err != nil {
+		return "", 0, err
+	}
+	if done && !cached {
+		return result(toCached(stored))
+	}
+
+	usable := func(*oauth2.Token) bool { return false }
+	if cached {
+		usable = req.usableCached
+	}
+	token, err := gate.TokenIf(ctx, usable, func(ctx context.Context, _ *oauth2.Token) (*oauth2.Token, error) {
+		if done {
+			return toCached(stored), nil
+		}
 		at, err := b.fetch(ctx, conn, req)
 		if err != nil {
 			return nil, err
@@ -157,22 +216,40 @@ func (b *Broker) token(ctx context.Context, conn *connection.Connection, req req
 	if err != nil {
 		return "", 0, err
 	}
-	var expiresIn time.Duration
-	if !token.Expiry.IsZero() {
-		expiresIn = time.Until(token.Expiry)
-	}
-	return token.AccessToken, expiresIn, nil
+	return result(token)
 }
 
-func (b *Broker) gate(key gateKey) *oauthrefresh.Gate {
+// acquire returns the gate of key. Without the cache a gate only coalesces
+// the calls in flight, so release drops it after the last of them.
+func (b *Broker) acquire(key gateKey) (*oauthrefresh.Gate, func()) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	gate, ok := b.gates[key]
+	entry, ok := b.gates[key]
 	if !ok {
-		gate = oauthrefresh.NewGate()
-		b.gates[key] = gate
+		entry = &gateEntry{gate: oauthrefresh.NewGate()}
+		b.gates[key] = entry
 	}
-	return gate
+	entry.users++
+	return entry.gate, func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		entry.users--
+		if entry.users == 0 && !b.cache {
+			delete(b.gates, key)
+		}
+	}
+}
+
+func (b *Broker) read(ctx context.Context, conn *connection.Connection) (*connection.App, *connection.TokenState, error) {
+	app, err := b.store.GetApp(ctx, conn.App)
+	if err != nil {
+		return nil, nil, fmt.Errorf("connection %q: %w", conn.Name, err)
+	}
+	state, err := b.store.TokenState(ctx, conn)
+	if err != nil {
+		return nil, nil, err
+	}
+	return app, state, nil
 }
 
 // fetch returns a token from the token state, refreshing it under the
@@ -181,25 +258,22 @@ func (b *Broker) gate(key gateKey) *oauthrefresh.Gate {
 // provider.
 func (b *Broker) fetch(ctx context.Context, conn *connection.Connection, req request) (connection.AccessToken, error) {
 	for {
-		app, err := b.store.GetApp(ctx, conn.App)
-		if err != nil {
-			return connection.AccessToken{}, fmt.Errorf("connection %q: %w", conn.Name, err)
-		}
-		if app.Status == connection.AppStatusInvalid {
-			return connection.AccessToken{}, appInvalid(conn, app.Name, app.StatusReason)
-		}
-		state, err := b.store.TokenState(ctx, conn)
+		app, state, err := b.read(ctx, conn)
 		if err != nil {
 			return connection.AccessToken{}, err
 		}
-		if at, done, err := req.settle(conn, state); done {
+		if at, done, err := req.settle(conn, app, state); done || err != nil {
 			return at, err
 		}
 		if conn.Grant != connection.GrantAuthorizationCode && conn.Grant != connection.GrantDeviceCode {
 			return connection.AccessToken{}, fmt.Errorf("connection %q: the %s grant cannot fetch tokens", conn.Name, conn.Grant)
 		}
 
-		lock, err := b.locks.TryLock(ctx, conn.Key())
+		// A refresh, once started, runs to its end even when the caller
+		// gives up, so a token the provider rotated is never lost. The
+		// token call's timeout bounds it.
+		heldCtx := context.WithoutCancel(ctx)
+		lock, err := b.locks.TryLock(heldCtx, conn.Key())
 		if errors.Is(err, connection.ErrLocked) {
 			if err := b.locks.WaitUnlocked(ctx, conn.Key()); err != nil {
 				return connection.AccessToken{}, err
@@ -208,7 +282,7 @@ func (b *Broker) fetch(ctx context.Context, conn *connection.Connection, req req
 			if err != nil {
 				return connection.AccessToken{}, err
 			}
-			if at, done, err := req.settle(conn, state); done {
+			if at, done, err := req.settle(conn, app, state); done || err != nil {
 				return at, err
 			}
 			// The holder refreshed another resource, or stopped without an
@@ -218,12 +292,33 @@ func (b *Broker) fetch(ctx context.Context, conn *connection.Connection, req req
 		if err != nil {
 			return connection.AccessToken{}, err
 		}
-		at, err := b.refreshHeld(ctx, conn, app, lock, req)
-		lock.Unlock()
+		at, err := b.refreshLocked(heldCtx, conn, app, lock, req)
 		if !errors.Is(err, errStartOver) {
 			return at, err
 		}
 	}
+}
+
+// refreshLocked refreshes while holding lock, releases it, and then reports
+// the status change the refresh made, if any.
+func (b *Broker) refreshLocked(
+	ctx context.Context,
+	conn *connection.Connection,
+	app *connection.App,
+	lock connection.Lock,
+	req request,
+) (connection.AccessToken, error) {
+	at, change, err := func() (connection.AccessToken, *StatusChange, error) {
+		defer lock.Unlock()
+		return b.refreshHeld(ctx, conn, app, lock, req)
+	}()
+	if change != nil && b.onStatusChange != nil {
+		b.onStatusChange(ctx, *change)
+	}
+	if err == nil && !req.usable(at) {
+		return connection.AccessToken{}, fmt.Errorf("connection %q: the refreshed token expires before the minimum lifetime asked for", conn.Name)
+	}
+	return at, err
 }
 
 // refreshHeld refreshes the token of req.resource while lock is held.
@@ -233,29 +328,31 @@ func (b *Broker) refreshHeld(
 	app *connection.App,
 	lock connection.Lock,
 	req request,
-) (connection.AccessToken, error) {
+) (connection.AccessToken, *StatusChange, error) {
 	// Another process may have refreshed between the first read and the
 	// lock.
 	state, err := b.store.TokenState(ctx, conn)
 	if err != nil {
-		return connection.AccessToken{}, err
+		return connection.AccessToken{}, nil, err
 	}
 	retriedGrant, retriedClient := false, false
 	for {
-		if at, done, err := req.settle(conn, state); done {
-			return at, err
+		if at, done, err := req.settle(conn, app, state); done || err != nil {
+			return at, nil, err
 		}
 		if state.RefreshToken == "" {
-			return connection.AccessToken{}, reconnectRequired(conn, "the connection has no refresh token")
+			return connection.AccessToken{}, nil, reconnectRequired(conn, "the connection has no refresh token")
 		}
 		token, err := b.refresh(ctx, app, state)
 		if err == nil {
-			return b.save(ctx, conn, lock, state, req.resource, token)
+			at, err := b.save(ctx, conn, lock, state, req.resource, token)
+			return at, nil, err
 		}
+		reason := redact(err.Error(), state.RefreshToken, app.ClientSecret)
 
 		var tokenErr *oauthrefresh.TokenError
 		if !errors.As(err, &tokenErr) {
-			return connection.AccessToken{}, b.recordFailure(ctx, conn, lock, state, req.resource, err)
+			return connection.AccessToken{}, nil, b.recordFailure(ctx, conn, lock, state, req.resource, reason)
 		}
 		switch tokenErr.Code {
 		case codeInvalidGrant:
@@ -263,26 +360,28 @@ func (b *Broker) refreshHeld(
 			// reconnect replaced it, since this one read it.
 			current, err := b.store.TokenState(ctx, conn)
 			if err != nil {
-				return connection.AccessToken{}, err
+				return connection.AccessToken{}, nil, err
 			}
 			if !retriedGrant && (current.RefreshToken != state.RefreshToken || current.Generation != state.Generation) {
 				retriedGrant, state = true, current
 				continue
 			}
-			return connection.AccessToken{}, b.markNeedsReconnect(ctx, conn, lock, current, tokenErr)
+			change, err := b.markNeedsReconnect(ctx, conn, lock, state, reason)
+			return connection.AccessToken{}, change, err
 		case codeInvalidClient, codeUnauthorizedClient:
 			// An admin may have fixed the client during the refresh.
 			current, err := b.store.GetApp(ctx, app.ID)
 			if err != nil {
-				return connection.AccessToken{}, fmt.Errorf("connection %q: %w", conn.Name, err)
+				return connection.AccessToken{}, nil, fmt.Errorf("connection %q: %w", conn.Name, err)
 			}
 			if !retriedClient && !sameCredentials(current, app) {
 				retriedClient, app = true, current
 				continue
 			}
-			return connection.AccessToken{}, b.markAppInvalid(ctx, conn, app, tokenErr)
+			change, err := b.markAppInvalid(ctx, conn, app, reason)
+			return connection.AccessToken{}, change, err
 		default:
-			return connection.AccessToken{}, b.recordFailure(ctx, conn, lock, state, req.resource, err)
+			return connection.AccessToken{}, nil, b.recordFailure(ctx, conn, lock, state, req.resource, reason)
 		}
 	}
 }
@@ -329,17 +428,20 @@ func (b *Broker) save(
 	token *oauth2.Token,
 ) (connection.AccessToken, error) {
 	if strings.TrimSpace(token.AccessToken) == "" {
-		return connection.AccessToken{}, b.recordFailure(ctx, conn, lock, base, resource, errors.New("token endpoint returned an empty access token"))
+		return connection.AccessToken{}, b.recordFailure(ctx, conn, lock, base, resource, "token endpoint returned an empty access token")
 	}
 	now := time.Now()
 	at := connection.AccessToken{Token: token.AccessToken, ExpiresAt: token.Expiry, IssuedAt: now}
 	_, err := b.store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {
-		if err := lock.Held(); err != nil {
-			return err
-		}
 		// A reconnect confirmed during the refresh wins over its result.
 		if st.Generation != base.Generation {
 			return errStartOver
+		}
+		// The provider has accepted the refresh, so a lost lock refuses
+		// the result only when another holder has rotated the refresh
+		// token since: the result may then be older than the stored one.
+		if err := lock.Held(); err != nil && st.RefreshToken != base.RefreshToken {
+			return err
 		}
 		if st.AccessTokens == nil {
 			st.AccessTokens = make(map[string]connection.AccessToken, 1)
@@ -348,7 +450,10 @@ func (b *Broker) save(
 		if token.RefreshToken != base.RefreshToken {
 			st.RefreshToken = token.RefreshToken
 		}
-		delete(st.RefreshErrors, resource)
+		if e, ok := st.RefreshErrors[resource]; ok {
+			e.Reason = ""
+			st.RefreshErrors[resource] = e
+		}
 		st.RefreshedAt = now
 		return nil
 	})
@@ -365,10 +470,9 @@ func (b *Broker) recordFailure(
 	conn *connection.Connection,
 	lock connection.Lock,
 	base *connection.TokenState,
-	resource string,
-	cause error,
+	resource, reason string,
 ) error {
-	failure := refreshFailed(conn, cause.Error())
+	failure := refreshFailed(conn, reason)
 	_, err := b.store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {
 		if err := lock.Held(); err != nil {
 			return err
@@ -379,7 +483,10 @@ func (b *Broker) recordFailure(
 		if st.RefreshErrors == nil {
 			st.RefreshErrors = make(map[string]connection.RefreshError, 1)
 		}
-		st.RefreshErrors[resource] = connection.RefreshError{Reason: cause.Error(), At: time.Now()}
+		e := st.RefreshErrors[resource]
+		e.Reason = reason
+		e.Failures++
+		st.RefreshErrors[resource] = e
 		return nil
 	})
 	switch {
@@ -391,36 +498,41 @@ func (b *Broker) recordFailure(
 	return failure
 }
 
-// markNeedsReconnect sets needs_reconnect once for the refresh token in
-// base, and returns the call's error.
+// markNeedsReconnect sets needs_reconnect once for the refresh token that
+// base holds and the provider refused, and returns the call's error.
 func (b *Broker) markNeedsReconnect(
 	ctx context.Context,
 	conn *connection.Connection,
 	lock connection.Lock,
 	base *connection.TokenState,
-	cause *oauthrefresh.TokenError,
-) error {
-	state, err := b.store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {
+	reason string,
+) (*StatusChange, error) {
+	var from connection.TokenStatus
+	_, err := b.store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {
 		if err := lock.Held(); err != nil {
 			return err
 		}
+		// A reconnect or a rotation since the refused refresh wins.
 		if st.Generation != base.Generation || st.RefreshToken != base.RefreshToken {
 			return errStartOver
 		}
 		if st.Status == connection.TokenStatusNeedsReconnect {
 			return errNoChange
 		}
+		from = st.Status
 		st.Status = connection.TokenStatusNeedsReconnect
-		st.StatusReason = cause.Error()
+		st.StatusReason = reason
 		return nil
 	})
+	var change *StatusChange
 	switch {
 	case err == nil:
-		b.report(ctx, StatusChange{Connection: conn, State: state})
+		change = newStatusChange(conn, reason)
+		change.ConnectionFrom, change.ConnectionTo = from, connection.TokenStatusNeedsReconnect
 	case !errors.Is(err, errNoChange):
-		return err
+		return nil, err
 	}
-	return reconnectRequired(conn, cause.Error())
+	return change, reconnectRequired(conn, reason)
 }
 
 // markAppInvalid sets the app invalid once, unless an admin changed its
@@ -429,49 +541,55 @@ func (b *Broker) markAppInvalid(
 	ctx context.Context,
 	conn *connection.Connection,
 	used *connection.App,
-	cause *oauthrefresh.TokenError,
-) error {
-	app, err := b.store.UpdateApp(ctx, used.ID, func(a *connection.App) error {
+	reason string,
+) (*StatusChange, error) {
+	var from connection.AppStatus
+	_, err := b.store.UpdateApp(ctx, used.ID, func(a *connection.App) error {
 		if !sameCredentials(a, used) {
 			return errStartOver
 		}
 		if a.Status == connection.AppStatusInvalid {
 			return errNoChange
 		}
+		from = a.Status
 		a.Status = connection.AppStatusInvalid
-		a.StatusReason = cause.Error()
+		a.StatusReason = reason
 		return nil
 	})
+	var change *StatusChange
 	switch {
 	case err == nil:
-		b.report(ctx, StatusChange{Connection: conn, App: app})
+		change = newStatusChange(conn, reason)
+		change.AppFrom, change.AppTo = from, connection.AppStatusInvalid
 	case !errors.Is(err, errNoChange):
-		return err
+		return nil, err
 	}
-	return appInvalid(conn, used.Name, cause.Error())
+	return change, appInvalid(conn, used.Name, reason)
 }
 
-func (b *Broker) report(ctx context.Context, change StatusChange) {
-	if b.onStatusChange != nil {
-		b.onStatusChange(ctx, change)
-	}
+func newStatusChange(conn *connection.Connection, reason string) *StatusChange {
+	return &StatusChange{Connection: conn.Key(), ConnectionID: conn.ID, App: conn.App, Reason: reason}
 }
 
-// settle decides the call from state. With done set, it returns the stored
-// token or the call's error; without it, the token needs a refresh.
-func (r request) settle(conn *connection.Connection, state *connection.TokenState) (connection.AccessToken, bool, error) {
+// settle decides the call from the app and the token state. It returns the
+// stored token with done set, or the call's error. With neither, the token
+// needs a refresh.
+func (r request) settle(conn *connection.Connection, app *connection.App, state *connection.TokenState) (connection.AccessToken, bool, error) {
+	if app.Status == connection.AppStatusInvalid {
+		return connection.AccessToken{}, false, appInvalid(conn, app.Name, app.StatusReason)
+	}
 	switch state.Status {
 	case connection.TokenStatusConnected:
 	case connection.TokenStatusPending:
-		return connection.AccessToken{}, true, reconnectRequired(conn, "the connection was never connected")
+		return connection.AccessToken{}, false, reconnectRequired(conn, "the connection was never connected")
 	case connection.TokenStatusNeedsReconnect:
-		return connection.AccessToken{}, true, reconnectRequired(conn, state.StatusReason)
+		return connection.AccessToken{}, false, reconnectRequired(conn, state.StatusReason)
 	}
 	if at, ok := state.AccessTokens[r.resource]; ok && r.usable(at) {
 		return at, true, nil
 	}
-	if e, ok := state.RefreshErrors[r.resource]; ok && !e.At.Before(r.start) {
-		return connection.AccessToken{}, true, refreshFailed(conn, e.Reason)
+	if e := state.RefreshErrors[r.resource]; e.Failures > r.failures && e.Reason != "" {
+		return connection.AccessToken{}, false, refreshFailed(conn, e.Reason)
 	}
 	return connection.AccessToken{}, false, nil
 }
@@ -495,6 +613,24 @@ func (r request) usableCached(token *oauth2.Token) bool {
 	return token != nil && r.usable(fromCached(token))
 }
 
+// resourceKey returns the key under which conn keeps the token of
+// resource.
+func resourceKey(conn *connection.Connection, resource string) (string, error) {
+	switch conn.Provider {
+	case connection.ProviderGoogle, connection.ProviderOAuth2:
+		if resource == "" {
+			return "", nil
+		}
+	case connection.ProviderMCP:
+		if resource == "" || resource == conn.Resource {
+			return "", nil
+		}
+	case connection.ProviderMicrosoft:
+		// Microsoft resources come with its service presets.
+	}
+	return "", fmt.Errorf("connection %q does not serve resource %q", conn.Name, resource)
+}
+
 // toCached keeps at in the gate, with its lifetime in ExpiresIn.
 func toCached(at connection.AccessToken) *oauth2.Token {
 	return &oauth2.Token{
@@ -512,8 +648,27 @@ func fromCached(token *oauth2.Token) connection.AccessToken {
 	return at
 }
 
+func result(token *oauth2.Token) (string, time.Duration, error) {
+	var expiresIn time.Duration
+	if !token.Expiry.IsZero() {
+		expiresIn = time.Until(token.Expiry)
+	}
+	return token.AccessToken, expiresIn, nil
+}
+
 func sameCredentials(a, b *connection.App) bool {
 	return a.ClientID == b.ClientID && a.ClientSecret == b.ClientSecret
+}
+
+// redact removes the secrets a refresh sent from a provider's error text,
+// which is stored and shown to people.
+func redact(text string, secrets ...string) string {
+	for _, secret := range secrets {
+		if secret != "" {
+			text = strings.ReplaceAll(text, secret, redacted)
+		}
+	}
+	return text
 }
 
 func reconnectRequired(conn *connection.Connection, reason string) error {

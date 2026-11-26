@@ -6,6 +6,7 @@ package broker_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -56,13 +57,13 @@ func TestTokenRefreshesExpired(t *testing.T) {
 func TestTokenCapsMinTTL(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name        string
-		left        time.Duration
-		wantToken   string
-		wantRefresh bool
+		name      string
+		left      time.Duration
+		wantToken string
+		wantCalls int
 	}{
 		{name: "Met", left: 6 * time.Minute, wantToken: "at-1"},
-		{name: "Missed", left: 4 * time.Minute, wantToken: "at-2", wantRefresh: true},
+		{name: "Missed", left: 4 * time.Minute, wantToken: "at-2", wantCalls: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -82,7 +83,7 @@ func TestTokenCapsMinTTL(t *testing.T) {
 			token, _, err := f.process(t).Token(f.ctx(t), f.conn, "", 50*time.Minute)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantToken, token)
-			assert.Equal(t, tt.wantRefresh, f.endpoint.calls() == 1)
+			assert.Equal(t, tt.wantCalls, f.endpoint.calls())
 		})
 	}
 }
@@ -154,41 +155,32 @@ func TestConcurrentRefresh(t *testing.T) {
 	}
 }
 
-// A process that waited on a refresh of another resource refreshes its own
-// once the lock is released.
-func TestWaiterForOtherResource(t *testing.T) {
+func TestUnknownResource(t *testing.T) {
 	t.Parallel()
-	waits := newWaitCounter(1)
-	f := newFixture(t, func(w http.ResponseWriter, r tokenRequest) {
-		waits.waitAll(r.ctx)
+	f := newFixture(t, func(w http.ResponseWriter, _ tokenRequest) {
 		grantToken(w, "at-2", "rt-1")
 	})
 
-	var wg sync.WaitGroup
-	for _, resource := range []string{"a", "b"} {
-		b := f.process(t, waits.observe)
-		wg.Go(func() {
-			token, _, err := b.Token(f.ctx(t), f.conn, resource, minTTL)
-			assert.NoError(t, err)
-			assert.Equal(t, "at-2", token)
-		})
-	}
-	wg.Wait()
-	assert.Equal(t, 2, f.endpoint.calls())
+	_, _, err := f.process(t).Token(f.ctx(t), f.conn, "https://other.example.com", minTTL)
+	assert.ErrorContains(t, err, "does not serve resource")
+	assert.Zero(t, f.endpoint.calls())
+	assert.Len(t, f.state(t).AccessTokens, 1)
 }
 
 func TestInvalidGrantNeedsReconnect(t *testing.T) {
 	t.Parallel()
-	f := newFixture(t, func(w http.ResponseWriter, _ tokenRequest) {
-		tokenError(w, http.StatusBadRequest, "invalid_grant")
+	f := newFixture(t, func(w http.ResponseWriter, r tokenRequest) {
+		tokenError(w, http.StatusBadRequest, "invalid_grant", "refresh token "+r.refreshToken+" was revoked")
 	})
-	var changes statusChanges
+	changes := newStatusChanges(f)
 
 	_, _, err := f.process(t, changes.record).Token(f.ctx(t), f.conn, "", minTTL)
 	require.ErrorIs(t, err, broker.ErrReconnectRequired)
+	assert.NotContains(t, err.Error(), "rt-1")
 	state := f.state(t)
 	assert.Equal(t, connection.TokenStatusNeedsReconnect, state.Status)
 	assert.Contains(t, state.StatusReason, "invalid_grant")
+	assert.NotContains(t, state.StatusReason, "rt-1")
 
 	// The next call fails at once and changes nothing.
 	_, _, err = f.process(t, changes.record).Token(f.ctx(t), f.conn, "", minTTL)
@@ -197,29 +189,62 @@ func TestInvalidGrantNeedsReconnect(t *testing.T) {
 
 	got := changes.all()
 	require.Len(t, got, 1)
-	require.NotNil(t, got[0].State)
-	assert.Equal(t, connection.TokenStatusNeedsReconnect, got[0].State.Status)
+	assert.Equal(t, f.conn.Key(), got[0].Connection)
+	assert.Equal(t, connection.TokenStatusConnected, got[0].ConnectionFrom)
+	assert.Equal(t, connection.TokenStatusNeedsReconnect, got[0].ConnectionTo)
+	assert.Contains(t, got[0].Reason, "invalid_grant")
+	assert.False(t, changes.lockHeld(), "the hook runs after the lock is released")
 }
 
-// Another host rotates the refresh token while this one refreshes with the
-// old one, which the provider then refuses.
+// The provider refuses the refresh token while another host rotates it.
 func TestInvalidGrantRetriesRotated(t *testing.T) {
 	t.Parallel()
-	var f *fixture
-	f = newFixture(t, func(w http.ResponseWriter, r tokenRequest) {
-		if r.refreshToken == "rt-1" {
-			f.update(t, func(st *connection.TokenState) { st.RefreshToken = "rt-2" })
-			tokenError(w, http.StatusBadRequest, "invalid_grant")
-			return
-		}
-		grantToken(w, "at-2", "rt-2")
-	})
+	tests := []struct {
+		name string
+		// onRetry runs when the provider receives the rotated token.
+		onRetry   func(t *testing.T, f *fixture, w http.ResponseWriter)
+		wantToken string
+	}{
+		{
+			name:      "Success",
+			onRetry:   func(_ *testing.T, _ *fixture, w http.ResponseWriter) { grantToken(w, "at-2", "rt-2") },
+			wantToken: "at-2",
+		},
+		{
+			// A reconnect lands while the retry fails too. The reconnect
+			// wins, and its token is returned.
+			name: "Reconnected",
+			onRetry: func(t *testing.T, f *fixture, w http.ResponseWriter) {
+				f.update(t, func(st *connection.TokenState) {
+					st.Generation++
+					st.RefreshToken = "rt-new"
+					st.AccessTokens[""] = connection.AccessToken{Token: "reconnected", ExpiresAt: time.Now().Add(time.Hour)}
+				})
+				tokenError(w, http.StatusBadRequest, "invalid_grant", "")
+			},
+			wantToken: "reconnected",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var f *fixture
+			f = newFixture(t, func(w http.ResponseWriter, r tokenRequest) {
+				if r.refreshToken == "rt-1" {
+					f.update(t, func(st *connection.TokenState) { st.RefreshToken = "rt-2" })
+					tokenError(w, http.StatusBadRequest, "invalid_grant", "")
+					return
+				}
+				tt.onRetry(t, f, w)
+			})
 
-	token, _, err := f.process(t).Token(f.ctx(t), f.conn, "", minTTL)
-	require.NoError(t, err)
-	assert.Equal(t, "at-2", token)
-	assert.Equal(t, []string{"rt-1", "rt-2"}, f.endpoint.refreshTokens())
-	assert.Equal(t, connection.TokenStatusConnected, f.state(t).Status)
+			token, _, err := f.process(t).Token(f.ctx(t), f.conn, "", minTTL)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantToken, token)
+			assert.Equal(t, []string{"rt-1", "rt-2"}, f.endpoint.refreshTokens())
+			assert.Equal(t, connection.TokenStatusConnected, f.state(t).Status)
+		})
+	}
 }
 
 func TestInvalidClient(t *testing.T) {
@@ -228,9 +253,9 @@ func TestInvalidClient(t *testing.T) {
 	t.Run("MarksApp", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, func(w http.ResponseWriter, _ tokenRequest) {
-			tokenError(w, http.StatusUnauthorized, "invalid_client")
+			tokenError(w, http.StatusUnauthorized, "invalid_client", "")
 		})
-		var changes statusChanges
+		changes := newStatusChanges(f)
 
 		_, _, err := f.process(t, changes.record).Token(f.ctx(t), f.conn, "", minTTL)
 		require.ErrorIs(t, err, broker.ErrReconnectRequired)
@@ -242,30 +267,35 @@ func TestInvalidClient(t *testing.T) {
 
 		got := changes.all()
 		require.Len(t, got, 1)
-		require.NotNil(t, got[0].App)
-		assert.Equal(t, connection.AppStatusInvalid, got[0].App.Status)
+		assert.Equal(t, f.conn.App, got[0].App)
+		assert.Equal(t, connection.AppStatusOK, got[0].AppFrom)
+		assert.Equal(t, connection.AppStatusInvalid, got[0].AppTo)
+		assert.Empty(t, got[0].ConnectionTo)
 	})
 
 	t.Run("RetriesChangedClient", func(t *testing.T) {
 		t.Parallel()
 		var f *fixture
 		f = newFixture(t, func(w http.ResponseWriter, r tokenRequest) {
-			if r.clientSecret == "secret" {
+			switch r.clientSecret {
+			case "secret":
 				_, err := f.store.UpdateApp(r.ctx, f.conn.App, func(app *connection.App) error {
 					app.ClientSecret = "new-secret"
 					return nil
 				})
 				assert.NoError(t, err)
-				tokenError(w, http.StatusUnauthorized, "invalid_client")
-				return
+				tokenError(w, http.StatusUnauthorized, "invalid_client", "")
+			case "new-secret":
+				grantToken(w, "at-2", "rt-1")
+			default:
+				tokenError(w, http.StatusUnauthorized, "invalid_client", "")
 			}
-			grantToken(w, "at-2", "rt-1")
 		})
 
 		token, _, err := f.process(t).Token(f.ctx(t), f.conn, "", minTTL)
 		require.NoError(t, err)
 		assert.Equal(t, "at-2", token)
-		assert.Equal(t, 2, f.endpoint.calls())
+		assert.Equal(t, []string{"secret", "new-secret"}, f.endpoint.clientSecrets())
 		assert.Equal(t, connection.AppStatusOK, f.app(t).Status)
 	})
 }
@@ -336,6 +366,63 @@ func TestConcurrentWrite(t *testing.T) {
 	}
 }
 
+// A refresh that the provider accepted is saved, so its rotated refresh
+// token is kept, unless another holder rotated the token since.
+func TestRefreshKeepsAcceptedResult(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		lockLost bool
+		// during runs while the provider handles the refresh.
+		during      func(t *testing.T, f *fixture, cancel context.CancelFunc)
+		wantRefresh string
+		wantErr     bool
+	}{
+		{
+			name:        "CallerCanceled",
+			during:      func(_ *testing.T, _ *fixture, cancel context.CancelFunc) { cancel() },
+			wantRefresh: "rt-2",
+		},
+		{
+			name:        "LockLost",
+			lockLost:    true,
+			during:      func(*testing.T, *fixture, context.CancelFunc) {},
+			wantRefresh: "rt-2",
+		},
+		{
+			name:     "LockLostAfterRotation",
+			lockLost: true,
+			during: func(t *testing.T, f *fixture, _ context.CancelFunc) {
+				f.update(t, func(st *connection.TokenState) { st.RefreshToken = "rt-other" })
+			},
+			wantRefresh: "rt-other",
+			wantErr:     true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var f *fixture
+			f = newFixture(t, func(w http.ResponseWriter, _ tokenRequest) {
+				tt.during(t, f, cancel)
+				grantToken(w, "at-2", "rt-2")
+			})
+			var opts []func(*broker.Config)
+			if tt.lockLost {
+				opts = append(opts, loseLocks)
+			}
+
+			_, _, err := f.process(t, opts...).Token(ctx, f.conn, "", minTTL)
+			if tt.wantErr {
+				assert.Error(t, err)
+			}
+			assert.Equal(t, tt.wantRefresh, f.state(t).RefreshToken)
+		})
+	}
+}
+
 func TestFailsAtOnce(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -383,12 +470,12 @@ func TestFailsAtOnce(t *testing.T) {
 func TestRejected(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name        string
-		rejected    string
-		wantToken   string
-		wantRefresh bool
+		name      string
+		rejected  string
+		wantToken string
+		wantCalls int
 	}{
-		{name: "Stored", rejected: "at-1", wantToken: "at-2", wantRefresh: true},
+		{name: "Stored", rejected: "at-1", wantToken: "at-2", wantCalls: 1},
 		{name: "Older", rejected: "at-0", wantToken: "at-1"},
 	}
 	for _, tt := range tests {
@@ -400,7 +487,7 @@ func TestRejected(t *testing.T) {
 			f.update(t, func(st *connection.TokenState) {
 				st.AccessTokens[""] = connection.AccessToken{Token: "at-1", ExpiresAt: time.Now().Add(time.Hour)}
 			})
-			b := f.process(t)
+			b := f.process(t, cacheTokens)
 			token, _, err := b.Token(f.ctx(t), f.conn, "", minTTL)
 			require.NoError(t, err)
 			require.Equal(t, "at-1", token)
@@ -408,30 +495,82 @@ func TestRejected(t *testing.T) {
 			token, _, err = b.Rejected(f.ctx(t), f.conn, "", tt.rejected, minTTL)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantToken, token)
-			assert.Equal(t, tt.wantRefresh, f.endpoint.calls() == 1)
+			assert.Equal(t, tt.wantCalls, f.endpoint.calls())
 		})
 	}
 }
 
-// A process reads the token state once per connection and resource while
-// its cached token stays usable.
-func TestTokenCachedInProcess(t *testing.T) {
+// A run process caches the token it holds. Any other process reads the
+// token state on each call, so it sees a reconnect at once.
+func TestTokenAfterReconnect(t *testing.T) {
 	t.Parallel()
-	f := newFixture(t, func(w http.ResponseWriter, _ tokenRequest) {
-		grantToken(w, "at-2", "rt-1")
-	})
-	var reads atomic.Int32
-	b := f.process(t, func(cfg *broker.Config) {
-		cfg.Store = countingStore{Store: cfg.Store, reads: &reads}
-	})
-
-	for range 3 {
-		token, _, err := b.Token(f.ctx(t), f.conn, "", minTTL)
-		require.NoError(t, err)
-		assert.Equal(t, "at-2", token)
+	tests := []struct {
+		name      string
+		cache     bool
+		wantToken string
+	}{
+		{name: "Uncached", wantToken: "reconnected"},
+		{name: "Cached", cache: true, wantToken: "at-2"},
 	}
-	// One read before the lock, and one holding it.
-	assert.Equal(t, int32(2), reads.Load())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t, func(w http.ResponseWriter, _ tokenRequest) {
+				grantToken(w, "at-2", "rt-1")
+			})
+			var opts []func(*broker.Config)
+			if tt.cache {
+				opts = append(opts, cacheTokens)
+			}
+			b := f.process(t, opts...)
+			token, _, err := b.Token(f.ctx(t), f.conn, "", minTTL)
+			require.NoError(t, err)
+			require.Equal(t, "at-2", token)
+
+			f.update(t, func(st *connection.TokenState) {
+				st.Generation++
+				st.AccessTokens[""] = connection.AccessToken{Token: "reconnected", ExpiresAt: time.Now().Add(time.Hour)}
+			})
+			token, _, err = b.Token(f.ctx(t), f.conn, "", minTTL)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantToken, token)
+		})
+	}
+}
+
+// Three calls read the token state once each without the cache, and with
+// it only on the first, before and while it holds the lock.
+func TestTokenStateReads(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		cache     bool
+		wantReads int32
+	}{
+		{name: "Uncached", wantReads: 5},
+		{name: "Cached", cache: true, wantReads: 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t, func(w http.ResponseWriter, _ tokenRequest) {
+				grantToken(w, "at-2", "rt-1")
+			})
+			var reads atomic.Int32
+			b := f.process(t, func(cfg *broker.Config) {
+				cfg.CacheTokens = tt.cache
+				cfg.Store = countingStore{Store: cfg.Store, reads: &reads}
+			})
+
+			for range 3 {
+				token, _, err := b.Token(f.ctx(t), f.conn, "", minTTL)
+				require.NoError(t, err)
+				assert.Equal(t, "at-2", token)
+			}
+			assert.Equal(t, tt.wantReads, reads.Load())
+			assert.Equal(t, 1, f.endpoint.calls())
+		})
+	}
 }
 
 type fixture struct {
@@ -534,11 +673,15 @@ func (f *fixture) app(t *testing.T) *connection.App {
 	return app
 }
 
+func cacheTokens(cfg *broker.Config) {
+	cfg.CacheTokens = true
+}
+
 // tokenEndpoint is a provider's token endpoint that answers refreshes.
 type tokenEndpoint struct {
-	url  string
-	mu   sync.Mutex
-	sent []string
+	url      string
+	mu       sync.Mutex
+	requests []tokenRequest
 }
 
 type tokenRequest struct {
@@ -557,7 +700,7 @@ func newTokenEndpoint(t *testing.T, respond func(http.ResponseWriter, tokenReque
 		}
 		req := tokenRequest{ctx: r.Context(), refreshToken: r.FormValue("refresh_token"), clientSecret: r.FormValue("client_secret")}
 		e.mu.Lock()
-		e.sent = append(e.sent, req.refreshToken)
+		e.requests = append(e.requests, req)
 		e.mu.Unlock()
 		respond(w, req)
 	}))
@@ -567,13 +710,27 @@ func newTokenEndpoint(t *testing.T, respond func(http.ResponseWriter, tokenReque
 }
 
 func (e *tokenEndpoint) refreshTokens() []string {
+	return e.collect(func(r tokenRequest) string { return r.refreshToken })
+}
+
+func (e *tokenEndpoint) clientSecrets() []string {
+	return e.collect(func(r tokenRequest) string { return r.clientSecret })
+}
+
+func (e *tokenEndpoint) collect(field func(tokenRequest) string) []string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return append([]string(nil), e.sent...)
+	out := make([]string, 0, len(e.requests))
+	for _, r := range e.requests {
+		out = append(out, field(r))
+	}
+	return out
 }
 
 func (e *tokenEndpoint) calls() int {
-	return len(e.refreshTokens())
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.requests)
 }
 
 func grantToken(w http.ResponseWriter, access, refresh string) {
@@ -586,10 +743,10 @@ func grantToken(w http.ResponseWriter, access, refresh string) {
 	})
 }
 
-func tokenError(w http.ResponseWriter, status int, code string) {
+func tokenError(w http.ResponseWriter, status int, code, description string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": code})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "error_description": description})
 }
 
 // waitCounter lets a token endpoint answer only once the given number of
@@ -627,6 +784,32 @@ func (l observedLocks) WaitUnlocked(ctx context.Context, key connection.Key) err
 	return l.Locks.WaitUnlocked(ctx, key)
 }
 
+var errLockLost = errors.New("lock lost")
+
+// loseLocks gives a process locks that report themselves lost before each
+// write, as after renewals failed.
+func loseLocks(cfg *broker.Config) {
+	cfg.Locks = lostLocks{Locks: cfg.Locks}
+}
+
+type lostLocks struct {
+	connection.Locks
+}
+
+func (l lostLocks) TryLock(ctx context.Context, key connection.Key) (connection.Lock, error) {
+	lock, err := l.Locks.TryLock(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	return lostLock{Lock: lock}, nil
+}
+
+type lostLock struct {
+	connection.Lock
+}
+
+func (lostLock) Held() error { return errLockLost }
+
 type countingStore struct {
 	connection.Store
 	reads *atomic.Int32
@@ -637,16 +820,29 @@ func (s countingStore) TokenState(ctx context.Context, conn *connection.Connecti
 	return s.Store.TokenState(ctx, conn)
 }
 
+// statusChanges records reported status changes, and whether the
+// connection's lock was still held when each was reported.
 type statusChanges struct {
+	locks   connection.Locks
 	mu      sync.Mutex
 	changes []broker.StatusChange
+	held    bool
+}
+
+func newStatusChanges(f *fixture) *statusChanges {
+	return &statusChanges{locks: file.NewServerStores(f.cfg).ConnectionLocks()}
 }
 
 func (c *statusChanges) record(cfg *broker.Config) {
-	cfg.OnStatusChange = func(_ context.Context, change broker.StatusChange) {
+	cfg.OnStatusChange = func(ctx context.Context, change broker.StatusChange) {
+		lock, err := c.locks.TryLock(ctx, change.Connection)
+		if err == nil {
+			lock.Unlock()
+		}
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		c.changes = append(c.changes, change)
+		c.held = c.held || errors.Is(err, connection.ErrLocked)
 	}
 }
 
@@ -654,4 +850,10 @@ func (c *statusChanges) all() []broker.StatusChange {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]broker.StatusChange(nil), c.changes...)
+}
+
+func (c *statusChanges) lockHeld() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.held
 }
