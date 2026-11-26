@@ -349,6 +349,8 @@ func (a *API) UploadWikiPageAttachment(ctx context.Context, request api.UploadWi
 		switch {
 		case errors.Is(err, wiki.ErrPageNotFound):
 			return nil, errWikiPageNotFound
+		case errors.Is(err, wiki.ErrPagePathConflict):
+			return nil, errWikiPagePathConflict
 		case errors.Is(err, wiki.ErrInvalidAttachmentName):
 			return nil, &Error{
 				Code:       api.ErrorCodeBadRequest,
@@ -543,6 +545,9 @@ func (a *API) UpdateWikiPage(ctx context.Context, request api.UpdateWikiPageRequ
 	if err := a.wikiStore.Update(ctx, pageID, request.Body.Content); err != nil {
 		if errors.Is(err, wiki.ErrPageNotFound) {
 			return nil, errWikiPageNotFound
+		}
+		if errors.Is(err, wiki.ErrPagePathConflict) {
+			return nil, errWikiPagePathConflict
 		}
 		logger.Error(ctx, "Failed to update page", tag.Error(err))
 		return nil, internalError(err)

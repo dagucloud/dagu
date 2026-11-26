@@ -53,9 +53,18 @@ func TestDefaultWikiLeavesOutMigratedProject(t *testing.T) {
 		code, body = get(t, base+"/wiki/page?path=ops/runbook")
 		require.Equal(t, http.StatusNotFound, code, "%s", body)
 
-		code, body = post(t, base+"/wiki", `{"id":"ops/notes","content":"x"}`)
-		require.Equal(t, http.StatusConflict, code, "%s", body)
+		for _, write := range []struct{ method, path, contentType, body string }{
+			{http.MethodPost, "/wiki", "application/json", `{"id":"ops/notes","content":"x"}`},
+			{http.MethodPatch, "/wiki/page?path=ops/runbook", "application/json", `{"content":"x"}`},
+			{http.MethodPut, "/wiki/page/attachment?path=ops/runbook&name=a.txt", "application/octet-stream", "x"},
+			{http.MethodPost, "/wiki/page/rename?path=home", "application/json", `{"newPath":"ops/home"}`},
+			{http.MethodDelete, "/wiki/page?path=ops/runbook", "", ""},
+		} {
+			code, body = request(t, write.method, base+write.path, write.contentType, write.body)
+			require.Equal(t, http.StatusConflict, code, "%s %s: %s", write.method, write.path, body)
+		}
 		require.NoFileExists(t, filepath.Join(home, "dags", "wiki", "ops", "notes.md"))
+		require.FileExists(t, filepath.Join(home, "dags", "wiki", "ops", "runbook.md"))
 	})
 
 	t.Run("projects off", func(t *testing.T) {
@@ -81,12 +90,15 @@ func startWikiServer(t *testing.T, dagu *harness.Runner, env []string) string {
 	return base
 }
 
-// post returns the status code and body of a POST request with a JSON body.
-func post(t *testing.T, url, body string) (int, string) {
+// request returns the status code and body of a request with a body of
+// the given content type.
+func request(t *testing.T, method, url, contentType, body string) (int, string) {
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, strings.NewReader(body))
+	req, err := http.NewRequestWithContext(t.Context(), method, url, strings.NewReader(body))
 	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
