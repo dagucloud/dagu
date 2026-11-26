@@ -6,6 +6,7 @@ package masking
 import (
 	"bytes"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -436,6 +437,30 @@ func TestLogMaskingWriter_LongToken(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "Bearer ******* done\n", out.String())
+}
+
+// A value can hold back the text after "1/" of a refresh token, so the
+// held text starts with "/", which is no token body character. The token
+// body written after it stays masked.
+func TestLogMaskingWriter_TokenAfterHeldPrefix(t *testing.T) {
+	t.Parallel()
+
+	masker := NewValueMasker([]string{"/" + strings.Repeat("A", 40) + "Z"})
+	got := maskChunks(t, true, masker, "x 1//"+strings.Repeat("A", 40), strings.Repeat("B", 40)+" \n")
+
+	assert.Equal(t, "x ******* \n", got)
+}
+
+// A pattern match that a write cuts is masked whole, even in a line longer
+// than the 64 KiB held for patterns.
+func TestMaskingWriter_PatternInLongLine(t *testing.T) {
+	t.Parallel()
+
+	masker := NewValueMasker(nil, regexp.MustCompile(`tok_[a-z]{10,}`))
+	long := strings.Repeat("x", 70<<10)
+	got := maskChunks(t, false, masker, long+" tok_abcde", "fghijkl\n")
+
+	assert.Equal(t, long+" *******\n", got)
 }
 
 func TestMaskingWriter_CloseWithCloser(t *testing.T) {

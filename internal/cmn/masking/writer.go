@@ -8,8 +8,8 @@ import (
 	"io"
 )
 
-// maxPatternLine is the longest partial line a MaskingWriter holds for the
-// masker's patterns.
+// maxPatternLine is the most of a partial line a MaskingWriter holds for
+// the masker's patterns.
 const maxPatternLine = 64 << 10
 
 // MaskingWriter wraps an io.Writer and masks sensitive values in the text
@@ -20,8 +20,9 @@ const maxPatternLine = 64 << 10
 // of a value or provider token. The tail is shorter than the longest form
 // of a value the masker hides or, for a writer that masks provider tokens,
 // than the shortest provider token, whichever is longer. The masker's
-// patterns match within a line, so for them a partial line of up to 64 KiB
-// is held too. Flush and Close write the held tail.
+// patterns match within a line, so for them up to 64 KiB of a partial line
+// is held too, and a match longer than that can be cut. Flush and Close
+// write the held tail.
 type MaskingWriter struct {
 	writer io.Writer
 	masker *Masker
@@ -88,9 +89,7 @@ func (w *MaskingWriter) send(all bool) error {
 	}
 	line := len(w.buffer)
 	if !all && len(w.masker.patterns) > 0 {
-		if nl := bytes.LastIndexByte(w.buffer, '\n') + 1; len(w.buffer)-nl <= maxPatternLine {
-			line = nl
-		}
+		line = max(bytes.LastIndexByte(w.buffer, '\n')+1, len(w.buffer)-maxPatternLine)
 		if line == 0 {
 			return nil
 		}
@@ -100,7 +99,9 @@ func (w *MaskingWriter) send(all bool) error {
 	r := w.masker.scan(text, w.prev, w.tokens)
 	covered := w.masked
 	if w.token != nil {
-		run := 0
+		// The token's mask covers all held text, so the token runs on from
+		// its end, even where held text is part of the prefix.
+		run := w.masked
 		for run < len(text) && w.token.inBody(text[run]) {
 			run++
 		}

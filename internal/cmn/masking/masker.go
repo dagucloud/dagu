@@ -91,7 +91,7 @@ func NewValueMasker(values []string, patterns ...*regexp.Regexp) *Masker {
 
 // Add makes m also mask each of values, as NewValueMasker does, in every
 // text masked after Add returns. Writers that already wrap m, such as a
-// MaskingWriter, mask them in the lines they write from then on. Empty
+// MaskingWriter, mask them in the text they write from then on. Empty
 // values are ignored.
 func (m *Masker) Add(values ...string) {
 	m.mu.Lock()
