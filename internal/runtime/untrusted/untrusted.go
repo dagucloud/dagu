@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -135,7 +136,19 @@ func Begin(ctx context.Context, req Request) (*Step, error) {
 		// would never end.
 		return nil, fmt.Errorf("untrusted step %q cannot run inside the untrusted step %q", req.StepName, parent)
 	}
+	if !separateUser(req.Config) {
+		// Begin stops each process of the restricted user: with these IDs, it
+		// would stop the processes of the worker.
+		return nil, fmt.Errorf("untrusted step %q: untrusted.uid and untrusted.gid must not be 0 or the IDs of the worker user", req.StepName)
+	}
 	return isolate(ctx, req, step)
+}
+
+// separateUser reports whether the restricted user of cfg is neither the user
+// ID 0 nor the worker user, and its group neither 0 nor the group of the
+// worker.
+func separateUser(cfg config.UntrustedConfig) bool {
+	return cfg.UID != 0 && cfg.GID != 0 && int64(cfg.UID) != int64(os.Geteuid()) && int64(cfg.GID) != int64(os.Getegid())
 }
 
 // Isolated reports whether the step runs as the restricted user.
