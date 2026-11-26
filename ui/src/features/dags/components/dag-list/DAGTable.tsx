@@ -374,12 +374,10 @@ function DAGCard({
         )}
       </div>
 
-      {showActivity &&
-        (isService ? (
-          activity?.buckets && (
-        ) : (
-          <ActivityBars activity={activity} className="mb-1.5" />
-        ))}
+      {/* A service DAG has no runs to draw as bars. */}
+      {showActivity && !isService && (
+        <ActivityBars activity={activity} className="mb-1.5" />
+      )}
 
       {/* Labels */}
       {labels.length > 0 && (
@@ -466,23 +464,25 @@ function ActionSlot({ children }: { children: React.ReactNode }) {
  * `onOpenRun` does, so a render of the table alone does not redraw the strip.
  */
 function ActivityCell({
-  dag,
+  fileName,
   activity,
   onOpenRun,
+  hasRun,
   expanded,
   onToggleActivity,
 }: {
-  dag: components['schemas']['DAGFile'];
+  fileName: string;
   activity?: components['schemas']['DAGListActivity'];
   onOpenRun?: (
     fileName: string,
     runId: string,
     event: React.MouseEvent
   ) => void;
+  /** The workflow has a run, so its row can unfold its recent runs. */
+  hasRun: boolean;
   expanded: boolean;
   onToggleActivity?: (fileName: string) => void;
 }) {
-  const fileName = dag.fileName;
   const openRun = useCallback(
     (runId: string, event: React.MouseEvent) =>
       onOpenRun?.(fileName, runId, event),
@@ -492,19 +492,10 @@ function ActivityCell({
     () => onToggleActivity?.(fileName),
     [fileName, onToggleActivity]
   );
-  // A service DAG draws the buckets of its run history, and nothing when the
-  // server sends no buckets. Any other workflow draws its runs as bars.
-  const strip = isServiceDAG(dag.dag) ? (
-    activity?.buckets ? (
-      <ServiceActivityStrip activity={activity} fileName={fileName} fluid />
-    ) : null
-  ) : (
-    <ActivityBars activity={activity} fluid onOpenRun={openRun} />
-  );
   return (
     <div className="flex items-center gap-1">
-      {strip}
-      {dag.latestDAGRun?.dagRunId || (activity?.runs.length ?? 0) > 0 ? (
+      <ActivityBars activity={activity} fluid onOpenRun={openRun} />
+      {hasRun || (activity?.runs.length ?? 0) > 0 ? (
         <ActivityToggle expanded={expanded} onToggle={toggle} />
       ) : (
         // A workflow with no run has nothing to unfold; the space stays.
@@ -1041,16 +1032,18 @@ const defaultColumns = [
     ),
     cell: ({ row, table }) => {
       const data = row.original!;
-      if (data.kind !== ItemKind.DAG) {
+      // A service DAG has no runs to draw as bars.
+      if (data.kind !== ItemKind.DAG || isServiceDAG(data.dag.dag)) {
         return null;
       }
       const meta = table.options.meta;
       const fileName = data.dag.fileName;
       return (
         <ActivityCell
-          dag={data.dag}
+          fileName={fileName}
           activity={meta?.activity?.get(fileName)}
           onOpenRun={meta?.onOpenRun}
+          hasRun={!!data.dag.latestDAGRun?.dagRunId}
           expanded={meta?.isActivityExpanded?.(fileName) ?? false}
           onToggleActivity={meta?.onToggleActivity}
         />
@@ -2173,10 +2166,6 @@ function DAGTable({
                   expandedActivity.has((row.original as DAGRow).dag.fileName)
                     ? (row.original as DAGRow).dag.fileName
                     : null;
-                const recentRunsService =
-                  isDAGRow &&
-                  'dag' in row.original &&
-                  isServiceDAG((row.original as DAGRow).dag.dag);
 
                 return (
                   <React.Fragment key={row.id}>
@@ -2229,10 +2218,7 @@ function DAGTable({
                           colSpan={instance.getVisibleLeafColumns().length}
                           className="px-2 py-1 pl-12"
                         >
-                          <DAGRecentRuns
-                            fileName={recentRunsOf}
-                            service={recentRunsService}
-                          />
+                          <DAGRecentRuns fileName={recentRunsOf} />
                         </TableCell>
                       </TableRow>
                     )}

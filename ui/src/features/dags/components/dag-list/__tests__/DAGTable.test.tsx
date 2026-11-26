@@ -1459,8 +1459,6 @@ describe('DAGTable', () => {
       const panel = within(table).getByTestId('dag-recent-runs');
       expect(within(panel).getByText('older')).toBeInTheDocument();
       expect(within(panel).getByText('newer')).toBeInTheDocument();
-      // The runs have no "Open the workflow" link: a line opens its run.
-      expect(within(panel).queryByText('Open the workflow')).toBeNull();
       // The chevron neither opens the workflow nor selects the row.
       expect(screen.getByTestId('location')).toHaveTextContent(/^\/dags$/);
 
@@ -1473,76 +1471,27 @@ describe('DAGTable', () => {
       expect(within(table).queryByTestId('dag-recent-runs')).toBeNull();
     });
 
-    // A run of a service DAG that never ends reads Healthy.
-    it('reads a continuous run of a service DAG as Healthy and its start as "3h ago"', () => {
+    it('tells the time of a run next to its status dot', () => {
       recentRuns.dagRuns = [
-        {
-          ...run('service', 3 * HOUR, Status.Running),
-          nodes: [
-            {
-              step: {
-                name: 'serve',
-                repeatPolicy: { repeat: 'while', condition: 'true' },
-              },
-              status: NodeStatus.Running,
-            },
-          ],
-        },
-        run('plain', 5 * 60_000),
-      ];
-      const alpha = withLatestRun() as { dag: object };
-      renderTable('', {
-        dags: [
-          {
-            ...alpha,
-            dag: { ...alpha.dag, restartPolicy: RestartPolicy.always },
-          },
-        ] as never,
-      });
-      const table = screen.getByRole('table');
-      fireEvent.click(within(table).getByTestId('dag-activity-toggle'));
-
-      const panel = within(table).getByTestId('dag-recent-runs');
-      // The status is a dot alone: its name is the accessible label.
-      expect(
-        within(panel).getByRole('img', { name: 'Healthy' })
-      ).toBeInTheDocument();
-      expect(within(panel).queryByRole('img', { name: 'Running' })).toBeNull();
-      expect(within(panel).queryByText('Healthy')).toBeNull();
-      // A run without a scheduled time tells when it ended next to the dot:
-      // one minute after its start, which rounds to the same "3h ago".
-      expect(within(panel).getAllByText('3h ago')).toHaveLength(2);
-      expect(within(panel).getByText('5m ago')).toBeInTheDocument();
-      expect(within(panel).getByText('4m ago')).toBeInTheDocument();
-      expect(within(panel).getAllByText('·')).toHaveLength(2);
-    });
-
-    // A cron or manual workflow keeps the normal status for a step that never ends.
-    it('reads a continuous run of a workflow that is not a service DAG as Running', () => {
-      recentRuns.dagRuns = [
-        {
-          ...run('service', 3 * HOUR, Status.Running),
-          nodes: [
-            {
-              step: {
-                name: 'serve',
-                repeatPolicy: { repeat: 'while', condition: 'true' },
-              },
-              status: NodeStatus.Running,
-            },
-          ],
-        },
-        run('plain', 5 * 60_000),
+        run('long', 3 * HOUR),
+        run('plain', 5 * 60_000, Status.Failed),
       ];
       renderTable('', { dags: [withLatestRun()] });
       const table = screen.getByRole('table');
       fireEvent.click(within(table).getByTestId('dag-activity-toggle'));
 
       const panel = within(table).getByTestId('dag-recent-runs');
+      // The status is a dot alone: its name is the accessible label.
       expect(
-        within(panel).getByRole('img', { name: 'Running' })
+        within(panel).getByRole('img', { name: 'Failed' })
       ).toBeInTheDocument();
-      expect(within(panel).queryByRole('img', { name: 'Healthy' })).toBeNull();
+      expect(within(panel).queryByText('Failed')).toBeNull();
+      // A run without a scheduled time tells when it ended next to the dot:
+      // one minute after its start, which rounds to the same "3h ago".
+      expect(within(panel).getAllByText('3h ago')).toHaveLength(2);
+      expect(within(panel).getByText('5m ago')).toBeInTheDocument();
+      expect(within(panel).getByText('4m ago')).toBeInTheDocument();
+      expect(within(panel).getAllByText('·')).toHaveLength(2);
     });
 
     it('tells the trigger, the cause of a failure, the labels and the queue wait', () => {
@@ -1644,13 +1593,19 @@ describe('DAGTable', () => {
         {
           ...workflow({ name: 'service' }),
           dag: { name: 'service', restartPolicy: RestartPolicy.always },
+          latestDAGRun: {
+            dagRunId: 'serving',
+            status: Status.Running,
+            statusLabel: 'Running',
+          },
           activity: { runs: [], truncated: false },
         } as never,
       ];
       const table = renderTable('', { dags });
 
-      // The row of alpha.
+      // The row of alpha, which alone can unfold its runs.
       expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
+      expect(screen.getAllByTestId('dag-activity-toggle')).toHaveLength(1);
 
       table.unmount();
       renderTable('', { dags, panelWidth: 600 });
@@ -1689,12 +1644,6 @@ describe('DAGTable', () => {
     });
   });
 
-      renderTable('', { dags: [service()], panelWidth: 600 });
-      const table = renderTable('', { dags: [service()] });
-      expect(row.querySelectorAll('*').length).toBeLessThan(77);
-
-      table.unmount();
-      renderTable('', { dags: [service()], panelWidth: 600 });
   // The Last Run column of a service DAG shows the state of the service.
   describe('state of a service DAG', () => {
     function svc(name: string) {

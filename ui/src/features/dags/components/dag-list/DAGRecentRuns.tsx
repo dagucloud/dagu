@@ -19,7 +19,6 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { formatDurationMs } from '@/lib/formatDuration';
 import { withoutWorkspaceLabels } from '@/lib/workspace';
 import { cn } from '@/lib/utils';
-import { runDisplayStatus } from '@/lib/runDisplayStatus';
 
 import { failureCause, queueWaitMs, statusMoment } from './recentRunFacts';
 
@@ -35,14 +34,7 @@ const MAX_LABELS_SHOWN = 2;
  * The latest runs of a workflow, under its row in the list. It reads the
  * history of the workflow when it mounts, so a collapsed row costs nothing.
  */
-export function DAGRecentRuns({
-  fileName,
-  service,
-}: {
-  fileName: string;
-  /** True when the workflow is a service DAG: only then a run reads Healthy. */
-  service: boolean;
-}) {
+export function DAGRecentRuns({ fileName }: { fileName: string }) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
   const openPage = useOpenPage();
@@ -86,7 +78,6 @@ export function DAGRecentRuns({
               <RunLine
                 key={run.dagRunId}
                 run={run}
-                service={service}
                 columns={columns}
                 onOpen={open}
               />
@@ -154,12 +145,10 @@ function RunHeader({ columns }: { columns: RunColumns }) {
 
 function RunLine({
   run,
-  service,
   columns,
   onOpen,
 }: {
   run: Run;
-  service: boolean;
   columns: RunColumns;
   onOpen(runId: string, event?: React.MouseEvent): void;
 }) {
@@ -184,7 +173,6 @@ function RunLine({
   const params = (run.params ?? '').trim();
   const labels = withoutWorkspaceLabels(run.labels ?? run.tags ?? []);
   const shownLabels = labels.slice(0, MAX_LABELS_SHOWN);
-  const healthy = runDisplayStatus(run, { service }).healthy;
   const moment = statusMoment(run);
   const trigger = run.triggerType ? triggerTypeLabels[run.triggerType] : null;
   return (
@@ -202,7 +190,7 @@ function RunLine({
           {run.dagRunId}
         </span>
         <span className="flex min-w-0 items-center gap-1.5">
-          <StatusDot kind="run" status={run.status} healthy={healthy} />
+          <StatusDot kind="run" status={run.status} />
           {moment && (
             <>
               <span className="text-muted-foreground">·</span>
