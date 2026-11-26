@@ -179,7 +179,7 @@ type Handler struct {
 	dagRepository             *persis.DAGRepository              // DAG definitions for the GetDAG RPC
 	secretStore               secretpkg.Store                    // Secret registry for workers
 	profileStore              profilepkg.Store                   // Runtime profiles for workers
-	nodeInventory             runctx.NodeSelector                // Inventory nodes for runs on workers
+	nodeInventory             inventory.Store                    // Inventory nodes for runs on workers
 	trustedHostKeys           runctx.TrustedHostKeys             // Host keys trusted for inventory nodes
 	agentSessionCleanupQueue  *agentsession.CleanupQueue         // Deferred provider cleanup owned by workers
 	workerNodes               *workerNodeRecorder                // Records workers that set an ID as nodes
@@ -263,7 +263,7 @@ type HandlerConfig struct {
 	// NodeInventory finds the project's inventory nodes for runs on workers.
 	// Optional - when nil, ResolveNodes and node secret refs return
 	// FailedPrecondition.
-	NodeInventory runctx.NodeSelector
+	NodeInventory inventory.Store
 
 	// TrustedHostKeys finds the host keys trusted for inventory nodes.
 	// Optional - when nil, ResolveNodes answers no trusted keys.

@@ -31,8 +31,8 @@ func (n nodeInventory) Select(_ context.Context, selector string) ([]inventory.R
 	return inventory.Select(n, filters), nil
 }
 
-func (n nodeInventory) Nodes(context.Context) ([]inventory.ResolvedNode, error) {
-	return n, nil
+func (n nodeInventory) Named(_ context.Context, names []string) ([]inventory.ResolvedNode, error) {
+	return inventory.Named(n, names), nil
 }
 
 const (

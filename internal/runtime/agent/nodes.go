@@ -124,7 +124,7 @@ func (a *Agent) lookupBoundNode(ctx context.Context) (*nodeBinding, error) {
 	if a.nodeSelector == nil {
 		return nil, fmt.Errorf("the run is bound to node %q, but the node inventory is not available", a.boundNode)
 	}
-	nodes, err := a.nodeSelector.Nodes(ctx)
+	nodes, err := a.nodeSelector.Named(ctx, []string{a.boundNode})
 	if err != nil {
 		return nil, fmt.Errorf("failed to read node %q: %w", a.boundNode, err)
 	}

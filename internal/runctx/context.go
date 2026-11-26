@@ -484,8 +484,10 @@ func WithMaterializationStore(store build.MaterializationStore) ContextOption {
 type NodeSelector interface {
 	// Select returns the nodes a selector matches, in name order.
 	Select(ctx context.Context, selector string) ([]inventory.ResolvedNode, error)
-	// Nodes returns every node, in name order.
-	Nodes(ctx context.Context) ([]inventory.ResolvedNode, error)
+	// Named returns the nodes names names, compared without case, and each
+	// node they connect through, in name order. A name of no node is left
+	// out.
+	Named(ctx context.Context, names []string) ([]inventory.ResolvedNode, error)
 }
 
 // WithNodeSelector sets where steps with nodes find their nodes.
