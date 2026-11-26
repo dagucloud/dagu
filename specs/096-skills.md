@@ -316,7 +316,8 @@ error is a skill with the state ERROR.
 folders one at a time, so a listing keeps the text of one skill in memory, at most 16 MiB.
 
 `SkillSummary` has `name`, `description`, `hash`, `valid`, `errors`, `warnings`, `fileCount`,
-`totalBytes`, `bodyLines` and `bodyTokens`. `SkillDetail` has `name`, `content`, `hash`, `errors`,
+`totalBytes`, `bodyLines` and `bodyTokens`. A description above 1024 characters is cut to 1024
+characters. `SkillDetail` has `name`, `content`, `hash`, `errors`,
 `warnings`, `files`, the values of `license`, `compatibility`, `allowedTools` and `metadata`, and the
 `SkillSummary` of the skill in `summary`. A `SkillIssue` has `severity`, `rule`,
 `file` and `message`. A `SkillFile` has `path`, `size`, `sha256` and `text`.

@@ -100,7 +100,8 @@ func splitFrontMatter(data []byte) (front []byte, body string, issue *Issue) {
 
 // CheckSkillFile checks the content of SKILL.md of the folder name. It returns
 // the front matter, the body and the issues of the file. The front matter
-// values are set even when a rule fails, as far as they can be read.
+// values are set even when a rule fails, as far as they can be read. A
+// description above MaxDescriptionLength is cut to that length.
 func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 	var issues []Issue
 	errorf := func(rule, format string, args ...any) {
@@ -179,6 +180,10 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 		}
 		if xmlTagPattern.MatchString(meta.Description) {
 			errorf(RuleDescriptionXML, "the description must not contain XML tags")
+		}
+		if n > MaxDescriptionLength {
+			// A list keeps the description of every skill, so a long one is cut.
+			meta.Description = cutRunes(meta.Description, MaxDescriptionLength)
 		}
 		if n > 0 && n < WarnDescriptionLength {
 			warnf(RuleDescriptionShort, "the description has %d characters; say what the skill does and when to use it", n)
@@ -269,4 +274,15 @@ func isAllowedKey(k string) bool {
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return line
+}
+
+// cutRunes returns the first n characters of s.
+func cutRunes(s string, n int) string {
+	for i := range s {
+		if n == 0 {
+			return s[:i]
+		}
+		n--
+	}
+	return s
 }

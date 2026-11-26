@@ -128,6 +128,17 @@ func TestFormatRules(t *testing.T) {
 	}
 }
 
+// A description above the limit is cut to the limit, so a list of refused
+// skills stays small.
+func TestLongDescriptionIsCut(t *testing.T) {
+	t.Parallel()
+	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": skillMD("name: demo\ndescription: " + strings.Repeat("é", 2*skill.MaxDescriptionLength))})
+	s, err := skill.Read(dir)
+	require.NoError(t, err)
+	require.Contains(t, ruleSet(s.Errors()), skill.RuleDescriptionLength)
+	require.Equal(t, strings.Repeat("é", skill.MaxDescriptionLength), s.Meta.Description)
+}
+
 func TestUnknownKeyIsNamed(t *testing.T) {
 	t.Parallel()
 	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": skillMD("name: demo\ndescription: A description of the skill.\nwhen_to_use: now")})
