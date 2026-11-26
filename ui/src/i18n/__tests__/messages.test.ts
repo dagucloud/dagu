@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { messages, translate } from '../messages';
 import { staticMessages } from '../staticMessages';
 import { translateStatic } from '../translateStatic';
@@ -113,16 +113,28 @@ describe('translations', () => {
     );
   });
 
-  // A reader downloads only the catalog of the locale in use.
+  // A reader downloads only the catalog of the locale in use. The German
+  // module records its import, so a Japanese load that brought every locale
+  // fails here even if it kept only Japanese.
   it('loads only the requested locale', async () => {
     vi.resetModules();
+    const germanImported = vi.fn();
+    vi.doMock('../locales/de', async (importOriginal) => {
+      germanImported();
+      return importOriginal();
+    });
+    onTestFinished(() => {
+      vi.doUnmock('../locales/de');
+    });
     const fresh = await import('../translateStatic');
 
     await fresh.loadStaticMessages('ja');
+    expect(germanImported).not.toHaveBeenCalled();
     expect(fresh.hasStaticMessages('de')).toBe(false);
     expect(fresh.translateStatic('de', 'No runs found')).toBe('No runs found');
 
     await fresh.loadStaticMessages('de');
+    expect(germanImported).toHaveBeenCalledOnce();
     expect(fresh.translateStatic('de', 'No runs found')).toBe(
       'Keine Läufe gefunden'
     );

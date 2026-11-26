@@ -20,7 +20,7 @@ const catalogLoaders: Record<TranslatedLocale, () => Promise<Catalog>> = {
 };
 
 const catalogs: Partial<Record<TranslatedLocale, Catalog>> = {};
-const loads: Partial<Record<TranslatedLocale, Promise<void>>> = {};
+const loads: Partial<Record<TranslatedLocale, Promise<boolean>>> = {};
 
 /** Reports whether translateStatic can translate into the locale. */
 export function hasStaticMessages(locale: Locale): boolean {
@@ -28,22 +28,24 @@ export function hasStaticMessages(locale: Locale): boolean {
 }
 
 /**
- * Resolves once translateStatic can translate into the locale, or once the
- * load has failed; the source text then stands until the page reloads. Calls
- * for one locale share one load.
+ * Resolves to whether translateStatic can translate into the locale. It
+ * resolves to false once the load has failed; the source text then stands
+ * until the page reloads. Calls for one locale share one load.
  */
-export function loadStaticMessages(locale: Locale): Promise<void> {
+export function loadStaticMessages(locale: Locale): Promise<boolean> {
   if (locale === 'en' || catalogs[locale] !== undefined) {
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
   let load = loads[locale];
   if (!load) {
     load = catalogLoaders[locale]().then(
       (catalog) => {
         catalogs[locale] = catalog;
+        return true;
       },
       (error: unknown) => {
         console.error(`Failed to load the ${locale} message catalog:`, error);
+        return false;
       }
     );
     loads[locale] = load;
