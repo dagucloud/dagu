@@ -1749,6 +1749,8 @@ export const baseGerman = {
   'Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation.':
     'Wiederholen setzt die bestehende OpenCode-Unterhaltung fort und sendet den Schritt-Prompt erneut. Für eine neue Unterhaltung im Reiter Agent-Sitzung „Saubere Sitzung starten“ wählen.',
   'Retry this run': 'Diesen Lauf wiederholen',
+  'This run cannot be retried. Start a new run by sending a new message.':
+    'Dieser Lauf kann nicht wiederholt werden. Starten Sie einen neuen Lauf, indem Sie eine neue Nachricht senden.',
   'Retry edited run': 'Bearbeiteten Lauf wiederholen',
   'Retry load more': 'Mehr laden erneut versuchen',
   'Retry loading more': 'Mehr laden erneut versuchen',
