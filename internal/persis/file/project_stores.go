@@ -105,6 +105,9 @@ func NewProjectStores(
 		records:   backend.Collection(persis.CollectionSchedulerState),
 		library:   cfg.Paths.AltDAGsDir,
 	}
+	if cfg.ProjectsEnabled {
+		dags.project, dags.owners = p.Name, server.owners
+	}
 	// Another project's base config comes in a later change; until then
 	// none applies to it.
 	if isDefault {

@@ -22,12 +22,7 @@ type catalog struct {
 }
 
 func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*catalog, error) {
-	scan, err := Discover(store.baseDir, DiscoveryOptions{
-		Recursive: store.recursive,
-		Symlinks:  store.symlinks,
-		SkipDirs:  store.skipDirs,
-		SkipRoots: store.skipRoots,
-	})
+	scan, err := Discover(store.baseDir, store.discoveryOptions(store.recursive))
 	if err != nil {
 		return nil, err
 	}
@@ -44,12 +39,7 @@ func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*
 			return nil, err
 		}
 		for _, searchPath := range store.searchPaths[1:] {
-			altScan, err := Discover(searchPath, DiscoveryOptions{
-				Recursive: store.recursive,
-				Symlinks:  store.symlinks,
-				SkipDirs:  store.skipDirs,
-				SkipRoots: store.skipRoots,
-			})
+			altScan, err := Discover(searchPath, store.discoveryOptions(store.recursive))
 			if err != nil {
 				return nil, err
 			}
