@@ -321,7 +321,8 @@ error is a skill with the state ERROR.
 
 `GET /skills` returns `skills`, the `SkillSummary` of the first 1000 folders in name order, and
 `truncated`, which is true when the skills directory holds more folders. The server reads the
-folders one at a time, so a listing keeps the text of one skill in memory, at most 16 MiB.
+folders one at a time, so a listing holds the text of one skill, at most 16 MiB, beyond the read
+cache, which keeps at most 64 MiB.
 
 `SkillSummary` has `name`, `description`, `hash`, `valid`, `errors`, `warnings`, `fileCount`,
 `totalBytes`, `bodyLines` and `bodyTokens`. A description above 1024 characters is cut to 1024

@@ -66,8 +66,8 @@ func (a *API) ListSkills(ctx context.Context, _ api.ListSkillsRequestObject) (ap
 		logger.Error(ctx, "Failed to list skills", tag.Dir(a.skillsDir()), tag.Error(err))
 		return nil, errFailedToReadSkill
 	}
-	// One skill at a time is read and dropped, so the request holds the text
-	// of one skill at most.
+	// One skill at a time is read, so the request holds the text of one skill
+	// at most beyond the bounded read cache.
 	out := make([]api.SkillSummary, 0, len(names))
 	for _, name := range names {
 		if err := ctx.Err(); err != nil {
