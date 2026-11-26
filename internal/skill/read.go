@@ -275,7 +275,7 @@ func walk(dir string) (entries []entry, issues []Issue, err error) {
 		return nil, nil, err
 	}
 	if count > maxWalkEntries {
-		add(RuleTooManyFiles, "", "the folder holds more than %d entries; the limit is %d files", maxWalkEntries, MaxFiles)
+		add(RuleTooManyFiles, "", "the folder holds more than %d entries (files and directories); the limit is %d entries", maxWalkEntries, maxWalkEntries)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].rel < entries[j].rel })
 	return entries, issues, nil

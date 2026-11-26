@@ -291,6 +291,20 @@ func TestFolderRules(t *testing.T) {
 		require.Contains(t, ruleSet(s.Issues), skill.RuleTooManyFiles)
 	})
 
+	// Directories count toward the limit of entries, also with few files.
+	t.Run("too many entries", func(t *testing.T) {
+		t.Parallel()
+		dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
+		for i := range 1024 {
+			require.NoError(t, os.MkdirAll(filepath.Join(dir, "assets", fmt.Sprintf("d%04d", i)), 0o755))
+		}
+		s, err := skill.Read(dir)
+		require.NoError(t, err)
+		issue, ok := ruleSet(s.Issues)[skill.RuleTooManyFiles]
+		require.True(t, ok, "%v", s.Issues)
+		require.Contains(t, issue.Message, "the limit is 1024 entries")
+	})
+
 	t.Run("symlink to a file", func(t *testing.T) {
 		t.Parallel()
 		dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "x"})
