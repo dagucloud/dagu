@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,12 +162,40 @@ func TestProjectStoresOnDAGChangeMarker(t *testing.T) {
 	cfg := projectStoresConfig(t, true)
 	stores, err := persisfile.NewProjectStores(ctx, cfg, persisfile.NewServerStores(cfg), project.Project{Name: project.DefaultName}, persisfile.ProjectStoreOptions{})
 	require.NoError(t, err)
-	marker := persisfile.DAGChangeMarkerPath(cfg)
+	marker := defaultDAGChangeMarkerPath(t, cfg)
 	require.NotEmpty(t, marker)
 	require.NoFileExists(t, marker)
 
 	require.NoError(t, stores.DAGRepository.Create(ctx, "beta", []byte("steps:\n  - name: s\n    command: echo hi\n")))
 	assert.FileExists(t, marker)
+}
+
+// With projects on, a project other than the default one keeps its run
+// events, the state of its notification and incident monitors, and its DAG
+// change marker in its own state directory, apart from the default
+// project's.
+func TestProjectSettingsOnKeepProjectState(t *testing.T) {
+	cfg := projectStoresConfig(t, true)
+	cfg.Paths.EventStoreDir = filepath.Join(t.TempDir(), "events")
+	server := persisfile.NewServerStores(cfg)
+	weather, err := persisfile.NewProjectSettings(cfg, server, "weather")
+	require.NoError(t, err)
+	defaults, err := persisfile.NewProjectSettings(cfg, server, project.DefaultName)
+	require.NoError(t, err)
+
+	state := filepath.Join(cfg.Paths.DataDir, "projects", "weather", "state")
+	assert.Equal(t, filepath.Join(state, "events"), weather.Paths.EventStoreDir)
+	assert.Equal(t, cfg.Paths.EventStoreDir, defaults.Paths.EventStoreDir)
+	for _, files := range [][2]string{
+		{weather.NotificationStateFile(), defaults.NotificationStateFile()},
+		{weather.IncidentStateFile(), defaults.IncidentStateFile()},
+		{weather.DAGChangeMarkerPath(), defaults.DAGChangeMarkerPath()},
+	} {
+		assert.True(t, strings.HasPrefix(files[0], state+string(filepath.Separator)), files[0])
+		assert.NotEqual(t, files[0], files[1])
+	}
+	assert.Equal(t, filepath.Join(cfg.Paths.DataDir, "notifications", "monitor-state.json"), defaults.NotificationStateFile())
+	assert.Equal(t, filepath.Join(cfg.Paths.DataDir, "incidents", "monitor-state.json"), defaults.IncidentStateFile())
 }
 
 // projectStoresConfig sets apart every path that places a project store, as

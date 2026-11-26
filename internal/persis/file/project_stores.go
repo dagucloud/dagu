@@ -19,11 +19,15 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagsettings"
+	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	fileartifact "github.com/dagucloud/dagu/v2/internal/persis/file/artifact"
 	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
+	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
@@ -36,6 +40,7 @@ import (
 
 const (
 	materializationsDirName = "materializations"
+	monitorStateFileName    = "monitor-state.json"
 	// ephemeralRunsDirName holds a project's ephemeral runs while projects
 	// are on. Beside a runs directory set apart, as v2 keeps them, they
 	// could take the name of another project's runs directory.
@@ -71,15 +76,18 @@ type ProjectStoreOptions struct {
 	ArtifactRecordCache *fileutil.Cache[*fileartifact.Record]
 }
 
-// ProjectSettings opens the stores of one project's settings. A store opens
-// on each call, since opening one may create the server's encryption key.
+// ProjectSettings opens the stores of one project's settings and the other
+// project stores that need no run store. A store opens on each call, since
+// opening one may create the server's encryption key or a directory.
 type ProjectSettings struct {
-	// Paths are the project's directories.
+	// Paths are the directories that the project's stores open on.
 	Paths config.ProjectPaths
 
 	cfg     *config.Config
 	server  *ServerStores
 	backend *Backend
+	// v2Dirs reports that Paths are the directories v2 uses.
+	v2Dirs bool
 }
 
 // NewProjectStores opens the stores of p on its paths. Only the default
@@ -120,7 +128,7 @@ func NewProjectStores(
 	// A new project has no runs from v2.
 	runPaths := runPaths(cfg, paths, isDefault || p.MigratedFrom != "")
 	ephemeralDir := EphemeralDAGRunsDir(paths.DAGRunsDir)
-	if cfg.ProjectsEnabled && !isDefault {
+	if !settings.v2Dirs {
 		ephemeralDir = filepath.Join(paths.OtherStateDir, ephemeralRunsDirName)
 	}
 	cleanups := agentsession.NewCleanupQueue(backend.Collection(persis.CollectionAgentSessionCleanups))
@@ -205,21 +213,55 @@ func (s *ProjectStores) CheckStart(ctx context.Context, path string) error {
 }
 
 // NewProjectSettings returns the settings of the project called name, for a
-// process that opens no other store of the project. It does not access the
+// process that opens no run store of the project. It does not access the
 // filesystem. The default project keeps the directories v2 uses, also while
-// projects are on.
+// projects are on, until migration moves its state.
 func NewProjectSettings(cfg *config.Config, server *ServerStores, name string) (*ProjectSettings, error) {
-	paths, err := cfg.ProjectPaths(name)
+	paths, v2Dirs, err := projectPaths(cfg, name)
 	if err != nil {
 		return nil, err
 	}
-	if strings.EqualFold(name, project.DefaultName) {
-		// The server and the scheduler still read and write the default
-		// project's logs, settings, and state there, and runs write their
-		// logs there; they move into the project together.
-		paths = v2ProjectPaths(cfg.Paths)
+	return &ProjectSettings{
+		Paths:   paths,
+		cfg:     cfg,
+		server:  server,
+		backend: newProjectBackend(paths),
+		v2Dirs:  v2Dirs,
+	}, nil
+}
+
+// defaultProjectInV2Dirs keeps the default project's stores in the
+// directories v2 uses while projects are on. Runs still write the default
+// project's logs and artifacts there, and its state stays there until
+// migration moves it, so turning this off goes with that move.
+const defaultProjectInV2Dirs = true
+
+// ProjectStorePaths returns the directories that the stores of the project
+// called name open on. A process that watches a project's state watches
+// these directories.
+func ProjectStorePaths(cfg *config.Config, name string) (config.ProjectPaths, error) {
+	paths, _, err := projectPaths(cfg, name)
+	return paths, err
+}
+
+// ProjectSchedulerStateDir returns the directory of the project's scheduler
+// state, or "" when the project has no state directory.
+func ProjectSchedulerStateDir(p config.ProjectPaths) string {
+	if p.OtherStateDir == "" {
+		return ""
 	}
-	return &ProjectSettings{Paths: paths, cfg: cfg, server: server, backend: newProjectBackend(paths)}, nil
+	return filepath.Join(p.OtherStateDir, schedulerStateDirName)
+}
+
+// projectPaths returns the directories that the stores of the project
+// called name open on, and whether they are the ones v2 uses. Every store
+// of a project, in every process, opens on these directories.
+func projectPaths(cfg *config.Config, name string) (config.ProjectPaths, bool, error) {
+	if defaultProjectInV2Dirs && strings.EqualFold(name, project.DefaultName) {
+		return v2ProjectPaths(cfg.Paths), true, nil
+	}
+	paths, err := cfg.ProjectPaths(name)
+	return paths, !cfg.ProjectsEnabled, err
 }
 
 // SecretStore opens the project's secrets, encrypted with the server's key.
@@ -263,4 +305,81 @@ func (s *ProjectSettings) InventoryStore() (inventory.Store, error) {
 		s.backend.Lock(persis.CollectionInventories),
 		hostKeys,
 	)
+}
+
+// CachedInventoryStore opens the project's node inventories for a
+// long-running process, which keeps them in memory.
+func (s *ProjectSettings) CachedInventoryStore() (*store.InventoryStore, error) {
+	hostKeys, err := s.HostKeyStore()
+	if err != nil {
+		return nil, err
+	}
+	return store.NewCachedInventoryStore(
+		s.backend.Collection(persis.CollectionInventories),
+		s.backend.Lock(persis.CollectionInventories),
+		hostKeys,
+	)
+}
+
+// DAGSettingsStore opens the settings of the project's DAGs, creating their
+// directory.
+func (s *ProjectSettings) DAGSettingsStore() (dagsettings.Store, error) {
+	return NewDAGSettingsStore(s.cfg, s.backend.Collection(persis.CollectionDAGSettings))
+}
+
+// DAGPinStore opens the project's pinned DAGs.
+func (s *ProjectSettings) DAGPinStore() (*store.DAGPinStore, error) {
+	return store.NewDAGPinStore(s.backend.Collection(persis.CollectionDAGPins))
+}
+
+// ViewStore opens the project's saved views.
+func (s *ProjectSettings) ViewStore() *store.ViewStore {
+	return store.NewViewStore(s.backend.Collection(persis.CollectionViews))
+}
+
+// NotificationStore opens the project's notification routes, which send to
+// the server's channels, creating their directories.
+func (s *ProjectSettings) NotificationStore() (notification.Store, error) {
+	enc, err := s.server.Encryptor()
+	if err != nil {
+		return nil, err
+	}
+	return NewNotificationStore(
+		s.backend.Collection(persis.CollectionNotifications),
+		s.server.backend.Collection(persis.CollectionNotificationChannels),
+		enc,
+	)
+}
+
+// IncidentStore opens the project's incident policies and incidents, which
+// name the server's providers, creating their directories.
+func (s *ProjectSettings) IncidentStore() (incident.Store, error) {
+	enc, err := s.server.Encryptor()
+	if err != nil {
+		return nil, err
+	}
+	return NewIncidentStore(
+		s.backend.Collection(persis.CollectionIncidents),
+		s.server.backend.Collection(persis.CollectionIncidentProviders),
+		enc,
+	)
+}
+
+// NotificationStateFile returns the file where the project's notification
+// monitor records its progress through the project's run events.
+func (s *ProjectSettings) NotificationStateFile() string {
+	return filepath.Join(s.Paths.OtherStateDir, notificationsDirName, monitorStateFileName)
+}
+
+// IncidentStateFile returns the file where the project's incident monitor
+// records its progress through the project's run events.
+func (s *ProjectSettings) IncidentStateFile() string {
+	return filepath.Join(s.Paths.OtherStateDir, incidentsDirName, monitorStateFileName)
+}
+
+// DAGChangeMarkerPath returns this host's file that signals changes to the
+// project's DAG definitions to readers on other hosts, or "" when the
+// project has no state directory to keep it in.
+func (s *ProjectSettings) DAGChangeMarkerPath() string {
+	return filedag.ChangeMarkerPath(dagIndexDir(s.Paths.OtherStateDir), s.Paths.DAGsDir)
 }

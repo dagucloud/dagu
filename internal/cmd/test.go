@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagtest"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -70,7 +71,7 @@ var testFlags = []commandLineFlag{testRunFlag, testTimeoutFlag, testFormatFlag, 
 func Test() *cobra.Command {
 	command := NewCommand(
 		&cobra.Command{
-			Use:   "test [flags] [<test file or directory>...]",
+			Use:   "test [flags] [<test file, DAG file, DAG name, or directory>...]",
 			Short: "Run the test cases of DAGs with their step actions mocked",
 			Long: `Run workflow tests (Spec 101). A test file sits beside the DAG it tests and
 ends in .test.yaml or .test.yml. Each case runs the DAG through the same
@@ -79,7 +80,10 @@ replaced by scripted results. An action with side effects that the case
 neither mocks nor lists under real makes the case invalid, and nothing runs.
 
 A directory argument runs every test file under it. With no argument, every
-test file under the DAGs directory runs.
+test file under the DAGs directory runs. A DAG file argument runs the test
+files beside it: release.yaml runs release.test.yaml and release.test.yml,
+whichever exist. An argument that is not an existing path is a DAG name,
+resolved as dagu start resolves it, and runs that DAG's test files.
 
 --format json writes one JSON object to stdout once every case has ended.
 --keep keeps each case directory and reports its path.
@@ -99,6 +103,7 @@ test file or case is invalid or the arguments are.
 
 Example:
   dagu test workflows/
+  dagu test workflows/release.yaml
   dagu test --run 'failed build' --timeout 30s workflows/release.test.yaml
   dagu test --format json --keep workflows/
   dagu test --init workflows/release.yaml
@@ -144,7 +149,7 @@ func runTest(ctx *Context, args []string) error {
 	if opts.init {
 		return runTestInit(ctx, args[0], opts)
 	}
-	files, err := selectTestFiles(ctx.projectPaths().DAGsDir, args)
+	files, err := selectTestFiles(ctx, ctx.projectPaths().DAGsDir, args)
 	if err == nil && len(args) == 0 {
 		files, err = ctx.ownTestFiles(files)
 	}
@@ -226,10 +231,13 @@ type testFileRef struct {
 }
 
 // selectTestFiles returns the test files that args select, in the order
-// they run: each file argument, and every test file under each directory
-// argument, or under root when there is no argument. A file that several
-// arguments select is listed once.
-func selectTestFiles(root string, args []string) ([]testFileRef, error) {
+// they run: each test file argument, the test files beside each DAG file
+// argument and beside the DAG file of each DAG name, and every test file
+// under each directory argument, or under root when there is no argument.
+// An argument that is no existing path is a DAG name, resolved under root
+// as dagu start resolves it. A file that several arguments select is
+// listed once.
+func selectTestFiles(ctx context.Context, root string, args []string) ([]testFileRef, error) {
 	if len(args) == 0 {
 		if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -248,25 +256,73 @@ func selectTestFiles(root string, args []string) ([]testFileRef, error) {
 		return nil
 	}
 	for _, arg := range args {
-		info, err := os.Stat(arg)
-		if err != nil {
-			return nil, err
-		}
-		if !info.IsDir() {
-			if !spec.IsTestFile(arg) {
-				return nil, fmt.Errorf("%s is not a test file; its name must end in .test.yaml or .test.yml", arg)
-			}
-			if err := add(arg); err != nil {
-				return nil, err
-			}
-			continue
-		}
-		if err := walkTestFiles(arg, add); err != nil {
+		if err := selectArgument(ctx, root, arg, add); err != nil {
 			return nil, err
 		}
 	}
 	slices.SortFunc(files, func(a, b testFileRef) int { return cmp.Compare(a.report, b.report) })
 	return files, nil
+}
+
+// selectArgument calls add for each test file that arg selects.
+func selectArgument(ctx context.Context, root, arg string, add func(string) error) error {
+	info, err := os.Stat(arg)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		dagPath, err := namedDAGFile(ctx, root, arg)
+		if err != nil {
+			return err
+		}
+		return addDAGTestFiles(arg, dagPath, add)
+	case err != nil:
+		return err
+	case info.IsDir():
+		return walkTestFiles(arg, add)
+	case spec.IsTestFile(arg):
+		return add(arg)
+	case fileutil.IsYAMLFile(arg):
+		return addDAGTestFiles(arg, arg, add)
+	default:
+		return fmt.Errorf("%s is not a test file; its name must end in .test.yaml or .test.yml", arg)
+	}
+}
+
+// dagTestFileSuffixes replace the extension of a DAG file in the names of
+// the test files beside it (Spec 101, Where Test Files Live).
+var dagTestFileSuffixes = []string{".test.yaml", ".test.yml"}
+
+// addDAGTestFiles calls add for each test file beside the DAG file at
+// dagPath, which arg names. It fails, naming the command that writes one,
+// when there is none.
+func addDAGTestFiles(arg, dagPath string, add func(string) error) error {
+	base := fileutil.TrimYAMLFileExtension(dagPath)
+	found := false
+	for _, suffix := range dagTestFileSuffixes {
+		if path := base + suffix; fileutil.IsFile(path) {
+			found = true
+			if err := add(path); err != nil {
+				return err
+			}
+		}
+	}
+	if !found {
+		return fmt.Errorf("%s has no test file; write one with: dagu test --init %s", arg, dagPath)
+	}
+	return nil
+}
+
+// namedDAGFile returns the DAG file that dagu start runs for name, with
+// dagsDir as the DAGs directory.
+func namedDAGFile(ctx context.Context, dagsDir, name string) (string, error) {
+	// spec.Load resolves the name as dagu start does. Build errors are
+	// allowed, so the path comes back even for a DAG that does not load;
+	// its test files report that.
+	dag, err := spec.Load(ctx, name, spec.WithDAGsDir(dagsDir), spec.OnlyMetadata(),
+		spec.WithoutEval(), spec.SkipSchemaValidation(), spec.WithAllowBuildErrors())
+	if err != nil || !fileutil.IsFile(dag.Location) {
+		return "", fmt.Errorf("%s does not exist, and the DAGs directory %s has no DAG of that name", name, dagsDir)
+	}
+	return dag.Location, nil
 }
 
 // walkTestFiles calls add for each test file under dir. Directories whose

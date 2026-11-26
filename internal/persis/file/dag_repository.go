@@ -156,13 +156,6 @@ func dagIndexDir(stateDir string) string {
 	return filepath.Join(stateDir, "cache", "dag-index")
 }
 
-// DAGChangeMarkerPath returns this host's file that signals DAG definition
-// changes to readers on other hosts, or "" when there is no data directory to
-// keep it in.
-func DAGChangeMarkerPath(cfg *config.Config) string {
-	return filedag.ChangeMarkerPath(dagIndexDir(cfg.Paths.DataDir), cfg.Paths.DAGsDir)
-}
-
 // v2ProjectPaths returns the directories where v2 keeps the stores of its one
 // project, which are the default project's while projects are off.
 func v2ProjectPaths(paths config.PathsConfig) config.ProjectPaths {

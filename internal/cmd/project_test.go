@@ -270,7 +270,7 @@ func TestProjectTestFiles(t *testing.T) {
 	selected := func(projectName string) []string {
 		ctx, err := NewContext(h.command(t, "test", projectName), nil)
 		require.NoError(t, err)
-		files, err := selectTestFiles(ctx.projectPaths().DAGsDir, nil)
+		files, err := selectTestFiles(ctx, ctx.projectPaths().DAGsDir, nil)
 		require.NoError(t, err)
 		files, err = ctx.ownTestFiles(files)
 		require.NoError(t, err)

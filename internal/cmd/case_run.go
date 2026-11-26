@@ -562,7 +562,6 @@ func (c *Context) inCaseDir(dir string) (*Context, error) {
 	clone.Persistence = persistence
 	clone.DAGRunMgr = runtime.NewManager(persistence.DAGRunRepository, persistence.ProcRepository, &cfg,
 		projectManagerOptions(&cfg, c.project)...)
-	clone.backend = file.NewBackend(cfg.Paths)
 	clone.serverStores = server
 	clone.projectStores = stores
 	clone.settings = stores.ProjectSettings
@@ -573,7 +572,7 @@ func (c *Context) inCaseDir(dir string) (*Context, error) {
 	}
 	// A run emits events to the store its context carries, so the case's
 	// store takes the place of the configured one.
-	events := newEventService(clone.Context, &cfg)
+	events := newEventService(clone.Context, &cfg, stores.Paths.EventStoreDir)
 	if events == nil {
 		return nil, errors.New("failed to open the event store of the case")
 	}

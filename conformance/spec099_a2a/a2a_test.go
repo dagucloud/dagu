@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -29,6 +30,18 @@ type agent struct {
 	drop atomic.Bool
 	// message makes SendMessage answer with a Message instead of a Task.
 	message atomic.Bool
+	// dropFirst closes the connection on the first SendMessage only, after
+	// recording it, as an agent that accepted the message but lost the reply.
+	dropFirst atomic.Bool
+
+	mu  sync.Mutex
+	ids []string
+}
+
+func (a *agent) sentIDs() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.ids...)
 }
 
 // newAgent serves an A2A 1.0 JSON-RPC agent over TLS that requires the bearer
@@ -70,7 +83,12 @@ func (a *agent) serve(w http.ResponseWriter, r *http.Request) {
 	switch req.Method {
 	case "SendMessage":
 		a.sends.Add(1)
-		if a.drop.Load() {
+		if m, ok := req.Params["message"].(map[string]any); ok {
+			a.mu.Lock()
+			a.ids = append(a.ids, m["messageId"].(string))
+			a.mu.Unlock()
+		}
+		if a.drop.Load() || a.dropFirst.CompareAndSwap(true, false) {
 			conn, _, _ := w.(http.Hijacker).Hijack()
 			_ = conn.Close()
 			return
@@ -149,6 +167,39 @@ func TestA2ADroppedResponse(t *testing.T) {
 	result.ExpectStderrContains("Outcome unknown")
 	if a.sends.Load() != 1 {
 		t.Fatalf("sends=%d, want 1", a.sends.Load())
+	}
+}
+
+// A retry_policy retry after a lost response resends the same messageId, so a
+// deduplicating agent sees one logical message.
+func TestA2ARetrySameID(t *testing.T) {
+	t.Parallel()
+	a, env := newAgent(t)
+	a.dropFirst.Store(true)
+
+	dagu := harness.NewRunner(t)
+	result := dagu.RunWithEnv(env, "start", "retry.yaml")
+
+	result.ExpectExitCode(0)
+	ids := a.sentIDs()
+	if len(ids) != 2 || ids[0] == "" || ids[0] != ids[1] {
+		t.Fatalf("message ids=%v, want two equal non-empty IDs", ids)
+	}
+	dagu.ExpectFileContains("send.out", `"sent_message_id":"`+ids[0]+`"`)
+}
+
+// with.message_id resolves references and is sent as provided.
+func TestA2AExplicitID(t *testing.T) {
+	t.Parallel()
+	a, env := newAgent(t)
+
+	dagu := harness.NewRunner(t)
+	result := dagu.RunWithEnv(env, "start", "--run-id", "run-42", "message_id.yaml")
+
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContains("send.out", `"sent_message_id":"run-42-delegate"`)
+	if ids := a.sentIDs(); len(ids) != 1 || ids[0] != "run-42-delegate" {
+		t.Fatalf("message ids=%v, want [run-42-delegate]", ids)
 	}
 }
 
