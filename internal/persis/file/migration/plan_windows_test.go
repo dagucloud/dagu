@@ -37,3 +37,27 @@ func TestRunMovesJunctionAsLink(t *testing.T) {
 	_, err = os.Lstat(cfg.Paths.DAGRunsDir)
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
+
+// A log directory that is a junction to another volume, and holds the admin
+// logs, keeps the project's logs where the junction leads. Following the
+// junction needs more than filepath.EvalSymlinks, which does not.
+func TestRunKeepsSplitJunctionOnItsDisk(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	if err := os.Symlink(root, filepath.Join(root, "probe")); err != nil {
+		t.Skipf("creating symbolic links needs a privilege: %v", err)
+	}
+	cfg := v2Install(root)
+	disk := filepath.Join(root, "disk", "logs")
+	writeFile(t, filepath.Join(disk, "etl", "run_1.log"))
+	writeFile(t, filepath.Join(disk, "admin", "audit", "a.jsonl"))
+	out, err := exec.Command("cmd", "/c", "mklink", "/J", cfg.Paths.LogDir, disk).CombinedOutput()
+	require.NoError(t, err, "%s", out)
+
+	require.NoError(t, newStateMigrator(t, cfg).Run(context.Background()))
+
+	logs := filepath.Join(cfg.Paths.DataDir, "projects", "default", "logs")
+	assert.FileExists(t, filepath.Join(logs, "etl", "run_1.log"))
+	assert.FileExists(t, filepath.Join(disk, ".projects", "default", "etl", "run_1.log"), "the logs stay where the junction leads")
+	assert.FileExists(t, filepath.Join(cfg.Paths.LogDir, "admin", "audit", "a.jsonl"))
+}

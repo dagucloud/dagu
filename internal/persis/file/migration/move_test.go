@@ -182,6 +182,22 @@ func TestShortageSumsCopiesPerFileSystem(t *testing.T) {
 	}
 }
 
+// An irregular entry is a link only when the system reads it as one. A
+// directory that reports as irregular, such as a cloud-sync placeholder, is
+// never a link, and an irregular file that is not one moves as a file.
+func TestReadLinkTellsIrregularEntriesApart(t *testing.T) {
+	t.Parallel()
+	file := filepath.Join(t.TempDir(), "placeholder")
+	require.NoError(t, os.WriteFile(file, []byte("x"), 0o600))
+
+	for _, mode := range []os.FileMode{os.ModeIrregular, os.ModeDir | os.ModeIrregular} {
+		target, link, err := readLink(file, mode)
+		require.NoError(t, err, mode)
+		assert.False(t, link, mode)
+		assert.Empty(t, target, mode)
+	}
+}
+
 func holding() error { return nil }
 
 // fresh is the install record of a move that no earlier attempt started.

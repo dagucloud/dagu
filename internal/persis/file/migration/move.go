@@ -99,8 +99,12 @@ func (mr mover) move(ctx context.Context, mv move, install installRecord, held f
 	if err := fileutil.MkdirAll(parent, dirPerm); err != nil {
 		return err
 	}
-	if isLink(info.Mode()) {
-		return mr.moveLink(mv, install.record, held)
+	target, link, err := readLink(mv.From, info.Mode())
+	if err != nil {
+		return err
+	}
+	if link {
+		return mr.moveLink(mv, target, install.record, held)
 	}
 	same, err := mr.sameFileSystem(mv.From, parent)
 	if err != nil {
@@ -152,16 +156,13 @@ func (mr mover) copyMove(ctx context.Context, mv move, record func() error, held
 	return fileutil.RemoveAll(mv.From)
 }
 
-// moveLink moves the link mv.From, which may lead to another file system,
-// as a link: the state it leads to stays where it is. A link with an
-// absolute target that stays on its file system is renamed, which needs no
-// privilege to create links. Any other link is made again at mv.To with an
-// absolute target, recorded before it takes mv.To's name.
-func (mr mover) moveLink(mv move, record func() error, held func() error) error {
-	target, err := os.Readlink(mv.From)
-	if err != nil {
-		return err
-	}
+// moveLink moves the link mv.From to target, which may lie on another file
+// system, as a link: the state it leads to stays where it is. A link with
+// an absolute target that stays on its file system is renamed, which needs
+// no privilege to create links. Any other link is made again at mv.To with
+// an absolute target, recorded before it takes mv.To's name.
+func (mr mover) moveLink(mv move, target string, record func() error, held func() error) error {
+	var err error
 	if filepath.IsAbs(target) {
 		same, err := mr.sameFileSystem(filepath.Dir(mv.From), filepath.Dir(mv.To))
 		if err != nil {
@@ -196,17 +197,38 @@ func (mr mover) moveLink(mv move, record func() error, held func() error) error 
 // real directory, so a ".." in it climbs out of that directory, not out of
 // a link on the way to it.
 func absoluteTarget(path, target string) (string, error) {
-	dir, err := filepath.EvalSymlinks(filepath.Dir(path))
+	dir, err := realPath(filepath.Dir(path))
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, target), nil
 }
 
-// isLink reports whether mode is a link's: a symbolic link, or on Windows
-// a junction, which reports as irregular.
+// isLink reports whether mode may be a link's: a symbolic link, or on
+// Windows a junction, which reports as irregular and never as a directory.
+// Other irregular entries, such as cloud-sync placeholders, are not links;
+// readLink tells them apart.
 func isLink(mode fs.FileMode) bool {
-	return mode&fs.ModeSymlink != 0 || (runtime.GOOS == "windows" && mode&fs.ModeIrregular != 0)
+	return mode&fs.ModeSymlink != 0 ||
+		(runtime.GOOS == "windows" && mode&fs.ModeIrregular != 0 && mode&fs.ModeDir == 0)
+}
+
+// readLink returns the target of the entry at path with mode, and whether
+// it is a link. An irregular entry that the system does not read as a link
+// is not one, and moves as a file or directory does.
+func readLink(path string, mode fs.FileMode) (string, bool, error) {
+	if !isLink(mode) {
+		return "", false, nil
+	}
+	target, err := os.Readlink(path)
+	switch {
+	case err == nil:
+		return target, true, nil
+	case mode&fs.ModeSymlink == 0:
+		return "", false, nil
+	default:
+		return "", false, err
+	}
 }
 
 // discardStaging removes the part of a copy that a killed attempt left.
@@ -229,8 +251,17 @@ func (mr mover) pendingCopies(moves []move, floors map[string]uint64, held func(
 	var copies []pendingCopy
 	for _, mv := range moves {
 		// A missing source was moved, and a link moves as a link.
-		if info, err := os.Lstat(mv.From); errors.Is(err, fs.ErrNotExist) ||
-			(err == nil && isLink(info.Mode())) {
+		info, err := os.Lstat(mv.From)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if _, link, err := readLink(mv.From, info.Mode()); err != nil || link {
+			if err != nil {
+				return nil, err
+			}
 			continue
 		}
 		// A destination that exists needs no room: the move removes the
@@ -372,17 +403,21 @@ func copyTree(ctx context.Context, src, dst string, held func() error) error {
 		if err != nil {
 			return err
 		}
+		link, linked, err := readLink(path, entry.Type())
+		if err != nil {
+			return err
+		}
 		switch {
-		case entry.IsDir():
-			dirs = append(dirs, dirTime{path: target, modTime: info.ModTime()})
-			return fileutil.MkdirAll(target, info.Mode().Perm())
-		case isLink(entry.Type()):
-			link, err := copiedLinkTarget(src, path)
+		case linked:
+			link, err := copiedLinkTarget(src, path, link)
 			if err != nil {
 				return err
 			}
 			return os.Symlink(link, target) //nolint:gosec // no other process writes the state while it migrates
-		case entry.Type().IsRegular():
+		case entry.IsDir():
+			dirs = append(dirs, dirTime{path: target, modTime: info.ModTime()})
+			return fileutil.MkdirAll(target, info.Mode().Perm())
+		case entry.Type().IsRegular() || entry.Type()&fs.ModeIrregular != 0:
 			if err := copyFile(path, target, info.Mode().Perm()); err != nil {
 				return err
 			}
@@ -403,13 +438,12 @@ func copyTree(ctx context.Context, src, dst string, held func() error) error {
 }
 
 // copiedLinkTarget returns the target of the copy of the link at path in
-// the tree src. A relative target that stays in the tree is kept, so the
+// the tree src, whose target is link. A relative target that stays in the tree is kept, so the
 // copy leads to the copied entry; one that leads out of the tree is made
 // absolute, so the copy still reaches it.
-func copiedLinkTarget(src, path string) (string, error) {
-	link, err := os.Readlink(path)
-	if err != nil || filepath.IsAbs(link) {
-		return link, err
+func copiedLinkTarget(src, path, link string) (string, error) {
+	if filepath.IsAbs(link) {
+		return link, nil
 	}
 	rel, err := filepath.Rel(src, filepath.Join(filepath.Dir(path), link))
 	if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {

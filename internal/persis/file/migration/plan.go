@@ -59,7 +59,11 @@ func planDir(dir persisfile.V2StateDir, kept []string) ([]move, error) {
 	if dir.Holds == nil && !found && !holdsAny(dir.V2, kept) {
 		return []move{{From: dir.V2, To: dir.Dir}}, nil
 	}
-	if isLink(info.Mode()) && !inside(dir.Dir, dir.V2) {
+	_, link, err := readLink(dir.V2, info.Mode())
+	if err != nil {
+		return nil, fmt.Errorf("plan the migration: %w", err)
+	}
+	if link && !inside(dir.Dir, dir.V2) {
 		store, err := linkBeside(dir, found)
 		if err != nil {
 			return nil, fmt.Errorf("plan the migration: %w", err)
@@ -90,7 +94,7 @@ func planDir(dir persisfile.V2StateDir, kept []string) ([]move, error) {
 // not this migration's and the entries move into it. It returns the
 // directory as dir.V2 spells it, or "" when dir.Dir is not the link.
 func linkBeside(dir persisfile.V2StateDir, found bool) (string, error) {
-	real, err := filepath.EvalSymlinks(dir.V2)
+	real, err := realPath(dir.V2)
 	if err != nil {
 		return "", err
 	}
@@ -108,7 +112,13 @@ func linkBeside(dir persisfile.V2StateDir, found bool) (string, error) {
 		return "", err
 	}
 	if err := os.Symlink(store, dir.Dir); err != nil {
-		return "", fmt.Errorf("keep the state in %s on its disk with the link %s: %w", real, dir.Dir, err)
+		// A path set apart puts the project's directory inside dir.V2,
+		// where entries move by rename without a link.
+		return "", fmt.Errorf("keep the state in %s on its disk with the link %s: %w; "+
+			"making a link needs the privilege to create symbolic links (on Windows, Developer Mode or "+
+			"an elevated process). For the log, artifact, run, and run work directories, setting the "+
+			"matching paths.log_dir, paths.artifact_dir, paths.dag_runs_dir, or paths.dag_run_work_dir "+
+			"explicitly, even to the same path, keeps the state in %s without a link", real, dir.Dir, err, dir.V2)
 	}
 	return filepath.Join(dir.V2, setApartDefaultDir), nil
 }
