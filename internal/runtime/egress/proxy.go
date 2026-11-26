@@ -209,11 +209,12 @@ func clientCredential(header http.Header) string {
 		return "x-api-key sha256:" + Digest(value)
 	}
 	if value := header.Get("Authorization"); value != "" {
+		// Only a known scheme is named: another first word can be the credential.
 		scheme, token, ok := strings.Cut(value, " ")
-		if !ok {
-			return "authorization sha256:" + Digest(value)
+		if ok && (strings.EqualFold(scheme, "Bearer") || strings.EqualFold(scheme, "Basic")) {
+			return "authorization " + scheme + " sha256:" + Digest(token)
 		}
-		return "authorization " + scheme + " sha256:" + Digest(token)
+		return "authorization sha256:" + Digest(value)
 	}
 	return "none"
 }

@@ -267,6 +267,37 @@ func TestUpstreamAnthropicOAuth(t *testing.T) {
 	}
 }
 
+// The log line names the scheme of a client authorization only when it is Bearer
+// or Basic. Another first word can be the credential itself, so the line then has
+// only the digest of the whole value.
+func TestUpstreamLogHidesTheClientCredential(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"bearer", "Bearer client-secret", "authorization Bearer sha256:" + egress.Digest("client-secret")},
+		{"basic", "basic client-secret", "authorization basic sha256:" + egress.Digest("client-secret")},
+		{"other first word", "client-secret extra", "authorization sha256:" + egress.Digest("client-secret extra")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, host, port := startRecorder(t, false, nil)
+			upstream := mustUpstream(t, "http://allowed.example.test:"+port, egress.AuthBearer)
+			proxyAddr, logs := upstreamProxy(t, []string{"allowed.example.test:" + port}, upstream, resolverFor("allowed.example.test", host), nil, nil)
+
+			reply := originFormRequest(t, proxyAddr, http.MethodPost, "/v1/messages", "{}", http.Header{"Authorization": {tc.value}})
+			assert.Equal(t, http.StatusOK, reply.StatusCode)
+			text := logs.text()
+			assert.Contains(t, text, "client credential "+tc.want+" replaced")
+			assert.NotContains(t, text, "client-secret")
+		})
+	}
+}
+
 // An upstream with an internationalized host name is reached under its ASCII
 // form, which the HTTP transport dials, and matches a rule in either spelling.
 func TestUpstreamWithAnInternationalizedName(t *testing.T) {
