@@ -236,7 +236,8 @@ func TestReadOfAMissingFolder(t *testing.T) {
 }
 
 // A folder above the total limit is refused, and its read keeps at most the
-// limit of text in memory.
+// limit of text in memory. The text files it does not keep still read from
+// disk with their recorded hash.
 func TestReadBoundsTheTextItKeeps(t *testing.T) {
 	t.Parallel()
 	files := map[string]string{"SKILL.md": strings.Replace(good, "name: demo", "name: big", 1)}
@@ -252,7 +253,11 @@ func TestReadBoundsTheTextItKeeps(t *testing.T) {
 		require.True(t, f.Text, f.Path)
 		if data, ok := s.Text(f.Path); ok {
 			kept += len(data)
+			continue
 		}
+		data, err := s.ReadVerified(f.Path)
+		require.NoError(t, err, f.Path)
+		require.Len(t, data, int(f.Size), f.Path)
 	}
 	require.LessOrEqual(t, kept, skill.MaxTotalBytes)
 }
@@ -493,4 +498,16 @@ func TestFolderRules(t *testing.T) {
 		_, err := skill.Read(filepath.Join(t.TempDir(), "nope"))
 		require.ErrorIs(t, err, skill.ErrNotFound)
 	})
+}
+
+func TestCheckExistingPathRefusesEveryEscape(t *testing.T) {
+	t.Parallel()
+	for _, ok := range []string{"README.md", "docs/a.md", "references/.env"} {
+		_, err := skill.CheckExistingPath(ok)
+		require.NoError(t, err, ok)
+	}
+	for _, bad := range []string{"", "../x", "../../x", "a/../../x", "/abs", "a//b", "./a", "a/.", "a\\b", ".locks/x", "references/.locks/x", "a/\x00"} {
+		_, err := skill.CheckExistingPath(bad)
+		require.Error(t, err, bad)
+	}
 }

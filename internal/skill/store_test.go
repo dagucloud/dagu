@@ -6,6 +6,7 @@ package skill_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -68,6 +69,82 @@ func TestHashCanonicalForm(t *testing.T) {
 	require.NotEqual(t, s.Hash, s3.Hash)
 }
 
+// A reader that finds a change refuses the stale content: the cache never
+// serves a skill after a change.
+func TestReadSeesEveryChange(t *testing.T) {
+	t.Parallel()
+	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "one"})
+	// Make the files old, so that the cache is allowed to keep them.
+	old := time.Now().Add(-time.Hour)
+	for _, p := range []string{"SKILL.md", "references/a.md"} {
+		require.NoError(t, os.Chtimes(filepath.Join(dir, p), old, old))
+	}
+	first, err := skill.Read(dir)
+	require.NoError(t, err)
+	again, err := skill.Read(dir)
+	require.NoError(t, err)
+	require.Equal(t, first.Hash, again.Hash)
+
+	// Same size, same modification time: only a changed time stamp would show
+	// it, so the test changes the size.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "references", "a.md"), []byte("three"), 0o644))
+	require.NoError(t, os.Chtimes(filepath.Join(dir, "references", "a.md"), old, old))
+	next, err := skill.Read(dir)
+	require.NoError(t, err)
+	require.NotEqual(t, first.Hash, next.Hash)
+	data, ok := next.Text("references/a.md")
+	require.True(t, ok)
+	require.Equal(t, "three", string(data))
+}
+
+// A change of the layout that leaves every file as it was shows in the next
+// read, also when the cache holds the folder (Spec 096, "Source of truth").
+func TestReadSeesALayoutChange(t *testing.T) {
+	t.Parallel()
+	// age gives every entry of dir the same old time, so that the cache keeps
+	// the folder and the change leaves the times of the files as they were.
+	old := time.Now().Add(-time.Hour)
+	age := func(t *testing.T, dir string) {
+		require.NoError(t, filepath.WalkDir(dir, func(p string, _ fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			return os.Chtimes(p, old, old)
+		}))
+	}
+	cases := []struct {
+		name   string
+		change func(t *testing.T, dir string)
+		rule   string
+	}{
+		{name: "folder at the root", rule: skill.RuleRootEntry, change: func(t *testing.T, dir string) {
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "docs"), 0o755))
+		}},
+		{name: "hidden folder", rule: skill.RuleHiddenFile, change: func(t *testing.T, dir string) {
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "references", ".cache"), 0o755))
+		}},
+		{name: "hard link from outside", rule: skill.RuleHardlink, change: func(t *testing.T, dir string) {
+			require.NoError(t, os.Link(filepath.Join(dir, "SKILL.md"), filepath.Join(t.TempDir(), "outside.md")))
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "x"})
+			age(t, dir)
+			first, err := skill.Read(dir)
+			require.NoError(t, err)
+			require.True(t, first.Valid(), "%v", first.Issues)
+
+			tc.change(t, dir)
+			age(t, dir)
+			next, err := skill.Read(dir)
+			require.NoError(t, err)
+			require.Contains(t, ruleSet(next.Issues), tc.rule)
+			require.False(t, next.Valid())
+		})
+	}
+}
 // A partial folder (a new file but no SKILL.md yet) is refused, not used.
 func TestPartialSkillIsRefused(t *testing.T) {
 	t.Parallel()

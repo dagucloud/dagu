@@ -5,12 +5,32 @@ package skill
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
+
+const (
+	// lockDirName holds the lock directories of the writers. It is hidden, so
+	// that the listing of skills ignores it.
+	lockDirName = ".locks"
+)
+
+// InvalidError is returned when the content of a write breaks a rule.
+type InvalidError struct{ Issues []Issue }
+
+func (e *InvalidError) Error() string {
+	parts := make([]string, len(e.Issues))
+	for i, issue := range e.Issues {
+		parts[i] = issue.String()
+	}
+	return strings.Join(parts, "; ")
+}
 
 // Store lists the skill folders of one skills directory. A Store holds no
 // state of the skills: every call reads the disk. Several Stores, in several
@@ -24,6 +44,15 @@ func NewStore(root string) *Store { return &Store{root: root} }
 
 // Dir returns the folder of a skill.
 func (s *Store) Dir(name string) string { return filepath.Join(s.root, name) }
+
+// Read reads one skill. It returns ErrNotFound when the folder does not exist
+// or the name cannot be the name of a folder.
+func (s *Store) Read(name string) (*Skill, error) {
+	if !IsSafeFolderName(name) {
+		return nil, ErrNotFound
+	}
+	return Read(s.Dir(name))
+}
 
 // MaxListedSkills is the number of folders that one listing reads at most.
 const MaxListedSkills = 1000
@@ -51,4 +80,41 @@ func (s *Store) Names() (names []string, more bool, err error) {
 		return names[:MaxListedSkills], true, nil
 	}
 	return names, false, nil
+}
+
+// isCleanRelative reports whether rel is a relative path with / separators and
+// no empty, . or .. part.
+func isCleanRelative(rel string) bool {
+	if strings.ContainsRune(rel, '\\') || path.IsAbs(rel) {
+		return false
+	}
+	for p := range strings.SplitSeq(rel, "/") {
+		if p == "" || p == "." || p == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+// CheckExistingPath checks a path of an entry of a skill folder that exists
+// already, for a read or a delete. It does not apply the layout: a skill that
+// breaks the layout has entries that the owner must be able to remove. It
+// rejects every path that leaves the folder.
+func CheckExistingPath(rel string) (string, error) {
+	if rel == "" || len(rel) > MaxPathLength || !utf8.ValidString(rel) || !isCleanRelative(rel) {
+		return "", &InvalidError{Issues: []Issue{pathIssue(rel, "the path must be relative, with / separators, and without . or .. parts")}}
+	}
+	for p := range strings.SplitSeq(rel, "/") {
+		if msg := checkPathSegment(p); msg != "" {
+			return "", &InvalidError{Issues: []Issue{pathIssue(rel, "%s", msg)}}
+		}
+		if p == lockDirName {
+			return "", &InvalidError{Issues: []Issue{pathIssue(rel, "reserved name")}}
+		}
+	}
+	return rel, nil
+}
+
+func pathIssue(rel, format string, args ...any) Issue {
+	return Issue{Severity: SeverityError, Rule: RulePath, File: rel, Message: fmt.Sprintf(format, args...)}
 }

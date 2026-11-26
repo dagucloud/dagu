@@ -31,6 +31,13 @@ func writeSkillFile(t *testing.T, server test.Server, name, content string) {
 	require.NoError(t, os.WriteFile(filepath.Join(folder, "SKILL.md"), []byte(content), 0o600))
 }
 
+func getSkill(t *testing.T, server test.Server, name string) api.SkillDetail {
+	t.Helper()
+	var out api.GetSkill200JSONResponse
+	server.Client().Get("/api/v1/skills/"+name).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &out)
+	return api.SkillDetail(out)
+}
+
 func issueRules(issues []api.SkillIssue) []string {
 	var out []string
 	for _, i := range issues {
@@ -82,6 +89,57 @@ func TestSkillsList(t *testing.T) {
 		assert.True(t, got[3].Valid, "a short description is a warning, not an error")
 		assert.Contains(t, issueRules(got[3].Warnings), "description-short")
 	})
+}
+
+func TestSkillsGet(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	writeSkillFile(t, server, "refund-policy", validSkill)
+	writeSkillFile(t, server, "broken", "---\nname: other\ndescription: d\nmodel: x\n---\nBody\n")
+	require.NoError(t, os.MkdirAll(filepath.Join(skillsDir(server), "refund-policy", "references"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(skillsDir(server), "refund-policy", "references", "faq.md"), []byte("# FAQ\n"), 0o600))
+
+	t.Run("Valid", func(t *testing.T) {
+		out := getSkill(t, server, "refund-policy")
+		assert.Equal(t, "refund-policy", out.Name)
+		assert.Equal(t, validSkill, out.Content)
+		assert.Empty(t, out.Errors)
+		assert.Empty(t, out.Warnings)
+		assert.Len(t, out.Hash, 64)
+		assert.Equal(t, out.Hash, out.Summary.Hash)
+		require.Len(t, out.Files, 2)
+		assert.Equal(t, "SKILL.md", out.Files[0].Path)
+		assert.Equal(t, "references/faq.md", out.Files[1].Path)
+		assert.True(t, out.Files[1].Text)
+	})
+
+	t.Run("Invalid", func(t *testing.T) {
+		out := getSkill(t, server, "broken")
+		assert.Contains(t, out.Content, "name: other")
+		assert.ElementsMatch(t, []string{"front-matter-key", "name-folder"}, issueRules(out.Errors))
+		assert.False(t, out.Summary.Valid)
+	})
+
+	t.Run("NotFound", func(t *testing.T) {
+		server.Client().Get("/api/v1/skills/missing").ExpectStatus(http.StatusNotFound).Send(t)
+	})
+
+	t.Run("UnsafeName", func(t *testing.T) {
+		server.Client().Get("/api/v1/skills/.hidden").ExpectStatus(http.StatusBadRequest).Send(t)
+		server.Client().Get("/api/v1/skills/a%5Cb").ExpectStatus(http.StatusBadRequest).Send(t)
+	})
+}
+
+func TestSkillsPathTraversal(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	outside := filepath.Join(server.Config.Paths.DAGsDir, "SKILL.md")
+	require.NoError(t, os.WriteFile(outside, []byte(validSkill), 0o600))
+
+	for _, name := range []string{"..", "..%2F..", "%2e%2e", "a%2Fb"} {
+		status := server.Client().Get("/api/v1/skills/" + name).Send(t).Response.StatusCode()
+		assert.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, status, "GET %s", name)
+	}
 }
 
 // A listing reads at most skill.MaxListedSkills folders, the first in name

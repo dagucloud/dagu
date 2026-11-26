@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -23,6 +24,9 @@ import (
 
 // ErrNotFound is returned when the skill folder does not exist.
 var ErrNotFound = errors.New("skill not found")
+
+// ErrFileTooLarge is returned when a file of the skill is above MaxFileBytes.
+var ErrFileTooLarge = errors.New("the file is above the size limit")
 
 // errFolderChanged is returned when the skill folder is no longer the folder
 // that the path named a moment before, for example because it became a link.
@@ -38,6 +42,15 @@ const readRetryPause = 10 * time.Millisecond
 
 // maxWalkEntries bounds the walk of one folder.
 const maxWalkEntries = MaxFiles * 4
+
+// cacheRacyWindow is the age under which a file change is too recent for the
+// cache: a later change could keep the same size and the same time stamp.
+const cacheRacyWindow = 2 * time.Second
+
+const maxCacheEntries = 128
+
+// maxCacheBytes bounds the text that the cache keeps for all folders.
+const maxCacheBytes = 64 << 20
 
 // tempNamePattern matches the name of the temporary file that an atomic write
 // creates next to its target. A reader ignores it.
@@ -58,6 +71,18 @@ type entry struct {
 	size  int64
 	mtime int64
 	mode  fs.FileMode
+}
+
+var cache = struct {
+	mu      sync.Mutex
+	entries map[string]cacheEntry
+	bytes   int64
+}{entries: map[string]cacheEntry{}}
+
+type cacheEntry struct {
+	signature string
+	skill     *Skill
+	bytes     int64
 }
 
 // Read reads the skill folder dir. The name of the skill is the name of the
@@ -102,7 +127,7 @@ func Read(dir string) (*Skill, error) {
 		if attempt > 0 {
 			time.Sleep(time.Duration(attempt) * readRetryPause)
 		}
-		before, folderIssues, err := walk(abs)
+		before, folderIssues, newest, err := walk(abs)
 		if err != nil {
 			if _, statErr := os.Lstat(abs); errors.Is(statErr, fs.ErrNotExist) {
 				return nil, ErrNotFound
@@ -111,16 +136,20 @@ func Read(dir string) (*Skill, error) {
 			continue
 		}
 		signature := signatureOf(before, folderIssues)
+		if cached, ok := lookup(abs, signature, newest); ok {
+			return cached, nil
+		}
 		s, err := readFiles(abs, name, before, folderIssues)
 		if err != nil {
 			unreadable = !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, errFolderChanged)
 			continue
 		}
-		after, afterIssues, err := walk(abs)
+		after, afterIssues, _, err := walk(abs)
 		if err != nil || signatureOf(after, afterIssues) != signature {
 			unreadable = false
 			continue
 		}
+		store(abs, signature, newest, s)
 		return s, nil
 	}
 	// The message names no path of the server.
@@ -132,6 +161,44 @@ func Read(dir string) (*Skill, error) {
 	return &Skill{Name: name, Dir: abs, Hash: emptyHash(), Issues: []Issue{{
 		Severity: SeverityError, Rule: RuleChanging,
 		Message: "the skill is being changed and could not be read as one version; try again"}}}, nil
+}
+
+func lookup(dir, signature string, newest time.Time) (*Skill, bool) {
+	if time.Since(newest) < cacheRacyWindow {
+		return nil, false
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	c, ok := cache.entries[dir]
+	if ok && c.signature == signature {
+		return c.skill, true
+	}
+	return nil, false
+}
+
+func store(dir, signature string, newest time.Time, s *Skill) {
+	if time.Since(newest) < cacheRacyWindow {
+		return
+	}
+	var size int64
+	for _, data := range s.text {
+		size += int64(len(data))
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if old, ok := cache.entries[dir]; ok {
+		cache.bytes -= old.bytes
+		delete(cache.entries, dir)
+	}
+	for k, e := range cache.entries {
+		if len(cache.entries) < maxCacheEntries && cache.bytes+size <= maxCacheBytes {
+			break
+		}
+		cache.bytes -= e.bytes
+		delete(cache.entries, k)
+	}
+	cache.entries[dir] = cacheEntry{signature: signature, skill: s, bytes: size}
+	cache.bytes += size
 }
 
 func emptyHash() string { return hashLines(nil) }
@@ -165,7 +232,7 @@ func signatureOf(entries []entry, issues []Issue) string {
 
 // walk lists the non-directory entries of the folder, sorted by path, and the
 // issues of the layout. It reads no file content.
-func walk(dir string) (entries []entry, issues []Issue, err error) {
+func walk(dir string) (entries []entry, issues []Issue, newest time.Time, err error) { //nolint:revive // the walk gives the entries, the issues, the newest time and an error
 	add := func(rule, file, format string, args ...any) {
 		issues = append(issues, Issue{Severity: SeverityError, Rule: rule, File: file, Message: fmt.Sprintf(format, args...)})
 	}
@@ -206,6 +273,9 @@ func walk(dir string) (entries []entry, issues []Issue, err error) {
 			info, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(path)))
 			if err != nil {
 				return err
+			}
+			if mt := info.ModTime(); mt.After(newest) {
+				newest = mt
 			}
 			mode := info.Mode()
 			if !mode.IsDir() && tempNamePattern.MatchString(name) {
@@ -274,13 +344,13 @@ func walk(dir string) (entries []entry, issues []Issue, err error) {
 		return nil
 	}
 	if err := visit(""); err != nil {
-		return nil, nil, err
+		return nil, nil, time.Time{}, err
 	}
 	if count > maxWalkEntries {
 		add(RuleTooManyFiles, "", "the folder holds more than %d entries (files and directories); the limit is %d entries", maxWalkEntries, maxWalkEntries)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].rel < entries[j].rel })
-	return entries, issues, nil
+	return entries, issues, newest, nil
 }
 
 // checkPathSegment returns a message when the name of a file is not valid.
@@ -442,4 +512,36 @@ func hashFile(root *os.Root, rel string) (string, int64, error) {
 		return "", 0, err
 	}
 	return hex.EncodeToString(h.Sum(nil)), n, nil
+}
+
+// ReadVerified returns the content of one file of the skill. A text file that
+// the read kept comes from the read. Any other file is read from disk, and the
+// call fails when its content no longer has the size and the SHA-256 that the
+// read recorded: the skill has changed since. A file above MaxFileBytes fails
+// with ErrFileTooLarge.
+func (s *Skill) ReadVerified(rel string) ([]byte, error) {
+	file, ok := s.File(rel)
+	if !ok {
+		return nil, fmt.Errorf("skill %q has no file %q", s.Name, rel)
+	}
+	if data, ok := s.text[rel]; ok {
+		return data, nil
+	}
+	if file.Size > MaxFileBytes {
+		return nil, fmt.Errorf("skill %q: file %q: %w", s.Name, rel, ErrFileTooLarge)
+	}
+	root, err := openFolder(s.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("skill %q: %w", s.Name, err)
+	}
+	defer func() { _ = root.Close() }()
+	data, err := readAtMost(root, filepath.FromSlash(rel), file.Size)
+	if err != nil {
+		return nil, fmt.Errorf("skill %q: %w", s.Name, err)
+	}
+	sum := sha256.Sum256(data)
+	if hex.EncodeToString(sum[:]) != file.SHA256 {
+		return nil, fmt.Errorf("skill %q: file %q changed after Dagu read the skill (hash %s)", s.Name, rel, s.Hash)
+	}
+	return data, nil
 }
