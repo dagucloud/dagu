@@ -81,8 +81,8 @@ type tokenStateRecord struct {
 }
 
 type refreshErrorRecord struct {
-	Reason string    `json:"reason"`
-	At     time.Time `json:"at"`
+	Reason   string `json:"reason,omitempty"`
+	Failures int64  `json:"failures"`
 }
 
 type tokensRecord struct {

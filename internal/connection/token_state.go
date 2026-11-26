@@ -18,17 +18,21 @@ type TokenState struct {
 	// Session is the connect session in progress, or nil.
 	Session     *Session
 	RefreshedAt time.Time
-	// RefreshErrors are keyed by resource and hold the error of the last
-	// refresh of each, until a refresh of the resource succeeds.
+	// RefreshErrors are keyed by resource and hold the outcome of failed
+	// refreshes of each.
 	RefreshErrors map[string]RefreshError
 }
 
-// RefreshError is a failed refresh whose error the processes that waited
-// on it return.
+// RefreshError tells the processes that waited on a refresh that it
+// failed, and why.
 type RefreshError struct {
-	// Reason is the provider's error, without secrets.
+	// Reason is the provider's error of the last refresh, without
+	// secrets. It is empty once a refresh succeeds.
 	Reason string
-	At     time.Time
+	// Failures counts the failed refreshes. It never decreases, so a
+	// process that read it before waiting tells a new failure from an
+	// earlier one.
+	Failures int64
 }
 
 // Tokens are the tokens one consent produced, with the account it signed
@@ -43,8 +47,9 @@ type Tokens struct {
 	RefreshToken string
 	// RefreshTokenExpiresAt is zero unless the provider reports it.
 	RefreshTokenExpiresAt time.Time
-	// AccessTokens are keyed by the resource each is for. Google and MCP
-	// connections have one resource; a Microsoft connection has one per
+	// AccessTokens are keyed by the resource each is for. A connection
+	// with one resource, such as a Google, OAuth2, or MCP connection, keeps
+	// its token under the empty key; a Microsoft connection has one per
 	// Microsoft resource it calls.
 	AccessTokens map[string]AccessToken
 	// GrantedScopes can be fewer than were requested.

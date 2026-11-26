@@ -63,6 +63,12 @@ func (g *Gate) TokenIf(ctx context.Context, usable func(*oauth2.Token) bool, ref
 	return token, nil
 }
 
+// Cached returns the cached token, or nil, without waiting for a refresh
+// in flight.
+func (g *Gate) Cached() *oauth2.Token {
+	return g.current()
+}
+
 func (g *Gate) current() *oauth2.Token {
 	g.mu.Lock()
 	defer g.mu.Unlock()
