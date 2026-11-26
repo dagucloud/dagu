@@ -33,6 +33,7 @@ func projectsTestConfig(t *testing.T, enabled bool) *config.Config {
 			SuspendFlagsDir:       filepath.Join(root, "data", "suspend"),
 			SuspendFlagsDirLegacy: filepath.Join(root, "suspend"),
 			ViewsDir:              filepath.Join(root, "data", "views"),
+			WebhooksDir:           filepath.Join(root, "webhooks"),
 		},
 	}
 }
@@ -62,6 +63,7 @@ func TestProjectPaths(t *testing.T) {
 			SuspendFlagsDir:       cfg.Paths.SuspendFlagsDir,
 			LegacySuspendFlagsDir: cfg.Paths.SuspendFlagsDirLegacy,
 			ViewsDir:              cfg.Paths.ViewsDir,
+			WebhooksDir:           cfg.Paths.WebhooksDir,
 		}, paths)
 	})
 
@@ -98,6 +100,7 @@ func TestProjectPaths(t *testing.T) {
 				ProcDir:         filepath.Join(state, "state", "proc"),
 				SuspendFlagsDir: filepath.Join(state, "state", "suspend"),
 				ViewsDir:        filepath.Join(state, "state", "views"),
+				WebhooksDir:     filepath.Join(state, "settings", "webhooks"),
 				RecordDirs:      []string{state},
 			}, paths)
 		}

@@ -98,7 +98,7 @@ func addPublicWebhooks(ctx *Context, deps *scheduler.Dependencies) {
 	if ctx.Config.Server.Auth.Mode != config.AuthModeBuiltin {
 		return
 	}
-	webhooks, status, err := schedulerfile.NewPublicWebhookStores(ctx.serverStores)
+	webhooks, status, err := schedulerfile.NewPublicWebhookStores(ctx.serverStores, ctx.settings)
 	if err != nil {
 		logger.Warn(ctx, "Public webhook URLs are disabled because the webhook store is unavailable", tag.Error(err))
 		return

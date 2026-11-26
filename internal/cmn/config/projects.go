@@ -43,6 +43,7 @@ const (
 	projectProcDirName       = "proc"
 	projectSuspendDirName    = "suspend"
 	projectViewsDirName      = "views"
+	projectWebhooksDirName   = "webhooks"
 )
 
 // ProjectPaths holds the directories of one project.
@@ -71,6 +72,8 @@ type ProjectPaths struct {
 	// It is empty while projects are on.
 	LegacySuspendFlagsDir string
 	ViewsDir              string
+	// WebhooksDir holds the project's DAG webhooks.
+	WebhooksDir string
 	// RecordDirs lists the state directories that record the project's ID
 	// and name: StateDir, then each directory above that a set path places
 	// outside it. It is empty while projects are off.
@@ -103,6 +106,7 @@ func (c *Config) ProjectPaths(name string) (ProjectPaths, error) {
 			SuspendFlagsDir:       c.Paths.SuspendFlagsDir,
 			LegacySuspendFlagsDir: c.Paths.SuspendFlagsDirLegacy,
 			ViewsDir:              c.Paths.ViewsDir,
+			WebhooksDir:           c.Paths.WebhooksDir,
 		}, nil
 	}
 
@@ -131,6 +135,7 @@ func (c *Config) ProjectPaths(name string) (ProjectPaths, error) {
 		ProcDir:         filepath.Join(otherDir, projectProcDirName),
 		SuspendFlagsDir: filepath.Join(otherDir, projectSuspendDirName),
 		ViewsDir:        filepath.Join(otherDir, projectViewsDirName),
+		WebhooksDir:     filepath.Join(stateDir, projectSettingsDirName, projectWebhooksDirName),
 		RecordDirs:      []string{stateDir},
 	}
 	// place returns inState, or <root>/.projects/<name> when the

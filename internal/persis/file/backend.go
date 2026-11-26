@@ -75,6 +75,7 @@ func NewBackend(paths config.PathsConfig) *Backend {
 		DAGStateDir:   paths.DAGStateDir,
 		QueueDir:      paths.QueueDir,
 		ViewsDir:      paths.ViewsDir,
+		WebhooksDir:   paths.WebhooksDir,
 	}))
 	return &Backend{dataDir: paths.DataDir, specs: specs}
 }
@@ -121,8 +122,6 @@ func serverCollectionSpecs(paths config.PathsConfig) map[string]collectionSpec {
 		persis.CollectionSchedulerProcess: {dir: SchedulerProcessDir(paths), idPrefixes: schedulerProcessIDPrefixes, indented: true},
 		persis.CollectionUpgradeCheck:     {dir: filepath.Join(paths.DataDir, "upgrade"), indented: true},
 		persis.CollectionUsers:            {dir: paths.UsersDir, indented: true},
-		persis.CollectionWebhooks:         {dir: paths.WebhooksDir, indented: true},
-		persis.CollectionWebhookDAGClaims: {dir: filepath.Join(filepath.Dir(paths.WebhooksDir), "webhook-dag-claims"), indented: true},
 		persis.CollectionWorkerHeartbeats: {dir: filepath.Join(distributedDir, "workers")},
 		persis.CollectionWorkerNodes:      {dir: filepath.Join(paths.DataDir, "worker-nodes"), indented: true},
 		persis.CollectionWorkspaces:       {dir: paths.WorkspacesDir, indented: true},
@@ -149,6 +148,8 @@ func projectCollectionSpecs(p config.ProjectPaths) map[string]collectionSpec {
 		persis.CollectionSecrets:              {dir: settings("secrets"), indented: true},
 		persis.CollectionViews:                {dir: p.ViewsDir, indented: true},
 		persis.CollectionWatchState:           {dir: other("watch_state")},
+		persis.CollectionWebhooks:             {dir: p.WebhooksDir, indented: true},
+		persis.CollectionWebhookDAGClaims:     {dir: filepath.Join(filepath.Dir(p.WebhooksDir), "webhook-dag-claims"), indented: true},
 	}
 }
 

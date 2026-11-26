@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -325,6 +326,16 @@ func (s *ProjectSettings) CachedInventoryStore() (*store.InventoryStore, error) 
 // directory.
 func (s *ProjectSettings) DAGSettingsStore() (dagsettings.Store, error) {
 	return NewDAGSettingsStore(s.cfg, s.backend.Collection(persis.CollectionDAGSettings))
+}
+
+// WebhookStore opens the project's DAG webhooks, whose tokens and sender
+// secrets enc encrypts. A nil enc leaves them unreadable.
+func (s *ProjectSettings) WebhookStore(enc *crypto.Encryptor) (*store.WebhookStore, error) {
+	return store.NewWebhookStore(
+		s.backend.Collection(persis.CollectionWebhooks),
+		s.backend.Collection(persis.CollectionWebhookDAGClaims),
+		enc,
+	)
 }
 
 // DAGPinStore opens the project's pinned DAGs.
