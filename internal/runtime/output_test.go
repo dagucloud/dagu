@@ -269,6 +269,38 @@ func TestNode_MaskedLogFinalLine(t *testing.T) {
 	assert.Equal(t, "first\nlast *******", string(content))
 }
 
+// A step on a worker streams its logs to the coordinator through the log
+// writer factory. Secrets are masked there as in local logs, and the streams
+// are closed on teardown so the final partial line is delivered.
+func TestNode_MaskedRemoteLog(t *testing.T) {
+	executorType := registerOutputTestExecutor(t, func(_ context.Context, exec *outputTestExecutor) error {
+		if _, err := io.WriteString(exec.stdout, "out s3cr3t\nlast s3cr3t"); err != nil {
+			return err
+		}
+		_, err := io.WriteString(exec.stderr, "err s3cr3t\n")
+		return err
+	})
+	step := ir.Step{
+		Name:           "masked-remote-log",
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType},
+	}
+
+	factory := newMockLogWriterFactory()
+	node := NewNode(step, NodeState{})
+	ctx := NewContext(context.Background(), &ir.DAG{Name: "test"}, "masked-remote-log", "test.log",
+		runctx.WithSecrets([]string{"TOKEN=s3cr3t"}),
+		WithLogWriterFactory(factory))
+	require.NoError(t, node.Prepare(ctx, t.TempDir(), "masked-remote-log"))
+
+	require.NoError(t, node.Execute(ctx))
+	require.NoError(t, node.Teardown())
+
+	assert.Equal(t, "out *******\nlast *******", factory.stdoutWriter.buf.String())
+	assert.Equal(t, "err *******\n", factory.stderrWriter.buf.String())
+	assert.True(t, factory.stdoutWriter.closed)
+	assert.True(t, factory.stderrWriter.closed)
+}
+
 func TestNode_OutputExceedsLimit(t *testing.T) {
 	executorType := registerOutputTestExecutor(t, func(ctx context.Context, exec *outputTestExecutor) error {
 		return writeRepeatedX(ctx, exec.stdout, 2*1024*1024)

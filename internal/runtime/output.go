@@ -496,18 +496,27 @@ func (oc *OutputCoordinator) setupRemoteWriters(ctx context.Context, data NodeDa
 	stepName := data.Step.Name
 
 	// Create streaming writers for stdout and stderr
-	oc.stdoutWriter = factory.NewStepWriter(ctx, stepName, runctx.StreamTypeStdout)
+	oc.stdoutWriter = oc.newStreamWriter(factory.NewStepWriter(ctx, stepName, runctx.StreamTypeStdout))
 	oc.stdoutFileName = data.State.Stdout // Keep path for status reporting
 
 	// Check if stdout and stderr should be merged
 	if data.State.Stdout == data.State.Stderr {
 		oc.stderrWriter = oc.stdoutWriter
 	} else {
-		oc.stderrWriter = factory.NewStepWriter(ctx, stepName, runctx.StreamTypeStderr)
+		oc.stderrWriter = oc.newStreamWriter(factory.NewStepWriter(ctx, stepName, runctx.StreamTypeStderr))
 	}
 	oc.stderrFileName = data.State.Stderr
 
 	return nil
+}
+
+// newStreamWriter returns a writer for a remote log stream, masking secrets
+// when a masker is available.
+func (oc *OutputCoordinator) newStreamWriter(stream io.WriteCloser) io.Writer {
+	if oc.masker == nil {
+		return stream
+	}
+	return newMaskingStreamWriter(stream, oc.masker)
 }
 
 // setupLocalWriters creates file-based writers (original behavior)
