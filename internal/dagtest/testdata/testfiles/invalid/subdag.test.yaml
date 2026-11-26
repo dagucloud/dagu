@@ -1,0 +1,6 @@
+steps:
+  - call: report
+---
+name: report
+steps:
+  - run: ./report.sh

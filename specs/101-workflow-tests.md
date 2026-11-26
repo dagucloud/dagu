@@ -209,6 +209,16 @@ A test file is never a DAG:
 - The DAG list does not show a test file, the scheduler does not schedule
   one, and a change to one reloads nothing.
 - `dagu start release.test` fails, and its message names `dagu test`.
+- When `dagu scheduler`, `dagu server`, or `dagu start-all` starts, it reads
+  once each file that DAG discovery skips for its name. For each one whose
+  first document has top-level `steps` and no `cases`, it logs one warning
+  that names the file, says that Dagu treats it as a test file and does not
+  run it as a DAG, and suggests a rename, such as `smoke.test.yaml` to
+  `smoke-test.yaml`. A file that is not valid YAML is not reported. The
+  check runs only at startup: no request, watcher event, or periodic rescan
+  runs it.
+- `dagu test` reports such a file as an invalid test file with the same
+  hint. See [Invalid Test Files](#invalid-test-files).
 
 ### The Test File
 
@@ -1441,8 +1451,11 @@ A test file is invalid, and none of its cases runs, when:
   wrong type;
 - it leaves out `cases`, or `cases` is empty;
 - a case leaves out `name` or `expect`, or two cases have the same `name`;
-- it has top-level `steps` and no `cases`. The error says that the file
-  reads as a DAG and asks for a rename;
+- its first document has top-level `steps` and no `cases`, even when more
+  documents follow. The error says that the file reads as a DAG, that Dagu
+  treats it as a test file and does not run it as a DAG, and suggests a
+  rename, as the startup warning in
+  [Test Files Are Not DAGs](#test-files-are-not-dags) does;
 - the tested DAG file does not exist, `dag` names a test file, or the tested
   DAG fails to load;
 - the tested DAG is a `type: build` DAG. The error names Spec 033.
