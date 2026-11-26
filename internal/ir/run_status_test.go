@@ -578,3 +578,29 @@ func TestDefinitionDigest(t *testing.T) {
 	assert.NotEqual(t, a, ir.DefinitionDigest([]byte("steps:\n  - run: echo b\n")))
 	assert.Empty(t, ir.DefinitionDigest(nil))
 }
+
+func TestRunOwnershipJSON(t *testing.T) {
+	status := ir.DAGRunStatus{
+		TriggerSubject: &ir.TriggerSubject{Type: "a2a-task", ID: "t1"},
+		RetryDisabled:  true,
+	}
+	data, err := json.Marshal(status)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"triggerSubject":{"type":"a2a-task","id":"t1"}`)
+	assert.Contains(t, string(data), `"retryDisabled":true`)
+
+	var decoded ir.DAGRunStatus
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	assert.Equal(t, status.TriggerSubject, decoded.TriggerSubject)
+	assert.True(t, decoded.RetryDisabled)
+
+	plain, err := json.Marshal(ir.DAGRunStatus{})
+	require.NoError(t, err)
+	assert.NotContains(t, string(plain), "triggerSubject")
+	assert.NotContains(t, string(plain), "retryDisabled")
+
+	var old ir.DAGRunStatus
+	require.NoError(t, json.Unmarshal([]byte(`{"name":"d","status":4}`), &old))
+	assert.Nil(t, old.TriggerSubject)
+	assert.False(t, old.RetryDisabled)
+}

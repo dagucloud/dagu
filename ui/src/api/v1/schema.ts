@@ -7594,6 +7594,8 @@ export interface components {
             triggerActor?: string;
             /** @description Backfill that started the DAG-run. A retry keeps it. */
             backfillId?: string;
+            /** @description True when the DAG-run cannot be retried once it is terminal. Later attempts keep it. */
+            retryDisabled?: boolean;
             /** @description Type-keyed current-state runtime conditions for the DAG-run. This list reports the latest condition for each type, not a history of queued reasons. */
             conditions?: components["schemas"]["DAGRunCondition"][];
             /** @description List of labels for categorizing and filtering DAG runs */

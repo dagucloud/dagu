@@ -19170,6 +19170,9 @@ components:
         backfillId:
           type: string
           description: "Backfill that started the DAG-run. A retry keeps it."
+        retryDisabled:
+          type: boolean
+          description: "True when the DAG-run cannot be retried once it is terminal. Later attempts keep it."
         conditions:
           type: array
           description: "Type-keyed current-state runtime conditions for the DAG-run. This list reports the latest condition for each type, not a history of queued reasons."

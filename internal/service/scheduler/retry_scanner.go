@@ -186,6 +186,14 @@ func (s *RetryScanner) processFailedRunFromSummary(
 		Processes: s.processes,
 	})
 	if err != nil {
+		if errors.Is(err, queuedomain.ErrRetryDisabled) {
+			logger.Debug(ctx, "Retry scanner skipped DAG run",
+				tag.DAG(listed.Name),
+				tag.RunID(listed.DAGRunID),
+				slog.String("skip_reason", "retry_disabled"),
+			)
+			return nil
+		}
 		if errors.Is(err, queuedomain.ErrRetryStaleLatest) {
 			logger.Debug(ctx, "Retry scanner skipped DAG run",
 				tag.DAG(listed.Name),
@@ -275,6 +283,14 @@ func (s *RetryScanner) processFailedRunLegacy(
 		Processes: s.processes,
 	})
 	if err != nil {
+		if errors.Is(err, queuedomain.ErrRetryDisabled) {
+			logger.Debug(ctx, "Retry scanner skipped DAG run",
+				tag.DAG(latestStatus.Name),
+				tag.RunID(latestStatus.DAGRunID),
+				slog.String("skip_reason", "retry_disabled"),
+			)
+			return nil
+		}
 		if errors.Is(err, queuedomain.ErrRetryStaleLatest) {
 			logger.Debug(ctx, "Retry scanner skipped DAG run",
 				tag.DAG(latestStatus.Name),
