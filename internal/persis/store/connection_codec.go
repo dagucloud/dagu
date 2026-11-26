@@ -332,13 +332,16 @@ func catalogToRecord(connectionID string, catalog *connection.Catalog) *catalogR
 		Tools:        make([]toolRecord, 0, len(catalog.Tools)),
 	}
 	for _, tool := range catalog.Tools {
-		rec.Tools = append(rec.Tools, toolRecord{
+		// Schemas are kept canonical, so what Catalog reads back equals
+		// what SaveCatalog returns, and the hash covers the stored bytes.
+		stored := toolRecord{
 			Name:        tool.Name,
 			Description: tool.Description,
-			InputSchema: tool.InputSchema,
-			Annotations: tool.Annotations,
-			Hash:        toolHash(tool),
-		})
+			InputSchema: canonicalJSON(tool.InputSchema),
+			Annotations: canonicalJSON(tool.Annotations),
+		}
+		stored.Hash = toolHash(stored)
+		rec.Tools = append(rec.Tools, stored)
 	}
 	return rec
 }
@@ -352,12 +355,12 @@ func catalogFromRecord(rec *catalogRecord) *connection.Catalog {
 }
 
 // toolHash covers the parts of a tool that change what a caller of it
-// agrees to. JSON is canonicalized, so a listing that differs only in
+// agrees to. Its JSON is canonical, so a listing that differs only in
 // whitespace or key order hashes the same, and each part is
 // length-prefixed, so no two tools share an encoding.
-func toolHash(tool connection.Tool) string {
+func toolHash(tool toolRecord) string {
 	h := sha256.New()
-	for _, part := range [][]byte{[]byte(tool.Description), canonicalJSON(tool.InputSchema), canonicalJSON(tool.Annotations)} {
+	for _, part := range [][]byte{[]byte(tool.Description), tool.InputSchema, tool.Annotations} {
 		_, _ = fmt.Fprintf(h, "%d:", len(part))
 		_, _ = h.Write(part)
 	}
@@ -366,7 +369,7 @@ func toolHash(tool connection.Tool) string {
 
 // canonicalJSON re-encodes raw with sorted object keys, keeping numbers as
 // written. Input that is not JSON is returned as is.
-func canonicalJSON(raw json.RawMessage) []byte {
+func canonicalJSON(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
 		return raw
 	}
