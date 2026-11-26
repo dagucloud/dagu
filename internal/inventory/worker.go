@@ -6,6 +6,7 @@ package inventory
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -69,6 +70,24 @@ type WorkerConflict struct {
 // as hostname@pid, never does.
 func IsNodeName(name string) bool {
 	return nodeNameError(name) == nil
+}
+
+// Node returns the worker node as a node that selectors match and runs bind
+// to.
+func (w WorkerNode) Node() ResolvedNode {
+	return ResolvedNode{Name: w.Name, Kind: NodeKindWorker, Host: w.Host, Labels: slices.Clone(w.Labels)}
+}
+
+// WithWorkers returns a project's nodes, in name order: nodes, and the
+// workers that are nodes (SplitWorkers).
+func WithWorkers(nodes []ResolvedNode, workers []WorkerNode) []ResolvedNode {
+	kept, _ := SplitWorkers(workers, nodes)
+	all := slices.Grow(slices.Clone(nodes), len(kept))
+	for _, w := range kept {
+		all = append(all, w.Node())
+	}
+	slices.SortFunc(all, func(a, b ResolvedNode) int { return strings.Compare(a.Name, b.Name) })
+	return all
 }
 
 // SplitWorkers returns the workers that are nodes, and the workers whose
