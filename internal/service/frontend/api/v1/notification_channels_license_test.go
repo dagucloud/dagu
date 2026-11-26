@@ -5,8 +5,10 @@ package api_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -88,6 +90,67 @@ func TestNotificationChannels_CommandChannelRequiresAdmin(t *testing.T) {
 	assert.Equal(t, "Only admins can change or test local command channels", errResp.Message)
 	server.Client().Post("/api/v1/dags/daily-report/notifications/test", nil).
 		WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+}
+
+// While projects are on, channels are server-wide: only admins change or
+// test them, and a developer sees a channel's name and type, never its URL
+// or a preview of it. With projects off, a developer manages channels as
+// before.
+func TestNotificationChannels_ProjectsAdminOnly(t *testing.T) {
+	t.Parallel()
+
+	for _, projectsOn := range []bool{true, false} {
+		t.Run(fmt.Sprintf("ProjectsOn=%t", projectsOn), func(t *testing.T) {
+			t.Parallel()
+
+			server := setupWebhookTestServer(t, func(cfg *config.Config) { cfg.ProjectsEnabled = projectsOn })
+			adminToken := getWebhookAdminToken(t, server)
+			developerToken := createRuntimeProfileUserToken(t, server, adminToken, "developer-user", "developer1", api.UserRoleDeveloper)
+			input := api.NotificationChannelInput{
+				Name:    "Ops",
+				Type:    api.NotificationProviderTypeWebhook,
+				Enabled: true,
+				Webhook: &api.NotificationWebhookTargetInput{Url: new("https://hooks.example.com/T000/secret")},
+			}
+			changeStatus := http.StatusCreated
+			if projectsOn {
+				changeStatus = http.StatusForbidden
+			}
+			server.Client().Post("/api/v1/notification-channels", input).
+				WithBearerToken(developerToken).ExpectStatus(changeStatus).Send(t)
+
+			var channel api.NotificationChannel
+			server.Client().Post("/api/v1/notification-channels", input).
+				WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t).Unmarshal(t, &channel)
+			listed := server.Client().Get("/api/v1/notification-channels").
+				WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
+			got := server.Client().Get("/api/v1/notification-channels/" + channel.Id).
+				WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
+			var fetched api.NotificationChannel
+			got.Unmarshal(t, &fetched)
+			assert.Equal(t, "Ops", fetched.Name)
+			assert.Equal(t, api.NotificationProviderTypeWebhook, fetched.Type)
+			assert.Equal(t, !projectsOn, fetched.Webhook != nil)
+			for _, body := range []string{listed.Body, got.Body} {
+				assert.Equal(t, !projectsOn, strings.Contains(body, "urlPreview"), body)
+			}
+			server.Client().Get("/api/v1/notification-channels/"+channel.Id).
+				WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &fetched)
+			assert.NotNil(t, fetched.Webhook)
+			if !projectsOn {
+				return
+			}
+
+			server.Client().Put("/api/v1/notification-channels/"+channel.Id, input).
+				WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+			server.Client().Post("/api/v1/notification-channels/"+channel.Id+"/test", nil).
+				WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+			server.Client().Delete("/api/v1/notification-channels/" + channel.Id).
+				WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+			server.Client().Put("/api/v1/notification-settings", api.UpdateNotificationSettingsJSONRequestBody{}).
+				WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+		})
+	}
 }
 
 func TestNotificationChannels_CommandChannelRequiresDAGPermissions(t *testing.T) {

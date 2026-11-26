@@ -4,10 +4,13 @@
 package api_test
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
@@ -46,6 +49,65 @@ func TestIncidentManagement_AcceptsExistingLicenseWithoutFeatureClaim(t *testing
 	var result api.IncidentProviderListResponse
 	resp.Unmarshal(t, &result)
 	assert.Empty(t, result.Providers)
+}
+
+// While projects are on, providers are server-wide: only admins change or
+// test them, and a developer sees a provider's name and type, never its
+// credentials or a preview of them. With projects off, a developer manages
+// providers as before.
+func TestIncidentManagement_ProjectsAdminOnlyProviders(t *testing.T) {
+	t.Parallel()
+
+	for _, projectsOn := range []bool{true, false} {
+		t.Run(fmt.Sprintf("ProjectsOn=%t", projectsOn), func(t *testing.T) {
+			t.Parallel()
+
+			server := setupWebhookTestServer(t, func(cfg *config.Config) { cfg.ProjectsEnabled = projectsOn })
+			adminToken := getWebhookAdminToken(t, server)
+			developerToken := createRuntimeProfileUserToken(t, server, adminToken, "developer-user", "developer1", api.UserRoleDeveloper)
+			input := api.IncidentProviderInput{}
+			require.NoError(t, input.FromIncidentPagerDutyProviderInputEnvelope(api.IncidentPagerDutyProviderInputEnvelope{
+				Name:      "PagerDuty",
+				Enabled:   true,
+				PagerDuty: api.IncidentPagerDutyProviderInput{RoutingKey: new("pagerduty-routing-key")},
+			}))
+			changeStatus := http.StatusCreated
+			if projectsOn {
+				changeStatus = http.StatusForbidden
+			}
+			server.Client().Post("/api/v1/incident-providers", input).
+				WithBearerToken(developerToken).ExpectStatus(changeStatus).Send(t)
+
+			var provider api.IncidentProvider
+			server.Client().Post("/api/v1/incident-providers", input).
+				WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t).Unmarshal(t, &provider)
+			listed := server.Client().Get("/api/v1/incident-providers").
+				WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
+			got := server.Client().Get("/api/v1/incident-providers/" + provider.Id).
+				WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
+			var fetched api.IncidentProvider
+			got.Unmarshal(t, &fetched)
+			assert.Equal(t, "PagerDuty", fetched.Name)
+			assert.Equal(t, api.IncidentProviderTypePagerduty, fetched.Type)
+			assert.Equal(t, !projectsOn, fetched.PagerDuty != nil)
+			for _, body := range []string{listed.Body, got.Body} {
+				assert.Equal(t, !projectsOn, strings.Contains(body, "routingKeyPreview"), body)
+			}
+			server.Client().Get("/api/v1/incident-providers/"+provider.Id).
+				WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &fetched)
+			assert.NotNil(t, fetched.PagerDuty)
+			if !projectsOn {
+				return
+			}
+
+			server.Client().Put("/api/v1/incident-providers/"+provider.Id, input).
+				WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+			server.Client().Post("/api/v1/incident-providers/"+provider.Id+"/test", nil).
+				WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+			server.Client().Delete("/api/v1/incident-providers/" + provider.Id).
+				WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+		})
+	}
 }
 
 func TestIncidentManagement_GlobalWorkspaceAndDAGPolicySets(t *testing.T) {

@@ -50,7 +50,7 @@ func (a *API) GetNotificationSettings(ctx context.Context, _ api.GetNotification
 }
 
 func (a *API) UpdateNotificationSettings(ctx context.Context, request api.UpdateNotificationSettingsRequestObject) (api.UpdateNotificationSettingsResponseObject, error) {
-	if err := a.requireNotificationManagement(ctx); err != nil {
+	if err := a.requireChannelManagement(ctx); err != nil {
 		return nil, err
 	}
 	if request.Body == nil {
@@ -181,13 +181,17 @@ func (a *API) ListNotificationChannels(ctx context.Context, _ api.ListNotificati
 	if err != nil {
 		return nil, err
 	}
-	return api.ListNotificationChannels200JSONResponse{
-		Channels: toAPINotificationChannels(channels),
-	}, nil
+	out := toAPINotificationChannels(channels)
+	if !a.deliveryDetailsVisible(ctx) {
+		for i := range out {
+			out[i] = notificationChannelSummary(out[i])
+		}
+	}
+	return api.ListNotificationChannels200JSONResponse{Channels: out}, nil
 }
 
 func (a *API) CreateNotificationChannel(ctx context.Context, request api.CreateNotificationChannelRequestObject) (api.CreateNotificationChannelResponseObject, error) {
-	if err := a.requireNotificationManagement(ctx); err != nil {
+	if err := a.requireChannelManagement(ctx); err != nil {
 		return nil, err
 	}
 	if request.Body == nil {
@@ -227,11 +231,15 @@ func (a *API) GetNotificationChannel(ctx context.Context, request api.GetNotific
 		}
 		return nil, err
 	}
-	return api.GetNotificationChannel200JSONResponse(toAPINotificationChannel(channel)), nil
+	out := toAPINotificationChannel(channel)
+	if !a.deliveryDetailsVisible(ctx) {
+		out = notificationChannelSummary(out)
+	}
+	return api.GetNotificationChannel200JSONResponse(out), nil
 }
 
 func (a *API) UpdateNotificationChannel(ctx context.Context, request api.UpdateNotificationChannelRequestObject) (api.UpdateNotificationChannelResponseObject, error) {
-	if err := a.requireNotificationManagement(ctx); err != nil {
+	if err := a.requireChannelManagement(ctx); err != nil {
 		return nil, err
 	}
 	if request.Body == nil {
@@ -270,7 +278,7 @@ func (a *API) UpdateNotificationChannel(ctx context.Context, request api.UpdateN
 }
 
 func (a *API) DeleteNotificationChannel(ctx context.Context, request api.DeleteNotificationChannelRequestObject) (api.DeleteNotificationChannelResponseObject, error) {
-	if err := a.requireNotificationManagement(ctx); err != nil {
+	if err := a.requireChannelManagement(ctx); err != nil {
 		return nil, err
 	}
 	if err := a.notificationService.DeleteChannel(ctx, request.ChannelId); err != nil {
@@ -421,7 +429,7 @@ func (a *API) TestDAGNotifications(ctx context.Context, request api.TestDAGNotif
 }
 
 func (a *API) TestNotificationChannel(ctx context.Context, request api.TestNotificationChannelRequestObject) (api.TestNotificationChannelResponseObject, error) {
-	if err := a.requireNotificationManagement(ctx); err != nil {
+	if err := a.requireChannelManagement(ctx); err != nil {
 		return nil, err
 	}
 	channel, err := a.notificationService.GetChannel(ctx, request.ChannelId)
@@ -456,6 +464,26 @@ func (a *API) requireNotificationManagement(ctx context.Context) error {
 		return errNotificationManagementNotAvailable
 	}
 	return a.requireDeveloperOrAbove(ctx)
+}
+
+// requireChannelManagement guards changing a notification channel or the
+// notification settings. While projects are on, both are server-wide, and
+// only admins change them.
+func (a *API) requireChannelManagement(ctx context.Context) error {
+	if err := a.requireNotificationManagement(ctx); err != nil {
+		return err
+	}
+	if a.config != nil && a.config.ProjectsEnabled {
+		return a.requireAdmin(ctx)
+	}
+	return nil
+}
+
+// deliveryDetailsVisible reports whether the caller sees how a notification
+// channel or an incident provider delivers. While projects are on, only
+// admins do; other users see its name and type.
+func (a *API) deliveryDetailsVisible(ctx context.Context) bool {
+	return a.config == nil || !a.config.ProjectsEnabled || a.requireAdmin(ctx) == nil
 }
 
 // requireCommandChannelAccess guards saving or test-sending a command channel,
@@ -884,6 +912,19 @@ func toAPINotificationChannels(channels []*notificationmodel.Channel) []api.Noti
 		out = append(out, toAPINotificationChannel(channel))
 	}
 	return out
+}
+
+// notificationChannelSummary keeps the fields of a channel that every user
+// who routes to it may see, and none of its target, URL, or secret.
+func notificationChannelSummary(channel api.NotificationChannel) api.NotificationChannel {
+	return api.NotificationChannel{
+		Id:        channel.Id,
+		Name:      channel.Name,
+		Type:      channel.Type,
+		Enabled:   channel.Enabled,
+		CreatedAt: channel.CreatedAt,
+		UpdatedAt: channel.UpdatedAt,
+	}
 }
 
 func toAPINotificationChannel(channel *notificationmodel.Channel) api.NotificationChannel {
