@@ -142,17 +142,11 @@ func killTaskGroups(uid uint32) {
 // killTaskGroup sends SIGKILL to the thread group pid only while it has a live
 // task of the user. The PID can be reused since the scan: the check runs after
 // the pidfd is open, so a PID reused before the open fails the check, and one
-// reused after it gets no signal.
+// reused after it gets no signal. Without pidfd (Linux before 5.3), it sends
+// nothing, and only the kill helper, which has no right on other users, stops
+// the processes.
 func killTaskGroup(pid int, uid uint32) {
 	fd, err := unix.PidfdOpen(pid, 0)
-	if errors.Is(err, unix.ENOSYS) {
-		// Linux before 5.3 has no pidfd.
-		_ = syscall.Kill(pid, syscall.SIGKILL)
-		for _, tid := range liveTasks(pid, uid) {
-			_ = syscall.Tgkill(pid, tid, syscall.SIGKILL)
-		}
-		return
-	}
 	if err != nil {
 		return
 	}
