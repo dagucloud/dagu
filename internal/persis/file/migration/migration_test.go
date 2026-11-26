@@ -365,13 +365,20 @@ func TestRunStopsWaitingForV2WithoutLock(t *testing.T) {
 	require.NoError(t, other.Run(context.Background()))
 	services.set(serviceregistry.ServiceNameScheduler, serviceregistry.HostInfo{ID: "s2", Host: "v3-host"})
 
-	tickWaiting(t, ticks, stalledDone) // wakes the first process
+	// The first process may see the lost lock in the check that the last
+	// tick started. Otherwise the next tick wakes it, and it stops without
+	// waiting for another.
+	var err error
 	select {
+	case err = <-stalledDone:
 	case ticks <- time.Now():
-		t.Fatal("kept waiting without the lock")
-	case err := <-stalledDone:
-		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
+		select {
+		case ticks <- time.Now():
+			t.Fatal("kept waiting without the lock")
+		case err = <-stalledDone:
+		}
 	}
+	require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
 	done, err := New(dataDir, &fakeServices{}).Done()
 	require.NoError(t, err)
 	assert.True(t, done, "the status of the finished migration stays")
