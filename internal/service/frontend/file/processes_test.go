@@ -34,6 +34,9 @@ const sharedDAG = "etl"
 // the server reads the run events that runs write. With projects off or on,
 // the default project's state stays where v2 keeps it.
 func TestStoresShareDefaultProject(t *testing.T) {
+	// Without a key in the environment, each process reads the key file
+	// in paths.data_dir, so decrypting what another wrote shows they share
+	// it.
 	t.Setenv("DAGU_ENCRYPTION_KEY", "")
 	for _, projectsOn := range []bool{false, true} {
 		t.Run(map[bool]string{false: "Off", true: "On"}[projectsOn], func(t *testing.T) {
