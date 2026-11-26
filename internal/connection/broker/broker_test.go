@@ -264,8 +264,7 @@ func TestReasonsRedactSecrets(t *testing.T) {
 // nested call does not wait for the call that runs the hook.
 func TestStatusHookCallsBroker(t *testing.T) {
 	t.Parallel()
-	var f *fixture
-	f = newFixture(t, func(w http.ResponseWriter, r tokenRequest) {
+	f := newFixture(t, func(w http.ResponseWriter, r tokenRequest) {
 		if r.refreshToken == "rt-1" {
 			tokenError(w, http.StatusBadRequest, "invalid_grant", "")
 			return
