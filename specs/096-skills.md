@@ -98,7 +98,7 @@ Each rule has an identifier. The message of an issue gives the identifier, the f
 | `not-utf8` | error | `SKILL.md` or a file of `references/` or `scripts/` is not valid UTF-8. |
 | `front-matter-start` | error | The file does not start with a `---` line. |
 | `front-matter-end` | error | The front matter has no closing `---` line. |
-| `front-matter-yaml` | error | The front matter is not valid YAML. |
+| `front-matter-yaml` | error | The front matter is not valid YAML, or it uses the merge key `<<`. |
 | `front-matter-duplicate-key` | error | A key occurs twice. |
 | `front-matter-key` | error | A key is not in the table. |
 | `name-missing`, `name-type` | error | `name` is absent or is not a string. |
@@ -136,6 +136,8 @@ Dagu makes the standard limits errors, except the 500 lines and the 5000 tokens,
 These rules are Dagu rules. The standard does not state them in its specification page:
 
 - The 64 KiB limit of the body.
+- The ban on the merge key `<<` in the front matter. Nested merges in a short file take exponential
+  time to decode.
 - The ban on an XML tag in the description. The Anthropic API variant of the standard states it.
 - The limit of 128 characters for `license`. The standard asks for a short value.
 - The ban on every key that the standard does not list. The standard does not forbid other keys, and many clients ignore them.

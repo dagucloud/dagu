@@ -14,6 +14,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/ast"
+	"github.com/goccy/go-yaml/parser"
 )
 
 // allowedKeys are the keys that the front matter can hold. Every other key,
@@ -120,6 +122,10 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 		return FrontMatter{}, "", []Issue{*issue}
 	}
 
+	if usesMergeKey(front) {
+		errorf(RuleFrontMatterYAML, "the front matter must not use the merge key <<")
+		return FrontMatter{}, body, issues
+	}
 	var raw map[string]any
 	if err := yaml.UnmarshalWithOptions(front, &raw, yaml.Strict()); err != nil {
 		rule := RuleFrontMatterYAML
@@ -265,6 +271,17 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 		warnf(RuleBodyTokens, "the body is about %d tokens; the format recommends %d tokens or fewer. Move detail to references/", tokens, WarnBodyTokens)
 	}
 	return meta, body, issues
+}
+
+// usesMergeKey reports whether the YAML holds a merge key. The decoder decodes
+// the source of a merge again at each use, so nested merges in a short file
+// take exponential time.
+func usesMergeKey(front []byte) bool {
+	file, err := parser.ParseBytes(front, 0)
+	if err != nil {
+		return false // the decode reports the error
+	}
+	return len(ast.FilterFile(ast.MergeKeyType, file)) > 0
 }
 
 func isAllowedKey(k string) bool {

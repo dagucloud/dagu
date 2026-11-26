@@ -63,6 +63,7 @@ func TestFormatRules(t *testing.T) {
 		{name: "no front matter", folder: "demo", content: "# Demo\n", rule: skill.RuleFrontMatterStart, file: "SKILL.md"},
 		{name: "unclosed front matter", folder: "demo", content: "---\nname: demo\n", rule: skill.RuleFrontMatterEnd, file: "SKILL.md"},
 		{name: "bad yaml", folder: "demo", content: "---\nname: [demo\n---\nBody\n", rule: skill.RuleFrontMatterYAML, file: "SKILL.md"},
+		{name: "merge key", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\nmetadata:\n  <<: {author: me}"), rule: skill.RuleFrontMatterYAML, file: "SKILL.md"},
 		{name: "duplicate key", folder: "demo", content: skillMD("name: demo\nname: demo\ndescription: A description of the skill."), rule: skill.RuleFrontMatterDup, file: "SKILL.md"},
 		{name: "unknown key", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\nmodel: sonnet"), rule: skill.RuleFrontMatterKey, file: "SKILL.md"},
 		{name: "claude extension key", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\nargument-hint: x"), rule: skill.RuleFrontMatterKey, file: "SKILL.md"},
