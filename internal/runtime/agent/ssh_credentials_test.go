@@ -176,8 +176,8 @@ steps:
 	})
 }
 
-// Node targeting that is not built yet fails before any step, rather than
-// running commands meant for a node somewhere else.
+// A node: required DAG started without a node fails before any step, rather
+// than running commands meant for a node somewhere else.
 func TestAgent_NodeTargetingFailsBeforeAnyStep(t *testing.T) {
 	t.Parallel()
 
@@ -191,18 +191,6 @@ func TestAgent_NodeTargetingFailsBeforeAnyStep(t *testing.T) {
 			name:    "NodeRequiredUnbound",
 			yaml:    "node: required\nsteps:\n  - id: local\n    action: noop\n",
 			wantErr: "declares node: required, so it runs only bound to a node",
-		},
-		{
-			name:    "BoundOnWorker",
-			yaml:    "node: required\nsteps:\n  - id: restart\n    run: systemctl restart app\n",
-			opts:    agent.Options{BoundNode: "web01", WorkerID: "worker-1"},
-			wantErr: `the run is bound to inventory node "web01", and running a bound run on a worker is not available yet`,
-		},
-		{
-			name:    "NodesStepOnWorker",
-			yaml:    "steps:\n  - id: local\n    action: noop\n  - id: clean\n    run: rm -rf /tmp/app-cache\n    nodes: web\n",
-			opts:    agent.Options{WorkerID: "worker-1"},
-			wantErr: `step "clean" sets nodes, and running a step on inventory nodes from a worker is not available yet`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

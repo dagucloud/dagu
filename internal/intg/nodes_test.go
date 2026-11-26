@@ -43,8 +43,8 @@ func (s staticNodes) Select(_ context.Context, selector string) ([]inventory.Res
 	return inventory.Select(s, filters), nil
 }
 
-func (s staticNodes) Nodes(context.Context) ([]inventory.ResolvedNode, error) {
-	return s, nil
+func (s staticNodes) Named(_ context.Context, names []string) ([]inventory.ResolvedNode, error) {
+	return inventory.Named(s, names), nil
 }
 
 func webNode(name string, labels ...string) inventory.ResolvedNode {

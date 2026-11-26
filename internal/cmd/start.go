@@ -930,6 +930,9 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	if opts.triggerActor != "" {
 		taskOpts = append(taskOpts, executor.WithTriggerActor(opts.triggerActor))
 	}
+	if len(opts.targetNodes) > 0 {
+		taskOpts = append(taskOpts, executor.WithTargetNodes(opts.targetNodes))
+	}
 	taskOpts = append(taskOpts, executor.WithTriggerType(opts.triggerType))
 
 	operation := dispatch.DispatchOperationStart

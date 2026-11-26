@@ -53,8 +53,7 @@ func remoteTargetNodes(ctx *Context) (*api.TargetNodes, error) {
 }
 
 // narrowRun checks the node list a run starts with against the project's
-// nodes and returns the list the run carries, or nil without one. A narrowed
-// run runs on the Dagu host: steps with nodes do not run on workers.
+// nodes and returns the list the run carries, or nil without one.
 func narrowRun(ctx *Context, dag *ir.DAG, names []string) ([]string, error) {
 	if len(names) == 0 {
 		return nil, nil
@@ -71,6 +70,5 @@ func narrowRun(ctx *Context, dag *ir.DAG, names []string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid node list: %w", err)
 	}
-	dag.ForceLocal = true
 	return listed, nil
 }
