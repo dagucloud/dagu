@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,6 +16,37 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 )
+
+func TestGateCoalescesConcurrentRefresh(t *testing.T) {
+	t.Parallel()
+
+	gate := NewGate()
+	var refreshes atomic.Int32
+	refresh := func(context.Context, *oauth2.Token) (*oauth2.Token, error) {
+		refreshes.Add(1)
+		time.Sleep(10 * time.Millisecond)
+		return &oauth2.Token{AccessToken: "token", Expiry: time.Now().Add(time.Hour)}, nil
+	}
+
+	const callers = 20
+	var wg sync.WaitGroup
+	errs := make(chan error, callers)
+	for range callers {
+		wg.Go(func() {
+			got, err := gate.Token(context.Background(), refresh)
+			if err == nil && got.AccessToken != "token" {
+				err = errors.New("unexpected token")
+			}
+			errs <- err
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	assert.Equal(t, int32(1), refreshes.Load())
+}
 
 func TestGateReleasesTurnAfterCanceledRefresh(t *testing.T) {
 	t.Parallel()

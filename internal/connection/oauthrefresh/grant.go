@@ -57,8 +57,9 @@ func (e *TokenError) Error() string {
 
 // Refresh exchanges the cached token's refresh token, or g.RefreshToken when
 // cached has none, for a new access token. The returned token keeps the
-// refresh token it was exchanged with unless the endpoint rotated it. An
-// error response from the endpoint is a *TokenError.
+// refresh token it was exchanged with unless the endpoint rotated it. A JSON
+// response body with an error field is a *TokenError. Any other non-200
+// response, or a transport failure, is a plain error.
 func (g Grant) Refresh(ctx context.Context, cached *oauth2.Token) (*oauth2.Token, error) {
 	refreshToken := g.RefreshToken
 	if cached != nil && cached.RefreshToken != "" {
