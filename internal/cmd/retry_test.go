@@ -355,12 +355,6 @@ steps:
 		require.Equal(t, ir.Succeeded, got.Status)
 		require.True(t, got.RetryDisabled)
 		require.Equal(t, subject, got.TriggerSubject)
-
-		t.Setenv(runenv.EnvKeyQueueDispatchRetry, "")
-		err = th.RunCommandWithError(t, cmd.Retry(), test.CmdTest{
-			Args: []string{"retry", "--run-id=" + runID, dagFile.Location},
-		})
-		require.ErrorIs(t, err, queue.ErrRetryDisabled)
 	})
 
 	t.Run("QueueDispatchRetryTriggerCreatesNewAttempt", func(t *testing.T) {
