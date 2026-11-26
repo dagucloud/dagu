@@ -96,6 +96,18 @@ func TestMetadataLayoutCompatibility(t *testing.T) {
 	})
 }
 
+// TestMetadataDir keeps page metadata out of the pages base directory, so a
+// wiki kept in a DAG directory holds only pages and their attachments.
+func TestMetadataDir(t *testing.T) {
+	baseDir, metadataDir := t.TempDir(), t.TempDir()
+	store, err := New(baseDir, WithMetadataDir(metadataDir))
+	require.NoError(t, err)
+	require.NoError(t, store.Create(context.Background(), "page", "content"))
+
+	assert.FileExists(t, filepath.Join(metadataDir, wikiMetadataFileName))
+	assert.NoFileExists(t, filepath.Join(baseDir, wikiMetadataFileName))
+}
+
 func TestCreate(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
@@ -435,6 +447,32 @@ func TestPathPrefixRespectsExcludedRoots(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Empty(t, search.Items)
+}
+
+func TestExcludePathRootsSpanSegments(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "ops/hidden/page", "needle"))
+	require.NoError(t, store.Create(ctx, "ops/visible", "needle"))
+	excluded := []string{"ops/hidden"}
+
+	opts := defaultFlatOpts(1, 50)
+	opts.ExcludePathRoots = excluded
+	flat, err := store.ListFlat(ctx, opts)
+	require.NoError(t, err)
+	require.Len(t, flat.Items, 1)
+	assert.Equal(t, "ops/visible", flat.Items[0].ID)
+
+	search, err := store.SearchCursor(ctx, wikimodel.SearchPagesOptions{
+		Query:            "needle",
+		Limit:            10,
+		MatchLimit:       1,
+		ExcludePathRoots: excluded,
+	})
+	require.NoError(t, err)
+	require.Len(t, search.Items, 1)
+	assert.Equal(t, "ops/visible", search.Items[0].ID)
 }
 
 func TestListFlatExcludePathRootsBeforePagination(t *testing.T) {

@@ -93,6 +93,7 @@ func normalizePageTags(tags []string) []string {
 type Store struct {
 	baseDir          string
 	dataDir          string
+	metadataDir      string
 	metadataFileName string
 	legacyLayout     bool
 
@@ -117,6 +118,17 @@ func WithDataDir(dir string) Option {
 			return
 		}
 		s.dataDir = filepath.Clean(dir)
+	}
+}
+
+// WithMetadataDir sets the directory holding the page metadata file. Without
+// it, the file is kept in the pages base directory.
+func WithMetadataDir(dir string) Option {
+	return func(s *Store) {
+		if dir == "" {
+			return
+		}
+		s.metadataDir = filepath.Clean(dir)
 	}
 }
 
@@ -180,7 +192,10 @@ func New(baseDir string, opts ...Option) (*Store, error) {
 	for _, opt := range opts {
 		opt(store)
 	}
-	metadataFileName, err := resolveMetadataFileName(baseDir, store.legacyLayout)
+	if store.metadataDir == "" {
+		store.metadataDir = baseDir
+	}
+	metadataFileName, err := resolveMetadataFileName(store.metadataDir, store.legacyLayout)
 	if err != nil {
 		return nil, err
 	}
@@ -977,12 +992,12 @@ func (s *Store) ListFlat(ctx context.Context, opts wikimodel.ListPagesOptions) (
 	return &result, nil
 }
 
+// wikiPagePathRootExcluded reports whether id is, or lies under, one of the
+// excluded paths. A path may span several segments.
 func wikiPagePathRootExcluded(id string, excludedRoots []string) bool {
-	if len(excludedRoots) == 0 {
-		return false
-	}
-	root, _, _ := strings.Cut(id, "/")
-	return slices.Contains(excludedRoots, root)
+	return slices.ContainsFunc(excludedRoots, func(root string) bool {
+		return root != "" && wikiPagePathHasPrefix(id, root)
+	})
 }
 
 // normalizePageTagFilter lowercases, sorts, and dedupes a requested tag
