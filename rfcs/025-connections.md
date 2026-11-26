@@ -67,7 +67,8 @@ bearer token, which expires after an hour.
 - **Mail refresh is weak.** `internal/cmn/mailer/oauth/oauth.go` refreshes
   once per run because each run is a separate process. It keeps a rotated
   refresh token "for the life of the process only" (`oauth.go:73`), so a
-  Microsoft account that rotates tokens can break. It hardcodes the Gmail
+  Microsoft account keeps refreshing with its first refresh token, and
+  breaks when that token expires. It hardcodes the Gmail
   scope for service accounts (`oauth.go:29`). Mail accounts, a DAG's `smtp`,
   and the notification SMTP settings each take their own OAuth block, with
   the refresh token in YAML, base config, or settings.
@@ -231,7 +232,7 @@ connections share.
 | --- | --- |
 | `id`, `name` | Name shown in pickers |
 | `provider` | `google`, `microsoft`, `oauth2`, or `mcp` |
-| `kind` | Who owns the client: `byo` (the user), `dcr` (registered by Dagu through RFC 7591), or `hosted` (reserved: a client Dagu owns, for one-click connect) |
+| `kind` | Who owns the client: `byo` (the user), `cimd` (this server's own Client ID Metadata Document), `dcr` (registered by Dagu through RFC 7591), or `hosted` (reserved: a client Dagu owns, for one-click connect) |
 | `client_id` | |
 | `client_secret` | Encrypted. Optional for public clients. For a service account, its private key |
 | `client_type` | `web`, `desktop`, `public` (no secret, as the device code flow needs), or `service_account` (a Google service account key). Decides which grants and redirect modes work |
@@ -404,6 +405,12 @@ endpoint, for IMAP and SMTP at `imap.gmail.com` and `smtp.gmail.com`. Those
 need the full `https://mail.google.com/` scope, which `gmail` does not ask
 for.
 
+Google's MCP guide covers personal `@gmail.com` accounts as well as
+Workspace accounts, with a quick setup for personal use. A personal account
+cannot use an Internal app, so its app stays in Testing, with the seven-day
+limit, or is published to Production without verification, as the wizard
+explains.
+
 Microsoft presets are `mail`, `calendar`, and `files`, against Graph
 (`graph.microsoft.com`), and `mailbox`, against Outlook
 (`outlook.office.com`) for the IMAP and SMTP access that mail accounts and
@@ -505,9 +512,11 @@ client type, and show the exact redirect URI to register.
   days before the expiry. No ticker checks it, so no notification is sent
   before the token expires.
 - **Duplicates.** A second connection for the same account and client
-  triggers a warning. Google keeps only 100 refresh tokens per account per
-  client and silently revokes the oldest. When the other connection belongs
-  to another project, the warning suggests one server connection instead.
+  triggers a warning, not a refusal, since a team may keep two on purpose,
+  as while moving between them. Google keeps only 100 refresh tokens per
+  account per client and silently revokes the oldest. When the other
+  connection belongs to another project, the warning suggests one server
+  connection instead, and names that project only to an admin.
 
 **Reconnect** runs the same flow for an existing connection. The previous
 tokens stay live until the user confirms, and confirming increments
@@ -726,11 +735,14 @@ volume (`charts/dagu/README.md:83`):
 - **Google.** Its refresh tokens do not rotate, so a stale read costs one
   extra refresh and nothing else.
 - **Rotating providers.** The re-read on `invalid_grant` recovers from a
-  stale read when another host has rotated the token.
+  stale read when another host has rotated the token. Microsoft keeps a
+  replaced refresh token valid until it expires, so there a stale read
+  costs one extra refresh and nothing else.
 - **Reuse detection.** A provider that revokes the whole token family when an
-  old refresh token is reused is the remaining risk. The docs tell users of
-  such providers to keep every process that has the data directory on one
-  host, or to keep the data directory on local disk.
+  old refresh token is reused is the remaining risk. Neither Google nor
+  Microsoft does. The docs tell users of such providers to keep every
+  process that has the data directory on one host, or to keep the data
+  directory on local disk.
 
 ### Notifications
 
@@ -1018,13 +1030,21 @@ authorization spec:
    `WWW-Authenticate` header, or fetch the protected resource metadata
    (RFC 9728).
 2. Fetch the authorization server metadata (RFC 8414).
-3. Register a client (RFC 7591) when the server supports it, and store the
-   result as an app of kind `dcr`. Otherwise ask for a client ID and secret.
+3. Pick a client in the order the MCP authorization spec gives:
+   - A Client ID Metadata Document, when the authorization server supports
+     one and this server has a public HTTPS URL. The client ID is
+     `<public_url>/oauth/client-metadata.json`, a public route that
+     describes Dagu as a public client with the server callback as its
+     redirect URI. One app of kind `cimd` serves every `mcp` connection on
+     the server, and holds no secret.
+   - Dynamic client registration (RFC 7591), when the server offers it,
+     stored as an app of kind `dcr`.
+   - Otherwise a client ID and secret that the user registers.
 4. Run the connect flow with PKCE and the `resource` parameter (RFC 8707).
    The connection is bound to the server's canonical URL.
 
-go-sdk v1.7.0 already implements these calls in its `oauthex` package, and
-Dagu reuses it.
+go-sdk v1.7.0 already implements these calls, the order above included, in
+its `oauthex` and `auth` packages, and Dagu reuses them.
 
 ### Dagu Cloud
 
@@ -1047,7 +1067,7 @@ Cloud kept the connection instead:
 - an account would hold one refresh token per client, well under Google's
   limit of 100 per account and client;
 - Dagu Cloud would be the one refresh owner, which removes the stale reads
-  of shared storage ([Open questions](#open-questions), item 5);
+  of shared storage ([Token broker](#token-broker));
 - no server would hold a refresh token at all.
 
 On a server, such a connection would appear in the list read-only, with its
@@ -1115,9 +1135,9 @@ dagu connection apps list | remove APP
   secret the block references. Dagu reads the account and the granted
   scopes from the provider, so the connection is checked like any other.
   Its output says to replace every `oauth` block that holds the token with
-  `connection:`. A copy left behind refreshes on its own, and with a
-  provider that rotates refresh tokens, the two copies can break each
-  other.
+  `connection:`. A copy left behind refreshes on its own and stops working
+  when its token expires. With a provider that revokes reused tokens, the
+  two copies can also break each other.
 - `call` handles a server's confirmation request as Try it does. On a
   terminal it shows the form and sends the person's answer. Without one,
   it fails with `confirmation_required`. `--yes` skips only Dagu's own
@@ -1156,8 +1176,8 @@ Connection work-google is ready. Try: dagu connection tools work-google --server
 | `POST /connections/{name}/calls/{id}/confirmation` | Answer a confirmation request for a call in flight. Returns the result |
 | `GET /connection-templates?provider=` | Starter DAGs for a provider |
 
-- `GET /oauth/callback` sits outside the generated API, as `oidc-callback`
-  does.
+- `GET /oauth/callback` and `GET /oauth/client-metadata.json` sit outside
+  the generated API, as `oidc-callback` does.
 - A `scope` parameter, a project or `server`, qualifies `{name}` in these
   paths, since a project connection and a server connection that does not
   list that project may share a name. `POST /connections` takes the scope,
@@ -1339,9 +1359,10 @@ and the tiers are new. Instead, the docs:
 | Use a connection in a DAG | Whoever may edit the DAG, if the name resolves for the DAG's project |
 | See a connection: name, scope, provider, account, status | `viewer` in a project that can use it. Never its tokens |
 
-A manager's `mcp` connect may register a client through RFC 7591. The
-resulting `dcr` app belongs to that connection alone: it is created and
-deleted with it, and no other connection may use it.
+A manager's `mcp` connect may use the server's `cimd` app, which holds no
+secret, or register a client through RFC 7591. The resulting `dcr` app
+belongs to that connection alone: it is created and deleted with it, and no
+other connection may use it.
 
 Project connections follow the secret store, where managers manage a
 workspace's secrets (`requireSecretManageForWorkspace`, `secrets.go:414`).
@@ -1716,13 +1737,15 @@ or a default, not the design:
     Try it asks before every tool.
 40. The docs say whether Google refuses a client that does not advertise
     elicitation, and Dagu's MCP clients advertise what Google needs.
-41. Revoking one refresh token is tested, and Remove and the cleanup of
+41. A personal `@gmail.com` account connects and calls the Gmail MCP
+    server, as Google's guide for personal use describes.
+42. Revoking one refresh token is tested, and Remove and the cleanup of
     unused tokens follow the result, as [Connect flow](#connect-flow)
     describes.
 
 All:
 
-42. Every case in [Failure behavior](#failure-behavior) ends as stated.
+43. Every case in [Failure behavior](#failure-behavior) ends as stated.
 
 ## Alternatives considered
 
@@ -1770,7 +1793,8 @@ All:
   lock holder. It would remove stale reads across hosts, but every other
   host would need an RPC to it, and the owner a failover path. The re-read
   guard covers stale reads, and the docs cover providers that detect reuse.
-  [Open questions](#open-questions) keeps it under review.
+  Google does not rotate refresh tokens, and Microsoft does not revoke a
+  replaced one, so neither needs an owner.
 - **Naming the concept "accounts", "integrations", or "credentials".**
   "Accounts" clashes with `mail_accounts`, and does not fit client
   credentials or MCP servers. "Integrations" is broader than a sign-in.
@@ -1778,34 +1802,15 @@ All:
   workflow tools. SSH node connections and the Dagu Cloud connection keep
   their names.
 
-## Open questions
-
-1. Should a project manager be able to ask for a server connection for
-   their project in Dagu, for an admin to approve, rather than asking
-   outside it?
-2. Should a second connection for the same account and client be refused,
-   rather than warned about?
-3. Should a later Dagu-hosted app use Client ID Metadata Documents, which
-   newer MCP authorization specs describe, rather than registration? This
-   needs checking against the current MCP spec.
-4. Does Microsoft keep a rotated-out refresh token valid until it expires?
-   The re-read guard works either way, but the docs should state the
-   provider's behavior only once it is confirmed.
-5. Should hosts that share storage pick one refresh owner, for providers
-   that revoke a token family on reuse? Cloud-held connections would be one
-   answer, for teams that accept them.
-6. Do Google's Workspace MCP servers serve personal `@gmail.com` accounts,
-   or only Workspace accounts? The wizard should say so before the user
-   starts the Google Cloud setup.
-7. Which Google tools send confirmation requests? They fail in `mcp.call`
-   with `confirmation_required`, so the docs should list them.
-
 ## Future enhancements
 
 - **Cloud-held connections and a Dagu-hosted OAuth app,** as [Dagu
   Cloud](#dagu-cloud) describes. Both need their own RFC, and cloud-held
   connections amend RFC 002.
 - **Personal connections,** with a run-as-user model.
+- **Requests for a server connection.** A manager asks for one in Dagu, and
+  an admin approves it. Until then, the wizard shows what to ask an admin
+  for.
 - **Expiry notifications.** A message before a refresh token expires. It
   needs a periodic check, which this RFC avoids for idle cost.
 - **More presets,** such as Slack, GitHub, and Salesforce, as their MCP
@@ -1821,7 +1826,14 @@ All:
   https://developers.google.com/workspace/guides/configure-mcp-servers
 - Configure OAuth clients for AI agents:
   https://support.google.com/cloud/answer/15549257
+- Configure the Gmail MCP server, with its quick setup for personal use:
+  https://developers.google.com/workspace/gmail/api/guides/configure-mcp-server
+- Refresh tokens in the Microsoft identity platform, which "doesn't revoke
+  old refresh tokens when used to fetch new access tokens":
+  https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens
 - MCP authorization: https://modelcontextprotocol.io/specification/latest/basic/authorization
+- MCP client registration, with Client ID Metadata Documents first:
+  https://modelcontextprotocol.io/specification/latest/basic/authorization/client-registration
 - RFC 7591 (dynamic client registration), RFC 8414 (authorization server
   metadata), RFC 8707 (resource indicators), RFC 9728 (protected resource
   metadata)
