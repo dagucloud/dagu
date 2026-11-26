@@ -132,6 +132,10 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 		return FrontMatter{}, "", []Issue{*issue}
 	}
 
+	if len(front) > maxFrontMatterBytes {
+		errorf(RuleFrontMatterYAML, "the front matter is %d bytes, above the limit of %d bytes", len(front), maxFrontMatterBytes)
+		return FrontMatter{}, body, issues
+	}
 	if usesMergeKey(front) {
 		errorf(RuleFrontMatterYAML, "the front matter must not use the merge key <<")
 		return FrontMatter{}, body, issues

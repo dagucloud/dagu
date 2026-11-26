@@ -86,7 +86,8 @@ names the key. This includes the extension keys of Claude Code, such as `argumen
 | `metadata` | map | Optional. A map from string keys to string values. A number or a boolean value is an error: quote it. |
 | `allowed-tools` | string | Optional. A string of tool names, separated by spaces. Informational. See [Security](#security). |
 
-The body MUST NOT be empty. The body MUST NOT be larger than 65536 bytes (64 KiB).
+The front matter MUST NOT be larger than 16384 bytes (16 KiB). The body MUST NOT be empty. The body
+MUST NOT be larger than 65536 bytes (64 KiB).
 
 ### The rules
 
@@ -98,7 +99,7 @@ Each rule has an identifier. The message of an issue gives the identifier, the f
 | `not-utf8` | error | `SKILL.md` or a file of `references/` or `scripts/` is not valid UTF-8. |
 | `front-matter-start` | error | The file does not start with a `---` line. |
 | `front-matter-end` | error | The front matter has no closing `---` line. |
-| `front-matter-yaml` | error | The front matter is not valid YAML, or it uses the merge key `<<`. |
+| `front-matter-yaml` | error | The front matter is not valid YAML, is larger than 16 KiB, or uses the merge key `<<`. |
 | `front-matter-duplicate-key` | error | A key occurs twice. |
 | `front-matter-key` | error | A key is not in the table. |
 | `name-missing`, `name-type` | error | `name` is absent or is not a string. |
@@ -136,6 +137,8 @@ Dagu makes the standard limits errors, except the 500 lines and the 5000 tokens,
 These rules are Dagu rules. The standard does not state them in its specification page:
 
 - The 64 KiB limit of the body.
+- The 16 KiB limit of the front matter. The time to parse a large mapping grows faster than its
+  size.
 - The ban on the merge key `<<` in the front matter. Nested merges in a short file take exponential
   time to decode.
 - The ban on an XML tag in the description. The Anthropic API variant of the standard states it.

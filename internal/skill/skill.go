@@ -32,6 +32,9 @@ const (
 	MaxLicenseLength       = 128
 	// MaxBodyBytes is the size limit of the Markdown body.
 	MaxBodyBytes = 64 * 1024
+	// maxFrontMatterBytes is the size limit of the front matter. The YAML
+	// parser takes more than linear time on a large mapping.
+	maxFrontMatterBytes = 16 * 1024
 	// WarnBodyLines and WarnBodyTokens are the recommended limits of the body.
 	WarnBodyLines  = 500
 	WarnBodyTokens = 5000

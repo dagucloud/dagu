@@ -48,6 +48,12 @@ func TestFormatRules(t *testing.T) {
 	t.Parallel()
 
 	long := func(n int) string { return strings.Repeat("a", n) }
+	// frontOf returns a valid front matter of n bytes, with the newline that
+	// skillMD adds.
+	frontOf := func(n int) string {
+		head := "name: demo\ndescription: A description of the skill.\nmetadata:\n  pad: "
+		return head + long(n-len(head)-1)
+	}
 	cases := []struct {
 		name    string
 		folder  string
@@ -64,6 +70,8 @@ func TestFormatRules(t *testing.T) {
 		{name: "unclosed front matter", folder: "demo", content: "---\nname: demo\n", rule: skill.RuleFrontMatterEnd, file: "SKILL.md"},
 		{name: "bad yaml", folder: "demo", content: "---\nname: [demo\n---\nBody\n", rule: skill.RuleFrontMatterYAML, file: "SKILL.md"},
 		{name: "merge key", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\nmetadata:\n  <<: {author: me}"), rule: skill.RuleFrontMatterYAML, file: "SKILL.md"},
+		{name: "front matter at the limit", folder: "demo", content: skillMD(frontOf(skill.MaxFrontMatterBytes))},
+		{name: "front matter above the limit", folder: "demo", content: skillMD(frontOf(skill.MaxFrontMatterBytes + 1)), rule: skill.RuleFrontMatterYAML, file: "SKILL.md"},
 		{name: "duplicate key", folder: "demo", content: skillMD("name: demo\nname: demo\ndescription: A description of the skill."), rule: skill.RuleFrontMatterDup, file: "SKILL.md"},
 		{name: "unknown key", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\nmodel: sonnet"), rule: skill.RuleFrontMatterKey, file: "SKILL.md"},
 		{name: "claude extension key", folder: "demo", content: skillMD("name: demo\ndescription: A description of the skill.\nargument-hint: x"), rule: skill.RuleFrontMatterKey, file: "SKILL.md"},
@@ -144,7 +152,7 @@ func TestLongDescriptionIsCut(t *testing.T) {
 // large SKILL.md gives short issues.
 func TestIssuesQuoteShortValues(t *testing.T) {
 	t.Parallel()
-	long := strings.Repeat("x", 100_000)
+	long := strings.Repeat("x", 4000)
 	cases := map[string]string{
 		"name":          skillMD("name: " + long + "\ndescription: A description of the skill."),
 		"unknown key":   skillMD("name: demo\ndescription: A description of the skill.\n" + long + ": v"),
@@ -178,11 +186,11 @@ func TestManyBadKeysGiveOneIssue(t *testing.T) {
 	t.Parallel()
 	var front strings.Builder
 	front.WriteString("name: demo\ndescription: A description of the skill.\n")
-	for i := range 1000 {
+	for i := range 500 {
 		fmt.Fprintf(&front, "k%04d: v\n", i)
 	}
 	front.WriteString("metadata:\n")
-	for i := range 1000 {
+	for i := range 500 {
 		fmt.Fprintf(&front, "  m%04d: 1\n", i)
 	}
 	s, err := skill.Read(writeSkill(t, "demo", map[string]string{"SKILL.md": skillMD(front.String())}))
@@ -195,8 +203,8 @@ func TestManyBadKeysGiveOneIssue(t *testing.T) {
 	require.Equal(t, 1, counts[skill.RuleFrontMatterKey], "%v", counts)
 	require.Equal(t, 1, counts[skill.RuleMetadata], "%v", counts)
 	issues := ruleSet(s.Issues)
-	require.Contains(t, issues[skill.RuleFrontMatterKey].Message, `"k0000", "k0001", "k0002", "k0003", "k0004" and 995 more`)
-	require.Contains(t, issues[skill.RuleMetadata].Message, `"m0000", "m0001", "m0002", "m0003", "m0004" and 995 more`)
+	require.Contains(t, issues[skill.RuleFrontMatterKey].Message, `"k0000", "k0001", "k0002", "k0003", "k0004" and 495 more`)
+	require.Contains(t, issues[skill.RuleMetadata].Message, `"m0000", "m0001", "m0002", "m0003", "m0004" and 495 more`)
 }
 
 // A folder that the server cannot read gives the rule unreadable, and the

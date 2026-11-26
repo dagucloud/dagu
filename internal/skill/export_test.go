@@ -5,6 +5,9 @@ package skill
 
 import "testing"
 
+// MaxFrontMatterBytes is the size limit of the front matter.
+const MaxFrontMatterBytes = maxFrontMatterBytes
+
 // HashFiles computes the hash of a list of files with the canonical form of
 // Hash. Each file gives its path and its SHA-256.
 func HashFiles(files []File) string {
