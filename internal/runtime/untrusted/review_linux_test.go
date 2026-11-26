@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -38,13 +37,13 @@ func resetPoison(t *testing.T) {
 }
 
 // killAllAs stops each process of the restricted user with kill(-1) as that
-// user, which the kernel applies to the whole task list at once.
+// user, which the kernel applies to the whole task list at once. The kill
+// helper starts as root, so a process of the user that the test left cannot
+// stop the start.
 func killAllAs(t *testing.T) {
 	t.Helper()
 	for range 100 {
-		cmd := exec.Command("/bin/sh", "-c", "kill -9 -1")
-		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: testUID, Gid: testGID, Groups: []uint32{}}}
-		_ = cmd.Run()
+		_ = runKillHelperAs(testUID, testGID)
 		pids, err := userProcesses(testUID)
 		if err == nil && len(pids) == 0 {
 			return
