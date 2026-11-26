@@ -9731,7 +9731,7 @@ export interface components {
         RuntimeProfileName: string;
         /** @description Runtime profile override. Empty string means no profile. */
         RuntimeProfileOverride: string;
-        /** @description Inventory nodes the run is narrowed to (RFC 013): its steps with nodes, and those of its child runs, run only on nodes the list names. A node: required DAG takes exactly one node and runs bound to it. Each name must be a node of the project, and the DAG must be node: required or have a step with nodes or a dag.run step. Retries, restarts, and queued runs keep the list. */
+        /** @description Inventory nodes the run is narrowed to (RFC 013): its steps with nodes, and those of its child runs, run only on nodes the list names. A node: required DAG takes exactly one node and runs bound to it. Each name must be a node of the project, and the DAG must be node: required or have a step with nodes or a dag.run or dag.enqueue step. Retries, restarts, and queued runs keep the list. */
         TargetNodes: string[];
         /** @description Worker labels this DAG-run requires. Replaces the DAG-level worker_selector for this run, including its "local" value, and is kept with the run so retries, reschedules, and queued dispatch route the same way. Not allowed for DAGs with approval steps. */
         WorkerSelectorOverride: {

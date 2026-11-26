@@ -4023,6 +4023,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			TriggerSubject: subject,
 			RetryDisabled:  true,
 			TargetNodes:    []string{"web01"},
+			NodeList:       &ir.NodeListRecord{Ran: true},
 		})
 
 		protoStatus, convErr := convert.DAGRunStatusToProto(&ir.DAGRunStatus{
@@ -4043,6 +4044,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.True(t, persisted.RetryDisabled)
 		assert.Equal(t, subject, persisted.TriggerSubject)
 		assert.Equal(t, []string{"web01"}, persisted.TargetNodes, "a report from a worker without node lists")
+		assert.Equal(t, &ir.NodeListRecord{Ran: true}, persisted.NodeList)
 	})
 
 	t.Run("WaitingStatusClosesCachedAttemptBeforePersisting", func(t *testing.T) {
