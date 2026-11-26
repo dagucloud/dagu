@@ -357,7 +357,9 @@ The rules, in order:
    that user, including a group whose leader is a zombie. Dagu waits until no live task of that
    user is left. Then it makes the worker user the owner of every file and folder of the work
    directory again, restores the mode of each entry of a git folder, and reads the outputs of the
-   step.
+   step. The host MUST set `kernel.yama.ptrace_scope` to 1 or more, so that no process of the
+   restricted user can trace the process that sends this `SIGKILL`. Otherwise an untrusted step
+   with isolation fails before it starts.
 
 8. **Checks at the end.** Dagu checks the work directory before it gives it back. It fails the step
    and removes the entry for each of these entries of the restricted user:

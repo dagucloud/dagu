@@ -287,6 +287,18 @@ func TestParseStatus(t *testing.T) {
 	assert.ErrorContains(t, err, "NoNewPrivs")
 }
 
+// Spec 103, "Isolation": a ptrace_scope of 0, or no Yama, would let the
+// restricted user trace the kill helper.
+func TestCheckPtraceScope(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{"1\n", "2\n", "3\n"} {
+		assert.NoError(t, checkPtraceScope(value), value)
+	}
+	for _, value := range []string{"0\n", "", "x\n"} {
+		assert.ErrorContains(t, checkPtraceScope(value), "the restricted user could trace the kill helper", value)
+	}
+}
+
 func TestProcHidePID(t *testing.T) {
 	t.Parallel()
 	line := "22 1 0:21 / /proc rw,nosuid,nodev,noexec,relatime shared:12 - proc proc rw,hidepid=invisible\n"
