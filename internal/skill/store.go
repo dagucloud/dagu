@@ -12,9 +12,9 @@ import (
 	"strings"
 )
 
-// Store reads and writes the skill folders of one skills directory. A Store
-// holds no state of the skills: every call reads the disk. Several Stores,
-// in several processes, can use the same directory.
+// Store lists the skill folders of one skills directory. A Store holds no
+// state of the skills: every call reads the disk. Several Stores, in several
+// processes, can use the same directory.
 type Store struct {
 	root string
 }
