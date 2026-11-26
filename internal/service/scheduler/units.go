@@ -123,6 +123,8 @@ type projectUnits struct {
 	open   func(context.Context, project.Project, *persisfile.ProjectStores) (*Scheduler, error)
 	// recheck is how often the DAG directories are checked.
 	recheck time.Duration
+	// followed, when set, is called after each pass of follow.
+	followed func()
 
 	// changed wakes run when the registry changed.
 	changed chan struct{}
@@ -323,6 +325,9 @@ func (u *projectUnits) follow(ctx context.Context) {
 			continue
 		}
 		u.startUnit(ctx, p, stores[id])
+	}
+	if u.followed != nil {
+		u.followed()
 	}
 }
 

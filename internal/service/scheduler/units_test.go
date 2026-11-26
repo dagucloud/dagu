@@ -217,8 +217,12 @@ func TestProjectUnitsSkipProjectDroppedMidPass(t *testing.T) {
 		require.FailNow(t, "the release was not recorded")
 	}
 	f.requireRunning(t, starting.ID)
-	// Stopping waits for the pass to end.
-	f.units.stop()
+	// A pass that ends after the release ends after the held one, which
+	// decided on the other project.
+	for len(f.passes) > 0 {
+		<-f.passes
+	}
+	<-f.passes
 	assert.False(t, openedAfterRelease.Load(), "the unit of %s was opened after its release", other.Name)
 }
 
@@ -262,6 +266,9 @@ type unitsFixture struct {
 	process  *Scheduler
 	units    *projectUnits
 	runs     chan string
+	// passes receives a value after each pass that follows the registry,
+	// when it has room.
+	passes chan struct{}
 
 	// onOpen runs as a unit is built, onStop as it stops, and onRelease
 	// as the cache records released projects.
@@ -296,6 +303,7 @@ func newUnitsFixture(t *testing.T, recovery time.Duration) *unitsFixture {
 		registry: &unitsRegistry{defaults: defaults, contents: make(chan []project.Project), followed: make(chan struct{})},
 		process:  &Scheduler{planner: planner, clock: time.Now, dagExecutor: &DAGExecutor{}},
 		runs:     make(chan string, 100),
+		passes:   make(chan struct{}, 1),
 	}
 	cache := persisfile.NewProjectStoreCache(f.registry, nil,
 		func(ctx context.Context, p project.Project) (*persisfile.ProjectStores, error) {
@@ -303,6 +311,12 @@ func newUnitsFixture(t *testing.T, recovery time.Duration) *unitsFixture {
 		}, fixtureReleases{f})
 	f.units = newProjectUnits(f.process, cache, f.openUnit)
 	f.units.recheck = 10 * time.Millisecond
+	f.units.followed = func() {
+		select {
+		case f.passes <- struct{}{}:
+		default:
+		}
+	}
 	f.process.units = f.units
 
 	ctx, cancel := context.WithCancel(context.Background())
