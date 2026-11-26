@@ -131,7 +131,7 @@ such as a clone or a push, gets the credential as a step secret
 | --- | --- |
 | `--allow-with-credential <host[:port]>` | A destination, in the form of `--allow`. Repeat the option for each destination. |
 | `--proxy-credential-env <name>` | The variable that holds the proxy credential. |
-| `--proxy-credential-file <path>` | The file that holds the proxy credential. Dagu removes the last line end. |
+| `--proxy-credential-file <path>` | The file that holds the proxy credential. Dagu removes the last line end. The file has at most 16384 bytes. |
 
 These cases stop the proxy at start. Each error names the option and never holds the credential.
 
@@ -182,6 +182,8 @@ These cases stop the proxy at start with exit code 1:
 - an upstream key variable that does not exist or is empty, or an upstream key file that the proxy
   cannot read, that is empty or that has more than 16384 bytes
 - an upstream key with a control character
+- a proxy credential variable that does not exist or is empty, or a proxy credential file that the
+  proxy cannot read, that is empty or that has more than 16384 bytes
 
 These cases give an HTTP status:
 
@@ -227,6 +229,9 @@ sends `POST https://api.openai.com/v1/chat/completions` with the real key.
 - The proxy sees the name of a `CONNECT`, not the name inside TLS. A destination of `--allow` whose
   servers also serve a destination of `--allow-with-credential`, such as two hosts behind one CDN,
   opens that destination to the agent.
+- The start check compares entries, not addresses. An entry of `--allow` that resolves to the
+  address of a destination of `--allow-with-credential` opens that destination to the agent: an
+  address literal, or a name whose DNS the agent controls. List only names that you trust.
 - The proxy sends each path of a request in origin form to the upstream, with the key, so the agent
   can call each endpoint of the upstream that the key opens. The upstream route asks for no
   credential: each client that reaches the address of `--listen` can use the key. The network of
