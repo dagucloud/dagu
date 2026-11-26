@@ -227,6 +227,13 @@ func WithPassedEnv(envs []string) TaskOption {
 	}
 }
 
+// WithTargetNodes sets the node names the run is narrowed to.
+func WithTargetNodes(names []string) TaskOption {
+	return func(task *dispatch.DispatchTask) {
+		task.TargetNodes = append([]string(nil), names...)
+	}
+}
+
 // WithRetryPath sets the persisted child DAG path for a retry task.
 func WithRetryPath(path dagrun.RetryPath) TaskOption {
 	return func(task *dispatch.DispatchTask) {

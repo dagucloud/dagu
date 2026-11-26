@@ -806,6 +806,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		SecretReferenceResolver:  secretResolver(dag),
 		NodeSelector:             nodeSelector,
 		HostKeys:                 hostKeys,
+		TargetNodes:              task.TargetNodes,
 		ProfileStore:             runtimeStores.ProfileStore,
 		ProfileResolver:          profileResolver(dag),
 		ProfileName:              run.profileName,

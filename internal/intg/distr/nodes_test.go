@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/test"
 )
@@ -191,4 +192,26 @@ steps:
 		require.Zero(t, server.AuthAttempts(), "%s was sent a credential", name)
 		require.Empty(t, server.Commands(), "%s ran a command", name)
 	}
+}
+
+// A narrowed run dispatched to a worker keeps its node list there, for its
+// own steps and for its child runs (RFC 013 §Narrowing a run).
+func TestNodes_NarrowedRunOnWorker(t *testing.T) {
+	t.Parallel()
+
+	journal := filepath.Join(t.TempDir(), "journal")
+	f := newTestFixture(t, fleetDAG(journal))
+	servers, _ := startFleet(t, f,
+		fleetNode{name: "web01", label: "role=web"},
+		fleetNode{name: "web02", label: "role=web"},
+	)
+
+	_, err := f.dispatchDirect(executor.WithTargetNodes([]string{"web01"}))
+	require.NoError(t, err)
+	status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
+	f.assertWorkerID(status, "worker-1")
+	require.Equal(t, []string{"web01"}, status.TargetNodes)
+	require.Equal(t, []string{"checked web01", "deployed web01"}, journalLines(t, journal))
+	require.Len(t, servers["web01"].Commands(), 2)
+	require.Empty(t, servers["web02"].Commands(), "web02 is not listed")
 }
