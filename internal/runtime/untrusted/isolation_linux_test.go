@@ -112,6 +112,11 @@ func TestIsolatedStepRunsAsTheRestrictedUser(t *testing.T) {
 	rootOnly := workDir + "-root-only"
 	require.NoError(t, os.WriteFile(rootOnly, []byte("worker secret"), 0o400))
 	t.Cleanup(func() { _ = os.Remove(rootOnly) })
+	// A descriptor without close-on-exec, as a worker inherits from its
+	// launcher, must not reach the process.
+	leaked, err := syscall.Open(rootOnly, syscall.O_RDONLY, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = syscall.Close(leaked) })
 
 	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
 	require.NoError(t, err)

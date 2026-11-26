@@ -345,7 +345,8 @@ The rules, in order:
 
 5. **Process.** The step process runs with the user ID and the group ID of the restricted user. It
    has no supplementary group and no capability. It runs in a new session, with no controlling
-   terminal.
+   terminal. It gets no descriptor of the worker but 0, 1 and 2, also none that the worker
+   inherited from the process that started it.
 
 6. **Files of the attempt.** The MCP config of the attempt (Spec 091) holds the secret of the tool
    bridge. The restricted user owns it, with the mode `0400`. The restricted user can read and

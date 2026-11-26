@@ -447,6 +447,9 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) error {
 	if len(cmd.ExtraFiles) > 0 {
 		return fmt.Errorf("untrusted step %q: the process cannot get extra files", iso.step)
 	}
+	if err := closeOnExec(); err != nil {
+		return stepError(iso.step, "keep the descriptors of the worker from the process", "", err)
+	}
 	dir := cmd.Dir
 	if dir != "" && !filepath.IsAbs(dir) {
 		abs, err := filepath.Abs(dir)
@@ -478,6 +481,32 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) error {
 	cmd.SysProcAttr.Setctty = false
 	cmd.SysProcAttr.Noctty = false
 	cmd.SysProcAttr.Pgid = 0
+	return nil
+}
+
+// closeOnExec marks each descriptor of the process from 3 up close-on-exec.
+// Go opens its own descriptors so, but a descriptor that the worker inherited
+// from its launcher would reach the process of the step.
+func closeOnExec() error {
+	entries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		fd, err := strconv.Atoi(entry.Name())
+		if err != nil || fd < 3 {
+			continue
+		}
+		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+		if err == nil && flags&unix.FD_CLOEXEC == 0 {
+			_, err = unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags|unix.FD_CLOEXEC)
+		}
+		// A descriptor closed since the listing, such as the one of the
+		// listing itself, needs nothing.
+		if err != nil && !errors.Is(err, unix.EBADF) {
+			return fmt.Errorf("descriptor %d: %w", fd, err)
+		}
+	}
 	return nil
 }
 
