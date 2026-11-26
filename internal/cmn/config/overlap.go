@@ -27,7 +27,7 @@ import (
 // serverStoreDirNames are the directories that server-wide stores keep in
 // paths.data_dir under fixed names. Settings in paths place the others.
 var serverStoreDirNames = []string{
-	"auth", "cloud", "coordinator", "distributed", "incidents", "license",
+	"auth", "cloud", "coordinator", "distributed", "incidents", "license", "migration",
 	"notifications", "run-binaries", "scheduler", "server", "tailscale", "upgrade",
 }
 

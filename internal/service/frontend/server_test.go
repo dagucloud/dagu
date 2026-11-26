@@ -1047,6 +1047,23 @@ func TestEvaluateConfiguredBasePathRejectsURLSyntax(t *testing.T) {
 	}
 }
 
+func TestHealthPath(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		basePath, apiBasePath, want string
+	}{
+		{want: "/api/v1/health"},
+		{basePath: "/dagu/", want: "/dagu/api/v1/health"},
+		{basePath: "/dagu", apiBasePath: "/rest", want: "/dagu/rest/health"},
+	} {
+		cfg := &config.Config{Server: config.Server{BasePath: tc.basePath, APIBasePath: tc.apiBasePath}}
+		got, err := HealthPath(testContext(t), cfg)
+		require.NoError(t, err)
+		assert.Equal(t, tc.want, got)
+	}
+}
+
 func TestPublicURLWithBasePath(t *testing.T) {
 	t.Parallel()
 

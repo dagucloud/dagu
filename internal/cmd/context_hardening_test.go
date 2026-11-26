@@ -221,6 +221,48 @@ func TestNewContext_OverlappingPaths(t *testing.T) {
 	})
 }
 
+// With projects on, a command that reads state migrates it before any store
+// opens it. With projects off, nothing about migration is written.
+func TestNewContext_MigratesState(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		switchOn bool
+	}{
+		{name: "SwitchOn", switchOn: true},
+		{name: "SwitchOff"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			home := t.TempDir()
+			configPath := filepath.Join(home, "config.yaml")
+			content := "# empty\n"
+			if tc.switchOn {
+				content = "experimental_projects: true\n"
+			}
+			require.NoError(t, os.WriteFile(configPath, []byte(content), 0o600))
+			command := &cobra.Command{Use: "status"}
+			initFlags(command)
+			command.SetContext(context.Background())
+			require.NoError(t, command.Flags().Set("dagu-home", home))
+			require.NoError(t, command.Flags().Set("config", configPath))
+
+			ctx, err := NewContext(command, nil)
+			require.NoError(t, err)
+
+			migrationDir := filepath.Join(ctx.Config.Paths.DataDir, "migration")
+			if !tc.switchOn {
+				assert.NoDirExists(t, migrationDir)
+				return
+			}
+			status, err := os.ReadFile(filepath.Join(migrationDir, "status.json"))
+			require.NoError(t, err)
+			assert.Contains(t, string(status), `"phase": "done"`)
+		})
+	}
+}
+
 func writeTestConfig(t *testing.T, home, contextsDir string) string {
 	t.Helper()
 	configPath := filepath.Join(home, "config.yaml")
