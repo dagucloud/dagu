@@ -151,8 +151,9 @@ func TestRunChangesRoundTimes(t *testing.T) {
 	assert.True(t, changes.ReadAt.Equal(feedStart))
 }
 
-// A change drops the kept activity of its DAG before the feed tells of it, so a
-// read that began before the change has an earlier time than the change.
+// A change drops the kept activity of its DAG before the feed records it, so a
+// read that lands between the two cannot serve, and keep, the old activity,
+// and a read that began before the change has an earlier time than the change.
 func TestDAGRunsChangedDropsActivityFirst(t *testing.T) {
 	t.Parallel()
 	var a API
@@ -162,11 +163,16 @@ func TestDAGRunsChangedDropsActivityFirst(t *testing.T) {
 	testutil.WaitForClockTick(t)
 	readAt := time.Now()
 	a.activities.put(key, latest, readAt, &openapiv1.DAGListActivity{})
+	// The feed reads its clock under its lock, as it records the change.
+	keptAtRecord := true
+	a.runChanges.now = func() time.Time {
+		_, keptAtRecord = a.activities.get(key, latest, time.Now())
+		return time.Now()
+	}
 
 	a.DAGRunsChanged([]*eventstore.DAGRunStatusSnapshot{changeOf("d", "d.yaml")})
 
-	_, ok := a.activities.get(key, latest, time.Now())
-	assert.False(t, ok)
+	assert.False(t, keptAtRecord, "the activity was still kept when the feed recorded the change")
 	changes := a.runChanges.read(nil)
 	require.Equal(t, []string{"d"}, changedFiles(changes))
 	assert.False(t, changes.Changes[0].ChangedAt.Before(readAt.Truncate(time.Millisecond)))

@@ -94,8 +94,9 @@ const (
 	// the change feed, so that a DAG list reads activity at most once a
 	// minute. The strip of a list may lag behind the list.
 	dagRunChangesMinInterval = time.Minute
-	// dagRunChangesMaxInterval bounds how long a list goes without the feed:
-	// the feed tells it when the run events stop being read.
+	// dagRunChangesMaxInterval bounds how long a list goes without the feed
+	// when no run changes: each read moves the readAt of the feed, so a list
+	// learns that its rows are still current.
 	dagRunChangesMaxInterval = time.Minute
 	// dagRunsMaxInterval bounds how stale a live run list gets when no run
 	// event wakes it, such as when a DAG gains or loses a restart policy and
