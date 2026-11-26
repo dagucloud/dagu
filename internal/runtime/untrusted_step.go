@@ -57,10 +57,12 @@ func isolatedRun(ctx context.Context) bool {
 }
 
 // gatedStep reports whether the step takes a place in the gate of its run. A
-// step that runs a child run or other steps (call, parallel, foreach) and a
-// human task do not: the steps that they run take their own places.
+// foreach step does not: its item bodies are steps of the run, which take
+// their own places. A human task runs no process. A call or parallel step
+// takes a place for as long as its child runs run, since a child run has a
+// gate of its own.
 func gatedStep(step ir.Step) bool {
-	return step.Foreach == nil && step.SubDAG == nil && step.Parallel == nil && step.HumanTask == nil
+	return step.Foreach == nil && step.HumanTask == nil
 }
 
 // enterStepGate takes the place of the node in the gate of its run (Spec 103,

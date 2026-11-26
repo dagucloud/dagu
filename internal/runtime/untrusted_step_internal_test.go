@@ -110,9 +110,9 @@ func TestStepGateOrdersIsolatedRun(t *testing.T) {
 	leaveLater()
 }
 
-// Without a restricted user, an untrusted step does not hold its run. A step
-// that runs a child run takes no place, so it does not wait for an isolated
-// untrusted step: the steps of the child run take their own places.
+// Without a restricted user, an untrusted step does not hold its run. A
+// foreach step takes no place, so it does not wait for an isolated untrusted
+// step: its item bodies take their own places.
 func TestStepGateLetsStepsPass(t *testing.T) {
 	t.Parallel()
 
@@ -122,7 +122,7 @@ func TestStepGateLetsStepsPass(t *testing.T) {
 		other ir.Step
 	}{
 		"no restricted user": {config.UntrustedConfig{IsolationOff: true}, ir.Step{Name: "check"}},
-		"child run step":     {config.UntrustedConfig{Enabled: true}, ir.Step{Name: "child", SubDAG: &ir.SubDAG{Name: "child"}}},
+		"foreach step":       {config.UntrustedConfig{Enabled: true}, ir.Step{Name: "items", Foreach: &ir.ForeachConfig{}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -137,6 +137,36 @@ func TestStepGateLetsStepsPass(t *testing.T) {
 			leaveOther, err := enterStepGate(ctx, other)
 			require.NoError(t, err)
 			leaveOther()
+		})
+	}
+}
+
+// A call or parallel step waits for an isolated untrusted step like any
+// trusted step: its child runs have gates of their own, so no other step of
+// the run runs while the untrusted step holds it (Spec 103, "Isolation",
+// rule 1).
+func TestStepGateHoldsChildRunStep(t *testing.T) {
+	t.Parallel()
+
+	agentStep := ir.Step{Name: "agent", Untrusted: true}
+	for name, step := range map[string]ir.Step{
+		"call":     {Name: "sub", SubDAG: &ir.SubDAG{Name: "child"}},
+		"parallel": {Name: "fan", SubDAG: &ir.SubDAG{Name: "child"}, Parallel: &ir.ParallelConfig{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctx := isolatedContext(agentStep, step)
+
+			agent, _ := gateNode(agentStep)
+			leaveAgent, err := enterStepGate(ctx, agent)
+			require.NoError(t, err)
+			sub, subLog := gateNode(step)
+			subIn := enterAsync(ctx, enterStepGate, sub)
+			require.Eventually(t, func() bool { return subLog.has(untrusted.WaitingTrustedLine) }, 5*time.Second, 5*time.Millisecond)
+
+			leaveAgent()
+			leaveSub := <-subIn
+			leaveSub()
 		})
 	}
 }
