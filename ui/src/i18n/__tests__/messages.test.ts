@@ -113,6 +113,21 @@ describe('translations', () => {
     );
   });
 
+  // A reader downloads only the catalog of the locale in use.
+  it('loads only the requested locale', async () => {
+    vi.resetModules();
+    const fresh = await import('../translateStatic');
+
+    await fresh.loadStaticMessages('ja');
+    expect(fresh.hasStaticMessages('de')).toBe(false);
+    expect(fresh.translateStatic('de', 'No runs found')).toBe('No runs found');
+
+    await fresh.loadStaticMessages('de');
+    expect(fresh.translateStatic('de', 'No runs found')).toBe(
+      'Keine Läufe gefunden'
+    );
+  });
+
   // Status chips pass arbitrary text through, so inherited object keys
   // must come back unchanged instead of resolving to prototype members.
   it('returns unknown text unchanged', () => {
