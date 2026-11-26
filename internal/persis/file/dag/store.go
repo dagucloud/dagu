@@ -578,11 +578,13 @@ func (store *Store) MetadataByIDs(ctx context.Context, ids []string) (map[string
 		}
 		return dags, nil
 	}
+	// The base configs apply to every DAG, so they are checked once.
+	baseState := store.refreshBaseConfigState()
 	for _, id := range ids {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		dag, err := store.GetMetadata(ctx, id)
+		dag, err := store.metadata(ctx, id, baseState)
 		if err != nil {
 			continue
 		}
@@ -593,11 +595,16 @@ func (store *Store) MetadataByIDs(ctx context.Context, ids []string) (map[string
 
 // GetMetadata retrieves the metadata of a DAG by its name.
 func (store *Store) GetMetadata(ctx context.Context, name string) (*ir.DAG, error) {
+	return store.metadata(ctx, name, store.refreshBaseConfigState())
+}
+
+// metadata reads the metadata of a DAG by its name, with the base configs in
+// baseState.
+func (store *Store) metadata(ctx context.Context, name, baseState string) (*ir.DAG, error) {
 	resolved, err := store.locateDAG(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate DAG %s in search paths (%v): %w", name, store.searchPaths, err)
 	}
-	baseState := store.refreshBaseConfigState()
 	loadOpts := store.defaultLoadOptions(
 		spec.WithDefaultName(fileutil.TrimYAMLFileExtension(filepath.Base(resolved.EntryPath))),
 		spec.OnlyMetadata(),
