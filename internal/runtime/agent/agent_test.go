@@ -1813,7 +1813,7 @@ steps:
 	err := dagAgent.Run(th.Context)
 
 	require.ErrorIs(t, err, bindErr)
-	require.Equal(t, sock.Addr("child-dag", childRunID), socketAddr)
+	require.Equal(t, th.DAGRunMgr.SocketAddr(ir.NewDAGRunRef("child-dag", childRunID)), socketAddr)
 }
 
 func TestAgentUsesProvidedWorkDir(t *testing.T) {

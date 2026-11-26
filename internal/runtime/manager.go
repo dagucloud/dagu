@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -89,6 +90,7 @@ func NewManager(dagRunRepository *persis.DAGRunRepository, processes processRepo
 		procRepository:   processes,
 		subCmdBuilder:    launcher.NewSubCmdBuilder(cfg),
 		nowFunc:          time.Now,
+		dataDir:          cfg.Paths.DataDir,
 	}
 	for _, opt := range opts {
 		opt(&m)
@@ -108,12 +110,21 @@ type Manager struct {
 	// project names the project whose runs the Manager handles. It is
 	// empty while projects are off.
 	project string
+	// dataDir is the data directory of the home, which keeps the control
+	// sockets of its runs apart from those of other homes on the host.
+	dataDir string
 }
 
 // Project returns the name of the project whose runs the Manager handles,
 // or "" when it is bound to none.
 func (m Manager) Project() string {
 	return m.project
+}
+
+// SocketAddr returns the address at which a run that the Manager handles
+// listens for control requests.
+func (m Manager) SocketAddr(dagRun ir.DAGRunRef) string {
+	return proc.ProjectDAGSocketAddr(m.dataDir, m.project, dagRun)
 }
 
 type processRepository interface {
@@ -503,16 +514,16 @@ func (m *Manager) currentStatus(_ context.Context, dagRun ir.DAGRunRef, dag *ir.
 	return nil, fmt.Errorf("socket file does not exist for dag-run ID %s", dagRun.ID)
 }
 
+// dagSocketCandidates returns the addresses at which a run can listen: its
+// own, then those of earlier versions, which named no home.
 func (m *Manager) dagSocketCandidates(dagRun ir.DAGRunRef, dag *ir.DAG) []string {
-	canonical := proc.ProjectDAGSocketAddr(m.project, dagRun)
-	addrs := []string{canonical}
-	// Only a run of the default project may listen at the address of an
-	// older version, which no project shaped.
+	addrs := []string{m.SocketAddr(dagRun), proc.LegacyProjectDAGSocketAddr(m.project, dagRun)}
+	// Only a run of the default project may listen at the address of the
+	// oldest versions, which named the DAG by its file and no project.
 	if dag == nil || dag.Location == "" || (m.project != "" && !strings.EqualFold(m.project, project.DefaultName)) {
 		return addrs
 	}
-	legacy := sock.Addr(dag.Location, dagRun.ID)
-	if legacy != canonical {
+	if legacy := sock.LegacyAddr(dag.Location, dagRun.ID); !slices.Contains(addrs, legacy) {
 		addrs = append(addrs, legacy)
 	}
 	return addrs

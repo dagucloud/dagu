@@ -43,7 +43,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/output"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/proc"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/rundates"
@@ -3137,7 +3136,7 @@ func (a *Agent) setupSocketServer(ctx context.Context) error {
 }
 
 func (a *Agent) socketAddr() string {
-	return proc.ProjectDAGSocketAddr(a.dagRunMgr.Project(), ir.NewDAGRunRef(a.dag.Name, a.dagRunID))
+	return a.dagRunMgr.SocketAddr(ir.NewDAGRunRef(a.dag.Name, a.dagRunID))
 }
 
 // checkIsAlreadyRunning returns error if the DAG is already running.
