@@ -12,7 +12,6 @@ export default defineMessages({
     'Show recent runs': 'Show recent runs',
     'Hide recent runs': 'Hide recent runs',
     'Recent runs of {name}': 'Recent runs of {name}',
-    'Open the workflow': 'Open the workflow',
     'Could not load the recent runs': 'Could not load the recent runs',
     '{own} + {cached} cached': '{own} + {cached} cached',
     'queued {time}': 'queued {time}',
@@ -44,7 +43,6 @@ export default defineMessages({
     'Show recent runs': '显示最近的运行',
     'Hide recent runs': '隐藏最近的运行',
     'Recent runs of {name}': '{name} 的最近运行',
-    'Open the workflow': '打开工作流',
     'Could not load the recent runs': '无法加载最近的运行',
     '{own} + {cached} cached': '{own} + 缓存 {cached}',
     'queued {time}': '排队 {time}',
@@ -76,7 +74,6 @@ export default defineMessages({
     'Show recent runs': '最近の実行を表示',
     'Hide recent runs': '最近の実行を隠す',
     'Recent runs of {name}': '{name} の最近の実行',
-    'Open the workflow': 'ワークフローを開く',
     'Could not load the recent runs': '最近の実行を読み込めませんでした',
     '{own} + {cached} cached': '{own} + キャッシュ {cached}',
     'queued {time}': '待機 {time}',
@@ -111,7 +108,6 @@ export default defineMessages({
     'Show recent runs': 'Letzte Läufe anzeigen',
     'Hide recent runs': 'Letzte Läufe ausblenden',
     'Recent runs of {name}': 'Letzte Läufe von {name}',
-    'Open the workflow': 'Ablauf öffnen',
     'Could not load the recent runs':
       'Die letzten Läufe konnten nicht geladen werden',
     '{own} + {cached} cached': '{own} + {cached} aus dem Cache',
@@ -173,11 +169,9 @@ export default defineMessages({
     'Show recent runs': 'Afficher les exécutions récentes',
     'Hide recent runs': 'Masquer les exécutions récentes',
     'Recent runs of {name}': 'Exécutions récentes de {name}',
-    'Open the workflow': 'Ouvrir le workflow',
     'Could not load the recent runs':
       'Impossible de charger les exécutions récentes',
     '{own} + {cached} cached': '{own} + {cached} en cache',
     'queued {time}': 'en file d’attente {time}',
-    Show: 'Afficher',
   },
 });

@@ -6,7 +6,7 @@ import { NodeStatus, Status, type components } from '@/api/v1/schema';
 type Run = components['schemas']['DAGRunDetails'];
 
 /** The shortest wait in the queue that a run line tells, in ms. */
-export const QUEUE_WAIT_MIN_MS = 1000;
+const QUEUE_WAIT_MIN_MS = 1000;
 
 function firstLine(text: string | undefined): string {
   return (text ?? '').trim().split('\n')[0]?.trim() ?? '';
