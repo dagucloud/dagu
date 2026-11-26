@@ -204,12 +204,12 @@ func StartManagedProcess(ctx context.Context, cmd *exec.Cmd) (*cmdutil.ManagedPr
 		}
 		return cmdutil.StartManagedProcess(cmd)
 	}
-	if err := step.prepare(cmd); err != nil {
+	release, err := step.prepare(cmd)
+	if err != nil {
 		return nil, err
 	}
-	stopWatch := step.watchStart()
 	process, err := cmdutil.StartManagedProcess(cmd)
-	stopWatch()
+	release()
 	if err != nil {
 		if step.iso != nil {
 			step.iso.abandon()
@@ -222,23 +222,15 @@ func StartManagedProcess(ctx context.Context, cmd *exec.Cmd) (*cmdutil.ManagedPr
 	return process, nil
 }
 
-// prepare applies the rules of the step to cmd before it starts.
-func (s *Step) prepare(cmd *exec.Cmd) error {
+// prepare applies the rules of the step to cmd before it starts. The caller
+// calls release once the start returns.
+func (s *Step) prepare(cmd *exec.Cmd) (release func(), err error) {
 	env := filterEnv(cmd.Env)
 	if s.iso == nil {
 		cmd.Env = env
-		return nil
+		return func() {}, nil
 	}
 	return s.iso.prepare(cmd, env)
-}
-
-// watchStart guards the start of a process of an isolated step. The returned
-// function ends the guard.
-func (s *Step) watchStart() func() {
-	if s.iso == nil {
-		return func() {}
-	}
-	return s.iso.watchStart()
 }
 
 // filterEnv returns the variables without those whose names start with DAGU_,

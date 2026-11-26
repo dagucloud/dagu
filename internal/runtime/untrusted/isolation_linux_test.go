@@ -160,6 +160,29 @@ func TestIsolatedStepRunsAsTheRestrictedUser(t *testing.T) {
 	assert.Equal(t, "answer=42\n", string(output))
 }
 
+// A command that does not exist exits with 127, as in a shell, and says why on
+// stderr.
+func TestIsolatedStepCommandNotFound(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+
+	missing := filepath.Join(workDir, "missing")
+	cmd := exec.Command(missing)
+	cmd.Dir = workDir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	process, err := StartManagedProcess(WithStep(ctx, step), cmd)
+	require.NoError(t, err)
+	defer func() { _ = process.Release() }()
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, process.Wait(), &exitErr)
+	assert.Equal(t, 127, exitErr.ExitCode())
+	assert.Contains(t, stderr.String(), "run "+missing)
+}
+
 // A working directory outside the work directory of the run fails the step.
 func TestIsolatedStepPlace(t *testing.T) {
 	requireIsolation(t)

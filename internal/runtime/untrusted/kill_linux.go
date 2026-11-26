@@ -57,10 +57,7 @@ func runKillHelper(uidArg, gidArg string) int {
 	if uidErr != nil || gidErr != nil || uid <= 0 || gid <= 0 {
 		return 2
 	}
-	if syscall.Setgroups([]int{}) != nil || syscall.Setgid(gid) != nil || syscall.Setuid(uid) != nil {
-		return 3
-	}
-	if os.Getuid() != uid || os.Geteuid() != uid || os.Getgid() != gid || os.Getegid() != gid {
+	if changeToUser(uid, gid) != nil {
 		return 3
 	}
 	for range 5 {

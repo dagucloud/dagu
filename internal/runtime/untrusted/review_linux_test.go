@@ -255,10 +255,10 @@ int main(int argc, char **argv) {
 
 // Property (Spec 103, "Isolation", rule 7): End and each start of a process of
 // the step return. The attack: a process of the restricted user sends SIGSTOP
-// to each process of that user. A child that Dagu starts runs as that user
-// from its setuid on, before its execve, and Go waits for that execve; a
-// child stopped there would block the start, and the kill helper of End,
-// forever.
+// to each process of that user. Go waits for the execve of each child it
+// starts, with the runtime of the worker blocked at its next garbage
+// collection; a child that ran as that user before its execve could be
+// stopped there and block the worker forever.
 func TestReviewStopperBlocksNoStart(t *testing.T) {
 	requireIsolation(t)
 	gcc, err := exec.LookPath("gcc")
@@ -293,8 +293,8 @@ func TestReviewStopperBlocksNoStart(t *testing.T) {
 		return err == nil
 	}, 5*time.Second, 20*time.Millisecond, "the stopper does not run")
 
-	// Up to 200 starts in 3 s, while the stopper runs. A blocked start shows
-	// within startTimeout and 10 s of slack.
+	// Up to 200 starts in 3 s, while the stopper runs. A start takes
+	// milliseconds; one that takes 10 s is blocked.
 	var processes []*cmdutil.ManagedProcess
 	slow := 0
 	for begin, n := time.Now(), 0; n < 200 && time.Since(begin) < 3*time.Second; n++ {
@@ -311,7 +311,7 @@ func TestReviewStopperBlocksNoStart(t *testing.T) {
 			if process != nil {
 				processes = append(processes, process)
 			}
-		case <-time.After(startTimeout + 10*time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatal("a start of a process of the step is blocked")
 		}
 		if time.Since(startedAt) > time.Second {

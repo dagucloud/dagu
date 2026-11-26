@@ -26,13 +26,11 @@ func isolate(_ context.Context, req Request, _ *Step) (*Step, error) {
 
 func (*isolation) end(context.Context) error { return nil }
 
-func (*isolation) watchStart() func() { return func() {} }
-
 func (*isolation) started(int) {}
 
 func (*isolation) abandon() {}
 
-func (*isolation) prepare(*exec.Cmd, []string) error { return errNeedsLinux }
+func (*isolation) prepare(*exec.Cmd, []string) (func(), error) { return nil, errNeedsLinux }
 
 func (*isolation) setOutputTarget(target string) string { return target }
 

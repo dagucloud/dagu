@@ -436,27 +436,28 @@ func (iso *isolation) writeRestrictedFile(path string, data []byte, mode fs.File
 	return nil
 }
 
-// prepare applies the isolation to cmd.
-func (iso *isolation) prepare(cmd *exec.Cmd, env []string) error {
+// prepare applies the isolation to cmd. The caller calls release once the
+// start of cmd returns.
+func (iso *isolation) prepare(cmd *exec.Cmd, env []string) (release func(), err error) {
 	if iso.ended.Load() {
-		return fmt.Errorf("untrusted step %q: the step ended", iso.step)
+		return nil, fmt.Errorf("untrusted step %q: the step ended", iso.step)
 	}
 	if len(cmd.ExtraFiles) > 0 {
-		return fmt.Errorf("untrusted step %q: the process cannot get extra files", iso.step)
+		return nil, fmt.Errorf("untrusted step %q: the process cannot get extra files", iso.step)
 	}
 	if err := closeOnExec(); err != nil {
-		return stepError(iso.step, "keep the descriptors of the worker from the process", "", err)
+		return nil, stepError(iso.step, "keep the descriptors of the worker from the process", "", err)
 	}
 	dir := cmd.Dir
 	if dir != "" && !filepath.IsAbs(dir) {
 		abs, err := filepath.Abs(dir)
 		if err != nil {
-			return stepError(iso.step, "resolve the working directory", dir, err)
+			return nil, stepError(iso.step, "resolve the working directory", dir, err)
 		}
 		dir = abs
 	}
 	if _, ok := iso.relativeToWork(dir); !ok {
-		return fmt.Errorf("untrusted step %q: the working directory %s is not in the work directory of the run", iso.step, cmd.Dir)
+		return nil, fmt.Errorf("untrusted step %q: the working directory %s is not in the work directory of the run", iso.step, cmd.Dir)
 	}
 	env = setEnv(env, "HOME", iso.home)
 	env = setEnv(env, "TMPDIR", iso.home)
@@ -466,11 +467,15 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) error {
 	if hasTarget {
 		env = setEnv(env, runenv.EnvKeyDAGUOutputFile, iso.outputCopy)
 	}
-	cmd.Env = env
+	envFile, err := iso.viaStartHelper(cmd, dir, env)
+	if err != nil {
+		return nil, stepError(iso.step, "prepare the start of the process", "", err)
+	}
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
-	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: iso.uid, Gid: iso.gid, Groups: []uint32{}}
+	// The child stays root until the start helper changes the user.
+	cmd.SysProcAttr.Credential = nil
 	cmd.SysProcAttr.AmbientCaps = nil
 	// A new session: a new process group and no controlling terminal.
 	cmd.SysProcAttr.Setsid = true
@@ -478,7 +483,7 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) error {
 	cmd.SysProcAttr.Setctty = false
 	cmd.SysProcAttr.Noctty = false
 	cmd.SysProcAttr.Pgid = 0
-	return nil
+	return func() { _ = envFile.Close() }, nil
 }
 
 // closeOnExec marks each descriptor of the process from 3 up close-on-exec.
@@ -505,34 +510,6 @@ func closeOnExec() error {
 		}
 	}
 	return nil
-}
-
-// startTimeout limits the start of a process of the step. The child runs as
-// the restricted user from its setuid to its execve, and Go waits for that
-// execve with the fork lock of the worker held: a process of the user that
-// stops the child there would block each later start of the worker.
-const startTimeout = 5 * time.Second
-
-// watchStart sends SIGKILL to each task of the restricted user, the stopped
-// child included, while a start of a process of the step takes more than
-// startTimeout. It uses the /proc scan only: the kill helper would need a
-// start too. The returned function ends the watch.
-func (iso *isolation) watchStart() (stop func()) {
-	done := make(chan struct{})
-	go func() {
-		timer := time.NewTimer(startTimeout)
-		defer timer.Stop()
-		for {
-			select {
-			case <-done:
-				return
-			case <-timer.C:
-			}
-			killTaskGroups(iso.uid)
-			timer.Reset(10 * time.Millisecond)
-		}
-	}()
-	return func() { close(done) }
 }
 
 // started and abandon have nothing to do: end stops each process of the
