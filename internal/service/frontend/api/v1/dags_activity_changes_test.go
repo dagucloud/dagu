@@ -23,7 +23,8 @@ import (
 func TestDAGRunChangesFollowsTheCaller(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
-	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithAuthService(stubAuthService{}))
+	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithAuthService(stubAuthService{}),
+		localapi.WithEventService(eventstore.New(nil)))
 	// The first read of the run events starts the feed.
 	apiImpl.DAGRunsChanged(nil)
 	testutil.WaitForClockTick(t)
@@ -54,4 +55,15 @@ func TestDAGRunChangesEndpoint(t *testing.T) {
 	assert.False(t, changes.ReadAt.IsZero())
 	assert.False(t, changes.Since.IsZero())
 	assert.NotNil(t, changes.Changes)
+}
+
+// Only the run events feed the change feed: a server without the event store
+// answers 501, and a list then draws no activity.
+func TestDAGRunChangesNeedTheEventStore(t *testing.T) {
+	t.Parallel()
+	apiImpl := newDAGPinAPIWithStore(test.Setup(t), nil)
+
+	_, err := apiImpl.GetDAGRunChanges(context.Background(), api.GetDAGRunChangesRequestObject{})
+
+	requireAPIErrorStatus(t, err, http.StatusNotImplemented)
 }

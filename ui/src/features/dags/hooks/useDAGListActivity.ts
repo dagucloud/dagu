@@ -95,7 +95,11 @@ export function useDAGListActivity(
   const live = enabled && visible && !paused && !state.missing;
 
   const sse = useDAGRunChangesSSE(live, remoteNode);
-  const { data: feedData, mutate } = useQuery(
+  const {
+    data: feedData,
+    error: feedError,
+    mutate,
+  } = useQuery(
     '/dag-run-changes',
     live ? { params: { query: { remoteNode } } } : null,
     {
@@ -109,6 +113,15 @@ export function useDAGListActivity(
       setState(onNode(remoteNode, (s) => applyFeed(s, parseFeed(feedData))));
     }
   }, [feedData, remoteNode]);
+  // A node without the feed, as one without the event store, would have the
+  // list read every row each minute: it gives no activity instead.
+  useEffect(() => {
+    if (isMissingEndpoint(feedError)) {
+      setState(
+        onNode(remoteNode, (s) => (s.missing ? s : { ...s, missing: true }))
+      );
+    }
+  }, [feedError, remoteNode]);
 
   // The list keeps the activity of the DAGs it shows only.
   useEffect(() => {

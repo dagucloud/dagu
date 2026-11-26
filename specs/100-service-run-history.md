@@ -347,10 +347,11 @@ rows whose activity it read before `since`.
 - The topic reads the feed at most once a minute, and at least once a minute. It sends each read,
   since its `readAt` moves, so that a list learns once a minute that its rows are still current.
 - The server keeps a change for 3 minutes, and at most 2000 files. `since` moves when the server
-  starts reading run events, when its stream of app events resets, and when the feed drops a
-  change. A pause in the reads of the run events delays changes and does not move `since`.
-- A server without the event store answers `unsupported_topic` for the topic, and its
-  `GET /dag-run-changes` gives a `since` equal to `readAt`.
+  starts reading run events and when the feed drops a change. A pause in the reads of the run
+  events delays changes and does not move `since`, and neither does a reset of the app events.
+- A server without the event store answers `unsupported_topic` for the topic and `501` for
+  `GET /dag-run-changes`. Its lists draw no Activity column, rather than read every row each
+  minute.
 - `changedAt` and `since` are rounded up, and `readAt` down, to the millisecond.
 
 The activity of a service DAG has:
@@ -454,14 +455,14 @@ Rules:
 - The list makes no request of its own for each DAG. The activity of its rows comes in
   `GET /dag-list-activity` requests that name the rows, at most 100 each. After the first read, the
   list reads only the rows that the `dagrunchanges` feed names, or the rows that it read before the
-  `since` of the feed. Without the feed, it reads all its rows once a minute. The only exception
-  is the detail of a strip that the user opens.
+  `since` of the feed. While the stream is down, it polls `GET /dag-run-changes` once a minute.
+  The only exception is the detail of a strip that the user opens.
 - The list adds the topic in a topic change of its own, so that the list does not wait for the
   activity.
 - Until the activity of a row arrives, its strip shows a placeholder. While the activity refreshes,
   the strip keeps the last activity.
-- A node that gives no activity, such as an older remote node that answers `404`, draws no strip
-  and no placeholder.
+- A node that gives no activity, such as an older remote node that answers `404`, or a node
+  without the event store that answers `501` for the feed, draws no strip and no placeholder.
 - The Last Run column of a service DAG shows the state of the service in the chip of the Runs list:
   Healthy for the states running and restarting, because a service that restarts as designed is
   well. Pending, failing, suspended and stopped keep their names. A DAG that is not a service DAG

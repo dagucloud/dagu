@@ -1246,9 +1246,9 @@ func TestRunChangesTopicNeedsTheEventService(t *testing.T) {
 	assert.Contains(t, body, `"topic":"dagrunchanges:all"`)
 }
 
-// A reset of the stream of app events can follow missed changes, so the change
-// feed is complete only from then, and the lists read all their activity again.
-func TestAppStreamResetRestartsRunChanges(t *testing.T) {
+// A reset of the stream of app events tells of files, not of runs: the change
+// feed keeps its changes, so the lists do not read all their activity again.
+func TestAppStreamResetKeepsRunChanges(t *testing.T) {
 	t.Parallel()
 	mux := sse.NewMultiplexer(sse.StreamConfig{HeartbeatInterval: time.Hour}, nil)
 	t.Cleanup(mux.Shutdown)
@@ -1264,5 +1264,5 @@ func TestAppStreamResetRestartsRunChanges(t *testing.T) {
 	require.Equal(t, 1, changes())
 
 	srv.wakeMultiplexedTopicsForAppEvent(sse.AppEvent{Type: sse.AppEventTypeReset})
-	assert.Zero(t, changes(), "the feed holds the changes after the reset only")
+	assert.Equal(t, 1, changes())
 }

@@ -334,6 +334,24 @@ describe('useDAGListActivity', () => {
   );
 
   // A node with the earlier form of the endpoint answers without readAt.
+  // Without the event store the feed answers 501, and the list would read
+  // every row each minute: it gives no activity instead.
+  it.each([404, 501])(
+    'gives no activity for a node whose feed answers %i',
+    async (status) => {
+      const error = { code: 'internal_error', response: { status } };
+      useQueryMock.mockImplementation(() => ({
+        data: undefined,
+        error,
+        mutate: vi.fn(),
+      }));
+      const { result } = renderActivity(['a']);
+
+      await waitFor(() => expect(result.current).toBeUndefined());
+      expect(lastCall(useSSEMock)?.[0]).toBe(false);
+    }
+  );
+
   it('gives no activity for a node with the earlier endpoint', async () => {
     getMock.mockImplementation(async (_path: string, init: GetInit) => {
       const page = answer(init.params.query.fileName);

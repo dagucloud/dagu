@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"net/http"
 	"slices"
 	"sync"
 	"time"
@@ -38,15 +39,17 @@ func (a *API) DAGRunsChanged(changes []*eventstore.DAGRunStatusSnapshot) {
 	a.runChanges.record(changes)
 }
 
-// ResetDAGRunChanges makes the change feed complete only from now, so that
-// the lists read all their activity again. The server calls it when its
-// stream of app events resets and may have missed changes.
-func (a *API) ResetDAGRunChanges() {
-	a.runChanges.reset()
-}
-
-// GetDAGRunChanges returns the change feed as the caller sees it.
+// GetDAGRunChanges returns the change feed as the caller sees it. Only the
+// run events feed it: a server without them answers 501, and a list then
+// draws no activity, rather than read all of it again each minute.
 func (a *API) GetDAGRunChanges(ctx context.Context, _ api.GetDAGRunChangesRequestObject) (api.GetDAGRunChangesResponseObject, error) {
+	if a.eventService == nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusNotImplemented,
+			Code:       api.ErrorCodeInternalError,
+			Message:    "the change feed needs the event store, which this server does not run",
+		}
+	}
 	return api.GetDAGRunChanges200JSONResponse(a.dagRunChanges(ctx)), nil
 }
 
@@ -63,18 +66,31 @@ func (a *API) dagRunChanges(ctx context.Context) api.DAGRunChanges {
 // changedDAGNames returns the names of the DAGs of changes, each once.
 func changedDAGNames(changes []*eventstore.DAGRunStatusSnapshot) []string {
 	names := make([]string, 0, len(changes))
+	seen := make(map[string]struct{}, len(changes))
 	for _, change := range changes {
-		if !slices.Contains(names, change.Name) {
+		if _, ok := seen[change.Name]; !ok {
+			seen[change.Name] = struct{}{}
 			names = append(names, change.Name)
 		}
 	}
 	return names
 }
 
+// changedFile is the file name of the DAG of a change: the stem of its file,
+// or the name of the DAG for a run without one.
+func changedFile(change *eventstore.DAGRunStatusSnapshot) string {
+	if fileName := fileutil.TrimYAMLFileExtension(change.DAGFile); fileName != "" {
+		return fileName
+	}
+	return change.Name
+}
+
 // runChanges keeps the DAG files whose root runs changed lately, the latest
 // change of each, oldest first. It holds every change after from, which is
 // zero before the first read of the run events. The run events are read from
-// a cursor, so a pause in their reads delays changes and loses none.
+// a cursor, so a pause in their reads delays changes and loses none. A reset
+// of the app events does not touch it either: those events tell of files,
+// not of runs.
 type runChanges struct {
 	mu      sync.Mutex
 	entries []runChange
@@ -107,13 +123,25 @@ func (c *runChanges) record(changes []*eventstore.DAGRunStatusSnapshot) {
 	if c.from.IsZero() {
 		c.from = at
 	}
-	for _, change := range changes {
-		fileName := fileutil.TrimYAMLFileExtension(change.DAGFile)
-		if fileName == "" {
-			fileName = change.Name
+	// The last change of each file in the batch, in the order of those last
+	// changes, so that a batch costs its length and the feed's once.
+	labels := make(map[string]ir.Labels, len(changes))
+	files := make([]string, 0, len(changes))
+	for _, change := range slices.Backward(changes) {
+		fileName := changedFile(change)
+		if _, ok := labels[fileName]; ok {
+			continue
 		}
-		c.entries = slices.DeleteFunc(c.entries, func(e runChange) bool { return e.fileName == fileName })
-		c.entries = append(c.entries, runChange{fileName: fileName, labels: ir.NewLabels(change.Labels), at: at})
+		labels[fileName] = ir.NewLabels(change.Labels)
+		files = append(files, fileName)
+	}
+	slices.Reverse(files)
+	c.entries = slices.DeleteFunc(c.entries, func(e runChange) bool {
+		_, changed := labels[e.fileName]
+		return changed
+	})
+	for _, fileName := range files {
+		c.entries = append(c.entries, runChange{fileName: fileName, labels: labels[fileName], at: at})
 	}
 	c.trim(at)
 }
@@ -130,13 +158,6 @@ func (c *runChanges) trim(now time.Time) {
 		drop++
 	}
 	c.entries = slices.Delete(c.entries, 0, drop)
-}
-
-// reset makes the feed complete from now only.
-func (c *runChanges) reset() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.from = c.clock()
 }
 
 // read returns the changes after from that filter lets the caller see, the

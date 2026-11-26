@@ -1635,11 +1635,6 @@ func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
 	case sse.AppEventTypeWiki:
 		srv.wakeWikiTopics()
 	case sse.AppEventTypeReset:
-		// Missed DAG file events can change activity with no run event, such
-		// as a change of name in place, so the lists read all of it again.
-		if srv.apiV1 != nil {
-			srv.apiV1.ResetDAGRunChanges()
-		}
 		srv.wakeAllMultiplexedFileBackedTopics()
 	}
 }
@@ -1653,7 +1648,6 @@ func (srv *Server) wakeAllMultiplexedFileBackedTopics() {
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
-	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGRunChanges)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 	srv.wakeWikiTopics()
 }

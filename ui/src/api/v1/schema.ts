@@ -7494,7 +7494,7 @@ export interface components {
         DAGRunChanges: {
             /**
              * Format: date-time
-             * @description The feed holds every change after this time, rounded up to the millisecond. It moves when the server starts reading run events, when its stream of app events resets, and when the feed drops a change older than 3 minutes or beyond 2000 files. A pause in the reads of the run events delays changes and does not move it. Equal to `readAt` before the server reads run events, as without the event store.
+             * @description The feed holds every change after this time, rounded up to the millisecond. It moves when the server starts reading run events and when the feed drops a change older than 3 minutes or beyond 2000 files. A pause in the reads of the run events delays changes and does not move it. Equal to `readAt` before the first read of the run events.
              */
             since: string;
             /**
@@ -13624,6 +13624,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DAGRunChanges"];
+                };
+            };
+            /** @description The server does not run the event store, which alone feeds the change feed */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Generic error response */

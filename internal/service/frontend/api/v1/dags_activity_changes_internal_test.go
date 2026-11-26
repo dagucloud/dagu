@@ -114,7 +114,7 @@ func TestRunChangesKeepsAtMostTheLimit(t *testing.T) {
 
 // Before the first read of the run events, the feed is complete from now only,
 // so a list reads all its rows. A pause in the reads delays changes and loses
-// none, so it does not move since; a reset of the app events does.
+// none, so it does not move since.
 func TestRunChangesCompleteFromTheFirstRead(t *testing.T) {
 	t.Parallel()
 	feed, setNow := feedAt(feedStart.Add(500 * time.Microsecond))
@@ -130,11 +130,6 @@ func TestRunChangesCompleteFromTheFirstRead(t *testing.T) {
 	changes = feed.read(nil)
 	assert.True(t, changes.Since.Equal(feedStart), "since %s", changes.Since)
 	assert.Equal(t, []string{"b"}, changedFiles(changes), "the change read after the pause")
-
-	reset := paused.Add(time.Second)
-	setNow(reset)
-	feed.reset()
-	assert.True(t, feed.read(nil).Since.Equal(reset))
 }
 
 // A change and a read at the same instant keep the change after the read, in a
