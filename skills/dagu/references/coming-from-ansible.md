@@ -89,7 +89,7 @@ dagu nodes list --labels web                   # like `ansible-inventory --list`
 - A comma means AND in a Dagu selector. Quote a selector that starts with `!`, since YAML reads a leading `!` as a tag.
 - Keys and values take globs, `*` and `?`, as in `role=front*`, not regular expressions.
 - In a bound run, steps with no action, `ssh.run`, and `sftp.*` run on the node. Other actions run on the Dagu host.
-- In a linear play without `serial`, a `run_once` task delegated to localhost runs after the tasks before it finish on every host, and before the tasks after it start. A step outside one bound DAG runs before or after all of that DAG's steps, so split the play at the task: a step with `nodes`, a command step or a `dag.run` of a bound DAG, for the tasks before it, the `run_once` task as a step without `nodes`, then a step with `nodes` for the tasks after it, each depending on the one before. A `run_once` task without `delegate_to` runs on one host instead: select that host with a label only it carries.
+- In a linear play without `serial`, a `run_once` task delegated to localhost runs after the tasks before it finish on every host, and before the tasks after it start. A step outside one bound DAG runs before or after all of that DAG's steps, so split the play at the task: a step with `nodes`, a command step or a `dag.run` of a bound DAG, for the tasks before it, the `run_once` task as a step without `nodes`, then a step with `nodes` for the tasks after it, each depending on the one before. A `run_once` task without `delegate_to` runs on one host instead: select that host with a label only it carries. A run narrowed with `--node` to other hosts skips that step, and the steps after it still run ([Limits](#limits)), where Ansible runs `run_once` on a host that `--limit` selects.
 - The linear strategy runs each task on every host before the next task. For that order, put `nodes` on each command step instead. A step with `nodes` fails when any of its nodes failed, and the steps after it then run on every matched node, or not at all, as `continue_on` decides.
 
 ```yaml
@@ -163,7 +163,7 @@ steps:
 | Ansible | Dagu |
 | --- | --- |
 | `--limit web01,web03` | `dagu start --node web01 --node web03 site`; `targetNodes` in the API and MCP `dagu_execute` |
-| `--limit @site.retry` | Not available yet. Start a new run narrowed with `--node` to the hosts to run again; steps without `nodes` run again too |
+| `--limit @site.retry` | `dagu retry site --run-id <id>`, or Retry failed nodes in the UI: a step with `nodes` runs again only on the nodes that did not succeed, and the others keep their results |
 
 - `--node` takes node names, not groups or patterns. Each must be an inventory node.
 - A node list only removes nodes: a step runs on a node that its selector matches and the list names. A step none of whose nodes is listed is skipped without blocking later steps.
@@ -173,4 +173,3 @@ steps:
 ## Not Available Yet
 
 - Workers as nodes. Bound runs and steps with `nodes` run on the Dagu host and reach SSH nodes. A run on a worker that is bound or has a step with `nodes` fails before any step. With `default_execution_mode: distributed`, set `worker_selector: local` on a DAG with such steps.
-- Retrying only the nodes that failed.

@@ -153,7 +153,7 @@ steps:
 | Job reference step | `dag.run` |
 | Execute locally | A step without `nodes`; it runs where the run runs |
 | Per-node output of an execution | The run's Nodes tab; `GET /api/v1/dag-runs/{name}/{id}/node-runs` |
-| Retry failed nodes | Not available yet. Start a new run narrowed with `--node` to the nodes to run again; steps without `nodes` run again too |
+| Retry failed nodes | `dagu retry deploy --run-id <id>`, or Retry failed nodes on the step or in the run's Nodes tab: a step with `nodes` runs again only on the nodes that did not succeed, and the others keep their results |
 
 - Dagu inserts `${params.*}` and step outputs into `run:` as shell text, without escaping, so a value such as `$(...)` runs as a command. Pass only trusted values, or limit a param with `pattern`, as in `- name: version`, `type: string`, `pattern: '^[0-9A-Za-z.+~-]+$'`, which refuses any other value before the run starts.
 - A node list only removes nodes: a step runs on a node that its selector matches and the list names. A step none of whose nodes is listed is skipped without blocking later steps.
@@ -163,4 +163,3 @@ steps:
 ## Not Available Yet
 
 - Workers as nodes. Bound runs and steps with `nodes` run on the Dagu host and reach SSH nodes. A run on a worker that is bound or has a step with `nodes` fails before any step. With `default_execution_mode: distributed`, set `worker_selector: local` on a DAG with such steps.
-- Retrying only the nodes that failed.
