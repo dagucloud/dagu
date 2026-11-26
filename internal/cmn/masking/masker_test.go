@@ -178,6 +178,54 @@ func TestNewValueMasker_JoinsPatternMatches(t *testing.T) {
 	assert.Equal(t, "use *******!", m.MaskString("use key-tok_abc!"))
 }
 
+// Provider tokens are written split in two, so a secret scanner does not
+// take the test data for leaked tokens.
+var (
+	googleAccessToken  = "ya29." + "a0AfB_byC1x2y3z4ExampleAccessToken-abc"
+	googleServiceToken = "ya29." + "c.c0ASRK0GZExampleServiceToken"
+	googleRefreshToken = "1//" + "0gExampleRefreshTokenValue-abcdefghijklmnopqrstuvwxyz"
+)
+
+func TestNewMasker_ProviderTokens(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "google access token",
+			input:    "Authorization: Bearer " + googleAccessToken + "\n",
+			expected: "Authorization: Bearer *******\n",
+		},
+		{
+			name:     "google service account token",
+			input:    "token=" + googleServiceToken,
+			expected: "token=*******",
+		},
+		{
+			name:     "google refresh token in JSON",
+			input:    `{"refresh_token":"` + googleRefreshToken + `","expires_in":3599}`,
+			expected: `{"refresh_token":"*******","expires_in":3599}`,
+		},
+		{
+			// A doubled slash in a path is too short to be a refresh token.
+			name:     "doubled slash in a path",
+			input:    "POST /api/v1//license/deactivate",
+			expected: "POST /api/v1//license/deactivate",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.expected, NewMasker(SourcedEnvVars{}).MaskString(tt.input))
+		})
+	}
+}
+
 func TestMasker_Add(t *testing.T) {
 	t.Parallel()
 

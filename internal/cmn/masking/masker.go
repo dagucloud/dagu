@@ -27,6 +27,14 @@ type SourcedEnvVars struct {
 	Secrets []string // Environment variables from secrets
 }
 
+// providerTokenPatterns match the formats of provider OAuth tokens, which
+// a step can print without Dagu knowing the value: Google access tokens and
+// Google refresh tokens. Each starts with a literal, so a scan skips to it.
+var providerTokenPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`ya29\.[0-9A-Za-z._-]{20,}`),
+	regexp.MustCompile(`1//[0-9A-Za-z_-]{40,}`),
+}
+
 // Masker provides masking functionality for sensitive data. It is safe for
 // concurrent use.
 type Masker struct {
@@ -52,14 +60,15 @@ type span struct {
 
 // NewMasker creates a masker from sourced environment variables. Each value
 // is masked as written and as it appears inside a JSON string, so a secret
-// that JSON escaping rewrites is still hidden in JSON text.
+// that JSON escaping rewrites is still hidden in JSON text. It also masks
+// provider OAuth token formats, such as Google access and refresh tokens.
 func NewMasker(sources SourcedEnvVars) *Masker {
 	values := make([]string, 0, len(sources.Secrets))
 	for _, env := range sources.Secrets {
 		_, val := splitEnv(env)
 		values = append(values, val)
 	}
-	return NewValueMasker(values)
+	return NewValueMasker(values, providerTokenPatterns...)
 }
 
 // NewValueMasker creates a masker that hides each of values, as NewMasker
