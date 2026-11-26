@@ -208,7 +208,7 @@ type ToolDefinitionProvider interface {
 }
 
 // UntrustedRunner is implemented by executors that can run an untrusted step
-// (Spec 092). Such an executor starts each process of the step through
+// (Spec 103). Such an executor starts each process of the step through
 // untrusted.StartManagedProcess, which applies the rules of an untrusted step.
 // The runtime refuses an untrusted step whose executor does not implement it.
 type UntrustedRunner interface {

@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// Spec 092, "Trusted steps after an untrusted step". In a run with an untrusted
+// Spec 103, "Protections for later trusted steps". In a run with an untrusted
 // step, git in a trusted process opens a bare repository only when the command
 // names it (safe.bareRepository=explicit). So a folder that an agent makes to
 // look like a repository does not give its config to git, for example

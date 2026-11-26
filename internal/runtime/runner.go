@@ -992,7 +992,7 @@ func hasStepLocalEntry(scope *cmnvalue.EnvScope, key string) bool {
 }
 
 // abortRun stops the run after an untrusted step that Dagu could not end
-// safely (Spec 092, "End"): a process of the restricted user survives, or a
+// safely (Spec 103, "Isolation"): a process of the restricted user survives, or a
 // git folder changed. The steps that run get a forced stop, and no other step
 // starts.
 func (r *Runner) abortRun(ctx context.Context, plan *Plan, err error) {

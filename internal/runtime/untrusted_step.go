@@ -15,7 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 )
 
-// beginUntrustedStep prepares an untrusted step (Spec 092) before the setup of
+// beginUntrustedStep prepares an untrusted step (Spec 103) before the setup of
 // its executor, so that the fields of the step resolve with the HOME, the
 // TMPDIR and the output file of the process. It returns ctx unchanged and nil
 // for a trusted step.
@@ -63,8 +63,8 @@ func gatedStep(step ir.Step) bool {
 	return step.Foreach == nil && step.SubDAG == nil && step.Parallel == nil && step.HumanTask == nil
 }
 
-// enterStepGate takes the place of the node in the gate of its run (Spec 092,
-// "Isolation", "One at a time"). In a run with an isolated untrusted step, an
+// enterStepGate takes the place of the node in the gate of its run (Spec 103,
+// "Isolation", rule 1). In a run with an isolated untrusted step, an
 // untrusted step holds the run alone, and a trusted step waits for its end.
 // It returns the function that gives the place back. An error is the end of
 // ctx, or the stop of the isolation of the process.
@@ -111,7 +111,7 @@ func checkUntrustedExecutor(ctx context.Context, node *Node, cmd executor.Execut
 // OpenStepFile opens a file that Dagu reads or writes for a step, such as a
 // redirect of stdout or the file of stdin. In a run with an untrusted step, a
 // path in the work directory of the run cannot pass a symbolic link, which an
-// untrusted step could have made to a file of the worker (Spec 092).
+// untrusted step could have made to a file of the worker (Spec 103).
 func OpenStepFile(ctx context.Context, path string, flags int, perm os.FileMode) (*os.File, error) {
 	rCtx, ok := LookupDAGContext(ctx)
 	if !ok || !rCtx.HasUntrustedStep {

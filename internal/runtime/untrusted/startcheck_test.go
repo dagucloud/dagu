@@ -29,7 +29,7 @@ func TestNestedUntrustedStep(t *testing.T) {
 }
 
 // Without a restricted user, an untrusted step fails before it starts, unless
-// the configuration turns the isolation off (Spec 092, "Without isolation").
+// the configuration turns the isolation off (Spec 103, "Without isolation").
 func TestBeginWithoutRestrictedUser(t *testing.T) {
 	t.Parallel()
 

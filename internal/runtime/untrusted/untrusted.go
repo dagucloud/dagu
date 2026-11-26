@@ -1,15 +1,11 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package untrusted runs an untrusted step (Spec 092, "Untrusted steps").
+// Package untrusted runs an untrusted step (Spec 103, "Untrusted steps").
 //
-// In each process, the process of an untrusted step gets no secret and no
-// variable whose name starts with DAGU_, except DAGU_OUTPUT_FILE. When the
-// configuration sets untrusted.uid and untrusted.gid, the step also runs with
-// isolation: one untrusted step at a time, as the restricted user, with its own
-// HOME, after Dagu gives the work directory of the run to the restricted user.
-// At the end of the step, Dagu stops each process of the restricted user and
-// gives the work directory back to the user of the worker.
+// In each process, the process of an untrusted step gets no variable whose
+// name starts with DAGU_, except DAGU_OUTPUT_FILE. When the configuration sets
+// a restricted user, the step also runs with isolation as that user.
 //
 // Begin prepares the step and End ends it. Between the two calls, each
 // process of the step starts through StartManagedProcess.
@@ -110,10 +106,8 @@ func FromContext(ctx context.Context) *Step {
 // Begin prepares an untrusted step. Without a restricted user in the
 // configuration, it fails the step with ErrIsolationRequired, unless the
 // configuration sets untrusted.isolation to off: then it writes IsolationOffLine
-// to the step log and the step runs without isolation. With a restricted user, it waits
-// for the end of the previous untrusted step, checks the place of the step,
-// and gives the work directory to the restricted user. A failure fails the
-// step; the error names the action and the path.
+// to the step log and the step runs without isolation. With a restricted user,
+// the step runs with isolation, and a failure of the isolation fails the step.
 func Begin(ctx context.Context, req Request) (*Step, error) {
 	step := &Step{name: req.StepName}
 	if !req.Config.Enabled {

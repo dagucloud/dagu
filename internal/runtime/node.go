@@ -1046,7 +1046,7 @@ func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error)
 
 	env := GetEnv(ctx)
 	// The process of an isolated untrusted step writes a file of the restricted
-	// user, which Dagu copies to path at the end of the step (Spec 092).
+	// user, which Dagu copies to path at the end of the step (Spec 103).
 	processPath := untrusted.FromContext(ctx).OutputFile(path)
 	env.Scope = env.Scope.WithEntry(runenv.EnvKeyDAGUOutputFile, processPath, cmnvalue.EnvSourceStepEnv)
 	return WithEnv(ctx, env), nil

@@ -664,7 +664,7 @@ func NewContext(
 		scope = scope.WithEntries(secretEnvs, cmnvalue.EnvSourceSecret)
 	}
 	// In a run with an untrusted step, git opens a bare repository only when
-	// the command names it (Spec 092).
+	// the command names it (Spec 103, "Protections for later trusted steps").
 	hasUntrustedStep := dag.HasUntrustedStep()
 	if hasUntrustedStep {
 		scope = scope.WithEntries(untrusted.GitSafetyEntries(scope.Get), cmnvalue.EnvSourceDAGEnv)
