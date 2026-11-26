@@ -140,6 +140,30 @@ func TestLongDescriptionIsCut(t *testing.T) {
 	require.Equal(t, strings.Repeat("é", skill.MaxDescriptionLength), s.Meta.Description)
 }
 
+// A message quotes at most a short part of a value of the front matter, so a
+// large SKILL.md gives short issues.
+func TestIssuesQuoteShortValues(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("x", 100_000)
+	cases := map[string]string{
+		"name":          skillMD("name: " + long + "\ndescription: A description of the skill."),
+		"unknown key":   skillMD("name: demo\ndescription: A description of the skill.\n" + long + ": v"),
+		"metadata key":  skillMD("name: demo\ndescription: A description of the skill.\nmetadata:\n  " + long + ": 1"),
+		"duplicate key": skillMD("name: demo\ndescription: A description of the skill.\n" + long + ": a\n" + long + ": b"),
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s, err := skill.Read(writeSkill(t, "demo", map[string]string{"SKILL.md": content}))
+			require.NoError(t, err)
+			require.False(t, s.Valid())
+			for _, issue := range s.Issues {
+				require.Less(t, len(issue.Message), 1024, "%s: %.200s", issue.Rule, issue.Message)
+			}
+		})
+	}
+}
+
 func TestUnknownKeyIsNamed(t *testing.T) {
 	t.Parallel()
 	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": skillMD("name: demo\ndescription: A description of the skill.\nwhen_to_use: now")})

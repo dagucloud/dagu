@@ -24,6 +24,10 @@ var allowedKeys = []string{"name", "description", "license", "compatibility", "m
 
 var xmlTagPattern = regexp.MustCompile(`</?[A-Za-z][^<>]*>`)
 
+// maxShownLength is the number of characters of a value that an issue quotes,
+// so a large SKILL.md gives short messages.
+const maxShownLength = 128
+
 // CheckName checks a name against the name rule of the format. It returns one
 // issue for each rule that the name breaks. The name of the folder uses the
 // same rule.
@@ -32,22 +36,23 @@ func CheckName(name, file string) []Issue {
 	add := func(rule, format string, args ...any) {
 		issues = append(issues, Issue{Severity: SeverityError, Rule: rule, File: file, Message: fmt.Sprintf(format, args...)})
 	}
+	shown := shorten(name)
 	n := utf8.RuneCountInString(name)
 	if n < 1 || n > MaxNameLength {
-		add(RuleNameLength, "the name %q has %d characters; it must have 1 to %d", name, n, MaxNameLength)
+		add(RuleNameLength, "the name %q has %d characters; it must have 1 to %d", shown, n, MaxNameLength)
 	}
 	for _, r := range name {
 		if r == '-' || unicode.IsDigit(r) || (unicode.IsLetter(r) && unicode.IsLower(r)) {
 			continue
 		}
-		add(RuleNameCharset, "the name %q holds the character %q; only lower case letters, digits and - are allowed", name, r)
+		add(RuleNameCharset, "the name %q holds the character %q; only lower case letters, digits and - are allowed", shown, r)
 		break
 	}
 	if strings.HasPrefix(name, "-") || strings.HasSuffix(name, "-") {
-		add(RuleNameHyphenEdge, "the name %q starts or ends with a hyphen", name)
+		add(RuleNameHyphenEdge, "the name %q starts or ends with a hyphen", shown)
 	}
 	if strings.Contains(name, "--") {
-		add(RuleNameHyphenDouble, "the name %q holds two hyphens in a row", name)
+		add(RuleNameHyphenDouble, "the name %q holds two hyphens in a row", shown)
 	}
 	return issues
 }
@@ -132,7 +137,7 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 		if strings.Contains(err.Error(), "already defined") {
 			rule = RuleFrontMatterDup
 		}
-		errorf(rule, "the front matter is not valid YAML or repeats a key: %s", firstLine(err.Error()))
+		errorf(rule, "the front matter is not valid YAML or repeats a key: %s", shorten(firstLine(err.Error())))
 		return FrontMatter{}, body, issues
 	}
 
@@ -144,7 +149,7 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 	sort.Strings(keys)
 	for _, k := range keys {
 		if !isAllowedKey(k) {
-			errorf(RuleFrontMatterKey, "the front matter key %q is not allowed; the keys are %s. Put custom data in metadata", k, strings.Join(allowedKeys, ", "))
+			errorf(RuleFrontMatterKey, "the front matter key %q is not allowed; the keys are %s. Put custom data in metadata", shorten(k), strings.Join(allowedKeys, ", "))
 		}
 	}
 
@@ -165,7 +170,7 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 	} else {
 		meta.Name = s
 		if s != name {
-			errorf(RuleNameFolder, "the front matter name is %q, but the folder name is %q; they must be equal", s, name)
+			errorf(RuleNameFolder, "the front matter name is %q, but the folder name is %q; they must be equal", shorten(s), name)
 		}
 		issues = append(issues, CheckName(s, FileName)...)
 	}
@@ -249,7 +254,7 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 			for _, k := range mk {
 				s, isString := m[k].(string)
 				if !isString {
-					errorf(RuleMetadata, "metadata.%s must be a string; quote the value", k)
+					errorf(RuleMetadata, "metadata.%s must be a string; quote the value", shorten(k))
 					continue
 				}
 				meta.Metadata[k] = s
@@ -291,6 +296,15 @@ func isAllowedKey(k string) bool {
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return line
+}
+
+// shorten returns s, or its first maxShownLength characters and "..." when it
+// is longer.
+func shorten(s string) string {
+	if utf8.RuneCountInString(s) <= maxShownLength {
+		return s
+	}
+	return cutRunes(s, maxShownLength) + "..."
 }
 
 // cutRunes returns the first n characters of s.
