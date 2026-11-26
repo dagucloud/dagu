@@ -58,6 +58,8 @@ func TestConfigForms(t *testing.T) {
 		{name: "header newline", op: opSend, with: obj{"agent_url": agent, "message": "m", "headers": obj{"X": "a\nb"}}, loadErr: "line breaks", runErr: "line breaks"},
 		{name: "msg id ref", op: opSend, with: obj{"agent_url": agent, "message": "m", "message_id": "${DAG_RUN_ID}-delegate"}},
 		{name: "msg id long", op: opSend, with: obj{"agent_url": agent, "message": "m", "message_id": strings.Repeat("a", 600)}, loadErr: "message_id must be at most", runErr: "message_id must be at most"},
+		{name: "msg id 512 runes", op: opSend, with: obj{"agent_url": agent, "message": "m", "message_id": strings.Repeat("é", 512)}},
+		{name: "msg id 513 runes", op: opSend, with: obj{"agent_url": agent, "message": "m", "message_id": strings.Repeat("é", 513)}, loadErr: "message_id must be at most", runErr: "message_id must be at most"},
 		{name: "msg id control", op: opSend, with: obj{"agent_url": agent, "message": "m", "message_id": "a\x01b"}, loadErr: "message_id must be at most", runErr: "message_id must be at most"},
 		{name: "msg id empty", op: opSend, with: obj{"agent_url": agent, "message": "m", "message_id": ""}, loadErr: "message_id must not be empty", runErr: "message_id must not be empty"},
 		{name: "get msg id", op: opGetTask, with: obj{"agent_url": agent, "task_id": "t", "message_id": "x"}, loadErr: "invalid keys", runErr: "invalid keys"},

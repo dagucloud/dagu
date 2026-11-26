@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
@@ -172,7 +173,7 @@ func (c config) validate(loadTime bool) error {
 		if skip(v) {
 			continue
 		}
-		if len(v) > maxIDLength || strings.ContainsFunc(v, func(r rune) bool { return r < ' ' || r == 0x7f }) {
+		if utf8.RuneCountInString(v) > maxIDLength || strings.ContainsFunc(v, func(r rune) bool { return r < ' ' || r == 0x7f }) {
 			return fmt.Errorf("%s%s must be at most %d characters without control characters", prefix, name, maxIDLength)
 		}
 	}

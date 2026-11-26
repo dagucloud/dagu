@@ -531,8 +531,10 @@ changes Spec 099 so that a retry resends the same ID.
 | Another step with the same message | New | Starts a task |
 
 - A `retry_policy` fires only when the RPC fails. A remote state is data, and
-  the step succeeds whatever the state (Spec 099), so reusing the ID never
-  keeps a retry from running a failed remote task again.
+  the step succeeds whatever the state (Spec 099), so a retry never runs
+  because the remote task failed. If the agent accepted the first message,
+  the response was lost, and the task then failed, the retry resends the
+  same ID and a deduplicating agent returns that failed task.
 - Running a failed remote task again takes a Dagu retry, which is a new
   attempt and so a new message.
 - An agent that does not deduplicate can still run a retried message twice,
