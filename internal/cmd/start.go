@@ -585,6 +585,12 @@ func loadDAGWithParams(ctx *Context, args []string, isSubDAGRun bool) (*ir.DAG, 
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to load DAG from %s: %w", dagPath, err)
 	}
+	// A child that dag.run started was resolved by its caller.
+	if !isSubDAGRun {
+		if err := ctx.projectStores.CheckStart(ctx, dag.Location); err != nil {
+			return nil, "", err
+		}
+	}
 	if ctx.Command.Flags().Changed(sourceFileFlag.name) {
 		sourceFile, err := ctx.StringParam(sourceFileFlag.name)
 		if err != nil {
@@ -789,7 +795,9 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  opts.noReuse,
 			SecretStore:              as.SecretStore,
+			SecretReferenceResolver:  as.SecretResolver,
 			ProfileStore:             as.ProfileStore,
+			ProfileResolver:          as.ProfileResolver,
 			NodeSelector:             as.Nodes,
 			HostKeys:                 as.HostKeys,
 			TargetNodes:              opts.targetNodes,
@@ -921,6 +929,9 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	}
 	if opts.triggerActor != "" {
 		taskOpts = append(taskOpts, executor.WithTriggerActor(opts.triggerActor))
+	}
+	if len(opts.targetNodes) > 0 {
+		taskOpts = append(taskOpts, executor.WithTargetNodes(opts.targetNodes))
 	}
 	taskOpts = append(taskOpts, executor.WithTriggerType(opts.triggerType))
 

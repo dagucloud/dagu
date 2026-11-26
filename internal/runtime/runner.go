@@ -30,6 +30,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 	"github.com/dagucloud/dagu/v2/internal/samples"
 	"github.com/dagucloud/dagu/v2/internal/telemetry"
 	"go.opentelemetry.io/otel"
@@ -769,6 +770,7 @@ ExecRepeat: // repeat execution
 		}
 		cont.beforeExecution(node)
 		execErr := r.execNode(attemptCtx, node, progressCh)
+		runAborted := errors.Is(execErr, untrusted.ErrRunAborted)
 		stoppedDuringAttempt = r.isCanceled()
 		if execErr == nil {
 			committed, commitErr := commitBuildAttempt(attemptCtx, node, buildSession, stagingPath)
@@ -777,7 +779,12 @@ ExecRepeat: // repeat execution
 			}
 			execErr = commitErr
 		}
-		isRetriable := r.handleNodeExecutionError(ctx, plan, node, execErr, !cont.spent())
+		isRetriable := r.handleNodeExecutionError(ctx, plan, node, execErr, !cont.spent() && !runAborted)
+		if runAborted {
+			// The step fails first, so that the stop does not abort it. Dagu
+			// cannot give a safe work directory to a later step.
+			r.abortRun(ctx, plan, execErr)
+		}
 		// The sample is of the execution alone, without the retry wait.
 		cont.afterExecution(ctx, node, execErr)
 		if isRetriable {
@@ -975,6 +982,16 @@ func withStepTraceContext(ctx context.Context) context.Context {
 func hasStepLocalEntry(scope *cmnvalue.EnvScope, key string) bool {
 	entry, ok := scope.GetEntry(key)
 	return ok && (entry.Source == cmnvalue.EnvSourceStepEnv || entry.Source == cmnvalue.EnvSourceOutput)
+}
+
+// abortRun stops the run after an untrusted step that Dagu could not end
+// safely (Spec 103, "Isolation"): a process of the restricted user survives, or a
+// git folder changed. The steps that run get a forced stop, and no other step
+// starts.
+func (r *Runner) abortRun(ctx context.Context, plan *Plan, err error) {
+	logger.Error(ctx, "Stopping the run after an untrusted step", tag.Error(err))
+	r.setLastError(err)
+	r.Stop(ctx, plan, cmdutil.ForceTermination(), nil, false)
 }
 
 func (r *Runner) setLastError(err error) {
@@ -2372,8 +2389,14 @@ func (r *Runner) reloadNodeOutputs(ctx context.Context, node *Node) context.Cont
 
 // evalRepeatCondition evaluates the node's repeat condition. One that runs a
 // command takes the outcome the condition override scripts for the node's
-// latest execution, when it scripts one.
+// latest execution, when it scripts one. It first waits for the end of an
+// isolated untrusted step of the run.
 func (r *Runner) evalRepeatCondition(ctx context.Context, shell []string, node *Node, c *ir.Condition) error {
+	leaveGate, err := enterTrustedGate(ctx, node)
+	if err != nil {
+		return err
+	}
+	defer leaveGate()
 	var scripted *bool
 	if r.conditions != nil {
 		scripted = r.conditions.RepeatCondition(node.Step())

@@ -24,9 +24,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -310,6 +312,49 @@ steps:
 		require.NoError(t, err)
 		require.Equal(t, ir.Succeeded, latestStatus.Status)
 		require.Equal(t, ir.TriggerTypeWebhook, latestStatus.TriggerType)
+	})
+
+	t.Run("QueueDispatchKeepsRetryDisabledAndTriggerSubject", func(t *testing.T) {
+		th := test.SetupCommand(t)
+		t.Setenv(runenv.EnvKeyQueueDispatchRetry, "1")
+
+		dagFile := th.DAG(t, `name: queue-dispatch-retry-disabled
+steps:
+  - name: "1"
+    run: echo ok
+`)
+		runID := "queue-dispatch-retry-disabled-run"
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+		logPath := filepath.Join(th.Config.Paths.LogDir, "queue-dispatch-retry-disabled.log")
+		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
+
+		subject := &ir.TriggerSubject{Type: "a2a", ID: "caller"}
+		status := ir.NewStatusBuilder(dagFile.DAG).Create(
+			runID,
+			ir.Queued,
+			0,
+			time.Time{},
+			ir.WithAttemptID(attempt.ID()),
+			ir.WithTriggerType(ir.TriggerTypeWebhook),
+			ir.WithQueuedAt(stringutil.FormatTime(time.Now())),
+			ir.WithLogFilePath(logPath),
+			ir.WithTriggerSubject(subject),
+			ir.WithRetryDisabled(true),
+		)
+		writeStatus(t, th.Context, attempt, status)
+
+		th.RunCommand(t, cmd.Retry(), test.CmdTest{
+			Args: []string{"retry", "--run-id=" + runID, dagFile.Location},
+		})
+
+		latest, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
+		require.NoError(t, err)
+		got, err := latest.ReadStatus(th.Context)
+		require.NoError(t, err)
+		require.Equal(t, ir.Succeeded, got.Status)
+		require.True(t, got.RetryDisabled)
+		require.Equal(t, subject, got.TriggerSubject)
 	})
 
 	t.Run("QueueDispatchRetryTriggerCreatesNewAttempt", func(t *testing.T) {
@@ -733,6 +778,34 @@ func TestRetryCommand_JobRunTrigger(t *testing.T) {
 	retried, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 	require.NoError(t, err)
 	console.requireAttemptReported(t, retried.AttemptID, "retry")
+}
+
+func TestRetryCommand_RefusesRetryDisabledRun(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, `steps:
+  - name: "1"
+    run: echo ok
+`)
+	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
+	first, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+
+	attempt, err := th.DAGRunRepository.FindAttempt(th.Context, first.DAGRun())
+	require.NoError(t, err)
+	disabled := first
+	disabled.RetryDisabled = true
+	writeStatus(t, th.Context, attempt, disabled)
+
+	err = th.RunCommandWithError(t, cmd.Retry(), test.CmdTest{
+		Args: []string{"retry", "--run-id=" + first.DAGRunID, dag.Location},
+	})
+	require.ErrorIs(t, err, queue.ErrRetryDisabled)
+	after, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	assert.Equal(t, first.AttemptID, after.AttemptID)
+	assert.Equal(t, ir.Succeeded, after.Status)
 }
 
 func writeStatus(t *testing.T, ctx context.Context, attempt dagrun.Attempt, status ir.DAGRunStatus) {

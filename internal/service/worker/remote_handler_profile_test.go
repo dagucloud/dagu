@@ -81,3 +81,18 @@ func TestTaskFailureStatusesRecordModelUsage(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, initialized.ModelUsageRecorded, "init failure")
 }
+
+// A narrowed run that fails before its first step keeps its node list, so a
+// retry of it stays narrowed.
+func TestTaskFailureStatusesKeepNodeList(t *testing.T) {
+	t.Parallel()
+
+	task := &coordinatorv1.Task{Target: "deploy", DagRunId: "run-1", AttemptId: "attempt-1", TargetNodes: []string{"web01"}}
+	loaded, err := worker.ReportTaskLoadFailureStatusForTest(context.Background(), task, ir.DAGRunRef{}, ir.DAGRunRef{}, errors.New("load failed"), "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"web01"}, loaded.TargetNodes, "load failure")
+
+	initialized, err := worker.ReportTaskInitFailureStatusForTest(context.Background(), task, ir.DAGRunRef{}, ir.DAGRunRef{}, errors.New("init failed"), "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"web01"}, initialized.TargetNodes, "init failure")
+}

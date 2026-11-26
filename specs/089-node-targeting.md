@@ -10,11 +10,12 @@ nodes that did not succeed are implemented. Conformance covers validation
 through `dagu validate`, runs through `dagu start` against SSH servers the
 test harness starts, node runs through the API, narrowed runs through `dagu
 start`, `dagu start --from-run-id`, and `dagu retry`, and retries of steps
-with nodes through `dagu retry`. Worker nodes match as SSH nodes do, and a
-child bound to a worker node runs on that worker; Go tests with a
-coordinator and workers cover it. Steps with nodes in runs on workers do not
-run yet, and a `node: required` DAG started with a worker node is refused,
-since such a run is not yet dispatched to its worker. Further sections are added as RFC 013 lands.
+with nodes through `dagu retry`. Bound runs and steps with nodes on SSH
+nodes run on workers too, worker nodes match as SSH nodes do, and a child
+bound to a worker node runs on that worker; Go integration tests cover
+these, since the conformance harness starts no worker. A `node: required`
+DAG started with a worker node is refused, since such a run is not yet
+dispatched to its worker. Further sections are added as RFC 013 lands.
 
 ## Scope
 
@@ -153,6 +154,28 @@ dispatched to it does. The node has no SSH connection, so an `ssh.run` or
 `sftp.*` step that sets no `with.host` or `with.ip` fails the run before any
 step starts.
 
+### Runs on workers
+
+A step with `nodes` and a bound run behave on a worker as on the Dagu host.
+The worker reads nodes from the coordinator: the nodes a step's selector
+matches, a bound run's node and its bastion, and the host keys trusted for
+them, each lookup once. A node's credentials resolve through the
+coordinator as well, which serves a ref only to an attempt whose DAG has a
+step with `nodes` or is `node: required`, and only when the connection of
+the enabled node that the run names, or of its bastion, uses the ref. Host
+keys are checked on the worker, against the node's `host_key` or the key
+trusted when the run looked the node up. A run never trusts a key.
+
+The child runs of a step with `nodes` bound to SSH nodes run on the worker
+that runs their parent, and those bound to worker nodes run on those
+workers. A child DAG file whose name holds a reference, such as
+`dag: deploy-${params.app}`, reads no nodes on a worker: the coordinator
+serves only the child DAGs a run names as written, in its steps, `foreach`
+bodies, and handlers. Each child run reads its own node again, so a run never reuses an
+answer another run read. A worker that cannot reach the coordinator, or
+whose coordinator answers no lookup, fails the step or the run as an
+unreadable inventory does.
+
 ### The `node` namespace
 
 Every value-resolved field of a bound run reads its node:
@@ -195,10 +218,10 @@ and a mistake fails the request:
   record a run that fails before any step;
 - any other DAG takes a list only when a step, a `foreach` body, or a
   handler sets `nodes` or runs a child DAG;
-- the run must run on the Dagu host, so a DAG or request that selects
-  workers takes no list, and a narrowed run is not dispatched to workers
-  under the distributed default;
 - a start of selected steps takes no list.
+
+A narrowed run is dispatched as any run is, and a run dispatched to a
+worker carries its list there.
 
 The run keeps the list, spelled as the inventory spells the names, in its
 status. Queued runs, retries, edit-and-retry runs, and `dagu restart` keep
@@ -223,10 +246,11 @@ with no items, does not count. A retry counts what the attempts before it
 did, so the steps it keeps still count.
 
 A child run of a narrowed run, started by `dag.run` or `dag.enqueue`, keeps
-the list and runs on the Dagu host, so a child DAG that selects workers
-fails the step that starts it. A `dag.run` child run does not fail for the
-list: its steps count toward the run it is part of. A `dag.enqueue` child
-run is a run of its own, and fails for the list as any run does.
+the list. A `dag.run` child run runs where its parent runs, so a child DAG
+that selects workers fails the step that starts it, and it does not fail
+for the list: its steps count toward the run it is part of. A `dag.enqueue`
+child run is a run of its own, may select workers, and fails for the list
+as any run does.
 
 ### Retrying a step with nodes
 
@@ -330,9 +354,8 @@ this version has no rows and no counts.
 `dagu start`, `dagu enqueue`, and the start and enqueue requests fail
 before any run exists when a node list names a name that is not a node of
 the project (`node "web1" is not a node of the project`), is given for a DAG
-that has nothing to narrow, selects workers, or starts selected steps, or
-gives a `node: required` DAG a worker node (`node "tokyo-gw" is a worker
-node`). The
+that has nothing to narrow, or starts selected steps, or gives a
+`node: required` DAG a worker node (`node "tokyo-gw" is a worker node`). The
 start, enqueue, and reschedule requests also fail so for a `node: required`
 DAG without exactly one node, and a reschedule for a list that no longer
 passes these checks. `dagu start` refuses `--node` with `--from-run-id`.
@@ -359,8 +382,6 @@ A run fails before any step starts when:
   `${node.nmae}`, naming the reference;
 - a credential of its node is a secret ref that does not resolve, naming the
   field and the ref;
-- it runs on a worker and is bound to a node other than that worker, or has
-  a step with `nodes`;
 - it is bound to a worker node and does not run on that worker;
 - it is bound to a worker node and has an `ssh.run` or `sftp.*` step that
   sets no `with.host` or `with.ip`.

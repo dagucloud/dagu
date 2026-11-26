@@ -172,6 +172,9 @@ func (a *API) authorizeEditRetryPlan(ctx context.Context, plan *editRetryPlan) e
 	if err := a.requireEditRetryPermissions(ctx, plan); err != nil {
 		return err
 	}
+	if err := queue.CheckRetryable(plan.sourceStatus); err != nil {
+		return retryDisabledError(err)
+	}
 	profileName, err := a.inheritedRunProfileName(ctx, plan.sourceStatus.ProfileName)
 	if err != nil {
 		return err
@@ -343,14 +346,6 @@ func (a *API) buildEditRetryPlan(
 
 	stepPlan := planEditRetrySteps(status, editedDAG, opts.skipSteps)
 	validationErrors = append(validationErrors, stepPlan.validationErrors...)
-	// The run keeps a narrowed source run's node list, and so runs on the
-	// Dagu host.
-	if len(status.TargetNodes) > 0 {
-		if len(editedDAG.WorkerSelector) > 0 {
-			validationErrors = append(validationErrors, fmt.Sprintf("DAG %q: %v", editedDAG.Name, ir.ErrNodeListOnWorkers))
-		}
-		editedDAG.ForceLocal = true
-	}
 
 	warnings := editRetryWarnings(stepPlan.skippedSteps, stepPlan.ineligible, stepPlan.reusableSourceSteps)
 	return &editRetryPlan{

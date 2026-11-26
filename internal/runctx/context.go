@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 )
 
 const runtimeProfileOrigin = "runtime_profile"
@@ -73,6 +74,14 @@ type Context struct {
 	// SecretValues, when non-nil, holds the secret values the run resolved
 	// its secrets from in place of their providers.
 	SecretValues map[string]string
+	// RunWorkDir is the work directory of the run (DAG_RUN_WORK_DIR). Unlike
+	// the variable, a step cannot change it.
+	RunWorkDir string
+	// HasUntrustedStep reports whether a step of DAG is untrusted.
+	HasUntrustedStep bool
+	// StepGate lets an isolated untrusted step hold the run alone. It is nil
+	// in a run without an untrusted step.
+	StepGate *StepGate
 	// TargetNodes narrows the steps with nodes of the run and of its child
 	// runs to the nodes it names (RFC 013 §Narrowing a run).
 	TargetNodes []string
@@ -484,8 +493,10 @@ func WithMaterializationStore(store build.MaterializationStore) ContextOption {
 type NodeSelector interface {
 	// Select returns the nodes a selector matches, in name order.
 	Select(ctx context.Context, selector string) ([]inventory.ResolvedNode, error)
-	// Nodes returns every node, in name order.
-	Nodes(ctx context.Context) ([]inventory.ResolvedNode, error)
+	// Named returns the nodes names names, compared without case, and each
+	// node they connect through, in name order. A name of no node is left
+	// out.
+	Named(ctx context.Context, names []string) ([]inventory.ResolvedNode, error)
 }
 
 // WithNodeSelector sets where steps with nodes find their nodes.
@@ -654,6 +665,12 @@ func NewContext(
 	if len(secretEnvs) > 0 {
 		scope = scope.WithEntries(secretEnvs, cmnvalue.EnvSourceSecret)
 	}
+	// In a run with an untrusted step, git opens a bare repository only when
+	// the command names it (Spec 103, "Protections for later trusted steps").
+	hasUntrustedStep := dag.HasUntrustedStep()
+	if hasUntrustedStep {
+		scope = scope.WithEntries(untrusted.GitSafetyEntries(scope.Get), cmnvalue.EnvSourceDAGEnv)
+	}
 	scope = scope.WithMaskedSecrets(options.maskedSecrets)
 
 	// Fields the caller cannot set through an option, because they are derived
@@ -663,6 +680,11 @@ func NewContext(
 	options.Shell = dag.Shell
 	options.BaseEnv = config.GetBaseEnv(ctx)
 	options.EnvScope = scope
+	options.RunWorkDir = options.workDir
+	options.HasUntrustedStep = hasUntrustedStep
+	if hasUntrustedStep {
+		options.StepGate = NewStepGate()
+	}
 
 	return context.WithValue(ctx, dagCtxKey{}, options.Context)
 }

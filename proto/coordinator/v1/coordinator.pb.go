@@ -569,6 +569,8 @@ type Task struct {
 	// The run's dates as JSON, resolved when the run was created. Empty when
 	// the run resolves them as it starts.
 	DatesJson string `protobuf:"bytes,46,opt,name=dates_json,json=datesJson,proto3" json:"dates_json,omitempty"`
+	// Node names the run is narrowed to (RFC 013). Empty when not narrowed.
+	TargetNodes []string `protobuf:"bytes,47,rep,name=target_nodes,json=targetNodes,proto3" json:"target_nodes,omitempty"`
 	// Node the run is bound to (RFC 013): a worker node, whose run is
 	// dispatched to that worker by target_worker_id.
 	BoundNode string `protobuf:"bytes,48,opt,name=bound_node,json=boundNode,proto3" json:"bound_node,omitempty"`
@@ -919,6 +921,13 @@ func (x *Task) GetDatesJson() string {
 	return ""
 }
 
+func (x *Task) GetTargetNodes() []string {
+	if x != nil {
+		return x.TargetNodes
+	}
+	return nil
+}
+
 func (x *Task) GetBoundNode() string {
 	if x != nil {
 		return x.BoundNode
@@ -1113,6 +1122,10 @@ func (x *Task) SetDatesJson(v string) {
 	x.DatesJson = v
 }
 
+func (x *Task) SetTargetNodes(v []string) {
+	x.TargetNodes = v
+}
+
 func (x *Task) SetBoundNode(v string) {
 	x.BoundNode = v
 }
@@ -1220,6 +1233,8 @@ type Task_builder struct {
 	// The run's dates as JSON, resolved when the run was created. Empty when
 	// the run resolves them as it starts.
 	DatesJson string
+	// Node names the run is narrowed to (RFC 013). Empty when not narrowed.
+	TargetNodes []string
 	// Node the run is bound to (RFC 013): a worker node, whose run is
 	// dispatched to that worker by target_worker_id.
 	BoundNode string
@@ -1277,6 +1292,7 @@ func (b0 Task_builder) Build() *Task {
 	x.NextScheduledAt = b.NextScheduledAt
 	x.ScheduleTimezone = b.ScheduleTimezone
 	x.DatesJson = b.DatesJson
+	x.TargetNodes = b.TargetNodes
 	x.BoundNode = b.BoundNode
 	x.NodeStep = b.NodeStep
 	return m0
@@ -7326,7 +7342,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\x95\x10\n" +
+	"\x10DispatchResponse\"\xb8\x10\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -7385,7 +7401,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x11next_scheduled_at\x18, \x01(\tR\x0fnextScheduledAt\x12+\n" +
 	"\x11schedule_timezone\x18- \x01(\tR\x10scheduleTimezone\x12\x1d\n" +
 	"\n" +
-	"dates_json\x18. \x01(\tR\tdatesJson\x12\x1d\n" +
+	"dates_json\x18. \x01(\tR\tdatesJson\x12!\n" +
+	"\ftarget_nodes\x18/ \x03(\tR\vtargetNodes\x12\x1d\n" +
 	"\n" +
 	"bound_node\x180 \x01(\tR\tboundNode\x12\x1b\n" +
 	"\tnode_step\x181 \x01(\tR\bnodeStep\x1aA\n" +

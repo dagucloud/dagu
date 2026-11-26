@@ -76,6 +76,8 @@ type DispatchTask struct {
 	SourceWorkDir string
 
 	WorkerSelector map[string]string
+	// TargetNodes are the node names the run is narrowed to (RFC 013).
+	TargetNodes []string
 	// BoundNode names the worker node the run is bound to (RFC 013), which
 	// TargetWorkerID names too.
 	BoundNode string

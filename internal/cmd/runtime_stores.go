@@ -8,16 +8,24 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 )
 
 type executionStores struct {
-	SecretStore          secret.Store
-	ProfileStore         profile.Store
+	SecretStore  secret.Store
+	ProfileStore profile.Store
+	// SecretResolver and ProfileResolver resolve a run's secrets and
+	// profiles in the command's project alone while projects are on. Both
+	// are nil while projects are off, and a run then adds the layers of the
+	// workspace its DAG's label names.
+	SecretResolver       providers.ReferenceResolver
+	ProfileResolver      profile.RuntimeResolver
 	MaterializationStore build.MaterializationStore
 	Inventory            inventory.Store
 	// Nodes finds the nodes of steps with nodes: the inventory nodes and
@@ -39,7 +47,33 @@ func (c *Context) runtimeStores() executionStores {
 	if inventories != nil {
 		stores.Nodes = inventory.NewProjectNodes(inventories, c.runtimeWorkerNodeStore())
 	}
+	if c.Config.ProjectsEnabled {
+		if stores.SecretStore != nil {
+			stores.SecretResolver = secret.NewProjectReferenceResolver(stores.SecretStore)
+		}
+		if stores.ProfileStore != nil {
+			stores.ProfileResolver = profile.NewProjectResolver(stores.ProfileStore, stores.SecretStore)
+		}
+	}
 	return stores
+}
+
+// subDAGSecretResolver returns the resolver a sub-DAG run uses for its
+// secrets, or nil when the run builds its own.
+func (s executionStores) subDAGSecretResolver() func(*ir.DAG) providers.ReferenceResolver {
+	if s.SecretResolver == nil {
+		return nil
+	}
+	return func(*ir.DAG) providers.ReferenceResolver { return s.SecretResolver }
+}
+
+// subDAGProfileResolver returns the resolver a sub-DAG run uses for its
+// profiles, or nil when the run builds its own.
+func (s executionStores) subDAGProfileResolver() func(*ir.DAG) profile.RuntimeResolver {
+	if s.ProfileResolver == nil {
+		return nil
+	}
+	return func(*ir.DAG) profile.RuntimeResolver { return s.ProfileResolver }
 }
 
 // inventoryStore opens the node inventories of this installation.

@@ -388,7 +388,8 @@ function NodeStatusTableRow({
   });
   const canRetry = showStepActions && retryGate.ok;
   const retryDisabled = retryGate.disabled;
-  const retryTitle = rootRunning ? retryGate.reason : 'Retry this step';
+  const retryTitle =
+    rootRunning || retryGate.disabled ? retryGate.reason : 'Retry this step';
 
   const subDAGLogQuery = useQuery(
     '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/log',
@@ -610,6 +611,11 @@ function NodeStatusTableRow({
               <Play className="mr-2 h-4 w-4 text-success" />
               <I18nText text={'Retry step'} />
             </DropdownMenuItem>
+          )}
+          {canRetry && retryDisabled && retryGate.reason && (
+            <div className="max-w-64 px-2 pb-1.5 text-xs text-muted-foreground">
+              <I18nText text={retryGate.reason} />
+            </div>
           )}
           {canRetry && canUpdateStepStatus && <DropdownMenuSeparator />}
           {canUpdateStepStatus && (

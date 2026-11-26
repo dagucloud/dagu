@@ -16,12 +16,12 @@ import (
 // fixedNodes is an inventory that holds the given nodes.
 type fixedNodes []inventory.ResolvedNode
 
-func (n fixedNodes) Select(ctx context.Context, _ string) ([]inventory.ResolvedNode, error) {
-	return n.Nodes(ctx)
+func (n fixedNodes) Select(context.Context, string) ([]inventory.ResolvedNode, error) {
+	return n, nil
 }
 
-func (n fixedNodes) Nodes(context.Context) ([]inventory.ResolvedNode, error) {
-	return n, nil
+func (n fixedNodes) Named(_ context.Context, names []string) ([]inventory.ResolvedNode, error) {
+	return inventory.Named(n, names), nil
 }
 
 // A retry keeps the nodes the first attempt recorded, as the inventory holds

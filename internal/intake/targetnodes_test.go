@@ -49,7 +49,7 @@ func TestCheckTargetNodes(t *testing.T) {
 		{name: "node: required with two nodes", dag: bound, names: []string{"web01", "db01"}, wantErr: "starts with exactly one node, not 2"},
 		{name: "node: required with no node", dag: bound, wantErr: "starts with exactly one node, not 0"},
 		{name: "node: required with a worker node", dag: bound, names: []string{"tokyo-gw"}, wantErr: `node "tokyo-gw" is a worker node`},
-		{name: "worker selector", dag: onWorkers, names: []string{"web01"}, wantErr: "cannot select workers"},
+		{name: "worker selector", dag: onWorkers, names: []string{"web01"}, want: []string{"web01"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

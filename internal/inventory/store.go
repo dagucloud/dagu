@@ -46,6 +46,9 @@ type Store interface {
 	Nodes(ctx context.Context) ([]ResolvedNode, error)
 	// Select returns the nodes a selector matches, in name order.
 	Select(ctx context.Context, selector string) ([]ResolvedNode, error)
+	// Named returns the nodes names names and each node they connect
+	// through, in name order. A name of no node is left out.
+	Named(ctx context.Context, names []string) ([]ResolvedNode, error)
 }
 
 // Stored is an inventory as the store holds it.

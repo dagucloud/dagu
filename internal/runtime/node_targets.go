@@ -147,7 +147,11 @@ func recordedNodes(ctx context.Context, records ir.NodeRuns) ([]executor.NodeRun
 	if inventoryNodes == nil {
 		return nil, errNoNodeInventory
 	}
-	current, err := inventoryNodes.Nodes(ctx)
+	names := make([]string, len(records.Runs))
+	for i, record := range records.Runs {
+		names[i] = record.Node
+	}
+	current, err := inventoryNodes.Named(ctx, names)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the nodes: %w", err)
 	}

@@ -1846,6 +1846,9 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *ir.DAG, opts 
 	if opts.triggerActor != "" {
 		taskOpts = append(taskOpts, executor.WithTriggerActor(opts.triggerActor))
 	}
+	if len(opts.targetNodes) > 0 {
+		taskOpts = append(taskOpts, executor.WithTargetNodes(opts.targetNodes))
+	}
 	if opts.scheduleTime != "" {
 		taskOpts = append(taskOpts,
 			executor.WithScheduleTime(opts.scheduleTime),
@@ -1906,10 +1909,6 @@ func (a *API) startDAGRunWithOptions(ctx context.Context, dag *ir.DAG, opts star
 	// the DAG the dispatch reads.
 	if err := reapplyWorkerSelector(resolvedDAG, opts.workerSelector); err != nil {
 		return nil, err
-	}
-	// A narrowed run runs on the Dagu host.
-	if len(opts.targetNodes) > 0 {
-		resolvedDAG.ForceLocal = true
 	}
 	dag = resolvedDAG
 

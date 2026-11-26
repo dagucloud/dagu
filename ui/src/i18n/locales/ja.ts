@@ -1748,6 +1748,8 @@ export const baseJapanese = {
   'Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation.':
     '再試行は既存の OpenCode 会話を継続し、ステップのプロンプトを再送信します。新しい会話を開始するには、Agent セッションタブで「クリーンセッションを開始」を使用してください。',
   'Retry this run': 'この実行を再試行',
+  'This run cannot be retried. Start a new run by sending a new message.':
+    'この実行は再試行できません。新しいメッセージを送信して新しい実行を開始してください。',
   'Retry edited run': '編集済みの実行を再試行',
   'Retry load more': 'さらに読み込むを再試行',
   'Retry loading more': 'さらに読み込むのを再試行',
@@ -1757,6 +1759,10 @@ export const baseJapanese = {
   'Retry selected': '選択項目を再試行',
   'Retry step': 'ステップを再試行',
   'Retry this step?': 'このステップを再試行しますか？',
+  'Retry unavailable while the DAG run is running.':
+    'DAG 実行が実行中のため再試行できません。',
+  'Retry unavailable while the root DAG run is running.':
+    '最上位の DAG 実行が実行中のため再試行できません。',
   'Retrying...': '再試行中...',
   'Reuse previous output': '前回の出力を再利用',
   Revert: '元に戻す',

@@ -45,6 +45,14 @@ steps:
     run: echo restart
     nodes: web
 `)
+	createDAG("remote", `
+worker_selector:
+  gpu: "true"
+steps:
+  - id: restart
+    run: echo restart
+    nodes: web
+`)
 	createDAG("plain", `
 steps:
   - id: echo
@@ -78,19 +86,30 @@ steps:
 		}, 5*time.Second, 100*time.Millisecond)
 		return status
 	}
-	enqueueNarrowed := func(t *testing.T) string {
+	enqueue := func(t *testing.T, dag string) string {
 		t.Helper()
 		var enqueued api.EnqueueDAGDAGRun200JSONResponse
-		server.Client().Post("/api/v1/dags/narrowed/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{
+		server.Client().Post("/api/v1/dags/"+dag+"/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{
 			TargetNodes: nodes("WEB01"),
 		}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &enqueued)
 		return enqueued.DagRunId
 	}
+	enqueueNarrowed := func(t *testing.T) string {
+		t.Helper()
+		return enqueue(t, "narrowed")
+	}
 
-	t.Run("a queued run keeps its list and runs on the Dagu host", func(t *testing.T) {
+	t.Run("a queued run keeps its list", func(t *testing.T) {
 		runID := enqueueNarrowed(t)
 		require.Equal(t, []string{"web01"}, statusOf(t, "narrowed", runID).TargetNodes)
-		require.True(t, snapshotDAGOf(t, server, "narrowed", runID).ForceLocal)
+	})
+
+	// Steps with nodes run on workers too, so a DAG that selects workers
+	// takes a list.
+	t.Run("a run that selects workers keeps its list", func(t *testing.T) {
+		runID := enqueue(t, "remote")
+		require.Equal(t, []string{"web01"}, statusOf(t, "remote", runID).TargetNodes)
+		require.Equal(t, map[string]string{"gpu": "true"}, snapshotDAGOf(t, server, "remote", runID).WorkerSelector)
 	})
 
 	// A new run from a narrowed run keeps its list, whether it is built from
@@ -105,7 +124,6 @@ steps:
 			}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &resp)
 
 			require.Equal(t, []string{"web01"}, statusOf(t, "narrowed", resp.DagRunId).TargetNodes, "current file: %v", currentFile)
-			require.True(t, snapshotDAGOf(t, server, "narrowed", resp.DagRunId).ForceLocal, "current file: %v", currentFile)
 		}
 	})
 

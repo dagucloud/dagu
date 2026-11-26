@@ -16,6 +16,18 @@ import (
 // ErrRetryStaleLatest indicates the caller tried to retry a non-latest attempt.
 var ErrRetryStaleLatest = errors.New("retry target is no longer the latest attempt")
 
+// ErrRetryDisabled indicates the run is terminal and does not accept retries.
+var ErrRetryDisabled = errors.New("this run cannot be retried; start a new run instead")
+
+// CheckRetryable returns ErrRetryDisabled for a terminal run that disables
+// retries. Active runs, such as one waiting for a human task, pass.
+func CheckRetryable(status *ir.DAGRunStatus) error {
+	if status != nil && status.RetryDisabled && status.Status.IsTerminal() {
+		return ErrRetryDisabled
+	}
+	return nil
+}
+
 const (
 	retryEnqueueRollbackTimeout = 10 * time.Second
 	sourceReleaseTimeout        = 2 * time.Second
@@ -170,6 +182,9 @@ func PrepareRetry(
 	if status == nil {
 		return nil, errors.New("enqueue retry: DAG-run status is nil")
 	}
+	if err := CheckRetryable(status); err != nil {
+		return nil, err
+	}
 	if status.Status == ir.Queued {
 		return nil, nil
 	}
@@ -189,6 +204,10 @@ func PrepareRetry(
 		status.AttemptID,
 		status.Status,
 		func(latest *ir.DAGRunStatus) error {
+			// The caller's status may be a summary without the attribute.
+			if err := CheckRetryable(latest); err != nil {
+				return err
+			}
 			snapshot := *latest
 			originalStatus = &snapshot
 			now := time.Now()
@@ -215,6 +234,9 @@ func PrepareRetry(
 			return nil
 		}, persis.DAGRunCompareAndSwapOptions{RootDAGRun: opts.RootDAGRun},
 	)
+	if errors.Is(err, ErrRetryDisabled) {
+		return nil, ErrRetryDisabled
+	}
 	if err != nil {
 		return nil, fmt.Errorf("persist queued retry status: %w", err)
 	}

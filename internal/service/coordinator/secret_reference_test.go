@@ -244,6 +244,44 @@ steps:
 	})
 	require.Error(t, err)
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+
+	// While projects are on, the workspace the DAG names adds no layer: a
+	// worker gets the project's own secret of the ref, or none.
+	projectHandler := coordinator.NewHandler(coordinator.HandlerConfig{
+		SecretStore:         secretStore,
+		DAGRepository:       dagRepository,
+		DAGRunRepository:    dagRunRepository,
+		DAGRunLeaseStore:    leaseStore,
+		StaleLeaseThreshold: time.Minute,
+		ProjectsEnabled:     true,
+	})
+	request := &coordinatorv1.ResolveSecretReferenceRequest{
+		Name:       "MY_SECRET",
+		Ref:        "prod/my-secret",
+		Workspace:  "payments",
+		WorkerId:   "worker-1",
+		AttemptKey: attemptKey,
+		AttemptId:  attempt.ID(),
+	}
+	_, err = projectHandler.ResolveSecretReference(ctx, request)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+	projectSec, err := secretpkg.New(secretpkg.CreateInput{
+		Ref:          "prod/my-secret",
+		ProviderType: secretpkg.ProviderDaguManaged,
+		CreatedBy:    "test",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, secretStore.Create(ctx, projectSec, &secretpkg.WriteValueInput{
+		Value:     "project-value",
+		CreatedBy: "test",
+		CreatedAt: now,
+	}))
+	resp, err = projectHandler.ResolveSecretReference(ctx, request)
+	require.NoError(t, err)
+	assert.Equal(t, "project-value", resp.GetValue())
+	resp, err = handler.ResolveSecretReference(ctx, request)
+	require.NoError(t, err)
+	assert.Equal(t, "secret-value", resp.GetValue())
 }
 
 // A worker may resolve the refs a DAG's SSH connections use, and no others:

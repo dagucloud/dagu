@@ -80,6 +80,18 @@ describe('DAGSlotsView', () => {
     });
   });
 
+  it('picks a run of slots with Shift', () => {
+    renderView();
+
+    fireEvent.click(screen.getByRole('button', { name: /· Succeeded$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /· Failed$/ }), {
+      shiftKey: true,
+    });
+    expect(
+      screen.getByRole('button', { name: 'Backfill 3 slots' })
+    ).toBeInTheDocument();
+  });
+
   // A slot of a DAG with dates is labeled by the date it loads, and its
   // row by that date's month, so choosing October chooses the cells that
   // load October. Its name tells every date and how its run started.
@@ -158,11 +170,14 @@ describe('DAGSlotsView', () => {
         <DAGSlotsView fileName="etl" canExecute />
       </MemoryRouter>
     );
-    // Queried without roles: computing them for 2000 cells is slow.
+    // The cells make a large DOM. Queried without roles, and text only
+    // among buttons, so the queries stay fast.
     fireEvent.click(
       view.container.querySelector('button[aria-label^="Slot "]')!
     );
-    expect(screen.getByText('Backfill 1 slot')).toBeInTheDocument();
+    expect(
+      screen.getByText('Backfill 1 slot', { selector: 'button' })
+    ).toBeInTheDocument();
 
     useQueryMock.mockReturnValue({
       data: { slots: hourly(2001) },
@@ -173,7 +188,9 @@ describe('DAGSlotsView', () => {
         <DAGSlotsView fileName="etl" canExecute />
       </MemoryRouter>
     );
-    expect(screen.getByText('Backfill this range')).toBeInTheDocument();
+    expect(
+      screen.getByText('Backfill this range', { selector: 'button' })
+    ).toBeInTheDocument();
   });
 
   it('links slots to their runs for a user who may not run the DAG', () => {

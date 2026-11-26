@@ -192,6 +192,27 @@ func TestEditRetryDAGRun_DispatchesSeededRetryWithSkippedOutputs(t *testing.T) {
 
 // An edit-retry of a backfill run is still the backfill's: it keeps the
 // backfill ID and the trigger type backfill.
+func TestEditRetryDAGRun_RefusesRetryDisabledRun(t *testing.T) {
+	ctx := context.Background()
+	api, dag := setupEditRetryAPI(t, t.TempDir(), editRetrySourceYAML())
+	seedEditRetrySourceAttemptWithProfileName(t, ctx, api.dagRunRepository, dag, "source-run", "", ir.WithRetryDisabled(true))
+
+	_, err := api.EditRetryDAGRun(ctx, openapiv1.EditRetryDAGRunRequestObject{
+		Name:     dag.Name,
+		DagRunId: "source-run",
+		Body: &openapiv1.EditRetryDAGRunJSONRequestBody{
+			DagRunId: ptrOf("edit-run"),
+			Spec:     editRetryEditedYAMLWithWorkerSelector(),
+		},
+	})
+
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, http.StatusConflict, apiErr.HTTPStatus)
+	_, err = api.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, "edit-run"))
+	require.Error(t, err)
+}
+
 func TestEditRetryDAGRun_KeepsBackfillIdentity(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()
@@ -218,8 +239,8 @@ func TestEditRetryDAGRun_KeepsBackfillIdentity(t *testing.T) {
 	require.Equal(t, ir.TriggerTypeBackfill, status.TriggerType)
 }
 
-// An edit-retry of a narrowed run keeps the list and its record, and runs on
-// the Dagu host (RFC 013 §Narrowing a run).
+// An edit-retry of a narrowed run keeps the list and its record, also when the
+// edited DAG selects workers (RFC 013 §Narrowing a run).
 func TestEditRetryDAGRun_KeepsNodeList(t *testing.T) {
 	ctx := context.Background()
 	api, dag := setupEditRetryAPI(t, t.TempDir(), editRetrySourceYAML())
@@ -247,15 +268,16 @@ func TestEditRetryDAGRun_KeepsNodeList(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"web01"}, status.TargetNodes)
 	require.Equal(t, record, status.NodeList)
+
+	require.NoError(t, editRetry("edit-run-workers", editRetryEditedYAMLWithWorkerSelector()))
+	attempt, err = api.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, "edit-run-workers"))
+	require.NoError(t, err)
+	status, err = attempt.ReadStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"web01"}, status.TargetNodes)
 	snapshot, err := attempt.ReadDAG(ctx)
 	require.NoError(t, err)
-	require.True(t, snapshot.ForceLocal)
-
-	err = editRetry("edit-run-workers", editRetryEditedYAMLWithWorkerSelector())
-	var apiErr *Error
-	require.ErrorAs(t, err, &apiErr)
-	require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
-	require.Contains(t, apiErr.Message, "cannot select workers")
+	require.Equal(t, map[string]string{"region": "apac"}, snapshot.WorkerSelector)
 }
 
 func TestEditRetryDAGRun_RejectsDistributedBuildWorkflow(t *testing.T) {

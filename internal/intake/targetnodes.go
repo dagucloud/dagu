@@ -21,18 +21,13 @@ import (
 // a run. A node: required DAG takes exactly one node, which binds the run, so
 // it refuses an empty list too; that node is an SSH node, since a run bound
 // to a worker node starts only as the child of a step with nodes. Any other
-// DAG takes a list only when a step sets nodes or runs a child DAG, and only
-// when it runs on the Dagu host, since steps with nodes do not run on
-// workers.
+// DAG takes a list only when a step sets nodes or runs a child DAG.
 func CheckTargetNodes(dag *ir.DAG, names []string, known []inventory.ResolvedNode) ([]string, error) {
 	if len(names) == 0 && !dag.NodeRequired {
 		return nil, nil
 	}
 	if !dag.NodeRequired && !dag.HasNodeOrSubDAGSteps() {
 		return nil, fmt.Errorf("DAG %q has no step with nodes and no dag.run step, so a node list narrows nothing", dag.Name)
-	}
-	if len(dag.WorkerSelector) > 0 {
-		return nil, fmt.Errorf("DAG %q: %w", dag.Name, ir.ErrNodeListOnWorkers)
 	}
 	var listed []string
 	for _, name := range names {

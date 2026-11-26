@@ -6,8 +6,10 @@ package agent_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
@@ -31,8 +34,8 @@ func (n nodeInventory) Select(_ context.Context, selector string) ([]inventory.R
 	return inventory.Select(n, filters), nil
 }
 
-func (n nodeInventory) Nodes(context.Context) ([]inventory.ResolvedNode, error) {
-	return n, nil
+func (n nodeInventory) Named(_ context.Context, names []string) ([]inventory.ResolvedNode, error) {
+	return inventory.Named(n, names), nil
 }
 
 const (
@@ -108,6 +111,51 @@ steps:
 	require.NoError(t, err)
 	require.NotContains(t, string(statusJSON), nodePassword)
 	require.Empty(t, dag.Steps[0].ExecutorConfig.Type, "the run routes its own copy of the DAG")
+}
+
+// nodeSecretResolver resolves secret refs only by the node whose connection
+// uses them, as the coordinator serves node credentials to a worker.
+type nodeSecretResolver struct {
+	values map[string]string
+	mu     sync.Mutex
+	nodes  []string
+}
+
+func (r *nodeSecretResolver) ResolveReference(_ context.Context, ref secretref.Ref) (string, error) {
+	return "", fmt.Errorf("secret ref %q resolved without its node", ref.Ref)
+}
+
+func (r *nodeSecretResolver) CheckReferenceAccessibility(ctx context.Context, ref secretref.Ref) error {
+	_, err := r.ResolveReference(ctx, ref)
+	return err
+}
+
+func (r *nodeSecretResolver) ResolveNodeReference(_ context.Context, node string, ref secretref.Ref) (string, error) {
+	r.mu.Lock()
+	r.nodes = append(r.nodes, node)
+	r.mu.Unlock()
+	return r.values[ref.Ref], nil
+}
+
+// A bound run on a worker reaches its node, and reads the node's credentials
+// by the node, which is how a worker asks the coordinator for them.
+func TestAgent_BoundRunOnWorker(t *testing.T) {
+	t.Parallel()
+
+	node, server := startNode(t, "web01")
+	resolver := &nodeSecretResolver{values: map[string]string{passwordRef: nodePassword}}
+	th := test.Setup(t)
+	dag := th.DAG(t, "node: required\nsteps:\n  - id: where\n    run: echo ${node.name}\n    output: WHERE\n")
+	dag.Agent(test.WithAgentOptions(agent.Options{
+		BoundNode:               "web01",
+		WorkerID:                "worker-1",
+		NodeSelector:            nodeInventory{node},
+		SecretReferenceResolver: resolver,
+	})).RunSuccess(t)
+
+	require.Len(t, server.Commands(), 1)
+	require.Equal(t, "web01", dag.ReadOutputs(t)["where"])
+	require.Equal(t, []string{"web01"}, resolver.nodes)
 }
 
 // Fields under an ssh.run step's with override the node's. A password

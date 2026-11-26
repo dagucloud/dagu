@@ -49,6 +49,18 @@ func TestDispatchTriggerType(t *testing.T) {
 	assert.Equal(t, ir.TriggerTypeManual, client.task.TriggerType)
 }
 
+// A narrowed start reaches the coordinator with its node list.
+func TestDispatchTargetNodes(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "deploy"}, "run", runOptions{targetNodes: []string{"web01"}}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, []string{"web01"}, client.task.TargetNodes)
+}
+
 // A selected-steps run is dispatched as a retry of its seeded queued attempt,
 // so the worker starts from the seeded node states.
 func TestDispatchSeededRun(t *testing.T) {

@@ -284,7 +284,9 @@ against the local installation.
 With `strict_host_key` on, the default, a node accepts the key that matches
 its `host_key` or the key trusted for it. A project trusts at most one key
 per node, kept by node name. Trusted keys are not part of an inventory, so
-they are never exported or imported.
+they are never exported or imported. A run checks keys the same way, on a
+worker too, which reads the keys trusted for the nodes it reaches from the
+coordinator. A run never trusts a key.
 
 **Testing a connection.** `POST /node-connection-tests` tests the named
 nodes, or the nodes a selector matches, from the server. A test checks the

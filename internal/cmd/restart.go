@@ -132,10 +132,6 @@ func runRestart(ctx *Context, args []string) error {
 		noReuse:        dagStatus.NoReuse,
 		targetNodes:    dagStatus.TargetNodes,
 	}
-	// The restarted run keeps the node list, and so runs on the Dagu host.
-	if len(opts.targetNodes) > 0 {
-		dag.ForceLocal = true
-	}
 	// A slot an operator names makes the run manual, so the scheduler reads
 	// it by when it ran and it cannot stand in for the scheduler's run.
 	if slot.operatorChosen {
@@ -257,7 +253,9 @@ func executeDAGWithRunID(
 			TriggerType:              opts.triggerType,
 			ParallelItem:             parallelItemFromEnv(dag.Env),
 			SecretStore:              as.SecretStore,
+			SecretReferenceResolver:  as.SecretResolver,
 			ProfileStore:             as.ProfileStore,
+			ProfileResolver:          as.ProfileResolver,
 			NodeSelector:             as.Nodes,
 			HostKeys:                 as.HostKeys,
 			TargetNodes:              opts.targetNodes,

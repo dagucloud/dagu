@@ -88,6 +88,10 @@ type dagSource struct {
 	records persis.Collection
 	// library is searched after the search paths of the options.
 	library string
+	// project names the project whose lookups the repository resolves,
+	// by owners. Both are empty while projects are off.
+	project string
+	owners  *filedag.Owners
 }
 
 func newDAGRepository(cfg *config.Config, src dagSource, opts ...DAGRepositoryOption) (*persis.DAGRepository, error) {
@@ -122,6 +126,7 @@ func newDAGRepository(cfg *config.Config, src dagSource, opts ...DAGRepositoryOp
 		filedag.WithSkipRoots(cfg.DiscoverySkipRoots()),
 		filedag.WithSkipDirectoryCreation(options.SkipDirectoryCreation),
 		filedag.WithDAGRecords(src.records),
+		filedag.WithProject(src.project, src.owners),
 	)
 	if err := dagStore.Initialize(); err != nil {
 		return nil, fmt.Errorf("initialize DAG definition store: %w", err)

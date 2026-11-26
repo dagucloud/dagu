@@ -48,6 +48,7 @@ type Local struct {
 	stateStore               dagrun.StateStore
 	secretStore              secretpkg.Store
 	secretResolver           func(*ir.DAG) providers.ReferenceResolver
+	nodes                    func(*ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys)
 	profileStore             profilepkg.Store
 	profileResolver          func(*ir.DAG) profilepkg.RuntimeResolver
 	serviceRegistry          serviceregistry.ServiceRegistry
@@ -117,6 +118,14 @@ func WithLocalSecretStore(store secretpkg.Store) LocalOption {
 func WithLocalSecretResolver(factory func(*ir.DAG) providers.ReferenceResolver) LocalOption {
 	return func(r *Local) {
 		r.secretResolver = factory
+	}
+}
+
+// WithLocalNodes sets where each child agent finds the nodes of its DAG and
+// their trusted host keys. Without it, a child uses its parent's.
+func WithLocalNodes(factory func(*ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys)) LocalOption {
+	return func(r *Local) {
+		r.nodes = factory
 	}
 }
 
@@ -507,6 +516,9 @@ func (r *Local) newAgent(
 	opts.NodeList = rCtx.NodeList
 	opts.NodeSelector = rCtx.Nodes
 	opts.HostKeys = rCtx.HostKeys
+	if r.nodes != nil {
+		opts.NodeSelector, opts.HostKeys = r.nodes(dag)
+	}
 	opts.ScheduleTime = req.ScheduleTime
 	opts.ScheduleWindow = req.ScheduleWindow
 	opts.RetryPath = req.RetryPath

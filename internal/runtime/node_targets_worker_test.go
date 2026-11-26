@@ -19,15 +19,16 @@ import (
 // worker node.
 type mixedNodes struct{}
 
-func (n mixedNodes) Select(ctx context.Context, _ string) ([]inventory.ResolvedNode, error) {
-	return n.Nodes(ctx)
-}
-
-func (mixedNodes) Nodes(context.Context) ([]inventory.ResolvedNode, error) {
+func (mixedNodes) Select(context.Context, string) ([]inventory.ResolvedNode, error) {
 	return []inventory.ResolvedNode{
 		{Name: "web-gw", Kind: inventory.NodeKindWorker},
 		{Name: "web01"},
 	}, nil
+}
+
+func (n mixedNodes) Named(ctx context.Context, names []string) ([]inventory.ResolvedNode, error) {
+	nodes, err := n.Select(ctx, "")
+	return inventory.Named(nodes, names), err
 }
 
 // boundChildren records the node and worker of each child run it starts.

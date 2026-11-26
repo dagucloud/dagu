@@ -48,6 +48,29 @@ steps:
 	require.Equal(t, map[string]string{"zone": "b"}, recorder.dispatched[0].WorkerSelector)
 }
 
+// A narrowed start reaches the coordinator with its node list.
+func TestStartDispatchCarriesTargetNodes(t *testing.T) {
+	api, dag := setupEditRetryAPI(t, t.TempDir(), `name: narrowed
+worker_selector:
+  zone: a
+steps:
+  - name: restart
+    run: echo restart
+    nodes: web
+`)
+	recorder := &retryCoordinatorRecorder{dispatchErr: errors.New("recorded")}
+	api.coordinatorCli = recorder
+
+	_, err := api.startDAGRunWithOptions(t.Context(), dag, startDAGRunOptions{
+		dagRunID:    "run-narrowed",
+		targetNodes: []string{"web01"},
+	})
+	require.ErrorContains(t, err, "recorded")
+
+	require.Len(t, recorder.dispatched, 1)
+	require.Equal(t, []string{"web01"}, recorder.dispatched[0].TargetNodes)
+}
+
 // A run of selected steps is seeded from the resolved DAG, so the selector
 // must be put back on it before the seed is persisted and dispatched.
 func TestSelectedStepsCarryPerRunWorkerSelector(t *testing.T) {

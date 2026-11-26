@@ -541,6 +541,41 @@ steps:
 	assert.Empty(t, noProfileStatus.ProfileName)
 }
 
+// The default profile that workspace ops names applies to a started run of
+// a DAG labelled with ops only while projects are off.
+func TestRuntimeProfilesAPI_WorkspaceDefaultProfileNeedsProjectsOff(t *testing.T) {
+	t.Parallel()
+
+	for projectsOn, want := range map[bool]string{false: "prod", true: ""} {
+		t.Run(fmt.Sprintf("ProjectsOn=%t", projectsOn), func(t *testing.T) {
+			t.Parallel()
+
+			server := testhelper.SetupServer(t, testhelper.WithConfigMutator(func(cfg *config.Config) {
+				cfg.ProjectsEnabled = projectsOn
+			}))
+			server.Client().Post("/api/v1/workspaces", apigen.CreateWorkspaceJSONRequestBody{Name: "ops"}).
+				ExpectStatus(http.StatusCreated).Send(t)
+			server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{Name: "prod"}).
+				ExpectStatus(http.StatusCreated).Send(t)
+			server.Client().Patch("/api/v1/profiles/_workspaces/ops", apigen.UpdateWorkspaceRuntimeProfileDefaultsJSONRequestBody{
+				DefaultProfile: new("prod"),
+			}).ExpectStatus(http.StatusOK).Send(t)
+			const dagName = "workspace-default-profile"
+			spec := "labels: [workspace=ops]\nsteps:\n  - run: echo ok\n"
+			server.Client().Post("/api/v1/dags", apigen.CreateNewDAGJSONRequestBody{Name: dagName, Spec: &spec}).
+				ExpectStatus(http.StatusCreated).Send(t)
+
+			var started apigen.ExecuteDAG200JSONResponse
+			server.Client().Post("/api/v1/dags/"+dagName+"/start", apigen.ExecuteDAGJSONRequestBody{}).
+				ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &started)
+			status := waitForStoredDAGRunStatus(t, server, dagName, started.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+				return status.Status == ir.Succeeded
+			})
+			assert.Equal(t, want, status.ProfileName)
+		})
+	}
+}
+
 // A run of an unsaved edit takes the default profile of the DAG file it is a
 // draft of, as a start of that file would, also a protected one without an
 // administrator. Without draftOf it runs without a profile.

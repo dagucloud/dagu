@@ -20,6 +20,7 @@ import {
 import dayjs from '@/lib/dayjs';
 import ActionButton from '@/components/ui/action-button';
 import { Ban, CircleStop, RotateCcw, X } from 'lucide-react';
+import { RETRY_DISABLED_REASON } from '@/features/dags/lib/stepStatusGate';
 import React from 'react';
 import { components, NodeStatus, Status } from '../../../../api/v1/schema';
 import { useConfig } from '../../../../contexts/ConfigContext';
@@ -237,16 +238,21 @@ function DAGRunActions({
         ) ?? 0)
       : 0;
 
+  const retryEligible =
+    isRootLevel &&
+    dagRun?.status !== Status.Running &&
+    dagRun?.status !== Status.Queued &&
+    !isWaiting &&
+    dagRun?.dagRunId !== '';
+  // A finished run that refuses retries keeps a disabled Retry, even where
+  // unavailable actions are hidden, so the reason stays readable.
+  const showRetryDisabledReason = retryEligible && !!dagRun?.retryDisabled;
+
   // Determine which buttons should be enabled based on current status and root level
   const buttonState = {
     terminate: terminateAction !== 'none',
     reject: isRootLevel && isWaiting && hasWaitingApprovals,
-    retry:
-      isRootLevel &&
-      dagRun?.status !== Status.Running &&
-      dagRun?.status !== Status.Queued &&
-      !isWaiting &&
-      dagRun?.dagRunId !== '',
+    retry: retryEligible && !dagRun?.retryDisabled,
     dequeue: isRootLevel && dagRun?.status === Status.Queued,
   };
 
@@ -327,12 +333,20 @@ function DAGRunActions({
         )}
 
         {/* Retry Button */}
-        {(!hideUnavailable || buttonState.retry || !isRootLevel) && (
+        {(!hideUnavailable ||
+          buttonState.retry ||
+          !isRootLevel ||
+          showRetryDisabledReason) && (
           <Tooltip>
-            {/* On a sub-run the disabled button cannot take focus, so the
-                wrapper does, letting keyboard users read why. */}
+            {/* A disabled button cannot take focus, so on a sub-run or a
+                retry-disabled run the wrapper does, letting keyboard users
+                read why. */}
             <TooltipTrigger asChild>
-              <span tabIndex={isRootLevel ? undefined : 0}>
+              <span
+                tabIndex={
+                  !isRootLevel || showRetryDisabledReason ? 0 : undefined
+                }
+              >
                 <ActionButton
                   label={buttonLabel}
                   icon={<RotateCcw className="h-4 w-4" />}
@@ -347,7 +361,9 @@ function DAGRunActions({
             </TooltipTrigger>
             <TooltipContent>
               <p>
-                {isRootLevel ? (
+                {dagRun?.retryDisabled ? (
+                  <I18nText text={RETRY_DISABLED_REASON} />
+                ) : isRootLevel ? (
                   <I18nText text={'Retry this run'} />
                 ) : (
                   <I18nText

@@ -122,6 +122,33 @@ func (p ProjectNodes) Select(ctx context.Context, selector string) ([]ResolvedNo
 	return Select(nodes, filters), nil
 }
 
+// Named returns the nodes names names, compared without case, and each node
+// they connect through, in name order. A name of no node is left out. The
+// worker nodes are read only when a name is no inventory node's.
+func (p ProjectNodes) Named(ctx context.Context, names []string) ([]ResolvedNode, error) {
+	nodes, err := p.inventories.Nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	named := Named(nodes, names)
+	if p.workers == nil || namesAll(named, names) {
+		return named, nil
+	}
+	workers, err := p.workers.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the worker nodes: %w", err)
+	}
+	return Named(withWorkers(nodes, workers), names), nil
+}
+
+// namesAll reports whether nodes holds a node of each of names, compared
+// without case.
+func namesAll(nodes []ResolvedNode, names []string) bool {
+	return !slices.ContainsFunc(names, func(name string) bool {
+		return !slices.ContainsFunc(nodes, func(n ResolvedNode) bool { return strings.EqualFold(n.Name, name) })
+	})
+}
+
 // withWorkers returns nodes and the workers that are nodes, in name order.
 func withWorkers(nodes []ResolvedNode, workers []WorkerNode) []ResolvedNode {
 	kept, _ := SplitWorkers(workers, nodes)

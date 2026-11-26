@@ -17,5 +17,7 @@ func warnTestNamedDAGs(ctx *Context) {
 		Symlinks:  cfg.DAGDiscovery.Symlinks,
 		SkipDirs:  cfg.DAGDiscovery.SkipDirs,
 		SkipRoots: cfg.DiscoverySkipRoots(),
+		// A project never follows a symbolic link out of its DAG directory.
+		ConfineSymlinks: cfg.ProjectsEnabled,
 	})
 }

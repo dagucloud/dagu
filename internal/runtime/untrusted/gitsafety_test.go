@@ -1,0 +1,107 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package untrusted
+
+import (
+	"bytes"
+	"context"
+	"os/exec"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// The setting safe.bareRepository=explicit goes after the entries that
+// GIT_CONFIG_COUNT already counts, once.
+func TestWithGitSafety(t *testing.T) {
+	t.Parallel()
+
+	got := withGitSafety([]string{"PATH=/bin"})
+	assert.ElementsMatch(t, []string{
+		"PATH=/bin", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=safe.bareRepository", "GIT_CONFIG_VALUE_0=explicit",
+	}, got)
+
+	got = withGitSafety([]string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.name", "GIT_CONFIG_VALUE_0=dagu"})
+	assert.ElementsMatch(t, []string{
+		"GIT_CONFIG_KEY_0=user.name", "GIT_CONFIG_VALUE_0=dagu",
+		"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_1=safe.bareRepository", "GIT_CONFIG_VALUE_1=explicit",
+	}, got)
+
+	again := withGitSafety(got)
+	assert.ElementsMatch(t, got, again, "the setting is added once")
+
+	// Git applies the last entry of a key, so a later "all" turns it off.
+	got = withGitSafety([]string{
+		"GIT_CONFIG_COUNT=2",
+		"GIT_CONFIG_KEY_0=safe.bareRepository", "GIT_CONFIG_VALUE_0=explicit",
+		"GIT_CONFIG_KEY_1=safe.bareRepository", "GIT_CONFIG_VALUE_1=all",
+	})
+	assert.ElementsMatch(t, []string{
+		"GIT_CONFIG_KEY_0=safe.bareRepository", "GIT_CONFIG_VALUE_0=explicit",
+		"GIT_CONFIG_KEY_1=safe.bareRepository", "GIT_CONFIG_VALUE_1=all",
+		"GIT_CONFIG_COUNT=3", "GIT_CONFIG_KEY_2=safe.bareRepository", "GIT_CONFIG_VALUE_2=explicit",
+	}, got)
+
+	// Git reads GIT_CONFIG_PARAMETERS after the counted entries.
+	got = withGitSafety([]string{"GIT_CONFIG_PARAMETERS='core.editor=vi' 'safe.bareRepository=all'"})
+	assert.ElementsMatch(t, []string{
+		"GIT_CONFIG_PARAMETERS='core.editor=vi' 'safe.bareRepository=all' 'safe.bareRepository=explicit'",
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=safe.bareRepository", "GIT_CONFIG_VALUE_0=explicit",
+	}, got)
+	assert.ElementsMatch(t, got, withGitSafety(got), "the setting is added once")
+}
+
+// Git refuses a count with a missing entry, so the check stops at the first
+// missing entry instead of reading every counted one.
+func TestGitSafetyStopsAtMissingEntry(t *testing.T) {
+	t.Parallel()
+
+	env := map[string]string{"GIT_CONFIG_COUNT": "2147483647", "GIT_CONFIG_KEY_0": "core.editor", "GIT_CONFIG_VALUE_0": "vi"}
+	lookups := 0
+	entries := GitSafetyEntries(func(name string) (string, bool) {
+		lookups++
+		if lookups > 10 {
+			t.Fatalf("looked up %s after the first missing entry", name)
+		}
+		value, ok := env[name]
+		return value, ok
+	})
+	assert.Equal(t, gitSafetyValue, entries["GIT_CONFIG_VALUE_2147483647"])
+}
+
+// A setting of GIT_CONFIG_PARAMETERS does not turn the setting off in git.
+func TestGitSafetyOverridesParameters(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	cmd := exec.Command("git", "config", "--get", gitSafetyKey)
+	cmd.Env = withGitSafety(append(cmd.Environ(), "GIT_CONFIG_PARAMETERS='safe.bareRepository=all'"))
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	assert.Equal(t, gitSafetyValue, strings.TrimSpace(string(out)))
+}
+
+// A trusted command with a nil Env inherits the variables of Dagu. It gets the
+// setting too, next to the inherited variables.
+func TestGitSafetyInheritedEnv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs /bin/sh")
+	}
+	t.Setenv("DAGU_TEST_INHERITED", "kept")
+	t.Setenv("GIT_CONFIG_COUNT", "")
+
+	cmd := exec.Command("/bin/sh", "-c", `printf '%s %s %s %s' "$DAGU_TEST_INHERITED" "$GIT_CONFIG_COUNT" "$GIT_CONFIG_KEY_0" "$GIT_CONFIG_VALUE_0"`)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	process, err := StartManagedProcess(WithGitSafetyContext(context.Background()), cmd)
+	require.NoError(t, err)
+	defer func() { _ = process.Release() }()
+	require.NoError(t, process.Wait())
+	assert.Equal(t, "kept 1 safe.bareRepository explicit", stdout.String())
+}

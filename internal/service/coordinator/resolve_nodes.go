@@ -6,11 +6,14 @@ package coordinator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/sshconn"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
@@ -252,4 +255,115 @@ func nodeKindToProto(kind inventory.NodeKind) coordinatorv1.NodeKind {
 		return coordinatorv1.NodeKind_NODE_KIND_WORKER
 	}
 	return coordinatorv1.NodeKind_NODE_KIND_SSH
+}
+
+// nodeKindFromProto reads a node's kind. Any kind but a worker's is SSH.
+func nodeKindFromProto(kind coordinatorv1.NodeKind) inventory.NodeKind {
+	if kind == coordinatorv1.NodeKind_NODE_KIND_WORKER {
+		return inventory.NodeKindWorker
+	}
+	return inventory.NodeKindSSH
+}
+
+// resolvedNodesFromProto reads nodes as ResolveNodes answers them.
+func resolvedNodesFromProto(nodes []*coordinatorv1.ResolvedNode) []inventory.ResolvedNode {
+	out := make([]inventory.ResolvedNode, len(nodes))
+	for i, node := range nodes {
+		out[i] = inventory.ResolvedNode{
+			Name:          node.GetName(),
+			Kind:          nodeKindFromProto(node.GetKind()),
+			InventoryID:   node.GetInventoryId(),
+			InventoryName: node.GetInventoryName(),
+			Host:          node.GetHost(),
+			Port:          int(node.GetPort()),
+			User:          node.GetUser(),
+			Auth: ir.SSHAuth{
+				Key:              node.GetKeyPath(),
+				KeySecret:        node.GetKeySecret(),
+				PasswordSecret:   node.GetPasswordSecret(),
+				PassphraseSecret: node.GetPassphraseSecret(),
+			},
+			Bastion:       node.GetBastion(),
+			HostKey:       node.GetHostKey(),
+			StrictHostKey: node.GetStrictHostKey(),
+			Shell:         node.GetShell(),
+			Timeout:       time.Duration(node.GetTimeoutNanos()),
+			Labels:        ir.NewLabels(node.GetLabels()),
+			Description:   node.GetDescription(),
+			Disabled:      node.GetDisabled(),
+		}
+	}
+	return out
+}
+
+// NodeClient answers, for a run on a worker, the nodes it targets (RFC 012
+// §Reading the inventory from a run).
+type NodeClient interface {
+	// ResolveNodes answers the nodes selector matches, or those names names,
+	// for the attempt run identifies. Exactly one of selector and names is
+	// set. A name of no node is left out.
+	ResolveNodes(ctx context.Context, owner serviceregistry.HostInfo, selector string, names []string, run SecretReferenceRun) (ResolvedNodes, error)
+}
+
+// ResolvedNodes is what ResolveNodes answers. Credentials are secret refs.
+type ResolvedNodes struct {
+	// Nodes are the nodes matched or named, in name order.
+	Nodes []inventory.ResolvedNode
+	// Bastions are the nodes that Nodes connect through, each once, in name
+	// order.
+	Bastions []inventory.ResolvedNode
+	// HostKeys are the host keys trusted for Nodes and Bastions.
+	HostKeys []inventory.TrustedHostKey
+}
+
+func (cli *clientImpl) ResolveNodes(ctx context.Context, owner serviceregistry.HostInfo, selector string, names []string, run SecretReferenceRun) (ResolvedNodes, error) {
+	if !emptyCoordinatorOwner(owner) && !completeCoordinatorOwner(owner) {
+		return ResolvedNodes{}, fmt.Errorf("resolve nodes owner coordinator endpoint is incomplete")
+	}
+	req := &coordinatorv1.ResolveNodesRequest{
+		WorkerId:   run.WorkerID,
+		AttemptKey: run.AttemptKey,
+		AttemptId:  run.AttemptID,
+		DagName:    run.DAGName,
+		Selector:   selector,
+		Names:      names,
+	}
+	var resp *coordinatorv1.ResolveNodesResponse
+	call := func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
+		var err error
+		resp, err = client.client.ResolveNodes(ctx, req)
+		if err != nil {
+			return fmt.Errorf("resolve nodes failed: %w", err)
+		}
+		if resp == nil {
+			return fmt.Errorf("coordinator %s returned empty resolve nodes response", member.ID)
+		}
+		return nil
+	}
+	if completeCoordinatorOwner(owner) {
+		if err := cli.callOwner(ctx, owner, false, call); err != nil {
+			return ResolvedNodes{}, err
+		}
+	} else {
+		members, err := cli.getCoordinatorMembers(ctx)
+		if err != nil {
+			return ResolvedNodes{}, err
+		}
+		if err := cli.attemptCall(ctx, members, call); err != nil {
+			return ResolvedNodes{}, err
+		}
+	}
+
+	resolved := ResolvedNodes{
+		Nodes:    resolvedNodesFromProto(resp.GetNodes()),
+		Bastions: resolvedNodesFromProto(resp.GetBastions()),
+	}
+	for _, key := range resp.GetTrustedHostKeys() {
+		resolved.HostKeys = append(resolved.HostKeys, inventory.TrustedHostKey{
+			Node:        key.GetNode(),
+			Key:         key.GetKey(),
+			Fingerprint: key.GetFingerprint(),
+		})
+	}
+	return resolved, nil
 }

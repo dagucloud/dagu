@@ -315,8 +315,9 @@ as `paths.dags_dir: /data/dags` does in the Helm chart. See
 
 - `dag_discovery` settings in `config.yaml` apply to every project's DAG
   directory.
-- Discovery never follows a symbolic link out of a project's DAG directory,
-  whatever `dag_discovery.symlinks` says.
+- Discovery never follows a symbolic link out of a project's DAG directory
+  or out of the library, whatever `dag_discovery.symlinks` says. A file
+  symlink that stays inside them follows `dag_discovery.symlinks`.
 - When one of `<dags_dir>`, `<projects_dir>`, and `paths.alt_dags_dir` lies
   inside another, discovery in the outer one skips the inner one. Each DAG
   file belongs to one project or to the library.
@@ -401,6 +402,10 @@ Rules:
 
 - No server-wide layer of base config, secrets, profiles, routes, or
   policies applies to any project.
+- A run reads its secrets and profiles in its project, whether it is
+  started, retried, queued, or a sub-DAG run. A DAG's `workspace` label
+  adds no layer of secrets or profile defaults, and chooses no default
+  profile for its runs.
 - A change to one project's settings never changes what another project's
   DAGs run with, except as
   [Base Config of Migrated Projects](#base-config-of-migrated-projects)
@@ -583,7 +588,8 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 #### Resolution
 
 - `dag.run` resolves its target in the caller's project, then in the
-  library.
+  library. In the caller's project, a name resolves in its DAG directory,
+  then among its files that run in place.
 - A path target must lie inside the caller's project DAG directory or the
   library once symbolic links resolve, or be a file that runs in place as
   the caller's project's.

@@ -97,6 +97,7 @@ Accepted root fields:
 | `consts` | No | Immutable literal values. |
 | `defaults` | No | Default step settings. |
 | `steps` | Yes | Executable steps. |
+| `outputs` | No | Named results mapped to step outputs; Spec 106. |
 | `type` | No | Step scheduling mode: `graph`, `chain`, or `agent`. `controller` is a deprecated alias for `agent`. |
 | `tasks` | Only with `type: agent` | Goals an Agent DAG run must satisfy. |
 | `handler_on` | No | Lifecycle handler steps. A selected-steps run without a graph end step skips all but `init` (Spec 013). |

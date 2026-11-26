@@ -23,6 +23,13 @@ func NewReferenceResolver(store Store, workspace string) *ReferenceResolver {
 	}
 }
 
+// NewProjectReferenceResolver returns a resolver of refs among the secrets
+// of the project whose store it is given. It never reads a workspace's
+// secrets.
+func NewProjectReferenceResolver(store Store) *ReferenceResolver {
+	return NewReferenceResolver(store, GlobalWorkspace)
+}
+
 func (r *ReferenceResolver) ResolveReference(ctx context.Context, ref secretref.Ref) (string, error) {
 	sec, err := r.lookup(ctx, ref)
 	if err != nil {

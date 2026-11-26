@@ -1288,6 +1288,30 @@ func TestHandler_Poll(t *testing.T) {
 		require.Equal(t, ir.TriggerTypeManual, status.TriggerType)
 	})
 
+	// A retry of a narrowed run keeps the list and the record of what its
+	// steps with nodes did, so an attempt lost before its agent starts does
+	// not reset them.
+	t.Run("WriteInitialStatusKeepsNodeList", func(t *testing.T) {
+		t.Parallel()
+
+		record := &ir.NodeListRecord{Skipped: true, Ran: true}
+		previous, err := convert.DAGRunStatusToProto(&ir.DAGRunStatus{TargetNodes: []string{"web01"}, NodeList: record})
+		require.NoError(t, err)
+		h := NewHandler(HandlerConfig{})
+		attempt := &mockAttempt{}
+		require.NoError(t, h.writeInitialStatus(context.Background(), attempt, &coordinatorv1.Task{
+			DagRunId:       "run-123",
+			Operation:      coordinatorv1.Operation_OPERATION_RETRY,
+			TargetNodes:    []string{"web01"},
+			PreviousStatus: previous,
+		}, "test-dag", ir.DAGRunRef{}, nil))
+
+		status, err := attempt.ReadStatus(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, []string{"web01"}, status.TargetNodes)
+		require.Equal(t, record, status.NodeList)
+	})
+
 	t.Run("WriteInitialStatusRecordsModelUsage", func(t *testing.T) {
 		t.Parallel()
 
@@ -4007,6 +4031,49 @@ func TestHandler_ReportStatus(t *testing.T) {
 		persisted, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"workspace=ops"}, persisted.Labels)
+	})
+
+	// A worker that fails to load or start a DAG reports a status built from
+	// the task alone, without the run's ownership attributes.
+	t.Run("PreservesRunOwnershipAttributes", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		h := NewHandler(HandlerConfig{DAGRunRepository: store.repository})
+		ctx := context.Background()
+
+		ref := ir.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		subject := &ir.TriggerSubject{Type: "a2a", ID: "caller-1"}
+		attempt := store.addAttempt(ref, &ir.DAGRunStatus{
+			Name:           ref.Name,
+			DAGRunID:       ref.ID,
+			AttemptID:      "attempt-1",
+			Status:         ir.Queued,
+			TriggerSubject: subject,
+			RetryDisabled:  true,
+			TargetNodes:    []string{"web01"},
+			NodeList:       &ir.NodeListRecord{Ran: true},
+		})
+
+		protoStatus, convErr := convert.DAGRunStatusToProto(&ir.DAGRunStatus{
+			Name:      ref.Name,
+			DAGRunID:  ref.ID,
+			AttemptID: "attempt-1",
+			Status:    ir.Failed,
+		})
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{Status: protoStatus})
+		require.NoError(t, err)
+		require.True(t, resp.Accepted)
+
+		persisted, err := attempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, ir.Failed, persisted.Status)
+		assert.True(t, persisted.RetryDisabled)
+		assert.Equal(t, subject, persisted.TriggerSubject)
+		assert.Equal(t, []string{"web01"}, persisted.TargetNodes, "a report from a worker without node lists")
+		assert.Equal(t, &ir.NodeListRecord{Ran: true}, persisted.NodeList)
 	})
 
 	t.Run("WaitingStatusClosesCachedAttemptBeforePersisting", func(t *testing.T) {

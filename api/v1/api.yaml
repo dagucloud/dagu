@@ -63,6 +63,8 @@ tags:
     description: "Runtime profile operations for managed environment variables and secrets"
   - name: "views"
     description: "Shared saved view configurations"
+  - name: "skills"
+    description: "Skill folders of the skills directory in the Agent Skills format"
   - name: "nodes"
     description: "Node inventories: named lists of SSH hosts that steps select by label"
 
@@ -9668,6 +9670,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /skills:
+    get:
+      summary: "List skills"
+      description: "Lists the skill folders of the DAGs directory, sorted by name: at most the first 1000. A skill that is not in the Agent Skills format is listed too, with its errors: Dagu refuses to load it."
+      operationId: "listSkills"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Skills"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skills:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SkillSummary"
+                  truncated:
+                    type: boolean
+                    description: "True when the skills directory holds more than 1000 folders"
+                required:
+                  - skills
+                  - truncated
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /calendars:
     get:
       summary: "List business calendars"
@@ -14961,6 +15003,81 @@ components:
         - stepStatusLabel
         - hasMore
 
+    SkillIssue:
+      type: object
+      description: "One finding of the check of a skill against the Agent Skills format"
+      properties:
+        severity:
+          type: string
+          enum:
+            - error
+            - warning
+          description: "An error makes Dagu refuse the skill. A warning does not."
+        rule:
+          type: string
+          description: "Identifier of the rule, for example name-folder"
+        file:
+          type: string
+          description: "File of the skill, relative to its folder. Empty when the issue concerns the folder."
+        message:
+          type: string
+          description: "What is wrong and what the rule is"
+      required:
+        - severity
+        - rule
+        - message
+
+    SkillSummary:
+      type: object
+      description: "A skill folder of the skills directory"
+      properties:
+        name:
+          type: string
+          description: "Name of the skill, the name of its folder"
+        description:
+          type: string
+          description: "Description of the skill. Empty when the front matter is not valid."
+        hash:
+          type: string
+          description: "Hash of the version of the skill: the SHA-256 of the sorted list of the path and the SHA-256 of each file"
+        valid:
+          type: boolean
+          description: "False when the skill has an error. Dagu refuses a skill that is not valid."
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillIssue"
+          description: "Errors of the format. Not empty when valid is false."
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillIssue"
+          description: "Warnings of the format. They do not refuse the skill."
+        fileCount:
+          type: integer
+          description: "Number of files, with SKILL.md"
+        totalBytes:
+          type: integer
+          format: int64
+          description: "Size of all files in bytes"
+        bodyLines:
+          type: integer
+          description: "Number of lines of the Markdown body"
+        bodyTokens:
+          type: integer
+          description: "Estimate of the tokens of the body: bytes divided by 3.7. Approximate."
+      required:
+        - name
+        - description
+        - hash
+        - valid
+        - errors
+        - warnings
+        - fileCount
+        - totalBytes
+        - bodyLines
+        - bodyTokens
+
     ToolDefinition:
       type: object
       description: "A tool definition that was available to the LLM"
@@ -19170,6 +19287,9 @@ components:
         backfillId:
           type: string
           description: "Backfill that started the DAG-run. A retry keeps it."
+        retryDisabled:
+          type: boolean
+          description: "True when the DAG-run cannot be retried once it is terminal. Later attempts keep it."
         conditions:
           type: array
           description: "Type-keyed current-state runtime conditions for the DAG-run. This list reports the latest condition for each type, not a history of queued reasons."
@@ -23101,7 +23221,7 @@ components:
       type: array
       items:
         type: string
-      description: "Inventory nodes the run is narrowed to (RFC 013): its steps with nodes, and those of its child runs, run only on nodes the list names. A node: required DAG takes exactly one node and runs bound to it. Each name must be a node of the project, and the DAG must be node: required or have a step with nodes or a dag.run step. A narrowed run runs on the Dagu host, and retries, restarts, and queued runs keep the list."
+      description: "Inventory nodes the run is narrowed to (RFC 013): its steps with nodes, and those of its child runs, run only on nodes the list names. A node: required DAG takes exactly one node and runs bound to it. Each name must be a node of the project, and the DAG must be node: required or have a step with nodes or a dag.run or dag.enqueue step. Retries, restarts, and queued runs keep the list."
 
     WorkerSelectorOverride:
       type: object

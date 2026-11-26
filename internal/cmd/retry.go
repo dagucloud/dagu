@@ -185,6 +185,9 @@ func runRetry(ctx *Context, args []string) error {
 		}
 		return fmt.Errorf("failed to read status: status data is nil")
 	}
+	if err := queue.CheckRetryable(status); err != nil {
+		return err
+	}
 	if queueDispatchRetry && triggerActor == "" {
 		triggerActor = status.TriggerActor
 	}
@@ -780,7 +783,9 @@ func withRetryAgent(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts run
 			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  opts.noReuse,
 			SecretStore:              as.SecretStore,
+			SecretReferenceResolver:  as.SecretResolver,
 			ProfileStore:             as.ProfileStore,
+			ProfileResolver:          as.ProfileResolver,
 			NodeSelector:             as.Nodes,
 			HostKeys:                 as.HostKeys,
 			ProfileName:              opts.profileName,

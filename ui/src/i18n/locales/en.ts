@@ -1726,6 +1726,8 @@ export const baseEnglish = {
   'Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation.':
     'Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation.',
   'Retry this run': 'Retry this run',
+  'This run cannot be retried. Start a new run by sending a new message.':
+    'This run cannot be retried. Start a new run by sending a new message.',
   'Retry edited run': 'Retry edited run',
   'Retry load more': 'Retry load more',
   'Retry loading more': 'Retry loading more',
@@ -1735,6 +1737,10 @@ export const baseEnglish = {
   'Retry selected': 'Retry selected',
   'Retry step': 'Retry step',
   'Retry this step?': 'Retry this step?',
+  'Retry unavailable while the DAG run is running.':
+    'Retry unavailable while the DAG run is running.',
+  'Retry unavailable while the root DAG run is running.':
+    'Retry unavailable while the root DAG run is running.',
   'Retrying...': 'Retrying...',
   'Reuse previous output': 'Reuse previous output',
   Revert: 'Revert',

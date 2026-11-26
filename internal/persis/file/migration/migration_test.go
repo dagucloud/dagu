@@ -352,11 +352,15 @@ func TestRunRetriesWhenJournalFills(t *testing.T) {
 func TestRunStopsWaitingForV2WithoutLock(t *testing.T) {
 	t.Parallel()
 	dataDir := t.TempDir()
-	services := &fakeServices{}
+	services := &fakeServices{checked: make(chan struct{})}
 	services.set(serviceregistry.ServiceNameScheduler, serviceregistry.HostInfo{ID: "s1", Host: "v2-host"})
 	stalled, ticks := newTestMigrator(t, dataDir, services, nil)
 	stalledDone := runAsync(stalled)
+	<-services.checked
 	tickWaiting(t, ticks, stalledDone)
+	// Once the woken process has looked for v2 processes again, it checks
+	// the lock only on its next tick.
+	<-services.checked
 
 	// The lock passes to another process, as after a stall past the stale
 	// threshold, and that process finishes.
@@ -365,13 +369,20 @@ func TestRunStopsWaitingForV2WithoutLock(t *testing.T) {
 	require.NoError(t, other.Run(context.Background()))
 	services.set(serviceregistry.ServiceNameScheduler, serviceregistry.HostInfo{ID: "s2", Host: "v3-host"})
 
-	tickWaiting(t, ticks, stalledDone) // wakes the first process
+	// The first process may see the lost lock in the check that the last
+	// tick started. Otherwise the next tick wakes it, and it stops without
+	// waiting for another.
+	var err error
 	select {
+	case err = <-stalledDone:
 	case ticks <- time.Now():
-		t.Fatal("kept waiting without the lock")
-	case err := <-stalledDone:
-		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
+		select {
+		case ticks <- time.Now():
+			t.Fatal("kept waiting without the lock")
+		case err = <-stalledDone:
+		}
 	}
+	require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
 	done, err := New(dataDir, &fakeServices{}).Done()
 	require.NoError(t, err)
 	assert.True(t, done, "the status of the finished migration stays")
@@ -640,6 +651,8 @@ func tickUntilDone(ticks chan<- time.Time, done <-chan error) error {
 type fakeServices struct {
 	mu      sync.Mutex
 	members map[serviceregistry.ServiceName][]serviceregistry.HostInfo
+	// checked, when set, receives once each look for v2 processes ends.
+	checked chan struct{}
 }
 
 var _ serviceregistry.ServiceRegistry = (*fakeServices)(nil)
@@ -655,8 +668,13 @@ func (f *fakeServices) set(name serviceregistry.ServiceName, members ...servicer
 
 func (f *fakeServices) GetServiceMembers(_ context.Context, name serviceregistry.ServiceName) ([]serviceregistry.HostInfo, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]serviceregistry.HostInfo(nil), f.members[name]...), nil
+	members := append([]serviceregistry.HostInfo(nil), f.members[name]...)
+	f.mu.Unlock()
+	// The coordinators are the last members a look for v2 processes reads.
+	if f.checked != nil && name == serviceregistry.ServiceNameCoordinator {
+		f.checked <- struct{}{}
+	}
+	return members, nil
 }
 
 func (f *fakeServices) Register(context.Context, serviceregistry.ServiceName, serviceregistry.HostInfo) error {

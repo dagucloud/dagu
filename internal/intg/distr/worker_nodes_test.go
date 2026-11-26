@@ -29,8 +29,8 @@ func (n workerNodes) Select(_ context.Context, selector string) ([]inventory.Res
 	return inventory.Select(n, filters), nil
 }
 
-func (n workerNodes) Nodes(context.Context) ([]inventory.ResolvedNode, error) {
-	return n, nil
+func (n workerNodes) Named(_ context.Context, names []string) ([]inventory.ResolvedNode, error) {
+	return inventory.Named(n, names), nil
 }
 
 // A step with nodes on the Dagu host that matches a worker node whose worker

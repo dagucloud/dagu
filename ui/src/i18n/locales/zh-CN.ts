@@ -1685,6 +1685,8 @@ export const baseChinese = {
   'Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation.':
     '重试将继续现有的 OpenCode 对话并重新发送步骤提示。要开始新对话，请在 Agent 会话选项卡中使用“开始新会话”。',
   'Retry this run': '重试此运行',
+  'This run cannot be retried. Start a new run by sending a new message.':
+    '此运行无法重试。请发送新消息以启动新的运行。',
   'Retry edited run': '重试已编辑的运行',
   'Retry load more': '重试加载更多',
   'Retry loading more': '重试加载更多',
@@ -1694,6 +1696,10 @@ export const baseChinese = {
   'Retry selected': '重试所选',
   'Retry step': '重试步骤',
   'Retry this step?': '重试此步骤？',
+  'Retry unavailable while the DAG run is running.':
+    'DAG 运行正在运行，无法重试。',
+  'Retry unavailable while the root DAG run is running.':
+    '顶层 DAG 运行正在运行，无法重试。',
   'Retrying...': '正在重试...',
   'Reuse previous output': '重用上次输出',
   Revert: '还原',
