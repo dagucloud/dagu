@@ -82,6 +82,46 @@ func TestServiceNotificationDestinationsUseDAGWorkspaceGlobalInheritance(t *test
 	assert.Empty(t, svc.NotificationDestinationsForEvent(event))
 }
 
+// While projects are on, a DAG's policy set inherits its project's policies
+// alone: the policy set of the workspace its label names, which would stop
+// that inheritance while projects are off, is passed over.
+func TestServiceProjectsSkipWorkspacePolicies(t *testing.T) {
+	store := newMemoryStore(t)
+	projectProvider := store.saveProvider(t, "Project", incidentmodel.ProviderPagerDuty)
+	workspaceProvider := store.saveProvider(t, "Workspace", incidentmodel.ProviderPagerDuty)
+	dagProvider := store.saveProvider(t, "DAG", incidentmodel.ProviderPagerDuty)
+	projectSet := store.savePolicySet(t, &incidentmodel.PolicySet{
+		Scope:    incidentmodel.PolicyScopeGlobal,
+		Enabled:  true,
+		Policies: []incidentmodel.Policy{{ProviderID: projectProvider.ID, Enabled: true}},
+	})
+	store.savePolicySet(t, &incidentmodel.PolicySet{
+		Scope:     incidentmodel.PolicyScopeWorkspace,
+		Workspace: "ops",
+		Enabled:   true,
+		Policies:  []incidentmodel.Policy{{ProviderID: workspaceProvider.ID, Enabled: true}},
+	})
+	dagSet := store.savePolicySet(t, &incidentmodel.PolicySet{
+		Scope:    incidentmodel.PolicyScopeDAG,
+		DAGName:  "daily",
+		Enabled:  true,
+		Policies: []incidentmodel.Policy{{ProviderID: dagProvider.ID, Enabled: true}},
+	})
+	svc := New(store, WithProjectsEnabled(true))
+	event := failedEvent("daily", "run-1")
+	event.Status.Labels = []string{"workspace=ops"}
+
+	destinations := svc.NotificationDestinationsForEvent(event)
+	require.Len(t, destinations, 1)
+	assert.Equal(t, dagSet.Policies[0].ID, parsePolicyDestinationID(destinations[0]).PolicyID)
+
+	dagSet.InheritParent = true
+	store.savePolicySet(t, dagSet)
+	destinations = svc.NotificationDestinationsForEvent(event)
+	require.Len(t, destinations, 1)
+	assert.Equal(t, projectSet.Policies[0].ID, parsePolicyDestinationID(destinations[0]).PolicyID)
+}
+
 func TestServiceSuppressesFailureIncidentUntilAutoRetriesAreExhausted(t *testing.T) {
 	store := newMemoryStore(t)
 	provider := store.saveProvider(t, "PagerDuty", incidentmodel.ProviderPagerDuty)

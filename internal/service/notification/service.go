@@ -52,6 +52,9 @@ type Service struct {
 	commandChannelsEnabled     bool
 	commandBaseEnv             []string
 	commandLogs                LogOpener
+	// projectsEnabled keeps a DAG's workspace label from choosing its
+	// route set.
+	projectsEnabled bool
 }
 
 type TestResult struct {
@@ -115,6 +118,15 @@ func WithPublicURL(publicURL string) Option {
 func WithPublicURLResolver(resolver func() string) Option {
 	return func(s *Service) {
 		s.SetPublicURLResolver(resolver)
+	}
+}
+
+// WithProjectsEnabled resolves a run's notification routes in its project
+// alone while enabled: the workspace its DAG's label names adds no route
+// set.
+func WithProjectsEnabled(enabled bool) Option {
+	return func(s *Service) {
+		s.projectsEnabled = enabled
 	}
 }
 
@@ -1248,7 +1260,7 @@ func (s *Service) effectiveRouteSetForEvent(ctx context.Context, event chatbridg
 	if state == workspace.WorkspaceLabelInvalid {
 		return nil
 	}
-	if workspaceName != "" {
+	if workspaceName != "" && !s.projectsEnabled {
 		workspaceRouteSet, err := s.loadRouteSet(ctx, notificationmodel.RouteScopeWorkspace, workspaceName)
 		if err == nil {
 			if !workspaceRouteSet.InheritGlobal {

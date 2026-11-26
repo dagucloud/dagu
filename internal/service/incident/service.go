@@ -41,6 +41,9 @@ type Service struct {
 	incidentsEnabled func() bool
 	publicURL        func() string
 	retry            DeliveryRetryConfig
+	// projectsEnabled keeps a DAG's workspace label from choosing the
+	// policies its DAG policy inherits.
+	projectsEnabled bool
 }
 
 type DeliveryRetryConfig struct {
@@ -106,6 +109,15 @@ func WithDeliveryRetry(cfg DeliveryRetryConfig) Option {
 		if cfg.MaxBackoff >= 0 {
 			s.retry.MaxBackoff = cfg.MaxBackoff
 		}
+	}
+}
+
+// WithProjectsEnabled resolves a run's incident policies in its project
+// alone while enabled: the DAG's policy set, then the project's. The
+// workspace its DAG's label names adds no policy set.
+func WithProjectsEnabled(enabled bool) Option {
+	return func(s *Service) {
+		s.projectsEnabled = enabled
 	}
 }
 
@@ -657,7 +669,7 @@ func (s *Service) effectivePolicySetForEvent(ctx context.Context, event chatbrid
 		)
 	}
 	workspaceName := eventWorkspaceName(event)
-	if workspaceName != "" {
+	if workspaceName != "" && !s.projectsEnabled {
 		if policySet, err := s.loadPolicySet(ctx, incidentmodel.PolicyScopeWorkspace, workspaceName, ""); err == nil {
 			if !policySet.InheritParent {
 				return policySet
