@@ -1566,7 +1566,7 @@ milestones span this RFC and RFC 026.
      `rate_limited` and `confirmation_required` kinds.
   4. RFC 026's gateway and harness steps.
 - **M2.**
-  - Microsoft: device code and client credentials.
+  - Microsoft: authorization code, device code, and client credentials.
   - Service account connections.
   - Mail: `connection` in mail accounts, a DAG's `smtp`, and the
     notification SMTP settings, the Google and Microsoft `mailbox` presets,
