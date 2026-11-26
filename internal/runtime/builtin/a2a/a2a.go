@@ -210,6 +210,7 @@ func (c *caller) send(ctx context.Context, sess *session, redact redactor) (map[
 	cfg := c.cfg.send
 	msg := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart(cfg.Message))
 	msg.ContextID = cfg.ContextID
+	msg.ID = messageID(ctx, cfg)
 	immediately := cfg.ReturnImmediately == nil || *cfg.ReturnImmediately
 	res, err := sess.transport.SendMessage(ctx, sess.params(), &a2a.SendMessageRequest{
 		Tenant:  sess.route.tenant,

@@ -1,0 +1,27 @@
+working_dir: .
+env:
+  - A2A_URL: ${A2A_URL}
+secrets:
+  - name: A2A_TOKEN
+    provider: env
+    key: A2A_TOKEN
+steps:
+  - id: send
+    action: a2a.send
+    with:
+      agent_url: ${A2A_URL}
+      message: hello
+      headers:
+        Authorization: Bearer ${A2A_TOKEN}
+    retry_policy:
+      limit: 1
+      interval_sec: 0
+    stdout: send.out
+    output: SEND
+  - id: use
+    depends: send
+    env:
+      - TEXT: ${SEND.text}
+    run: |
+      printf '%s|%s\n' "${SEND.kind}" "$TEXT"
+    stdout: use.out

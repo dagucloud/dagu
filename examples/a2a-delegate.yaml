@@ -5,8 +5,9 @@
 # taking it from params: whoever can start a run could otherwise point it at
 # their own server and receive the credential.
 #
-# a2a.send never retries: if its response is lost, the agent may already be
-# working. Do not add retry_policy to it unless duplicate work is acceptable.
+# a2a.send never retries itself: if its response is lost, the agent may already
+# be working. A retry_policy resends the same messageId (set with.message_id to
+# choose it), so only an agent that deduplicates by messageId runs it once.
 # To resume a Task in a new run, see a2a-recover.yaml.
 
 env:
