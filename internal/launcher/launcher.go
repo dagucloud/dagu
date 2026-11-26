@@ -27,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/project"
 )
 
 // ErrExecutableMissing marks a launch that failed because the executable does
@@ -99,18 +100,42 @@ type SubCmdBuilder struct {
 	// homeEnv is the DAGU_HOME entry of the base environment, if any. A
 	// --dagu-home flag sets it there and not in the process environment.
 	homeEnv string
+	// project, when set, is passed to each command as --project.
+	project string
 }
 
 // NewSubCmdBuilder returns a new SubCmdBuilder initialized from cfg.
 // It sets Executable to cfg.Paths.Executable, ConfigFile to cfg.Paths.ConfigFileUsed,
-// and base environment to cfg.Core.BaseEnv.
+// and base environment to cfg.Core.BaseEnv. While projects are on, its
+// commands address the default project until ForProject names another.
 func NewSubCmdBuilder(cfg *config.Config) *SubCmdBuilder {
-	return &SubCmdBuilder{
+	b := &SubCmdBuilder{
 		executable: cfg.Paths.Executable,
 		configFile: cfg.Paths.ConfigFileUsed,
 		baseEnv:    cfg.Core.BaseEnv,
 		homeEnv:    envEntry(cfg.Core.BaseEnv.AsSlice(), daguHomeEnvKey),
 	}
+	if cfg.ProjectsEnabled {
+		// A child must not address a project by its working directory.
+		b.project = project.DefaultName
+	}
+	return b
+}
+
+// ForProject returns a copy of b whose commands address the named project
+// with --project, whatever the child's working directory or environment.
+func (b *SubCmdBuilder) ForProject(name string) *SubCmdBuilder {
+	clone := *b
+	clone.project = name
+	return &clone
+}
+
+// projectArgs returns the --project argument of the builder's project.
+func (b *SubCmdBuilder) projectArgs() []string {
+	if b.project == "" {
+		return nil
+	}
+	return []string{projectFlagPrefix + b.project}
 }
 
 // ExecutableMissing reports whether the executable the built commands run
@@ -119,7 +144,10 @@ func (b *SubCmdBuilder) ExecutableMissing() bool {
 	return executableMissing(b.executable)
 }
 
-const daguHomeEnvKey = "DAGU_HOME"
+const (
+	daguHomeEnvKey    = "DAGU_HOME"
+	projectFlagPrefix = "--project="
+)
 
 // envEntry returns the last KEY=value entry of env for key, or "".
 func envEntry(env []string, key string) string {
@@ -213,6 +241,7 @@ func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 	}
 	args = append(args, workerLabelArgs(opts.WorkerSelector)...)
 	args = append(args, nodeArgs(opts.TargetNodes)...)
+	args = append(args, b.projectArgs()...)
 	if b.configFile != "" {
 		args = append(args, "--config", b.configFile)
 	}
@@ -248,6 +277,7 @@ func (b *SubCmdBuilder) Enqueue(dag *ir.DAG, opts EnqueueOptions) CmdSpec {
 	if opts.NameOverride != "" {
 		args = append(args, fmt.Sprintf("--name=%s", opts.NameOverride))
 	}
+	args = append(args, b.projectArgs()...)
 	if b.configFile != "" {
 		args = append(args, "--config", b.configFile)
 	}
@@ -293,6 +323,7 @@ func (b *SubCmdBuilder) Dequeue(dag *ir.DAG, dagRun ir.DAGRunRef) CmdSpec {
 	queueName := dag.ProcGroup()
 	args := []string{"dequeue", queueName, fmt.Sprintf("--dag-run=%s", dagRun.String())}
 
+	args = append(args, b.projectArgs()...)
 	if b.configFile != "" {
 		args = append(args, "--config", b.configFile)
 	}
@@ -316,6 +347,7 @@ func (b *SubCmdBuilder) Restart(dag *ir.DAG, opts RestartOptions) CmdSpec {
 	if opts.ScheduleTime != "" {
 		args = append(args, fmt.Sprintf("--schedule-time=%s", opts.ScheduleTime))
 	}
+	args = append(args, b.projectArgs()...)
 	if b.configFile != "" {
 		args = append(args, "--config", b.configFile)
 	}
@@ -353,6 +385,7 @@ func (b *SubCmdBuilder) Retry(dag *ir.DAG, opts RetryOptions) CmdSpec {
 		args = append(args, "--retry-path="+path)
 	}
 
+	args = append(args, b.projectArgs()...)
 	if b.configFile != "" {
 		args = append(args, "--config", b.configFile)
 	}

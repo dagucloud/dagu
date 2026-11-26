@@ -62,6 +62,16 @@ func WithLatestStatusAllHistory() ManagerOption {
 	}
 }
 
+// WithManagerProject binds the Manager to the runs of the named project: it
+// reaches their control sockets, starts each child process with --project,
+// and gives each run it executes the project's name.
+func WithManagerProject(name string) ManagerOption {
+	return func(m *Manager) {
+		m.project = name
+		m.subCmdBuilder = m.subCmdBuilder.ForProject(name)
+	}
+}
+
 // AllHistory returns a Manager whose latest-status lookups search all retained
 // runs, whatever the latest_status_today setting says.
 func (m Manager) AllHistory() Manager {
@@ -88,11 +98,20 @@ func NewManager(dagRunRepository *persis.DAGRunRepository, processes processRepo
 // restarting, and retrieving status information. It communicates with the DAG
 // through a socket interface and manages dag-run data.
 type Manager struct {
-	dagRunRepository     *persis.DAGRunRepository // Repository for persisted run data
-	procRepository       processRepository
-	subCmdBuilder        *launcher.SubCmdBuilder // Command builder for constructing command specs
+	dagRunRepository *persis.DAGRunRepository // Repository for persisted run data
+	procRepository   processRepository
+	subCmdBuilder    *launcher.SubCmdBuilder // Command builder for constructing command specs
+	// project names the project whose runs the Manager handles. It is
+	// empty while projects are off.
+	project              string
 	nowFunc              func() time.Time
 	latestAttemptOptions persis.DAGRunLatestAttemptOptions
+}
+
+// Project returns the name of the project whose runs the Manager handles,
+// or "" when it is bound to none.
+func (m Manager) Project() string {
+	return m.project
 }
 
 type processRepository interface {
@@ -231,7 +250,7 @@ func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *ir.DAG, dagRunID st
 				return err
 			}
 		}
-		for _, addr := range dagSocketCandidates(runRef, dag) {
+		for _, addr := range m.dagSocketCandidates(runRef, dag) {
 			if !fileutil.FileExists(addr) {
 				continue
 			}
@@ -465,8 +484,8 @@ func (m *Manager) FindSubDAGRunStatus(ctx context.Context, rootDAGRun ir.DAGRunR
 
 // currentStatus retrieves the current status of a running DAG by querying its socket.
 // This is a private method used internally by other status-related methods.
-func (*Manager) currentStatus(_ context.Context, dagRun ir.DAGRunRef, dag *ir.DAG) (*ir.DAGRunStatus, error) {
-	for _, addr := range dagSocketCandidates(dagRun, dag) {
+func (m *Manager) currentStatus(_ context.Context, dagRun ir.DAGRunRef, dag *ir.DAG) (*ir.DAGRunStatus, error) {
+	for _, addr := range m.dagSocketCandidates(dagRun, dag) {
 		if !fileutil.FileExists(addr) {
 			continue
 		}
@@ -482,8 +501,8 @@ func (*Manager) currentStatus(_ context.Context, dagRun ir.DAGRunRef, dag *ir.DA
 	return nil, fmt.Errorf("socket file does not exist for dag-run ID %s", dagRun.ID)
 }
 
-func dagSocketCandidates(dagRun ir.DAGRunRef, dag *ir.DAG) []string {
-	canonical := proc.DAGSocketAddr(dagRun)
+func (m *Manager) dagSocketCandidates(dagRun ir.DAGRunRef, dag *ir.DAG) []string {
+	canonical := proc.ProjectDAGSocketAddr(m.project, dagRun)
 	addrs := []string{canonical}
 	if dag == nil || dag.Location == "" {
 		return addrs

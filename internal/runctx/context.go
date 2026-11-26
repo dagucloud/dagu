@@ -250,6 +250,7 @@ type contextOptions struct {
 	profileSelectedSec []string
 	workDir            string
 	artifactDir        string
+	project            string
 }
 
 // ContextOption configures optional parameters for NewContext.
@@ -303,6 +304,14 @@ func WithAttemptID(attemptID string) ContextOption {
 func WithWorkerID(workerID string) ContextOption {
 	return func(o *contextOptions) {
 		o.WorkerID = workerID
+	}
+}
+
+// WithProject sets the name of the run's project, which every step gets as
+// DAGU_PROJECT.
+func WithProject(name string) ContextOption {
+	return func(o *contextOptions) {
+		o.project = name
 	}
 }
 

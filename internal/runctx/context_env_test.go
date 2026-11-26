@@ -29,6 +29,7 @@ func TestNewContext_ManagedDAGRunEnvsAreProtectedAndAvailableToDAGEnv(t *testing
 	options := &contextOptions{
 		workDir:     filepath.Join(t.TempDir(), "work"),
 		artifactDir: filepath.Join(t.TempDir(), "artifacts"),
+		project:     "weather",
 	}
 
 	expected := buildManagedDAGRunEnvs(ctx, dag, dagRunID, logFile, options)
@@ -48,6 +49,7 @@ func TestNewContext_ManagedDAGRunEnvsAreProtectedAndAvailableToDAGEnv(t *testing
 	ctx = NewContext(ctx, dag, dagRunID, logFile,
 		WithWorkDir(options.workDir),
 		WithArtifactDir(options.artifactDir),
+		WithProject(options.project),
 		WithEnvVars(optionEnvs...),
 	)
 
