@@ -99,6 +99,7 @@ It must not be treated as product behavior until implementation catches up.
 | [103: Untrusted Steps and Step Secrets](103-untrusted-steps.md) | Partially implemented |
 | [104: References to Agent Output](104-agent-output.md) | Not implemented |
 | [105: Egress Proxy](105-egress-proxy.md) | Partially implemented |
+| [106: DAG Outputs](106-dag-outputs.md) | Implemented |
 
 **Writing guidelines:**
 

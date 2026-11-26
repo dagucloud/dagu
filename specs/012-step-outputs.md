@@ -21,6 +21,8 @@ It does not define the existing singular `output` field, `stdout.outputs`, `outp
 
 Object-form `output`, `stdout.outputs`, `outputs.write`, and the `outputs` schema in `dagu-action.yaml` publish named outputs of their own, and Spec 007 defines how references read them. String-form `output: VAR` captures a variable rather than a named step output, so Spec 007 does not read it, and the rules below about failed attempts do not govern it: the variable is set from the attempt's stdout even when the step fails, which Spec 018 relies on for the aggregate of a `foreach` whose items partly failed.
 
+The root-level `outputs` field, which maps named DAG results to the step outputs defined here, is defined by [Spec 106: DAG Outputs](106-dag-outputs.md). It does not change the behavior in this spec.
+
 Value-resolution references to published outputs are defined by [Spec 007: Value Resolution Steps](007-value-resolution-steps.md).
 
 ## Goal

@@ -159,6 +159,8 @@ type dag struct {
 	RetryPolicy *dagRetryPolicy `yaml:"retry_policy,omitempty"`
 	// MaxOutputSize is the maximum size of the output for each step.
 	MaxOutputSize int `yaml:"max_output_size,omitempty"`
+	// Outputs maps result names to step output references (Spec 106).
+	Outputs any `yaml:"outputs,omitempty"`
 	// OTel is the OpenTelemetry configuration.
 	OTel any `yaml:"otel,omitempty"`
 	// WorkerSelector specifies required worker labels for execution.
@@ -615,6 +617,7 @@ var metadataTransformStages = []transformStage{
 var fullRunOutputStage = transformStage{
 	dagField("log_dir", buildLogDir, func(out *ir.DAG, v string) { out.LogDir = v }),
 	dagField("artifacts", buildArtifacts, func(out *ir.DAG, v *ir.ArtifactsConfig) { out.Artifacts = v }),
+	dagField("outputs", buildDAGOutputs, func(out *ir.DAG, v map[string]ir.DAGOutput) { out.Outputs = v }),
 	dagField("log_output", buildLogOutput, func(out *ir.DAG, v ir.LogOutputMode) { out.LogOutput = v }),
 }
 
@@ -1246,6 +1249,8 @@ func (s *dagBuildState) validateResult() {
 				fmt.Errorf("DAG with approval steps cannot be dispatched to workers"),
 			))
 		}
+
+		s.errs = append(s.errs, validateDAGOutputs(s.result)...)
 
 		if err := validateAgent(s.result); err != nil {
 			s.errs = append(s.errs, err)

@@ -1,0 +1,12 @@
+working_dir: .
+outputs:
+  x: ${body.outputs.x}
+steps:
+  - id: loop
+    foreach:
+      items: [a]
+      steps:
+        - id: body
+          run: echo ok
+          outputs:
+            - name: x
