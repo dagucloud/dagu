@@ -188,7 +188,7 @@ func TestReviewForkHopIsKilled(t *testing.T) {
 		workDir := testWorkDir(t)
 		step, err := Begin(ctx, testRequest(t, workDir, filepath.Join(workDir, "repo")))
 		require.NoError(t, err)
-		// The script waits 1 s so that the loop runs before the watcher.
+		// The script waits 1 s so that the loop runs before End.
 		out := runAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"),
 			"cut -d' ' -f5 /proc/loadavg\n"+hop+" </dev/null >/dev/null 2>&1 &\nsleep 1\ncut -d' ' -f5 /proc/loadavg")
 		t.Logf("round %d: last PID before and after 1 s of the loop: %s", round, strings.Join(strings.Fields(out), " -> "))
