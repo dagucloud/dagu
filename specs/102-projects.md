@@ -130,7 +130,8 @@ the runs of the library DAGs that run in the project. See
 [Runs of Library DAGs](#runs-of-library-dags).
 
 The library is the directory `paths.alt_dags_dir`. A library DAG is a DAG
-file in the library. The library belongs to no project.
+file in the library, or a DAG defined in such a file. The library belongs
+to no project.
 
 A file that runs in place is a DAG file outside a project's DAG directory
 that the registry records as that project's. Only migration records such
