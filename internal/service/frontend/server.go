@@ -888,12 +888,13 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		allAPIOptions = append(allAPIOptions, apiv1.WithProjectAPIs(apis.get))
 		base := allAPIOptions
 		apis.build = func(p project.Project, stores *persisfile.ProjectStores) (*apiv1.API, error) {
-			opts, err := projectAPIOptions(cfg, stores, base)
+			pcfg := projectConfig(cfg, stores)
+			opts, err := projectAPIOptions(pcfg, stores, base)
 			if err != nil {
 				return nil, err
 			}
 			return apiv1.New(stores.DAGRepository, stores.DAGRunRepository, stores.QueueStore, stores.ProcRepository,
-				projectRunManager(cfg, p, stores), cfg, cc, sr, mr, rs, opts...), nil
+				projectRunManager(pcfg, p, stores), pcfg, cc, sr, mr, rs, opts...), nil
 		}
 	}
 

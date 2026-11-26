@@ -70,6 +70,21 @@ func (p *projectAPIs) get(proj project.Project) (*apiv1.API, bool) {
 	return api, true
 }
 
+// projectConfig returns cfg with the project's DAG directory, base config,
+// and run, log, and artifact directories in place of the default
+// project's, since handlers read these paths beside the stores.
+func projectConfig(cfg *config.Config, stores *persisfile.ProjectStores) *config.Config {
+	projectCfg := *cfg
+	paths := &projectCfg.Paths
+	paths.DAGsDir = stores.Paths.DAGsDir
+	paths.BaseConfig, _ = stores.BaseConfig()
+	paths.DAGRunsDir = stores.Paths.DAGRunsDir
+	paths.DAGRunWorkDir = stores.Paths.DAGRunWorkDir
+	paths.LogDir = stores.Paths.LogDir
+	paths.ArtifactDir = stores.Paths.ArtifactDir
+	return &projectCfg
+}
+
 // projectAPIOptions returns the options of a project's API: base, the
 // options of the default project's API, with the project's own stores in
 // place of the default project's.
