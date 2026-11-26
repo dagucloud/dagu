@@ -184,6 +184,49 @@ func TestNotificationChannels_ProjectsAdminOnly(t *testing.T) {
 	}
 }
 
+// While projects are on, a developer's test send of a DAG's notifications
+// reports a failed delivery to a saved channel by the channel's name and
+// type, since the transport error names the channel's URL. An admin still
+// gets the error itself.
+func TestDAGNotifications_ProjectsHideChannelErrors(t *testing.T) {
+	t.Parallel()
+
+	server := setupWebhookTestServer(t, func(cfg *config.Config) { cfg.ProjectsEnabled = true })
+	adminToken := getWebhookAdminToken(t, server)
+	developerToken := createRuntimeProfileUserToken(t, server, adminToken, "developer-user", "developer1", api.UserRoleDeveloper)
+	// Nothing listens on port 1, so the delivery fails in transport.
+	var channel api.NotificationChannel
+	server.Client().Post("/api/v1/notification-channels", api.NotificationChannelInput{
+		Name:    "Ops",
+		Type:    api.NotificationProviderTypeWebhook,
+		Enabled: true,
+		Webhook: &api.NotificationWebhookTargetInput{
+			Url:                 new("http://127.0.0.1:1/T000/secret-token"),
+			AllowInsecureHttp:   new(true),
+			AllowPrivateNetwork: new(true),
+		},
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t).Unmarshal(t, &channel)
+	server.Client().Put("/api/v1/notification-routes/global", api.NotificationRouteSetInput{
+		Enabled: true,
+		Routes:  []api.NotificationRouteInput{{ChannelId: channel.Id, Enabled: true}},
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+	createTestDAG(t, server, adminToken, "daily-report")
+
+	for token, hidden := range map[string]bool{developerToken: true, adminToken: false} {
+		var resp api.TestDAGNotificationResponse
+		server.Client().Post("/api/v1/dags/daily-report/notifications/test", nil).
+			WithBearerToken(token).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &resp)
+		require.Len(t, resp.Results, 1)
+		require.False(t, resp.Results[0].Delivered)
+		require.NotNil(t, resp.Results[0].Error)
+		message := *resp.Results[0].Error
+		assert.Equal(t, !hidden, strings.Contains(message, "secret-token"), message)
+		if hidden {
+			assert.Equal(t, `delivery to webhook channel "Ops" failed; see the server log`, message)
+		}
+	}
+}
+
 func TestNotificationChannels_CommandChannelRequiresDAGPermissions(t *testing.T) {
 	t.Parallel()
 

@@ -423,6 +423,9 @@ func (a *API) TestDAGNotifications(ctx context.Context, request api.TestDAGNotif
 	if commandErr != nil {
 		opts = append(opts, notificationservice.DenyCommandChannels())
 	}
+	if !a.deliveryDetailsVisible(ctx) {
+		opts = append(opts, notificationservice.HideChannelErrors())
+	}
 	results, err := a.notificationService.SendTest(ctx, request.FileName, targetID, eventType, opts...)
 	if err != nil {
 		switch {
