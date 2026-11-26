@@ -5,18 +5,12 @@ package file
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
-	"slices"
-	"strings"
 	"sync"
 
-	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -68,84 +62,16 @@ func (w *webhookProjects) Get(ctx context.Context, name string) (*apiv1.WebhookP
 	return w.target(ctx, p)
 }
 
-// Migrated finds a migrated project whose webhook for the DAG predates the
-// project's registration, so migration brought it from v2 with the DAG, and
-// whose DAG of that name still exists as its own. A project whose webhooks
-// cannot be read fails the lookup only when it has a DAG of that name, since
-// the default project's DAG might then not be the one the URL reaches.
-func (w *webhookProjects) Migrated(ctx context.Context, dagName string) (*apiv1.WebhookProject, error) {
-	projects, err := w.registry.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	w.forgetUnlisted(projects)
-	for _, p := range projects {
-		if p.MigratedFrom == "" || p.Deleting || strings.EqualFold(p.Name, project.DefaultName) {
-			continue
-		}
-		target, err := w.target(ctx, p)
-		if errors.Is(err, project.ErrNotFound) {
-			continue
-		}
-		var webhook *auth.Webhook
-		if err == nil {
-			webhook, err = target.Webhooks.GetByDAGName(ctx, dagName)
-		}
-		if errors.Is(err, auth.ErrWebhookNotFound) {
-			continue
-		}
-		if err != nil {
-			if err := w.unreadable(ctx, p, dagName, err); err != nil {
-				return nil, err
-			}
-			continue
-		}
-		if !webhook.CreatedAt.Before(p.CreatedAt) {
-			continue
-		}
-		own, err := w.ownDAG(ctx, target.DAGRepository, p.Name, dagName)
-		if err != nil {
-			return nil, err
-		}
-		if own {
-			return target, nil
-		}
-	}
+// Migrated returns nil: migration does not yet record which DAGs it
+// placed in a project under their v2 webhook URLs, so every such URL
+// reaches the default project.
+func (w *webhookProjects) Migrated(context.Context, string) (*apiv1.WebhookProject, error) {
 	return nil, nil
-}
-
-// unreadable returns err, the failure to read p's webhooks, when p has a
-// DAG called dagName, and logs it otherwise.
-func (w *webhookProjects) unreadable(ctx context.Context, p project.Project, dagName string, err error) error {
-	stores, ok := w.cache.Get(p.ID)
-	if !ok {
-		return nil
-	}
-	own, ownErr := w.ownDAG(ctx, stores.DAGRepository, p.Name, dagName)
-	if own || ownErr != nil {
-		return errors.Join(err, ownErr)
-	}
-	logger.Warn(ctx, "Failed to read a migrated project's webhooks", tag.Name(p.Name), tag.Error(err))
-	return nil
 }
 
 func (w *webhookProjects) Library(ctx context.Context, path string) (bool, error) {
 	owner, err := w.server.DAGOwners().Of(ctx, path)
 	return owner.Library, err
-}
-
-// ownDAG reports whether the project called projectName, whose DAGs dags
-// holds, has a DAG called dagName of its own, not one found in the library.
-func (w *webhookProjects) ownDAG(ctx context.Context, dags *persis.DAGRepository, projectName, dagName string) (bool, error) {
-	dag, err := dags.GetMetadata(ctx, dagName)
-	if errors.Is(err, persis.ErrDAGNotFound) || errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	owner, err := w.server.DAGOwners().OfIn(ctx, projectName, dag.Location)
-	return owner.Is(projectName), err
 }
 
 // target returns the webhook target of p, built once for each opening of
@@ -154,9 +80,9 @@ func (w *webhookProjects) target(ctx context.Context, p project.Project) (*apiv1
 	stores, ok := w.cache.Get(p.ID)
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.forgetClosed()
 	if !ok {
-		delete(w.open, p.ID)
-		return nil, fmt.Errorf("project %s is not open: %w", p.Name, project.ErrNotFound)
+		return nil, fmt.Errorf("the stores of project %s are not open", p.Name)
 	}
 	if open, ok := w.open[p.ID]; ok && open.stores == stores {
 		return open.target, nil
@@ -197,13 +123,11 @@ func (w *webhookProjects) target(ctx context.Context, p project.Project) (*apiv1
 	return target, nil
 }
 
-// forgetUnlisted drops the targets of projects the registry no longer
-// lists.
-func (w *webhookProjects) forgetUnlisted(projects []project.Project) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	for id := range w.open {
-		if !slices.ContainsFunc(projects, func(p project.Project) bool { return p.ID == id }) {
+// forgetClosed drops the targets of projects whose stores the cache no
+// longer holds. The caller holds mu.
+func (w *webhookProjects) forgetClosed() {
+	for id, open := range w.open {
+		if stores, ok := w.cache.Get(id); !ok || stores != open.stores {
 			delete(w.open, id)
 		}
 	}

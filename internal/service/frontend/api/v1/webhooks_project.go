@@ -52,7 +52,7 @@ type WebhookProject struct {
 type WebhookProjects interface {
 	// Get returns the registered project called name, given in any case. It
 	// returns an error wrapping project.ErrNotFound when no such project is
-	// registered and open.
+	// registered, and another error when the project's stores are not open.
 	Get(ctx context.Context, name string) (*WebhookProject, error)
 	// Migrated returns the project that migration placed the DAG called
 	// dagName in, under that name, while that DAG exists there. It returns
@@ -91,7 +91,7 @@ func (a *API) TriggerProjectWebhook(ctx context.Context, request api.TriggerProj
 		FileName: request.FileName,
 		Params:   api.TriggerWebhookParams(request.Params),
 		Body:     request.Body,
-	}, false)
+	})
 	switch resp := resp.(type) {
 	case api.TriggerWebhook200JSONResponse:
 		return api.TriggerProjectWebhook200JSONResponse(resp), err
@@ -124,8 +124,14 @@ func (a *API) namedWebhookProject(ctx context.Context, name string) (*WebhookPro
 			Message:    fmt.Sprintf("project %s not found", name),
 		}
 	case err != nil:
-		logger.Error(ctx, "Webhook: failed to open project", tag.Name(name), tag.Error(err))
-		return nil, webhookProjectUnavailable()
+		// A sender retries a request the server cannot serve yet, but not
+		// one for a URL that is not found.
+		logger.Warn(ctx, "Webhook: project is not open", tag.Name(name), tag.Error(err))
+		return nil, &Error{
+			HTTPStatus: http.StatusServiceUnavailable,
+			Code:       api.ErrorCodeInternalError,
+			Message:    fmt.Sprintf("project %s is not available yet", name),
+		}
 	}
 	return target, nil
 }
@@ -148,10 +154,10 @@ func (a *API) legacyWebhookProject(ctx context.Context, dagName string) (*Webhoo
 	return target, nil
 }
 
-// refuseLibraryDAG reports a library DAG as not found, since a webhook URL
-// without a project does not say which project would run it.
+// refuseLibraryDAG reports a library DAG as not found while projects are
+// on, since no webhook URL addresses a library DAG's runs in a project.
 func (a *API) refuseLibraryDAG(ctx context.Context, dag *ir.DAG) error {
-	if a.webhookProjects == nil {
+	if !a.config.ProjectsEnabled || a.webhookProjects == nil {
 		return nil
 	}
 	library, err := a.webhookProjects.Library(ctx, dag.Location)

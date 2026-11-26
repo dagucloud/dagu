@@ -21,10 +21,8 @@ import (
 // TestWebhookURLs proves Spec 102 "Webhooks". A v2 server gives a DAG of
 // the default project and a library DAG webhooks. With projects on, the
 // default project's DAG answers both its v2 URL and its per-project URL,
-// the library DAG's v2 URL stops working while the per-project URL that
-// runs it in the default project still works, and a URL that names no
-// registered project is not found. With projects off, no per-project URL
-// exists.
+// neither URL reaches the library DAG, and a URL that names no registered
+// project is not found. With projects off, no per-project URL exists.
 func TestWebhookURLs(t *testing.T) {
 	t.Parallel()
 
@@ -53,7 +51,7 @@ func TestWebhookURLs(t *testing.T) {
 		requireTrigger(t, base, "default/plain", tokens["plain"], http.StatusOK)
 		requireTrigger(t, base, "Default/plain", tokens["plain"], http.StatusOK)
 		requireTrigger(t, base, "shared", tokens["shared"], http.StatusNotFound)
-		requireTrigger(t, base, "default/shared", tokens["shared"], http.StatusOK)
+		requireTrigger(t, base, "default/shared", tokens["shared"], http.StatusNotFound)
 		requireTrigger(t, base, "nowhere/plain", tokens["plain"], http.StatusNotFound)
 	})
 }

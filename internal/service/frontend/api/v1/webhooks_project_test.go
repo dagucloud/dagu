@@ -5,6 +5,7 @@ package api_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
@@ -37,6 +37,7 @@ type projectWebhookServer struct {
 	registry *projectregistry.Registry
 	cache    *persisfile.ProjectStoreCache
 	stores   *persisfile.ServerStores
+	late     *lateWebhookProjects
 }
 
 // lateWebhookProjects passes calls to the projects set once the server's
@@ -91,7 +92,7 @@ func setupProjectWebhookServer(t *testing.T) *projectWebhookServer {
 		Username: "admin",
 		Password: "adminpass",
 	}).ExpectStatus(http.StatusOK).Send(t)
-	return &projectWebhookServer{Server: server, registry: registry, cache: cache, stores: stores}
+	return &projectWebhookServer{Server: server, registry: registry, cache: cache, stores: stores, late: late}
 }
 
 // addProject registers a project, waits until its stores are open, and
@@ -162,20 +163,31 @@ func (s *projectWebhookServer) requireRunIn(t *testing.T, owner string, run api.
 	}
 }
 
-// A per-project URL authenticates with that project's webhook and queues
-// the run in that project. A project named in another case is the same
-// project, and one that is not registered is not found.
-func TestProjectWebhookReachesProjectDAG(t *testing.T) {
+// A per-project URL authenticates with that project's webhook, matching the
+// project's name in any case. A run of a project other than the default one
+// cannot be queued yet, so the request is refused with a status senders
+// retry and nothing is queued. A project that is not registered is not
+// found.
+func TestProjectWebhookAuthenticatesWithProjectWebhook(t *testing.T) {
 	webhookParallel(t)
 	server := setupProjectWebhookServer(t)
 	server.addProject(t, project.CreateInput{Name: "weather"})
 	server.writeDAG(t, "weather", "hook")
 	token := server.createWebhook(t, "weather", "hook")
 
-	run := server.trigger(t, "weather/hook", token, http.StatusOK)
-	server.requireRunIn(t, "weather", run, "weather", project.DefaultName)
-	server.trigger(t, "Weather/hook", token, http.StatusOK)
+	for _, path := range []string{"weather/hook", "Weather/hook"} {
+		resp := server.Client().Post("/api/v1/webhooks/"+path, api.WebhookRequest{}).
+			WithBearerToken(token).ExpectStatus(http.StatusServiceUnavailable).Send(t)
+		assert.Contains(t, resp.Body, project.ErrQueuedRun.Error())
+	}
+	stores, err := persisfile.NewProjectStores(context.Background(), server.Config, server.stores,
+		project.Project{Name: "weather"}, persisfile.ProjectStoreOptions{})
+	require.NoError(t, err)
+	queued, err := stores.QueueStore.Len(context.Background(), "hook")
+	require.NoError(t, err)
+	assert.Zero(t, queued)
 
+	server.trigger(t, "weather/hook", "dagu_wh_wrong", http.StatusUnauthorized)
 	// The URL without a project reaches the default project, which has no
 	// webhook for the DAG.
 	server.trigger(t, "hook", token, http.StatusUnauthorized)
@@ -195,34 +207,30 @@ func TestProjectWebhookDefaultProject(t *testing.T) {
 	server.trigger(t, "plain", token, http.StatusOK)
 }
 
-// The URL without a project reaches the DAG that migration placed in a
-// project, whose webhook came over from v2, before the default project's
-// DAG of the same name. A webhook the migrated project gained later does
-// not take the URL over.
-func TestProjectWebhookLegacyURLReachesMigratedDAG(t *testing.T) {
+// unopenedProjects has every project registered and none open.
+type unopenedProjects struct{}
+
+func (unopenedProjects) Get(_ context.Context, name string) (*apiimpl.WebhookProject, error) {
+	return nil, errors.New("the stores of project " + name + " are not open")
+}
+
+func (unopenedProjects) Migrated(context.Context, string) (*apiimpl.WebhookProject, error) {
+	return nil, nil
+}
+
+func (unopenedProjects) Library(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+// A registered project whose stores are not open yet answers 503, which
+// webhook senders retry, rather than 404, which they do not.
+func TestProjectWebhookNotOpenUnavailable(t *testing.T) {
 	webhookParallel(t)
 	server := setupProjectWebhookServer(t)
-	server.writeDAG(t, project.DefaultName, "moved")
-	server.writeDAG(t, project.DefaultName, "later")
-	defaultToken := server.createWebhook(t, project.DefaultName, "moved")
-	defaultLater := server.createWebhook(t, project.DefaultName, "later")
+	var projects apiimpl.WebhookProjects = unopenedProjects{}
+	server.late.inner.Store(&projects)
 
-	movedToken := server.createWebhook(t, "ops", "moved")
-	server.addProject(t, project.CreateInput{Name: "ops", MigratedFrom: "ops"})
-	server.writeDAG(t, "ops", "moved")
-	server.writeDAG(t, "ops", "later")
-	server.createWebhook(t, "ops", "later")
-
-	run := server.trigger(t, "moved", movedToken, http.StatusOK)
-	server.requireRunIn(t, "ops", run, "ops", project.DefaultName)
-	server.trigger(t, "moved", defaultToken, http.StatusUnauthorized)
-
-	run = server.trigger(t, "later", defaultLater, http.StatusOK)
-	server.requireRunIn(t, project.DefaultName, run, "ops", project.DefaultName)
-
-	// Once the migrated DAG is gone, the URL reaches the default project's.
-	require.NoError(t, fileutil.Remove(filepath.Join(server.Config.Paths.ProjectsDir, "ops", "moved.yaml")))
-	server.trigger(t, "moved", defaultToken, http.StatusOK)
+	server.trigger(t, "weather/hook", "dagu_wh_token", http.StatusServiceUnavailable)
 }
 
 // While projects are off, a per-project URL is not found.

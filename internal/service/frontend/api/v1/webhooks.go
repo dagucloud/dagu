@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/google/uuid"
 	openapitypes "github.com/oapi-codegen/runtime/types"
@@ -651,7 +652,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	if err != nil {
 		return nil, err
 	}
-	return a.triggerWebhook(ctx, target, request, a.config.ProjectsEnabled)
+	return a.triggerWebhook(ctx, target, request)
 }
 
 // requireWebhookTriggering refuses webhook requests on a server that keeps
@@ -668,13 +669,11 @@ func (a *API) requireWebhookTriggering() error {
 }
 
 // triggerWebhook authorizes the request against the webhook of the target
-// project's DAG and queues a run of that DAG in the project. With
-// refuseLibrary set, a library DAG is not found.
+// project's DAG and queues a run of that DAG in the project.
 func (a *API) triggerWebhook(
 	ctx context.Context,
 	target *WebhookProject,
 	request api.TriggerWebhookRequestObject,
-	refuseLibrary bool,
 ) (api.TriggerWebhookResponseObject, error) {
 	token := extractWebhookToken(valueOf(request.Params.Authorization))
 	signature := valueOf(request.Params.XDaguSignature)
@@ -751,7 +750,7 @@ func (a *API) triggerWebhook(
 
 	// Load the DAG (we need it for enqueuing)
 	dag, err := target.DAGRepository.GetDetails(ctx, string(request.FileName), persis.DAGLoadOptions{})
-	if err == nil && refuseLibrary {
+	if err == nil {
 		err = a.refuseLibraryDAG(ctx, dag)
 	}
 	if err != nil {
@@ -763,6 +762,15 @@ func (a *API) triggerWebhook(
 			HTTPStatus: http.StatusNotFound,
 			Code:       api.ErrorCodeNotFound,
 			Message:    fmt.Sprintf("DAG %s not found", request.FileName),
+		}
+	}
+
+	if err := project.RefuseOtherProject(target.Name, project.ErrQueuedRun); err != nil {
+		logger.Warn(ctx, "Webhook: run cannot be queued", tag.Name(request.FileName), tag.Error(err))
+		return nil, &Error{
+			HTTPStatus: http.StatusServiceUnavailable,
+			Code:       api.ErrorCodeInternalError,
+			Message:    err.Error(),
 		}
 	}
 
