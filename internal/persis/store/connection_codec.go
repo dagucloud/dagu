@@ -54,8 +54,6 @@ type connectionRecord struct {
 	Grant            connection.Grant    `json:"grant"`
 	Services         []serviceRecord     `json:"services,omitempty"`
 	Scopes           []string            `json:"scopes,omitempty"`
-	Account          string              `json:"account,omitempty"`
-	AccountID        string              `json:"account_id,omitempty"`
 	Subject          string              `json:"subject,omitempty"`
 	BoundHosts       []string            `json:"bound_hosts,omitempty"`
 	Resource         string              `json:"resource,omitempty"`
@@ -81,6 +79,8 @@ type tokenStateRecord struct {
 }
 
 type tokensRecord struct {
+	Account               string                       `json:"account,omitempty"`
+	AccountID             string                       `json:"account_id,omitempty"`
 	RefreshTokenEnc       string                       `json:"refresh_token_enc,omitempty"`
 	RefreshTokenExpiresAt time.Time                    `json:"refresh_token_expires_at,omitzero"`
 	AccessTokens          map[string]accessTokenRecord `json:"access_tokens,omitempty"`
@@ -97,8 +97,6 @@ type sessionRecord struct {
 	User      string                  `json:"user,omitempty"`
 	Phase     connection.SessionPhase `json:"phase"`
 	ExpiresAt time.Time               `json:"expires_at"`
-	Account   string                  `json:"account,omitempty"`
-	AccountID string                  `json:"account_id,omitempty"`
 	Reason    string                  `json:"reason,omitempty"`
 	Tokens    tokensRecord            `json:"tokens,omitzero"`
 }
@@ -179,8 +177,6 @@ func connectionToRecord(conn *connection.Connection) *connectionRecord {
 		App:              conn.App,
 		Grant:            conn.Grant,
 		Scopes:           conn.Scopes,
-		Account:          conn.Account,
-		AccountID:        conn.AccountID,
 		Subject:          conn.Subject,
 		BoundHosts:       conn.BoundHosts,
 		Resource:         conn.Resource,
@@ -204,8 +200,6 @@ func connectionFromRecord(rec *connectionRecord) *connection.Connection {
 		App:              rec.App,
 		Grant:            rec.Grant,
 		Scopes:           rec.Scopes,
-		Account:          rec.Account,
-		AccountID:        rec.AccountID,
 		Subject:          rec.Subject,
 		BoundHosts:       rec.BoundHosts,
 		Resource:         rec.Resource,
@@ -243,8 +237,6 @@ func (c connectionCodec) tokenStateToRecord(state *connection.TokenState) (*toke
 			User:      s.User,
 			Phase:     s.Phase,
 			ExpiresAt: s.ExpiresAt,
-			Account:   s.Account,
-			AccountID: s.AccountID,
 			Reason:    s.Reason,
 			Tokens:    sessionTokens,
 		}
@@ -275,8 +267,6 @@ func (c connectionCodec) tokenStateFromRecord(rec *tokenStateRecord) (*connectio
 			User:      s.User,
 			Phase:     s.Phase,
 			ExpiresAt: s.ExpiresAt,
-			Account:   s.Account,
-			AccountID: s.AccountID,
 			Reason:    s.Reason,
 			Tokens:    sessionTokens,
 		}
@@ -290,6 +280,8 @@ func (c connectionCodec) tokensToRecord(tokens connection.Tokens) (tokensRecord,
 		return tokensRecord{}, err
 	}
 	rec := tokensRecord{
+		Account:               tokens.Account,
+		AccountID:             tokens.AccountID,
 		RefreshTokenEnc:       refresh,
 		RefreshTokenExpiresAt: tokens.RefreshTokenExpiresAt,
 		GrantedScopes:         tokens.GrantedScopes,
@@ -313,6 +305,8 @@ func (c connectionCodec) tokensFromRecord(rec tokensRecord) (connection.Tokens, 
 		return connection.Tokens{}, err
 	}
 	tokens := connection.Tokens{
+		Account:               rec.Account,
+		AccountID:             rec.AccountID,
 		RefreshToken:          refresh,
 		RefreshTokenExpiresAt: rec.RefreshTokenExpiresAt,
 		GrantedScopes:         rec.GrantedScopes,

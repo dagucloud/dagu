@@ -36,11 +36,6 @@ type Connection struct {
 	Services []Service
 	// Scopes are requested beyond those of the services' presets.
 	Scopes []string
-	// Account is the account's name read after consent, shown to people.
-	Account string
-	// AccountID is the provider's immutable ID for the account. Accounts
-	// are compared by it, never by Account.
-	AccountID string
 	// Subject is the user a service account impersonates, or the mailbox a
 	// Microsoft client credentials connection sends from.
 	Subject string

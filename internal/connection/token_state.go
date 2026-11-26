@@ -20,8 +20,15 @@ type TokenState struct {
 	RefreshedAt time.Time
 }
 
-// Tokens are the tokens one consent produced.
+// Tokens are the tokens one consent produced, with the account it signed
+// in.
 type Tokens struct {
+	// Account is the account's name, such as an email address, shown to
+	// people.
+	Account string
+	// AccountID is the provider's immutable ID for the account. Accounts
+	// are compared by it, never by Account.
+	AccountID    string
 	RefreshToken string
 	// RefreshTokenExpiresAt is zero unless the provider reports it.
 	RefreshTokenExpiresAt time.Time
@@ -47,12 +54,10 @@ type Session struct {
 	User      string
 	Phase     SessionPhase
 	ExpiresAt time.Time
-	// Account and AccountID are read after consent.
-	Account   string
-	AccountID string
 	// Reason is the error of a failed session.
 	Reason string
-	// Tokens are those consent produced, before they are confirmed.
+	// Tokens are those consent produced, with the account read after it,
+	// before they are confirmed.
 	Tokens Tokens
 }
 
@@ -63,7 +68,6 @@ const (
 	TokenStatusPending        TokenStatus = "pending"
 	TokenStatusConnected      TokenStatus = "connected"
 	TokenStatusNeedsReconnect TokenStatus = "needs_reconnect"
-	TokenStatusRevoked        TokenStatus = "revoked"
 )
 
 // SessionPhase is the step a connect session has reached.

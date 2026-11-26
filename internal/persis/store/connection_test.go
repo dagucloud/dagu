@@ -253,6 +253,8 @@ func TestTokenStateRoundTrip(t *testing.T) {
 
 	want, err := f.store.UpdateTokenState(ctx, conn, func(state *connection.TokenState) error {
 		state.Tokens = connection.Tokens{
+			Account:       "user@example.com",
+			AccountID:     "sub-1",
 			RefreshToken:  "refresh",
 			AccessTokens:  map[string]connection.AccessToken{"graph": {Token: "access", ExpiresAt: expiry}},
 			GrantedScopes: []string{"openid"},
@@ -279,11 +281,11 @@ func TestConnectionUpdateKeepsKey(t *testing.T) {
 	require.NoError(t, err)
 
 	updated, err := f.store.Update(ctx, conn.Key(), func(c *connection.Connection) error {
-		c.Account = "user@example.com"
+		c.Subject = "user@example.com"
 		return nil
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "user@example.com", updated.Account)
+	assert.Equal(t, "user@example.com", updated.Subject)
 
 	_, err = f.store.Update(ctx, conn.Key(), func(c *connection.Connection) error {
 		c.Name = "other"
