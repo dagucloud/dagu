@@ -45,6 +45,10 @@ var ErrIsolationRequired = errors.New(reasonIsolationRequired +
 	": the configuration sets no untrusted.uid and no untrusted.gid, and untrusted.isolation is on:" +
 	" set untrusted.uid and untrusted.gid, or set untrusted.isolation to off for development")
 
+// WaitingLine is the line of the step log while the step waits for the end of
+// another untrusted step.
+const WaitingLine = "untrusted: waiting for the restricted user"
+
 // WaitingRunLine is the line of the step log while an isolated untrusted step
 // waits for the end of the other running steps of its run.
 const WaitingRunLine = "untrusted: waiting for the end of the other steps of the run"
@@ -66,6 +70,20 @@ type Request struct {
 	StepName string
 	// Config is the block untrusted of the configuration.
 	Config config.UntrustedConfig
+	// WorkDir is the work directory of the run (DAG_RUN_WORK_DIR).
+	WorkDir string
+	// ManagedRoot is the root of the work directories that Dagu makes for
+	// its runs (paths.dag_run_work_dir). A folder of a run below it can get
+	// the bit x for others during the step, so that the restricted user can
+	// reach the work directory.
+	ManagedRoot string
+	// WorkingDir is the working directory of the step. It must be in WorkDir.
+	WorkingDir string
+	// OutputLimit is the size limit of the output file.
+	OutputLimit int64
+	// LockDir is the data directory of Dagu. Its folder untrusted holds the
+	// lock file of the host when /run/dagu is not available.
+	LockDir string
 	// Log is the step log for the lines of this package.
 	Log io.Writer
 }

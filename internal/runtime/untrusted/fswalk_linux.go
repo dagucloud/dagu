@@ -6,6 +6,9 @@
 package untrusted
 
 import (
+	"io/fs"
+	"strconv"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -17,4 +20,11 @@ func hasChild(fd int, name string, mode uint32) bool {
 		return false
 	}
 	return mode == 0 || st.Mode&unix.S_IFMT == mode
+}
+
+func chmodFDPath(fd int, path string, mode uint32) error {
+	if err := unix.Fchmodat(unix.AT_FDCWD, "/proc/self/fd/"+strconv.Itoa(fd), mode, 0); err != nil {
+		return &fs.PathError{Op: "chmod", Path: path, Err: err}
+	}
+	return nil
 }
