@@ -186,6 +186,34 @@ func TestReadBoundsTheTextItKeeps(t *testing.T) {
 	require.LessOrEqual(t, kept, skill.MaxTotalBytes)
 }
 
+// A file that becomes a link to a file outside the folder while Read reads the
+// files, and is back before the second walk, is never read through the link.
+// The test changes a package variable, so it does not run in parallel.
+func TestReadNeverFollowsASwappedLink(t *testing.T) {
+	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "public\n"})
+	secret := filepath.Join(t.TempDir(), "secret")
+	require.NoError(t, os.WriteFile(secret, []byte("secret\n"), 0o600))
+	file := filepath.Join(dir, "references", "a.md")
+	kept := filepath.Join(t.TempDir(), "a.md")
+	attempts := 0
+	skill.AroundReadFiles(t, func() {
+		if attempts++; attempts == 1 {
+			require.NoError(t, os.Rename(file, kept))
+			require.NoError(t, os.Symlink(secret, file))
+		}
+	}, func() {
+		if attempts == 1 {
+			require.NoError(t, os.Remove(file))
+			require.NoError(t, os.Rename(kept, file))
+		}
+	})
+	s, err := skill.Read(dir)
+	require.NoError(t, err)
+	data, ok := s.Text("references/a.md")
+	require.True(t, ok)
+	require.Equal(t, "public\n", string(data))
+}
+
 // The folder rules: the layout, links, hidden files, depth, text and limits.
 func TestFolderRules(t *testing.T) {
 	t.Parallel()

@@ -24,6 +24,10 @@ import (
 // ErrNotFound is returned when the skill folder does not exist.
 var ErrNotFound = errors.New("skill not found")
 
+// errFolderChanged is returned when the skill folder is no longer the folder
+// that the path named a moment before, for example because it became a link.
+var errFolderChanged = errors.New("the skill folder changed while Dagu opened it")
+
 // maxReadAttempts is the number of times that a read starts again when the
 // folder changes while Dagu reads it.
 const maxReadAttempts = 4
@@ -107,9 +111,9 @@ func Read(dir string) (*Skill, error) {
 			continue
 		}
 		signature := signatureOf(before, folderIssues)
-		s, err := build(abs, name, before, folderIssues)
+		s, err := readFiles(abs, name, before, folderIssues)
 		if err != nil {
-			unreadable = !errors.Is(err, fs.ErrNotExist)
+			unreadable = !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, errFolderChanged)
 			continue
 		}
 		after, afterIssues, err := walk(abs)
@@ -290,8 +294,17 @@ func checkPathSegment(name string) string {
 	return ""
 }
 
+// readFiles is build. A test wraps it to change the folder between the two
+// walks of Read.
+var readFiles = build
+
 // build reads the content of the files and checks the skill.
 func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, error) {
+	root, err := openFolder(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
 	s := &Skill{Name: name, Dir: dir, text: map[string][]byte{}}
 	s.Issues = append(s.Issues, folderIssues...)
 
@@ -304,7 +317,7 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 		}
 		total += e.size
 		file := File{Path: e.rel, Size: e.size, Text: IsTextPath(e.rel)}
-		full := filepath.Join(dir, filepath.FromSlash(e.rel))
+		rel := filepath.FromSlash(e.rel)
 		switch {
 		case e.size > MaxFileBytes:
 			s.Issues = append(s.Issues, Issue{Severity: SeverityError, Rule: RuleFileTooLarge, File: e.rel,
@@ -313,7 +326,7 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 			file.SHA256 = hex.EncodeToString(sum[:])
 			file.Text = false
 		case file.Text:
-			data, err := readAtMost(full, e.size)
+			data, err := readAtMost(root, rel, e.size)
 			if err != nil {
 				return nil, err
 			}
@@ -331,7 +344,7 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 				kept += file.Size
 			}
 		default:
-			sum, n, err := hashFile(full)
+			sum, n, err := hashFile(root, rel)
 			if err != nil {
 				return nil, err
 			}
@@ -384,11 +397,30 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 	return s, nil
 }
 
+// openFolder opens the skill folder dir. The root keeps every read inside the
+// folder, also when a file becomes a link after the walk.
+func openFolder(dir string) (*os.Root, error) {
+	before, err := os.Lstat(dir)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	// The root opens the target of a link, which is not the entry that Lstat saw.
+	if opened, err := root.Stat("."); err != nil || !os.SameFile(before, opened) {
+		_ = root.Close()
+		return nil, errFolderChanged
+	}
+	return root, nil
+}
+
 // readAtMost reads at most size+1 bytes of a file of the skill, so a file that
 // grows after the walk cannot fill the memory. The caller sees the extra byte
 // as a change of the file.
-func readAtMost(path string, size int64) ([]byte, error) {
-	f, err := os.Open(path) //nolint:gosec // The path comes from the walk of the skill folder.
+func readAtMost(root *os.Root, rel string, size int64) ([]byte, error) {
+	f, err := root.Open(rel)
 	if err != nil {
 		return nil, err
 	}
@@ -396,8 +428,8 @@ func readAtMost(path string, size int64) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(f, size+1))
 }
 
-func hashFile(path string) (string, int64, error) {
-	f, err := os.Open(path) //nolint:gosec // The path comes from the walk of the skill folder.
+func hashFile(root *os.Root, rel string) (string, int64, error) {
+	f, err := root.Open(rel)
 	if err != nil {
 		return "", 0, err
 	}
