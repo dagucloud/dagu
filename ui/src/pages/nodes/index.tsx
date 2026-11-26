@@ -251,7 +251,14 @@ function NodeList(): React.ReactElement {
         );
         return null;
       }
-      if (matched.data.pagination.totalRecords > MAX_TEST_NODES) {
+      names.push(
+        ...matched.data.nodes
+          .filter((node) => node.kind === InventoryNodeKind.ssh)
+          .map((node) => node.name)
+      );
+      // The total also counts worker nodes, which are not tested, so the
+      // limit applies to the SSH nodes read so far.
+      if (names.length > MAX_TEST_NODES) {
         tests.refuse(
           ts(
             'A test takes at most 1,000 nodes. Narrow the filters, or check the nodes to test.'
@@ -259,11 +266,6 @@ function NodeList(): React.ReactElement {
         );
         return null;
       }
-      names.push(
-        ...matched.data.nodes
-          .filter((node) => node.kind === InventoryNodeKind.ssh)
-          .map((node) => node.name)
-      );
       if (!matched.data.pagination.hasNextPage || !matched.data.nodes.length) {
         if (names.length === 0) {
           tests.refuse(ts('No SSH node matches these filters.'));

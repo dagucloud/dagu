@@ -797,6 +797,25 @@ describe('NodesPage connection tests', () => {
     ]);
   });
 
+  // The limit counts the SSH nodes, not the worker nodes the total includes.
+  it('tests the SSH nodes of a match that is over 1,000 only with workers', async () => {
+    clientGet.mockResolvedValueOnce({
+      data: {
+        nodes: [NODES[0], WORKER],
+        pagination: { ...pages(1, 1), totalRecords: 1001 },
+      },
+    });
+    fetchMock.mockResolvedValueOnce(finished(passed('web01')));
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test matched nodes' }));
+
+    await screen.findByText('1 passed, 0 failed');
+    expect(bodiesTo(fetchMock, '/node-connection-tests')).toEqual([
+      { nodes: ['web01'] },
+    ]);
+  });
+
   it('refuses to test when only worker nodes match', async () => {
     clientGet.mockResolvedValueOnce({
       data: { nodes: [WORKER], pagination: pages(1, 1) },
@@ -812,11 +831,17 @@ describe('NodesPage connection tests', () => {
   });
 
   it('refuses to test more than 1,000 matched nodes', async () => {
-    clientGet.mockResolvedValue({
-      data: {
-        nodes: NODES,
-        pagination: { ...pages(1, 1), totalRecords: 1001 },
-      },
+    // Six full pages of SSH nodes pass the limit.
+    clientGet.mockImplementation((_path, init) => {
+      const page = init.params.query.page as number;
+      return Promise.resolve({
+        data: {
+          nodes: Array.from({ length: 200 }, (_, i) =>
+            node({ name: `web${page}-${i}` })
+          ),
+          pagination: { ...pages(page, 10), totalRecords: 2000 },
+        },
+      });
     });
     renderPage();
 
