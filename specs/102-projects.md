@@ -618,9 +618,10 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 
 #### Resolution
 
-- `dag.run` resolves its target in the caller's project, then in the
-  library. In the caller's project, a name resolves in its DAG directory,
-  then among its files that run in place.
+- `dag.run` resolves a name among the DAGs defined in the caller's file,
+  then in the caller's project, then in the library. In the caller's
+  project, a name resolves in its DAG directory, then among its files that
+  run in place.
 - A path target must lie inside the caller's project DAG directory or the
   library once symbolic links resolve, or be a file that runs in place as
   the caller's project's.
@@ -630,7 +631,7 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 - A `dag.run` inside a library DAG resolves in the same project, then the
   library.
 - A project DAG shadows a library DAG of the same name: `dag.run` finds the
-  project's DAG.
+  project's DAG. A DAG defined in the caller's file shadows both.
 - Every project can call the library. A library call is not a call across
   projects.
 
