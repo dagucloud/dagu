@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,8 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/license"
-	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -67,7 +66,7 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Schedul
 			ctx.Config.Paths.DAGsDir, ctx.Persistence.DAGRepository,
 			ctx.Config.DAGDiscovery.Recursive, ctx.Config.Paths.BaseConfig,
 			workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir),
-			filedag.WithChangeMarker(file.DAGChangeMarkerPath(ctx.Config), 0),
+			filedag.WithChangeMarker(ctx.settings.DAGChangeMarkerPath(), 0),
 			filedag.WatchCalendars(ctx.Config.Paths.CalendarsDir),
 			filedag.SkipDirectories(ctx.Config.DAGDiscovery.SkipDirs),
 			filedag.SkipRoots(ctx.Config.DiscoverySkipRoots()),
@@ -99,7 +98,7 @@ func addPublicWebhooks(ctx *Context, deps *scheduler.Dependencies) {
 	if ctx.Config.Server.Auth.Mode != config.AuthModeBuiltin {
 		return
 	}
-	webhooks, status, err := schedulerfile.NewPublicWebhookStores(ctx.Config, ctx.backend)
+	webhooks, status, err := schedulerfile.NewPublicWebhookStores(ctx.serverStores)
 	if err != nil {
 		logger.Warn(ctx, "Public webhook URLs are disabled because the webhook store is unavailable", tag.Error(err))
 		return
@@ -125,7 +124,7 @@ func cloudCredentials(ctx *Context) func() (license.CloudCredentials, bool) {
 		logger.Warn(ctx, "Public webhook URLs are disabled because the license public key is unavailable", tag.Error(err))
 		return nil
 	}
-	activations := file.NewLicenseStore(ctx, ctx.backend.Collection(persis.CollectionLicense))
+	activations := ctx.serverStores.LicenseStore(ctx)
 	return license.StoredCloudCredentials(activations, pubKey, ctx.Config.License.CloudURL)
 }
 
@@ -136,7 +135,7 @@ func runScheduler(ctx *Context, _ []string) error {
 	if dagsDir, _ := ctx.Command.Flags().GetString("dags"); dagsDir != "" {
 		ctx.Config.Paths.DAGsDir = dagsDir
 	}
-	deps, err := schedulerfile.NewDependencies(ctx, ctx.Config, ctx.backend)
+	deps, err := schedulerfile.NewDependencies(ctx, ctx.Config, ctx.serverStores, ctx.settings)
 	if err != nil {
 		return err
 	}
@@ -157,6 +156,10 @@ func runScheduler(ctx *Context, _ []string) error {
 	}
 
 	defer scheduler.Stop(schedulerCtx)
+
+	followCtx, stopFollowing := context.WithCancel(schedulerCtx)
+	defer stopFollowing()
+	ctx.followProjects(followCtx)
 
 	if err := scheduler.Start(schedulerCtx); err != nil {
 		return fmt.Errorf("failed to start scheduler in directory %s: %w",

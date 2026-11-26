@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 )
 
@@ -53,7 +54,7 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 			Password: "securepass123",
 		})
 
-		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewServerStores(cfg))
 		require.NoError(t, err)
 		assert.False(t, result.setupRequired, "setup should not be required after auto-provisioning")
 
@@ -80,7 +81,7 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 		existing := authmodel.NewUser("existinguser", "$2a$12$K8gHXqrFdFvMwJBG0VlJGuAGz3FwBmTm8xnNQblN2tCxrQgPLmwHa", authmodel.RoleAdmin)
 		require.NoError(t, store.Create(t.Context(), existing))
 
-		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewServerStores(cfg))
 		require.NoError(t, err)
 		assert.False(t, result.setupRequired)
 
@@ -93,7 +94,7 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 		t.Parallel()
 		cfg := storesTestConfig(t.TempDir(), config.InitialAdmin{})
 
-		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewServerStores(cfg))
 		require.NoError(t, err)
 		assert.True(t, result.setupRequired, "setup should be required when initial_admin is not configured")
 	})
@@ -105,7 +106,7 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 			Password: "short",
 		})
 
-		_, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+		_, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewServerStores(cfg))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to auto-provision initial admin user")
 	})
@@ -118,11 +119,11 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 			Password: "securepass123",
 		})
 
-		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewServerStores(cfg))
 		require.NoError(t, err)
 		assert.False(t, result.setupRequired)
 
-		result, err = newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+		result, err = newBuiltinAuth(t.Context(), cfg, persisfile.NewServerStores(cfg))
 		require.NoError(t, err)
 		assert.False(t, result.setupRequired)
 
@@ -139,7 +140,7 @@ func TestNewBuiltinAuthServiceUserCanAuthenticate(t *testing.T) {
 		Password: "mypassword123",
 	})
 
-	result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+	result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewServerStores(cfg))
 	require.NoError(t, err)
 
 	user, err := result.service.Authenticate(t.Context(), "authadmin", "mypassword123")
@@ -191,7 +192,7 @@ func TestNewStoresFailsWhenEventStorageIsUnavailable(t *testing.T) {
 		Paths:      config.PathsConfig{EventStoreDir: filepath.Join(blocker, "events")},
 	}
 
-	_, err := NewStores(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+	_, err := newStores(t, cfg)
 	require.ErrorContains(t, err, "failed to initialize event store")
 }
 
@@ -212,7 +213,7 @@ func TestNewStoresProvidesWorkspaceBaseConfig(t *testing.T) {
 		Server: config.Server{Auth: config.Auth{Mode: config.AuthModeNone}},
 	}
 
-	stores, err := NewStores(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+	stores, err := newStores(t, cfg)
 	require.NoError(t, err)
 	require.NotNil(t, stores.WorkspaceBaseConfig)
 
@@ -248,7 +249,7 @@ func TestNewStoresMarksNoAuditEntryWithoutSecretStore(t *testing.T) {
 			Audit: config.AuditConfig{Enabled: true},
 		},
 	}
-	stores, err := NewStores(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+	stores, err := newStores(t, cfg)
 	require.NoError(t, err)
 	require.Nil(t, stores.Secret, "the secret store must fail to start")
 
@@ -368,14 +369,28 @@ func TestStoresBumpDAGChangeMarker(t *testing.T) {
 			cfg.Paths.BaseConfig = filepath.Join(tmpDir, "base.yaml")
 			require.NoError(t, os.MkdirAll(filepath.Join(cfg.Paths.DAGsDir, "workspaces", "team"), 0o750))
 
-			stores, err := NewStores(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+			stores, err := newStores(t, cfg)
 			require.NoError(t, err)
 
-			markerPath := persisfile.DAGChangeMarkerPath(cfg)
+			markerPath := defaultSettings(t, cfg, persisfile.NewServerStores(cfg)).DAGChangeMarkerPath()
 			require.NotEmpty(t, markerPath)
 			require.NoFileExists(t, markerPath)
 			tc.update(t, stores)
 			assert.FileExists(t, markerPath)
 		})
 	}
+}
+
+// newStores opens the stores of a server that serves the default project.
+func newStores(t *testing.T, cfg *config.Config) (frontend.Stores, error) {
+	t.Helper()
+	server := persisfile.NewServerStores(cfg)
+	return NewStores(t.Context(), cfg, server, defaultSettings(t, cfg, server))
+}
+
+func defaultSettings(t *testing.T, cfg *config.Config, server *persisfile.ServerStores) *persisfile.ProjectSettings {
+	t.Helper()
+	settings, err := persisfile.NewProjectSettings(cfg, server, project.DefaultName)
+	require.NoError(t, err)
+	return settings
 }

@@ -9,7 +9,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/secret"
@@ -88,20 +87,12 @@ func (c *Context) runtimeInventoryStore() inventory.Store {
 // service, which keeps them in memory, or nil when the backend cannot hold
 // them.
 func (c *Context) serviceInventoryStore() inventory.Store {
-	hostKeys, err := c.hostKeyStore()
-	if err == nil {
-		var s *store.InventoryStore
-		s, err = store.NewCachedInventoryStore(
-			c.backend.Collection(persis.CollectionInventories),
-			c.backend.Lock(persis.CollectionInventories),
-			hostKeys,
-		)
-		if err == nil {
-			return s
-		}
+	s, err := c.settings.CachedInventoryStore()
+	if err != nil {
+		logger.Warn(c, "Node inventory is unavailable", tag.Error(err))
+		return nil
 	}
-	logger.Warn(c, "Node inventory is unavailable", tag.Error(err))
-	return nil
+	return s
 }
 
 // hostKeyStore opens the host keys trusted for the nodes of this
@@ -112,7 +103,7 @@ func (c *Context) hostKeyStore() (*store.HostKeyStore, error) {
 
 // workerNodeStore opens the worker nodes of this installation.
 func (c *Context) workerNodeStore() (*store.WorkerNodeStore, error) {
-	return store.NewWorkerNodeStore(c.backend.Collection(persis.CollectionWorkerNodes), c.Persistence.WorkerHeartbeatStore)
+	return c.serverStores.WorkerNodeStore()
 }
 
 // runtimeHostKeyStore returns the host keys trusted for nodes, or nil when

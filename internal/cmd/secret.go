@@ -11,9 +11,7 @@ import (
 	"os/user"
 
 	"github.com/dagucloud/dagu/v2/internal/audit"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
-	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -106,7 +104,7 @@ func ensureSecretWorkspaceKnown(ctx *Context, secrets secret.Store, name string)
 	if name == secret.GlobalWorkspace {
 		return nil
 	}
-	workspaces, err := store.NewWorkspaceStore(ctx.backend.Collection(persis.CollectionWorkspaces))
+	workspaces, err := ctx.serverStores.WorkspaceStore()
 	if err != nil {
 		return err
 	}
@@ -134,8 +132,7 @@ func auditSecretResolve(ctx *Context, secrets secret.Store, sec *secret.Secret) 
 	if !ctx.Config.Server.Audit.Enabled {
 		return nil
 	}
-	auditStore, err := fileaudit.New(fileaudit.Dir(ctx.Config.Paths.AdminLogsDir), 0,
-		fileaudit.WithMasker(audit.NewMasker(secrets)))
+	auditStore, err := ctx.serverStores.AuditStore(0, fileaudit.WithMasker(audit.NewMasker(secrets)))
 	if err != nil {
 		return err
 	}

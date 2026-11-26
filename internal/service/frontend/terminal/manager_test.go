@@ -6,6 +6,7 @@ package terminal
 import (
 	"context"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -216,21 +217,20 @@ func TestManager_ShutdownObservesCleanupWithinRemainingBudget(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, lease.Activate(&Connection{ID: "conn-1"}))
 
+	// The session cleans up only once Shutdown has begun, so Shutdown must
+	// wait for it, and it does so within the budget.
+	var released atomic.Bool
 	go func() {
-		// Intentional sleep: simulates cleanup delay to verify Shutdown
-		// completes within the remaining context budget.
-		time.Sleep(managerTiming(50 * time.Millisecond))
+		<-manager.ctx.Done()
+		released.Store(true)
 		lease.Release()
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTiming(100*time.Millisecond))
 	defer cancel()
 
-	start := time.Now()
 	require.NoError(t, manager.Shutdown(ctx))
-	elapsed := time.Since(start)
-	assert.GreaterOrEqual(t, elapsed, managerTiming(45*time.Millisecond))
-	assert.Less(t, elapsed, managerTiming(150*time.Millisecond))
+	assert.True(t, released.Load(), "Shutdown returned before the session cleaned up")
 }
 
 func TestManager_ShutdownReturnsPromptlyWhenDeadlineExpires(t *testing.T) {
