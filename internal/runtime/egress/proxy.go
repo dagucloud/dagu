@@ -188,7 +188,7 @@ func (p *Proxy) rewriteOrigin(r *httputil.ProxyRequest) {
 		header.Set("Authorization", "Bearer "+p.upstream.key)
 	case AuthAnthropicOAuth:
 		header.Set("Authorization", "Bearer "+p.upstream.key)
-		header.Set("Anthropic-Beta", anthropicbeta.Join(header.Values("Anthropic-Beta"), AnthropicOAuthBeta))
+		header.Set("Anthropic-Beta", anthropicbeta.Join(header.Values("Anthropic-Beta"), anthropicbeta.OAuth))
 	}
 }
 
@@ -206,15 +206,15 @@ func declineUpgrade(header http.Header) {
 // the upstream: the header and the digest of its value, never the value.
 func clientCredential(header http.Header) string {
 	if value := header.Get("X-Api-Key"); value != "" {
-		return "x-api-key sha256:" + Digest(value)
+		return "x-api-key sha256:" + digest(value)
 	}
 	if value := header.Get("Authorization"); value != "" {
 		// Only a known scheme is named: another first word can be the credential.
 		scheme, token, ok := strings.Cut(value, " ")
 		if ok && (strings.EqualFold(scheme, "Bearer") || strings.EqualFold(scheme, "Basic")) {
-			return "authorization " + scheme + " sha256:" + Digest(token)
+			return "authorization " + scheme + " sha256:" + digest(token)
 		}
-		return "authorization sha256:" + Digest(value)
+		return "authorization sha256:" + digest(value)
 	}
 	return "none"
 }

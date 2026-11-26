@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/llm/anthropicbeta"
 	"github.com/dagucloud/dagu/v2/internal/runtime/egress"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -231,10 +232,10 @@ func TestUpstreamAnthropicOAuth(t *testing.T) {
 		client http.Header
 		digest string
 	}{
-		{"no beta", nil, egress.AnthropicOAuthBeta, http.Header{"X-Api-Key": {"placeholder"}}, "x-api-key sha256:" + egress.Digest("placeholder")},
-		{"other betas", []string{"a-1, b-2", "c-3"}, "a-1,b-2,c-3," + egress.AnthropicOAuthBeta,
+		{"no beta", nil, anthropicbeta.OAuth, http.Header{"X-Api-Key": {"placeholder"}}, "x-api-key sha256:" + egress.Digest("placeholder")},
+		{"other betas", []string{"a-1, b-2", "c-3"}, "a-1,b-2,c-3," + anthropicbeta.OAuth,
 			http.Header{"Authorization": {"Bearer placeholder"}}, "authorization Bearer sha256:" + egress.Digest("placeholder")},
-		{"beta present", []string{"a-1," + egress.AnthropicOAuthBeta}, "a-1," + egress.AnthropicOAuthBeta, nil, "client credential none"},
+		{"beta present", []string{"a-1," + anthropicbeta.OAuth}, "a-1," + anthropicbeta.OAuth, nil, "client credential none"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
