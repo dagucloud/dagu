@@ -276,10 +276,11 @@ func TestLogMaskingWriter_ProviderTokens(t *testing.T) {
 			expected: base64Blob + "\n",
 		},
 		{
-			// The match that starts inside "xya29." holds the real token.
-			name:     "token inside a rejected match",
-			input:    "xya29." + googleAccessToken + "\n",
-			expected: "xya29.*******\n",
+			// Base64 data cannot hold "ya29.", so a word character before
+			// it does not hide the token, such as the "n" of a JSON escape.
+			name:     "google access token after a JSON newline escape",
+			input:    `{"log":"line\n` + googleAccessToken + `"}` + "\n",
+			expected: `{"log":"line\n*******"}` + "\n",
 		},
 		{
 			name:     "secret value beside a token",

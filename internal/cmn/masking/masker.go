@@ -30,8 +30,8 @@ type SourcedEnvVars struct {
 // providerTokens are the formats of provider OAuth tokens, which a step can
 // print without Dagu knowing the value.
 var providerTokens = []providerToken{
-	{prefix: "ya29.", symbols: "._-", minBody: 20}, // Google access tokens
-	{prefix: "1//", symbols: "_-", minBody: 40},    // Google refresh tokens
+	{prefix: "ya29.", symbols: "._-", minBody: 20},              // Google access tokens
+	{prefix: "1//", symbols: "_-", minBody: 40, inBase64: true}, // Google refresh tokens
 }
 
 // Masker provides masking functionality for sensitive data. It is safe for
@@ -55,6 +55,9 @@ type providerToken struct {
 	prefix  string
 	symbols string
 	minBody int
+	// inBase64 reports that base64 data can hold the prefix, so a prefix
+	// right after a base64 character does not start a token.
+	inBase64 bool
 }
 
 // span is a range of text to mask, from start up to end.
@@ -217,8 +220,8 @@ func (m *Masker) spans(text string, tokens bool) []span {
 
 // appendTokenSpans appends to spans the tokens of format token in text.
 // Only a prefix where a token can start is followed into its body, so text
-// is read once: a rejected prefix, as in "xya29.ya29.<token>", costs no
-// more than the search for the next one.
+// is read once: a rejected prefix costs no more than the search for the
+// next one.
 func appendTokenSpans(spans []span, text string, token providerToken) []span {
 	for offset := 0; ; {
 		i := strings.Index(text[offset:], token.prefix)
@@ -228,7 +231,7 @@ func appendTokenSpans(spans []span, text string, token providerToken) []span {
 		start := offset + i
 		body := start + len(token.prefix)
 		end := body
-		if tokenStart(text, start) {
+		if !token.inBase64 || tokenStart(text, start) {
 			for end < len(text) && token.inBody(text[end]) {
 				end++
 			}
@@ -248,9 +251,9 @@ func (t providerToken) inBody(b byte) bool {
 		strings.IndexByte(t.symbols, b) >= 0
 }
 
-// tokenStart reports whether a provider token can start at offset start of
-// text. A prefix right after a base64 or token character lies inside other
-// text, such as base64 data.
+// tokenStart reports whether a token whose prefix base64 data can hold
+// starts at offset start of text. A prefix right after a base64 or token
+// character lies inside other text, such as base64 data.
 func tokenStart(text string, start int) bool {
 	if start == 0 {
 		return true
