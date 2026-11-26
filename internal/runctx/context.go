@@ -36,10 +36,13 @@ type Context struct {
 	BypassPreconditions bool
 	AttemptID           string
 	WorkerID            string
-	TriggerType         ir.TriggerType
-	TriggerActor        string
-	RunStartedAt        string
-	ScheduleTime        string
+	// Project names the run's project while projects are on. It is empty
+	// for a run on a worker.
+	Project      string
+	TriggerType  ir.TriggerType
+	TriggerActor string
+	RunStartedAt string
+	ScheduleTime string
 	// IntervalStart, NextScheduledAt, and ScheduleTimezone describe the
 	// window the run's schedule slot owns, as resolved by context.run.*.
 	IntervalStart    string
@@ -250,7 +253,6 @@ type contextOptions struct {
 	profileSelectedSec []string
 	workDir            string
 	artifactDir        string
-	project            string
 }
 
 // ContextOption configures optional parameters for NewContext.
@@ -311,7 +313,7 @@ func WithWorkerID(workerID string) ContextOption {
 // DAGU_PROJECT.
 func WithProject(name string) ContextOption {
 	return func(o *contextOptions) {
-		o.project = name
+		o.Project = name
 	}
 }
 

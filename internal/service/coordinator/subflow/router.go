@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/project"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -50,6 +52,9 @@ func (r *Router) Run(ctx context.Context, req executor.SubWorkflowRequest) (*ir.
 	if runner == nil {
 		return nil, errNoMatchingRunner
 	}
+	if err := checkProjectRoute(ctx, runner); err != nil {
+		return nil, err
+	}
 	r.remember(req.RunID, runner)
 	defer r.forget(req.RunID)
 	return runner.Run(ctx, req)
@@ -61,6 +66,9 @@ func (r *Router) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest
 	if runner == nil {
 		return nil, errNoMatchingRunner
 	}
+	if err := checkProjectRoute(ctx, runner); err != nil {
+		return nil, err
+	}
 	r.remember(req.RunID, runner)
 	defer r.forget(req.RunID)
 	return runner.Retry(ctx, req)
@@ -68,6 +76,9 @@ func (r *Router) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest
 
 // Enqueue admits req through the runner selected by the execution policy.
 func (r *Router) Enqueue(ctx context.Context, req executor.EnqueueRequest) (executor.EnqueueResult, error) {
+	if err := project.RefuseOtherProject(runProject(ctx), project.ErrQueuedRun); err != nil {
+		return executor.EnqueueResult{}, err
+	}
 	runner := r.selectRunner(ctx, executor.SubWorkflowRequest{
 		DAG:            req.DAG,
 		RootDAGRun:     req.RootDAGRun,
@@ -122,6 +133,24 @@ func (r *Router) Cleanup(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// checkProjectRoute refuses to send a child of a run of a project other
+// than the default one to a worker, where the coordinator would record it
+// in the default project.
+func checkProjectRoute(ctx context.Context, runner executor.SubWorkflowRunner) error {
+	if _, distributed := runner.(*Runner); !distributed {
+		return nil
+	}
+	return project.RefuseOtherProject(runProject(ctx), project.ErrWorkerRun)
+}
+
+// runProject returns the project of the run that ctx carries, or "".
+func runProject(ctx context.Context) string {
+	if rCtx, ok := runctx.LookupContext(ctx); ok {
+		return rCtx.Project
+	}
+	return ""
 }
 
 func (r *Router) selectRunner(ctx context.Context, req executor.SubWorkflowRequest) executor.SubWorkflowRunner {
