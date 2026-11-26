@@ -28,6 +28,10 @@ import (
 // a path other than the request to the upstream.
 const testUpstreamKey = "sk-ant-real-key-0123456789"
 
+// exchangeTimeout bounds each exchange of a test client with the proxy, so a
+// proxy that never answers fails the test instead of hanging it.
+const exchangeTimeout = 10 * time.Second
+
 // proxyLogs collects the lines that the proxy logs.
 type proxyLogs struct {
 	mu    sync.Mutex
@@ -137,6 +141,17 @@ func mustUpstream(t *testing.T, rawURL string, auth egress.UpstreamAuth) *egress
 	return upstream
 }
 
+// dialProxy opens a raw connection to the proxy, which ends with the test. A read
+// or a write fails after exchangeTimeout.
+func dialProxy(t *testing.T, proxyAddr string) net.Conn {
+	t.Helper()
+	conn, err := net.Dial("tcp", proxyAddr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	require.NoError(t, conn.SetDeadline(time.Now().Add(exchangeTimeout)))
+	return conn
+}
+
 // originReply is the answer of the proxy, with the body read and closed.
 type originReply struct {
 	StatusCode int
@@ -157,7 +172,7 @@ func originFormRequest(t *testing.T, proxyAddr, method, target, body string, hea
 	}
 	client := &http.Client{
 		Transport:     &http.Transport{DisableKeepAlives: true},
-		Timeout:       10 * time.Second,
+		Timeout:       exchangeTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	response, err := client.Do(request)
@@ -396,7 +411,7 @@ func TestUpstreamStreamsTheAnswer(t *testing.T) {
 	upstream := mustUpstream(t, "http://allowed.example.test:"+port, egress.AuthXAPIKey)
 	proxyAddr, _ := upstreamProxy(t, []string{"allowed.example.test:" + port}, upstream, resolverFor("allowed.example.test", host), nil, nil)
 
-	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}, Timeout: 10 * time.Second}
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}, Timeout: exchangeTimeout}
 	response, err := client.Post("http://"+proxyAddr+"/v1/messages", "application/json", strings.NewReader("{}"))
 	require.NoError(t, err)
 	defer func() { _ = response.Body.Close() }()
@@ -445,9 +460,7 @@ func TestUpstreamLeavesTheOtherRoutesAsTheyAre(t *testing.T) {
 	assert.Contains(t, string(body), "not in the egress policy")
 	assert.NotContains(t, string(body), testUpstreamKey)
 
-	conn, err := net.Dial("tcp", proxyAddr)
-	require.NoError(t, err)
-	defer func() { _ = conn.Close() }()
+	conn := dialProxy(t, proxyAddr)
 	_, err = io.WriteString(conn, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
 	require.NoError(t, err)
 	status, err := bufio.NewReader(conn).ReadString('\n')
@@ -462,10 +475,8 @@ func TestOriginFormNeedsAnUpstream(t *testing.T) {
 	t.Parallel()
 
 	raw := func(proxyAddr, request string) string {
-		conn, err := net.Dial("tcp", proxyAddr)
-		require.NoError(t, err)
-		defer func() { _ = conn.Close() }()
-		_, err = io.WriteString(conn, request)
+		conn := dialProxy(t, proxyAddr)
+		_, err := io.WriteString(conn, request)
 		require.NoError(t, err)
 		status, err := bufio.NewReader(conn).ReadString('\n')
 		require.NoError(t, err)
@@ -601,10 +612,8 @@ func TestUpstreamProtocolUpgradeIsNotForwarded(t *testing.T) {
 			upstream := mustUpstream(t, "http://"+destination, egress.AuthXAPIKey)
 			proxyAddr, _ := upstreamProxy(t, []string{destination}, upstream, resolverFor("allowed.example.test", host), nil, nil)
 
-			conn, err := net.Dial("tcp", proxyAddr)
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = conn.Close() })
-			_, err = fmt.Fprintf(conn, "GET /ws HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", destination)
+			conn := dialProxy(t, proxyAddr)
+			_, err := fmt.Fprintf(conn, "GET /ws HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", destination)
 			require.NoError(t, err)
 			response, err := http.ReadResponse(bufio.NewReader(conn), nil)
 			require.NoError(t, err)
