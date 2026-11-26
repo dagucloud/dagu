@@ -237,6 +237,24 @@ func TestStepGateHoldsRepeatCondition(t *testing.T) {
 	require.Equal(t, ir.NodeAborted, poll.State().Status)
 }
 
+// A step timeout that ends the wait for an isolated untrusted step fails the
+// step as a timeout, as at any other point of its attempt.
+func TestStepGateWaitTimesOut(t *testing.T) {
+	t.Parallel()
+
+	agentStep := ir.Step{Name: "agent", Untrusted: true}
+	checkStep := ir.Step{Name: "check", Command: "true", Timeout: 10 * time.Millisecond}
+	ctx := isolatedContext(agentStep, checkStep)
+	holdRun(t, ctx, agentStep)
+
+	check := NewNode(checkStep, NodeState{})
+	err := NewStepExecutor().Execute(ctx, check)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "step timed out")
+	require.Equal(t, ir.NodeFailed, check.Status())
+	require.Equal(t, 124, check.GetExitCode())
+}
+
 // A failed capture of the outputs does not hide the error that stops the run.
 func TestRunAbortedSurvivesFailedCapture(t *testing.T) {
 	t.Parallel()

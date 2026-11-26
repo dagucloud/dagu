@@ -88,6 +88,11 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 
 	leaveGate, err := enterStepGate(ctx, node)
 	if err != nil {
+		if ctx.Err() != nil {
+			// A timeout or a stop ends the wait as it ends an attempt that
+			// has not started.
+			return recordPreRunAbort(ctx, node, err, stepTimeout, attemptStarted)
+		}
 		node.SetError(err)
 		node.SetExitCode(1)
 		return err
