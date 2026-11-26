@@ -51,6 +51,9 @@ type projectWikis struct {
 	mu        sync.Mutex
 	checkedAt time.Time
 	migrated  []string
+	// onDisk maps the v2 workspace name of each migrated project to the
+	// spelling its directory has on disk.
+	onDisk map[string]string
 	// own holds the stores of projects with wiki directories of their own,
 	// keyed by project ID.
 	own map[string]*filewiki.Store
@@ -87,7 +90,7 @@ func (w *projectWikis) storeOf(ctx context.Context, p project.Project) (wiki.Pag
 			return nil, err
 		}
 		if !exists {
-			return &wikiView{store: w.shared, root: p.MigratedFrom}, nil
+			return &wikiView{store: w.shared, root: w.inPlaceRoot(p.MigratedFrom)}, nil
 		}
 	}
 	return w.ownStore(p, paths, dir)
@@ -131,11 +134,11 @@ func (w *projectWikis) migratedRoots(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read the project registry: %w", err)
 	}
-	var roots []string
+	var names []string
 	live := make(map[string]bool, len(projects))
 	for _, p := range projects {
 		if p.MigratedFrom != "" {
-			roots = append(roots, p.MigratedFrom)
+			names = append(names, p.MigratedFrom)
 		}
 		if !p.Deleting {
 			live[p.ID] = true
@@ -146,34 +149,78 @@ func (w *projectWikis) migratedRoots(ctx context.Context) ([]string, error) {
 			delete(w.own, id)
 		}
 	}
-	// Listing and search exclude by the spelling a directory has on disk.
-	if roots, err = w.withDiskSpellings(roots); err != nil {
+	dirs, err := w.wikiDirNames(names)
+	if err != nil {
 		return nil, err
 	}
-	w.migrated, w.checkedAt = roots, time.Now()
+	// Listing and search exclude by the spelling a directory has on disk.
+	roots := slices.Clone(names)
+	onDisk := make(map[string]string, len(names))
+	for _, name := range names {
+		onDisk[name] = diskSpelling(name, dirs)
+		for _, dir := range dirs {
+			if strings.EqualFold(dir, name) && !slices.Contains(roots, dir) {
+				roots = append(roots, dir)
+			}
+		}
+	}
+	w.migrated, w.onDisk, w.checkedAt = roots, onDisk, time.Now()
 	return roots, nil
 }
 
-// withDiskSpellings adds to roots each directory of the default wiki
-// directory whose name matches one of them without regard to case.
-func (w *projectWikis) withDiskSpellings(roots []string) ([]string, error) {
-	if len(roots) == 0 {
-		return roots, nil
+// inPlaceRoot returns the directory under the default wiki directory that
+// holds the pages of the migrated project from workspace name. Call it
+// after migratedRoots.
+func (w *projectWikis) inPlaceRoot(name string) string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if dir, ok := w.onDisk[name]; ok {
+		return dir
+	}
+	return name
+}
+
+// wikiDirNames returns the directories at the top of the default wiki
+// directory, or none when no project needs them.
+func (w *projectWikis) wikiDirNames(names []string) ([]string, error) {
+	if len(names) == 0 {
+		return nil, nil
 	}
 	entries, err := os.ReadDir(w.cfg.Paths.WikiDir)
 	if os.IsNotExist(err) {
-		return roots, nil
+		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read the wiki directory: %w", err)
 	}
+	var dirs []string
 	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() && ownedElsewhere(name, roots) && !slices.Contains(roots, name) {
-			roots = append(roots, name)
+		if entry.IsDir() {
+			dirs = append(dirs, entry.Name())
 		}
 	}
-	return roots, nil
+	return dirs, nil
+}
+
+// diskSpelling returns name when dirs holds it as spelled, else the one
+// directory that matches it without regard to case, else name.
+func diskSpelling(name string, dirs []string) string {
+	if slices.Contains(dirs, name) {
+		return name
+	}
+	var match string
+	for _, dir := range dirs {
+		if strings.EqualFold(dir, name) {
+			if match != "" {
+				return name
+			}
+			match = dir
+		}
+	}
+	if match == "" {
+		return name
+	}
+	return match
 }
 
 func dirExists(path string) (bool, error) {

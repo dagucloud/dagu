@@ -104,16 +104,22 @@ func TestDefaultWikiLeavesOutMigratedProjects(t *testing.T) {
 	assert.FileExists(t, filepath.Join(f.cfg.Paths.WikiDir, "ops", "runbook.md"))
 }
 
-// TestDefaultWikiLeavesOutMigratedRootInAnyCase registers workspace Team,
-// whose directory is spelled team on disk.
-func TestDefaultWikiLeavesOutMigratedRootInAnyCase(t *testing.T) {
-	f := newWikiFixture(t)
-	ctx := t.Context()
-	_, err := f.registry.Create(ctx, project.CreateInput{Name: "Team", MigratedFrom: "Team"})
+// teamProject registers project Team, which migration made from workspace
+// Team, whose directory is spelled team on disk.
+func (f *wikiFixture) teamProject(t *testing.T) project.Project {
+	t.Helper()
+	team, err := f.registry.Create(t.Context(), project.CreateInput{Name: "Team", MigratedFrom: "Team"})
 	require.NoError(t, err)
 	dir := filepath.Join(f.cfg.Paths.WikiDir, "team")
 	require.NoError(t, os.MkdirAll(dir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "plan.md"), []byte("needle\n"), 0o600))
+	return team
+}
+
+func TestDefaultWikiLeavesOutMigratedRootInAnyCase(t *testing.T) {
+	f := newWikiFixture(t)
+	ctx := t.Context()
+	f.teamProject(t)
 	store := f.defaultWiki(t)
 
 	assert.Equal(t, []string{"home"}, flatIDs(t, store))
@@ -123,6 +129,20 @@ func TestDefaultWikiLeavesOutMigratedRootInAnyCase(t *testing.T) {
 	assert.Equal(t, "home", search.Items[0].ID)
 	_, err = store.SearchMatches(ctx, "runbook", wiki.SearchPageMatchesOptions{Query: "needle", Limit: 1, PathPrefix: "/ops/"})
 	require.ErrorIs(t, err, wiki.ErrPageNotFound)
+}
+
+func TestMigratedProjectWikiFindsRootInAnyCase(t *testing.T) {
+	f := newWikiFixture(t)
+	ctx := t.Context()
+	store := f.wiki(t, f.teamProject(t))
+
+	assert.Equal(t, []string{"plan"}, flatIDs(t, store))
+	search, err := store.SearchCursor(ctx, wiki.SearchPagesOptions{Query: "needle", Limit: 10, MatchLimit: 1})
+	require.NoError(t, err)
+	require.Len(t, search.Items, 1)
+	assert.Equal(t, "plan", search.Items[0].ID)
+	_, err = store.Get(ctx, "plan")
+	require.NoError(t, err)
 }
 
 func TestMigratedProjectWikiStaysInPlace(t *testing.T) {
