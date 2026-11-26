@@ -141,7 +141,7 @@ func runLs(ctx *Context, args []string) error {
 	}
 
 	var nextRunLoc *time.Location
-	if localTime && ctx.Config != nil {
+	if localTime {
 		nextRunLoc = ctx.Config.Core.Location
 	}
 
