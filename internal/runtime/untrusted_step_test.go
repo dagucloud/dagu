@@ -169,8 +169,9 @@ func TestUntrustedRunRedirectRefusesLink(t *testing.T) {
 	assert.Equal(t, "kept", string(data))
 }
 
-// A step error that marks the run as unsafe stops the run: a later step does
-// not start, even when the failed step lets the run continue.
+// A step error that marks the run as unsafe fails the step and stops the run:
+// a later step does not start, even when the failed step lets the run
+// continue.
 func TestRunAbortedStopsTheRun(t *testing.T) {
 	t.Parallel()
 
@@ -187,5 +188,6 @@ func TestRunAbortedStopsTheRun(t *testing.T) {
 	require.ErrorIs(t, err, untrusted.ErrRunAborted)
 	assert.True(t, action.ran)
 	assert.Equal(t, ir.Aborted, ph.runner.Status(ctx, ph.Plan))
+	assert.Equal(t, ir.NodeFailed, ph.GetNodeByName("verify").State().Status)
 	assert.Equal(t, ir.NodeNotStarted, ph.GetNodeByName("next").State().Status)
 }

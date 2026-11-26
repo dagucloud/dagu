@@ -779,10 +779,7 @@ ExecRepeat: // repeat execution
 		}
 		cont.beforeExecution(node)
 		execErr := r.execNode(attemptCtx, node, progressCh)
-		if errors.Is(execErr, untrusted.ErrRunAborted) {
-			// Dagu cannot give a safe work directory to a later step.
-			r.abortRun(ctx, plan, execErr)
-		}
+		runAborted := errors.Is(execErr, untrusted.ErrRunAborted)
 		stoppedDuringAttempt = r.isCanceled()
 		if execErr == nil {
 			committed, commitErr := commitBuildAttempt(attemptCtx, node, buildSession, stagingPath)
@@ -791,7 +788,12 @@ ExecRepeat: // repeat execution
 			}
 			execErr = commitErr
 		}
-		isRetriable := r.handleNodeExecutionError(ctx, plan, node, execErr, !cont.spent())
+		isRetriable := r.handleNodeExecutionError(ctx, plan, node, execErr, !cont.spent() && !runAborted)
+		if runAborted {
+			// The step fails first, so that the stop does not abort it. Dagu
+			// cannot give a safe work directory to a later step.
+			r.abortRun(ctx, plan, execErr)
+		}
 		// The sample is of the execution alone, without the retry wait.
 		cont.afterExecution(ctx, node, execErr)
 		if isRetriable {
