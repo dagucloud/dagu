@@ -727,6 +727,45 @@ func TestReportRunsLease(t *testing.T) {
 	assert.Equal(t, []string{"run-1"}, decodeFinished(t, takeover).ids(t))
 }
 
+// The process that takes the lease while a run key is set warns once that
+// the key goes unused there; a process on standby and one without a key say
+// nothing of it.
+func TestReportRunsWarnOfARunKey(t *testing.T) {
+	t.Parallel()
+
+	start := func(dir *eventDir, runKey bool) (*fakeClock, *fakeConsole, *bytes.Buffer) {
+		t.Helper()
+		console := newFakeConsole(t)
+		logs := &bytes.Buffer{}
+		ctx := logger.WithLogger(t.Context(), logger.NewLogger(
+			logger.WithFormat("text"),
+			logger.WithWriter(logs),
+			logger.WithQuiet(),
+		))
+		events := dir.events()
+		events.RunKeySet = runKey
+		r := newReporter(console.credentials, nil, fixedLevel(config.ReportRuns))
+		r.events = newEventFeed(events)
+		clock := startReporterAt(ctx, t, r, noJitter, testClockStart)
+		clock.wait()
+		return clock, console, logs
+	}
+
+	dir := newEventDir(t)
+	holderClock, holderConsole, holderLogs := start(dir, true)
+	standbyClock, standbyConsole, standbyLogs := start(dir, true)
+	for range 2 {
+		holderClock.nextReport(holderConsole)
+		standbyClock.nextReport(standbyConsole)
+	}
+	assert.Equal(t, 1, strings.Count(holderLogs.String(), warnRunKeyOnServer))
+	assert.NotContains(t, standbyLogs.String(), warnRunKeyOnServer)
+
+	clock, console, logs := start(newEventDir(t), false)
+	nextReport(t, clock, console)
+	assert.NotContains(t, logs.String(), warnRunKeyOnServer)
+}
+
 // An event store whose events cannot be read leaves runs out of reports, even
 // the runs in progress known from before, and the failure is logged once.
 func TestReportRunsUnreadable(t *testing.T) {
