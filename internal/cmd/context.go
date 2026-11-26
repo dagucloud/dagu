@@ -62,7 +62,6 @@ type Context struct {
 	EventSourceInstance string
 	Persistence         Persistence
 	DAGRunMgr           runtime.Manager
-	backend             persis.Backend
 	// serverStores are the stores every project shares.
 	serverStores *file.ServerStores
 	// projectStores are the default project's stores, and settings the
@@ -299,15 +298,18 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	if err := migrateState(ctx, cmd.Name(), scope, cfg); err != nil {
 		return nil, err
 	}
-	backend := file.NewBackend(cfg.Paths)
 	serverStores := file.NewServerStores(cfg)
+	settings, err := file.NewProjectSettings(cfg, serverStores, project.DefaultName)
+	if err != nil {
+		return nil, err
+	}
 
 	workerCommand := cmd.Name() == "worker"
 	var eventService *eventstore.Service
 	switch cmd.Name() {
 	case "server", "scheduler", "start-all", "worker":
 	default:
-		eventService = newEventService(ctx, cfg)
+		eventService = newEventService(ctx, cfg, settings.Paths.EventStoreDir)
 	}
 	if eventService != nil {
 		ctx = eventstore.WithContext(ctx, eventService, eventstore.Source{
@@ -322,10 +324,6 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		logger.Debug(ctx, "Worker mode: skipping file-based run stores",
 			slog.Any("coordinators", cfg.Worker.Coordinators),
 		)
-		settings, err := file.NewProjectSettings(cfg, serverStores, project.DefaultName)
-		if err != nil {
-			return nil, err
-		}
 		return &Context{
 			Context:             baseCtx,
 			Command:             cmd,
@@ -338,7 +336,6 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			CLIContext:          selectedContext,
 			ContextName:         selectedContextName,
 			Scope:               scope,
-			backend:             backend,
 			serverStores:        serverStores,
 			settings:            settings,
 			// Run stores are nil; worker execution reports runtime state to the coordinator.
@@ -437,7 +434,6 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		EventSourceInstance: eventSourceInstance,
 		Persistence:         persistence,
 		DAGRunMgr:           drm,
-		backend:             backend,
 		serverStores:        serverStores,
 		projectStores:       projectStores,
 		settings:            projectStores.ProjectSettings,

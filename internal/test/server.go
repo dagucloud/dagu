@@ -14,8 +14,10 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend/api/pathutil"
@@ -103,7 +105,12 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 		frontend.WithAPIOption(apiv1.WithDAGRunLeaseStore(srv.DAGRunLeaseStore)),
 		frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(srv.WorkerHeartbeatStore)),
 	}, srv.ServerOptions...)
-	stores, err := frontendfile.NewStores(srv.Context, srv.Config, srv.Backend)
+	serverStores := file.NewServerStores(srv.Config)
+	settings, err := file.NewProjectSettings(srv.Config, serverStores, project.DefaultName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open the default project's settings: %w", err)
+	}
+	stores, err := frontendfile.NewStores(srv.Context, srv.Config, serverStores, settings)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize server stores: %w", err)
 	}

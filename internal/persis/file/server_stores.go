@@ -13,6 +13,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
+	filecalendar "github.com/dagucloud/dagu/v2/internal/persis/file/calendar"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	fileserviceregistry "github.com/dagucloud/dagu/v2/internal/persis/file/serviceregistry"
@@ -21,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/upgrade"
 )
 
 // ServerStores holds the stores that every project shares, kept in
@@ -118,4 +121,64 @@ func (s *ServerStores) Encryptor() (*crypto.Encryptor, error) {
 // directory.
 func (s *ServerStores) LicenseStore(ctx context.Context) license.ActivationStore {
 	return NewLicenseStore(ctx, s.backend.Collection(persis.CollectionLicense))
+}
+
+// UserStore opens the users of builtin authentication.
+func (s *ServerStores) UserStore() (*store.UserStore, error) {
+	return store.NewUserStore(s.backend.Collection(persis.CollectionUsers))
+}
+
+// APIKeyStore opens the API keys.
+func (s *ServerStores) APIKeyStore() (*store.APIKeyStore, error) {
+	return store.NewAPIKeyStore(s.backend.Collection(persis.CollectionAPIKeys))
+}
+
+// WebhookStore opens the DAG webhooks, whose tokens and sender secrets enc
+// encrypts. A nil enc leaves them unreadable.
+func (s *ServerStores) WebhookStore(enc *crypto.Encryptor) (*store.WebhookStore, error) {
+	return store.NewWebhookStore(
+		s.backend.Collection(persis.CollectionWebhooks),
+		s.backend.Collection(persis.CollectionWebhookDAGClaims),
+		enc,
+	)
+}
+
+// PublicWebhookStore opens the relay's status and each public webhook URL's
+// deliveries.
+func (s *ServerStores) PublicWebhookStore() *store.PublicWebhookStore {
+	return store.NewPublicWebhookStore(s.backend.Collection(persis.CollectionPublicWebhooks))
+}
+
+// WorkspaceStore opens the workspaces.
+func (s *ServerStores) WorkspaceStore() (*store.WorkspaceStore, error) {
+	return store.NewWorkspaceStore(s.backend.Collection(persis.CollectionWorkspaces))
+}
+
+// RemoteNodeStore opens the remote nodes, whose credentials enc encrypts.
+func (s *ServerStores) RemoteNodeStore(enc *crypto.Encryptor) (*store.RemoteNodeStore, error) {
+	return store.NewRemoteNodeStore(s.backend.Collection(persis.CollectionRemoteNodes), enc)
+}
+
+// WorkerNodeStore opens the worker nodes, which it reports with their
+// heartbeats.
+func (s *ServerStores) WorkerNodeStore() (*store.WorkerNodeStore, error) {
+	return store.NewWorkerNodeStore(s.backend.Collection(persis.CollectionWorkerNodes), s.WorkerHeartbeatStore)
+}
+
+// UpgradeCheckStore opens the cache of upgrade checks, creating its
+// directory.
+func (s *ServerStores) UpgradeCheckStore() (upgrade.CacheStore, error) {
+	return NewUpgradeCheckStore(s.cfg, s.backend.Collection(persis.CollectionUpgradeCheck))
+}
+
+// AuditStore opens the audit log, which drops entries older than
+// retentionDays, unless it is zero.
+func (s *ServerStores) AuditStore(retentionDays int, opts ...fileaudit.Option) (*fileaudit.Store, error) {
+	return fileaudit.New(fileaudit.Dir(s.cfg.Paths.AdminLogsDir), retentionDays, opts...)
+}
+
+// CalendarStore opens the business calendars for editing, creating their
+// directory.
+func (s *ServerStores) CalendarStore(opts ...filecalendar.Option) (*filecalendar.Store, error) {
+	return filecalendar.New(s.cfg.Paths.CalendarsDir, opts...)
 }

@@ -153,7 +153,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	}()
 	serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithOpenCodeHost(openCodeHost)))
 
-	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config, serviceCtx.backend)
+	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config, serviceCtx.serverStores, serviceCtx.settings)
 	if err != nil {
 		return err
 	}
