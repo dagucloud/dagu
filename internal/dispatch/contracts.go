@@ -76,6 +76,12 @@ type DispatchTask struct {
 	SourceWorkDir string
 
 	WorkerSelector map[string]string
+	// BoundNode names the worker node the run is bound to (RFC 013), which
+	// TargetWorkerID names too.
+	BoundNode string
+	// NodeStep names the command step with nodes of Definition that the run
+	// runs alone, or is empty.
+	NodeStep string
 
 	// HoldUntil is set when the task was accepted with no healthy worker
 	// matching it. Until then the task waits for one to register; after it
