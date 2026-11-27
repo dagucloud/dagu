@@ -439,7 +439,8 @@ func TestLoad_Env(t *testing.T) {
 		Warnings: []string{fmt.Sprintf(
 			"paths.suspend_flags_dir %q is outside paths.data_dir %q; suspension state may diverge across Dagu processes",
 			filepath.Join(testPaths, "suspend"), filepath.Join(testPaths, "data"))},
-		Cache: CacheModeNormal,
+		Cache:   CacheModeNormal,
+		Sources: cfg.Sources, // TestLoad_Sources covers it
 	}
 
 	assert.Equal(t, expected, cfg)
@@ -1366,7 +1367,8 @@ scheduler:
 		Warnings: []string{fmt.Sprintf(
 			"paths.suspend_flags_dir %q is outside paths.data_dir %q; suspension state may diverge across Dagu processes",
 			resolvedTestPath(t, "/var/dagu/suspend"), resolvedTestPath(t, "/var/dagu/data"))},
-		Cache: CacheModeNormal,
+		Cache:   CacheModeNormal,
+		Sources: cfg.Sources, // TestLoad_Sources covers it
 	}
 
 	assert.Equal(t, expected, cfg)

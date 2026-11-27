@@ -47,6 +47,9 @@ type Config struct {
 	Cloud           CloudConfig
 	Notices         []string
 	Warnings        []string
+	// Sources holds, by config key such as "coordinator.host", where Load
+	// found the value of each peer.* key and of coordinator.host.
+	Sources map[string]ValueSource
 	// WorkspaceAccessKeys lists the workspace access keys the configuration
 	// sets. v3.0 reads them as their project equivalents until v3.1.
 	WorkspaceAccessKeys []string
@@ -893,7 +896,9 @@ type Peer struct {
 	KeyFile       string
 	ClientCaFile  string
 	SkipTLSVerify bool
-	Insecure      bool          // Use h2c instead of TLS
+	// Insecure selects h2c instead of TLS. It is true while peer.insecure is
+	// unset; Sources tells an unset key from one set to true.
+	Insecure      bool
 	MaxRetries    int           // Default: 10 (exponential backoff, capped at 30s)
 	RetryInterval time.Duration // Default: 1s
 	// Token is the shared token peers send to the coordinator. Empty means
