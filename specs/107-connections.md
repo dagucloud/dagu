@@ -230,6 +230,7 @@ A worker has neither.
 | `status_reason` | The provider's error code and text, without secrets |
 | `generation` | Starts at 0. Increases by 1 on each confirm, on an import, and on each successful token fetch without a session: at a create, a reconnect, or a change of `subject` |
 | `session` | The session in progress, if any. See [Sessions](#sessions) |
+| `confirmed_session` | The ID of the last confirmed session, so that its handle reads `connected` after the confirm clears the session |
 | `refreshed_at` | Time of the last successful refresh |
 | `import_hash` | Only for an imported connection: a hash of the refresh token the import was given. See [Import](#import) |
 
@@ -478,6 +479,10 @@ starter (UI or CLI)          Dagu server                       provider
 - A session has an ID, its starter, and a stored phase: `waiting`,
   `confirm`, or `failed`. In `confirm` it also holds the account,
   `account_id`, and the new tokens, encrypted.
+- In `confirm` a session also holds `probes`, each service's result of the
+  [checks after consent](#checks-after-consent). While `waiting`, it holds
+  `claimed_at`, the time a callback began to complete it. Other callbacks
+  are refused until that claim ends, so one code is exchanged per session.
 - A session lives in the connection's token state, so any frontend replica
   serves any request of it.
 - Starting a session replaces an earlier one. The earlier session fails.

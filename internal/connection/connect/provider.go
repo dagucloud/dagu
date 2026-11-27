@@ -32,7 +32,8 @@ type Provider interface {
 	// Identity returns the account that token was issued for.
 	Identity(ctx context.Context, app *connection.App, token *oauth2.Token) (Identity, error)
 	// Probe checks each of conn's services with token, and returns one
-	// result per service.
+	// result per service. It returns once ctx ends, reporting each service
+	// it did not finish as failed.
 	Probe(ctx context.Context, conn *connection.Connection, token *oauth2.Token) []connection.Probe
 }
 

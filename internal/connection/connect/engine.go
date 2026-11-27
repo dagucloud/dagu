@@ -21,7 +21,6 @@
 package connect
 
 import (
-	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -108,9 +107,9 @@ type Config struct {
 	// pending, is not reported.
 	OnStatusChange func(context.Context, broker.StatusChange)
 
-	// now and consentTimeout replace the defaults in tests.
-	now            func() time.Time
-	consentTimeout time.Duration
+	// now and callContext replace the defaults in tests.
+	now         func() time.Time
+	callContext func(context.Context) (context.Context, context.CancelFunc)
 }
 
 // Engine runs connect sessions.
@@ -121,7 +120,8 @@ type Engine struct {
 	anyUserConfirms bool
 	onStatusChange  func(context.Context, broker.StatusChange)
 	now             func() time.Time
-	consentTimeout  time.Duration
+	// callContext bounds the provider calls of one callback.
+	callContext func(context.Context) (context.Context, context.CancelFunc)
 }
 
 // StartOptions are what a starter gives for a session.
@@ -188,6 +188,12 @@ func New(cfg Config) (*Engine, error) {
 	if now == nil {
 		now = time.Now
 	}
+	callContext := cfg.callContext
+	if callContext == nil {
+		callContext = func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return context.WithTimeout(ctx, consentTimeout)
+		}
+	}
 	return &Engine{
 		store:           cfg.Store,
 		providers:       cfg.Providers,
@@ -195,7 +201,7 @@ func New(cfg Config) (*Engine, error) {
 		anyUserConfirms: cfg.AnyUserConfirms,
 		onStatusChange:  cfg.OnStatusChange,
 		now:             now,
-		consentTimeout:  cmp.Or(cfg.consentTimeout, consentTimeout),
+		callContext:     callContext,
 	}, nil
 }
 
@@ -311,7 +317,7 @@ func (e *Engine) complete(ctx context.Context, p CallbackParams, want *connectio
 	// A code that the provider accepted is spent, so the provider calls run
 	// to their end even when the browser goes away. Their deadline starts
 	// before the claim, so the claim outlives them and the write after them.
-	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), e.consentTimeout)
+	callCtx, cancel := e.callContext(context.WithoutCancel(ctx))
 	defer cancel()
 	claim, err := e.claim(ctx, conn, st.SessionID)
 	if err != nil {
@@ -530,7 +536,7 @@ func (e *Engine) claim(ctx context.Context, conn *connection.Connection, session
 		if err := e.waiting(st.Session, sessionID); err != nil {
 			return err
 		}
-		if c := st.Session.ClaimedAt; !c.IsZero() && now.Before(c.Add(e.consentTimeout+writeTimeout+claimMargin)) {
+		if c := st.Session.ClaimedAt; !c.IsZero() && now.Before(c.Add(consentTimeout+writeTimeout+claimMargin)) {
 			return fmt.Errorf("%w: another callback is completing the session", ErrCallbackRefused)
 		}
 		st.Session.ClaimedAt = now

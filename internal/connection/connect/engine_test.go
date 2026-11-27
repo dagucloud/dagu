@@ -75,7 +75,8 @@ func TestConfirmMakesTokensLive(t *testing.T) {
 
 // Provider calls that run to their deadline still end the session: a slow
 // probe reports a failed service and the session reaches confirm, and a
-// slow exchange fails the session.
+// slow exchange fails the session. The test ends the calls' context once
+// the call blocks, so no timing decides the outcome.
 func TestSlowProviderCallsEndSession(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -89,7 +90,19 @@ func TestSlowProviderCallsEndSession(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			f := newFixture(t, func(cfg *connect.Config) { connect.SetConsentTimeout(cfg, 50*time.Millisecond) })
+			callCtx, endCalls := context.WithCancel(context.Background())
+			f := newFixture(t, func(cfg *connect.Config) {
+				connect.SetCallContext(cfg, func(context.Context) (context.Context, context.CancelFunc) {
+					return callCtx, endCalls
+				})
+			})
+			go func() {
+				select {
+				case <-f.provider.blocked:
+					endCalls()
+				case <-t.Context().Done():
+				}
+			}()
 			if tt.name == "Probe" {
 				f.provider.blockProbe.Store(true)
 			} else {
@@ -107,7 +120,7 @@ func TestSlowProviderCallsEndSession(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantPhase, status.Phase)
 			if tt.name == "Probe" {
-				assert.Equal(t, []connection.Probe{{Service: "svc", Error: context.DeadlineExceeded.Error()}}, status.Probes)
+				assert.Equal(t, []connection.Probe{{Service: "svc", Error: context.Canceled.Error()}}, status.Probes)
 			}
 		})
 	}
@@ -741,9 +754,11 @@ type fakeProvider struct {
 	onExchange func()
 
 	failExchange atomic.Bool
-	// blockExchange and blockProbe make the call wait for its context.
+	// blockExchange and blockProbe make the call signal blocked and wait
+	// for its context.
 	blockExchange atomic.Bool
 	blockProbe    atomic.Bool
+	blocked       chan struct{}
 
 	mu       sync.Mutex
 	grants   map[string]grant
@@ -758,7 +773,7 @@ type grant struct {
 }
 
 func newFakeProvider(t *testing.T) *fakeProvider {
-	p := &fakeProvider{grants: make(map[string]grant)}
+	p := &fakeProvider{grants: make(map[string]grant), blocked: make(chan struct{}, 1)}
 	p.server = httptest.NewServer(http.HandlerFunc(p.token))
 	t.Cleanup(p.server.Close)
 	return p
@@ -834,6 +849,7 @@ func (p *fakeProvider) Exchange(ctx context.Context, cfg *oauth2.Config, _ *conn
 		p.onExchange()
 	}
 	if p.blockExchange.Load() {
+		p.blocked <- struct{}{}
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
@@ -852,6 +868,7 @@ func (p *fakeProvider) Probe(ctx context.Context, conn *connection.Connection, _
 	for i, svc := range conn.Services {
 		probes[i] = connection.Probe{Service: svc.Name}
 		if p.blockProbe.Load() {
+			p.blocked <- struct{}{}
 			<-ctx.Done()
 			probes[i].Error = ctx.Err().Error()
 		}
