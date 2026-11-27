@@ -39,6 +39,11 @@ const RETRY_MAX_MS = 60_000;
  * the very end of a bucket could miss the next one.
  */
 const BUCKET_READ_DELAY_MS = 15_000;
+/**
+ * The bucket ends of reads made at different times differ by their latency.
+ * Ends this close to the one that is due are read with it, in one request.
+ */
+const BUCKET_BATCH_SLACK_MS = 2_000;
 
 /** The change feed, with its times in ms. */
 interface Feed {
@@ -285,15 +290,16 @@ function keepListed(
 }
 
 /**
- * Marks the service DAGs whose newest bucket ended by `now` to be read again.
- * A DAG in flight gets its next end when its read finishes.
+ * Marks the service DAGs whose newest bucket ended by `now`, or ends within
+ * BUCKET_BATCH_SLACK_MS of it, to be read again. A DAG in flight gets its
+ * next end when its read finishes.
  */
 function markEndedBuckets(s: NodeActivity, now: number): NodeActivity {
   // A new map each time, so that the next end is waited for again.
   const bucketEndsAt = new Map(s.bucketEndsAt);
   const stale = new Set(s.stale);
   for (const [name, end] of s.bucketEndsAt) {
-    if (end + BUCKET_READ_DELAY_MS > now) {
+    if (end + BUCKET_READ_DELAY_MS > now + BUCKET_BATCH_SLACK_MS) {
       continue;
     }
     bucketEndsAt.delete(name);
