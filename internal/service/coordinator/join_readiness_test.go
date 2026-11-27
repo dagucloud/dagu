@@ -5,6 +5,8 @@ package coordinator_test
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,7 +50,7 @@ func TestClientGetJoinReadiness(t *testing.T) {
 	member := serviceregistry.HostInfo{ID: "coordinator-1", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}
 	monitor := &mockServiceMonitor{members: []serviceregistry.HostInfo{member}}
 
-	read := func(t *testing.T, peerToken string) coordinator.CoordinatorJoinReadiness {
+	read := func(t *testing.T, peerToken string) coordinator.JoinReadiness {
 		t.Helper()
 		config := coordinator.DefaultConfig()
 		config.Token = peerToken
@@ -95,4 +97,51 @@ func TestClientGetJoinReadinessNoCoordinators(t *testing.T) {
 	require.True(t, ok)
 	_, err := client.GetJoinReadiness(context.Background())
 	assert.Error(t, err)
+}
+
+// barrierCoordinator answers join readiness only once every coordinator of
+// its barrier has been asked.
+type barrierCoordinator struct {
+	coordinatorv1.UnimplementedCoordinatorServiceServer
+	barrier *sync.WaitGroup
+}
+
+func (c *barrierCoordinator) GetJoinReadiness(ctx context.Context, _ *coordinatorv1.GetJoinReadinessRequest) (*coordinatorv1.GetJoinReadinessResponse, error) {
+	c.barrier.Done()
+	waited := make(chan struct{})
+	go func() {
+		c.barrier.Wait()
+		close(waited)
+	}()
+	select {
+	case <-waited:
+		return &coordinatorv1.GetJoinReadinessResponse{}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// Each coordinator answers only after the other was asked, so asking them
+// one after the other would time out.
+func TestClientGetJoinReadinessAsksConcurrently(t *testing.T) {
+	t.Parallel()
+
+	var barrier sync.WaitGroup
+	barrier.Add(2)
+	var members []serviceregistry.HostInfo
+	for i := range 2 {
+		server, addr := startMockServer(t, &barrierCoordinator{barrier: &barrier})
+		t.Cleanup(server.Stop)
+		host, port := parseHostPort(addr)
+		members = append(members, serviceregistry.HostInfo{ID: fmt.Sprintf("coordinator-%d", i), Host: host, Port: port})
+	}
+
+	client, ok := coordinator.New(&mockServiceMonitor{members: members}, coordinator.DefaultConfig()).(coordinator.JoinReadinessClient)
+	require.True(t, ok)
+	reports, err := client.GetJoinReadiness(context.Background())
+	require.NoError(t, err)
+	require.Len(t, reports, 2)
+	for _, report := range reports {
+		assert.NoError(t, report.Err)
+	}
 }
