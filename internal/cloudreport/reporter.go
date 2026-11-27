@@ -7,6 +7,7 @@ package cloudreport
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -813,16 +814,21 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 		}
 		report.Audit = r.readAudit(ctx)
 	}
-	body, err := json.Marshal(report)
+	data, err := json.Marshal(report)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal report: %w", err)
 	}
+	body, err := gzipped(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compress report: %w", err)
+	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, creds.CloudURL+reportPath, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, creds.CloudURL+reportPath, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("User-Agent", "dagu-oss/"+config.Version)
 
 	resp, err := r.client.Do(req)
@@ -834,15 +840,29 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 		r.monitoring.recordSent(time.Now(), report)
 	}
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+	answer, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 	return &response{
 		status:     resp.StatusCode,
 		retryAfter: resp.Header.Get("Retry-After"),
-		body:       data,
+		body:       answer,
 	}, nil
+}
+
+// gzipped is data compressed with gzip, as Dagu Console reads a request
+// body sent with Content-Encoding: gzip.
+func gzipped(data []byte) (*bytes.Buffer, error) {
+	var body bytes.Buffer
+	zw := gzip.NewWriter(&body)
+	if _, err := zw.Write(data); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return &body, nil
 }
 
 // readQueues reads the queues for a report, at most every queuesEvery, and

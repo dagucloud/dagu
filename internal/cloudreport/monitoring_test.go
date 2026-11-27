@@ -460,7 +460,7 @@ func TestReportOffStopsReportInFlight(t *testing.T) {
 	later := make(chan string, 2)
 	console := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The server notices a cancelled request only after reading its body.
-		body, _ := io.ReadAll(r.Body)
+		body := readBody(r)
 		switch requests.Add(1) {
 		case 1:
 			_, _ = io.WriteString(w, `{"next_report_seconds": 120}`)
