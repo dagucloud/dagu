@@ -55,6 +55,8 @@ func runWorkerCheck(ctx *Context) error {
 		}
 	}
 	switch {
+	case len(ctx.Config.Worker.Coordinators) == 0 && failed == len(members):
+		return fmt.Errorf("%w, and no coordinator in the service registry passed the check", worker.ErrNoCoordinators)
 	case len(ctx.Config.Worker.Coordinators) == 0:
 		return fmt.Errorf("%w: set it to the address of a coordinator above that passed", worker.ErrNoCoordinators)
 	case failed > 0:

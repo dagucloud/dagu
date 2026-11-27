@@ -141,8 +141,13 @@ func checkHandshake(ctx context.Context, config *Config, conn net.Conn, host str
 	if len(tlsConfig.Certificates) > 0 {
 		clientCert = &tlsConfig.Certificates[0]
 	}
-	tlsConfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+	tlsConfig.GetClientCertificate = func(request *tls.CertificateRequestInfo) (*tls.Certificate, error) {
 		certRequested = true
+		// Send the certificate only when the server accepts its kind and
+		// CA, as crypto/tls does without this hook.
+		if request.SupportsCertificate(clientCert) != nil {
+			return &tls.Certificate{}, nil
+		}
 		return clientCert, nil
 	}
 	tlsConn := tls.Client(conn, tlsConfig)
@@ -253,8 +258,15 @@ func describeServerCertificate(chain []*x509.Certificate, verified [][]*x509.Cer
 		DNSNames:    leaf.DNSNames,
 		IPAddresses: ips,
 		CA:          distinguishedName(ca),
-		SelfSigned:  len(chain) == 1 && bytes.Equal(leaf.RawIssuer, leaf.RawSubject),
+		SelfSigned:  len(chain) == 1 && signsItself(leaf),
 	}
+}
+
+// signsItself reports whether cert names itself as its issuer and its own
+// key signed it.
+func signsItself(cert *x509.Certificate) bool {
+	return bytes.Equal(cert.RawIssuer, cert.RawSubject) &&
+		cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature) == nil
 }
 
 // distinguishedName returns the common name of name, or the whole name when
@@ -288,7 +300,7 @@ func checkAnswer(ctx context.Context, config *Config, member serviceregistry.Hos
 	}
 	// The health service takes no credential; the worker list does.
 	if _, err := c.client.GetWorkers(ctx, &coordinatorv1.GetWorkersRequest{}); err != nil {
-		return callError(config, err)
+		return fmt.Errorf("serving, but %w", callError(config, err))
 	}
 	return nil
 }

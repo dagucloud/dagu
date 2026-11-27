@@ -5,6 +5,7 @@ package coordinator_test
 
 import (
 	"bufio"
+	"cmp"
 	"crypto/tls"
 	"crypto/x509"
 	"io"
@@ -72,7 +73,7 @@ func TestCheckTokenRefused(t *testing.T) {
 	result := coordinator.Check(t.Context(), config, checkMember(t, addr))
 
 	assert.False(t, result.Passed())
-	assert.ErrorContains(t, result.AnswerErr, "refused the call, the peer token does not match")
+	assert.ErrorContains(t, result.AnswerErr, "serving, but refused the call, the peer token does not match")
 }
 
 // An h2c client on a port that serves only TLS learns that, instead of a
@@ -89,7 +90,7 @@ func TestCheckH2CToTLSOnly(t *testing.T) {
 		server grpc.ServerOption
 	}{
 		{name: "TLS", server: tlsCreds(t, certFile, keyFile)},
-		{name: "TLS12ClientCertRequired", server: mutualTLSCreds(t, certFile, keyFile, clientCA, tls.VersionTLS12)},
+		{name: "TLS12ClientCertRequired", server: mutualTLSCreds(t, certFile, keyFile, clientCA, tls.RequireAndVerifyClientCert, tls.VersionTLS12)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -173,7 +174,9 @@ func TestCheckTLS(t *testing.T) {
 
 // A coordinator that requires a client certificate refuses one it did not
 // sign, or none. TLS 1.3 refuses after the client side of the handshake
-// ends, and TLS 1.2 during it; both read as a failed handshake.
+// ends, and TLS 1.2 during it; both read as a failed handshake. One that
+// only asks for a certificate from its CA gets none from a worker whose
+// certificate another CA signed, as the worker sends none.
 func TestCheckClientCertificate(t *testing.T) {
 	t.Parallel()
 
@@ -184,23 +187,27 @@ func TestCheckClientCertificate(t *testing.T) {
 
 	for _, tc := range []struct {
 		name       string
+		clientAuth tls.ClientAuthType
 		maxVersion uint16
 		certFile   string
 		keyFile    string
 		wantErr    string
 	}{
-		{name: "Accepted", maxVersion: tls.VersionTLS13, certFile: clientCert, keyFile: clientKey},
-		{name: "None", maxVersion: tls.VersionTLS13,
+		{name: "Accepted", certFile: clientCert, keyFile: clientKey},
+		{name: "None",
 			wantErr: "the coordinator requires a client certificate, and the worker sends none"},
-		{name: "OtherCA", maxVersion: tls.VersionTLS13, certFile: otherCert, keyFile: otherKey,
+		{name: "OtherCA", certFile: otherCert, keyFile: otherKey,
 			wantErr: "the coordinator refused the client certificate " + otherCert},
 		{name: "NoneTLS12", maxVersion: tls.VersionTLS12,
 			wantErr: "the coordinator requires a client certificate, and the worker sends none"},
+		{name: "OptionalOtherCA", clientAuth: tls.VerifyClientCertIfGiven, certFile: otherCert, keyFile: otherKey},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			addr := startCheckServer(t, mutualTLSCreds(t, serverCert, serverKey, clientCert, tc.maxVersion))
+			clientAuth := cmp.Or(tc.clientAuth, tls.RequireAndVerifyClientCert)
+			maxVersion := cmp.Or(tc.maxVersion, tls.VersionTLS13)
+			addr := startCheckServer(t, mutualTLSCreds(t, serverCert, serverKey, clientCert, clientAuth, maxVersion))
 			config := coordinator.DefaultConfig()
 			config.Insecure = false
 			config.CAFile = serverCert
@@ -306,9 +313,9 @@ func tlsCreds(t *testing.T, certFile, keyFile string) grpc.ServerOption {
 	return grpc.Creds(creds)
 }
 
-// mutualTLSCreds serves certFile and requires a client certificate that
-// clientCAFile signed, over TLS up to maxVersion.
-func mutualTLSCreds(t *testing.T, certFile, keyFile, clientCAFile string, maxVersion uint16) grpc.ServerOption {
+// mutualTLSCreds serves certFile and asks for a client certificate that
+// clientCAFile signed, as clientAuth says, over TLS up to maxVersion.
+func mutualTLSCreds(t *testing.T, certFile, keyFile, clientCAFile string, clientAuth tls.ClientAuthType, maxVersion uint16) grpc.ServerOption {
 	t.Helper()
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	require.NoError(t, err)
@@ -318,7 +325,7 @@ func mutualTLSCreds(t *testing.T, certFile, keyFile, clientCAFile string, maxVer
 	require.True(t, clientCAs.AppendCertsFromPEM(caPEM))
 	return grpc.Creds(credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{cert},
-		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientAuth:   clientAuth,
 		ClientCAs:    clientCAs,
 		MinVersion:   tls.VersionTLS12,
 		MaxVersion:   maxVersion,

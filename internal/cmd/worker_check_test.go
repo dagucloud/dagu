@@ -94,6 +94,19 @@ func TestWorkerCheckWithoutCoordinators(t *testing.T) {
 		assert.Contains(t, out, "  Coordinator answered: serving, and it accepted the call\n")
 	})
 
+	t.Run("RegistryNonePassed", func(t *testing.T) {
+		t.Parallel()
+
+		home := checkHome(t)
+		addr := unusedAddress(t)
+		registerCoordinator(t, home, addr)
+
+		out, err := runWorkerCheckIn(t, home)
+
+		require.EqualError(t, err, "worker.coordinators is required, and no coordinator in the service registry passed the check")
+		assert.Contains(t, out, "  Cannot reach coordinator at "+addr+"\n")
+	})
+
 	t.Run("EmptyRegistry", func(t *testing.T) {
 		t.Parallel()
 
