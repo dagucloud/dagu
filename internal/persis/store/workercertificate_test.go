@@ -155,8 +155,8 @@ func TestWorkerCertificateStore_SetState(t *testing.T) {
 }
 
 // A prune that read the removals before a removal began may delete the
-// certificate record. The ID stays taken, and the removal still reaches
-// revoked.
+// certificate record. The ID stays taken, the removal still reaches
+// revoked, and the certificate stays listed.
 func TestWorkerCertificateStore_SetStateAfterPrunedRecord(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -172,6 +172,9 @@ func TestWorkerCertificateStore_SetStateAfterPrunedRecord(t *testing.T) {
 	want := persis.WorkerCertificate{ID: "cert-1", KeyFingerprint: cert.KeyFingerprint, State: persis.WorkerCertificateRevoked}
 	assert.Equal(t, want, revoked)
 	assert.Equal(t, want, getCertificate(t, s, "cert-1"))
+	certs, err := s.List(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []persis.WorkerCertificate{want}, certs)
 }
 
 // A heartbeat replaces a certificate record that cannot be read, whether

@@ -126,7 +126,7 @@ func (s *WorkerCertificateStore) load(ctx context.Context, id string) (persis.Wo
 	switch {
 	case err == nil:
 	case errors.Is(err, persis.ErrWorkerCertificateNotFound) && removal != nil:
-		cert = persis.WorkerCertificate{ID: id, KeyFingerprint: removal.KeyFingerprint}
+		cert = removedCertificate(*removal)
 	default:
 		return persis.WorkerCertificate{}, nil, err
 	}
@@ -141,11 +141,15 @@ func (s *WorkerCertificateStore) List(ctx context.Context) ([]persis.WorkerCerti
 	if err != nil {
 		return nil, fmt.Errorf("worker certificate store: list: %w", err)
 	}
-	states, err := s.removalStates(ctx)
+	removals, err := s.ListRemovals(ctx)
 	if err != nil {
 		return nil, err
 	}
-	certs := make([]persis.WorkerCertificate, 0, len(recs))
+	pending := make(map[string]persis.WorkerCertificateRemoval, len(removals))
+	for _, removal := range removals {
+		pending[removal.ID] = removal
+	}
+	certs := make([]persis.WorkerCertificate, 0, len(recs)+len(removals))
 	for _, rec := range recs {
 		// A record that cannot be read is left out, as the worker's next
 		// heartbeat writes it again.
@@ -153,8 +157,16 @@ func (s *WorkerCertificateStore) List(ctx context.Context) ([]persis.WorkerCerti
 		if err != nil {
 			continue
 		}
-		cert.State = cmp.Or(states[cert.ID], persis.WorkerCertificateActive)
+		if removal, ok := pending[cert.ID]; ok {
+			cert.State = removal.State
+			delete(pending, cert.ID)
+		}
 		certs = append(certs, cert)
+	}
+	// A removal whose certificate record a concurrent prune deleted is
+	// listed from its removal record, as Get returns it.
+	for _, removal := range pending {
+		certs = append(certs, removedCertificate(removal))
 	}
 	slices.SortFunc(certs, func(a, b persis.WorkerCertificate) int {
 		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), strings.Compare(a.ID, b.ID))
@@ -345,6 +357,12 @@ func (s *WorkerCertificateStore) getRemoval(ctx context.Context, id string) (*pe
 		return nil, nil, err
 	}
 	return rec, &removal, nil
+}
+
+// removedCertificate is what a removal record alone tells of its
+// certificate.
+func removedCertificate(removal persis.WorkerCertificateRemoval) persis.WorkerCertificate {
+	return persis.WorkerCertificate{ID: removal.ID, KeyFingerprint: removal.KeyFingerprint, State: removal.State}
 }
 
 func encodeWorkerCertificate(cert persis.WorkerCertificate) (*persis.Record, error) {
