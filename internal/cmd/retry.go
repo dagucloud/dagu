@@ -802,7 +802,7 @@ func withRetryAgent(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts run
 			ProfileName:              opts.profileName,
 			DAGDefinitionID:          opts.definitionID,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
-			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(opts.workerID),
+			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(as, opts.workerID),
 			RootDAGRun:               opts.root,
 			PeerConfig:               ctx.Config.Core.Peer,
 			TriggerType:              triggerType,

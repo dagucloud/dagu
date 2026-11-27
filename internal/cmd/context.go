@@ -642,9 +642,9 @@ func (c *Context) coordinatorClient() (coordinator.Client, error) {
 }
 
 // SubWorkflowRunnerFactory returns the runners of the sub-DAGs of a run that
-// workerID executes.
-func (c *Context) SubWorkflowRunnerFactory(workerID string) func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
-	stores := c.runtimeStores()
+// workerID executes with stores. Its in-process sub-DAGs share the run's
+// stores, so they take tokens from the run's broker.
+func (c *Context) SubWorkflowRunnerFactory(stores executionStores, workerID string) func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 		DAGRunMgr:          c.DAGRunMgr,
 		DAGRepository:      c.Persistence.DAGRepository,
