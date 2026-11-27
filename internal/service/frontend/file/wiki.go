@@ -62,6 +62,9 @@ type projectWikis struct {
 	// own holds the stores of projects with wiki directories of their own,
 	// keyed by project ID.
 	own map[string]*filewiki.Store
+	// opening holds a lock per project ID, so opening one project's store,
+	// which can move its wiki history, holds up no other project's wiki.
+	opening map[string]*sync.Mutex
 }
 
 func newProjectWikis(cfg *config.Config, registry project.Registry, shared *filewiki.Store) *projectWikis {
@@ -70,6 +73,7 @@ func newProjectWikis(cfg *config.Config, registry project.Registry, shared *file
 		registry: registry,
 		shared:   shared,
 		own:      make(map[string]*filewiki.Store),
+		opening:  make(map[string]*sync.Mutex),
 	}
 	w.defaults = &wikiView{store: shared, excluded: w.migratedRoots}
 	return w
@@ -102,9 +106,10 @@ func (w *projectWikis) storeOf(ctx context.Context, p project.Project) (wiki.Pag
 }
 
 func (w *projectWikis) ownStore(ctx context.Context, p project.Project, paths config.ProjectPaths, dir string) (*filewiki.Store, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if store, ok := w.own[p.ID]; ok {
+	opening := w.openingLock(p.ID)
+	opening.Lock()
+	defer opening.Unlock()
+	if store := w.cachedStore(p.ID); store != nil {
 		return store, nil
 	}
 	// Opening a store creates its directory, which must not bring back the
@@ -125,26 +130,63 @@ func (w *projectWikis) ownStore(ctx context.Context, p project.Project, paths co
 		// The pages' history follows them out of the default wiki directory.
 		// The store is kept only once it holds that history, so a move that
 		// fails is tried again on the next open.
-		if err := w.shared.MoveHistory(ctx, p.MigratedFrom, store); err != nil {
+		inRoot := w.inPlaceDirs(p.MigratedFrom)
+		if err := w.shared.MoveHistory(ctx, inRoot, store); err != nil {
 			return nil, fmt.Errorf("move the wiki history of project %q: %w", p.Name, err)
 		}
-		w.warnLeftPages(ctx, p)
+		w.warnLeftPages(ctx, p, inRoot)
 	}
+	w.mu.Lock()
 	w.own[p.ID] = store
+	w.mu.Unlock()
 	return store, nil
+}
+
+func (w *projectWikis) openingLock(id string) *sync.Mutex {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	lock, ok := w.opening[id]
+	if !ok {
+		lock = new(sync.Mutex)
+		w.opening[id] = lock
+	}
+	return lock
+}
+
+func (w *projectWikis) cachedStore(id string) *filewiki.Store {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.own[id]
+}
+
+// inPlaceDirs returns a function that reports whether a top-level directory
+// of the default wiki directory holds the pages of the migrated project from
+// workspace name. Names compare without regard to case, as the in-place wiki
+// finds its directory, unless another migrated project's workspace name
+// differs from name only in case; then each owns only the directory spelled
+// as its name. Call it after migratedRoots.
+func (w *projectWikis) inPlaceDirs(name string) func(dir string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for other := range w.onDisk {
+		if other != name && strings.EqualFold(other, name) {
+			return func(dir string) bool { return dir == name }
+		}
+	}
+	return func(dir string) bool { return strings.EqualFold(dir, name) }
 }
 
 // warnLeftPages logs the pages left in the v2 wiki directory of p, a
 // migrated project with a wiki directory of its own. Those pages show in no
 // project's wiki.
-func (w *projectWikis) warnLeftPages(ctx context.Context, p project.Project) {
+func (w *projectWikis) warnLeftPages(ctx context.Context, p project.Project, inRoot func(dir string) bool) {
 	dirs, err := w.wikiDirNames([]string{p.MigratedFrom})
 	if err != nil {
 		logger.Warn(ctx, "Failed to look for wiki pages left behind", tag.Name(p.Name), tag.Error(err))
 		return
 	}
 	for _, dir := range dirs {
-		if !strings.EqualFold(dir, p.MigratedFrom) {
+		if !inRoot(dir) {
 			continue
 		}
 		path := filepath.Join(w.cfg.Paths.WikiDir, dir)
@@ -206,6 +248,11 @@ func (w *projectWikis) migratedRoots(ctx context.Context) ([]string, error) {
 	for id := range w.own {
 		if !live[id] {
 			delete(w.own, id)
+		}
+	}
+	for id := range w.opening {
+		if !live[id] {
+			delete(w.opening, id)
 		}
 	}
 	dirs, err := w.wikiDirNames(names)

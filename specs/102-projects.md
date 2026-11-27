@@ -1082,10 +1082,15 @@ Rules:
   `X`'s `state/` directory. Each keeps its page's path under `<wiki>/X/`.
   - It moves them for every page under `<wiki>/X/`, including pages still
     there, so a page moved later keeps its history.
-  - An attachment is renamed on one file system and copied to another.
-  - An entry that `X`'s wiki already has for a page stays. An attachment
-    of the same name with other content stays where it is, and the server
-    logs a warning that names it.
+  - `<wiki>/X/` is matched without regard to case, as `X` found it in
+    place. When another migrated project's workspace name differs from
+    `X`'s only in case, each takes only the history under its own spelling.
+  - An attachment is renamed, or copied when the rename crosses file
+    systems or mounts.
+  - A page's moved revisions merge with any `X`'s wiki already has, and
+    the newest 20 stay. A creation time `X`'s wiki already has for a page
+    stays. An attachment of the same name with other content stays where
+    it is, and the server logs a warning that names it.
   - When the move fails, `X`'s wiki request fails with the reason, and the
     next one tries again. An interrupted move finishes then.
 - Pages left in `<wiki>/X/` once `<projects_dir>/X/wiki/` exists show in

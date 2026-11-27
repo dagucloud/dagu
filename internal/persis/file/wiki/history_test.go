@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	wikimodel "github.com/dagucloud/dagu/v2/internal/wiki"
 	"github.com/stretchr/testify/assert"
@@ -50,6 +51,54 @@ func (f *historyFixture) movePage(t *testing.T) {
 		filepath.Join(f.own.baseDir, "runbook.md")))
 }
 
+func ignoringCase(root string) func(string) bool {
+	return func(dir string) bool { return strings.EqualFold(dir, root) }
+}
+
+// TestMoveHistoryLeavesOtherRoots moves the history of ops while Ops, which
+// differs only in case, keeps its own. Both directories exist only on a file
+// system that tells case apart.
+func TestMoveHistoryLeavesOtherRoots(t *testing.T) {
+	f := newHistoryFixture(t)
+	ctx := context.Background()
+	if fileutil.IsCaseInsensitiveFS(f.shared.baseDir) {
+		t.Skip("the file system does not tell ops from Ops")
+	}
+	require.NoError(t, f.shared.Create(ctx, "ops/plan", "v1"))
+	require.NoError(t, f.shared.Update(ctx, "ops/plan", "v2"))
+
+	exactly := func(dir string) bool { return dir == "ops" }
+	require.NoError(t, f.shared.MoveHistory(ctx, exactly, f.own))
+
+	moved, err := f.own.ListRevisions(ctx, "plan")
+	require.NoError(t, err)
+	assert.Len(t, moved, 1)
+	kept, err := f.shared.ListRevisions(ctx, "Ops/runbook")
+	require.NoError(t, err)
+	assert.Len(t, kept, 1)
+	assert.Equal(t, "png", readAttachment(t, f.shared, "Ops/runbook", "diagram.png"))
+	notMoved, err := f.own.ListRevisions(ctx, "runbook")
+	require.NoError(t, err)
+	assert.Empty(t, notMoved)
+}
+
+// TestMoveHistoryCopiesAcrossMounts fails each rename as a rename between two
+// mounts of one file system does, so the attachment is copied instead.
+func TestMoveHistoryCopiesAcrossMounts(t *testing.T) {
+	f := newHistoryFixture(t)
+	f.movePage(t)
+	rename := renameAttachment
+	t.Cleanup(func() { renameAttachment = rename })
+	renameAttachment = func(oldPath, newPath string) error {
+		return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: errCrossDevice}
+	}
+
+	require.NoError(t, f.shared.MoveHistory(context.Background(), ignoringCase("Ops"), f.own))
+
+	assert.Equal(t, "png", readAttachment(t, f.own, "runbook", "diagram.png"))
+	assert.NoFileExists(t, attachmentDiskPath(f.shared, "Ops/runbook", "diagram.png"))
+}
+
 func TestMoveHistory(t *testing.T) {
 	f := newHistoryFixture(t)
 	ctx := context.Background()
@@ -59,7 +108,7 @@ func TestMoveHistory(t *testing.T) {
 	f.movePage(t)
 
 	// The root matches the directory without regard to case.
-	require.NoError(t, f.shared.MoveHistory(ctx, "ops", f.own))
+	require.NoError(t, f.shared.MoveHistory(ctx, ignoringCase("ops"), f.own))
 
 	revisions, err := f.own.ListRevisions(ctx, "runbook")
 	require.NoError(t, err)
@@ -105,7 +154,7 @@ func TestMoveHistoryKeepsDifferentAttachment(t *testing.T) {
 
 	var logs bytes.Buffer
 	ctx := logger.WithLogger(context.Background(), logger.NewLogger(logger.WithWriter(&logs), logger.WithQuiet()))
-	require.NoError(t, f.shared.MoveHistory(ctx, "Ops", f.own))
+	require.NoError(t, f.shared.MoveHistory(ctx, ignoringCase("Ops"), f.own))
 
 	assert.Equal(t, "new", readAttachment(t, f.own, "runbook", "diagram.png"))
 	assert.Equal(t, "png", readAttachment(t, f.shared, "Ops/runbook", "diagram.png"))
@@ -129,7 +178,7 @@ func TestMoveHistoryFinishesInterruptedMove(t *testing.T) {
 	}
 	require.NoError(t, f.own.saveRevisionsManifest(pageRevisionsManifest{"runbook": manifest["Ops/runbook"]}))
 
-	require.NoError(t, f.shared.MoveHistory(ctx, "Ops", f.own))
+	require.NoError(t, f.shared.MoveHistory(ctx, ignoringCase("Ops"), f.own))
 
 	revisions, err := f.own.ListRevisions(ctx, "runbook")
 	require.NoError(t, err)
@@ -149,7 +198,7 @@ func TestMoveHistoryCapsRevisions(t *testing.T) {
 		require.NoError(t, f.own.Update(ctx, "runbook", strings.Repeat("x", i+1)))
 	}
 
-	require.NoError(t, f.shared.MoveHistory(ctx, "Ops", f.own))
+	require.NoError(t, f.shared.MoveHistory(ctx, ignoringCase("Ops"), f.own))
 
 	revisions, err := f.own.ListRevisions(ctx, "runbook")
 	require.NoError(t, err)

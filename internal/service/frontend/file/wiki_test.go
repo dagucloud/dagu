@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/project"
@@ -238,6 +239,41 @@ func TestWikiPagesLeftBehindAreLogged(t *testing.T) {
 	assert.Contains(t, entry.Msg, "Wiki pages left in the v2 directory")
 	assert.Equal(t, left, entry.Dir)
 	assert.Equal(t, 1, entry.Count)
+}
+
+// TestMovedWikiLeavesProjectOfOtherCase registers project Ops from
+// workspace Ops beside ops. Their v2 names differ only in case, so each
+// has its own directory on a file system that tells case apart. Moving ops
+// leaves the pages and history of Ops where they are, and no warning counts
+// them as pages ops left behind.
+func TestMovedWikiLeavesProjectOfOtherCase(t *testing.T) {
+	f := newWikiFixture(t)
+	if fileutil.IsCaseInsensitiveFS(f.cfg.Paths.WikiDir) {
+		t.Skip("the file system does not tell ops from Ops")
+	}
+	ctx := t.Context()
+	other, err := f.registry.Create(ctx, project.CreateInput{Name: "Ops2", MigratedFrom: "Ops"})
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(f.cfg.Paths.WikiDir, "Ops"), 0o750))
+	otherWiki := f.wiki(t, other)
+	require.NoError(t, otherWiki.Create(ctx, "plan", "v1"))
+	require.NoError(t, otherWiki.Update(ctx, "plan", "v2"))
+	_, err = otherWiki.PutAttachment(ctx, "plan", "diagram.png", strings.NewReader("png"))
+	require.NoError(t, err)
+
+	moveOpsWiki(t, f)
+	var logs bytes.Buffer
+	logCtx := logger.WithLogger(ctx, logger.NewLogger(logger.WithWriter(&logs), logger.WithQuiet()))
+	_, err = f.wikis.storeOf(logCtx, f.ops)
+	require.NoError(t, err)
+
+	revisions, err := otherWiki.ListRevisions(ctx, "plan")
+	require.NoError(t, err)
+	assert.Len(t, revisions, 1)
+	_, _, err = otherWiki.OpenAttachment(ctx, "plan", "diagram.png")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"plan"}, flatIDs(t, otherWiki))
+	assert.NotContains(t, logs.String(), "Wiki pages left")
 }
 
 // TestProjectWikiInDAGDirectory proves that a project's pages live in wiki/
