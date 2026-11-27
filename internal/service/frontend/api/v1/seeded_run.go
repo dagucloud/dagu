@@ -48,7 +48,15 @@ type seededRun struct {
 // queue, the coordinator, or a local retry process.
 func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued bool, err error) {
 	queueConfigured := run.enqueue && a.config.FindQueueConfig(run.dag.ProcGroup()) != nil
-	shouldDispatch := !queueConfigured && dispatch.ShouldDispatchToCoordinator(run.dag, a.coordinatorCli != nil, a.defaultExecMode)
+	// A run bound to a worker node runs on that worker; the queue sends a
+	// queued one there.
+	var worker string
+	if !queueConfigured {
+		if worker, err = a.boundWorker(ctx, run.dag, run.targetNodes); err != nil {
+			return false, err
+		}
+	}
+	shouldDispatch := !queueConfigured && (worker != "" || dispatch.ShouldDispatchToCoordinator(run.dag, a.coordinatorCli != nil, a.defaultExecMode))
 	if shouldDispatch && run.dag.Type == ir.TypeBuild {
 		return false, buildRequiresLocalAPIError()
 	}
@@ -96,7 +104,7 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 	}
 
 	if shouldDispatch {
-		if err := a.dispatchSeededRun(ctx, run.dag, seedStatus, run.labels); err != nil {
+		if err := a.dispatchSeededRun(ctx, run.dag, seedStatus, run.labels, worker); err != nil {
 			return false, err
 		}
 		return false, nil
@@ -121,8 +129,8 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 }
 
 // dispatchSeededRun sends a seeded run to the coordinator as a retry of its
-// queued attempt.
-func (a *API) dispatchSeededRun(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, labels string) error {
+// queued attempt, to worker when the run is bound to a worker node.
+func (a *API) dispatchSeededRun(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, labels, worker string) error {
 	dag, err := a.refreshBaseSMTP(ctx, dag, status)
 	if err != nil {
 		return err
@@ -146,6 +154,9 @@ func (a *API) dispatchSeededRun(ctx context.Context, dag *ir.DAG, status *ir.DAG
 	}
 	if status.ParallelItem != "" {
 		opts = append(opts, executor.WithParallelItem(status.ParallelItem))
+	}
+	if worker != "" {
+		opts = append(opts, executor.WithTargetWorkerID(worker), executor.WithBoundNode(worker, ""))
 	}
 	task := executor.CreateTask(
 		dag.Name,
