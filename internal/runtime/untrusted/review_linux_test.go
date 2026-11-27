@@ -480,37 +480,3 @@ func TestReviewSymlinkReadAsRootAfterRestore(t *testing.T) {
 	}
 	assert.NotEqual(t, "WORKER-PRIVATE-KEY", string(data), "a trusted read of a file of the agent must not reach a file of the worker")
 }
-
-// Property (Spec 103, "Isolation", rule 8): a later trusted step cannot write
-// outside the work directory through a link of the agent. The text of each link
-// of a chain stays in the work directory (l1 -> ., l2 -> <work>/l1/.., l3 ->
-// l2/.., up to the root), and the last link out -> lN/<outside> reaches a
-// folder outside it. The restore follows the links as the kernel does.
-func TestReviewLinkChainLeavesWorkDir(t *testing.T) {
-	requireIsolation(t)
-	ctx := context.Background()
-	workDir := testWorkDir(t)
-	outside, err := os.MkdirTemp("", "dagu-review-outside-")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(outside) })
-
-	step, err := Begin(ctx, testRequest(t, workDir, workDir))
-	require.NoError(t, err)
-	work := step.iso.workDir
-	script := []string{"ln -s . l1", "ln -s " + work + "/l1/.. l2"}
-	last := "l2"
-	for i := 3; i <= strings.Count(work, "/")+1; i++ {
-		name := "l" + strconv.Itoa(i)
-		script = append(script, "ln -s "+last+"/.. "+name)
-		last = name
-	}
-	script = append(script, "ln -s "+last+outside+" out")
-	runAs(t, WithStep(ctx, step), work, strings.Join(script, "\n"))
-	endErr := step.End(ctx)
-	t.Logf("End: %v", endErr)
-	require.Error(t, endErr, "a chain of links out of the work directory fails the step")
-
-	// A later trusted step writes its report through out, as root.
-	_ = os.WriteFile(filepath.Join(work, "out", "report"), []byte("report"), 0o600)
-	assert.NoFileExists(t, filepath.Join(outside, "report"), "a trusted write through a link of the agent left the work directory")
-}

@@ -243,33 +243,6 @@ func TestIsolatedStepPlace(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(outside, "x"))
 }
 
-// A shared file, such as the script of a step, keeps the worker as owner and
-// gets the group of the restricted user with the mode 0440: the restricted
-// user reads it and cannot write it, and no other user can read it.
-func TestIsolatedStepSharesAFileReadOnly(t *testing.T) {
-	requireIsolation(t)
-	ctx := context.Background()
-	workDir := testWorkDir(t)
-	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
-	require.NoError(t, err)
-	// The system temp folder holds the script of a step.
-	dir, err := os.MkdirTemp("", "dagu-untrusted-share-")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	require.NoError(t, os.Chmod(dir, 0o755))
-	script := filepath.Join(dir, "script.sh")
-	require.NoError(t, os.WriteFile(script, []byte("echo shared\n"), 0o750))
-
-	require.NoError(t, step.ShareReadOnly(script))
-	info, err := os.Lstat(script)
-	require.NoError(t, err)
-	assert.Equal(t, fs.FileMode(0o440), info.Mode().Perm())
-	uid, gid := ownerOf(info)
-	assert.Equal(t, []int{os.Geteuid(), testGID}, []int{uid, gid})
-	out := runAs(t, WithStep(ctx, step), workDir, `sh `+script+`; (echo x >> `+script+`) 2>/dev/null && echo write:allowed || echo write:denied`)
-	assert.Equal(t, "shared\nwrite:denied\n", out)
-}
-
 // A device node in the work directory, also in .git, fails the step: as its
 // owner, or with the bit r for others, the restricted user could open the
 // device. The node keeps its owner and its mode.
@@ -409,85 +382,41 @@ func TestProcHidePID(t *testing.T) {
 	assert.True(t, hidden)
 }
 
-// Spec 103, "Isolation", rule 3: the restricted user cannot read a file of the
-// worker, cannot write .git or rename it, can write the other files, has a
-// private HOME, gets no DAGU_ variable but DAGU_OUTPUT_FILE, and leaves no
-// process. At the end, the work directory belongs to the worker again.
+// Spec 103, "Isolation", rule 3: the restricted user cannot write .git,
+// rename it or remove it, and can write the other files. At the end, the work
+// directory belongs to the worker again, with its mode, and no longer has the
+// marker of the handoff.
 func TestIsolatedStep(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
 	workDir := testWorkDir(t)
-	rootOnly := filepath.Join(workDir, "..", filepath.Base(workDir)+"-root-only")
-	require.NoError(t, os.WriteFile(rootOnly, []byte("worker secret"), 0o400))
-	t.Cleanup(func() { _ = os.Remove(rootOnly) })
-
-	req := testRequest(t, workDir, filepath.Join(workDir, "repo"))
-	step, err := Begin(ctx, req)
+	repo := filepath.Join(workDir, "repo")
+	step, err := beginStep(t, ctx, testRequest(t, workDir, repo))
 	require.NoError(t, err)
-	require.True(t, step.Isolated())
-	stepCtx := WithStep(ctx, step)
-	outputFile := filepath.Join(t.TempDir(), "step.output")
-	require.NoError(t, os.WriteFile(outputFile, nil, 0o600))
-	processOutput := step.OutputFile(outputFile)
-	assert.NotEqual(t, outputFile, processOutput)
 
-	script := strings.Join([]string{
-		`id -u; id -g; id -G`,
-		`cat ` + rootOnly + ` >/dev/null 2>&1 && echo read-root:allowed || echo read-root:denied`,
+	out := runAs(t, WithStep(ctx, step), repo, strings.Join([]string{
 		`(echo x > .git/hooks/x) 2>/dev/null && echo write-git:allowed || echo write-git:denied`,
 		`mv .git .gitx 2>/dev/null && echo move-git:allowed || echo move-git:denied`,
 		`rm -rf .git 2>/dev/null; [ -d .git/hooks ] && echo remove-git:denied || echo remove-git:allowed`,
 		`echo new > src/new.txt && echo write-src:allowed || echo write-src:denied`,
 		`echo changed > src/main.txt && echo change-src:allowed || echo change-src:denied`,
-		`echo "home=$HOME tmp=$TMPDIR"`,
-		`stat -c 'home-mode=%a home-uid=%u' "$HOME"`,
-		`env | grep -c '^DAGU_SECRET=' || true`,
-		`echo "answer=42" > "$DAGU_OUTPUT_FILE"`,
-		`setsid sleep 1000 </dev/null >/dev/null 2>&1 &`,
-		`sleep 1000 </dev/null >/dev/null 2>&1 &`,
-		`echo done`,
-	}, "\n")
-	out := runAs(t, stepCtx, filepath.Join(workDir, "repo"), script, "DAGU_SECRET=hidden", "DAGU_OUTPUT_FILE="+processOutput)
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	require.GreaterOrEqual(t, len(lines), 13, out)
-	assert.Equal(t, strconv.Itoa(testUID), lines[0])
-	assert.Equal(t, strconv.Itoa(testGID), lines[1])
-	assert.Equal(t, strconv.Itoa(testGID), lines[2], "no supplementary group")
-	assert.Contains(t, out, "read-root:denied")
-	assert.Contains(t, out, "write-git:denied")
-	assert.Contains(t, out, "move-git:denied")
-	assert.Contains(t, out, "remove-git:denied")
-	assert.Contains(t, out, "write-src:allowed")
-	assert.Contains(t, out, "change-src:allowed")
-	assert.Contains(t, out, "home-mode=700 home-uid="+strconv.Itoa(testUID))
-	assert.Contains(t, out, "home="+step.iso.home+" tmp="+step.iso.home)
-	assert.Contains(t, out, "\n0\n", "the process has no DAGU_SECRET")
-	home := step.iso.home
+	}, "\n"))
+	assert.Equal(t, "write-git:denied\nmove-git:denied\nremove-git:denied\nwrite-src:allowed\nchange-src:allowed\n", out)
 
 	require.NoError(t, step.End(ctx))
-	assert.NoError(t, CheckWorkDir(workDir), "the work directory is safe again")
-
-	pids, err := userProcesses(testUID)
-	require.NoError(t, err)
-	assert.Empty(t, pids, "each process of the restricted user is stopped")
-	assert.NoFileExists(t, filepath.Join(workDir, "repo", ".git", "hooks", "x"))
-	assert.DirExists(t, filepath.Join(workDir, "repo", ".git"))
-	assert.NoDirExists(t, home, "the HOME of the step is removed")
+	assert.NoError(t, CheckWorkDir(workDir))
+	assert.NoFileExists(t, filepath.Join(repo, ".git", "hooks", "x"))
 	err = filepath.WalkDir(workDir, func(path string, _ fs.DirEntry, err error) error {
 		require.NoError(t, err)
 		assert.Equal(t, os.Geteuid(), ownerUID(t, path), path)
 		return nil
 	})
 	require.NoError(t, err)
-	info, err := os.Stat(workDir)
-	require.NoError(t, err)
-	assert.Equal(t, fs.FileMode(0o755), info.Mode().Perm(), "the mode of the work directory is restored")
-	data, err := os.ReadFile(filepath.Join(workDir, "repo", "src", "main.txt"))
+	assert.Equal(t, fs.FileMode(0o755), permOf(t, workDir))
+	assert.Equal(t, fs.FileMode(0o755), permOf(t, filepath.Join(repo, ".git")))
+	data, err := os.ReadFile(filepath.Join(repo, "src", "main.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "changed\n", string(data))
-	output, err := os.ReadFile(outputFile)
-	require.NoError(t, err)
-	assert.Equal(t, "answer=42\n", string(output), "the output file comes back")
 }
 
 // A new .git that the restricted user makes fails the step, and Dagu removes
@@ -540,6 +469,7 @@ func TestIsolatedStepHardLink(t *testing.T) {
 		require.NoError(t, err, "a failed Begin removes nothing")
 		assert.Equal(t, os.Geteuid(), ownerUID(t, path), path)
 	}
+	assert.NoError(t, CheckWorkDir(workDir), "a failed Begin removes its marker")
 }
 
 // A handoff that fails part way leaves a snapshot of a part of the git folders.

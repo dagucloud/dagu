@@ -306,15 +306,6 @@ func CheckWorkDir(workDir string) error {
 	}
 }
 
-// ShareReadOnly lets the restricted user read the regular file at path and not
-// write it; no other user can read it. Without isolation, it does nothing.
-func (s *Step) ShareReadOnly(path string) error {
-	if !s.Isolated() {
-		return nil
-	}
-	return s.iso.shareReadOnly(path)
-}
-
 func writeLine(w io.Writer, line string) {
 	if w == nil {
 		return

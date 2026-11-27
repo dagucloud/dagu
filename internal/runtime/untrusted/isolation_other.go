@@ -34,7 +34,5 @@ func (*isolation) prepare(*exec.Cmd, []string) (func(), error) { return nil, err
 
 func (*isolation) setOutputTarget(target string) string { return target }
 
-func (*isolation) shareReadOnly(string) error { return errNeedsLinux }
-
 // Poisoned reports no failed end: a process outside Linux has no isolation.
 func Poisoned() error { return nil }
