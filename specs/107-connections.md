@@ -21,6 +21,15 @@ Implemented so far:
 - [Workers](#workers): the coordinator answers token, check-only, and
   rejected-token requests, and dispatches a DAG that declares connections
   only to workers that make them. No step on a worker asks for a token yet.
+- The [Connect Flow](#connect-flow) for `google` inside the server: the
+  authorization request, the server callback, confirmation, the
+  [checks after consent](#checks-after-consent), and the
+  [consent errors](#consent-errors). No route starts a session until the
+  REST API lands.
+
+The tests against Google also settle whether Docs, Sheets, and Slides
+answer `NOT_FOUND` rather than `PERMISSION_DENIED` for a resource ID that
+does not exist, which their probes rely on.
 
 The tests against Google settle one provider fact this spec depends on
 (RFC 025, criterion 42): whether revoking one Google refresh token ends the
@@ -503,7 +512,10 @@ starter (UI or CLI)          Dagu server                       provider
   `confirm`, or `failed`. In `confirm` it also holds the account,
   `account_id`, and the new tokens, encrypted.
 - In `confirm` a session also holds `probes`, each service's result of the
-  [checks after consent](#checks-after-consent). While `waiting`, it holds
+  [checks after consent](#checks-after-consent), and `duplicates`, the
+  names of the connections that the duplicates check found. Its status
+  also carries the provider's advice on the refresh token's expiry, when
+  the provider reports one. While `waiting`, it holds
   `claimed_at`, the time a callback began to complete it. Other callbacks
   are refused until that claim ends, so one code is exchanged per session.
 - A session lives in the connection's token state, so any frontend replica
@@ -558,7 +570,8 @@ starter (UI or CLI)          Dagu server                       provider
   session whose vouched email matches is confirmed without asking.
   Otherwise the starter confirms as usual. The comparison folds the case
   of ASCII letters only.
-- A session confirmed without asking shows no checks of its own. Its
+- A session confirmed without asking shows no checks of its own, and its
+  duplicates warning is not shown. Its
   services' results come from `POST .../test`, and its granted scopes from
   the connection.
 - The confirmation shows the account, and for Microsoft its tenant.
@@ -629,15 +642,32 @@ starter (UI or CLI)          Dagu server                       provider
   serves without one.
 - **Service probes.** Each service gets one probe: `tools/list` on an MCP
   service, and a profile read on a REST service. Each service reports its
-  own result. A rejected Google MCP probe says that the client may lack the
-  agent flag, with a link to the client's page in the Google Cloud console.
+  own result. A service with a missing scope reports the scope without a
+  probe call.
+  - The app's `agent` flag picks a Google probe. With `agent`, each service
+    with an MCP server runs `tools/list` and saves the listing as its tool
+    catalog. Without it, each service reads its REST API, and a service
+    with no REST API, such as `search`, fails its probe, saying it needs an
+    app with `agent`.
+  - Docs, Sheets, and Slides have no profile read. Their probe reads a
+    resource ID that does not exist, and passes only when the API answers
+    with its JSON error whose `status` is `NOT_FOUND`.
+  - A rejected Google MCP probe says that the client may lack the agent
+    flag, with a link to the client's page in the Google Cloud console.
+  - A Google probe refused with the `SERVICE_DISABLED` reason instead names
+    the API to enable in the client's project, with a link to enable it.
 - **Refresh token expiry.** When the provider reports
-  `refresh_token_expires_in`, Dagu stores and shows the date, and says that
-  publishing the app to Production, or making it Internal, removes Google's
-  seven-day limit.
+  `refresh_token_expires_in`, Dagu stores and shows the date. Google reports
+  it for time-based access, which the account chose at consent, and Dagu
+  says to reconnect before the date. When the date is within seven days,
+  Dagu also says that publishing an app in Testing status to Production,
+  or making it Internal, removes Google's seven-day limit.
 - **Duplicates.** A second connection in the same project for the same
-  `account_id` and app is created with a warning. A connection in another
-  project for the same account produces no warning.
+  `account_id` and client is created with a warning. Apps with the same
+  provider and `client_id` count as one client. A connection in another
+  project for the same account produces no warning. A connection whose
+  token state cannot be read is skipped, so this check never fails a
+  consent.
 
 #### Consent Errors
 
@@ -1072,7 +1102,7 @@ an event, so a first connect from `pending` sends none.
 | Method and path | Purpose |
 | --- | --- |
 | `GET /connection-providers` | Providers, presets, scope sets, setup links, and this server's redirect URIs and modes |
-| `GET`, `POST /oauth-apps` | List apps, or create one. A Google client JSON file is accepted as is |
+| `GET`, `POST /oauth-apps` | List apps, or create one. A Google client JSON file is accepted as downloaded. When the server has a public URL, a web client's file is refused unless its redirect URIs list the server callback, and the error names that URI. A desktop client's file is not checked, since Google accepts any loopback port |
 | `GET`, `PATCH`, `DELETE /oauth-apps/{id}` | Read, change, or delete an app that no connection uses |
 | `GET`, `POST /connections` | List connections with their status, or create one in `pending` |
 | `GET`, `PATCH`, `DELETE /connections/{name}` | Read, change metadata, or remove |
