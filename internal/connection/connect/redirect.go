@@ -60,6 +60,29 @@ type Redirect struct {
 	URI  string
 }
 
+// Offer is a redirect mode that a server offers to clients of one type.
+type Offer struct {
+	Mode       RedirectMode
+	ClientType connection.ClientType
+	// URI is the redirect URI to register in the client. It is empty for
+	// loopback, whose URI is the CLI's listener on a port that it picks.
+	URI string
+}
+
+// Offers returns the redirect modes that work for a server whose usable
+// public URL is publicURL, in the order that ChooseRedirect tries them.
+func Offers(publicURL string) []Offer {
+	var offers []Offer
+	web := &connection.App{ClientType: connection.ClientTypeWeb}
+	if r, err := redirectFor(web, RedirectServerCallback, RedirectOptions{PublicURL: publicURL}); err == nil {
+		offers = append(offers, Offer{Mode: r.Mode, ClientType: web.ClientType, URI: r.URI})
+	}
+	return append(offers,
+		Offer{Mode: RedirectLoopback, ClientType: connection.ClientTypeDesktop},
+		Offer{Mode: RedirectPaste, ClientType: connection.ClientTypeDesktop, URI: pasteRedirectURI},
+	)
+}
+
 // ChooseRedirect returns the redirect for a session of app. Without a mode
 // in opts, it picks the first of server callback, loopback, and paste that
 // works for opts and the app's client type. A named mode that does not

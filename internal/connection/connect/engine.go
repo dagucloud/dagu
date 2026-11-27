@@ -108,6 +108,9 @@ type Config struct {
 	Providers map[connection.Provider]Provider
 	// Encryptor holds the server's key, which seals the state parameter.
 	Encryptor *crypto.Encryptor
+	// Tokens hands out the live access tokens that Test probes with. Test
+	// fails with ErrUnsupported without it.
+	Tokens broker.Source
 	// AnyUserConfirms lets any caller confirm any session. It is set when
 	// authentication is off.
 	AnyUserConfirms bool
@@ -138,6 +141,7 @@ type Engine struct {
 	locks           connection.Locks
 	providers       map[connection.Provider]Provider
 	enc             *crypto.Encryptor
+	tokens          broker.Source
 	anyUserConfirms bool
 	onStatusChange  func(context.Context, broker.StatusChange)
 	onRevoke        func(context.Context, Revocation)
@@ -161,8 +165,11 @@ type Authorization struct {
 	// SessionID is the session handle.
 	SessionID string
 	// URL opens the provider's consent page.
-	URL       string
-	Redirect  Redirect
+	URL      string
+	Redirect Redirect
+	// ClientID is the app's client ID, which an organization admin may
+	// have to trust before consent.
+	ClientID  string
 	ExpiresAt time.Time
 }
 
@@ -227,6 +234,7 @@ func New(cfg Config) (*Engine, error) {
 		locks:           cfg.Locks,
 		providers:       cfg.Providers,
 		enc:             cfg.Encryptor,
+		tokens:          cfg.Tokens,
 		anyUserConfirms: cfg.AnyUserConfirms,
 		onStatusChange:  cfg.OnStatusChange,
 		onRevoke:        cfg.OnRevoke,
@@ -305,6 +313,7 @@ func (e *Engine) Start(ctx context.Context, conn *connection.Connection, opts St
 		SessionID: sessionID,
 		URL:       cfg.AuthCodeURL(state, authOpts...),
 		Redirect:  redirect,
+		ClientID:  app.ClientID,
 		ExpiresAt: expiresAt,
 	}, nil
 }

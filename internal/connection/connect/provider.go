@@ -52,6 +52,29 @@ type Advisor interface {
 	RefreshTokenFix(remaining time.Duration) string
 }
 
+// Guide is a Provider that links to the pages where an admin sets up its
+// clients. Its links hold no secret.
+type Guide interface {
+	// SetupLinks returns the provider's setup pages.
+	SetupLinks() SetupLinks
+	// EnableAPIsLink returns the page that enables apis, which are API IDs
+	// of the provider, in a client's project, or "" when it has none.
+	EnableAPIsLink(apis []string) string
+}
+
+// SetupLinks are the pages where an admin sets up a client of a provider.
+// A page that the provider does not have is empty.
+type SetupLinks struct {
+	// Clients lists the clients, and creates one.
+	Clients string
+	// ConsentScreen sets who may consent, such as the test users of an
+	// app in Testing status.
+	ConsentScreen string
+	// AdminTrust is where an organization's admin trusts a client that
+	// its policy blocks.
+	AdminTrust string
+}
+
 // Revoker is a Provider that can revoke refresh tokens. No token of a
 // provider that does not implement it is revoked.
 type Revoker interface {
