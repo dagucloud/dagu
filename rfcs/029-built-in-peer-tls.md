@@ -10,12 +10,13 @@
 ## Summary
 
 Encrypt coordinator traffic by default and make adding a worker one copied
-command. The coordinator runs its own certificate authority, issues its own
-certificate, and renews it. A worker on another host joins with an invite: one
+command. The coordinator runs its own certificate authority and issues its
+own certificate. A worker on another host joins with an invite: one
 string that names the coordinator's CA and lets the worker enroll for a
 certificate of its own. Processes that share the coordinator's data directory
 need no setup. Users never create, copy, renew, or match a certificate to an
-address.
+address. Certificates that Dagu issues have no expiry date; removing a worker
+is what ends its certificate.
 
 ## Problem statement
 
@@ -128,7 +129,7 @@ first install and keeps it on upgrade, like the planned peer token Secret.
   console asks the server through the relay as the signed-in person, under
   the same access rule as other console actions, and needs admin. It shows
   the invite once and keeps no copy; the call log records the invite ID.
-- Each worker shows how it connects and when its certificate expires.
+- Each worker shows how it connects.
 - Dagu Cloud never holds the CA or a private key, and worker traffic never
   passes through it.
 
@@ -175,8 +176,11 @@ The environment variables are `DAGU_WORKER_COORDINATORS` and
 
 - A `Connection` column: `Certificate`, `TLS`, or `Plaintext`. `Plaintext`
   links to the upgrade steps.
-- **Remove** on a certificate worker revokes its certificate. The worker is
-  refused within 30 seconds and cannot come back without a new invite. On a
+- **Remove** on a certificate worker revokes its certificate, and the
+  worker is refused within 30 seconds. A worker on a single-use invite
+  cannot come back without a new invite. A worker on a reusable invite can
+  enroll again while that invite is valid, so the confirmation offers to
+  delete the invite too and names the other workers that use it. On a
   worker that holds the peer token, the confirmation says it can reconnect
   until the peer token changes.
 - **Invites** lists each invite with its kind, creator, creation and expiry
@@ -194,8 +198,8 @@ The invite is invalid, expired, or already used
   Get a new command from "Add worker". For several hosts, use a reusable invite.
 coord.example.com:50055 belongs to a different Dagu (its CA does not match the invite)
   Check the coordinator address.
-The worker certificate expired and the invite is no longer valid
-  Get a new command from "Add worker".
+This worker was removed from the coordinator
+  Get a new command from "Add worker" to add it again.
 The coordinator requires TLS
   Upgrade this process, or remove peer.insecure: true.
 ```
@@ -215,7 +219,7 @@ coordinator's identity, and the credential the worker would use, then exits.
           ┌─────────────────────────────────────────┐
           │ peer CA: generated once, shared through │
           │   the data dir or the chart Secret      │
-          │ server certificate: in memory, renewed  │
+          │ server certificate: in memory           │
           │ worker_invites, worker_certificates     │
           └───────▲──────────────────────▲──────────┘
                   │ TLS + peer token     │ TLS + worker certificate
@@ -233,7 +237,7 @@ that worker.
 ### Peer CA
 
 - On first start, a coordinator without `peer.cert_file` and
-  `peer.key_file` generates an ECDSA P-256 CA valid for 10 years. It stores
+  `peer.key_file` generates an ECDSA P-256 CA with no expiry date. It stores
   the CA next to the peer token and creates it with the same exclusive
   write, so coordinators sharing a data directory share one CA.
 - `peer.ca_cert_file` and `peer.ca_key_file` supply the CA instead: from
@@ -246,9 +250,9 @@ that worker.
 
 ### Coordinator certificate
 
-- Each coordinator issues its own server certificate from the CA at start,
-  keeps it in memory, and replaces it at half of its 30-day life without a
-  restart.
+- Each coordinator issues its own server certificate from the CA at each
+  start and keeps it in memory. It has no expiry date, so nothing renews
+  it; a restart picks up a changed host name.
 - The certificate names `coordinator.dagu.invalid`, plus the advertised
   host and the hostname for tools such as `grpcurl`.
 - Dagu clients check the chain against the peer CA and the name
@@ -335,15 +339,14 @@ names the setting to change:
   | `DELETE /api/v1/workers/invites/{id}` | Deletes an invite |
   | `DELETE /api/v1/workers/{workerId}/certificate` | Revokes the worker's certificate |
 
-### Enrollment and renewal
+### Enrollment
 
 ```text
 worker                                         coordinator
   │ TLS dial; check the chain against the pin     │
   │ Enroll(invite, CSR, worker ID, host) ────────▶│ check the invite; consume it if single use
-  │◀──────────────────── certificate, 30 days ────│ record it in worker_certificates
+  │◀──────────────────────────────── certificate ─│ record it in worker_certificates
   │ later calls: TLS + certificate                │
-  │ Renew(CSR) at half life ─────────────────────▶│ check the current certificate
 ```
 
 - The worker generates its own key. The private key never leaves the host.
@@ -351,11 +354,13 @@ worker                                         coordinator
   allows client authentication only.
 - The worker keeps the key and certificate in its data directory, readable
   by its user only, and reuses them across restarts. Run processes the
-  worker starts use the same files. A worker with a valid certificate
-  ignores its invite, so restarts do not use up a single-use invite.
-- A worker whose certificate expired enrolls again with its invite when the
-  invite is still valid, and otherwise exits with the message above.
-- A valid, unrevoked certificate counts as the peer token, including under
+  worker starts use the same files. A worker with a certificate ignores its
+  invite, so restarts do not use up a single-use invite.
+- The certificate has no expiry date, so a worker that stays off for months
+  reconnects when it starts. An expiry date would need renewal, and a
+  copied key could renew just as the worker does; the date would only break
+  workers that stay off past it. **Remove** ends a certificate at once.
+- An unrevoked certificate counts as the peer token, including under
   `coordinator.require_token`.
 
 ### Revocation
@@ -365,18 +370,20 @@ worker                                         coordinator
   connections are refused too.
 - The coordinator that handles the removal applies it at once. Other
   coordinators reread the revoked set every 30 seconds.
-- A revoked entry is dropped once its certificate would have expired.
+- A worker whose certificate is refused as revoked deletes it and exits
+  with the message above. At its next start it enrolls again only with an
+  invite that is still valid.
+- Revoked entries stay, one small record per removed worker.
 
 ### Workers list
 
 - Each worker gains `connection` (`certificate`, `tls`, or `plaintext`) and,
-  for certificates, the certificate ID, the invite ID, and the expiry. The
-  coordinator takes them from the connection that carries the worker's
-  heartbeat.
+  for certificates, the certificate ID and the invite ID. The coordinator
+  takes them from the connection that carries the worker's heartbeat.
 - `GET /workers` returns them. The **Add worker** dialog uses the page's
   existing `/workers` refresh and waits for a worker with its invite ID.
-- The Dagu Cloud report adds `connection` and the certificate expiry to
-  `health.workers[]`, on paid plans as today.
+- The Dagu Cloud report adds `connection` to `health.workers[]`, on paid
+  plans as today.
 
 ### Bring your own certificates
 
@@ -405,9 +412,6 @@ The existing keys keep working, with three fixes:
 
 - **Add worker** calls a new server MCP action that creates an invite, as
   the signed-in person.
-- A `worker_certificate_expiring` alert, on by default, fires 3 days before
-  a worker certificate expires. Renewal starts 15 days before expiry, so the
-  alert means renewal keeps failing.
 
 ## Compatibility
 
@@ -441,16 +445,15 @@ The existing keys keep working, with three fixes:
 - **Handshakes:** one TLS handshake per gRPC connection. Connections are
   long-lived, so the cost does not grow with runs.
 - **Enrollment:** one RPC and one signature, well under a millisecond, per
-  worker without a valid certificate. That is once per host, or once per
-  start for containers on a reusable invite. Renewal runs every 15 days per
-  worker.
+  worker without a certificate. That is once per host, or once per start
+  for containers on a reusable invite. Nothing renews.
 - **Revocation:** each coordinator rereads the revoked set every 30 seconds,
   also when idle. It is one small collection read, independent of DAGs and
-  runs, and it holds only revoked certificates that have not expired.
-  Invites are read on enrollment only.
-- **Workers list:** up to four fields per worker, about 150 bytes, on the
+  runs, with one record per removed worker. Invites are read on enrollment
+  only.
+- **Workers list:** up to three fields per worker, about 120 bytes, on the
   existing 2-second refresh of an open Workers page. The Dagu Cloud report
-  grows by about 60 bytes per worker, for at most 256 workers.
+  grows by about 25 bytes per worker, for at most 256 workers.
 - **Upgrade:** generating the CA takes milliseconds, once.
 
 ## Rollout
@@ -459,14 +462,14 @@ The existing keys keep working, with three fixes:
    log, `dagu worker --check`.
 2. Built-in CA, `dagu peer init`, coordinator certificate, one-port TLS and
    h2c, client transport rule, registry flag.
-3. Invites, enrollment, renewal, revocation, configuration conflicts,
-   Workers page, API, CLI, MCP.
+3. Invites, enrollment, revocation, configuration conflicts, Workers page,
+   API, CLI, MCP.
 4. Chart.
-5. Dagu Cloud console and alert.
+5. Dagu Cloud console.
 
 Specs under `specs/` state the transport selection, enrollment, and
 revocation contracts. Conformance tests cover h2c and TLS on one port, the
-single-use invite, renewal, and revocation of an open connection.
+single-use invite, and revocation of an open connection.
 
 ## Open questions
 
@@ -477,6 +480,7 @@ single-use invite, renewal, and revocation of an open connection.
    stable worker ID first.
 3. Once sub-DAG dispatch from workers moves to a narrower RPC, should worker
    certificates lose `Dispatch`?
-4. CA rotation: issue from a new CA while trusting both, then drop the old
-   one. Is it needed before v3.0?
+4. Replacing the CA: issue from a new CA while trusting both, then drop the
+   old one. Nothing expires, so this is only for replacing a CA on purpose.
+   Is it needed before v3.0?
 5. Should **Add worker** in Dagu Cloud be paid only, like worker monitoring?
