@@ -55,8 +55,8 @@ Implemented so far:
   not serve yet. Runs that fail on a broken connection still send their
   failure messages, and the notification connection's events have no rules
   of their own yet. An admin's change of an `invalid` app's client ID or
-  secret returns it to `ok`. The Connections navigation badge is not built
-  yet.
+  secret, which returns it to `ok`, records `connection.restored`. The
+  Connections navigation badge is not built yet.
 
 The tests against Google also settle whether Docs, Sheets, and Slides
 answer `NOT_FOUND` rather than `PERMISSION_DENIED` for a resource ID that
@@ -1133,6 +1133,10 @@ an event, so a first connect from `pending` sends none.
   app's event goes through the routes of each project with a connection on
   the app.
 - A channel gets one message per event, also when several routes reach it.
+- An app's message to a channel names only the connections of the
+  projects whose routes reach that channel.
+- A channel gets the messages of one connection or app in the order of
+  its changes, so its last message tells the current status.
   A connection that stays broken while many runs fail sends one message per
   channel.
 - Messages are plain text, also on channels that format run events.

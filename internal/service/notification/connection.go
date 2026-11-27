@@ -20,23 +20,79 @@ import (
 // connection's page is below it, with its workspace as a query parameter.
 const connectionsPagePath = "/connections"
 
-// connectionDestinations returns the route destinations of a connection
-// event: the routes of each workspace the event names, with at most one
-// route per channel, so that each channel gets one message. Workspaces are
-// visited in name order, so a channel keeps the same route from one call
-// to the next.
-func (s *Service) connectionDestinations(event chatbridge.NotificationEvent) []string {
+// connectionRoute is a route destination of a connection event, and the
+// workspaces whose routes reach the destination's channel.
+type connectionRoute struct {
+	destination string
+	workspaces  []string
+}
+
+// connectionRoutes returns the routes of a connection event: the routes of
+// each workspace the event names, with at most one route per channel, so
+// that each channel gets one message. Workspaces are visited in name
+// order, so a channel keeps the same route from one call to the next.
+func (s *Service) connectionRoutes(event chatbridge.NotificationEvent) []connectionRoute {
 	if event.Connection == nil || !s.reusableChannelsAllowed() {
 		return nil
 	}
 	ctx := context.Background()
-	seenChannelIDs := map[string]struct{}{}
-	var destinations []string
+	byChannel := map[string]int{}
+	var routes []connectionRoute
 	for _, workspaceName := range connectionWorkspaces(event.Connection) {
 		routeSet := s.effectiveRouteSet(ctx, workspaceName)
-		destinations = append(destinations, s.routeSetDestinationsForEvent(routeSet, event, seenChannelIDs)...)
+		for _, destination := range s.routeSetDestinationsForEvent(routeSet, event, map[string]struct{}{}) {
+			route, _ := findRoute(routeSet, parseRouteDestinationID(destination).RouteID)
+			if i, ok := byChannel[route.ChannelID]; ok {
+				routes[i].workspaces = append(routes[i].workspaces, workspaceName)
+				continue
+			}
+			byChannel[route.ChannelID] = len(routes)
+			routes = append(routes, connectionRoute{destination: destination, workspaces: []string{workspaceName}})
+		}
+	}
+	return routes
+}
+
+// connectionDestinations returns the destinations of connectionRoutes.
+func (s *Service) connectionDestinations(event chatbridge.NotificationEvent) []string {
+	routes := s.connectionRoutes(event)
+	destinations := make([]string, 0, len(routes))
+	for _, route := range routes {
+		destinations = append(destinations, route.destination)
 	}
 	return destinations
+}
+
+// connectionEventFor returns event as destination receives it, naming only
+// the connections of the workspaces whose routes reach its channel, so
+// that no channel learns another workspace's connections.
+func (s *Service) connectionEventFor(event chatbridge.NotificationEvent, destination string) (chatbridge.NotificationEvent, bool) {
+	for _, route := range s.connectionRoutes(event) {
+		if route.destination != destination {
+			continue
+		}
+		change := *event.Connection
+		change.Connections = make([]eventstore.ConnectionName, 0, len(event.Connection.Connections))
+		for _, conn := range event.Connection.Connections {
+			if slices.Contains(route.workspaces, conn.Workspace) {
+				change.Connections = append(change.Connections, conn)
+			}
+		}
+		event.Connection = &change
+		return event, true
+	}
+	return event, false
+}
+
+// sortOldestFirst orders connection events as they happened, so that a
+// channel's last message tells a connection's current status.
+func sortOldestFirst(events []chatbridge.NotificationEvent) {
+	slices.SortStableFunc(events, func(a, b chatbridge.NotificationEvent) int {
+		if c := a.ObservedAt.Compare(b.ObservedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Key, b.Key)
+	})
 }
 
 // connectionWorkspaces returns the workspaces of change's connections,

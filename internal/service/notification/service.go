@@ -1087,12 +1087,16 @@ func (s *Service) deliverChannelEvents(
 	events []chatbridge.NotificationEvent,
 	delivered func(chatbridge.NotificationEvent),
 ) error {
-	runEvents := make([]chatbridge.NotificationEvent, 0, len(events))
+	var runEvents, connectionEvents []chatbridge.NotificationEvent
 	for _, event := range events {
 		if event.Connection == nil {
 			runEvents = append(runEvents, event)
-			continue
+		} else {
+			connectionEvents = append(connectionEvents, event)
 		}
+	}
+	sortOldestFirst(connectionEvents)
+	for _, event := range connectionEvents {
 		if err := s.deliverTarget(ctx, plainTextTarget(target), []chatbridge.NotificationEvent{event}); err != nil {
 			return err
 		}
@@ -1382,8 +1386,8 @@ func (s *Service) matchingRouteEvents(ctx context.Context, routeSet *notificatio
 	destination := routeDestinationID(routeSet.Scope, routeSet.Workspace, route.ID)
 	for _, event := range events {
 		if event.Connection != nil {
-			if slices.Contains(s.connectionDestinations(event), destination) {
-				result = append(result, event)
+			if scoped, ok := s.connectionEventFor(event, destination); ok {
+				result = append(result, scoped)
 			}
 			continue
 		}

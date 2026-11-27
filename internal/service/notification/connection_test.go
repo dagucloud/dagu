@@ -22,7 +22,9 @@ import (
 
 // An app's event reaches the routes of each workspace with a connection on
 // the app, and a channel that several of those routes reach gets one
-// plain-text message, whatever template the channel sets.
+// plain-text message, whatever template the channel sets. Each channel
+// learns only the connections of the workspaces that route to it, and a
+// route saved without events receives no connection event.
 func TestConnectionEventOneMessagePerChannel(t *testing.T) {
 	t.Parallel()
 
@@ -80,6 +82,9 @@ func TestConnectionEventOneMessagePerChannel(t *testing.T) {
 	saveRoutes("dev",
 		notificationmodel.Route{ID: "dev-shared", ChannelID: "shared", Enabled: true, Events: connectionEvents},
 	)
+	saveRoutes("qa",
+		notificationmodel.Route{ID: "qa-hook", ChannelID: "ops-hook", Enabled: true},
+	)
 
 	event := chatbridge.NotificationEvent{
 		Key:  "connection_1",
@@ -90,6 +95,7 @@ func TestConnectionEventOneMessagePerChannel(t *testing.T) {
 			Connections: []eventstore.ConnectionName{
 				{Workspace: "ops", Name: "work-google"},
 				{Workspace: "dev", Name: "calendar"},
+				{Workspace: "qa", Name: "tests"},
 			},
 			Status: "invalid",
 			Reason: "invalid_client",
@@ -97,7 +103,10 @@ func TestConnectionEventOneMessagePerChannel(t *testing.T) {
 		ObservedAt: time.Now(),
 	}
 	destinations := svc.NotificationDestinationsForEvent(event)
-	require.Len(t, destinations, 2)
+	assert.ElementsMatch(t, []string{
+		routeDestinationID(notificationmodel.RouteScopeWorkspace, "dev", "dev-shared"),
+		routeDestinationID(notificationmodel.RouteScopeWorkspace, "ops", "ops-hook"),
+	}, destinations)
 	batch := chatbridge.NotificationBatch{Class: chatbridge.NotificationClassUrgent, Events: []chatbridge.NotificationEvent{event}}
 	for _, destination := range destinations {
 		var delivered []string
@@ -120,10 +129,70 @@ Fix it: https://dagu.example.com/connections
 		Events  []map[string]any `json:"events"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(requests["/hook"][0]), &hook))
-	assert.Equal(t, slack["text"], hook.Message)
+	assert.Equal(t, `OAuth app "Google" was refused by its provider. Until an admin changes its client ID or secret, its connections cannot get tokens: work-google (ops).
+Reason: invalid_client
+Fix it: https://dagu.example.com/connections
+`, hook.Message)
 	require.Len(t, hook.Events, 1)
 	assert.Equal(t, "connection.needs_attention", hook.Events[0]["eventType"])
 	assert.Equal(t, map[string]any{"id": "app-1", "name": "Google"}, hook.Events[0]["app"])
+}
+
+// A batch lists its events newest first. Connection events go out as they
+// happened, so the channel's last message tells the current status.
+func TestConnectionEventsOldestFirst(t *testing.T) {
+	t.Parallel()
+
+	store := newMemoryStore()
+	channel, err := notificationmodel.NormalizeChannel(&notificationmodel.Channel{
+		ID:      "slack",
+		Name:    "Slack",
+		Type:    notificationmodel.ProviderSlack,
+		Enabled: true,
+		Slack:   &notificationmodel.SlackTarget{WebhookURL: "https://93.184.216.34/slack"},
+	}, "tester")
+	require.NoError(t, err)
+	require.NoError(t, store.SaveChannel(context.Background(), channel))
+
+	var texts []string
+	svc := New(store, nil,
+		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			var body map[string]string
+			require.NoError(t, json.NewDecoder(req.Body).Decode(&body))
+			texts = append(texts, body["text"])
+			return acceptedResponse(req), nil
+		})}),
+	)
+	_, err = svc.SaveRouteSet(context.Background(), &notificationmodel.RouteSet{
+		Scope:   notificationmodel.RouteScopeGlobal,
+		Enabled: true,
+		Routes: []notificationmodel.Route{{
+			ID: "route", ChannelID: "slack", Enabled: true,
+			Events: []eventstore.EventType{eventstore.TypeConnectionNeedsAttention, eventstore.TypeConnectionRestored},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+
+	work := []eventstore.ConnectionName{{Name: "work"}}
+	now := time.Now()
+	broken := chatbridge.NotificationEvent{
+		Key: "connection_a", Type: eventstore.TypeConnectionNeedsAttention, ObservedAt: now.Add(-5 * time.Second),
+		Connection: &eventstore.ConnectionChange{Connections: work, Status: "needs_reconnect", Reason: "invalid_grant"},
+	}
+	restored := chatbridge.NotificationEvent{
+		Key: "connection_b", Type: eventstore.TypeConnectionRestored, ObservedAt: now,
+		Connection: &eventstore.ConnectionChange{Connections: work, Status: "connected"},
+	}
+	batch := chatbridge.NotificationBatch{
+		Class:  chatbridge.NotificationClassUrgent,
+		Events: []chatbridge.NotificationEvent{restored, broken},
+	}
+	require.True(t, svc.FlushNotificationBatch(context.Background(),
+		routeDestinationID(notificationmodel.RouteScopeGlobal, "", "route"), batch, false))
+
+	require.Len(t, texts, 2)
+	assert.Contains(t, texts[0], "Connection work needs to be reconnected.")
+	assert.Equal(t, "Connection work is connected again.\n", texts[1])
 }
 
 func TestConnectionText(t *testing.T) {
