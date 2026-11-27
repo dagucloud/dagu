@@ -85,6 +85,8 @@ type ConfigLoader struct {
 	// names. adminConfig is nil without a legacy admin.yaml.
 	configFileUsed string
 	adminConfig    *viper.Viper
+	// defaultConfigFile is what Config.Paths.DefaultConfigFile reports.
+	defaultConfigFile string
 }
 
 // ConfigLoaderOption defines a functional option for configuring a ConfigLoader.
@@ -472,6 +474,7 @@ func (l *ConfigLoader) Load() (*Config, error) {
 	}
 
 	cfg.Paths.ConfigFileUsed = configFileUsed
+	cfg.Paths.DefaultConfigFile = l.defaultConfigFile
 	for _, filename := range configFilesUsed {
 		resolved, err := l.resolvePath("config file", filename)
 		if err != nil {
@@ -2482,6 +2485,7 @@ func (l *ConfigLoader) setupViper(xdgConfig XDGConfig, homeDir, configFile, appH
 	}
 
 	l.legacySuspendFlagsDir = paths.LegacySuspendFlagsDir
+	l.defaultConfigFile = filepath.Join(paths.ConfigDir, "config.yaml")
 	l.configureViper(paths.ConfigDir, configFile)
 	l.bindEnvironmentVariables()
 	l.setViperDefaultValues(paths)
