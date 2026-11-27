@@ -160,6 +160,41 @@ func (c *smtpDispatchClient) Dispatch(_ context.Context, req dispatch.DispatchRe
 	return c.err
 }
 
+// interruptedDispatchClient is a coordinator that takes a task while the
+// command is interrupted, and records the runs it is asked to cancel.
+type interruptedDispatchClient struct {
+	coordinator.Client
+	interrupt context.CancelFunc
+	cancelled []string
+}
+
+func (c *interruptedDispatchClient) Dispatch(ctx context.Context, _ dispatch.DispatchRequest) error {
+	c.interrupt()
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (c *interruptedDispatchClient) RequestCancel(_ context.Context, dagName, dagRunID string, _ *ir.DAGRunRef) error {
+	c.cancelled = append(c.cancelled, dagName+":"+dagRunID)
+	return nil
+}
+
+// An interrupt during the dispatch cancels the run through the coordinator,
+// which may have taken the task before the interrupt, so no worker runs it
+// after the command exits.
+func TestDispatchInterruptedCancelsRun(t *testing.T) {
+	t.Parallel()
+
+	parent, interrupt := context.WithCancel(context.Background())
+	defer interrupt()
+	ctx := &Context{Context: parent, Config: &config.Config{}, Quiet: true}
+	client := &interruptedDispatchClient{interrupt: interrupt}
+
+	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "deploy"}, "run", runOptions{}, client)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, []string{"deploy:run"}, client.cancelled)
+}
+
 func TestRestoreDAGFromStatus_SMTP(t *testing.T) {
 	t.Parallel()
 
