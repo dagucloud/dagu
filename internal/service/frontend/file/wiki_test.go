@@ -4,12 +4,17 @@
 package file
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/wiki"
@@ -168,6 +173,71 @@ func TestMigratedProjectUsesItsOwnWikiOnceItExists(t *testing.T) {
 
 	assert.Equal(t, []string{"moved"}, flatIDs(t, f.wiki(t, f.ops)))
 	assert.Equal(t, []string{"home"}, flatIDs(t, f.defaultWiki(t)))
+}
+
+// TestMovedWikiKeepsHistory moves the v2 directory of ops to its own wiki
+// directory, as an admin would. Its page keeps its revision and attachment,
+// which lived outside that directory.
+func TestMovedWikiKeepsHistory(t *testing.T) {
+	f := newWikiFixture(t)
+	ctx := t.Context()
+	inPlace := f.wiki(t, f.ops)
+	require.NoError(t, inPlace.Update(ctx, "runbook", "v2"))
+	_, err := inPlace.PutAttachment(ctx, "runbook", "diagram.png", strings.NewReader("png"))
+	require.NoError(t, err)
+
+	moveOpsWiki(t, f)
+	store := f.wiki(t, f.ops)
+
+	revisions, err := store.ListRevisions(ctx, "runbook")
+	require.NoError(t, err)
+	require.Len(t, revisions, 1)
+	revision, err := store.GetRevision(ctx, "runbook", revisions[0].Rev)
+	require.NoError(t, err)
+	assert.Equal(t, "needle [[home]]", revision.Content)
+	file, _, err := store.OpenAttachment(ctx, "runbook", "diagram.png")
+	require.NoError(t, err)
+	data, err := io.ReadAll(file)
+	require.NoError(t, file.Close())
+	require.NoError(t, err)
+	assert.Equal(t, "png", string(data))
+	assert.NoDirExists(t, filepath.Join(f.cfg.Paths.WikiDir, ".attachments"))
+}
+
+func moveOpsWiki(t *testing.T, f *wikiFixture) {
+	t.Helper()
+	ownDir := filepath.Join(f.cfg.Paths.ProjectsDir, "ops", "wiki")
+	require.NoError(t, os.MkdirAll(filepath.Dir(ownDir), 0o750))
+	require.NoError(t, os.Rename(filepath.Join(f.cfg.Paths.WikiDir, "ops"), ownDir))
+}
+
+// TestWikiPagesLeftBehindAreLogged leaves a page in the v2 directory of ops
+// after its own wiki directory exists. That page shows in no wiki, so the
+// server names the directory in a warning.
+func TestWikiPagesLeftBehindAreLogged(t *testing.T) {
+	f := newWikiFixture(t)
+	moveOpsWiki(t, f)
+	left := filepath.Join(f.cfg.Paths.WikiDir, "ops")
+	require.NoError(t, os.MkdirAll(left, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(left, "old.md"), []byte("x\n"), 0o600))
+
+	var logs bytes.Buffer
+	ctx := logger.WithLogger(t.Context(), logger.NewLogger(
+		logger.WithWriter(&logs), logger.WithQuiet(), logger.WithFormat("json")))
+	store, err := f.wikis.storeOf(ctx, f.ops)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"runbook"}, flatIDs(t, store))
+	assert.Equal(t, []string{"home"}, flatIDs(t, f.defaultWiki(t)))
+	var entry struct {
+		Msg   string `json:"msg"`
+		Dir   string `json:"dir"`
+		Count int    `json:"count"`
+	}
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &entry), logs.String())
+	assert.Contains(t, entry.Msg, "Wiki pages left in the v2 directory")
+	assert.Equal(t, left, entry.Dir)
+	assert.Equal(t, 1, entry.Count)
 }
 
 // TestProjectWikiInDAGDirectory proves that a project's pages live in wiki/

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	filewiki "github.com/dagucloud/dagu/v2/internal/persis/file/wiki"
@@ -28,6 +31,8 @@ const (
 	// and the directory of its revisions and page metadata in the project's
 	// state directory.
 	projectWikiDirName = "wiki"
+	// pageFileExt is the extension of a wiki page file.
+	pageFileExt = ".md"
 	// migratedWikiCheckInterval bounds how often the registry is read for
 	// the projects that migration made. Every process checks the registry
 	// for changes as often.
@@ -45,7 +50,7 @@ type projectWikis struct {
 	cfg      *config.Config
 	registry project.Registry
 	// shared is the store of the default wiki directory.
-	shared   wiki.PageStore
+	shared   *filewiki.Store
 	defaults *wikiView
 
 	mu        sync.Mutex
@@ -59,7 +64,7 @@ type projectWikis struct {
 	own map[string]*filewiki.Store
 }
 
-func newProjectWikis(cfg *config.Config, registry project.Registry, shared wiki.PageStore) *projectWikis {
+func newProjectWikis(cfg *config.Config, registry project.Registry, shared *filewiki.Store) *projectWikis {
 	w := &projectWikis{
 		cfg:      cfg,
 		registry: registry,
@@ -93,10 +98,10 @@ func (w *projectWikis) storeOf(ctx context.Context, p project.Project) (wiki.Pag
 			return &wikiView{store: w.shared, root: w.inPlaceRoot(p.MigratedFrom)}, nil
 		}
 	}
-	return w.ownStore(p, paths, dir)
+	return w.ownStore(ctx, p, paths, dir)
 }
 
-func (w *projectWikis) ownStore(p project.Project, paths config.ProjectPaths, dir string) (*filewiki.Store, error) {
+func (w *projectWikis) ownStore(ctx context.Context, p project.Project, paths config.ProjectPaths, dir string) (*filewiki.Store, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if store, ok := w.own[p.ID]; ok {
@@ -116,8 +121,62 @@ func (w *projectWikis) ownStore(p project.Project, paths config.ProjectPaths, di
 	if err != nil {
 		return nil, fmt.Errorf("wiki store of project %q: %w", p.Name, err)
 	}
+	if p.MigratedFrom != "" {
+		// The pages' history follows them out of the default wiki directory.
+		// The store is kept only once it holds that history, so a move that
+		// fails is tried again on the next open.
+		if err := w.shared.MoveHistory(ctx, p.MigratedFrom, store); err != nil {
+			return nil, fmt.Errorf("move the wiki history of project %q: %w", p.Name, err)
+		}
+		w.warnLeftPages(ctx, p)
+	}
 	w.own[p.ID] = store
 	return store, nil
+}
+
+// warnLeftPages logs the pages left in the v2 wiki directory of p, a
+// migrated project with a wiki directory of its own. Those pages show in no
+// project's wiki.
+func (w *projectWikis) warnLeftPages(ctx context.Context, p project.Project) {
+	dirs, err := w.wikiDirNames([]string{p.MigratedFrom})
+	if err != nil {
+		logger.Warn(ctx, "Failed to look for wiki pages left behind", tag.Name(p.Name), tag.Error(err))
+		return
+	}
+	for _, dir := range dirs {
+		if !strings.EqualFold(dir, p.MigratedFrom) {
+			continue
+		}
+		path := filepath.Join(w.cfg.Paths.WikiDir, dir)
+		count, err := countPages(path)
+		if err != nil {
+			logger.Warn(ctx, "Failed to look for wiki pages left behind", tag.Name(p.Name), tag.Dir(path), tag.Error(err))
+			continue
+		}
+		if count > 0 {
+			logger.Warn(ctx, "Wiki pages left in the v2 directory show in no project's wiki; move them to the project's wiki directory",
+				tag.Name(p.Name), tag.Dir(path), tag.Count(count))
+		}
+	}
+}
+
+// countPages returns the number of page files under dir, outside the hidden
+// directories, which hold no pages.
+func countPages(dir string) (int, error) {
+	count := 0
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && path != dir && strings.HasPrefix(d.Name(), ".") {
+			return filepath.SkipDir
+		}
+		if d.Type().IsRegular() && strings.HasSuffix(d.Name(), pageFileExt) {
+			count++
+		}
+		return nil
+	})
+	return count, err
 }
 
 // migratedRoots returns the v2 workspace names of the projects that
