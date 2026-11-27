@@ -30,8 +30,11 @@ type authState struct {
 	ConnectionID string `json:"c"`
 	SessionID    string `json:"s"`
 	// Verifier is the PKCE verifier.
-	Verifier    string `json:"v"`
-	RedirectURI string `json:"r"`
+	Verifier string `json:"v"`
+	// Mode is the session's redirect mode, which decides the route that
+	// may complete it.
+	Mode        RedirectMode `json:"m"`
+	RedirectURI string       `json:"r"`
 	// ExpectedAccount is the email the starter expects to sign in.
 	ExpectedAccount string    `json:"e,omitempty"`
 	ExpiresAt       time.Time `json:"x"`

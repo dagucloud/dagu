@@ -16,8 +16,11 @@ type TokenState struct {
 	// Generation increases each time a connect or reconnect is confirmed.
 	Generation int64
 	// Session is the connect session in progress, or nil.
-	Session     *Session
-	RefreshedAt time.Time
+	Session *Session
+	// ConfirmedSession is the ID of the last session that was confirmed,
+	// which its starter reads as connected after the session is cleared.
+	ConfirmedSession string
+	RefreshedAt      time.Time
 	// RefreshErrors are keyed by resource and hold the outcome of failed
 	// refreshes of each.
 	RefreshErrors map[string]RefreshError

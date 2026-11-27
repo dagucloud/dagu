@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -68,14 +69,114 @@ func TestConfirmMakesTokensLive(t *testing.T) {
 	status, err = f.engine.Session(context.Background(), f.conn, auth.SessionID)
 	require.NoError(t, err)
 	assert.Equal(t, connect.PhaseConnected, status.Phase)
-	// A first connect from pending is reported like any status change.
-	assert.Equal(t, []broker.StatusChange{{
-		Connection:     f.conn.Key(),
-		ConnectionID:   f.conn.ID,
-		App:            f.conn.App,
-		ConnectionFrom: connection.TokenStatusPending,
-		ConnectionTo:   connection.TokenStatusConnected,
-	}}, f.changes.list())
+	// A first connect, from pending, records no event.
+	assert.Empty(t, f.changes.list())
+}
+
+// Provider calls that run to their deadline still end the session: a slow
+// probe reports a failed service and the session reaches confirm, and a
+// slow exchange fails the session.
+func TestSlowProviderCallsEndSession(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		wantErr   error
+		wantPhase connect.Phase
+	}{
+		{name: "Probe", wantPhase: connect.PhaseConfirm},
+		{name: "Exchange", wantErr: connect.ErrConsentFailed, wantPhase: connect.PhaseFailed},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t, func(cfg *connect.Config) { connect.SetConsentTimeout(cfg, 50*time.Millisecond) })
+			if tt.name == "Probe" {
+				f.provider.blockProbe.Store(true)
+			} else {
+				f.provider.blockExchange.Store(true)
+			}
+			auth := f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
+
+			err := f.engine.Callback(context.Background(), f.provider.consent(t, auth))
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			status, err := f.engine.Session(context.Background(), f.conn, auth.SessionID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantPhase, status.Phase)
+			if tt.name == "Probe" {
+				assert.Equal(t, []connection.Probe{{Service: "svc", Error: context.DeadlineExceeded.Error()}}, status.Probes)
+			}
+		})
+	}
+}
+
+// The refresh token's lifetime counts from the exchange, not from the end
+// of the checks after it.
+func TestRefreshTokenExpiryFromExchange(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.provider.refreshExpiresIn = 60
+	f.provider.onProbe = func() { f.clock.advance(20 * time.Second) }
+	auth := f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
+	exchangedAt := f.clock.Now()
+
+	require.NoError(t, f.engine.Callback(context.Background(), f.provider.consent(t, auth)))
+	status, err := f.engine.Session(context.Background(), f.conn, auth.SessionID)
+	require.NoError(t, err)
+	assert.Equal(t, exchangedAt.Add(time.Minute), status.RefreshTokenExpiresAt)
+}
+
+// A refresh token is required only for an access token that expires.
+func TestConsentWithoutRefreshToken(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		expires   bool
+		wantPhase connect.Phase
+	}{
+		{name: "Expiring", expires: true, wantPhase: connect.PhaseFailed},
+		{name: "NonExpiring", wantPhase: connect.PhaseConfirm},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			f.provider.noRefreshToken = true
+			f.provider.noExpiry = !tt.expires
+			auth := f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
+
+			_ = f.engine.Callback(context.Background(), f.provider.consent(t, auth))
+			status, err := f.engine.Session(context.Background(), f.conn, auth.SessionID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantPhase, status.Phase)
+		})
+	}
+}
+
+// A loopback or paste session completes only through Complete for its own
+// connection, and a server callback session only through Callback.
+func TestCompleteServesItsModes(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.useClientType(t, connection.ClientTypeDesktop)
+	paste := connect.RedirectOptions{Mode: connect.RedirectPaste}
+	auth := f.start(t, connect.StartOptions{User: starter, Redirect: paste})
+	params := f.provider.consent(t, auth)
+
+	assert.ErrorIs(t, f.engine.Callback(context.Background(), params), connect.ErrCallbackRefused)
+	other := *f.conn
+	other.ID = "other"
+	assert.ErrorIs(t, f.engine.Complete(context.Background(), &other, params), connect.ErrCallbackRefused)
+	require.NoError(t, f.engine.Complete(context.Background(), f.conn, params))
+	assert.Equal(t, connection.SessionPhaseConfirm, f.state(t).Session.Phase)
+
+	f.useClientType(t, connection.ClientTypeWeb)
+	auth = f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
+	assert.ErrorIs(t, f.engine.Complete(context.Background(), f.conn, f.provider.consent(t, auth)), connect.ErrCallbackRefused)
+	assert.Equal(t, 1, f.provider.exchanges())
 }
 
 // The authorization URL carries an S256 challenge and the state, and the
@@ -238,6 +339,28 @@ func TestStartReplacesSession(t *testing.T) {
 	assert.Equal(t, connect.PhaseWaiting, status.Phase)
 }
 
+// A confirm clears its session, yet its handle still reads as connected,
+// and the handle of a session it replaced still reads as replaced.
+func TestSessionAfterConfirm(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	_, err := f.engine.Session(context.Background(), f.conn, "unknown")
+	assert.ErrorIs(t, err, connect.ErrSessionNotFound)
+
+	first := f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
+	second := f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
+	require.NoError(t, f.engine.Callback(context.Background(), f.provider.consent(t, second)))
+	require.NoError(t, f.engine.Confirm(context.Background(), f.conn, second.SessionID, starter))
+	f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
+
+	status, err := f.engine.Session(context.Background(), f.conn, first.SessionID)
+	require.NoError(t, err)
+	assert.Equal(t, connect.SessionStatus{Phase: connect.PhaseFailed, Reason: connect.ReasonReplaced}, status)
+	status, err = f.engine.Session(context.Background(), f.conn, second.SessionID)
+	require.NoError(t, err)
+	assert.Equal(t, connect.PhaseConnected, status.Phase)
+}
+
 // A confirm and a new session that race leave one consistent outcome:
 // either the confirm went live and the new session waits, or the new
 // session replaced the old one and the live tokens did not change.
@@ -250,12 +373,15 @@ func TestConfirmRacesNewSession(t *testing.T) {
 			first := f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
 			require.NoError(t, f.engine.Callback(context.Background(), f.provider.consent(t, first)))
 
-			var confirmErr error
+			var confirmErr, startErr error
 			var second *connect.Authorization
 			var wg sync.WaitGroup
 			wg.Go(func() { confirmErr = f.engine.Confirm(context.Background(), f.conn, first.SessionID, starter) })
-			wg.Go(func() { second = f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback}) })
+			wg.Go(func() {
+				second, startErr = f.engine.Start(context.Background(), f.conn, connect.StartOptions{User: starter, Redirect: serverCallback})
+			})
 			wg.Wait()
+			require.NoError(t, startErr)
 
 			st := f.state(t)
 			require.NotNil(t, st.Session)
@@ -288,6 +414,8 @@ func TestExpectedAccountConfirmsAtOnce(t *testing.T) {
 		{name: "SameAccountID", expected: "user@example.com", vouched: "user@example.com", liveID: "sub-1", wantPhase: connect.PhaseConnected},
 		// A reconnect to another account ID asks even when the email matches.
 		{name: "OtherAccountID", expected: "user@example.com", vouched: "user@example.com", liveID: "sub-0", wantPhase: connect.PhaseConfirm},
+		// Only ASCII letters fold: the Kelvin sign does not match k.
+		{name: "UnicodeFold", expected: "\u212Aim@example.com", vouched: "kim@example.com", wantPhase: connect.PhaseConfirm},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -348,6 +476,19 @@ func TestConsentErrorFailsSession(t *testing.T) {
 	assert.Equal(t, connection.TokenStatusPending, f.state(t).Status)
 }
 
+func TestConsentErrorReasonBounded(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	auth := f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
+	params := f.provider.consent(t, auth)
+	params.Code, params.Error, params.ErrorDescription = "", "access_denied", strings.Repeat("x", 4096)
+
+	assert.ErrorIs(t, f.engine.Callback(context.Background(), params), connect.ErrConsentFailed)
+	status, err := f.engine.Session(context.Background(), f.conn, auth.SessionID)
+	require.NoError(t, err)
+	assert.Len(t, status.Reason, 512)
+}
+
 // A failed exchange fails the session with the provider's error code,
 // without the code or the verifier.
 func TestExchangeErrorFailsSession(t *testing.T) {
@@ -400,6 +541,9 @@ func TestChooseRedirect(t *testing.T) {
 		{name: "NamedPaste", app: desktop, opts: connect.RedirectOptions{Mode: connect.RedirectPaste, LoopbackURI: loopback},
 			want: connect.Redirect{Mode: connect.RedirectPaste, URI: "http://127.0.0.1:1/oauth/callback"}},
 		{name: "NamedModeForOtherClient", app: desktop, opts: connect.RedirectOptions{Mode: connect.RedirectServerCallback, PublicURL: publicURL}, wantErr: true},
+		{name: "LoopbackPortOutOfRange", app: desktop, opts: connect.RedirectOptions{Mode: connect.RedirectLoopback, LoopbackURI: "http://127.0.0.1:65536/"}, wantErr: true},
+		{name: "AutoSkipsBadLoopback", app: desktop, opts: connect.RedirectOptions{LoopbackURI: "http://127.0.0.1:0/"},
+			want: connect.Redirect{Mode: connect.RedirectPaste, URI: "http://127.0.0.1:1/oauth/callback"}},
 		{name: "LoopbackNotLocal", app: desktop, opts: connect.RedirectOptions{Mode: connect.RedirectLoopback, LoopbackURI: "http://example.com:8080/"}, wantErr: true},
 		{name: "PublicClient", app: &connection.App{ClientType: connection.ClientTypePublic}, opts: connect.RedirectOptions{PublicURL: publicURL}, wantErr: true},
 	}
@@ -474,8 +618,8 @@ func newFixture(t *testing.T, opts ...func(*connect.Config)) *fixture {
 		Providers:      map[connection.Provider]connect.Provider{connection.ProviderOAuth2: f.provider},
 		Encryptor:      enc,
 		OnStatusChange: f.changes.add,
-		Now:            f.clock.Now,
 	}
+	connect.SetClock(&cfg, f.clock.Now)
 	for _, opt := range opts {
 		opt(&cfg)
 	}
@@ -503,6 +647,15 @@ func (f *fixture) connect(t *testing.T, accountID string) {
 	})
 }
 
+func (f *fixture) useClientType(t *testing.T, clientType connection.ClientType) {
+	t.Helper()
+	_, err := f.store.UpdateApp(context.Background(), f.conn.App, func(app *connection.App) error {
+		app.ClientType = clientType
+		return nil
+	})
+	require.NoError(t, err)
+}
+
 func (f *fixture) update(t *testing.T, fn func(*connection.TokenState)) {
 	t.Helper()
 	_, err := f.store.UpdateTokenState(context.Background(), f.conn, func(st *connection.TokenState) error {
@@ -523,9 +676,17 @@ func (f *fixture) state(t *testing.T) *connection.TokenState {
 // that checks the PKCE verifier and the redirect URI.
 type fakeProvider struct {
 	server *httptest.Server
-	// vouched is the email Identity vouches for. Tests set it before use.
-	vouched      string
+	// Tests set these before the first callback.
+	vouched          string
+	refreshExpiresIn int
+	noRefreshToken   bool
+	noExpiry         bool
+	onProbe          func()
+
 	failExchange atomic.Bool
+	// blockExchange and blockProbe make the call wait for its context.
+	blockExchange atomic.Bool
+	blockProbe    atomic.Bool
 
 	mu       sync.Mutex
 	grants   map[string]grant
@@ -579,10 +740,17 @@ func (p *fakeProvider) token(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant"})
 	default:
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token": "at-1", "refresh_token": "rt-1", "token_type": "Bearer",
-			"expires_in": 3600, "scope": "scope-a",
-		})
+		body := map[string]any{"access_token": "at-1", "token_type": "Bearer", "scope": "scope-a"}
+		if !p.noRefreshToken {
+			body["refresh_token"] = "rt-1"
+		}
+		if !p.noExpiry {
+			body["expires_in"] = 3600
+		}
+		if p.refreshExpiresIn > 0 {
+			body["refresh_token_expires_in"] = p.refreshExpiresIn
+		}
+		_ = json.NewEncoder(w).Encode(body)
 	}
 }
 
@@ -605,6 +773,10 @@ func (p *fakeProvider) AuthorizationParams(*connection.Connection) []oauth2.Auth
 }
 
 func (p *fakeProvider) Exchange(ctx context.Context, cfg *oauth2.Config, _ *connection.Connection, code string, opts ...oauth2.AuthCodeOption) (*oauth2.Token, error) {
+	if p.blockExchange.Load() {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	return cfg.Exchange(ctx, code, opts...)
 }
 
@@ -612,10 +784,17 @@ func (p *fakeProvider) Identity(context.Context, *connection.App, *oauth2.Token)
 	return connect.Identity{Account: "user@example.com", AccountID: "sub-1", VouchedEmail: p.vouched}, nil
 }
 
-func (p *fakeProvider) Probe(_ context.Context, conn *connection.Connection, _ *oauth2.Token) []connection.Probe {
+func (p *fakeProvider) Probe(ctx context.Context, conn *connection.Connection, _ *oauth2.Token) []connection.Probe {
+	if p.onProbe != nil {
+		p.onProbe()
+	}
 	probes := make([]connection.Probe, len(conn.Services))
 	for i, svc := range conn.Services {
 		probes[i] = connection.Probe{Service: svc.Name}
+		if p.blockProbe.Load() {
+			<-ctx.Done()
+			probes[i].Error = ctx.Err().Error()
+		}
 	}
 	return probes
 }

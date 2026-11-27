@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/connection"
@@ -112,5 +113,9 @@ func isLoopbackURI(raw string) bool {
 		return false
 	}
 	host, port, err := net.SplitHostPort(u.Host)
-	return err == nil && host == loopbackHost && port != ""
+	if err != nil || host != loopbackHost {
+		return false
+	}
+	n, err := strconv.ParseUint(port, 10, 16)
+	return err == nil && n > 0
 }

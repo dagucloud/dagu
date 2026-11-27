@@ -21,6 +21,7 @@
 package connect
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -28,9 +29,11 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/oauth2"
 
@@ -43,9 +46,17 @@ const (
 	// sessionTTL is how long a session waits for consent and confirmation.
 	sessionTTL = 10 * time.Minute
 	// consentTimeout bounds the provider calls of one callback: the code
-	// exchange, the identity, and the probes. A callback's claim on its
-	// session holds as long.
+	// exchange, the identity, and the probes.
 	consentTimeout = 45 * time.Second
+	// writeTimeout bounds each token state write after the provider calls,
+	// which runs on its own deadline once those calls have used theirs.
+	writeTimeout = 5 * time.Second
+	// claimMargin keeps a callback's claim past its last write, also for
+	// replicas whose clocks differ a little.
+	claimMargin = 10 * time.Second
+	// maxReasonBytes bounds a failed session's reason, which a provider's
+	// error description fills.
+	maxReasonBytes = 512
 	sessionIDBytes = 16
 	// refreshTokenExpiresIn is the token response field in which a
 	// provider reports the refresh token's lifetime, in seconds.
@@ -92,11 +103,14 @@ type Config struct {
 	// AnyUserConfirms lets any caller confirm any session. It is set when
 	// authentication is off.
 	AnyUserConfirms bool
-	// OnStatusChange, when set, receives each change of a connection's
-	// status that the engine's own writes make.
+	// OnStatusChange, when set, receives each change from needs_reconnect
+	// to connected that the engine's own writes make. A first connect, from
+	// pending, is not reported.
 	OnStatusChange func(context.Context, broker.StatusChange)
-	// Now returns the current time. It defaults to time.Now.
-	Now func() time.Time
+
+	// now and consentTimeout replace the defaults in tests.
+	now            func() time.Time
+	consentTimeout time.Duration
 }
 
 // Engine runs connect sessions.
@@ -107,6 +121,7 @@ type Engine struct {
 	anyUserConfirms bool
 	onStatusChange  func(context.Context, broker.StatusChange)
 	now             func() time.Time
+	consentTimeout  time.Duration
 }
 
 // StartOptions are what a starter gives for a session.
@@ -169,7 +184,7 @@ func New(cfg Config) (*Engine, error) {
 	if cfg.Store == nil || cfg.Encryptor == nil {
 		return nil, errors.New("connect engine: store and encryptor are required")
 	}
-	now := cfg.Now
+	now := cfg.now
 	if now == nil {
 		now = time.Now
 	}
@@ -180,6 +195,7 @@ func New(cfg Config) (*Engine, error) {
 		anyUserConfirms: cfg.AnyUserConfirms,
 		onStatusChange:  cfg.OnStatusChange,
 		now:             now,
+		consentTimeout:  cmp.Or(cfg.consentTimeout, consentTimeout),
 	}, nil
 }
 
@@ -223,6 +239,7 @@ func (e *Engine) Start(ctx context.Context, conn *connection.Connection, opts St
 		ConnectionID:    conn.ID,
 		SessionID:       sessionID,
 		Verifier:        verifier,
+		Mode:            redirect.Mode,
 		RedirectURI:     redirect.URI,
 		ExpectedAccount: opts.ExpectedAccount,
 		ExpiresAt:       expiresAt,
@@ -251,15 +268,31 @@ func (e *Engine) Start(ctx context.Context, conn *connection.Connection, opts St
 	}, nil
 }
 
-// Callback completes the consent of the session that p.State names, while
-// that session waits for it. It exchanges the code, reads the account, and
-// probes the services, then moves the session to confirm. An expected
-// account that the provider vouches for, with the account ID the
-// connection already has, if any, is confirmed at once.
+// Callback completes a server callback session from the provider's
+// redirect to the public callback route. See Complete for the rules.
 func (e *Engine) Callback(ctx context.Context, p CallbackParams) error {
+	return e.complete(ctx, p, nil, RedirectServerCallback)
+}
+
+// Complete completes a loopback or paste session of conn from the redirect
+// that the CLI received or the user pasted. The session must wait for
+// consent. Complete exchanges the code, reads the account, and probes the
+// services, then moves the session to confirm. An expected account that
+// the provider vouches for, with the account ID the connection already
+// has, if any, is confirmed at once.
+func (e *Engine) Complete(ctx context.Context, conn *connection.Connection, p CallbackParams) error {
+	return e.complete(ctx, p, conn, RedirectLoopback, RedirectPaste)
+}
+
+// complete completes the session that p.State names, when its redirect is
+// one of modes and, with want set, it is a session of want.
+func (e *Engine) complete(ctx context.Context, p CallbackParams, want *connection.Connection, modes ...RedirectMode) error {
 	st, err := openState(e.enc, p.State)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrCallbackRefused, err)
+	}
+	if !slices.Contains(modes, st.Mode) {
+		return fmt.Errorf("%w: the session uses the %s redirect", ErrCallbackRefused, st.Mode)
 	}
 	if !e.now().Before(st.ExpiresAt) {
 		return fmt.Errorf("%w: the session has expired", ErrCallbackRefused)
@@ -271,26 +304,32 @@ func (e *Engine) Callback(ctx context.Context, p CallbackParams) error {
 	if err != nil {
 		return err
 	}
+	if want != nil && want.ID != conn.ID {
+		return fmt.Errorf("%w: the state names another connection", ErrCallbackRefused)
+	}
+
+	// A code that the provider accepted is spent, so the provider calls run
+	// to their end even when the browser goes away. Their deadline starts
+	// before the claim, so the claim outlives them and the write after them.
+	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), e.consentTimeout)
+	defer cancel()
 	claim, err := e.claim(ctx, conn, st.SessionID)
 	if err != nil {
 		return err
 	}
-
-	// A code that the provider accepted is spent, so the provider calls run
-	// to their end even when the browser goes away.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), consentTimeout)
-	defer cancel()
 	if p.Error != "" {
 		return e.fail(ctx, conn, st.SessionID, claim, consentError(p.Error, p.ErrorDescription))
 	}
-	tokens, probes, err := e.consent(ctx, conn, st, p.Code)
+	tokens, probes, err := e.consent(callCtx, conn, st, p.Code)
 	if err != nil {
 		return e.fail(ctx, conn, st.SessionID, claim, err.Error())
 	}
 
+	writeCtx, cancelWrite := writeContext(ctx)
+	defer cancelWrite()
 	var from connection.TokenStatus
 	confirmed := false
-	_, err = e.store.UpdateTokenState(ctx, conn, func(s *connection.TokenState) error {
+	_, err = e.store.UpdateTokenState(writeCtx, conn, func(s *connection.TokenState) error {
 		if err := e.claimed(s.Session, st.SessionID, claim); err != nil {
 			return err
 		}
@@ -356,9 +395,10 @@ func (e *Engine) Cancel(ctx context.Context, conn *connection.Connection, sessio
 	return nil
 }
 
-// Session returns the status of the session that sessionID names. A
-// session that is no longer stored reads as connected while the connection
-// is connected, since a confirm clears it.
+// Session returns the status of the session that sessionID names. The
+// last confirmed session reads as connected, and any other session that is
+// no longer stored as replaced. Without a session, stored or confirmed, it
+// returns ErrSessionNotFound.
 func (e *Engine) Session(ctx context.Context, conn *connection.Connection, sessionID string) (SessionStatus, error) {
 	state, err := e.store.TokenState(ctx, conn)
 	if err != nil {
@@ -366,11 +406,11 @@ func (e *Engine) Session(ctx context.Context, conn *connection.Connection, sessi
 	}
 	s := state.Session
 	switch {
-	case s == nil && state.Status == connection.TokenStatusConnected:
+	case state.ConfirmedSession != "" && sameID(state.ConfirmedSession, sessionID):
 		return SessionStatus{Phase: PhaseConnected}, nil
-	case s == nil:
+	case s == nil && state.ConfirmedSession == "":
 		return SessionStatus{}, ErrSessionNotFound
-	case !sameID(s.ID, sessionID):
+	case s == nil || !sameID(s.ID, sessionID):
 		return SessionStatus{Phase: PhaseFailed, Reason: ReasonReplaced}, nil
 	}
 	status := SessionStatus{ExpiresAt: s.ExpiresAt}
@@ -419,8 +459,11 @@ func (e *Engine) consent(ctx context.Context, conn *connection.Connection, st au
 		}
 		return consentTokens{}, nil, fmt.Errorf("exchange the code: %s", redact(err.Error(), secrets...))
 	}
-	if token.RefreshToken == "" {
-		return consentTokens{}, nil, errors.New("the provider returned no refresh token")
+	exchangedAt := e.now()
+	// An access token that expires needs a refresh token to outlive its
+	// first hour; one that never expires serves on its own.
+	if token.RefreshToken == "" && !token.Expiry.IsZero() {
+		return consentTokens{}, nil, errors.New("the provider returned no refresh token for an access token that expires")
 	}
 	secrets = append(secrets, token.AccessToken, token.RefreshToken)
 	id, err := provider.Identity(ctx, app, token)
@@ -435,13 +478,14 @@ func (e *Engine) consent(ctx context.Context, conn *connection.Connection, st au
 		probes[i].Error = redact(probes[i].Error, secrets...)
 	}
 	return consentTokens{
-		Tokens:       e.tokensOf(token, id, cfg.Scopes),
+		Tokens:       tokensOf(token, id, cfg.Scopes, exchangedAt),
 		vouchedEmail: id.VouchedEmail,
 	}, probes, nil
 }
 
-func (e *Engine) tokensOf(token *oauth2.Token, id Identity, requested []string) connection.Tokens {
-	now := e.now()
+// tokensOf returns the tokens of a consent whose exchange returned token
+// at exchangedAt.
+func tokensOf(token *oauth2.Token, id Identity, requested []string, exchangedAt time.Time) connection.Tokens {
 	tokens := connection.Tokens{
 		Account:       id.Account,
 		AccountID:     id.AccountID,
@@ -455,11 +499,11 @@ func (e *Engine) tokensOf(token *oauth2.Token, id Identity, requested []string) 
 	}
 	if token.AccessToken != "" {
 		tokens.AccessTokens = map[string]connection.AccessToken{
-			"": {Token: token.AccessToken, ExpiresAt: token.Expiry, IssuedAt: now},
+			"": {Token: token.AccessToken, ExpiresAt: token.Expiry, IssuedAt: exchangedAt},
 		}
 	}
 	if secs := extraSeconds(token, refreshTokenExpiresIn); secs > 0 {
-		tokens.RefreshTokenExpiresAt = now.Add(time.Duration(secs) * time.Second)
+		tokens.RefreshTokenExpiresAt = exchangedAt.Add(time.Duration(secs) * time.Second)
 	}
 	return tokens
 }
@@ -486,7 +530,7 @@ func (e *Engine) claim(ctx context.Context, conn *connection.Connection, session
 		if err := e.waiting(st.Session, sessionID); err != nil {
 			return err
 		}
-		if c := st.Session.ClaimedAt; !c.IsZero() && now.Before(c.Add(consentTimeout)) {
+		if c := st.Session.ClaimedAt; !c.IsZero() && now.Before(c.Add(e.consentTimeout+writeTimeout+claimMargin)) {
 			return fmt.Errorf("%w: another callback is completing the session", ErrCallbackRefused)
 		}
 		st.Session.ClaimedAt = now
@@ -508,8 +552,12 @@ func (e *Engine) claimed(s *connection.Session, sessionID string, claim time.Tim
 }
 
 // fail fails the session sessionID that claim holds, and returns the
-// callback's error.
+// callback's error: ErrConsentFailed once the failure is stored, and the
+// write's error otherwise.
 func (e *Engine) fail(ctx context.Context, conn *connection.Connection, sessionID string, claim time.Time, reason string) error {
+	reason = truncate(reason, maxReasonBytes)
+	ctx, cancel := writeContext(ctx)
+	defer cancel()
 	_, err := e.store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {
 		if err := e.claimed(st.Session, sessionID, claim); err != nil {
 			return err
@@ -517,7 +565,16 @@ func (e *Engine) fail(ctx context.Context, conn *connection.Connection, sessionI
 		failSession(st.Session, reason)
 		return nil
 	})
-	return errors.Join(fmt.Errorf("%w: %s", ErrConsentFailed, reason), err)
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("%w: %s", ErrConsentFailed, reason)
+}
+
+// writeContext returns the context of a write after the provider calls,
+// which keeps its own deadline when theirs or the request's has ended.
+func writeContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
 }
 
 func (e *Engine) client(ctx context.Context, conn *connection.Connection) (Provider, *connection.App, error) {
@@ -561,9 +618,10 @@ func (e *Engine) expired(s *connection.Session) bool {
 	return !e.now().Before(s.ExpiresAt)
 }
 
-// reportConnected reports a confirm that changed the status from from.
+// reportConnected reports a confirm that restored a connection from
+// needs_reconnect. A first connect records no event.
 func (e *Engine) reportConnected(ctx context.Context, conn *connection.Connection, from connection.TokenStatus) {
-	if e.onStatusChange == nil || from == connection.TokenStatusConnected {
+	if e.onStatusChange == nil || from != connection.TokenStatusNeedsReconnect {
 		return
 	}
 	e.onStatusChange(context.WithoutCancel(ctx), broker.StatusChange{
@@ -576,8 +634,9 @@ func (e *Engine) reportConnected(ctx context.Context, conn *connection.Connectio
 }
 
 // goLive makes tokens the live tokens of st, with their account, in the
-// one write that confirms a session.
+// one write that confirms its session.
 func goLive(st *connection.TokenState, tokens connection.Tokens) {
+	st.ConfirmedSession = st.Session.ID
 	st.Tokens = tokens
 	st.Generation++
 	st.Status = connection.TokenStatusConnected
@@ -589,10 +648,42 @@ func goLive(st *connection.TokenState, tokens connection.Tokens) {
 // is the expected one, by an email that the provider vouches for, and has
 // the account ID that the connection already has, if any.
 func confirmsAtOnce(expected string, tokens consentTokens, liveAccountID string) bool {
-	if expected == "" || tokens.vouchedEmail == "" || !strings.EqualFold(expected, tokens.vouchedEmail) {
+	if expected == "" || tokens.vouchedEmail == "" || !asciiEqualFold(expected, tokens.vouchedEmail) {
 		return false
 	}
 	return liveAccountID == "" || liveAccountID == tokens.AccountID
+}
+
+// asciiEqualFold compares a and b ignoring the case of ASCII letters only,
+// so that no Unicode look-alike, such as the Kelvin sign for k, matches.
+func asciiEqualFold(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range len(a) {
+		if lowerASCII(a[i]) != lowerASCII(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func lowerASCII(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
+}
+
+// truncate cuts s to at most n bytes without splitting a character.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 func failSession(s *connection.Session, reason string) {
