@@ -204,7 +204,8 @@ secrets:
     provider: env
     key: SOURCE_API_TOKEN
 steps:
-  - command: curl -H "Authorization: Bearer $API_TOKEN" https://example.invalid
+  - command: |
+      curl -H "Authorization: Bearer $API_TOKEN" https://example.invalid
 ```
 
 ```yaml
