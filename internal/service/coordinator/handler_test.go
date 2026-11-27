@@ -252,7 +252,7 @@ func (m *mockDAGRunStore) CreateAttempt(_ context.Context, req persis.DAGRunCrea
 		key := req.RootDAGRun.ID + ":" + req.DAGRunID
 		attempt := &mockAttempt{
 			dag:        req.DAG,
-			status:     &ir.DAGRunStatus{Name: req.DAG.Name, DAGRunID: req.DAGRunID},
+			status:     &ir.DAGRunStatus{Name: req.DAG.Name, DAGRunID: req.DAGRunID, AttemptID: req.AttemptID},
 			writeError: m.attemptWriteErr,
 		}
 		m.subAttempts[key] = attempt
@@ -263,7 +263,7 @@ func (m *mockDAGRunStore) CreateAttempt(_ context.Context, req persis.DAGRunCrea
 	}
 	attempt := &mockAttempt{
 		dag:        req.DAG,
-		status:     &ir.DAGRunStatus{Name: req.DAG.Name, DAGRunID: req.DAGRunID},
+		status:     &ir.DAGRunStatus{Name: req.DAG.Name, DAGRunID: req.DAGRunID, AttemptID: req.AttemptID},
 		writeError: m.attemptWriteErr,
 	}
 	m.attempts[req.DAGRunID] = attempt
