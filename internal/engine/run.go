@@ -470,6 +470,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *ir.DAG, runID string, opts R
 			NoReuse:                  opts.NoReuse,
 			SecretStore:              stores.SecretStore,
 			SecretReferenceResolver:  stores.secretResolver,
+			ConnectionChecker:        stores.connectionChecker,
 			ProfileStore:             stores.ProfileStore,
 			ProfileResolver:          stores.profileResolver,
 			ServiceRegistry:          e.serviceRegistry,
@@ -721,6 +722,9 @@ func (e *Engine) runtimeStores(ctx context.Context) RuntimeStores {
 	}
 	if stores.MaterializationStore == nil {
 		stores.MaterializationStore = filematerialization.New(filepath.Join(e.cfg.Paths.DataDir, "materializations"))
+	}
+	if stores.OpenConnectionStore != nil {
+		stores.connectionChecker = rtagent.NewStoreConnectionChecker(stores.OpenConnectionStore)
 	}
 	if e.cfg.ProjectsEnabled {
 		if stores.SecretStore != nil {

@@ -120,6 +120,38 @@ steps:
 	require.Contains(t, err.Error(), "coordinator")
 }
 
+// An embedded run checks the connections its DAG declares before its first
+// step, as a local run of the CLI does.
+func TestEngineRunChecksConnections(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), engineTestTimeout(20*time.Second))
+	defer cancel()
+
+	home := t.TempDir()
+	engine, err := dagu.New(ctx, dagu.Options{HomeDir: home})
+	require.NoError(t, err, "New()")
+	defer func() {
+		require.NoError(t, engine.Close(context.Background()))
+	}()
+
+	marker := filepath.Join(home, "executed.txt")
+	run, err := engine.RunYAML(ctx, []byte(fmt.Sprintf(`
+name: embedded-connection
+steps:
+  - name: first
+    action: file.write
+    with: {path: %q, content: executed}
+  - name: unread
+    action: mcp.call
+    with: {connection: missing, server: gmail, tool: search_threads}
+`, marker)))
+	require.NoError(t, err, "RunYAML()")
+	status, err := run.Wait(ctx)
+	require.NoError(t, err, "Wait()")
+	require.Equal(t, "failed", status.Status)
+	require.Contains(t, status.Error, `connection not found: "missing"`)
+	require.NoFileExists(t, marker)
+}
+
 // An embedded run reads the secret and profile default of the workspace its
 // DAG's label names, as in v2. With projects on, the engine refuses to
 // start, since it would keep runs where a server with projects on does not
