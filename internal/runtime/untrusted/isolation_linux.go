@@ -77,6 +77,8 @@ func Poisoned() error {
 type isolation struct {
 	step        string
 	uid, gid    uint32
+	workerUID   int
+	workerGID   int
 	workDir     string
 	lexicalWork string
 	privateDir  string
@@ -84,8 +86,23 @@ type isolation struct {
 	outputCopy  string
 	nodeOutput  string
 	outputLimit int64
+	// protected keeps each folder that got the mode 1777, with its mode.
+	protected map[string]protectedDir
+	// gitEntries holds each entry .git of the work directory at the handoff.
+	gitEntries map[string]bool
+	// gitDirs holds each folder that git opens as a repository at the handoff.
+	gitDirs map[string]bool
+	// gitSnapshot holds the state of each entry of gitDirs and gitEntries
+	// after the handoff; seenGit marks the entries that the restore saw.
+	gitSnapshot map[string]fileSig
+	seenGit     map[string]bool
+	// gitModes holds the mode of each git entry whose mode the handoff
+	// changed, for the restore.
+	gitModes map[string]uint32
 	// hostLock is the lock file of the restricted user on the host.
 	hostLock *os.File
+	// handedOff is true once the walk of the handoff started.
+	handedOff bool
 
 	ended atomic.Bool
 	// outputMu guards nodeOutput.
@@ -119,7 +136,15 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 		step:        req.StepName,
 		uid:         req.Config.UID,
 		gid:         req.Config.GID,
+		workerUID:   os.Geteuid(),
+		workerGID:   os.Getegid(),
 		outputLimit: req.OutputLimit,
+		protected:   make(map[string]protectedDir),
+		gitEntries:  make(map[string]bool),
+		gitDirs:     make(map[string]bool),
+		gitSnapshot: make(map[string]fileSig),
+		seenGit:     make(map[string]bool),
+		gitModes:    make(map[string]uint32),
 		hostLock:    hostLock,
 	}
 	defer func() {
@@ -149,6 +174,10 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 		return iso, err
 	}
 	if err := iso.makePrivateDir(); err != nil {
+		return iso, err
+	}
+	iso.handedOff = true
+	if err := iso.handoff(); err != nil {
 		return iso, err
 	}
 	return iso, nil
@@ -269,14 +298,17 @@ func (iso *isolation) releaseSlot() {
 
 // abort undoes a Begin that failed. No process of the restricted user started.
 func (iso *isolation) abort() error {
-	var err error
+	var errs []error
+	if iso.handedOff {
+		errs = append(errs, iso.restore(false))
+	}
 	if iso.privateDir != "" {
 		if removeErr := os.RemoveAll(iso.privateDir); removeErr != nil {
-			err = stepError(iso.step, "remove the folder", iso.privateDir, removeErr)
+			errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, removeErr))
 		}
 	}
 	iso.releaseSlot()
-	return err
+	return errors.Join(errs...)
 }
 
 // place checks that the working directory of the step is in the work
@@ -536,7 +568,10 @@ func (iso *isolation) end(_ context.Context) error {
 		return fmt.Errorf("%w: %w", ErrRunAborted, err)
 	}
 
-	errs := []error{iso.copyOutput()}
+	var errs []error
+	errs = append(errs, iso.restore(true))
+	errs = append(errs, iso.checkGitRemoved())
+	errs = append(errs, iso.copyOutput())
 	if err := os.RemoveAll(iso.privateDir); err != nil {
 		errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, err))
 	}
@@ -582,6 +617,35 @@ func (iso *isolation) copyOutput() error {
 	_, writeErr := out.Write(data)
 	if err := errors.Join(writeErr, out.Close()); err != nil {
 		return stepError(iso.step, "write the output file", target, err)
+	}
+	return nil
+}
+
+// shareReadOnly lets the restricted user read the tree at path and not write
+// it. Each folder gets the mode 0555 and each file the mode 0444; the owner
+// stays the user of the worker. A link keeps its mode. The walk acts on
+// descriptors, so a path that changes under it cannot redirect a change of mode.
+func shareReadOnly(step, path string) error {
+	var chmodErr error
+	err := walkFD(path, func(e *fsEntry) (bool, error) {
+		if e.isLink() {
+			return true, nil
+		}
+		mode := uint32(0o444)
+		if e.isDir() {
+			mode = 0o555
+		}
+		if err := chmodFD(e, mode); err != nil {
+			chmodErr = stepError(step, "change the mode of", e.path, err)
+			return false, chmodErr
+		}
+		return false, nil
+	})
+	if chmodErr != nil {
+		return chmodErr
+	}
+	if err != nil {
+		return stepError(step, "read", path, err)
 	}
 	return nil
 }

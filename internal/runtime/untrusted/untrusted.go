@@ -261,6 +261,15 @@ func setEnv(env []string, key, value string) []string {
 	return append(result, key+"="+value)
 }
 
+// ShareReadOnly lets the restricted user read the file or the folder at path
+// and its content, and not write it. Without isolation, it does nothing.
+func (s *Step) ShareReadOnly(path string) error {
+	if !s.Isolated() {
+		return nil
+	}
+	return shareReadOnly(s.name, path)
+}
+
 func writeLine(w io.Writer, line string) {
 	if w == nil {
 		return
