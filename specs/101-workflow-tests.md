@@ -999,9 +999,12 @@ Rules:
 
 - A value holds a host value when its text contains one, as written or
   inside a JSON string, as output masking matches a secret (Spec 069), or
-  when it, or a string or number inside it, equals a short part. A part
-  that a shell-style operator takes from a host value, such as
-  `${HOST_TOKEN#Bearer }`, is not matched.
+  when it, or a string or number inside it, equals a short part. The match
+  is by value and best effort: a value derived from a host value in
+  another form, such as a part that a shell-style operator takes
+  (`${HOST_TOKEN#Bearer }`) or a re-encoding, is not matched. A DAG
+  `secrets` entry, and the case's `env` for any other value, are the way to
+  keep a credential out of a test.
 - The text and the JSON report mask host values in the values of a failed
   output or `called_with` assertion, as they mask secrets. Notification
   recipients are written as the run resolved them.
