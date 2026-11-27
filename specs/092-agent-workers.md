@@ -311,8 +311,10 @@ scheduler host.
 
 When the process has a coordinator, a run of a DAG that needs a provider always goes to the
 coordinator, on the same path as a DAG with a `worker_selector`. A sub-DAG run that needs a
-provider also goes to the coordinator, with its own implied selector. `dagu retry` and
-`dagu restart` run a DAG in the local process, so they refuse a DAG that needs a provider.
+provider also goes to the coordinator, with its own implied selector. `dagu start`, `dagu retry`
+and `dagu restart` place a run as the API and the scheduler do, so they send such a run to the
+coordinator too. A start or retry that a Dagu process launches on its host for a run it placed there
+runs there and is not placed again.
 
 The dispatch of a DAG that uses skills carries them. The coordinator adds every file of each skill
 of the DAG to the workspace bundle of the run, and the agent worker reads the skills from the

@@ -38,6 +38,8 @@ Flags:
 
 A DAG with `restart_policy: always` or `unless-stopped` has one run at a time: while a run is active, `dagu start`, `dagu enqueue` and `dagu retry` are refused. With no active run they work, which is how a stopped service comes back.
 
+`dagu start` places a run as the start request and the scheduler do. A run of a DAG with `worker_selector`, a run with `--worker-label`, and every run under `default_execution_mode: distributed` goes to the coordinator, and a run bound to a worker node goes to that worker. `worker_selector: local` and `coordinator.enabled: false` keep any other run on the Dagu host. A run bound to a worker node always needs the coordinator: with `coordinator.enabled: false` it fails before it starts, and it never runs on the host. A dispatched run's command waits for the run to end, shows its progress as a local run's does, and exits as the run ended. Ctrl+C cancels the run on its worker; during the dispatch itself, the command first waits for the coordinator to answer, so a run the coordinator took is cancelled too. A second Ctrl+C exits at once. When no coordinator answers, the command fails (`no coordinators available`) and the run does not run on the host. With projects on, a run of a non-default project or of a library that the rules send to the coordinator fails before anything runs, since only the default project's runs are dispatched. `dagu exec`, `dagu retry` and `dagu restart` place runs the same way.
+
 ### dagu enqueue
 
 Enqueue a DAG run for later execution.
@@ -93,6 +95,8 @@ With `--run-id`, a root run waiting for an approval or a human task ends as abor
 
 Stop and restart a DAG run: `dagu restart <dag-name> [--run-id/-r <id>]`
 
+The command stops the run, on the host or on a worker, and starts the new run where `dagu start` would place it. When the new run goes to the coordinator, the command first checks that the coordinator answers, and the worker too for a run bound to a worker node, so a restart that cannot dispatch stops nothing.
+
 A DAG with `restart_policy: always` or `unless-stopped` is refused: the scheduler starts its runs, so stop the running run instead. With `unless-stopped`, the scheduler starts no run after a stop: start the DAG again with `dagu start`.
 
 ### dagu retry
@@ -104,6 +108,8 @@ dagu retry <dag> --run-id/-r <id> [--step <name>] [--downstream] [--bypass-preco
 ```
 
 `--step` retries only the selected step. Add `--downstream` to also reset every reachable descendant; unrelated branches keep their current status. `--downstream` requires `--step`. Add `--bypass-preconditions` to skip step precondition evaluation for this retry; it also requires `--step` and a local CLI context. DAG-level preconditions and lifecycle handlers still apply. With `--sub-run-id <child-id>`, the bypass also reaches the selected child retry, including children dispatched to workers.
+
+A retry goes where `dagu start` would place the run, so a retry of a run with a worker selector goes to the coordinator. A retry that resumes an agent session goes to the worker that holds it. A DAG that uses a global queue enqueues the retry instead, and the scheduler places it.
 
 A retried step with `nodes` runs again only on the nodes that did not succeed, keeping the nodes it last recorded, or matching its selector again when it has no readable records; see `nodes:` in the step types reference.
 

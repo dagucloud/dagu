@@ -73,6 +73,9 @@ type Context struct {
 	// storeOptions opens every project's stores with the process's caches.
 	storeOptions file.ProjectStoreOptions
 	event        *eventstore.Service
+	// runPlaced is set for a run that a Dagu process launched after it
+	// placed the run on this host (runenv.EnvKeyRunPlaced).
+	runPlaced bool
 
 	Caches         []fileutil.CacheMetrics
 	Proc           proc.ProcHandle
@@ -770,6 +773,9 @@ func NewCommand(cmd *cobra.Command, flags []commandLineFlag, runFunc func(cmd *C
 			}()
 		}
 
+		// The marker leaves the environment before the configuration copies
+		// it, so no step of the run inherits it.
+		runPlaced := claimRunPlaced()
 		ctx, err := NewContext(cmd, flags)
 		if errors.Is(err, errProjectFlagUnknown) {
 			return cmd.FlagErrorFunc()(cmd, err)
@@ -783,6 +789,7 @@ func NewCommand(cmd *cobra.Command, flags []commandLineFlag, runFunc func(cmd *C
 		if ctx, err = ctx.inLibraryOf(args); err != nil {
 			return err
 		}
+		ctx.runPlaced = runPlaced
 		return runFunc(ctx, args)
 	}
 

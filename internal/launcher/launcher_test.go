@@ -1038,3 +1038,21 @@ func TestLaunchMarksMissingExecutable(t *testing.T) {
 		})
 	}
 }
+
+// A start or retry runs where its caller placed it, so its command carries
+// the placement marker once, inherited or not. An enqueue or a restart places
+// its run itself.
+func TestSubCmdBuilderRunPlaced(t *testing.T) {
+	t.Setenv(runenv.EnvKeyRunPlaced, "1")
+	builder := launcher.NewSubCmdBuilder(&config.Config{Paths: config.PathsConfig{Executable: "/usr/bin/dagu"}})
+	dag := &ir.DAG{Name: "etl", Location: "/dags/etl.yaml"}
+	marker := runenv.EnvKeyRunPlaced + "=1"
+	count := func(env []string) int {
+		return len(slices.DeleteFunc(slices.Clone(env), func(e string) bool { return e != marker }))
+	}
+
+	assert.Equal(t, 1, count(builder.Start(dag, launcher.StartOptions{}).Env))
+	assert.Equal(t, 1, count(builder.Retry(dag, launcher.RetryOptions{DAGRunID: "run-1"}).Env))
+	assert.Zero(t, count(builder.Enqueue(dag, launcher.EnqueueOptions{}).Env))
+	assert.Zero(t, count(builder.Restart(dag, launcher.RestartOptions{}).Env))
+}

@@ -46,7 +46,8 @@ type runOptions struct {
 	// seed is the queued status of a selected-steps run, which is dispatched
 	// as a retry of that attempt.
 	seed *ir.DAGRunStatus
-	// retried is the status of a run that a retry dispatches to its worker.
+	// retried is the status of a run that a retry dispatches to the
+	// coordinator.
 	retried *ir.DAGRunStatus
 	// boundWorker is the worker that runs a run bound to a worker node.
 	boundWorker string

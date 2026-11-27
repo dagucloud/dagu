@@ -1,0 +1,9 @@
+working_dir: .
+worker_selector:
+  test: "true"
+steps:
+  - id: write
+    action: file.write
+    with:
+      path: placed.out
+      content: placed
