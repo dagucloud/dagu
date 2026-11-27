@@ -66,7 +66,7 @@ func TestStepsNameTheirDependenciesByPosition(t *testing.T) {
 	status.Nodes = []*ir.Node{
 		{Step: ir.Step{}},
 		{Step: ir.Step{Name: "extract"}},
-		{Step: ir.Step{Name: "transform", Depends: []string{"extract"}}},
+		{Step: ir.Step{Name: "transform", Depends: []string{"extract", "extract"}}},
 		{Step: ir.Step{
 			Name:            "load",
 			Depends:         []string{"transform"},
@@ -94,6 +94,43 @@ func TestStepsNameTheirDependenciesByPosition(t *testing.T) {
 
 	require.Len(t, steps, maxRunSteps)
 	assert.Equal(t, []int{1}, steps[0].Depends, "a step past those reported is left out")
+}
+
+func TestStepsBudgetOnlyReportedDependencies(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name         string
+		count        int
+		padding      int
+		firstOmitted int
+	}{
+		{name: "step count", count: 2 * maxRunSteps, firstOmitted: maxRunSteps},
+		{name: "encoded size", count: 100, padding: maxStepNameBytes - len("step-000"), firstOmitted: 70},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			status := run("etl", "run-1", ir.Succeeded)
+			var omitted []string
+			for i := range tc.count {
+				name := fmt.Sprintf("step-%03d%s", i, strings.Repeat("x", tc.padding))
+				status.Nodes = append(status.Nodes, &ir.Node{Step: ir.Step{Name: name}, Status: ir.NodeSucceeded})
+				if i >= tc.firstOmitted {
+					omitted = append(omitted, name)
+				}
+			}
+			withoutEdges := runSteps(status)
+			require.LessOrEqual(t, len(withoutEdges.Steps), tc.firstOmitted)
+			for _, node := range status.Nodes[:50] {
+				node.Step.Depends = omitted
+			}
+			status.Nodes[0].Step.Depends = append([]string{status.Nodes[1].Step.Name}, omitted...)
+
+			reported := runSteps(status)
+			require.Equal(t, len(withoutEdges.Steps), len(reported.Steps))
+			assert.Equal(t, []int{1}, reported.Steps[0].Depends)
+			assert.LessOrEqual(t, encodedLen(reported), maxStepsBytes)
+		})
+	}
 }
 
 // A run's handlers are reported apart from its steps, by kind.

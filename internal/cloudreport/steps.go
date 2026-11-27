@@ -6,16 +6,18 @@ package cloudreport
 import (
 	"context"
 	"slices"
+	"sort"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const (
 	// maxRunSteps is the most steps a run carries.
-	maxRunSteps = 200
+	maxRunSteps = eventstore.MaxSnapshotDependencySteps
 	// maxStepsBytes bounds a run's encoded steps, escapes included, so a
 	// finished run always fits a report alone.
 	maxStepsBytes = 32 << 10
@@ -64,44 +66,52 @@ type stepRun struct {
 func runSteps(status *ir.DAGRunStatus) reportedSteps {
 	var nodes []*ir.Node
 	positions := map[string]int{}
+	total := 0
 	for _, node := range status.Nodes {
 		if node.Step.Name == "" {
 			continue
 		}
-		positions[node.Step.Name] = len(nodes)
-		nodes = append(nodes, node)
+		if total < maxRunSteps {
+			positions[node.Step.Name] = len(nodes)
+			nodes = append(nodes, node)
+		}
+		total++
 	}
 	if len(nodes) == 0 {
 		return reportedSteps{}
 	}
 	runStart, timed := snapshotSecond(status.StartedAt)
-	reported := reportedSteps{StepsTotal: len(nodes)}
-	size := len("[]")
+	reported := reportedSteps{StepsTotal: total, Steps: make([]reportedStep, 0, len(nodes))}
 	for kind, node := range runHandlers(status) {
 		if reported.Handlers == nil {
 			reported.Handlers = map[string]stepRun{}
 		}
 		reported.Handlers[kind.String()] = newStepRun(node, runStart, timed)
 	}
-	if len(reported.Handlers) > 0 {
-		size += encodedLen(reported.Handlers)
-	}
 	for _, node := range nodes {
-		step := reportedStep{
+		reported.Steps = append(reported.Steps, reportedStep{
 			Name:    truncateBytes(node.Step.Name, maxStepNameBytes),
 			stepRun: newStepRun(node, runStart, timed),
 			Depends: dependPositions(&node.Step, positions),
-		}
-		n := encodedLen(step) + len(",")
-		if len(reported.Steps) == maxRunSteps || size+n > maxStepsBytes {
-			break
-		}
-		reported.Steps = append(reported.Steps, step)
-		size += n
+		})
 	}
-	// A step can wait for one past those returned, which no position names.
+	if encodedLen(reported) <= maxStepsBytes {
+		return reported
+	}
+
+	// A larger prefix only adds steps and edges, so its encoded size cannot shrink.
+	limit := sort.Search(len(reported.Steps), func(i int) bool {
+		return encodedLen(reported.prefix(i+1)) > maxStepsBytes
+	})
+	return reported.prefix(limit)
+}
+
+// prefix keeps the first n steps and the edges between them.
+func (reported reportedSteps) prefix(n int) reportedSteps {
+	reported.Steps = slices.Clone(reported.Steps[:n])
 	for i := range reported.Steps {
-		reported.Steps[i].Depends = slices.DeleteFunc(reported.Steps[i].Depends, func(p int) bool { return p >= len(reported.Steps) })
+		depends := slices.Clone(reported.Steps[i].Depends)
+		reported.Steps[i].Depends = slices.DeleteFunc(depends, func(p int) bool { return p >= n })
 	}
 	return reported
 }
@@ -148,8 +158,10 @@ func wholeSeconds(d time.Duration) *int64 {
 // and inferred alike, given the position of each step by name.
 func dependPositions(step *ir.Step, positions map[string]int) []int {
 	var out []int
+	var seen [maxRunSteps]bool
 	for _, name := range step.AllDepends() {
-		if p, ok := positions[name]; ok {
+		if p, ok := positions[name]; ok && !seen[p] {
+			seen[p] = true
 			out = append(out, p)
 		}
 	}
