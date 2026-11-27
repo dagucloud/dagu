@@ -27,7 +27,7 @@ func TestValidateAttemptLeaseAcceptsNestedInlineChild(t *testing.T) {
 		WorkerID:   "worker-2",
 	}
 
-	err := (&Handler{}).validateAttemptLease(lease, attemptIdentity{
+	err := (&Handler{}).validateAttemptLease(t.Context(), lease, attemptIdentity{
 		attemptKey: "child-attempt-key",
 		claimKey:   lease.AttemptKey,
 		workerID:   lease.WorkerID,
@@ -50,7 +50,7 @@ func TestValidateAttemptLeaseAcceptsNestedInlineChildWithUnsetLeaseRoot(t *testi
 		WorkerID:   "worker-2",
 	}
 
-	err := (&Handler{}).validateAttemptLease(lease, attemptIdentity{
+	err := (&Handler{}).validateAttemptLease(t.Context(), lease, attemptIdentity{
 		attemptKey: "child-attempt-key",
 		claimKey:   lease.AttemptKey,
 		workerID:   lease.WorkerID,
@@ -74,7 +74,7 @@ func TestValidateAttemptLeaseRejectsNestedInlineChildFromDifferentRoot(t *testin
 		WorkerID:   "worker-2",
 	}
 
-	err := (&Handler{}).validateAttemptLease(lease, attemptIdentity{
+	err := (&Handler{}).validateAttemptLease(t.Context(), lease, attemptIdentity{
 		attemptKey: "child-attempt-key",
 		claimKey:   lease.AttemptKey,
 		workerID:   lease.WorkerID,
@@ -98,7 +98,7 @@ func TestValidateAttemptLeaseRejectsNestedInlineChildFromDifferentRootWithUnsetL
 		WorkerID:   "worker-2",
 	}
 
-	err := (&Handler{}).validateAttemptLease(lease, attemptIdentity{
+	err := (&Handler{}).validateAttemptLease(t.Context(), lease, attemptIdentity{
 		attemptKey: "child-attempt-key",
 		claimKey:   lease.AttemptKey,
 		workerID:   lease.WorkerID,
@@ -123,7 +123,7 @@ func TestValidateAttemptLeaseRejectsNestedInlineChildFromDifferentWorker(t *test
 		WorkerID:   "worker-2",
 	}
 
-	err := (&Handler{}).validateAttemptLease(lease, attemptIdentity{
+	err := (&Handler{}).validateAttemptLease(t.Context(), lease, attemptIdentity{
 		attemptKey: "child-attempt-key",
 		claimKey:   lease.AttemptKey,
 		workerID:   "worker-3",

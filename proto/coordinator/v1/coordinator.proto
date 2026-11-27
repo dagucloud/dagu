@@ -195,6 +195,25 @@ message Task {
   // Command step with nodes of the definition that the run runs alone, bound
   // to bound_node. Empty for a run of the whole definition.
   string node_step = 49;
+  // Project whose run this is. Unset for the default project's own DAGs.
+  ProjectScope project = 50;
+}
+
+// ProjectScope addresses the runs of one project: those of its own DAGs, or
+// those of the library DAGs that run in it. A call that carries none
+// addresses the runs of the default project's own DAGs.
+message ProjectScope {
+  string project_id = 1; // Empty for the default project
+  bool library = 2;      // The runs of the library DAGs that run in the project
+}
+
+// CallerAttempt names the distributed attempt a worker's call acts for. A
+// call for another project than the default one must name it, and the
+// worker must hold the attempt's lease in that project.
+message CallerAttempt {
+  string worker_id = 1;
+  string attempt_key = 2;
+  string attempt_id = 3;
 }
 
 enum Operation {
@@ -309,6 +328,7 @@ message ClaimAgentSessionCleanupResponse {
   string owner_coordinator_id = 7;
   string owner_coordinator_host = 8;
   int32 owner_coordinator_port = 9;
+  ProjectScope project = 10; // Project whose removed run the cleanup follows
 }
 
 message CompleteAgentSessionCleanupRequest {
@@ -316,6 +336,7 @@ message CompleteAgentSessionCleanupRequest {
   string job_id = 2;
   string claim_token = 3;
   string error = 4;
+  ProjectScope project = 5; // The project the claim named
 }
 
 message CompleteAgentSessionCleanupResponse {
@@ -354,6 +375,7 @@ message RunningTask {
   string parent_dag_run_name = 6;
   string parent_dag_run_id = 7;
   string attempt_key = 8;       // Globally unique attempt identifier
+  ProjectScope project = 9;     // Unset for the default project's own DAGs
 }
 
 // Request message for reporting DAG run status.
@@ -363,6 +385,7 @@ message ReportStatusRequest {
   string owner_coordinator_id = 3;
   string source_file = 4;
   string labels = 5;
+  ProjectScope project = 6;
 }
 
 // Response message for reporting DAG run status.
@@ -399,6 +422,7 @@ message LogChunk {
   string attempt_key = 13;
   // When present, data is written at this absolute byte position; otherwise it is appended.
   optional uint64 byte_offset = 14;
+  ProjectScope project = 15;
 }
 
 // Type of log stream.
@@ -436,6 +460,7 @@ message ArtifactChunk {
   string owner_coordinator_id = 11;
   // Durable attempt identity used to fence artifact writes.
   string attempt_key = 12;
+  ProjectScope project = 13;
 }
 
 // Response message for artifact streaming.
@@ -491,6 +516,7 @@ message GetDAGRunStatusRequest {
   // When set, the coordinator looks up the status as a sub-DAG.
   string root_dag_run_name = 3;
   string root_dag_run_id = 4;
+  ProjectScope project = 5;
 }
 
 // Response message for getting DAG run status.
@@ -507,6 +533,7 @@ message RequestCancelRequest {
   // Root DAG run info for sub-DAG cancellation
   string root_dag_run_name = 3;
   string root_dag_run_id = 4;
+  ProjectScope project = 5;
 }
 
 // Response message for cancelling a DAG run.
@@ -540,6 +567,8 @@ message StateEntry {
 
 message GetStateRequest {
   StateRef ref = 1;
+  ProjectScope project = 2;
+  CallerAttempt caller = 3;
 }
 
 message GetStateResponse {
@@ -554,6 +583,8 @@ message PutStateRequest {
   int64 expected_version = 4;
   bool create_only = 5;
   StateUpdateSource updated_by = 6;
+  ProjectScope project = 7;
+  CallerAttempt caller = 8;
 }
 
 message PutStateResponse {
@@ -562,6 +593,8 @@ message PutStateResponse {
 
 message DeleteStateRequest {
   StateRef ref = 1;
+  ProjectScope project = 2;
+  CallerAttempt caller = 3;
 }
 
 message DeleteStateResponse {
@@ -573,6 +606,8 @@ message ListStateRequest {
   string namespace = 2;
   string key_prefix = 3;
   int32 limit = 4;
+  ProjectScope project = 5;
+  CallerAttempt caller = 6;
 }
 
 message ListStateResponse {
@@ -585,6 +620,8 @@ message ListStateResponse {
 // a new DAG YAML may not yet be present on the worker.
 message GetDAGRequest {
   string name = 1;  // DAG name to look up
+  ProjectScope project = 2;
+  CallerAttempt caller = 3;
 }
 
 message GetDAGResponse {
@@ -605,6 +642,7 @@ message ResolveSecretReferenceRequest {
   // Node whose connection uses ref, set in place of name. The ref is served
   // only to an attempt that targets nodes.
   string node = 9;
+  ProjectScope project = 10;
 }
 
 message ResolveSecretReferenceResponse {
@@ -618,6 +656,7 @@ message ResolveRuntimeProfileRequest {
   string profile_name = 4;
   string workspace = 5;
   string dag_name = 6;
+  ProjectScope project = 7;
 }
 
 message RuntimeProfileEntry {
@@ -645,6 +684,7 @@ message ResolveNodesRequest {
   string dag_name = 4;    // Current DAG definition; empty selects the attempt's DAG
   string selector = 5;    // Label selector, such as "role=web,!canary"
   repeated string names = 6; // Exact node names, compared without case
+  ProjectScope project = 7;
 }
 
 message ResolveNodesResponse {

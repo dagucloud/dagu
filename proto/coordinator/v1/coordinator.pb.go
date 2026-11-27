@@ -576,7 +576,9 @@ type Task struct {
 	BoundNode string `protobuf:"bytes,48,opt,name=bound_node,json=boundNode,proto3" json:"bound_node,omitempty"`
 	// Command step with nodes of the definition that the run runs alone, bound
 	// to bound_node. Empty for a run of the whole definition.
-	NodeStep      string `protobuf:"bytes,49,opt,name=node_step,json=nodeStep,proto3" json:"node_step,omitempty"`
+	NodeStep string `protobuf:"bytes,49,opt,name=node_step,json=nodeStep,proto3" json:"node_step,omitempty"`
+	// Project whose run this is. Unset for the default project's own DAGs.
+	Project       *ProjectScope `protobuf:"bytes,50,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -942,6 +944,13 @@ func (x *Task) GetNodeStep() string {
 	return ""
 }
 
+func (x *Task) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
 func (x *Task) SetOperation(v Operation) {
 	x.Operation = v
 }
@@ -1134,6 +1143,10 @@ func (x *Task) SetNodeStep(v string) {
 	x.NodeStep = v
 }
 
+func (x *Task) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
 func (x *Task) HasPreviousStatus() bool {
 	if x == nil {
 		return false
@@ -1148,12 +1161,23 @@ func (x *Task) HasBaseConfigWorkspace() bool {
 	return x.BaseConfigWorkspace != nil
 }
 
+func (x *Task) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
 func (x *Task) ClearPreviousStatus() {
 	x.PreviousStatus = nil
 }
 
 func (x *Task) ClearBaseConfigWorkspace() {
 	x.BaseConfigWorkspace = nil
+}
+
+func (x *Task) ClearProject() {
+	x.Project = nil
 }
 
 type Task_builder struct {
@@ -1241,6 +1265,8 @@ type Task_builder struct {
 	// Command step with nodes of the definition that the run runs alone, bound
 	// to bound_node. Empty for a run of the whole definition.
 	NodeStep string
+	// Project whose run this is. Unset for the default project's own DAGs.
+	Project *ProjectScope
 }
 
 func (b0 Task_builder) Build() *Task {
@@ -1295,6 +1321,169 @@ func (b0 Task_builder) Build() *Task {
 	x.TargetNodes = b.TargetNodes
 	x.BoundNode = b.BoundNode
 	x.NodeStep = b.NodeStep
+	x.Project = b.Project
+	return m0
+}
+
+// ProjectScope addresses the runs of one project: those of its own DAGs, or
+// those of the library DAGs that run in it. A call that carries none
+// addresses the runs of the default project's own DAGs.
+type ProjectScope struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	ProjectId     string                 `protobuf:"bytes,1,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"` // Empty for the default project
+	Library       bool                   `protobuf:"varint,2,opt,name=library,proto3" json:"library,omitempty"`                     // The runs of the library DAGs that run in the project
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectScope) Reset() {
+	*x = ProjectScope{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectScope) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectScope) ProtoMessage() {}
+
+func (x *ProjectScope) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ProjectScope) GetProjectId() string {
+	if x != nil {
+		return x.ProjectId
+	}
+	return ""
+}
+
+func (x *ProjectScope) GetLibrary() bool {
+	if x != nil {
+		return x.Library
+	}
+	return false
+}
+
+func (x *ProjectScope) SetProjectId(v string) {
+	x.ProjectId = v
+}
+
+func (x *ProjectScope) SetLibrary(v bool) {
+	x.Library = v
+}
+
+type ProjectScope_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ProjectId string
+	Library   bool
+}
+
+func (b0 ProjectScope_builder) Build() *ProjectScope {
+	m0 := &ProjectScope{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.ProjectId = b.ProjectId
+	x.Library = b.Library
+	return m0
+}
+
+// CallerAttempt names the distributed attempt a worker's call acts for. A
+// call for another project than the default one must name it, and the
+// worker must hold the attempt's lease in that project.
+type CallerAttempt struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	WorkerId      string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
+	AttemptKey    string                 `protobuf:"bytes,2,opt,name=attempt_key,json=attemptKey,proto3" json:"attempt_key,omitempty"`
+	AttemptId     string                 `protobuf:"bytes,3,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CallerAttempt) Reset() {
+	*x = CallerAttempt{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CallerAttempt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CallerAttempt) ProtoMessage() {}
+
+func (x *CallerAttempt) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CallerAttempt) GetWorkerId() string {
+	if x != nil {
+		return x.WorkerId
+	}
+	return ""
+}
+
+func (x *CallerAttempt) GetAttemptKey() string {
+	if x != nil {
+		return x.AttemptKey
+	}
+	return ""
+}
+
+func (x *CallerAttempt) GetAttemptId() string {
+	if x != nil {
+		return x.AttemptId
+	}
+	return ""
+}
+
+func (x *CallerAttempt) SetWorkerId(v string) {
+	x.WorkerId = v
+}
+
+func (x *CallerAttempt) SetAttemptKey(v string) {
+	x.AttemptKey = v
+}
+
+func (x *CallerAttempt) SetAttemptId(v string) {
+	x.AttemptId = v
+}
+
+type CallerAttempt_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	WorkerId   string
+	AttemptKey string
+	AttemptId  string
+}
+
+func (b0 CallerAttempt_builder) Build() *CallerAttempt {
+	m0 := &CallerAttempt{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.WorkerId = b.WorkerId
+	x.AttemptKey = b.AttemptKey
+	x.AttemptId = b.AttemptId
 	return m0
 }
 
@@ -1307,7 +1496,7 @@ type GetWorkersRequest struct {
 
 func (x *GetWorkersRequest) Reset() {
 	*x = GetWorkersRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[5]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1319,7 +1508,7 @@ func (x *GetWorkersRequest) String() string {
 func (*GetWorkersRequest) ProtoMessage() {}
 
 func (x *GetWorkersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[5]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1352,7 +1541,7 @@ type GetWorkersResponse struct {
 
 func (x *GetWorkersResponse) Reset() {
 	*x = GetWorkersResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[6]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1364,7 +1553,7 @@ func (x *GetWorkersResponse) String() string {
 func (*GetWorkersResponse) ProtoMessage() {}
 
 func (x *GetWorkersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[6]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1420,7 +1609,7 @@ type WorkerInfo struct {
 
 func (x *WorkerInfo) Reset() {
 	*x = WorkerInfo{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[7]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1432,7 +1621,7 @@ func (x *WorkerInfo) String() string {
 func (*WorkerInfo) ProtoMessage() {}
 
 func (x *WorkerInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[7]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1601,7 +1790,7 @@ type HeartbeatRequest struct {
 
 func (x *HeartbeatRequest) Reset() {
 	*x = HeartbeatRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[8]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1613,7 +1802,7 @@ func (x *HeartbeatRequest) String() string {
 func (*HeartbeatRequest) ProtoMessage() {}
 
 func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[8]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1756,7 +1945,7 @@ type MachineSample struct {
 
 func (x *MachineSample) Reset() {
 	*x = MachineSample{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[9]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1768,7 +1957,7 @@ func (x *MachineSample) String() string {
 func (*MachineSample) ProtoMessage() {}
 
 func (x *MachineSample) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[9]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1977,7 +2166,7 @@ type MachineUsage struct {
 
 func (x *MachineUsage) Reset() {
 	*x = MachineUsage{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[10]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1989,7 +2178,7 @@ func (x *MachineUsage) String() string {
 func (*MachineUsage) ProtoMessage() {}
 
 func (x *MachineUsage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[10]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2100,7 +2289,7 @@ type MachineLoad struct {
 
 func (x *MachineLoad) Reset() {
 	*x = MachineLoad{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[11]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2112,7 +2301,7 @@ func (x *MachineLoad) String() string {
 func (*MachineLoad) ProtoMessage() {}
 
 func (x *MachineLoad) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[11]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2186,7 +2375,7 @@ type HeartbeatResponse struct {
 
 func (x *HeartbeatResponse) Reset() {
 	*x = HeartbeatResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[12]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2198,7 +2387,7 @@ func (x *HeartbeatResponse) String() string {
 func (*HeartbeatResponse) ProtoMessage() {}
 
 func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[12]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2247,7 +2436,7 @@ type AckTaskClaimRequest struct {
 
 func (x *AckTaskClaimRequest) Reset() {
 	*x = AckTaskClaimRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[13]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2259,7 +2448,7 @@ func (x *AckTaskClaimRequest) String() string {
 func (*AckTaskClaimRequest) ProtoMessage() {}
 
 func (x *AckTaskClaimRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[13]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2331,7 +2520,7 @@ type AckTaskClaimResponse struct {
 
 func (x *AckTaskClaimResponse) Reset() {
 	*x = AckTaskClaimResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[14]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2343,7 +2532,7 @@ func (x *AckTaskClaimResponse) String() string {
 func (*AckTaskClaimResponse) ProtoMessage() {}
 
 func (x *AckTaskClaimResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[14]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2401,7 +2590,7 @@ type ClaimAgentSessionCleanupRequest struct {
 
 func (x *ClaimAgentSessionCleanupRequest) Reset() {
 	*x = ClaimAgentSessionCleanupRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[15]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2413,7 +2602,7 @@ func (x *ClaimAgentSessionCleanupRequest) String() string {
 func (*ClaimAgentSessionCleanupRequest) ProtoMessage() {}
 
 func (x *ClaimAgentSessionCleanupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[15]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2460,13 +2649,14 @@ type ClaimAgentSessionCleanupResponse struct {
 	OwnerCoordinatorId   string                 `protobuf:"bytes,7,opt,name=owner_coordinator_id,json=ownerCoordinatorId,proto3" json:"owner_coordinator_id,omitempty"`
 	OwnerCoordinatorHost string                 `protobuf:"bytes,8,opt,name=owner_coordinator_host,json=ownerCoordinatorHost,proto3" json:"owner_coordinator_host,omitempty"`
 	OwnerCoordinatorPort int32                  `protobuf:"varint,9,opt,name=owner_coordinator_port,json=ownerCoordinatorPort,proto3" json:"owner_coordinator_port,omitempty"`
+	Project              *ProjectScope          `protobuf:"bytes,10,opt,name=project,proto3" json:"project,omitempty"` // Project whose removed run the cleanup follows
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
 
 func (x *ClaimAgentSessionCleanupResponse) Reset() {
 	*x = ClaimAgentSessionCleanupResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[16]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2478,7 +2668,7 @@ func (x *ClaimAgentSessionCleanupResponse) String() string {
 func (*ClaimAgentSessionCleanupResponse) ProtoMessage() {}
 
 func (x *ClaimAgentSessionCleanupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[16]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2552,6 +2742,13 @@ func (x *ClaimAgentSessionCleanupResponse) GetOwnerCoordinatorPort() int32 {
 	return 0
 }
 
+func (x *ClaimAgentSessionCleanupResponse) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
 func (x *ClaimAgentSessionCleanupResponse) SetFound(v bool) {
 	x.Found = v
 }
@@ -2588,6 +2785,21 @@ func (x *ClaimAgentSessionCleanupResponse) SetOwnerCoordinatorPort(v int32) {
 	x.OwnerCoordinatorPort = v
 }
 
+func (x *ClaimAgentSessionCleanupResponse) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
+func (x *ClaimAgentSessionCleanupResponse) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
+func (x *ClaimAgentSessionCleanupResponse) ClearProject() {
+	x.Project = nil
+}
+
 type ClaimAgentSessionCleanupResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -2600,6 +2812,7 @@ type ClaimAgentSessionCleanupResponse_builder struct {
 	OwnerCoordinatorId   string
 	OwnerCoordinatorHost string
 	OwnerCoordinatorPort int32
+	Project              *ProjectScope
 }
 
 func (b0 ClaimAgentSessionCleanupResponse_builder) Build() *ClaimAgentSessionCleanupResponse {
@@ -2615,6 +2828,7 @@ func (b0 ClaimAgentSessionCleanupResponse_builder) Build() *ClaimAgentSessionCle
 	x.OwnerCoordinatorId = b.OwnerCoordinatorId
 	x.OwnerCoordinatorHost = b.OwnerCoordinatorHost
 	x.OwnerCoordinatorPort = b.OwnerCoordinatorPort
+	x.Project = b.Project
 	return m0
 }
 
@@ -2624,13 +2838,14 @@ type CompleteAgentSessionCleanupRequest struct {
 	JobId         string                 `protobuf:"bytes,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
 	ClaimToken    string                 `protobuf:"bytes,3,opt,name=claim_token,json=claimToken,proto3" json:"claim_token,omitempty"`
 	Error         string                 `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`
+	Project       *ProjectScope          `protobuf:"bytes,5,opt,name=project,proto3" json:"project,omitempty"` // The project the claim named
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CompleteAgentSessionCleanupRequest) Reset() {
 	*x = CompleteAgentSessionCleanupRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[17]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2642,7 +2857,7 @@ func (x *CompleteAgentSessionCleanupRequest) String() string {
 func (*CompleteAgentSessionCleanupRequest) ProtoMessage() {}
 
 func (x *CompleteAgentSessionCleanupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[17]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2681,6 +2896,13 @@ func (x *CompleteAgentSessionCleanupRequest) GetError() string {
 	return ""
 }
 
+func (x *CompleteAgentSessionCleanupRequest) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
 func (x *CompleteAgentSessionCleanupRequest) SetWorkerId(v string) {
 	x.WorkerId = v
 }
@@ -2697,6 +2919,21 @@ func (x *CompleteAgentSessionCleanupRequest) SetError(v string) {
 	x.Error = v
 }
 
+func (x *CompleteAgentSessionCleanupRequest) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
+func (x *CompleteAgentSessionCleanupRequest) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
+func (x *CompleteAgentSessionCleanupRequest) ClearProject() {
+	x.Project = nil
+}
+
 type CompleteAgentSessionCleanupRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -2704,6 +2941,7 @@ type CompleteAgentSessionCleanupRequest_builder struct {
 	JobId      string
 	ClaimToken string
 	Error      string
+	Project    *ProjectScope
 }
 
 func (b0 CompleteAgentSessionCleanupRequest_builder) Build() *CompleteAgentSessionCleanupRequest {
@@ -2714,6 +2952,7 @@ func (b0 CompleteAgentSessionCleanupRequest_builder) Build() *CompleteAgentSessi
 	x.JobId = b.JobId
 	x.ClaimToken = b.ClaimToken
 	x.Error = b.Error
+	x.Project = b.Project
 	return m0
 }
 
@@ -2725,7 +2964,7 @@ type CompleteAgentSessionCleanupResponse struct {
 
 func (x *CompleteAgentSessionCleanupResponse) Reset() {
 	*x = CompleteAgentSessionCleanupResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[18]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2737,7 +2976,7 @@ func (x *CompleteAgentSessionCleanupResponse) String() string {
 func (*CompleteAgentSessionCleanupResponse) ProtoMessage() {}
 
 func (x *CompleteAgentSessionCleanupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[18]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2771,7 +3010,7 @@ type RunHeartbeatRequest struct {
 
 func (x *RunHeartbeatRequest) Reset() {
 	*x = RunHeartbeatRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[19]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2783,7 +3022,7 @@ func (x *RunHeartbeatRequest) String() string {
 func (*RunHeartbeatRequest) ProtoMessage() {}
 
 func (x *RunHeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[19]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2854,7 +3093,7 @@ type RunHeartbeatResponse struct {
 
 func (x *RunHeartbeatResponse) Reset() {
 	*x = RunHeartbeatResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[20]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2866,7 +3105,7 @@ func (x *RunHeartbeatResponse) String() string {
 func (*RunHeartbeatResponse) ProtoMessage() {}
 
 func (x *RunHeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[20]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2912,7 +3151,7 @@ type CancelledRun struct {
 
 func (x *CancelledRun) Reset() {
 	*x = CancelledRun{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[21]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2924,7 +3163,7 @@ func (x *CancelledRun) String() string {
 func (*CancelledRun) ProtoMessage() {}
 
 func (x *CancelledRun) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[21]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2972,7 +3211,7 @@ type WorkerStats struct {
 
 func (x *WorkerStats) Reset() {
 	*x = WorkerStats{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[22]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2984,7 +3223,7 @@ func (x *WorkerStats) String() string {
 func (*WorkerStats) ProtoMessage() {}
 
 func (x *WorkerStats) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[22]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3057,13 +3296,14 @@ type RunningTask struct {
 	ParentDagRunName string                 `protobuf:"bytes,6,opt,name=parent_dag_run_name,json=parentDagRunName,proto3" json:"parent_dag_run_name,omitempty"`
 	ParentDagRunId   string                 `protobuf:"bytes,7,opt,name=parent_dag_run_id,json=parentDagRunId,proto3" json:"parent_dag_run_id,omitempty"`
 	AttemptKey       string                 `protobuf:"bytes,8,opt,name=attempt_key,json=attemptKey,proto3" json:"attempt_key,omitempty"` // Globally unique attempt identifier
+	Project          *ProjectScope          `protobuf:"bytes,9,opt,name=project,proto3" json:"project,omitempty"`                         // Unset for the default project's own DAGs
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RunningTask) Reset() {
 	*x = RunningTask{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[23]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3075,7 +3315,7 @@ func (x *RunningTask) String() string {
 func (*RunningTask) ProtoMessage() {}
 
 func (x *RunningTask) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[23]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3142,6 +3382,13 @@ func (x *RunningTask) GetAttemptKey() string {
 	return ""
 }
 
+func (x *RunningTask) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
 func (x *RunningTask) SetDagRunId(v string) {
 	x.DagRunId = v
 }
@@ -3174,6 +3421,21 @@ func (x *RunningTask) SetAttemptKey(v string) {
 	x.AttemptKey = v
 }
 
+func (x *RunningTask) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
+func (x *RunningTask) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
+func (x *RunningTask) ClearProject() {
+	x.Project = nil
+}
+
 type RunningTask_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -3185,6 +3447,7 @@ type RunningTask_builder struct {
 	ParentDagRunName string
 	ParentDagRunId   string
 	AttemptKey       string
+	Project          *ProjectScope
 }
 
 func (b0 RunningTask_builder) Build() *RunningTask {
@@ -3199,6 +3462,7 @@ func (b0 RunningTask_builder) Build() *RunningTask {
 	x.ParentDagRunName = b.ParentDagRunName
 	x.ParentDagRunId = b.ParentDagRunId
 	x.AttemptKey = b.AttemptKey
+	x.Project = b.Project
 	return m0
 }
 
@@ -3210,13 +3474,14 @@ type ReportStatusRequest struct {
 	OwnerCoordinatorId string                 `protobuf:"bytes,3,opt,name=owner_coordinator_id,json=ownerCoordinatorId,proto3" json:"owner_coordinator_id,omitempty"`
 	SourceFile         string                 `protobuf:"bytes,4,opt,name=source_file,json=sourceFile,proto3" json:"source_file,omitempty"`
 	Labels             string                 `protobuf:"bytes,5,opt,name=labels,proto3" json:"labels,omitempty"`
+	Project            *ProjectScope          `protobuf:"bytes,6,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ReportStatusRequest) Reset() {
 	*x = ReportStatusRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[24]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3228,7 +3493,7 @@ func (x *ReportStatusRequest) String() string {
 func (*ReportStatusRequest) ProtoMessage() {}
 
 func (x *ReportStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[24]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3274,6 +3539,13 @@ func (x *ReportStatusRequest) GetLabels() string {
 	return ""
 }
 
+func (x *ReportStatusRequest) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
 func (x *ReportStatusRequest) SetWorkerId(v string) {
 	x.WorkerId = v
 }
@@ -3294,6 +3566,10 @@ func (x *ReportStatusRequest) SetLabels(v string) {
 	x.Labels = v
 }
 
+func (x *ReportStatusRequest) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
 func (x *ReportStatusRequest) HasStatus() bool {
 	if x == nil {
 		return false
@@ -3301,8 +3577,19 @@ func (x *ReportStatusRequest) HasStatus() bool {
 	return x.Status != nil
 }
 
+func (x *ReportStatusRequest) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
 func (x *ReportStatusRequest) ClearStatus() {
 	x.Status = nil
+}
+
+func (x *ReportStatusRequest) ClearProject() {
+	x.Project = nil
 }
 
 type ReportStatusRequest_builder struct {
@@ -3313,6 +3600,7 @@ type ReportStatusRequest_builder struct {
 	OwnerCoordinatorId string
 	SourceFile         string
 	Labels             string
+	Project            *ProjectScope
 }
 
 func (b0 ReportStatusRequest_builder) Build() *ReportStatusRequest {
@@ -3324,6 +3612,7 @@ func (b0 ReportStatusRequest_builder) Build() *ReportStatusRequest {
 	x.OwnerCoordinatorId = b.OwnerCoordinatorId
 	x.SourceFile = b.SourceFile
 	x.Labels = b.Labels
+	x.Project = b.Project
 	return m0
 }
 
@@ -3338,7 +3627,7 @@ type ReportStatusResponse struct {
 
 func (x *ReportStatusResponse) Reset() {
 	*x = ReportStatusResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[25]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3350,7 +3639,7 @@ func (x *ReportStatusResponse) String() string {
 func (*ReportStatusResponse) ProtoMessage() {}
 
 func (x *ReportStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[25]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3409,7 +3698,7 @@ type DAGRunStatusProto struct {
 
 func (x *DAGRunStatusProto) Reset() {
 	*x = DAGRunStatusProto{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[26]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3421,7 +3710,7 @@ func (x *DAGRunStatusProto) String() string {
 func (*DAGRunStatusProto) ProtoMessage() {}
 
 func (x *DAGRunStatusProto) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[26]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3478,14 +3767,15 @@ type LogChunk struct {
 	// Durable attempt identity used to fence log writes.
 	AttemptKey string `protobuf:"bytes,13,opt,name=attempt_key,json=attemptKey,proto3" json:"attempt_key,omitempty"`
 	// When present, data is written at this absolute byte position; otherwise it is appended.
-	ByteOffset    *uint64 `protobuf:"varint,14,opt,name=byte_offset,json=byteOffset,proto3,oneof" json:"byte_offset,omitempty"`
+	ByteOffset    *uint64       `protobuf:"varint,14,opt,name=byte_offset,json=byteOffset,proto3,oneof" json:"byte_offset,omitempty"`
+	Project       *ProjectScope `protobuf:"bytes,15,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LogChunk) Reset() {
 	*x = LogChunk{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[27]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3497,7 +3787,7 @@ func (x *LogChunk) String() string {
 func (*LogChunk) ProtoMessage() {}
 
 func (x *LogChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[27]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3606,6 +3896,13 @@ func (x *LogChunk) GetByteOffset() uint64 {
 	return 0
 }
 
+func (x *LogChunk) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
 func (x *LogChunk) SetWorkerId(v string) {
 	x.WorkerId = v
 }
@@ -3665,6 +3962,10 @@ func (x *LogChunk) SetByteOffset(v uint64) {
 	x.ByteOffset = &v
 }
 
+func (x *LogChunk) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
 func (x *LogChunk) HasByteOffset() bool {
 	if x == nil {
 		return false
@@ -3672,8 +3973,19 @@ func (x *LogChunk) HasByteOffset() bool {
 	return x.ByteOffset != nil
 }
 
+func (x *LogChunk) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
 func (x *LogChunk) ClearByteOffset() {
 	x.ByteOffset = nil
+}
+
+func (x *LogChunk) ClearProject() {
+	x.Project = nil
 }
 
 type LogChunk_builder struct {
@@ -3698,6 +4010,7 @@ type LogChunk_builder struct {
 	AttemptKey string
 	// When present, data is written at this absolute byte position; otherwise it is appended.
 	ByteOffset *uint64
+	Project    *ProjectScope
 }
 
 func (b0 LogChunk_builder) Build() *LogChunk {
@@ -3718,6 +4031,7 @@ func (b0 LogChunk_builder) Build() *LogChunk {
 	x.OwnerCoordinatorId = b.OwnerCoordinatorId
 	x.AttemptKey = b.AttemptKey
 	x.ByteOffset = b.ByteOffset
+	x.Project = b.Project
 	return m0
 }
 
@@ -3733,7 +4047,7 @@ type StreamLogsResponse struct {
 
 func (x *StreamLogsResponse) Reset() {
 	*x = StreamLogsResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[28]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3745,7 +4059,7 @@ func (x *StreamLogsResponse) String() string {
 func (*StreamLogsResponse) ProtoMessage() {}
 
 func (x *StreamLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[28]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3825,14 +4139,15 @@ type ArtifactChunk struct {
 	// Owner coordinator used to validate owner-bound artifact writes.
 	OwnerCoordinatorId string `protobuf:"bytes,11,opt,name=owner_coordinator_id,json=ownerCoordinatorId,proto3" json:"owner_coordinator_id,omitempty"`
 	// Durable attempt identity used to fence artifact writes.
-	AttemptKey    string `protobuf:"bytes,12,opt,name=attempt_key,json=attemptKey,proto3" json:"attempt_key,omitempty"`
+	AttemptKey    string        `protobuf:"bytes,12,opt,name=attempt_key,json=attemptKey,proto3" json:"attempt_key,omitempty"`
+	Project       *ProjectScope `protobuf:"bytes,13,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ArtifactChunk) Reset() {
 	*x = ArtifactChunk{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[29]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3844,7 +4159,7 @@ func (x *ArtifactChunk) String() string {
 func (*ArtifactChunk) ProtoMessage() {}
 
 func (x *ArtifactChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[29]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3939,6 +4254,13 @@ func (x *ArtifactChunk) GetAttemptKey() string {
 	return ""
 }
 
+func (x *ArtifactChunk) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
 func (x *ArtifactChunk) SetWorkerId(v string) {
 	x.WorkerId = v
 }
@@ -3990,6 +4312,21 @@ func (x *ArtifactChunk) SetAttemptKey(v string) {
 	x.AttemptKey = v
 }
 
+func (x *ArtifactChunk) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
+func (x *ArtifactChunk) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
+func (x *ArtifactChunk) ClearProject() {
+	x.Project = nil
+}
+
 type ArtifactChunk_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -4009,6 +4346,7 @@ type ArtifactChunk_builder struct {
 	OwnerCoordinatorId string
 	// Durable attempt identity used to fence artifact writes.
 	AttemptKey string
+	Project    *ProjectScope
 }
 
 func (b0 ArtifactChunk_builder) Build() *ArtifactChunk {
@@ -4027,6 +4365,7 @@ func (b0 ArtifactChunk_builder) Build() *ArtifactChunk {
 	x.AttemptId = b.AttemptId
 	x.OwnerCoordinatorId = b.OwnerCoordinatorId
 	x.AttemptKey = b.AttemptKey
+	x.Project = b.Project
 	return m0
 }
 
@@ -4042,7 +4381,7 @@ type StreamArtifactsResponse struct {
 
 func (x *StreamArtifactsResponse) Reset() {
 	*x = StreamArtifactsResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[30]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4054,7 +4393,7 @@ func (x *StreamArtifactsResponse) String() string {
 func (*StreamArtifactsResponse) ProtoMessage() {}
 
 func (x *StreamArtifactsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[30]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4130,7 +4469,7 @@ type WorkspaceBundle struct {
 
 func (x *WorkspaceBundle) Reset() {
 	*x = WorkspaceBundle{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[31]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4142,7 +4481,7 @@ func (x *WorkspaceBundle) String() string {
 func (*WorkspaceBundle) ProtoMessage() {}
 
 func (x *WorkspaceBundle) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[31]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4243,7 +4582,7 @@ type WorkspaceBundleChunk struct {
 
 func (x *WorkspaceBundleChunk) Reset() {
 	*x = WorkspaceBundleChunk{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[32]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4255,7 +4594,7 @@ func (x *WorkspaceBundleChunk) String() string {
 func (*WorkspaceBundleChunk) ProtoMessage() {}
 
 func (x *WorkspaceBundleChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[32]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4355,7 +4694,7 @@ type PutWorkspaceBundleResponse struct {
 
 func (x *PutWorkspaceBundleResponse) Reset() {
 	*x = PutWorkspaceBundleResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[33]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4367,7 +4706,7 @@ func (x *PutWorkspaceBundleResponse) String() string {
 func (*PutWorkspaceBundleResponse) ProtoMessage() {}
 
 func (x *PutWorkspaceBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[33]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4426,7 +4765,7 @@ type HasWorkspaceBundleRequest struct {
 
 func (x *HasWorkspaceBundleRequest) Reset() {
 	*x = HasWorkspaceBundleRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[34]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4438,7 +4777,7 @@ func (x *HasWorkspaceBundleRequest) String() string {
 func (*HasWorkspaceBundleRequest) ProtoMessage() {}
 
 func (x *HasWorkspaceBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[34]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4484,7 +4823,7 @@ type HasWorkspaceBundleResponse struct {
 
 func (x *HasWorkspaceBundleResponse) Reset() {
 	*x = HasWorkspaceBundleResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[35]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4496,7 +4835,7 @@ func (x *HasWorkspaceBundleResponse) String() string {
 func (*HasWorkspaceBundleResponse) ProtoMessage() {}
 
 func (x *HasWorkspaceBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[35]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4542,7 +4881,7 @@ type GetWorkspaceBundleRequest struct {
 
 func (x *GetWorkspaceBundleRequest) Reset() {
 	*x = GetWorkspaceBundleRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[36]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4554,7 +4893,7 @@ func (x *GetWorkspaceBundleRequest) String() string {
 func (*GetWorkspaceBundleRequest) ProtoMessage() {}
 
 func (x *GetWorkspaceBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[36]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4597,15 +4936,16 @@ type GetDAGRunStatusRequest struct {
 	DagRunId string                 `protobuf:"bytes,2,opt,name=dag_run_id,json=dagRunId,proto3" json:"dag_run_id,omitempty"` // ID of the DAG run
 	// Root DAG run info for sub-DAG queries (optional).
 	// When set, the coordinator looks up the status as a sub-DAG.
-	RootDagRunName string `protobuf:"bytes,3,opt,name=root_dag_run_name,json=rootDagRunName,proto3" json:"root_dag_run_name,omitempty"`
-	RootDagRunId   string `protobuf:"bytes,4,opt,name=root_dag_run_id,json=rootDagRunId,proto3" json:"root_dag_run_id,omitempty"`
+	RootDagRunName string        `protobuf:"bytes,3,opt,name=root_dag_run_name,json=rootDagRunName,proto3" json:"root_dag_run_name,omitempty"`
+	RootDagRunId   string        `protobuf:"bytes,4,opt,name=root_dag_run_id,json=rootDagRunId,proto3" json:"root_dag_run_id,omitempty"`
+	Project        *ProjectScope `protobuf:"bytes,5,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GetDAGRunStatusRequest) Reset() {
 	*x = GetDAGRunStatusRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[37]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4617,7 +4957,7 @@ func (x *GetDAGRunStatusRequest) String() string {
 func (*GetDAGRunStatusRequest) ProtoMessage() {}
 
 func (x *GetDAGRunStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[37]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4656,6 +4996,13 @@ func (x *GetDAGRunStatusRequest) GetRootDagRunId() string {
 	return ""
 }
 
+func (x *GetDAGRunStatusRequest) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
 func (x *GetDAGRunStatusRequest) SetDagName(v string) {
 	x.DagName = v
 }
@@ -4672,6 +5019,21 @@ func (x *GetDAGRunStatusRequest) SetRootDagRunId(v string) {
 	x.RootDagRunId = v
 }
 
+func (x *GetDAGRunStatusRequest) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
+func (x *GetDAGRunStatusRequest) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
+func (x *GetDAGRunStatusRequest) ClearProject() {
+	x.Project = nil
+}
+
 type GetDAGRunStatusRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -4681,6 +5043,7 @@ type GetDAGRunStatusRequest_builder struct {
 	// When set, the coordinator looks up the status as a sub-DAG.
 	RootDagRunName string
 	RootDagRunId   string
+	Project        *ProjectScope
 }
 
 func (b0 GetDAGRunStatusRequest_builder) Build() *GetDAGRunStatusRequest {
@@ -4691,6 +5054,7 @@ func (b0 GetDAGRunStatusRequest_builder) Build() *GetDAGRunStatusRequest {
 	x.DagRunId = b.DagRunId
 	x.RootDagRunName = b.RootDagRunName
 	x.RootDagRunId = b.RootDagRunId
+	x.Project = b.Project
 	return m0
 }
 
@@ -4706,7 +5070,7 @@ type GetDAGRunStatusResponse struct {
 
 func (x *GetDAGRunStatusResponse) Reset() {
 	*x = GetDAGRunStatusResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[38]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4718,7 +5082,7 @@ func (x *GetDAGRunStatusResponse) String() string {
 func (*GetDAGRunStatusResponse) ProtoMessage() {}
 
 func (x *GetDAGRunStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[38]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4797,15 +5161,16 @@ type RequestCancelRequest struct {
 	DagName  string                 `protobuf:"bytes,1,opt,name=dag_name,json=dagName,proto3" json:"dag_name,omitempty"`
 	DagRunId string                 `protobuf:"bytes,2,opt,name=dag_run_id,json=dagRunId,proto3" json:"dag_run_id,omitempty"`
 	// Root DAG run info for sub-DAG cancellation
-	RootDagRunName string `protobuf:"bytes,3,opt,name=root_dag_run_name,json=rootDagRunName,proto3" json:"root_dag_run_name,omitempty"`
-	RootDagRunId   string `protobuf:"bytes,4,opt,name=root_dag_run_id,json=rootDagRunId,proto3" json:"root_dag_run_id,omitempty"`
+	RootDagRunName string        `protobuf:"bytes,3,opt,name=root_dag_run_name,json=rootDagRunName,proto3" json:"root_dag_run_name,omitempty"`
+	RootDagRunId   string        `protobuf:"bytes,4,opt,name=root_dag_run_id,json=rootDagRunId,proto3" json:"root_dag_run_id,omitempty"`
+	Project        *ProjectScope `protobuf:"bytes,5,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
 func (x *RequestCancelRequest) Reset() {
 	*x = RequestCancelRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[39]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4817,7 +5182,7 @@ func (x *RequestCancelRequest) String() string {
 func (*RequestCancelRequest) ProtoMessage() {}
 
 func (x *RequestCancelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[39]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4856,6 +5221,13 @@ func (x *RequestCancelRequest) GetRootDagRunId() string {
 	return ""
 }
 
+func (x *RequestCancelRequest) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
 func (x *RequestCancelRequest) SetDagName(v string) {
 	x.DagName = v
 }
@@ -4872,6 +5244,21 @@ func (x *RequestCancelRequest) SetRootDagRunId(v string) {
 	x.RootDagRunId = v
 }
 
+func (x *RequestCancelRequest) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
+func (x *RequestCancelRequest) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
+func (x *RequestCancelRequest) ClearProject() {
+	x.Project = nil
+}
+
 type RequestCancelRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -4880,6 +5267,7 @@ type RequestCancelRequest_builder struct {
 	// Root DAG run info for sub-DAG cancellation
 	RootDagRunName string
 	RootDagRunId   string
+	Project        *ProjectScope
 }
 
 func (b0 RequestCancelRequest_builder) Build() *RequestCancelRequest {
@@ -4890,6 +5278,7 @@ func (b0 RequestCancelRequest_builder) Build() *RequestCancelRequest {
 	x.DagRunId = b.DagRunId
 	x.RootDagRunName = b.RootDagRunName
 	x.RootDagRunId = b.RootDagRunId
+	x.Project = b.Project
 	return m0
 }
 
@@ -4904,7 +5293,7 @@ type RequestCancelResponse struct {
 
 func (x *RequestCancelResponse) Reset() {
 	*x = RequestCancelResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[40]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4916,7 +5305,7 @@ func (x *RequestCancelResponse) String() string {
 func (*RequestCancelResponse) ProtoMessage() {}
 
 func (x *RequestCancelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[40]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4976,7 +5365,7 @@ type StateRef struct {
 
 func (x *StateRef) Reset() {
 	*x = StateRef{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[41]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4988,7 +5377,7 @@ func (x *StateRef) String() string {
 func (*StateRef) ProtoMessage() {}
 
 func (x *StateRef) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[41]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5062,7 +5451,7 @@ type StateUpdateSource struct {
 
 func (x *StateUpdateSource) Reset() {
 	*x = StateUpdateSource{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[42]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5074,7 +5463,7 @@ func (x *StateUpdateSource) String() string {
 func (*StateUpdateSource) ProtoMessage() {}
 
 func (x *StateUpdateSource) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[42]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5164,7 +5553,7 @@ type StateEntry struct {
 
 func (x *StateEntry) Reset() {
 	*x = StateEntry{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[43]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5176,7 +5565,7 @@ func (x *StateEntry) String() string {
 func (*StateEntry) ProtoMessage() {}
 
 func (x *StateEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[43]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5318,13 +5707,15 @@ func (b0 StateEntry_builder) Build() *StateEntry {
 type GetStateRequest struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	Ref           *StateRef              `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	Project       *ProjectScope          `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	Caller        *CallerAttempt         `protobuf:"bytes,3,opt,name=caller,proto3" json:"caller,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetStateRequest) Reset() {
 	*x = GetStateRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[44]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5336,7 +5727,7 @@ func (x *GetStateRequest) String() string {
 func (*GetStateRequest) ProtoMessage() {}
 
 func (x *GetStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[44]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5354,8 +5745,30 @@ func (x *GetStateRequest) GetRef() *StateRef {
 	return nil
 }
 
+func (x *GetStateRequest) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
+func (x *GetStateRequest) GetCaller() *CallerAttempt {
+	if x != nil {
+		return x.Caller
+	}
+	return nil
+}
+
 func (x *GetStateRequest) SetRef(v *StateRef) {
 	x.Ref = v
+}
+
+func (x *GetStateRequest) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
+func (x *GetStateRequest) SetCaller(v *CallerAttempt) {
+	x.Caller = v
 }
 
 func (x *GetStateRequest) HasRef() bool {
@@ -5365,14 +5778,38 @@ func (x *GetStateRequest) HasRef() bool {
 	return x.Ref != nil
 }
 
+func (x *GetStateRequest) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
+func (x *GetStateRequest) HasCaller() bool {
+	if x == nil {
+		return false
+	}
+	return x.Caller != nil
+}
+
 func (x *GetStateRequest) ClearRef() {
 	x.Ref = nil
+}
+
+func (x *GetStateRequest) ClearProject() {
+	x.Project = nil
+}
+
+func (x *GetStateRequest) ClearCaller() {
+	x.Caller = nil
 }
 
 type GetStateRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Ref *StateRef
+	Ref     *StateRef
+	Project *ProjectScope
+	Caller  *CallerAttempt
 }
 
 func (b0 GetStateRequest_builder) Build() *GetStateRequest {
@@ -5380,6 +5817,8 @@ func (b0 GetStateRequest_builder) Build() *GetStateRequest {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.Ref = b.Ref
+	x.Project = b.Project
+	x.Caller = b.Caller
 	return m0
 }
 
@@ -5393,7 +5832,7 @@ type GetStateResponse struct {
 
 func (x *GetStateResponse) Reset() {
 	*x = GetStateResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[45]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5405,7 +5844,7 @@ func (x *GetStateResponse) String() string {
 func (*GetStateResponse) ProtoMessage() {}
 
 func (x *GetStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[45]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5473,13 +5912,15 @@ type PutStateRequest struct {
 	ExpectedVersion    int64                  `protobuf:"varint,4,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"`
 	CreateOnly         bool                   `protobuf:"varint,5,opt,name=create_only,json=createOnly,proto3" json:"create_only,omitempty"`
 	UpdatedBy          *StateUpdateSource     `protobuf:"bytes,6,opt,name=updated_by,json=updatedBy,proto3" json:"updated_by,omitempty"`
+	Project            *ProjectScope          `protobuf:"bytes,7,opt,name=project,proto3" json:"project,omitempty"`
+	Caller             *CallerAttempt         `protobuf:"bytes,8,opt,name=caller,proto3" json:"caller,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
 
 func (x *PutStateRequest) Reset() {
 	*x = PutStateRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[46]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5491,7 +5932,7 @@ func (x *PutStateRequest) String() string {
 func (*PutStateRequest) ProtoMessage() {}
 
 func (x *PutStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[46]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5544,6 +5985,20 @@ func (x *PutStateRequest) GetUpdatedBy() *StateUpdateSource {
 	return nil
 }
 
+func (x *PutStateRequest) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
+func (x *PutStateRequest) GetCaller() *CallerAttempt {
+	if x != nil {
+		return x.Caller
+	}
+	return nil
+}
+
 func (x *PutStateRequest) SetRef(v *StateRef) {
 	x.Ref = v
 }
@@ -5571,6 +6026,14 @@ func (x *PutStateRequest) SetUpdatedBy(v *StateUpdateSource) {
 	x.UpdatedBy = v
 }
 
+func (x *PutStateRequest) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
+func (x *PutStateRequest) SetCaller(v *CallerAttempt) {
+	x.Caller = v
+}
+
 func (x *PutStateRequest) HasRef() bool {
 	if x == nil {
 		return false
@@ -5585,12 +6048,34 @@ func (x *PutStateRequest) HasUpdatedBy() bool {
 	return x.UpdatedBy != nil
 }
 
+func (x *PutStateRequest) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
+func (x *PutStateRequest) HasCaller() bool {
+	if x == nil {
+		return false
+	}
+	return x.Caller != nil
+}
+
 func (x *PutStateRequest) ClearRef() {
 	x.Ref = nil
 }
 
 func (x *PutStateRequest) ClearUpdatedBy() {
 	x.UpdatedBy = nil
+}
+
+func (x *PutStateRequest) ClearProject() {
+	x.Project = nil
+}
+
+func (x *PutStateRequest) ClearCaller() {
+	x.Caller = nil
 }
 
 type PutStateRequest_builder struct {
@@ -5602,6 +6087,8 @@ type PutStateRequest_builder struct {
 	ExpectedVersion    int64
 	CreateOnly         bool
 	UpdatedBy          *StateUpdateSource
+	Project            *ProjectScope
+	Caller             *CallerAttempt
 }
 
 func (b0 PutStateRequest_builder) Build() *PutStateRequest {
@@ -5614,6 +6101,8 @@ func (b0 PutStateRequest_builder) Build() *PutStateRequest {
 	x.ExpectedVersion = b.ExpectedVersion
 	x.CreateOnly = b.CreateOnly
 	x.UpdatedBy = b.UpdatedBy
+	x.Project = b.Project
+	x.Caller = b.Caller
 	return m0
 }
 
@@ -5626,7 +6115,7 @@ type PutStateResponse struct {
 
 func (x *PutStateResponse) Reset() {
 	*x = PutStateResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[47]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5638,7 +6127,7 @@ func (x *PutStateResponse) String() string {
 func (*PutStateResponse) ProtoMessage() {}
 
 func (x *PutStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[47]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5688,13 +6177,15 @@ func (b0 PutStateResponse_builder) Build() *PutStateResponse {
 type DeleteStateRequest struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	Ref           *StateRef              `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	Project       *ProjectScope          `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	Caller        *CallerAttempt         `protobuf:"bytes,3,opt,name=caller,proto3" json:"caller,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DeleteStateRequest) Reset() {
 	*x = DeleteStateRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[48]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5706,7 +6197,7 @@ func (x *DeleteStateRequest) String() string {
 func (*DeleteStateRequest) ProtoMessage() {}
 
 func (x *DeleteStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[48]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5724,8 +6215,30 @@ func (x *DeleteStateRequest) GetRef() *StateRef {
 	return nil
 }
 
+func (x *DeleteStateRequest) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
+func (x *DeleteStateRequest) GetCaller() *CallerAttempt {
+	if x != nil {
+		return x.Caller
+	}
+	return nil
+}
+
 func (x *DeleteStateRequest) SetRef(v *StateRef) {
 	x.Ref = v
+}
+
+func (x *DeleteStateRequest) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
+func (x *DeleteStateRequest) SetCaller(v *CallerAttempt) {
+	x.Caller = v
 }
 
 func (x *DeleteStateRequest) HasRef() bool {
@@ -5735,14 +6248,38 @@ func (x *DeleteStateRequest) HasRef() bool {
 	return x.Ref != nil
 }
 
+func (x *DeleteStateRequest) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
+func (x *DeleteStateRequest) HasCaller() bool {
+	if x == nil {
+		return false
+	}
+	return x.Caller != nil
+}
+
 func (x *DeleteStateRequest) ClearRef() {
 	x.Ref = nil
+}
+
+func (x *DeleteStateRequest) ClearProject() {
+	x.Project = nil
+}
+
+func (x *DeleteStateRequest) ClearCaller() {
+	x.Caller = nil
 }
 
 type DeleteStateRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Ref *StateRef
+	Ref     *StateRef
+	Project *ProjectScope
+	Caller  *CallerAttempt
 }
 
 func (b0 DeleteStateRequest_builder) Build() *DeleteStateRequest {
@@ -5750,6 +6287,8 @@ func (b0 DeleteStateRequest_builder) Build() *DeleteStateRequest {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.Ref = b.Ref
+	x.Project = b.Project
+	x.Caller = b.Caller
 	return m0
 }
 
@@ -5762,7 +6301,7 @@ type DeleteStateResponse struct {
 
 func (x *DeleteStateResponse) Reset() {
 	*x = DeleteStateResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[49]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5774,7 +6313,7 @@ func (x *DeleteStateResponse) String() string {
 func (*DeleteStateResponse) ProtoMessage() {}
 
 func (x *DeleteStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[49]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5816,13 +6355,15 @@ type ListStateRequest struct {
 	Namespace     string                 `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	KeyPrefix     string                 `protobuf:"bytes,3,opt,name=key_prefix,json=keyPrefix,proto3" json:"key_prefix,omitempty"`
 	Limit         int32                  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	Project       *ProjectScope          `protobuf:"bytes,5,opt,name=project,proto3" json:"project,omitempty"`
+	Caller        *CallerAttempt         `protobuf:"bytes,6,opt,name=caller,proto3" json:"caller,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListStateRequest) Reset() {
 	*x = ListStateRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[50]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5834,7 +6375,7 @@ func (x *ListStateRequest) String() string {
 func (*ListStateRequest) ProtoMessage() {}
 
 func (x *ListStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[50]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5873,6 +6414,20 @@ func (x *ListStateRequest) GetLimit() int32 {
 	return 0
 }
 
+func (x *ListStateRequest) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
+func (x *ListStateRequest) GetCaller() *CallerAttempt {
+	if x != nil {
+		return x.Caller
+	}
+	return nil
+}
+
 func (x *ListStateRequest) SetScope(v string) {
 	x.Scope = v
 }
@@ -5889,6 +6444,36 @@ func (x *ListStateRequest) SetLimit(v int32) {
 	x.Limit = v
 }
 
+func (x *ListStateRequest) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
+func (x *ListStateRequest) SetCaller(v *CallerAttempt) {
+	x.Caller = v
+}
+
+func (x *ListStateRequest) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
+func (x *ListStateRequest) HasCaller() bool {
+	if x == nil {
+		return false
+	}
+	return x.Caller != nil
+}
+
+func (x *ListStateRequest) ClearProject() {
+	x.Project = nil
+}
+
+func (x *ListStateRequest) ClearCaller() {
+	x.Caller = nil
+}
+
 type ListStateRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -5896,6 +6481,8 @@ type ListStateRequest_builder struct {
 	Namespace string
 	KeyPrefix string
 	Limit     int32
+	Project   *ProjectScope
+	Caller    *CallerAttempt
 }
 
 func (b0 ListStateRequest_builder) Build() *ListStateRequest {
@@ -5906,6 +6493,8 @@ func (b0 ListStateRequest_builder) Build() *ListStateRequest {
 	x.Namespace = b.Namespace
 	x.KeyPrefix = b.KeyPrefix
 	x.Limit = b.Limit
+	x.Project = b.Project
+	x.Caller = b.Caller
 	return m0
 }
 
@@ -5918,7 +6507,7 @@ type ListStateResponse struct {
 
 func (x *ListStateResponse) Reset() {
 	*x = ListStateResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[51]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5930,7 +6519,7 @@ func (x *ListStateResponse) String() string {
 func (*ListStateResponse) ProtoMessage() {}
 
 func (x *ListStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[51]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5973,13 +6562,15 @@ func (b0 ListStateResponse_builder) Build() *ListStateResponse {
 type GetDAGRequest struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // DAG name to look up
+	Project       *ProjectScope          `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	Caller        *CallerAttempt         `protobuf:"bytes,3,opt,name=caller,proto3" json:"caller,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetDAGRequest) Reset() {
 	*x = GetDAGRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[52]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5991,7 +6582,7 @@ func (x *GetDAGRequest) String() string {
 func (*GetDAGRequest) ProtoMessage() {}
 
 func (x *GetDAGRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[52]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6009,14 +6600,60 @@ func (x *GetDAGRequest) GetName() string {
 	return ""
 }
 
+func (x *GetDAGRequest) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
+func (x *GetDAGRequest) GetCaller() *CallerAttempt {
+	if x != nil {
+		return x.Caller
+	}
+	return nil
+}
+
 func (x *GetDAGRequest) SetName(v string) {
 	x.Name = v
+}
+
+func (x *GetDAGRequest) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
+func (x *GetDAGRequest) SetCaller(v *CallerAttempt) {
+	x.Caller = v
+}
+
+func (x *GetDAGRequest) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
+func (x *GetDAGRequest) HasCaller() bool {
+	if x == nil {
+		return false
+	}
+	return x.Caller != nil
+}
+
+func (x *GetDAGRequest) ClearProject() {
+	x.Project = nil
+}
+
+func (x *GetDAGRequest) ClearCaller() {
+	x.Caller = nil
 }
 
 type GetDAGRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Name string
+	Name    string
+	Project *ProjectScope
+	Caller  *CallerAttempt
 }
 
 func (b0 GetDAGRequest_builder) Build() *GetDAGRequest {
@@ -6024,6 +6661,8 @@ func (b0 GetDAGRequest_builder) Build() *GetDAGRequest {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.Name = b.Name
+	x.Project = b.Project
+	x.Caller = b.Caller
 	return m0
 }
 
@@ -6037,7 +6676,7 @@ type GetDAGResponse struct {
 
 func (x *GetDAGResponse) Reset() {
 	*x = GetDAGResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[53]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6049,7 +6688,7 @@ func (x *GetDAGResponse) String() string {
 func (*GetDAGResponse) ProtoMessage() {}
 
 func (x *GetDAGResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[53]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6111,14 +6750,15 @@ type ResolveSecretReferenceRequest struct {
 	DagName    string                 `protobuf:"bytes,8,opt,name=dag_name,json=dagName,proto3" json:"dag_name,omitempty"`          // Current DAG definition; empty keeps legacy root behavior
 	// Node whose connection uses ref, set in place of name. The ref is served
 	// only to an attempt that targets nodes.
-	Node          string `protobuf:"bytes,9,opt,name=node,proto3" json:"node,omitempty"`
+	Node          string        `protobuf:"bytes,9,opt,name=node,proto3" json:"node,omitempty"`
+	Project       *ProjectScope `protobuf:"bytes,10,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ResolveSecretReferenceRequest) Reset() {
 	*x = ResolveSecretReferenceRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[54]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6130,7 +6770,7 @@ func (x *ResolveSecretReferenceRequest) String() string {
 func (*ResolveSecretReferenceRequest) ProtoMessage() {}
 
 func (x *ResolveSecretReferenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[54]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6204,6 +6844,13 @@ func (x *ResolveSecretReferenceRequest) GetNode() string {
 	return ""
 }
 
+func (x *ResolveSecretReferenceRequest) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
 func (x *ResolveSecretReferenceRequest) SetName(v string) {
 	x.Name = v
 }
@@ -6240,6 +6887,21 @@ func (x *ResolveSecretReferenceRequest) SetNode(v string) {
 	x.Node = v
 }
 
+func (x *ResolveSecretReferenceRequest) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
+func (x *ResolveSecretReferenceRequest) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
+func (x *ResolveSecretReferenceRequest) ClearProject() {
+	x.Project = nil
+}
+
 type ResolveSecretReferenceRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -6253,7 +6915,8 @@ type ResolveSecretReferenceRequest_builder struct {
 	DagName    string
 	// Node whose connection uses ref, set in place of name. The ref is served
 	// only to an attempt that targets nodes.
-	Node string
+	Node    string
+	Project *ProjectScope
 }
 
 func (b0 ResolveSecretReferenceRequest_builder) Build() *ResolveSecretReferenceRequest {
@@ -6269,6 +6932,7 @@ func (b0 ResolveSecretReferenceRequest_builder) Build() *ResolveSecretReferenceR
 	x.AttemptId = b.AttemptId
 	x.DagName = b.DagName
 	x.Node = b.Node
+	x.Project = b.Project
 	return m0
 }
 
@@ -6281,7 +6945,7 @@ type ResolveSecretReferenceResponse struct {
 
 func (x *ResolveSecretReferenceResponse) Reset() {
 	*x = ResolveSecretReferenceResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[55]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6293,7 +6957,7 @@ func (x *ResolveSecretReferenceResponse) String() string {
 func (*ResolveSecretReferenceResponse) ProtoMessage() {}
 
 func (x *ResolveSecretReferenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[55]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6337,13 +7001,14 @@ type ResolveRuntimeProfileRequest struct {
 	ProfileName   string                 `protobuf:"bytes,4,opt,name=profile_name,json=profileName,proto3" json:"profile_name,omitempty"`
 	Workspace     string                 `protobuf:"bytes,5,opt,name=workspace,proto3" json:"workspace,omitempty"`
 	DagName       string                 `protobuf:"bytes,6,opt,name=dag_name,json=dagName,proto3" json:"dag_name,omitempty"`
+	Project       *ProjectScope          `protobuf:"bytes,7,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ResolveRuntimeProfileRequest) Reset() {
 	*x = ResolveRuntimeProfileRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[56]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6355,7 +7020,7 @@ func (x *ResolveRuntimeProfileRequest) String() string {
 func (*ResolveRuntimeProfileRequest) ProtoMessage() {}
 
 func (x *ResolveRuntimeProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[56]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6408,6 +7073,13 @@ func (x *ResolveRuntimeProfileRequest) GetDagName() string {
 	return ""
 }
 
+func (x *ResolveRuntimeProfileRequest) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
 func (x *ResolveRuntimeProfileRequest) SetWorkerId(v string) {
 	x.WorkerId = v
 }
@@ -6432,6 +7104,21 @@ func (x *ResolveRuntimeProfileRequest) SetDagName(v string) {
 	x.DagName = v
 }
 
+func (x *ResolveRuntimeProfileRequest) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
+func (x *ResolveRuntimeProfileRequest) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
+func (x *ResolveRuntimeProfileRequest) ClearProject() {
+	x.Project = nil
+}
+
 type ResolveRuntimeProfileRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -6441,6 +7128,7 @@ type ResolveRuntimeProfileRequest_builder struct {
 	ProfileName string
 	Workspace   string
 	DagName     string
+	Project     *ProjectScope
 }
 
 func (b0 ResolveRuntimeProfileRequest_builder) Build() *ResolveRuntimeProfileRequest {
@@ -6453,6 +7141,7 @@ func (b0 ResolveRuntimeProfileRequest_builder) Build() *ResolveRuntimeProfileReq
 	x.ProfileName = b.ProfileName
 	x.Workspace = b.Workspace
 	x.DagName = b.DagName
+	x.Project = b.Project
 	return m0
 }
 
@@ -6467,7 +7156,7 @@ type RuntimeProfileEntry struct {
 
 func (x *RuntimeProfileEntry) Reset() {
 	*x = RuntimeProfileEntry{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[57]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6479,7 +7168,7 @@ func (x *RuntimeProfileEntry) String() string {
 func (*RuntimeProfileEntry) ProtoMessage() {}
 
 func (x *RuntimeProfileEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[57]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6551,7 +7240,7 @@ type RuntimeProfileLayer struct {
 
 func (x *RuntimeProfileLayer) Reset() {
 	*x = RuntimeProfileLayer{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[58]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6563,7 +7252,7 @@ func (x *RuntimeProfileLayer) String() string {
 func (*RuntimeProfileLayer) ProtoMessage() {}
 
 func (x *RuntimeProfileLayer) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[58]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6622,7 +7311,7 @@ type ResolveRuntimeProfileResponse struct {
 
 func (x *ResolveRuntimeProfileResponse) Reset() {
 	*x = ResolveRuntimeProfileResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[59]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6634,7 +7323,7 @@ func (x *ResolveRuntimeProfileResponse) String() string {
 func (*ResolveRuntimeProfileResponse) ProtoMessage() {}
 
 func (x *ResolveRuntimeProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[59]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6715,13 +7404,14 @@ type ResolveNodesRequest struct {
 	DagName       string                 `protobuf:"bytes,4,opt,name=dag_name,json=dagName,proto3" json:"dag_name,omitempty"`          // Current DAG definition; empty selects the attempt's DAG
 	Selector      string                 `protobuf:"bytes,5,opt,name=selector,proto3" json:"selector,omitempty"`                       // Label selector, such as "role=web,!canary"
 	Names         []string               `protobuf:"bytes,6,rep,name=names,proto3" json:"names,omitempty"`                             // Exact node names, compared without case
+	Project       *ProjectScope          `protobuf:"bytes,7,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ResolveNodesRequest) Reset() {
 	*x = ResolveNodesRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[60]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6733,7 +7423,7 @@ func (x *ResolveNodesRequest) String() string {
 func (*ResolveNodesRequest) ProtoMessage() {}
 
 func (x *ResolveNodesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[60]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6786,6 +7476,13 @@ func (x *ResolveNodesRequest) GetNames() []string {
 	return nil
 }
 
+func (x *ResolveNodesRequest) GetProject() *ProjectScope {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
 func (x *ResolveNodesRequest) SetWorkerId(v string) {
 	x.WorkerId = v
 }
@@ -6810,6 +7507,21 @@ func (x *ResolveNodesRequest) SetNames(v []string) {
 	x.Names = v
 }
 
+func (x *ResolveNodesRequest) SetProject(v *ProjectScope) {
+	x.Project = v
+}
+
+func (x *ResolveNodesRequest) HasProject() bool {
+	if x == nil {
+		return false
+	}
+	return x.Project != nil
+}
+
+func (x *ResolveNodesRequest) ClearProject() {
+	x.Project = nil
+}
+
 type ResolveNodesRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -6819,6 +7531,7 @@ type ResolveNodesRequest_builder struct {
 	DagName    string
 	Selector   string
 	Names      []string
+	Project    *ProjectScope
 }
 
 func (b0 ResolveNodesRequest_builder) Build() *ResolveNodesRequest {
@@ -6831,6 +7544,7 @@ func (b0 ResolveNodesRequest_builder) Build() *ResolveNodesRequest {
 	x.DagName = b.DagName
 	x.Selector = b.Selector
 	x.Names = b.Names
+	x.Project = b.Project
 	return m0
 }
 
@@ -6849,7 +7563,7 @@ type ResolveNodesResponse struct {
 
 func (x *ResolveNodesResponse) Reset() {
 	*x = ResolveNodesResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[61]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6861,7 +7575,7 @@ func (x *ResolveNodesResponse) String() string {
 func (*ResolveNodesResponse) ProtoMessage() {}
 
 func (x *ResolveNodesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[61]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6957,7 +7671,7 @@ type ResolvedNode struct {
 
 func (x *ResolvedNode) Reset() {
 	*x = ResolvedNode{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[62]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6969,7 +7683,7 @@ func (x *ResolvedNode) String() string {
 func (*ResolvedNode) ProtoMessage() {}
 
 func (x *ResolvedNode) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[62]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7251,7 +7965,7 @@ type TrustedHostKey struct {
 
 func (x *TrustedHostKey) Reset() {
 	*x = TrustedHostKey{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[63]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7263,7 +7977,7 @@ func (x *TrustedHostKey) String() string {
 func (*TrustedHostKey) ProtoMessage() {}
 
 func (x *TrustedHostKey) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[63]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7342,7 +8056,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\xb8\x10\n" +
+	"\x10DispatchResponse\"\xf0\x10\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -7405,11 +8119,22 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\ftarget_nodes\x18/ \x03(\tR\vtargetNodes\x12\x1d\n" +
 	"\n" +
 	"bound_node\x180 \x01(\tR\tboundNode\x12\x1b\n" +
-	"\tnode_step\x181 \x01(\tR\bnodeStep\x1aA\n" +
+	"\tnode_step\x181 \x01(\tR\bnodeStep\x126\n" +
+	"\aproject\x182 \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x18\n" +
-	"\x16_base_config_workspace\"\x13\n" +
+	"\x16_base_config_workspace\"G\n" +
+	"\fProjectScope\x12\x1d\n" +
+	"\n" +
+	"project_id\x18\x01 \x01(\tR\tprojectId\x12\x18\n" +
+	"\alibrary\x18\x02 \x01(\bR\alibrary\"l\n" +
+	"\rCallerAttempt\x12\x1b\n" +
+	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1f\n" +
+	"\vattempt_key\x18\x02 \x01(\tR\n" +
+	"attemptKey\x12\x1d\n" +
+	"\n" +
+	"attempt_id\x18\x03 \x01(\tR\tattemptId\"\x13\n" +
 	"\x11GetWorkersRequest\"J\n" +
 	"\x12GetWorkersResponse\x124\n" +
 	"\aworkers\x18\x01 \x03(\v2\x1a.coordinator.v1.WorkerInfoR\aworkers\"\xfd\x03\n" +
@@ -7476,7 +8201,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\">\n" +
 	"\x1fClaimAgentSessionCleanupRequest\x12\x1b\n" +
-	"\tworker_id\x18\x01 \x01(\tR\bworkerId\"\xe7\x02\n" +
+	"\tworker_id\x18\x01 \x01(\tR\bworkerId\"\x9f\x03\n" +
 	" ClaimAgentSessionCleanupResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\tR\x05jobId\x12\x1f\n" +
@@ -7488,13 +8213,16 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\tdirectory\x18\x06 \x01(\tR\tdirectory\x120\n" +
 	"\x14owner_coordinator_id\x18\a \x01(\tR\x12ownerCoordinatorId\x124\n" +
 	"\x16owner_coordinator_host\x18\b \x01(\tR\x14ownerCoordinatorHost\x124\n" +
-	"\x16owner_coordinator_port\x18\t \x01(\x05R\x14ownerCoordinatorPort\"\x8f\x01\n" +
+	"\x16owner_coordinator_port\x18\t \x01(\x05R\x14ownerCoordinatorPort\x126\n" +
+	"\aproject\x18\n" +
+	" \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\"\xc7\x01\n" +
 	"\"CompleteAgentSessionCleanupRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\tR\x05jobId\x12\x1f\n" +
 	"\vclaim_token\x18\x03 \x01(\tR\n" +
 	"claimToken\x12\x14\n" +
-	"\x05error\x18\x04 \x01(\tR\x05error\"%\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\x126\n" +
+	"\aproject\x18\x05 \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\"%\n" +
 	"#CompleteAgentSessionCleanupResponse\"\xa6\x01\n" +
 	"\x13RunHeartbeatRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x120\n" +
@@ -7508,7 +8236,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\vWorkerStats\x12#\n" +
 	"\rtotal_pollers\x18\x01 \x01(\x05R\ftotalPollers\x12!\n" +
 	"\fbusy_pollers\x18\x02 \x01(\x05R\vbusyPollers\x12@\n" +
-	"\rrunning_tasks\x18\x03 \x03(\v2\x1b.coordinator.v1.RunningTaskR\frunningTasks\"\xb2\x02\n" +
+	"\rrunning_tasks\x18\x03 \x03(\v2\x1b.coordinator.v1.RunningTaskR\frunningTasks\"\xea\x02\n" +
 	"\vRunningTask\x12\x1c\n" +
 	"\n" +
 	"dag_run_id\x18\x01 \x01(\tR\bdagRunId\x12\x19\n" +
@@ -7520,19 +8248,21 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x13parent_dag_run_name\x18\x06 \x01(\tR\x10parentDagRunName\x12)\n" +
 	"\x11parent_dag_run_id\x18\a \x01(\tR\x0eparentDagRunId\x12\x1f\n" +
 	"\vattempt_key\x18\b \x01(\tR\n" +
-	"attemptKey\"\xd8\x01\n" +
+	"attemptKey\x126\n" +
+	"\aproject\x18\t \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\"\x90\x02\n" +
 	"\x13ReportStatusRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x129\n" +
 	"\x06status\x18\x02 \x01(\v2!.coordinator.v1.DAGRunStatusProtoR\x06status\x120\n" +
 	"\x14owner_coordinator_id\x18\x03 \x01(\tR\x12ownerCoordinatorId\x12\x1f\n" +
 	"\vsource_file\x18\x04 \x01(\tR\n" +
 	"sourceFile\x12\x16\n" +
-	"\x06labels\x18\x05 \x01(\tR\x06labels\"H\n" +
+	"\x06labels\x18\x05 \x01(\tR\x06labels\x126\n" +
+	"\aproject\x18\x06 \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\"H\n" +
 	"\x14ReportStatusResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\"0\n" +
 	"\x11DAGRunStatusProto\x12\x1b\n" +
-	"\tjson_data\x18\x01 \x01(\tR\bjsonData\"\x82\x04\n" +
+	"\tjson_data\x18\x01 \x01(\tR\bjsonData\"\xba\x04\n" +
 	"\bLogChunk\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1c\n" +
 	"\n" +
@@ -7553,12 +8283,13 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\vattempt_key\x18\r \x01(\tR\n" +
 	"attemptKey\x12$\n" +
 	"\vbyte_offset\x18\x0e \x01(\x04H\x00R\n" +
-	"byteOffset\x88\x01\x01B\x0e\n" +
+	"byteOffset\x88\x01\x01\x126\n" +
+	"\aproject\x18\x0f \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aprojectB\x0e\n" +
 	"\f_byte_offset\"x\n" +
 	"\x12StreamLogsResponse\x12'\n" +
 	"\x0fchunks_received\x18\x01 \x01(\x04R\x0echunksReceived\x12#\n" +
 	"\rbytes_written\x18\x02 \x01(\x04R\fbytesWritten\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"\x99\x03\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"\xd1\x03\n" +
 	"\rArtifactChunk\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1c\n" +
 	"\n" +
@@ -7575,7 +8306,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	" \x01(\tR\tattemptId\x120\n" +
 	"\x14owner_coordinator_id\x18\v \x01(\tR\x12ownerCoordinatorId\x12\x1f\n" +
 	"\vattempt_key\x18\f \x01(\tR\n" +
-	"attemptKey\"}\n" +
+	"attemptKey\x126\n" +
+	"\aproject\x18\r \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\"}\n" +
 	"\x17StreamArtifactsResponse\x12'\n" +
 	"\x0fchunks_received\x18\x01 \x01(\x04R\x0echunksReceived\x12#\n" +
 	"\rbytes_written\x18\x02 \x01(\x04R\fbytesWritten\x12\x14\n" +
@@ -7599,23 +8331,25 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x1aHasWorkspaceBundleResponse\x12\x16\n" +
 	"\x06exists\x18\x01 \x01(\bR\x06exists\"3\n" +
 	"\x19GetWorkspaceBundleRequest\x12\x16\n" +
-	"\x06digest\x18\x01 \x01(\tR\x06digest\"\xa3\x01\n" +
+	"\x06digest\x18\x01 \x01(\tR\x06digest\"\xdb\x01\n" +
 	"\x16GetDAGRunStatusRequest\x12\x19\n" +
 	"\bdag_name\x18\x01 \x01(\tR\adagName\x12\x1c\n" +
 	"\n" +
 	"dag_run_id\x18\x02 \x01(\tR\bdagRunId\x12)\n" +
 	"\x11root_dag_run_name\x18\x03 \x01(\tR\x0erootDagRunName\x12%\n" +
-	"\x0froot_dag_run_id\x18\x04 \x01(\tR\frootDagRunId\"\x80\x01\n" +
+	"\x0froot_dag_run_id\x18\x04 \x01(\tR\frootDagRunId\x126\n" +
+	"\aproject\x18\x05 \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\"\x80\x01\n" +
 	"\x17GetDAGRunStatusResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x129\n" +
 	"\x06status\x18\x02 \x01(\v2!.coordinator.v1.DAGRunStatusProtoR\x06status\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"\xa1\x01\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"\xd9\x01\n" +
 	"\x14RequestCancelRequest\x12\x19\n" +
 	"\bdag_name\x18\x01 \x01(\tR\adagName\x12\x1c\n" +
 	"\n" +
 	"dag_run_id\x18\x02 \x01(\tR\bdagRunId\x12)\n" +
 	"\x11root_dag_run_name\x18\x03 \x01(\tR\x0erootDagRunName\x12%\n" +
-	"\x0froot_dag_run_id\x18\x04 \x01(\tR\frootDagRunId\"I\n" +
+	"\x0froot_dag_run_id\x18\x04 \x01(\tR\frootDagRunId\x126\n" +
+	"\aproject\x18\x05 \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\"I\n" +
 	"\x15RequestCancelResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\"P\n" +
@@ -7641,12 +8375,14 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\x06 \x01(\x03R\tupdatedAt\x12@\n" +
 	"\n" +
-	"updated_by\x18\a \x01(\v2!.coordinator.v1.StateUpdateSourceR\tupdatedBy\"=\n" +
+	"updated_by\x18\a \x01(\v2!.coordinator.v1.StateUpdateSourceR\tupdatedBy\"\xac\x01\n" +
 	"\x0fGetStateRequest\x12*\n" +
-	"\x03ref\x18\x01 \x01(\v2\x18.coordinator.v1.StateRefR\x03ref\"Z\n" +
+	"\x03ref\x18\x01 \x01(\v2\x18.coordinator.v1.StateRefR\x03ref\x126\n" +
+	"\aproject\x18\x02 \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\x125\n" +
+	"\x06caller\x18\x03 \x01(\v2\x1d.coordinator.v1.CallerAttemptR\x06caller\"Z\n" +
 	"\x10GetStateResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x120\n" +
-	"\x05entry\x18\x02 \x01(\v2\x1a.coordinator.v1.StateEntryR\x05entry\"\x93\x02\n" +
+	"\x05entry\x18\x02 \x01(\v2\x1a.coordinator.v1.StateEntryR\x05entry\"\x82\x03\n" +
 	"\x0fPutStateRequest\x12*\n" +
 	"\x03ref\x18\x01 \x01(\v2\x18.coordinator.v1.StateRefR\x03ref\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\x120\n" +
@@ -7655,26 +8391,34 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\vcreate_only\x18\x05 \x01(\bR\n" +
 	"createOnly\x12@\n" +
 	"\n" +
-	"updated_by\x18\x06 \x01(\v2!.coordinator.v1.StateUpdateSourceR\tupdatedBy\"D\n" +
+	"updated_by\x18\x06 \x01(\v2!.coordinator.v1.StateUpdateSourceR\tupdatedBy\x126\n" +
+	"\aproject\x18\a \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\x125\n" +
+	"\x06caller\x18\b \x01(\v2\x1d.coordinator.v1.CallerAttemptR\x06caller\"D\n" +
 	"\x10PutStateResponse\x120\n" +
-	"\x05entry\x18\x01 \x01(\v2\x1a.coordinator.v1.StateEntryR\x05entry\"@\n" +
+	"\x05entry\x18\x01 \x01(\v2\x1a.coordinator.v1.StateEntryR\x05entry\"\xaf\x01\n" +
 	"\x12DeleteStateRequest\x12*\n" +
-	"\x03ref\x18\x01 \x01(\v2\x18.coordinator.v1.StateRefR\x03ref\"/\n" +
+	"\x03ref\x18\x01 \x01(\v2\x18.coordinator.v1.StateRefR\x03ref\x126\n" +
+	"\aproject\x18\x02 \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\x125\n" +
+	"\x06caller\x18\x03 \x01(\v2\x1d.coordinator.v1.CallerAttemptR\x06caller\"/\n" +
 	"\x13DeleteStateResponse\x12\x18\n" +
-	"\adeleted\x18\x01 \x01(\bR\adeleted\"{\n" +
+	"\adeleted\x18\x01 \x01(\bR\adeleted\"\xea\x01\n" +
 	"\x10ListStateRequest\x12\x14\n" +
 	"\x05scope\x18\x01 \x01(\tR\x05scope\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1d\n" +
 	"\n" +
 	"key_prefix\x18\x03 \x01(\tR\tkeyPrefix\x12\x14\n" +
-	"\x05limit\x18\x04 \x01(\x05R\x05limit\"I\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\x126\n" +
+	"\aproject\x18\x05 \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\x125\n" +
+	"\x06caller\x18\x06 \x01(\v2\x1d.coordinator.v1.CallerAttemptR\x06caller\"I\n" +
 	"\x11ListStateResponse\x124\n" +
-	"\aentries\x18\x01 \x03(\v2\x1a.coordinator.v1.StateEntryR\aentries\"#\n" +
+	"\aentries\x18\x01 \x03(\v2\x1a.coordinator.v1.StateEntryR\aentries\"\x92\x01\n" +
 	"\rGetDAGRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\":\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x126\n" +
+	"\aproject\x18\x02 \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\x125\n" +
+	"\x06caller\x18\x03 \x01(\v2\x1d.coordinator.v1.CallerAttemptR\x06caller\":\n" +
 	"\x0eGetDAGResponse\x12\x12\n" +
 	"\x04spec\x18\x01 \x01(\tR\x04spec\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\x8e\x02\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\xc6\x02\n" +
 	"\x1dResolveSecretReferenceRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x1c\n" +
@@ -7687,9 +8431,11 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\n" +
 	"attempt_id\x18\a \x01(\tR\tattemptId\x12\x19\n" +
 	"\bdag_name\x18\b \x01(\tR\adagName\x12\x12\n" +
-	"\x04node\x18\t \x01(\tR\x04node\"6\n" +
+	"\x04node\x18\t \x01(\tR\x04node\x126\n" +
+	"\aproject\x18\n" +
+	" \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\"6\n" +
 	"\x1eResolveSecretReferenceResponse\x12\x14\n" +
-	"\x05value\x18\x01 \x01(\tR\x05value\"\xd7\x01\n" +
+	"\x05value\x18\x01 \x01(\tR\x05value\"\x8f\x02\n" +
 	"\x1cResolveRuntimeProfileRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1f\n" +
 	"\vattempt_key\x18\x02 \x01(\tR\n" +
@@ -7698,7 +8444,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"attempt_id\x18\x03 \x01(\tR\tattemptId\x12!\n" +
 	"\fprofile_name\x18\x04 \x01(\tR\vprofileName\x12\x1c\n" +
 	"\tworkspace\x18\x05 \x01(\tR\tworkspace\x12\x19\n" +
-	"\bdag_name\x18\x06 \x01(\tR\adagName\"Q\n" +
+	"\bdag_name\x18\x06 \x01(\tR\adagName\x126\n" +
+	"\aproject\x18\a \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\"Q\n" +
 	"\x13RuntimeProfileEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
@@ -7708,7 +8455,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\aentries\x18\x02 \x03(\v2#.coordinator.v1.RuntimeProfileEntryR\aentries\"\xa1\x01\n" +
 	"\x1dResolveRuntimeProfileResponse\x12?\n" +
 	"\bdefaults\x18\x01 \x01(\v2#.coordinator.v1.RuntimeProfileLayerR\bdefaults\x12?\n" +
-	"\bselected\x18\x02 \x01(\v2#.coordinator.v1.RuntimeProfileLayerR\bselected\"\xbf\x01\n" +
+	"\bselected\x18\x02 \x01(\v2#.coordinator.v1.RuntimeProfileLayerR\bselected\"\xf7\x01\n" +
 	"\x13ResolveNodesRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1f\n" +
 	"\vattempt_key\x18\x02 \x01(\tR\n" +
@@ -7717,7 +8464,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"attempt_id\x18\x03 \x01(\tR\tattemptId\x12\x19\n" +
 	"\bdag_name\x18\x04 \x01(\tR\adagName\x12\x1a\n" +
 	"\bselector\x18\x05 \x01(\tR\bselector\x12\x14\n" +
-	"\x05names\x18\x06 \x03(\tR\x05names\"\xd0\x01\n" +
+	"\x05names\x18\x06 \x03(\tR\x05names\x126\n" +
+	"\aproject\x18\a \x01(\v2\x1c.coordinator.v1.ProjectScopeR\aproject\"\xd0\x01\n" +
 	"\x14ResolveNodesResponse\x122\n" +
 	"\x05nodes\x18\x01 \x03(\v2\x1c.coordinator.v1.ResolvedNodeR\x05nodes\x128\n" +
 	"\bbastions\x18\x02 \x03(\v2\x1c.coordinator.v1.ResolvedNodeR\bbastions\x12J\n" +
@@ -7795,7 +8543,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\fResolveNodes\x12#.coordinator.v1.ResolveNodesRequest\x1a$.coordinator.v1.ResolveNodesResponseBAZ?github.com/dagucloud/dagu/v2/proto/coordinator/v1;coordinatorv1b\x06proto3"
 
 var file_proto_coordinator_v1_coordinator_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_proto_coordinator_v1_coordinator_proto_msgTypes = make([]protoimpl.MessageInfo, 68)
+var file_proto_coordinator_v1_coordinator_proto_msgTypes = make([]protoimpl.MessageInfo, 70)
 var file_proto_coordinator_v1_coordinator_proto_goTypes = []any{
 	(Operation)(0),                              // 0: coordinator.v1.Operation
 	(WorkerHealthStatus)(0),                     // 1: coordinator.v1.WorkerHealthStatus
@@ -7806,165 +8554,189 @@ var file_proto_coordinator_v1_coordinator_proto_goTypes = []any{
 	(*DispatchRequest)(nil),                     // 6: coordinator.v1.DispatchRequest
 	(*DispatchResponse)(nil),                    // 7: coordinator.v1.DispatchResponse
 	(*Task)(nil),                                // 8: coordinator.v1.Task
-	(*GetWorkersRequest)(nil),                   // 9: coordinator.v1.GetWorkersRequest
-	(*GetWorkersResponse)(nil),                  // 10: coordinator.v1.GetWorkersResponse
-	(*WorkerInfo)(nil),                          // 11: coordinator.v1.WorkerInfo
-	(*HeartbeatRequest)(nil),                    // 12: coordinator.v1.HeartbeatRequest
-	(*MachineSample)(nil),                       // 13: coordinator.v1.MachineSample
-	(*MachineUsage)(nil),                        // 14: coordinator.v1.MachineUsage
-	(*MachineLoad)(nil),                         // 15: coordinator.v1.MachineLoad
-	(*HeartbeatResponse)(nil),                   // 16: coordinator.v1.HeartbeatResponse
-	(*AckTaskClaimRequest)(nil),                 // 17: coordinator.v1.AckTaskClaimRequest
-	(*AckTaskClaimResponse)(nil),                // 18: coordinator.v1.AckTaskClaimResponse
-	(*ClaimAgentSessionCleanupRequest)(nil),     // 19: coordinator.v1.ClaimAgentSessionCleanupRequest
-	(*ClaimAgentSessionCleanupResponse)(nil),    // 20: coordinator.v1.ClaimAgentSessionCleanupResponse
-	(*CompleteAgentSessionCleanupRequest)(nil),  // 21: coordinator.v1.CompleteAgentSessionCleanupRequest
-	(*CompleteAgentSessionCleanupResponse)(nil), // 22: coordinator.v1.CompleteAgentSessionCleanupResponse
-	(*RunHeartbeatRequest)(nil),                 // 23: coordinator.v1.RunHeartbeatRequest
-	(*RunHeartbeatResponse)(nil),                // 24: coordinator.v1.RunHeartbeatResponse
-	(*CancelledRun)(nil),                        // 25: coordinator.v1.CancelledRun
-	(*WorkerStats)(nil),                         // 26: coordinator.v1.WorkerStats
-	(*RunningTask)(nil),                         // 27: coordinator.v1.RunningTask
-	(*ReportStatusRequest)(nil),                 // 28: coordinator.v1.ReportStatusRequest
-	(*ReportStatusResponse)(nil),                // 29: coordinator.v1.ReportStatusResponse
-	(*DAGRunStatusProto)(nil),                   // 30: coordinator.v1.DAGRunStatusProto
-	(*LogChunk)(nil),                            // 31: coordinator.v1.LogChunk
-	(*StreamLogsResponse)(nil),                  // 32: coordinator.v1.StreamLogsResponse
-	(*ArtifactChunk)(nil),                       // 33: coordinator.v1.ArtifactChunk
-	(*StreamArtifactsResponse)(nil),             // 34: coordinator.v1.StreamArtifactsResponse
-	(*WorkspaceBundle)(nil),                     // 35: coordinator.v1.WorkspaceBundle
-	(*WorkspaceBundleChunk)(nil),                // 36: coordinator.v1.WorkspaceBundleChunk
-	(*PutWorkspaceBundleResponse)(nil),          // 37: coordinator.v1.PutWorkspaceBundleResponse
-	(*HasWorkspaceBundleRequest)(nil),           // 38: coordinator.v1.HasWorkspaceBundleRequest
-	(*HasWorkspaceBundleResponse)(nil),          // 39: coordinator.v1.HasWorkspaceBundleResponse
-	(*GetWorkspaceBundleRequest)(nil),           // 40: coordinator.v1.GetWorkspaceBundleRequest
-	(*GetDAGRunStatusRequest)(nil),              // 41: coordinator.v1.GetDAGRunStatusRequest
-	(*GetDAGRunStatusResponse)(nil),             // 42: coordinator.v1.GetDAGRunStatusResponse
-	(*RequestCancelRequest)(nil),                // 43: coordinator.v1.RequestCancelRequest
-	(*RequestCancelResponse)(nil),               // 44: coordinator.v1.RequestCancelResponse
-	(*StateRef)(nil),                            // 45: coordinator.v1.StateRef
-	(*StateUpdateSource)(nil),                   // 46: coordinator.v1.StateUpdateSource
-	(*StateEntry)(nil),                          // 47: coordinator.v1.StateEntry
-	(*GetStateRequest)(nil),                     // 48: coordinator.v1.GetStateRequest
-	(*GetStateResponse)(nil),                    // 49: coordinator.v1.GetStateResponse
-	(*PutStateRequest)(nil),                     // 50: coordinator.v1.PutStateRequest
-	(*PutStateResponse)(nil),                    // 51: coordinator.v1.PutStateResponse
-	(*DeleteStateRequest)(nil),                  // 52: coordinator.v1.DeleteStateRequest
-	(*DeleteStateResponse)(nil),                 // 53: coordinator.v1.DeleteStateResponse
-	(*ListStateRequest)(nil),                    // 54: coordinator.v1.ListStateRequest
-	(*ListStateResponse)(nil),                   // 55: coordinator.v1.ListStateResponse
-	(*GetDAGRequest)(nil),                       // 56: coordinator.v1.GetDAGRequest
-	(*GetDAGResponse)(nil),                      // 57: coordinator.v1.GetDAGResponse
-	(*ResolveSecretReferenceRequest)(nil),       // 58: coordinator.v1.ResolveSecretReferenceRequest
-	(*ResolveSecretReferenceResponse)(nil),      // 59: coordinator.v1.ResolveSecretReferenceResponse
-	(*ResolveRuntimeProfileRequest)(nil),        // 60: coordinator.v1.ResolveRuntimeProfileRequest
-	(*RuntimeProfileEntry)(nil),                 // 61: coordinator.v1.RuntimeProfileEntry
-	(*RuntimeProfileLayer)(nil),                 // 62: coordinator.v1.RuntimeProfileLayer
-	(*ResolveRuntimeProfileResponse)(nil),       // 63: coordinator.v1.ResolveRuntimeProfileResponse
-	(*ResolveNodesRequest)(nil),                 // 64: coordinator.v1.ResolveNodesRequest
-	(*ResolveNodesResponse)(nil),                // 65: coordinator.v1.ResolveNodesResponse
-	(*ResolvedNode)(nil),                        // 66: coordinator.v1.ResolvedNode
-	(*TrustedHostKey)(nil),                      // 67: coordinator.v1.TrustedHostKey
-	nil,                                         // 68: coordinator.v1.PollRequest.LabelsEntry
-	nil,                                         // 69: coordinator.v1.Task.WorkerSelectorEntry
-	nil,                                         // 70: coordinator.v1.WorkerInfo.LabelsEntry
-	nil,                                         // 71: coordinator.v1.HeartbeatRequest.LabelsEntry
+	(*ProjectScope)(nil),                        // 9: coordinator.v1.ProjectScope
+	(*CallerAttempt)(nil),                       // 10: coordinator.v1.CallerAttempt
+	(*GetWorkersRequest)(nil),                   // 11: coordinator.v1.GetWorkersRequest
+	(*GetWorkersResponse)(nil),                  // 12: coordinator.v1.GetWorkersResponse
+	(*WorkerInfo)(nil),                          // 13: coordinator.v1.WorkerInfo
+	(*HeartbeatRequest)(nil),                    // 14: coordinator.v1.HeartbeatRequest
+	(*MachineSample)(nil),                       // 15: coordinator.v1.MachineSample
+	(*MachineUsage)(nil),                        // 16: coordinator.v1.MachineUsage
+	(*MachineLoad)(nil),                         // 17: coordinator.v1.MachineLoad
+	(*HeartbeatResponse)(nil),                   // 18: coordinator.v1.HeartbeatResponse
+	(*AckTaskClaimRequest)(nil),                 // 19: coordinator.v1.AckTaskClaimRequest
+	(*AckTaskClaimResponse)(nil),                // 20: coordinator.v1.AckTaskClaimResponse
+	(*ClaimAgentSessionCleanupRequest)(nil),     // 21: coordinator.v1.ClaimAgentSessionCleanupRequest
+	(*ClaimAgentSessionCleanupResponse)(nil),    // 22: coordinator.v1.ClaimAgentSessionCleanupResponse
+	(*CompleteAgentSessionCleanupRequest)(nil),  // 23: coordinator.v1.CompleteAgentSessionCleanupRequest
+	(*CompleteAgentSessionCleanupResponse)(nil), // 24: coordinator.v1.CompleteAgentSessionCleanupResponse
+	(*RunHeartbeatRequest)(nil),                 // 25: coordinator.v1.RunHeartbeatRequest
+	(*RunHeartbeatResponse)(nil),                // 26: coordinator.v1.RunHeartbeatResponse
+	(*CancelledRun)(nil),                        // 27: coordinator.v1.CancelledRun
+	(*WorkerStats)(nil),                         // 28: coordinator.v1.WorkerStats
+	(*RunningTask)(nil),                         // 29: coordinator.v1.RunningTask
+	(*ReportStatusRequest)(nil),                 // 30: coordinator.v1.ReportStatusRequest
+	(*ReportStatusResponse)(nil),                // 31: coordinator.v1.ReportStatusResponse
+	(*DAGRunStatusProto)(nil),                   // 32: coordinator.v1.DAGRunStatusProto
+	(*LogChunk)(nil),                            // 33: coordinator.v1.LogChunk
+	(*StreamLogsResponse)(nil),                  // 34: coordinator.v1.StreamLogsResponse
+	(*ArtifactChunk)(nil),                       // 35: coordinator.v1.ArtifactChunk
+	(*StreamArtifactsResponse)(nil),             // 36: coordinator.v1.StreamArtifactsResponse
+	(*WorkspaceBundle)(nil),                     // 37: coordinator.v1.WorkspaceBundle
+	(*WorkspaceBundleChunk)(nil),                // 38: coordinator.v1.WorkspaceBundleChunk
+	(*PutWorkspaceBundleResponse)(nil),          // 39: coordinator.v1.PutWorkspaceBundleResponse
+	(*HasWorkspaceBundleRequest)(nil),           // 40: coordinator.v1.HasWorkspaceBundleRequest
+	(*HasWorkspaceBundleResponse)(nil),          // 41: coordinator.v1.HasWorkspaceBundleResponse
+	(*GetWorkspaceBundleRequest)(nil),           // 42: coordinator.v1.GetWorkspaceBundleRequest
+	(*GetDAGRunStatusRequest)(nil),              // 43: coordinator.v1.GetDAGRunStatusRequest
+	(*GetDAGRunStatusResponse)(nil),             // 44: coordinator.v1.GetDAGRunStatusResponse
+	(*RequestCancelRequest)(nil),                // 45: coordinator.v1.RequestCancelRequest
+	(*RequestCancelResponse)(nil),               // 46: coordinator.v1.RequestCancelResponse
+	(*StateRef)(nil),                            // 47: coordinator.v1.StateRef
+	(*StateUpdateSource)(nil),                   // 48: coordinator.v1.StateUpdateSource
+	(*StateEntry)(nil),                          // 49: coordinator.v1.StateEntry
+	(*GetStateRequest)(nil),                     // 50: coordinator.v1.GetStateRequest
+	(*GetStateResponse)(nil),                    // 51: coordinator.v1.GetStateResponse
+	(*PutStateRequest)(nil),                     // 52: coordinator.v1.PutStateRequest
+	(*PutStateResponse)(nil),                    // 53: coordinator.v1.PutStateResponse
+	(*DeleteStateRequest)(nil),                  // 54: coordinator.v1.DeleteStateRequest
+	(*DeleteStateResponse)(nil),                 // 55: coordinator.v1.DeleteStateResponse
+	(*ListStateRequest)(nil),                    // 56: coordinator.v1.ListStateRequest
+	(*ListStateResponse)(nil),                   // 57: coordinator.v1.ListStateResponse
+	(*GetDAGRequest)(nil),                       // 58: coordinator.v1.GetDAGRequest
+	(*GetDAGResponse)(nil),                      // 59: coordinator.v1.GetDAGResponse
+	(*ResolveSecretReferenceRequest)(nil),       // 60: coordinator.v1.ResolveSecretReferenceRequest
+	(*ResolveSecretReferenceResponse)(nil),      // 61: coordinator.v1.ResolveSecretReferenceResponse
+	(*ResolveRuntimeProfileRequest)(nil),        // 62: coordinator.v1.ResolveRuntimeProfileRequest
+	(*RuntimeProfileEntry)(nil),                 // 63: coordinator.v1.RuntimeProfileEntry
+	(*RuntimeProfileLayer)(nil),                 // 64: coordinator.v1.RuntimeProfileLayer
+	(*ResolveRuntimeProfileResponse)(nil),       // 65: coordinator.v1.ResolveRuntimeProfileResponse
+	(*ResolveNodesRequest)(nil),                 // 66: coordinator.v1.ResolveNodesRequest
+	(*ResolveNodesResponse)(nil),                // 67: coordinator.v1.ResolveNodesResponse
+	(*ResolvedNode)(nil),                        // 68: coordinator.v1.ResolvedNode
+	(*TrustedHostKey)(nil),                      // 69: coordinator.v1.TrustedHostKey
+	nil,                                         // 70: coordinator.v1.PollRequest.LabelsEntry
+	nil,                                         // 71: coordinator.v1.Task.WorkerSelectorEntry
+	nil,                                         // 72: coordinator.v1.WorkerInfo.LabelsEntry
+	nil,                                         // 73: coordinator.v1.HeartbeatRequest.LabelsEntry
 }
 var file_proto_coordinator_v1_coordinator_proto_depIdxs = []int32{
-	68, // 0: coordinator.v1.PollRequest.labels:type_name -> coordinator.v1.PollRequest.LabelsEntry
+	70, // 0: coordinator.v1.PollRequest.labels:type_name -> coordinator.v1.PollRequest.LabelsEntry
 	8,  // 1: coordinator.v1.PollResponse.task:type_name -> coordinator.v1.Task
 	8,  // 2: coordinator.v1.DispatchRequest.task:type_name -> coordinator.v1.Task
 	0,  // 3: coordinator.v1.Task.operation:type_name -> coordinator.v1.Operation
-	69, // 4: coordinator.v1.Task.worker_selector:type_name -> coordinator.v1.Task.WorkerSelectorEntry
-	30, // 5: coordinator.v1.Task.previous_status:type_name -> coordinator.v1.DAGRunStatusProto
-	11, // 6: coordinator.v1.GetWorkersResponse.workers:type_name -> coordinator.v1.WorkerInfo
-	70, // 7: coordinator.v1.WorkerInfo.labels:type_name -> coordinator.v1.WorkerInfo.LabelsEntry
-	27, // 8: coordinator.v1.WorkerInfo.running_tasks:type_name -> coordinator.v1.RunningTask
-	1,  // 9: coordinator.v1.WorkerInfo.health_status:type_name -> coordinator.v1.WorkerHealthStatus
-	71, // 10: coordinator.v1.HeartbeatRequest.labels:type_name -> coordinator.v1.HeartbeatRequest.LabelsEntry
-	26, // 11: coordinator.v1.HeartbeatRequest.stats:type_name -> coordinator.v1.WorkerStats
-	13, // 12: coordinator.v1.HeartbeatRequest.machine:type_name -> coordinator.v1.MachineSample
-	14, // 13: coordinator.v1.MachineSample.memory:type_name -> coordinator.v1.MachineUsage
-	14, // 14: coordinator.v1.MachineSample.disk:type_name -> coordinator.v1.MachineUsage
-	14, // 15: coordinator.v1.MachineSample.log_disk:type_name -> coordinator.v1.MachineUsage
-	15, // 16: coordinator.v1.MachineSample.load:type_name -> coordinator.v1.MachineLoad
-	25, // 17: coordinator.v1.HeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
-	27, // 18: coordinator.v1.RunHeartbeatRequest.running_tasks:type_name -> coordinator.v1.RunningTask
-	25, // 19: coordinator.v1.RunHeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
-	27, // 20: coordinator.v1.WorkerStats.running_tasks:type_name -> coordinator.v1.RunningTask
-	30, // 21: coordinator.v1.ReportStatusRequest.status:type_name -> coordinator.v1.DAGRunStatusProto
-	2,  // 22: coordinator.v1.LogChunk.stream_type:type_name -> coordinator.v1.LogStreamType
-	35, // 23: coordinator.v1.WorkspaceBundleChunk.bundle:type_name -> coordinator.v1.WorkspaceBundle
-	30, // 24: coordinator.v1.GetDAGRunStatusResponse.status:type_name -> coordinator.v1.DAGRunStatusProto
-	45, // 25: coordinator.v1.StateEntry.ref:type_name -> coordinator.v1.StateRef
-	46, // 26: coordinator.v1.StateEntry.updated_by:type_name -> coordinator.v1.StateUpdateSource
-	45, // 27: coordinator.v1.GetStateRequest.ref:type_name -> coordinator.v1.StateRef
-	47, // 28: coordinator.v1.GetStateResponse.entry:type_name -> coordinator.v1.StateEntry
-	45, // 29: coordinator.v1.PutStateRequest.ref:type_name -> coordinator.v1.StateRef
-	46, // 30: coordinator.v1.PutStateRequest.updated_by:type_name -> coordinator.v1.StateUpdateSource
-	47, // 31: coordinator.v1.PutStateResponse.entry:type_name -> coordinator.v1.StateEntry
-	45, // 32: coordinator.v1.DeleteStateRequest.ref:type_name -> coordinator.v1.StateRef
-	47, // 33: coordinator.v1.ListStateResponse.entries:type_name -> coordinator.v1.StateEntry
-	61, // 34: coordinator.v1.RuntimeProfileLayer.entries:type_name -> coordinator.v1.RuntimeProfileEntry
-	62, // 35: coordinator.v1.ResolveRuntimeProfileResponse.defaults:type_name -> coordinator.v1.RuntimeProfileLayer
-	62, // 36: coordinator.v1.ResolveRuntimeProfileResponse.selected:type_name -> coordinator.v1.RuntimeProfileLayer
-	66, // 37: coordinator.v1.ResolveNodesResponse.nodes:type_name -> coordinator.v1.ResolvedNode
-	66, // 38: coordinator.v1.ResolveNodesResponse.bastions:type_name -> coordinator.v1.ResolvedNode
-	67, // 39: coordinator.v1.ResolveNodesResponse.trusted_host_keys:type_name -> coordinator.v1.TrustedHostKey
-	3,  // 40: coordinator.v1.ResolvedNode.kind:type_name -> coordinator.v1.NodeKind
-	4,  // 41: coordinator.v1.CoordinatorService.Poll:input_type -> coordinator.v1.PollRequest
-	6,  // 42: coordinator.v1.CoordinatorService.Dispatch:input_type -> coordinator.v1.DispatchRequest
-	9,  // 43: coordinator.v1.CoordinatorService.GetWorkers:input_type -> coordinator.v1.GetWorkersRequest
-	12, // 44: coordinator.v1.CoordinatorService.Heartbeat:input_type -> coordinator.v1.HeartbeatRequest
-	17, // 45: coordinator.v1.CoordinatorService.AckTaskClaim:input_type -> coordinator.v1.AckTaskClaimRequest
-	19, // 46: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:input_type -> coordinator.v1.ClaimAgentSessionCleanupRequest
-	21, // 47: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:input_type -> coordinator.v1.CompleteAgentSessionCleanupRequest
-	23, // 48: coordinator.v1.CoordinatorService.RunHeartbeat:input_type -> coordinator.v1.RunHeartbeatRequest
-	28, // 49: coordinator.v1.CoordinatorService.ReportStatus:input_type -> coordinator.v1.ReportStatusRequest
-	31, // 50: coordinator.v1.CoordinatorService.StreamLogs:input_type -> coordinator.v1.LogChunk
-	33, // 51: coordinator.v1.CoordinatorService.StreamArtifacts:input_type -> coordinator.v1.ArtifactChunk
-	36, // 52: coordinator.v1.CoordinatorService.PutWorkspaceBundle:input_type -> coordinator.v1.WorkspaceBundleChunk
-	38, // 53: coordinator.v1.CoordinatorService.HasWorkspaceBundle:input_type -> coordinator.v1.HasWorkspaceBundleRequest
-	40, // 54: coordinator.v1.CoordinatorService.GetWorkspaceBundle:input_type -> coordinator.v1.GetWorkspaceBundleRequest
-	41, // 55: coordinator.v1.CoordinatorService.GetDAGRunStatus:input_type -> coordinator.v1.GetDAGRunStatusRequest
-	43, // 56: coordinator.v1.CoordinatorService.RequestCancel:input_type -> coordinator.v1.RequestCancelRequest
-	48, // 57: coordinator.v1.CoordinatorService.GetState:input_type -> coordinator.v1.GetStateRequest
-	50, // 58: coordinator.v1.CoordinatorService.PutState:input_type -> coordinator.v1.PutStateRequest
-	52, // 59: coordinator.v1.CoordinatorService.DeleteState:input_type -> coordinator.v1.DeleteStateRequest
-	54, // 60: coordinator.v1.CoordinatorService.ListState:input_type -> coordinator.v1.ListStateRequest
-	56, // 61: coordinator.v1.CoordinatorService.GetDAG:input_type -> coordinator.v1.GetDAGRequest
-	58, // 62: coordinator.v1.CoordinatorService.ResolveSecretReference:input_type -> coordinator.v1.ResolveSecretReferenceRequest
-	60, // 63: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:input_type -> coordinator.v1.ResolveRuntimeProfileRequest
-	64, // 64: coordinator.v1.CoordinatorService.ResolveNodes:input_type -> coordinator.v1.ResolveNodesRequest
-	5,  // 65: coordinator.v1.CoordinatorService.Poll:output_type -> coordinator.v1.PollResponse
-	7,  // 66: coordinator.v1.CoordinatorService.Dispatch:output_type -> coordinator.v1.DispatchResponse
-	10, // 67: coordinator.v1.CoordinatorService.GetWorkers:output_type -> coordinator.v1.GetWorkersResponse
-	16, // 68: coordinator.v1.CoordinatorService.Heartbeat:output_type -> coordinator.v1.HeartbeatResponse
-	18, // 69: coordinator.v1.CoordinatorService.AckTaskClaim:output_type -> coordinator.v1.AckTaskClaimResponse
-	20, // 70: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:output_type -> coordinator.v1.ClaimAgentSessionCleanupResponse
-	22, // 71: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:output_type -> coordinator.v1.CompleteAgentSessionCleanupResponse
-	24, // 72: coordinator.v1.CoordinatorService.RunHeartbeat:output_type -> coordinator.v1.RunHeartbeatResponse
-	29, // 73: coordinator.v1.CoordinatorService.ReportStatus:output_type -> coordinator.v1.ReportStatusResponse
-	32, // 74: coordinator.v1.CoordinatorService.StreamLogs:output_type -> coordinator.v1.StreamLogsResponse
-	34, // 75: coordinator.v1.CoordinatorService.StreamArtifacts:output_type -> coordinator.v1.StreamArtifactsResponse
-	37, // 76: coordinator.v1.CoordinatorService.PutWorkspaceBundle:output_type -> coordinator.v1.PutWorkspaceBundleResponse
-	39, // 77: coordinator.v1.CoordinatorService.HasWorkspaceBundle:output_type -> coordinator.v1.HasWorkspaceBundleResponse
-	36, // 78: coordinator.v1.CoordinatorService.GetWorkspaceBundle:output_type -> coordinator.v1.WorkspaceBundleChunk
-	42, // 79: coordinator.v1.CoordinatorService.GetDAGRunStatus:output_type -> coordinator.v1.GetDAGRunStatusResponse
-	44, // 80: coordinator.v1.CoordinatorService.RequestCancel:output_type -> coordinator.v1.RequestCancelResponse
-	49, // 81: coordinator.v1.CoordinatorService.GetState:output_type -> coordinator.v1.GetStateResponse
-	51, // 82: coordinator.v1.CoordinatorService.PutState:output_type -> coordinator.v1.PutStateResponse
-	53, // 83: coordinator.v1.CoordinatorService.DeleteState:output_type -> coordinator.v1.DeleteStateResponse
-	55, // 84: coordinator.v1.CoordinatorService.ListState:output_type -> coordinator.v1.ListStateResponse
-	57, // 85: coordinator.v1.CoordinatorService.GetDAG:output_type -> coordinator.v1.GetDAGResponse
-	59, // 86: coordinator.v1.CoordinatorService.ResolveSecretReference:output_type -> coordinator.v1.ResolveSecretReferenceResponse
-	63, // 87: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:output_type -> coordinator.v1.ResolveRuntimeProfileResponse
-	65, // 88: coordinator.v1.CoordinatorService.ResolveNodes:output_type -> coordinator.v1.ResolveNodesResponse
-	65, // [65:89] is the sub-list for method output_type
-	41, // [41:65] is the sub-list for method input_type
-	41, // [41:41] is the sub-list for extension type_name
-	41, // [41:41] is the sub-list for extension extendee
-	0,  // [0:41] is the sub-list for field type_name
+	71, // 4: coordinator.v1.Task.worker_selector:type_name -> coordinator.v1.Task.WorkerSelectorEntry
+	32, // 5: coordinator.v1.Task.previous_status:type_name -> coordinator.v1.DAGRunStatusProto
+	9,  // 6: coordinator.v1.Task.project:type_name -> coordinator.v1.ProjectScope
+	13, // 7: coordinator.v1.GetWorkersResponse.workers:type_name -> coordinator.v1.WorkerInfo
+	72, // 8: coordinator.v1.WorkerInfo.labels:type_name -> coordinator.v1.WorkerInfo.LabelsEntry
+	29, // 9: coordinator.v1.WorkerInfo.running_tasks:type_name -> coordinator.v1.RunningTask
+	1,  // 10: coordinator.v1.WorkerInfo.health_status:type_name -> coordinator.v1.WorkerHealthStatus
+	73, // 11: coordinator.v1.HeartbeatRequest.labels:type_name -> coordinator.v1.HeartbeatRequest.LabelsEntry
+	28, // 12: coordinator.v1.HeartbeatRequest.stats:type_name -> coordinator.v1.WorkerStats
+	15, // 13: coordinator.v1.HeartbeatRequest.machine:type_name -> coordinator.v1.MachineSample
+	16, // 14: coordinator.v1.MachineSample.memory:type_name -> coordinator.v1.MachineUsage
+	16, // 15: coordinator.v1.MachineSample.disk:type_name -> coordinator.v1.MachineUsage
+	16, // 16: coordinator.v1.MachineSample.log_disk:type_name -> coordinator.v1.MachineUsage
+	17, // 17: coordinator.v1.MachineSample.load:type_name -> coordinator.v1.MachineLoad
+	27, // 18: coordinator.v1.HeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
+	9,  // 19: coordinator.v1.ClaimAgentSessionCleanupResponse.project:type_name -> coordinator.v1.ProjectScope
+	9,  // 20: coordinator.v1.CompleteAgentSessionCleanupRequest.project:type_name -> coordinator.v1.ProjectScope
+	29, // 21: coordinator.v1.RunHeartbeatRequest.running_tasks:type_name -> coordinator.v1.RunningTask
+	27, // 22: coordinator.v1.RunHeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
+	29, // 23: coordinator.v1.WorkerStats.running_tasks:type_name -> coordinator.v1.RunningTask
+	9,  // 24: coordinator.v1.RunningTask.project:type_name -> coordinator.v1.ProjectScope
+	32, // 25: coordinator.v1.ReportStatusRequest.status:type_name -> coordinator.v1.DAGRunStatusProto
+	9,  // 26: coordinator.v1.ReportStatusRequest.project:type_name -> coordinator.v1.ProjectScope
+	2,  // 27: coordinator.v1.LogChunk.stream_type:type_name -> coordinator.v1.LogStreamType
+	9,  // 28: coordinator.v1.LogChunk.project:type_name -> coordinator.v1.ProjectScope
+	9,  // 29: coordinator.v1.ArtifactChunk.project:type_name -> coordinator.v1.ProjectScope
+	37, // 30: coordinator.v1.WorkspaceBundleChunk.bundle:type_name -> coordinator.v1.WorkspaceBundle
+	9,  // 31: coordinator.v1.GetDAGRunStatusRequest.project:type_name -> coordinator.v1.ProjectScope
+	32, // 32: coordinator.v1.GetDAGRunStatusResponse.status:type_name -> coordinator.v1.DAGRunStatusProto
+	9,  // 33: coordinator.v1.RequestCancelRequest.project:type_name -> coordinator.v1.ProjectScope
+	47, // 34: coordinator.v1.StateEntry.ref:type_name -> coordinator.v1.StateRef
+	48, // 35: coordinator.v1.StateEntry.updated_by:type_name -> coordinator.v1.StateUpdateSource
+	47, // 36: coordinator.v1.GetStateRequest.ref:type_name -> coordinator.v1.StateRef
+	9,  // 37: coordinator.v1.GetStateRequest.project:type_name -> coordinator.v1.ProjectScope
+	10, // 38: coordinator.v1.GetStateRequest.caller:type_name -> coordinator.v1.CallerAttempt
+	49, // 39: coordinator.v1.GetStateResponse.entry:type_name -> coordinator.v1.StateEntry
+	47, // 40: coordinator.v1.PutStateRequest.ref:type_name -> coordinator.v1.StateRef
+	48, // 41: coordinator.v1.PutStateRequest.updated_by:type_name -> coordinator.v1.StateUpdateSource
+	9,  // 42: coordinator.v1.PutStateRequest.project:type_name -> coordinator.v1.ProjectScope
+	10, // 43: coordinator.v1.PutStateRequest.caller:type_name -> coordinator.v1.CallerAttempt
+	49, // 44: coordinator.v1.PutStateResponse.entry:type_name -> coordinator.v1.StateEntry
+	47, // 45: coordinator.v1.DeleteStateRequest.ref:type_name -> coordinator.v1.StateRef
+	9,  // 46: coordinator.v1.DeleteStateRequest.project:type_name -> coordinator.v1.ProjectScope
+	10, // 47: coordinator.v1.DeleteStateRequest.caller:type_name -> coordinator.v1.CallerAttempt
+	9,  // 48: coordinator.v1.ListStateRequest.project:type_name -> coordinator.v1.ProjectScope
+	10, // 49: coordinator.v1.ListStateRequest.caller:type_name -> coordinator.v1.CallerAttempt
+	49, // 50: coordinator.v1.ListStateResponse.entries:type_name -> coordinator.v1.StateEntry
+	9,  // 51: coordinator.v1.GetDAGRequest.project:type_name -> coordinator.v1.ProjectScope
+	10, // 52: coordinator.v1.GetDAGRequest.caller:type_name -> coordinator.v1.CallerAttempt
+	9,  // 53: coordinator.v1.ResolveSecretReferenceRequest.project:type_name -> coordinator.v1.ProjectScope
+	9,  // 54: coordinator.v1.ResolveRuntimeProfileRequest.project:type_name -> coordinator.v1.ProjectScope
+	63, // 55: coordinator.v1.RuntimeProfileLayer.entries:type_name -> coordinator.v1.RuntimeProfileEntry
+	64, // 56: coordinator.v1.ResolveRuntimeProfileResponse.defaults:type_name -> coordinator.v1.RuntimeProfileLayer
+	64, // 57: coordinator.v1.ResolveRuntimeProfileResponse.selected:type_name -> coordinator.v1.RuntimeProfileLayer
+	9,  // 58: coordinator.v1.ResolveNodesRequest.project:type_name -> coordinator.v1.ProjectScope
+	68, // 59: coordinator.v1.ResolveNodesResponse.nodes:type_name -> coordinator.v1.ResolvedNode
+	68, // 60: coordinator.v1.ResolveNodesResponse.bastions:type_name -> coordinator.v1.ResolvedNode
+	69, // 61: coordinator.v1.ResolveNodesResponse.trusted_host_keys:type_name -> coordinator.v1.TrustedHostKey
+	3,  // 62: coordinator.v1.ResolvedNode.kind:type_name -> coordinator.v1.NodeKind
+	4,  // 63: coordinator.v1.CoordinatorService.Poll:input_type -> coordinator.v1.PollRequest
+	6,  // 64: coordinator.v1.CoordinatorService.Dispatch:input_type -> coordinator.v1.DispatchRequest
+	11, // 65: coordinator.v1.CoordinatorService.GetWorkers:input_type -> coordinator.v1.GetWorkersRequest
+	14, // 66: coordinator.v1.CoordinatorService.Heartbeat:input_type -> coordinator.v1.HeartbeatRequest
+	19, // 67: coordinator.v1.CoordinatorService.AckTaskClaim:input_type -> coordinator.v1.AckTaskClaimRequest
+	21, // 68: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:input_type -> coordinator.v1.ClaimAgentSessionCleanupRequest
+	23, // 69: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:input_type -> coordinator.v1.CompleteAgentSessionCleanupRequest
+	25, // 70: coordinator.v1.CoordinatorService.RunHeartbeat:input_type -> coordinator.v1.RunHeartbeatRequest
+	30, // 71: coordinator.v1.CoordinatorService.ReportStatus:input_type -> coordinator.v1.ReportStatusRequest
+	33, // 72: coordinator.v1.CoordinatorService.StreamLogs:input_type -> coordinator.v1.LogChunk
+	35, // 73: coordinator.v1.CoordinatorService.StreamArtifacts:input_type -> coordinator.v1.ArtifactChunk
+	38, // 74: coordinator.v1.CoordinatorService.PutWorkspaceBundle:input_type -> coordinator.v1.WorkspaceBundleChunk
+	40, // 75: coordinator.v1.CoordinatorService.HasWorkspaceBundle:input_type -> coordinator.v1.HasWorkspaceBundleRequest
+	42, // 76: coordinator.v1.CoordinatorService.GetWorkspaceBundle:input_type -> coordinator.v1.GetWorkspaceBundleRequest
+	43, // 77: coordinator.v1.CoordinatorService.GetDAGRunStatus:input_type -> coordinator.v1.GetDAGRunStatusRequest
+	45, // 78: coordinator.v1.CoordinatorService.RequestCancel:input_type -> coordinator.v1.RequestCancelRequest
+	50, // 79: coordinator.v1.CoordinatorService.GetState:input_type -> coordinator.v1.GetStateRequest
+	52, // 80: coordinator.v1.CoordinatorService.PutState:input_type -> coordinator.v1.PutStateRequest
+	54, // 81: coordinator.v1.CoordinatorService.DeleteState:input_type -> coordinator.v1.DeleteStateRequest
+	56, // 82: coordinator.v1.CoordinatorService.ListState:input_type -> coordinator.v1.ListStateRequest
+	58, // 83: coordinator.v1.CoordinatorService.GetDAG:input_type -> coordinator.v1.GetDAGRequest
+	60, // 84: coordinator.v1.CoordinatorService.ResolveSecretReference:input_type -> coordinator.v1.ResolveSecretReferenceRequest
+	62, // 85: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:input_type -> coordinator.v1.ResolveRuntimeProfileRequest
+	66, // 86: coordinator.v1.CoordinatorService.ResolveNodes:input_type -> coordinator.v1.ResolveNodesRequest
+	5,  // 87: coordinator.v1.CoordinatorService.Poll:output_type -> coordinator.v1.PollResponse
+	7,  // 88: coordinator.v1.CoordinatorService.Dispatch:output_type -> coordinator.v1.DispatchResponse
+	12, // 89: coordinator.v1.CoordinatorService.GetWorkers:output_type -> coordinator.v1.GetWorkersResponse
+	18, // 90: coordinator.v1.CoordinatorService.Heartbeat:output_type -> coordinator.v1.HeartbeatResponse
+	20, // 91: coordinator.v1.CoordinatorService.AckTaskClaim:output_type -> coordinator.v1.AckTaskClaimResponse
+	22, // 92: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:output_type -> coordinator.v1.ClaimAgentSessionCleanupResponse
+	24, // 93: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:output_type -> coordinator.v1.CompleteAgentSessionCleanupResponse
+	26, // 94: coordinator.v1.CoordinatorService.RunHeartbeat:output_type -> coordinator.v1.RunHeartbeatResponse
+	31, // 95: coordinator.v1.CoordinatorService.ReportStatus:output_type -> coordinator.v1.ReportStatusResponse
+	34, // 96: coordinator.v1.CoordinatorService.StreamLogs:output_type -> coordinator.v1.StreamLogsResponse
+	36, // 97: coordinator.v1.CoordinatorService.StreamArtifacts:output_type -> coordinator.v1.StreamArtifactsResponse
+	39, // 98: coordinator.v1.CoordinatorService.PutWorkspaceBundle:output_type -> coordinator.v1.PutWorkspaceBundleResponse
+	41, // 99: coordinator.v1.CoordinatorService.HasWorkspaceBundle:output_type -> coordinator.v1.HasWorkspaceBundleResponse
+	38, // 100: coordinator.v1.CoordinatorService.GetWorkspaceBundle:output_type -> coordinator.v1.WorkspaceBundleChunk
+	44, // 101: coordinator.v1.CoordinatorService.GetDAGRunStatus:output_type -> coordinator.v1.GetDAGRunStatusResponse
+	46, // 102: coordinator.v1.CoordinatorService.RequestCancel:output_type -> coordinator.v1.RequestCancelResponse
+	51, // 103: coordinator.v1.CoordinatorService.GetState:output_type -> coordinator.v1.GetStateResponse
+	53, // 104: coordinator.v1.CoordinatorService.PutState:output_type -> coordinator.v1.PutStateResponse
+	55, // 105: coordinator.v1.CoordinatorService.DeleteState:output_type -> coordinator.v1.DeleteStateResponse
+	57, // 106: coordinator.v1.CoordinatorService.ListState:output_type -> coordinator.v1.ListStateResponse
+	59, // 107: coordinator.v1.CoordinatorService.GetDAG:output_type -> coordinator.v1.GetDAGResponse
+	61, // 108: coordinator.v1.CoordinatorService.ResolveSecretReference:output_type -> coordinator.v1.ResolveSecretReferenceResponse
+	65, // 109: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:output_type -> coordinator.v1.ResolveRuntimeProfileResponse
+	67, // 110: coordinator.v1.CoordinatorService.ResolveNodes:output_type -> coordinator.v1.ResolveNodesResponse
+	87, // [87:111] is the sub-list for method output_type
+	63, // [63:87] is the sub-list for method input_type
+	63, // [63:63] is the sub-list for extension type_name
+	63, // [63:63] is the sub-list for extension extendee
+	0,  // [0:63] is the sub-list for field type_name
 }
 
 func init() { file_proto_coordinator_v1_coordinator_proto_init() }
@@ -7973,16 +8745,16 @@ func file_proto_coordinator_v1_coordinator_proto_init() {
 		return
 	}
 	file_proto_coordinator_v1_coordinator_proto_msgTypes[4].OneofWrappers = []any{}
-	file_proto_coordinator_v1_coordinator_proto_msgTypes[9].OneofWrappers = []any{}
-	file_proto_coordinator_v1_coordinator_proto_msgTypes[10].OneofWrappers = []any{}
-	file_proto_coordinator_v1_coordinator_proto_msgTypes[27].OneofWrappers = []any{}
+	file_proto_coordinator_v1_coordinator_proto_msgTypes[11].OneofWrappers = []any{}
+	file_proto_coordinator_v1_coordinator_proto_msgTypes[12].OneofWrappers = []any{}
+	file_proto_coordinator_v1_coordinator_proto_msgTypes[29].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_coordinator_v1_coordinator_proto_rawDesc), len(file_proto_coordinator_v1_coordinator_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   68,
+			NumMessages:   70,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

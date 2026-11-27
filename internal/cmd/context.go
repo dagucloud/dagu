@@ -610,6 +610,7 @@ func isProgressOutputCommand(cmdName string) bool {
 }
 
 // NewCoordinatorClient creates a new coordinator client using the global peer configuration.
+// Its calls for runs address the runs the command records.
 // Returns a nil client when the coordinator is disabled via configuration.
 func (c *Context) NewCoordinatorClient() (coordinator.Client, error) {
 	if !c.Config.Coordinator.Enabled {
@@ -620,7 +621,7 @@ func (c *Context) NewCoordinatorClient() (coordinator.Client, error) {
 	if err := clientConfig.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid coordinator client configuration: %w", err)
 	}
-	return coordinator.New(c.Persistence.ServiceRegistry, clientConfig), nil
+	return coordinator.InProject(coordinator.New(c.Persistence.ServiceRegistry, clientConfig), c.dispatchProject()), nil
 }
 
 func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
@@ -644,7 +645,7 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 		DAGRunArtifactDir:  c.projectPaths().ArtifactDir,
 		StateStoreFor:      c.subDAGStateStore(),
 		EnqueueStoresFor:   c.enqueueStores(),
-		WorkerRefusal:      c.subDAGWorkerRefusal(),
+		Project:            c.dispatchProject(),
 	})
 }
 

@@ -205,7 +205,8 @@ func runStartAll(ctx *Context, _ []string) error {
 	serverOpts = append(serverOpts, frontend.WithOnReady(printStartupBanner(serviceCtx, stores.AuthSetupRequired)))
 	webStopped, onWebStopped := closedOnce()
 	serverOpts = append(serverOpts, frontend.WithOnStopped(onWebStopped))
-	serverOpts = append(serverOpts, serviceCtx.followServedProjects(serviceCtx)...)
+	projects := serviceCtx.followProjects(serviceCtx)
+	serverOpts = append(serverOpts, serviceCtx.servedProjects(projects)...)
 
 	// Use serviceCtx so auth initialization can respond to termination signals
 	server, err := newServer(serviceCtx, resourceService, stores, serverOpts...)
@@ -219,7 +220,7 @@ func runStartAll(ctx *Context, _ []string) error {
 		var err error
 		// The coordinator shares the server's inventory, so a change through
 		// the server reaches it at once.
-		coord, _, err = newCoordinator(serviceCtx, stores.Secret, stores.Profile, stores.Inventory, stores.HostKeys)
+		coord, _, err = newCoordinator(serviceCtx, stores.Secret, stores.Profile, stores.Inventory, stores.HostKeys, projects)
 		if err != nil {
 			return fmt.Errorf("failed to initialize coordinator: %w", withPortInUseHint(err, coordinatorPortInUseHint))
 		}

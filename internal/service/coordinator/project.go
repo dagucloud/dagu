@@ -1,0 +1,307 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package coordinator
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"sync"
+	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/agentsession"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/proto/convert"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
+	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+// ProjectStores are the stores in which a coordinator keeps the runs of one
+// project, and the settings its runs on workers resolve. A nil store leaves
+// the calls that need it unavailable.
+type ProjectStores struct {
+	DAGRunRepository         *persis.DAGRunRepository
+	LogDir                   string
+	ArtifactDir              string
+	StateStore               dagrun.StateStore
+	DAGRepository            *persis.DAGRepository
+	SecretStore              secretpkg.Store
+	ProfileStore             profilepkg.Store
+	NodeInventory            inventory.Store
+	TrustedHostKeys          runctx.TrustedHostKeys
+	AgentSessionCleanupQueue *agentsession.CleanupQueue
+	// EventService records the events of the project's runs.
+	EventService *eventstore.Service
+}
+
+// ProjectSource finds the stores of the runs of registered projects other
+// than those of the default project's own DAGs.
+type ProjectSource interface {
+	// Stores returns the stores of the runs that scope addresses. It fails
+	// when no registered project has the scope's ID, or its stores are not
+	// open yet.
+	Stores(ctx context.Context, scope dispatch.ProjectScope) (*ProjectStores, error)
+	// Projects returns the scopes of the own DAGs of the registered
+	// projects other than the default one.
+	Projects() []dispatch.ProjectScope
+}
+
+// scopedStoresKey carries the scopedStores of the project a call addresses.
+type scopedStoresKey struct{}
+
+// scopedStores are the stores of the runs that scope addresses.
+type scopedStores struct {
+	scope  dispatch.ProjectScope
+	stores *ProjectStores
+}
+
+// inProject returns ctx addressing the runs of scope. Every store the
+// handler reads or writes for the call comes from the returned context, and
+// runs are cached and locked by scope as well as by run ID, since a migrated
+// project shares the default project's run IDs. A scope the coordinator
+// does not serve is an error, returned with ctx unchanged. A project whose
+// stores are not open answers Unavailable, which callers retry.
+func (h *Handler) inProject(ctx context.Context, scope dispatch.ProjectScope) (context.Context, error) {
+	scoped := scopedStores{scope: scope, stores: &h.defaults}
+	if scope == (dispatch.ProjectScope{}) && ctx.Value(scopedStoresKey{}) == nil {
+		return ctx, nil
+	}
+	if scope != (dispatch.ProjectScope{}) {
+		if h.projects == nil {
+			return ctx, status.Error(codes.FailedPrecondition, "this coordinator serves only the default project's own DAGs")
+		}
+		stores, err := h.projects.Stores(ctx, scope)
+		if err != nil {
+			return ctx, status.Error(codes.Unavailable, err.Error())
+		}
+		scoped.stores = stores
+	}
+	return h.eventContext(context.WithValue(ctx, scopedStoresKey{}, scoped)), nil
+}
+
+// inProjectOf returns ctx addressing the runs of the project a call names,
+// unset for the default project's own DAGs.
+func (h *Handler) inProjectOf(ctx context.Context, project *coordinatorv1.ProjectScope) (context.Context, error) {
+	return h.inProject(ctx, convert.ProtoToProjectScope(project))
+}
+
+// stores returns the stores of the runs ctx addresses: those of the default
+// project's own DAGs unless inProject chose others.
+func (h *Handler) stores(ctx context.Context) *ProjectStores {
+	if scoped, ok := ctx.Value(scopedStoresKey{}).(scopedStores); ok {
+		return scoped.stores
+	}
+	return &h.defaults
+}
+
+// scopeOf returns the scope of the runs ctx addresses.
+func scopeOf(ctx context.Context) dispatch.ProjectScope {
+	scoped, _ := ctx.Value(scopedStoresKey{}).(scopedStores)
+	return scoped.scope
+}
+
+// runKey returns the key that caches and locks the run dagRunID of the runs
+// ctx addresses. It is dagRunID for the default project's own DAGs.
+func (h *Handler) runKey(ctx context.Context, dagRunID string) string {
+	scope := scopeOf(ctx)
+	if scope == (dispatch.ProjectScope{}) {
+		return dagRunID
+	}
+	return fmt.Sprintf("%s\x00%t\x00%s", scope.ID, scope.Library, dagRunID)
+}
+
+// checkLeaseProject refuses a call for the attempt of lease unless the call
+// addresses the attempt's project. A call that names no project addresses
+// the default project, so it is refused for another project's attempt.
+func (h *Handler) checkLeaseProject(ctx context.Context, lease *dispatch.DAGRunLease) error {
+	if lease != nil && lease.Project != scopeOf(ctx) {
+		return status.Error(codes.PermissionDenied, "the attempt belongs to another project than the call addresses")
+	}
+	return nil
+}
+
+// errCallerRequired refuses a call for another project than the default one
+// that names no attempt of the caller.
+var errCallerRequired = status.Error(codes.PermissionDenied, "a call for another project than the default one must name the caller's attempt")
+
+// authorizeCaller refuses a call that ctx scopes unless caller names a
+// fresh attempt that the calling worker holds in that project. A call for
+// the default project's own DAGs that names no attempt passes, as calls of
+// workers that predate projects do.
+func (h *Handler) authorizeCaller(ctx context.Context, caller *coordinatorv1.CallerAttempt) error {
+	if caller == nil {
+		if scopeOf(ctx) != (dispatch.ProjectScope{}) {
+			return errCallerRequired
+		}
+		return nil
+	}
+	if caller.GetWorkerId() == "" || caller.GetAttemptKey() == "" || caller.GetAttemptId() == "" {
+		return status.Error(codes.InvalidArgument, "caller worker_id, attempt_key, and attempt_id are required")
+	}
+	if h.dagRunLeaseStore == nil {
+		return status.Error(codes.FailedPrecondition, "dag-run lease store is not configured")
+	}
+	lease, err := h.dagRunLeaseStore.Get(ctx, caller.GetAttemptKey())
+	switch {
+	case errors.Is(err, dispatch.ErrDAGRunLeaseNotFound):
+		return status.Error(codes.PermissionDenied, remoteAttemptRejectedLeaseInactive)
+	case err != nil:
+		return status.Error(codes.Internal, "failed to load distributed run lease: "+err.Error())
+	}
+	if lease.WorkerID != caller.GetWorkerId() || lease.AttemptID != caller.GetAttemptId() ||
+		!lease.IsFresh(time.Now().UTC(), h.staleLeaseThreshold) {
+		return status.Error(codes.PermissionDenied, remoteAttemptRejectedLeaseInactive)
+	}
+	return h.checkLeaseProject(ctx, lease)
+}
+
+// callerAttemptOf returns the wire form of the attempt run names, or nil for
+// an attempt of the default project's own DAGs, whose calls name none.
+func callerAttemptOf(run WorkerAttempt) *coordinatorv1.CallerAttempt {
+	if run.Project == (dispatch.ProjectScope{}) {
+		return nil
+	}
+	return &coordinatorv1.CallerAttempt{WorkerId: run.WorkerID, AttemptKey: run.AttemptKey, AttemptId: run.AttemptID}
+}
+
+// runningTaskContext returns ctx addressing the project of a running task a
+// worker reports. A worker that predates projects names none, and runs only
+// the default project's tasks.
+func (h *Handler) runningTaskContext(ctx context.Context, task *coordinatorv1.RunningTask) (context.Context, error) {
+	return h.inProjectOf(ctx, task.GetProject())
+}
+
+// cleanupCursorIdle is how long a worker's cleanup cursor outlives the
+// worker's last claim. Workers claim every few seconds while they run.
+const cleanupCursorIdle = 10 * time.Minute
+
+// cleanupCursors count each worker's cleanup claims, so each worker checks
+// the projects in turn whatever the other workers claim. The cursor of a
+// worker that stops claiming is dropped, so they are as many as the live
+// workers.
+type cleanupCursors struct {
+	mu      sync.Mutex
+	workers map[string]cleanupCursor
+}
+
+type cleanupCursor struct {
+	claims   uint64
+	lastUsed time.Time
+}
+
+// next returns the number of workerID's claim at now, from 1.
+func (c *cleanupCursors) next(workerID string, now time.Time) uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.workers == nil {
+		c.workers = make(map[string]cleanupCursor)
+	}
+	for id, cursor := range c.workers {
+		if now.Sub(cursor.lastUsed) > cleanupCursorIdle {
+			delete(c.workers, id)
+		}
+	}
+	cursor := c.workers[workerID]
+	cursor.claims++
+	cursor.lastUsed = now
+	c.workers[workerID] = cursor
+	return cursor.claims
+}
+
+// errStreamProjectChanged refuses a stream whose chunks address more than
+// one project.
+var errStreamProjectChanged = status.Error(codes.InvalidArgument, "stream chunks address more than one project")
+
+// scopedLogStream is a log stream whose context addresses the project of its
+// first chunk, which every later chunk must address too.
+type scopedLogStream struct {
+	coordinatorv1.CoordinatorService_StreamLogsServer
+	ctx   context.Context
+	first *coordinatorv1.LogChunk
+}
+
+// scopeLogStream reads the first chunk of stream and returns the stream
+// addressing its project. It returns nil once it answers a stream that
+// ends before any chunk.
+func (h *Handler) scopeLogStream(stream coordinatorv1.CoordinatorService_StreamLogsServer) (*scopedLogStream, error) {
+	first, err := stream.Recv()
+	if err == io.EOF {
+		return nil, stream.SendAndClose(&coordinatorv1.StreamLogsResponse{})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to receive chunk: %w", err)
+	}
+	ctx, err := h.inProjectOf(stream.Context(), first.GetProject())
+	if err != nil {
+		return nil, err
+	}
+	return &scopedLogStream{CoordinatorService_StreamLogsServer: stream, ctx: ctx, first: first}, nil
+}
+
+func (s *scopedLogStream) Context() context.Context { return s.ctx }
+
+func (s *scopedLogStream) Recv() (*coordinatorv1.LogChunk, error) {
+	chunk := s.first
+	s.first = nil
+	if chunk == nil {
+		var err error
+		if chunk, err = s.CoordinatorService_StreamLogsServer.Recv(); err != nil {
+			return nil, err
+		}
+	}
+	if convert.ProtoToProjectScope(chunk.GetProject()) != scopeOf(s.ctx) {
+		return nil, errStreamProjectChanged
+	}
+	return chunk, nil
+}
+
+// scopedArtifactStream is the artifact stream counterpart of
+// scopedLogStream.
+type scopedArtifactStream struct {
+	coordinatorv1.CoordinatorService_StreamArtifactsServer
+	ctx   context.Context
+	first *coordinatorv1.ArtifactChunk
+}
+
+// scopeArtifactStream is the artifact stream counterpart of scopeLogStream.
+func (h *Handler) scopeArtifactStream(stream coordinatorv1.CoordinatorService_StreamArtifactsServer) (*scopedArtifactStream, error) {
+	first, err := stream.Recv()
+	if err == io.EOF {
+		return nil, stream.SendAndClose(&coordinatorv1.StreamArtifactsResponse{})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to receive artifact chunk: %w", err)
+	}
+	ctx, err := h.inProjectOf(stream.Context(), first.GetProject())
+	if err != nil {
+		return nil, err
+	}
+	return &scopedArtifactStream{CoordinatorService_StreamArtifactsServer: stream, ctx: ctx, first: first}, nil
+}
+
+func (s *scopedArtifactStream) Context() context.Context { return s.ctx }
+
+func (s *scopedArtifactStream) Recv() (*coordinatorv1.ArtifactChunk, error) {
+	chunk := s.first
+	s.first = nil
+	if chunk == nil {
+		var err error
+		if chunk, err = s.CoordinatorService_StreamArtifactsServer.Recv(); err != nil {
+			return nil, err
+		}
+	}
+	if convert.ProtoToProjectScope(chunk.GetProject()) != scopeOf(s.ctx) {
+		return nil, errStreamProjectChanged
+	}
+	return chunk, nil
+}

@@ -17,14 +17,21 @@ import (
 
 // GetState returns the current state entry for a reference, if it exists.
 func (h *Handler) GetState(ctx context.Context, req *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error) {
-	if h.stateStore == nil {
+	ctx, err := h.inProjectOf(ctx, req.GetProject())
+	if err != nil {
+		return nil, err
+	}
+	if err := h.authorizeCaller(ctx, req.GetCaller()); err != nil {
+		return nil, err
+	}
+	if h.stores(ctx).StateStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "state store is not configured")
 	}
 	ref, err := stateRefFromProto(req.GetRef())
 	if err != nil {
 		return nil, stateRPCError(err)
 	}
-	entry, err := h.stateStore.Get(ctx, ref)
+	entry, err := h.stores(ctx).StateStore.Get(ctx, ref)
 	if err != nil {
 		if errors.Is(err, dagrun.ErrStateNotFound) {
 			return &coordinatorv1.GetStateResponse{Found: false}, nil
@@ -36,7 +43,14 @@ func (h *Handler) GetState(ctx context.Context, req *coordinatorv1.GetStateReque
 
 // PutState creates or updates a state entry through the coordinator state store.
 func (h *Handler) PutState(ctx context.Context, req *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error) {
-	if h.stateStore == nil {
+	ctx, err := h.inProjectOf(ctx, req.GetProject())
+	if err != nil {
+		return nil, err
+	}
+	if err := h.authorizeCaller(ctx, req.GetCaller()); err != nil {
+		return nil, err
+	}
+	if h.stores(ctx).StateStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "state store is not configured")
 	}
 	ref, err := stateRefFromProto(req.GetRef())
@@ -48,7 +62,7 @@ func (h *Handler) PutState(ctx context.Context, req *coordinatorv1.PutStateReque
 		v := req.GetExpectedVersion()
 		expected = &v
 	}
-	entry, err := h.stateStore.Put(ctx, ref, json.RawMessage(req.GetValue()), dagrun.StatePutOptions{
+	entry, err := h.stores(ctx).StateStore.Put(ctx, ref, json.RawMessage(req.GetValue()), dagrun.StatePutOptions{
 		ExpectedVersion: expected,
 		CreateOnly:      req.GetCreateOnly(),
 		UpdatedBy:       stateUpdateSourceFromProto(req.GetUpdatedBy()),
@@ -61,14 +75,21 @@ func (h *Handler) PutState(ctx context.Context, req *coordinatorv1.PutStateReque
 
 // DeleteState removes a state entry through the coordinator state store.
 func (h *Handler) DeleteState(ctx context.Context, req *coordinatorv1.DeleteStateRequest) (*coordinatorv1.DeleteStateResponse, error) {
-	if h.stateStore == nil {
+	ctx, err := h.inProjectOf(ctx, req.GetProject())
+	if err != nil {
+		return nil, err
+	}
+	if err := h.authorizeCaller(ctx, req.GetCaller()); err != nil {
+		return nil, err
+	}
+	if h.stores(ctx).StateStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "state store is not configured")
 	}
 	ref, err := stateRefFromProto(req.GetRef())
 	if err != nil {
 		return nil, stateRPCError(err)
 	}
-	deleted, err := h.stateStore.Delete(ctx, ref)
+	deleted, err := h.stores(ctx).StateStore.Delete(ctx, ref)
 	if err != nil {
 		return nil, stateRPCError(err)
 	}
@@ -77,10 +98,17 @@ func (h *Handler) DeleteState(ctx context.Context, req *coordinatorv1.DeleteStat
 
 // ListState returns state entries matching the requested scope and key prefix.
 func (h *Handler) ListState(ctx context.Context, req *coordinatorv1.ListStateRequest) (*coordinatorv1.ListStateResponse, error) {
-	if h.stateStore == nil {
+	ctx, err := h.inProjectOf(ctx, req.GetProject())
+	if err != nil {
+		return nil, err
+	}
+	if err := h.authorizeCaller(ctx, req.GetCaller()); err != nil {
+		return nil, err
+	}
+	if h.stores(ctx).StateStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "state store is not configured")
 	}
-	entries, err := h.stateStore.List(ctx, dagrun.StateListOptions{
+	entries, err := h.stores(ctx).StateStore.List(ctx, dagrun.StateListOptions{
 		Scope:     dagrun.StateScope(req.GetScope()),
 		Namespace: req.GetNamespace(),
 		KeyPrefix: req.GetKeyPrefix(),

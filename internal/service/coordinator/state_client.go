@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
@@ -75,22 +76,30 @@ func stateListRoutingKey(req *coordinatorv1.ListStateRequest) string {
 }
 
 type stateStoreClient struct {
-	client StateClient
+	client  StateClient
+	project *coordinatorv1.ProjectScope
+	caller  *coordinatorv1.CallerAttempt
 }
 
-// NewStateStoreClient adapts coordinator state RPCs to the persistent state store interface.
-func NewStateStoreClient(client StateClient) dagrun.StateStore {
+// NewStateStoreClient adapts coordinator state RPCs to the persistent state
+// store interface, for the DAG state of the project of the attempt run
+// names. The zero run addresses the default project's own DAGs.
+func NewStateStoreClient(client StateClient, run WorkerAttempt) dagrun.StateStore {
 	if client == nil {
 		return nil
 	}
-	return &stateStoreClient{client: client}
+	return &stateStoreClient{
+		client:  client,
+		project: convert.ProjectScopeToProto(run.Project),
+		caller:  callerAttemptOf(run),
+	}
 }
 
 func (s *stateStoreClient) Get(ctx context.Context, ref dagrun.StateRef) (*dagrun.StateEntry, error) {
 	if err := ref.Validate(); err != nil {
 		return nil, err
 	}
-	resp, err := s.client.GetState(ctx, &coordinatorv1.GetStateRequest{Ref: stateRefToProto(ref)})
+	resp, err := s.client.GetState(ctx, &coordinatorv1.GetStateRequest{Ref: stateRefToProto(ref), Project: s.project, Caller: s.caller})
 	if err != nil {
 		return nil, stateClientError(err)
 	}
@@ -113,6 +122,8 @@ func (s *stateStoreClient) Put(ctx context.Context, ref dagrun.StateRef, value j
 		Value:      append([]byte(nil), normalized...),
 		CreateOnly: opts.CreateOnly,
 		UpdatedBy:  stateUpdateSourceToProto(opts.UpdatedBy),
+		Project:    s.project,
+		Caller:     s.caller,
 	}
 	if opts.ExpectedVersion != nil {
 		req.HasExpectedVersion = true
@@ -129,7 +140,7 @@ func (s *stateStoreClient) Delete(ctx context.Context, ref dagrun.StateRef) (boo
 	if err := ref.Validate(); err != nil {
 		return false, err
 	}
-	resp, err := s.client.DeleteState(ctx, &coordinatorv1.DeleteStateRequest{Ref: stateRefToProto(ref)})
+	resp, err := s.client.DeleteState(ctx, &coordinatorv1.DeleteStateRequest{Ref: stateRefToProto(ref), Project: s.project, Caller: s.caller})
 	if err != nil {
 		return false, stateClientError(err)
 	}
@@ -146,6 +157,8 @@ func (s *stateStoreClient) List(ctx context.Context, opts dagrun.StateListOption
 		Namespace: opts.Namespace,
 		KeyPrefix: opts.KeyPrefix,
 		Limit:     limit,
+		Project:   s.project,
+		Caller:    s.caller,
 	})
 	if err != nil {
 		return nil, stateClientError(err)

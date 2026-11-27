@@ -215,16 +215,6 @@ func (c *Context) projectName() string {
 	return c.project.Name
 }
 
-// checkProjectDispatch refuses to send a run of a project other than the
-// default one to a worker: a dispatch task does not carry its project, so
-// the coordinator records the run in the default project.
-func (c *Context) checkProjectDispatch() error {
-	if c.inLibrary() {
-		return errLibraryDispatch
-	}
-	return project.RefuseOtherProject(c.projectName(), project.ErrWorkerRun)
-}
-
 // checkProjectEnqueue refuses to queue a run of a project other than the
 // default one: the scheduler reads only the default project's queues, so
 // the run would never start.
@@ -316,6 +306,16 @@ func (c *Context) projectBaseConfigOptions() []spec.LoadOption {
 		spec.WithBaseConfig(baseConfig),
 		spec.WithWorkspaceBaseConfigDir(workspaceDir),
 	}
+}
+
+// projectBaseConfigFile returns the addressed project's base config file,
+// or "" when it has none.
+func (c *Context) projectBaseConfigFile() string {
+	if c.projectStores == nil {
+		return c.Config.Paths.BaseConfig
+	}
+	baseConfig, _ := c.projectStores.BaseConfig()
+	return baseConfig
 }
 
 // baseConfigOptions returns the options that apply the default project's

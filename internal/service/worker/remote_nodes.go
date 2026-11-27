@@ -23,7 +23,7 @@ import (
 type remoteNodes struct {
 	client coordinator.NodeClient
 	owner  serviceregistry.HostInfo
-	run    coordinator.SecretReferenceRun
+	run    coordinator.WorkerAttempt
 
 	mu sync.Mutex
 	// keys holds, by lowercased name, each node an answer named, with its
@@ -38,7 +38,7 @@ var (
 
 // newRemoteNodes returns the nodes of a run, or nil for both when the
 // coordinator client cannot resolve nodes.
-func newRemoteNodes(client coordinator.Client, owner serviceregistry.HostInfo, run coordinator.SecretReferenceRun) (runtime.NodeSelector, runtime.TrustedHostKeys) {
+func newRemoteNodes(client coordinator.Client, owner serviceregistry.HostInfo, run coordinator.WorkerAttempt) (runtime.NodeSelector, runtime.TrustedHostKeys) {
 	nodeClient, ok := client.(coordinator.NodeClient)
 	if !ok {
 		return nil, nil

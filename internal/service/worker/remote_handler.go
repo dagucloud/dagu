@@ -82,15 +82,15 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 	if cfg.Config == nil {
 		cfg.Config = &config.Config{}
 	}
+	stateClient, _ := cfg.CoordinatorClient.(coordinator.StateClient)
 	stateStore := cfg.StateStore
 	if stateStore == nil {
-		if stateClient, ok := cfg.CoordinatorClient.(coordinator.StateClient); ok {
-			stateStore = coordinator.NewStateStoreClient(stateClient)
-		}
+		stateStore = coordinator.NewStateStoreClient(stateClient, coordinator.WorkerAttempt{})
 	}
 	return &remoteTaskHandler{
 		workerID:          cfg.WorkerID,
 		coordinatorClient: cfg.CoordinatorClient,
+		stateClient:       stateClient,
 		dagRepository:     cfg.DAGRepository,
 		dagRunMgr:         cfg.DAGRunMgr,
 		stateStore:        stateStore,
@@ -107,17 +107,24 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 type remoteTaskHandler struct {
 	workerID          string
 	coordinatorClient coordinator.Client
-	dagRepository     *persis.DAGRepository
-	dagRunMgr         runtime.Manager
-	stateStore        dagrun.StateStore
-	serviceRegistry   serviceregistry.ServiceRegistry
-	peerConfig        config.Peer
-	config            *config.Config
-	runtimeStores     runtimeStores
+	stateClient       coordinator.StateClient
+	// project is the project whose task the handler runs, and attempt the
+	// task's attempt while that is another than the default project's own
+	// DAGs.
+	project         dispatch.ProjectScope
+	attempt         coordinator.WorkerAttempt
+	dagRepository   *persis.DAGRepository
+	dagRunMgr       runtime.Manager
+	stateStore      dagrun.StateStore
+	serviceRegistry serviceregistry.ServiceRegistry
+	peerConfig      config.Peer
+	config          *config.Config
+	runtimeStores   runtimeStores
 }
 
 // Handle executes a task in-process with remote status/log streaming
 func (h *remoteTaskHandler) Handle(ctx context.Context, task *coordinatorv1.Task) error {
+	h = h.inProject(task)
 	logger.Info(ctx, "Executing remote task",
 		slog.String("operation", task.Operation.String()),
 		tag.Target(task.Target),
@@ -138,6 +145,59 @@ func (h *remoteTaskHandler) Handle(ctx context.Context, task *coordinatorv1.Task
 	default:
 		return fmt.Errorf("unsupported operation: %v", task.Operation)
 	}
+}
+
+// inProject returns h, or a copy of h for task when it is a task of another
+// project than the default project's own DAGs. Each call of the copy's runs
+// addresses that project and names the task's attempt. The worker's own DAG
+// directories, base config, secrets, and profiles serve the default
+// project's tasks alone.
+func (h *remoteTaskHandler) inProject(task *coordinatorv1.Task) *remoteTaskHandler {
+	scope := convert.ProtoToProjectScope(task.GetProject())
+	if scope == (dispatch.ProjectScope{}) {
+		return h
+	}
+	scoped := *h
+	scoped.project = scope
+	scoped.attempt = coordinator.WorkerAttempt{
+		WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: task.AttemptId, Project: scope,
+	}
+	scoped.stateStore = coordinator.NewStateStoreClient(h.stateClient, scoped.attempt)
+	if !scoped.ownsLocalFiles() {
+		scoped.dagRepository = nil
+		scoped.runtimeStores = runtimeStores{}
+	}
+	return &scoped
+}
+
+// runClient returns the client for the calls of the task's run that address
+// its project: it dispatches, reports, and reads runs and DAGs there.
+func (h *remoteTaskHandler) runClient() coordinator.Client {
+	return coordinator.InAttempt(h.coordinatorClient, h.attempt)
+}
+
+// projectDir returns the directory below root that keeps the files of the
+// task's runs. A migrated project shares the default project's run IDs, so
+// another project's runs get a directory of their own, whose name holds an
+// @, which no run ID or DAG name does.
+func (h *remoteTaskHandler) projectDir(root string) string {
+	if root == "" {
+		return root
+	}
+	if h.project.ID != "" {
+		root = filepath.Join(root, "@project-"+h.project.ID)
+	}
+	if h.project.Library {
+		root = filepath.Join(root, "@library")
+	}
+	return root
+}
+
+// ownsLocalFiles reports whether the worker's own DAG directories, base
+// config, secrets, and profiles serve the task: they serve the default
+// project's tasks alone.
+func (h *remoteTaskHandler) ownsLocalFiles() bool {
+	return h.project.ID == ""
 }
 
 func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1.Task, queuedRun bool) error {
@@ -245,7 +305,7 @@ func retryTaskProfileName(status *ir.DAGRunStatus) string {
 
 func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remoteRun, loadErr error) {
 	task := run.task
-	statusPusher := coordreport.NewTaskStatusPusher(h.coordinatorClient, h.workerID, task, run.owner)
+	statusPusher := coordreport.NewTaskStatusPusher(h.runClient(), h.workerID, task, run.owner)
 	finishedAt := stringutil.FormatTime(time.Now())
 	logger.Warn(ctx, "Failed to load DAG on worker",
 		tag.Target(task.Target),
@@ -456,9 +516,9 @@ func taskExtraEnvs(task *coordinatorv1.Task) []string {
 // createRemoteHandlers creates the remote status, log, and artifact transport handlers.
 func (h *remoteTaskHandler) createRemoteHandlers(run remoteRun, dagName string) runHandlers {
 	task := run.task
-	statusPusher := coordreport.NewTaskStatusPusher(h.coordinatorClient, h.workerID, task, run.owner)
+	statusPusher := coordreport.NewTaskStatusPusher(h.runClient(), h.workerID, task, run.owner)
 	reporter := newRemoteRunReporter(
-		h.coordinatorClient,
+		h.runClient(),
 		h.workerID,
 		remoteRunMetadata{
 			dagRunID:  task.DagRunId,
@@ -553,7 +613,7 @@ func (h *remoteTaskHandler) loadTaskDAG(ctx context.Context, task *coordinatorv1
 	// Fall back to local base config path if the task doesn't include one.
 	if task.BaseConfig != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfigContent([]byte(task.BaseConfig)))
-	} else {
+	} else if h.ownsLocalFiles() {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(h.config.Paths.BaseConfig))
 	}
 
@@ -661,7 +721,7 @@ func stagingPrefix(dagRunID string) string {
 // The cleanup function must be called after execution completes.
 // Includes workerID in path to prevent collisions with concurrent workers on the same host.
 func (h *remoteTaskHandler) createAgentEnv(ctx context.Context, dag *ir.DAG, dagRunID string) (*agentEnv, error) {
-	logDir := filepath.Join(os.TempDir(), "dagu", "worker-logs", h.workerID, dagRunID)
+	logDir := filepath.Join(h.projectDir(filepath.Join(os.TempDir(), "dagu", "worker-logs", h.workerID)), dagRunID)
 	if err := os.MkdirAll(logDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
@@ -774,17 +834,17 @@ func (h *remoteTaskHandler) executeDAGRun(
 	runtimeStores := h.runtimeStores
 	profileResolver := func(current *ir.DAG) profile.RuntimeResolver {
 		return h.profileResolver(current, run.owner, coordinator.RuntimeProfileRun{
-			WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID,
+			WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID, Project: h.project,
 		})
 	}
 	secretResolver := func(current *ir.DAG) providers.ReferenceResolver {
-		return h.secretReferenceResolver(current, run.owner, coordinator.SecretReferenceRun{
-			WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID,
+		return h.secretReferenceResolver(current, run.owner, coordinator.WorkerAttempt{
+			WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID, Project: h.project,
 		})
 	}
 	// Each run reads the nodes of its own DAG, so a child run gets its own.
 	nodes := func(current *ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys) {
-		nodeRun := coordinator.SecretReferenceRun{WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID}
+		nodeRun := coordinator.WorkerAttempt{WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID, Project: h.project}
 		if current != nil {
 			nodeRun.DAGName = current.Name
 		}
@@ -813,7 +873,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	// Create a remote DAG loader that fetches DAG definitions from the coordinator
 	// as a fallback when the local DAG repository misses.
 	remoteDAGLoader := rtagent.RemoteDAGLoader(func(ctx context.Context, name string) (*ir.DAG, error) {
-		dagYAML, err := h.coordinatorClient.GetDAG(ctx, name)
+		dagYAML, err := h.runClient().GetDAG(ctx, name)
 		if err != nil {
 			return nil, err
 		}
@@ -828,7 +888,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	})
 
 	subWorkflowRunnerFactory := coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
-		Dispatcher:         h.coordinatorClient,
+		Dispatcher:         h.runClient(),
 		DAGRunMgr:          h.dagRunMgr,
 		DAGRepository:      h.dagRepository,
 		StateStore:         h.stateStore,
@@ -846,8 +906,8 @@ func (h *remoteTaskHandler) executeDAGRun(
 		ArtifactFinalizer:  artifactUploader,
 		RemoteDAGLoader:    remoteDAGLoader,
 		WorkerID:           h.workerID,
-		DAGRunLogDir:       h.config.Paths.LogDir,
-		DAGRunArtifactDir:  h.config.Paths.ArtifactDir,
+		DAGRunLogDir:       h.projectDir(h.config.Paths.LogDir),
+		DAGRunArtifactDir:  h.projectDir(h.config.Paths.ArtifactDir),
 	})
 
 	// Build agent options
@@ -926,7 +986,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	return nil
 }
 
-func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner serviceregistry.HostInfo, run coordinator.SecretReferenceRun) providers.ReferenceResolver {
+func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner serviceregistry.HostInfo, run coordinator.WorkerAttempt) providers.ReferenceResolver {
 	client, ok := h.coordinatorClient.(coordinator.SecretReferenceClient)
 	if !ok {
 		return nil

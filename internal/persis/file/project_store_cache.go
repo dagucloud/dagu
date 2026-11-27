@@ -87,6 +87,19 @@ func (c *ProjectStoreCache) Get(id string) (*ProjectStores, bool) {
 	return stores, ok
 }
 
+// IDs returns the IDs of the projects whose stores the cache holds, in
+// order.
+func (c *ProjectStoreCache) IDs() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	ids := make([]string, 0, len(c.stores))
+	for id := range c.stores {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	return ids
+}
+
 // follow opens and releases stores to match projects, the registry's
 // content.
 func (c *ProjectStoreCache) follow(ctx context.Context, projects []project.Project) {

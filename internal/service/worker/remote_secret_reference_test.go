@@ -108,7 +108,7 @@ steps:
 	require.NoError(t, err)
 	require.Equal(t, []secretref.Ref{{Name: "MY_SECRET", Ref: "prod/my-secret"}}, client.resolvedRefs())
 	require.Equal(t, []serviceregistry.HostInfo{{ID: "coord-1", Host: "127.0.0.1", Port: 4521}}, client.resolvedOwners())
-	require.Equal(t, []coordinator.SecretReferenceRun{{
+	require.Equal(t, []coordinator.WorkerAttempt{{
 		WorkerID: workerID, AttemptKey: "attempt-key-1", AttemptID: "attempt-1", DAGName: "registry-secret-dag",
 	}}, client.resolvedRuns())
 
@@ -222,7 +222,7 @@ type secretResolvingRemoteCoordinatorClient struct {
 	reported      []*coordinatorv1.ReportStatusRequest
 	resolved      []secretref.Ref
 	owners        []serviceregistry.HostInfo
-	runs          []coordinator.SecretReferenceRun
+	runs          []coordinator.WorkerAttempt
 	resolveSecret func(context.Context, secretref.Ref, string, bool) (string, error)
 }
 
@@ -247,10 +247,10 @@ func (c *secretResolvingRemoteCoordinatorClient) resolvedOwners() []serviceregis
 	return append([]serviceregistry.HostInfo(nil), c.owners...)
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) resolvedRuns() []coordinator.SecretReferenceRun {
+func (c *secretResolvingRemoteCoordinatorClient) resolvedRuns() []coordinator.WorkerAttempt {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]coordinator.SecretReferenceRun(nil), c.runs...)
+	return append([]coordinator.WorkerAttempt(nil), c.runs...)
 }
 
 func (c *secretResolvingRemoteCoordinatorClient) Dispatch(context.Context, dispatch.DispatchRequest) error {
@@ -324,7 +324,7 @@ func (c *secretResolvingRemoteCoordinatorClient) Metrics() coordinator.Metrics {
 	return coordinator.Metrics{IsConnected: true}
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run coordinator.SecretReferenceRun) (string, error) {
+func (c *secretResolvingRemoteCoordinatorClient) ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run coordinator.WorkerAttempt) (string, error) {
 	if owner.Host == "" {
 		return "", fmt.Errorf("secret resolution for %q did not target the owner coordinator", ref.Ref)
 	}
@@ -336,7 +336,7 @@ func (c *secretResolvingRemoteCoordinatorClient) ResolveSecretReference(ctx cont
 	return c.resolveSecret(ctx, ref, workspace, checkOnly)
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) ResolveNodeSecretReference(_ context.Context, _ serviceregistry.HostInfo, node string, ref secretref.Ref, _ string, _ coordinator.SecretReferenceRun) (string, error) {
+func (c *secretResolvingRemoteCoordinatorClient) ResolveNodeSecretReference(_ context.Context, _ serviceregistry.HostInfo, node string, ref secretref.Ref, _ string, _ coordinator.WorkerAttempt) (string, error) {
 	return "", fmt.Errorf("no node secret %q for node %q", ref.Ref, node)
 }
 

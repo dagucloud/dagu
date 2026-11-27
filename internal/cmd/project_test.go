@@ -14,10 +14,12 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/project"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -427,26 +429,33 @@ func TestStartGivesStepsTheProject(t *testing.T) {
 	assert.Empty(t, readOut(t, cleanup))
 }
 
-// A dispatch task does not carry its project yet, so only the default
-// project's runs go to workers.
+// A run sent to a worker carries the project the command addresses, so the
+// coordinator records it there, and that project's base config alone. The
+// default project's runs carry no project, as they did before projects.
 func TestProjectDispatch(t *testing.T) {
 	t.Parallel()
 	h := newProjectsHome(t, true)
 	stop := errors.New("stop after dispatch")
+	defaultBase := "env:\n  - FROM_DEFAULT_BASE: \"1\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(h.home, "base.yaml"), []byte(defaultBase), 0o600))
 
-	for projectName, dispatched := range map[string]bool{"weather": false, "default": true} {
+	for _, projectName := range []string{"weather", "default"} {
 		ctx, err := NewContext(h.command(t, "start", projectName), nil)
 		require.NoError(t, err)
 		ctx.Quiet = true
 		client := &smtpDispatchClient{err: stop}
-		err = dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "gpu"}, "run", runOptions{}, client)
-		if dispatched {
-			require.ErrorIs(t, err, stop)
-			require.NotNil(t, client.task)
-			continue
+		err = dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "gpu"}, "run", runOptions{},
+			coordinator.InProject(client, ctx.dispatchProject()))
+		require.ErrorIs(t, err, stop)
+		require.NotNil(t, client.task)
+		want := dispatch.ProjectScope{}
+		if projectName != "default" {
+			want.ID = ctx.project.ID
+			require.NotEmpty(t, want.ID)
 		}
-		require.ErrorContains(t, err, "project weather cannot run DAGs on workers")
-		require.Nil(t, client.task)
+		assert.Equal(t, want, client.task.Project, projectName)
+		// weather has no base.yaml of its own.
+		assert.Equal(t, projectName == "default", client.task.BaseConfig == defaultBase, projectName)
 	}
 }
 

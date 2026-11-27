@@ -262,6 +262,13 @@ func (s *ProjectStores) LibraryRuns() (*persis.DAGRunRepository, *persis.ProcRep
 	return s.library.DAGRunRepository, s.library.ProcRepository
 }
 
+// Library returns the stores that record the runs of the library DAGs that
+// run in the project. Their settings are the project's settings. It returns
+// nil while projects are off, and in Library itself.
+func (s *ProjectStores) Library() *ProjectStores {
+	return s.library
+}
+
 // InLibrary reports whether s records the runs of a project's library DAGs.
 func (s *ProjectStores) InLibrary() bool {
 	return s.project != nil

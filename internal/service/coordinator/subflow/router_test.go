@@ -5,10 +5,9 @@ package subflow_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -237,24 +236,27 @@ func TestLocalRejectsTargetWorker(t *testing.T) {
 	assert.False(t, runner.ShouldRun(context.Background(), req))
 }
 
-// A child of a run of a project other than the default one runs in
-// process, and is refused where the coordinator or a queue would take it,
-// since those serve only the default project.
-func TestRouterRefusesRoutesOfOtherProjects(t *testing.T) {
+// A child of a run of a project other than the default one goes to a
+// worker as any other child does, and is refused where a queue would take
+// it, since the scheduler serves only the default project's queues.
+func TestRouterRoutesOfOtherProjects(t *testing.T) {
 	t.Parallel()
 
 	inProject := func(name string) context.Context {
 		return runtime.NewContext(context.Background(), &ir.DAG{Name: "parent"}, "parent-run", "",
 			runtime.WithProject(name))
 	}
-	distributed := subflow.New(&mockDispatcher{}, config.ExecutionModeDistributed)
+	dispatcher := &mockDispatcher{statuses: []*dispatch.DAGRunStatusResult{
+		{Found: false},
+		{Found: true, Status: &ir.DAGRunStatus{Name: "child", DAGRunID: "child-run", Status: ir.Succeeded}},
+	}}
+	distributed := newFastRunner(dispatcher)
 	local := &stubEnqueuer{stubRunner: &stubRunner{shouldRun: true, result: &ir.RunStatus{Status: ir.Succeeded}}}
 
-	_, err := subflow.NewRouter(distributed, local).Run(inProject("weather"), validSubWorkflowRequest())
-	require.ErrorIs(t, err, project.ErrWorkerRun)
-	got, err := subflow.NewRouter(local).Run(inProject("weather"), validSubWorkflowRequest())
+	got, err := subflow.NewRouter(distributed, local).Run(inProject("weather"), validSubWorkflowRequest())
 	require.NoError(t, err)
 	assert.Equal(t, ir.Succeeded, got.Status)
+	assert.Len(t, dispatcher.dispatches, 1)
 
 	enqueue := executor.EnqueueRequest{DAG: &ir.DAG{Name: "child"}, RootDAGRun: ir.NewDAGRunRef("root", "root-run"), RunID: "child-run"}
 	_, err = subflow.NewRouter(local).Enqueue(inProject("weather"), enqueue)
@@ -264,22 +266,6 @@ func TestRouterRefusesRoutesOfOtherProjects(t *testing.T) {
 		require.NoError(t, err, name)
 	}
 	assert.Equal(t, 2, local.enqueueCount)
-}
-
-// A router that refuses workers refuses a child that would go to one, in any
-// project, and still runs a child in process.
-func TestRouterRefuseWorkers(t *testing.T) {
-	t.Parallel()
-
-	refused := errors.New("refused")
-	distributed := subflow.New(&mockDispatcher{}, config.ExecutionModeDistributed)
-	local := &stubRunner{shouldRun: true, result: &ir.RunStatus{Status: ir.Succeeded}}
-
-	_, err := subflow.NewRouter(distributed, local).RefuseWorkers(refused).Run(context.Background(), validSubWorkflowRequest())
-	require.ErrorIs(t, err, refused)
-	got, err := subflow.NewRouter(local).RefuseWorkers(refused).Run(context.Background(), validSubWorkflowRequest())
-	require.NoError(t, err)
-	assert.Equal(t, ir.Succeeded, got.Status)
 }
 
 func validSubWorkflowRequest() executor.SubWorkflowRequest {

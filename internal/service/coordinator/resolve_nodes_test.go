@@ -418,7 +418,7 @@ func TestClientResolveNodes(t *testing.T) {
 	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{{
 		ID: "coord-1", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
 	}}}, coordinator.DefaultConfig())
-	identity := coordinator.SecretReferenceRun{WorkerID: "worker-1", AttemptKey: run.attemptKey, AttemptID: run.attemptID}
+	identity := coordinator.WorkerAttempt{WorkerID: "worker-1", AttemptKey: run.attemptKey, AttemptID: run.attemptID}
 
 	nodeClient, ok := client.(coordinator.NodeClient)
 	require.True(t, ok)
@@ -465,7 +465,7 @@ func TestClientResolveWorkerNode(t *testing.T) {
 	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{{
 		ID: "coord-1", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
 	}}}, coordinator.DefaultConfig())
-	identity := coordinator.SecretReferenceRun{WorkerID: "worker-1", AttemptKey: run.attemptKey, AttemptID: run.attemptID}
+	identity := coordinator.WorkerAttempt{WorkerID: "worker-1", AttemptKey: run.attemptKey, AttemptID: run.attemptID}
 
 	resolved, err := client.(coordinator.NodeClient).ResolveNodes(ctx, serviceregistry.HostInfo{}, "role=web", nil, identity)
 	require.NoError(t, err)

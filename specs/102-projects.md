@@ -821,6 +821,12 @@ Rules:
 
 - Dispatch tasks, leases, and status reports carry the project ID. A
   distributed run of a project DAG records its status in that project.
+- A dispatch task of a library DAG's run, or of a child of one, says so, and
+  the coordinator records the run among the project's library runs (Runs of
+  Library DAGs).
+- A migrated project shares the default project's run IDs, so the
+  coordinator tells two runs of the same DAG name and run ID apart by their
+  project.
 - Base config content, profile values, and secret values in a task come from
   the task's project.
 - Every coordinator call that reads or writes a project's state carries the
@@ -829,6 +835,16 @@ Rules:
   cleanups.
 - A call without a project ID addresses the default project. The
   coordinator refuses such a call for a task of another project.
+- A worker's calls for another project's DAG state and DAG definitions name
+  the attempt they act for, and the coordinator serves them only while that
+  worker holds the attempt's lease in that project. This check routes calls
+  to the right project; it does not authenticate them. The attempt a call
+  names is the caller's own claim, and every worker shares one credential.
+- Projects separate what users can see and change through the API and the
+  UI. They do not isolate workflow code: a step, run locally or on a shared
+  worker, runs with that process's permissions and coordinator credential,
+  which reach every project's runs, state, and secrets. Groups that must not
+  reach each other's workflows run separate Dagu instances.
 - A `dag.run` inside a distributed run resolves only in the task's project,
   then the library.
 - A worker reads no project directory. It sees a project's files only through

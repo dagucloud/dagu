@@ -1421,6 +1421,12 @@ func shuffleCoordinatorMembers(members []serviceregistry.HostInfo) {
 
 // GetDAGRunStatus retrieves the status of a DAG run from the coordinator.
 func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+	return cli.getDAGRunStatus(ctx, dispatch.ProjectScope{}, dagName, dagRunID, rootRef)
+}
+
+// getDAGRunStatus retrieves the status of a DAG run of the runs scope
+// addresses.
+func (cli *clientImpl) getDAGRunStatus(ctx context.Context, scope dispatch.ProjectScope, dagName, dagRunID string, rootRef *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	members, err := cli.getCoordinatorMembers(ctx)
 	if err != nil {
 		return nil, err
@@ -1429,6 +1435,7 @@ func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID st
 	req := &coordinatorv1.GetDAGRunStatusRequest{
 		DagName:  dagName,
 		DagRunId: dagRunID,
+		Project:  convert.ProjectScopeToProto(scope),
 	}
 
 	// Include root reference for sub-DAG queries
@@ -1469,13 +1476,21 @@ func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID st
 
 // GetDAG retrieves a DAG definition (raw YAML spec) from the coordinator's DAG store.
 func (cli *clientImpl) GetDAG(ctx context.Context, name string) (string, error) {
+	return cli.getDAG(ctx, dispatch.ProjectScope{}, nil, name)
+}
+
+// getDAG retrieves a DAG definition of the project scope addresses, for the
+// attempt caller names.
+func (cli *clientImpl) getDAG(ctx context.Context, scope dispatch.ProjectScope, caller *coordinatorv1.CallerAttempt, name string) (string, error) {
 	members, err := cli.getCoordinatorMembers(ctx)
 	if err != nil {
 		return "", err
 	}
 
 	req := &coordinatorv1.GetDAGRequest{
-		Name: name,
+		Name:    name,
+		Project: convert.ProjectScopeToProto(scope),
+		Caller:  caller,
 	}
 
 	var resp *coordinatorv1.GetDAGResponse
@@ -1501,6 +1516,12 @@ func (cli *clientImpl) GetDAG(ctx context.Context, name string) (string, error) 
 
 // RequestCancel requests cancellation of a DAG run through the coordinator
 func (cli *clientImpl) RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *ir.DAGRunRef) error {
+	return cli.requestCancel(ctx, dispatch.ProjectScope{}, dagName, dagRunID, rootRef)
+}
+
+// requestCancel requests cancellation of a DAG run of the runs scope
+// addresses.
+func (cli *clientImpl) requestCancel(ctx context.Context, scope dispatch.ProjectScope, dagName, dagRunID string, rootRef *ir.DAGRunRef) error {
 	members, err := cli.getCoordinatorMembers(ctx)
 	if err != nil {
 		return err
@@ -1509,6 +1530,7 @@ func (cli *clientImpl) RequestCancel(ctx context.Context, dagName, dagRunID stri
 	req := &coordinatorv1.RequestCancelRequest{
 		DagName:  dagName,
 		DagRunId: dagRunID,
+		Project:  convert.ProjectScopeToProto(scope),
 	}
 
 	// Include root reference for sub-DAG cancellation

@@ -90,10 +90,10 @@ func seedRuntimeSettings(t *testing.T, stores executionStores, name string) {
 	require.NoError(t, err)
 }
 
-// Only runs that can go to workers match worker nodes: the default
-// project's, but not a library DAG's, nor another project's. Those match
-// their inventory nodes alone.
-func TestRuntimeStoresWorkerNodesInDefaultProject(t *testing.T) {
+// Every run matches the server-wide worker nodes beside its project's
+// inventory nodes: the default project's, a library DAG's, and another
+// project's, since each can go to a worker.
+func TestRuntimeStoresWorkerNodes(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -122,8 +122,8 @@ func TestRuntimeStoresWorkerNodesInDefaultProject(t *testing.T) {
 		want    []string
 	}{
 		{name: "default", project: project.DefaultName, stores: defaults, want: []string{"gw-1", "web01"}},
-		{name: "library", project: project.DefaultName, stores: library, want: []string{"web01"}},
-		{name: "other project", project: "weather", stores: &file.ProjectStores{ProjectSettings: weather}, want: []string{"web01"}},
+		{name: "library", project: project.DefaultName, stores: library, want: []string{"gw-1", "web01"}},
+		{name: "other project", project: "weather", stores: &file.ProjectStores{ProjectSettings: weather}, want: []string{"gw-1", "web01"}},
 	} {
 		c := &Context{Context: ctx, Config: cfg, serverStores: server, settings: tc.stores.ProjectSettings,
 			projectStores: tc.stores, project: project.Project{Name: tc.project}}

@@ -899,7 +899,7 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	)
 
 	taskOpts := []executor.TaskOption{
-		executor.WithBaseConfig(executor.ResolveBaseConfig(d.BaseConfigData, ctx.Config.Paths.BaseConfig), d.BaseConfigWorkspace),
+		executor.WithBaseConfig(executor.ResolveBaseConfig(d.BaseConfigData, ctx.projectBaseConfigFile()), d.BaseConfigWorkspace),
 	}
 	if len(d.WorkerSelector) > 0 {
 		taskOpts = append(taskOpts, executor.WithWorkerSelector(d.WorkerSelector))
@@ -944,10 +944,7 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 		taskOpts...,
 	)
 
-	err := ctx.checkProjectDispatch()
-	if err == nil {
-		err = coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task})
-	}
+	err := coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task})
 	if err != nil {
 		if opts.seed != nil {
 			intake.MarkSeedFailed(ctx, ctx.Persistence.DAGRunRepository, opts.seed, err)
