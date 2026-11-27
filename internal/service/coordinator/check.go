@@ -29,8 +29,8 @@ import (
 type CheckResult struct {
 	// Address is the address dialed, as host:port.
 	Address string
-	// Proxy is the host of the HTTPS proxy the client dials through; empty
-	// when it dials directly.
+	// Proxy is the address of the HTTPS proxy the client dials through;
+	// empty when it dials directly.
 	Proxy string
 	// DialErr is why the address did not accept a connection; nil when it
 	// did.
@@ -325,14 +325,13 @@ func callError(config *Config, err error) error {
 	if !ok {
 		return err
 	}
-	switch code := s.Code(); {
-	case code == codes.Unauthenticated || code == codes.PermissionDenied:
+	if code := s.Code(); code == codes.Unauthenticated || code == codes.PermissionDenied {
 		return fmt.Errorf("refused the call, %s", s.Message())
-	case code == codes.DeadlineExceeded:
-		return noAnswer(config)
-	default:
-		return errors.New(s.Message())
 	}
+	if s.Code() == codes.DeadlineExceeded {
+		return noAnswer(config)
+	}
+	return errors.New(s.Message())
 }
 
 // noAnswer is the error of a coordinator that did not answer in time.

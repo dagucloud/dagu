@@ -276,6 +276,18 @@ func TestCheckThroughProxy(t *testing.T) {
 	assert.Contains(t, proxy.targets(), addr)
 }
 
+// A proxy URL without a port is dialed on 443, as gRPC dials it. Not
+// parallel: it replaces the proxy selection.
+func TestCheckProxyDefaultPort(t *testing.T) {
+	coordinator.SetCheckProxyForTest(t, &url.URL{Scheme: "http", Host: "127.0.0.1"})
+	config := coordinator.DefaultConfig()
+	config.DialTimeout = time.Second
+
+	result := coordinator.Check(t.Context(), config, checkMember(t, "127.0.0.1:1"))
+
+	assert.Equal(t, "127.0.0.1:443", result.Proxy)
+}
+
 // startCheckServer starts a coordinator that serves the health service and
 // the worker list, and returns its address.
 func startCheckServer(t *testing.T, opts ...grpc.ServerOption) string {

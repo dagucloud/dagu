@@ -11,16 +11,20 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
+
+// defaultProxyPort is the port gRPC dials on a proxy URL without one.
+const defaultProxyPort = "443"
 
 // proxyFromEnvironment selects the HTTPS proxy for a request, as gRPC does
 // for its connections.
 var proxyFromEnvironment = http.ProxyFromEnvironment
 
 // dialCoordinator connects to address as gRPC does: through the HTTPS proxy
-// of the environment when one applies, else directly. It returns the host
-// of the proxy, empty without one.
+// of the environment when one applies, else directly. It returns the
+// address of the proxy, empty without one.
 func dialCoordinator(ctx context.Context, address string) (net.Conn, string, error) {
 	var dialer net.Dialer
 	proxy, err := proxyFromEnvironment(&http.Request{URL: &url.URL{Scheme: "https", Host: address}})
@@ -31,15 +35,25 @@ func dialCoordinator(ctx context.Context, address string) (net.Conn, string, err
 		conn, err := dialer.DialContext(ctx, "tcp", address)
 		return conn, "", err
 	}
-	conn, err := dialer.DialContext(ctx, "tcp", proxy.Host)
+	proxyAddr := proxyAddress(proxy.Host)
+	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
 	if err != nil {
-		return nil, proxy.Host, err
+		return nil, proxyAddr, err
 	}
 	if err := connectThrough(ctx, conn, address, proxy.User); err != nil {
 		_ = conn.Close()
-		return nil, proxy.Host, err
+		return nil, proxyAddr, err
 	}
-	return conn, proxy.Host, nil
+	return conn, proxyAddr, nil
+}
+
+// proxyAddress returns host with a port, adding the one gRPC adds to a
+// proxy without one.
+func proxyAddress(host string) string {
+	if _, _, err := net.SplitHostPort(host); err == nil {
+		return host
+	}
+	return net.JoinHostPort(strings.Trim(host, "[]"), defaultProxyPort)
 }
 
 // connectThrough asks the proxy on conn to tunnel to address. The proxy
