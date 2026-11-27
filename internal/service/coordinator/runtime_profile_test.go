@@ -211,19 +211,54 @@ steps:
 	require.NoError(t, err)
 	assert.Equal(t, "prod", nestedLease.ProfileName)
 
-	// A child the run's DAG does not name as written, such as one whose name
-	// holds a reference, reads the layers of the run's own workspace, or of
-	// none.
+	// A DAG that names its children as written reaches no other name, in its
+	// workspace or in none.
 	unnamedChild := proto.Clone(valid).(*coordinatorv1.ResolveRuntimeProfileRequest)
 	unnamedChild.DagName = "unreachable-profile"
-	unnamedResp, err := handler.ResolveRuntimeProfile(ctx, unnamedChild)
+	for _, workspaceName := range []string{"payments", ""} {
+		unnamedChild.Workspace = workspaceName
+		_, err = handler.ResolveRuntimeProfile(ctx, unnamedChild)
+		require.Error(t, err, "workspace %q", workspaceName)
+		assert.Equal(t, codes.PermissionDenied, status.Code(err))
+	}
+
+	// A DAG that runs a child named by a reference may run a child of any
+	// name, labeled with its workspace or with none.
+	refDAG := &ir.DAG{
+		Name:   "ref-profile-dag",
+		Labels: dag.Labels,
+		Steps:  []ir.Step{{Foreach: &ir.ForeachConfig{Steps: []ir.Step{{SubDAG: &ir.SubDAG{Name: "deploy-${params.app}"}}}}}},
+	}
+	refAttempt, err := repository.CreateAttempt(ctx, refDAG, now, "run-3", persis.DAGRunCreateAttemptOptions{AttemptID: "attempt-3"})
 	require.NoError(t, err)
-	assert.Equal(t, "workspace", runtimeProfileEntryValue(unnamedResp.GetDefaults(), "TIER"))
-	assert.Equal(t, "after", runtimeProfileEntryValue(unnamedResp.GetSelected(), "ROTATED_SECRET"))
-	unnamedChild.Workspace = ""
-	unnamedResp, err = handler.ResolveRuntimeProfile(ctx, unnamedChild)
+	require.NoError(t, refAttempt.Open(ctx))
+	t.Cleanup(func() { require.NoError(t, refAttempt.Close(context.Background())) })
+	refKey := ir.GenerateAttemptKey(refDAG.Name, "run-3", refDAG.Name, "run-3", refAttempt.ID())
+	require.NoError(t, refAttempt.Write(ctx, ir.DAGRunStatus{
+		Name: refDAG.Name, DAGRunID: "run-3", AttemptID: refAttempt.ID(), AttemptKey: refKey,
+		Status: ir.Running, ProfileName: "prod", Labels: refDAG.Labels.Strings(),
+	}))
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+		AttemptKey: refKey, DAGRun: ir.NewDAGRunRef(refDAG.Name, "run-3"),
+		Root: ir.NewDAGRunRef(refDAG.Name, "run-3"), AttemptID: refAttempt.ID(),
+		WorkerID: "worker-1", ClaimedAt: now.UnixMilli(), LastHeartbeatAt: now.UnixMilli(),
+	}))
+	refChild := &coordinatorv1.ResolveRuntimeProfileRequest{
+		WorkerId: "worker-1", AttemptKey: refKey, AttemptId: refAttempt.ID(),
+		ProfileName: "prod", Workspace: "payments", DagName: "deploy-web",
+	}
+	refResp, err := handler.ResolveRuntimeProfile(ctx, refChild)
 	require.NoError(t, err)
-	assert.Equal(t, "project", runtimeProfileEntryValue(unnamedResp.GetDefaults(), "TIER"))
+	assert.Equal(t, "workspace", runtimeProfileEntryValue(refResp.GetDefaults(), "TIER"))
+	assert.Equal(t, "after", runtimeProfileEntryValue(refResp.GetSelected(), "ROTATED_SECRET"))
+	refChild.Workspace = ""
+	refResp, err = handler.ResolveRuntimeProfile(ctx, refChild)
+	require.NoError(t, err)
+	assert.Equal(t, "project", runtimeProfileEntryValue(refResp.GetDefaults(), "TIER"))
+	refChild.Workspace = "other"
+	_, err = handler.ResolveRuntimeProfile(ctx, refChild)
+	require.Error(t, err)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 
 	tests := []struct {
 		name   string
@@ -234,9 +269,7 @@ steps:
 		{name: "profile", mutate: func(req *coordinatorv1.ResolveRuntimeProfileRequest) { req.ProfileName = "other" }},
 		{name: "workspace", mutate: func(req *coordinatorv1.ResolveRuntimeProfileRequest) { req.Workspace = "other" }},
 		{name: "lease", mutate: func(req *coordinatorv1.ResolveRuntimeProfileRequest) { req.AttemptKey = "other" }},
-		{name: "dag", mutate: func(req *coordinatorv1.ResolveRuntimeProfileRequest) {
-			req.DagName, req.Workspace = "unreachable-profile", "other"
-		}},
+		{name: "dag", mutate: func(req *coordinatorv1.ResolveRuntimeProfileRequest) { req.DagName = "unreachable-profile" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

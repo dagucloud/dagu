@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"time"
 
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -222,18 +224,23 @@ func (h *Handler) authorizeRuntimeProfile(ctx context.Context, req *coordinatorv
 }
 
 // authorizeProfileWorkspace lets a request name the workspace of the DAG it
-// acts for. The answer depends only on the lease's profile and the
-// workspace, so a child the attempt's DAG does not name as written, such as
-// one whose name holds a reference, may name the workspace of the attempt's
-// own DAG, or none, whose layers that DAG reads as well.
+// acts for. A run whose DAG runs a child named by a reference may run a child
+// of any name, labeled with that DAG's workspace or with none, so a name the
+// DAG does not reach is served for either workspace.
 func (h *Handler) authorizeProfileWorkspace(ctx context.Context, attempt dagrun.Attempt, dagName, workspaceName string) error {
 	requested := secretpkg.NormalizeWorkspace(workspaceName)
 	dag, err := h.authorizedDAG(ctx, attempt, dagName, runtimeProfileAccessDenied)
 	if status.Code(err) == codes.PermissionDenied {
-		if workspaceName == "" {
+		dag, err = h.authorizedDAG(ctx, attempt, "", runtimeProfileAccessDenied)
+		if err != nil {
+			return err
+		}
+		if !runsReferenceNamedChild(dag) {
+			return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
+		}
+		if requested == secretpkg.GlobalWorkspace {
 			return nil
 		}
-		dag, err = h.authorizedDAG(ctx, attempt, "", runtimeProfileAccessDenied)
 	}
 	if err != nil {
 		return err
@@ -242,6 +249,17 @@ func (h *Handler) authorizeProfileWorkspace(ctx context.Context, attempt dagrun.
 		return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 	}
 	return nil
+}
+
+// runsReferenceNamedChild reports whether a step of dag or of its local DAGs,
+// a foreach body or a handler included, runs a child whose name holds a
+// reference.
+func runsReferenceNamedChild(dag *ir.DAG) bool {
+	found := false
+	eachSubDAG(dag, func(child *ir.SubDAG) {
+		found = found || cmnvalue.HasAnyReference(child.Name) || cmnvalue.HasValueReference(child.Name)
+	})
+	return found
 }
 
 func runtimeProfileToProto(resolved *profilepkg.RuntimeResolved) *coordinatorv1.ResolveRuntimeProfileResponse {
