@@ -245,10 +245,11 @@ func TestIsolatedStepPlace(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(outside, "x"))
 }
 
-// runFolders makes base/root/dag/run as Dagu makes the work directory of a run
-// below paths.dag_run_work_dir (base/root): each folder below base has the mode
-// 0750, which the restricted user cannot pass.
-func runFolders(t *testing.T) (base, root, dag, run string) {
+// runFolders makes root/dag/run as Dagu makes the work directory of a run
+// below paths.dag_run_work_dir (root), in a new folder with the mode 0755: each
+// folder from root down has the mode 0750, which the restricted user cannot
+// pass.
+func runFolders(t *testing.T) (root, dag, run string) {
 	t.Helper()
 	base, err := os.MkdirTemp("", "dagu-untrusted-pass-")
 	require.NoError(t, err)
@@ -259,7 +260,7 @@ func runFolders(t *testing.T) (base, root, dag, run string) {
 	run = filepath.Join(dag, "run")
 	require.NoError(t, os.MkdirAll(run, 0o750))
 	t.Cleanup(func() { _ = os.Remove(run + handoffSuffix) })
-	return base, root, dag, run
+	return root, dag, run
 }
 
 // Spec 103, "Isolation", rule 2: the folders of a run below
@@ -268,7 +269,7 @@ func runFolders(t *testing.T) (base, root, dag, run string) {
 func TestIsolatedStepPassesTheRunFolders(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
-	_, root, dag, run := runFolders(t)
+	root, dag, run := runFolders(t)
 	req := testRequest(t, run, run)
 	req.ManagedRoot = root
 	step, err := beginStep(t, ctx, req)
@@ -295,20 +296,21 @@ func TestIsolatedStepPassesTheRunFolders(t *testing.T) {
 func TestIsolatedStepRefusesOtherFolders(t *testing.T) {
 	requireIsolation(t)
 	for name, tc := range map[string]struct {
-		blocked func(base, root string) string
+		blocked func(root string) string
 	}{
-		"above the root": {blocked: func(base, _ string) string {
+		"above the root": {blocked: func(root string) string {
+			base := filepath.Dir(root)
 			require.NoError(t, os.Chmod(base, 0o750))
 			return base
 		}},
-		"of another user": {blocked: func(_, root string) string {
+		"of another user": {blocked: func(root string) string {
 			require.NoError(t, os.Chown(root, testUID+1, testGID+1))
 			return root
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			base, root, dag, run := runFolders(t)
-			blocked := tc.blocked(base, root)
+			root, dag, run := runFolders(t)
+			blocked := tc.blocked(root)
 			req := testRequest(t, run, run)
 			req.ManagedRoot = root
 			_, err := beginStep(t, context.Background(), req)
