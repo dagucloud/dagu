@@ -1541,7 +1541,7 @@ func TestService_SaveWorkspaceSettingsPreservesCreatedAtAndPassword(t *testing.T
 
 	updated, err := svc.SaveWorkspaceSettings(context.Background(), &notificationmodel.WorkspaceSettings{
 		SMTP: &notificationmodel.SMTPConfig{
-			Host:     "smtp2.example.com",
+			Host:     "smtp.example.com",
 			Port:     "2525",
 			Username: "smtp-user",
 			From:     "dagu@example.com",

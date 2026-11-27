@@ -115,6 +115,43 @@ func TestPreserveSecretsAllowsHeaderReplacementAndHMACClear(t *testing.T) {
 	assert.Equal(t, "value", next.Targets[0].Webhook.Headers["X-New"])
 }
 
+// Stored webhook headers and the HMAC secret are kept only while the URL
+// stays the same, so an edit cannot send them to another server.
+func TestPreserveSecretsDropsWebhookSecretsOnNewURL(t *testing.T) {
+	t.Parallel()
+
+	existing := &Settings{Targets: []Target{{
+		ID:   "webhook-1",
+		Type: ProviderWebhook,
+		Webhook: &WebhookTarget{
+			URL:        "https://example.com/webhook",
+			Headers:    map[string]string{"Authorization": "Bearer old"},
+			HMACSecret: "old-secret",
+		},
+	}}}
+	preserve := func(webhook *WebhookTarget) *WebhookTarget {
+		next := &Settings{Targets: []Target{{ID: "webhook-1", Type: ProviderWebhook, Webhook: webhook}}}
+		PreserveSecrets(next, existing)
+		return next.Targets[0].Webhook
+	}
+
+	got := preserve(&WebhookTarget{URL: "https://attacker.example.com/webhook"})
+	assert.Empty(t, got.Headers)
+	assert.Empty(t, got.HMACSecret)
+
+	got = preserve(&WebhookTarget{URL: " https://example.com/webhook "})
+	assert.Equal(t, "Bearer old", got.Headers["Authorization"])
+	assert.Equal(t, "old-secret", got.HMACSecret)
+
+	got = preserve(&WebhookTarget{
+		URL:        "https://other.example.com/webhook",
+		Headers:    map[string]string{"Authorization": "Bearer new"},
+		HMACSecret: "new-secret",
+	})
+	assert.Equal(t, "Bearer new", got.Headers["Authorization"])
+	assert.Equal(t, "new-secret", got.HMACSecret)
+}
+
 func TestNormalizeRequiresWebhookHTTPSUnlessExplicitlyAllowed(t *testing.T) {
 	t.Parallel()
 
@@ -376,11 +413,18 @@ func TestPreserveWorkspaceSecrets(t *testing.T) {
 		Username: "user",
 		From:     "dagu@example.com",
 	}}
-	existing := &WorkspaceSettings{SMTP: &SMTPConfig{Password: "old-secret"}}
+	existing := &WorkspaceSettings{SMTP: &SMTPConfig{Host: "SMTP.example.com", Password: "old-secret"}}
 
 	PreserveWorkspaceSecrets(next, existing)
 	assert.Equal(t, "old-secret", next.SMTP.Password)
 
+	// The stored password goes only to the host it was entered for.
+	next.SMTP.Host = "smtp.attacker.example.com"
+	next.SMTP.Password = ""
+	PreserveWorkspaceSecrets(next, existing)
+	assert.Empty(t, next.SMTP.Password)
+
+	next.SMTP.Host = "smtp.example.com"
 	next.SMTP.ClearPassword = true
 	next.SMTP.Password = ""
 	PreserveWorkspaceSecrets(next, existing)
