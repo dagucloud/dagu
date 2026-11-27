@@ -73,6 +73,13 @@ type skillResource struct {
 	Size   int    `json:"size"`
 }
 
+// skillFrontmatter is the frontmatter of a SKILL.md.
+type skillFrontmatter struct {
+	fields      json.RawMessage
+	name        string
+	description string
+}
+
 // skillFile is one file of a skill, served as a resource.
 type skillFile struct {
 	uri         string
@@ -131,15 +138,15 @@ func newSkillCatalog(fsys fs.FS, dir string) (*skillCatalog, error) {
 			text: string(data),
 		}
 		if rel == skillFileName {
-			frontmatter, skillName, description, err := parseSkillFrontmatter(data)
+			front, err := parseSkillFrontmatter(data)
 			if err != nil {
 				return err
 			}
-			if skillName != skillPath {
-				return fmt.Errorf("name %q differs from the skill path %q", skillName, skillPath)
+			if front.name != skillPath {
+				return fmt.Errorf("name %q differs from the skill path %q", front.name, skillPath)
 			}
-			entry.Frontmatter = frontmatter
-			file.name, file.description = skillName, description
+			entry.Frontmatter = front.fields
+			file.name, file.description = front.name, front.description
 		}
 		sum := sha256.Sum256(data)
 		entry.Resources = append(entry.Resources, skillResource{
@@ -159,32 +166,33 @@ func newSkillCatalog(fsys fs.FS, dir string) (*skillCatalog, error) {
 	return catalog, nil
 }
 
-// parseSkillFrontmatter returns the YAML frontmatter of SKILL.md as a JSON
-// object, with its name and description.
-func parseSkillFrontmatter(data []byte) (json.RawMessage, string, string, error) {
+// parseSkillFrontmatter returns the YAML frontmatter of a SKILL.md, which
+// may use LF or CRLF line endings.
+func parseSkillFrontmatter(data []byte) (skillFrontmatter, error) {
 	const fence = "---\n"
-	rest, ok := bytes.CutPrefix(data, []byte(fence))
+	text := bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+	rest, ok := bytes.CutPrefix(text, []byte(fence))
 	if !ok {
-		return nil, "", "", errors.New("frontmatter must start with a --- line")
+		return skillFrontmatter{}, errors.New("frontmatter must start with a --- line")
 	}
 	front, _, ok := bytes.Cut(rest, []byte("\n"+fence))
 	if !ok {
-		return nil, "", "", errors.New("frontmatter has no closing --- line")
+		return skillFrontmatter{}, errors.New("frontmatter has no closing --- line")
 	}
 	var fields map[string]any
 	if err := yaml.Unmarshal(front, &fields); err != nil {
-		return nil, "", "", fmt.Errorf("frontmatter: %w", err)
+		return skillFrontmatter{}, fmt.Errorf("frontmatter: %w", err)
 	}
 	name, _ := fields["name"].(string)
 	description, _ := fields["description"].(string)
 	if name == "" || description == "" {
-		return nil, "", "", errors.New("frontmatter needs name and description")
+		return skillFrontmatter{}, errors.New("frontmatter needs name and description")
 	}
 	raw, err := json.Marshal(fields)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("frontmatter: %w", err)
+		return skillFrontmatter{}, fmt.Errorf("frontmatter: %w", err)
 	}
-	return raw, name, description, nil
+	return skillFrontmatter{fields: raw, name: name, description: description}, nil
 }
 
 // registerSkills serves the catalog through the skills extension: each file as
