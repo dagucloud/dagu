@@ -537,6 +537,16 @@ func TestLostLockCommitsNothing(t *testing.T) {
 		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
 		unchanged(t, s, hash)
 	})
+	t.Run("create", func(t *testing.T) {
+		t.Parallel()
+		s := newStore(t)
+		skill.SetBeforeHeldCheck(s, func() { loseLock(t, s, "fresh") })
+		content := strings.Replace(good, "name: demo", "name: fresh", 1)
+		_, err := s.WriteFile(ctx, "fresh", "SKILL.md", []byte(content), skill.Precondition{MustNotExist: true})
+		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
+		_, err = os.Lstat(s.Dir("fresh"))
+		require.ErrorIs(t, err, fs.ErrNotExist, "a creation that commits nothing leaves no folder")
+	})
 	t.Run("delete skill", func(t *testing.T) {
 		t.Parallel()
 		s, hash := setup(t)

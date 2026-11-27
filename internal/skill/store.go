@@ -239,9 +239,23 @@ func (s *Store) WriteFile(ctx context.Context, name, rel string, data []byte, pr
 			return err
 		}
 		if current == nil {
-			if err := os.MkdirAll(s.Dir(name), dirPerm); err != nil {
+			if err := os.MkdirAll(s.root, dirPerm); err != nil {
+				return fmt.Errorf("create the skills directory: %w", err)
+			}
+			// The folder of a new skill is made by this write alone.
+			if err := os.Mkdir(s.Dir(name), dirPerm); err != nil {
+				if errors.Is(err, fs.ErrExist) {
+					return &ConflictError{Message: fmt.Sprintf("the skill %q already exists", name)}
+				}
 				return fmt.Errorf("create the skill folder: %w", err)
 			}
+			// A creation that commits nothing leaves no folder. Remove deletes an
+			// empty folder only, so a file of another writer stays.
+			defer func() {
+				if result == nil {
+					_ = os.Remove(s.Dir(name))
+				}
+			}()
 		}
 		root, err := s.openSkillRoot(name)
 		if err != nil {
