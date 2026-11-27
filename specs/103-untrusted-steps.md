@@ -384,6 +384,9 @@ The rules, in order:
      counts as a folder.
    - a file with more than one link
 
+   Dagu removes the HOME of the step before these checks, so a file that the step linked from its
+   HOME, such as one of a package cache, has one link left and stays.
+
    A link that the handoff gave and that keeps its path and its target is a link of the worker
    user and stays, such as a link of a Python virtual environment to the interpreter of the host.
    The restricted user can move such a link, and at its new path the link counts as its own.

@@ -580,13 +580,19 @@ func (iso *isolation) end(_ context.Context) error {
 		return fmt.Errorf("%w: %w", ErrRunAborted, err)
 	}
 
+	// The HOME goes before the checks: a file that the step linked from it, such
+	// as one of a package cache, then has one link and stays.
+	var homeErr error
+	if err := os.RemoveAll(iso.home); err != nil {
+		homeErr = stepError(iso.step, "remove the home folder", iso.home, err)
+	}
 	restoreErr := errors.Join(iso.restore(true), iso.checkGitRemoved())
 	if errors.Is(restoreErr, ErrRunAborted) {
 		// Spec 103, "Isolation": no later step of a run with an untrusted step
 		// runs in this process on a work directory that Dagu cannot make safe.
 		poison(restoreErr)
 	}
-	errs := []error{iso.unmarkUnlessAborted(restoreErr), iso.copyOutput()}
+	errs := []error{homeErr, iso.unmarkUnlessAborted(restoreErr), iso.copyOutput()}
 	if err := os.RemoveAll(iso.privateDir); err != nil {
 		errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, err))
 	}

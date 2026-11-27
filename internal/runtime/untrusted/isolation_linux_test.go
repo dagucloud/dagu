@@ -495,6 +495,25 @@ func TestIsolatedStepHardLink(t *testing.T) {
 	assert.NoError(t, CheckWorkDir(workDir), "a failed Begin removes its marker")
 }
 
+// A file that the step links from its HOME, as uv links a package of its cache
+// into a virtual environment, stays after End: the HOME is gone before the
+// checks, so the file has one link left.
+func TestIsolatedStepKeepsLinksFromHome(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	runAs(t, WithStep(ctx, step), workDir, `mkdir "$HOME/cache" && echo pkg > "$HOME/cache/pkg.py" && ln "$HOME/cache/pkg.py" pkg.py`)
+
+	require.NoError(t, step.End(ctx))
+	pkg := filepath.Join(workDir, "pkg.py")
+	data, err := os.ReadFile(pkg)
+	require.NoError(t, err)
+	assert.Equal(t, "pkg\n", string(data))
+	assert.Equal(t, os.Geteuid(), ownerUID(t, pkg))
+}
+
 // A handoff that fails part way leaves a snapshot of a part of the git folders.
 // No process of the restricted user ran, so the restore of the abort keeps each
 // git entry of the worker. It needs no root.
