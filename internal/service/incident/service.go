@@ -399,12 +399,10 @@ func (s *Service) testError(result *TestResult, err error, options testOptions) 
 // provider: the status of a failed response, or the operation, a URL
 // preview, and the cause of a failed request. It returns "" for other errors.
 func safeDeliveryCause(err error) string {
-	var status httpStatusError
-	if errors.As(err, &status) {
+	if status, ok := errors.AsType[httpStatusError](err); ok {
 		return fmt.Sprintf("incident provider returned HTTP %d", status.code)
 	}
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) {
+	if urlErr, ok := errors.AsType[*url.Error](err); ok {
 		return fmt.Sprintf("%s %q: %v", urlErr.Op, incidentmodel.PreviewSecret(urlErr.URL), urlErr.Err)
 	}
 	return ""
