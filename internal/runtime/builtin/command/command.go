@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -127,6 +128,8 @@ func (e *commandExecutor) Run(ctx context.Context) error {
 		return err
 	}
 	e.process = process
+	pid, startedAt := process.PID(), time.Now()
+	logger.Debug(ctx, "Step process started", tag.PID(pid))
 	if guard := resourcelimit.FromContext(ctx); guard != nil {
 		if err := guard.AssignProcess(process.PID()); err != nil {
 			logger.Warn(ctx, "Resource limits requested but process assignment failed", tag.Error(err))
@@ -140,7 +143,12 @@ func (e *commandExecutor) Run(ctx context.Context) error {
 	// stuck I/O or unkillable child processes.
 	waitDone := make(chan error, 1)
 	go func() {
-		waitDone <- process.Wait()
+		err := process.Wait()
+		logger.Debug(ctx, "Step process exited",
+			tag.PID(pid),
+			tag.ExitCode(exitCodeFromError(err)),
+			tag.Duration(time.Since(startedAt)))
+		waitDone <- err
 	}()
 
 	select {
