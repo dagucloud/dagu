@@ -180,8 +180,9 @@ Provider-specific behavior covered here:
   longer uses a connection-aware step instead. `options.service`, the only
   option, must name one of the connection's services. A connection without
   `allow_token_export`, which only an admin sets, fails with
-  `connection "<key>" does not allow token export`. On a worker, the token
-  comes from the coordinator.
+  `connection "<key>" does not allow token export`. A connection that needs
+  reconnecting fails the run too, as every secret failure does. On a worker,
+  the token comes from the coordinator.
 - `gcp`, `azure`, `alibaba`, `kubernetes`: reference parsing runs before any
   client is created and reports a provider-specific diagnostic for a
   malformed reference (for example, `kubernetes` requires `key` to be
@@ -226,5 +227,6 @@ secrets:
     provider: connection
     key: work-google
 steps:
-  - command: curl -H "Authorization: Bearer $GOOGLE_TOKEN" https://gmail.googleapis.com/gmail/v1/users/me/profile
+  - command: |
+      curl -H "Authorization: Bearer $GOOGLE_TOKEN" https://gmail.googleapis.com/gmail/v1/users/me/profile
 ```

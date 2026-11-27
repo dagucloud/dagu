@@ -960,11 +960,10 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
 
 #### Admission Checks
 
-A run checks each declared connection before its first step, where secrets
-resolve, and before its secrets resolve, so a failed check is reported
-before a `connection` secret fails. A local run reads the records. A run on
-a worker uses a check-only request. The editor's server-side validation runs the same
-checks.
+A run checks each declared connection before its secrets resolve, so a
+failed check is reported before a `connection` secret fails. A local run
+reads the records. A run on a worker uses a check-only request. The
+editor's server-side validation runs the same checks.
 
 - The name resolves in the run's project.
 - A step's `server` names one of the connection's services. For a provider
@@ -1000,7 +999,8 @@ the coordinator must be upgraded, and the run's other steps run.
 - A connection in `pending` or `needs_reconnect`, or whose app is
   `invalid`, passes admission. Each step that uses it fails with
   `reconnect_required` and the connection's name. The run's other steps run
-  as before.
+  as before. A `connection` secret is the exception: secrets resolve once,
+  before the first step, so such a connection fails the whole run there.
 - A step's `http.request` URL that comes from a reference is checked
   against the binding when the step sends it.
 
@@ -1370,7 +1370,9 @@ Token issuance is not audited. No audit entry holds a secret.
 - A redirect that [Binding](#binding) does not allow fails the request.
 - A `connection` secret on a connection without `allow_token_export` fails
   the run at secret resolution, naming the connection. So does one whose
-  `options.service` is not one of the connection's services.
+  `options.service` is not one of the connection's services, and one on a
+  connection in `pending` or `needs_reconnect` or whose app is `invalid`,
+  with `reconnect_required`. No step of such a run starts.
 
 ## Examples
 
@@ -1485,7 +1487,8 @@ secrets:
     key: work-google
 steps:
   - id: list
-    run: curl -H "Authorization: Bearer $GOOGLE_TOKEN" https://gmail.googleapis.com/gmail/v1/users/me/profile
+    run: |
+      curl -H "Authorization: Bearer $GOOGLE_TOKEN" https://gmail.googleapis.com/gmail/v1/users/me/profile
 ```
 
 Without `allow_token_export` on `work-google`, the run fails at secret

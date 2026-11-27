@@ -35,9 +35,9 @@ type ConnectionChecker interface {
 }
 
 // NewStoreConnectionChecker returns a checker that admits connections
-// against the store open returns. Its runs take tokens from one broker
-// over that store and locks, which keeps the tokens it hands out, so a run
-// and its in-process sub-DAGs share them. It calls open once, on first use.
+// against the store open returns. The runs it checks take tokens from one
+// broker over that store and locks, which keeps the tokens it hands out.
+// It calls open once, on first use.
 func NewStoreConnectionChecker(open func() (connection.Store, error), locks connection.Locks) ConnectionChecker {
 	return &storeConnectionChecker{open: open, locks: locks}
 }
@@ -79,8 +79,8 @@ func (c *storeConnectionChecker) Connections(workspace string) providers.Connect
 }
 
 // storeConnections are the connections of one workspace. It keeps each
-// connection it reads, so a run reads each record once; the run names only
-// the connections its DAG declares.
+// connection it reads, so a run reads a record once beyond its admission
+// check; the run names only the connections its DAG declares.
 type storeConnections struct {
 	checker   *storeConnectionChecker
 	workspace string
