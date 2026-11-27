@@ -136,7 +136,7 @@ func runEnqueue(ctx *Context, args []string) error {
 func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) error {
 	dag.Location = ""
 
-	if err := ctx.checkProjectEnqueue(); err != nil {
+	if err := ctx.checkLibraryEnqueue(); err != nil {
 		return fmt.Errorf("%w; run it with dagu start instead", err)
 	}
 	if !ctx.Config.Queues.Enabled {

@@ -25,13 +25,18 @@ import (
 
 // NewDependencies creates the file-backed stores used by the scheduler
 // service from the stores every project shares and the stores of the
-// project it schedules.
+// project it schedules. The event collector keeps eventDedupeBytes for the
+// IDs of the events it stored, or the configured size when it is 0.
 func NewDependencies(
 	ctx context.Context,
 	cfg *config.Config,
 	server *persisfile.ServerStores,
 	project *persisfile.ProjectSettings,
+	eventDedupeBytes int,
 ) (scheduler.Dependencies, error) {
+	if eventDedupeBytes == 0 {
+		eventDedupeBytes = cfg.Cache.Limits().EventStoreBytes
+	}
 	var deps scheduler.Dependencies
 	if cfg.EventStore.Enabled {
 		store, err := fileeventstore.New(project.Paths.EventStoreDir)
@@ -45,7 +50,7 @@ func NewDependencies(
 		collector, err := fileeventstore.NewCollector(
 			project.Paths.EventStoreDir,
 			cfg.EventStore.RetentionDays,
-			fileeventstore.WithDedupeCacheBytes(cfg.Cache.Limits().EventStoreBytes),
+			fileeventstore.WithDedupeCacheBytes(eventDedupeBytes),
 		)
 		if err != nil {
 			logger.Warn(ctx, "Failed to initialize event collector; continuing without collection", tag.Error(err))

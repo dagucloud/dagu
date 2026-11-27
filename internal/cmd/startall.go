@@ -177,7 +177,8 @@ func runStartAll(ctx *Context, _ []string) error {
 	warnTestNamedDAGs(serviceCtx)
 
 	// Initialize all services using the signal-aware context
-	scheduler, err := newScheduler(serviceCtx, schedulerDeps)
+	projects := serviceCtx.newProjectStoreCache()
+	scheduler, err := newScheduler(serviceCtx, schedulerDeps, projects)
 	if err != nil {
 		return fmt.Errorf("failed to initialize scheduler: %w", err)
 	}
@@ -205,7 +206,8 @@ func runStartAll(ctx *Context, _ []string) error {
 	serverOpts = append(serverOpts, frontend.WithOnReady(printStartupBanner(serviceCtx, stores.AuthSetupRequired)))
 	webStopped, onWebStopped := closedOnce()
 	serverOpts = append(serverOpts, frontend.WithOnStopped(onWebStopped))
-	serverOpts = append(serverOpts, serviceCtx.followServedProjects(serviceCtx)...)
+	serverOpts = append(serverOpts, serviceCtx.servedProjects(projects)...)
+	runProjectStores(serviceCtx, projects)
 
 	// Use serviceCtx so auth initialization can respond to termination signals
 	server, err := newServer(serviceCtx, resourceService, stores, serverOpts...)

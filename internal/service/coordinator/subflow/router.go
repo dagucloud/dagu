@@ -86,9 +86,6 @@ func (r *Router) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest
 
 // Enqueue admits req through the runner selected by the execution policy.
 func (r *Router) Enqueue(ctx context.Context, req executor.EnqueueRequest) (executor.EnqueueResult, error) {
-	if err := project.RefuseOtherProject(runProject(ctx), project.ErrQueuedRun); err != nil {
-		return executor.EnqueueResult{}, err
-	}
 	runner := r.selectRunner(ctx, executor.SubWorkflowRequest{
 		DAG:            req.DAG,
 		RootDAGRun:     req.RootDAGRun,

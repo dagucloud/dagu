@@ -117,6 +117,74 @@ func TestProjectStoreCacheRetriesFailedRecord(t *testing.T) {
 	assert.Equal(t, [][]string{{weatherProject.ID}, nil}, releases.recorded())
 }
 
+// A subscriber hears of each change once the cache serves the stores of
+// the projects it lists.
+func TestProjectStoreCacheOnChange(t *testing.T) {
+	registry := newFakeRegistry()
+	cache := persisfile.NewProjectStoreCache(registry, &persisfile.ProjectStores{},
+		func(context.Context, project.Project) (*persisfile.ProjectStores, error) {
+			return &persisfile.ProjectStores{}, nil
+		}, &releaseLog{})
+	var heard [][]project.Project
+	cache.OnChange(func(projects []project.Project) {
+		_, open := cache.Get(weatherProject.ID)
+		assert.Equal(t, slices.Contains(projects, weatherProject), open)
+		heard = append(heard, projects)
+	})
+	runCache(t, cache)
+
+	registry.show(defaultProject, weatherProject)
+	registry.show(defaultProject)
+	assert.Equal(t, [][]project.Project{{defaultProject, weatherProject}, {defaultProject}}, heard)
+}
+
+// A project marked deleting is recorded as released only after every
+// subscriber has returned, so a subscriber stops using its stores first.
+func TestProjectStoreCacheRecordsReleaseAfterSubscribers(t *testing.T) {
+	registry, releases := newFakeRegistry(), &releaseLog{}
+	cache := persisfile.NewProjectStoreCache(registry, &persisfile.ProjectStores{},
+		func(context.Context, project.Project) (*persisfile.ProjectStores, error) {
+			return &persisfile.ProjectStores{}, nil
+		}, releases)
+	var recordedWhenHeard [][][]string
+	cache.OnChange(func([]project.Project) {
+		recordedWhenHeard = append(recordedWhenHeard, releases.recorded())
+	})
+	runCache(t, cache)
+
+	deleting := weatherProject
+	deleting.Deleting = true
+	registry.show(defaultProject, weatherProject)
+	registry.show(defaultProject, deleting)
+	assert.Equal(t, [][][]string{nil, nil}, recordedWhenHeard)
+	assert.Equal(t, [][]string{{weatherProject.ID}}, releases.recorded())
+}
+
+// Stores that fail to open are opened again without a registry change, and
+// subscribers hear of it.
+func TestProjectStoreCacheRetriesFailedOpenWithoutChange(t *testing.T) {
+	var fail atomic.Bool
+	fail.Store(true)
+	registry := newFakeRegistry()
+	cache := persisfile.NewProjectStoreCache(registry, &persisfile.ProjectStores{},
+		func(context.Context, project.Project) (*persisfile.ProjectStores, error) {
+			if fail.Swap(false) {
+				return nil, errors.New("disk busy")
+			}
+			return &persisfile.ProjectStores{}, nil
+		}, &releaseLog{})
+	cache.SetOpenRetryForTest(10 * time.Millisecond)
+	var heard atomic.Int32
+	cache.OnChange(func([]project.Project) { heard.Add(1) })
+	runCache(t, cache)
+
+	registry.show(defaultProject, weatherProject)
+	require.Eventually(t, func() bool {
+		_, ok := cache.Get(weatherProject.ID)
+		return ok && heard.Load() == 2
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
 // A process that starts while a project is marked deleting registers the
 // default project and records the release in its service registry entry,
 // where another process reads it.

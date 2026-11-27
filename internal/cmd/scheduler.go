@@ -14,7 +14,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	schedulerfile "github.com/dagucloud/dagu/v2/internal/service/scheduler/file"
@@ -46,7 +49,10 @@ This process runs continuously in the foreground until terminated.
 
 var schedulerFlags = []commandLineFlag{dagsFlag, projectsDirFlag}
 
-func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Scheduler, error) {
+// newScheduler builds the scheduler of every project: the default one from
+// the command's stores and deps, and, while projects are on, each other
+// project that projects holds from its own stores.
+func newScheduler(ctx *Context, deps scheduler.Dependencies, projects *persisfile.ProjectStoreCache) (*scheduler.Scheduler, error) {
 	if deps.DAGSettingsStore == nil {
 		return nil, errors.New("DAG settings store is not configured")
 	}
@@ -61,15 +67,9 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Schedul
 		runtime.WithLatestStatusAllHistory(),
 	)
 	if deps.EntryReader == nil {
-		deps.EntryReader = filedag.NewFileEntryReader(
-			ctx.Config.Paths.DAGsDir, ctx.Persistence.DAGRepository,
-			ctx.Config.DAGDiscovery.Recursive, ctx.Config.Paths.BaseConfig,
-			ctx.Config.WorkspaceBaseConfigDir(),
-			filedag.WithChangeMarker(ctx.settings.DAGChangeMarkerPath(), 0),
-			filedag.WatchCalendars(ctx.Config.Paths.CalendarsDir),
-			filedag.SkipDirectories(ctx.Config.DAGDiscovery.SkipDirs),
-			filedag.SkipRoots(ctx.Config.DiscoverySkipRoots()),
-		)
+		deps.EntryReader = newEntryReader(ctx, ctx.Config.Paths.DAGsDir, ctx.Persistence.DAGRepository,
+			ctx.Config.Paths.BaseConfig, ctx.Config.WorkspaceBaseConfigDir(),
+			ctx.settings.DAGChangeMarkerPath())
 	}
 	deps.DAGRepository = ctx.Persistence.DAGRepository
 	deps.DAGRunRepository = ctx.Persistence.DAGRunRepository
@@ -89,7 +89,77 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Schedul
 	deps.LicenseManager = ctx.LicenseManager
 	deps.LibraryDAGRunRepository, deps.LibraryProcRepository = ctx.projectStores.LibraryRuns()
 	addPublicWebhooks(ctx, &deps)
+	if projects != nil {
+		deps.Projects = projects
+		deps.OpenProject = func(c context.Context, p project.Project, stores *persisfile.ProjectStores) (scheduler.Dependencies, error) {
+			return unitDependencies(ctx.WithContext(c), p, stores)
+		}
+	}
 	return scheduler.New(ctx.Config, deps)
+}
+
+// unitDependencies returns the dependencies of the scheduler unit of
+// project p, from its stores and the stores every project shares. A unit
+// holds no public webhook URL: the webhooks are the default project's. It
+// gets no store of distributed runs either: a unit sends no run to a
+// worker, and those stores do not record a run's project, so a run of the
+// default project would count against the unit's queue of the same name.
+func unitDependencies(ctx *Context, p project.Project, stores *persisfile.ProjectStores) (scheduler.Dependencies, error) {
+	deps, err := schedulerfile.NewDependencies(ctx, ctx.Config, ctx.serverStores, stores.ProjectSettings,
+		unitEventDedupeBytes(ctx))
+	if err != nil {
+		return scheduler.Dependencies{}, err
+	}
+	// Each unit cleans up its own coordinator client when it stops.
+	coordinatorClient, err := ctx.NewCoordinatorClient()
+	if err != nil {
+		return scheduler.Dependencies{}, err
+	}
+	baseConfig, workspaceDir := stores.BaseConfig()
+	server := ctx.serverStores
+	deps.EntryReader = newEntryReader(ctx, stores.Paths.DAGsDir, stores.DAGRepository,
+		baseConfig, workspaceDir, stores.DAGChangeMarkerPath())
+	deps.DAGRunManager = runtime.NewManager(stores.DAGRunRepository, stores.ProcRepository, ctx.Config,
+		append(projectManagerOptions(ctx.Config, p), runtime.WithLatestStatusAllHistory())...)
+	deps.DAGRepository = stores.DAGRepository
+	deps.DAGRunRepository = stores.DAGRunRepository
+	deps.QueueStore = stores.QueueStore
+	deps.ProcRepository = stores.ProcRepository
+	deps.CoordinatorClient = coordinatorClient
+	deps.SchedulerStateStore = stores.SchedulerStateStore
+	deps.SchedulerPauseStore = server.SchedulerPauseStore
+	deps.RestartBackoffStore = server.RestartBackoffStore.ForProject(p.ID)
+	deps.PeriodStore = stores.PeriodStore
+	deps.BackfillStore = stores.BackfillStore
+	deps.WatchStore = stores.WatchStateStore
+	deps.LicenseManager = ctx.LicenseManager
+	deps.LibraryDAGRunRepository, deps.LibraryProcRepository = stores.LibraryRuns()
+	return deps, nil
+}
+
+// unitEventDedupeShare is the part of a project's event dedupe budget that
+// the event collector of each unit keeps: a unit's project holds a share of
+// the server's events, and the size does not depend on how many projects
+// there are or the order they arrive in.
+const unitEventDedupeShare = 64
+
+// unitEventDedupeBytes returns what a unit's event collector keeps for the
+// IDs of the events it stored.
+func unitEventDedupeBytes(ctx *Context) int {
+	return ctx.Config.Cache.Limits().EventStoreBytes / unitEventDedupeShare
+}
+
+// newEntryReader returns the reader of the DAG files in dagsDir that the
+// scheduler schedules.
+func newEntryReader(ctx *Context, dagsDir string, dags *persis.DAGRepository, baseConfig, workspaceDir, changeMarker string) scheduler.EntryReader {
+	return filedag.NewFileEntryReader(
+		dagsDir, dags,
+		ctx.Config.DAGDiscovery.Recursive, baseConfig, workspaceDir,
+		filedag.WithChangeMarker(changeMarker, 0),
+		filedag.WatchCalendars(ctx.Config.Paths.CalendarsDir),
+		filedag.SkipDirectories(ctx.Config.DAGDiscovery.SkipDirs),
+		filedag.SkipRoots(ctx.Config.DiscoverySkipRoots()),
+	)
 }
 
 // addPublicWebhooks gives the scheduler what holding public webhook URLs
@@ -135,7 +205,7 @@ func runScheduler(ctx *Context, _ []string) error {
 	if dagsDir, _ := ctx.Command.Flags().GetString("dags"); dagsDir != "" {
 		ctx.Config.Paths.DAGsDir = dagsDir
 	}
-	deps, err := schedulerfile.NewDependencies(ctx, ctx.Config, ctx.serverStores, ctx.settings)
+	deps, err := schedulerfile.NewDependencies(ctx, ctx.Config, ctx.serverStores, ctx.settings, 0)
 	if err != nil {
 		return err
 	}
@@ -150,7 +220,8 @@ func runScheduler(ctx *Context, _ []string) error {
 	ctx.Context = ctx.withRunRegistry(ctx.Context)
 	schedulerCtx := ctx.WithEventSource(eventstore.SourceServiceScheduler)
 	startBrowserReaper(schedulerCtx, ctx.Config.Paths.DataDir, ctx.Persistence.DAGRunRepository)
-	scheduler, err := newScheduler(schedulerCtx, deps)
+	projects := ctx.newProjectStoreCache()
+	scheduler, err := newScheduler(schedulerCtx, deps, projects)
 	if err != nil {
 		return fmt.Errorf("failed to initialize scheduler: %w", err)
 	}
@@ -159,7 +230,7 @@ func runScheduler(ctx *Context, _ []string) error {
 
 	followCtx, stopFollowing := context.WithCancel(schedulerCtx)
 	defer stopFollowing()
-	ctx.followProjects(followCtx)
+	runProjectStores(followCtx, projects)
 
 	if err := scheduler.Start(schedulerCtx); err != nil {
 		return fmt.Errorf("failed to start scheduler in directory %s: %w",

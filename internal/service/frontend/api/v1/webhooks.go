@@ -22,7 +22,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
-	"github.com/dagucloud/dagu/v2/internal/project"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/google/uuid"
 	openapitypes "github.com/oapi-codegen/runtime/types"
@@ -762,15 +761,6 @@ func (a *API) triggerWebhook(
 			HTTPStatus: http.StatusNotFound,
 			Code:       api.ErrorCodeNotFound,
 			Message:    fmt.Sprintf("DAG %s not found", request.FileName),
-		}
-	}
-
-	if err := project.RefuseOtherProject(target.Name, project.ErrQueuedRun); err != nil {
-		logger.Warn(ctx, "Webhook: run cannot be queued", tag.Name(request.FileName), tag.Error(err))
-		return nil, &Error{
-			HTTPStatus: http.StatusServiceUnavailable,
-			Code:       api.ErrorCodeInternalError,
-			Message:    err.Error(),
 		}
 	}
 

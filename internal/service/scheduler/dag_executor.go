@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -64,6 +65,9 @@ type DAGExecutor struct {
 	workspaceBaseConfigDir string
 	profileResolver        DAGProfileResolver
 	openCodeHost           *opencodehost.Host
+	// project is the project whose runs the executor starts, or "" for the
+	// default project while projects are off.
+	project string
 }
 
 type DAGProfileResolver interface {
@@ -82,6 +86,14 @@ func WithDAGExecutorProfileResolver(resolver DAGProfileResolver) DAGExecutorOpti
 func WithDAGExecutorWorkspaceBaseConfigDir(dir string) DAGExecutorOption {
 	return func(e *DAGExecutor) {
 		e.workspaceBaseConfigDir = dir
+	}
+}
+
+// withDAGExecutorProject makes the executor start the runs of the named
+// project.
+func withDAGExecutorProject(name string) DAGExecutorOption {
+	return func(e *DAGExecutor) {
+		e.project = name
 	}
 }
 
@@ -142,6 +154,9 @@ func (e *DAGExecutor) HandleJob(
 	if e.shouldUseDistributedExecution(dag) && operation == dispatch.DispatchOperationStart {
 		if dag.Type == ir.TypeBuild {
 			return dispatch.ErrBuildRequiresLocal
+		}
+		if err := e.checkProjectDispatch(); err != nil {
+			return err
 		}
 		ctx = logger.WithValues(ctx,
 			tag.DAG(dag.Name),
@@ -233,6 +248,9 @@ func (e *DAGExecutor) executeDAG(
 	if e.shouldUseDistributedExecution(dag) {
 		if dag.Type == ir.TypeBuild {
 			return dispatch.ErrBuildRequiresLocal
+		}
+		if err := e.checkProjectDispatch(); err != nil {
+			return err
 		}
 		var err error
 		dag, err = spec.RefreshBaseSMTP(dag,
@@ -377,6 +395,17 @@ func validateDispatchOperation(operation dispatch.DispatchOperation) error {
 	default:
 		return fmt.Errorf("unknown operation: %s", operation)
 	}
+}
+
+// checkProjectDispatch refuses to send a run of a project other than the
+// default one to a worker: a dispatch task does not carry its project, so
+// the coordinator would record the run in the default project. The run can
+// never be dispatched, so the refusal is a definition error.
+func (e *DAGExecutor) checkProjectDispatch() error {
+	if err := project.RefuseOtherProject(e.project, project.ErrWorkerRun); err != nil {
+		return &dispatch.DefinitionError{Err: err}
+	}
+	return nil
 }
 
 // shouldUseDistributedExecution checks if distributed execution should be used.

@@ -70,7 +70,7 @@ func assertProcessesAgree(t *testing.T, cfg *config.Config) {
 	require.NoError(t, err)
 	schedulerShared := persisfile.NewServerStores(cfg)
 	schedulerSettings := defaultSettings(t, cfg, schedulerShared)
-	scheduler, err := schedulerfile.NewDependencies(ctx, cfg, schedulerShared, schedulerSettings)
+	scheduler, err := schedulerfile.NewDependencies(ctx, cfg, schedulerShared, schedulerSettings, 0)
 	require.NoError(t, err)
 	// A command or the coordinator opens every store; a worker opens only
 	// settings.

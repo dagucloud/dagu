@@ -73,7 +73,8 @@ func TestProjectStoresOnKeepProjectsApart(t *testing.T) {
 			assert.DirExists(t, filepath.Join(state, filepath.FromSlash(dir)))
 		}
 	}
-	assert.DirExists(t, filepath.Join(cfg.Paths.ProjectsDir, "weather"))
+	assert.Equal(t, filepath.Join(cfg.Paths.ProjectsDir, "weather"), opened["weather"].Paths.DAGsDir)
+	assert.NoDirExists(t, opened["weather"].Paths.DAGsDir, "creating the project makes its DAG directory, not opening its stores")
 }
 
 // Every project encrypts its secrets with the server's key and keeps no key

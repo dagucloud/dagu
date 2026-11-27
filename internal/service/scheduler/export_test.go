@@ -34,6 +34,7 @@ func NewWithHooksForTest(
 		deps.SchedulerPauseStore,
 		schedulerHooks{onLockWait: hooks.OnLockWait},
 		nil,
+		configScope(cfg),
 	)
 }
 

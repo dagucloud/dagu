@@ -560,7 +560,9 @@ Rules:
 - A project's webhooks, public ones included, belong to that project. Each
   is the webhook of one DAG name in that project, so two projects may each
   have a webhook for a DAG of the same name, each with its own token.
-- A run that a webhook starts belongs to the project the URL reached.
+- A run that a webhook starts belongs to the project the URL reached. It
+  waits in that project's queue, and the request gets `200` once it is
+  queued, in the default project and in every other one.
 
 #### Search
 
@@ -794,6 +796,8 @@ Rules:
 ### Scheduling
 
 - One scheduler process schedules every project.
+- Each project's scheduled runs, and the runs waiting in its own queues,
+  start in that project.
 - A project created through any process starts scheduling without a
   restart. A project deleted, marked deleting, or missing is not
   scheduled.

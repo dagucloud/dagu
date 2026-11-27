@@ -19,7 +19,7 @@ func TestNewDependenciesRequiresDAGSettingsStorage(t *testing.T) {
 	server := persisfile.NewServerStores(cfg)
 	settings, err := persisfile.NewProjectSettings(cfg, server, project.DefaultName)
 	require.NoError(t, err)
-	_, err = NewDependencies(t.Context(), cfg, server, settings)
+	_, err = NewDependencies(t.Context(), cfg, server, settings, 0)
 
 	require.ErrorContains(t, err, "failed to initialize DAG settings store")
 }

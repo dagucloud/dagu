@@ -45,7 +45,7 @@ steps:
 
 	cfg := &config.Config{}
 	cfg.Paths.LogDir = t.TempDir()
-	s := &Scheduler{config: cfg, dagRunRepository: f.dagRunRepository, queueStore: f.queueStore}
+	s := &Scheduler{config: cfg, scope: configScope(cfg), dagRunRepository: f.dagRunRepository, queueStore: f.queueStore}
 	target := backfill.Target{DAG: dag, Schedule: backfill.SlotSchedule{Schedules: dag.Schedule, Location: time.UTC}}
 	for _, tc := range []struct {
 		runID    string
@@ -200,7 +200,7 @@ func TestBackfillDAGExists(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &config.Config{}
 	cfg.Paths.DAGsDir = dir
-	s := &Scheduler{config: cfg}
+	s := &Scheduler{config: cfg, scope: configScope(cfg)}
 	record := &backfill.Record{DAGName: "etl", DAGFile: filepath.Join(dir, "etl.yaml")}
 	write := func(name string) {
 		t.Helper()

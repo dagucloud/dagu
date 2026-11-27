@@ -5,11 +5,14 @@ package store_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
@@ -33,4 +36,69 @@ func TestRestartBackoffStore(t *testing.T) {
 	backoff, err = s.Load(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, backoff, "a save replaces what was there")
+}
+
+// Each project's backoff is saved apart, so one project's save keeps
+// every other project's backoff, the default project's included.
+func TestRestartBackoffStoreForProject(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewRestartBackoffStore(testutil.NewMemoryBackend().Collection("scheduler"))
+	weather, sim := s.ForProject("weather-id"), s.ForProject("sim-id")
+
+	defaults := map[string]schedulerstate.RestartBackoff{"svc": {RunID: "run-1", Failures: 1}}
+	forecast := map[string]schedulerstate.RestartBackoff{"svc": {RunID: "run-2", Failures: 2}}
+	require.NoError(t, s.Save(ctx, defaults))
+	require.NoError(t, weather.Save(ctx, forecast))
+	require.NoError(t, sim.Save(ctx, nil))
+
+	for _, tt := range []struct {
+		store schedulerstate.RestartBackoffStore
+		want  map[string]schedulerstate.RestartBackoff
+	}{
+		{store: s, want: defaults},
+		{store: weather, want: forecast},
+		{store: sim, want: nil},
+	} {
+		backoff, err := tt.store.Load(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, tt.want, backoff)
+	}
+
+	require.NoError(t, s.Save(ctx, nil))
+	backoff, err := weather.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, forecast, backoff, "the default project's save keeps another project's backoff")
+}
+
+// A save after a failed read fails and keeps the other projects' backoff,
+// while a record that does not decode is replaced.
+func TestRestartBackoffStoreSaveAfterFailedRead(t *testing.T) {
+	ctx := context.Background()
+	col := &flakyCollection{Collection: testutil.NewMemoryBackend().Collection("scheduler")}
+	s := store.NewRestartBackoffStore(col)
+	weather := map[string]schedulerstate.RestartBackoff{"svc": {RunID: "run-2", Failures: 2}}
+	require.NoError(t, s.ForProject("weather-id").Save(ctx, weather))
+
+	col.failGet = errors.New("storage unavailable")
+	require.Error(t, s.Save(ctx, map[string]schedulerstate.RestartBackoff{"svc": {RunID: "run-1", Failures: 1}}))
+	col.failGet = nil
+	backoff, err := s.ForProject("weather-id").Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, weather, backoff)
+
+	col.failGet = fmt.Errorf("decode: %w", persis.ErrCorrupt)
+	require.NoError(t, s.Save(ctx, nil))
+}
+
+// flakyCollection fails Get with failGet while it is set.
+type flakyCollection struct {
+	persis.Collection
+	failGet error
+}
+
+func (c *flakyCollection) Get(ctx context.Context, id string) (*persis.Record, error) {
+	if c.failGet != nil {
+		return nil, c.failGet
+	}
+	return c.Collection.Get(ctx, id)
 }
