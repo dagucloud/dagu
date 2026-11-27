@@ -6,6 +6,8 @@ package cloudreport
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -55,8 +57,8 @@ func TestRunsInProgressShareTheirStepsBudget(t *testing.T) {
 
 // Each step names the steps it waits for by their positions among the
 // reported steps, explicit and inferred dependencies alike. A step without
-// a name takes no position, and a step past those reported is left out of
-// the dependencies that name it.
+// a name takes no position, a handler is no step, and a step past those
+// reported is left out of the dependencies that name it.
 func TestStepsNameTheirDependenciesByPosition(t *testing.T) {
 	t.Parallel()
 
@@ -73,14 +75,14 @@ func TestStepsNameTheirDependenciesByPosition(t *testing.T) {
 	}
 	status.OnSuccess = &ir.Node{Step: ir.Step{Name: "onSuccess"}}
 
-	steps, total := runSteps(status)
+	reported := runSteps(status)
 
-	assert.Equal(t, 4, total)
+	assert.Equal(t, 3, reported.StepsTotal)
 	depends := map[string][]int{}
-	for _, step := range steps {
+	for _, step := range reported.Steps {
 		depends[step.Name] = step.Depends
 	}
-	assert.Equal(t, map[string][]int{"extract": nil, "transform": {0}, "load": {1, 0}, "onSuccess": nil}, depends)
+	assert.Equal(t, map[string][]int{"extract": nil, "transform": {0}, "load": {1, 0}}, depends)
 
 	many := run("etl", "run-2", ir.Succeeded)
 	for i := range maxRunSteps + 50 {
@@ -88,15 +90,14 @@ func TestStepsNameTheirDependenciesByPosition(t *testing.T) {
 	}
 	many.Nodes[0].Step.Depends = []string{"step-1", fmt.Sprint("step-", maxRunSteps)}
 
-	steps, _ = runSteps(many)
+	steps := runSteps(many).Steps
 
 	require.Len(t, steps, maxRunSteps)
 	assert.Equal(t, []int{1}, steps[0].Depends, "a step past those reported is left out")
 }
 
-// Each handler step carries its kind, so it reads apart from a regular step
-// that waits for nothing.
-func TestHandlerStepsCarryTheirKind(t *testing.T) {
+// A run's handlers are reported apart from its steps, by kind.
+func TestHandlersAreReportedByKind(t *testing.T) {
 	t.Parallel()
 
 	status := run("etl", "run-1", ir.Succeeded)
@@ -108,16 +109,51 @@ func TestHandlerStepsCarryTheirKind(t *testing.T) {
 	status.OnAbort = &ir.Node{Step: ir.Step{Name: "abort"}}
 	status.OnExit = &ir.Node{Step: ir.Step{Name: "exit"}}
 
-	steps, _ := runSteps(status)
+	reported := runSteps(status)
 
-	handlers := map[string]string{}
-	for _, step := range steps {
-		handlers[step.Name] = step.Handler
+	require.Len(t, reported.Steps, 1)
+	assert.Equal(t, "extract", reported.Steps[0].Name)
+	assert.Equal(t, 1, reported.StepsTotal, "handlers are not counted among the steps")
+	assert.ElementsMatch(t, []string{"onInit", "onWait", "onSuccess", "onFailure", "onAbort", "onExit"},
+		slices.Collect(maps.Keys(reported.Handlers)))
+}
+
+// A step carries its times in whole seconds from its run's start, as the
+// run's start is reported, and its retries only when it was retried. A
+// step that finished before it started took no time, and a run without a
+// start carries no step times.
+func TestStepsCarryTheirTimesInSecondsFromTheRunsStart(t *testing.T) {
+	t.Parallel()
+
+	status := run("etl", "run-1", ir.Succeeded)
+	status.StartedAt = "2026-10-10T09:00:00.700Z"
+	status.Nodes = []*ir.Node{
+		{Step: ir.Step{Name: "extract"}, Status: ir.NodeSucceeded,
+			StartedAt: "2026-10-10T09:00:00.900Z", FinishedAt: "2026-10-10T09:01:14.200Z", RetryCount: 1},
+		{Step: ir.Step{Name: "load"}, Status: ir.NodeSucceeded,
+			StartedAt: "2026-10-10T09:01:14Z", FinishedAt: "2026-10-10T09:01:10Z"},
+		{Step: ir.Step{Name: "notify"}, Status: ir.NodeNotStarted, StartedAt: "-"},
 	}
-	assert.Equal(t, map[string]string{
-		"init": "onInit", "extract": "", "wait": "onWait", "success": "onSuccess",
-		"failure": "onFailure", "abort": "onAbort", "exit": "onExit",
-	}, handlers)
+	status.OnExit = &ir.Node{Step: ir.Step{Name: "onExit"}, Status: ir.NodeRunning, StartedAt: "2026-10-10T09:01:15Z"}
+
+	data, err := json.Marshal(runSteps(status))
+
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"steps": [
+			{"name": "extract", "status": "succeeded", "start": 0, "took": 74, "retries": 1},
+			{"name": "load", "status": "succeeded", "start": 74, "took": 0},
+			{"name": "notify", "status": "not_started"}
+		],
+		"handlers": {"onExit": {"status": "running", "start": 75}},
+		"steps_total": 3
+	}`, string(data))
+
+	status.StartedAt = ""
+	for _, step := range runSteps(status).Steps {
+		assert.Nil(t, step.Start, step.Name)
+		assert.Nil(t, step.Took, step.Name)
+	}
 }
 
 // A handler can share a regular step's name, but only regular steps are
@@ -132,8 +168,8 @@ func TestADependencyNamesTheStepNotTheHandler(t *testing.T) {
 	}
 	status.OnSuccess = &ir.Node{Step: ir.Step{Name: "onSuccess"}}
 
-	steps, _ := runSteps(status)
+	steps := runSteps(status).Steps
 
-	require.Len(t, steps, 3)
+	require.Len(t, steps, 2)
 	assert.Equal(t, []int{0}, steps[1].Depends)
 }

@@ -95,12 +95,12 @@ func TestReportRuns(t *testing.T) {
 			"trigger_type": "webhook", "queued_at": "2026-10-10T08:59:00Z", "started_at": "2026-10-10T09:00:00Z",
 			"finished_at": "2026-10-10T09:05:00Z", "failed_steps": ["load", "notify", "on_failure"],
 			"steps": [
-				{"name": "extract", "status": "succeeded", "started_at": "2026-10-10T09:00:00Z", "finished_at": "2026-10-10T09:01:00Z", "retries": 0},
-				{"name": "load", "status": "failed", "started_at": "2026-10-10T09:01:00Z", "finished_at": "2026-10-10T09:04:00Z", "retries": 2},
-				{"name": "notify", "status": "failed", "retries": 0},
-				{"name": "on_failure", "status": "failed", "retries": 0, "handler": "onFailure"}
+				{"name": "extract", "status": "succeeded", "start": 0, "took": 60},
+				{"name": "load", "status": "failed", "start": 60, "took": 180, "retries": 2},
+				{"name": "notify", "status": "failed"}
 			],
-			"steps_total": 4
+			"handlers": {"onFailure": {"status": "failed"}},
+			"steps_total": 3
 		}
 	]`, string(finished.Finished))
 	assert.NotEmpty(t, finished.Cursor)
@@ -654,8 +654,8 @@ func TestReportRunsInProgressCarryTheirSteps(t *testing.T) {
 				"workflow": "etl", "dag_run_id": "run-1", "attempt_id": "attempt-1", "status": "running",
 				"trigger_type": "", "queued_at": "2026-10-10T08:59:00Z", "started_at": "2026-10-10T09:00:00Z",
 				"steps": [
-					{"name": "extract", "status": "succeeded", "started_at": "2026-10-10T09:00:00Z", "finished_at": "2026-10-10T09:01:00Z", "retries": 0},
-					{"name": "load", "status": "running", "started_at": "2026-10-10T09:01:00Z", "retries": 1, "depends": [0]}
+					{"name": "extract", "status": "succeeded", "start": 0, "took": 60},
+					{"name": "load", "status": "running", "start": 60, "retries": 1, "depends": [0]}
 				],
 				"steps_total": 2
 			}

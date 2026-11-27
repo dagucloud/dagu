@@ -332,7 +332,7 @@ func (r *jobReporter) activeRequest(status *ir.DAGRunStatus) *jobRequest {
 		run.TriggerType = ""
 	}
 	entry := activeEntry{activeRun: run}
-	entry.Steps, entry.StepsTotal = runSteps(status)
+	entry.reportedSteps = runSteps(status)
 	return &jobRequest{Protocol: jobProtocol, Active: &jobActive{activeEntry: entry, jobPlace: r.place}}
 }
 
@@ -549,12 +549,12 @@ func encodeJob(req *jobRequest) ([]byte, error) {
 		func() {
 			if shrunk.Active != nil {
 				active := *shrunk.Active
-				active.Steps, active.StepsTotal = nil, 0
+				active.reportedSteps = reportedSteps{}
 				shrunk.Active = &active
 			}
 			if shrunk.Finished != nil {
 				finished := *shrunk.Finished
-				finished.Steps, finished.StepsTotal = nil, 0
+				finished.reportedSteps = reportedSteps{}
 				shrunk.Finished = &finished
 			}
 		},

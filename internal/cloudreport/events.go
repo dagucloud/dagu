@@ -151,10 +151,7 @@ type finishedRun struct {
 	// Errors say why the run failed; reports carry them only at the errors
 	// level.
 	Errors []stepError `json:"errors,omitempty"`
-	// Steps are the run's first steps in run order, and StepsTotal counts
-	// them all.
-	Steps      []reportedStep `json:"steps,omitempty"`
-	StepsTotal int            `json:"steps_total,omitempty"`
+	reportedSteps
 }
 
 // stepError is why a run failed: a failed step's error, or the run's own
@@ -235,7 +232,7 @@ func newFinishedRun(status *ir.DAGRunStatus, occurredAt time.Time) finishedRun {
 		FinishedAt:  finishedAt,
 		FailedSteps: failedSteps(status),
 	}
-	finished.Steps, finished.StepsTotal = runSteps(status)
+	finished.reportedSteps = runSteps(status)
 	if runFailed(status.Status) {
 		finished.Errors = runErrors(status)
 	}
@@ -330,11 +327,22 @@ func formatTime(t time.Time) string {
 // snapshotTime formats a time from a status snapshot, or returns "" when the
 // value is empty or unparseable.
 func snapshotTime(value string) string {
-	t, err := stringutil.ParseTime(value)
-	if err != nil || t.IsZero() {
+	t, ok := snapshotSecond(value)
+	if !ok {
 		return ""
 	}
 	return formatTime(t)
+}
+
+// snapshotSecond parses a time from a status snapshot to the second, as
+// reports carry times, or returns false when the value is empty or
+// unparseable.
+func snapshotSecond(value string) (time.Time, bool) {
+	t, err := stringutil.ParseTime(value)
+	if err != nil || t.IsZero() {
+		return time.Time{}, false
+	}
+	return t.UTC().Truncate(time.Second), true
 }
 
 // position is a point in the event store. Dagu Console has acknowledged the

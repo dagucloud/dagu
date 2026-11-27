@@ -5,7 +5,6 @@ package cloudreport
 
 import (
 	"context"
-	"encoding/json"
 	"slices"
 	"time"
 
@@ -28,68 +27,88 @@ const (
 	activeStepsEvery = time.Minute
 )
 
-// reportedStep is a step of a run, as a report carries it.
+// reportedSteps are a run's steps as a report carries them: its first
+// regular steps in run order and how many it has in all, and its handlers
+// by kind.
+type reportedSteps struct {
+	Steps      []reportedStep     `json:"steps,omitempty"`
+	Handlers   map[string]stepRun `json:"handlers,omitempty"`
+	StepsTotal int                `json:"steps_total,omitempty"`
+}
+
+// reportedStep is a regular step of a run, as a report carries it.
 type reportedStep struct {
-	Name       string `json:"name"`
-	Status     string `json:"status"`
-	StartedAt  string `json:"started_at,omitempty"`
-	FinishedAt string `json:"finished_at,omitempty"`
-	Retries    int    `json:"retries"`
+	Name string `json:"name"`
+	stepRun
 	// Depends are the positions, among the run's reported steps, of the
 	// steps this one waits for.
 	Depends []int `json:"depends,omitempty"`
-	// Handler is the kind of handler the step is, such as onExit; empty for
-	// a regular step.
-	Handler string `json:"handler,omitempty"`
 }
 
-// runSteps returns the named steps of status in run order, handlers
-// included: the first maxRunSteps that fit in maxStepsBytes encoded, and
-// how many there are in all. Each step names the steps it waits for by
-// their positions among those returned, and each handler its kind.
-func runSteps(status *ir.DAGRunStatus) ([]reportedStep, int) {
-	handlers := handlerKinds(status)
+// stepRun is how a step ran, as a report carries it.
+type stepRun struct {
+	Status string `json:"status"`
+	// Start is when the step started, in whole seconds from its run's
+	// start; nil when either has no time.
+	Start *int64 `json:"start,omitempty"`
+	// Took is how many whole seconds the step ran; nil until it finished.
+	Took    *int64 `json:"took,omitempty"`
+	Retries int    `json:"retries,omitempty"`
+}
+
+// runSteps returns the steps of status as a report carries them: the first
+// maxRunSteps named regular steps in run order that fit in maxStepsBytes
+// encoded with the run's handlers, how many named regular steps there are
+// in all, and the handlers. Each step names the steps it waits for by their
+// positions among those returned. A run without named steps carries none.
+func runSteps(status *ir.DAGRunStatus) reportedSteps {
 	var nodes []*ir.Node
 	positions := map[string]int{}
-	for _, node := range status.NodesInRunOrder() {
+	for _, node := range status.Nodes {
 		if node.Step.Name == "" {
 			continue
 		}
-		// Only regular steps are waited for, and a handler can share one's name.
-		if _, ok := handlers[node]; !ok {
-			positions[node.Step.Name] = len(nodes)
-		}
+		positions[node.Step.Name] = len(nodes)
 		nodes = append(nodes, node)
 	}
-	var steps []reportedStep
+	if len(nodes) == 0 {
+		return reportedSteps{}
+	}
+	runStart, timed := snapshotSecond(status.StartedAt)
+	reported := reportedSteps{StepsTotal: len(nodes)}
 	size := len("[]")
+	for kind, node := range runHandlers(status) {
+		if reported.Handlers == nil {
+			reported.Handlers = map[string]stepRun{}
+		}
+		reported.Handlers[kind.String()] = newStepRun(node, runStart, timed)
+	}
+	if len(reported.Handlers) > 0 {
+		size += encodedLen(reported.Handlers)
+	}
 	for _, node := range nodes {
 		step := reportedStep{
-			Name:       truncateBytes(node.Step.Name, maxStepNameBytes),
-			Status:     node.Status.String(),
-			StartedAt:  snapshotTime(node.StartedAt),
-			FinishedAt: snapshotTime(node.FinishedAt),
-			Retries:    node.RetryCount,
-			Depends:    dependPositions(&node.Step, positions),
-			Handler:    handlers[node].String(),
+			Name:    truncateBytes(node.Step.Name, maxStepNameBytes),
+			stepRun: newStepRun(node, runStart, timed),
+			Depends: dependPositions(&node.Step, positions),
 		}
-		n := encodedStepSize(step)
-		if len(steps) == maxRunSteps || size+n > maxStepsBytes {
+		n := encodedLen(step) + len(",")
+		if len(reported.Steps) == maxRunSteps || size+n > maxStepsBytes {
 			break
 		}
-		steps = append(steps, step)
+		reported.Steps = append(reported.Steps, step)
 		size += n
 	}
 	// A step can wait for one past those returned, which no position names.
-	for i := range steps {
-		steps[i].Depends = slices.DeleteFunc(steps[i].Depends, func(p int) bool { return p >= len(steps) })
+	for i := range reported.Steps {
+		reported.Steps[i].Depends = slices.DeleteFunc(reported.Steps[i].Depends, func(p int) bool { return p >= len(reported.Steps) })
 	}
-	return steps, len(nodes)
+	return reported
 }
 
-// handlerKinds are the kinds of the handlers status declares, by node.
-func handlerKinds(status *ir.DAGRunStatus) map[*ir.Node]ir.HandlerType {
-	kinds := map[*ir.Node]ir.HandlerType{}
+// runHandlers are the handlers status declares, by kind.
+func runHandlers(status *ir.DAGRunStatus) map[ir.HandlerType]*ir.Node {
+	handlers := map[ir.HandlerType]*ir.Node{}
 	for kind, node := range map[ir.HandlerType]*ir.Node{
 		ir.HandlerOnInit:    status.OnInit,
 		ir.HandlerOnWait:    status.OnWait,
@@ -99,10 +118,30 @@ func handlerKinds(status *ir.DAGRunStatus) map[*ir.Node]ir.HandlerType {
 		ir.HandlerOnExit:    status.OnExit,
 	} {
 		if node != nil {
-			kinds[node] = kind
+			handlers[kind] = node
 		}
 	}
-	return kinds
+	return handlers
+}
+
+// newStepRun is how node ran, its times counted from runStart when timed.
+func newStepRun(node *ir.Node, runStart time.Time, timed bool) stepRun {
+	run := stepRun{Status: node.Status.String(), Retries: node.RetryCount}
+	started, ok := snapshotSecond(node.StartedAt)
+	if !timed || !ok {
+		return run
+	}
+	run.Start = wholeSeconds(started.Sub(runStart))
+	if finished, ok := snapshotSecond(node.FinishedAt); ok {
+		run.Took = wholeSeconds(max(finished.Sub(started), 0))
+	}
+	return run
+}
+
+// wholeSeconds is d in whole seconds.
+func wholeSeconds(d time.Duration) *int64 {
+	s := int64(d / time.Second)
+	return &s
 }
 
 // dependPositions are the positions of the steps step waits for, explicit
@@ -117,26 +156,18 @@ func dependPositions(step *ir.Step, positions map[string]int) []int {
 	return out
 }
 
-// encodedStepSize is how many bytes step adds to a run's encoded steps.
-func encodedStepSize(step reportedStep) int {
-	data, _ := json.Marshal(step)
-	return len(data) + len(",")
-}
-
 // activeEntry is a run in progress as a report carries it: the run, and
 // its steps when they were read.
 type activeEntry struct {
 	activeRun
-	Steps      []reportedStep `json:"steps,omitempty"`
-	StepsTotal int            `json:"steps_total,omitempty"`
+	reportedSteps
 }
 
 // readSteps are the steps last read for a run in progress, and their
 // encoded size.
 type readSteps struct {
 	at    time.Time
-	steps []reportedStep
-	total int
+	steps reportedSteps
 	size  int
 }
 
@@ -167,11 +198,11 @@ func (s *stepReader) entries(ctx context.Context, runs []activeRun, now time.Tim
 			read = s.readRun(ctx, run, now)
 		}
 		listed[run] = read
-		if len(read.steps) == 0 || read.size > budget {
+		if len(read.steps.Steps) == 0 || read.size > budget {
 			continue
 		}
 		budget -= read.size
-		entries[i].Steps, entries[i].StepsTotal = read.steps, read.total
+		entries[i].reportedSteps = read.steps
 	}
 	s.read = listed
 	return entries
@@ -194,8 +225,7 @@ func (s *stepReader) readRun(ctx context.Context, run activeRun, now time.Time) 
 	if status.AttemptID != run.AttemptID {
 		return read
 	}
-	read.steps, read.total = runSteps(status)
-	data, _ := json.Marshal(read.steps)
-	read.size = len(data)
+	read.steps = runSteps(status)
+	read.size = encodedLen(read.steps)
 	return read
 }
