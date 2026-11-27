@@ -133,6 +133,7 @@ func unitDependencies(ctx *Context, p project.Project, stores *persisfile.Projec
 	deps.BackfillStore = stores.BackfillStore
 	deps.WatchStore = stores.WatchStateStore
 	deps.LicenseManager = ctx.LicenseManager
+	deps.LibraryDAGRunRepository, deps.LibraryProcRepository = stores.LibraryRuns()
 	return deps, nil
 }
 
