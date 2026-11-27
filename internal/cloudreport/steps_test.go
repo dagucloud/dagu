@@ -94,6 +94,32 @@ func TestStepsNameTheirDependenciesByPosition(t *testing.T) {
 	assert.Equal(t, []int{1}, steps[0].Depends, "a step past those reported is left out")
 }
 
+// Each handler step carries its kind, so it reads apart from a regular step
+// that waits for nothing.
+func TestHandlerStepsCarryTheirKind(t *testing.T) {
+	t.Parallel()
+
+	status := run("etl", "run-1", ir.Succeeded)
+	status.Nodes = []*ir.Node{{Step: ir.Step{Name: "extract"}}}
+	status.OnInit = &ir.Node{Step: ir.Step{Name: "init"}}
+	status.OnWait = &ir.Node{Step: ir.Step{Name: "wait"}}
+	status.OnSuccess = &ir.Node{Step: ir.Step{Name: "success"}}
+	status.OnFailure = &ir.Node{Step: ir.Step{Name: "failure"}}
+	status.OnAbort = &ir.Node{Step: ir.Step{Name: "abort"}}
+	status.OnExit = &ir.Node{Step: ir.Step{Name: "exit"}}
+
+	steps, _ := runSteps(status)
+
+	handlers := map[string]string{}
+	for _, step := range steps {
+		handlers[step.Name] = step.Handler
+	}
+	assert.Equal(t, map[string]string{
+		"init": "onInit", "extract": "", "wait": "onWait", "success": "onSuccess",
+		"failure": "onFailure", "abort": "onAbort", "exit": "onExit",
+	}, handlers)
+}
+
 // A handler can share a regular step's name, but only regular steps are
 // waited for, so a dependency on that name points at the regular step.
 func TestADependencyNamesTheStepNotTheHandler(t *testing.T) {

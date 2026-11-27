@@ -98,7 +98,7 @@ func TestReportRuns(t *testing.T) {
 				{"name": "extract", "status": "succeeded", "started_at": "2026-10-10T09:00:00Z", "finished_at": "2026-10-10T09:01:00Z", "retries": 0},
 				{"name": "load", "status": "failed", "started_at": "2026-10-10T09:01:00Z", "finished_at": "2026-10-10T09:04:00Z", "retries": 2},
 				{"name": "notify", "status": "failed", "retries": 0},
-				{"name": "on_failure", "status": "failed", "retries": 0}
+				{"name": "on_failure", "status": "failed", "retries": 0, "handler": "onFailure"}
 			],
 			"steps_total": 4
 		}

@@ -38,25 +38,25 @@ type reportedStep struct {
 	// Depends are the positions, among the run's reported steps, of the
 	// steps this one waits for.
 	Depends []int `json:"depends,omitempty"`
+	// Handler is the kind of handler the step is, such as onExit; empty for
+	// a regular step.
+	Handler string `json:"handler,omitempty"`
 }
 
 // runSteps returns the named steps of status in run order, handlers
 // included: the first maxRunSteps that fit in maxStepsBytes encoded, and
 // how many there are in all. Each step names the steps it waits for by
-// their positions among those returned.
+// their positions among those returned, and each handler its kind.
 func runSteps(status *ir.DAGRunStatus) ([]reportedStep, int) {
-	// Only regular steps are waited for, and a handler can share one's name.
-	regular := make(map[*ir.Node]bool, len(status.Nodes))
-	for _, node := range status.Nodes {
-		regular[node] = true
-	}
+	handlers := handlerKinds(status)
 	var nodes []*ir.Node
 	positions := map[string]int{}
 	for _, node := range status.NodesInRunOrder() {
 		if node.Step.Name == "" {
 			continue
 		}
-		if regular[node] {
+		// Only regular steps are waited for, and a handler can share one's name.
+		if _, ok := handlers[node]; !ok {
 			positions[node.Step.Name] = len(nodes)
 		}
 		nodes = append(nodes, node)
@@ -71,6 +71,7 @@ func runSteps(status *ir.DAGRunStatus) ([]reportedStep, int) {
 			FinishedAt: snapshotTime(node.FinishedAt),
 			Retries:    node.RetryCount,
 			Depends:    dependPositions(&node.Step, positions),
+			Handler:    handlers[node].String(),
 		}
 		n := encodedStepSize(step)
 		if len(steps) == maxRunSteps || size+n > maxStepsBytes {
@@ -84,6 +85,24 @@ func runSteps(status *ir.DAGRunStatus) ([]reportedStep, int) {
 		steps[i].Depends = slices.DeleteFunc(steps[i].Depends, func(p int) bool { return p >= len(steps) })
 	}
 	return steps, len(nodes)
+}
+
+// handlerKinds are the kinds of the handlers status declares, by node.
+func handlerKinds(status *ir.DAGRunStatus) map[*ir.Node]ir.HandlerType {
+	kinds := map[*ir.Node]ir.HandlerType{}
+	for kind, node := range map[ir.HandlerType]*ir.Node{
+		ir.HandlerOnInit:    status.OnInit,
+		ir.HandlerOnWait:    status.OnWait,
+		ir.HandlerOnSuccess: status.OnSuccess,
+		ir.HandlerOnFailure: status.OnFailure,
+		ir.HandlerOnAbort:   status.OnAbort,
+		ir.HandlerOnExit:    status.OnExit,
+	} {
+		if node != nil {
+			kinds[node] = kind
+		}
+	}
+	return kinds
 }
 
 // dependPositions are the positions of the steps step waits for, explicit
