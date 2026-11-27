@@ -2,7 +2,8 @@
 
 ## Status
 
-Not implemented.
+Partially implemented. Implemented:
+[Bring Your Own Certificates](#bring-your-own-certificates).
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -805,8 +806,10 @@ and prints the message:
 
 - A coordinator with own certificates exits with code 1 at start when the
   key does not match the certificate, naming both files.
-- It warns at start when the certificate does not name
-  `coordinator.advertise`, and when it expires within 14 days.
+- It warns at start when the certificate does not name the address it
+  advertises: `coordinator.advertise`, else the detected hostname, else
+  `coordinator.host` when no hostname is detected. It also warns when the certificate has expired or
+  expires within 14 days.
 - A process that serves and calls with the same `peer.cert_file` while
   `peer.client_ca_file` is set, such as `start-all`, warns at start when the
   certificate does not allow client authentication. It does not fail: its

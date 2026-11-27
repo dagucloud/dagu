@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/connection"
@@ -198,12 +199,12 @@ func newCoordinator(
 
 	// Configure TLS using global peer config
 	if cfg.Core.Peer.CertFile != "" && cfg.Core.Peer.KeyFile != "" {
-		// Load server certificates
-		creds, err := loadCoordinatorTLSCredentials(&config.TLSConfig{
-			CertFile: cfg.Core.Peer.CertFile,
-			KeyFile:  cfg.Core.Peer.KeyFile,
-			CAFile:   cfg.Core.Peer.ClientCaFile,
-		})
+		cert, err := loadPeerKeyPair(cfg.Core.Peer)
+		if err != nil {
+			return nil, nil, err
+		}
+		warnCoordinatorCertificate(ctx, cfg.Core.Peer.CertFile, cert.Leaf, advertiseAddr)
+		creds, err := loadCoordinatorTLSCredentials(cert, cfg.Core.Peer.ClientCaFile)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to load TLS credentials: %w", err)
 		}
@@ -302,19 +303,9 @@ func coordinatorPeerAuth(ctx *Context, cfg *config.Config) (*coordinator.PeerTok
 	return coordinator.NewPeerTokenAuth(token, false, require), nil
 }
 
-// loadCoordinatorTLSCredentials loads TLS credentials for the coordinator server.
-// It supports both standard TLS and mutual TLS (mTLS) configurations.
-func loadCoordinatorTLSCredentials(tlsConfig *config.TLSConfig) (credentials.TransportCredentials, error) {
-	if tlsConfig == nil {
-		return nil, fmt.Errorf("TLS configuration is nil")
-	}
-
-	// Load server certificate and key
-	cert, err := tls.LoadX509KeyPair(tlsConfig.CertFile, tlsConfig.KeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load server certificates: %w", err)
-	}
-
+// loadCoordinatorTLSCredentials returns the coordinator's server credentials
+// for cert. A non-empty clientCAFile enables mutual TLS.
+func loadCoordinatorTLSCredentials(cert tls.Certificate, clientCAFile string) (credentials.TransportCredentials, error) {
 	// Create TLS configuration
 	config := &tls.Config{
 		Certificates: []tls.Certificate{cert},
@@ -323,9 +314,9 @@ func loadCoordinatorTLSCredentials(tlsConfig *config.TLSConfig) (credentials.Tra
 	}
 
 	// If CA file is provided, enable mutual TLS
-	if tlsConfig.CAFile != "" {
+	if clientCAFile != "" {
 		// Load CA certificate
-		caCert, err := os.ReadFile(tlsConfig.CAFile)
+		caCert, err := fileutil.ReadFile(clientCAFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read CA certificate: %w", err)
 		}

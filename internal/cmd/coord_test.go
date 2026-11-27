@@ -6,9 +6,11 @@ package cmd_test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/dagucloud/dagu/v2/internal/test/peercert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -92,4 +94,76 @@ func TestCoordinatorCommand(t *testing.T) {
 			ExpectedOut: []string{"Coordinator initialization", "bind-address=0.0.0.0", "advertise-address=dagu-server", port},
 		})
 	})
+}
+
+// The coordinator checks its own certificates at start: a key that does not
+// match fails, and a certificate clients would soon fail to verify warns.
+func TestCoordinatorOwnCertificate(t *testing.T) {
+	const certName = "coordinator.test"
+
+	t.Run("KeyMismatch", func(t *testing.T) {
+		th := test.SetupCommand(t)
+		dir := t.TempDir()
+		certFile, _ := peercert.Write(t, dir, peercert.Options{Name: "server"})
+		_, otherKey := peercert.Write(t, dir, peercert.Options{Name: "other"})
+		err := commandError(t, th, cmd.CmdCoordinator(), coordinatorTLSArgs(t, certFile, otherKey, certName)...)
+		require.ErrorContains(t, err, "peer.key_file "+otherKey+" is not the key of the certificate in peer.cert_file "+certFile)
+		require.ErrorContains(t, err, "set peer.key_file to the private key of that certificate")
+	})
+
+	t.Run("Warnings", func(t *testing.T) {
+		th := test.SetupCommand(t)
+		certFile, keyFile := peercert.Write(t, t.TempDir(), peercert.Options{
+			Name:     "server",
+			DNSNames: []string{certName},
+			NotAfter: time.Now().Add(7 * 24 * time.Hour),
+		})
+		cancelWhenLogContains(t, th, coordinatorServing)
+		th.RunCommand(t, cmd.CmdCoordinator(), test.CmdTest{
+			Args: coordinatorTLSArgs(t, certFile, keyFile, "other.test"),
+			ExpectedOut: []string{
+				"Coordinator certificate does not name the advertised address",
+				"Coordinator certificate expires within 14 days",
+			},
+		})
+	})
+
+	t.Run("Expired", func(t *testing.T) {
+		th := test.SetupCommand(t)
+		certFile, keyFile := peercert.Write(t, t.TempDir(), peercert.Options{
+			Name:     "server",
+			DNSNames: []string{certName},
+			NotAfter: time.Now().Add(-time.Minute),
+		})
+		cancelWhenLogContains(t, th, coordinatorServing)
+		th.RunCommand(t, cmd.CmdCoordinator(), test.CmdTest{
+			Args:        coordinatorTLSArgs(t, certFile, keyFile, certName),
+			ExpectedOut: []string{"Coordinator certificate has expired"},
+		})
+	})
+
+	t.Run("Valid", func(t *testing.T) {
+		th := test.SetupCommand(t)
+		certFile, keyFile := peercert.Write(t, t.TempDir(), peercert.Options{Name: "server", DNSNames: []string{certName}})
+		cancelWhenLogContains(t, th, coordinatorServing)
+		th.RunCommand(t, cmd.CmdCoordinator(), test.CmdTest{Args: coordinatorTLSArgs(t, certFile, keyFile, certName)})
+		require.NotContains(t, th.LoggingOutput.String(), "Coordinator certificate")
+	})
+}
+
+// coordinatorServing is logged once the coordinator has passed its start
+// checks and serves.
+const coordinatorServing = "Starting to serve on coordinator service"
+
+// coordinatorTLSArgs returns the arguments of a coordinator that serves TLS
+// with certFile and keyFile and advertises advertise.
+func coordinatorTLSArgs(t *testing.T, certFile, keyFile, advertise string) []string {
+	t.Helper()
+	return []string{
+		"coordinator",
+		"--coordinator.port=" + findPort(t),
+		"--coordinator.advertise=" + advertise,
+		"--peer.cert-file=" + certFile,
+		"--peer.key-file=" + keyFile,
+	}
 }
