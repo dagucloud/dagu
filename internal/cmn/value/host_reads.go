@@ -44,7 +44,12 @@ func HostReads(ctx context.Context) map[string][]string {
 	return out
 }
 
+// hostReadsFrom returns the host reads that ctx tracks, or nil. A nil ctx,
+// which ExpandEnvContext accepts, tracks none.
 func hostReadsFrom(ctx context.Context) *hostReads {
+	if ctx == nil {
+		return nil
+	}
 	reads, _ := ctx.Value(hostReadsKey{}).(*hostReads)
 	return reads
 }
