@@ -277,10 +277,10 @@ func (iso *isolation) handoff() error {
 // owner, as one that uv, pnpm or bun links from a package cache. The restricted
 // user cannot write it, change its mode or link it (fs.protected_hardlinks).
 // A file of the restricted group, which the restore takes as one of the
-// restricted user, one that others can write, and one with a set-ID bit do not
-// stay.
+// restricted user, one that others can write, one with an ACL and one with a
+// set-ID bit do not stay.
 func (iso *isolation) keepsLinkedFile(e *fsEntry) bool {
-	return e.isRegular() && e.uid() != int(iso.uid) && e.gid() != int(iso.gid) && e.perm()&0o6002 == 0
+	return e.isRegular() && e.uid() != int(iso.uid) && e.gid() != int(iso.gid) && e.perm()&0o6002 == 0 && !hasACL(e)
 }
 
 // recordLink keeps the link that the handoff gives, so that the restore checks
@@ -391,8 +391,9 @@ func (iso *isolation) protectGitEntry(e *fsEntry) error {
 		}
 	}
 	// A change acts on the file, so it would also reach the other paths of a
-	// file with more than one link, as git clone --local makes them.
-	if !e.isDir() && e.st.Nlink > 1 && (chown || perm != e.perm()) {
+	// file with more than one link, as git clone --local makes them. An ACL
+	// could let the restricted user write such a file.
+	if !e.isDir() && e.st.Nlink > 1 && (chown || perm != e.perm() || hasACL(e)) {
 		return stepError(iso.step, "protect", e.path, errors.New("the file has more than one link"))
 	}
 	if chown {

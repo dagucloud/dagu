@@ -580,6 +580,29 @@ func TestIsolatedStepLinkedEntry(t *testing.T) {
 	}
 }
 
+// A file with more than one link whose ACL lets the restricted user write it
+// fails the step, in a folder and in a git folder: the handoff keeps such a
+// file with the worker only when the restricted user cannot write it.
+func TestIsolatedStepLinkedFileWithACL(t *testing.T) {
+	requireIsolation(t)
+	for name, rel := range map[string]string{"folder": "pkg.py", "git folder": "repo/.git/objects/pack"} {
+		t.Run(name, func(t *testing.T) {
+			workDir := testWorkDir(t)
+			cache := filepath.Join(workDir, "..", filepath.Base(workDir)+"-cache")
+			require.NoError(t, os.WriteFile(cache, []byte("pkg\n"), 0o444))
+			t.Cleanup(func() { _ = os.Remove(cache) })
+			setUserACL(t, cache, aclNames[0])
+			path := filepath.Join(workDir, rel)
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+			require.NoError(t, os.Link(cache, path))
+
+			_, err := beginStep(t, context.Background(), testRequest(t, workDir, workDir))
+			require.Error(t, err)
+			assert.ErrorContains(t, err, "the file has more than one link")
+		})
+	}
+}
+
 // A tree too deep to check stops the run and keeps the work directory marked.
 // The restricted user can make one, so it leaves the other runs of the process
 // alone.
@@ -790,6 +813,24 @@ func TestHandoffRefusesALinkedGitFile(t *testing.T) {
 	require.NoError(t, iso.unmarkUnlessAborted(iso.restore(false)))
 }
 
+// setUserACL gives the entry the ACLs names with the entries user::rwx,
+// user:64011:rwx, group::r-x, mask::rwx and other::r-x. It skips the test on a
+// file system that takes no ACL.
+func setUserACL(t *testing.T, path string, names ...string) {
+	t.Helper()
+	acl := binary.LittleEndian.AppendUint32(nil, 2)
+	for _, entry := range [][3]uint32{{0x01, 7, ^uint32(0)}, {0x02, 7, testUID}, {0x04, 5, ^uint32(0)}, {0x10, 7, ^uint32(0)}, {0x20, 5, ^uint32(0)}} {
+		acl = binary.LittleEndian.AppendUint16(acl, uint16(entry[0])) // #nosec G115 -- small tags.
+		acl = binary.LittleEndian.AppendUint16(acl, uint16(entry[1])) // #nosec G115 -- small modes.
+		acl = binary.LittleEndian.AppendUint32(acl, entry[2])
+	}
+	for _, name := range names {
+		if err := unix.Setxattr(path, name, acl, 0); err != nil {
+			t.Skipf("the file system takes no ACL: %v", err)
+		}
+	}
+}
+
 // An ACL that the restricted user set on its own folder, such as a default ACL
 // that would let it write a .git that a later trusted step makes there, does
 // not survive the restore. It needs no root.
@@ -799,18 +840,7 @@ func TestRestoreRemovesACLs(t *testing.T) {
 	require.NoError(t, iso.handoff())
 	dir := filepath.Join(iso.workDir, "out")
 	require.NoError(t, os.Mkdir(dir, 0o755))
-	// The entries user::rwx, user:64011:rwx, group::r-x, mask::rwx, other::r-x.
-	acl := binary.LittleEndian.AppendUint32(nil, 2)
-	for _, entry := range [][3]uint32{{0x01, 7, ^uint32(0)}, {0x02, 7, testUID}, {0x04, 5, ^uint32(0)}, {0x10, 7, ^uint32(0)}, {0x20, 5, ^uint32(0)}} {
-		acl = binary.LittleEndian.AppendUint16(acl, uint16(entry[0])) // #nosec G115 -- small tags.
-		acl = binary.LittleEndian.AppendUint16(acl, uint16(entry[1])) // #nosec G115 -- small modes.
-		acl = binary.LittleEndian.AppendUint32(acl, entry[2])
-	}
-	for _, name := range aclNames {
-		if err := unix.Setxattr(dir, name, acl, 0); err != nil {
-			t.Skipf("the file system takes no ACL: %v", err)
-		}
-	}
+	setUserACL(t, dir, aclNames...)
 
 	require.NoError(t, iso.unmarkUnlessAborted(iso.restore(true)))
 	for _, name := range aclNames {

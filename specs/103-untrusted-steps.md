@@ -331,11 +331,11 @@ The rules, in order:
    A link that replaces a path while Dagu changes an owner or a mode cannot redirect the change. A
    change of owner would also give away the other paths of an entry with more than one link. So a
    file with more than one link, such as one that a package manager links from its cache, keeps its
-   owner when its group is not the group of the restricted user, others cannot write it, and it has
-   no set-user-ID or set-group-ID bit. The restricted user cannot write it or link it. Any other
-   file, link or FIFO with more than one link fails the step. In a git folder, such an entry fails
-   the step only when Dagu must change its owner or its mode. A device node fails the step, because
-   the restricted user could open the device.
+   owner when its group is not the group of the restricted user, others cannot write it, it has no
+   POSIX ACL, and it has no set-user-ID or set-group-ID bit. The restricted user cannot write it or
+   link it. Any other file, link or FIFO with more than one link fails the step. In a git folder,
+   such an entry fails the step only when Dagu must change its owner or its mode, or when it has a
+   POSIX ACL. A device node fails the step, because the restricted user could open the device.
 
    Before it changes the first owner, Dagu makes the file `<work directory>.untrusted-handoff` next
    to the work directory. The restore of rule 8 removes it once the work directory is safe again.

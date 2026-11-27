@@ -190,6 +190,17 @@ func readLinkFD(entry *fsEntry) (string, error) {
 // aclNames are the extended attributes that hold the POSIX ACLs of an entry.
 var aclNames = []string{"system.posix_acl_access", "system.posix_acl_default"}
 
+// hasACL reports whether the entry has an access ACL, which can let the
+// restricted user write it whatever its mode. An error that does not show the
+// lack of one counts as one. A link has none.
+func hasACL(entry *fsEntry) bool {
+	if entry.isLink() {
+		return false
+	}
+	_, err := unix.Getxattr("/proc/self/fd/"+strconv.Itoa(entry.fd), aclNames[0], nil)
+	return !errors.Is(err, unix.ENODATA) && !errors.Is(err, unix.EOPNOTSUPP)
+}
+
 // removeACLs removes the POSIX ACLs of the entry of the descriptor. The entry
 // is not a link. The change goes through /proc/self/fd, as chmodFD does.
 func removeACLs(entry *fsEntry) error {
