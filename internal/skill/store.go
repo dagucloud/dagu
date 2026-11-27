@@ -501,12 +501,11 @@ func (s *Store) withLock(ctx context.Context, name string, pre Precondition, fn 
 	// refuses a commit once the last renewal is three quarters of the stale
 	// threshold old, before another writer can judge the lock stale, or once
 	// another writer holds the lock.
+	// A renewal counts from its start: the lock's time stamp is set near the
+	// start of a heartbeat, and a slow heartbeat must not extend the lease.
 	var renewedAt atomic.Pointer[time.Time]
-	markRenewed := func() {
-		now := time.Now()
-		renewedAt.Store(&now)
-	}
-	markRenewed()
+	acquired := time.Now()
+	renewedAt.Store(&acquired)
 	renewCtx, stopRenewing := context.WithCancel(ctx)
 	renewed := make(chan struct{})
 	go func() {
@@ -518,8 +517,9 @@ func (s *Store) withLock(ctx context.Context, name string, pre Precondition, fn 
 			case <-renewCtx.Done():
 				return
 			case <-ticker.C:
+				start := time.Now()
 				if lock.Heartbeat(renewCtx) == nil {
-					markRenewed()
+					renewedAt.Store(&start)
 				}
 			}
 		}
