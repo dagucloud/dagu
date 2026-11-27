@@ -1038,7 +1038,10 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 	if errors.Is(err, dagrun.ErrAttemptIDExists) {
 		// Another coordinator may have admitted the same dispatch meanwhile.
 		latest, findErr := h.dagRunRepository.FindAttempt(ctx, ref)
-		if findErr != nil || latest.ID() != task.AttemptId {
+		if findErr != nil {
+			return nil, fmt.Errorf("failed to find existing attempt: %w", findErr)
+		}
+		if latest.ID() != task.AttemptId {
 			return nil, fmt.Errorf("%w: attempt %s", errDispatchSuperseded, task.AttemptId)
 		}
 		latestStatus, readErr := latest.ReadStatus(ctx)
@@ -1300,13 +1303,37 @@ func (h *Handler) repeatAdmitted(
 		if err != nil || outstanding {
 			return outstanding, runStatus, err
 		}
-		// Another coordinator writes the run's status before it drops the
-		// task, so a status read after the lookup shows a run that moved on.
-		if runStatus, err = attempt.ReadStatusUncached(ctx); err != nil {
+		// Another coordinator writes the run's status, or a newer attempt,
+		// before it drops the task, so a read after the lookup shows a run
+		// that moved on.
+		latest, err := h.latestAttempt(ctx, task, dag.Name)
+		if err != nil {
+			return false, nil, err
+		}
+		if latest.ID() != attempt.ID() {
+			return false, nil, fmt.Errorf("%w: attempt %s", errDispatchSuperseded, task.AttemptId)
+		}
+		if runStatus, err = latest.ReadStatusUncached(ctx); err != nil {
 			return false, nil, fmt.Errorf("failed to read attempt %s: %w", task.AttemptId, err)
 		}
 	}
 	return !awaitsAdmission(runStatus), runStatus, nil
+}
+
+// latestAttempt returns the newest attempt of the run that task dispatches.
+func (h *Handler) latestAttempt(ctx context.Context, task *coordinatorv1.Task, dagName string) (dagrun.Attempt, error) {
+	var attempt dagrun.Attempt
+	var err error
+	if task.ParentDagRunId != "" {
+		rootRef := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+		attempt, err = h.dagRunRepository.FindSubAttempt(ctx, rootRef, task.DagRunId)
+	} else {
+		attempt, err = h.dagRunRepository.FindAttempt(ctx, ir.DAGRunRef{Name: dagName, ID: task.DagRunId})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to find existing attempt: %w", err)
+	}
+	return attempt, nil
 }
 
 // awaitsAdmission reports whether no worker has taken the attempt and the

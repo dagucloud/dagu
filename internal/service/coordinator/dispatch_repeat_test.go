@@ -497,3 +497,31 @@ func TestDispatchRepeatAfterConcurrentHoldExpiry(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, queuedTasks)
 }
+
+// A repeat whose lookup races a newer attempt of the run is refused rather
+// than queuing the attempt it names.
+func TestDispatchRepeatAfterConcurrentNewAttempt(t *testing.T) {
+	f := newHoldFixture(t, 0)
+	_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeatTask("run-raced")})
+	require.NoError(t, err)
+	require.NoError(t, f.dispatches.DeletePending(t.Context(), f.status(t, "run-raced").AttemptKey))
+
+	racing := &racingOutstandingStore{DispatchTaskStore: f.dispatches}
+	racing.during = func() {
+		f.runs.addAttempt(ir.NewDAGRunRef("routed", "run-raced"), &ir.DAGRunStatus{
+			Name: "routed", DAGRunID: "run-raced", AttemptID: "newer1", Status: ir.NotStarted,
+		})
+	}
+	h := NewHandler(HandlerConfig{
+		DAGRunRepository:     f.runs.repository,
+		DispatchTaskStore:    racing,
+		WorkerHeartbeatStore: f.heartbeats,
+	})
+	t.Cleanup(func() { h.Close(context.Background()) })
+
+	_, err = h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeatTask("run-raced")})
+	require.Error(t, err)
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+	assert.Contains(t, err.Error(), "no longer the latest")
+	assert.Zero(t, f.claimAll(t))
+}
