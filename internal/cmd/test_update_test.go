@@ -341,14 +341,17 @@ func TestTestUpdateHostValues(t *testing.T) {
 	assertFileContent(t, testPath, updated)
 }
 
-// A part of a host value stays out too: a member that a JSON path selects
-// through a DAG env entry read from the host, and the listed keys of a with
-// object that holds a host value. So do notifications whose recipient a
-// DAG env entry read from the host. A changed value that holds none is
-// still written. t.Setenv rules out t.Parallel.
+// A part of a host value stays out too: a string or a number that a JSON
+// path selects, directly or through a DAG env entry read from the host,
+// and the listed keys of a with object that hold one. Only those keys stay:
+// another changed key of the same object is written, also one that holds a
+// part of the host value too short to tell apart, such as us. So do
+// notifications whose recipient a DAG env entry read from the host.
+// t.Setenv rules out t.Parallel.
 func TestTestUpdateHostParts(t *testing.T) {
 	const user = "svc-deploy-41"
-	t.Setenv("TEST_UPDATE_HOST_AUTH", `{"token":"`+updateHostToken+`","user":"`+user+`"}`)
+	const pin = "736491"
+	t.Setenv("TEST_UPDATE_HOST_AUTH", `{"token":"`+updateHostToken+`","user":"`+user+`","pin":`+pin+`,"region":"us","debug":true}`)
 	t.Setenv("TEST_UPDATE_HOST_MAIL", "ops-7e21@example.com")
 
 	home := writeInitDAG(t, "report.yaml", `mail_on:
@@ -358,6 +361,7 @@ info_mail:
   to: ${MAIL_TO}
 env:
   - AUTH: ${TEST_UPDATE_HOST_AUTH}
+  - PIN: ${TEST_UPDATE_HOST_AUTH.pin}
   - MAIL_TO: ${TEST_UPDATE_HOST_MAIL}
 steps:
   - id: notify
@@ -367,10 +371,12 @@ steps:
       url: https://hooks.example.invalid/reports
       headers:
         Authorization: ${AUTH.token}
+        X-Pin: ${AUTH.pin}
+        X-Region: us-east-1
       body: ${AUTH}
 `)
 	testPath := filepath.Join(home, "dags", "report.test.yaml")
-	written := func(method string) string {
+	written := func(method, region string) string {
 		return `mocks:
   notify: {}
 cases:
@@ -383,12 +389,17 @@ cases:
               method: ` + method + `
               headers:
                 Authorization: old
+                X-Pin: old
+                X-Region: ` + region + `
               body:
                 user: old
+                pin: 0
+            env:
+              PIN: old
       notifications: []
 `
 	}
-	require.NoError(t, os.WriteFile(testPath, []byte(written("GET")), 0o600))
+	require.NoError(t, os.WriteFile(testPath, []byte(written("GET", "eu-west-1")), 0o600))
 
 	stdout, err := runTestCommand(t, home, "--update", testPath)
 	var exit *exitStatusError
@@ -396,16 +407,19 @@ cases:
 	assert.Equal(t, testExitFailed, exit.code)
 	assertInOrder(t, stdout,
 		"FAIL "+testReportPath(testPath)+": parts stay out (",
-		`  step notify called_with.with.headers: expected {"Authorization":"old"}, got {"Authorization":"*******"}`+"\n",
-		"  step notify called_with.with.body: expected {\"user\":\"old\"}, got ",
+		`  step notify called_with.with.headers: expected {"Authorization":"old","X-Pin":"old","X-Region":"us-east-1"}, got {"Authorization":"*******","X-Pin":"*******","X-Region":"us-east-1"}`+"\n",
+		`  step notify called_with.with.body: expected {"pin":0,"user":"old"}, got `,
+		`  step notify called_with.env.PIN: expected "old", got "*******"`+"\n",
 		"  notifications: expected none, got mail_on.success to ops-7e21@example.com\n",
-		"  step notify called_with.with.headers: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH under env\n",
-		"  step notify called_with.with.body: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH under env\n",
+		"  step notify called_with.with.headers: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH, PIN under env\n",
+		"  step notify called_with.with.body: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH, PIN under env\n",
+		"  step notify called_with.env.PIN: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH, PIN under env\n",
 		"  notifications: kept, it holds the value of host variable TEST_UPDATE_HOST_MAIL\n",
 		"  expect updated\n")
-	assert.NotContains(t, stdout, updateHostToken)
-	assert.NotContains(t, stdout, user)
-	assertFileContent(t, testPath, written("POST"))
+	for _, part := range []string{updateHostToken, user, pin} {
+		assert.NotContains(t, stdout, part)
+	}
+	assertFileContent(t, testPath, written("POST", "us-east-1"))
 }
 
 // --update rewrites only the cases --run selects, and keeps the expect of

@@ -5,11 +5,13 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"reflect"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
@@ -66,16 +68,34 @@ func newHostValues(ctx context.Context, base config.BaseEnv) hostValues {
 	return h
 }
 
+// minHostPart is the length, in characters, below which a string or a
+// number inside a JSON host value is no host value. A part that short,
+// such as us or 443, cannot be told apart from the text around it and
+// holds no credential, while matching it would keep and mask unrelated
+// text everywhere. A four-digit PIN still counts.
+const minHostPart = 4
+
 // appendHostValue appends a host variable's value to values, and each
-// string in it when it is JSON, since a JSON path or the listed keys of an
-// assertion take a part of it. An empty string is no host value.
+// string and number in it when it is JSON, since a JSON path or the listed
+// keys of an assertion take a part of it. A boolean, a part shorter than
+// minHostPart, and an empty value are no host values.
 func appendHostValue(values []string, value string) []string {
+	add := func(text string) {
+		if text != "" && !slices.Contains(values, text) {
+			values = append(values, text)
+		}
+	}
+	add(value)
 	var parts func(v any)
 	parts = func(v any) {
 		switch x := v.(type) {
 		case string:
-			if x != "" && !slices.Contains(values, x) {
-				values = append(values, x)
+			if utf8.RuneCountInString(x) >= minHostPart {
+				add(x)
+			}
+		case json.Number:
+			if len(x) >= minHostPart {
+				add(x.String())
 			}
 		case map[string]any:
 			for _, item := range x {
@@ -87,7 +107,6 @@ func appendHostValue(values []string, value string) []string {
 			}
 		}
 	}
-	parts(value)
 	var decoded any
 	if decodeJSON(value, &decoded) == nil {
 		parts(decoded)
@@ -119,17 +138,42 @@ type hostGuard struct {
 	kept []keptValue
 }
 
-// value returns updated, the run's value of the assertion of field, or
-// written when updated differs from it and holds a host value.
+// value returns updated, the run's value of the assertion of field, with
+// written in place of each part that differs from it and holds a host
+// value. An object that stays an object is decided key by key, so its
+// other changed keys are still written.
 func (g *hostGuard) value(field string, written, updated any) any {
-	if reflect.DeepEqual(written, updated) {
-		return updated
-	}
-	if vars := g.host.held(outputText(updated)); len(vars) > 0 {
+	merged, vars := g.merge(written, updated)
+	if len(vars) > 0 {
 		g.keep(field, vars)
-		return written
 	}
-	return updated
+	return merged
+}
+
+// merge returns updated with each part that differs from written and holds
+// a host value replaced by written, and the sorted names of the host
+// variables whose values those parts hold.
+func (g *hostGuard) merge(written, updated any) (any, []string) {
+	if reflect.DeepEqual(written, updated) {
+		return updated, nil
+	}
+	old, wasObject := written.(map[string]any)
+	object, isObject := updated.(map[string]any)
+	if !wasObject || !isObject {
+		if vars := g.host.held(outputText(updated)); len(vars) > 0 {
+			return written, vars
+		}
+		return updated, nil
+	}
+	merged := make(map[string]any, len(object))
+	var vars []string
+	for key, value := range object {
+		var held []string
+		merged[key], held = g.merge(old[key], value)
+		vars = append(vars, held...)
+	}
+	slices.Sort(vars)
+	return merged, slices.Compact(vars)
 }
 
 // variable returns updated, the call's value of the named variable, or
