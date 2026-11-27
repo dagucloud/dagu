@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -108,15 +109,22 @@ func peerConfig(kind config.SourceKind, peer config.Peer) *config.Config {
 	}
 }
 
-// logRecords returns what logPeerTransport logs for command and cfg at
-// level debug and above.
+// logRecords returns what logPeerTransport logs for command and cfg.
 func logRecords(t *testing.T, command string, cfg *config.Config) []logRecord {
+	t.Helper()
+	return captureLogs(t, func(ctx context.Context) {
+		logPeerTransport(ctx, command, cfg)
+	})
+}
+
+// captureLogs returns what fn logs at level debug and above.
+func captureLogs(t *testing.T, fn func(context.Context)) []logRecord {
 	t.Helper()
 	var out bytes.Buffer
 	ctx := logger.WithLogger(t.Context(), logger.NewLogger(
 		logger.WithDebug(), logger.WithQuiet(), logger.WithFormat("json"), logger.WithWriter(&out),
 	))
-	logPeerTransport(ctx, command, cfg)
+	fn(ctx)
 
 	var records []logRecord
 	for line := range strings.Lines(out.String()) {

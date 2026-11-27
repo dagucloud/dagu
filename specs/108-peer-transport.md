@@ -8,13 +8,17 @@ the [Start Line](#start-line) for rows 1, 2, and 5 of
 [Ignored Settings](#ignored-settings) for `peer.cert_file`, `peer.key_file`,
 `peer.client_ca_file`, and `peer.skip_tls_verify: true`,
 [Bring Your Own Certificates](#bring-your-own-certificates), the
-[Peer CA](#peer-ca) except the exit under `coordinator.require_tls: true`
-and the [Published CA Certificate](#published-ca-certificate), the rows of
+[Peer CA](#peer-ca) except the
+[Published CA Certificate](#published-ca-certificate), the rows of
 [Configuration Conflicts](#configuration-conflicts) for `peer.ca_cert_file`
-and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), and the
-coordinator call of [Join Readiness](#join-readiness), which reports
-`builtinTLS` as false until the coordinator serves built-in TLS. Nothing
-uses the peer CA for TLS yet.
+and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
+[Coordinator Line](#coordinator-line), the
+[Coordinator Certificate](#coordinator-certificate),
+[One Port](#one-port) except worker certificates,
+[Require TLS](#require-tls), and the coordinator call of
+[Join Readiness](#join-readiness). The coordinator serves built-in TLS, but
+no client uses it yet: every client still calls over h2c, so
+`coordinator.require_tls: true` refuses them.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -289,6 +293,7 @@ A coordinator logs one line at start for what it serves:
 | `peer.ca_cert_file` | `Coordinator transport: built-in TLS and h2c (from peer.ca_cert_file)` |
 | Either, with `coordinator.require_tls: true` | `Coordinator transport: built-in TLS only (from coordinator.require_tls)` |
 | Own certificates | `Coordinator transport: TLS (from peer.cert_file)` |
+| No peer CA, as [Peer CA](#peer-ca) states | `Coordinator transport: h2c (from no peer CA)` |
 
 `start-all` logs both its coordinator line and its start line.
 
