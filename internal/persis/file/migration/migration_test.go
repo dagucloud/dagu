@@ -400,7 +400,7 @@ func TestRunStopsWhenLockRenewalIsLate(t *testing.T) {
 	var clock atomic.Int64
 	clock.Store(time.Now().UnixNano())
 	m.now = func() time.Time { return time.Unix(0, clock.Load()) }
-	m.planMoves = func(context.Context) ([]move, error) {
+	m.planMoves = func(context.Context, int) ([]move, error) {
 		// The process stalls while it plans, so no renewal happens.
 		clock.Add(int64(lockStaleThreshold*3/4 + time.Second))
 		return []move{mv}, nil
@@ -586,7 +586,7 @@ func newTestMigrator(t *testing.T, dataDir string, services serviceregistry.Serv
 	m := New(dataDirConfig(dataDir), services, noLiveRuns)
 	ticks := make(chan time.Time)
 	m.pollTicks = func() (<-chan time.Time, func()) { return ticks, func() {} }
-	m.planMoves = func(context.Context) ([]move, error) { return moves, nil }
+	m.planMoves = lastPlan(moves)
 	return m, ticks
 }
 
@@ -599,9 +599,32 @@ func dataDirConfig(dataDir string) *config.Config {
 // noLiveRuns stops no run, as in a data directory without live runs.
 func noLiveRuns(context.Context) ([]string, error) { return nil, nil }
 
+// lastPlan plans moves for this release's version and none for the
+// versions before it.
+func lastPlan(moves []move) func(context.Context, int) ([]move, error) {
+	return func(_ context.Context, version int) ([]move, error) {
+		if version < planVersion {
+			return nil, nil
+		}
+		return moves, nil
+	}
+}
+
+// refusePlanOf fails the test when a resumed process plans version again,
+// and plans every other version with planned.
+func refusePlanOf(t *testing.T, version int, planned func(context.Context, int) ([]move, error)) func(context.Context, int) ([]move, error) {
+	refuse := refusePlan(t)
+	return func(ctx context.Context, v int) ([]move, error) {
+		if v == version {
+			return refuse(ctx, v)
+		}
+		return planned(ctx, v)
+	}
+}
+
 // refusePlan fails the test when a resumed or waiting process plans.
-func refusePlan(t *testing.T) func(context.Context) ([]move, error) {
-	return func(context.Context) ([]move, error) {
+func refusePlan(t *testing.T) func(context.Context, int) ([]move, error) {
+	return func(context.Context, int) ([]move, error) {
 		t.Error("planned the migration again")
 		return nil, errors.New("planned again")
 	}

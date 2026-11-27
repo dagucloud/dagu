@@ -46,6 +46,7 @@ func v2Install(root string) *config.Config {
 		UsersDir:              filepath.Join(data, "users"),
 		APIKeysDir:            filepath.Join(data, "apikeys"),
 		WebhooksDir:           filepath.Join(data, "webhooks"),
+		WorkspacesDir:         filepath.Join(data, "workspaces"),
 	}
 	return cfg
 }
@@ -121,7 +122,7 @@ func TestRunMovesV2State(t *testing.T) {
 			}
 			require.ErrorIs(t, first.Run(context.Background()), errKilled)
 			resumed := newStateMigrator(t, cfg)
-			resumed.planMoves = refusePlan(t)
+			resumed.planMoves = refusePlanOf(t, firstPlanVersion, resumed.planMoves)
 			require.NoError(t, resumed.Run(context.Background()))
 		}},
 	} {
@@ -303,9 +304,9 @@ func TestRunWaitsForCancelledRuns(t *testing.T) {
 		return []string{"etl:run_1"}, nil
 	}
 	planned := m.planMoves
-	m.planMoves = func(ctx context.Context) ([]move, error) {
+	m.planMoves = func(ctx context.Context, version int) ([]move, error) {
 		assert.True(t, exited.Load(), "planned while a run was live")
-		return planned(ctx)
+		return planned(ctx, version)
 	}
 
 	done := runAsync(m)
