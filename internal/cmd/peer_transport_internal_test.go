@@ -147,7 +147,8 @@ func publishedCAFile(t *testing.T) string {
 	ca, err := coordinator.LoadOrCreatePeerCA(filepath.Join(dir, "peer-ca.pem"))
 	require.NoError(t, err)
 	path := filepath.Join(dir, "peer-ca.crt")
-	require.NoError(t, ca.PublishCertificate(path))
+	_, err = ca.PublishCertificate(path)
+	require.NoError(t, err)
 	return path
 }
 

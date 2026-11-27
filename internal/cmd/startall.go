@@ -190,6 +190,12 @@ func runStartAll(ctx *Context, _ []string) error {
 			return fmt.Errorf("failed to initialize coordinator: %w", err)
 		}
 	}
+	coordinatorBuilt := false
+	defer func() {
+		if !coordinatorBuilt {
+			peerCA.unpublish()
+		}
+	}()
 
 	// Initialize all services using the signal-aware context
 	scheduler, err := newScheduler(serviceCtx, schedulerDeps)
@@ -238,6 +244,7 @@ func runStartAll(ctx *Context, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to initialize coordinator: %w", withPortInUseHint(err, coordinatorPortInUseHint))
 		}
+		coordinatorBuilt = true
 		coord.DisableHealthServer()
 		// The server and the scheduler dial this coordinator with the same
 		// peer settings.

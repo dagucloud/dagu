@@ -326,7 +326,7 @@ func newTestCA(t *testing.T) *PeerCA {
 func publishedCA(t *testing.T, ca *PeerCA) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "peer-ca.crt")
-	require.NoError(t, ca.PublishCertificate(path))
+	publish(t, ca, path)
 	return path
 }
 

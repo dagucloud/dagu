@@ -122,6 +122,7 @@ func runCoordinator(ctx *Context, _ []string) error {
 	}
 	svc, _, err := newCoordinator(coordCtx, peerCA, stores.SecretStore, stores.ProfileStore, coordCtx.serviceInventoryStore(), stores.HostKeys)
 	if err != nil {
+		peerCA.unpublish()
 		return fmt.Errorf("failed to initialize coordinator: %w", err)
 	}
 
@@ -295,6 +296,17 @@ func newCoordinator(
 type preparedPeerCA struct {
 	ca        *coordinator.PeerCA
 	published bool
+	// restore puts back the published CA certificate that publishing
+	// replaced.
+	restore func()
+}
+
+// unpublish puts back the published CA certificate that preparing replaced,
+// for a coordinator that does not start.
+func (p preparedPeerCA) unpublish() {
+	if p.restore != nil {
+		p.restore()
+	}
 }
 
 // prepareCoordinatorPeerCA returns the coordinator's peer CA, from
@@ -309,16 +321,17 @@ func prepareCoordinatorPeerCA(ctx context.Context, cfg *config.Config) (prepared
 	if err != nil {
 		return preparedPeerCA{}, err
 	}
+	var restore func()
 	switch {
 	case ca != nil:
-		err = ca.PublishCertificate(peer.PublishedCAFile)
+		restore, err = ca.PublishCertificate(peer.PublishedCAFile)
 	case peer.CertFile != "" && peer.KeyFile != "":
 		err = coordinator.RemovePublishedCertificate(peer.PublishedCAFile)
 	}
 	if err != nil {
 		logger.Warn(ctx, "Clients that share the data directory may not use built-in TLS", tag.Error(err))
 	}
-	return preparedPeerCA{ca: ca, published: err == nil}, nil
+	return preparedPeerCA{ca: ca, published: err == nil, restore: restore}, nil
 }
 
 // coordinatorTransport returns the server options that set what the

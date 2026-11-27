@@ -20,19 +20,34 @@ import (
 const publishedCAFileMode = 0o644
 
 // PublishCertificate writes the CA certificate to path, the published CA
-// certificate, unless path already holds it.
-func (ca *PeerCA) PublishCertificate(path string) error {
+// certificate, unless path already holds it. The returned function puts back
+// what path held before, while path still holds this certificate, for a
+// coordinator that does not start after all.
+func (ca *PeerCA) PublishCertificate(path string) (func(), error) {
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.cert.Raw})
-	if current, err := fileutil.ReadFile(path); err == nil && bytes.Equal(current, certPEM) {
-		return nil
+	previous, readErr := fileutil.ReadFile(path)
+	if readErr == nil && bytes.Equal(previous, certPEM) {
+		return func() {}, nil
 	}
 	if err := fileutil.MkdirAll(filepath.Dir(path), peerDirMode); err != nil {
-		return fmt.Errorf("create published CA certificate directory: %w", err)
+		return nil, fmt.Errorf("create published CA certificate directory: %w", err)
 	}
 	if err := fileutil.WriteFileAtomic(path, certPEM, publishedCAFileMode); err != nil {
-		return fmt.Errorf("write published CA certificate: %w", err)
+		return nil, fmt.Errorf("write published CA certificate: %w", err)
 	}
-	return nil
+	return func() {
+		// Best effort: a coordinator that still publishes writes its own
+		// certificate again on its next registry refresh.
+		if current, err := fileutil.ReadFile(path); err != nil || !bytes.Equal(current, certPEM) {
+			return
+		}
+		switch {
+		case readErr == nil:
+			_ = fileutil.WriteFileAtomic(path, previous, publishedCAFileMode)
+		case errors.Is(readErr, fs.ErrNotExist):
+			_ = fileutil.Remove(path)
+		}
+	}, nil
 }
 
 // republishCertificate writes the CA certificate to path when the file is
@@ -41,7 +56,8 @@ func (ca *PeerCA) republishCertificate(path string) error {
 	if _, err := fileutil.Stat(path); !errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
-	return ca.PublishCertificate(path)
+	_, err := ca.PublishCertificate(path)
+	return err
 }
 
 // RemovePublishedCertificate removes the published CA certificate at path,

@@ -93,7 +93,7 @@ func (srv *Service) republishCA(ctx context.Context) {
 	var err error
 	if srv.caPublished.Load() {
 		err = srv.peerCA.republishCertificate(srv.publishedCAFile)
-	} else if err = srv.peerCA.PublishCertificate(srv.publishedCAFile); err == nil {
+	} else if _, err = srv.peerCA.PublishCertificate(srv.publishedCAFile); err == nil {
 		srv.caPublished.Store(true)
 	}
 	if err != nil {
