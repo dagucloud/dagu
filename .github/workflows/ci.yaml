@@ -406,15 +406,15 @@ jobs:
           CGO_ENABLED: '0'
         run: go test ./internal/runtime/builtin/jq
 
-      # The isolation tests of untrusted steps skip unless the process has the
-      # user ID 0 and no-new-privileges. The binary sits in /tmp so that the
-      # restricted user can run it as the kill helper.
+      # The isolation tests of untrusted steps need the user ID 0 and
+      # no-new-privileges; DAGU_TEST_REQUIRE_ISOLATION=1 makes them fail, not
+      # skip, without these.
       - name: Test untrusted step isolation as root
         run: |
           go test -c -o /tmp/untrusted.test ./internal/runtime/untrusted
           chmod 0755 /tmp/untrusted.test
           cd internal/runtime/untrusted
-          sudo setpriv --no-new-privs /tmp/untrusted.test -test.count=1 -test.v
+          sudo env DAGU_TEST_REQUIRE_ISOLATION=1 setpriv --no-new-privs /tmp/untrusted.test -test.count=1 -test.v
 
   e2e:
     name: E2E (${{ matrix.shard }}/${{ matrix.shard_total }})

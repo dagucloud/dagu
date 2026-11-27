@@ -215,13 +215,19 @@ func TestSignalHandlerBudgets(t *testing.T) {
 }
 
 // Lifecycle handlers retain their own execution budgets after a CLI stop.
+// The abort handler holds until the step cleanup budget has passed and the
+// run's cancel poll has redelivered the stop.
 func TestStopHandlers(t *testing.T) {
+	const cleanupBudget = time.Second
 	th := test.SetupCommand(t, test.WithBuiltExecutable())
 	dir := t.TempDir()
 	ready := filepath.Join(dir, "ready")
+	aborting := filepath.Join(dir, "aborting")
+	release := newHoldFile(t)
 	aborted := filepath.Join(dir, "aborted")
 	exited := filepath.Join(dir, "exited")
 	dag := th.DAG(t, fmt.Sprintf(`
+max_clean_up_time_sec: %d
 steps:
   - script: |
       printf ready > %s
@@ -229,11 +235,11 @@ steps:
 handler_on:
   abort:
     script: |
-      sleep 10
-      printf done > %s
+      printf started > %s
+      (%s) && printf done > %s
   exit:
     script: printf done > %s
-`, test.PosixQuote(ready), test.PosixQuote(aborted), test.PosixQuote(exited)))
+`, int(cleanupBudget.Seconds()), test.PosixQuote(ready), test.PosixQuote(aborting), holdUntilFileExistsCommand(release), test.PosixQuote(aborted), test.PosixQuote(exited)))
 	command := exec.Command(th.Config.Paths.Executable, test.WithConfigFlag([]string{"start", dag.Location}, th.Config)...) //nolint:gosec // Test executes the repository binary.
 	command.Env = append(th.ChildEnv, "DAGU_SIGNAL_PROPAGATION=false")
 	logFile, err := os.CreateTemp(dir, "run-*.log")
@@ -254,18 +260,37 @@ handler_on:
 	stop.Env = command.Env
 	output, err := stop.CombinedOutput()
 	require.NoError(t, err, "output: %s", output)
-	select {
-	case err := <-waitCh:
-		run.exited = true
-		require.NoError(t, err)
-	case <-time.After(20 * time.Second):
-		t.Fatalf("run did not finish its handlers: %s", run.output())
+	run.waitForFile(t, aborting)
+	// The stop set its cleanup deadline before the handler started, so a poll
+	// logged after this wait falls past that deadline. The output only grows,
+	// so a match past the offset is a poll that ran after the wait.
+	time.Sleep(cleanupBudget)
+	offset := len(run.output())
+	// A run that exits first ends the wait, so the checks below name the
+	// handler that ended early.
+	var exitErr error
+	poll := time.NewTicker(20 * time.Millisecond)
+	defer poll.Stop()
+	timeout := time.After(commandLogWaitTimeout())
+	for !run.exited && !strings.Contains(run.output()[offset:], "Cancel request found for attempt") {
+		select {
+		case exitErr = <-waitCh:
+			run.exited = true
+		case <-timeout:
+			t.Fatalf("run did not poll its cancel request; output: %s", run.output())
+		case <-poll.C:
+		}
+	}
+	releaseHoldFile(t, release)
+	if !run.exited {
+		exitErr = run.wait(t)
 	}
 	for _, marker := range []string{aborted, exited} {
 		data, err := os.ReadFile(marker)
 		require.NoError(t, err, "handler did not complete: %s", run.output())
 		require.Equal(t, "done", string(data))
 	}
+	require.NoError(t, exitErr)
 	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 	require.NoError(t, err)
 	require.Equal(t, ir.Aborted, status.Status)

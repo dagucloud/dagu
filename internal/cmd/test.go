@@ -17,12 +17,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagtest"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -71,7 +72,7 @@ var testFlags = []commandLineFlag{testRunFlag, testTimeoutFlag, testFormatFlag, 
 func Test() *cobra.Command {
 	command := NewCommand(
 		&cobra.Command{
-			Use:   "test [flags] [<test file or directory>...]",
+			Use:   "test [flags] [<test file, DAG file, DAG name, or directory>...]",
 			Short: "Run the test cases of DAGs with their step actions mocked",
 			Long: `Run workflow tests (Spec 101). A test file sits beside the DAG it tests and
 ends in .test.yaml or .test.yml. Each case runs the DAG through the same
@@ -80,7 +81,10 @@ replaced by scripted results. An action with side effects that the case
 neither mocks nor lists under real makes the case invalid, and nothing runs.
 
 A directory argument runs every test file under it. With no argument, every
-test file under the DAGs directory runs.
+test file under the DAGs directory runs. A DAG file argument runs the test
+files beside it: release.yaml runs release.test.yaml and release.test.yml,
+whichever exist. An argument that is not an existing path is a DAG name,
+resolved as dagu start resolves it, and runs that DAG's test files.
 
 --format json writes one JSON object to stdout once every case has ended.
 --keep keeps each case directory and reports its path.
@@ -100,6 +104,7 @@ test file or case is invalid or the arguments are.
 
 Example:
   dagu test workflows/
+  dagu test workflows/release.yaml
   dagu test --run 'failed build' --timeout 30s workflows/release.test.yaml
   dagu test --format json --keep workflows/
   dagu test --init workflows/release.yaml
@@ -145,7 +150,10 @@ func runTest(ctx *Context, args []string) error {
 	if opts.init {
 		return runTestInit(ctx, args[0], opts)
 	}
-	files, err := selectTestFiles(ctx.Config.Paths.DAGsDir, args)
+	files, err := selectTestFiles(ctx, ctx.projectPaths().DAGsDir, args)
+	if err == nil && len(args) == 0 {
+		files, err = ctx.ownTestFiles(files)
+	}
 	if err != nil {
 		return &exitStatusError{code: testExitInvalid, err: err}
 	}
@@ -157,7 +165,12 @@ func runTest(ctx *Context, args []string) error {
 	// A test file that --update cannot write does not stop the others.
 	var updateErrs []error
 	for _, file := range files {
-		if err := runTestFile(ctx, file, opts, report); err != nil {
+		// A test file runs in the project of the DAG it tests.
+		fileCtx, err := ctx.inProjectOf(file.path)
+		if err != nil {
+			return &exitStatusError{code: testExitInvalid, err: err}
+		}
+		if err := runTestFile(fileCtx, file, opts, report); err != nil {
 			if ctx.Err() != nil {
 				return err
 			}
@@ -219,10 +232,13 @@ type testFileRef struct {
 }
 
 // selectTestFiles returns the test files that args select, in the order
-// they run: each file argument, and every test file under each directory
-// argument, or under root when there is no argument. A file that several
-// arguments select is listed once.
-func selectTestFiles(root string, args []string) ([]testFileRef, error) {
+// they run: each test file argument, the test files beside each DAG file
+// argument and beside the DAG file of each DAG name, and every test file
+// under each directory argument, or under root when there is no argument.
+// An argument that is no existing path is a DAG name, resolved under root
+// as dagu start resolves it. A file that several arguments select is
+// listed once.
+func selectTestFiles(ctx context.Context, root string, args []string) ([]testFileRef, error) {
 	if len(args) == 0 {
 		if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -235,31 +251,98 @@ func selectTestFiles(root string, args []string) ([]testFileRef, error) {
 		if err != nil {
 			return err
 		}
-		if !slices.ContainsFunc(files, func(f testFileRef) bool { return f.path == abs }) {
+		if !slices.ContainsFunc(files, func(f testFileRef) bool {
+			return sameTestFilePath(f.path, abs)
+		}) {
 			files = append(files, testFileRef{path: abs, report: testReportPath(abs)})
 		}
 		return nil
 	}
 	for _, arg := range args {
-		info, err := os.Stat(arg)
-		if err != nil {
-			return nil, err
-		}
-		if !info.IsDir() {
-			if !spec.IsTestFile(arg) {
-				return nil, fmt.Errorf("%s is not a test file; its name must end in .test.yaml or .test.yml", arg)
-			}
-			if err := add(arg); err != nil {
-				return nil, err
-			}
-			continue
-		}
-		if err := walkTestFiles(arg, add); err != nil {
+		if err := selectArgument(ctx, root, arg, add); err != nil {
 			return nil, err
 		}
 	}
 	slices.SortFunc(files, func(a, b testFileRef) int { return cmp.Compare(a.report, b.report) })
 	return files, nil
+}
+
+// sameTestFilePath handles case-only aliases while keeping distinct files
+// on case-sensitive filesystems separate.
+func sameTestFilePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	if !strings.EqualFold(a, b) {
+		return false
+	}
+	first, err := os.Lstat(a)
+	if err != nil {
+		return false
+	}
+	second, err := os.Lstat(b)
+	return err == nil && os.SameFile(first, second)
+}
+
+// selectArgument calls add for each test file that arg selects.
+func selectArgument(ctx context.Context, root, arg string, add func(string) error) error {
+	info, err := os.Stat(arg)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		dagPath, err := namedDAGFile(ctx, root, arg)
+		if err != nil {
+			return err
+		}
+		return addDAGTestFiles(arg, dagPath, add)
+	case err != nil:
+		return err
+	case info.IsDir():
+		return walkTestFiles(arg, add)
+	case spec.IsTestFile(arg):
+		return add(arg)
+	case fileutil.IsYAMLFile(arg):
+		return addDAGTestFiles(arg, arg, add)
+	default:
+		return fmt.Errorf("%s is not a test file; its name must end in .test.yaml or .test.yml", arg)
+	}
+}
+
+// dagTestFileSuffixes replace the extension of a DAG file in the names of
+// the test files beside it (Spec 101, Where Test Files Live).
+var dagTestFileSuffixes = []string{".test.yaml", ".test.yml"}
+
+// addDAGTestFiles calls add for each test file beside the DAG file at
+// dagPath, which arg names. It fails, naming the command that writes one,
+// when there is none.
+func addDAGTestFiles(arg, dagPath string, add func(string) error) error {
+	base := fileutil.TrimYAMLFileExtension(dagPath)
+	found := false
+	for _, suffix := range dagTestFileSuffixes {
+		if path := base + suffix; fileutil.IsFile(path) {
+			found = true
+			if err := add(path); err != nil {
+				return err
+			}
+		}
+	}
+	if !found {
+		return fmt.Errorf("%s has no test file; write one with: dagu test --init %s", arg, dagPath)
+	}
+	return nil
+}
+
+// namedDAGFile returns the DAG file that dagu start runs for name, with
+// dagsDir as the DAGs directory.
+func namedDAGFile(ctx context.Context, dagsDir, name string) (string, error) {
+	// spec.Load resolves the name as dagu start does. Build errors are
+	// allowed, so the path comes back even for a DAG that does not load;
+	// its test files report that.
+	dag, err := spec.Load(ctx, name, spec.WithDAGsDir(dagsDir), spec.OnlyMetadata(),
+		spec.WithoutEval(), spec.SkipSchemaValidation(), spec.WithAllowBuildErrors())
+	if err != nil || !fileutil.IsFile(dag.Location) {
+		return "", fmt.Errorf("%s does not exist, and the DAGs directory %s has no DAG of that name", name, dagsDir)
+	}
+	return dag.Location, nil
 }
 
 // walkTestFiles calls add for each test file under dir. Directories whose
@@ -341,11 +424,7 @@ func runTestFile(ctx *Context, file testFileRef, opts testOptions, report *testR
 // testLoadOptions returns the options a tested DAG loads with, as dagu start
 // loads it.
 func testLoadOptions(ctx *Context) []spec.LoadOption {
-	return []spec.LoadOption{
-		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
-		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
-	}
+	return ctx.projectLoadOptions()
 }
 
 // caseExpect returns the assertions that a case's run is checked against,
@@ -370,6 +449,9 @@ func runTestCase(ctx *Context, file *dagtest.File, c dagtest.Case, opts testOpti
 
 	started := time.Now()
 	defer func() { result.duration = time.Since(started) }()
+	// The host variables that the DAG's load and the run read are the
+	// case's host values.
+	ctx = ctx.WithContext(cmnvalue.TrackHostReads(ctx.Context))
 	dag, caseOpts, errs := prepareCase(ctx, file, c)
 	if len(errs) > 0 {
 		result.errors = errs

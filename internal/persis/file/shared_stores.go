@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/connection"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/license"
@@ -111,6 +112,24 @@ func EnableAIEndpointModels(ctx context.Context, service *aiendpoint.Service, co
 	}
 }
 
+// AIEndpointService opens the AI endpoint service (Spec 093), which every
+// project shares. It returns nil when secrets is nil.
+func (s *ServerStores) AIEndpointService(ctx context.Context, secrets secret.Store) *aiendpoint.Service {
+	return NewAIEndpointService(ctx, s.backend.Collection(persis.CollectionAIEndpoints), secrets)
+}
+
+// AIMCPServerService opens the MCP server entry service (Spec 095), which
+// every project shares. It returns nil when secrets is nil.
+func (s *ServerStores) AIMCPServerService(ctx context.Context, secrets secret.Store) *aiendpoint.MCPService {
+	return NewAIMCPServerService(ctx, s.backend.Collection(persis.CollectionAIMCPServers), secrets)
+}
+
+// EnableAIEndpointModels gives service its models lists (Spec 093, "The
+// models list"), which reader fetches from the providers.
+func (s *ServerStores) EnableAIEndpointModels(ctx context.Context, service *aiendpoint.Service, reader *aiendpoint.ModelsReader) {
+	EnableAIEndpointModels(ctx, service, s.backend.Collection(persis.CollectionAIEndpointModels), reader)
+}
+
 func NewDAGSettingsStore(cfg *config.Config, col persis.Collection) (dagsettings.Store, error) {
 	if cfg == nil || cfg.Paths.DataDir == "" {
 		return nil, fmt.Errorf("DAG settings store: DataDir cannot be empty")
@@ -160,6 +179,31 @@ func NewNotificationStore(col, channels persis.Collection, enc *crypto.Encryptor
 		return nil, err
 	}
 	return store.NewNotificationStore(col, channelStore, enc)
+}
+
+// connectionDirPerm keeps the connection collections, which hold secrets,
+// owner-only.
+const connectionDirPerm os.FileMode = 0o700
+
+// NewConnectionStore creates the store of OAuth apps, connections, their
+// token state, and their tool catalogs. Each collection's directory is
+// owner-only, including one that already exists.
+func NewConnectionStore(
+	apps, conns, tokens, catalogs persis.Collection,
+	lifecycle persis.Lock,
+	enc *crypto.Encryptor,
+) (connection.Store, error) {
+	for _, col := range []persis.Collection{apps, conns, tokens, catalogs} {
+		if err := createCollectionDirs(col, "connection store", connectionDirPerm, ""); err != nil {
+			return nil, err
+		}
+		if fileCol, ok := col.(*Collection); ok {
+			if err := os.Chmod(fileCol.dir, connectionDirPerm); err != nil {
+				return nil, fmt.Errorf("connection store: restrict directory %s: %w", fileCol.dir, err)
+			}
+		}
+	}
+	return store.NewConnectionStore(apps, conns, tokens, catalogs, lifecycle, enc)
 }
 
 func NewLicenseStore(ctx context.Context, col persis.Collection) license.ActivationStore {

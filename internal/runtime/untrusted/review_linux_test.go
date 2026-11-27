@@ -7,21 +7,22 @@ package untrusted
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// Proofs of the adversarial review of Spec 092, "Isolation". Each test states
+// Proofs of the adversarial review of Spec 103, "Isolation". Each test states
 // the property, and fails while the property is broken. They need root, as the
 // isolation tests of isolation_linux_test.go do.
 
@@ -37,13 +38,13 @@ func resetPoison(t *testing.T) {
 }
 
 // killAllAs stops each process of the restricted user with kill(-1) as that
-// user, which the kernel applies to the whole task list at once.
+// user, which the kernel applies to the whole task list at once. The kill
+// helper starts as root, so a process of the user that the test left cannot
+// stop the start.
 func killAllAs(t *testing.T) {
 	t.Helper()
 	for range 100 {
-		cmd := exec.Command("/bin/sh", "-c", "kill -9 -1")
-		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: testUID, Gid: testGID, Groups: []uint32{}}}
-		_ = cmd.Run()
+		_ = runKillHelperAs(testUID, testGID)
 		pids, err := userProcesses(testUID)
 		if err == nil && len(pids) == 0 {
 			return
@@ -124,7 +125,7 @@ int main(int argc, char **argv) {
 }
 `
 
-// Property (Spec 092, "End"): Dagu stops each process of the restricted user,
+// Property (Spec 103, "Isolation", rule 7): Dagu stops each process of the restricted user,
 // and waits until no process of that user is left. The attack: a process whose
 // main thread exits keeps its other threads. Its leader is a zombie and its
 // threads are not in the list of /proc, so a scan that skips Z processes or
@@ -150,22 +151,38 @@ func TestReviewZombieLeaderSurvivesEnd(t *testing.T) {
 
 	ctx := context.Background()
 	workDir := testWorkDir(t)
-	step, err := Begin(ctx, testRequest(t, workDir, filepath.Join(workDir, "repo")))
+	step, err := beginStep(t, ctx, testRequest(t, workDir, filepath.Join(workDir, "repo")))
 	require.NoError(t, err)
 	// The agent writes its count in /tmp, which any user can write.
 	marker := filepath.Join(os.TempDir(), "dagu-review-zombie-"+strconv.Itoa(os.Getpid()))
+	_ = os.Remove(marker)
 	t.Cleanup(func() { _ = os.Remove(marker) })
 	runAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"), bin+" "+marker+" </dev/null >/dev/null 2>&1 &\nsleep 1")
+	// A count that changes shows that the thread runs before End, so an equal
+	// count below means a stopped thread. A read between the truncation and
+	// the write of the file is empty.
+	var seen string
+	require.Eventually(t, func() bool {
+		data, _ := os.ReadFile(marker)
+		count := strings.TrimSpace(string(data))
+		if count == "" || seen == "" {
+			seen = cmp.Or(seen, count)
+			return false
+		}
+		return count != seen
+	}, 5*time.Second, 20*time.Millisecond, "the thread of the agent does not run")
 	require.NoError(t, step.End(ctx))
 
-	first, _ := os.ReadFile(marker)
+	first, err := os.ReadFile(marker)
+	require.NoError(t, err)
 	time.Sleep(time.Second)
-	second, _ := os.ReadFile(marker)
+	second, err := os.ReadFile(marker)
+	require.NoError(t, err)
 	t.Logf("count of the thread of the agent after End: %q, 1 s later: %q", strings.TrimSpace(string(first)), strings.TrimSpace(string(second)))
 	assert.Equal(t, string(first), string(second), "a thread of the restricted user runs after End")
 }
 
-// Property (Spec 092, "End"): Dagu stops each process of the restricted user,
+// Property (Spec 103, "Isolation", rule 7): Dagu stops each process of the restricted user,
 // and waits until no process of that user is left. The attack: a loop that
 // forks and lets its parent exit at once changes its PID while killUser scans
 // /proc, so that a scan could see no process. 200 idle processes of root make
@@ -187,9 +204,9 @@ func TestReviewForkHopIsKilled(t *testing.T) {
 	escaped := 0
 	for round := range rounds {
 		workDir := testWorkDir(t)
-		step, err := Begin(ctx, testRequest(t, workDir, filepath.Join(workDir, "repo")))
+		step, err := beginStep(t, ctx, testRequest(t, workDir, filepath.Join(workDir, "repo")))
 		require.NoError(t, err)
-		// The script waits 1 s so that the loop runs before the watcher.
+		// The script waits 1 s so that the loop runs before End.
 		out := runAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"),
 			"cut -d' ' -f5 /proc/loadavg\n"+hop+" </dev/null >/dev/null 2>&1 &\nsleep 1\ncut -d' ' -f5 /proc/loadavg")
 		t.Logf("round %d: last PID before and after 1 s of the loop: %s", round, strings.Join(strings.Fields(out), " -> "))
@@ -385,6 +402,114 @@ func TestReviewLinkChainLeavesWorkDir(t *testing.T) {
 	// A later trusted step writes its report through out, as root.
 	_ = os.WriteFile(filepath.Join(work, "out", "report"), []byte("report"), 0o600)
 	assert.NoFileExists(t, filepath.Join(outside, "report"), "a trusted write through a link of the agent left the work directory")
+}
+
+// stopperSource waits 500 ms, so that the shell that starts it can end, then
+// sends SIGSTOP to each process of its user from four threads for 45 s, and
+// makes the file of its argument once they run. kill(-1) spares the thread
+// group of the caller.
+const stopperSource = `#include <pthread.h>
+#include <signal.h>
+#include <stdio.h>
+#include <time.h>
+#include <unistd.h>
+static void *stop(void *arg) {
+	(void)arg;
+	time_t end = time(0) + 45;
+	while (time(0) < end) kill(-1, SIGSTOP);
+	return 0;
+}
+int main(int argc, char **argv) {
+	if (argc < 2) return 2;
+	usleep(500000);
+	pthread_t t[4];
+	for (int i = 0; i < 4; i++) pthread_create(&t[i], 0, stop, 0);
+	FILE *f = fopen(argv[1], "w");
+	if (f) fclose(f);
+	for (int i = 0; i < 4; i++) pthread_join(t[i], 0);
+	return 0;
+}
+`
+
+// Property (Spec 103, "Isolation", rule 7): End and each start of a process of
+// the step return. The attack: a process of the restricted user sends SIGSTOP
+// to each process of that user. Go waits for the execve of each child it
+// starts, with the runtime of the worker blocked at its next garbage
+// collection; a child that ran as that user before its execve could be
+// stopped there and block the worker forever.
+func TestReviewStopperBlocksNoStart(t *testing.T) {
+	requireIsolation(t)
+	gcc, err := exec.LookPath("gcc")
+	if err != nil {
+		t.Skip("needs gcc")
+	}
+	resetPoison(t)
+	t.Cleanup(func() { killAllAs(t) })
+	dir, err := os.MkdirTemp("", "dagu-review-stopper-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	require.NoError(t, os.Chmod(dir, 0o755))
+	src := filepath.Join(dir, "stopper.c")
+	require.NoError(t, os.WriteFile(src, []byte(stopperSource), 0o644))
+	bin := filepath.Join(dir, "stopper")
+	out, err := exec.Command(gcc, "-O2", "-pthread", "-o", bin, src).CombinedOutput()
+	require.NoError(t, err, string(out))
+
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	repo := filepath.Join(workDir, "repo")
+	step, err := beginStep(t, ctx, testRequest(t, workDir, repo))
+	require.NoError(t, err)
+	stepCtx := WithStep(ctx, step)
+	// The stopper makes its marker in /tmp, which any user can write.
+	marker := filepath.Join(os.TempDir(), "dagu-review-stopper-"+strconv.Itoa(os.Getpid()))
+	_ = os.Remove(marker)
+	t.Cleanup(func() { _ = os.Remove(marker) })
+	runAs(t, stepCtx, repo, bin+" "+marker+" </dev/null >/dev/null 2>&1 &")
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(marker)
+		return err == nil
+	}, 5*time.Second, 20*time.Millisecond, "the stopper does not run")
+
+	// Up to 200 starts in 3 s, while the stopper runs. A start takes
+	// milliseconds; one that takes 10 s is blocked.
+	var processes []*cmdutil.ManagedProcess
+	slow := 0
+	for begin, n := time.Now(), 0; n < 200 && time.Since(begin) < 3*time.Second; n++ {
+		started := make(chan *cmdutil.ManagedProcess, 1)
+		startedAt := time.Now()
+		go func() {
+			cmd := exec.Command("/bin/true")
+			cmd.Dir = repo
+			process, _ := StartManagedProcess(stepCtx, cmd)
+			started <- process
+		}()
+		select {
+		case process := <-started:
+			if process != nil {
+				processes = append(processes, process)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("a start of a process of the step is blocked")
+		}
+		if time.Since(startedAt) > time.Second {
+			slow++
+		}
+	}
+	t.Logf("%d processes started, %d starts took more than 1 s", len(processes), slow)
+
+	ended := make(chan error, 1)
+	go func() { ended <- step.End(ctx) }()
+	select {
+	case err := <-ended:
+		require.NoError(t, err)
+	case <-time.After(killTimeout + 10*time.Second):
+		t.Fatal("End is blocked")
+	}
+	for _, process := range processes {
+		_ = process.Wait()
+		_ = process.Release()
+	}
 }
 
 // Property (Spec 092, "Process"): each process of the step runs. A step with

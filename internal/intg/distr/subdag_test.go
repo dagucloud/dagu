@@ -924,3 +924,97 @@ steps:
 		require.Equal(t, "b:2026-03-05", results["b"])
 	})
 }
+
+// A child whose name holds a reference runs in its parent's process on the
+// worker, as a child named as written does, also below a child named as
+// written.
+func TestSubDAG_ReferenceNamedChildOnWorker(t *testing.T) {
+	t.Parallel()
+
+	const leaf = `
+name: ref-leaf-prod
+steps:
+  - id: note
+    action: log.write
+    with:
+      message: leaf ran
+`
+	tests := []struct {
+		name string
+		root string
+		// files are the DAG files the run reads, by name.
+		files map[string]string
+		// path holds the IDs of the steps that run each child down to the
+		// leaf.
+		path []string
+	}{
+		{
+			name: "child",
+			root: `
+params:
+  - env: prod
+worker_selector:
+  test: "true"
+steps:
+  - id: call_leaf
+    action: dag.run
+    with:
+      dag: ref-leaf-${params.env}
+`,
+			files: map[string]string{"ref-leaf-prod": leaf},
+			path:  []string{"call_leaf"},
+		},
+		{
+			name: "grandchild",
+			root: `
+worker_selector:
+  test: "true"
+steps:
+  - id: call_mid
+    action: dag.run
+    with:
+      dag: ref-mid
+`,
+			files: map[string]string{
+				"ref-mid": `
+name: ref-mid
+params:
+  - env: prod
+steps:
+  - id: call_leaf
+    action: dag.run
+    with:
+      dag: ref-leaf-${params.env}
+`,
+				"ref-leaf-prod": leaf,
+			},
+			path: []string{"call_mid", "call_leaf"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newTestFixture(t, tt.root)
+			for name, yaml := range tt.files {
+				f.coord.CreateDAGFile(t, f.coord.Config.Paths.DAGsDir, name, []byte(yaml))
+			}
+
+			_, err := f.dispatchDirect()
+			require.NoError(t, err)
+			status := f.waitForStatusIn([]ir.Status{ir.Succeeded, ir.Failed}, executionStatusTimeout())
+			require.Equal(t, ir.Succeeded, status.Status, status.Error)
+			f.assertWorkerID(status, "worker-1")
+
+			rootRef := ir.NewDAGRunRef(status.Name, status.DAGRunID)
+			current := &status
+			for _, stepID := range tt.path {
+				call := requireNodeByID(t, *current, stepID)
+				require.Len(t, call.SubRuns, 1)
+				current = readDistributedSubAttemptStatus(t, f, rootRef, call.SubRuns[0].DAGRunID)
+				require.Equal(t, ir.Succeeded, current.Status)
+			}
+			require.Equal(t, "ref-leaf-prod", current.Name)
+		})
+	}
+}

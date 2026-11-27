@@ -3,7 +3,11 @@
 
 package skill
 
-import "testing"
+import (
+	"io/fs"
+	"testing"
+	"time"
+)
 
 // MaxFrontMatterBytes is the size limit of the front matter.
 const MaxFrontMatterBytes = maxFrontMatterBytes
@@ -17,6 +21,12 @@ func HashFiles(files []File) string {
 	}
 	return hashLines(lines)
 }
+
+// ChangeTime is the status change time that the cache records for a file.
+func ChangeTime(info fs.FileInfo) time.Time { return changeTime(info) }
+
+// CacheCost is the memory that the cache counts for a read.
+func CacheCost(s *Skill) int64 { return cacheCost("", s) }
 
 // AroundReadFiles runs before and after each attempt of Read reads the files of
 // the folder. It changes a package variable, so the test must not be parallel.
@@ -37,3 +47,13 @@ func SetBeforeHeldCheck(s *Store, fn func()) { s.beforeHeldCheck = fn }
 
 // Root returns the skills directory of the store.
 func Root(s *Store) string { return s.root }
+
+// SettleClock moves the clock of the cache one hour forward, so the cache
+// sees every entry as settled. It changes a package variable, so the test
+// must not be parallel.
+func SettleClock(t *testing.T) {
+	t.Helper()
+	orig := now
+	now = func() time.Time { return orig().Add(time.Hour) }
+	t.Cleanup(func() { now = orig })
+}

@@ -478,10 +478,18 @@ Rules:
   or failing also says when the scheduler starts the next run, in words such as "Restart in 4
   minutes". It says nothing of it while the restarts are on hold.
 - The list offers no Reject: a run that waits for an approval or a human task is decided on its run.
-- The header of the page of a service DAG follows the same rule. It reads the state from the same
-  `GET /service-dags` read as the list, with no extra request. A DAG that is restarting or failing,
-  with no active run, has no Start button, no Retry button and no menu to run a draft. With no known
-  state, the header keeps its buttons.
+- The run bar of the page of a service DAG follows the same rule. It reads the state from the same
+  `GET /service-dags` read and live topic as the list; a DAG that is not a service DAG reads
+  nothing. While a run is active, and in the states restarting and failing, the bar has no Start
+  button, no Retry button and no menu item to save and run or to run a draft. Stop stays. The
+  command palette offers only the controls that the bar shows. With no known state, while the
+  restarts are on hold and for a DAG whose state cannot be read, the bar keeps its buttons unless a
+  run is active.
+- The Stop tooltip of a DAG with `restart_policy: always` says after how many seconds the run
+  restarts. It says so only while the state of the DAG is known, and not while the DAG is suspended
+  or its restarts are on hold.
+- The log pop-out page reads no state of the service. While the latest run is active, its bar has
+  no Retry.
 - The strip opens a detail when the user points at it, focuses it or clicks it. A key of the
   keyboard opens it from the focus, and Escape closes it.
 - The detail shows the uptime and the success rate of 7 days, the count of runs of the window, the

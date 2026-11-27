@@ -22,7 +22,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/aiendpoint"
 	"github.com/dagucloud/dagu/v2/internal/aigateway"
-	"github.com/dagucloud/dagu/v2/internal/runtime/egress"
+	"github.com/dagucloud/dagu/v2/internal/llm/anthropicbeta"
 )
 
 const realKey = "sk-real-0123456789-SECRET"
@@ -152,7 +152,7 @@ func TestDo_AuthForms(t *testing.T) {
 	}{
 		{"x-api-key", aiendpoint.AuthXAPIKey, "X-Api-Key", realKey, ""},
 		{"bearer", aiendpoint.AuthBearer, "Authorization", "Bearer " + realKey, ""},
-		{"oauth", aiendpoint.AuthAnthropicOAuth, "Authorization", "Bearer " + realKey, "client-beta," + egress.AnthropicOAuthBeta},
+		{"oauth", aiendpoint.AuthAnthropicOAuth, "Authorization", "Bearer " + realKey, "client-beta," + anthropicbeta.OAuth},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

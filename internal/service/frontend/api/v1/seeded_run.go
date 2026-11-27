@@ -48,11 +48,22 @@ type seededRun struct {
 // queue, the coordinator, or a local retry process.
 func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued bool, err error) {
 	queueConfigured := run.enqueue && a.config.FindQueueConfig(run.dag.ProcGroup()) != nil
-	shouldDispatch := !queueConfigured && dispatch.ShouldDispatchToCoordinator(run.dag, a.coordinatorCli != nil, a.defaultExecMode)
+	// A run bound to a worker node runs on that worker, and the run keeps
+	// it, so the queue sends a queued one there too.
+	var admitted string
+	if run.source != nil {
+		admitted = run.source.BoundWorker
+	}
+	worker, err := a.boundWorker(ctx, run.dag, run.targetNodes, admitted, queueConfigured)
+	if err != nil {
+		return false, err
+	}
+	shouldDispatch := !queueConfigured && (worker != "" || dispatch.ShouldDispatchToCoordinator(run.dag, a.coordinatorCli != nil, a.defaultExecMode))
 	if shouldDispatch && run.dag.Type == ir.TypeBuild {
 		return false, buildRequiresLocalAPIError()
 	}
 
+	logDir, artifactDir := a.runDirs()
 	_, seedStatus, err := intake.SeedRun(ctx, intake.SeedRequest{
 		DAGRunRepository: a.dagRunRepository,
 		DAG:              run.dag,
@@ -72,8 +83,9 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 		BackfillID:       run.backfillID,
 		TargetNodes:      run.targetNodes,
 		NodeList:         run.nodeList,
-		LogBaseDir:       a.config.Paths.LogDir,
-		ArtifactBaseDir:  a.config.Paths.ArtifactDir,
+		BoundWorker:      worker,
+		LogBaseDir:       logDir,
+		ArtifactBaseDir:  artifactDir,
 	})
 	if err != nil {
 		return false, err
@@ -95,7 +107,7 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 	}
 
 	if shouldDispatch {
-		if err := a.dispatchSeededRun(ctx, run.dag, seedStatus, run.labels); err != nil {
+		if err := a.dispatchSeededRun(ctx, run.dag, seedStatus, run.labels, worker); err != nil {
 			return false, err
 		}
 		return false, nil
@@ -120,8 +132,8 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 }
 
 // dispatchSeededRun sends a seeded run to the coordinator as a retry of its
-// queued attempt.
-func (a *API) dispatchSeededRun(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, labels string) error {
+// queued attempt, to worker when the run is bound to a worker node.
+func (a *API) dispatchSeededRun(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, labels, worker string) error {
 	dag, err := a.refreshBaseSMTP(ctx, dag, status)
 	if err != nil {
 		return err
@@ -146,6 +158,9 @@ func (a *API) dispatchSeededRun(ctx context.Context, dag *ir.DAG, status *ir.DAG
 	if status.ParallelItem != "" {
 		opts = append(opts, executor.WithParallelItem(status.ParallelItem))
 	}
+	if worker != "" {
+		opts = append(opts, executor.WithTargetWorkerID(worker), executor.WithBoundNode(worker, ""))
+	}
 	task := executor.CreateTask(
 		dag.Name,
 		string(dag.YamlData),
@@ -154,6 +169,9 @@ func (a *API) dispatchSeededRun(ctx context.Context, dag *ir.DAG, status *ir.DAG
 		opts...,
 	)
 	if err := a.coordinatorCli.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
+		if worker != "" {
+			err = workerDispatchError(err)
+		}
 		return fmt.Errorf("error dispatching seeded run to coordinator: %w", err)
 	}
 	return nil

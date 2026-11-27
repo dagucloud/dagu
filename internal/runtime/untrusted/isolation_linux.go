@@ -25,12 +25,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Spec 092, "Isolation". The invariant of this file: Dagu changes the owner of
-// a file only while no process of the restricted user exists. Begin stops each
-// such process before it gives the work directory to the restricted user, and
-// End stops each such process before it gives the work directory back. The
-// walks also act on descriptors (fswalk_linux.go), so a path that changes
-// under a walk cannot redirect it.
+// Spec 103, "Isolation". The invariant of this file: Dagu makes a file of the
+// restricted user, or reads one, only while no process of that user exists.
+// Begin stops each such process before it makes the HOME of the step, and End
+// stops each such process before it copies the output file and removes the
+// HOME.
 
 // killTimeout limits the wait for the end of the processes of the restricted
 // user after SIGKILL.
@@ -53,8 +52,7 @@ var (
 )
 
 // poison makes each later step of a run with an isolated untrusted step fail.
-// Dagu uses it when a process of the restricted user survives SIGKILL, or when
-// a git folder changed during an untrusted step.
+// Dagu uses it when a process of the restricted user survives SIGKILL.
 func poison(err error) {
 	poisonMu.Lock()
 	defer poisonMu.Unlock()
@@ -178,6 +176,10 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 		}
 	}()
 
+	// The locks can be free when ctx has ended: the step then does not run.
+	if err := ctx.Err(); err != nil {
+		return iso, stepError(req.StepName, "wait for the restricted user", "", err)
+	}
 	if err := Poisoned(); err != nil {
 		return iso, stepError(req.StepName, "start", "", err)
 	}
@@ -325,8 +327,8 @@ func (iso *isolation) abort() error {
 		errs = append(errs, iso.restoreModes())
 	}
 	if iso.privateDir != "" {
-		if err := os.RemoveAll(iso.privateDir); err != nil {
-			errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, err))
+		if removeErr := os.RemoveAll(iso.privateDir); removeErr != nil {
+			errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, removeErr))
 		}
 	}
 	iso.releaseSlot()
@@ -536,15 +538,13 @@ func (iso *isolation) writeRestrictedFile(path string, data []byte, mode fs.File
 		return stepError(iso.step, "make the file", path, err)
 	}
 	_, writeErr := file.Write(data)
+	// The owner and the mode change through the descriptor: a link that
+	// replaces the path cannot redirect them.
+	chownErr := file.Chown(int(iso.uid), int(iso.gid))
+	chmodErr := file.Chmod(mode)
 	closeErr := file.Close()
-	if err := errors.Join(writeErr, closeErr); err != nil {
+	if err := errors.Join(writeErr, chownErr, chmodErr, closeErr); err != nil {
 		return stepError(iso.step, "write the file", path, err)
-	}
-	if err := os.Lchown(path, int(iso.uid), int(iso.gid)); err != nil {
-		return stepError(iso.step, "change the owner of", path, err)
-	}
-	if err := os.Chmod(path, mode); err != nil {
-		return stepError(iso.step, "change the mode of", path, err)
 	}
 	return nil
 }
@@ -561,25 +561,28 @@ func (iso *isolation) writeOwnedFile(name string, data []byte) (string, error) {
 	return path, nil
 }
 
-// prepare applies the isolation to cmd. The process counts as starting until
-// started or abandon settles it.
-func (iso *isolation) prepare(cmd *exec.Cmd, env []string) error {
+// prepare applies the isolation to cmd. The caller calls release once the
+// start of cmd returns.
+func (iso *isolation) prepare(cmd *exec.Cmd, env []string) (release func(), err error) {
 	if iso.ended.Load() {
-		return fmt.Errorf("untrusted step %q: the step ended", iso.step)
+		return nil, fmt.Errorf("untrusted step %q: the step ended", iso.step)
 	}
 	if len(cmd.ExtraFiles) > 0 {
-		return fmt.Errorf("untrusted step %q: the process cannot get extra files", iso.step)
+		return nil, fmt.Errorf("untrusted step %q: the process cannot get extra files", iso.step)
+	}
+	if err := closeOnExec(); err != nil {
+		return nil, stepError(iso.step, "keep the descriptors of the worker from the process", "", err)
 	}
 	dir := cmd.Dir
 	if dir != "" && !filepath.IsAbs(dir) {
 		abs, err := filepath.Abs(dir)
 		if err != nil {
-			return stepError(iso.step, "resolve the working directory", dir, err)
+			return nil, stepError(iso.step, "resolve the working directory", dir, err)
 		}
 		dir = abs
 	}
 	if _, ok := iso.relativeToWork(dir); !ok {
-		return fmt.Errorf("untrusted step %q: the working directory %s is not in the work directory of the run", iso.step, cmd.Dir)
+		return nil, fmt.Errorf("untrusted step %q: the working directory %s is not in the work directory of the run", iso.step, cmd.Dir)
 	}
 	env = setEnv(env, "HOME", iso.home)
 	env = setEnv(env, "TMPDIR", iso.home)
@@ -589,11 +592,16 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) error {
 	if hasTarget {
 		env = setEnv(env, runenv.EnvKeyDAGUOutputFile, iso.outputCopy)
 	}
-	cmd.Env = env
+	path, args, cmdDir := cmd.Path, cmd.Args, cmd.Dir
+	envFile, err := iso.viaStartHelper(cmd, dir, env)
+	if err != nil {
+		return nil, stepError(iso.step, "prepare the start of the process", "", err)
+	}
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
-	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: iso.uid, Gid: iso.gid, Groups: []uint32{}}
+	// The child stays root until the start helper changes the user.
+	cmd.SysProcAttr.Credential = nil
 	cmd.SysProcAttr.AmbientCaps = nil
 	// A new session: a new process group and no controlling terminal.
 	cmd.SysProcAttr.Setsid = true
@@ -603,8 +611,38 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) error {
 	cmd.SysProcAttr.Pgid = 0
 
 	iso.startMu.Lock()
-	defer iso.startMu.Unlock()
 	iso.starting++
+	iso.startMu.Unlock()
+	return func() {
+		_ = envFile.Close()
+		// The caller sees its own command after the start, not the helper's.
+		cmd.Path, cmd.Args, cmd.Dir, cmd.Env, cmd.ExtraFiles = path, args, cmdDir, env, nil
+	}, nil
+}
+
+// closeOnExec marks each descriptor of the process from 3 up close-on-exec.
+// Go opens its own descriptors so, but a descriptor that the worker inherited
+// from its launcher would reach the process of the step.
+func closeOnExec() error {
+	entries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		fd, err := strconv.Atoi(entry.Name())
+		if err != nil || fd < 3 {
+			continue
+		}
+		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+		if err == nil && flags&unix.FD_CLOEXEC == 0 {
+			_, err = unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags|unix.FD_CLOEXEC)
+		}
+		// A descriptor closed since the listing, such as the one of the
+		// listing itself, needs nothing.
+		if err != nil && !errors.Is(err, unix.EBADF) {
+			return fmt.Errorf("descriptor %d: %w", fd, err)
+		}
+	}
 	return nil
 }
 
@@ -691,8 +729,8 @@ func (iso *isolation) killLeftovers() {
 	}
 }
 
-// end runs the actions of the end of the step (Spec 092, "End"). An error that
-// wraps ErrRunAborted stops the run.
+// end runs the actions of the end of the step (Spec 103, "Isolation", rule 7).
+// An error that wraps ErrRunAborted stops the run.
 func (iso *isolation) end(_ context.Context) error {
 	iso.ended.Store(true)
 	defer iso.releaseSlot()
@@ -713,11 +751,7 @@ func (iso *isolation) end(_ context.Context) error {
 	if err := os.RemoveAll(iso.privateDir); err != nil {
 		errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, err))
 	}
-	err := errors.Join(errs...)
-	if errors.Is(err, ErrRunAborted) {
-		poison(err)
-	}
-	return err
+	return errors.Join(errs...)
 }
 
 // copyOutput copies the output file that the restricted user wrote to the file

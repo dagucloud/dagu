@@ -1584,6 +1584,67 @@ func TestService_WorkspaceConfiguredRoutesOverrideGlobalRoutes(t *testing.T) {
 	}, destinations)
 }
 
+// While projects are on, a run's routes are its project's: the route set of
+// the workspace its DAG's label names, which overrides them while projects
+// are off, neither chooses nor stops a delivery.
+func TestService_ProjectsIgnoreWorkspaceRoutes(t *testing.T) {
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount.Add(1)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	store := newMemoryStore()
+	for _, channelID := range []string{"project-channel", "ops-channel"} {
+		channel, err := notificationmodel.NormalizeChannel(&notificationmodel.Channel{
+			ID:      channelID,
+			Name:    channelID,
+			Type:    notificationmodel.ProviderWebhook,
+			Enabled: true,
+			Webhook: &notificationmodel.WebhookTarget{URL: server.URL, AllowInsecureHTTP: true, AllowPrivateNetwork: true},
+		}, "tester")
+		require.NoError(t, err)
+		require.NoError(t, store.SaveChannel(context.Background(), channel))
+	}
+	for _, routeSet := range []*notificationmodel.RouteSet{
+		{Scope: notificationmodel.RouteScopeGlobal, Enabled: true, InheritGlobal: true,
+			Routes: []notificationmodel.Route{{ID: "project-route", ChannelID: "project-channel", Enabled: true}}},
+		{Scope: notificationmodel.RouteScopeWorkspace, Workspace: "ops", Enabled: true, InheritGlobal: false,
+			Routes: []notificationmodel.Route{{ID: "ops-route", ChannelID: "ops-channel", Enabled: true}}},
+	} {
+		_, err := New(store, nil).SaveRouteSet(context.Background(), routeSet, "tester")
+		require.NoError(t, err)
+	}
+	event := chatbridge.NotificationEvent{
+		Type:       eventstore.TypeDAGRunFailed,
+		Status:     &ir.DAGRunStatus{Name: "daily-report", Status: ir.Failed, Labels: []string{"workspace=ops"}},
+		ObservedAt: time.Now().UTC(),
+	}
+	projectRoute := routeDestinationID(notificationmodel.RouteScopeGlobal, "", "project-route")
+	opsRoute := routeDestinationID(notificationmodel.RouteScopeWorkspace, "ops", "ops-route")
+
+	for projectsOn, want := range map[bool]string{true: projectRoute, false: opsRoute} {
+		svc := New(store, nil, WithProjectsEnabled(projectsOn))
+		assert.Equal(t, []string{want}, svc.NotificationDestinationsForEvent(event), "projects on: %t", projectsOn)
+	}
+
+	// A malformed workspace label is an ordinary label while projects are
+	// on, and stops every delivery while they are off.
+	malformed := event
+	malformed.Status = &ir.DAGRunStatus{Name: "daily-report", Status: ir.Failed, Labels: []string{"workspace=ops", "workspace=engineering"}}
+	assert.Equal(t, []string{projectRoute}, New(store, nil, WithProjectsEnabled(true)).NotificationDestinationsForEvent(malformed))
+	assert.Empty(t, New(store, nil).NotificationDestinationsForEvent(malformed))
+
+	for i, sent := range []chatbridge.NotificationEvent{event, malformed} {
+		batch := chatbridge.NotificationBatch{Events: []chatbridge.NotificationEvent{sent}}
+		require.True(t, New(store, nil, WithProjectsEnabled(true)).FlushNotificationBatch(context.Background(), projectRoute, batch, false))
+		assert.Equal(t, int32(i+1), requestCount.Load())
+	}
+}
+
 func TestService_ConfiguredWorkspaceWithoutRoutesSuppressesGlobalRoutes(t *testing.T) {
 	t.Parallel()
 

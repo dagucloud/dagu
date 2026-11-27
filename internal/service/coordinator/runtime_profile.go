@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"time"
 
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -194,12 +197,8 @@ func (h *Handler) authorizeRuntimeProfile(ctx context.Context, req *coordinatorv
 	if err != nil {
 		return err
 	}
-	dag, err := h.authorizedDAG(ctx, attempt, req.GetDagName(), runtimeProfileAccessDenied)
-	if err != nil {
+	if err := h.authorizeProfileWorkspace(ctx, attempt, req.GetDagName(), req.GetWorkspace()); err != nil {
 		return err
-	}
-	if secretpkg.NormalizeWorkspace(req.GetWorkspace()) != dagWorkspace(dag) {
-		return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 	}
 
 	current, err := attempt.ReadStatus(ctx)
@@ -226,6 +225,70 @@ func (h *Handler) authorizeRuntimeProfile(ctx context.Context, req *coordinatorv
 		return status.Error(codes.Internal, err.Error())
 	}
 	return nil
+}
+
+// authorizeProfileWorkspace lets a request name the workspace of the DAG it
+// acts for. Every child at any depth of a run on a worker acts under the
+// run's lease. A DAG the run reaches through children named as written that
+// runs a child named by a reference may run a child of any name, labeled
+// with that DAG's workspace or with none, so a name the run does not reach is
+// served for either workspace of such a DAG.
+func (h *Handler) authorizeProfileWorkspace(ctx context.Context, attempt dagrun.Attempt, dagName, workspaceName string) error {
+	requested := secretpkg.NormalizeWorkspace(workspaceName)
+	dag, err := h.authorizedDAG(ctx, attempt, dagName, runtimeProfileAccessDenied)
+	if status.Code(err) == codes.PermissionDenied {
+		return h.authorizeUnreachedProfile(ctx, attempt, requested)
+	}
+	if err != nil {
+		return err
+	}
+	if requested != dagWorkspace(dag) {
+		return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
+	}
+	return nil
+}
+
+func (h *Handler) authorizeUnreachedProfile(ctx context.Context, attempt dagrun.Attempt, requested string) error {
+	dag, err := h.authorizedDAG(ctx, attempt, "", runtimeProfileAccessDenied)
+	if err != nil {
+		return err
+	}
+	workspaces := make(map[string]struct{})
+	h.referenceParentWorkspaces(ctx, dag, map[string]struct{}{dag.Name: {}}, workspaces)
+	if len(workspaces) == 0 {
+		return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
+	}
+	if _, found := workspaces[requested]; found || requested == secretpkg.GlobalWorkspace {
+		return nil
+	}
+	return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
+}
+
+// referenceParentWorkspaces adds to found the workspace of each DAG reached
+// from dag through children named as written, dag and its local DAGs
+// included, that runs a child whose name holds a reference.
+func (h *Handler) referenceParentWorkspaces(ctx context.Context, dag *ir.DAG, visited, found map[string]struct{}) {
+	eachLocalDAG(dag, func(current *ir.DAG) {
+		eachOwnSubDAG(current, func(child *ir.SubDAG) {
+			if cmnvalue.HasAnyReference(child.Name) {
+				found[dagWorkspace(current)] = struct{}{}
+			}
+		})
+	})
+	if h.dagRepository == nil {
+		return
+	}
+	for _, childName := range externalSubDAGNames(dag) {
+		if _, seen := visited[childName]; seen || cmnvalue.HasAnyReference(childName) {
+			continue
+		}
+		visited[childName] = struct{}{}
+		child, err := h.dagRepository.GetDetails(ctx, childName, persis.DAGLoadOptions{})
+		if err != nil {
+			continue
+		}
+		h.referenceParentWorkspaces(ctx, child, visited, found)
+	}
 }
 
 func runtimeProfileToProto(resolved *profilepkg.RuntimeResolved) *coordinatorv1.ResolveRuntimeProfileResponse {

@@ -344,6 +344,10 @@ func (c *secretResolvingRemoteCoordinatorClient) resolvedChecks() []bool {
 	return append([]bool(nil), c.checks...)
 }
 
+func (c *secretResolvingRemoteCoordinatorClient) ResolveNodeSecretReference(_ context.Context, _ serviceregistry.HostInfo, node string, ref secretref.Ref, _ string, _ coordinator.SecretReferenceRun) (string, error) {
+	return "", fmt.Errorf("no node secret %q for node %q", ref.Ref, node)
+}
+
 type secretTestStreamLogsClient struct {
 	mu     sync.Mutex
 	chunks []*coordinatorv1.LogChunk

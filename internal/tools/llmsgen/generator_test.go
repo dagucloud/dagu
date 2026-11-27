@@ -41,6 +41,8 @@ func TestGenerateBuildsLLMsTextFromBundledSkillSources(t *testing.T) {
 		"# Build Workflows",
 		"# External CLI Harnesses",
 		"# Operating a Running Dagu Server",
+		"# Coming From Rundeck",
+		"# Coming From Ansible",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("generated output missing %q\n%s", want, output)
@@ -73,6 +75,8 @@ func TestGenerateBuildsLLMsTextFromBundledSkillSources(t *testing.T) {
 		"# Build Workflows",
 		"# External CLI Harnesses",
 		"# Operating a Running Dagu Server",
+		"# Coming From Rundeck",
+		"# Coming From Ansible",
 	)
 }
 
@@ -188,6 +192,14 @@ Use harness.run.
 		filepath.Join("references", "server-operations.md"): `# Operating a Running Dagu Server
 
 Use MCP first.
+`,
+		filepath.Join("references", "coming-from-rundeck.md"): `# Coming From Rundeck
+
+Map node filters to selectors.
+`,
+		filepath.Join("references", "coming-from-ansible.md"): `# Coming From Ansible
+
+Map plays to bound runs.
 `,
 	}
 

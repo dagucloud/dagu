@@ -246,9 +246,10 @@ func TestFlushableMultiWriter_Integration(t *testing.T) {
 	})
 }
 
-// A periodic flush must not write a partial line, or a secret split across
-// writes reaches the log unmasked. Flush ends the attempt and writes it all.
-func TestSafeBufferedWriter_MaskedPartialLine(t *testing.T) {
+// A periodic flush must not write the start of a secret the masking writer
+// holds, or a secret split across writes reaches the log unmasked. Flush
+// ends the attempt and writes it all.
+func TestSafeBufferedWriter_HeldSecretStart(t *testing.T) {
 	var out bytes.Buffer
 	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: []string{"TOKEN=s3cr3t"}})
 	w := newSafeBufferedWriter(masking.NewMaskingWriter(&out, masker))
@@ -262,6 +263,37 @@ func TestSafeBufferedWriter_MaskedPartialLine(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, w.Flush())
 	assert.Equal(t, "*******", out.String())
+}
+
+// A periodic flush must not send the start of a secret to the stream, or a
+// secret split across writes reaches the coordinator unmasked.
+func TestMaskingStreamWriter_HeldSecretStart(t *testing.T) {
+	stream := &recordingStream{}
+	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: []string{"TOKEN=s3cr3t"}})
+	w := newMaskingStreamWriter(stream, masker)
+
+	_, err := w.Write([]byte("s3c"))
+	require.NoError(t, err)
+	require.NoError(t, w.FlushIfDue())
+	assert.Empty(t, stream.String())
+	assert.True(t, stream.flushedIfDue)
+
+	_, err = w.Write([]byte("r3t"))
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	assert.Equal(t, "*******", stream.String())
+	assert.True(t, stream.closed)
+}
+
+// A streamed log masks provider token formats the step's secrets do not list.
+func TestMaskingStreamWriter_ProviderToken(t *testing.T) {
+	stream := &recordingStream{}
+	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: []string{"TOKEN=s3cr3t"}})
+	w := newMaskingStreamWriter(stream, masker)
+
+	_, err := w.Write([]byte("Bearer ya29." + "a0AfB_byC1x2y3z4ExampleAccessToken-abc\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer *******\n", stream.String())
 }
 
 // Helper types for testing
@@ -303,4 +335,20 @@ type syncableWriter struct {
 func (s *syncableWriter) Sync() error {
 	s.synced = true
 	return s.err
+}
+
+type recordingStream struct {
+	bytes.Buffer
+	flushedIfDue bool
+	closed       bool
+}
+
+func (r *recordingStream) FlushIfDue() error {
+	r.flushedIfDue = true
+	return nil
+}
+
+func (r *recordingStream) Close() error {
+	r.closed = true
+	return nil
 }

@@ -1764,6 +1764,10 @@ export const baseJapanese = {
   'Retry selected': '選択項目を再試行',
   'Retry step': 'ステップを再試行',
   'Retry this step?': 'このステップを再試行しますか？',
+  'Retry unavailable while the DAG run is running.':
+    'DAG 実行が実行中のため再試行できません。',
+  'Retry unavailable while the root DAG run is running.':
+    '最上位の DAG 実行が実行中のため再試行できません。',
   'Retrying...': '再試行中...',
   'Reuse previous output': '前回の出力を再利用',
   Revert: '元に戻す',

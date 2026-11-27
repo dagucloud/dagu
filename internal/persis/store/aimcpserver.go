@@ -106,7 +106,7 @@ func (s *AIMCPServerStore) Update(ctx context.Context, scope aiendpoint.Scope, n
 	if err != nil {
 		return nil, err
 	}
-	return swapRecord(ctx, s.col, id, decodeAIMCPServer, func(server *aiendpoint.MCPServer) ([]byte, error) {
+	return swapAIRecord(ctx, s.col, id, decodeAIMCPServer, func(server *aiendpoint.MCPServer) ([]byte, error) {
 		return persis.Encode(&aiMCPServerStoredRecord{Server: server.Clone()})
 	}, change)
 }

@@ -92,14 +92,16 @@ func TestRetryBypassRoundTrips(t *testing.T) {
 func TestDispatchTaskTargetWorkerRoundTrips(t *testing.T) {
 	t.Parallel()
 
-	task := &dispatch.DispatchTask{TargetWorkerID: "worker-a"}
+	task := &dispatch.DispatchTask{TargetWorkerID: "worker-a", BoundNode: "worker-a", NodeStep: "deploy"}
 	protoTask, err := convert.DispatchTaskToProto(task)
 	require.NoError(t, err)
 	assert.Equal(t, "worker-a", protoTask.TargetWorkerId)
+	assert.Equal(t, "worker-a", protoTask.BoundNode)
+	assert.Equal(t, "deploy", protoTask.NodeStep)
 
 	got, err := convert.ProtoToDispatchTask(protoTask)
 	require.NoError(t, err)
-	assert.Equal(t, "worker-a", got.TargetWorkerID)
+	assert.Equal(t, task, got)
 }
 
 func TestDispatchTaskToProtoValidatesOwnerPort(t *testing.T) {
@@ -197,6 +199,16 @@ func TestDispatchTaskPassedEnvRoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, []string{"TODAY=2026-01-01", "GH_USER=octocat"}, got.PassedEnv)
+}
+
+func TestDispatchTaskTargetNodesRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	protoTask, err := convert.DispatchTaskToProto(&dispatch.DispatchTask{TargetNodes: []string{"web01", "web03"}})
+	require.NoError(t, err)
+	got, err := convert.ProtoToDispatchTask(protoTask)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"web01", "web03"}, got.TargetNodes)
 }
 
 func TestDispatchTaskScheduleWindowRoundTrips(t *testing.T) {

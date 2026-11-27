@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"unicode/utf16"
 	"unicode/utf8"
 )
@@ -25,12 +27,37 @@ type SourcedEnvVars struct {
 	Secrets []string // Environment variables from secrets
 }
 
-// Masker provides masking functionality for sensitive data
+// providerTokens are the formats of provider OAuth tokens, which a step can
+// print without Dagu knowing the value.
+var providerTokens = []providerToken{
+	{prefix: "ya29.", symbols: "._-", minBody: 20},              // Google access tokens
+	{prefix: "1//", symbols: "_-", minBody: 40, inBase64: true}, // Google refresh tokens
+}
+
+// Masker provides masking functionality for sensitive data. It is safe for
+// concurrent use.
 type Masker struct {
-	// values finds the values to mask; nil when there are none.
-	values *valueTrie
+	// values finds the values to mask; nil when there are none. Add
+	// replaces it, so a reader loads it once per text.
+	values atomic.Pointer[valueTrie]
 	// patterns match further text to mask, such as token formats.
 	patterns []*regexp.Regexp
+
+	// mu serializes Add.
+	mu sync.Mutex
+	// secrets holds the values given so far, from which Add rebuilds values.
+	secrets []string
+}
+
+// providerToken is a token format: a literal prefix and a body of at least
+// minBody letters, digits, and symbols.
+type providerToken struct {
+	prefix  string
+	symbols string
+	minBody int
+	// inBase64 reports that base64 data can hold the prefix, so a prefix
+	// right after a base64 character does not start a token.
+	inBase64 bool
 }
 
 // span is a range of text to mask, from start up to end.
@@ -57,6 +84,33 @@ func NewMasker(sources SourcedEnvVars) *Masker {
 // does for the values of environment variables, and every match of
 // patterns. Empty values are ignored.
 func NewValueMasker(values []string, patterns ...*regexp.Regexp) *Masker {
+	m := &Masker{patterns: patterns, secrets: slices.Clone(values)}
+	m.values.Store(newValueTrie(maskForms(m.secrets)))
+	return m
+}
+
+// Add makes m also mask each of values, as NewValueMasker does, in every
+// text masked after Add returns. Writers that already wrap m, such as a
+// MaskingWriter, mask them in the text they write from then on. Empty
+// values are ignored.
+func (m *Masker) Add(values ...string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	added := false
+	for _, val := range values {
+		if val != "" && !slices.Contains(m.secrets, val) {
+			m.secrets = append(m.secrets, val)
+			added = true
+		}
+	}
+	if added {
+		m.values.Store(newValueTrie(maskForms(m.secrets)))
+	}
+}
+
+// maskForms returns the distinct forms of values to mask: each as written
+// and as it appears inside a JSON string. Empty values are skipped.
+func maskForms(values []string) []string {
 	seen := make(map[string]bool)
 	forms := make([]string, 0, len(values))
 	for _, val := range values {
@@ -71,7 +125,7 @@ func NewValueMasker(values []string, patterns ...*regexp.Regexp) *Masker {
 			}
 		}
 	}
-	return &Masker{values: newValueTrie(forms), patterns: patterns}
+	return forms
 }
 
 // jsonForms returns val and its distinct spellings inside a JSON string:
@@ -124,32 +178,138 @@ func asciiOnly(body string) string {
 // Matches that overlap are masked as one span, so no match leaves part of
 // another visible.
 func (m *Masker) MaskString(input string) string {
-	return writeSpans(input, m.spans(input))
+	return m.mask(input, false)
+}
+
+// mask masks input as MaskString does, and also masks provider token
+// formats when tokens is set.
+func (m *Masker) mask(input string, tokens bool) string {
+	return writeSpans(input, m.spans(input, tokens))
 }
 
 // spans returns the ranges of text that values or patterns match, sorted,
-// with overlapping ranges joined.
-func (m *Masker) spans(text string) []span {
+// with overlapping ranges joined. With tokens set, the ranges include the
+// provider tokens in text.
+func (m *Masker) spans(text string, tokens bool) []span {
+	return m.scan(text, 0, tokens).spans
+}
+
+// scanResult is what scan finds in a text.
+type scanResult struct {
+	// spans are the ranges to mask, sorted, with overlapping ranges joined.
+	spans []span
+	// open is the offset from which text that follows could still change
+	// spans: the start of a value or provider token that text ends before
+	// completing. It is the length of text when nothing can.
+	open int
+	// token is the format of a provider token that runs to the end of text
+	// from offset tokenAt, so the text that follows can continue it; nil
+	// when no token does.
+	token   *providerToken
+	tokenAt int
+}
+
+// scan returns the ranges of text to mask, as spans does, and what text
+// that follows could change. before is the byte that precedes text in a
+// stream, or 0 when nothing does.
+func (m *Masker) scan(text string, before byte, tokens bool) scanResult {
+	r := scanResult{open: len(text)}
 	if m == nil {
-		return nil
+		return r
 	}
-	var spans []span
-	if m.values != nil {
+	if values := m.values.Load(); values != nil {
 		for i := range len(text) {
-			if !m.values.starts(text[i]) {
+			if !values.starts(text[i]) {
 				continue
 			}
-			if n := m.values.longestPrefix(text[i:]); n > 0 {
-				spans = append(spans, span{start: i, end: i + n})
+			n, open := values.longestPrefix(text[i:])
+			if n > 0 {
+				r.spans = append(r.spans, span{start: i, end: i + n})
+			}
+			if open {
+				r.open = min(r.open, i)
 			}
 		}
 	}
 	for _, pattern := range m.patterns {
 		for _, match := range pattern.FindAllStringIndex(text, -1) {
-			spans = append(spans, span{start: match[0], end: match[1]})
+			r.spans = append(r.spans, span{start: match[0], end: match[1]})
 		}
 	}
-	return joinSpans(spans)
+	if tokens {
+		for i := range providerTokens {
+			r.addTokens(text, before, &providerTokens[i])
+		}
+	}
+	r.spans = joinSpans(r.spans)
+	return r
+}
+
+// addTokens adds to r the tokens of format token in text, which follows
+// the byte before. Only a prefix where a token can start is followed into
+// its body, so text is read once: a rejected prefix costs no more than the
+// search for the next one.
+func (r *scanResult) addTokens(text string, before byte, token *providerToken) {
+	for offset := 0; ; {
+		i := strings.Index(text[offset:], token.prefix)
+		if i < 0 {
+			break
+		}
+		start := offset + i
+		body := start + len(token.prefix)
+		end := body
+		followed := !token.inBase64 || tokenStart(text, start, before)
+		if followed {
+			for end < len(text) && token.inBody(text[end]) {
+				end++
+			}
+		}
+		if end-body < token.minBody {
+			// A body cut short by the end of text can still grow.
+			if followed && end == len(text) {
+				r.open = min(r.open, start)
+			}
+			offset = start + 1
+			continue
+		}
+		r.spans = append(r.spans, span{start: start, end: end})
+		if end == len(text) && r.token == nil {
+			r.token, r.tokenAt = token, start
+		}
+		offset = end
+	}
+	// Text that ends inside the prefix can still start a token.
+	for n := len(token.prefix) - 1; n > 0; n-- {
+		if strings.HasSuffix(text, token.prefix[:n]) {
+			r.open = min(r.open, len(text)-n)
+			return
+		}
+	}
+}
+
+// inBody reports whether b can be part of a token body.
+func (t providerToken) inBody(b byte) bool {
+	return 'a' <= b && b <= 'z' || 'A' <= b && b <= 'Z' || '0' <= b && b <= '9' ||
+		strings.IndexByte(t.symbols, b) >= 0
+}
+
+// tokenStart reports whether a token whose prefix base64 data can hold
+// starts at offset start of text, which follows the byte before. A prefix
+// right after a base64 or token character lies inside other text, such as
+// base64 data.
+func tokenStart(text string, start int, before byte) bool {
+	b := before
+	if start > 0 {
+		b = text[start-1]
+	}
+	switch {
+	case 'a' <= b && b <= 'z', 'A' <= b && b <= 'Z', '0' <= b && b <= '9':
+		return false
+	case b == '+', b == '/', b == '_', b == '-':
+		return false
+	default:
+		return true
+	}
 }
 
 // joinSpans sorts spans and joins the ones that overlap. Spans that only

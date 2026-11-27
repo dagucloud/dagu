@@ -10,10 +10,12 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/connection"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/profile"
+	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
@@ -51,7 +53,14 @@ type RuntimeStores struct {
 	SecretStore          secret.Store
 	ProfileStore         profile.Store
 	MaterializationStore build.MaterializationStore
+	// OpenConnectionStore opens the store that local runs check their
+	// declared connections against. It is called once per run, on the
+	// first check. When nil, runs do not check their connections.
+	OpenConnectionStore func() (connection.Store, error)
 
+	// connectionChecker checks a run's connections against the store that
+	// OpenConnectionStore opens, or is nil without it.
+	connectionChecker rtagent.ConnectionChecker
 	// secretResolver and profileResolver resolve in the project alone while
 	// projects are on, and are nil while they are off.
 	secretResolver  providers.ReferenceResolver

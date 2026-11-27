@@ -35,7 +35,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	daguaqua "github.com/dagucloud/dagu/v2/internal/tools/aqua"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // Local runs child workflows in the current process through the runtime agent.
@@ -46,8 +45,12 @@ type Local struct {
 	runStateStore            runstate.Store
 	queueStore               queue.QueueStore
 	stateStore               dagrun.StateStore
+	stateStoreFor            func(ctx context.Context, path string) (dagrun.StateStore, error)
+	enqueueStoresFor         func(ctx context.Context, path string) (EnqueueStores, error)
 	secretStore              secretpkg.Store
 	secretResolver           func(*ir.DAG) providers.ReferenceResolver
+	connectionChecker        rtagent.ConnectionChecker
+	nodes                    func(*ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys)
 	profileStore             profilepkg.Store
 	profileResolver          func(*ir.DAG) profilepkg.RuntimeResolver
 	serviceRegistry          serviceregistry.ServiceRegistry
@@ -117,6 +120,33 @@ func WithLocalStateStore(store dagrun.StateStore) LocalOption {
 	}
 }
 
+// WithLocalStateStoreFor sets how each child workflow agent finds its state
+// store from the file of its DAG. It takes the place of WithLocalStateStore.
+func WithLocalStateStoreFor(pick func(ctx context.Context, path string) (dagrun.StateStore, error)) LocalOption {
+	return func(r *Local) {
+		r.stateStoreFor = pick
+	}
+}
+
+// EnqueueStores are the stores and directories that record a run that
+// Enqueue admits.
+type EnqueueStores struct {
+	DAGRunRepository *persis.DAGRunRepository
+	QueueStore       queue.QueueStore
+	LogDir           string
+	ArtifactDir      string
+}
+
+// WithLocalEnqueueStoresFor sets how Enqueue finds, from the file of a DAG,
+// the stores and directories that record the run it admits. Without it,
+// Enqueue uses the DAG-run repository, the queue store, and the DAG-run
+// directories.
+func WithLocalEnqueueStoresFor(pick func(ctx context.Context, path string) (EnqueueStores, error)) LocalOption {
+	return func(r *Local) {
+		r.enqueueStoresFor = pick
+	}
+}
+
 // WithLocalSecretStore sets the secret store used by child workflow agents.
 func WithLocalSecretStore(store secretpkg.Store) LocalOption {
 	return func(r *Local) {
@@ -128,6 +158,23 @@ func WithLocalSecretStore(store secretpkg.Store) LocalOption {
 func WithLocalSecretResolver(factory func(*ir.DAG) providers.ReferenceResolver) LocalOption {
 	return func(r *Local) {
 		r.secretResolver = factory
+	}
+}
+
+// WithLocalConnectionChecker sets what checks the connections that each
+// child DAG declares. Without it, a child's connections are not checked
+// before it starts.
+func WithLocalConnectionChecker(checker rtagent.ConnectionChecker) LocalOption {
+	return func(r *Local) {
+		r.connectionChecker = checker
+	}
+}
+
+// WithLocalNodes sets where each child agent finds the nodes of its DAG and
+// their trusted host keys. Without it, a child uses its parent's.
+func WithLocalNodes(factory func(*ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys)) LocalOption {
+	return func(r *Local) {
+		r.nodes = factory
 	}
 }
 
@@ -224,7 +271,7 @@ func (r *Local) ShouldRun(_ context.Context, req executor.SubWorkflowRequest) bo
 	if r == nil || req.DAG == nil {
 		return false
 	}
-	if req.RunID == "" || req.RootDAGRun.Zero() {
+	if req.RunID == "" || req.RootDAGRun.Zero() || req.TargetWorkerID != "" {
 		return false
 	}
 	selector := req.WorkerSelector
@@ -296,15 +343,20 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*ir.R
 
 // Enqueue admits a child workflow to the local control-plane queue.
 func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (executor.EnqueueResult, error) {
-	if r.dagRunRepository == nil {
+	stores, err := r.enqueueStores(ctx, req.Location)
+	if err != nil {
+		return executor.EnqueueResult{}, err
+	}
+	dagRunRepository, queueStore := stores.DAGRunRepository, stores.QueueStore
+	if dagRunRepository == nil {
 		return executor.EnqueueResult{}, fmt.Errorf("dag.enqueue requires a DAG-run repository")
 	}
-	if r.queueStore == nil {
+	if queueStore == nil {
 		return executor.EnqueueResult{}, fmt.Errorf("dag.enqueue requires a queue store")
 	}
 
 	ref := ir.NewDAGRunRef(req.DAG.Name, req.RunID)
-	attempt, err := r.dagRunRepository.FindAttempt(ctx, ref)
+	attempt, err := dagRunRepository.FindAttempt(ctx, ref)
 	switch {
 	case errors.Is(err, dagrun.ErrNoStatusData):
 		return executor.EnqueueResult{Status: ir.Queued, AlreadyExists: true}, nil
@@ -318,23 +370,14 @@ func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (execu
 		return executor.EnqueueResult{}, fmt.Errorf("failed to check existing DAG run: %w", err)
 	}
 
-	rCtx := runctx.GetContext(ctx)
-	logDir := r.dagRunLogDir
-	if logDir == "" {
-		logDir = rCtx.DAGRunLogDir
-	}
-	artifactDir := r.dagRunArtifactDir
-	if artifactDir == "" {
-		artifactDir = rCtx.DAGRunArtifactDir
-	}
 	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
-		DAGRunRepository: r.dagRunRepository,
-		QueueStore:       r.queueStore,
+		DAGRunRepository: dagRunRepository,
+		QueueStore:       queueStore,
 		DAG:              req.DAG,
 		DAGRunID:         req.RunID,
 		QueueName:        req.QueueName,
-		LogBaseDir:       logDir,
-		ArtifactBaseDir:  artifactDir,
+		LogBaseDir:       stores.LogDir,
+		ArtifactBaseDir:  stores.ArtifactDir,
 		TriggerType:      ir.TriggerTypeSubDAG,
 		TriggerActor:     req.TriggerActor,
 		ParallelItem:     req.ParallelItem,
@@ -347,6 +390,28 @@ func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (execu
 		return executor.EnqueueResult{}, fmt.Errorf("failed to enqueue DAG run: %w", err)
 	}
 	return executor.EnqueueResult{Status: ir.Queued}, nil
+}
+
+// enqueueStores returns the stores and directories that record a run of
+// the DAG file at path that Enqueue admits.
+func (r *Local) enqueueStores(ctx context.Context, path string) (EnqueueStores, error) {
+	if r.enqueueStoresFor != nil {
+		return r.enqueueStoresFor(ctx, path)
+	}
+	rCtx := runctx.GetContext(ctx)
+	stores := EnqueueStores{
+		DAGRunRepository: r.dagRunRepository,
+		QueueStore:       r.queueStore,
+		LogDir:           r.dagRunLogDir,
+		ArtifactDir:      r.dagRunArtifactDir,
+	}
+	if stores.LogDir == "" {
+		stores.LogDir = rCtx.DAGRunLogDir
+	}
+	if stores.ArtifactDir == "" {
+		stores.ArtifactDir = rCtx.DAGRunArtifactDir
+	}
+	return stores, nil
 }
 
 // Retry retries a child workflow step in the current process.
@@ -526,6 +591,9 @@ func (r *Local) newAgent(
 	opts.NodeList = rCtx.NodeList
 	opts.NodeSelector = rCtx.Nodes
 	opts.HostKeys = rCtx.HostKeys
+	if r.nodes != nil {
+		opts.NodeSelector, opts.HostKeys = r.nodes(dag)
+	}
 	opts.ScheduleTime = req.ScheduleTime
 	opts.ScheduleWindow = req.ScheduleWindow
 	opts.RetryPath = req.RetryPath
@@ -538,12 +606,18 @@ func (r *Local) newAgent(
 	opts.LogWriterFactory = r.logWriterFactory
 	opts.RunStateStore = r.runStateStoreFromContext(ctx)
 	opts.StateStore = r.stateStoreFromContext(ctx)
+	if r.stateStoreFor != nil {
+		if opts.StateStore, err = r.stateStoreFor(ctx, req.ParentDAG.ChildFile(req.DAG)); err != nil {
+			return nil, err
+		}
+	}
 	opts.MaterializationStore = rCtx.MaterializationStore
 	opts.NoReuse = rCtx.NoReuse
 	opts.SecretStore = r.secretStore
 	if r.secretResolver != nil {
 		opts.SecretReferenceResolver = r.secretResolver(dag)
 	}
+	opts.ConnectionChecker = r.connectionChecker
 	// A child of a test case run stays in the case. Only the parent's steps
 	// can be real, so the child keeps no redirect at its configured path.
 	opts.SecretValues = rCtx.SecretValues
@@ -708,7 +782,7 @@ func inProcessLoadOptions(
 		loadOpts = append(loadOpts, spec.WithSourceFile(req.DAG.SourceFile))
 	}
 	if cfg != nil {
-		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)))
+		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(cfg.WorkspaceBaseConfigDir()))
 	}
 	// Params are always applied so that a child started without params still
 	// enforces its required params. A command step's child is the parent's
@@ -724,10 +798,24 @@ func inProcessLoadOptions(
 
 	if baseConfig := subWorkflowBaseConfig(req); len(baseConfig) > 0 {
 		loadOpts = append(loadOpts, spec.WithBaseConfigContent(baseConfig))
-	} else if req.Workspace == nil && cfg != nil && cfg.Paths.BaseConfig != "" {
-		loadOpts = append(loadOpts, spec.WithBaseConfig(cfg.Paths.BaseConfig))
+	} else if req.Workspace == nil && cfg != nil {
+		if baseConfig := runBaseConfig(ctx, cfg); baseConfig != "" {
+			loadOpts = append(loadOpts, spec.WithBaseConfig(baseConfig))
+		}
 	}
 	return loadOpts
+}
+
+// runBaseConfig returns the base config file of the project of the run that
+// ctx carries, so a child gets its caller's project's base config, or "" when
+// none applies.
+func runBaseConfig(ctx context.Context, cfg *config.Config) string {
+	if !cfg.ProjectsEnabled {
+		return cfg.Paths.BaseConfig
+	}
+	// The name of a running project always places a DAG directory.
+	baseConfig, _ := cfg.ProjectBaseConfig(runProject(ctx))
+	return baseConfig
 }
 
 // inProcessExtraEnvs returns the execution-scoped values a local child run

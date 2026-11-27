@@ -82,41 +82,29 @@ func (a *Agent) nodeListRecord() *ir.NodeListRecord {
 	return a.nodeList.Record()
 }
 
-// nodeTargetingError fails, before any step starts, a run that uses node
-// targeting (RFC 013) in a way that is not built yet:
-//
-//   - a node: required DAG started without a node;
-//   - a run on a worker that is bound to a node or has a step that sets
-//     nodes.
-func nodeTargetingError(dag *ir.DAG, boundNode, workerID string) error {
+// nodeTargetingError fails, before any step starts, a node: required DAG
+// started without a node (RFC 013).
+func nodeTargetingError(dag *ir.DAG, boundNode string) error {
 	if dag.NodeRequired && boundNode == "" {
 		return fmt.Errorf("DAG %q declares node: required, so it runs only bound to a node, as the child of a dag.run step with nodes or started with one node (--node)", dag.Name)
-	}
-	if workerID == "" || workerID == localWorkerID {
-		return nil
-	}
-	if boundNode != "" {
-		return fmt.Errorf("the run is bound to inventory node %q, and running a bound run on a worker is not available yet", boundNode)
-	}
-	for _, step := range allSteps(dag) {
-		if step.Nodes != nil {
-			return fmt.Errorf("step %q sets nodes, and running a step on inventory nodes from a worker is not available yet", step.Name)
-		}
 	}
 	return nil
 }
 
-// nodeBinding is the inventory node a bound run runs on, with the node it
-// connects through.
+// nodeBinding is the node a bound run runs on, with the node it connects
+// through.
 type nodeBinding struct {
 	node    inventory.ResolvedNode
 	bastion *inventory.ResolvedNode
-	// connects reports a run with a step that reaches the node over SSH.
+	// connects reports a run bound to an SSH node with a step that reaches
+	// the node over SSH.
 	connects bool
 }
 
 // lookupBoundNode reads the node a bound run runs on from the project's
-// inventories. It returns nil for a run that is not bound.
+// nodes. A run bound to a worker node runs only on that worker, and its
+// steps run there, so it reaches no node over SSH. It returns nil for a run
+// that is not bound.
 func (a *Agent) lookupBoundNode(ctx context.Context) (*nodeBinding, error) {
 	if a.boundNode == "" {
 		return nil, nil
@@ -124,7 +112,7 @@ func (a *Agent) lookupBoundNode(ctx context.Context) (*nodeBinding, error) {
 	if a.nodeSelector == nil {
 		return nil, fmt.Errorf("the run is bound to node %q, but the node inventory is not available", a.boundNode)
 	}
-	nodes, err := a.nodeSelector.Nodes(ctx)
+	nodes, err := a.nodeSelector.Named(ctx, []string{a.boundNode})
 	if err != nil {
 		return nil, fmt.Errorf("failed to read node %q: %w", a.boundNode, err)
 	}
@@ -139,10 +127,20 @@ func (a *Agent) lookupBoundNode(ctx context.Context) (*nodeBinding, error) {
 	switch {
 	case node == nil:
 		return nil, fmt.Errorf("node %q is not in the project's inventories", a.boundNode)
+	case node.Kind == inventory.NodeKindWorker && !a.runsOnWorker(node.Name):
+		return nil, fmt.Errorf("the run is bound to worker node %q, so it runs only on that worker", node.Name)
+	case node.Kind == inventory.NodeKindWorker:
+		steps := allSteps(a.dag)
+		if i := slices.IndexFunc(steps, connectsToNode); i >= 0 {
+			return nil, fmt.Errorf("step %q connects to its node over SSH, but worker node %q has no SSH connection; set with.host, or keep worker nodes out of the step's selector", steps[i].Name, node.Name)
+		}
 	case node.Disabled:
 		return nil, fmt.Errorf("node %q is disabled", node.Name)
 	}
-	binding := &nodeBinding{node: *node, connects: slices.ContainsFunc(allSteps(a.dag), reachesNode)}
+	binding := &nodeBinding{
+		node:     *node,
+		connects: node.Kind == inventory.NodeKindSSH && slices.ContainsFunc(allSteps(a.dag), reachesNode),
+	}
 	if node.Bastion != "" {
 		if binding.bastion = find(node.Bastion); binding.bastion == nil {
 			return nil, fmt.Errorf("bastion %q of node %q is not in the project's inventories", node.Bastion, node.Name)
@@ -154,14 +152,38 @@ func (a *Agent) lookupBoundNode(ctx context.Context) (*nodeBinding, error) {
 	return binding, nil
 }
 
+// boundWorker returns the worker node the run was started bound to, which a
+// later dispatch of the run keeps: the run's own node when it is bound to a
+// worker node, else what the run it continues recorded.
+func (a *Agent) boundWorker() string {
+	switch {
+	case a.binding != nil && a.binding.node.Kind == inventory.NodeKindWorker:
+		return a.binding.node.Name
+	case a.binding == nil && a.boundNode != "" && a.runsOnWorker(a.boundNode):
+		// The run failed before it read its node, on the worker of its name.
+		return a.boundNode
+	case a.statusSourceTarget() != nil:
+		return a.statusSourceTarget().BoundWorker
+	default:
+		return ""
+	}
+}
+
+// runsOnWorker reports whether the run runs on the worker whose ID is
+// workerID. A run on the Dagu host runs on no worker.
+func (a *Agent) runsOnWorker(workerID string) bool {
+	return a.workerID != "" && a.workerID != localWorkerID && strings.EqualFold(a.workerID, workerID)
+}
+
 // valueNode returns the node as ${node.*} reads it.
 func (b *nodeBinding) valueNode() *cmnvalue.BoundNode {
 	labels := make(map[string]string, len(b.node.Labels))
 	for _, label := range b.node.Labels {
 		labels[label.Key] = label.Value
 	}
+	// A worker node has no port or user.
 	port := nodePort(b.node)
-	if port == "" {
+	if port == "" && b.node.Kind == inventory.NodeKindSSH {
 		port = defaultSSHPort
 	}
 	return &cmnvalue.BoundNode{
@@ -214,14 +236,28 @@ func nodePort(node inventory.ResolvedNode) string {
 // host (RFC 013 §Bound runs). Other actions run where the run runs, as under
 // DAG-level ssh.
 func reachesNode(step ir.Step) bool {
+	return connectsToNode(step) || isCommandStep(step)
+}
+
+// connectsToNode reports an ssh.run or sftp.* step that names no host, so it
+// connects to the node the run is bound to.
+func connectsToNode(step ir.Step) bool {
 	switch step.ExecutorConfig.Type {
 	case "ssh", "sftp":
-		_, host := step.ExecutorConfig.Config["host"]
-		_, ip := step.ExecutorConfig.Config["ip"]
-		return !host && !ip
+		return !namesHost(step.ExecutorConfig.Config, "host") && !namesHost(step.ExecutorConfig.Config, "ip")
 	default:
-		return isCommandStep(step)
+		return false
 	}
+}
+
+// namesHost reports whether with sets key to a host. An empty value names
+// none, so it does not reach whatever host an empty address dials.
+func namesHost(with map[string]any, key string) bool {
+	value, ok := with[key]
+	if text, isText := value.(string); isText {
+		return strings.TrimSpace(text) != ""
+	}
+	return ok
 }
 
 // isCommandStep reports whether a step runs on the command executor: a step

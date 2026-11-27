@@ -119,21 +119,21 @@ func (s *AIEndpointStore) Update(ctx context.Context, scope aiendpoint.Scope, na
 	if err != nil {
 		return nil, err
 	}
-	return swapRecord(ctx, s.col, id, decodeAIEndpoint, func(ep *aiendpoint.Endpoint) ([]byte, error) {
+	return swapAIRecord(ctx, s.col, id, decodeAIEndpoint, func(ep *aiendpoint.Endpoint) ([]byte, error) {
 		return persis.Encode(&aiEndpointStoredRecord{Endpoint: ep.Clone()})
 	}, change)
 }
 
-// maxRecordUpdates bounds the reads of swapRecord when other processes write
+// maxRecordUpdates bounds the reads of swapAIRecord when other processes write
 // the same record.
 const maxRecordUpdates = 8
 
-// swapRecord reads the record id, applies change, and saves the result with a
+// swapAIRecord reads the record id, applies change, and saves the result with a
 // compare-and-swap on the bytes that it read. A write of another process
 // between the read and the save makes it read again, so no change of another
 // process is lost. It returns aiendpoint.ErrNotFound when the record does not
 // exist, and the error of change as it is.
-func swapRecord[T any](ctx context.Context, col persis.Collection, id string,
+func swapAIRecord[T any](ctx context.Context, col persis.Collection, id string,
 	decode func(*persis.Record) (T, error), encode func(T) ([]byte, error), change func(T) error) (T, error) {
 	var zero T
 	for range maxRecordUpdates {

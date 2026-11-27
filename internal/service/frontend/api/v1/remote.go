@@ -158,6 +158,14 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 			}
 
 			w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+			if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+				// A file download names its version and file name in headers.
+				for _, key := range []string{"ETag", "Content-Disposition"} {
+					if value := resp.Header.Get(key); value != "" {
+						w.Header().Set(key, value)
+					}
+				}
+			}
 			w.WriteHeader(resp.StatusCode)
 			if _, err = w.Write(respData); err != nil {
 				logger.Error(r.Context(), "Failed to write response", tag.Error(err))

@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -819,7 +820,7 @@ func (d *queueDispatcher) dispatchQueuedItem(
 	incInflight()
 	defer decInflight()
 
-	if d.dagExecutor.IsDistributed(dag) {
+	if d.dagExecutor.distributedRun(ctx, dag, status) {
 		token, reserved := d.reserveDistributedAdmission(ctx, queueName, runRef, attempt, dispatchAdmissionInput{
 			status:                status,
 			maxConcurrency:        batch.maxConcurrency,
@@ -973,6 +974,18 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 			)
 			if finalizeErr := d.failQueuedRunBeforeStartup(ctx, queueName, runRef, defErr, conditionStage); finalizeErr != nil {
 				logger.Error(ctx, "Failed to finalize queued DAG run after definition failure", tag.Error(finalizeErr))
+			}
+			return false
+		}
+		// A run bound to a worker node fails when it cannot reach its worker,
+		// rather than waiting for it (RFC 013 §Matching).
+		if isWorkerNodeUnreachable(err) {
+			logger.Warn(ctx, "Queued DAG run cannot reach its worker node; marking run failed",
+				tag.DAG(runRef.Name),
+				tag.Error(err),
+			)
+			if finalizeErr := d.failQueuedRunBeforeStartup(ctx, queueName, runRef, err, conditionStage); finalizeErr != nil {
+				logger.Error(ctx, "Failed to finalize queued DAG run after worker node failure", tag.Error(finalizeErr))
 			}
 			return false
 		}
@@ -1459,7 +1472,7 @@ func (d *queueDispatcher) queueItemHeldByMissingExecutable(
 	recordCondition bool,
 ) (bool, *queuedConditionStage) {
 	run := d.readQueuedRun(ctx, runRef)
-	if run == nil || d.dagExecutor.IsDistributed(run.dag) {
+	if run == nil || d.dagExecutor.distributedRun(ctx, run.dag, run.status) {
 		return false, nil
 	}
 	if !recordCondition {
@@ -1504,7 +1517,15 @@ func (d *queueDispatcher) queueItemHasEligibleWorker(
 	recordCondition bool,
 ) (bool, *queuedConditionStage) {
 	run := d.readQueuedRun(ctx, runRef)
-	if run == nil || !d.dagExecutor.IsDistributed(run.dag) {
+	if run == nil {
+		return true, nil
+	}
+	// A run bound to a worker node is not held for its worker: its dispatch
+	// fails at once while the worker is offline.
+	if worker, err := d.dagExecutor.boundWorker(ctx, run.dag, run.status); worker != "" || err != nil {
+		return true, nil
+	}
+	if !d.dagExecutor.IsDistributed(run.dag) {
 		return true, nil
 	}
 
@@ -1626,6 +1647,17 @@ func isNoAvailableWorker(err error) bool {
 		return true
 	}
 	return strings.Contains(strings.ToLower(errorMessage(err)), "no available workers")
+}
+
+// isWorkerNodeUnreachable reports a dispatch of a run bound to a worker node
+// that no coordinator can reach, whose node no longer names its worker, or
+// that the coordinator refused because the worker is offline.
+func isWorkerNodeUnreachable(err error) bool {
+	if errors.Is(err, intake.ErrNoCoordinator) || errors.Is(err, intake.ErrWorkerNodeChanged) {
+		return true
+	}
+	message := errorMessage(err)
+	return strings.Contains(message, `worker node "`) && strings.Contains(message, `" is offline`)
 }
 
 func errorMessage(err error) string {

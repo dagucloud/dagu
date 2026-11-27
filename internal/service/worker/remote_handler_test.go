@@ -965,6 +965,26 @@ func TestLoadDAG(t *testing.T) {
 		}
 	})
 
+	// The child of a command step with nodes runs that step alone, with the
+	// parent run's params.
+	t.Run("NodeStep", func(t *testing.T) {
+		t.Parallel()
+		handler := &remoteTaskHandler{config: &config.Config{}}
+		loaded, err := handler.loadDAG(context.Background(), &coordinatorv1.Task{
+			Target:     "rollout",
+			Definition: "params:\n  - version: \"\"\nsteps:\n  - name: prepare\n    run: echo prepare\n  - name: deploy\n    run: echo ${params.version}\n    nodes: web\n",
+			Params:     "version=1.2",
+			BoundNode:  "tokyo-gw",
+			NodeStep:   "deploy",
+		})
+		require.NoError(t, err)
+		t.Cleanup(loaded.cleanup)
+		require.Len(t, loaded.dag.Steps, 1)
+		assert.Equal(t, "deploy", loaded.dag.Steps[0].Name)
+		assert.True(t, loaded.dag.NodeRequired)
+		assert.Contains(t, loaded.dag.Params, "version=1.2")
+	})
+
 	t.Run("FromDefinition", func(t *testing.T) {
 		t.Parallel()
 
@@ -1923,6 +1943,83 @@ func TestCreateAgentEnv_MkdirAllError(t *testing.T) {
 		if env != nil {
 			env.cleanup()
 		}
+	}
+}
+
+// The child of a command step with nodes runs that step alone also when its
+// definition comes in a workspace bundle, as a step with dependencies sends
+// it.
+func TestLoadDAGNarrowsWorkspaceNodeStep(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "deploy.sh"), []byte("true"), 0o600))
+	definition := []byte(`name: rollout
+steps:
+  - name: prepare
+    run: echo prepare
+  - name: deploy
+    run: sh deploy.sh
+    dependencies: deploy.sh
+    nodes: web
+`)
+	desc, archive, err := workspacebundle.PackDirectory(root, workspacebundle.PackOptions{
+		DAGPath:  "dag.yaml",
+		DAGData:  definition,
+		Includes: []string{"deploy.sh"},
+	})
+	require.NoError(t, err)
+	client := &workspaceRemoteCoordinatorClient{
+		mockRemoteCoordinatorClient: newMockRemoteCoordinatorClient(),
+		data:                        archive,
+	}
+	handler := &remoteTaskHandler{coordinatorClient: client, config: &config.Config{}}
+	loaded, err := handler.loadDAG(context.Background(), &coordinatorv1.Task{
+		Target:                     "rollout",
+		ParentDagRunName:           "rollout",
+		DagRunId:                   "run-1",
+		TargetWorkerId:             "tokyo-gw",
+		BoundNode:                  "tokyo-gw",
+		NodeStep:                   "deploy",
+		WorkspaceBundleDigest:      desc.Digest,
+		WorkspaceBundleSize:        desc.Size,
+		WorkspaceBundleDagPath:     desc.DAGPath,
+		WorkspaceBundleOriginalRef: desc.OriginalRef,
+		WorkspaceBundleResolvedRef: desc.ResolvedRef,
+	})
+	require.NoError(t, err)
+	defer loaded.cleanup()
+	require.NotNil(t, loaded.workspaceSeed)
+	require.Len(t, loaded.dag.Steps, 1)
+	assert.Equal(t, "deploy", loaded.dag.Steps[0].Name)
+	assert.True(t, loaded.dag.NodeRequired)
+}
+
+// A coordinator that predates worker nodes drops a command step child's node
+// step. The worker refuses the task rather than run the parent's whole DAG.
+func TestLoadDAGRefusesLostNodeStep(t *testing.T) {
+	t.Parallel()
+
+	handler := &remoteTaskHandler{config: &config.Config{}}
+	task := &coordinatorv1.Task{
+		Target:           "rollout",
+		ParentDagRunName: "rollout",
+		TargetWorkerId:   "tokyo-gw",
+		Definition:       "steps:\n  - name: prepare\n    run: echo prepare\n  - name: deploy\n    run: echo deploy\n    nodes: web\n",
+	}
+	_, err := handler.loadDAG(context.Background(), task)
+	require.ErrorContains(t, err, "without the step it runs on a node")
+
+	// A child of another DAG, or one not sent to a named worker, loads.
+	for _, change := range []func(*coordinatorv1.Task){
+		func(task *coordinatorv1.Task) { task.ParentDagRunName = "release" },
+		func(task *coordinatorv1.Task) { task.TargetWorkerId = "" },
+	} {
+		other := proto.CloneOf(task)
+		change(other)
+		loaded, err := handler.loadDAG(context.Background(), other)
+		require.NoError(t, err)
+		loaded.cleanup()
 	}
 }
 

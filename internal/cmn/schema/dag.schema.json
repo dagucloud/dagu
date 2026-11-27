@@ -8102,6 +8102,13 @@
           "type": "string",
           "description": "Context to continue."
         },
+        "message_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+          "description": "messageId to send, as given. At most 512 characters without control characters. Defaults to a UUIDv5 of the run attempt ID, step name, repeat index, and message, so a step retry resends the same ID."
+        },
         "return_immediately": {
           "type": "boolean",
           "description": "Request nonblocking execution. Defaults to true."

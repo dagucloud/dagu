@@ -6784,6 +6784,102 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /webhooks/{project}/{fileName}:
+    post:
+      summary: "Trigger a project's DAG via webhook"
+      description: |
+        Triggers a run of the project's DAG of the given name via its webhook.
+        Authentication, the request body, forwarded headers, and the response
+        are as for triggerWebhook.
+      operationId: "triggerProjectWebhook"
+      tags:
+        - "webhooks"
+      security: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: "Name of the project, matched without regard to case"
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        - $ref: "#/components/parameters/DAGFileName"
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: "Bearer token for webhook authentication (e.g., 'Bearer dagu_wh_...'). Accepts the webhook's default token or one of its profile tokens. Required only when the webhook auth mode includes token authentication."
+        - name: X-Dagu-Signature
+          in: header
+          required: false
+          schema:
+            type: string
+            pattern: '^sha256=[0-9a-fA-F]{64}$'
+            example: "sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+          description: |
+            HMAC webhook signature in the format `sha256=<hex>`. Required only
+            when the webhook auth mode includes HMAC authentication with strict
+            enforcement. Sign the raw request body when `X-Dagu-Profile` is
+            absent. When it is present, sign
+            `x-dagu-profile:<profile>\n<raw-request-body>`.
+        - name: X-Dagu-Profile
+          in: header
+          required: false
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileName"
+          description: "Runtime profile selected for this DAG run. With the default token, the profile must be allowed by the webhook profile-selection policy; omit the header to use the DAG's default profile resolution. With a profile token, the run always uses the token's profile; the header may be omitted or must name that profile."
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookRequest"
+      responses:
+        "200":
+          description: "DAG run triggered successfully"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookResponse"
+        "400":
+          description: "Invalid request body"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Unauthorized - missing or invalid token, or invalid/missing X-Dagu-Signature when strict HMAC enforcement is active"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - webhook disabled or not configured, or the requested runtime profile is not allowed for the token"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Project, DAG, or webhook not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Conflict - DAG run with the specified dagRunId already exists"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /webhooks:
     get:
       summary: "List all webhooks"
@@ -9813,6 +9909,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "409":
+          description: "SKILL.md changed after the server read the skill; read it again"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           description: "Unexpected error"
           content:
@@ -10017,7 +10119,7 @@ paths:
   /skills/{name}/files:
     get:
       summary: "Get one file of a skill"
-      description: "Streams the bytes of one file of a skill, exactly as stored. The header ETag holds the hash of the skill."
+      description: "Streams the bytes of one file of a skill, exactly as stored, as an attachment. The header ETag holds the hash of the skill. A file that changes during the stream ends the stream before its last bytes."
       operationId: "getSkillFile"
       tags:
         - "skills"
@@ -10062,6 +10164,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         "409":
           description: "The skill changed while the server read the file; read it again"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: "The file is above 4 MiB"
           content:
             application/json:
               schema:
@@ -16482,7 +16590,7 @@ components:
           description: "Name of the skill"
         content:
           type: string
-          description: "The raw content of SKILL.md. Empty when the file does not exist."
+          description: "The raw content of SKILL.md. Empty when the file does not exist, is above 4 MiB or is not UTF-8."
         hash:
           type: string
           description: "Hash of the version of the skill. Send it in If-Match for a write."
@@ -24730,7 +24838,7 @@ components:
       type: array
       items:
         type: string
-      description: "Inventory nodes the run is narrowed to (RFC 013): its steps with nodes, and those of its child runs, run only on nodes the list names. A node: required DAG takes exactly one node and runs bound to it. Each name must be a node of the project, and the DAG must be node: required or have a step with nodes or a dag.run step. A narrowed run runs on the Dagu host, and retries, restarts, and queued runs keep the list."
+      description: "Inventory nodes the run is narrowed to (RFC 013): its steps with nodes, and those of its child runs, run only on nodes the list names. A node: required DAG takes exactly one node and runs bound to it. Each name must be a node of the project, and the DAG must be node: required or have a step with nodes or a dag.run or dag.enqueue step. Retries, restarts, and queued runs keep the list."
 
     WorkerSelectorOverride:
       type: object

@@ -110,9 +110,10 @@ type Props = {
   onEditRetry?: () => void;
   /**
    * The restart policy of the workflow and its latest run. A service workflow
-   * with an active latest run has one run at a time: Retry is not shown, and
-   * the Stop tooltip says when a policy restarts the run. Retry is not shown
-   * either while the scheduler restarts the workflow by itself (`serviceDAG`).
+   * with an active latest run has one run at a time: Retry is not shown.
+   * Retry is not shown either while the scheduler restarts the workflow by
+   * itself (`serviceDAG`). With `serviceDAG`, the Stop tooltip says when a
+   * policy restarts the run.
    */
   service?: {
     dag: components['schemas']['DAG'] | components['schemas']['DAGDetails'];
@@ -250,10 +251,11 @@ function DAGRunActions({
     !!service?.dag &&
     isServiceDAG(service.dag) &&
     restartsByItself(service.serviceDAG);
-  const restartAfterSec = getRestartAfterStopSec(
-    service?.dag,
-    service?.serviceDAG
-  );
+  // Only the state of the service tells whether a run follows the stop: a
+  // suspended DAG or one on hold does not restart.
+  const restartAfterSec = service?.serviceDAG
+    ? getRestartAfterStopSec(service.dag, service.serviceDAG)
+    : null;
   const offersStopAll = Boolean(stopAll) && terminateDetails.offersStopAll;
   const stopsAll = offersStopAll && stopAllRunning;
   const hasManagedAgentSession = Boolean(
@@ -276,19 +278,27 @@ function DAGRunActions({
         ) ?? 0)
       : 0;
 
+  const retryEligible =
+    isRootLevel &&
+    dagRun?.status !== Status.Running &&
+    dagRun?.status !== Status.Queued &&
+    !isWaiting &&
+    dagRun?.dagRunId !== '';
+  // A finished run that refuses retries keeps a disabled Retry, even where
+  // unavailable actions are hidden, so the reason stays readable.
+  const showRetryDisabledReason = retryEligible && !!dagRun?.retryDisabled;
+  // An eligible Retry shows, enabled or with the reason it is disabled. A
+  // service that has an active run or starts the next one by itself has none.
+  const showsRetry =
+    !serviceActive &&
+    !serviceRestarts &&
+    (!hideUnavailable || retryEligible || !isRootLevel);
+
   // Determine which buttons should be enabled based on current status and root level
   const buttonState = {
     terminate: terminateAction !== 'none',
     reject: isRootLevel && isWaiting && hasWaitingApprovals,
-    retry:
-      isRootLevel &&
-      dagRun?.status !== Status.Running &&
-      dagRun?.status !== Status.Queued &&
-      !isWaiting &&
-      !serviceActive &&
-      !serviceRestarts &&
-      !dagRun?.retryDisabled &&
-      dagRun?.dagRunId !== '',
+    retry: retryEligible && !dagRun?.retryDisabled,
     dequeue: isRootLevel && dagRun?.status === Status.Queued,
   };
 
@@ -381,16 +391,17 @@ function DAGRunActions({
         {(part === undefined || part === 'retry') &&
           // The Retry of a bar keeps its place, disabled, for a service that
           // has an active run or starts the next one by itself.
-          (part === 'retry' || (!serviceActive && !serviceRestarts)) &&
-          (!hideUnavailable ||
-            part === 'retry' ||
-            buttonState.retry ||
-            !isRootLevel) && (
+          (part === 'retry' || showsRetry) && (
             <Tooltip>
-              {/* On a sub-run the disabled button cannot take focus, so the
-                wrapper does, letting keyboard users read why. */}
+              {/* A disabled button cannot take focus, so on a sub-run or a
+                  retry-disabled run the wrapper does, letting keyboard users
+                  read why. */}
               <TooltipTrigger asChild>
-                <span tabIndex={isRootLevel ? undefined : 0}>
+                <span
+                  tabIndex={
+                    !isRootLevel || showRetryDisabledReason ? 0 : undefined
+                  }
+                >
                   <ActionButton
                     label={buttonLabel}
                     icon={<RotateCcw className="h-4 w-4" />}

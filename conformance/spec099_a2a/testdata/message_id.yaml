@@ -1,0 +1,25 @@
+working_dir: .
+env:
+  - A2A_URL: ${A2A_URL}
+secrets:
+  - name: A2A_TOKEN
+    provider: env
+    key: A2A_TOKEN
+steps:
+  - id: send
+    action: a2a.send
+    with:
+      agent_url: ${A2A_URL}
+      message: hello
+      message_id: ${DAG_RUN_ID}-delegate
+      headers:
+        Authorization: Bearer ${A2A_TOKEN}
+    stdout: send.out
+    output: SEND
+  - id: use
+    depends: send
+    env:
+      - TEXT: ${SEND.text}
+    run: |
+      printf '%s|%s\n' "${SEND.kind}" "$TEXT"
+    stdout: use.out

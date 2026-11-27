@@ -24,6 +24,8 @@ var sourceFiles = []string{
 	filepath.Join("references", "build.md"),
 	filepath.Join("references", "harnesses.md"),
 	filepath.Join("references", "server-operations.md"),
+	filepath.Join("references", "coming-from-rundeck.md"),
+	filepath.Join("references", "coming-from-ansible.md"),
 }
 
 // Options configures llms.txt generation.

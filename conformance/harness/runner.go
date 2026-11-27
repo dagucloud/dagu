@@ -120,6 +120,14 @@ func NewRunner(t *testing.T) *Runner {
 	return r
 }
 
+// InDir returns a runner whose commands run in dir, an absolute directory,
+// instead of the isolated project.
+func (r *Runner) InDir(dir string) *Runner {
+	clone := *r
+	clone.dir = dir
+	return &clone
+}
+
 // WithCommandTimeout gives each of the runner's commands timeout instead of
 // the platform default, for commands that start slow subsystems such as a
 // browser. DAGU_CONFORMANCE_COMMAND_TIMEOUT still takes precedence.

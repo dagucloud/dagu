@@ -36,10 +36,13 @@ type Context struct {
 	BypassPreconditions bool
 	AttemptID           string
 	WorkerID            string
-	TriggerType         ir.TriggerType
-	TriggerActor        string
-	RunStartedAt        string
-	ScheduleTime        string
+	// Project names the run's project while projects are on. It is empty
+	// for a run on a worker.
+	Project      string
+	TriggerType  ir.TriggerType
+	TriggerActor string
+	RunStartedAt string
+	ScheduleTime string
 	// IntervalStart, NextScheduledAt, and ScheduleTimezone describe the
 	// window the run's schedule slot owns, as resolved by context.run.*.
 	IntervalStart    string
@@ -313,6 +316,14 @@ func WithWorkerID(workerID string) ContextOption {
 	}
 }
 
+// WithProject sets the name of the run's project, which every step gets as
+// DAGU_PROJECT.
+func WithProject(name string) ContextOption {
+	return func(o *contextOptions) {
+		o.Project = name
+	}
+}
+
 // WithTriggerType sets the DAG-run trigger type for value resolution.
 func WithTriggerType(triggerType ir.TriggerType) ContextOption {
 	return func(o *contextOptions) {
@@ -508,8 +519,10 @@ func WithMaterializationStore(store build.MaterializationStore) ContextOption {
 type NodeSelector interface {
 	// Select returns the nodes a selector matches, in name order.
 	Select(ctx context.Context, selector string) ([]inventory.ResolvedNode, error)
-	// Nodes returns every node, in name order.
-	Nodes(ctx context.Context) ([]inventory.ResolvedNode, error)
+	// Named returns the nodes names names, compared without case, and each
+	// node they connect through, in name order. A name of no node is left
+	// out.
+	Named(ctx context.Context, names []string) ([]inventory.ResolvedNode, error)
 }
 
 // WithNodeSelector sets where steps with nodes find their nodes.

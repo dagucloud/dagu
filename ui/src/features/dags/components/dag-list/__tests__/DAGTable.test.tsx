@@ -33,13 +33,19 @@ import DAGTable from '../DAGTable';
 const api = vi.hoisted(() => ({ post: vi.fn() }));
 const recentRuns = vi.hoisted(() => ({
   dagRuns: [] as unknown[],
+  reads: [] as unknown[],
 }));
 
 vi.mock('@/hooks/api', () => ({
   useClient: () => ({ POST: api.post }),
-  useQuery: (path: string) =>
+  useQuery: (path: string, init: unknown) =>
     path === '/dags/{fileName}/dag-runs'
-      ? { data: { dagRuns: recentRuns.dagRuns }, isLoading: false }
+      ? (recentRuns.reads.push(init),
+        {
+          data: { dagRuns: recentRuns.dagRuns },
+          isLoading: false,
+          mutate: vi.fn(),
+        })
       : {
           data: {
             labels: ['team=ops'],
@@ -162,7 +168,7 @@ function renderTable(
       errors: [],
     } as never,
   ];
-  const result = render(
+  const tree = (rows: typeof dags) => (
     <MemoryRouter initialEntries={['/dags']}>
       <LocationProbe />
       <ConfigContext.Provider
@@ -178,9 +184,9 @@ function renderTable(
         >
           <PanelWidthContext.Provider value={options.panelWidth ?? null}>
             <DAGTable
-              dags={dags}
+              dags={rows}
               activity={
-                'activity' in options ? options.activity : activityOf(dags)
+                'activity' in options ? options.activity : activityOf(rows)
               }
               group=""
               refreshFn={vi.fn()}
@@ -221,19 +227,21 @@ function renderTable(
           </PanelWidthContext.Provider>
         </AppBarContext.Provider>
       </ConfigContext.Provider>
-    </MemoryRouter>,
-    {
-      wrapper: ({ children }) => (
-        <I18nWrapper>
-          <PeekContext.Provider value={options.peek ?? null}>
-            {children}
-          </PeekContext.Provider>
-        </I18nWrapper>
-      ),
-    }
+    </MemoryRouter>
   );
+  const result = render(tree(dags), {
+    wrapper: ({ children }) => (
+      <I18nWrapper>
+        <PeekContext.Provider value={options.peek ?? null}>
+          {children}
+        </PeekContext.Provider>
+      </I18nWrapper>
+    ),
+  });
   return {
     ...result,
+    /** Renders the table again with other workflows, as a refetch does. */
+    rerenderDAGs: (rows: typeof dags) => result.rerender(tree(rows)),
     handleActiveOnlyChange,
     onDeleteDAGs,
     onSetDAGPinned,
@@ -1331,6 +1339,7 @@ describe('DAGTable', () => {
 
     beforeEach(() => {
       recentRuns.dagRuns = [];
+      recentRuns.reads = [];
       vi.stubGlobal('ResizeObserver', MeasuringObserver);
     });
 
@@ -1450,6 +1459,8 @@ describe('DAGTable', () => {
       renderTable('', { dags: [withActivity([run('r1', HOUR)])] });
       const table = screen.getByRole('table');
       expect(within(table).queryByTestId('dag-recent-runs')).toBeNull();
+      // A folded row reads no runs.
+      expect(recentRuns.reads).toEqual([]);
 
       const toggle = within(table).getByTestId('dag-activity-toggle');
       expect(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -1459,8 +1470,6 @@ describe('DAGTable', () => {
       const panel = within(table).getByTestId('dag-recent-runs');
       expect(within(panel).getByText('older')).toBeInTheDocument();
       expect(within(panel).getByText('newer')).toBeInTheDocument();
-      // The runs have no "Open the workflow" link: a line opens its run.
-      expect(within(panel).queryByText('Open the workflow')).toBeNull();
       // The chevron neither opens the workflow nor selects the row.
       expect(screen.getByTestId('location')).toHaveTextContent(/^\/dags$/);
 
@@ -1473,76 +1482,73 @@ describe('DAGTable', () => {
       expect(within(table).queryByTestId('dag-recent-runs')).toBeNull();
     });
 
-    // A run of a service DAG that never ends reads Healthy.
-    it('reads a continuous run of a service DAG as Healthy and its start as "3h ago"', () => {
-      recentRuns.dagRuns = [
-        {
-          ...run('service', 3 * HOUR, Status.Running),
-          nodes: [
-            {
-              step: {
-                name: 'serve',
-                repeatPolicy: { repeat: 'while', condition: 'true' },
-              },
-              status: NodeStatus.Running,
-            },
-          ],
-        },
-        run('plain', 5 * 60_000),
-      ];
-      const alpha = withLatestRun() as { dag: object };
+    // A run line opens the run as a bar does: over the list, which keeps
+    // its unfolded rows.
+    it('shows the peek of a run from its line in the recent runs', () => {
+      recentRuns.dagRuns = [run('older', 3 * HOUR)];
+      const peek = { open: vi.fn(), isOpen: false };
+      renderTable('', { peek, dags: [withActivity([run('r1', HOUR)])] });
+      const table = screen.getByRole('table');
+
+      fireEvent.click(within(table).getByTestId('dag-activity-toggle'));
+      fireEvent.click(
+        within(within(table).getByTestId('dag-recent-runs')).getByText('older')
+      );
+
+      expect(peek.open).toHaveBeenCalledWith({
+        dag: 'alpha.yaml',
+        run: 'older',
+      });
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/dags$/);
+      expect(within(table).getByTestId('dag-recent-runs')).toBeInTheDocument();
+    });
+
+    // The line that ends the pinned rows goes under the runs of the last
+    // pinned row, so that they read as part of that row.
+    it('ends the pinned rows under the runs of an unfolded pinned row', () => {
       renderTable('', {
         dags: [
           {
-            ...alpha,
-            dag: { ...alpha.dag, restartPolicy: RestartPolicy.always },
-          },
-        ] as never,
+            ...workflow({ name: 'reports', pinned: true }),
+            activity: { runs: [run('r1', HOUR)], truncated: false },
+          } as never,
+          withActivity([]),
+        ],
       });
       const table = screen.getByRole('table');
-      fireEvent.click(within(table).getByTestId('dag-activity-toggle'));
+      const row = within(table)
+        .getByRole('link', { name: 'reports' })
+        .closest('tr');
 
-      const panel = within(table).getByTestId('dag-recent-runs');
-      // The status is a dot alone: its name is the accessible label.
+      fireEvent.click(within(row!).getByTestId('dag-activity-toggle'));
+
+      expect(row).not.toHaveClass('border-b-2');
       expect(
-        within(panel).getByRole('img', { name: 'Healthy' })
-      ).toBeInTheDocument();
-      expect(within(panel).queryByRole('img', { name: 'Running' })).toBeNull();
-      expect(within(panel).queryByText('Healthy')).toBeNull();
-      // A run without a scheduled time tells when it ended next to the dot:
-      // one minute after its start, which rounds to the same "3h ago".
-      expect(within(panel).getAllByText('3h ago')).toHaveLength(2);
-      expect(within(panel).getByText('5m ago')).toBeInTheDocument();
-      expect(within(panel).getByText('4m ago')).toBeInTheDocument();
-      expect(within(panel).getAllByText('·')).toHaveLength(2);
+        within(table).getByTestId('dag-recent-runs').closest('tr')
+      ).toHaveClass('border-b-2');
     });
 
-    // A cron or manual workflow keeps the normal status for a step that never ends.
-    it('reads a continuous run of a workflow that is not a service DAG as Running', () => {
+    it('tells the time of a run next to its status dot', () => {
       recentRuns.dagRuns = [
-        {
-          ...run('service', 3 * HOUR, Status.Running),
-          nodes: [
-            {
-              step: {
-                name: 'serve',
-                repeatPolicy: { repeat: 'while', condition: 'true' },
-              },
-              status: NodeStatus.Running,
-            },
-          ],
-        },
-        run('plain', 5 * 60_000),
+        run('long', 3 * HOUR),
+        run('plain', 5 * 60_000, Status.Failed),
       ];
       renderTable('', { dags: [withLatestRun()] });
       const table = screen.getByRole('table');
       fireEvent.click(within(table).getByTestId('dag-activity-toggle'));
 
       const panel = within(table).getByTestId('dag-recent-runs');
+      // The status is a dot alone: its name is the accessible label.
       expect(
-        within(panel).getByRole('img', { name: 'Running' })
+        within(panel).getByRole('img', { name: 'Failed' })
       ).toBeInTheDocument();
-      expect(within(panel).queryByRole('img', { name: 'Healthy' })).toBeNull();
+      expect(within(panel).queryByText('Failed')).toBeNull();
+      // A run without a scheduled time tells when it ended next to the dot:
+      // one minute after its start, which rounds to the same "3h ago".
+      expect(within(panel).getAllByText('3h ago')).toHaveLength(2);
+      expect(within(panel).getByText('5m ago')).toBeInTheDocument();
+      expect(within(panel).getByText('4m ago')).toBeInTheDocument();
+      expect(within(panel).getAllByText('·')).toHaveLength(2);
     });
 
     it('tells the trigger, the cause of a failure, the labels and the queue wait', () => {
@@ -1635,6 +1641,58 @@ describe('DAGTable', () => {
         )
       ).toBeInTheDocument();
       expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
+    });
+
+    // A service DAG has no runs to draw: its row and its card hold no strip.
+    it('draws no strip for a service DAG', () => {
+      const dags = [
+        withActivity([run('r1', HOUR)]),
+        {
+          ...workflow({ name: 'service' }),
+          dag: { name: 'service', restartPolicy: RestartPolicy.always },
+          // A run, so that only the service rule hides the chevron. Not a
+          // running one: its chip animates and needs matchMedia, which
+          // jsdom lacks.
+          latestDAGRun: {
+            dagRunId: 'served',
+            status: Status.Success,
+            statusLabel: 'Success',
+          },
+          activity: { runs: [], truncated: false },
+        } as never,
+      ];
+      const table = renderTable('', { dags });
+
+      // The row of alpha, which alone can unfold its runs.
+      expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
+      expect(screen.getAllByTestId('dag-activity-toggle')).toHaveLength(1);
+
+      table.unmount();
+      renderTable('', { dags, panelWidth: 600 });
+
+      // The card of alpha.
+      expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
+    });
+
+    // A workflow that becomes a service DAG loses its chevron, so its panel
+    // folds too: no panel stays without a control to fold it.
+    it('folds the recent runs of a workflow that becomes a service DAG', () => {
+      const table = renderTable('', { dags: [withLatestRun()] });
+      fireEvent.click(
+        within(screen.getByRole('table')).getByTestId('dag-activity-toggle')
+      );
+      expect(screen.getByTestId('dag-recent-runs')).toBeInTheDocument();
+
+      table.rerenderDAGs([
+        {
+          ...workflow({ name: 'alpha' }),
+          dag: { name: 'alpha', restartPolicy: RestartPolicy.always },
+          activity: { runs: [], truncated: false },
+        } as never,
+      ]);
+
+      expect(screen.queryByTestId('dag-activity-toggle')).toBeNull();
+      expect(screen.queryByTestId('dag-recent-runs')).toBeNull();
     });
 
     // A card keeps the room of its strip while the activity loads, so that it

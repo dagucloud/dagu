@@ -25,6 +25,9 @@ import (
 
 type SecretReferenceClient interface {
 	ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error)
+	// ResolveNodeSecretReference resolves ref for the connection to node, its
+	// bastion's included.
+	ResolveNodeSecretReference(ctx context.Context, owner serviceregistry.HostInfo, node string, ref secretref.Ref, workspace string, run SecretReferenceRun) (string, error)
 }
 
 type SecretReferenceRun struct {
@@ -82,12 +85,27 @@ func (r *secretReferenceResolver) resolve(ctx context.Context, ref secretref.Ref
 	return r.client.ResolveSecretReference(ctx, r.owner, ref, r.workspace, checkOnly, r.run)
 }
 
+// ResolveNodeReference resolves the credential ref of the connection to an
+// inventory node, its bastion's included.
+func (r *secretReferenceResolver) ResolveNodeReference(ctx context.Context, node string, ref secretref.Ref) (string, error) {
+	return r.client.ResolveNodeSecretReference(ctx, r.owner, node, ref, r.workspace, r.run)
+}
+
 func (cli *clientImpl) ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error) {
+	return cli.sendSecretReference(ctx, owner, secretReferenceRequest(ref, workspace, checkOnly, run))
+}
+
+func (cli *clientImpl) ResolveNodeSecretReference(ctx context.Context, owner serviceregistry.HostInfo, node string, ref secretref.Ref, workspace string, run SecretReferenceRun) (string, error) {
+	req := secretReferenceRequest(ref, workspace, false, run)
+	req.Name, req.Node = "", node
+	return cli.sendSecretReference(ctx, owner, req)
+}
+
+func (cli *clientImpl) sendSecretReference(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ResolveSecretReferenceRequest) (string, error) {
 	if !emptyCoordinatorOwner(owner) && !completeCoordinatorOwner(owner) {
 		return "", fmt.Errorf("secret reference owner coordinator endpoint is incomplete")
 	}
 
-	req := secretReferenceRequest(ref, workspace, checkOnly, run)
 	if completeCoordinatorOwner(owner) {
 		return cli.resolveSecretReferenceTo(ctx, owner, req)
 	}
@@ -372,30 +390,60 @@ func (h *Handler) reachableDAG(ctx context.Context, dag *ir.DAG, name string, vi
 	return nil
 }
 
+// externalSubDAGNames returns the child DAGs that steps of dag and of its
+// local DAGs run by name, foreach bodies and handlers included, except local
+// DAGs.
 func externalSubDAGNames(dag *ir.DAG) []string {
 	var names []string
-	var collect func(*ir.DAG)
-	collect = func(current *ir.DAG) {
-		if current == nil {
-			return
-		}
-		for _, step := range current.Steps {
-			if step.SubDAG != nil && localDAGByName(dag, step.SubDAG.Name) == nil {
-				names = append(names, step.SubDAG.Name)
+	eachLocalDAG(dag, func(current *ir.DAG) {
+		eachOwnSubDAG(current, func(child *ir.SubDAG) {
+			if localDAGByName(dag, child.Name) == nil {
+				names = append(names, child.Name)
+			}
+		})
+	})
+	return names
+}
+
+// eachLocalDAG calls fn with dag and each of its local DAGs, nested ones
+// included.
+func eachLocalDAG(dag *ir.DAG, fn func(*ir.DAG)) {
+	if dag == nil {
+		return
+	}
+	fn(dag)
+	for _, child := range dag.LocalDAGs {
+		eachLocalDAG(child, fn)
+	}
+}
+
+// eachOwnSubDAG calls fn with the child DAG of each step of dag that runs
+// one, foreach bodies and handlers included, but not with those of its local
+// DAGs.
+func eachOwnSubDAG(dag *ir.DAG, fn func(*ir.SubDAG)) {
+	var visit func(steps []ir.Step)
+	visit = func(steps []ir.Step) {
+		for _, step := range steps {
+			if step.SubDAG != nil {
+				fn(step.SubDAG)
+			}
+			if step.Foreach != nil {
+				visit(step.Foreach.Steps)
 			}
 			// A DAG tool runs as a child of the run (Spec 090).
 			for _, entry := range stepToolEntries(step) {
-				if entry.Kind == ir.ToolEntryDAG && entry.DAG != "" && localDAGByName(dag, entry.DAG) == nil {
-					names = append(names, entry.DAG)
+				if entry.Kind == ir.ToolEntryDAG && entry.DAG != "" {
+					fn(&ir.SubDAG{Name: entry.DAG})
 				}
 			}
 		}
-		for _, child := range current.LocalDAGs {
-			collect(child)
+	}
+	visit(dag.Steps)
+	for _, handler := range []*ir.Step{dag.HandlerOn.Init, dag.HandlerOn.Failure, dag.HandlerOn.Success, dag.HandlerOn.Abort, dag.HandlerOn.Exit, dag.HandlerOn.Wait} {
+		if handler != nil {
+			visit([]ir.Step{*handler})
 		}
 	}
-	collect(dag)
-	return names
 }
 
 // stepToolEntries returns the tool entries of an agent.run or chat.completion step.

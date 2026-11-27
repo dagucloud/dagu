@@ -612,6 +612,11 @@ function NodeStatusTableRow({
               <I18nText text={'Retry step'} />
             </DropdownMenuItem>
           )}
+          {canRetry && retryDisabled && retryGate.reason && (
+            <div className="max-w-64 px-2 pb-1.5 text-xs text-muted-foreground">
+              <I18nText text={retryGate.reason} />
+            </div>
+          )}
           {canRetry && canUpdateStepStatus && <DropdownMenuSeparator />}
           {canUpdateStepStatus && (
             <DropdownMenuItem onSelect={() => setShowStatusModal(true)}>

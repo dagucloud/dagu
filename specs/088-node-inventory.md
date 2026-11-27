@@ -252,9 +252,12 @@ warning when it starts.
   whatever the filters, `worker "<id>" is not a node: inventory
   "<inventory>" has a node of that name`.
 - Worker nodes are listed in name order among the inventory nodes, and a
-  selector matches their labels as it matches an inventory node's.
-  `disabled` does not apply to a worker; a worker is kept out of a selector
-  by changing its labels.
+  selector matches their labels as it matches an inventory node's, in
+  `list`, `GET /nodes`, and a step with `nodes`
+  ([Spec 089](089-node-targeting.md)). `disabled` does not apply to a
+  worker; a worker is kept out of a selector by changing its labels. A run
+  bound to a worker node runs on that worker, and fails at once while the
+  worker is offline.
 - `show` of a worker node prints its `Name`, `Kind`, `Host`, `Labels`, and
   `Status`, and while it is offline `Last seen`, in RFC 3339.
 - **`dagu nodes forget <name>`** forgets an offline worker node, compared
@@ -281,7 +284,9 @@ against the local installation.
 With `strict_host_key` on, the default, a node accepts the key that matches
 its `host_key` or the key trusted for it. A project trusts at most one key
 per node, kept by node name. Trusted keys are not part of an inventory, so
-they are never exported or imported.
+they are never exported or imported. A run checks keys the same way, on a
+worker too, which reads the keys trusted for the nodes it reaches from the
+coordinator. A run never trusts a key.
 
 **Testing a connection.** `POST /node-connection-tests` tests the named
 nodes, or the nodes a selector matches, from the server. A test checks the

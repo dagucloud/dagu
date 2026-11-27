@@ -60,6 +60,14 @@ const (
 	// notification settings. A project's DAG routes and route sets are in
 	// CollectionNotifications.
 	CollectionNotificationChannels = "notification_channels"
+	// CollectionOAuthApps holds the OAuth apps that connections use.
+	CollectionOAuthApps = "oauth_apps"
+	// CollectionConnections holds connection metadata.
+	CollectionConnections = "connections"
+	// CollectionConnectionTokens holds the token state of connections.
+	CollectionConnectionTokens = "connection_tokens"
+	// CollectionConnectionCatalogs holds the tool catalogs of connections.
+	CollectionConnectionCatalogs = "connection_catalogs"
 	// CollectionSchedulerProcess holds the scheduler process's pause flag,
 	// restart backoff, and outages. A project's scheduler state is in
 	// CollectionSchedulerState.

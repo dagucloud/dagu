@@ -659,6 +659,16 @@ func TestTaskOption_Functions(t *testing.T) {
 		assert.Equal(t, "shared-queue", task.QueueName)
 	})
 
+	// A retry task carries the node list of the run it retries.
+	t.Run("WithPreviousStatusKeepsNodeList", func(t *testing.T) {
+		t.Parallel()
+
+		task := &dispatch.DispatchTask{}
+		executor.WithPreviousStatus(&ir.DAGRunStatus{TargetNodes: []string{"web01"}})(task)
+
+		assert.Equal(t, []string{"web01"}, task.TargetNodes)
+	})
+
 	t.Run("WithPreviousStatusNil", func(t *testing.T) {
 		t.Parallel()
 

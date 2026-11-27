@@ -33,6 +33,7 @@ func projectsTestConfig(t *testing.T, enabled bool) *config.Config {
 			SuspendFlagsDir:       filepath.Join(root, "data", "suspend"),
 			SuspendFlagsDirLegacy: filepath.Join(root, "suspend"),
 			ViewsDir:              filepath.Join(root, "data", "views"),
+			WebhooksDir:           filepath.Join(root, "webhooks"),
 		},
 	}
 }
@@ -62,6 +63,7 @@ func TestProjectPaths(t *testing.T) {
 			SuspendFlagsDir:       cfg.Paths.SuspendFlagsDir,
 			LegacySuspendFlagsDir: cfg.Paths.SuspendFlagsDirLegacy,
 			ViewsDir:              cfg.Paths.ViewsDir,
+			WebhooksDir:           cfg.Paths.WebhooksDir,
 		}, paths)
 	})
 
@@ -98,6 +100,7 @@ func TestProjectPaths(t *testing.T) {
 				ProcDir:         filepath.Join(state, "state", "proc"),
 				SuspendFlagsDir: filepath.Join(state, "state", "suspend"),
 				ViewsDir:        filepath.Join(state, "state", "views"),
+				WebhooksDir:     filepath.Join(state, "settings", "webhooks"),
 				RecordDirs:      []string{state},
 			}, paths)
 		}
@@ -137,7 +140,10 @@ func TestProjectPaths(t *testing.T) {
 		assert.Equal(t, artifacts, paths.ArtifactDir)
 		assert.Equal(t, runs, paths.DAGRunsDir)
 		assert.Equal(t, work, paths.DAGRunWorkDir)
-		assert.Equal(t, []string{state, logs, artifacts, runs, work}, paths.RecordDirs)
+		assert.Equal(t, []string{
+			state, logs, artifacts, runs, work,
+			logs + ".library", artifacts + ".library", runs + ".library", work + ".library",
+		}, paths.RecordDirs)
 	})
 
 	// paths.event_store_dir only tells migration where v2 kept run events,
@@ -165,6 +171,7 @@ func TestProjectPaths(t *testing.T) {
 		assert.Equal(t, []string{
 			filepath.Join(cfg.Paths.DataDir, "projects", "weather"),
 			filepath.Join(cfg.Paths.LogDir, ".projects", "weather"),
+			filepath.Join(cfg.Paths.LogDir, ".projects", "weather.library"),
 		}, paths.RecordDirs)
 	})
 
@@ -176,6 +183,29 @@ func TestProjectPaths(t *testing.T) {
 			assert.Error(t, err, "name %q", name)
 		}
 	})
+}
+
+func TestProjectBaseConfig(t *testing.T) {
+	t.Parallel()
+
+	for _, projectsOn := range []bool{false, true} {
+		cfg := projectsTestConfig(t, projectsOn)
+		cfg.Paths.BaseConfig = filepath.Join(filepath.Dir(cfg.Paths.DAGsDir), "base.yaml")
+		for _, name := range []string{"", "default", "Default"} {
+			base, err := cfg.ProjectBaseConfig(name)
+			require.NoError(t, err)
+			assert.Equal(t, cfg.Paths.BaseConfig, base, "name %q", name)
+		}
+		base, err := cfg.ProjectBaseConfig("weather")
+		if !projectsOn {
+			assert.Error(t, err)
+			assert.Equal(t, filepath.Join(cfg.Paths.DAGsDir, "workspaces"), cfg.WorkspaceBaseConfigDir())
+			continue
+		}
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(cfg.Paths.ProjectsDir, "weather", "base.yaml"), base)
+		assert.Empty(t, cfg.WorkspaceBaseConfigDir())
+	}
 }
 
 func TestDiscoverySkipRoots(t *testing.T) {
@@ -239,5 +269,59 @@ func TestProjectWarnings(t *testing.T) {
 		warnings := cfg.ProjectWarnings()
 		require.Len(t, warnings, 1)
 		assert.Contains(t, warnings[0], "different file systems")
+	})
+}
+
+func TestLibraryPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Off", func(t *testing.T) {
+		t.Parallel()
+		_, err := projectsTestConfig(t, false).LibraryPaths("default")
+		require.Error(t, err)
+	})
+
+	// The default project's library is in its own state directory, which
+	// holds no v2 directory and no DAG name.
+	t.Run("OnDefault", func(t *testing.T) {
+		t.Parallel()
+		cfg := projectsTestConfig(t, true)
+		state := filepath.Join(cfg.Paths.DataDir, "projects", "default")
+		library := filepath.Join(state, "library")
+
+		paths, err := cfg.LibraryPaths("Default")
+		require.NoError(t, err)
+		assert.Equal(t, config.ProjectPaths{
+			DAGsDir:         cfg.Paths.DAGsDir,
+			StateDir:        library,
+			LogDir:          filepath.Join(library, "logs"),
+			ArtifactDir:     filepath.Join(library, "artifacts"),
+			DAGRunsDir:      filepath.Join(library, "runs"),
+			DAGRunWorkDir:   filepath.Join(library, "state", "dag-run-work"),
+			EventStoreDir:   filepath.Join(state, "state", "events"),
+			SettingsDir:     filepath.Join(state, "settings"),
+			OtherStateDir:   filepath.Join(library, "state"),
+			DAGStateDir:     filepath.Join(library, "state", "dag-state"),
+			QueueDir:        filepath.Join(library, "state", "queue"),
+			ProcDir:         filepath.Join(library, "state", "proc"),
+			SuspendFlagsDir: filepath.Join(library, "state", "suspend"),
+			ViewsDir:        filepath.Join(library, "state", "views"),
+			WebhooksDir:     filepath.Join(state, "settings", "webhooks"),
+		}, paths)
+	})
+
+	t.Run("OnSetApartPaths", func(t *testing.T) {
+		t.Parallel()
+		cfg := projectsTestConfig(t, true)
+		cfg.Paths.Explicit = config.ExplicitPaths{LogDir: true, DAGRunsDir: true}
+
+		paths, err := cfg.LibraryPaths("weather")
+		require.NoError(t, err)
+		library := filepath.Join(cfg.Paths.DataDir, "projects", "weather", "library")
+		assert.Equal(t, filepath.Join(cfg.Paths.ProjectsDir, "weather"), paths.DAGsDir)
+		assert.Equal(t, filepath.Join(cfg.Paths.LogDir, ".projects", "weather.library"), paths.LogDir)
+		assert.Equal(t, filepath.Join(cfg.Paths.DAGRunsDir, ".projects", "weather.library"), paths.DAGRunsDir)
+		assert.Equal(t, filepath.Join(library, "artifacts"), paths.ArtifactDir)
+		assert.Empty(t, paths.RecordDirs)
 	})
 }

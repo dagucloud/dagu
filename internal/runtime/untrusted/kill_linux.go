@@ -15,9 +15,11 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
-// Spec 092, "End": Dagu sends SIGKILL to each process of the restricted user
+// Spec 103, "Isolation", rule 7: Dagu sends SIGKILL to each process of the restricted user
 // and waits until no process of that user is left. Two means stop the
 // processes:
 //
@@ -33,18 +35,29 @@ import (
 // zombie holds no code: the scan does not count it.
 
 // killHelperArg is the argument that makes a Dagu binary the helper of the
-// kill. The helper refuses to run as the user ID 0.
+// kill. Dagu starts the helper as root with the user ID and the group ID as the
+// next two arguments. A child that runs as the restricted user before its
+// execve could be stopped there by a process of that user, and Go would wait
+// for that execve forever; so the helper changes to the user itself, after its
+// execve. The change also makes it non-dumpable.
 const killHelperArg = "__dagu-untrusted-kill-all__"
 
 func init() {
-	if len(os.Args) == 2 && os.Args[1] == killHelperArg {
-		os.Exit(runKillHelper())
+	if len(os.Args) == 4 && os.Args[1] == killHelperArg {
+		os.Exit(runKillHelper(os.Args[2], os.Args[3]))
 	}
 }
 
-// runKillHelper sends SIGKILL to each process of its user, but itself.
-func runKillHelper() int {
-	if os.Getuid() == 0 || os.Geteuid() == 0 {
+// runKillHelper changes to the user and the group of its arguments, with no
+// supplementary group, and sends SIGKILL to each process of that user, but
+// itself. It refuses to send it as the user ID 0.
+func runKillHelper(uidArg, gidArg string) int {
+	uid, uidErr := strconv.Atoi(uidArg)
+	gid, gidErr := strconv.Atoi(gidArg)
+	if uidErr != nil || gidErr != nil || uid <= 0 || gid <= 0 {
+		return 2
+	}
+	if changeToUser(uid, gid) != nil {
 		return 3
 	}
 	for range 5 {
@@ -56,57 +69,50 @@ func runKillHelper() int {
 	return 0
 }
 
-// runKillHelperAs starts the helper as the restricted user and waits for it.
-// It returns false when the helper cannot run, for example when the
-// restricted user cannot run the binary of the process.
-func runKillHelperAs(uid, gid uint32) bool {
-	self, err := os.Executable()
-	if err != nil {
-		return false
-	}
-	if err := checkRunnable(self, uid, gid); err != nil {
-		return false
-	}
-	cmd := exec.Command(self, killHelperArg) //nolint:gosec
+// runKillHelperAs runs the helper for the restricted user and waits for it.
+func runKillHelperAs(uid, gid uint32) error {
+	cmd := exec.Command(selfExe, killHelperArg, strconv.FormatUint(uint64(uid), 10), strconv.FormatUint(uint64(gid), 10)) //nolint:gosec
 	cmd.Dir = "/"
 	cmd.Env = []string{}
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Credential: &syscall.Credential{Uid: uid, Gid: gid, Groups: []uint32{}},
-		Setsid:     true,
-	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		return false
+		return fmt.Errorf("start the kill helper: %w", err)
 	}
-	done := make(chan struct{})
-	go func() {
-		_ = cmd.Wait()
-		close(done)
-	}()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
 	select {
-	case <-done:
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("kill helper: %w", err)
+		}
+		return nil
 	case <-time.After(5 * time.Second):
 		_ = cmd.Process.Kill()
 		<-done
+		return errors.New("the kill helper did not end in 5 s")
 	}
-	return true
 }
 
 // killUser stops each process of the user and waits until no live task of the
-// user is left.
+// user is left. A round counts only when the kill helper ran: the /proc scan
+// alone can miss a process that forks in a loop.
 func killUser(uid, gid uint32) error {
 	deadline := time.Now().Add(killTimeout)
 	for {
-		runKillHelperAs(uid, gid)
+		helperErr := runKillHelperAs(uid, gid)
 		pids, err := userProcesses(uid)
 		if err != nil {
 			return err
 		}
-		if len(pids) == 0 {
+		if len(pids) == 0 && helperErr == nil {
 			return nil
 		}
 		killTaskGroups(uid)
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%d processes of the user ID %d are left after SIGKILL", len(pids), uid)
+			if len(pids) == 0 {
+				return fmt.Errorf("the kill helper of the user ID %d failed: %w", uid, helperErr)
+			}
+			return errors.Join(fmt.Errorf("%d processes of the user ID %d are left after SIGKILL", len(pids), uid), helperErr)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -120,11 +126,26 @@ func killTaskGroups(uid uint32) {
 		return
 	}
 	for _, pid := range pids {
-		_ = syscall.Kill(pid, syscall.SIGKILL)
-		for _, tid := range liveTasks(pid, uid) {
-			_ = syscall.Tgkill(pid, tid, syscall.SIGKILL)
-		}
+		killTaskGroup(pid, uid)
 	}
+}
+
+// killTaskGroup sends SIGKILL to the thread group pid only while it has a live
+// task of the user. The PID can be reused since the scan: the check runs after
+// the pidfd is open, so a PID reused before the open fails the check, and one
+// reused after it gets no signal. Without pidfd (Linux before 5.3), it sends
+// nothing, and only the kill helper, which has no right on other users, stops
+// the processes.
+func killTaskGroup(pid int, uid uint32) {
+	fd, err := unix.PidfdOpen(pid, 0)
+	if err != nil {
+		return
+	}
+	defer func() { _ = unix.Close(fd) }()
+	if len(liveTasks(pid, uid)) == 0 {
+		return
+	}
+	_ = unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0)
 }
 
 // userProcesses returns each thread group that has a live task with the user ID

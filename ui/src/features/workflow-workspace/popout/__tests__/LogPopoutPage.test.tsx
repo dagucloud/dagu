@@ -4,7 +4,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Status, StatusLabel, Stream } from '@/api/v1/schema';
+import { RestartPolicy, Status, StatusLabel, Stream } from '@/api/v1/schema';
 import { RemoteNodeProvider } from '@/contexts/RemoteNodeContext';
 import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import ExecutionLog from '@/features/dags/components/dag-execution/ExecutionLog';
@@ -298,6 +298,26 @@ describe('LogPopoutPage', () => {
         'href',
         '/dags/release.yaml?remoteNode=local&run=run-7&dock=log'
       );
+    });
+
+    // The server refuses a retry next to the active run of a service DAG.
+    it('has no Retry of a service DAG while its latest run is active', () => {
+      renderPopout('/dags/release.yaml/log?dagRunId=run-7&step=deploy', {
+        dagRun: pinnedRun,
+        dagData: {
+          dag: { name: 'release', restartPolicy: RestartPolicy.always },
+          latestDAGRun: {
+            ...latestRun,
+            status: Status.Running,
+            statusLabel: StatusLabel.running,
+          },
+        } as unknown as DAGPageData,
+      });
+
+      expect(screen.getByRole('heading', { name: 'release' })).toBeVisible();
+      expect(
+        screen.queryByRole('button', { name: /retry/i })
+      ).not.toBeInTheDocument();
     });
 
     it('hides the run actions without the runDags permission', () => {

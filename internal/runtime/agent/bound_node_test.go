@@ -6,8 +6,10 @@ package agent_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
@@ -31,8 +34,8 @@ func (n nodeInventory) Select(_ context.Context, selector string) ([]inventory.R
 	return inventory.Select(n, filters), nil
 }
 
-func (n nodeInventory) Nodes(context.Context) ([]inventory.ResolvedNode, error) {
-	return n, nil
+func (n nodeInventory) Named(_ context.Context, names []string) ([]inventory.ResolvedNode, error) {
+	return inventory.Named(n, names), nil
 }
 
 const (
@@ -108,6 +111,51 @@ steps:
 	require.NoError(t, err)
 	require.NotContains(t, string(statusJSON), nodePassword)
 	require.Empty(t, dag.Steps[0].ExecutorConfig.Type, "the run routes its own copy of the DAG")
+}
+
+// nodeSecretResolver resolves secret refs only by the node whose connection
+// uses them, as the coordinator serves node credentials to a worker.
+type nodeSecretResolver struct {
+	values map[string]string
+	mu     sync.Mutex
+	nodes  []string
+}
+
+func (r *nodeSecretResolver) ResolveReference(_ context.Context, ref secretref.Ref) (string, error) {
+	return "", fmt.Errorf("secret ref %q resolved without its node", ref.Ref)
+}
+
+func (r *nodeSecretResolver) CheckReferenceAccessibility(ctx context.Context, ref secretref.Ref) error {
+	_, err := r.ResolveReference(ctx, ref)
+	return err
+}
+
+func (r *nodeSecretResolver) ResolveNodeReference(_ context.Context, node string, ref secretref.Ref) (string, error) {
+	r.mu.Lock()
+	r.nodes = append(r.nodes, node)
+	r.mu.Unlock()
+	return r.values[ref.Ref], nil
+}
+
+// A bound run on a worker reaches its node, and reads the node's credentials
+// by the node, which is how a worker asks the coordinator for them.
+func TestAgent_BoundRunOnWorker(t *testing.T) {
+	t.Parallel()
+
+	node, server := startNode(t, "web01")
+	resolver := &nodeSecretResolver{values: map[string]string{passwordRef: nodePassword}}
+	th := test.Setup(t)
+	dag := th.DAG(t, "node: required\nsteps:\n  - id: where\n    run: echo ${node.name}\n    output: WHERE\n")
+	dag.Agent(test.WithAgentOptions(agent.Options{
+		BoundNode:               "web01",
+		WorkerID:                "worker-1",
+		NodeSelector:            nodeInventory{node},
+		SecretReferenceResolver: resolver,
+	})).RunSuccess(t)
+
+	require.Len(t, server.Commands(), 1)
+	require.Equal(t, "web01", dag.ReadOutputs(t)["where"])
+	require.Equal(t, []string{"web01"}, resolver.nodes)
 }
 
 // Fields under an ssh.run step's with override the node's. A password
@@ -258,6 +306,26 @@ steps:
 	require.Zero(t, server.AuthAttempts())
 }
 
+// An empty with.host names no host, so the step reaches the node rather
+// than whatever host an empty address dials.
+func TestAgent_BoundRunEmptyHostReachesNode(t *testing.T) {
+	t.Parallel()
+
+	node, server := startNode(t, "web01")
+	dagAgent, _ := runBound(t, nodeInventory{node}, `
+node: required
+steps:
+  - id: connect
+    action: ssh.run
+    with:
+      host: ""
+      command: "true"
+`, newCountingSecretResolver(map[string]string{passwordRef: nodePassword}))
+	dagAgent.RunSuccess(t)
+
+	require.Len(t, server.Commands(), 1)
+}
+
 // A run whose steps all run where the run runs never connects, so it reads
 // none of the node's credentials.
 func TestAgent_BoundRunWithoutCommandsReadsNoCredential(t *testing.T) {
@@ -350,4 +418,106 @@ steps:
     action: noop
 `, newCountingSecretResolver(nil))
 	dagAgent.RunSuccess(t)
+}
+
+// workerNode is the worker node tokyo-gw, as the project lists it.
+var workerNode = inventory.ResolvedNode{
+	Name:   "tokyo-gw",
+	Kind:   inventory.NodeKindWorker,
+	Host:   "gw.tokyo",
+	Labels: ir.NewLabels([]string{"site=tokyo", "gpu"}),
+}
+
+// runOnWorker runs yaml bound to worker node tokyo-gw, on the worker workerID.
+func runOnWorker(t *testing.T, workerID, yaml string) (*test.Agent, *test.DAG) {
+	t.Helper()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, yaml)
+	return dag.Agent(test.WithAgentOptions(agent.Options{
+		BoundNode:    "tokyo-gw",
+		WorkerID:     workerID,
+		NodeSelector: nodeInventory{workerNode},
+	})), &dag
+}
+
+// A run bound to a worker node runs every step on that worker, and reads the
+// node's name, host, and labels. A worker node has no port, user, or
+// description.
+func TestAgent_BoundRunOnWorkerNode(t *testing.T) {
+	t.Parallel()
+
+	dagAgent, dag := runOnWorker(t, "tokyo-gw", `
+node: required
+steps:
+  - id: where
+    run: echo "${node.name} ${node.host} ${node.labels.site} ${node.labels} port=${node.port} user=${node.user} description=${node.description}"
+    output: WHERE
+`)
+	dagAgent.RunSuccess(t)
+
+	require.Equal(t, "tokyo-gw gw.tokyo tokyo gpu,site=tokyo port= user= description=", dag.ReadOutputs(t)["where"])
+	require.Equal(t, "tokyo-gw", dagAgent.Status(context.Background()).BoundNode)
+}
+
+// A run bound to a worker node fails before any step starts when it cannot
+// run there.
+func TestAgent_WorkerBoundRunFailsBeforeAnyStep(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		workerID string
+		yaml     string
+		wantErr  string
+	}{
+		{
+			name:    "OnDaguHost",
+			yaml:    "node: required\nsteps:\n  - id: restart\n    run: systemctl restart app\n",
+			wantErr: `the run is bound to worker node "tokyo-gw", so it runs only on that worker`,
+		},
+		{
+			name:     "SSHWithoutHost",
+			workerID: "tokyo-gw",
+			yaml:     "node: required\nsteps:\n  - id: local\n    action: noop\n  - id: connect\n    action: ssh.run\n    with:\n      command: \"true\"\n",
+			wantErr:  `step "connect" connects to its node over SSH, but worker node "tokyo-gw" has no SSH connection`,
+		},
+		{
+			name:     "SSHWithEmptyHost",
+			workerID: "tokyo-gw",
+			yaml:     "node: required\nsteps:\n  - id: connect\n    action: sftp.upload\n    with:\n      host: \" \"\n      source: a\n      destination: b\n",
+			wantErr:  `step "connect" connects to its node over SSH, but worker node "tokyo-gw" has no SSH connection`,
+		},
+		{
+			name:     "MissingLabel",
+			workerID: "tokyo-gw",
+			yaml:     "node: required\nsteps:\n  - id: restart\n    run: systemctl restart ${node.labels.zone}\n",
+			wantErr:  `node "tokyo-gw" has no label "zone"`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dagAgent, _ := runOnWorker(t, tc.workerID, tc.yaml)
+			dagAgent.RunCheckErr(t, tc.wantErr)
+			for _, n := range dagAgent.Status(context.Background()).Nodes {
+				require.Equal(t, ir.NodeNotStarted, n.Status, "step %q ran", n.Step.Name)
+			}
+		})
+	}
+}
+
+// local is the worker ID of runs on the Dagu host, so a run there bound to a
+// worker node of that name still runs on no worker.
+func TestAgent_WorkerBoundRunNotOnDaguHostAsLocal(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, "node: required\nsteps:\n  - id: restart\n    run: systemctl restart app\n")
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+		BoundNode:    "local",
+		WorkerID:     "local",
+		NodeSelector: nodeInventory{{Name: "local", Kind: inventory.NodeKindWorker}},
+	}))
+	dagAgent.RunCheckErr(t, `the run is bound to worker node "local", so it runs only on that worker`)
 }

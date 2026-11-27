@@ -147,8 +147,10 @@ func (c *testCase) checkStep(s dagtest.StepExpect, status *ir.DAGRunStatus) []ca
 		failures = append(failures, caseFailure{step: s.Key, field: failureAttempts, expected: *s.Attempts, actual: actual})
 	}
 	published := publishedOutputs(node)
+	masker := masking.NewValueMasker(c.host.values)
+	mask := func(v any) json.RawMessage { return c.host.mask(masker, v) }
 	for _, o := range s.Outputs {
-		if failure, ok := checkOutput(s.Key, o, published); !ok {
+		if failure, ok := checkOutput(s.Key, o, published, mask); !ok {
 			failures = append(failures, failure)
 		}
 	}
@@ -178,8 +180,9 @@ func (c *testCase) lastCall(s dagtest.StepExpect, node *ir.Node) (stepmock.Call,
 // checkCall returns the failed parts of a called_with assertion: run, its
 // text, contains, then matches; with inputs in the order listed; then env
 // in the order listed. A step with no execution fails it once. Both values
-// of a failure are compact JSON with the call's secrets masked, and a
-// failure has no actual value for an input or variable the call lacks.
+// of a failure are compact JSON with the call's secrets and the host values
+// masked, and a failure has no actual value for an input or variable the
+// call lacks.
 func (c *testCase) checkCall(s dagtest.StepExpect, node *ir.Node) []caseFailure {
 	expect := s.CalledWith
 	if expect == nil {
@@ -189,13 +192,13 @@ func (c *testCase) checkCall(s dagtest.StepExpect, node *ir.Node) []caseFailure 
 	if !ok {
 		return []caseFailure{{step: s.Key, field: failureCall}}
 	}
-	masker := masking.NewValueMasker(call.Secrets)
+	masker := masking.NewValueMasker(append(slices.Clone(call.Secrets), c.host.values...))
 	var failures []caseFailure
 	// fail adds a failed part. A part the call lacks has no actual value.
 	fail := func(field string, expected, actual any, present bool) {
-		f := caseFailure{step: s.Key, field: field, expected: maskedJSON(masker, expected)}
+		f := caseFailure{step: s.Key, field: field, expected: c.host.mask(masker, expected)}
 		if present {
-			f.actual = maskedJSON(masker, actual)
+			f.actual = c.host.mask(masker, actual)
 		}
 		failures = append(failures, f)
 	}
@@ -354,12 +357,11 @@ func publishedOutputs(node *ir.Node) map[string]any {
 
 // checkOutput returns the failure of an output assertion, or false when
 // the step published a matching value. Both values of a failure are
-// compact JSON: the published one as a JSON string for a text output, and
-// as its JSON text for a type: json output. A failure has no actual value
-// when the step published no such output.
-func checkOutput(key string, o dagtest.OutputExpect, published map[string]any) (caseFailure, bool) {
-	expected, _ := jsonutil.MarshalUnescaped(o.Value)
-	failure := caseFailure{step: key, field: failureOutputPrefix + o.Name, expected: json.RawMessage(expected)}
+// compact JSON as mask writes them: the published one as a JSON string for
+// a text output, and as its JSON text for a type: json output.
+// A failure has no actual value when the step published no such output.
+func checkOutput(key string, o dagtest.OutputExpect, published map[string]any, mask func(any) json.RawMessage) (caseFailure, bool) {
+	failure := caseFailure{step: key, field: failureOutputPrefix + o.Name, expected: mask(o.Value)}
 	value, ok := published[o.Name]
 	if !ok {
 		return failure, false
@@ -373,7 +375,7 @@ func checkOutput(key string, o dagtest.OutputExpect, published map[string]any) (
 		compact.Reset()
 		compact.WriteString(quoteJSON(text))
 	}
-	failure.actual = json.RawMessage(compact.Bytes())
+	failure.actual = mask(json.RawMessage(compact.Bytes()))
 	return failure, false
 }
 

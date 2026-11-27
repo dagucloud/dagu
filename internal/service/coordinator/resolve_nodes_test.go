@@ -26,7 +26,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	runtestutil "github.com/dagucloud/dagu/v2/internal/testutil"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -63,6 +65,8 @@ type nodeStores struct {
 	inventory inventory.Store
 	hostKeys  inventory.HostKeyStore
 	secrets   secretpkg.Store
+	// workers holds the worker nodes, or is nil for none.
+	workers inventory.WorkerNodeStore
 }
 
 func newNodeStores(t *testing.T) nodeStores {
@@ -122,9 +126,15 @@ type nodeRun struct {
 	attemptID  string
 }
 
-func newNodeRun(t *testing.T, stores nodeStores, dagYAML string, heartbeat time.Time) nodeRun {
+// newNodeRun starts the run. children are the DAG files the run's DAG can
+// run, by name.
+func newNodeRun(t *testing.T, stores nodeStores, dagYAML string, heartbeat time.Time, children ...string) nodeRun {
 	t.Helper()
 	ctx := context.Background()
+	dagRepository := runtestutil.NewFileDAGRepository(filepath.Join(t.TempDir(), "dags"))
+	for _, child := range children {
+		require.NoError(t, dagRepository.Create(ctx, child, []byte("name: "+child+"\nnode: required\nsteps:\n  - run: \"true\"\n")))
+	}
 	dag, err := spec.LoadYAML(ctx, []byte(dagYAML))
 	require.NoError(t, err)
 	now := time.Now().UTC()
@@ -151,7 +161,9 @@ func newNodeRun(t *testing.T, stores nodeStores, dagYAML string, heartbeat time.
 		SecretStore:         stores.secrets,
 		NodeInventory:       stores.inventory,
 		TrustedHostKeys:     stores.hostKeys,
+		WorkerNodeStore:     stores.workers,
 		DAGRunRepository:    repo,
+		DAGRepository:       dagRepository,
 		DAGRunLeaseStore:    leases,
 		StaleLeaseThreshold: time.Minute,
 	})
@@ -159,8 +171,13 @@ func newNodeRun(t *testing.T, stores nodeStores, dagYAML string, heartbeat time.
 }
 
 func (r nodeRun) resolveNodes(selector string, names ...string) (*coordinatorv1.ResolveNodesResponse, error) {
+	return r.resolveNodesFor("", selector, names...)
+}
+
+// resolveNodesFor asks as a run of dagName within the attempt.
+func (r nodeRun) resolveNodesFor(dagName, selector string, names ...string) (*coordinatorv1.ResolveNodesResponse, error) {
 	return r.handler.ResolveNodes(context.Background(), &coordinatorv1.ResolveNodesRequest{
-		WorkerId: "worker-1", AttemptKey: r.attemptKey, AttemptId: r.attemptID,
+		WorkerId: "worker-1", AttemptKey: r.attemptKey, AttemptId: r.attemptID, DagName: dagName,
 		Selector: selector, Names: names,
 	})
 }
@@ -239,6 +256,41 @@ func TestResolveNodesByName(t *testing.T) {
 	assert.Empty(t, resp.GetTrustedHostKeys())
 }
 
+// Worker nodes match as inventory nodes do, each with its own kind, except a
+// worker whose ID an inventory node holds.
+func TestResolveNodesWorkerNodes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	stores := newNodeStores(t)
+	workers, err := store.NewWorkerNodeStore(testutil.NewMemoryBackend().Collection(persis.CollectionWorkerNodes), nil)
+	require.NoError(t, err)
+	for _, worker := range []inventory.WorkerNode{
+		{Name: "web-gw", Host: "gw.example.com", Labels: ir.NewLabels([]string{"role=web", "site=tokyo"}), Online: true},
+		{Name: "WEB-1", Host: "clash.example.com", Labels: ir.NewLabels([]string{"role=web"}), Online: true},
+	} {
+		require.NoError(t, workers.Record(ctx, worker))
+	}
+	stores.workers = workers
+	run := newNodeRun(t, stores, nodeStepDAG, time.Now())
+
+	resp, err := run.resolveNodes("role=web")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"web-1", "web-2", "web-gw"}, protoNodeNames(resp.GetNodes()))
+	assert.Equal(t, coordinatorv1.NodeKind_NODE_KIND_SSH, resp.GetNodes()[0].GetKind())
+	assert.Equal(t, "10.0.0.1", resp.GetNodes()[0].GetHost())
+	gw := resp.GetNodes()[2]
+	assert.Equal(t, coordinatorv1.NodeKind_NODE_KIND_WORKER, gw.GetKind())
+	assert.Equal(t, "gw.example.com", gw.GetHost())
+	assert.Equal(t, []string{"role=web", "site=tokyo"}, gw.GetLabels())
+	assert.Empty(t, gw.GetBastion())
+
+	resp, err = run.resolveNodes("", "WEB-GW")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"web-gw"}, protoNodeNames(resp.GetNodes()))
+	assert.Empty(t, resp.GetBastions())
+	assert.Empty(t, resp.GetTrustedHostKeys())
+}
+
 func TestResolveNodesInvalidRequest(t *testing.T) {
 	t.Parallel()
 	run := newNodeRun(t, newNodeStores(t), nodeStepDAG, time.Now())
@@ -277,6 +329,45 @@ func TestResolveNodesDenied(t *testing.T) {
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err), "no inventory")
 }
 
+// A bound child reads nodes as a run of its own DAG, whether its parent runs
+// it from a step, a foreach body, or a handler. A DAG the parent does not run
+// reads none.
+func TestResolveNodesForChildDAG(t *testing.T) {
+	t.Parallel()
+	run := newNodeRun(t, newNodeStores(t), `
+name: fleet
+steps:
+  - name: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: role=web
+  - name: each
+    foreach:
+      items: [a]
+      steps:
+        - name: deploy-each
+          action: dag.run
+          with:
+            dag: deploy-each
+          nodes: role=web
+handler_on:
+  failure:
+    action: dag.run
+    with:
+      dag: rollback-one
+    nodes: role=web
+`, time.Now(), "deploy-one", "deploy-each", "rollback-one", "unrelated")
+
+	for _, child := range []string{"deploy-one", "deploy-each", "rollback-one"} {
+		resp, err := run.resolveNodesFor(child, "", "web-1")
+		require.NoError(t, err, child)
+		assert.Equal(t, []string{"web-1"}, protoNodeNames(resp.GetNodes()), child)
+	}
+	_, err := run.resolveNodesFor("unrelated", "", "web-1")
+	assert.Equal(t, codes.PermissionDenied, status.Code(err), "a DAG the run does not run")
+}
+
 // A run that targets nodes reads the refs the connection to a node uses,
 // its bastion's included, and no others.
 func TestResolveSecretReferenceForNode(t *testing.T) {
@@ -312,4 +403,75 @@ func TestResolveSecretReferenceForNode(t *testing.T) {
 		WorkerId: "worker-1", AttemptKey: run.attemptKey, AttemptId: run.attemptID,
 	})
 	assert.Equal(t, codes.InvalidArgument, status.Code(err), "a name and a node")
+}
+
+// A worker's client reads the nodes ResolveNodes answers as the inventory
+// holds them, and reads a node's credential by the node.
+func TestClientResolveNodes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	stores := newNodeStores(t)
+	run := newNodeRun(t, stores, nodeStepDAG, time.Now())
+	server, addr := startMockServer(t, run.handler)
+	t.Cleanup(server.Stop)
+	host, port := parseHostPort(addr)
+	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{{
+		ID: "coord-1", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
+	}}}, coordinator.DefaultConfig())
+	identity := coordinator.SecretReferenceRun{WorkerID: "worker-1", AttemptKey: run.attemptKey, AttemptID: run.attemptID}
+
+	nodeClient, ok := client.(coordinator.NodeClient)
+	require.True(t, ok)
+	resolved, err := nodeClient.ResolveNodes(ctx, serviceregistry.HostInfo{}, "", []string{"WEB-1"}, identity)
+	require.NoError(t, err)
+	stored, err := stores.inventory.Named(ctx, []string{"web-1"})
+	require.NoError(t, err)
+	require.Len(t, stored, 2)
+	assert.Equal(t, []inventory.ResolvedNode{stored[1]}, resolved.Nodes)
+	assert.Equal(t, []inventory.ResolvedNode{stored[0]}, resolved.Bastions)
+	require.Len(t, resolved.HostKeys, 2)
+	for _, key := range resolved.HostKeys {
+		trusted, err := stores.hostKeys.Get(ctx, key.Node)
+		require.NoError(t, err)
+		assert.Equal(t, trusted.Key, key.Key)
+		assert.Equal(t, trusted.Fingerprint, key.Fingerprint)
+	}
+
+	secrets, ok := client.(coordinator.SecretReferenceClient)
+	require.True(t, ok)
+	value, err := secrets.ResolveNodeSecretReference(ctx, serviceregistry.HostInfo{}, "web-1",
+		secretref.Ref{Name: "nodes.web-1.bastion.key", Ref: "ssh/jump-key"}, "", identity)
+	require.NoError(t, err)
+	assert.Equal(t, "jump-key-value", value)
+	_, err = secrets.ResolveNodeSecretReference(ctx, serviceregistry.HostInfo{}, "web-1",
+		secretref.Ref{Name: "nodes.web-1.key", Ref: "ssh/db-key"}, "", identity)
+	assert.ErrorContains(t, err, "secret reference access denied", "a ref of another node")
+}
+
+// A worker's client reads a worker node with its kind, so a run on a worker
+// dispatches a child bound to it rather than connecting to it over SSH.
+func TestClientResolveWorkerNode(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	stores := newNodeStores(t)
+	workers, err := store.NewWorkerNodeStore(testutil.NewMemoryBackend().Collection(persis.CollectionWorkerNodes), nil)
+	require.NoError(t, err)
+	require.NoError(t, workers.Record(ctx, inventory.WorkerNode{Name: "web-gw", Host: "gw.example.com", Labels: ir.NewLabels([]string{"role=web"}), Online: true}))
+	stores.workers = workers
+	run := newNodeRun(t, stores, nodeStepDAG, time.Now())
+	server, addr := startMockServer(t, run.handler)
+	t.Cleanup(server.Stop)
+	host, port := parseHostPort(addr)
+	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{{
+		ID: "coord-1", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
+	}}}, coordinator.DefaultConfig())
+	identity := coordinator.SecretReferenceRun{WorkerID: "worker-1", AttemptKey: run.attemptKey, AttemptID: run.attemptID}
+
+	resolved, err := client.(coordinator.NodeClient).ResolveNodes(ctx, serviceregistry.HostInfo{}, "role=web", nil, identity)
+	require.NoError(t, err)
+	require.Len(t, resolved.Nodes, 3)
+	assert.Equal(t, inventory.NodeKindSSH, resolved.Nodes[0].Kind)
+	assert.Equal(t, inventory.ResolvedNode{
+		Name: "web-gw", Kind: inventory.NodeKindWorker, Host: "gw.example.com", Labels: ir.NewLabels([]string{"role=web"}),
+	}, resolved.Nodes[2])
 }

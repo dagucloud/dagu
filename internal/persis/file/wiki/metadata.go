@@ -25,12 +25,12 @@ type wikiStoreMetadata struct {
 }
 
 func (s *Store) metadataPath() string {
-	return filepath.Join(s.baseDir, s.metadataFileName)
+	return filepath.Join(s.metadataDir, s.metadataFileName)
 }
 
-func resolveMetadataFileName(baseDir string, preferLegacy bool) (string, error) {
-	wikiPath := filepath.Join(baseDir, wikiMetadataFileName)
-	legacyDocsPath := filepath.Join(baseDir, legacyDocsMetadataFileName)
+func resolveMetadataFileName(dir string, preferLegacy bool) (string, error) {
+	wikiPath := filepath.Join(dir, wikiMetadataFileName)
+	legacyDocsPath := filepath.Join(dir, legacyDocsMetadataFileName)
 	wikiExists, err := metadataFileExists(wikiPath)
 	if err != nil {
 		return "", err
@@ -61,7 +61,7 @@ func metadataFileExists(path string) (bool, error) {
 
 func (s *Store) loadMetadata() (wikiStoreMetadata, error) {
 	metadata := wikiStoreMetadata{CreatedAt: map[string]string{}}
-	data, err := os.ReadFile(s.metadataPath()) //nolint:gosec // metadataPath is rooted in the store base dir.
+	data, err := os.ReadFile(s.metadataPath()) //nolint:gosec // metadataPath is rooted in the store metadata dir.
 	if os.IsNotExist(err) {
 		return metadata, nil
 	}

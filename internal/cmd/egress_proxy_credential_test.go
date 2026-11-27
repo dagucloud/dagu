@@ -4,17 +4,13 @@
 package cmd_test
 
 import (
-	"bufio"
 	"context"
 	"encoding/base64"
-	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -100,40 +96,22 @@ func TestEgressProxyCommandNeedsTheProxyCredential(t *testing.T) {
 			root, proxyAddr := servingRoot(t)
 			args := append([]string{"egress-proxy", "serve", "--listen", proxyAddr, "--allow=other.example.com:443",
 				"--allow-with-credential", originAddr}, tc.options(t)...)
-			root.SetOut(io.Discard)
-			root.SetErr(io.Discard)
 			root.SetArgs(args)
-			done := make(chan error, 1)
-			go func() { done <- root.ExecuteContext(ctx) }()
+			served := runInBackground(ctx, root)
 
 			waitRoot := egressRoot()
 			waitRoot.SetArgs([]string{"egress-proxy", "wait", "--addr", proxyAddr, "--timeout", "10s"})
 			require.NoError(t, waitRoot.ExecuteContext(t.Context()))
 
-			connect := func(auth string) string {
-				conn, err := net.Dial("tcp", proxyAddr)
-				require.NoError(t, err)
-				defer func() { _ = conn.Close() }()
-				request := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n", originAddr, originAddr)
-				if auth != "" {
-					request += "Proxy-Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte("git:"+auth)) + "\r\n"
-				}
-				_, err = io.WriteString(conn, request+"\r\n")
-				require.NoError(t, err)
-				status, err := bufio.NewReader(conn).ReadString('\n')
-				require.NoError(t, err)
-				return status
+			auth := func(credential string) string {
+				return "Proxy-Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte("git:"+credential))
 			}
-			assert.Equal(t, "HTTP/1.1 407 Proxy Authentication Required\r\n", connect(""))
-			assert.Equal(t, "HTTP/1.1 407 Proxy Authentication Required\r\n", connect("wrong-credential-0000"))
-			assert.Equal(t, "HTTP/1.1 200 Connection Established\r\n", connect(testCredential))
+			assert.Equal(t, "HTTP/1.1 407 Proxy Authentication Required", connect(t, proxyAddr, originAddr))
+			assert.Equal(t, "HTTP/1.1 407 Proxy Authentication Required", connect(t, proxyAddr, originAddr, auth("wrong-credential-0000")))
+			assert.Equal(t, "HTTP/1.1 200 Connection Established", connect(t, proxyAddr, originAddr, auth(testCredential)))
 
 			cancel()
-			select {
-			case <-done:
-			case <-time.After(10 * time.Second):
-				t.Fatal("the command does not end when its context ends")
-			}
+			requireEnded(t, served)
 		})
 	}
 }

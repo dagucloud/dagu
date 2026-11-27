@@ -259,3 +259,25 @@ func TestSelect(t *testing.T) {
 	_, err = inventory.ParseSelector("env==prod")
 	require.ErrorIs(t, err, ir.ErrInvalidLabelFilter)
 }
+
+// A lookup by name answers the named nodes and the bastions they connect
+// through, in the order given. Names are compared without case.
+func TestNamed(t *testing.T) {
+	t.Parallel()
+
+	inv, err := inventory.Decode([]byte(tokyo))
+	require.NoError(t, err)
+	nodes, err := inventory.Resolve([]inventory.Inventory{inv})
+	require.NoError(t, err)
+
+	named := func(names ...string) []string {
+		var out []string
+		for _, n := range inventory.Named(nodes, names) {
+			out = append(out, n.Name)
+		}
+		return out
+	}
+	assert.Equal(t, []string{"tokyo-db01", "tokyo-jump"}, named("TOKYO-DB01", "gone"))
+	assert.Equal(t, []string{"tokyo-web01"}, named("tokyo-web01"))
+	assert.Empty(t, named("gone"))
+}

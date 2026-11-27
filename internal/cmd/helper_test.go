@@ -49,6 +49,18 @@ func TestDispatchTriggerType(t *testing.T) {
 	assert.Equal(t, ir.TriggerTypeManual, client.task.TriggerType)
 }
 
+// A narrowed start reaches the coordinator with its node list.
+func TestDispatchTargetNodes(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "deploy"}, "run", runOptions{targetNodes: []string{"web01"}}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, []string{"web01"}, client.task.TargetNodes)
+}
+
 // A selected-steps run is dispatched as a retry of its seeded queued attempt,
 // so the worker starts from the seeded node states.
 func TestDispatchSeededRun(t *testing.T) {
@@ -64,6 +76,57 @@ func TestDispatchSeededRun(t *testing.T) {
 	assert.Equal(t, dispatch.DispatchOperationRetry, client.task.Operation)
 	require.NotNil(t, client.task.PreviousStatus)
 	assert.Equal(t, ir.Queued, client.task.PreviousStatus.Status)
+}
+
+// A run bound to a worker node is dispatched to that worker, bound to it, so
+// the coordinator refuses it at once while the worker is offline.
+func TestDispatchBoundWorker(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "deploy-one", NodeRequired: true}, "run",
+		runOptions{targetNodes: []string{"gw-1"}, boundWorker: "gw-1"}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, dispatch.DispatchOperationStart, client.task.Operation)
+	assert.Equal(t, "gw-1", client.task.TargetWorkerID)
+	assert.Equal(t, "gw-1", client.task.BoundNode)
+	assert.Empty(t, client.task.NodeStep)
+}
+
+// A started run reaches its worker with the params it was started with, since
+// the worker loads the definition again.
+func TestDispatchParams(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	dag := &ir.DAG{Name: "deploy-one", Params: []string{"DIR=/tmp/a b"}}
+	err := dispatchToCoordinatorAndWait(ctx, dag, "run", runOptions{}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, `DIR="/tmp/a b"`, client.task.Params)
+}
+
+// A retry of a run bound to a worker node is dispatched to that worker as a
+// retry of the run, with the step it retries.
+func TestDispatchBoundWorkerRetry(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	retried := &ir.DAGRunStatus{Name: "deploy-one", DAGRunID: "run", Status: ir.Failed, TargetNodes: []string{"gw-1"}}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "deploy-one", NodeRequired: true}, "run",
+		runOptions{retried: retried, boundWorker: "gw-1", step: "restart"}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, dispatch.DispatchOperationRetry, client.task.Operation)
+	require.NotNil(t, client.task.PreviousStatus)
+	assert.Equal(t, ir.Failed, client.task.PreviousStatus.Status)
+	assert.Equal(t, "restart", client.task.Step)
+	assert.Equal(t, "gw-1", client.task.TargetWorkerID)
+	assert.Equal(t, []string{"gw-1"}, client.task.TargetNodes, "the retry keeps the run's node list")
 }
 
 type smtpDispatchClient struct {
@@ -93,7 +156,7 @@ func TestRestoreDAGFromStatus_SMTP(t *testing.T) {
 				YamlData:       []byte("smtp:\n  username: ${SMTP_USER}\nenv:\n  SMTP_USER: original-user\nsteps:\n  - run: echo original\n"),
 				BaseConfigData: []byte("smtp:\n  host: old.example\n  password: old-password\nenv:\n  ORIGINAL_BASE: original\n"),
 			}
-			restored, err := restoreDAGFromStatus(ctx, dag, &ir.DAGRunStatus{}, nil)
+			restored, err := restoreDAGFromStatus(ctx, dag, &ir.DAGRunStatus{}, nil, baseConfigOptions(config.GetConfig(ctx)))
 			require.NoError(t, err)
 			require.NotNil(t, restored.SMTP)
 			assert.Equal(t, "${SMTP_USER}", restored.SMTP.Username)
@@ -131,7 +194,7 @@ func TestExtractDAGNameYAMLCase(t *testing.T) {
 
 			cfg := &config.Config{}
 			cfg.Paths.DAGsDir = dagsDir
-			stores, err := openDefaultProject(context.Background(), cfg, file.NewServerStores(cfg), file.ProjectStoreOptions{})
+			stores, err := openProject(context.Background(), cfg, file.NewServerStores(cfg), defaultProject(), file.ProjectStoreOptions{})
 			require.NoError(t, err)
 			ctx := &Context{Context: context.Background(), Config: cfg, projectStores: stores}
 
@@ -175,7 +238,7 @@ func TestRestoreLegacyChildSMTP(t *testing.T) {
 	require.NoError(t, attempt.Close(ctx))
 	child := &ir.DAG{Name: "child", YamlData: []byte("steps:\n  - run: echo child\n"), BaseConfigData: []byte("{}")}
 	status := &ir.DAGRunStatus{Root: parentStatus.DAGRun(), Parent: parentStatus.DAGRun()}
-	got, err := restoreDAGFromStatus(ctx, child, status, repository)
+	got, err := restoreDAGFromStatus(ctx, child, status, repository, baseConfigOptions(cfg))
 	require.NoError(t, err)
 	require.NotNil(t, got.SMTP)
 	assert.Equal(t, "workspace.example", got.SMTP.Host)
@@ -262,7 +325,7 @@ func TestRestoreDAGFromStatus_ParamsWithSpaces(t *testing.T) {
 		ParamsList: []string{"topic=hello world"},
 	}
 
-	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil)
+	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil, nil)
 	require.NoError(t, err)
 
 	// The restored params should preserve "hello world" as a single value
@@ -285,7 +348,7 @@ func TestRestoreDAGFromStatus_PositionalParamsRemainOverrides(t *testing.T) {
 		ParamsList: []string{"1=override"},
 	}
 
-	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil)
+	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"1=override"}, result.Params)
 }
@@ -306,7 +369,7 @@ steps:
 	}
 	status := &ir.DAGRunStatus{}
 
-	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil)
+	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, workDir, result.WorkingDir)
 	assert.True(t, result.WorkingDirExplicit)
@@ -328,7 +391,7 @@ steps:
 	}
 	status := &ir.DAGRunStatus{}
 
-	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil)
+	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, workDir, result.WorkingDir)
 	assert.True(t, result.WorkingDirExplicit)
@@ -350,7 +413,7 @@ steps:
 	}
 	status := &ir.DAGRunStatus{WorkingDir: persistedWorkDir}
 
-	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil)
+	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, persistedWorkDir, result.WorkingDir)
 	assert.True(t, result.WorkingDirExplicit)
@@ -371,7 +434,7 @@ steps:
 	}
 	status := &ir.DAGRunStatus{}
 
-	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil)
+	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil, nil)
 	require.NoError(t, err)
 	require.Contains(t, result.RegistryAuths, "registry.example.com")
 	require.Equal(t, "${REGISTRY_USER}", result.RegistryAuths["registry.example.com"].Username)
@@ -395,7 +458,7 @@ registry_auths:
 	}
 	status := &ir.DAGRunStatus{}
 
-	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil)
+	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil, nil)
 	require.NoError(t, err)
 	require.Contains(t, result.RegistryAuths, "registry.example.com")
 	require.Equal(t, "${REGISTRY_USER}", result.RegistryAuths["registry.example.com"].Username)
@@ -420,7 +483,7 @@ harness:
 	}
 	status := &ir.DAGRunStatus{}
 
-	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil)
+	result, err := restoreDAGFromStatus(context.Background(), dag, status, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, result.Harness)
 	assert.Equal(t, "passthrough", result.Harness.Config["provider"])

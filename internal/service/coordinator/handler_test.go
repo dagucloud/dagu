@@ -780,6 +780,35 @@ func TestCreateAttemptForTaskAppliesWorkerSelector(t *testing.T) {
 	})
 }
 
+// The child of a command step with nodes is recorded as the step alone, in a
+// node: required DAG, as the worker runs it.
+func TestCreateSubAttemptForTaskNarrowsToNodeStep(t *testing.T) {
+	registerCommandExecutorCapsForCoordinatorTest()
+
+	h := NewHandler(HandlerConfig{DAGRunRepository: newMockDAGRunStore().repository})
+	task := &coordinatorv1.Task{
+		RootDagRunName:   "rollout",
+		RootDagRunId:     "run-parent",
+		ParentDagRunName: "rollout",
+		ParentDagRunId:   "run-parent",
+		DagRunId:         "run-child",
+		Target:           "rollout",
+		Definition:       "name: rollout\nsteps:\n  - name: prepare\n    run: echo prepare\n  - name: deploy\n    run: echo deploy\n    nodes: web\n",
+		TargetWorkerId:   "tokyo-gw",
+		BoundNode:        "tokyo-gw",
+		NodeStep:         "deploy",
+	}
+	prepared, err := h.createSubAttemptForTask(context.Background(), task)
+	require.NoError(t, err)
+
+	dag, err := prepared.attempt.ReadDAG(context.Background())
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+	assert.Equal(t, "deploy", dag.Steps[0].Name)
+	assert.Nil(t, dag.Steps[0].Nodes)
+	assert.True(t, dag.NodeRequired)
+}
+
 // Fresh starts have no previous status from which to copy the queue identity.
 // A run that is already queued keeps its queue, which may be an enqueue-time
 // override absent from the YAML.
@@ -1265,6 +1294,30 @@ func TestHandler_Poll(t *testing.T) {
 		require.Equal(t, "Asia/Tokyo", status.ScheduleTimezone)
 		require.Equal(t, "alice", status.TriggerActor)
 		require.Equal(t, ir.TriggerTypeManual, status.TriggerType)
+	})
+
+	// A retry of a narrowed run keeps the list and the record of what its
+	// steps with nodes did, so an attempt lost before its agent starts does
+	// not reset them.
+	t.Run("WriteInitialStatusKeepsNodeList", func(t *testing.T) {
+		t.Parallel()
+
+		record := &ir.NodeListRecord{Skipped: true, Ran: true}
+		previous, err := convert.DAGRunStatusToProto(&ir.DAGRunStatus{TargetNodes: []string{"web01"}, NodeList: record})
+		require.NoError(t, err)
+		h := NewHandler(HandlerConfig{})
+		attempt := &mockAttempt{}
+		require.NoError(t, h.writeInitialStatus(context.Background(), attempt, &coordinatorv1.Task{
+			DagRunId:       "run-123",
+			Operation:      coordinatorv1.Operation_OPERATION_RETRY,
+			TargetNodes:    []string{"web01"},
+			PreviousStatus: previous,
+		}, "test-dag", ir.DAGRunRef{}, nil))
+
+		status, err := attempt.ReadStatus(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, []string{"web01"}, status.TargetNodes)
+		require.Equal(t, record, status.NodeList)
 	})
 
 	t.Run("WriteInitialStatusRecordsModelUsage", func(t *testing.T) {
@@ -4006,6 +4059,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Status:         ir.Queued,
 			TriggerSubject: subject,
 			RetryDisabled:  true,
+			TargetNodes:    []string{"web01"},
+			NodeList:       &ir.NodeListRecord{Ran: true},
 		})
 
 		protoStatus, convErr := convert.DAGRunStatusToProto(&ir.DAGRunStatus{
@@ -4025,6 +4080,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.Equal(t, ir.Failed, persisted.Status)
 		assert.True(t, persisted.RetryDisabled)
 		assert.Equal(t, subject, persisted.TriggerSubject)
+		assert.Equal(t, []string{"web01"}, persisted.TargetNodes, "a report from a worker without node lists")
+		assert.Equal(t, &ir.NodeListRecord{Ran: true}, persisted.NodeList)
 	})
 
 	t.Run("WaitingStatusClosesCachedAttemptBeforePersisting", func(t *testing.T) {

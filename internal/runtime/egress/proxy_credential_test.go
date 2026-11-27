@@ -64,14 +64,12 @@ type connectReply struct {
 // the answer. The test closes the connection.
 func connectWith(t *testing.T, proxyAddr, target string, auth ...string) connectReply {
 	t.Helper()
-	conn, err := net.Dial("tcp", proxyAddr)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	conn := dialProxy(t, proxyAddr)
 	request := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n", target, target)
 	for _, value := range auth {
 		request += "Proxy-Authorization: " + value + "\r\n"
 	}
-	_, err = io.WriteString(conn, request+"\r\n")
+	_, err := io.WriteString(conn, request+"\r\n")
 	require.NoError(t, err)
 	reader := bufio.NewReader(conn)
 	response, err := http.ReadResponse(reader, nil)
@@ -84,9 +82,10 @@ func connectWith(t *testing.T, proxyAddr, target string, auth ...string) connect
 
 // A destination of CredentialRules needs the proxy credential in the header
 // Proxy-Authorization, in the form Basic, with any user name. Without it, with a
-// wrong value or with two values, the proxy answers 407 with Proxy-Authenticate
-// and dials nothing. With it, CONNECT opens the tunnel and a request in absolute
-// form reaches the destination without the header. Other destinations keep their
+// wrong value or with two values, the proxy answers 407 with Proxy-Authenticate,
+// and resolves and dials nothing. With it, CONNECT opens the tunnel and a
+// request in absolute form reaches the destination without the header. A
+// tunnel that fails to open logs no allow line. Other destinations keep their
 // rules. The credential is in no log.
 func TestCredentialRulesNeedTheProxyCredential(t *testing.T) {
 	t.Parallel()
@@ -98,7 +97,9 @@ func TestCredentialRulesNeedTheProxyCredential(t *testing.T) {
 	resolver.answers["plain.example.test"] = resolver.answers["guarded.example.test"]
 	dials := &dialRecord{}
 	guarded := "guarded.example.test:" + port
-	proxyAddr, logs := credentialProxy(t, []string{"plain.example.test:" + plainPort}, []string{guarded}, resolver, dials.dial)
+	// The resolver has no answer for this name, so its tunnel fails.
+	unresolved := "unresolved.example.test:443"
+	proxyAddr, logs := credentialProxy(t, []string{"plain.example.test:" + plainPort}, []string{guarded, unresolved}, resolver, dials.dial)
 
 	for _, tc := range []struct {
 		name string
@@ -106,6 +107,8 @@ func TestCredentialRulesNeedTheProxyCredential(t *testing.T) {
 	}{
 		{"no credential", nil},
 		{"wrong credential", []string{basic("git", "wrong-credential-000000")}},
+		{"credential with a suffix", []string{basic("git", testProxyCredential+"x")}},
+		{"start of the credential", []string{basic("git", testProxyCredential[:16])}},
 		{"credential as the user name", []string{basic(testProxyCredential, "")}},
 		{"bearer form", []string{"Bearer " + testProxyCredential}},
 		{"two headers", []string{basic("git", testProxyCredential), basic("git", testProxyCredential)}},
@@ -116,6 +119,9 @@ func TestCredentialRulesNeedTheProxyCredential(t *testing.T) {
 		assert.Equal(t, `Basic realm="dagu egress proxy"`, reply.challenge, tc.name)
 	}
 	assert.Empty(t, dials.seen(), "a refused request dials nothing")
+	resolver.mu.Lock()
+	assert.Empty(t, resolver.calls, "a refused request resolves no name, so its answer tells nothing of the DNS")
+	resolver.mu.Unlock()
 
 	tunnel := connectWith(t, proxyAddr, guarded, basic("anyone", testProxyCredential))
 	require.Equal(t, "200 Connection Established", tunnel.status)
@@ -146,11 +152,13 @@ func TestCredentialRulesNeedTheProxyCredential(t *testing.T) {
 		"a plain destination needs no credential")
 	assert.Equal(t, "403 Forbidden", connectWith(t, proxyAddr, "example.com:443", basic("git", testProxyCredential)).status,
 		"the credential opens no other destination")
+	assert.Equal(t, "502 Bad Gateway", connectWith(t, proxyAddr, unresolved, basic("git", testProxyCredential)).status)
 
 	text := logs.text()
 	assert.Contains(t, text, "deny CONNECT "+guarded+": no valid proxy credential")
 	assert.Contains(t, text, "allow CONNECT "+guarded+" (proxy credential)")
 	assert.Contains(t, text, "allow GET "+guarded+" (proxy credential)")
+	assert.NotContains(t, text, "allow CONNECT "+unresolved, "a tunnel that failed is not allowed")
 	assert.NotContains(t, text, testProxyCredential)
 	assert.NotContains(t, text, base64.StdEncoding.EncodeToString([]byte("git:"+testProxyCredential)))
 }

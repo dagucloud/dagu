@@ -1762,6 +1762,10 @@ export const baseGerman = {
   'Retry selected': 'Gewählte wiederholen',
   'Retry step': 'Schritt wiederholen',
   'Retry this step?': 'Diesen Schritt wiederholen?',
+  'Retry unavailable while the DAG run is running.':
+    'Wiederholen geht nicht, solange der Lauf läuft.',
+  'Retry unavailable while the root DAG run is running.':
+    'Wiederholen geht nicht, solange der oberste Lauf läuft.',
   'Retrying...': 'Wird wiederholt …',
   'Reuse previous output': 'Vorherige Ausgabe übernehmen',
   Revert: 'Zurücksetzen',

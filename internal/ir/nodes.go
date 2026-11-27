@@ -9,9 +9,10 @@ import (
 	"slices"
 )
 
-// ErrNodeListOnWorkers refuses a run with a node list that selects workers:
-// steps with nodes run on the Dagu host (RFC 013 §Narrowing a run).
-var ErrNodeListOnWorkers = errors.New("a run with a node list runs on the Dagu host and cannot select workers")
+// ErrNodeListOnWorkers refuses a dag.run child of a narrowed run that selects
+// workers: the child runs where its parent runs, and adds to its parent's
+// record of the list (RFC 013 §Narrowing a run).
+var ErrNodeListOnWorkers = errors.New("a child of a run with a node list runs where its parent runs and cannot select workers")
 
 // NodeTargets is a step's nodes field (RFC 013): which inventory nodes the
 // step runs on, and how it dispatches them.
@@ -86,6 +87,8 @@ func (d *DAG) NodeStepChild(stepName string) (*DAG, error) {
 	child.SSH, child.Container = nil, nil
 	child.WorkerSelector, child.ForceLocal = nil, false
 	child.HandlerOn = HandlerOn{}
+	// A command step names no connection, so the child declares none.
+	child.Connections = nil
 	child.Preconditions = nil
 	child.Schedule, child.StopSchedule, child.RestartSchedule = nil, nil, nil
 	child.LocalDAGs = nil

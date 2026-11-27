@@ -16,7 +16,6 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
 	"github.com/spf13/cobra"
@@ -72,15 +71,10 @@ func runValidate(ctx *Context, args []string, showUnresolved bool) error {
 	}
 
 	// Try loading the DAG without evaluation, resolving relative names against DAGsDir
-	loadOpts := []spec.LoadOption{
+	loadOpts := append(ctx.projectLoadOptions(),
 		spec.WithoutEval(),
-		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
 		spec.WithCalendarsDir(ctx.Config.Paths.CalendarsDir),
-	}
-	if ctx.Config.Paths.BaseConfig != "" {
-		loadOpts = append(loadOpts, spec.WithBaseConfig(ctx.Config.Paths.BaseConfig))
-	}
+	)
 
 	loadResult, err := spec.LoadWithResult(ctx, args[0], loadOpts...)
 	if err != nil {
@@ -100,11 +94,29 @@ func runValidate(ctx *Context, args []string, showUnresolved bool) error {
 		return errors.New(formatValidationErrors(args[0], vErr))
 	}
 
-	logValidationWarnings(ctx, args[0], append(dag.BuildWarnings, collectDeprecatedSyntaxWarnings(dag)...))
+	warnings := append(dag.BuildWarnings, collectDeprecatedSyntaxWarnings(dag)...)
+	libraryWarning, err := libraryScheduleWarning(ctx, dag)
+	if err != nil {
+		return err
+	}
+	logValidationWarnings(ctx, args[0], append(warnings, libraryWarning))
 	logValueReferenceNotices(ctx, args[0], loadResult.ValueReferenceNotices, showUnresolved)
 	logInferredDependencies(ctx, args[0], dag)
 
 	return nil
+}
+
+// libraryScheduleWarning returns the warning for a library DAG that sets a
+// schedule, which no project runs, or "" for any other DAG.
+func libraryScheduleWarning(ctx *Context, dag *ir.DAG) (string, error) {
+	if !ctx.Config.ProjectsEnabled || len(dag.Schedule) == 0 || dag.Location == "" {
+		return "", nil
+	}
+	owner, err := ctx.serverStores.DAGOwners().Of(ctx, dag.Location)
+	if err != nil || !owner.Library {
+		return "", err
+	}
+	return "library DAGs are not scheduled, so the schedule of this DAG never starts a run", nil
 }
 
 // logInferredDependencies reports each edge that a step-output reference added

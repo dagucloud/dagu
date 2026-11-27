@@ -124,6 +124,8 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"SearchWikiPageMatches":           remoteNodeAccessRead,
 	"ListServiceDAGs":                 remoteNodeAccessRead,
 	"ListSkills":                      remoteNodeAccessRead,
+	"GetSkill":                        remoteNodeAccessRead,
+	"GetSkillFile":                    remoteNodeAccessRead,
 	"GetSchedulerPauseState":          remoteNodeAccessRead,
 	"GetWorkspaceBaseConfig":          remoteNodeAccessRead,
 	"GetSyncConfig":                   remoteNodeAccessRead,
@@ -226,11 +228,12 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 
 	// Endpoints that act on the stored credential itself or authenticate by
 	// other means.
-	"ChangePassword": remoteNodeAccessDenied,
-	"Login":          remoteNodeAccessDenied,
-	"Setup":          remoteNodeAccessDenied,
-	"GetMetrics":     remoteNodeAccessDenied,
-	"TriggerWebhook": remoteNodeAccessDenied,
+	"ChangePassword":        remoteNodeAccessDenied,
+	"Login":                 remoteNodeAccessDenied,
+	"Setup":                 remoteNodeAccessDenied,
+	"GetMetrics":            remoteNodeAccessDenied,
+	"TriggerWebhook":        remoteNodeAccessDenied,
+	"TriggerProjectWebhook": remoteNodeAccessDenied,
 
 	// Node inventories, host key trust, and node connection tests, which
 	// remote nodes do not support.

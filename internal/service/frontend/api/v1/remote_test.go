@@ -135,6 +135,8 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 		{name: "viewer cannot read MCP server choices", method: http.MethodGet, path: "/api/v1/ai/mcp-server-choices", user: viewer, permissions: writeOnly},
 		{name: "developer cannot list AI endpoints", method: http.MethodGet, path: "/api/v1/ai/endpoints", user: developer, permissions: writeOnly},
 		{name: "viewer lists skills", method: http.MethodGet, path: "/api/v1/skills", user: viewer, wantCall: true},
+		{name: "viewer reads a skill", method: http.MethodGet, path: "/api/v1/skills/demo", user: viewer, wantCall: true},
+		{name: "viewer reads a skill file", method: http.MethodGet, path: "/api/v1/skills/demo/files", user: viewer, wantCall: true},
 		{name: "node lists are never forwarded", method: http.MethodGet, path: "/api/v1/nodes", user: admin, permissions: writeAndRun},
 		{name: "nodes are never forwarded", method: http.MethodGet, path: "/api/v1/nodes/web01", user: admin, permissions: writeAndRun},
 		{name: "node labels are never forwarded", method: http.MethodGet, path: "/api/v1/node-labels", user: admin, permissions: writeAndRun},
@@ -150,6 +152,7 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 		{name: "unknown endpoints need an admin", method: http.MethodGet, path: "/api/v1/not-an-endpoint", user: developer},
 		{name: "scoped user cannot read", method: http.MethodGet, path: "/api/v1/dags", user: scoped},
 		{name: "webhooks are never forwarded", method: http.MethodPost, path: "/api/v1/webhooks/deploy", user: admin},
+		{name: "project webhooks are never forwarded", method: http.MethodPost, path: "/api/v1/webhooks/ops/deploy", user: admin},
 		{name: "password changes are never forwarded", method: http.MethodPost, path: "/api/v1/auth/change-password", user: admin},
 	}
 
@@ -545,6 +548,33 @@ func TestRemoteNodeProxyPreservesStructuredError(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 	assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
 	assert.JSONEq(t, responseBody, recorder.Body.String())
+}
+
+// A skill file read through a remote node keeps the headers that name the
+// skill version and the file.
+func TestRemoteNodeProxyKeepsFileHeaders(t *testing.T) {
+	remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", `attachment; filename="a.bin"`)
+		w.Header().Set("ETag", `"abc123"`)
+		_, _ = w.Write([]byte("bytes"))
+	}))
+	t.Cleanup(remoteServer.Close)
+
+	resolver := remotenode.NewResolver([]config.RemoteNode{{
+		Name:       "edge",
+		APIBaseURL: remoteServer.URL + "/api/v1",
+	}}, nil)
+	handler := WithRemoteNode(resolver, "/api/v1")(http.NotFoundHandler())
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/skills/demo/files?path=a.bin&remoteNode=edge", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, `"abc123"`, recorder.Header().Get("ETag"))
+	assert.Equal(t, `attachment; filename="a.bin"`, recorder.Header().Get("Content-Disposition"))
+	assert.Equal(t, "bytes", recorder.Body.String())
 }
 
 func TestLegacyWikiProxyPath(t *testing.T) {

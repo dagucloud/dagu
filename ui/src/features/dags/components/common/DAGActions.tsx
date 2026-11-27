@@ -126,9 +126,7 @@ function DAGActions({
   const isService = dag ? isServiceDAG(dag) : false;
   const serviceActive = hasActiveServiceRun(dag, status);
   const serviceRestarts = isService && restartsByItself(service);
-  // The Start of a bar stays: the bar has no service state, so the server
-  // gives the reason when it refuses a run.
-  const startBlocked = !barStart && (serviceActive || serviceRestarts);
+  const startBlocked = serviceActive || serviceRestarts;
   const mark = (action: 'start' | 'stop' | 'retry') =>
     markActions ? action : undefined;
   const { ts } = useI18n();
@@ -499,7 +497,9 @@ function DAGActions({
         )}
       >
         {barStart ? (
-          hasStartButton && startButton
+          // A bar has no Auto mark: it has no Start while the scheduler starts
+          // the runs.
+          hasStartButton && !startBlocked && startButton
         ) : (
           // A list row or a card keeps Start, Retry and Stop in fixed slots.
           // While the scheduler starts the runs, it takes the slots of Start

@@ -127,7 +127,11 @@ func parseSkillEntries(ctx buildContext, items []any, path string) ([]ir.SkillEn
 		if err != nil {
 			return nil, ir.NewValidationError(paths[i], name, err)
 		}
-		entries = append(entries, NewSkillEntry(sk))
+		entry, err := NewSkillEntry(sk)
+		if err != nil {
+			return nil, ir.NewValidationError(paths[i], name, err)
+		}
+		entries = append(entries, entry)
 	}
 	if err := checkSkillCaps(entries); err != nil {
 		return nil, ir.NewValidationError(path, len(entries), err)
@@ -156,25 +160,32 @@ func parseSkillName(item any, path string) (string, error) {
 }
 
 // NewSkillEntry makes the entry of a checked skill: the snapshot that a run
-// keeps. The text files hold their content.
-func NewSkillEntry(sk *skill.Skill) ir.SkillEntry {
+// keeps. The text files hold their content. It fails when a text file changed
+// after the read of the skill.
+func NewSkillEntry(sk *skill.Skill) (ir.SkillEntry, error) {
 	entry := ir.SkillEntry{
 		Name:        sk.Name,
 		Description: sk.Meta.Description,
-		Body:        sk.Body,
 		Hash:        sk.Hash,
 		Dir:         sk.Dir,
 		Files:       make([]ir.SkillFile, 0, len(sk.Files)),
 	}
 	for _, f := range sk.Files {
 		file := ir.SkillFile{Path: f.Path, Size: f.Size, SHA256: f.SHA256}
-		if data, ok := sk.Text(f.Path); ok {
+		if f.Text {
+			data, err := sk.Text(f.Path)
+			if err != nil {
+				return ir.SkillEntry{}, err
+			}
 			text := string(data)
 			file.Text = &text
+			if f.Path == skill.FileName {
+				_, entry.Body, _ = skill.CheckSkillFile(sk.Name, data)
+			}
 		}
 		entry.Files = append(entry.Files, file)
 	}
-	return entry
+	return entry, nil
 }
 
 // checkSkillCaps applies the limits of the skills of one step: the number of

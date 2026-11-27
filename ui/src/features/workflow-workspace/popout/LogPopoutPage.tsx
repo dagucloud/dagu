@@ -115,6 +115,8 @@ export function LogPopoutPage({
         dagName={dagName}
         run={run}
         service={!!dagData.dag && isServiceDAG(dagData.dag)}
+        dag={dagData.dag}
+        latestRun={dagData.latestDAGRun}
         kind={kind}
         step={step}
         carry={url.carry}

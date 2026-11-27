@@ -110,9 +110,9 @@ func enterStepGate(ctx context.Context, node *Node) (func(), error) {
 	gate := GetDAGContext(ctx).StepGate
 	log := node.outputs.stderrLog()
 	if node.Step().IsUntrusted() {
-		return gate.Write(ctx, func() { untrusted.WriteLine(log, untrusted.WaitingRunLine) })
+		return unlessPoisoned(gate.Write(ctx, func() { untrusted.WriteLine(log, untrusted.WaitingRunLine) }))
 	}
-	return gate.Read(ctx, func() { untrusted.WriteLine(log, untrusted.WaitingTrustedLine) })
+	return unlessPoisoned(gate.Read(ctx, func() { untrusted.WriteLine(log, untrusted.WaitingTrustedLine) }))
 }
 
 // enterTrustedGate takes a place of a trusted reader for the trusted code of a
@@ -125,7 +125,21 @@ func enterTrustedGate(ctx context.Context, node *Node) (func(), error) {
 		return nil, err
 	}
 	log := node.outputs.stderrLog()
-	return GetDAGContext(ctx).StepGate.Read(ctx, func() { untrusted.WriteLine(log, untrusted.WaitingTrustedLine) })
+	return unlessPoisoned(GetDAGContext(ctx).StepGate.Read(ctx, func() { untrusted.WriteLine(log, untrusted.WaitingTrustedLine) }))
+}
+
+// unlessPoisoned gives back a place of the gate when the isolation of the
+// process stopped while the node waited: the step that held the gate can have
+// failed its End.
+func unlessPoisoned(leave func(), err error) (func(), error) {
+	if err != nil {
+		return nil, err
+	}
+	if err := untrusted.Poisoned(); err != nil {
+		leave()
+		return nil, err
+	}
+	return leave, nil
 }
 
 // checkUntrustedExecutor fails an untrusted step whose executor does not start

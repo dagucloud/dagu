@@ -92,6 +92,10 @@ type Call struct {
 	With map[string]any
 	// Env holds the step's environment by name, secrets included.
 	Env map[string]string
+	// Host lists, sorted, the names in Env whose values are the host's, as
+	// Dagu forwards the host environment to steps, with no other entry in
+	// their place.
+	Host []string
 	// Secrets lists the values that output masks as secrets.
 	Secrets []string
 }
@@ -241,6 +245,12 @@ func (s *Set) record(ctx context.Context, step ir.Step) {
 	call := Call{Env: runtime.AllEnvsMap(ctx)}
 	if scope := runtime.GetEnv(ctx).Scope; scope != nil {
 		call.Secrets = slices.Collect(maps.Values(scope.AllSecrets()))
+		for name := range scope.AllBySource(cmnvalue.EnvSourceOS) {
+			if entry, _ := scope.GetEntry(name); entry.Source == cmnvalue.EnvSourceOS {
+				call.Host = append(call.Host, name)
+			}
+		}
+		slices.Sort(call.Host)
 	}
 	if step.ActionWith == nil {
 		call.Run = runText(step)

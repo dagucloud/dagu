@@ -275,15 +275,19 @@ type DAGRunStatus struct {
 	// computes it.
 	DefinitionDigest string `json:"definitionDigest,omitempty"`
 	// SuspendFlagName is retained for histories written before DefinitionID was introduced.
-	SuspendFlagName    string                `json:"suspendFlagName,omitempty"`
-	Log                string                `json:"log,omitempty"`
-	WorkingDir         string                `json:"workingDir,omitempty"`
-	ArchiveDir         string                `json:"archiveDir,omitempty"`
-	Error              string                `json:"error,omitempty"`
-	Params             string                `json:"params,omitempty"`
-	ParamsList         []string              `json:"paramsList,omitempty"`
-	ParallelItem       string                `json:"parallelItem,omitempty"`
-	BoundNode          string                `json:"boundNode,omitempty"`
+	SuspendFlagName string   `json:"suspendFlagName,omitempty"`
+	Log             string   `json:"log,omitempty"`
+	WorkingDir      string   `json:"workingDir,omitempty"`
+	ArchiveDir      string   `json:"archiveDir,omitempty"`
+	Error           string   `json:"error,omitempty"`
+	Params          string   `json:"params,omitempty"`
+	ParamsList      []string `json:"paramsList,omitempty"`
+	ParallelItem    string   `json:"parallelItem,omitempty"`
+	BoundNode       string   `json:"boundNode,omitempty"`
+	// BoundWorker names the worker node a run was started bound to, so a
+	// later dispatch of the run goes to that worker or is refused, never
+	// to a node that has taken the name since.
+	BoundWorker        string                `json:"boundWorker,omitempty"`
 	ProfileName        string                `json:"profileName,omitempty"`
 	ProfileResolvedAt  string                `json:"profileResolvedAt,omitempty"`
 	ProfileEntries     []RuntimeProfileEntry `json:"profileEntries,omitempty"`

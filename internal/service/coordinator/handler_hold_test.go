@@ -425,6 +425,27 @@ func TestOfflineHeartbeatRemovesWorkerWithoutStore(t *testing.T) {
 	assert.Empty(t, healthy)
 }
 
+// A run bound to a worker node fails at once while its worker is offline,
+// even when dispatches are held for workers (RFC 013 §Matching).
+func TestDispatchToOfflineWorkerNodeRefused(t *testing.T) {
+	f := newHoldFixture(t, time.Hour)
+	task := cpuTask("run-bound")
+	task.WorkerSelector = nil
+	task.TargetWorkerId, task.BoundNode = "tokyo-gw", "tokyo-gw"
+
+	_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: task})
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.FailedPrecondition, st.Code())
+	assert.Equal(t, `worker node "tokyo-gw" is offline`, st.Message())
+	assert.Nil(t, f.runs.attempts["run-bound"], "nothing is created when refused")
+
+	f.heartbeat(t, "tokyo-gw", nil)
+	_, err = f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: task})
+	require.NoError(t, err, "accepted once the worker is online")
+}
+
 // Cancelling a held run aborts it and drops the task.
 func TestRequestCancelAbortsHeldDispatch(t *testing.T) {
 	f := newHoldFixture(t, time.Hour)

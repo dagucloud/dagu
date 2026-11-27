@@ -73,6 +73,9 @@ func (n *Node) setupNodesExecutor(ctx context.Context, override ExecutorOverride
 		}
 		run := child
 		run.Node = node.Node
+		if node.Worker {
+			run.TargetWorkerID = node.Node
+		}
 		run.RunID = node.Run.RunID
 		if run.RunID == "" {
 			run.RunID = GenerateSubDAGRunIDForTarget(ctx, child.DAGName, child.Params+"\x00node="+node.Node, false)
@@ -129,13 +132,13 @@ func (n *Node) stepNodes(ctx context.Context) ([]executor.NodeRun, error) {
 	}
 	runs := make([]executor.NodeRun, len(matched))
 	for i, node := range matched {
-		runs[i] = executor.NodeRun{Node: node.Name, Disabled: node.Disabled}
+		runs[i] = executor.NodeRun{Node: node.Name, Disabled: node.Disabled, Worker: node.Kind == inventory.NodeKindWorker}
 	}
 	return runs, nil
 }
 
 // recordedNodes returns the nodes an earlier attempt of a step recorded, each
-// with its child run, as the inventory holds them now. A node whose child run
+// with its child run, as the project holds them now. A node whose child run
 // succeeded keeps its result. Any other node is removed when it has left the
 // inventory, and disabled when it is disabled now. A node added since is not
 // added. The step fails when no node can run or keep its result.
@@ -144,7 +147,11 @@ func recordedNodes(ctx context.Context, records ir.NodeRuns) ([]executor.NodeRun
 	if inventoryNodes == nil {
 		return nil, errNoNodeInventory
 	}
-	current, err := inventoryNodes.Nodes(ctx)
+	names := make([]string, len(records.Runs))
+	for i, record := range records.Runs {
+		names[i] = record.Node
+	}
+	current, err := inventoryNodes.Named(ctx, names)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the nodes: %w", err)
 	}
@@ -165,6 +172,10 @@ func recordedNodes(ctx context.Context, records ir.NodeRuns) ([]executor.NodeRun
 			run.Removed = true
 		case node.Disabled:
 			run.Disabled = true
+		}
+		// A worker node's child is dispatched to the worker by its exact ID.
+		if found && node.Kind == inventory.NodeKindWorker {
+			run.Node, run.Worker = node.Name, true
 		}
 		runnable = runnable || run.Runs()
 		runs[i] = run

@@ -120,9 +120,40 @@ steps:
 	require.Contains(t, err.Error(), "coordinator")
 }
 
-// With projects on, an embedded run reads the secret and profile default of
-// its project, never those of the workspace its DAG's label names. With
-// projects off, the workspace's layers apply as in v2.
+// An embedded run checks the connections its DAG declares before its first
+// step, as a local run of the CLI does.
+func TestEngineRunChecksConnections(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), engineTestTimeout(20*time.Second))
+	defer cancel()
+
+	home := t.TempDir()
+	engine, err := dagu.New(ctx, dagu.Options{HomeDir: home})
+	require.NoError(t, err, "New()")
+	defer func() {
+		require.NoError(t, engine.Close(context.Background()))
+	}()
+
+	marker := filepath.Join(home, "executed.txt")
+	run, err := engine.RunYAML(ctx, []byte(fmt.Sprintf(`
+name: embedded-connection
+steps:
+  - name: first
+    action: file.write
+    with: {path: %q, content: executed}
+  - name: unread
+    action: mcp.call
+    with: {connection: missing, server: gmail, tool: search_threads}
+`, marker)))
+	require.NoError(t, err, "RunYAML()")
+	_, err = run.Wait(ctx)
+	require.ErrorContains(t, err, `connection not found: "missing"`, "Wait()")
+	require.NoFileExists(t, marker)
+}
+
+// An embedded run reads the secret and profile default of the workspace its
+// DAG's label names, as in v2. With projects on, the engine refuses to
+// start, since it would keep runs where a server with projects on does not
+// read them.
 func TestEngineRunProjectSettings(t *testing.T) {
 	testBinary, err := os.Executable()
 	require.NoError(t, err, "Executable()")
@@ -131,7 +162,7 @@ func TestEngineRunProjectSettings(t *testing.T) {
 		projectsOn bool
 		scope      string
 	}{
-		{name: "ProjectsOn", projectsOn: true, scope: "project"},
+		{name: "ProjectsOn", projectsOn: true},
 		{name: "ProjectsOff", projectsOn: false, scope: "workspace"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -145,6 +176,10 @@ func TestEngineRunProjectSettings(t *testing.T) {
 			require.NoError(t, os.WriteFile(configFile, fmt.Appendf(nil, "experimental_projects: %t\n", tc.projectsOn), 0o600))
 
 			engine, err := dagu.New(ctx, dagu.Options{HomeDir: home, ConfigFile: configFile, DataDir: dataDir})
+			if tc.projectsOn {
+				require.ErrorContains(t, err, "does not support projects")
+				return
+			}
 			require.NoError(t, err, "New()")
 			defer func() {
 				require.NoError(t, engine.Close(context.Background()))

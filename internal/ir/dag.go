@@ -5,6 +5,7 @@ package ir
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -309,8 +310,19 @@ type DAG struct {
 	// SecretStepScope is true when a step is untrusted or has the key secrets.
 	// A step then gets only the secrets that its list names (Spec 092).
 	SecretStepScope bool `json:"secretStepScope,omitempty"`
+	// Connections lists the connections that the DAG's steps name, each
+	// once. A run checks each before its first step.
+	Connections []ConnectionRef `json:"connections,omitempty"`
 	// Tools declares external CLI tools that must be installed before the DAG runs.
 	Tools *ToolConfig `json:"tools,omitempty"`
+}
+
+// ConnectionRef is a connection that a DAG names.
+type ConnectionRef struct {
+	Name string `json:"name"`
+	// Servers are the services that steps call through the connection as
+	// MCP servers, each once.
+	Servers []string `json:"servers,omitempty"`
 }
 
 // EnvSpan is the half-open range [Start, End) of DAG.Env indexes.
@@ -419,6 +431,18 @@ func (d *DAG) UnmarshalJSON(data []byte) error {
 		d.Labels = aux.DeprecatedTags
 	}
 	return nil
+}
+
+// ChildFile returns the file that child, a DAG that d calls, was written in.
+// A DAG defined in d's file runs from a temporary copy, so its file is d's.
+// A nil d calls only DAGs of other files.
+func (d *DAG) ChildFile(child *DAG) string {
+	if d != nil {
+		if _, local := d.LocalDAGs[child.Name]; local {
+			return cmp.Or(d.SourceFile, d.Location)
+		}
+	}
+	return cmp.Or(child.SourceFile, child.Location)
 }
 
 // HasLabel checks if the DAG has a label matching the given filter.

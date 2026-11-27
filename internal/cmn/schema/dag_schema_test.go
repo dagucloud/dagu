@@ -520,6 +520,53 @@ steps:
 			wantErr: "did not validate",
 		},
 		{
+			name: "ActionA2ASendMessageID",
+			spec: `
+steps:
+  - action: a2a.send
+    with:
+      agent_url: https://agents.example.com/diag
+      message: hi
+      message_id: ${DAG_RUN_ID}-delegate
+`,
+		},
+		{
+			name: "RejectActionA2ASendEmptyMessageID",
+			spec: `
+steps:
+  - action: a2a.send
+    with:
+      agent_url: https://agents.example.com/diag
+      message: hi
+      message_id: ""
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionA2ASendLongMessageID",
+			spec: `
+steps:
+  - action: a2a.send
+    with:
+      agent_url: https://agents.example.com/diag
+      message: hi
+      message_id: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionA2ASendControlMessageID",
+			spec: `
+steps:
+  - action: a2a.send
+    with:
+      agent_url: https://agents.example.com/diag
+      message: hi
+      message_id: "a\u0001b"
+`,
+			wantErr: "did not validate",
+		},
+		{
 			name: "RejectActionA2AQueryInURL",
 			spec: `
 steps:

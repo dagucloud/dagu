@@ -44,6 +44,14 @@ func LoadBaseEnvWithExtras(extraAllow []string, extraPrefixes []string) BaseEnv 
 	return BaseEnv{variables: filterEnv(os.Environ(), allow, prefixes)}
 }
 
+// ForwardedByDefault reports whether Dagu passes the process environment
+// variable named key to workflow steps whatever the configuration: a name
+// in its fixed allowlist, such as PATH or HOME, or a name with a fixed
+// prefix, such as LC_.
+func ForwardedByDefault(key string) bool {
+	return defaultWhitelist[normalizeEnvKey(key)] || hasAllowedPrefix(key, normalizePrefixes(defaultPrefixes))
+}
+
 // AsSlice returns a defensive copy of the filtered environment.
 func (b BaseEnv) AsSlice() []string {
 	return append([]string{}, b.variables...)

@@ -1,0 +1,13 @@
+steps:
+  - name: child
+    call: child
+---
+name: child
+labels: [workspace=ops]
+working_dir: .
+steps:
+  - name: first
+    run: echo executed > executed.txt
+  - name: unread
+    action: mcp.call
+    with: {connection: missing, server: gmail, tool: search_threads}

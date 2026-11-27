@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -48,21 +47,24 @@ func TestRunUsesProjectSettings(t *testing.T) {
 	t.Parallel()
 
 	dagu := harness.NewRunner(t)
-	home := filepath.Join(t.TempDir(), "dagu")
-	env := []string{"DAGU_HOME=" + home}
-	projectsOn := append(slices.Clone(env), "DAGU_EXPERIMENTAL_PROJECTS=true")
-	seedSettings(t, dagu, projectsOn)
-
-	dagFile := filepath.Join(home, "dags", "settings.yaml")
 	for _, tc := range []struct {
-		env   []string
-		scope string
+		projectsOn bool
+		scope      string
 	}{
-		{env: projectsOn, scope: "project"},
-		{env: env, scope: "workspace"},
+		{projectsOn: true, scope: "project"},
+		{projectsOn: false, scope: "workspace"},
 	} {
+		// Each install keeps its settings where its first start leaves
+		// them, so each case seeds its own.
+		home := filepath.Join(t.TempDir(), "dagu")
+		env := []string{"DAGU_HOME=" + home}
+		if tc.projectsOn {
+			env = append(env, "DAGU_EXPERIMENTAL_PROJECTS=true")
+		}
+		seedSettings(t, dagu, env)
+		dagFile := filepath.Join(home, "dags", "settings.yaml")
 		require.NoError(t, os.WriteFile(dagFile, fmt.Appendf(nil, settingsDAG, tc.scope), 0o600))
-		result := dagu.RunWithEnv(tc.env, "start", dagFile)
+		result := dagu.RunWithEnv(env, "start", dagFile)
 		result.ExpectExitCode(0)
 		require.Contains(t, result.Stdout(), "token *******")
 		require.Contains(t, result.Stdout(), "tier "+tc.scope)
@@ -112,4 +114,45 @@ func send(t *testing.T, method, url, body string) {
 	require.NoError(t, err)
 	require.Less(t, resp.StatusCode, 300, "%s %s: %s", method, url, answer.String())
 	require.NotContains(t, answer.String(), "-token")
+}
+
+// TestRunUsesProjectBaseConfig proves Spec 102 "Base Config". With projects
+// on, a run of weather reads base.yaml in its DAG directory, a run of
+// day-ahead, which has none, reads no base config, not even through a
+// library child, and a default-project DAG whose label names workspace ops
+// reads paths.base_config alone. With projects off, the label's workspace
+// base config layers over paths.base_config, as on v2.
+func TestRunUsesProjectBaseConfig(t *testing.T) {
+	t.Parallel()
+
+	in := newLibraryInstall(t)
+	in.run(true, nil, "project", "create", "day-ahead").ExpectExitCode(0)
+	out := t.TempDir()
+	// Each DAG records the base config values its run read.
+	record := func(name string) string {
+		return fmt.Sprintf("steps:\n  - id: record\n    run: printf '%%s' \"${BASE_MARK:-}${DEFAULT_ONLY:-}\" > '%s'\n",
+			filepath.ToSlash(filepath.Join(out, name)))
+	}
+	in.write(t, "base.yaml", "env:\n  - BASE_MARK: default\n  - DEFAULT_ONLY: \"+server\"\n")
+	in.write(t, "dags/workspaces/ops/base.yaml", "env:\n  - BASE_MARK: ops\n")
+	in.write(t, "projects/weather/base.yaml", "env:\n  - BASE_MARK: weather\n")
+	in.write(t, "projects/weather/forecast.yaml", record("forecast"))
+	in.write(t, "projects/day-ahead/auction.yaml", callerOf("report"))
+	in.write(t, "library/report.yaml", record("report"))
+	labelled := in.write(t, "dags/labelled.yaml", "labels: [workspace=ops]\n"+record("labelled"))
+	recorded := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(out, name))
+		require.NoError(t, err)
+		return string(data)
+	}
+
+	in.run(true, nil, "start", "--project", "weather", "forecast").ExpectExitCode(0)
+	require.Equal(t, "weather", recorded("forecast"))
+	in.run(true, nil, "start", "--project", "day-ahead", "auction").ExpectExitCode(0)
+	require.Empty(t, recorded("report"))
+	in.run(true, nil, "start", labelled).ExpectExitCode(0)
+	require.Equal(t, "default+server", recorded("labelled"))
+	in.run(false, nil, "start", labelled).ExpectExitCode(0)
+	require.Equal(t, "ops+server", recorded("labelled"))
 }

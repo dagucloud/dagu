@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -294,6 +295,8 @@ func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remot
 		DefinitionID: task.DefinitionId,
 		TriggerActor: task.TriggerActor,
 		TriggerType:  run.triggerType(),
+		TargetNodes:  run.targetNodes(),
+		NodeList:     run.nodeList(),
 		// The run ended before any step could use a model.
 		ModelUsageRecorded: true,
 	}
@@ -352,6 +355,8 @@ func (h *remoteTaskHandler) reportDAGRunInitFailure(
 		DefinitionID: task.DefinitionId,
 		TriggerActor: task.TriggerActor,
 		TriggerType:  run.triggerType(),
+		TargetNodes:  run.targetNodes(),
+		NodeList:     run.nodeList(),
 		// The run ended before any step could use a model.
 		ModelUsageRecorded: true,
 	}
@@ -413,6 +418,24 @@ func (r remoteRun) triggerType() ir.TriggerType {
 		return r.retry.triggerType
 	}
 	return ir.ParseTriggerType(r.task.TriggerType)
+}
+
+// targetNodes is the run's node list: the task's, or for a retry from a
+// dispatcher that sent none, the list of the run it retries.
+func (r remoteRun) targetNodes() []string {
+	if len(r.task.TargetNodes) == 0 && r.retry != nil && r.retry.target != nil {
+		return r.retry.target.TargetNodes
+	}
+	return r.task.TargetNodes
+}
+
+// nodeList is the record of the node list a retry continues, so a failure
+// before the run starts keeps it.
+func (r remoteRun) nodeList() *ir.NodeListRecord {
+	if r.retry == nil || r.retry.target == nil {
+		return nil
+	}
+	return r.retry.target.NodeList
 }
 
 type taskInitError struct {
@@ -487,8 +510,44 @@ type loadedTaskDAG struct {
 	cleanup       func()
 }
 
-// loadDAG loads the DAG from task definition.
+// loadDAG loads the DAG a task runs. The child of a command step with nodes
+// runs that step alone.
 func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Task) (*loadedTaskDAG, error) {
+	loaded, err := h.loadTaskDAG(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+	if err := lostNodeStepError(task, loaded.dag); err != nil {
+		loaded.cleanup()
+		return nil, err
+	}
+	if task.NodeStep == "" {
+		return loaded, nil
+	}
+	child, err := loaded.dag.NodeStepChild(task.NodeStep)
+	if err != nil {
+		loaded.cleanup()
+		return nil, fmt.Errorf("failed to load DAG: %w", err)
+	}
+	loaded.dag = child
+	return loaded, nil
+}
+
+// lostNodeStepError refuses the child of a command step with nodes whose
+// task lost its node step, as a coordinator without the field drops it, so
+// the parent's whole definition never runs unbound on a worker. Such a task
+// names its parent's DAG as its target and a worker to run on.
+func lostNodeStepError(task *coordinatorv1.Task, dag *ir.DAG) error {
+	if task.NodeStep != "" || task.TargetWorkerId == "" || task.ParentDagRunName == "" || task.Target != task.ParentDagRunName {
+		return nil
+	}
+	if slices.ContainsFunc(dag.Steps, func(step ir.Step) bool { return step.Nodes != nil && step.SubDAG == nil }) {
+		return fmt.Errorf("the task runs DAG %q, its parent's, on worker %q without the step it runs on a node; the coordinator may predate worker nodes, so upgrade it", task.Target, task.TargetWorkerId)
+	}
+	return nil
+}
+
+func (h *remoteTaskHandler) loadTaskDAG(ctx context.Context, task *coordinatorv1.Task) (*loadedTaskDAG, error) {
 	if _, ok, err := taskWorkspaceDescriptor(task); err != nil {
 		return nil, err
 	} else if ok {
@@ -757,6 +816,15 @@ func (h *remoteTaskHandler) executeDAGRun(
 			WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID,
 		})
 	}
+	// Each run reads the nodes of its own DAG, so a child run gets its own.
+	nodes := func(current *ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys) {
+		nodeRun := coordinator.SecretReferenceRun{WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID}
+		if current != nil {
+			nodeRun.DAGName = current.Name
+		}
+		return newRemoteNodes(h.coordinatorClient, run.owner, nodeRun)
+	}
+	nodeSelector, hostKeys := nodes(dag)
 
 	toolEnvs, err := h.prepareDAGTools(ctx, dag)
 	if err != nil {
@@ -800,6 +868,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		StateStore:         h.stateStore,
 		SecretStore:        runtimeStores.SecretStore,
 		SecretResolver:     secretResolver,
+		Nodes:              nodes,
 		ProfileStore:       runtimeStores.ProfileStore,
 		ProfileResolver:    profileResolver,
 		ServiceRegistry:    h.serviceRegistry,
@@ -828,6 +897,9 @@ func (h *remoteTaskHandler) executeDAGRun(
 		StateStore:               h.stateStore,
 		SecretStore:              runtimeStores.SecretStore,
 		SecretReferenceResolver:  secretResolver(dag),
+		NodeSelector:             nodeSelector,
+		HostKeys:                 hostKeys,
+		TargetNodes:              run.targetNodes(),
 		ProfileStore:             runtimeStores.ProfileStore,
 		ProfileResolver:          profileResolver(dag),
 		ProfileName:              run.profileName,
@@ -835,6 +907,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		TriggerActor:             task.TriggerActor,
 		TriggerType:              run.triggerType(),
 		ParallelItem:             task.ParallelItem,
+		BoundNode:                task.BoundNode,
 		ServiceRegistry:          h.serviceRegistry,
 		SubWorkflowRunnerFactory: subWorkflowRunnerFactory,
 		RemoteDAGLoader:          remoteDAGLoader,

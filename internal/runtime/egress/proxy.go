@@ -5,6 +5,7 @@ package egress
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
@@ -34,8 +35,8 @@ type DialFunc func(ctx context.Context, network, address string) (net.Conn, erro
 
 // Options configures a proxy.
 type Options struct {
-	// Rules is the allow list. A proxy with no rule is not valid, because it
-	// would deny everything.
+	// Rules is the allow list. Rules and CredentialRules together need at least
+	// one rule: a proxy with none would deny everything.
 	Rules *Rules
 	// Resolver resolves the names of the allowed destinations. The default is the
 	// resolver of the process.
@@ -50,7 +51,8 @@ type Options struct {
 	// CredentialRules are the destinations that need the proxy credential. A
 	// client that sends it in the header Proxy-Authorization (Basic, the password
 	// part) reaches them. Other clients get the status 407. A rule of this list
-	// MUST NOT overlap a rule of Rules. It can be nil.
+	// MUST NOT overlap a rule of Rules, and Rules MUST NOT then hold a wildcard.
+	// It can be nil.
 	CredentialRules *Rules
 	// ProxyCredential is the value that CredentialRules need. It is set exactly
 	// when CredentialRules has a rule.
@@ -297,7 +299,8 @@ func clientCredential(header http.Header) string {
 
 // hasCredential reports whether the request carries the proxy credential in its
 // only header Proxy-Authorization, in the form Basic with any user name. The
-// check takes the same time for each wrong value of the same length.
+// check compares digests, so its time tells neither the bytes nor the length
+// of the credential.
 func (p *Proxy) hasCredential(r *http.Request) bool {
 	values := r.Header.Values("Proxy-Authorization")
 	if p.credential == "" || len(values) != 1 {
@@ -312,28 +315,29 @@ func (p *Proxy) hasCredential(r *http.Request) bool {
 		return false
 	}
 	_, password, ok := strings.Cut(string(decoded), ":")
-	return ok && subtle.ConstantTimeCompare([]byte(password), []byte(p.credential)) == 1
+	got, want := sha256.Sum256([]byte(password)), sha256.Sum256([]byte(p.credential))
+	return ok && subtle.ConstantTimeCompare(got[:], want[:]) == 1
 }
 
 // admit decides for a destination of a request in absolute form or of CONNECT.
 // It writes the answer of a refused request and returns false. A destination of
-// CredentialRules needs the proxy credential.
-func (p *Proxy) admit(w http.ResponseWriter, r *http.Request, host string, port int) bool {
+// CredentialRules needs the proxy credential. The suffix is the one of the allow
+// log line: it names the proxy credential for such a destination.
+func (p *Proxy) admit(w http.ResponseWriter, r *http.Request, host string, port int) (allowed bool, suffix string) {
 	if p.rules.Allows(host, port) {
-		return true
+		return true, ""
 	}
 	if !p.credentialRules.Allows(host, port) {
 		p.deny(w, host, port)
-		return false
+		return false, ""
 	}
 	if !p.hasCredential(r) {
 		p.log("egress proxy: deny %s %s:%d: no valid proxy credential", r.Method, host, port)
 		w.Header().Set("Proxy-Authenticate", `Basic realm="`+proxyRealm+`"`)
 		http.Error(w, fmt.Sprintf("egress proxy: the destination %s:%d needs the proxy credential", host, port), http.StatusProxyAuthRequired)
-		return false
+		return false, ""
 	}
-	p.log("egress proxy: allow %s %s:%d (proxy credential)", r.Method, host, port)
-	return true
+	return true, " (proxy credential)"
 }
 
 // dialAllowed checks the destination and dials the address that the name
@@ -349,7 +353,7 @@ func (p *Proxy) dialAllowed(ctx context.Context, network, address string) (net.C
 		return nil, fmt.Errorf("the destination %q has no valid port", address)
 	}
 	// A destination of CredentialRules gets here only after admit checked the
-	// credential.
+	// credential, or as the upstream of the origin route, which needs none.
 	if !p.rules.Allows(host, port) && !p.credentialRules.Allows(host, port) {
 		return nil, &DeniedError{Host: host, Port: port}
 	}
@@ -505,12 +509,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		port = parsed
 	}
-	if !p.admit(w, r, host, port) {
+	allowed, suffix := p.admit(w, r, host, port)
+	if !allowed {
 		return
 	}
-	if p.rules.Allows(host, port) {
-		p.log("egress proxy: allow %s %s:%d", r.Method, host, port)
-	}
+	p.log("egress proxy: allow %s %s:%d%s", r.Method, host, port, suffix)
 	p.reverse.ServeHTTP(w, r)
 }
 
@@ -530,7 +533,8 @@ func (p *Proxy) serveConnect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "egress proxy: the port is not valid", http.StatusBadRequest)
 		return
 	}
-	if !p.admit(w, r, host, port) {
+	allowed, suffix := p.admit(w, r, host, port)
+	if !allowed {
 		return
 	}
 	upstream, err := p.dialAllowed(r.Context(), "tcp", net.JoinHostPort(host, portText))
@@ -554,9 +558,7 @@ func (p *Proxy) serveConnect(w http.ResponseWriter, r *http.Request) {
 		_ = upstream.Close()
 		return
 	}
-	if p.rules.Allows(host, port) {
-		p.log("egress proxy: allow CONNECT %s:%d", host, port)
-	}
+	p.log("egress proxy: allow CONNECT %s:%d%s", host, port, suffix)
 	_, _ = io.WriteString(client, "HTTP/1.1 200 Connection Established\r\n\r\n")
 	pipe(client, buffered, upstream, p.tunnelIdle)
 }

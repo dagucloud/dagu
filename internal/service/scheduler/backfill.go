@@ -21,7 +21,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // liveRunChecker reports whether a run counts for a DAG's live schedule. A
@@ -174,7 +173,7 @@ func (s *Scheduler) backfillTarget(ctx context.Context, record *backfill.Record)
 		spec.WithoutEval(),
 		spec.WithName(record.DAGName),
 		spec.WithDAGsDir(s.config.Paths.DAGsDir),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(s.config.Paths.DAGsDir)),
+		spec.WithWorkspaceBaseConfigDir(s.config.WorkspaceBaseConfigDir()),
 		spec.WithCalendarsDir(s.config.Paths.CalendarsDir),
 	}
 	if s.config.Paths.BaseConfig != "" {
@@ -205,17 +204,18 @@ func (s *Scheduler) enqueueBackfillRun(ctx context.Context, record *backfill.Rec
 	); ok && len(sched.Params) > 0 {
 		params = string(sched.Params)
 	}
-	dag, err := rehydrateExecutionDAG(ctx, target.DAG, params, s.config.Paths.BaseConfig, workspace.BaseConfigDir(s.config.Paths.DAGsDir))
+	dag, err := rehydrateExecutionDAG(ctx, target.DAG, params, s.config.Paths.BaseConfig, s.config.WorkspaceBaseConfigDir())
 	if err != nil {
 		return err
 	}
+	logDir, artifactDir := runDirs(s.config)
 	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
 		DAGRunRepository: s.dagRunRepository,
 		QueueStore:       s.queueStore,
 		DAG:              dag,
 		DAGRunID:         runID,
-		LogBaseDir:       s.config.Paths.LogDir,
-		ArtifactBaseDir:  s.config.Paths.ArtifactDir,
+		LogBaseDir:       logDir,
+		ArtifactBaseDir:  artifactDir,
 		TriggerType:      ir.TriggerTypeBackfill,
 		TriggerActor:     record.Actor,
 		ScheduleTime:     stringutil.FormatTime(slot.At),

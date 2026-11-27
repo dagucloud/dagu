@@ -317,6 +317,7 @@ type Agent struct {
 	profileEntries []ir.RuntimeProfileEntry
 	// secretReferenceResolver resolves registry refs without requiring local store access.
 	secretReferenceResolver providers.ReferenceResolver
+	connectionChecker       ConnectionChecker
 	// secretMasker redacts resolved secret values from status/history snapshots.
 	secretMasker *masking.Masker
 	// secretValues, when non-nil, replaces the providers of DAG secrets.
@@ -455,6 +456,9 @@ type Options struct {
 	// SecretReferenceResolver resolves DAG-level registry refs.
 	// When nil, SecretStore supplies the local resolver.
 	SecretReferenceResolver providers.ReferenceResolver
+	// ConnectionChecker checks the connections the DAG declares before its
+	// first step. When nil, the run does not check them.
+	ConnectionChecker ConnectionChecker
 	// SecretValues, when non-nil, holds the value of each DAG secrets entry
 	// by name and of each SSH credential secret ref by ref, and no secret
 	// provider, store, or resolver is called. A secret without a value fails
@@ -592,6 +596,7 @@ func New(
 		materializationStore:     opts.MaterializationStore,
 		secretStore:              opts.SecretStore,
 		secretReferenceResolver:  secretReferenceResolverForDAG(dag, opts),
+		connectionChecker:        opts.ConnectionChecker,
 		secretValues:             opts.SecretValues,
 		redirectRoot:             opts.RedirectRoot,
 		profileStore:             opts.ProfileStore,
@@ -954,6 +959,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		runtime.WithBypassPreconditions(a.bypassPreconditions),
 		runtime.WithAttemptID(a.dagRunAttemptID),
 		runtime.WithWorkerID(a.workerID),
+		runtime.WithProject(a.dagRunMgr.Project()),
 		runtime.WithTriggerType(a.triggerType),
 		runtime.WithTriggerActor(a.triggerActor),
 		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),
@@ -1074,8 +1080,9 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		}
 		a.noteDryRunStartup(ctx, "profile", profileErr)
 		a.noteDryRunStartup(ctx, "secrets", secretErr)
-		a.noteDryRunStartup(ctx, "nodes", nodeTargetingError(a.dag, a.boundNode, a.workerID))
+		a.noteDryRunStartup(ctx, "nodes", nodeTargetingError(a.dag, a.boundNode))
 		a.noteDryRunStartup(ctx, "node", startup.nodeErr)
+		a.noteDryRunStartup(ctx, "connections", startup.connectionErr)
 		a.lock.Lock()
 		a.startupCancel = nil
 		stopRequested = a.stopRequest != nil || startupCtx.Err() != nil
@@ -1177,12 +1184,16 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		initErr = profileErr
 		return initErr
 	}
-	if err := nodeTargetingError(a.dag, a.boundNode, a.workerID); err != nil {
+	if err := nodeTargetingError(a.dag, a.boundNode); err != nil {
 		initErr = err
 		return initErr
 	}
 	if startup.nodeErr != nil {
 		initErr = startup.nodeErr
+		return initErr
+	}
+	if startup.connectionErr != nil {
+		initErr = startup.connectionErr
 		return initErr
 	}
 
@@ -1876,6 +1887,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithTriggerActor(a.triggerActor),
 			ir.WithParallelItem(parallelItem),
 			ir.WithBoundNode(a.boundNode),
+			ir.WithBoundWorker(a.boundWorker()),
 			ir.WithTargetNodes(a.targetNodes),
 			ir.WithNodeListRecord(a.nodeListRecord()),
 			ir.WithAutoRetryCount(a.currentAutoRetryCount()),
@@ -1942,6 +1954,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 		ir.WithTriggerActor(a.triggerActor),
 		ir.WithParallelItem(parallelItem),
 		ir.WithBoundNode(a.boundNode),
+		ir.WithBoundWorker(a.boundWorker()),
 		ir.WithTargetNodes(a.targetNodes),
 		ir.WithNodeListRecord(a.nodeListRecord()),
 		ir.WithAutoRetryCount(a.currentAutoRetryCount()),
@@ -2659,11 +2672,18 @@ func secretsFromValues(refs []secretref.Ref, values map[string]string) ([]string
 	return envs, nil
 }
 
+// nodeReferenceResolver resolves a credential ref by the inventory node whose
+// connection uses it, as a run on a worker reads node credentials (RFC 012
+// §Reading the inventory from a run).
+type nodeReferenceResolver interface {
+	ResolveNodeReference(ctx context.Context, node string, ref secretref.Ref) (string, error)
+}
+
 // resolveCredentialRefs resolves the secret refs that SSH connections read
 // credentials from, the DAG's and those of the node a bound run reaches, once
 // each, and returns the values keyed by ref.
-func (a *Agent) resolveCredentialRefs(ctx context.Context, nodeRefs []secretref.Ref) (map[string]string, error) {
-	refs := append(slices.Clone(a.dag.CredentialRefs), nodeRefs...)
+func (a *Agent) resolveCredentialRefs(ctx context.Context, binding *nodeBinding) (map[string]string, error) {
+	refs := append(slices.Clone(a.dag.CredentialRefs), binding.credentialRefs()...)
 	if len(refs) == 0 || !a.preparesForRealSteps() {
 		return nil, nil
 	}
@@ -2673,12 +2693,20 @@ func (a *Agent) resolveCredentialRefs(ctx context.Context, nodeRefs []secretref.
 	}
 
 	logger.Info(ctx, "Resolving SSH credential secrets", tag.Count(len(refs)))
+	nodeResolver, byNode := a.secretReferenceResolver.(nodeReferenceResolver)
 	values := make(map[string]string, len(refs))
-	for _, ref := range refs {
+	for i, ref := range refs {
 		if _, ok := values[ref.Ref]; ok {
 			continue
 		}
-		value, err := a.secretReferenceResolver.ResolveReference(ctx, ref)
+		var value string
+		var err error
+		// The refs after the DAG's are the bound node's.
+		if byNode && i >= len(a.dag.CredentialRefs) {
+			value, err = nodeResolver.ResolveNodeReference(ctx, binding.node.Name, ref)
+		} else {
+			value, err = a.secretReferenceResolver.ResolveReference(ctx, ref)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve %s from secret ref %q: %w", ref.Name, ref.Ref, err)
 		}
@@ -2897,6 +2925,7 @@ func (a *Agent) dryRun(ctx context.Context) error {
 		runtime.WithBypassPreconditions(a.bypassPreconditions),
 		runtime.WithAttemptID(a.dagRunAttemptID),
 		runtime.WithWorkerID(a.workerID),
+		runtime.WithProject(a.dagRunMgr.Project()),
 		runtime.WithTriggerType(a.triggerType),
 		runtime.WithTriggerActor(a.triggerActor),
 		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),
@@ -3164,7 +3193,7 @@ func (a *Agent) setupSocketServer(ctx context.Context) error {
 }
 
 func (a *Agent) socketAddr() string {
-	return proc.DAGSocketAddr(ir.NewDAGRunRef(a.dag.Name, a.dagRunID))
+	return proc.ProjectDAGSocketAddr(a.dagRunMgr.Project(), ir.NewDAGRunRef(a.dag.Name, a.dagRunID))
 }
 
 // checkIsAlreadyRunning returns error if the DAG is already running.

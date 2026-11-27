@@ -5,12 +5,15 @@ package dag
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 )
@@ -19,15 +22,13 @@ type catalog struct {
 	entries []*indexv1.DAGIndexEntry
 	byStem  map[string]*indexv1.DAGIndexEntry
 	errors  []string
+	// skippedLinks holds the stems of file symlinks that discovery passed
+	// over because they lead out of the DAG directory.
+	skippedLinks map[string]struct{}
 }
 
 func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*catalog, error) {
-	scan, err := Discover(store.baseDir, DiscoveryOptions{
-		Recursive: store.recursive,
-		Symlinks:  store.symlinks,
-		SkipDirs:  store.skipDirs,
-		SkipRoots: store.skipRoots,
-	})
+	scan, err := Discover(store.baseDir, store.discoveryOptions(store.recursive))
 	if err != nil {
 		return nil, err
 	}
@@ -44,12 +45,7 @@ func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*
 			return nil, err
 		}
 		for _, searchPath := range store.searchPaths[1:] {
-			altScan, err := Discover(searchPath, DiscoveryOptions{
-				Recursive: store.recursive,
-				Symlinks:  store.symlinks,
-				SkipDirs:  store.skipDirs,
-				SkipRoots: store.skipRoots,
-			})
+			altScan, err := Discover(searchPath, store.discoveryOptions(store.recursive))
 			if err != nil {
 				return nil, err
 			}
@@ -80,15 +76,8 @@ func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*
 // base config applies to every DAG but is not one, even when it lives in a DAG
 // directory.
 func (store *Store) withoutBaseConfig(files []DiscoveredFile) []DiscoveredFile {
-	if store.baseConfigPath == "" {
-		return files
-	}
-	baseConfig, err := filepath.Abs(store.baseConfigPath)
-	if err != nil {
-		return files
-	}
-	baseConfig, err = filepath.EvalSymlinks(baseConfig)
-	if err != nil {
+	baseConfig := store.resolvedBaseConfig()
+	if baseConfig == "" {
 		return files
 	}
 	return slices.DeleteFunc(files, func(file DiscoveredFile) bool {
@@ -96,9 +85,27 @@ func (store *Store) withoutBaseConfig(files []DiscoveredFile) []DiscoveredFile {
 	})
 }
 
+// resolvedBaseConfig returns the absolute path of the base config with its
+// links resolved, or "" when the store has none or the file does not exist.
+func (store *Store) resolvedBaseConfig() string {
+	if store.baseConfigPath == "" {
+		return ""
+	}
+	baseConfig, err := filepath.Abs(store.baseConfigPath)
+	if err != nil {
+		return ""
+	}
+	baseConfig, err = filepath.EvalSymlinks(baseConfig)
+	if err != nil {
+		return ""
+	}
+	return baseConfig
+}
+
 func newCatalog(entries []*indexv1.DAGIndexEntry, scanErrors []error, checkConflicts bool) *catalog {
 	result := &catalog{
-		byStem: make(map[string]*indexv1.DAGIndexEntry),
+		byStem:       make(map[string]*indexv1.DAGIndexEntry),
+		skippedLinks: make(map[string]struct{}),
 	}
 
 	stemGroups := make(map[string][]string)
@@ -155,6 +162,9 @@ func newCatalog(entries []*indexv1.DAGIndexEntry, scanErrors []error, checkConfl
 
 	for _, err := range scanErrors {
 		result.errors = append(result.errors, fmt.Sprintf("DAG discovery failed: %s", err))
+		if skipped, ok := errors.AsType[*skippedSymlinkError](err); ok {
+			result.skippedLinks[fileutil.TrimYAMLFileExtension(path.Base(skipped.relPath))] = struct{}{}
+		}
 	}
 	sort.Strings(result.errors)
 	return result

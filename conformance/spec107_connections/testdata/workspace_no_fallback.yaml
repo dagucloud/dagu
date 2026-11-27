@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - name: first
+    run: echo executed > executed.txt
+  - name: unread
+    action: mcp.call
+    with: {connection: work-google, server: gmail, tool: search_threads}

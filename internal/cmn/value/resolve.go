@@ -18,6 +18,7 @@ type resolver struct {
 	deferShellVars         bool
 	recognizeEscapedDollar bool
 	maskedReads            *maskedReads
+	hostReads              *hostReads
 }
 
 // newResolver creates a resolver from the given context and options.
@@ -30,6 +31,7 @@ func newResolver(ctx context.Context, opts *options) *resolver {
 		deferShellVars:         opts.DeferShellVars,
 		recognizeEscapedDollar: opts.RecognizeEscapedDollar,
 		maskedReads:            maskedReadsFrom(ctx),
+		hostReads:              hostReadsFrom(ctx),
 	}
 }
 
@@ -197,7 +199,7 @@ func (r *resolver) resolveForShell(name string) (string, bool) {
 		return val, true
 	}
 	if r.expandOS {
-		return lookupProcessEnv(name)
+		return r.hostReads.lookup(name)
 	}
 	return "", false
 }
@@ -221,18 +223,21 @@ func (r *resolver) resolveReference(ctx context.Context, varName, path string) (
 // resolveJSONSource looks up a variable's raw value for JSON path resolution.
 // Unlike resolve, this includes OS-sourced scope entries when expandOS is true,
 // because JSON path resolution needs the actual value regardless of source.
-// It records no read: the path decides what the reference reads.
+// It records no masked read: the path decides what the reference reads. A
+// value from the process environment is a host read, whatever the path
+// selects.
 func (r *resolver) resolveJSONSource(name string) (string, bool) {
 	if val, ok := r.peekVariable(name); ok {
 		return val, true
 	}
 	if r.expandOS {
 		if r.scope != nil {
-			if val, ok := r.scope.Get(name); ok {
-				return val, true
+			if entry, ok := r.scope.GetEntry(name); ok {
+				r.hostReads.noteEntry(entry)
+				return entry.Value, true
 			}
 		}
-		return lookupProcessEnv(name)
+		return r.hostReads.lookup(name)
 	}
 	entry, ok := r.peekScopeNonOSEntry(name)
 	return entry.Value, ok

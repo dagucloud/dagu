@@ -79,6 +79,14 @@ type DispatchTask struct {
 	// RequiredCapabilities lists the capabilities that a worker must announce to
 	// take the task (Spec 094, "Version check").
 	RequiredCapabilities []string `json:"requiredCapabilities,omitempty"`
+	// TargetNodes are the node names the run is narrowed to (RFC 013).
+	TargetNodes []string
+	// BoundNode names the worker node the run is bound to (RFC 013), which
+	// TargetWorkerID names too.
+	BoundNode string
+	// NodeStep names the command step with nodes of Definition that the run
+	// runs alone, or is empty.
+	NodeStep string
 
 	// HoldUntil is the deadline of a task that the coordinator accepted
 	// without the scheduler's queue. Until then the task waits for a matching

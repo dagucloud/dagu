@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,6 +53,11 @@ var (
 		Message:    "A write needs the header If-Match with the hash of the skill that the client read, or If-None-Match: * to create the skill",
 		HTTPStatus: http.StatusPreconditionRequired,
 	}
+	errSkillChanged = &Error{
+		Code:       api.ErrorCodeConflict,
+		Message:    "The skill changed while it was read; try again",
+		HTTPStatus: http.StatusConflict,
+	}
 	errSkillFileTooLarge = &Error{
 		Code:       api.ErrorCodePayloadTooLarge,
 		Message:    fmt.Sprintf("A skill file must not be larger than %d bytes", skill.MaxFileBytes),
@@ -73,8 +80,8 @@ func (a *API) ListSkills(ctx context.Context, _ api.ListSkillsRequestObject) (ap
 		logger.Error(ctx, "Failed to list skills", tag.Dir(a.skillsDir()), tag.Error(err))
 		return nil, errFailedToReadSkill
 	}
-	// One skill at a time is read and dropped, so the request holds the text
-	// of one skill at most.
+	// One skill at a time is read, so the request holds the text of two files of
+	// one skill at most beyond the bounded read cache.
 	out := make([]api.SkillSummary, 0, len(names))
 	for _, name := range names {
 		if err := ctx.Err(); err != nil {
@@ -102,9 +109,20 @@ func (a *API) GetSkill(ctx context.Context, request api.GetSkillRequestObject) (
 	if err != nil {
 		return nil, a.skillReadError(ctx, request.Name, err)
 	}
+	content, err := sk.Text(skill.FileName)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		// SKILL.md is missing or is not text. The content stays empty, and the
+		// errors of the skill say why.
+	case errors.Is(err, skill.ErrFileChanged):
+		return nil, errSkillChanged
+	case err != nil:
+		logger.Error(ctx, "Failed to read skill file", tag.Name(request.Name), tag.Error(err))
+		return nil, errFailedToReadSkill
+	}
 	detail := api.SkillDetail{
 		Name:     request.Name,
-		Content:  string(sk.Raw()),
+		Content:  string(content),
 		Hash:     sk.Hash,
 		Errors:   toSkillIssues(sk.Errors()),
 		Warnings: toSkillIssues(sk.Warnings()),
@@ -175,7 +193,8 @@ func (a *API) DeleteSkill(ctx context.Context, request api.DeleteSkillRequestObj
 	return api.DeleteSkill204Response{}, nil
 }
 
-// GetSkillFile streams one file of a skill, exactly as stored.
+// GetSkillFile streams one file of a skill, exactly as stored. A file that
+// changes during the stream ends the stream before its last bytes.
 func (a *API) GetSkillFile(ctx context.Context, request api.GetSkillFileRequestObject) (api.GetSkillFileResponseObject, error) {
 	if !skill.IsSafeFolderName(request.Name) {
 		return nil, errInvalidSkillName
@@ -188,25 +207,29 @@ func (a *API) GetSkillFile(ctx context.Context, request api.GetSkillFileRequestO
 	if err != nil {
 		return nil, a.skillReadError(ctx, request.Name, err)
 	}
-	if _, ok := sk.File(rel); !ok {
+	if err := unsettledReadError(ctx, sk); err != nil {
+		return nil, err
+	}
+	file, ok := sk.File(rel)
+	if !ok {
 		return nil, &Error{Code: api.ErrorCodeNotFound, Message: "Skill file not found", HTTPStatus: http.StatusNotFound}
 	}
-	data, err := sk.ReadVerified(rel)
-	if errors.Is(err, skill.ErrFileTooLarge) {
+	body, err := sk.Open(rel)
+	switch {
+	case errors.Is(err, skill.ErrFileTooLarge):
 		return nil, errSkillFileTooLarge
+	case errors.Is(err, skill.ErrFileChanged):
+		return nil, errSkillChanged
+	case err != nil:
+		logger.Error(ctx, "Failed to open skill file", tag.Name(request.Name), tag.Error(err))
+		return nil, errFailedToReadSkill
 	}
-	if err != nil {
-		logger.Error(ctx, "Failed to read skill file", tag.Name(request.Name), tag.Error(err))
-		return nil, &Error{Code: api.ErrorCodeConflict, Message: "The skill changed while it was read; try again", HTTPStatus: http.StatusConflict}
-	}
-	etag := `"` + sk.Hash + `"`
-	return api.GetSkillFile200ApplicationoctetStreamResponse{
-		Body: strings.NewReader(string(data)),
-		Headers: api.GetSkillFile200ResponseHeaders{
-			ContentDisposition: ptrOf(fmt.Sprintf("attachment; filename=%q", sanitizeFilename(path.Base(rel)))),
-			ETag:               &etag,
-		},
-		ContentLength: int64(len(data)),
+	return &skillFileResponse{
+		ctx:      ctx,
+		body:     body,
+		size:     file.Size,
+		filename: sanitizeFilename(path.Base(rel)),
+		etag:     `"` + sk.Hash + `"`,
 	}, nil
 }
 
@@ -409,6 +432,46 @@ func (a *API) classifySkillWrite(ctx context.Context, name string, err error) sk
 	}
 	logger.Error(ctx, "Failed to write skill", tag.Name(name), tag.Error(err))
 	return skillFailure{status: http.StatusInternalServerError, err: errFailedToSaveSkill}
+}
+
+// skillFileResponse streams one file of a skill as an attachment and closes it
+// afterwards.
+type skillFileResponse struct {
+	ctx      context.Context
+	body     io.ReadCloser
+	size     int64
+	filename string
+	etag     string
+}
+
+func (r *skillFileResponse) VisitGetSkillFileResponse(w http.ResponseWriter) error {
+	defer func() { _ = r.body.Close() }()
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.FormatInt(r.size, 10))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", r.filename))
+	w.Header().Set("ETag", r.etag)
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.Copy(w, r.body); err != nil {
+		logger.Warn(r.ctx, "Skill file stream ended early", tag.Error(err))
+		// Headers are committed; abort so no error body joins the partial file.
+		panic(http.ErrAbortHandler)
+	}
+	return nil
+}
+
+// unsettledReadError gives the error of a read that saw no file of the skill
+// because the folder kept changing or could not be read, and nil otherwise.
+func unsettledReadError(ctx context.Context, sk *skill.Skill) error {
+	for _, issue := range sk.Issues {
+		switch issue.Rule {
+		case skill.RuleChanging:
+			return errSkillChanged
+		case skill.RuleUnreadable:
+			logger.Error(ctx, "Failed to read skill", tag.Name(sk.Name), tag.Dir(sk.Dir))
+			return errFailedToReadSkill
+		}
+	}
+	return nil
 }
 
 func (a *API) skillReadError(ctx context.Context, name string, err error) error {

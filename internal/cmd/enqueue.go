@@ -87,6 +87,12 @@ func runEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// The queued run keeps the worker node it is bound to, and needs no
+	// coordinator until it leaves the queue.
+	worker, err := readBoundWorker(ctx, dag, targetNodes, true, "")
+	if err != nil {
+		return err
+	}
 
 	triggerType, err := parseTriggerTypeParam(ctx)
 	if err != nil {
@@ -127,6 +133,7 @@ func runEnqueue(ctx *Context, args []string) error {
 		definitionID:   dagDefinitionIDFromEnv(),
 		noReuse:        noReuse,
 		targetNodes:    targetNodes,
+		boundWorker:    worker,
 	})
 }
 
@@ -136,6 +143,9 @@ func runEnqueue(ctx *Context, args []string) error {
 func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) error {
 	dag.Location = ""
 
+	if err := ctx.checkProjectEnqueue(); err != nil {
+		return fmt.Errorf("%w; run it with dagu start instead", err)
+	}
 	if !ctx.Config.Queues.Enabled {
 		return fmt.Errorf("queues are disabled in configuration")
 	}
@@ -155,8 +165,8 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		QueueStore:              ctx.Persistence.QueueStore,
 		DAG:                     dag,
 		DAGRunID:                dagRunID,
-		LogBaseDir:              ctx.Config.Paths.LogDir,
-		ArtifactBaseDir:         ctx.Config.Paths.ArtifactDir,
+		LogBaseDir:              ctx.projectPaths().LogDir,
+		ArtifactBaseDir:         ctx.projectPaths().ArtifactDir,
 		TriggerType:             opts.triggerType,
 		TriggerActor:            opts.triggerActor,
 		ScheduleTime:            opts.scheduleTime,
@@ -167,6 +177,7 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		DefinitionID:            opts.definitionID,
 		NoReuse:                 opts.noReuse,
 		TargetNodes:             opts.targetNodes,
+		BoundWorker:             opts.boundWorker,
 		ProceedOnStatusCloseErr: true,
 	})
 	if err != nil {

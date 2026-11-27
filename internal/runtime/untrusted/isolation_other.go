@@ -32,7 +32,7 @@ func (*isolation) started(int) {}
 
 func (*isolation) abandon() {}
 
-func (*isolation) prepare(*exec.Cmd, []string) error { return errNeedsLinux }
+func (*isolation) prepare(*exec.Cmd, []string) (func(), error) { return nil, errNeedsLinux }
 
 func (*isolation) writeOwnedFile(string, []byte) (string, error) { return "", errNeedsLinux }
 

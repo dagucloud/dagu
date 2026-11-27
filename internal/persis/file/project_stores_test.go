@@ -9,12 +9,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
@@ -46,10 +48,8 @@ func TestProjectStoresOffKeepV2Layout(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(cfg.Paths.DataDir, "projects.json"))
 }
 
-// With projects on, a project keeps the same DAG's records apart from the
-// default project's, in its own state directory. The default project's stay
-// where v2 keeps them, where the server and the scheduler still read and
-// write them.
+// With projects on, each project, the default one included, keeps the same
+// DAG's records apart from the others, in its own state directory.
 func TestProjectStoresOnKeepProjectsApart(t *testing.T) {
 	ctx := context.Background()
 	cfg := projectStoresConfig(t, true)
@@ -67,13 +67,13 @@ func TestProjectStoresOnKeepProjectsApart(t *testing.T) {
 	for name, stores := range opened {
 		assertSample(t, readersOf(ctx, stores), secretIDs[name], name)
 	}
-	assertSample(t, v2Readers(ctx, cfg), secretIDs[project.DefaultName], project.DefaultName)
-	weather := filepath.Join(cfg.Paths.DataDir, "projects", "weather")
-	for _, dir := range []string{"runs", "settings/secrets", "state/dag-state", "state/queue"} {
-		assert.DirExists(t, filepath.Join(weather, filepath.FromSlash(dir)))
+	for _, name := range []string{project.DefaultName, "weather"} {
+		state := filepath.Join(cfg.Paths.DataDir, "projects", name)
+		for _, dir := range []string{"runs", "settings/secrets", "state/dag-state", "state/queue"} {
+			assert.DirExists(t, filepath.Join(state, filepath.FromSlash(dir)))
+		}
 	}
 	assert.DirExists(t, filepath.Join(cfg.Paths.ProjectsDir, "weather"))
-	assert.NoDirExists(t, filepath.Join(cfg.Paths.DataDir, "projects", project.DefaultName))
 }
 
 // Every project encrypts its secrets with the server's key and keeps no key
@@ -137,15 +137,15 @@ func TestProjectStoresMapV2RunPaths(t *testing.T) {
 	}
 }
 
-// With projects on, a run of the default project writes its log where a
-// command puts it, in paths.log_dir, and its record reads that file back.
+// With projects on, a run of the default project writes its log in the
+// project's log directory, and its record reads that file back.
 func TestProjectStoresOnDefaultRunLog(t *testing.T) {
 	ctx := context.Background()
 	cfg := projectStoresConfig(t, true)
 	stores, err := persisfile.NewProjectStores(ctx, cfg, persisfile.NewServerStores(cfg), project.Project{Name: project.DefaultName}, persisfile.ProjectStoreOptions{})
 	require.NoError(t, err)
 
-	logFile, err := logpath.Generate(ctx, cfg.Paths.LogDir, "", sampleDAG, "run-1")
+	logFile, err := logpath.Generate(ctx, stores.Paths.LogDir, "", sampleDAG, "run-1")
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(logFile), 0o750))
 	require.NoError(t, os.WriteFile(logFile, []byte("hello"), 0o600))
@@ -161,12 +161,59 @@ func TestProjectStoresOnDAGChangeMarker(t *testing.T) {
 	cfg := projectStoresConfig(t, true)
 	stores, err := persisfile.NewProjectStores(ctx, cfg, persisfile.NewServerStores(cfg), project.Project{Name: project.DefaultName}, persisfile.ProjectStoreOptions{})
 	require.NoError(t, err)
-	marker := persisfile.DAGChangeMarkerPath(cfg)
+	marker := defaultDAGChangeMarkerPath(t, cfg)
 	require.NotEmpty(t, marker)
 	require.NoFileExists(t, marker)
 
 	require.NoError(t, stores.DAGRepository.Create(ctx, "beta", []byte("steps:\n  - name: s\n    command: echo hi\n")))
 	assert.FileExists(t, marker)
+}
+
+// With projects on, each project, the default one included, keeps its run
+// events, the state of its notification and incident monitors, and its DAG
+// change marker in its own state directory, whatever
+// paths.event_store_dir says.
+func TestProjectSettingsOnKeepProjectState(t *testing.T) {
+	cfg := projectStoresConfig(t, true)
+	cfg.Paths.EventStoreDir = filepath.Join(t.TempDir(), "events")
+	server := persisfile.NewServerStores(cfg)
+	for _, name := range []string{project.DefaultName, "weather"} {
+		settings, err := persisfile.NewProjectSettings(cfg, server, name)
+		require.NoError(t, err)
+		state := filepath.Join(cfg.Paths.DataDir, "projects", name, "state")
+		assert.Equal(t, filepath.Join(state, "events"), settings.Paths.EventStoreDir)
+		for _, file := range []string{settings.NotificationStateFile(), settings.IncidentStateFile(), settings.DAGChangeMarkerPath()} {
+			assert.True(t, strings.HasPrefix(file, state+string(filepath.Separator)), file)
+		}
+	}
+}
+
+// With projects on, the default project and another project each hold a
+// webhook for a DAG of the same name, each in its own settings.
+func TestProjectSettingsOnKeepWebhooksApart(t *testing.T) {
+	ctx := context.Background()
+	cfg := projectStoresConfig(t, true)
+	server := persisfile.NewServerStores(cfg)
+
+	ids := map[string]string{}
+	stores := map[string]*store.WebhookStore{}
+	for _, name := range []string{project.DefaultName, "weather"} {
+		settings, err := persisfile.NewProjectSettings(cfg, server, name)
+		require.NoError(t, err)
+		webhooks, err := settings.WebhookStore(nil)
+		require.NoError(t, err)
+		webhook, err := auth.NewWebhook(sampleDAG, "hash-"+name, "dagu_wh_", "test")
+		require.NoError(t, err)
+		require.NoError(t, webhooks.Create(ctx, webhook))
+		ids[name], stores[name] = webhook.ID, webhooks
+	}
+
+	for name, webhooks := range stores {
+		got, err := webhooks.GetByDAGName(ctx, sampleDAG)
+		require.NoError(t, err)
+		assert.Equal(t, ids[name], got.ID, name)
+		assert.FileExists(t, filepath.Join(cfg.Paths.DataDir, "projects", name, "settings", "webhooks", ids[name]+".json"))
+	}
 }
 
 // projectStoresConfig sets apart every path that places a project store, as
@@ -191,6 +238,7 @@ func projectStoresConfig(t *testing.T, projectsOn bool) *config.Config {
 		ProcDir:            filepath.Join(root, "proc"),
 		SuspendFlagsDir:    filepath.Join(data, "suspend"),
 		ViewsDir:           filepath.Join(data, "views"),
+		WebhooksDir:        filepath.Join(root, "webhooks"),
 		ServiceRegistryDir: filepath.Join(data, "service-registry"),
 	}
 	return cfg

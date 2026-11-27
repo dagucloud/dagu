@@ -1742,6 +1742,10 @@ export const baseEnglish = {
   'Retry selected': 'Retry selected',
   'Retry step': 'Retry step',
   'Retry this step?': 'Retry this step?',
+  'Retry unavailable while the DAG run is running.':
+    'Retry unavailable while the DAG run is running.',
+  'Retry unavailable while the root DAG run is running.':
+    'Retry unavailable while the root DAG run is running.',
   'Retrying...': 'Retrying...',
   'Reuse previous output': 'Reuse previous output',
   Revert: 'Revert',

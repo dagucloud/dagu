@@ -9,6 +9,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"math/rand/v2"
@@ -77,40 +79,107 @@ func TestHashCanonicalForm(t *testing.T) {
 	require.NotEqual(t, s.Hash, s3.Hash)
 }
 
-// A reader that finds a change refuses the stale content: the cache never
-// serves a skill after a change.
+// A repeated read of an unchanged folder gives the same skill, and a change of
+// a file that keeps its time stamp still shows in the next read when it
+// changes the size. The test changes a package variable, so it does not run
+// in parallel.
 func TestReadSeesEveryChange(t *testing.T) {
-	t.Parallel()
+	skill.SettleClock(t)
 	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "one"})
-	// Make the files old, so that the cache is allowed to keep them.
 	old := time.Now().Add(-time.Hour)
-	for _, p := range []string{"SKILL.md", "references/a.md"} {
-		require.NoError(t, os.Chtimes(filepath.Join(dir, p), old, old))
-	}
 	first, err := skill.Read(dir)
 	require.NoError(t, err)
 	again, err := skill.Read(dir)
 	require.NoError(t, err)
 	require.Equal(t, first.Hash, again.Hash)
 
-	// Same size, same modification time: only a changed time stamp would show
-	// it, so the test changes the size.
+	// The time stamp is set back, so only the size tells the change.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "references", "a.md"), []byte("three"), 0o644))
 	require.NoError(t, os.Chtimes(filepath.Join(dir, "references", "a.md"), old, old))
 	next, err := skill.Read(dir)
 	require.NoError(t, err)
 	require.NotEqual(t, first.Hash, next.Hash)
-	data, ok := next.Text("references/a.md")
-	require.True(t, ok)
+	data, err := next.Text("references/a.md")
+	require.NoError(t, err)
 	require.Equal(t, "three", string(data))
+}
+
+// A read of a folder whose entries are older than 2 seconds is served from
+// the cache and reads no file again. A recent change is always read from the
+// files (Spec 096, "Source of truth"). The test changes package variables,
+// so it does not run in parallel.
+func TestReadCachesOnlyASettledFolder(t *testing.T) {
+	reads := 0
+	skill.AroundReadFiles(t, func() { reads++ }, func() {})
+	read := func(dir string) {
+		t.Helper()
+		_, err := skill.Read(dir)
+		require.NoError(t, err)
+	}
+
+	// A time stamp in the future stays younger than 2 seconds however slow the
+	// test runs.
+	fresh := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
+	future := time.Now().Add(time.Hour)
+	require.NoError(t, os.Chtimes(filepath.Join(fresh, "SKILL.md"), future, future))
+	read(fresh)
+	read(fresh)
+	require.Equal(t, 2, reads, "a change younger than 2 seconds is never cached")
+
+	settled := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
+	skill.SettleClock(t)
+	reads = 0
+	read(settled)
+	read(settled)
+	require.Equal(t, 1, reads, "the second read of a settled folder comes from the cache")
+}
+
+// A read that takes longer than 2 seconds does not make a recent change
+// settled: the time of the walk decides. The test changes package variables,
+// so it does not run in parallel.
+func TestSlowReadIsNotCached(t *testing.T) {
+	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
+	// A time stamp in the future keeps the change recent however slow the test
+	// runs, until the clock moves.
+	future := time.Now().Add(30 * time.Minute)
+	require.NoError(t, os.Chtimes(filepath.Join(dir, "SKILL.md"), future, future))
+	reads := 0
+	skill.AroundReadFiles(t, func() {
+		// The first read of the files ends after the change is settled.
+		if reads++; reads == 1 {
+			skill.SettleClock(t)
+		}
+	}, func() {})
+	for range 2 {
+		_, err := skill.Read(dir)
+		require.NoError(t, err)
+	}
+	require.Equal(t, 2, reads, "a read that began before the change settled is not cached")
+}
+
+// The cache counts the list of files of a read, so a folder of many small files
+// with long names cannot grow the cache past its bound.
+func TestCacheCountsTheFileList(t *testing.T) {
+	t.Parallel()
+	files := map[string]string{"SKILL.md": good}
+	var names int64
+	for i := range 200 {
+		rel := fmt.Sprintf("assets/%s%03d.bin", strings.Repeat("a", 200), i)
+		files[rel] = "x"
+		names += int64(len(rel))
+	}
+	s, err := skill.Read(writeSkill(t, "demo", files))
+	require.NoError(t, err)
+	require.Greater(t, skill.CacheCost(s), names)
 }
 
 // A change of the layout that leaves every file as it was shows in the next
 // read, also when the cache holds the folder (Spec 096, "Source of truth").
+// The test changes a package variable, so it does not run in parallel.
 func TestReadSeesALayoutChange(t *testing.T) {
-	t.Parallel()
-	// age gives every entry of dir the same old time, so that the cache keeps
-	// the folder and the change leaves the times of the files as they were.
+	skill.SettleClock(t)
+	// age gives every entry of dir the same old time, so that the change leaves
+	// the times of the files as they were.
 	old := time.Now().Add(-time.Hour)
 	age := func(t *testing.T, dir string) {
 		require.NoError(t, filepath.WalkDir(dir, func(p string, _ fs.DirEntry, err error) error {
@@ -592,8 +661,13 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 			}
 			t.Fatalf("a reader saw an invalid skill: %v", sk.Issues)
 		}
-		data, ok := sk.Text("references/big.md")
-		require.True(t, ok, "a complete version has references/big.md")
+		data, err := sk.Text("references/big.md")
+		if errors.Is(err, skill.ErrFileChanged) {
+			// A write replaced the file after the read.
+			changing++
+			continue
+		}
+		require.NoError(t, err, "a complete version has references/big.md")
 		require.Len(t, data, len(big))
 		// Every version is big with one letter for each zero, and big starts
 		// with a zero: the first byte names the version that the read must hold.

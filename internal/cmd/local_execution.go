@@ -46,6 +46,10 @@ type runOptions struct {
 	// seed is the queued status of a selected-steps run, which is dispatched
 	// as a retry of that attempt.
 	seed *ir.DAGRunStatus
+	// retried is the status of a run that a retry dispatches to its worker.
+	retried *ir.DAGRunStatus
+	// boundWorker is the worker that runs a run bound to a worker node.
+	boundWorker string
 	// secretValues, when non-nil, holds the value of each DAG secret in place
 	// of its provider.
 	secretValues map[string]string
@@ -128,8 +132,8 @@ func withPreparedLocalExecution(
 		ScheduleTime:    opts.scheduleTime,
 		ScheduleWindow:  opts.scheduleWindow,
 		ProfileName:     opts.profileName,
-		LogBaseDir:      ctx.Config.Paths.LogDir,
-		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,
+		LogBaseDir:      ctx.projectPaths().LogDir,
+		ArtifactBaseDir: ctx.projectPaths().ArtifactDir,
 		BuildAttempt:    buildAttempt,
 	})
 	if err != nil {

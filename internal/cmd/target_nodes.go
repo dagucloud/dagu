@@ -10,10 +10,12 @@ import (
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/intake"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 )
 
-// flagNode narrows a run to the named inventory nodes (RFC 013 §Narrowing a
+// flagNode narrows a run to the named nodes (RFC 013 §Narrowing a
 // run), as repeatable names.
 const flagNode = "node"
 
@@ -23,7 +25,7 @@ var errNodeWithFromRunID = fmt.Errorf("--%s cannot be combined with --from-run-i
 
 var nodeFlag = commandLineFlag{
 	name:          flagNode,
-	usage:         "Inventory node the run is narrowed to: its steps with nodes run only on listed nodes, and a node: required DAG runs bound to the one node; repeatable",
+	usage:         "Node the run is narrowed to: its steps with nodes run only on listed nodes, and a node: required DAG runs bound to the one node; repeatable",
 	isStringArray: true,
 }
 
@@ -53,8 +55,7 @@ func remoteTargetNodes(ctx *Context) (*api.TargetNodes, error) {
 }
 
 // narrowRun checks the node list a run starts with against the project's
-// nodes and returns the list the run carries, or nil without one. A narrowed
-// run runs on the Dagu host: steps with nodes do not run on workers.
+// nodes and returns the list the run carries, or nil without one.
 func narrowRun(ctx *Context, dag *ir.DAG, names []string) ([]string, error) {
 	if len(names) == 0 {
 		return nil, nil
@@ -63,7 +64,7 @@ func narrowRun(ctx *Context, dag *ir.DAG, names []string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the node inventory: %w", err)
 	}
-	known, err := nodes.Nodes(ctx.Context)
+	known, err := inventory.NewProjectNodes(nodes, ctx.runtimeWorkerNodeStore()).Nodes(ctx.Context)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the node inventory: %w", err)
 	}
@@ -71,6 +72,34 @@ func narrowRun(ctx *Context, dag *ir.DAG, names []string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid node list: %w", err)
 	}
-	dag.ForceLocal = true
 	return listed, nil
+}
+
+// boundWorker returns the worker that runs a run of dag with the node list
+// names (intake.BoundWorker), with a client of the coordinator that reaches
+// it, or "" and nil for a run not bound to a worker node. admitted is the
+// worker node the run was started bound to, or empty for a new run.
+func boundWorker(ctx *Context, dag *ir.DAG, names []string, admitted string) (string, coordinator.Client, error) {
+	worker, err := readBoundWorker(ctx, dag, names, ctx.coordinatorEnabled(), admitted)
+	if err != nil || worker == "" {
+		return "", nil, err
+	}
+	client, err := ctx.coordinatorClient()
+	if err != nil {
+		return "", nil, err
+	}
+	return worker, client, nil
+}
+
+// readBoundWorker reads the worker node a run of dag with the node list
+// names is bound to (intake.BoundWorker).
+func readBoundWorker(ctx *Context, dag *ir.DAG, names []string, hasCoordinator bool, admitted string) (string, error) {
+	if !dag.NodeRequired || len(names) == 0 {
+		return "", nil
+	}
+	nodes, err := ctx.inventoryStore()
+	if err != nil {
+		return "", fmt.Errorf("failed to open the node inventory: %w", err)
+	}
+	return intake.BoundWorker(ctx, dag, names, inventory.NewProjectNodes(nodes, ctx.runtimeWorkerNodeStore()), hasCoordinator, admitted)
 }

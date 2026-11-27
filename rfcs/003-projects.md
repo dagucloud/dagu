@@ -525,9 +525,10 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   with no role, and Dagu Cloud binding, and last the registry entry. A
   process that starts while a project is marked deleting finishes the
   delete.
-  - When the DAG directory is in a git checkout or contains one, delete is
-    refused while the directory exists: the checkout owns those files, so
-    they are removed there first.
+  - While a git checkout tracks files in the DAG directory, delete is
+    refused: the checkout owns those files, so they are removed there
+    first. A checkout that tracks nothing there, such as a dotfiles
+    repository in the home directory, does not block delete.
   - Delete is also refused while the registry records a file that runs in
     place as the project's ([Migration](#migration)), whether or not the
     file exists now. Left behind without its record, the file would run in
@@ -982,9 +983,10 @@ These specs define workspace behavior, and v3.0 rewrites them for projects:
 Criteria 23 and 24 apply from the release that ships the feature.
 
 1. A v2 data directory with no workspaces starts on v3.0 as the default
-   project, with no manual step. Its DAG files and URLs do not change, and
-   its runs, logs, and settings move to `<data_dir>/projects/default/` and
-   open as before.
+   project, with no manual step outside the four exceptions that follow
+   [Goals](#goals). Its DAG files and URLs do not change, and its runs,
+   logs, and settings move to `<data_dir>/projects/default/` and open as
+   before.
 2. After migration, each DAG outside the library runs with the same base
    config, secrets, profile, notification routes, and incident policies, and
    in the same working directory, as on v2. The exceptions are a DAG that
@@ -1005,11 +1007,12 @@ Criteria 23 and 24 apply from the release that ships the feature.
 6. One scheduler process schedules every project. A newly created project
    starts scheduling without a restart.
 7. A distributed run of a project DAG records its status in that project.
-8. The first v3.0 start migrates every workspace with no manual step,
-   waits while a v2 scheduler or coordinator is live or space is short,
-   cancels every run still running, resumes after being killed, answers
-   200 on its health endpoint throughout, and reports every item that
-   needs attention, each cancelled run included.
+8. The first v3.0 start migrates every workspace with no manual step
+   outside the four exceptions that follow [Goals](#goals), waits while a
+   v2 scheduler or coordinator is live or space is short, cancels every run
+   still running, resumes after being killed, answers 200 on its health
+   endpoint throughout, and reports every item that needs attention, each
+   cancelled run included.
 9. `dagu migrate workspaces` changes nothing on disk and shows the names,
    display names, and moves that the first start would make, and every item
    its report would list as needing attention.

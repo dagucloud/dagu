@@ -120,11 +120,14 @@ type API struct {
 	workerNodeStore      inventory.WorkerNodeStore
 	licenseManager       *license.Manager
 	publicWebhookStore   publicwebhook.Store
+	webhookProjects      WebhookProjects
 	cloudReport          CloudReportService
 	cloudAccess          CloudAccessService
 	apiKeyWriteMu        sync.Mutex // Serializes API key writes, so each checks the state it changes
 	workspaceStore       workspace.Store
 	projectAccess        *projectaccess.Checker
+	runLogDir            string // Logs of the runs that the API queues
+	runArtifactDir       string // Artifacts of the runs that the API queues
 	leaseStaleThreshold  time.Duration
 	runSortDAGLimit      int
 	schedulerStateStore  schedulerstate.Store
@@ -468,6 +471,15 @@ func WithWorkspaceDeprecation(src deprecation.Sources) APIOption {
 	}
 }
 
+// WithRunDirs sets the directories of the logs and artifacts of the runs
+// that the API queues, which are the default project's. Without it, they
+// are paths.log_dir and paths.artifact_dir.
+func WithRunDirs(logDir, artifactDir string) APIOption {
+	return func(a *API) {
+		a.runLogDir, a.runArtifactDir = logDir, artifactDir
+	}
+}
+
 // WithProjectAccess sets the project access checker. Setting it turns on the
 // API surface of projects, which stays off while projects are off.
 func WithProjectAccess(c *projectaccess.Checker) APIOption {
@@ -620,6 +632,15 @@ func (a *API) requireValidBaseConfigWiring() {
 	if a.baseConfigStore != nil && a.baseConfigProvider == nil {
 		panic("api: workspace base config provider must be configured when base config store is configured")
 	}
+}
+
+// runDirs returns the log and artifact directories of the runs that the API
+// queues: those WithRunDirs set, else paths.log_dir and paths.artifact_dir.
+func (a *API) runDirs() (logDir, artifactDir string) {
+	if a.runLogDir == "" {
+		return a.config.Paths.LogDir, a.config.Paths.ArtifactDir
+	}
+	return a.runLogDir, a.runArtifactDir
 }
 
 func (a *API) notifyDAGMutation(fileName string) {

@@ -1,0 +1,15 @@
+labels: [workspace=ops]
+working_dir: .
+steps:
+  - name: first
+    # Keep the first run active; record each later run that reaches it.
+    run: |
+      if [ -f marks.txt ]; then
+        printf 'restarted\n' >> marks.txt
+      else
+        printf 'started\n' > marks.txt
+        sleep 30
+      fi
+  - name: unread
+    action: mcp.call
+    with: {connection: work-google, server: gmail, tool: search_threads}

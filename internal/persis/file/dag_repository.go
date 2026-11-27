@@ -14,7 +14,6 @@ import (
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // DAGRepositoryOption configures the file-backed DAG repository.
@@ -69,7 +68,7 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 	return newDAGRepository(cfg, dagSource{
 		paths:                  v2ProjectPaths(cfg.Paths),
 		baseConfig:             cfg.Paths.BaseConfig,
-		workspaceBaseConfigDir: workspace.BaseConfigDir(cfg.Paths.DAGsDir),
+		workspaceBaseConfigDir: cfg.WorkspaceBaseConfigDir(),
 		calendars:              spec.NewCalendarSource(cfg.Paths.CalendarsDir),
 		records:                dagRecords(cfg.Paths),
 	}, opts...)
@@ -88,6 +87,10 @@ type dagSource struct {
 	records persis.Collection
 	// library is searched after the search paths of the options.
 	library string
+	// project names the project whose lookups the repository resolves,
+	// by owners. Both are empty while projects are off.
+	project string
+	owners  *filedag.Owners
 }
 
 func newDAGRepository(cfg *config.Config, src dagSource, opts ...DAGRepositoryOption) (*persis.DAGRepository, error) {
@@ -122,6 +125,7 @@ func newDAGRepository(cfg *config.Config, src dagSource, opts ...DAGRepositoryOp
 		filedag.WithSkipRoots(cfg.DiscoverySkipRoots()),
 		filedag.WithSkipDirectoryCreation(options.SkipDirectoryCreation),
 		filedag.WithDAGRecords(src.records),
+		filedag.WithProject(src.project, src.owners),
 	)
 	if err := dagStore.Initialize(); err != nil {
 		return nil, fmt.Errorf("initialize DAG definition store: %w", err)
@@ -150,13 +154,6 @@ func dagIndexDir(stateDir string) string {
 		return ""
 	}
 	return filepath.Join(stateDir, "cache", "dag-index")
-}
-
-// DAGChangeMarkerPath returns this host's file that signals DAG definition
-// changes to readers on other hosts, or "" when there is no data directory to
-// keep it in.
-func DAGChangeMarkerPath(cfg *config.Config) string {
-	return filedag.ChangeMarkerPath(dagIndexDir(cfg.Paths.DataDir), cfg.Paths.DAGsDir)
 }
 
 // v2ProjectPaths returns the directories where v2 keeps the stores of its one

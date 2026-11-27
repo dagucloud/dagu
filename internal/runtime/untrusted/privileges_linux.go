@@ -79,8 +79,10 @@ func parseStatus(status string) (privileges, error) {
 // checkIsolationSupport checks the process before an isolated untrusted step:
 // the checks 7 and 8 of an agent worker, and the protections of the kernel that
 // the isolation needs. A hard link of the restricted user to a file that it
-// cannot write is forbidden (fs.protected_hardlinks), and Dagu can see each
-// process of the restricted user (no hidepid on /proc).
+// cannot write is forbidden (fs.protected_hardlinks), a process of the
+// restricted user cannot trace a process that it did not start
+// (kernel.yama.ptrace_scope), and Dagu can see each process of the restricted
+// user (no hidepid on /proc).
 func checkIsolationSupport() error {
 	priv, err := processPrivileges()
 	if err != nil {
@@ -99,12 +101,33 @@ func checkIsolationSupport() error {
 	if value := strings.TrimSpace(string(data)); value != "1" {
 		return fmt.Errorf("fs.protected_hardlinks is %q, not \"1\": the restricted user could link a file of the worker", value)
 	}
+	data, err = os.ReadFile(ptraceScopeFile)
+	if err != nil {
+		return fmt.Errorf("read %s: %w: without Yama, the restricted user could trace the kill helper", ptraceScopeFile, err)
+	}
+	if err := checkPtraceScope(string(data)); err != nil {
+		return err
+	}
 	mountinfo, err := os.ReadFile("/proc/self/mountinfo")
 	if err != nil {
 		return fmt.Errorf("read /proc/self/mountinfo: %w", err)
 	}
 	if option, hidden := procHidePID(string(mountinfo), workerGroups()); hidden {
 		return fmt.Errorf("/proc has the option %s: Dagu cannot see each process of the restricted user", option)
+	}
+	return nil
+}
+
+// ptraceScopeFile holds kernel.yama.ptrace_scope.
+const ptraceScopeFile = "/proc/sys/kernel/yama/ptrace_scope"
+
+// checkPtraceScope checks the text of kernel.yama.ptrace_scope. A value of 1 or
+// more stops a process of the restricted user from tracing the kill helper,
+// which runs as that user but is not its child.
+func checkPtraceScope(value string) error {
+	value = strings.TrimSpace(value)
+	if scope, err := strconv.Atoi(value); err != nil || scope < 1 {
+		return fmt.Errorf("kernel.yama.ptrace_scope is %q, not 1 or more: the restricted user could trace the kill helper", value)
 	}
 	return nil
 }

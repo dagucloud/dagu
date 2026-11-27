@@ -14,6 +14,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
@@ -69,11 +71,13 @@ func SetupCoordinator(t *testing.T, opts ...HelperOption) *Coordinator {
 	if options.WithStatusPersistence {
 		cfg.DAGRunRepository = helper.DAGRunRepository
 	}
+	paths, err := file.ProjectStorePaths(helper.Config, project.DefaultName)
+	require.NoError(t, err)
 	if options.WithLogPersistence {
-		cfg.LogDir = helper.Config.Paths.LogDir
+		cfg.LogDir = paths.LogDir
 	}
 	if options.WithArtifactPersistence {
-		cfg.ArtifactDir = helper.Config.Paths.ArtifactDir
+		cfg.ArtifactDir = paths.ArtifactDir
 	}
 	cfg.WorkspaceBundleDir = workspacebundle.StoreDir(helper.Config.Paths.DataDir)
 	if helper.StaleHeartbeatThreshold > 0 {
@@ -87,6 +91,13 @@ func SetupCoordinator(t *testing.T, opts ...HelperOption) *Coordinator {
 	cfg.DAGRepository = helper.DAGRepository
 	cfg.SecretStore = file.NewSecretStore(helper.Context, helper.Config, helper.Backend.Collection(persis.CollectionSecrets))
 	cfg.ProfileStore = file.NewProfileStore(helper.Context, helper.Config, helper.Backend.Collection(persis.CollectionProfiles))
+	hostKeys, err := store.NewHostKeyStore(helper.Backend.Collection(persis.CollectionHostKeys))
+	require.NoError(t, err)
+	inventories, err := store.NewInventoryStore(helper.Backend.Collection(persis.CollectionInventories), helper.Backend.Lock(persis.CollectionInventories), hostKeys)
+	require.NoError(t, err)
+	cfg.NodeInventory, cfg.TrustedHostKeys = inventories, hostKeys
+	cfg.WorkerNodeStore, err = store.NewWorkerNodeStore(helper.Backend.Collection(persis.CollectionWorkerNodes), helper.WorkerHeartbeatStore)
+	require.NoError(t, err)
 	cfg.DispatchTaskStore = helper.DispatchTaskStore
 	cfg.WorkerHeartbeatStore = helper.WorkerHeartbeatStore
 	cfg.DAGRunLeaseStore = helper.DAGRunLeaseStore

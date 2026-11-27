@@ -1660,11 +1660,17 @@ func (l *ConfigLoader) loadCoordinatorConfig(cfg *Config, def Definition) {
 }
 
 func (l *ConfigLoader) resolveCoordinatorEnabled(def Definition) bool {
+	if !l.v.IsSet("coordinator.enabled") && def.Coordinator != nil && def.Coordinator.Enabled != nil {
+		return *def.Coordinator.Enabled
+	}
+	return l.CoordinatorEnabled()
+}
+
+// CoordinatorEnabled reports the key coordinator.enabled, true by default,
+// whichever sections the loader's service loads.
+func (l *ConfigLoader) CoordinatorEnabled() bool {
 	if l.v.IsSet("coordinator.enabled") {
 		return l.v.GetBool("coordinator.enabled")
-	}
-	if def.Coordinator != nil && def.Coordinator.Enabled != nil {
-		return *def.Coordinator.Enabled
 	}
 	return true // Default: enabled
 }

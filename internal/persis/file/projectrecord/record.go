@@ -66,6 +66,22 @@ func Write(dir string, record Record) error {
 	return nil
 }
 
+// Remove deletes the record stored in dir when it is record. Any other
+// record, or none, is left as it is.
+func Remove(dir string, record Record) error {
+	existing, err := Read(dir)
+	if errors.Is(err, fs.ErrNotExist) || (err == nil && existing != record) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := fileutil.Remove(filepath.Join(dir, fileName)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove project record in %s: %w", dir, err)
+	}
+	return nil
+}
+
 // Read returns the record stored in dir. The error wraps fs.ErrNotExist
 // when dir holds no record.
 func Read(dir string) (Record, error) {

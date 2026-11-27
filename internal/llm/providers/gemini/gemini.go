@@ -525,6 +525,13 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 			continue
 		}
 
+		// A failure after the status was sent arrives as an error chunk
+		// that ends the stream.
+		if err := llm.StreamError(providerName, chunk.Error); err != nil {
+			events <- llm.StreamEvent{Error: err, Done: true}
+			return
+		}
+
 		// Capture usage if present
 		if chunk.UsageMetadata != nil {
 			chunkUsage := chunk.UsageMetadata.llm()
@@ -658,6 +665,7 @@ type responsePart struct {
 }
 
 type generateContentResponse struct {
+	Error      json.RawMessage `json:"error,omitempty"`
 	Candidates []struct {
 		Content struct {
 			Parts []responsePart `json:"parts"`

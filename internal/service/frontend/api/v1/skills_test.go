@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -422,6 +423,74 @@ func TestSkillsDownload(t *testing.T) {
 		server.Client().Post("/api/v1/skills/download", map[string]any{"names": names}).ExpectStatus(http.StatusBadRequest).Send(t)
 		server.Client().Post("/api/v1/skills/download", map[string]any{"names": []string{}}).ExpectStatus(http.StatusBadRequest).Send(t)
 	})
+}
+
+// A file is sent as stored, as an attachment of type application/octet-stream,
+// with the hash of the skill in ETag. A link in the folder is never followed.
+func TestSkillsReadFile(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	writeSkillFile(t, server, "refund-policy", validSkill)
+	folder := filepath.Join(skillsDir(server), "refund-policy")
+	write := func(rel string, data []byte) {
+		t.Helper()
+		full := filepath.Join(folder, filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
+		require.NoError(t, os.WriteFile(full, data, 0o600))
+	}
+	write("references/faq.md", []byte("# FAQ\n"))
+	write("assets/logo.bin", []byte{0, 1, 2, 255})
+	write("assets/page.html", []byte("<script>alert(1)</script>"))
+	secret := filepath.Join(t.TempDir(), "secret.md")
+	require.NoError(t, os.WriteFile(secret, []byte("secret"), 0o600))
+	require.NoError(t, os.Symlink(secret, filepath.Join(folder, "references", "link.md")))
+	hash := getSkill(t, server, "refund-policy").Hash
+	get := func(rel string, status int) *test.Response {
+		return server.Client().Get("/api/v1/skills/refund-policy/files?path=" + rel).ExpectStatus(status).Send(t)
+	}
+
+	for rel, want := range map[string][]byte{
+		"references/faq.md": []byte("# FAQ\n"),
+		"assets/logo.bin":   {0, 1, 2, 255},
+		"assets/page.html":  []byte("<script>alert(1)</script>"),
+	} {
+		resp := get(rel, http.StatusOK)
+		assert.Equal(t, want, resp.Response.Body(), rel)
+		assert.Equal(t, `"`+hash+`"`, resp.Response.Header().Get("ETag"), rel)
+		assert.Equal(t, "application/octet-stream", resp.Response.Header().Get("Content-Type"), rel)
+		assert.True(t, strings.HasPrefix(resp.Response.Header().Get("Content-Disposition"), "attachment;"), rel)
+	}
+
+	write("assets/big.bin", bytes.Repeat([]byte("x"), skill.MaxFileBytes+1))
+	get("assets/big.bin", http.StatusRequestEntityTooLarge)
+	get("references/none.md", http.StatusNotFound)
+	assert.NotContains(t, get("references/link.md", http.StatusNotFound).Body, "secret")
+	get("..%2F..%2FSKILL.md", http.StatusBadRequest)
+	get("%2Fetc%2Fpasswd", http.StatusBadRequest)
+	server.Client().Get("/api/v1/skills/missing/files?path=SKILL.md").ExpectStatus(http.StatusNotFound).Send(t)
+}
+
+// A file of a skill that the server cannot read gives 500, not 404, and the
+// body names no server path. The test needs a user other than root.
+func TestSkillsReadFileUnreadable(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a folder of mode 0000")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("a folder mode of 0 does not stop a read on Windows")
+	}
+	server := test.SetupServer(t)
+	writeSkillFile(t, server, "refund-policy", validSkill)
+	locked := filepath.Join(skillsDir(server), "refund-policy", "references")
+	require.NoError(t, os.MkdirAll(locked, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(locked, "faq.md"), []byte("# FAQ\n"), 0o600))
+	require.NoError(t, os.Chmod(locked, 0))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+
+	resp := server.Client().Get("/api/v1/skills/refund-policy/files?path=references/faq.md").
+		ExpectStatus(http.StatusInternalServerError).Send(t)
+	assert.NotContains(t, resp.Body, skillsDir(server))
 }
 
 // A skill name that is a traversal never reaches a file outside the skills

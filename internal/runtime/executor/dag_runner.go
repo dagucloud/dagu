@@ -347,6 +347,7 @@ func (e *SubDAGExecutor) subWorkflowRequest(ctx context.Context, runParams RunPa
 		ScheduleTime:      rCtx.ScheduleTime,
 		ScheduleWindow:    rCtx.ScheduleWindow,
 		Node:              runParams.Node,
+		TargetWorkerID:    runParams.TargetWorkerID,
 		NodeStep:          e.nodeStep,
 		TargetNodes:       rCtx.TargetNodes,
 	}

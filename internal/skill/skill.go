@@ -8,6 +8,8 @@ package skill
 
 import (
 	"fmt"
+	"io"
+	"io/fs"
 	"sort"
 	"strings"
 )
@@ -167,8 +169,6 @@ type Skill struct {
 	// Meta is the front matter. It is complete only when the front matter is
 	// valid.
 	Meta FrontMatter
-	// Body is the Markdown after the front matter.
-	Body string
 	// Hash identifies the version of the skill. See Hash.
 	Hash string
 	// Files lists every regular file, sorted by path. SKILL.md is in the list.
@@ -176,8 +176,8 @@ type Skill struct {
 	// Issues lists the errors and the warnings, errors first.
 	Issues []Issue
 
-	// text holds the content of the files that have Text set.
-	text map[string][]byte
+	// stats holds the sizes of the body of SKILL.md.
+	stats Stats
 }
 
 // Errors returns the issues of severity error.
@@ -214,15 +214,25 @@ func (s *Skill) Err() error {
 		s.Name, strings.Join(parts, "; "))
 }
 
-// Text returns the content of a text file of the skill. The read of the folder
-// kept it, so it is the content that the hash covers.
-func (s *Skill) Text(path string) ([]byte, bool) {
-	data, ok := s.text[path]
-	return data, ok
+// Text reads a text file of the skill from disk. It fails with fs.ErrNotExist
+// for a path that is not a text file of the skill, and with ErrFileChanged
+// when the file no longer has the content that the hash covers.
+func (s *Skill) Text(path string) ([]byte, error) {
+	file, ok := s.File(path)
+	if !ok || !file.Text {
+		return nil, fmt.Errorf("skill %q has no text file %q: %w", s.Name, path, fs.ErrNotExist)
+	}
+	r, err := s.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = r.Close() }()
+	data := make([]byte, file.Size)
+	if _, err := io.ReadFull(r, data); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
-
-// Raw returns the exact bytes of SKILL.md.
-func (s *Skill) Raw() []byte { return s.text[FileName] }
 
 // File returns the entry of a file.
 func (s *Skill) File(path string) (File, bool) {
@@ -234,13 +244,7 @@ func (s *Skill) File(path string) (File, bool) {
 }
 
 // Stats returns the sizes of the body of SKILL.md.
-func (s *Skill) Stats() Stats {
-	return Stats{
-		BodyBytes:  len(s.Body),
-		BodyLines:  BodyLines(s.Body),
-		BodyTokens: EstimateTokens(len(s.Body)),
-	}
-}
+func (s *Skill) Stats() Stats { return s.stats }
 
 // Stats holds the sizes of a body.
 type Stats struct {

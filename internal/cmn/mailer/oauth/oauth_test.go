@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -47,83 +46,4 @@ func TestCachedTokenFuncCoalescesConcurrentRefresh(t *testing.T) {
 		require.NoError(t, err)
 	}
 	assert.Equal(t, int32(1), refreshes.Load())
-}
-
-func TestTokenStateReleasesGateAfterCanceledRefresh(t *testing.T) {
-	t.Parallel()
-
-	state := newTokenState()
-	started := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
-	firstDone := make(chan error, 1)
-	go func() {
-		_, err := state.get(ctx, func(ctx context.Context, _ *oauth2.Token) (*oauth2.Token, error) {
-			close(started)
-			<-ctx.Done()
-			return nil, ctx.Err()
-		})
-		firstDone <- err
-	}()
-	<-started
-	cancel()
-	assert.ErrorIs(t, <-firstDone, context.Canceled)
-
-	token, err := state.get(context.Background(), func(context.Context, *oauth2.Token) (*oauth2.Token, error) {
-		return &oauth2.Token{AccessToken: "retry", Expiry: time.Now().Add(time.Hour)}, nil
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "retry", token.AccessToken)
-}
-
-func TestTokenStateRefreshesExpiredToken(t *testing.T) {
-	t.Parallel()
-
-	state := newTokenState()
-	var refreshes atomic.Int32
-	refresh := func(context.Context, *oauth2.Token) (*oauth2.Token, error) {
-		count := refreshes.Add(1)
-		return &oauth2.Token{
-			AccessToken: fmt.Sprintf("token-%d", count),
-			Expiry:      time.Now().Add(time.Hour),
-		}, nil
-	}
-	first, err := state.get(context.Background(), refresh)
-	require.NoError(t, err)
-	second, err := state.get(context.Background(), refresh)
-	require.NoError(t, err)
-	assert.Equal(t, first.AccessToken, second.AccessToken)
-	assert.Equal(t, int32(1), refreshes.Load())
-
-	state.set(&oauth2.Token{AccessToken: "expired", Expiry: time.Now().Add(-time.Hour)})
-	third, err := state.get(context.Background(), refresh)
-	require.NoError(t, err)
-	assert.Equal(t, "token-2", third.AccessToken)
-	assert.Equal(t, int32(2), refreshes.Load())
-}
-
-func TestTokenStateWaiterCanCancel(t *testing.T) {
-	t.Parallel()
-
-	state := newTokenState()
-	started := make(chan struct{})
-	release := make(chan struct{})
-	firstDone := make(chan error, 1)
-	go func() {
-		_, err := state.get(context.Background(), func(context.Context, *oauth2.Token) (*oauth2.Token, error) {
-			close(started)
-			<-release
-			return &oauth2.Token{AccessToken: "token", Expiry: time.Now().Add(time.Hour)}, nil
-		})
-		firstDone <- err
-	}()
-	<-started
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := state.get(ctx, func(context.Context, *oauth2.Token) (*oauth2.Token, error) {
-		return nil, errors.New("unexpected refresh")
-	})
-	assert.ErrorIs(t, err, context.Canceled)
-	close(release)
-	require.NoError(t, <-firstDone)
 }

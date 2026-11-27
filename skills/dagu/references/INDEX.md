@@ -11,3 +11,5 @@ Each file lists a contents block at its top when it has more than 100 lines. Ope
 - `build.md`: Workflows of `type: build`, path references, reuse and `--no-reuse`. Read it for local file pipelines.
 - `file-dependencies.md`: The step-level `dependencies` key. Read it when a DAG needs files from its working directory.
 - `harnesses.md`: External coding-agent CLIs with `harness.run`. Read it only when a DAG calls such a CLI.
+- `coming-from-rundeck.md`: Moving from Rundeck. Read it to move Rundeck nodes, node filters or jobs that dispatch to nodes to Dagu inventories and steps with `nodes`.
+- `coming-from-ansible.md`: Moving from Ansible. Read it to move Ansible inventories, plays, `serial`, `forks` or `--limit` to Dagu inventories and steps with `nodes`.

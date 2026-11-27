@@ -31,7 +31,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -272,7 +271,7 @@ func runStart(ctx *Context, args []string) error {
 		}
 
 		params = status.Params
-		dag, err = restoreDAGFromStatus(ctx.Context, snapshot, status, ctx.Persistence.DAGRunRepository)
+		dag, err = ctx.restoreRunDAG(snapshot, status)
 		if err != nil {
 			return fmt.Errorf("failed to restore DAG from status: %w", err)
 		}
@@ -432,11 +431,19 @@ func tryExecuteDAG(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 	// Check for dispatch to coordinator for distributed execution.
 	// Skip if already running on a worker (workerID != "local").
 	if opts.workerID == "local" {
-		coordinatorCli, err := ctx.NewCoordinatorClient()
+		// A run bound to a worker node runs on that worker, whatever the
+		// default execution mode.
+		worker, coordinatorCli, err := boundWorker(ctx, dag, opts.targetNodes, "")
 		if err != nil {
 			return err
 		}
-		if dispatch.ShouldDispatchToCoordinator(dag, coordinatorCli != nil, ctx.Config.DefaultExecMode) {
+		opts.boundWorker = worker
+		if worker == "" {
+			if coordinatorCli, err = ctx.NewCoordinatorClient(); err != nil {
+				return err
+			}
+		}
+		if worker != "" || dispatch.ShouldDispatchToCoordinator(dag, coordinatorCli != nil, ctx.Config.DefaultExecMode) {
 			if dag.Type == ir.TypeBuild {
 				return dispatch.ErrBuildRequiresLocal
 			}
@@ -507,11 +514,7 @@ func getDAGRunInfo(ctx *Context) (dagRunID, rootDAGRun, parentDAGRun string, isS
 func loadDAGWithParams(ctx *Context, args []string, isSubDAGRun bool) (*ir.DAG, string, error) {
 	dagPath := args[0]
 
-	loadOpts := []spec.LoadOption{
-		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
-		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
-	}
+	loadOpts := ctx.projectLoadOptions()
 	if definitionID := dagDefinitionIDFromEnv(); definitionID != "" {
 		loadOpts = append(loadOpts, spec.WithDefaultName(
 			fileutil.TrimYAMLFileExtension(filepath.Base(definitionID)),
@@ -586,6 +589,12 @@ func loadDAGWithParams(ctx *Context, args []string, isSubDAGRun bool) (*ir.DAG, 
 	dag, err := spec.Load(ctx, dagPath, loadOpts...)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to load DAG from %s: %w", dagPath, err)
+	}
+	// A child that dag.run started was resolved by its caller.
+	if !isSubDAGRun {
+		if err := ctx.projectStores.CheckStart(ctx, dag.Location); err != nil {
+			return nil, "", err
+		}
 	}
 	if ctx.Command.Flags().Changed(sourceFileFlag.name) {
 		sourceFile, err := ctx.StringParam(sourceFileFlag.name)
@@ -798,9 +807,10 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 			NoReuse:                  opts.noReuse,
 			SecretStore:              as.SecretStore,
 			SecretReferenceResolver:  as.SecretResolver,
+			ConnectionChecker:        as.connectionsFor(opts.workerID),
 			ProfileStore:             as.ProfileStore,
 			ProfileResolver:          as.ProfileResolver,
-			NodeSelector:             as.Inventory,
+			NodeSelector:             as.Nodes,
 			HostKeys:                 as.HostKeys,
 			TargetNodes:              opts.targetNodes,
 			ProfileName:              opts.profileName,
@@ -818,8 +828,8 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 			Dates:                    opts.dates,
 			DefaultSlot:              opts.defaultSlot,
 			ArtifactDir:              artifactDir,
-			DAGRunLogDir:             ctx.Config.Paths.LogDir,
-			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
+			DAGRunLogDir:             ctx.projectPaths().LogDir,
+			DAGRunArtifactDir:        ctx.projectPaths().ArtifactDir,
 			ExpandSubRuns:            opts.recursiveOutput,
 		}),
 	)
@@ -932,12 +942,29 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	if opts.triggerActor != "" {
 		taskOpts = append(taskOpts, executor.WithTriggerActor(opts.triggerActor))
 	}
+	if len(opts.targetNodes) > 0 {
+		taskOpts = append(taskOpts, executor.WithTargetNodes(opts.targetNodes))
+	}
+	if opts.boundWorker != "" {
+		taskOpts = append(taskOpts,
+			executor.WithTargetWorkerID(opts.boundWorker),
+			executor.WithBoundNode(opts.boundWorker, ""),
+		)
+	}
 	taskOpts = append(taskOpts, executor.WithTriggerType(opts.triggerType))
 
 	operation := dispatch.DispatchOperationStart
-	if opts.seed != nil {
+	switch {
+	case opts.seed != nil:
 		operation = dispatch.DispatchOperationRetry
 		taskOpts = append(taskOpts, executor.WithPreviousStatus(opts.seed))
+	case opts.retried != nil:
+		operation = dispatch.DispatchOperationRetry
+		taskOpts = append(taskOpts, retryTaskOptions(opts)...)
+	case len(d.Params) > 0:
+		// The worker loads the definition again, so a new run carries the
+		// params it was started with.
+		taskOpts = append(taskOpts, executor.WithTaskParams(strings.Join(spec.QuoteRuntimeParams(d.Params, d.ParamDefs), " ")))
 	}
 
 	task := executor.CreateTask(
@@ -948,7 +975,11 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 		taskOpts...,
 	)
 
-	if err := coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task}); err != nil {
+	err := ctx.checkProjectDispatch()
+	if err == nil {
+		err = coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task})
+	}
+	if err != nil {
 		if opts.seed != nil {
 			intake.MarkSeedFailed(ctx, ctx.Persistence.DAGRunRepository, opts.seed, err)
 		}
@@ -961,7 +992,7 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	}
 
 	logger.Info(ctx, "DAG dispatched to coordinator; awaiting completion")
-	err := waitForDAGCompletionWithProgress(signalAwareCtx, d, dagRunID, coordinatorCli, progress)
+	err = waitForDAGCompletionWithProgress(signalAwareCtx, d, dagRunID, coordinatorCli, progress)
 
 	// If context was cancelled (e.g., Ctrl+C), request cancellation on coordinator
 	if signalCtx.Err() != nil {

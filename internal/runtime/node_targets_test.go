@@ -16,12 +16,12 @@ import (
 // fixedNodes is an inventory that holds the given nodes.
 type fixedNodes []inventory.ResolvedNode
 
-func (n fixedNodes) Select(ctx context.Context, _ string) ([]inventory.ResolvedNode, error) {
-	return n.Nodes(ctx)
+func (n fixedNodes) Select(context.Context, string) ([]inventory.ResolvedNode, error) {
+	return n, nil
 }
 
-func (n fixedNodes) Nodes(context.Context) ([]inventory.ResolvedNode, error) {
-	return n, nil
+func (n fixedNodes) Named(_ context.Context, names []string) ([]inventory.ResolvedNode, error) {
+	return inventory.Named(n, names), nil
 }
 
 // A retry keeps the nodes the first attempt recorded, as the inventory holds
@@ -36,11 +36,14 @@ func TestRecordedNodes(t *testing.T) {
 		{Node: "web04", Status: ir.NodeRunNotStarted, DAGRunID: "run-4"},
 		{Node: "web05", Status: ir.NodeRunAborted, DAGRunID: "run-5"},
 		{Node: "WEB06", Status: ir.NodeRunDisabled},
+		{Node: "WEB-GW", Status: ir.NodeRunFailed, DAGRunID: "run-8"},
 	}}
 	ctx := NewContext(context.Background(), &ir.DAG{Name: "deploy"}, "run", "",
 		WithNodeSelector(fixedNodes{
 			// web01 left, but its run succeeded; web04 left; web05 is disabled
-			// now; web06, disabled before, is enabled; web07 is new.
+			// now; web06, disabled before, is enabled; web07 is new; web-gw
+			// is a worker node, recorded under other case.
+			{Name: "web-gw", Kind: inventory.NodeKindWorker},
 			{Name: "web02", Disabled: true},
 			{Name: "web03"},
 			{Name: "web05", Disabled: true},
@@ -57,6 +60,7 @@ func TestRecordedNodes(t *testing.T) {
 		{Node: "web04", Removed: true, Run: executor.RunParams{RunID: "run-4"}},
 		{Node: "web05", Disabled: true, Run: executor.RunParams{RunID: "run-5"}},
 		{Node: "WEB06"},
+		{Node: "web-gw", Worker: true, Run: executor.RunParams{RunID: "run-8"}},
 	}, runs)
 }
 

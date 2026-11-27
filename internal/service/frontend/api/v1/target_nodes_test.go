@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -26,12 +29,25 @@ func TestTargetNodes(t *testing.T) {
 			{"name": "db01", "host": "10.0.1.21", "labels": []string{"db"}},
 		},
 	}}).ExpectStatus(http.StatusOK).Send(t)
+	workers, err := store.NewWorkerNodeStore(server.Backend.Collection(persis.CollectionWorkerNodes), nil)
+	require.NoError(t, err)
+	require.NoError(t, workers.Record(server.Context, inventory.WorkerNode{
+		Name: "tokyo-gw", Host: "gw.tokyo", Labels: ir.NewLabels([]string{"web"}), Online: true,
+	}))
 
 	createDAG := func(name, spec string) {
 		server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{Name: name, Spec: &spec}).
 			ExpectStatus(http.StatusCreated).Send(t)
 	}
 	createDAG("narrowed", `
+steps:
+  - id: restart
+    run: echo restart
+    nodes: web
+`)
+	createDAG("remote", `
+worker_selector:
+  gpu: "true"
 steps:
   - id: restart
     run: echo restart
@@ -70,19 +86,30 @@ steps:
 		}, 5*time.Second, 100*time.Millisecond)
 		return status
 	}
-	enqueueNarrowed := func(t *testing.T) string {
+	enqueue := func(t *testing.T, dag string) string {
 		t.Helper()
 		var enqueued api.EnqueueDAGDAGRun200JSONResponse
-		server.Client().Post("/api/v1/dags/narrowed/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{
+		server.Client().Post("/api/v1/dags/"+dag+"/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{
 			TargetNodes: nodes("WEB01"),
 		}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &enqueued)
 		return enqueued.DagRunId
 	}
+	enqueueNarrowed := func(t *testing.T) string {
+		t.Helper()
+		return enqueue(t, "narrowed")
+	}
 
-	t.Run("a queued run keeps its list and runs on the Dagu host", func(t *testing.T) {
+	t.Run("a queued run keeps its list", func(t *testing.T) {
 		runID := enqueueNarrowed(t)
 		require.Equal(t, []string{"web01"}, statusOf(t, "narrowed", runID).TargetNodes)
-		require.True(t, snapshotDAGOf(t, server, "narrowed", runID).ForceLocal)
+	})
+
+	// Steps with nodes run on workers too, so a DAG that selects workers
+	// takes a list.
+	t.Run("a run that selects workers keeps its list", func(t *testing.T) {
+		runID := enqueue(t, "remote")
+		require.Equal(t, []string{"web01"}, statusOf(t, "remote", runID).TargetNodes)
+		require.Equal(t, map[string]string{"gpu": "true"}, snapshotDAGOf(t, server, "remote", runID).WorkerSelector)
 	})
 
 	// A new run from a narrowed run keeps its list, whether it is built from
@@ -97,8 +124,15 @@ steps:
 			}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &resp)
 
 			require.Equal(t, []string{"web01"}, statusOf(t, "narrowed", resp.DagRunId).TargetNodes, "current file: %v", currentFile)
-			require.True(t, snapshotDAGOf(t, server, "narrowed", resp.DagRunId).ForceLocal, "current file: %v", currentFile)
 		}
+	})
+
+	t.Run("a worker node is a node of the project", func(t *testing.T) {
+		var enqueued api.EnqueueDAGDAGRun200JSONResponse
+		server.Client().Post("/api/v1/dags/narrowed/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{
+			TargetNodes: nodes("Tokyo-GW", "web01"),
+		}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &enqueued)
+		require.Equal(t, []string{"tokyo-gw", "web01"}, statusOf(t, "narrowed", enqueued.DagRunId).TargetNodes)
 	})
 
 	t.Run("details tell a node: required DAG", func(t *testing.T) {
@@ -130,6 +164,16 @@ steps:
 			}
 		})
 	}
+
+	// A run bound to a worker node is queued as any run is, and the
+	// scheduler sends it to its worker.
+	t.Run("node: required with a worker node", func(t *testing.T) {
+		var enqueued api.EnqueueDAGDAGRun200JSONResponse
+		server.Client().Post("/api/v1/dags/bound/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{
+			TargetNodes: nodes("Tokyo-GW"),
+		}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &enqueued)
+		require.Equal(t, []string{"tokyo-gw"}, statusOf(t, "bound", enqueued.DagRunId).TargetNodes)
+	})
 
 	t.Run("selected steps take no list", func(t *testing.T) {
 		steps := []string{"restart"}

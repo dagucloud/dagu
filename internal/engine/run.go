@@ -33,7 +33,6 @@ import (
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 func (e *Engine) RunFile(ctx context.Context, path string, opts RunOptions) (*Run, error) {
@@ -351,7 +350,7 @@ func (e *Engine) loadYAML(ctx context.Context, data []byte, opts RunOptions) (*i
 func (e *Engine) loadOptions(opts RunOptions) []spec.LoadOption {
 	loadOpts := []spec.LoadOption{
 		spec.WithBaseConfig(e.cfg.Paths.BaseConfig),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(e.cfg.Paths.DAGsDir)),
+		spec.WithWorkspaceBaseConfigDir(e.cfg.WorkspaceBaseConfigDir()),
 		spec.WithDAGsDir(e.cfg.Paths.DAGsDir),
 	}
 	if opts.Name != "" {
@@ -485,6 +484,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *ir.DAG, runID string, opts R
 			NoReuse:                  opts.NoReuse,
 			SecretStore:              stores.SecretStore,
 			SecretReferenceResolver:  stores.secretResolver,
+			ConnectionChecker:        stores.connectionChecker,
 			ProfileStore:             stores.ProfileStore,
 			ProfileResolver:          stores.profileResolver,
 			ServiceRegistry:          e.serviceRegistry,
@@ -741,6 +741,9 @@ func (e *Engine) runtimeStores(ctx context.Context) RuntimeStores {
 	}
 	if stores.MaterializationStore == nil {
 		stores.MaterializationStore = filematerialization.New(filepath.Join(e.cfg.Paths.DataDir, "materializations"))
+	}
+	if stores.OpenConnectionStore != nil {
+		stores.connectionChecker = rtagent.NewStoreConnectionChecker(stores.OpenConnectionStore)
 	}
 	if e.cfg.ProjectsEnabled {
 		if stores.SecretStore != nil {

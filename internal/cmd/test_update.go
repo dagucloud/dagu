@@ -10,7 +10,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagtest"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 )
 
 // What --update did with a case's expect, as the JSON report's update field
@@ -33,6 +32,9 @@ type caseUpdate struct {
 	outcome string
 	// reason says why a kept expect stays as written.
 	reason string
+	// kept lists the assertions of an updated or unchanged expect that stay
+	// as written because the run's value holds a host value.
+	kept []keptValue
 }
 
 // line writes the outcome as the last line of a case in the text report.
@@ -53,7 +55,7 @@ func updateExpect(update *dagtest.Update, name string, out *caseUpdate) caseExpe
 		if unfinishedRun(status) != nil {
 			return written
 		}
-		merged := tc.updatedExpect(written, status)
+		merged, kept := tc.updatedExpect(written, status)
 		changed, err := update.Set(name, merged)
 		switch {
 		case err != nil:
@@ -64,19 +66,21 @@ func updateExpect(update *dagtest.Update, name string, out *caseUpdate) caseExpe
 		default:
 			out.outcome = updateUnchanged
 		}
+		out.kept = kept
 		return merged
 	}
 }
 
 // updatedExpect returns written with the exact facts of the case's run
-// merged in, as --update rewrites it (Spec 101, Authoring Flags). An
-// asserted status, attempts, or output takes the run's value, and asserted
-// notifications take the sent ones, unless the assertion already holds.
-// Each step and handler without an assertion follows the written ones, in
-// the order of expectFromRun, with its status, and its attempts when more
-// than one. Stream assertions stay as written. status is the status of the
-// run's last attempt, which finished.
-func (c *testCase) updatedExpect(written dagtest.Expect, status *ir.DAGRunStatus) dagtest.Expect {
+// merged in, as --update rewrites it (Spec 101, Authoring Flags), and the
+// assertions that stay as written because the run's value holds a host
+// value. An asserted status, attempts, or output takes the run's value,
+// and asserted notifications take the sent ones, unless the assertion
+// already holds. Each step and handler without an assertion follows the
+// written ones, in the order of expectFromRun, with its status, and its
+// attempts when more than one. Stream assertions stay as written. status
+// is the status of the run's last attempt, which finished.
+func (c *testCase) updatedExpect(written dagtest.Expect, status *ir.DAGRunStatus) (dagtest.Expect, []keptValue) {
 	facts := c.expectFromRun(status)
 	merged := written
 	if written.Status != "" {
@@ -86,8 +90,11 @@ func (c *testCase) updatedExpect(written dagtest.Expect, status *ir.DAGRunStatus
 		merged.Attempts = facts.Attempts
 	}
 	merged.Steps = make([]dagtest.StepExpect, 0, len(facts.Steps))
+	var kept []keptValue
 	for _, s := range written.Steps {
-		merged.Steps = append(merged.Steps, c.updatedStep(s, status))
+		step, stepKept := c.updatedStep(s, status)
+		merged.Steps = append(merged.Steps, step)
+		kept = append(kept, stepKept...)
 	}
 	for _, f := range facts.Steps {
 		if slices.ContainsFunc(written.Steps, func(s dagtest.StepExpect) bool { return s.Step == f.Step && s.Handler == f.Handler }) {
@@ -99,14 +106,25 @@ func (c *testCase) updatedExpect(written dagtest.Expect, status *ir.DAGRunStatus
 		merged.Steps = append(merged.Steps, f)
 	}
 	if written.Notifications != nil && !pairNotifications(written.Notifications, c.notifications) {
-		merged.Notifications = facts.Notifications
+		var recipients []any
+		for _, n := range facts.Notifications {
+			for _, to := range n.To {
+				recipients = append(recipients, to)
+			}
+		}
+		if vars := c.host.heldIn(recipients); len(vars) > 0 {
+			kept = append(kept, keptValue{field: failureNotifications, vars: vars})
+		} else {
+			merged.Notifications = facts.Notifications
+		}
 	}
-	return merged
+	return merged, kept
 }
 
 // updatedStep returns the assertions on one step or handler with the facts
-// of the case's run merged in.
-func (c *testCase) updatedStep(s dagtest.StepExpect, status *ir.DAGRunStatus) dagtest.StepExpect {
+// of the case's run merged in, and those that stay as written because the
+// run's value holds a host value.
+func (c *testCase) updatedStep(s dagtest.StepExpect, status *ir.DAGRunStatus) (dagtest.StepExpect, []keptValue) {
 	facts := c.stepFacts(s, status)
 	if s.Status != "" {
 		s.Status = facts.Status
@@ -115,38 +133,43 @@ func (c *testCase) updatedStep(s dagtest.StepExpect, status *ir.DAGRunStatus) da
 		s.Attempts = facts.Attempts
 	}
 	node := expectedNode(status, c.waited, s)
+	call, called := c.lastCall(s, node)
+	guard := &hostGuard{host: &c.host, step: s.Key, call: call}
 	published := publishedOutputs(node)
 	s.Outputs = slices.Clone(s.Outputs)
 	for i, o := range s.Outputs {
 		if value, ok := published[o.Name]; ok {
-			s.Outputs[i].Value = updatedOutput(o, outputText(value))
+			s.Outputs[i].Value = guard.value(failureOutputPrefix+o.Name, o.Value, updatedOutput(o, outputText(value)))
 		}
 	}
-	if call, ok := c.lastCall(s, node); ok && s.CalledWith != nil {
-		s.CalledWith = updatedCall(*s.CalledWith, call)
+	if called && s.CalledWith != nil {
+		s.CalledWith = updatedCall(*s.CalledWith, guard)
 	}
-	return s
+	return s, guard.kept
 }
 
-// updatedCall returns a called_with assertion with the values of call
-// merged in. A run text takes the call's text, and a with input or a
-// variable that the call has takes its value, the listed keys only of an
-// object, as an output does. A run given as contains and matches stays as
-// written, and so does an input or a variable the call lacks.
-func updatedCall(expect dagtest.CallExpect, call stepmock.Call) *dagtest.CallExpect {
+// updatedCall returns a called_with assertion with the values of the call
+// that guard holds merged in. A run text takes the call's text, and a with
+// input or a variable that the call has takes its value, the listed keys
+// only of an object, as an output does. A run given as contains and
+// matches stays as written, and so does an input or a variable the call
+// lacks, and a value that guard keeps out.
+func updatedCall(expect dagtest.CallExpect, guard *hostGuard) *dagtest.CallExpect {
+	call := guard.call
 	if r := expect.Run; r != nil && r.Text != nil {
-		expect.Run = &dagtest.RunExpect{Text: new(call.Run)}
+		expect.Run = &dagtest.RunExpect{Text: new(guard.value(failureCallRun, *r.Text, call.Run).(string))}
 	}
 	expect.With = slices.Clone(expect.With)
 	for i, in := range expect.With {
 		if value, ok := call.With[in.Name]; ok {
-			expect.With[i].Value = updatedOutput(dagtest.OutputExpect{Value: in.Value}, outputText(value))
+			updated := updatedOutput(dagtest.OutputExpect{Value: in.Value}, outputText(value))
+			expect.With[i].Value = guard.value(failureCallInputPrefix+in.Name, in.Value, updated)
 		}
 	}
 	expect.Env = slices.Clone(expect.Env)
 	for i, e := range expect.Env {
 		if value, ok := call.Env[e.Name]; ok {
-			expect.Env[i].Value = value
+			expect.Env[i].Value = guard.variable(e.Name, e.Value, value)
 		}
 	}
 	return &expect

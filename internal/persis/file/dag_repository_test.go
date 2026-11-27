@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/project"
 
 	// Registers the chat executor that the test workflow uses.
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin"
@@ -524,7 +525,7 @@ func TestDAGChangeMarkerPathMatchesStore(t *testing.T) {
 	repo, err := persisfile.NewDAGRepository(cfg, persisfile.WithDAGSkipExamples(true))
 	require.NoError(t, err)
 
-	markerPath := persisfile.DAGChangeMarkerPath(cfg)
+	markerPath := defaultDAGChangeMarkerPath(t, cfg)
 	require.NotEmpty(t, markerPath)
 	assert.Equal(t, filepath.Join(cfg.Paths.DataDir, "cache", "dag-index"), filepath.Dir(markerPath))
 	require.NoFileExists(t, markerPath)
@@ -533,7 +534,16 @@ func TestDAGChangeMarkerPathMatchesStore(t *testing.T) {
 	assert.FileExists(t, markerPath)
 
 	cfg.Paths.DataDir = ""
-	assert.Empty(t, persisfile.DAGChangeMarkerPath(cfg), "no data directory, no marker")
+	assert.Empty(t, defaultDAGChangeMarkerPath(t, cfg), "no data directory, no marker")
+}
+
+// defaultDAGChangeMarkerPath returns the change marker that readers of the
+// default project's DAGs poll.
+func defaultDAGChangeMarkerPath(t *testing.T, cfg *config.Config) string {
+	t.Helper()
+	settings, err := persisfile.NewProjectSettings(cfg, persisfile.NewServerStores(cfg), project.DefaultName)
+	require.NoError(t, err)
+	return settings.DAGChangeMarkerPath()
 }
 
 // A suspend flag holds when the suspension began, and suspending again keeps

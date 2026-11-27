@@ -20,7 +20,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -546,6 +545,9 @@ type backfillStartOptions struct {
 }
 
 func runBackfillStart(ctx *Context, args []string) error {
+	if err := ctx.checkProjectEnqueue(); err != nil {
+		return err
+	}
 	opts, err := parseBackfillStartFlags(ctx)
 	if err != nil {
 		return err
@@ -654,16 +656,10 @@ func parseBackfillStartFlags(ctx *Context) (backfillStartOptions, error) {
 }
 
 func loadBackfillDAG(ctx *Context, name string) (*ir.DAG, error) {
-	loadOpts := []spec.LoadOption{
+	return spec.Load(ctx, name, append(ctx.projectLoadOptions(),
 		spec.WithoutEval(),
-		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
 		spec.WithCalendarsDir(ctx.Config.Paths.CalendarsDir),
-	}
-	if ctx.Config.Paths.BaseConfig != "" {
-		loadOpts = append(loadOpts, spec.WithBaseConfig(ctx.Config.Paths.BaseConfig))
-	}
-	return spec.Load(ctx, name, loadOpts...)
+	)...)
 }
 
 // showBackfillPlan prints a plan with how it would run on the DAG's queue

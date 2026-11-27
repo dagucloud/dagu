@@ -12,8 +12,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 
 	"github.com/dagucloud/dagu/v2/internal/aigateway"
-	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 )
 
@@ -23,7 +21,7 @@ import (
 // local run calls it in its own process. It returns nil when no secret store
 // exists, because an endpoint needs one.
 func newAIGateway(ctx *Context, secrets secret.Store) (*aigateway.Gateway, error) {
-	service := file.NewAIEndpointService(ctx.Context, ctx.backend.Collection(persis.CollectionAIEndpoints), secrets)
+	service := ctx.serverStores.AIEndpointService(ctx.Context, secrets)
 	if service == nil {
 		return nil, nil
 	}
@@ -35,7 +33,7 @@ func newAIGateway(ctx *Context, secrets secret.Store) (*aigateway.Gateway, error
 		ProxyURL:  ai.Upstream.ProxyURL,
 	}
 	// A MCP server entry is a managed secret too, so it needs the same secret store.
-	if servers := file.NewAIMCPServerService(ctx.Context, ctx.backend.Collection(persis.CollectionAIMCPServers), secrets); servers != nil {
+	if servers := ctx.serverStores.AIMCPServerService(ctx.Context, secrets); servers != nil {
 		cfg.MCPServers = servers
 	}
 	gateway, err := aigateway.New(cfg)
@@ -79,5 +77,5 @@ func enableAIModels(ctx *Context, service *aiendpoint.Service) {
 		logger.Warn(ctx.Context, "Failed to create the reader of the AI models lists", tag.Error(err))
 		return
 	}
-	file.EnableAIEndpointModels(ctx.Context, service, ctx.backend.Collection(persis.CollectionAIEndpointModels), reader)
+	ctx.serverStores.EnableAIEndpointModels(ctx.Context, service, reader)
 }

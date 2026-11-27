@@ -7,6 +7,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/aiendpoint"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/connection/connect"
 	"github.com/dagucloud/dagu/v2/internal/dagpin"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -60,4 +61,6 @@ type Stores struct {
 	PublicWebhooks       publicwebhook.Store
 	// Projects is the project registry. It is nil while projects are off.
 	Projects project.Registry
+	// Connect runs connect sessions. It is nil without encrypted storage.
+	Connect *connect.Engine
 }
