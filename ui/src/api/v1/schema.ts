@@ -3858,7 +3858,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a skill
-         * @description Deletes the whole folder of a skill with every file. Send If-Match with the hash that the client read. Requires developer role or above.
+         * @description Deletes the whole folder of a skill with every file. After 204 the skill is gone for every reader. A file that the server cannot remove stays in a hidden folder until a later skill delete removes it. Send If-Match with the hash that the client read. Requires developer role or above.
          */
         delete: operations["deleteSkill"];
         options?: never;
@@ -3886,7 +3886,7 @@ export interface paths {
         post?: never;
         /**
          * Delete one file of a skill
-         * @description Deletes one file under references/, assets/ or scripts/. Send If-Match with the hash that the client read. Requires developer role or above.
+         * @description Deletes one file under references/, assets/ or scripts/, or one entry that breaks the layout with its content, such as a stray file at the top of the skill or a hidden folder. A folder that the layout allows cannot be deleted; delete its files. Send If-Match with the hash that the client read. Requires developer role or above.
          */
         delete: operations["deleteSkillFile"];
         options?: never;
