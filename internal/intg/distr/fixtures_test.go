@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/artifactpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -386,6 +387,7 @@ func (f *testFixture) startSchedulerWithOptions(
 		WorkerHeartbeatStore: f.coord.WorkerHeartbeatStore,
 		WorkerStaleAfter:     f.coord.StaleHeartbeatThreshold,
 		LeaseStaleAfter:      f.coord.StaleLeaseThreshold,
+		Nodes:                f.projectNodes(),
 	})
 	require.NoError(f.t, err)
 	if clock != nil {
@@ -448,6 +450,18 @@ func (f *testFixture) startSchedulerWithOptions(
 		}
 	}
 	require.NoError(f.t, startErr)
+}
+
+// projectNodes returns the nodes of the installation: those of its
+// inventories and its worker nodes.
+func (f *testFixture) projectNodes() inventory.ProjectNodes {
+	f.t.Helper()
+	inventories, err := persiststore.NewInventoryStore(f.coord.Backend.Collection(persis.CollectionInventories),
+		f.coord.Backend.Lock(persis.CollectionInventories), nil)
+	require.NoError(f.t, err)
+	workers, err := persiststore.NewWorkerNodeStore(f.coord.Backend.Collection(persis.CollectionWorkerNodes), f.coord.WorkerHeartbeatStore)
+	require.NoError(f.t, err)
+	return inventory.NewProjectNodes(inventories, workers)
 }
 
 func (f *testFixture) enqueue() error {
