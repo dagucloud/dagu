@@ -9,8 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -27,17 +28,46 @@ const (
 	// requestTimeout bounds each HTTP request of a listing, including the
 	// session's closing DELETE, which the SDK sends without a deadline.
 	requestTimeout = 30 * time.Second
-	// maxTools bounds the tools kept from one server, so a server that
-	// pages without end cannot grow a catalog without bound.
+	// maxTools and maxPages bound one listing, so a server that pages
+	// without end cannot grow a catalog or hold a listing without bound. A
+	// listing beyond either fails rather than hiding tools.
 	maxTools = 1000
+	maxPages = maxTools
+	// maxToolBytes bounds one tool's description, input schema, and
+	// annotations together.
+	maxToolBytes = 64 << 10
 	// maxRedirects is the number of same-origin redirects a request
 	// follows, as net/http does by default.
 	maxRedirects = 10
 )
 
-// errRejected reports that the server answered a request that carried the
-// token with HTTP 401.
-var errRejected = errors.New("the server rejected the connection's token (HTTP 401)")
+// RejectedError reports that the MCP server refused the connection's
+// token: with HTTP 401 after the token was reported to the source once, or
+// with HTTP 403.
+type RejectedError struct {
+	// Status is the HTTP status, 401 or 403.
+	Status int
+	// Code is the error the server's WWW-Authenticate challenge names, such
+	// as insufficient_scope, or empty.
+	Code string
+	// Scope is the scope the challenge names, such as a missing scope, or
+	// empty.
+	Scope string
+}
+
+func (e *RejectedError) Error() string {
+	msg := fmt.Sprintf("the server rejected the connection's token (HTTP %d", e.Status)
+	if e.Code != "" {
+		msg += ", " + e.Code
+	}
+	if e.Scope != "" {
+		msg += ", scope " + e.Scope
+	}
+	return msg + ")"
+}
+
+// challengeParam matches one auth-param of a WWW-Authenticate challenge.
+var challengeParam = regexp.MustCompile(`([A-Za-z_]+)="([^"]*)"`)
 
 var _ Lister = (*MCPLister)(nil)
 
@@ -60,14 +90,17 @@ func NewMCPLister(source broker.Source, base http.RoundTripper) *MCPLister {
 }
 
 // ListTools lists the tools of endpoint. A 401 to the token reports it to
-// the source once and lists again with the token the source returns.
+// the source once and lists again with the token the source returns. A
+// refusal fails with a *RejectedError. A listing of more than 1,000 tools
+// or pages, or with a tool over 64 KiB, fails.
 func (l *MCPLister) ListTools(ctx context.Context, conn *connection.Connection, endpoint string) ([]connection.Tool, error) {
 	token, _, err := l.source.Token(ctx, conn, "", tokenMinTTL)
 	if err != nil {
 		return nil, err
 	}
 	tools, err := l.list(ctx, conn, endpoint, token)
-	if !errors.Is(err, errRejected) {
+	var rejected *RejectedError
+	if !errors.As(err, &rejected) || rejected.Status != http.StatusUnauthorized {
 		return tools, err
 	}
 	token, _, err = l.source.Rejected(ctx, conn, "", token, tokenMinTTL)
@@ -95,20 +128,30 @@ func (l *MCPLister) list(ctx context.Context, conn *connection.Connection, endpo
 	defer func() { _ = session.Close() }()
 
 	var tools []connection.Tool
-	for tool, err := range session.Tools(ctx, nil) {
+	params := &sdk.ListToolsParams{}
+	for page := 1; ; page++ {
+		if page > maxPages {
+			return nil, fmt.Errorf("the server lists more than %d pages of tools", maxPages)
+		}
+		res, err := session.ListTools(ctx, params)
 		if err != nil {
 			return nil, bearer.explain(err)
 		}
-		if len(tools) == maxTools {
+		if len(tools)+len(res.Tools) > maxTools {
 			return nil, fmt.Errorf("the server lists more than %d tools", maxTools)
 		}
-		t, err := catalogTool(tool)
-		if err != nil {
-			return nil, err
+		for _, tool := range res.Tools {
+			t, err := catalogTool(tool)
+			if err != nil {
+				return nil, err
+			}
+			tools = append(tools, t)
 		}
-		tools = append(tools, t)
+		if res.NextCursor == "" {
+			return tools, nil
+		}
+		params = &sdk.ListToolsParams{Cursor: res.NextCursor}
 	}
-	return tools, nil
 }
 
 // newClient returns Dagu's MCP client for a connection. It advertises form
@@ -132,6 +175,9 @@ func catalogTool(tool *sdk.Tool) (connection.Tool, error) {
 		if t.Annotations, err = json.Marshal(tool.Annotations); err != nil {
 			return connection.Tool{}, fmt.Errorf("tool %q: annotations: %w", tool.Name, err)
 		}
+	}
+	if len(t.Description)+len(t.InputSchema)+len(t.Annotations) > maxToolBytes {
+		return connection.Tool{}, fmt.Errorf("tool %q is larger than %d KiB", tool.Name, maxToolBytes>>10)
 	}
 	return t, nil
 }
@@ -159,13 +205,15 @@ func effectivePort(port string) string {
 }
 
 // bearerTransport adds the token to each request to a bound host and
-// refuses any other request. It remembers a 401, which the SDK reports
-// only as text.
+// refuses any other request. It remembers the first 401 or 403, which the
+// SDK reports only as text.
 type bearerTransport struct {
-	base     http.RoundTripper
-	conn     *connection.Connection
-	token    string
-	rejected atomic.Bool
+	base  http.RoundTripper
+	conn  *connection.Connection
+	token string
+
+	mu       sync.Mutex
+	rejected *RejectedError
 }
 
 func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -175,16 +223,35 @@ func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	req.Header.Set("Authorization", "Bearer "+t.token)
 	resp, err := t.base.RoundTrip(req)
-	if err == nil && resp.StatusCode == http.StatusUnauthorized {
-		t.rejected.Store(true)
+	if err == nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
+		t.reject(resp)
 	}
 	return resp, err
 }
 
-// explain returns errRejected in place of err after a 401.
+func (t *bearerTransport) reject(resp *http.Response) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.rejected != nil {
+		return
+	}
+	t.rejected = &RejectedError{Status: resp.StatusCode}
+	for _, m := range challengeParam.FindAllStringSubmatch(resp.Header.Get("WWW-Authenticate"), -1) {
+		switch strings.ToLower(m[1]) {
+		case "error":
+			t.rejected.Code = m[2]
+		case "scope":
+			t.rejected.Scope = m[2]
+		}
+	}
+}
+
+// explain returns the remembered refusal in place of err.
 func (t *bearerTransport) explain(err error) error {
-	if t.rejected.Load() {
-		return errRejected
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.rejected != nil {
+		return t.rejected
 	}
 	return err
 }

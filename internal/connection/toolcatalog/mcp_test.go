@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -24,7 +25,7 @@ import (
 // advertises form elicitation.
 func TestMCPListerLists(t *testing.T) {
 	t.Parallel()
-	srv := newMCPServer(t)
+	srv := newMCPServer(t, serverOptions{})
 	source := &fakeSource{}
 
 	tools, err := srv.lister(source).ListTools(testCtx(t), srv.conn(), srv.url("/mcp"))
@@ -34,7 +35,7 @@ func TestMCPListerLists(t *testing.T) {
 	assert.Equal(t, []string{"a_read", "b_write", "c_read"}, toolNames(tools))
 	assert.Equal(t, "Reads a.", tools[0].Description)
 	assert.JSONEq(t, `{"type":"object","properties":{"q":{"type":"string"}}}`, string(tools[0].InputSchema))
-	assert.JSONEq(t, `{"readOnlyHint":true}`, string(tools[0].Annotations))
+	assert.JSONEq(t, `{"idempotentHint":false,"readOnlyHint":true}`, string(tools[0].Annotations))
 	assert.Empty(t, tools[1].Annotations)
 	assert.Equal(t, []string{"Bearer at-1"}, srv.authorizations())
 	assert.True(t, srv.advertisedFormElicitation())
@@ -55,12 +56,20 @@ func TestMCPListerRejected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			srv := newMCPServer(t, tt.reject...)
+			srv := newMCPServer(t, serverOptions{refuse: func(w http.ResponseWriter, authorization string) bool {
+				if slices.Contains(tt.reject, strings.TrimPrefix(authorization, "Bearer ")) {
+					w.WriteHeader(http.StatusUnauthorized)
+					return true
+				}
+				return false
+			}})
 			source := &fakeSource{}
 
 			tools, err := srv.lister(source).ListTools(testCtx(t), srv.conn(), srv.url("/mcp"))
 			if tt.wantErr {
-				assert.ErrorContains(t, err, "HTTP 401")
+				var rejected *toolcatalog.RejectedError
+				require.ErrorAs(t, err, &rejected)
+				assert.Equal(t, http.StatusUnauthorized, rejected.Status)
 			} else {
 				require.NoError(t, err)
 				assert.Len(t, tools, 3)
@@ -70,12 +79,62 @@ func TestMCPListerRejected(t *testing.T) {
 	}
 }
 
+// A 403 fails with the challenge's error and scope, without reporting the
+// token to the source.
+func TestMCPListerInsufficientScope(t *testing.T) {
+	t.Parallel()
+	const scope = "https://www.googleapis.com/auth/gmail.readonly"
+	srv := newMCPServer(t, serverOptions{refuse: func(w http.ResponseWriter, _ string) bool {
+		w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="`+scope+`"`)
+		w.WriteHeader(http.StatusForbidden)
+		return true
+	}})
+	source := &fakeSource{}
+
+	_, err := srv.lister(source).ListTools(testCtx(t), srv.conn(), srv.url("/mcp"))
+	var rejected *toolcatalog.RejectedError
+	require.ErrorAs(t, err, &rejected)
+	assert.Equal(t, toolcatalog.RejectedError{Status: http.StatusForbidden, Code: "insufficient_scope", Scope: scope}, *rejected)
+	assert.Empty(t, source.rejectedTokens())
+}
+
+// A listing that pages without end, or lists a tool beyond the size
+// bound, fails instead of keeping part of the tools.
+func TestMCPListerBounds(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		opts    serverOptions
+		wantErr string
+	}{
+		{name: "EndlessPages", opts: serverOptions{endlessPages: true}, wantErr: "more than 1000 pages"},
+		{
+			name: "LargeTool",
+			opts: serverOptions{tools: []*sdk.Tool{{
+				Name:        "d_large",
+				Description: strings.Repeat("x", 64<<10),
+				InputSchema: map[string]any{"type": "object"},
+			}}},
+			wantErr: `tool "d_large" is larger than 64 KiB`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := newMCPServer(t, tt.opts)
+
+			_, err := srv.lister(&fakeSource{}).ListTools(testCtx(t), srv.conn(), srv.url("/mcp"))
+			assert.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 // A redirect is followed only to HTTPS on the same host and port, and the
 // target of any other redirect receives no request.
 func TestMCPListerRedirects(t *testing.T) {
 	t.Parallel()
-	srv := newMCPServer(t)
-	other := newMCPServer(t)
+	srv := newMCPServer(t, serverOptions{})
+	other := newMCPServer(t, serverOptions{})
 	srv.mux.Handle("/moved", http.RedirectHandler(srv.url("/mcp"), http.StatusPermanentRedirect))
 	srv.mux.Handle("/away", http.RedirectHandler(other.url("/mcp"), http.StatusPermanentRedirect))
 	lister := srv.lister(&fakeSource{})
@@ -92,7 +151,7 @@ func TestMCPListerRedirects(t *testing.T) {
 // A server that is not on the connection's bound hosts receives no request.
 func TestMCPListerUnboundHost(t *testing.T) {
 	t.Parallel()
-	srv := newMCPServer(t)
+	srv := newMCPServer(t, serverOptions{})
 	conn := &connection.Connection{
 		Name:     "work",
 		Provider: connection.ProviderGoogle,
@@ -105,7 +164,7 @@ func TestMCPListerUnboundHost(t *testing.T) {
 }
 
 // mcpServer is an MCP server over HTTPS that lists three tools, two per
-// page, and answers 401 to the rejected tokens.
+// page.
 type mcpServer struct {
 	srv *httptest.Server
 	mux *http.ServeMux
@@ -115,7 +174,17 @@ type mcpServer struct {
 	capabilities *sdk.ClientCapabilities
 }
 
-func newMCPServer(t *testing.T, rejected ...string) *mcpServer {
+type serverOptions struct {
+	// refuse answers a request in place of the MCP server when it returns
+	// true.
+	refuse func(w http.ResponseWriter, authorization string) bool
+	// tools are listed after the three tools.
+	tools []*sdk.Tool
+	// endlessPages answers each tools/list with no tools and a next cursor.
+	endlessPages bool
+}
+
+func newMCPServer(t *testing.T, opts serverOptions) *mcpServer {
 	t.Helper()
 	m := &mcpServer{mux: http.NewServeMux()}
 	server := sdk.NewServer(&sdk.Implementation{Name: "test", Version: "1"}, &sdk.ServerOptions{PageSize: 2})
@@ -125,6 +194,9 @@ func newMCPServer(t *testing.T, rejected ...string) *mcpServer {
 				m.mu.Lock()
 				m.capabilities = params.Capabilities
 				m.mu.Unlock()
+			}
+			if opts.endlessPages && method == "tools/list" {
+				return &sdk.ListToolsResult{Tools: []*sdk.Tool{}, NextCursor: "next"}, nil
 			}
 			return next(ctx, method, req)
 		}
@@ -140,6 +212,9 @@ func newMCPServer(t *testing.T, rejected ...string) *mcpServer {
 	}, handler)
 	server.AddTool(&sdk.Tool{Name: "b_write", InputSchema: map[string]any{"type": "object"}}, handler)
 	server.AddTool(&sdk.Tool{Name: "c_read", InputSchema: map[string]any{"type": "object"}}, handler)
+	for _, tool := range opts.tools {
+		server.AddTool(tool, handler)
+	}
 	mcp := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, nil)
 
 	m.mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
@@ -149,11 +224,8 @@ func newMCPServer(t *testing.T, rejected ...string) *mcpServer {
 			m.auth = append(m.auth, authorization)
 		}
 		m.mu.Unlock()
-		for _, token := range rejected {
-			if authorization == "Bearer "+token {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
+		if opts.refuse != nil && opts.refuse(w, authorization) {
+			return
 		}
 		mcp.ServeHTTP(w, r)
 	})
