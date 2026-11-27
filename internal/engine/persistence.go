@@ -76,6 +76,15 @@ func (s RuntimeStores) subDAGSecretResolver() func(*ir.DAG) providers.ReferenceR
 	return func(*ir.DAG) providers.ReferenceResolver { return s.secretResolver }
 }
 
+// subDAGConnectionChecker returns the checker a sub-DAG run uses for its
+// connections, or nil when its connections are not checked.
+func (s RuntimeStores) subDAGConnectionChecker() func(*ir.DAG) rtagent.ConnectionChecker {
+	if s.connectionChecker == nil {
+		return nil
+	}
+	return func(*ir.DAG) rtagent.ConnectionChecker { return s.connectionChecker }
+}
+
 // subDAGProfileResolver returns the resolver a sub-DAG run uses for its
 // profiles, or nil when the run builds its own.
 func (s RuntimeStores) subDAGProfileResolver() func(*ir.DAG) profile.RuntimeResolver {

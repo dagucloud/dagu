@@ -99,6 +99,25 @@ func NoMatchingWorkerConditions(checkedAt time.Time) []DAGRunCondition {
 	}
 }
 
+// NoConnectionWorkerConditions are the conditions a run of a DAG that
+// declares connections waits under when its matching workers are too old to
+// hand out connection tokens. The scheduler's queue and the coordinator
+// write the same pair.
+func NoConnectionWorkerConditions(checkedAt time.Time) []DAGRunCondition {
+	return []DAGRunCondition{
+		NewDAGRunCondition(DAGRunConditionRunnable, DAGRunConditionStatusFalse, DAGRunReasonNoMatchingWorker,
+			NoConnectionWorkerRunnableMessage, checkedAt),
+		NewDAGRunCondition(DAGRunConditionWorkerReady, DAGRunConditionStatusFalse, DAGRunReasonNoMatchingWorker,
+			NoConnectionWorkerReadyMessage, checkedAt),
+	}
+}
+
+// Messages of NoConnectionWorkerConditions.
+const (
+	NoConnectionWorkerRunnableMessage = "The DAG-run cannot start because it declares connections, which no healthy matching worker supports. Upgrade the matching workers."
+	NoConnectionWorkerReadyMessage    = "No healthy matching worker supports connections. Upgrade the matching workers."
+)
+
 // NoAvailableWorkerConditions are the conditions a run waits under when no
 // healthy distributed worker exists at all.
 func NoAvailableWorkerConditions(checkedAt time.Time) []DAGRunCondition {

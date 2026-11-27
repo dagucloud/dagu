@@ -72,6 +72,16 @@ func (s executionStores) connectionsFor(workerID string) agent.ConnectionChecker
 	return s.Connections
 }
 
+// subDAGConnections returns the checker of the connections of the sub-DAGs
+// that a run of workerID runs in process, which check as their parent does.
+func (s executionStores) subDAGConnections(workerID string) func(*ir.DAG) agent.ConnectionChecker {
+	checker := s.connectionsFor(workerID)
+	if checker == nil {
+		return nil
+	}
+	return func(*ir.DAG) agent.ConnectionChecker { return checker }
+}
+
 // subDAGSecretResolver returns the resolver a sub-DAG run uses for its
 // secrets, or nil when the run builds its own.
 func (s executionStores) subDAGSecretResolver() func(*ir.DAG) providers.ReferenceResolver {

@@ -13,11 +13,14 @@ Implemented so far:
 
 - [Declared Connections](#declared-connections) for `mcp.call`'s
   `connection` and `server`.
-- [Admission Checks](#admission-checks) on a local run, from the CLI or the
-  embedded engine, except the literal `http.request` URL check. A run on a
-  worker, including the embedded engine's worker, skips them until the
-  check-only request lands. An `mcp.call` step that passes them fails when
-  it runs, until its token is delivered.
+- [Admission Checks](#admission-checks), except the literal `http.request`
+  URL check, on a local run from the CLI or the embedded engine, and on a
+  run on a worker, including the embedded engine's worker, through the
+  check-only request. An `mcp.call` step that passes them fails when it
+  runs, until its token is delivered.
+- [Workers](#workers): the coordinator answers token, check-only, and
+  rejected-token requests, and dispatches a DAG that declares connections
+  only to workers that make them. No step on a worker asks for a token yet.
 
 The tests against Google settle one provider fact this spec depends on
 (RFC 025, criterion 42): whether revoking one Google refresh token ends the
@@ -838,7 +841,15 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
   its token falls below the `minTTL`, and one request per rejected token.
 - A worker enforces the binding it receives as a local run does.
 - The coordinator dispatches a DAG that declares connections only to a
-  worker whose reported version supports token requests.
+  worker that reports, with its polls and heartbeats, that it makes token
+  requests. A run that only older workers match waits or fails, saying the
+  matching workers must be upgraded.
+- The coordinator answers a run's DAG and the child DAGs the run names as
+  written, in its steps, `foreach` bodies, and handlers. A child DAG file
+  whose name holds a reference, such as `dag: mail-${params.team}`, that
+  runs on the worker that runs its parent cannot use connections: its
+  check fails, saying so. A child named as written, or one dispatched to a
+  worker of its own, such as one with `worker_selector`, can.
 
 #### Shared Storage
 

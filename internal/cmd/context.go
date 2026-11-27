@@ -638,7 +638,9 @@ func (c *Context) coordinatorClient() (coordinator.Client, error) {
 	return coordinator.New(c.Persistence.ServiceRegistry, clientConfig), nil
 }
 
-func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
+// SubWorkflowRunnerFactory returns the runners of the sub-DAGs of a run that
+// workerID executes.
+func (c *Context) SubWorkflowRunnerFactory(workerID string) func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 	stores := c.runtimeStores()
 	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 		DAGRunMgr:          c.DAGRunMgr,
@@ -648,7 +650,7 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 		StateStore:         c.Persistence.StateStore,
 		SecretStore:        stores.SecretStore,
 		SecretResolver:     stores.subDAGSecretResolver(),
-		ConnectionChecker:  stores.Connections,
+		ConnectionChecker:  stores.subDAGConnections(workerID),
 		ProfileStore:       stores.ProfileStore,
 		ProfileResolver:    stores.subDAGProfileResolver(),
 		ServiceRegistry:    c.Persistence.ServiceRegistry,
