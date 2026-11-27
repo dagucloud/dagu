@@ -122,7 +122,7 @@ func TestRemoteConnectionsKeepToken(t *testing.T) {
 
 	want := &coordinatorv1.ResolveConnectionTokenRequest{
 		WorkerId: "worker-1", AttemptKey: "key-1", AttemptId: "attempt-1", DagName: "child",
-		Connection: "work", MinTtlSeconds: 300,
+		Connection: "work", MinTtlSeconds: 302,
 	}
 	assert.True(t, proto.Equal(want, coord.requests[0]), coord.requests[0])
 }

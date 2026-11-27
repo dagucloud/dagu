@@ -1382,7 +1382,7 @@ func (n *Node) Prepare(ctx context.Context, logDir string, dagRunID string) erro
 	if err := n.Setup(ctx, logFile, startedAt); err != nil {
 		return fmt.Errorf("failed to setup node data: %w", err)
 	}
-	if err := n.outputs.setup(ctx, n.NodeData()); err != nil {
+	if err := n.outputs.setup(withConnectionToken(ctx, n.Step()), n.NodeData()); err != nil {
 		return fmt.Errorf("failed to setup outputs: %w", err)
 	}
 	if err := n.setupRetryPolicy(ctx); err != nil {

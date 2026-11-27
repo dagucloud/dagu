@@ -724,7 +724,7 @@ func (e *Engine) runtimeStores(ctx context.Context) RuntimeStores {
 		stores.MaterializationStore = filematerialization.New(filepath.Join(e.cfg.Paths.DataDir, "materializations"))
 	}
 	if stores.OpenConnectionStore != nil {
-		stores.connectionChecker = rtagent.NewStoreConnectionChecker(stores.OpenConnectionStore)
+		stores.connectionChecker = rtagent.NewStoreConnectionChecker(stores.OpenConnectionStore, stores.ConnectionLocks)
 	}
 	if e.cfg.ProjectsEnabled {
 		if stores.SecretStore != nil {
