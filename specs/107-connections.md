@@ -1132,15 +1132,15 @@ an event, so a first connect from `pending` sends none.
 - A connection's event goes through its project's notification routes. An
   app's event goes through the routes of each project with a connection on
   the app.
-- A channel gets one message per event, also when several routes reach it.
+- A channel gets at most one message per event, also when several routes
+  reach it. A connection that stays broken while many runs fail sends one
+  message per channel.
 - An app's message to a channel names only the connections of the
   projects whose routes reach that channel.
 - A channel gets the messages of one connection or app in the order of
   its changes. A change replaces an earlier one that the channel has not
   received yet, also when the earlier delivery failed, so the channel's
   last message tells the current status.
-  A connection that stays broken while many runs fail sends one message per
-  channel.
 - Messages are plain text, also on channels that format run events.
 - Both types are in the default event set for new channels. Existing
   channels keep their event lists until changed.
