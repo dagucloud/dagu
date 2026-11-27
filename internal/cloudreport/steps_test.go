@@ -155,6 +155,25 @@ func TestHandlersAreReportedByKind(t *testing.T) {
 		slices.Collect(maps.Keys(reported.Handlers)))
 }
 
+func TestHandlerOnlyRunReports(t *testing.T) {
+	t.Parallel()
+
+	status := run("etl", "run-1", ir.Running)
+	status.OnExit = &ir.Node{Step: ir.Step{Name: "onExit"}, Status: ir.NodeRunning}
+	reader := &stepReader{runs: &fakeRuns{statuses: map[string]*ir.DAGRunStatus{status.DAGRunID: status}}}
+	entries := reader.entries(t.Context(), []activeRun{newActiveRun(status)}, testClockStart)
+	require.Len(t, entries, 1)
+	active, err := json.Marshal(entries[0].reportedSteps)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"handlers":{"onExit":{"status":"running"}}}`, string(active))
+
+	status.Status = ir.Succeeded
+	status.OnExit.Status = ir.NodeSucceeded
+	finished, err := json.Marshal(newFinishedRun(status, testClockStart).reportedSteps)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"handlers":{"onExit":{"status":"succeeded"}}}`, string(finished))
+}
+
 // A step carries its times in whole seconds from its run's start, as the
 // run's start is reported, and its retries only when it was retried. A
 // step that finished before it started took no time, and a run without a

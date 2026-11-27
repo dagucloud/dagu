@@ -62,7 +62,7 @@ type stepRun struct {
 // maxRunSteps named regular steps in run order that fit in maxStepsBytes
 // encoded with the run's handlers, how many named regular steps there are
 // in all, and the handlers. Each step names the steps it waits for by their
-// positions among those returned. A run without named steps carries none.
+// positions among those returned.
 func runSteps(status *ir.DAGRunStatus) reportedSteps {
 	var nodes []*ir.Node
 	positions := map[string]int{}
@@ -76,9 +76,6 @@ func runSteps(status *ir.DAGRunStatus) reportedSteps {
 			nodes = append(nodes, node)
 		}
 		total++
-	}
-	if len(nodes) == 0 {
-		return reportedSteps{}
 	}
 	runStart, timed := snapshotSecond(status.StartedAt)
 	reported := reportedSteps{StepsTotal: total, Steps: make([]reportedStep, 0, len(nodes))}
@@ -95,7 +92,7 @@ func runSteps(status *ir.DAGRunStatus) reportedSteps {
 			Depends: dependPositions(&node.Step, positions),
 		})
 	}
-	if encodedLen(reported) <= maxStepsBytes {
+	if len(nodes) == 0 || encodedLen(reported) <= maxStepsBytes {
 		return reported
 	}
 
@@ -210,7 +207,7 @@ func (s *stepReader) entries(ctx context.Context, runs []activeRun, now time.Tim
 			read = s.readRun(ctx, run, now)
 		}
 		listed[run] = read
-		if len(read.steps.Steps) == 0 || read.size > budget {
+		if read.size > budget || (len(read.steps.Steps) == 0 && len(read.steps.Handlers) == 0) {
 			continue
 		}
 		budget -= read.size
