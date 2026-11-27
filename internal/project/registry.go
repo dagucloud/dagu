@@ -71,4 +71,10 @@ type CreateInput struct {
 	// MigratedFrom is the name of the v2 workspace a migrated project comes
 	// from. It decides the project's slot seed; see Project.SlotSeed.
 	MigratedFrom string
+	// MigratedDAGs is Project.MigratedDAGs. Only migration sets it.
+	MigratedDAGs []string
+	// InPlaceFiles are the DAG files outside the project's DAG directory
+	// that run in place as the project's, each absolute with its symbolic
+	// links resolved. Only migration sets it. See InPlaceRecords.
+	InPlaceFiles []string
 }

@@ -7,7 +7,10 @@ import "context"
 
 // InPlaceRecords reads the registry's records of the files that run in
 // place: DAG files outside a project's DAG directory that the registry
-// records as that project's. Implementations are safe for concurrent use.
+// records as that project's. A record stays while its file is absent, and
+// ends once the project's DAG directory holds a DAG file of the same name;
+// neither method returns an ended record. Implementations are safe for
+// concurrent use.
 type InPlaceRecords interface {
 	// InPlaceOwner returns the name, as stored, of the project that runs
 	// the file at path in place, or "" when no record names the file. The
@@ -15,6 +18,7 @@ type InPlaceRecords interface {
 	InPlaceOwner(ctx context.Context, path string) (string, error)
 
 	// InPlaceFiles returns the recorded paths of the files that run in
-	// place as the project called name, whether or not each file exists.
+	// place as the project called name, given in any case, whether or not
+	// each file exists.
 	InPlaceFiles(ctx context.Context, name string) ([]string, error)
 }
