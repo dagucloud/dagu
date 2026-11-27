@@ -125,6 +125,10 @@ func serverCollectionSpecs(paths config.PathsConfig) map[string]collectionSpec {
 		persis.CollectionWorkerHeartbeats: {dir: filepath.Join(distributedDir, "workers")},
 		persis.CollectionWorkerNodes:      {dir: filepath.Join(paths.DataDir, "worker-nodes"), indented: true},
 		persis.CollectionWorkspaces:       {dir: paths.WorkspacesDir, indented: true},
+
+		// Worker invites and the certificates they enroll.
+		persis.CollectionWorkerCertificates: {dir: filepath.Join(paths.DataDir, "worker-certificates"), indented: true},
+		persis.CollectionWorkerInvites:      {dir: filepath.Join(paths.DataDir, "worker-invites"), indented: true},
 	}
 }
 

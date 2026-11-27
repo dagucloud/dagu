@@ -565,13 +565,19 @@ The `worker_certificates` collection keeps one record per certificate:
 | `host` | The host name the worker reported |
 | `environment` | `host`, `container`, or `kubernetes`, from the worker's heartbeat |
 | `created_at` | The enrollment time |
-| `last_heartbeat_at` | The time of its last recorded heartbeat |
+| `last_heartbeat_at` | The time of its last recorded heartbeat, or none before the first |
 
-- A heartbeat with a worker certificate writes `last_heartbeat_at` when the
-  stored value is more than 24 hours old, and writes the record again when
-  it was pruned.
+- A record identifies its certificate's key, so `Enroll` can refuse that
+  key after revocation.
+- A heartbeat with a worker certificate that is not newer than the stored
+  `last_heartbeat_at` writes nothing. Otherwise it writes the record when
+  the stored `last_heartbeat_at` is more than 24 hours old, or none, or
+  when the worker ID, host, or environment it reports changed and the
+  stored `last_heartbeat_at` is at least a minute old. It writes the
+  record again when it was pruned. It keeps the stored state.
 - Once a day, each coordinator deletes the records in state `active` whose
-  `last_heartbeat_at` is more than 90 days old.
+  `last_heartbeat_at`, or `created_at` when it is none, is more than 90
+  days old.
 - Records in state `revoked` stay.
 - A coordinator accepts a worker certificate when it chains to the peer CA
   and its ID is not in the revoked set. A certificate whose record was
@@ -958,6 +964,8 @@ and prints the message:
   prunes certificate records once a day. A worker with a certificate
   refreshes its lock at an interval shorter than 30 seconds. Nothing else in
   this spec runs on a timer.
+- The reread reads the records of `removing` and `revoked` certificates
+  only, so its cost grows with removed workers, not with enrollments.
 - A client that uses the published CA certificate reads it and the registry
   when it opens a connection. Connections are long-lived, so this does not
   grow with runs.
@@ -968,7 +976,8 @@ and prints the message:
   back while it is open, and by `dagu worker invite`.
 - A client that fell back tries TLS again at most once per coordinator
   address per 10 minutes, on its next new connection.
-- A heartbeat writes a certificate record at most once a day.
+- A heartbeat writes a certificate record at most once a day, or once a
+  minute while the worker ID, host, or environment it reports changes.
 - Invites are read only at enrollment and when listed.
 - The h2c callers take at most 64 entries per coordinator.
 
