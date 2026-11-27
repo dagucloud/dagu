@@ -592,3 +592,131 @@ harness:
 	require.Contains(t, result.Harnesses, "passthrough")
 	assert.Equal(t, "cat", result.Harnesses["passthrough"].Binary)
 }
+
+// statusSequenceClient answers status polls from a script, one entry per
+// poll. A nil status with a non-nil err fails that poll.
+type statusSequenceClient struct {
+	coordinator.Client
+	polls []statusPoll
+	calls int
+}
+
+type statusPoll struct {
+	status *ir.DAGRunStatus
+	err    error
+}
+
+func (c *statusSequenceClient) GetDAGRunStatus(context.Context, string, string, *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+	poll := c.polls[c.calls]
+	c.calls++
+	if poll.err != nil {
+		return nil, poll.err
+	}
+	return &dispatch.DAGRunStatusResult{Found: true, Status: poll.status}, nil
+}
+
+// readyAfter records each requested poll interval and fires at once, so
+// the wait loop runs without real sleeps.
+type readyAfter struct {
+	waits []time.Duration
+}
+
+func (a *readyAfter) after(d time.Duration) <-chan time.Time {
+	a.waits = append(a.waits, d)
+	ch := make(chan time.Time, 1)
+	ch <- time.Time{}
+	return ch
+}
+
+func polledStatus(status ir.Status, steps ...ir.NodeStatus) *ir.DAGRunStatus {
+	s := &ir.DAGRunStatus{Status: status}
+	for _, step := range steps {
+		s.Nodes = append(s.Nodes, &ir.Node{Status: step})
+	}
+	return s
+}
+
+// Polls slow down while the run shows no change, stay at the cap, and
+// return to the minimum after a change or a failed poll. A change of run
+// status, worker, or step state each counts. A terminal status ends the
+// wait without scheduling another poll.
+func TestWaitStatusPollBackoff(t *testing.T) {
+	t.Parallel()
+
+	queued := polledStatus(ir.Queued, ir.NodeNotStarted)
+	started := polledStatus(ir.Running, ir.NodeNotStarted)
+	assigned := func() *ir.DAGRunStatus {
+		s := polledStatus(ir.Running, ir.NodeNotStarted)
+		s.WorkerID = "worker-1"
+		return s
+	}
+	running := polledStatus(ir.Running, ir.NodeRunning)
+	running.WorkerID = "worker-1"
+	done := polledStatus(ir.Succeeded, ir.NodeSucceeded)
+	done.WorkerID = "worker-1"
+	client := &statusSequenceClient{polls: []statusPoll{
+		{status: queued},
+		{status: queued},
+		{status: started},
+		{status: assigned()},
+		{status: assigned()},
+		{status: assigned()},
+		{status: assigned()},
+		{status: assigned()},
+		{err: errors.New("unavailable")},
+		{status: assigned()},
+		{status: running},
+		{status: done},
+	}}
+	clock := &readyAfter{}
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+
+	err := waitForDAGCompletionWithProgress(ctx, &ir.DAG{Name: "deploy"}, "run", client, nil, clock.after)
+	require.NoError(t, err)
+	assert.Equal(t, len(client.polls), client.calls)
+	s := time.Second
+	assert.Equal(t, []time.Duration{
+		1 * s,               // first poll
+		1 * s,               // first status seen
+		2 * s,               // unchanged
+		1 * s,               // run status changed
+		1 * s,               // worker assigned
+		2 * s, 4 * s, 5 * s, // unchanged, doubling up to the cap
+		5 * s, // cap holds
+		1 * s, // failed poll
+		2 * s, // unchanged since the last status
+		1 * s, // step started
+	}, clock.waits)
+}
+
+func TestWaitStatusPollFailedRun(t *testing.T) {
+	t.Parallel()
+
+	client := &statusSequenceClient{polls: []statusPoll{
+		{status: polledStatus(ir.Running, ir.NodeRunning)},
+		{status: polledStatus(ir.Failed, ir.NodeFailed)},
+	}}
+	clock := &readyAfter{}
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+
+	err := waitForDAGCompletionWithProgress(ctx, &ir.DAG{Name: "deploy"}, "run", client, nil, clock.after)
+	require.ErrorContains(t, err, "DAG run failed with status: failed")
+	assert.Equal(t, 2, client.calls)
+}
+
+func TestWaitStatusPollCancel(t *testing.T) {
+	t.Parallel()
+
+	parent, cancel := context.WithCancel(context.Background())
+	ctx := &Context{Context: parent, Config: &config.Config{}, Quiet: true}
+	client := &statusSequenceClient{}
+	never := func(time.Duration) <-chan time.Time { return nil }
+
+	done := make(chan error, 1)
+	go func() {
+		done <- waitForDAGCompletionWithProgress(ctx, &ir.DAG{Name: "deploy"}, "run", client, nil, never)
+	}()
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
+	assert.Zero(t, client.calls)
+}
