@@ -96,12 +96,14 @@ func TestRemoteConnectionsKeepToken(t *testing.T) {
 	coord := issuing()
 	conns, clock := newTestConnections(coord)
 
+	// A lifetime counts from the request, less a second for the rounding.
+	lifetime := time.Hour - time.Second
 	token, expiresIn, err := conns.Token(ctx, workConnection, "", tokenMinTTL)
 	require.NoError(t, err)
 	assert.Equal(t, "tok-1", token)
-	assert.Equal(t, time.Hour, expiresIn)
+	assert.Equal(t, lifetime, expiresIn)
 
-	clock.Advance(time.Hour - tokenMinTTL)
+	clock.Advance(lifetime - tokenMinTTL)
 	token, expiresIn, err = conns.Token(ctx, workConnection, "", tokenMinTTL)
 	require.NoError(t, err)
 	assert.Equal(t, "tok-1", token)

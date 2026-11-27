@@ -133,6 +133,7 @@ func (c *remoteConnections) token(ctx context.Context, conn *connection.Connecti
 		return t != nil && t.AccessToken != rejected && (t.Expiry.IsZero() || t.Expiry.Sub(c.now()) >= minTTL)
 	}
 	token, err := gate.TokenIf(ctx, usable, func(ctx context.Context, _ *oauth2.Token) (*oauth2.Token, error) {
+		sent := c.now()
 		resp, err := c.call(ctx, &coordinatorv1.ResolveConnectionTokenRequest{
 			Connection:    conn.Name,
 			Resource:      resource,
@@ -143,8 +144,11 @@ func (c *remoteConnections) token(ctx context.Context, conn *connection.Connecti
 			return nil, err
 		}
 		received := &oauth2.Token{AccessToken: resp.GetAccessToken()}
+		// The lifetime is counted from the request, less the second the
+		// coordinator may have rounded up, so the token is kept no longer
+		// than it is valid.
 		if seconds := resp.GetExpiresInSeconds(); seconds > 0 {
-			received.Expiry = c.now().Add(time.Duration(seconds) * time.Second)
+			received.Expiry = sent.Add(time.Duration(seconds-1) * time.Second)
 		}
 		return received, nil
 	})
