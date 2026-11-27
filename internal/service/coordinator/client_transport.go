@@ -341,6 +341,7 @@ type connLink struct {
 	checked  time.Time
 	inflight int
 	retired  bool
+	closed   bool
 }
 
 // connected records the plan of a new transport connection.
@@ -409,8 +410,25 @@ func (l *connLink) retire() {
 	idle := l.inflight == 0
 	l.mu.Unlock()
 	if idle {
+		l.close()
+	}
+}
+
+// close closes the connection once.
+func (l *connLink) close() {
+	l.mu.Lock()
+	closed := l.closed
+	l.closed = true
+	l.mu.Unlock()
+	if !closed {
 		_ = l.conn.Close()
 	}
+}
+
+func (l *connLink) isClosed() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.closed
 }
 
 func (l *connLink) begin() {
@@ -425,7 +443,7 @@ func (l *connLink) end() {
 	closeNow := l.retired && l.inflight == 0
 	l.mu.Unlock()
 	if closeNow {
-		_ = l.conn.Close()
+		l.close()
 	}
 }
 
@@ -591,7 +609,7 @@ func (c *handshakeConn) transportLevelFailure(err error) bool {
 	if !c.received.Load() {
 		return true
 	}
-	first := byte(c.first.Load())
+	first := c.first.Load()
 	return first != tlsHandshakeRecord && first != tlsAlertRecord
 }
 

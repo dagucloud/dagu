@@ -104,14 +104,12 @@ func (w *h2cWindows) loadLocked() {
 }
 
 // saveLocked sets the window of address, or removes it when window is nil,
-// on the windows in the record, which other processes may have changed, or
-// on those in memory without a record. It keeps the open ones, at most
-// maxH2CWindows, in memory and in the record.
+// on the windows in memory and in the record, which other processes may have
+// changed. It keeps the open ones, at most maxH2CWindows, in memory and in
+// the record.
 func (w *h2cWindows) saveLocked(address string, window *h2cWindow, now time.Time) {
-	records := w.read()
-	if records == nil {
-		records = maps.Clone(w.records)
-	}
+	records := maps.Clone(w.records)
+	maps.Copy(records, w.read())
 	if window != nil {
 		records[address] = *window
 	} else {

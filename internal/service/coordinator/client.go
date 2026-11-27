@@ -16,6 +16,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -146,6 +147,9 @@ type clientImpl struct {
 
 	clientsMu sync.RWMutex
 	clients   map[string]*client // Cache of gRPC clients by coordinator ID
+	// retired holds replaced connections whose calls in flight have not
+	// ended yet, so Cleanup closes them too.
+	retired []*connLink
 
 	ownerRoutesMu sync.RWMutex
 	ownerRoutes   map[string]serviceregistry.HostInfo
@@ -938,6 +942,7 @@ func (cli *clientImpl) getOrCreateClientWithAddressRefresh(member serviceregistr
 			c.startedAt = stale.startedAt
 			// Its calls in flight end on the connection they started on.
 			stale.link.retire()
+			cli.retired = slices.DeleteFunc(append(cli.retired, stale.link), (*connLink).isClosed)
 		} else {
 			_ = stale.conn.Close()
 		}
@@ -988,6 +993,11 @@ func (cli *clientImpl) Cleanup(ctx context.Context) error {
 			logger.Error(ctx, "Failed to close connection", slog.String("coordinator-id", id), tag.Error(err))
 		}
 	}
+
+	for _, link := range cli.retired {
+		link.close()
+	}
+	cli.retired = nil
 
 	// Clear the map
 	cli.clients = make(map[string]*client)
