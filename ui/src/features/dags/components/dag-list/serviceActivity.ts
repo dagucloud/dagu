@@ -66,7 +66,7 @@ export function serviceTone(
  * at most SERVICE_MAX_CELLS. A bucket stands in the slot of its start; a slot
  * that no bucket names is empty. A bucket before the window is left out of the
  * cells, and a bucket after `now` (a clock that is late) stands in the last
- * slot. The sums count every bucket that the server gave. The up time colours
+ * slot. The sums count the buckets that the cells hold. The up time colours
  * a cell but never changes the count of runs, the availability or the gaps.
  */
 export function serviceActivity(
@@ -94,13 +94,13 @@ export function serviceActivity(
   let count = 0;
   let failures = 0;
   for (const bucket of buckets) {
-    count += bucket.count;
-    failures += bucket.failures;
     const start = Date.parse(bucket.time);
     if (!Number.isFinite(start)) continue;
     const cell =
       cells[Math.min(slots - 1, Math.floor((start - first) / slotMs))];
     if (!cell) continue;
+    count += bucket.count;
+    failures += bucket.failures;
     cell.count += bucket.count;
     cell.failures += bucket.failures;
     cell.upMs += bucket.upMs ?? 0;
