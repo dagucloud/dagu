@@ -76,6 +76,13 @@ type tokenStateRecord struct {
 	Generation   int64                  `json:"generation"`
 	Session      *sessionRecord         `json:"session,omitempty"`
 	RefreshedAt  time.Time              `json:"refreshed_at,omitzero"`
+	// RefreshErrors hold provider errors, which carry no secret.
+	RefreshErrors map[string]refreshErrorRecord `json:"refresh_errors,omitempty"`
+}
+
+type refreshErrorRecord struct {
+	Reason   string `json:"reason,omitempty"`
+	Failures int64  `json:"failures"`
 }
 
 type tokensRecord struct {
@@ -90,6 +97,7 @@ type tokensRecord struct {
 type accessTokenRecord struct {
 	TokenEnc  string    `json:"token_enc"`
 	ExpiresAt time.Time `json:"expires_at"`
+	IssuedAt  time.Time `json:"issued_at,omitzero"`
 }
 
 type sessionRecord struct {
@@ -227,6 +235,12 @@ func (c connectionCodec) tokenStateToRecord(state *connection.TokenState) (*toke
 		Generation:   state.Generation,
 		RefreshedAt:  state.RefreshedAt,
 	}
+	for resource, e := range state.RefreshErrors {
+		if rec.RefreshErrors == nil {
+			rec.RefreshErrors = make(map[string]refreshErrorRecord, len(state.RefreshErrors))
+		}
+		rec.RefreshErrors[resource] = refreshErrorRecord(e)
+	}
 	if s := state.Session; s != nil {
 		sessionTokens, err := c.tokensToRecord(s.Tokens)
 		if err != nil {
@@ -256,6 +270,12 @@ func (c connectionCodec) tokenStateFromRecord(rec *tokenStateRecord) (*connectio
 		StatusReason: rec.StatusReason,
 		Generation:   rec.Generation,
 		RefreshedAt:  rec.RefreshedAt,
+	}
+	for resource, e := range rec.RefreshErrors {
+		if state.RefreshErrors == nil {
+			state.RefreshErrors = make(map[string]connection.RefreshError, len(rec.RefreshErrors))
+		}
+		state.RefreshErrors[resource] = connection.RefreshError(e)
 	}
 	if s := rec.Session; s != nil {
 		sessionTokens, err := c.tokensFromRecord(s.Tokens)
@@ -294,7 +314,7 @@ func (c connectionCodec) tokensToRecord(tokens connection.Tokens) (tokensRecord,
 		if rec.AccessTokens == nil {
 			rec.AccessTokens = make(map[string]accessTokenRecord, len(tokens.AccessTokens))
 		}
-		rec.AccessTokens[resource] = accessTokenRecord{TokenEnc: enc, ExpiresAt: token.ExpiresAt}
+		rec.AccessTokens[resource] = accessTokenRecord{TokenEnc: enc, ExpiresAt: token.ExpiresAt, IssuedAt: token.IssuedAt}
 	}
 	return rec, nil
 }
@@ -319,7 +339,7 @@ func (c connectionCodec) tokensFromRecord(rec tokensRecord) (connection.Tokens, 
 		if tokens.AccessTokens == nil {
 			tokens.AccessTokens = make(map[string]connection.AccessToken, len(rec.AccessTokens))
 		}
-		tokens.AccessTokens[resource] = connection.AccessToken{Token: plain, ExpiresAt: token.ExpiresAt}
+		tokens.AccessTokens[resource] = connection.AccessToken{Token: plain, ExpiresAt: token.ExpiresAt, IssuedAt: token.IssuedAt}
 	}
 	return tokens, nil
 }

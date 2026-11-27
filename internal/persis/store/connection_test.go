@@ -406,9 +406,10 @@ func TestTokenStateRoundTrip(t *testing.T) {
 			Account:       "user@example.com",
 			AccountID:     "sub-1",
 			RefreshToken:  "refresh",
-			AccessTokens:  map[string]connection.AccessToken{"graph": {Token: "access", ExpiresAt: expiry}},
+			AccessTokens:  map[string]connection.AccessToken{"graph": {Token: "access", ExpiresAt: expiry, IssuedAt: expiry.Add(-time.Hour)}},
 			GrantedScopes: []string{"openid"},
 		}
+		state.RefreshErrors = map[string]connection.RefreshError{"outlook": {Reason: "status 503", Failures: 2}}
 		state.Session = &connection.Session{
 			ID:     "session-1",
 			Phase:  connection.SessionPhaseConfirm,

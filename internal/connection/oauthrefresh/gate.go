@@ -31,7 +31,14 @@ func NewGate() *Gate {
 // turn, calls refresh unless another caller cached a valid token meanwhile,
 // and caches the result. It returns ctx's error if ctx ends while it waits.
 func (g *Gate) Token(ctx context.Context, refresh RefreshFunc) (*oauth2.Token, error) {
-	if token := g.current(); token.Valid() {
+	return g.TokenIf(ctx, (*oauth2.Token).Valid, refresh)
+}
+
+// TokenIf is Token with usable in place of the token's validity: it returns
+// the cached token while usable reports true for it. usable receives nil
+// when no token is cached.
+func (g *Gate) TokenIf(ctx context.Context, usable func(*oauth2.Token) bool, refresh RefreshFunc) (*oauth2.Token, error) {
+	if token := g.current(); usable(token) {
 		return token, nil
 	}
 	select {
@@ -42,7 +49,7 @@ func (g *Gate) Token(ctx context.Context, refresh RefreshFunc) (*oauth2.Token, e
 	defer func() { g.turn <- struct{}{} }()
 
 	cached := g.current()
-	if cached.Valid() {
+	if usable(cached) {
 		return cached, nil
 	}
 	token, err := refresh(ctx, cached)
@@ -54,6 +61,21 @@ func (g *Gate) Token(ctx context.Context, refresh RefreshFunc) (*oauth2.Token, e
 	}
 	g.set(token)
 	return token, nil
+}
+
+// Cached returns the cached token, or nil, without waiting for a refresh
+// in flight.
+func (g *Gate) Cached() *oauth2.Token {
+	return g.current()
+}
+
+// Forget drops the cached token when its access token is accessToken.
+func (g *Gate) Forget(accessToken string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.token != nil && g.token.AccessToken == accessToken {
+		g.token = nil
+	}
 }
 
 func (g *Gate) current() *oauth2.Token {
