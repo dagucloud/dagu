@@ -46,14 +46,21 @@ stored and does not send `tools/call` again.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `url` | yes | Absolute `http` or `https` endpoint. User info in the URL is rejected. |
+| `url` | yes, without `connection` | Absolute `http` or `https` endpoint. User info in the URL is rejected. |
 | `tool` | yes | Tool name. |
+| `connection` | no | A connection of [Spec 107](107-connections.md), by name. The name is a literal. |
+| `server` | no | The connection's service to call, such as `gmail`. A literal. Requires `connection`. |
 | `arguments` | no | JSON object passed as the tool arguments. Dagu references resolve as in other `with` values. |
 | `headers` | no | Map of request headers. Use `${SECRET}` references for credentials. |
 | `include_raw` | no | When true, adds the full MCP result as `raw`, masked like the rest of the output. |
 | `save_binary` | no | When true, saves binary content as run artifacts instead of writing it as base64. See [Binary content](#binary-content). |
 
 Unknown fields fail validation.
+
+A run checks each `connection` and `server` before its first step, as
+Spec 107 [Admission Checks](107-connections.md#admission-checks) states. A
+step with `connection` fails when it runs, until the part of Spec 107 that
+delivers its token lands (#4217).
 
 ### Output
 

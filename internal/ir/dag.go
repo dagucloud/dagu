@@ -299,8 +299,19 @@ type DAG struct {
 	// credentials from, each named by field path. They resolve at run start
 	// and never become environment variables.
 	CredentialRefs []secretref.Ref `json:"credentialRefs,omitempty"`
+	// Connections lists the connections that the DAG's steps name, each
+	// once. A run checks each before its first step.
+	Connections []ConnectionRef `json:"connections,omitempty"`
 	// Tools declares external CLI tools that must be installed before the DAG runs.
 	Tools *ToolConfig `json:"tools,omitempty"`
+}
+
+// ConnectionRef is a connection that a DAG names.
+type ConnectionRef struct {
+	Name string `json:"name"`
+	// Servers are the services that steps call through the connection as
+	// MCP servers, each once.
+	Servers []string `json:"servers,omitempty"`
 }
 
 // EnvSpan is the half-open range [Start, End) of DAG.Env indexes.

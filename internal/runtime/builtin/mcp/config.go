@@ -23,8 +23,13 @@ import (
 const executorType = "mcp"
 
 type config struct {
-	URL        string            `mapstructure:"url"`
-	Tool       string            `mapstructure:"tool"`
+	URL  string `mapstructure:"url"`
+	Tool string `mapstructure:"tool"`
+	// Connection names the connection whose token the call uses, in place
+	// of url and an Authorization header.
+	Connection string `mapstructure:"connection"`
+	// Server names the connection's service to call.
+	Server     string            `mapstructure:"server"`
 	Arguments  map[string]any    `mapstructure:"arguments"`
 	Headers    map[string]string `mapstructure:"headers"`
 	IncludeRaw bool              `mapstructure:"include_raw"`
@@ -87,7 +92,18 @@ func (c config) validate(loadTime bool) error {
 	if strings.TrimSpace(c.Tool) == "" {
 		return errors.New("mcp.call: with.tool is required")
 	}
+	if c.Server != "" && c.Connection == "" {
+		return errors.New("mcp.call: with.server requires with.connection")
+	}
+	// The DAG builder validates the connection's name and server, which it
+	// collects for the run's admission checks.
+	if c.Connection != "" && !loadTime {
+		return errors.New("mcp.call: with.connection is not supported yet")
+	}
 	if c.URL == "" {
+		if c.Connection != "" {
+			return nil
+		}
 		return errors.New("mcp.call: with.url is required")
 	}
 	if loadTime && value.HasAnyReference(c.URL) {
@@ -114,10 +130,12 @@ func validateStep(step ir.Step) error {
 var configSchema = &jsonschema.Schema{
 	Type:                 "object",
 	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
-	Required:             []string{"url", "tool"},
+	Required:             []string{"tool"},
 	Properties: map[string]*jsonschema.Schema{
-		"url":  {Type: "string", Description: "Streamable HTTP MCP endpoint (http or https). Must not contain credentials."},
-		"tool": {Type: "string", Description: "Name of the MCP tool to call."},
+		"url":        {Type: "string", Description: "Streamable HTTP MCP endpoint (http or https). Must not contain credentials. Required without connection."},
+		"tool":       {Type: "string", Description: "Name of the MCP tool to call."},
+		"connection": {Type: "string", Description: "Name of the connection whose token the call uses, in place of url and an Authorization header."},
+		"server":     {Type: "string", Description: "The connection's service to call, such as gmail. Requires connection."},
 		"arguments": {AnyOf: []*jsonschema.Schema{
 			{Type: "object", AdditionalProperties: &jsonschema.Schema{}},
 			{Type: "string", Description: "Whole-value reference resolving to a JSON object."},

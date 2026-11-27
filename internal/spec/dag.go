@@ -1322,6 +1322,7 @@ func (d *dag) build(ctx buildContext) (*ir.DAG, error) {
 	state.markEnvEvaluated()
 	state.buildActionGraph()
 	state.collectCredentialRefs()
+	state.collectConnections()
 	state.collectWarnings()
 	state.validateResult()
 	state.capturePresolvedBuildEnv()
