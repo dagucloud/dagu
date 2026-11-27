@@ -227,6 +227,7 @@ func TestSkillsPutChainAndConflict(t *testing.T) {
 			"---\nname: other\ndescription: Some description of the skill.\n---\nBody\n":      "name-folder",
 			"---\nname: refund-policy\ndescription: Some description.\nmodel: x\n---\nBody\n": "front-matter-key",
 			"just text": "front-matter-start",
+			strings.Repeat("x", skill.MaxFileBytes+1): "file-too-large",
 		} {
 			var out api.SkillError
 			putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: content}, skillIfMatch(cur)).

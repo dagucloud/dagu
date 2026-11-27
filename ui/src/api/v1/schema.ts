@@ -22406,7 +22406,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @description The raw content of SKILL.md: a YAML front matter block with name and description, then the Markdown instructions */
+                    /** @description The raw content of SKILL.md: a YAML front matter block with name and description, then the Markdown instructions. Content above 4 MiB gives 400 with the rule file-too-large. */
                     content: string;
                 };
             };
