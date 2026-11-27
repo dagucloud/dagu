@@ -131,6 +131,13 @@ type isolation struct {
 	// running counts the root processes that a watcher follows and that have
 	// not ended.
 	running int
+	// roots holds the pidfd of each root process that a watcher follows and
+	// whose end nobody settled yet.
+	roots map[int]bool
+	// endMu makes the stop of what an ended root process left come before the
+	// count of the next start, so that the next process of a step never sees
+	// a process that the one before it left.
+	endMu sync.Mutex
 	// outputMu guards nodeOutput.
 	outputMu sync.Mutex
 }
@@ -167,6 +174,7 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 		outputLimit: req.OutputLimit,
 		protected:   make(map[string]protectedDir),
 		passDirs:    make(map[string]protectedDir),
+		roots:       make(map[int]bool),
 		gitEntries:  make(map[string]bool),
 		gitDirs:     make(map[string]bool),
 		gitSnapshot: make(map[string]fileSig),
@@ -705,9 +713,16 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) (release func(), err 
 	cmd.SysProcAttr.Noctty = false
 	cmd.SysProcAttr.Pgid = 0
 
+	iso.endMu.Lock()
+	// The root process before this one may have ended before its watcher saw
+	// it end.
+	if iso.settleEnded() {
+		iso.killLeftovers()
+	}
 	iso.startMu.Lock()
 	iso.starting++
 	iso.startMu.Unlock()
+	iso.endMu.Unlock()
 	return func() {
 		_ = envFile.Close()
 		// The caller sees its own command after the start, not the helper's.
@@ -761,28 +776,61 @@ func (iso *isolation) started(pid int) {
 	if pid > 0 {
 		iso.running++
 	}
+	if fd >= 0 {
+		iso.roots[fd] = true
+	}
 	iso.startMu.Unlock()
 	if fd < 0 {
 		return
 	}
 	iso.watchers.Go(func() {
 		defer func() { _ = unix.Close(fd) }()
-		fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}} // #nosec G115 -- a file descriptor fits in int32.
 		ended := false
 		for !ended && !iso.stopping.Load() {
-			n, err := unix.Poll(fds, 200)
+			n, err := pollEnded(fd, 200)
 			if err != nil && !errors.Is(err, unix.EINTR) {
 				break
 			}
-			ended = n > 0
+			ended = n
 		}
+		iso.endMu.Lock()
+		defer iso.endMu.Unlock()
 		iso.startMu.Lock()
-		iso.running--
+		settled := iso.roots[fd]
+		if settled {
+			delete(iso.roots, fd)
+			iso.running--
+		}
 		iso.startMu.Unlock()
-		if ended {
+		// A process whose end prepare settled had its leftovers stopped there.
+		if settled && ended {
 			iso.killLeftovers()
 		}
 	})
+}
+
+// pollEnded reports whether the process of the pidfd fd ended, waiting for at
+// most timeout milliseconds.
+func pollEnded(fd, timeout int) (bool, error) {
+	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}} // #nosec G115 -- a file descriptor fits in int32.
+	n, err := unix.Poll(fds, timeout)
+	return n > 0, err
+}
+
+// settleEnded counts as ended each root process in roots that ended, and
+// reports whether there was one. The caller holds endMu.
+func (iso *isolation) settleEnded() bool {
+	iso.startMu.Lock()
+	defer iso.startMu.Unlock()
+	settled := false
+	for fd := range iso.roots {
+		if ended, _ := pollEnded(fd, 0); ended {
+			delete(iso.roots, fd)
+			iso.running--
+			settled = true
+		}
+	}
+	return settled
 }
 
 // abandon settles a process that failed to start.

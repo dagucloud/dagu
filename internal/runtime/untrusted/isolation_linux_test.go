@@ -1369,6 +1369,30 @@ func testKeepsAnotherProcess(t *testing.T, endingPreparedFirst, stayingUnwatched
 	}
 }
 
+// A process that a root process of the step left without a pipe of the step
+// is stopped before the next process of the step starts, as between the
+// commands of a step with several commands.
+func TestIsolatedStepStopsLeftoverBeforeNextStart(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	stepCtx := WithStep(ctx, step)
+	out := runAs(t, stepCtx, workDir, `sleep 1000 >/dev/null 2>&1 & echo $!`)
+	leftover, err := strconv.Atoi(strings.TrimSpace(out))
+	require.NoError(t, err)
+
+	next := exec.Command("/bin/true")
+	next.Dir = workDir
+	next.Env = []string{"PATH=/usr/bin:/bin"}
+	process, err := StartManagedProcess(stepCtx, next)
+	require.NoError(t, err)
+	defer func() { _ = process.Release() }()
+	assert.Empty(t, liveTasks(leftover, testUID), "the process that the first one left still runs")
+	require.NoError(t, process.Wait())
+}
+
 // A process that fails to start does not keep the watcher of the process
 // before it from stopping what that process left: the leftover holds the
 // stdout pipe, so Wait returns only once the watcher stops it. The subtests
