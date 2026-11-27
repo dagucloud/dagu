@@ -626,8 +626,8 @@ func TestSkillsWritesFollowTheDAGWriteRules(t *testing.T) {
 	}
 }
 
-// Each write leaves one audit entry with the name and the new hash of the
-// skill, and no content of the skill.
+// Each write and each delete leaves one audit entry with the resource skill,
+// the name and the new hash of the skill, and no content of the skill.
 func TestSkillsWritesAreAudited(t *testing.T) {
 	t.Parallel()
 	auditStore := &recordingAuditStore{}
@@ -639,14 +639,30 @@ func TestSkillsWritesAreAudited(t *testing.T) {
 		Body: &api.UpdateSkillJSONRequestBody{Content: validSkill + "Refund twice.\n"},
 	})
 	require.NoError(t, err)
+	hashes := []string{h, updated.(api.UpdateSkill200JSONResponse).Hash}
+	written, err := apiImpl.PutSkillFile(ctx, api.PutSkillFileRequestObject{
+		Name: "refund-policy", Params: api.PutSkillFileParams{Path: "references/a.md", IfMatch: &hashes[1]}, Body: strings.NewReader("Refund notes"),
+	})
+	require.NoError(t, err)
+	hashes = append(hashes, written.(api.PutSkillFile200JSONResponse).Hash)
+	deleted, err := apiImpl.DeleteSkillFile(ctx, api.DeleteSkillFileRequestObject{
+		Name: "refund-policy", Params: api.DeleteSkillFileParams{Path: "references/a.md", IfMatch: &hashes[2]},
+	})
+	require.NoError(t, err)
+	hashes = append(hashes, deleted.(api.DeleteSkillFile200JSONResponse).Hash)
+	_, err = apiImpl.DeleteSkill(ctx, api.DeleteSkillRequestObject{Name: "refund-policy", Params: api.DeleteSkillParams{IfMatch: &hashes[3]}})
+	require.NoError(t, err)
 
-	require.Len(t, auditStore.entries, 2)
-	for i, hash := range []string{h, updated.(api.UpdateSkill200JSONResponse).Hash} {
+	actions := []string{"skill_update", "skill_update", "skill_file_write", "skill_file_delete", "skill_delete"}
+	require.Len(t, auditStore.entries, len(actions))
+	for i, action := range actions {
 		entry := auditStore.entries[i]
-		assert.Equal(t, "skill_update", entry.Action)
-		assert.Equal(t, "skill", entry.ResourceType)
-		assert.Equal(t, "refund-policy", entry.ResourceID)
-		assert.Contains(t, entry.Details, hash)
+		assert.Equal(t, action, entry.Action)
+		assert.Equal(t, "skill", entry.ResourceType, action)
+		assert.Equal(t, "refund-policy", entry.ResourceID, action)
+		if i < len(hashes) {
+			assert.Contains(t, entry.Details, hashes[i], action)
+		}
 		assert.NotContains(t, entry.Details, "Refund", "an audit entry holds no content of the skill")
 	}
 }
