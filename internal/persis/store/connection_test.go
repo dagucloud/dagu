@@ -309,6 +309,23 @@ func TestUpdateTokenStateRefusesRemovedConnection(t *testing.T) {
 	assert.ErrorIs(t, err, connection.ErrNotFound)
 }
 
+// A connection whose token state cannot be read is still deleted, with
+// that state, so a broken connection can always be removed.
+func TestDeleteUnreadableTokenState(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := newConnectionFixture(t)
+	conn, err := f.store.Create(ctx, newTestConnection("payments", "mail"))
+	require.NoError(t, err)
+	require.NoError(t, f.tokens.Put(ctx, &persis.Record{ID: "payments/mail", Data: []byte(`{"connection_id": 7}`)}))
+
+	require.NoError(t, f.store.Delete(ctx, conn.Key()))
+	_, err = f.store.Get(ctx, conn.Key())
+	assert.ErrorIs(t, err, connection.ErrNotFound)
+	_, err = f.tokens.Get(ctx, "payments/mail")
+	assert.ErrorIs(t, err, persis.ErrNotFound)
+}
+
 // A delete that starts while Create writes the token state waits for it and
 // then removes that state, so no later token write for the removed
 // connection succeeds.

@@ -48,11 +48,14 @@ type Store interface {
 	Get(ctx context.Context, key Key) (*Connection, error)
 	// List returns the connections of one workspace, ordered by name.
 	List(ctx context.Context, workspace string) ([]*Connection, error)
+	// ListAll returns the connections of every workspace and the
+	// notification connection.
+	ListAll(ctx context.Context) ([]*Connection, error)
 	// Update applies fn to the connection with key and stores the result,
 	// or returns ErrNotFound. fn cannot change the ID or key.
 	Update(ctx context.Context, key Key, fn func(*Connection) error) (*Connection, error)
 	// Delete removes the connection with key, with its token state and
-	// catalogs, or returns ErrNotFound.
+	// catalogs, also when they cannot be read, or returns ErrNotFound.
 	Delete(ctx context.Context, key Key) error
 
 	// TokenState returns the token state of conn. When the state is missing

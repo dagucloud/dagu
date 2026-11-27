@@ -240,7 +240,23 @@ func (s *ConnectionStore) Get(ctx context.Context, key connection.Key) (*connect
 }
 
 func (s *ConnectionStore) List(ctx context.Context, workspace string) ([]*connection.Connection, error) {
-	recs, err := s.conns.listTolerant(ctx, workspaceSegment(workspace)+"/", "connection")
+	conns, err := s.list(ctx, workspaceSegment(workspace)+"/")
+	if err != nil {
+		return nil, err
+	}
+	conns = slices.DeleteFunc(conns, func(c *connection.Connection) bool { return c.Workspace != workspace })
+	slices.SortFunc(conns, func(a, b *connection.Connection) int { return cmp.Compare(a.Name, b.Name) })
+	return conns, nil
+}
+
+func (s *ConnectionStore) ListAll(ctx context.Context) ([]*connection.Connection, error) {
+	return s.list(ctx, "")
+}
+
+// list returns the connections whose records start with prefix, skipping
+// records that cannot be read.
+func (s *ConnectionStore) list(ctx context.Context, prefix string) ([]*connection.Connection, error) {
+	recs, err := s.conns.listTolerant(ctx, prefix, "connection")
 	if err != nil {
 		return nil, fmt.Errorf("connection store: list connections: %w", err)
 	}
@@ -251,12 +267,8 @@ func (s *ConnectionStore) List(ctx context.Context, workspace string) ([]*connec
 			logger.Warn(ctx, "connection store: failed to load connection", slog.String("record", rec.ID), tag.Error(err))
 			continue
 		}
-		if conn.Workspace != workspace {
-			continue
-		}
 		conns = append(conns, conn)
 	}
-	slices.SortFunc(conns, func(a, b *connection.Connection) int { return cmp.Compare(a.Name, b.Name) })
 	return conns, nil
 }
 
@@ -345,7 +357,10 @@ func (s *ConnectionStore) Delete(ctx context.Context, key connection.Key) error 
 
 // deleteConnectionRecord removes record id of col while owner reads
 // connectionID from it. A record that is missing or belongs to another
-// connection is kept.
+// connection is kept. A record that cannot be read is removed: it lies
+// under the key of the connection being deleted, which Create cannot take
+// while the lifecycle lock is held, so it is that connection's or one an
+// earlier connection left.
 func deleteConnectionRecord(
 	ctx context.Context,
 	col persis.Collection,
@@ -358,18 +373,22 @@ func deleteConnectionRecord(
 		if errors.Is(err, persis.ErrNotFound) {
 			return nil
 		}
-		if err != nil {
+		unreadable := errors.Is(err, persis.ErrCorrupt)
+		if err != nil && !unreadable {
 			return err
 		}
-		got, err := owner(rec)
-		if err != nil {
-			return err
-		}
-		if got != connectionID {
-			return nil
+		if !unreadable {
+			got, err := owner(rec)
+			unreadable = err != nil
+			if !unreadable && got != connectionID {
+				return nil
+			}
 		}
 		if err := held(); err != nil {
 			return err
+		}
+		if unreadable {
+			return col.Delete(ctx, id)
 		}
 		err = col.CompareAndDelete(ctx, rec)
 		if errors.Is(err, persis.ErrNotFound) {
