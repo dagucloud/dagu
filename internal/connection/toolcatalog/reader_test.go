@@ -131,6 +131,34 @@ func TestCatalogListingFails(t *testing.T) {
 	assert.Len(t, lister.endpoints(), 2)
 }
 
+// A probe lists with its own lister even while the stored catalog is
+// fresh, and readers then receive the probed catalog, also after a failed
+// listing whose error the process holds.
+func TestCatalogProbe(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.save(t, "gmail", f.clock.now().Add(-catalogMaxAge))
+	errRevoked := errors.New("token revoked")
+	r := f.reader(t, &fakeLister{err: errRevoked})
+	_, err := r.Catalog(testCtx(t), f.conn, "gmail")
+	require.ErrorIs(t, err, errRevoked)
+
+	probeLister := &fakeLister{}
+	for range 2 {
+		probed, err := r.Probe(testCtx(t), f.conn, "gmail", probeLister)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"search_threads"}, toolNames(probed.Tools))
+	}
+	assert.Equal(t, []string{gmailMCP, gmailMCP}, probeLister.endpoints())
+
+	catalog, err := r.Catalog(testCtx(t), f.conn, "gmail")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"search_threads"}, toolNames(catalog.Tools))
+
+	_, err = r.Probe(testCtx(t), f.conn, "mailbox", probeLister)
+	assert.ErrorIs(t, err, toolcatalog.ErrNotMCPService)
+}
+
 // Each MCP service of a connection has a catalog of its own. A service the
 // connection does not use, or one without an MCP server, lists nothing.
 func TestCatalogServices(t *testing.T) {
