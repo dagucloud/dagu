@@ -62,7 +62,10 @@ func New(cfg Config) *Recorder {
 
 // Record records change. A change that no event type reports, such as a
 // first connect, is audited only. Failures are logged, since the status
-// has already changed.
+// has already changed. A store that cannot name the app or list its
+// connections leaves the app's ID in place of its name, and the
+// connection whose refresh found the change in place of the app's
+// connections.
 func (r *Recorder) Record(ctx context.Context, change broker.StatusChange) {
 	occurredAt := time.Now().UTC()
 	eventType, reported := eventTypeOf(change)
@@ -70,11 +73,7 @@ func (r *Recorder) Record(ctx context.Context, change broker.StatusChange) {
 	if !reported && r.cfg.Audit == nil {
 		return
 	}
-	eventChange, err := r.eventChange(ctx, change)
-	if err != nil {
-		logger.Warn(ctx, "Failed to read a connection status change", tag.Error(err))
-		return
-	}
+	eventChange := r.eventChange(ctx, change, reported)
 	if reported {
 		event := eventstore.NewConnectionEvent(r.cfg.Source, eventType, *eventChange, occurredAt)
 		if err := r.cfg.Events.Emit(ctx, event); err != nil {
@@ -103,40 +102,51 @@ func eventTypeOf(change broker.StatusChange) (eventstore.EventType, bool) {
 }
 
 // eventChange returns what the event of change carries: the connection,
-// or the app and its connections.
-func (r *Recorder) eventChange(ctx context.Context, change broker.StatusChange) (*eventstore.ConnectionChange, error) {
+// or the app and its connections. It lists the app's connections only
+// when listed is set, since only the event names them.
+func (r *Recorder) eventChange(ctx context.Context, change broker.StatusChange, listed bool) *eventstore.ConnectionChange {
 	if change.AppTo == "" {
 		return &eventstore.ConnectionChange{
 			Connections: []eventstore.ConnectionName{connectionName(change.Connection)},
 			Status:      string(change.ConnectionTo),
 			Reason:      change.Reason,
-		}, nil
-	}
-	store, err := r.cfg.Store()
-	if err != nil {
-		return nil, err
-	}
-	app, err := store.GetApp(ctx, change.App)
-	if err != nil {
-		return nil, err
-	}
-	conns, err := store.ListAll(ctx)
-	if err != nil {
-		return nil, err
+		}
 	}
 	result := &eventstore.ConnectionChange{
-		AppID:       app.ID,
-		AppName:     app.Name,
+		AppID:       change.App,
+		AppName:     change.App,
 		Connections: []eventstore.ConnectionName{},
 		Status:      string(change.AppTo),
 		Reason:      change.Reason,
 	}
+	if change.ConnectionID != "" {
+		result.Connections = append(result.Connections, connectionName(change.Connection))
+	}
+	store, err := r.cfg.Store()
+	if err != nil {
+		logger.Warn(ctx, "Failed to open the connection store for a status change", tag.Error(err))
+		return result
+	}
+	if app, err := store.GetApp(ctx, change.App); err == nil {
+		result.AppName = app.Name
+	} else {
+		logger.Warn(ctx, "Failed to read the app of a status change", tag.Error(err))
+	}
+	if !listed {
+		return result
+	}
+	conns, err := store.ListAll(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Failed to list the connections of an app's status change", tag.Error(err))
+		return result
+	}
+	result.Connections = result.Connections[:0]
 	for _, conn := range conns {
-		if conn.App == app.ID {
+		if conn.App == change.App {
 			result.Connections = append(result.Connections, connectionName(conn.Key()))
 		}
 	}
-	return result, nil
+	return result
 }
 
 func (r *Recorder) audit(ctx context.Context, change broker.StatusChange, appName string) error {

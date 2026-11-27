@@ -6,6 +6,7 @@ package statusevent_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -117,4 +118,40 @@ func TestRecord(t *testing.T) {
 	assert.Equal(t, "invalid", actions["oauth_app_status_change"]["to"])
 	assert.Equal(t, "needs_reconnect", actions["connection_status_change"]["from"])
 	assert.Equal(t, "connected", actions["connection_status_change"]["to"])
+}
+
+// A store that cannot name the app still records the change: the event
+// names the connection whose refresh found it, and the audit entry is
+// written.
+func TestRecordWithoutStore(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	events, err := fileeventstore.New(filepath.Join(dir, "events"))
+	require.NoError(t, err)
+	eventService := eventstore.New(events)
+	auditStore, err := fileaudit.New(filepath.Join(dir, "audit"), 0)
+	require.NoError(t, err)
+	recorder := statusevent.New(statusevent.Config{
+		Store:  func() (connection.Store, error) { return nil, errors.New("store unavailable") },
+		Events: eventService,
+		Audit:  func() (audit.Store, error) { return auditStore, nil },
+	})
+
+	recorder.Record(ctx, broker.StatusChange{
+		Connection: connection.Key{Workspace: "ops", Name: "work"}, ConnectionID: "conn-1", App: "app-1",
+		AppFrom: connection.AppStatusOK, AppTo: connection.AppStatusInvalid,
+	})
+
+	recorded, _, err := eventService.ReadNotificationEvents(ctx, eventstore.DAGRunCursor{})
+	require.NoError(t, err)
+	require.Len(t, recorded, 1)
+	change, err := eventstore.ConnectionChangeFromEvent(recorded[0])
+	require.NoError(t, err)
+	assert.Equal(t, "app-1", change.AppName)
+	assert.Equal(t, []eventstore.ConnectionName{{Workspace: "ops", Name: "work"}}, change.Connections)
+	entries, err := auditStore.Query(ctx, audit.QueryFilter{Category: audit.CategoryConnection})
+	require.NoError(t, err)
+	assert.Len(t, entries.Entries, 1)
 }

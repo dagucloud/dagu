@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -76,8 +77,10 @@ func (c *Context) connectionStatusRecorder(service string) *statusevent.Recorder
 		Source: eventstore.Source{Service: service, Instance: c.EventSourceInstance},
 	}
 	if c.Config.Server.Audit.Enabled {
+		// The masker marks the entries masked, which the cloud audit
+		// shipper requires, as the server's store does.
 		cfg.Audit = func() (audit.Store, error) {
-			store, err := c.serverStores.AuditStore(0)
+			store, err := c.serverStores.AuditStore(0, fileaudit.WithMasker(audit.NewMasker(c.settings.SecretStore(c))))
 			if err != nil {
 				return nil, err
 			}
