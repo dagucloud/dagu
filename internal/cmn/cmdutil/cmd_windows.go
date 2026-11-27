@@ -40,21 +40,33 @@ func killProcessTree(pid uint32) error {
 		return nil
 	}
 
-	// Windows keeps a process's parent ID after the parent exits and may give
-	// that ID to a later process, so only a process that started no earlier
-	// than pid is its child, and none is matched by parent ID alone. The handle
-	// keeps pid from naming a later process during the walk and still reads its
-	// creation time after it exits.
-	var started int64
-	var known bool
-	if h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid); err == nil {
-		defer func() { _ = windows.CloseHandle(h) }()
-		started, known = procutil.HandleStartTime(h)
-	}
-	if !known {
+	h, started, ok := openStarted(pid)
+	if !ok {
 		return terminateProcess(pid)
 	}
+	defer func() { _ = windows.CloseHandle(h) }()
+	return killHeldTree(pid, started)
+}
 
+// openStarted opens pid and reads its creation time. The handle keeps pid from
+// naming a later process until it is closed, and still reads the creation time
+// after the process exits.
+func openStarted(pid uint32) (windows.Handle, int64, bool) {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return 0, 0, false
+	}
+	started, ok := procutil.HandleStartTime(h)
+	if !ok {
+		_ = windows.CloseHandle(h)
+		return 0, 0, false
+	}
+	return h, started, true
+}
+
+// killHeldTree is killProcessTree for a pid that the caller holds open and
+// that started at started.
+func killHeldTree(pid uint32, started int64) error {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return fmt.Errorf("CreateToolhelp32Snapshot failed: %w", err)
@@ -72,9 +84,9 @@ func killProcessTree(pid uint32) error {
 	// Iterate all processes
 	var errs []error
 	for {
-		if entry.ParentProcessID == pid && entry.ProcessID != pid && startedSince(entry.ProcessID, started) {
+		if entry.ParentProcessID == pid && entry.ProcessID != pid {
 			// Recursively kill children first
-			if err := killProcessTree(entry.ProcessID); err != nil {
+			if err := killChildTree(entry.ProcessID, started); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -92,18 +104,21 @@ func killProcessTree(pid uint32) error {
 	return errors.Join(errs...)
 }
 
-// startedSince reports whether the process with pid is known to have started
-// no earlier than the given time, in the form procutil.HandleStartTime returns.
-// A process that has exited still reports its creation time while any handle
-// keeps it.
-func startedSince(pid uint32, at int64) bool {
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
-	if err != nil {
-		return false
+// killChildTree kills the tree of pid, whose recorded parent started at
+// parentStarted. Windows keeps a parent ID after the parent exits and may give
+// that ID to a later process, so pid is a child only when it started no
+// earlier than the parent; otherwise it is left alone. The handle stays open
+// until pid is terminated, so the checked process is the one killed.
+func killChildTree(pid uint32, parentStarted int64) error {
+	h, started, ok := openStarted(pid)
+	if !ok {
+		return nil
 	}
 	defer func() { _ = windows.CloseHandle(h) }()
-	started, ok := procutil.HandleStartTime(h)
-	return ok && started >= at
+	if started < parentStarted {
+		return nil
+	}
+	return killHeldTree(pid, started)
 }
 
 // terminateProcess force-terminates a single process. A process that has already
