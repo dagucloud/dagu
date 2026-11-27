@@ -53,7 +53,7 @@ func testWorkDir(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "dagu-untrusted-test-")
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir); _ = os.Remove(dir + handoffSuffix) })
 	require.NoError(t, os.Chmod(dir, 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "repo", ".git", "hooks"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "repo", ".git", "config"), []byte("[core]\n"), 0o644))
@@ -417,6 +417,7 @@ func TestIsolatedStep(t *testing.T) {
 	home := step.iso.home
 
 	require.NoError(t, step.End(ctx))
+	assert.NoError(t, CheckWorkDir(workDir), "the work directory is safe again")
 
 	pids, err := userProcesses(testUID)
 	require.NoError(t, err)
@@ -557,6 +558,29 @@ func selfIsolation(t *testing.T, work string) *isolation {
 		gitEntries: map[string]bool{}, gitDirs: map[string]bool{},
 		gitSnapshot: map[string]fileSig{}, seenGit: map[string]bool{}, gitModes: map[string]uint32{},
 	}
+}
+
+// The handoff marks the work directory until a restore makes it safe. A mark
+// that a stopped process left fails the next handoff and each step of the run,
+// and that handoff gives nothing away. It needs no root.
+func TestHandoffMarksTheWorkDirectory(t *testing.T) {
+	t.Parallel()
+	work := t.TempDir()
+	iso := selfIsolation(t, work)
+	require.NoError(t, iso.handoff())
+	assert.ErrorIs(t, CheckWorkDir(work), ErrRunAborted)
+
+	// The process of iso stops before the restore.
+	next := selfIsolation(t, work)
+	err := next.handoff()
+	require.ErrorIs(t, err, ErrRunAborted)
+	assert.ErrorContains(t, err, "not given back safely")
+	assert.False(t, next.handedOff, "the next step gives nothing away")
+
+	require.NoError(t, iso.unmarkUnlessAborted(iso.restore(true)))
+	assert.NoError(t, CheckWorkDir(work))
+	require.NoError(t, next.handoff())
+	require.NoError(t, next.unmarkUnlessAborted(next.restore(true)))
 }
 
 func permOf(t *testing.T, path string) fs.FileMode {

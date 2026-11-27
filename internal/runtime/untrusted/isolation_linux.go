@@ -101,6 +101,9 @@ type isolation struct {
 	gitModes map[string]uint32
 	// hostLock is the lock file of the restricted user on the host.
 	hostLock *os.File
+	// marker is the marker of the work directory that this step made, until
+	// a restore makes the work directory safe.
+	marker string
 	// handedOff is true once the walk of the handoff started.
 	handedOff bool
 
@@ -176,7 +179,6 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 	if err := iso.makePrivateDir(); err != nil {
 		return iso, err
 	}
-	iso.handedOff = true
 	if err := iso.handoff(); err != nil {
 		return iso, err
 	}
@@ -300,7 +302,7 @@ func (iso *isolation) releaseSlot() {
 func (iso *isolation) abort() error {
 	var errs []error
 	if iso.handedOff {
-		errs = append(errs, iso.restore(false))
+		errs = append(errs, iso.unmarkUnlessAborted(iso.restore(false)))
 	}
 	if iso.privateDir != "" {
 		if removeErr := os.RemoveAll(iso.privateDir); removeErr != nil {
@@ -574,7 +576,7 @@ func (iso *isolation) end(_ context.Context) error {
 		// runs in this process on a work directory that Dagu cannot make safe.
 		poison(restoreErr)
 	}
-	errs := []error{restoreErr, iso.copyOutput()}
+	errs := []error{iso.unmarkUnlessAborted(restoreErr), iso.copyOutput()}
 	if err := os.RemoveAll(iso.privateDir); err != nil {
 		errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, err))
 	}

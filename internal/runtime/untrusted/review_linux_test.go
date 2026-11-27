@@ -358,6 +358,7 @@ func TestReviewConcurrentTrustedWriteReachesGit(t *testing.T) {
 	// The change of a git folder stops the run.
 	assert.ErrorIs(t, endErr, ErrRunAborted)
 	assert.ErrorIs(t, Poisoned(), ErrRunAborted, "the process runs no later isolated step")
+	assert.ErrorIs(t, CheckWorkDir(workDir), ErrRunAborted, "no process runs a later step of the run")
 	assert.NoFileExists(t, filepath.Join(repo, "src"), "the link of the agent into .git is removed")
 }
 

@@ -191,8 +191,15 @@ func (iso *isolation) protectedPaths() map[string]bool {
 	return protected
 }
 
-// handoff gives the work directory to the restricted user.
+// handoff gives the work directory to the restricted user. It first makes the
+// marker of the work directory, which stays until a restore makes the work
+// directory safe, so that no step of the run uses the work directory after a
+// stop of the process in between (CheckWorkDir).
 func (iso *isolation) handoff() error {
+	if err := iso.markHandoff(); err != nil {
+		return err
+	}
+	iso.handedOff = true
 	if err := iso.discoverGit(); err != nil {
 		return err
 	}
@@ -217,6 +224,41 @@ func (iso *isolation) handoff() error {
 			return false, nil
 		}
 	})
+}
+
+// markHandoff makes the marker of the work directory. A marker that exists is
+// the mark of a work directory that no restore made safe: the step fails and
+// the run stops.
+func (iso *isolation) markHandoff() error {
+	marker, err := handoffMarker(iso.lexicalWork)
+	if err != nil {
+		return stepError(iso.step, "resolve the work directory", iso.lexicalWork, err)
+	}
+	file, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY|unix.O_NOFOLLOW, 0o600) // #nosec G304 -- a fixed name next to the work directory.
+	if errors.Is(err, fs.ErrExist) {
+		return fmt.Errorf("untrusted step %q: %w", iso.step, notGivenBack(iso.lexicalWork, marker))
+	}
+	if err != nil {
+		return stepError(iso.step, "make the file", marker, err)
+	}
+	iso.marker = marker
+	if err := file.Close(); err != nil {
+		return stepError(iso.step, "make the file", marker, err)
+	}
+	return nil
+}
+
+// unmarkUnlessAborted removes the marker of the work directory after a restore
+// whose error does not stop the run, and returns that error.
+func (iso *isolation) unmarkUnlessAborted(restoreErr error) error {
+	if iso.marker == "" || errors.Is(restoreErr, ErrRunAborted) {
+		return restoreErr
+	}
+	if err := os.Remove(iso.marker); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return errors.Join(restoreErr, stepError(iso.step, "remove the file", iso.marker, err))
+	}
+	iso.marker = ""
+	return restoreErr
 }
 
 // protectDir keeps the folder for the user of the worker with the mode 1777.

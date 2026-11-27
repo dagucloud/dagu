@@ -176,6 +176,32 @@ func TestUntrustedRunRedirectRefusesLink(t *testing.T) {
 	assert.Equal(t, "kept", string(data))
 }
 
+// A work directory that an untrusted step got and that no restore made safe,
+// as after a stop of the process during the step, keeps each step of the run
+// from running, also a trusted step, and stops the run.
+func TestWorkDirNotGivenBackStopsTheRun(t *testing.T) {
+	t.Parallel()
+	skipWithoutPosixShell(t)
+
+	work := t.TempDir()
+	require.NoError(t, os.WriteFile(work+".untrusted-handoff", nil, 0o600))
+	marker := filepath.Join(t.TempDir(), "ran")
+	ph := untrustedPlan(t, config.UntrustedConfig{IsolationOff: true}, work,
+		newStep("check", withCommand("touch "+marker)),
+		newStep("verify", withDepends("check"), withUntrusted(), withCommand("true")),
+	)
+	dag := &ir.DAG{Name: "test_dag", WorkingDir: work, Steps: ph.steps}
+	ctx := runtime.NewContext(ph.Context, dag, ph.cfg.DAGRunID, filepath.Join(ph.cfg.LogDir, "run.log"), ph.contextOpts...)
+
+	err := ph.runner.Run(ctx, ph.Plan, nil)
+
+	require.ErrorIs(t, err, untrusted.ErrRunAborted)
+	assert.ErrorContains(t, err, "not given back safely")
+	assert.Equal(t, ir.Aborted, ph.runner.Status(ctx, ph.Plan))
+	assert.Equal(t, ir.NodeFailed, ph.GetNodeByName("check").State().Status)
+	assert.NoFileExists(t, marker)
+}
+
 // A step error that marks the run as unsafe fails the step and stops the run:
 // a later step does not start, even when the failed step lets the run
 // continue. In the body of a foreach step, the error also keeps the next item

@@ -16,8 +16,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -259,6 +261,49 @@ func setEnv(env []string, key, value string) []string {
 		result = append(result, entry)
 	}
 	return append(result, key+"="+value)
+}
+
+// handoffSuffix ends the name of the file next to the work directory that
+// exists from the handoff of the work directory until a restore makes it safe.
+const handoffSuffix = ".untrusted-handoff"
+
+// handoffMarker returns the path of the marker of the work directory.
+func handoffMarker(workDir string) (string, error) {
+	abs, err := filepath.Abs(workDir)
+	if err != nil {
+		return "", err
+	}
+	return abs + handoffSuffix, nil
+}
+
+// notGivenBack is the error of a work directory whose marker exists.
+func notGivenBack(workDir, marker string) error {
+	return fmt.Errorf("the work directory %s was given to the restricted user and not given back safely: "+
+		"remove the work directory and the file %s: %w", workDir, marker, ErrRunAborted)
+}
+
+// CheckWorkDir fails when the restricted user got the work directory of a run
+// and no restore made it safe again: the process stopped during an untrusted
+// step, or the restore stopped the run. Each step of the run then fails, in any
+// process, until the operator removes the work directory. The error wraps
+// ErrRunAborted.
+func CheckWorkDir(workDir string) error {
+	if strings.TrimSpace(workDir) == "" {
+		return nil
+	}
+	marker, err := handoffMarker(workDir)
+	if err != nil {
+		return fmt.Errorf("resolve the work directory %s: %w", workDir, err)
+	}
+	_, err = os.Lstat(marker)
+	switch {
+	case err == nil:
+		return notGivenBack(workDir, marker)
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	default:
+		return fmt.Errorf("read %s: %w: %w", marker, err, ErrRunAborted)
+	}
 }
 
 // ShareReadOnly lets the restricted user read the file or the folder at path
