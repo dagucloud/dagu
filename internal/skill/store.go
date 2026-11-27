@@ -356,7 +356,8 @@ func namesRoot(dir string, root *os.Root) bool {
 
 // checkNoLink returns an error when a component of rel, from the top folder to the
 // entry, is a symbolic link. The entry can be a link when leafMayBeLink is true. A
-// component that does not exist ends the check: nothing below it can be a link.
+// component above the entry that is not a folder is an invalid path. A component
+// that does not exist ends the check: nothing below it can be a link.
 func checkNoLink(root *os.Root, rel string, leafMayBeLink bool) error {
 	parts := strings.Split(rel, "/")
 	for i := range parts {
@@ -370,6 +371,9 @@ func checkNoLink(root *os.Root, rel string, leafMayBeLink bool) error {
 		}
 		if info.Mode()&fs.ModeSymlink != 0 && (!leafMayBeLink || i != len(parts)-1) {
 			return linkRefusal(RuleSymlink, rel, "the path goes through the symbolic link %q; Dagu never writes through a symbolic link", sub)
+		}
+		if i != len(parts)-1 && !info.IsDir() {
+			return &InvalidError{Issues: []Issue{pathIssue(rel, "the path goes through the file %q, which is not a folder", sub)}}
 		}
 	}
 	return nil

@@ -336,6 +336,25 @@ func TestDeleteFileNeedsTheStoredName(t *testing.T) {
 	}
 }
 
+// A path that goes through a file is a mistake of the client, not a failure
+// of the server.
+func TestPathThroughAFileIsInvalid(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	var invalid *skill.InvalidError
+	_, err = s.WriteFile(ctx, "demo", "references/a.md/x.md", []byte("x"), skill.Precondition{IfMatch: cur.Hash})
+	require.ErrorAs(t, err, &invalid)
+	_, err = s.DeleteFile(ctx, "demo", "references/a.md/x.md", skill.Precondition{IfMatch: cur.Hash})
+	require.ErrorAs(t, err, &invalid)
+	after, err := s.Read("demo")
+	require.NoError(t, err)
+	require.Equal(t, cur.Hash, after.Hash)
+}
+
 func TestWritePreconditions(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
