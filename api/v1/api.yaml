@@ -17547,7 +17547,7 @@ components:
 
     NotificationEventType:
       type: string
-      description: "DAG run event that can trigger server-side notifications. Rules configured for dag.run.succeeded also match dag.run.partially_succeeded; rules configured only for dag.run.partially_succeeded do not match clean successes."
+      description: "Event that can trigger server-side notifications. Rules configured for dag.run.succeeded also match dag.run.partially_succeeded; rules configured only for dag.run.partially_succeeded do not match clean successes. Only notification routes take the connection events: connection.needs_attention when a connection needs a reconnect or its OAuth app is refused, and connection.restored when it works again. A route that lists no events receives the default run events only."
       enum:
         - dag.run.waiting
         - dag.run.succeeded
@@ -17555,6 +17555,8 @@ components:
         - dag.run.failed
         - dag.run.aborted
         - dag.run.rejected
+        - connection.needs_attention
+        - connection.restored
 
     NotificationEmailTarget:
       type: object

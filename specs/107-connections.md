@@ -47,6 +47,16 @@ Implemented so far:
   connection only for the `authorization_code` grant. A server callback
   connect confirmed at once is audited only at its start, since the
   callback has no Dagu user.
+- [Events](#events), recorded by the server, a local run, or the
+  coordinator, whichever made the change, and written to the
+  [Audit](#audit) log. Notification routes offer both types, and new
+  routes in the UI select them. The Reconnect URL is
+  `<public URL>/connections/<name>?workspace=<project>`, a page the UI does
+  not serve yet. Runs that fail on a broken connection still send their
+  failure messages, and the notification connection's events have no rules
+  of their own yet. An admin's change of an `invalid` app's client ID or
+  secret returns it to `ok`. The Connections navigation badge is not built
+  yet.
 
 The tests against Google also settle whether Docs, Sheets, and Slides
 answer `NOT_FOUND` rather than `PERMISSION_DENIED` for a resource ID that

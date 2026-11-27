@@ -2378,6 +2378,8 @@ export const baseFrench = {
   'Page {page} of {total}': 'Page {page} sur {total}',
   'of {total}': 'sur {total}',
   'Partially succeeded': 'Partiellement réussi',
+  'Connection needs attention': 'Connexion à vérifier',
+  'Connection restored': 'Connexion rétablie',
   'Processing {count} request using the existing DAG-run API.':
     'Traitement de {count} demande via l’API existante des exécutions.',
   'Processing {count} requests using the existing DAG-run API.':

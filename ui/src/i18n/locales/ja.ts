@@ -2342,6 +2342,8 @@ export const baseJapanese = {
   'Page {page} of {total}': '{total} ページ中 {page} ページ',
   'of {total}': '/ {total}',
   'Partially succeeded': '一部成功',
+  'Connection needs attention': '接続の再接続が必要',
+  'Connection restored': '接続が復旧',
   'Processing {count} request using the existing DAG-run API.':
     '既存の DAG 実行 API で {count} 件のリクエストを処理中です。',
   'Processing {count} requests using the existing DAG-run API.':

@@ -6524,7 +6524,7 @@ export interface components {
          */
         NotificationTargetProviderType: NotificationTargetProviderType;
         /**
-         * @description DAG run event that can trigger server-side notifications. Rules configured for dag.run.succeeded also match dag.run.partially_succeeded; rules configured only for dag.run.partially_succeeded do not match clean successes.
+         * @description Event that can trigger server-side notifications. Rules configured for dag.run.succeeded also match dag.run.partially_succeeded; rules configured only for dag.run.partially_succeeded do not match clean successes. Only notification routes take the connection events: connection.needs_attention when a connection needs a reconnect or its OAuth app is refused, and connection.restored when it works again. A route that lists no events receives the default run events only.
          * @enum {string}
          */
         NotificationEventType: NotificationEventType;
@@ -29832,7 +29832,9 @@ export enum NotificationEventType {
     dag_run_partially_succeeded = "dag.run.partially_succeeded",
     dag_run_failed = "dag.run.failed",
     dag_run_aborted = "dag.run.aborted",
-    dag_run_rejected = "dag.run.rejected"
+    dag_run_rejected = "dag.run.rejected",
+    connection_needs_attention = "connection.needs_attention",
+    connection_restored = "connection.restored"
 }
 export enum NotificationSMTPOAuthProvider {
     microsoft = "microsoft",

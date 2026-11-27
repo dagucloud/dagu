@@ -192,11 +192,32 @@ const blankRouteSet: DraftRouteSet = {
   routes: [],
 };
 
-const DEFAULT_ROUTE_EVENTS = [
+// A saved route without events receives these run events. A new route
+// also selects the connection events.
+const IMPLICIT_ROUTE_EVENTS = [
   NotificationEventType.dag_run_failed,
   NotificationEventType.dag_run_aborted,
   NotificationEventType.dag_run_rejected,
   NotificationEventType.dag_run_waiting,
+];
+
+const DEFAULT_ROUTE_EVENTS = [
+  ...IMPLICIT_ROUTE_EVENTS,
+  NotificationEventType.connection_needs_attention,
+  NotificationEventType.connection_restored,
+];
+
+// Only routes deliver connection events, so DAG settings do not offer them.
+const ROUTE_EVENT_OPTIONS = [
+  ...EVENT_OPTIONS,
+  {
+    value: NotificationEventType.connection_needs_attention,
+    label: 'Connection needs attention',
+  },
+  {
+    value: NotificationEventType.connection_restored,
+    label: 'Connection restored',
+  },
 ];
 
 function sameEvents(
@@ -245,7 +266,7 @@ function routeSetDraftFromAPI(routeSet?: NotificationRouteSet): DraftRouteSet {
       id: route.id,
       channelId: route.channelId,
       enabled: route.enabled,
-      events: route.events?.length ? route.events : [...DEFAULT_ROUTE_EVENTS],
+      events: route.events?.length ? route.events : [...IMPLICIT_ROUTE_EVENTS],
     })),
   };
 }
@@ -630,7 +651,10 @@ function eventDotClass(event: NotificationEventType): string {
     case NotificationEventType.dag_run_rejected:
       return 'bg-[var(--status-aborted)]';
     case NotificationEventType.dag_run_succeeded:
+    case NotificationEventType.connection_restored:
       return 'bg-success';
+    case NotificationEventType.connection_needs_attention:
+      return 'bg-error';
     default:
       return 'bg-warning';
   }
@@ -831,7 +855,7 @@ function RouteRuleCard({
           />
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {EVENT_OPTIONS.map((event) => {
+          {ROUTE_EVENT_OPTIONS.map((event) => {
             const checked = route.events.includes(event.value);
             return (
               <label
