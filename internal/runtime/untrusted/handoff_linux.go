@@ -663,3 +663,12 @@ func (iso *isolation) restoreModes() error {
 	}
 	return errors.Join(errs...)
 }
+
+// closeProtected closes the descriptors that the isolation kept for the
+// restore of the folder modes, and leaves the modes as they are.
+func (iso *isolation) closeProtected() {
+	for path, dir := range iso.protected {
+		_ = unix.Close(dir.fd)
+		delete(iso.protected, path)
+	}
+}

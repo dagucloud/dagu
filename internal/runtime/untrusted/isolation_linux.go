@@ -576,6 +576,7 @@ func (iso *isolation) end(_ context.Context) error {
 		// A live process of the restricted user could watch the later steps.
 		err := stepError(iso.step, "stop the processes of the restricted user", "", killErr)
 		poison(err)
+		iso.closeProtected()
 		return fmt.Errorf("%w: %w", ErrRunAborted, err)
 	}
 
