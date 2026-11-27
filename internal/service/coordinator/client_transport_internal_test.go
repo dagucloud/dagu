@@ -147,7 +147,7 @@ func TestClientTransportUnlistedAddress(t *testing.T) {
 	healthCheck(t, cli, member)
 	assert.Equal(t, int32(1), coord.tlsHellos.Load(), "h2c within 10 minutes")
 
-	clock.Add(int64(h2cWindow))
+	clock.Add(int64(h2cWindowLength))
 	reconnect(t, cli)
 	healthCheck(t, cli, member)
 	assert.Equal(t, int32(2), coord.tlsHellos.Load(), "built-in TLS again after 10 minutes")
@@ -157,7 +157,8 @@ func TestClientTransportUnlistedAddress(t *testing.T) {
 // A new client keeps working with a coordinator that serves h2c only, such
 // as one that a downgrade left behind its published CA certificate: the
 // handshake fails at the transport level, and the same call succeeds over
-// h2c (Spec 108 §Fallback to h2c).
+// h2c. When the window ends, the client opens a new connection, which tries
+// built-in TLS again (Spec 108 §Fallback to h2c).
 func TestClientTransportFallback(t *testing.T) {
 	coord := serveTestCoordinator(t, insecure.NewCredentials())
 	config := unset(*DefaultConfig())
@@ -175,13 +176,12 @@ func TestClientTransportFallback(t *testing.T) {
 	assert.NotEmpty(t, lines[0].Error)
 	assert.Equal(t, []string{"Peer transport to " + coord.addr + ": h2c (from tls failed on the network path)"}, transportLines(lines))
 
-	clock.Add(int64(h2cWindow - time.Second))
+	clock.Add(int64(h2cWindowLength - time.Second))
 	reconnect(t, cli)
 	healthCheck(t, cli, member)
 	assert.Equal(t, int32(1), coord.tlsHellos.Load(), "h2c within 10 minutes")
 
 	clock.Add(int64(time.Second))
-	reconnect(t, cli)
 	healthCheck(t, cli, member)
 	assert.Equal(t, int32(2), coord.tlsHellos.Load(), "built-in TLS again after 10 minutes")
 }
@@ -211,6 +211,15 @@ func TestClientTransportRequireTLS(t *testing.T) {
 	t.Run("H2C", func(t *testing.T) {
 		cli := newTestClient(t, DefaultConfig(), member)
 		lines := healthCheck(t, cli, member)
+		// A stream reports its refusal when it ends.
+		lines = append(lines, captureClientLogs(t, func(ctx context.Context) {
+			client, err := cli.getOrCreateDiscoveredClient(member)
+			require.NoError(t, err)
+			stream, err := client.client.StreamLogs(ctx)
+			require.NoError(t, err)
+			_, err = stream.CloseAndRecv()
+			assert.Equal(t, codes.Unauthenticated, status.Code(err))
+		})...)
 		for range 2 {
 			lines = append(lines, captureClientLogs(t, func(ctx context.Context) {
 				err := getWorkers(ctx, t, cli, member)
@@ -335,11 +344,16 @@ func unset(config Config) Config {
 	return config
 }
 
-// newTestClient returns a client whose local registry lists members.
+// newTestClient returns a client whose local registry lists members. The
+// client keeps its h2c windows in a record of its own unless config names
+// one.
 func newTestClient(t *testing.T, config *Config, members ...serviceregistry.HostInfo) *clientImpl {
 	t.Helper()
-	registry := staticStateRegistry{members: members}
+	registry := &mutableRegistry{members: members}
 	config.LocalRegistry = registry
+	if config.FallbackFile == "" {
+		config.FallbackFile = filepath.Join(t.TempDir(), "peer-h2c.json")
+	}
 	require.NoError(t, config.Validate())
 	cli := New(registry, config).(*clientImpl)
 	t.Cleanup(func() { _ = cli.Cleanup(context.Background()) })

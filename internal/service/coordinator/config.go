@@ -31,6 +31,9 @@ type Config struct {
 	// PublishedCAFile is the CA certificate that coordinators publish in
 	// this process's data directory.
 	PublishedCAFile string
+	// FallbackFile keeps the h2c windows that the processes sharing the data
+	// directory opened.
+	FallbackFile string
 	// LocalRegistry is the service registry in this process's data
 	// directory. The published CA certificate selects built-in TLS only
 	// while it lists a coordinator that serves built-in TLS.
@@ -74,6 +77,7 @@ func ConfigFromPeer(peer appconfig.Peer) *Config {
 	cfg.InsecureUnset = peer.InsecureUnset
 	cfg.BuiltinCAFile = peer.CACertFile
 	cfg.PublishedCAFile = peer.PublishedCAFile
+	cfg.FallbackFile = peer.FallbackFile
 	cfg.Token = peer.Token
 	cfg.TokenFile = peer.TokenFile
 	if peer.MaxRetries > 0 {

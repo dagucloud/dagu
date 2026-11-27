@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -29,9 +31,13 @@ import (
 )
 
 const (
-	// h2cWindow is how long a client keeps h2c for a coordinator address
-	// after built-in TLS failed there, before it tries built-in TLS again.
-	h2cWindow = 10 * time.Minute
+	// h2cWindowLength is how long clients keep h2c for a coordinator address
+	// after built-in TLS failed there, before they try built-in TLS again.
+	h2cWindowLength = 10 * time.Minute
+	// replanInterval is how often a connection on h2c without a TLS source
+	// checks whether a new connection would use built-in TLS. It matches the
+	// registry refresh.
+	replanInterval = 10 * time.Second
 	// tlsAlertRecord is the record type of a TLS alert.
 	tlsAlertRecord = 0x15
 	// connectionProtocol is the protocol connectionCredentials report. It is
@@ -99,8 +105,8 @@ func (c *Config) hasTLSSettings() bool {
 	return c.CertFile != "" || c.KeyFile != "" || c.CAFile != "" || c.SkipTLSVerify
 }
 
-// picksTransportPerConnection reports whether the client picks built-in TLS
-// or h2c for each connection, rows 3 to 5 of Spec 108 §Client Transport.
+// picksTransportPerConnection reports whether the client picks the transport
+// for each connection, rows 3 to 5 of Spec 108 §Client Transport.
 func (c *Config) picksTransportPerConnection() bool {
 	return c.InsecureUnset || (!c.Insecure && !c.hasTLSSettings())
 }
@@ -113,60 +119,47 @@ func (c *Config) canReadPublishedCA() bool {
 	return err == nil
 }
 
-// clientTransport picks the transport of each connection to a coordinator
-// for a client that picks it per connection, and keeps, per address, the h2c
-// that a failed built-in TLS handshake selects. Its interceptors log what it
-// has to report with the context of the next call.
+// clientTransport picks the transport of each connection of a client to a
+// coordinator, and logs what it has to report with the context of the next
+// call.
 type clientTransport struct {
 	config *Config
 	// start is the client's start transport. The transport to an address
 	// is logged when it differs from start, and again each time it changes.
-	start transportChoice
-	now   func() time.Time
+	start   transportChoice
+	now     func() time.Time
+	windows *h2cWindows
 
-	mu        sync.Mutex
-	fallbacks map[string]h2cFallback
-	// moves counts, per address, the fallbacks to h2c, so a call can tell
-	// that its connection moved to h2c.
-	moves   map[string]uint64
+	mu      sync.Mutex
 	current map[string]transportChoice
 	refused map[string]bool
 	pending []func(context.Context)
 }
 
-// h2cFallback is the h2c that a failed built-in TLS handshake selects for an
-// address until a time.
-type h2cFallback struct {
-	until  time.Time
-	source string
-	err    error
-}
-
 func newClientTransport(config *Config) *clientTransport {
 	start, _ := config.startTransport()
 	return &clientTransport{
-		config:    config,
-		start:     start,
-		now:       time.Now,
-		fallbacks: make(map[string]h2cFallback),
-		moves:     make(map[string]uint64),
-		current:   make(map[string]transportChoice),
-		refused:   make(map[string]bool),
+		config:  config,
+		start:   start,
+		now:     time.Now,
+		windows: sharedH2CWindows(config.FallbackFile),
+		current: make(map[string]transportChoice),
+		refused: make(map[string]bool),
 	}
 }
 
-// dialOptions returns the options that add the transport's interceptors to
-// a connection to address and, for a client that picks the transport per
-// connection, its credentials.
-func (t *clientTransport) dialOptions(address string) []grpc.DialOption {
+// newLink returns the state of a new connection to address, and the options
+// that dial it.
+func (t *clientTransport) newLink(address string) (*connLink, []grpc.DialOption) {
+	link := &connLink{transport: t, address: address}
 	opts := []grpc.DialOption{
-		grpc.WithChainUnaryInterceptor(t.unaryInterceptor(address)),
-		grpc.WithChainStreamInterceptor(t.streamInterceptor(address)),
+		grpc.WithChainUnaryInterceptor(link.unaryInterceptor),
+		grpc.WithChainStreamInterceptor(link.streamInterceptor),
 	}
 	if t.config.picksTransportPerConnection() {
-		opts = append(opts, grpc.WithTransportCredentials(&connectionCredentials{transport: t, address: address}))
+		opts = append(opts, grpc.WithTransportCredentials(&connectionCredentials{link: link}))
 	}
-	return opts
+	return link, opts
 }
 
 // connectionPlan is the transport of one connection: built-in TLS that
@@ -177,12 +170,17 @@ type connectionPlan struct {
 	// unlisted reports an address that no live registry entry lists, with
 	// the published CA certificate as the only TLS source.
 	unlisted bool
+	// windowed reports h2c that an open h2c window selects.
+	windowed bool
 }
 
-// plan picks the transport of a new connection to address.
+// plan picks the transport of a new connection to address. A client with
+// peer.insecure: false never gets h2c.
 func (t *clientTransport) plan(ctx context.Context, address string) (connectionPlan, error) {
-	if fallback, ok := t.activeFallback(address); ok {
-		return connectionPlan{choice: transportChoice{transportH2C, fallback.source}}, nil
+	if t.config.InsecureUnset {
+		if window, ok := t.windows.active(address, t.now()); ok {
+			return connectionPlan{choice: transportChoice{transportH2C, window.Source}, windowed: true}, nil
+		}
 	}
 	if file := t.config.BuiltinCAFile; file != "" {
 		roots, err := readCertPool(file)
@@ -191,23 +189,17 @@ func (t *clientTransport) plan(ctx context.Context, address string) (connectionP
 		}
 		return connectionPlan{choice: transportChoice{transportBuiltinTLS, sourceCACertFile}, roots: roots}, nil
 	}
-	noSource := connectionPlan{choice: transportChoice{transportH2C, sourceNoTLS}}
-	if t.config.PublishedCAFile == "" {
-		return noSource, nil
+	if t.config.PublishedCAFile != "" {
+		if roots, err := readCertPool(t.config.PublishedCAFile); err == nil {
+			if listed, builtin := t.builtinTLSAt(ctx, address); builtin {
+				return connectionPlan{choice: transportChoice{transportBuiltinTLS, sourceDataDir}, roots: roots, unlisted: !listed}, nil
+			}
+		}
 	}
-	roots, err := readCertPool(t.config.PublishedCAFile)
-	if err != nil {
-		return noSource, nil
+	if !t.config.InsecureUnset {
+		return connectionPlan{}, ErrMissingTLSConfig
 	}
-	listed, builtin := t.builtinTLSAt(ctx, address)
-	if !builtin {
-		return noSource, nil
-	}
-	return connectionPlan{
-		choice:   transportChoice{transportBuiltinTLS, sourceDataDir},
-		roots:    roots,
-		unlisted: !listed,
-	}, nil
+	return connectionPlan{choice: transportChoice{transportH2C, sourceNoTLS}}, nil
 }
 
 // builtinTLSAt reports whether a live entry of the local registry lists
@@ -232,17 +224,6 @@ func (t *clientTransport) builtinTLSAt(ctx context.Context, address string) (lis
 	return false, builtin
 }
 
-func (t *clientTransport) activeFallback(address string) (h2cFallback, bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	fallback, ok := t.fallbacks[address]
-	if ok && !t.now().Before(fallback.until) {
-		delete(t.fallbacks, address)
-		return h2cFallback{}, false
-	}
-	return fallback, ok
-}
-
 // use records that a connection to address uses choice.
 func (t *clientTransport) use(address string, choice transportChoice) {
 	t.mu.Lock()
@@ -259,10 +240,14 @@ func (t *clientTransport) use(address string, choice transportChoice) {
 }
 
 // failed handles a built-in TLS handshake to address that failed with err.
-// A transport-level failure, or a certificate that does not chain to the
-// published CA certificate on an unlisted address, selects h2c for the
-// address for h2cWindow.
+// For a client with peer.insecure unset, a transport-level failure, or a
+// certificate that does not chain to the published CA certificate on an
+// unlisted address, opens an h2c window for the address. The client that
+// opens a window logs its warning.
 func (t *clientTransport) failed(address string, plan connectionPlan, conn *handshakeConn, err error) {
+	if !t.config.InsecureUnset {
+		return
+	}
 	var source string
 	switch {
 	case conn.transportLevelFailure(err):
@@ -272,28 +257,17 @@ func (t *clientTransport) failed(address string, plan connectionPlan, conn *hand
 	default:
 		return
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.fallbacks[address] = h2cFallback{until: t.now().Add(h2cWindow), source: source, err: err}
-	t.moves[address]++
-	if source == sourceNetworkPath {
-		t.pending = append(t.pending, func(ctx context.Context) {
-			logger.Warn(ctx, "Built-in TLS failed on the network path; using h2c for 10 minutes",
-				tag.Addr(address), tag.Error(err))
-		})
+	now := t.now()
+	window := h2cWindow{Until: now.Add(h2cWindowLength), Source: source, Error: err.Error()}
+	if !t.windows.open(address, window, now) || source != sourceNetworkPath {
+		return
 	}
-}
-
-func (t *clientTransport) moveCount(address string) uint64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.moves[address]
-}
-
-// movedToH2C reports whether a call to address failed because its
-// connection moved to h2c after the call read moves.
-func (t *clientTransport) movedToH2C(address string, moves uint64, err error) bool {
-	return status.Code(err) == codes.Unavailable && t.moveCount(address) != moves
+	t.pending = append(t.pending, func(ctx context.Context) {
+		logger.Warn(ctx, "Built-in TLS failed on the network path; using h2c for 10 minutes",
+			tag.Addr(address), tag.Error(err))
+	})
 }
 
 // awaitReady waits, at most DialTimeout, until cc connects again.
@@ -308,53 +282,27 @@ func (t *clientTransport) awaitReady(ctx context.Context, cc *grpc.ClientConn) {
 	}
 }
 
-// unaryInterceptor retries, once, a call whose connection moved to h2c, and
-// then reports what the transport logged.
-func (t *clientTransport) unaryInterceptor(address string) grpc.UnaryClientInterceptor {
-	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		moves := t.moveCount(address)
-		err := invoker(ctx, method, req, reply, cc, opts...)
-		if t.movedToH2C(address, moves, err) {
-			t.awaitReady(ctx, cc)
-			err = invoker(ctx, method, req, reply, cc, opts...)
-		}
-		t.report(ctx, address, method, err)
-		return err
-	}
-}
-
-// streamInterceptor retries, once, opening a stream whose connection moved
-// to h2c, and then reports what the transport logged.
-func (t *clientTransport) streamInterceptor(address string) grpc.StreamClientInterceptor {
-	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-		moves := t.moveCount(address)
-		stream, err := streamer(ctx, desc, cc, method, opts...)
-		if t.movedToH2C(address, moves, err) {
-			t.awaitReady(ctx, cc)
-			stream, err = streamer(ctx, desc, cc, method, opts...)
-		}
-		t.report(ctx, address, method, err)
-		return stream, err
-	}
-}
-
 // report logs, with ctx, what the transport has to report after a call of
-// method to address that ended with err, and the refusal of
+// method on link that ended with err, and the refusal of
 // coordinator.require_tls once until a call other than a health check
-// succeeds.
-func (t *clientTransport) report(ctx context.Context, address, method string, err error) {
+// succeeds. A refusal of a connection that an h2c window put on h2c ends the
+// window, and the client opens a new connection.
+func (t *clientTransport) report(ctx context.Context, link *connLink, method string, err error) {
 	refusal := isRequireTLSRefusal(err)
+	if refusal && link.refuse() {
+		t.windows.end(link.address, t.now())
+	}
+	window, fellBack := t.windows.active(link.address, t.now())
 	t.mu.Lock()
 	pending := t.pending
 	t.pending = nil
-	firstRefusal := refusal && !t.refused[address]
+	firstRefusal := refusal && !t.refused[link.address]
 	switch {
 	case refusal:
-		t.refused[address] = true
+		t.refused[link.address] = true
 	case err == nil && !strings.HasPrefix(method, grpcHealthMethodPrefix):
-		delete(t.refused, address)
+		delete(t.refused, link.address)
 	}
-	fallback, fellBack := t.fallbacks[address]
 	t.mu.Unlock()
 
 	for _, log := range pending {
@@ -363,9 +311,9 @@ func (t *clientTransport) report(ctx context.Context, address, method string, er
 	if !firstRefusal {
 		return
 	}
-	attrs := []slog.Attr{tag.Addr(address)}
-	if fellBack && fallback.source == sourceNetworkPath {
-		attrs = append(attrs, slog.String("tls-error", fallback.err.Error()))
+	attrs := []slog.Attr{tag.Addr(link.address)}
+	if fellBack && window.Source == sourceNetworkPath {
+		attrs = append(attrs, slog.String("tls-error", window.Error))
 	}
 	logger.Error(ctx, "The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true.", attrs...)
 }
@@ -375,21 +323,212 @@ func isRequireTLSRefusal(err error) bool {
 	return ok && st.Code() == codes.Unauthenticated && st.Message() == requireTLSMessage
 }
 
-// connectionCredentials pick built-in TLS or h2c for each new connection to
-// address.
-type connectionCredentials struct {
+// connLink is the state of one gRPC connection of a client to a coordinator
+// address: what its current transport connection uses, its calls in flight,
+// and whether it closes once they end.
+type connLink struct {
 	transport *clientTransport
 	address   string
+	conn      *grpc.ClientConn
+
+	mu sync.Mutex
+	// h2c reports a current transport connection on h2c that the client
+	// picked, and windowed one that an h2c window selected.
+	h2c      bool
+	windowed bool
+	// redial reports that a new connection would pick another transport.
+	redial   bool
+	checked  time.Time
+	inflight int
+	retired  bool
+}
+
+// connected records the plan of a new transport connection.
+func (l *connLink) connected(plan connectionPlan) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.h2c = plan.roots == nil
+	l.windowed = plan.windowed
+	l.redial = false
+	l.checked = l.transport.now()
+}
+
+// refuse records a require_tls refusal and reports whether an h2c window
+// put the current connection on h2c, so a new connection tries built-in TLS
+// again. A connection on h2c without a TLS source finds one by the check of
+// stale.
+func (l *connLink) refuse() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.h2c && l.windowed {
+		l.redial = true
+	}
+	return l.redial
+}
+
+// stale reports whether the client should replace the connection, since a
+// new one would pick another transport: a call on h2c was refused for TLS,
+// the h2c window ended, or a check, at most every replanInterval, finds a
+// TLS source.
+func (l *connLink) stale() bool {
+	now := l.transport.now()
+	l.mu.Lock()
+	switch {
+	case l.retired || !l.h2c:
+		l.mu.Unlock()
+		return false
+	case l.redial:
+		l.mu.Unlock()
+		return true
+	case !l.windowed && now.Sub(l.checked) < replanInterval:
+		l.mu.Unlock()
+		return false
+	}
+	windowed := l.windowed
+	l.checked = now
+	l.mu.Unlock()
+
+	var redial bool
+	if windowed {
+		_, open := l.transport.windows.active(l.address, now)
+		redial = !open
+	} else {
+		plan, err := l.transport.plan(context.Background(), l.address)
+		redial = err == nil && plan.roots != nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.redial = l.redial || redial
+	return l.redial
+}
+
+// retire closes the connection once its calls in flight end.
+func (l *connLink) retire() {
+	l.mu.Lock()
+	l.retired = true
+	idle := l.inflight == 0
+	l.mu.Unlock()
+	if idle {
+		_ = l.conn.Close()
+	}
+}
+
+func (l *connLink) begin() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.inflight++
+}
+
+func (l *connLink) end() {
+	l.mu.Lock()
+	l.inflight--
+	closeNow := l.retired && l.inflight == 0
+	l.mu.Unlock()
+	if closeNow {
+		_ = l.conn.Close()
+	}
+}
+
+// resend reports whether a call that failed with err, whose attempt got the
+// peer p, should be sent once more: it never got a transport, so no
+// coordinator saw it, and the address has an open h2c window, so the next
+// connection uses h2c.
+func (l *connLink) resend(err error, p *peer.Peer) bool {
+	if status.Code(err) != codes.Unavailable || p.Addr != nil || !l.transport.config.InsecureUnset {
+		return false
+	}
+	_, open := l.transport.windows.active(l.address, l.transport.now())
+	return open
+}
+
+// withPeer returns opts and an option that records the peer of the call's
+// attempt in p, without changing the caller's slice.
+func withPeer(opts []grpc.CallOption, p *peer.Peer) []grpc.CallOption {
+	return append(opts[:len(opts):len(opts)], grpc.Peer(p))
+}
+
+func (l *connLink) unaryInterceptor(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	l.begin()
+	defer l.end()
+	var p peer.Peer
+	err := invoker(ctx, method, req, reply, cc, withPeer(opts, &p)...)
+	if l.resend(err, &p) {
+		l.transport.awaitReady(ctx, cc)
+		err = invoker(ctx, method, req, reply, cc, opts...)
+	}
+	l.transport.report(ctx, l, method, err)
+	return err
+}
+
+func (l *connLink) streamInterceptor(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+	l.begin()
+	var p peer.Peer
+	stream, err := streamer(ctx, desc, cc, method, withPeer(opts, &p)...)
+	if l.resend(err, &p) {
+		l.transport.awaitReady(ctx, cc)
+		stream, err = streamer(ctx, desc, cc, method, opts...)
+	}
+	if err != nil {
+		l.end()
+		l.transport.report(ctx, l, method, err)
+		return nil, err
+	}
+	s := &reportingStream{ClientStream: stream, link: l, ctx: ctx, method: method, serverStreams: desc.ServerStreams}
+	s.stop = context.AfterFunc(ctx, func() { s.finish(nil, false) })
+	return s, nil
+}
+
+// reportingStream reports the final status of a stream, and ends it on its
+// link when it finishes or its context ends.
+type reportingStream struct {
+	grpc.ClientStream
+	link          *connLink
+	ctx           context.Context
+	method        string
+	serverStreams bool
+	stop          func() bool
+	once          sync.Once
+}
+
+func (s *reportingStream) RecvMsg(m any) error {
+	err := s.ClientStream.RecvMsg(m)
+	// A stream with one response ends with it.
+	if err != nil || !s.serverStreams {
+		s.stop()
+		final := err
+		if errors.Is(err, io.EOF) {
+			final = nil
+		}
+		s.finish(final, true)
+	}
+	return err
+}
+
+func (s *reportingStream) finish(err error, report bool) {
+	s.once.Do(func() {
+		s.link.end()
+		if report {
+			s.link.transport.report(s.ctx, s.link, s.method, err)
+		}
+	})
+}
+
+// connectionCredentials pick built-in TLS or h2c for each new connection of
+// link.
+type connectionCredentials struct {
+	link *connLink
 }
 
 func (c *connectionCredentials) ClientHandshake(ctx context.Context, _ string, rawConn net.Conn) (net.Conn, credentials.AuthInfo, error) {
-	plan, err := c.transport.plan(ctx, c.address)
+	t, address := c.link.transport, c.link.address
+	plan, err := t.plan(ctx, address)
 	if err != nil {
 		return nil, nil, err
 	}
 	if plan.roots == nil {
-		c.transport.use(c.address, plan.choice)
-		return insecure.NewCredentials().ClientHandshake(ctx, c.address, rawConn)
+		c.link.connected(plan)
+		t.use(address, plan.choice)
+		return insecure.NewCredentials().ClientHandshake(ctx, address, rawConn)
 	}
 	conn := &handshakeConn{Conn: rawConn}
 	creds := credentials.NewTLS(&tls.Config{RootCAs: plan.roots, MinVersion: tls.VersionTLS13})
@@ -397,10 +536,11 @@ func (c *connectionCredentials) ClientHandshake(ctx context.Context, _ string, r
 	// every coordinator certificate carries, not the dialed address.
 	tlsConn, info, err := creds.ClientHandshake(ctx, coordinatorCertName, conn)
 	if err != nil {
-		c.transport.failed(c.address, plan, conn, err)
+		t.failed(address, plan, conn, err)
 		return nil, nil, err
 	}
-	c.transport.use(c.address, plan.choice)
+	c.link.connected(plan)
+	t.use(address, plan.choice)
 	return tlsConn, info, nil
 }
 

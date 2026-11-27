@@ -2243,6 +2243,7 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) error {
 	cfg.Core.Peer.TokenFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-token")
 	cfg.Core.Peer.GeneratedCAFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-ca.pem")
 	cfg.Core.Peer.PublishedCAFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-ca.crt")
+	cfg.Core.Peer.FallbackFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-h2c.json")
 
 	// Suspend flags default under the shared data directory so every process
 	// observing the same data_dir sees identical suspension state. A legacy

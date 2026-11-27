@@ -170,6 +170,7 @@ type client struct {
 	address      string
 	startedAt    time.Time
 	conn         *grpc.ClientConn
+	link         *connLink
 	client       coordinatorv1.CoordinatorServiceClient
 	healthClient grpc_health_v1.HealthClient
 }
@@ -894,7 +895,8 @@ func (cli *clientImpl) getOrCreateClientWithAddressRefresh(member serviceregistr
 	if c, exists := cli.clients[key]; exists &&
 		(!refreshAddress ||
 			isOlderCoordinatorIncarnation(member.StartedAt, c.startedAt) ||
-			(c.address == address && !member.StartedAt.After(c.startedAt))) {
+			(c.address == address && !member.StartedAt.After(c.startedAt))) &&
+		!c.link.stale() {
 		cli.clientsMu.RUnlock()
 		return c, nil
 	}
@@ -904,12 +906,17 @@ func (cli *clientImpl) getOrCreateClientWithAddressRefresh(member serviceregistr
 	cli.clientsMu.Lock()
 	defer cli.clientsMu.Unlock()
 
-	// Double-check after acquiring write lock
+	// Double-check after acquiring write lock. A connection whose transport
+	// would change is replaced at its address.
+	redial := false
 	if c, exists := cli.clients[key]; exists {
-		if !refreshAddress || isOlderCoordinatorIncarnation(member.StartedAt, c.startedAt) {
+		redial = c.link.stale()
+		switch {
+		case redial:
+			address = c.address
+		case !refreshAddress || isOlderCoordinatorIncarnation(member.StartedAt, c.startedAt):
 			return c, nil
-		}
-		if c.address == address {
+		case c.address == address:
 			if member.StartedAt.After(c.startedAt) {
 				c.startedAt = member.StartedAt
 			}
@@ -918,7 +925,7 @@ func (cli *clientImpl) getOrCreateClientWithAddressRefresh(member serviceregistr
 	}
 
 	// Create new client
-	c, err := cli.createClient(member)
+	c, err := cli.createClient(address)
 	if err != nil {
 		return nil, err
 	}
@@ -927,7 +934,13 @@ func (cli *clientImpl) getOrCreateClientWithAddressRefresh(member serviceregistr
 	}
 
 	if stale, exists := cli.clients[key]; exists {
-		_ = stale.conn.Close()
+		if redial {
+			c.startedAt = stale.startedAt
+			// Its calls in flight end on the connection they started on.
+			stale.link.retire()
+		} else {
+			_ = stale.conn.Close()
+		}
 	}
 
 	// Cache it
@@ -939,27 +952,27 @@ func isOlderCoordinatorIncarnation(candidate, current time.Time) bool {
 	return !candidate.IsZero() && !current.IsZero() && candidate.Before(current)
 }
 
-// createClient creates a new gRPC client for the given coordinator
-func (cli *clientImpl) createClient(member serviceregistry.HostInfo) (*client, error) {
+// createClient creates a new gRPC client for the coordinator at address
+func (cli *clientImpl) createClient(address string) (*client, error) {
 	// Get dial options based on TLS configuration
 	dialOpts, err := getDialOptions(cli.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to configure gRPC connection: %w", err)
 	}
-
-	// Construct address from host and port
-	address := coordinatorAddress(member)
-	dialOpts = append(dialOpts, cli.transport.dialOptions(address)...)
+	link, linkOpts := cli.transport.newLink(address)
+	dialOpts = append(dialOpts, linkOpts...)
 
 	// Create gRPC connection
 	conn, err := grpc.NewClient(address, dialOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create coordinator client for %s: %w", address, err)
 	}
+	link.conn = conn
 
 	return &client{
 		address:      address,
 		conn:         conn,
+		link:         link,
 		client:       coordinatorv1.NewCoordinatorServiceClient(conn),
 		healthClient: grpc_health_v1.NewHealthClient(conn),
 	}, nil

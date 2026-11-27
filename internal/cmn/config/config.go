@@ -927,6 +927,10 @@ type Peer struct {
 	// PublishedCAFile is the certificate of the CA a coordinator uses, which
 	// it keeps under the data directory for the clients that share it.
 	PublishedCAFile string
+	// FallbackFile is where clients keep, under the data directory, the
+	// coordinator addresses on which built-in TLS failed, so later processes
+	// on the host use h2c there without another failed handshake.
+	FallbackFile string
 }
 
 // Validate performs basic validation on the configuration to ensure required fields are set
