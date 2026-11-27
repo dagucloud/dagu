@@ -175,6 +175,7 @@ func projectAPIOptions(
 	base []apiv1.APIOption,
 ) ([]apiv1.APIOption, error) {
 	opts := append(slices.Clone(base),
+		apiv1.WithRunDirs(stores.Paths.LogDir, stores.Paths.ArtifactDir),
 		apiv1.WithArtifactRepository(stores.ArtifactRepository),
 		apiv1.WithSchedulerStateStore(stores.SchedulerStateStore),
 		apiv1.WithBackfillStore(stores.BackfillStore),

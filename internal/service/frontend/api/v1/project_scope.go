@@ -171,20 +171,23 @@ func (a *API) dispatchProjects(
 }
 
 // projectScopeMiddleware gives an operation that takes project the caller's
-// access to the default project when the request names none.
+// access to the default project when the request names none, and names the
+// project in the audit entries the operation logs.
 func (a *API) projectScopeMiddleware(takes map[string]bool) api.StrictMiddlewareFunc {
 	return func(next api.StrictHandlerFunc, operationID string) api.StrictHandlerFunc {
 		if !takes[operationID] {
 			return next
 		}
 		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
-			if _, ok := projectScopeFrom(ctx); !ok {
+			scope, ok := projectScopeFrom(ctx)
+			if !ok {
 				access, err := a.projectAccessFor(ctx, project.DefaultName)
 				if err != nil {
 					return nil, err
 				}
-				ctx = withProjectScope(ctx, access)
+				scope, ctx = access, withProjectScope(ctx, access)
 			}
+			ctx = withAuditProject(ctx, scope.Project)
 			response, err := next(ctx, w, r, request)
 			return response, a.dagNotFoundInProject(ctx, chi.URLParam(r, "fileName"), err)
 		}

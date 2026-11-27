@@ -7,14 +7,17 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
@@ -168,6 +171,20 @@ func TestProjectParam_RunsInProject(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, projectGet(t, server, token, other).Response.StatusCode(), other)
 	}
 
+	// A run of selected steps, which the API seeds itself, logs in the
+	// project's log directory too.
+	paths, err := server.Config.ProjectPaths("payments")
+	require.NoError(t, err)
+	steps := []string{"hello"}
+	resp = server.Client().Post("/api/v1/dags/etl/start?project=payments", api.ExecuteDAGJSONRequestBody{Steps: &steps}).
+		WithBearerToken(token).ExpectStatus(http.StatusOK).Send(t)
+	resp.Unmarshal(t, &started)
+	seeded := waitProjectRun(t, server, token, "payments", "etl", started.DagRunId, func(details api.DAGRunDetails) bool {
+		return details.Status == api.Status(ir.Succeeded)
+	})
+	assert.True(t, strings.HasPrefix(seeded.Log, paths.LogDir+string(filepath.Separator)),
+		"log %s is outside %s", seeded.Log, paths.LogDir)
+
 	resp = server.Client().Post("/api/v1/dags/etl/enqueue?project=payments", api.EnqueueDAGDAGRunJSONRequestBody{}).
 		WithBearerToken(token).ExpectStatus(http.StatusBadRequest).Send(t)
 	assert.Equal(t, queuedRunRefusal("payments"), errorMessage(t, resp))
@@ -282,6 +299,33 @@ func pinnedDAGNames(t *testing.T, server test.Server, token, path string) []stri
 		}
 	}
 	return pinned
+}
+
+// An audit entry for a change to a project's DAG names the project (Spec
+// 102 "Audit").
+func TestProjectParam_AuditNamesProject(t *testing.T) {
+	t.Parallel()
+	server, token := setupProjectDAGsServerWith(t, func(cfg *config.Config) {
+		cfg.Server.Audit.Enabled = true
+	})
+	server.Client().Delete("/api/v1/dags/report?project=infra").WithBearerToken(token).
+		ExpectStatus(http.StatusNoContent).Send(t)
+
+	audits, err := file.NewServerStores(server.Config).AuditStore(0)
+	require.NoError(t, err)
+	var entry *audit.Entry
+	require.Eventually(t, func() bool {
+		result, err := audits.Query(server.Context, audit.QueryFilter{Action: "dag_delete"})
+		if err != nil || len(result.Entries) == 0 {
+			return false
+		}
+		entry = result.Entries[0]
+		return true
+	}, 10*time.Second, 50*time.Millisecond)
+	infra, err := projectregistry.New(server.Config.Paths.DataDir).Get(server.Context, "infra")
+	require.NoError(t, err)
+	assert.Equal(t, infra.ID, entry.ProjectID)
+	assert.Equal(t, "infra", entry.Project)
 }
 
 // A run in a project takes its runtime profile from the project: a profile
