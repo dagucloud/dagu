@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/textproto"
 	"net/url"
 	"regexp"
 	"slices"
@@ -791,9 +792,8 @@ func DenyCommandChannels() TestOption {
 
 // HideChannelErrors logs the error of each failed delivery, which can name
 // the destination's URL or the SMTP host, and reports the delivery by the
-// channel's or target's type and name instead. The report keeps the HTTP
-// status of a failed response, and the operation, a URL preview, and the
-// cause of a failed request, except while projects are on.
+// channel's or target's type and name instead. The report keeps the parts
+// of the cause that hold no secret, except while projects are on.
 func HideChannelErrors() TestOption {
 	return func(o *testOptions) { o.hideChannelErrors = true }
 }
@@ -850,6 +850,10 @@ func (s *Service) hiddenTestError(dagName string, target resolvedTarget, provide
 	if target.Provider != "" {
 		kind = "channel"
 	}
+	name := target.ResultName
+	if name == "" {
+		name = target.ResultID
+	}
 	cause := ""
 	// While projects are on, users see no channel's URL or the SMTP host,
 	// so no part of the cause is kept.
@@ -858,12 +862,13 @@ func (s *Service) hiddenTestError(dagName string, target resolvedTarget, provide
 			cause = ": " + c
 		}
 	}
-	return fmt.Sprintf("delivery to %s %s %q failed%s; see the server log", provider, kind, target.ResultName, cause)
+	return fmt.Sprintf("delivery to %s %s %q failed%s; see the server log", provider, kind, name, cause)
 }
 
 // safeDeliveryCause describes err by its parts that hold no secret of the
-// destination: the status of a failed response, or the operation, a URL
-// preview, and the cause of a failed request. It returns "" for other errors.
+// destination: the status of a failed response; the operation, a URL
+// preview, and the cause of a failed request; the code of an SMTP reply; or
+// the whole of a safeError. It returns "" for other errors.
 func safeDeliveryCause(err error) string {
 	if status, ok := errors.AsType[httpStatusError](err); ok {
 		return fmt.Sprintf("notification endpoint returned HTTP %d", status.code)
@@ -871,7 +876,31 @@ func safeDeliveryCause(err error) string {
 	if urlErr, ok := errors.AsType[*url.Error](err); ok {
 		return fmt.Sprintf("%s %q: %v", urlErr.Op, notificationmodel.PreviewSecret(urlErr.URL), urlErr.Err)
 	}
+	if safe, ok := errors.AsType[safeError](err); ok {
+		return safe.Error()
+	}
+	// The text of an SMTP reply is the server's own and can echo the AUTH
+	// payload, so only its code is kept.
+	if reply, ok := errors.AsType[*textproto.Error](err); ok {
+		return fmt.Sprintf("SMTP server replied %d", reply.Code)
+	}
 	return ""
+}
+
+// safeError marks an error whose message holds no secret of the
+// destination, so a hidden test error can keep it.
+type safeError struct {
+	err error
+}
+
+func (e safeError) Error() string { return e.err.Error() }
+
+func (e safeError) Unwrap() error { return e.err }
+
+// safeErrorf formats an error as fmt.Errorf does and marks it safeError.
+// Arguments must hold no secret.
+func safeErrorf(format string, args ...any) error {
+	return safeError{err: fmt.Errorf(format, args...)}
 }
 
 func (s *Service) testTargetsForDAGSettings(ctx context.Context, dagName, targetID string, eventType eventstore.EventType) ([]resolvedTarget, error) {
@@ -1429,14 +1458,14 @@ func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target
 		return err
 	}
 	if workspaceSettings == nil || workspaceSettings.SMTP == nil {
-		return errors.New("SMTP is not configured for notification email")
+		return safeErrorf("SMTP is not configured for notification email")
 	}
 	from := target.Email.From
 	if from == "" {
 		from = workspaceSettings.SMTP.From
 	}
 	if from == "" {
-		return errors.New("email sender is not configured")
+		return safeErrorf("email sender is not configured")
 	}
 	subject := emailSubjectForEvents(target.Email, events, s.publicURL())
 	attachments := []string{}
@@ -1540,7 +1569,7 @@ func (s *Service) sendWebhookBodyTemplate(
 		message := messageForEvents(target.Webhook.MessageTemplate, single, publicURL, nil)
 		body := []byte(renderWebhookBodyTemplate(target.Webhook.BodyTemplate, event, message, publicURL))
 		if !json.Valid(body) {
-			return errors.New("webhook body template did not render valid JSON")
+			return safeErrorf("webhook body template did not render valid JSON")
 		}
 		bodies = append(bodies, body)
 	}
@@ -1622,7 +1651,7 @@ func teamsThrottleError(body string) error {
 
 func (s *Service) sendTelegram(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {
 	if target.Telegram == nil || target.Telegram.BotToken == "" || target.Telegram.ChatID == "" {
-		return errors.New("telegram bot token or chat id is not configured")
+		return safeErrorf("telegram bot token or chat id is not configured")
 	}
 	payload := map[string]any{
 		"chat_id": target.Telegram.ChatID,
@@ -1780,27 +1809,27 @@ func validateOutboundURL(ctx context.Context, rawURL string, allowInsecureHTTP, 
 		return err
 	}
 	if req.URL.Scheme == "http" && !allowInsecureHTTP {
-		return errors.New("webhook url must use https unless allowInsecureHttp is enabled")
+		return safeErrorf("webhook url must use https unless allowInsecureHttp is enabled")
 	}
 	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-		return errors.New("webhook url must use http or https")
+		return safeErrorf("webhook url must use http or https")
 	}
 	host := req.URL.Hostname()
 	if host == "" {
-		return errors.New("webhook url host is required")
+		return safeErrorf("webhook url host is required")
 	}
 	if allowPrivateNetwork {
 		return nil
 	}
 	if isPrivateHostLiteral(host) {
-		return errors.New("webhook url targets loopback or private network")
+		return safeErrorf("webhook url targets loopback or private network")
 	}
 	if addr, err := netip.ParseAddr(host); err == nil {
 		return rejectPrivateAddress(addr)
 	}
 	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
-		return fmt.Errorf("resolve webhook host: %w", err)
+		return safeErrorf("resolve webhook host: %w", err)
 	}
 	for _, addr := range addrs {
 		if parsed, ok := netip.AddrFromSlice(addr.IP); ok {
@@ -1819,7 +1848,7 @@ func isPrivateHostLiteral(host string) bool {
 
 func rejectPrivateAddress(addr netip.Addr) error {
 	if netutil.IsPrivateAddr(addr) {
-		return errors.New("webhook url resolves to loopback or private network")
+		return safeErrorf("webhook url resolves to loopback or private network")
 	}
 	return nil
 }

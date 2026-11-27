@@ -329,9 +329,8 @@ type testOptions struct {
 
 // HideProviderErrors logs the error of a failed test delivery, which can
 // name the provider's webhook URL, and reports the delivery by the
-// provider's type and name instead. The report keeps the HTTP status of a
-// failed response, and the operation, a URL preview, and the cause of a
-// failed request.
+// provider's type and name instead. The report keeps the parts of the
+// cause that hold no secret, except while projects are on.
 func HideProviderErrors() TestOption {
 	return func(o *testOptions) { o.hideErrors = true }
 }
@@ -389,15 +388,20 @@ func (s *Service) testError(result *TestResult, err error, options testOptions) 
 		slog.String("error", err.Error()),
 	)
 	cause := ""
-	if c := safeDeliveryCause(err); c != "" {
-		cause = ": " + c
+	// While projects are on, users see no provider's URL, so no part of the
+	// cause is kept.
+	if !s.projectsEnabled {
+		if c := safeDeliveryCause(err); c != "" {
+			cause = ": " + c
+		}
 	}
 	return fmt.Sprintf("delivery to %s provider %q failed%s; see the server log", result.ProviderType, result.ProviderName, cause)
 }
 
 // safeDeliveryCause describes err by its parts that hold no secret of the
-// provider: the status of a failed response, or the operation, a URL
-// preview, and the cause of a failed request. It returns "" for other errors.
+// provider: the status of a failed response; the operation, a URL preview,
+// and the cause of a failed request; or the whole of a safeError. It returns
+// "" for other errors.
 func safeDeliveryCause(err error) string {
 	if status, ok := errors.AsType[httpStatusError](err); ok {
 		return fmt.Sprintf("incident provider returned HTTP %d", status.code)
@@ -405,7 +409,26 @@ func safeDeliveryCause(err error) string {
 	if urlErr, ok := errors.AsType[*url.Error](err); ok {
 		return fmt.Sprintf("%s %q: %v", urlErr.Op, incidentmodel.PreviewSecret(urlErr.URL), urlErr.Err)
 	}
+	if safe, ok := errors.AsType[safeError](err); ok {
+		return safe.Error()
+	}
 	return ""
+}
+
+// safeError marks an error whose message holds no secret of the
+// provider, so a hidden test error can keep it.
+type safeError struct {
+	err error
+}
+
+func (e safeError) Error() string { return e.err.Error() }
+
+func (e safeError) Unwrap() error { return e.err }
+
+// safeErrorf formats an error as fmt.Errorf does and marks it safeError.
+// Arguments must hold no secret.
+func safeErrorf(format string, args ...any) error {
+	return safeError{err: fmt.Errorf(format, args...)}
 }
 
 func (s *Service) NotificationDestinations() []string {
@@ -1188,27 +1211,27 @@ func validateOutboundURL(ctx context.Context, rawURL string, allowInsecureHTTP, 
 		return err
 	}
 	if req.URL.Scheme == "http" && !allowInsecureHTTP {
-		return errors.New("webhook url must use https unless allowInsecureHttp is enabled")
+		return safeErrorf("webhook url must use https unless allowInsecureHttp is enabled")
 	}
 	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-		return errors.New("webhook url must use http or https")
+		return safeErrorf("webhook url must use http or https")
 	}
 	host := req.URL.Hostname()
 	if host == "" {
-		return errors.New("webhook url host is required")
+		return safeErrorf("webhook url host is required")
 	}
 	if allowPrivateNetwork {
 		return nil
 	}
 	if isPrivateHostLiteral(host) {
-		return errors.New("webhook url targets loopback or private network")
+		return safeErrorf("webhook url targets loopback or private network")
 	}
 	if addr, err := netip.ParseAddr(host); err == nil {
 		return rejectPrivateAddress(addr)
 	}
 	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
-		return fmt.Errorf("resolve webhook host: %w", err)
+		return safeErrorf("resolve webhook host: %w", err)
 	}
 	for _, addr := range addrs {
 		if parsed, ok := netip.AddrFromSlice(addr.IP); ok {
@@ -1227,7 +1250,7 @@ func isPrivateHostLiteral(host string) bool {
 
 func rejectPrivateAddress(addr netip.Addr) error {
 	if netutil.IsPrivateAddr(addr) {
-		return errors.New("webhook url resolves to loopback or private network")
+		return safeErrorf("webhook url resolves to loopback or private network")
 	}
 	return nil
 }
