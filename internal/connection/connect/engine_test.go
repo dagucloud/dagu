@@ -505,6 +505,59 @@ func TestExchangeErrorFailsSession(t *testing.T) {
 	assert.Equal(t, "invalid_client: bad client [redacted]", status.Reason)
 }
 
+// A failure that cannot be stored is not reported as a consent failure:
+// the store's error, or the refusal of a session replaced meanwhile, comes
+// back instead.
+func TestFailureWriteErrors(t *testing.T) {
+	t.Parallel()
+	errDisk := errors.New("disk full")
+	tests := []struct {
+		name    string
+		during  func(*fixture)
+		wantErr error
+	}{
+		{name: "StoreError", during: func(f *fixture) { f.writes.fail(errDisk) }, wantErr: errDisk},
+		{name: "Replaced", during: func(f *fixture) {
+			_, _ = f.engine.Start(context.Background(), f.conn, connect.StartOptions{User: starter, Redirect: serverCallback})
+		}, wantErr: connect.ErrCallbackRefused},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			auth := f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
+			params := f.provider.consent(t, auth)
+			f.provider.failExchange.Store(true)
+			f.provider.onExchange = func() { tt.during(f) }
+
+			err := f.engine.Callback(context.Background(), params)
+			assert.ErrorIs(t, err, tt.wantErr)
+			assert.NotErrorIs(t, err, connect.ErrConsentFailed)
+		})
+	}
+}
+
+// A callback's claim holds through the provider calls and the write after
+// them, so a second callback just before that ends is still refused.
+func TestClaimOutlivesProviderCalls(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	auth := f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
+	params := f.provider.consent(t, auth)
+	var second error
+	f.provider.onExchange = func() {
+		f.provider.onExchange = nil
+		// The consent timeout and the write timeout have both passed.
+		f.clock.advance(50 * time.Second)
+		second = f.engine.Callback(context.Background(), params)
+	}
+
+	require.NoError(t, f.engine.Callback(context.Background(), params))
+	assert.ErrorIs(t, second, connect.ErrCallbackRefused)
+	assert.Equal(t, 1, f.provider.exchanges())
+	assert.Equal(t, connection.SessionPhaseConfirm, f.state(t).Session.Phase)
+}
+
 func TestCancel(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -571,6 +624,7 @@ func TestStartRefusesUnavailableRedirect(t *testing.T) {
 
 type fixture struct {
 	store    connection.Store
+	writes   *failingStore
 	conn     *connection.Connection
 	engine   *connect.Engine
 	provider *fakeProvider
@@ -589,6 +643,7 @@ func newFixture(t *testing.T, opts ...func(*connect.Config)) *fixture {
 
 	f := &fixture{
 		store:    s,
+		writes:   &failingStore{Store: s},
 		provider: newFakeProvider(t),
 		clock:    &clock{now: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)},
 		changes:  &changes{},
@@ -614,7 +669,7 @@ func newFixture(t *testing.T, opts ...func(*connect.Config)) *fixture {
 	require.NoError(t, err)
 
 	cfg := connect.Config{
-		Store:          s,
+		Store:          f.writes,
 		Providers:      map[connection.Provider]connect.Provider{connection.ProviderOAuth2: f.provider},
 		Encryptor:      enc,
 		OnStatusChange: f.changes.add,
@@ -682,6 +737,8 @@ type fakeProvider struct {
 	noRefreshToken   bool
 	noExpiry         bool
 	onProbe          func()
+	// onExchange runs in Exchange before the token request.
+	onExchange func()
 
 	failExchange atomic.Bool
 	// blockExchange and blockProbe make the call wait for its context.
@@ -773,6 +830,9 @@ func (p *fakeProvider) AuthorizationParams(*connection.Connection) []oauth2.Auth
 }
 
 func (p *fakeProvider) Exchange(ctx context.Context, cfg *oauth2.Config, _ *connection.Connection, code string, opts ...oauth2.AuthCodeOption) (*oauth2.Token, error) {
+	if p.onExchange != nil {
+		p.onExchange()
+	}
 	if p.blockExchange.Load() {
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -797,6 +857,30 @@ func (p *fakeProvider) Probe(ctx context.Context, conn *connection.Connection, _
 		}
 	}
 	return probes
+}
+
+// failingStore fails the engine's token state writes once a test arms it.
+type failingStore struct {
+	connection.Store
+
+	mu  sync.Mutex
+	err error
+}
+
+func (s *failingStore) fail(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.err = err
+}
+
+func (s *failingStore) UpdateTokenState(ctx context.Context, conn *connection.Connection, fn func(*connection.TokenState) error) (*connection.TokenState, error) {
+	s.mu.Lock()
+	err := s.err
+	s.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return s.Store.UpdateTokenState(ctx, conn, fn)
 }
 
 type clock struct {
