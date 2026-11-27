@@ -71,9 +71,10 @@ func newConnectionRun(t *testing.T) connectionRun {
 	for _, conn := range []*connection.Connection{
 		{
 			Workspace: "ops", Name: "work", Provider: connection.ProviderOAuth2, App: app.ID,
-			Grant:      connection.GrantAuthorizationCode,
-			Services:   []connection.Service{{Name: "mail", Access: connection.AccessRead}},
-			BoundHosts: []string{"api.example.com"},
+			Grant:            connection.GrantAuthorizationCode,
+			Services:         []connection.Service{{Name: "mail", Access: connection.AccessRead}},
+			BoundHosts:       []string{"api.example.com"},
+			AllowTokenExport: true,
 		},
 		{Name: "notify", Provider: connection.ProviderOAuth2, App: app.ID, Grant: connection.GrantAuthorizationCode},
 	} {
@@ -144,9 +145,10 @@ func TestResolveConnectionToken(t *testing.T) {
 	t.Parallel()
 	run := newConnectionRun(t)
 	wantBinding := &coordinatorv1.ConnectionBinding{
-		Provider:   "oauth2",
-		Services:   []*coordinatorv1.ConnectionService{{Name: "mail", Access: "read"}},
-		BoundHosts: []string{"api.example.com"},
+		Provider:         "oauth2",
+		Services:         []*coordinatorv1.ConnectionService{{Name: "mail", Access: "read"}},
+		BoundHosts:       []string{"api.example.com"},
+		AllowTokenExport: true,
 	}
 
 	resp, err := run.resolve(&coordinatorv1.ResolveConnectionTokenRequest{Connection: "work", MinTtlSeconds: 300})

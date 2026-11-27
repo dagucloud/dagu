@@ -2600,6 +2600,9 @@ func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfil
 
 	envScope := a.buildEnvScopeForSecrets(profileValues)
 	secretCtx := cmnvalue.WithEnvScope(ctx, envScope)
+	if conns := a.runConnections(); conns != nil {
+		secretCtx = providers.WithConnections(secretCtx, conns)
+	}
 
 	baseDirs := a.buildSecretBaseDirs(ctx, envScope)
 	secretRegistry := providers.NewRegistryWithReferenceResolver(a.secretReferenceResolver, baseDirs...)

@@ -6,7 +6,7 @@ Partially implemented.
 
 Conformance covers direct provider references declared on a DAG's `secrets:`
 field, build-time validation of that field, live resolution for the
-`env`, `file`, and `aws` providers, and a retry that fails a step reading an
+`env`, `file`, `aws`, and `connection` providers, and a retry that fails a step reading an
 output stored masked while it reuses outputs the step does not read. It does
 not cover the workspace-managed secret registry (`ref:`-style references),
 which requires a running Dagu server and its secrets management API.
@@ -17,8 +17,8 @@ This spec covers `secrets:` entries that resolve directly through a named
 provider (`provider:` plus `key:`), independent of any registry. It covers:
 
 - Build-time validation of the `secrets:` field shared by every provider.
-- Live resolution, failure, and masking behavior for the `env`, `file`, and
-  `aws` providers.
+- Live resolution, failure, and masking behavior for the `env`, `file`,
+  `aws`, and `connection` providers.
 - Provider-specific reference parsing for `gcp`, `azure`, `alibaba`, and
   `kubernetes`, to the extent it fails before any network client is created.
 
@@ -171,6 +171,18 @@ Provider-specific behavior covered here:
   using the standard AWS SDK, which honors `AWS_ENDPOINT_URL` and the AWS
   credential environment variables. A secret Secrets Manager reports as
   missing fails with `AWS Secrets Manager secret "<key>" was not found`.
+- `connection`: resolves `key`, a connection name, to an access token of
+  that connection in the DAG's project ([Spec 107](107-connections.md)).
+  `key` must be a literal connection name, which `dagu validate` checks,
+  and the entry declares the connection, so the run checks it before its
+  secrets resolve. The token stays valid for at least 50 minutes, or half
+  the provider's token lifetime when that is shorter; a step that runs
+  longer uses a connection-aware step instead. `options.service`, the only
+  option, must name one of the connection's services. A connection without
+  `allow_token_export`, which only an admin sets, fails with
+  `connection "<key>" does not allow token export`. A connection that needs
+  reconnecting fails the run too, as every secret failure does. On a worker,
+  the token comes from the coordinator.
 - `gcp`, `azure`, `alibaba`, `kubernetes`: reference parsing runs before any
   client is created and reports a provider-specific diagnostic for a
   malformed reference (for example, `kubernetes` requires `key` to be
@@ -192,7 +204,8 @@ secrets:
     provider: env
     key: SOURCE_API_TOKEN
 steps:
-  - command: curl -H "Authorization: Bearer $API_TOKEN" https://example.invalid
+  - command: |
+      curl -H "Authorization: Bearer $API_TOKEN" https://example.invalid
 ```
 
 ```yaml
@@ -205,4 +218,16 @@ secrets:
       field: password
 steps:
   - command: echo "$DB_PASSWORD" | psql-login
+```
+
+```yaml
+labels:
+  - workspace=ops
+secrets:
+  - name: GOOGLE_TOKEN
+    provider: connection
+    key: work-google
+steps:
+  - command: |
+      curl -H "Authorization: Bearer $GOOGLE_TOKEN" https://gmail.googleapis.com/gmail/v1/users/me/profile
 ```
