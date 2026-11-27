@@ -13,7 +13,13 @@ import userEvent from '@testing-library/user-event';
 import { useEffect, type ReactNode } from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Status, StatusLabel } from '@/api/v1/schema';
+import {
+  RestartPolicy,
+  ServiceDAGRestartHold,
+  ServiceDAGState,
+  Status,
+  StatusLabel,
+} from '@/api/v1/schema';
 import {
   UnsavedChangesProvider,
   useUnsavedChanges,
@@ -46,6 +52,13 @@ const h = vi.hoisted(() => ({
   showToast: vi.fn(),
   showError: vi.fn(),
   pushRunProgress: vi.fn(),
+  serviceDags: [] as {
+    fileName: string;
+    state: ServiceDAGState;
+    restartHold?: ServiceDAGRestartHold;
+    readError?: string;
+  }[],
+  serviceRead: vi.fn(),
 }));
 
 vi.mock('@/contexts/ConfigContext', () => ({
@@ -63,6 +76,17 @@ vi.mock('@/contexts/AuthContext', () => ({
 vi.mock('@/hooks/api', () => ({
   useClient: () => h.client,
   useQuery: () => ({ data: undefined, isLoading: false }),
+}));
+// The read of the Workflows list: one request for the list and the bar. It
+// reads nothing while it is not enabled, as the hook does.
+vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
+  useServiceDAGs: (options: { enabled: boolean }) => {
+    h.serviceRead(options);
+    return {
+      serviceDAGs: options.enabled ? h.serviceDags : [],
+      error: null,
+    };
+  },
 }));
 vi.mock('@/components/ui/simple-toast', () => ({
   useSimpleToast: () => ({ showToast: h.showToast }),
@@ -136,6 +160,8 @@ interface Setup {
   url?: string;
   /** The DAG has a start schedule. */
   scheduled?: boolean;
+  /** The definition of the workflow; a plain one by default. */
+  dag?: ApiDAGDetails;
 }
 
 function EditorBinder({ dirty, buffer }: { dirty: boolean; buffer: string }) {
@@ -186,10 +212,11 @@ function setup({
   cluster = false,
   url = `/dags/${FILE}`,
   scheduled = false,
+  dag: dagDef = dag,
 }: Setup = {}) {
   const shown = scheduled
-    ? ({ ...dag, schedule: [{ expression: '0 2 * * *' }] } as ApiDAGDetails)
-    : dag;
+    ? ({ ...dagDef, schedule: [{ expression: '0 2 * * *' }] } as ApiDAGDetails)
+    : dagDef;
   const selected = details === undefined ? latest : details;
   const run = {
     selection: pinned ? { runId: pinned } : 'latest',
@@ -281,6 +308,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.runDags = true;
   h.canExecute = true;
+  h.serviceDags = [];
   h.client.GET.mockResolvedValue({ data: { dag: { name: 'etl' } } });
   h.client.POST.mockResolvedValue({
     data: { dagRunId: 'new-run' },
@@ -773,5 +801,152 @@ describe('RunSplitButton', () => {
         })
       )
     );
+  });
+
+  // A service workflow has one run at a time, and the scheduler starts its
+  // next run by itself: the bar offers no Retry and no draft run then.
+  describe('service workflow', () => {
+    const service = (restartPolicy: RestartPolicy) =>
+      ({
+        name: 'etl',
+        restartPolicy,
+        restartWaitSec: 5,
+      }) as ApiDAGDetails;
+    const running = runDetails('run-3', Status.Running, {
+      statusLabel: StatusLabel.running,
+    });
+    const failedRun = (id = 'run-3') =>
+      runDetails(id, Status.Failed, { statusLabel: StatusLabel.failed });
+    const dirty = { dirty: true, buffer: 'steps: []\n' };
+
+    it.each([RestartPolicy.always, RestartPolicy.unless_stopped])(
+      'has no Retry of a past run and no draft menu while a run is active (%s)',
+      (policy) => {
+        setup({
+          dag: service(policy),
+          latest: running,
+          pinned: 'run-1',
+          details: failedRun('run-1'),
+          cluster: true,
+          canSave: true,
+          dirtyFlag: true,
+          editor: dirty,
+        });
+
+        expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
+        // The palette commands Run… and Retry find nothing to click.
+        expect(barControlAvailable('retry')).toBe(false);
+        expect(barControlAvailable('start')).toBe(false);
+        expect(
+          screen.queryByRole('button', { name: 'More run options' })
+        ).toBeNull();
+      }
+    );
+
+    it('keeps Retry and the draft menu without an active run', async () => {
+      setup({
+        dag: service(RestartPolicy.always),
+        latest: failedRun(),
+        cluster: true,
+        editor: dirty,
+      });
+
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled();
+      const menu = await openMenu();
+      expect(
+        within(menu).getByRole('menuitem', { name: 'Run unsaved draft' })
+      ).not.toHaveAttribute('aria-disabled');
+    });
+
+    // The scheduler starts the next run of a service DAG that restarts or
+    // fails.
+    it.each([ServiceDAGState.restarting, ServiceDAGState.failing])(
+      'has no Retry and no draft menu with no run alive in the state %s',
+      (state) => {
+        h.serviceDags = [{ fileName: FILE, state }];
+        setup({
+          dag: service(RestartPolicy.always),
+          latest: failedRun(),
+          cluster: true,
+          canSave: true,
+          dirtyFlag: true,
+          editor: dirty,
+        });
+
+        expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
+        expect(
+          screen.queryByRole('button', { name: 'More run options' })
+        ).toBeNull();
+        // The bar reads the list of the service DAGs.
+        expect(h.serviceRead).toHaveBeenCalledWith({ enabled: true });
+      }
+    );
+
+    // The scheduler starts no run: a manual start or retry applies.
+    it.each<[string, (typeof h.serviceDags)[number]]>([
+      ['pending', { fileName: FILE, state: ServiceDAGState.pending }],
+      ['suspended', { fileName: FILE, state: ServiceDAGState.suspended }],
+      ['stopped', { fileName: FILE, state: ServiceDAGState.stopped }],
+      [
+        'on hold',
+        {
+          fileName: FILE,
+          state: ServiceDAGState.failing,
+          restartHold: ServiceDAGRestartHold.paused,
+        },
+      ],
+      [
+        'unreadable',
+        {
+          fileName: FILE,
+          state: ServiceDAGState.failing,
+          readError: 'status file is corrupt',
+        },
+      ],
+    ])(
+      'keeps Retry and the draft menu when the DAG is %s',
+      async (_, entry) => {
+        h.serviceDags = [entry];
+        setup({
+          dag: service(RestartPolicy.always),
+          latest: failedRun(),
+          cluster: true,
+          canSave: true,
+          dirtyFlag: true,
+          editor: dirty,
+        });
+
+        expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled();
+        expect(await menuItems()).toEqual(['Save & Run', 'Run unsaved draft']);
+      }
+    );
+
+    it('keeps Retry when the list does not have the DAG', () => {
+      h.serviceDags = [
+        { fileName: 'other.yaml', state: ServiceDAGState.failing },
+      ];
+      setup({
+        dag: service(RestartPolicy.always),
+        latest: failedRun(),
+        cluster: true,
+      });
+
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled();
+    });
+
+    it('keeps Retry for a plain workflow and does not read the list', () => {
+      h.serviceDags = [{ fileName: FILE, state: ServiceDAGState.failing }];
+      setup({ latest: failedRun(), cluster: true });
+
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+      expect(
+        h.serviceRead.mock.calls.every((args) => args[0].enabled === false)
+      ).toBe(true);
+    });
   });
 });

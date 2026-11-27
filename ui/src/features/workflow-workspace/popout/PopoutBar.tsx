@@ -16,7 +16,7 @@ import {
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { runDisplayStatus } from '@/lib/runDisplayStatus';
-import type { ApiDAGRunDetails } from '../contracts';
+import type { ApiDAGDetails, ApiDAGRunDetails } from '../contracts';
 import type { WorkspaceUrlState } from '../state/workspaceUrl';
 
 export interface PopoutBarProps {
@@ -26,6 +26,12 @@ export interface PopoutBarProps {
   run: ApiDAGRunDetails | undefined;
   /** True when the workflow is a service DAG: only then a run reads Healthy. */
   service: boolean;
+  /**
+   * The workflow and its latest run: a service DAG with an active latest run
+   * has no Retry, as the server refuses it.
+   */
+  dag?: ApiDAGDetails;
+  latestRun?: ApiDAGRunDetails;
   kind: 'step' | 'run';
   step: string | null;
   carry: WorkspaceUrlState['carry'];
@@ -64,6 +70,8 @@ export function PopoutBar({
   dagName,
   run,
   service,
+  dag,
+  latestRun,
   kind,
   step,
   carry,
@@ -187,6 +195,7 @@ export function PopoutBar({
                 displayMode="full"
                 hideUnavailable
                 isRootLevel
+                service={dag && { dag, latestRun }}
               />
             )}
           </div>

@@ -28,10 +28,12 @@ import { backfillPath } from '@/features/backfills/lib/backfillLinks';
 import DAGActions from '@/features/dags/components/common/DAGActions';
 import { useEditorRunActions } from '@/features/visual-editor/run/useEditorRunActions';
 import { useI18n } from '@/i18n/I18nProvider';
+import { hasActiveServiceRun, restartsByItself } from '@/lib/dagSchedule';
 import { cn } from '@/lib/utils';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
 import type { BarSlotProps } from '../contracts';
 import { useWorkspaceData } from '../data/context';
+import { useServiceDag } from '../data/useServiceDag';
 import { useWorkspacePermissions } from '../data/useWorkspacePermissions';
 import { useWorkspaceRefresh } from '../data/useWorkspaceRefresh';
 import { Z } from '../zLayers';
@@ -119,6 +121,7 @@ function SplitButton({
     spec,
     isDirty: dirty,
   });
+  const service = useServiceDag(fileName);
   const busy = actions.isStarting;
   const shownError = useShownError(actions.error, busy);
 
@@ -139,8 +142,14 @@ function SplitButton({
   // The draft is the one choice that Start does not give. With Start beside
   // it, the caret keeps its slot while there is no draft; alone, it shows
   // only for a draft.
-  const canRunDraft = canExecute && (dirty || canRunDags);
-  const canSaveAndRun = canSaveAndStart && hasUnsavedChanges;
+  // A service workflow with an active run refuses a draft run, so its menu
+  // has nothing to offer. So does one that the scheduler restarts by itself:
+  // it starts the next run, and Start is not shown.
+  const serviceRestarts = restartsByItself(service);
+  const serviceBusy =
+    hasActiveServiceRun(dag, dagData.latestDAGRun) || serviceRestarts;
+  const canRunDraft = canExecute && !serviceBusy && (dirty || canRunDags);
+  const canSaveAndRun = canSaveAndStart && hasUnsavedChanges && !serviceBusy;
   // A backfill runs the saved definition's past slots, so it needs a
   // schedule and the right to run.
   const canBackfill = canRunDags && (dag.schedule?.length ?? 0) > 0;
@@ -168,6 +177,7 @@ function SplitButton({
               fileName={fileName}
               refresh={() => void refresh()}
               markActions
+              service={service}
             />
           </RunStartTarget>
           {(busy || shownError) && (

@@ -11,6 +11,8 @@ import DAGRunActions from '@/features/dag-runs/components/common/DAGRunActions';
 import { useRunSpecStale } from '@/features/visual-editor/run/useRunSpecStale';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { BarSlotProps } from '../contracts';
+import { useWorkspaceData } from '../data/context';
+import { useServiceDag } from '../data/useServiceDag';
 import { useWorkspacePermissions } from '../data/useWorkspacePermissions';
 import { useWorkspaceRun } from '../data/useWorkspaceRun';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
@@ -32,6 +34,8 @@ export function RunActionsCluster({ fileName, dag }: BarSlotProps) {
   const { ts } = useI18n();
   const { canRunDags, canWrite } = useWorkspacePermissions();
   const run = useWorkspaceRun();
+  const { dagData } = useWorkspaceData('RunActionsCluster');
+  const serviceDAG = useServiceDag(fileName);
   const showRun = useShowRun();
   const [url, setUrl] = useWorkspaceUrl();
   const stopAll = useMemo(() => ({ fileName }), [fileName]);
@@ -92,6 +96,7 @@ export function RunActionsCluster({ fileName, dag }: BarSlotProps) {
             displayMode="bar"
             hideUnavailable
             stopAll={stopAll}
+            service={{ dag, latestRun: dagData.latestDAGRun, serviceDAG }}
             markActions
             // Like Start and Run step, a new run is shown at once. A run
             // under another DAG name is not a run of this workflow. A
