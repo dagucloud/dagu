@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/connection/oauthrefresh"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -63,7 +64,7 @@ type tokenKey struct {
 }
 
 var (
-	_ broker.Source             = (*remoteConnections)(nil)
+	_ providers.Connections     = (*remoteConnections)(nil)
 	_ rtagent.ConnectionChecker = (*remoteConnections)(nil)
 )
 
@@ -80,8 +81,9 @@ func newRemoteConnections(client coordinator.ConnectionTokenClient, owner servic
 
 // Connection returns the binding of the connection named name, as the
 // connection that Token takes: its name, provider, services, every host
-// that may receive its token, and its resource. A binding an earlier answer
-// carried is reused; otherwise a check-only request asks for it.
+// that may receive its token, its resource, and whether it allows token
+// export. A binding an earlier answer carried is reused; otherwise a
+// check-only request asks for it.
 func (c *remoteConnections) Connection(ctx context.Context, name string) (*connection.Connection, error) {
 	c.mu.Lock()
 	conn, ok := c.bindings[name]
@@ -108,6 +110,12 @@ func (c *remoteConnections) CheckConnection(ctx context.Context, _ string, ref i
 		return nil
 	}
 	return err
+}
+
+// Connections returns c: the coordinator resolves each name in the run's
+// workspace.
+func (c *remoteConnections) Connections(string) providers.Connections {
+	return c
 }
 
 func (c *remoteConnections) Token(ctx context.Context, conn *connection.Connection, resource string, minTTL time.Duration) (string, time.Duration, error) {
@@ -196,10 +204,11 @@ func (c *remoteConnections) call(ctx context.Context, req *coordinatorv1.Resolve
 // in the run's workspace.
 func bindingConnection(name string, binding *coordinatorv1.ConnectionBinding) *connection.Connection {
 	conn := &connection.Connection{
-		Name:       name,
-		Provider:   connection.Provider(binding.GetProvider()),
-		BoundHosts: binding.GetBoundHosts(),
-		Resource:   binding.GetResource(),
+		Name:             name,
+		Provider:         connection.Provider(binding.GetProvider()),
+		BoundHosts:       binding.GetBoundHosts(),
+		Resource:         binding.GetResource(),
+		AllowTokenExport: binding.GetAllowTokenExport(),
 	}
 	for _, svc := range binding.GetServices() {
 		conn.Services = append(conn.Services, connection.Service{Name: svc.GetName(), Access: connection.Access(svc.GetAccess())})
