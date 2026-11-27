@@ -45,9 +45,9 @@ const (
 	// that found no worker.
 	peerTokenRefusalWindow = 10 * time.Minute
 	// peerTokenMissingHint names the fixes for a call without a peer token.
-	peerTokenMissingHint = "set the same peer.token on the coordinator and every peer, let the peer read the coordinator's data directory, or set coordinator.require_token: false"
+	peerTokenMissingHint = "set the same peer.token on the coordinator and every peer, let the peer read the coordinator's data directory, or set coordinator.require_token: false" //nolint:gosec // A log hint, not a credential.
 	// peerTokenMismatchHint names the fix for a call with another token.
-	peerTokenMismatchHint = "set the same peer.token on the coordinator and every peer"
+	peerTokenMismatchHint = "set the same peer.token on the coordinator and every peer" //nolint:gosec // A log hint, not a credential.
 	// grpcHealthMethodPrefix names the health service, which probes call
 	// without credentials.
 	grpcHealthMethodPrefix = "/grpc.health.v1.Health/"
