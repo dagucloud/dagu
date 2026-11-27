@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
@@ -23,19 +24,25 @@ import (
 // environment (Spec 101, Host Values): those of the variables that
 // resolving the DAG and its steps read from the host, and of those that
 // Dagu forwards to steps, except the variables it forwards by default, with
-// each string in a value that is JSON. --update writes none of them, and
-// the report masks them.
+// each string and number in a value that is JSON. --update writes none of
+// them, and the report masks them.
 type hostValues struct {
 	// vars holds each host variable, sorted by name.
 	vars []hostVar
-	// values holds the values of every host variable.
+	// values holds the values of every host variable that text matches
+	// wherever it holds them.
 	values []string
+	// short holds the short parts of every host variable, which only a
+	// whole value matches.
+	short []string
 }
 
-// hostVar is a host variable with a masker of its values.
+// hostVar is a host variable with a masker of its values and its short
+// parts.
 type hostVar struct {
 	name   string
 	masker *masking.Masker
+	short  []string
 }
 
 // newHostValues returns the host values of a run whose reads ctx tracks
@@ -55,65 +62,74 @@ func newHostValues(ctx context.Context, base config.BaseEnv) hostValues {
 		if config.ForwardedByDefault(name) {
 			continue
 		}
-		var values []string
+		var parts hostParts
 		for _, value := range read[name] {
-			values = appendHostValue(values, value)
+			parts.add(value)
 		}
-		if len(values) == 0 {
+		if len(parts.values) == 0 && len(parts.short) == 0 {
 			continue
 		}
-		h.vars = append(h.vars, hostVar{name: name, masker: masking.NewValueMasker(values)})
-		h.values = append(h.values, values...)
+		h.vars = append(h.vars, hostVar{name: name, masker: masking.NewValueMasker(parts.values), short: parts.short})
+		h.values = append(h.values, parts.values...)
+		h.short = append(h.short, parts.short...)
 	}
 	return h
 }
 
 // minHostPart is the length, in characters, below which a string or a
-// number inside a JSON host value is no host value. A part that short,
-// such as us or 443, cannot be told apart from the text around it and
-// holds no credential, while matching it would keep and mask unrelated
-// text everywhere. A four-digit PIN still counts.
+// number inside a JSON host value matches only a whole value or member
+// equal to it. Text that merely contains a part that short, such as us in
+// us-east-1, cannot be told apart from it.
 const minHostPart = 4
 
-// appendHostValue appends a host variable's value to values, and each
-// string and number in it when it is JSON, since a JSON path or the listed
-// keys of an assertion take a part of it. A boolean, a part shorter than
-// minHostPart, and an empty value are no host values.
-func appendHostValue(values []string, value string) []string {
-	add := func(text string) {
-		if text != "" && !slices.Contains(values, text) {
-			values = append(values, text)
-		}
-	}
-	add(value)
-	var parts func(v any)
-	parts = func(v any) {
+// hostParts collects the values of one host variable.
+type hostParts struct {
+	// values match wherever text holds them, and short only as a whole.
+	values []string
+	short  []string
+}
+
+// add adds a host variable's value, and each string and number in it when
+// it is JSON, since a JSON path or the listed keys of an assertion take a
+// part of it. A boolean holds one bit, so it is no host value, and neither
+// is an empty value.
+func (p *hostParts) add(value string) {
+	p.part(value, false)
+	var walk func(v any)
+	walk = func(v any) {
 		switch x := v.(type) {
 		case string:
-			if utf8.RuneCountInString(x) >= minHostPart {
-				add(x)
-			}
+			p.part(x, true)
 		case json.Number:
 			for _, text := range numberTexts(x) {
-				if len(text) >= minHostPart {
-					add(text)
-				}
+				p.part(text, true)
 			}
 		case map[string]any:
 			for _, item := range x {
-				parts(item)
+				walk(item)
 			}
 		case []any:
 			for _, item := range x {
-				parts(item)
+				walk(item)
 			}
 		}
 	}
 	var decoded any
 	if decodeJSON(value, &decoded) == nil {
-		parts(decoded)
+		walk(decoded)
 	}
-	return values
+}
+
+// part adds text, as a short part when it is a part of a JSON value shorter
+// than minHostPart.
+func (p *hostParts) part(text string, inJSON bool) {
+	list := &p.values
+	if inJSON && utf8.RuneCountInString(text) < minHostPart {
+		list = &p.short
+	}
+	if text != "" && !slices.Contains(*list, text) {
+		*list = append(*list, text)
+	}
 }
 
 // numberTexts returns the texts a JSON number takes: as written, as a JSON
@@ -127,15 +143,75 @@ func numberTexts(n json.Number) []string {
 }
 
 // held returns, sorted, the names of the host variables whose values text
-// holds, as written or inside a JSON string.
+// holds, as written or inside a JSON string, or whose short parts text
+// equals.
 func (h *hostValues) held(text string) []string {
 	var names []string
 	for _, v := range h.vars {
-		if v.masker.MaskString(text) != text {
+		if v.masker.MaskString(text) != text || slices.Contains(v.short, text) {
 			names = append(names, v.name)
 		}
 	}
 	return names
+}
+
+// heldIn returns, sorted, the names of the host variables that v holds: in
+// its text, or as a string or number in it that equals a short part.
+func (h *hostValues) heldIn(v any) []string {
+	names := h.held(outputText(v))
+	var items []any
+	switch x := v.(type) {
+	case map[string]any:
+		items = slices.Collect(maps.Values(x))
+	case []any:
+		items = x
+	}
+	for _, item := range items {
+		names = append(names, h.heldIn(item)...)
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// mask returns v as compact JSON with masker's values masked, and with each
+// string or number in it that equals a short host part masked too.
+func (h *hostValues) mask(masker *masking.Masker, v any) json.RawMessage {
+	masked := maskedJSON(masker, v)
+	var decoded any
+	if len(h.short) == 0 || decodeJSON(string(masked), &decoded) != nil {
+		return masked
+	}
+	changed := false
+	var walk func(v any) any
+	walk = func(v any) any {
+		switch x := v.(type) {
+		case string:
+			if slices.Contains(h.short, x) {
+				changed = true
+				return masking.DefaultMaskString
+			}
+		case json.Number:
+			if slices.ContainsFunc(numberTexts(x), func(t string) bool { return slices.Contains(h.short, t) }) {
+				changed = true
+				return masking.DefaultMaskString
+			}
+		case map[string]any:
+			for key, item := range x {
+				x[key] = walk(item)
+			}
+		case []any:
+			for i, item := range x {
+				x[i] = walk(item)
+			}
+		}
+		return v
+	}
+	decoded = walk(decoded)
+	if !changed {
+		return masked
+	}
+	data, _ := jsonutil.MarshalUnescaped(decoded)
+	return json.RawMessage(data)
 }
 
 // hostGuard keeps the run values that hold a host value out of the
@@ -172,7 +248,7 @@ func (g *hostGuard) merge(written, updated any) (any, []string) {
 	old, wasObject := written.(map[string]any)
 	object, isObject := updated.(map[string]any)
 	if !wasObject || !isObject {
-		if vars := g.host.held(outputText(updated)); len(vars) > 0 {
+		if vars := g.host.heldIn(updated); len(vars) > 0 {
 			return written, vars
 		}
 		return updated, nil

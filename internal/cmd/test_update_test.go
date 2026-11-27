@@ -344,16 +344,17 @@ func TestTestUpdateHostValues(t *testing.T) {
 // A part of a host value stays out too: a string or a number that a JSON
 // path selects, directly or through a DAG env entry read from the host,
 // also a number whose JSON text differs from the text it resolves to, and
-// the listed keys of a with object that hold one. Only those keys stay:
-// another changed key of the same object is written, also one that holds a
-// part of the host value too short to tell apart, such as us. So do
-// notifications whose recipient a DAG env entry read from the host.
+// the listed keys of a with object that hold one. A part shorter than four
+// characters, such as the code 482, counts where a value equals it. Only
+// those keys stay: another changed key of the same object is written, also
+// one that merely contains a short part, such as us. So do notifications
+// whose recipient a DAG env entry read from the host.
 // t.Setenv rules out t.Parallel.
 func TestTestUpdateHostParts(t *testing.T) {
 	const user = "svc-deploy-41"
 	// The pin is written in exponent form and resolves to 736491.
 	const pin, resolvedPin = "7.36491e5", "736491"
-	t.Setenv("TEST_UPDATE_HOST_AUTH", `{"token":"`+updateHostToken+`","user":"`+user+`","pin":`+pin+`,"region":"us","debug":true}`)
+	t.Setenv("TEST_UPDATE_HOST_AUTH", `{"token":"`+updateHostToken+`","user":"`+user+`","pin":`+pin+`,"code":482,"region":"us","debug":true}`)
 	t.Setenv("TEST_UPDATE_HOST_MAIL", "ops-7e21@example.com")
 
 	home := writeInitDAG(t, "report.yaml", `mail_on:
@@ -364,6 +365,7 @@ info_mail:
 env:
   - AUTH: ${TEST_UPDATE_HOST_AUTH}
   - PIN: ${TEST_UPDATE_HOST_AUTH.pin}
+  - CODE: ${TEST_UPDATE_HOST_AUTH.code}
   - MAIL_TO: ${TEST_UPDATE_HOST_MAIL}
 steps:
   - id: notify
@@ -374,6 +376,7 @@ steps:
       headers:
         Authorization: ${AUTH.token}
         X-Pin: ${AUTH.pin}
+        X-Code: ${AUTH.code}
         X-Region: us-east-1
       body: ${AUTH}
 `)
@@ -392,12 +395,14 @@ cases:
               headers:
                 Authorization: old
                 X-Pin: old
+                X-Code: old
                 X-Region: ` + region + `
               body:
                 user: old
                 pin: 0
             env:
               PIN: old
+              CODE: old
       notifications: []
 `
 	}
@@ -409,13 +414,15 @@ cases:
 	assert.Equal(t, testExitFailed, exit.code)
 	assertInOrder(t, stdout,
 		"FAIL "+testReportPath(testPath)+": parts stay out (",
-		`  step notify called_with.with.headers: expected {"Authorization":"old","X-Pin":"old","X-Region":"us-east-1"}, got {"Authorization":"*******","X-Pin":"*******","X-Region":"us-east-1"}`+"\n",
+		`  step notify called_with.with.headers: expected {"Authorization":"old","X-Code":"old","X-Pin":"old","X-Region":"us-east-1"}, got {"Authorization":"*******","X-Code":"*******","X-Pin":"*******","X-Region":"us-east-1"}`+"\n",
 		`  step notify called_with.with.body: expected {"pin":0,"user":"old"}, got `,
 		`  step notify called_with.env.PIN: expected "old", got "*******"`+"\n",
+		`  step notify called_with.env.CODE: expected "old", got "*******"`+"\n",
 		"  notifications: expected none, got mail_on.success to ops-7e21@example.com\n",
-		"  step notify called_with.with.headers: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH, PIN under env\n",
-		"  step notify called_with.with.body: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH, PIN under env\n",
-		"  step notify called_with.env.PIN: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH, PIN under env\n",
+		"  step notify called_with.with.headers: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH, CODE, PIN under env\n",
+		"  step notify called_with.with.body: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH, CODE, PIN under env\n",
+		"  step notify called_with.env.PIN: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH, CODE, PIN under env\n",
+		"  step notify called_with.env.CODE: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH, CODE, PIN under env\n",
 		"  notifications: kept, it holds the value of host variable TEST_UPDATE_HOST_MAIL\n",
 		"  expect updated\n")
 	for _, part := range []string{updateHostToken, user, pin, resolvedPin} {
