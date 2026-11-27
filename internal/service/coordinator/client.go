@@ -6,9 +6,11 @@ package coordinator
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -329,7 +331,9 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchReques
 // newDispatchAttemptID returns a random 48-bit attempt ID, so a new attempt
 // does not take the ID of an earlier attempt of the run.
 func newDispatchAttemptID() string {
-	return fmt.Sprintf("%012x", rand.Uint64()>>16)
+	b := make([]byte, 6)
+	_, _ = cryptorand.Read(b) // Read never returns an error.
+	return hex.EncodeToString(b)
 }
 
 func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.DispatchTask) error {
