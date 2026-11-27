@@ -15571,7 +15571,7 @@ components:
           description: "The rules that the content breaks"
         hash:
           type: string
-          description: "For a conflict: the hash of the skill now. Empty when the skill does not exist."
+          description: "For a conflict: the hash of the skill now. Empty when the server knows no current version: another writer holds the skill, or the skill is being changed."
       required:
         - code
         - message

@@ -332,6 +332,36 @@ func TestWritePreconditions(t *testing.T) {
 	})
 }
 
+// A read that does not settle holds no version of the skill, so its hash
+// passes no precondition, also when the client got that hash from such a read.
+// The test changes a package variable, so it is not parallel.
+func TestWriteRefusesASkillThatDoesNotSettle(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	_, err := s.WriteFile(ctx, "demo", "references/x.md", []byte("x"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	before, err := os.ReadFile(filepath.Join(s.Dir("demo"), "SKILL.md"))
+	require.NoError(t, err)
+
+	n := 0
+	skill.AroundReadFiles(t, func() {}, func() {
+		n++
+		require.NoError(t, os.WriteFile(filepath.Join(s.Dir("demo"), "references", "x.md"), []byte(strings.Repeat("y", n)), 0o644))
+	})
+	unsettled, err := s.Read("demo")
+	require.NoError(t, err)
+	require.Contains(t, ruleSet(unsettled.Issues), skill.RuleChanging)
+
+	_, err = s.WriteFile(ctx, "demo", "SKILL.md", []byte(good), skill.Precondition{IfMatch: unsettled.Hash})
+	var conflict *skill.ConflictError
+	require.ErrorAs(t, err, &conflict)
+	require.Empty(t, conflict.Current, "a skill that does not settle has no current hash")
+	after, err := os.ReadFile(filepath.Join(s.Dir("demo"), "SKILL.md"))
+	require.NoError(t, err)
+	require.Equal(t, string(before), string(after))
+}
+
 // A write or a delete never goes through a symbolic link: not the folder of the skill,
 // not a folder below it, not the file itself. The files outside the skill stay as they
 // are, whatever hash the client sends (Spec 096, "Source of truth").

@@ -449,6 +449,18 @@ func (s *Store) checkPrecondition(name string, pre Precondition) (*Skill, error)
 	if errors.Is(err, ErrNotFound) {
 		current = nil
 	}
+	if current != nil {
+		// A read that did not settle holds no version of the skill, so its hash
+		// passes no precondition.
+		for _, issue := range current.Issues {
+			switch issue.Rule {
+			case RuleChanging:
+				return nil, &ConflictError{Message: fmt.Sprintf("the skill %q is being changed; read it again", name)}
+			case RuleUnreadable:
+				return nil, fmt.Errorf("the skill %q cannot be read", name)
+			}
+		}
+	}
 	if pre.MustNotExist {
 		if current != nil {
 			return nil, &ConflictError{Current: current.Hash, Message: fmt.Sprintf("the skill %q already exists", name)}
