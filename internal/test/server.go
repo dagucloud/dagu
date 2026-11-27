@@ -4,15 +4,18 @@
 package test
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
@@ -30,6 +33,19 @@ import (
 // Server represents a test HTTP server instance
 type Server struct {
 	Helper
+}
+
+// runStopTimeout bounds how long a test's cleanup waits for its runs to stop.
+const runStopTimeout = 30 * time.Second
+
+// stopRuns stops the run processes a test started and waits for them to exit.
+func stopRuns(t *testing.T, ctx context.Context, runs *launcher.ProcessRegistry) {
+	t.Helper()
+	select {
+	case <-runs.Propagate(ctx, syscall.SIGTERM):
+	case <-time.After(runStopTimeout):
+		t.Logf("run processes still running %v after SIGTERM", runStopTimeout)
+	}
 }
 
 // ReserveServerListener binds a loopback listener and closes it during test cleanup.
@@ -76,6 +92,12 @@ func SetupServer(t *testing.T, opts ...HelperOption) Server {
 	))
 
 	helper := Setup(t, opts...)
+
+	// Run processes outlive the server that starts them. A test's runs end
+	// before its home is removed, so none of them runs on into a later test.
+	runs := launcher.NewProcessRegistry()
+	helper.Context = launcher.ContextWithProcessRegistry(helper.Context, runs)
+	t.Cleanup(func() { stopRuns(t, helper.Context, runs) })
 
 	srv := Server{Helper: helper}
 
