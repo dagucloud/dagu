@@ -13,8 +13,9 @@ Implemented so far:
 
 - [Declared Connections](#declared-connections) for `mcp.call`'s
   `connection` and `server`.
-- [Admission Checks](#admission-checks) on a local run, except the literal
-  `http.request` URL check. A run on a worker skips them until the
+- [Admission Checks](#admission-checks) on a local run, from the CLI or the
+  embedded engine, except the literal `http.request` URL check. A run on a
+  worker, including the embedded engine's worker, skips them until the
   check-only request lands. An `mcp.call` step that passes them fails when
   it runs, until its token is delivered.
 
@@ -870,7 +871,8 @@ check-only request. The editor's server-side validation runs the same
 checks.
 
 - The name resolves in the run's project.
-- A step's `server` names one of the connection's services.
+- A step's `server` names one of the connection's services. For a provider
+  with presets, that service's preset has an MCP URL.
 - A literal `http.request` URL is HTTPS and on the bound hosts.
 - A Google MCP preset used by a user connection, not a service account,
   uses an app with `agent` set.
@@ -885,6 +887,8 @@ connection. Mail accounts and `smtp` are not checked here; see
   check. It reads no token state, so a `pending` or `needs_reconnect`
   connection passes, as [Checks at Use](#checks-at-use) states.
 - A DAG that declares no connection reads no connection record.
+- A DAG whose `workspace` labels are malformed or name two workspaces fails
+  each check, since it names no project. It never resolves in `.global`.
 - A workflow test case (Spec 101) runs no admission check and reads no
   connection record, as no secret resolves through its provider under test.
 

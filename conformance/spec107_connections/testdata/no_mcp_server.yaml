@@ -1,0 +1,7 @@
+labels: [workspace=ops]
+steps:
+  - name: first
+    run: echo executed > executed.txt
+  - name: inbox
+    action: mcp.call
+    with: {connection: ops-mail, server: mailbox, tool: search}
