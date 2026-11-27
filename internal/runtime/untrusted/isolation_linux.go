@@ -700,8 +700,10 @@ func (iso *isolation) otherProcesses() (running, starting bool) {
 
 // killLeftovers stops the processes of the restricted user once no root
 // process of the step runs. It returns when one runs, whose watcher stops them
-// at its own end, and waits while one is starting. The check comes after each
-// scan: a root process that the scan sees was counted before the check.
+// at its own end, and waits while one is starting. The check comes after the
+// pidfd of each scanned process is open: a root process that holds a scanned
+// PID was counted before the check, and one that gets such a PID later is not
+// the process of the pidfd.
 func (iso *isolation) killLeftovers() {
 	deadline := time.Now().Add(killTimeout)
 	for !iso.stopping.Load() && time.Now().Before(deadline) {
@@ -709,14 +711,23 @@ func (iso *isolation) killLeftovers() {
 		if err != nil || len(pids) == 0 {
 			return
 		}
+		fds := make(map[int]int, len(pids))
+		for _, pid := range pids {
+			if fd, err := unix.PidfdOpen(pid, 0); err == nil {
+				fds[pid] = fd
+			}
+		}
 		running, starting := iso.otherProcesses()
+		for pid, fd := range fds {
+			// A PID that a process of another user took before the open
+			// fails the check of its tasks.
+			if !running && !starting && len(liveTasks(pid, iso.uid)) > 0 {
+				_ = unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0)
+			}
+			_ = unix.Close(fd)
+		}
 		if running {
 			return
-		}
-		if !starting {
-			for _, pid := range pids {
-				_ = syscall.Kill(pid, syscall.SIGKILL)
-			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
