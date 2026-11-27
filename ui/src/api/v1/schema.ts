@@ -22462,6 +22462,15 @@ export interface operations {
                     "application/json": components["schemas"]["SkillError"];
                 };
             };
+            /** @description The request body exceeds the 8 MiB limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description The request has no If-Match or If-None-Match header */
             428: {
                 headers: {
