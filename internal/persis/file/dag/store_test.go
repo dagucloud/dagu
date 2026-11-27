@@ -2755,6 +2755,38 @@ func TestSavedServiceDAGNames(t *testing.T) {
 	assert.Equal(t, []string{"svc"}, names)
 }
 
+// The saved service DAGs come from an index that exists, with what a listing
+// gives of each. The read never builds an index and takes no DAG file, so a
+// file written outside the store counts only after the next listing.
+func TestSavedServiceDAGs(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	write := func(file, content string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, file+".yaml"), []byte(content), 0600))
+	}
+	const service = "restart_policy: always\nrestart_wait_sec: 5\nsteps:\n  - run: echo ok\n"
+	write("svc", service)
+	write("off", "restart_policy: no\nsteps:\n  - run: echo ok\n")
+	write("plain", "steps:\n  - run: echo ok\n")
+
+	_, ok := store.SavedServiceDAGs()
+	assert.False(t, ok)
+	assert.NoFileExists(t, filepath.Join(tmpDir, dagindex.IndexFileName))
+
+	_, err := store.Catalog(context.Background())
+	require.NoError(t, err)
+	write("later", service)
+	items, ok := store.SavedServiceDAGs()
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	assert.Equal(t, "svc", items[0].ID)
+	assert.Equal(t, "svc", items[0].Name)
+	assert.True(t, items[0].RestartPolicy.Enabled())
+	assert.Equal(t, 5*time.Second, items[0].RestartWait)
+	assert.False(t, items[0].Suspended)
+}
+
 // A rewritten index of the same size can keep its modification time where
 // timestamps are coarse; the names must still come from the new file.
 func TestServiceDAGNamesSeesIndexRewriteInSameTick(t *testing.T) {

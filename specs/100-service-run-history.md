@@ -557,6 +557,10 @@ Rules:
   sample adds 1 KiB at most. Each day older than the raw tier adds a constant that does not
   depend on the count of runs. The events add 4 MiB at most.
 - The memory of the scheduler and of the server does not grow with the count of runs.
+- A read of `GET /service-dags`, or of its live topic, reads the DAG directory at most once in 30
+  seconds. In between, it reads the listing that the DAG store saved last, so its cost grows with
+  the service DAGs and not with all DAGs. A change through Dagu clears that listing; a DAG file
+  changed outside Dagu shows within 30 seconds.
 - A run history query answers in 500 ms at most on the reference machine of the tests. This is
   true for a history of three years at one run each second.
 - The bounds of this spec are for one run each second. The loop of Spec 080 is slower: a run starts

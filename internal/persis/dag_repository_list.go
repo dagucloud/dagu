@@ -35,9 +35,12 @@ func (r *DAGRepository) list(ctx context.Context, opts DAGListOptions, includeSe
 		catalog DAGCatalog
 		err     error
 	)
-	if includeSearchPaths {
+	switch {
+	case includeSearchPaths:
 		catalog, err = r.store.CatalogIncludingSearchPaths(ctx)
-	} else {
+	case opts.Saved && opts.OnlyServiceDAGs:
+		catalog, err = r.savedServiceDAGCatalog(ctx)
+	default:
 		catalog, err = r.store.Catalog(ctx)
 	}
 	if err != nil {
@@ -83,6 +86,15 @@ func (r *DAGRepository) list(ctx context.Context, opts DAGListOptions, includeSe
 	}
 
 	return pagination.NewPaginatedResult(items, totalCount, *opts.Paginator), catalog.Issues, nil
+}
+
+// savedServiceDAGCatalog is the catalog of the service DAGs that the store
+// saved last, or the whole catalog when it saved none.
+func (r *DAGRepository) savedServiceDAGCatalog(ctx context.Context) (DAGCatalog, error) {
+	if items, ok := r.store.SavedServiceDAGs(); ok {
+		return DAGCatalog{Items: items}, nil
+	}
+	return r.store.Catalog(ctx)
 }
 
 // sortDAGList lists pinned DAGs first and applies opts.Sort and opts.Order
