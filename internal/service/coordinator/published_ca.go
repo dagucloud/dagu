@@ -35,9 +35,9 @@ func (ca *PeerCA) PublishCertificate(path string) error {
 	return nil
 }
 
-// RepublishCertificate writes the CA certificate to path when the file is
+// republishCertificate writes the CA certificate to path when the file is
 // missing.
-func (ca *PeerCA) RepublishCertificate(path string) error {
+func (ca *PeerCA) republishCertificate(path string) error {
 	if _, err := fileutil.Stat(path); !errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}

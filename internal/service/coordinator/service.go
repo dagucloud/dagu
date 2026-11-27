@@ -10,6 +10,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -37,9 +38,11 @@ type Service struct {
 	configuredHost      string
 	disableHealthServer bool
 	// peerCA, when set, makes the registry entry report built-in TLS, and
-	// its certificate stays published in publishedCAFile.
+	// its certificate stays published in publishedCAFile. caPublished
+	// reports that this coordinator wrote it.
 	peerCA          *PeerCA
 	publishedCAFile string
+	caPublished     atomic.Bool
 
 	// For graceful shutdown
 	mu         sync.Mutex
@@ -76,16 +79,24 @@ func (srv *Service) DisableHealthServer() {
 	srv.disableHealthServer = true
 }
 
-// ServeBuiltinTLS makes the registry entry report built-in TLS with ca, and
-// writes the certificate of ca to publishedCAFile again whenever the entry
-// is refreshed and the file is missing. Call it before Start.
-func (srv *Service) ServeBuiltinTLS(ca *PeerCA, publishedCAFile string) {
+// ServeBuiltinTLS makes the registry entry report built-in TLS with ca.
+// Whenever the entry is refreshed, the certificate of ca is written to
+// publishedCAFile: until a write succeeds when published is false, and then
+// whenever the file is missing. Call it before Start.
+func (srv *Service) ServeBuiltinTLS(ca *PeerCA, publishedCAFile string, published bool) {
 	srv.peerCA = ca
 	srv.publishedCAFile = publishedCAFile
+	srv.caPublished.Store(published)
 }
 
 func (srv *Service) republishCA(ctx context.Context) {
-	if err := srv.peerCA.RepublishCertificate(srv.publishedCAFile); err != nil {
+	var err error
+	if srv.caPublished.Load() {
+		err = srv.peerCA.republishCertificate(srv.publishedCAFile)
+	} else if err = srv.peerCA.PublishCertificate(srv.publishedCAFile); err == nil {
+		srv.caPublished.Store(true)
+	}
+	if err != nil {
 		logger.Warn(ctx, "Failed to publish the peer CA certificate", tag.Error(err))
 	}
 }

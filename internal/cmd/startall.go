@@ -180,26 +180,16 @@ func runStartAll(ctx *Context, _ []string) error {
 
 	warnTestNamedDAGs(serviceCtx)
 
-	// Initialize coordinator if enabled. It comes first, so the CA
-	// certificate it publishes selects the transport of the scheduler and
-	// the server.
-	var coord *coordinator.Service
+	// The coordinator publishes its CA certificate before the scheduler and
+	// the server build their clients, so their start transport is built-in
+	// TLS. They dial it only once it registers, which it does with built-in
+	// TLS.
+	var peerCA preparedPeerCA
 	if ctx.Config.Coordinator.Enabled {
-		var err error
-		// The coordinator shares the server's inventory, so a change through
-		// the server reaches it at once.
-		coord, _, err = newCoordinator(serviceCtx, stores.Secret, stores.Profile, stores.Inventory, stores.HostKeys)
-		if err != nil {
-			return fmt.Errorf("failed to initialize coordinator: %w", withPortInUseHint(err, coordinatorPortInUseHint))
+		if peerCA, err = prepareCoordinatorPeerCA(serviceCtx, ctx.Config); err != nil {
+			return fmt.Errorf("failed to initialize coordinator: %w", err)
 		}
-		coord.DisableHealthServer()
-		// The server and the scheduler dial this coordinator with the same
-		// peer settings.
-		warnPeerClientAuth(serviceCtx, ctx.Config.Core.Peer)
-	} else {
-		logger.Info(serviceCtx, "Coordinator disabled via configuration")
 	}
-	logPeerTransport(serviceCtx, "start-all", ctx.Config)
 
 	// Initialize all services using the signal-aware context
 	scheduler, err := newScheduler(serviceCtx, schedulerDeps)
@@ -237,6 +227,25 @@ func runStartAll(ctx *Context, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
 	}
+
+	// Initialize coordinator if enabled
+	var coord *coordinator.Service
+	if ctx.Config.Coordinator.Enabled {
+		var err error
+		// The coordinator shares the server's inventory, so a change through
+		// the server reaches it at once.
+		coord, _, err = newCoordinator(serviceCtx, peerCA, stores.Secret, stores.Profile, stores.Inventory, stores.HostKeys)
+		if err != nil {
+			return fmt.Errorf("failed to initialize coordinator: %w", withPortInUseHint(err, coordinatorPortInUseHint))
+		}
+		coord.DisableHealthServer()
+		// The server and the scheduler dial this coordinator with the same
+		// peer settings.
+		warnPeerClientAuth(serviceCtx, ctx.Config.Core.Peer)
+	} else {
+		logger.Info(serviceCtx, "Coordinator disabled via configuration")
+	}
+	logPeerTransport(serviceCtx, "start-all", ctx.Config)
 
 	// Persist monitor boundaries before any bundled service can emit DAG-run events.
 	if err := scheduler.BootstrapMonitors(serviceCtx); err != nil {

@@ -116,7 +116,11 @@ func runCoordinator(ctx *Context, _ []string) error {
 	defer stop()
 	coordCtx := ctx.WithContext(signalCtx).WithEventSource(eventstore.SourceServiceCoordinator)
 	stores := coordCtx.runtimeStores()
-	svc, _, err := newCoordinator(coordCtx, stores.SecretStore, stores.ProfileStore, coordCtx.serviceInventoryStore(), stores.HostKeys)
+	peerCA, err := prepareCoordinatorPeerCA(coordCtx, coordCtx.Config)
+	if err != nil {
+		return fmt.Errorf("failed to initialize coordinator: %w", err)
+	}
+	svc, _, err := newCoordinator(coordCtx, peerCA, stores.SecretStore, stores.ProfileStore, coordCtx.serviceInventoryStore(), stores.HostKeys)
 	if err != nil {
 		return fmt.Errorf("failed to initialize coordinator: %w", err)
 	}
@@ -140,9 +144,11 @@ func runCoordinator(ctx *Context, _ []string) error {
 	return nil
 }
 
-// newCoordinator constructs the coordinator service and handler.
+// newCoordinator constructs the coordinator service and handler with peerCA,
+// from prepareCoordinatorPeerCA.
 func newCoordinator(
 	ctx *Context,
+	peerCA preparedPeerCA,
 	secretStore secret.Store,
 	profileStore profile.Store,
 	nodeInventory inventory.Store,
@@ -202,11 +208,6 @@ func newCoordinator(
 	if err != nil {
 		return nil, nil, err
 	}
-	peerCA, err := coordinatorPeerCA(ctx, cfg.Core.Peer, cfg.Coordinator.RequireTLS)
-	if err != nil {
-		return nil, nil, err
-	}
-	publishPeerCA(ctx, cfg.Core.Peer, peerCA)
 	workerNodes, err := ctx.workerNodeStore()
 	if err != nil {
 		return nil, nil, err
@@ -219,10 +220,10 @@ func newCoordinator(
 	if err != nil {
 		return nil, nil, err
 	}
-	if peerCA != nil {
-		peerAuth.AcceptWorkerCertificates(peerCA)
+	if peerCA.ca != nil {
+		peerAuth.AcceptWorkerCertificates(peerCA.ca)
 	}
-	transportOpts, err := coordinatorTransport(ctx, cfg, peerCA, advertiseAddr, certHostname)
+	transportOpts, err := coordinatorTransport(ctx, cfg, peerCA.ca, advertiseAddr, certHostname)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -272,8 +273,8 @@ func newCoordinator(
 		TrustedHostKeys:           hostKeys,
 		AgentSessionCleanupQueue:  persistence.AgentSessionCleanupQueue,
 		WorkerNodeStore:           workerNodes,
-		JoinReadiness:             coordinatorJoinReadiness(cfg, peerCA),
-		PeerCA:                    peerCA,
+		JoinReadiness:             coordinatorJoinReadiness(cfg, peerCA.ca),
+		PeerCA:                    peerCA.ca,
 		WorkerInviteStore:         workerInvites,
 		WorkerCertificateStore:    workerCertificates,
 		WorkerWaitTimeout:         cfg.Coordinator.WorkerWaitTimeout,
@@ -283,28 +284,41 @@ func newCoordinator(
 
 	// Create and return service with advertise address for service registry
 	svc := coordinator.NewService(grpcServer, handler, listener, healthServer, httpHealthServer, persistence.ServiceRegistry, cfg, instanceID, advertiseAddr)
-	if peerCA != nil {
-		svc.ServeBuiltinTLS(peerCA, cfg.Core.Peer.PublishedCAFile)
+	if peerCA.ca != nil {
+		svc.ServeBuiltinTLS(peerCA.ca, cfg.Core.Peer.PublishedCAFile, peerCA.published)
 	}
 	return svc, handler, nil
 }
 
-// publishPeerCA keeps the published CA certificate in the data directory
-// right for the clients that share it: the certificate of peerCA, the CA from
-// coordinatorPeerCA, and none for a coordinator with own certificates. A
-// coordinator that could not prepare its generated CA leaves the file to the
-// other coordinators that share the data directory.
-func publishPeerCA(ctx context.Context, peer config.Peer, peerCA *coordinator.PeerCA) {
-	var err error
+// preparedPeerCA is the peer CA of a coordinator, if any, and whether its
+// certificate is published.
+type preparedPeerCA struct {
+	ca        *coordinator.PeerCA
+	published bool
+}
+
+// prepareCoordinatorPeerCA returns the coordinator's peer CA, from
+// coordinatorPeerCA, and keeps the published CA certificate in the data
+// directory right for the clients that share it: the certificate of that CA,
+// and none for a coordinator with own certificates. A coordinator that could
+// not prepare its generated CA leaves the file to the other coordinators that
+// share the data directory.
+func prepareCoordinatorPeerCA(ctx context.Context, cfg *config.Config) (preparedPeerCA, error) {
+	peer := cfg.Core.Peer
+	ca, err := coordinatorPeerCA(ctx, peer, cfg.Coordinator.RequireTLS)
+	if err != nil {
+		return preparedPeerCA{}, err
+	}
 	switch {
-	case peerCA != nil:
-		err = peerCA.PublishCertificate(peer.PublishedCAFile)
+	case ca != nil:
+		err = ca.PublishCertificate(peer.PublishedCAFile)
 	case peer.CertFile != "" && peer.KeyFile != "":
 		err = coordinator.RemovePublishedCertificate(peer.PublishedCAFile)
 	}
 	if err != nil {
 		logger.Warn(ctx, "Clients that share the data directory may not use built-in TLS", tag.Error(err))
 	}
+	return preparedPeerCA{ca: ca, published: err == nil}, nil
 }
 
 // coordinatorTransport returns the server options that set what the
