@@ -3,9 +3,9 @@
 - **Status:** Proposed
 - **Date:** 2026-11-27
 - **Affected areas:** `service/coordinator`, `service/worker`, `cmn/config`,
-  `persis` (stores, service registry), `proto`, `cmd`, `service/frontend`
-  (API, UI, MCP), `charts`, `specs`, `conformance`, `docs`, and Dagu Cloud
-  (console)
+  `persis` (stores, service registry), `proto`, `cmd`, `api/v1`,
+  `service/frontend` (API, UI, MCP), `charts`, `specs`, `conformance`,
+  `docs`, and Dagu Cloud (console)
 
 ## Summary
 
@@ -132,6 +132,45 @@ first install and keeps it on upgrade, like the planned peer token Secret.
 - Dagu Cloud never holds the CA or a private key, and worker traffic never
   passes through it.
 
+### Without the copied command
+
+Config files, images, and provisioning tools set the same keys the command
+sets. Each process needs at most these settings:
+
+| Process | Settings |
+| --- | --- |
+| Coordinator | None; `peer.ca_cert_file` and `peer.ca_key_file` to use a CA made elsewhere |
+| Scheduler, UI/API, CLI, or worker sharing the data directory | None |
+| The same, without the data directory | `peer.token` and `peer.ca_cert_file` |
+| Worker on another host, with an invite | `worker.coordinators` and `worker.invite` |
+| Worker on another host, without an invite | `worker.coordinators`, `peer.token`, and `peer.ca_cert_file` |
+
+```yaml
+worker:
+  coordinators: coord.example.com:50055
+  invite: dagu1.k3f9...
+```
+
+The environment variables are `DAGU_WORKER_COORDINATORS` and
+`DAGU_WORKER_INVITE`.
+
+- **One config for several hosts:** use a reusable invite. A single-use
+  invite enrolls the first host only.
+- **Invites from automation:** `POST /api/v1/workers/invites` returns a new
+  invite, and an admin API key can call it. See [Invites](#invites).
+- **Before the coordinator exists:** an invite needs a running coordinator.
+  When one apply creates the coordinator and its workers,
+  `dagu peer init --out <dir>` first writes a CA certificate, its key, and a
+  peer token. The coordinator gets all three; other processes get the
+  certificate and the token, as in the table. Terraform's
+  `tls_self_signed_cert` or the chart's `genCA` can make the CA instead.
+  These workers authenticate with the peer token, not a certificate of
+  their own, so **Remove** cannot keep them out; changing the peer token
+  does.
+- **Checking the result:** every process logs at start which transport it
+  chose and the setting that chose it. See
+  [Chosen transport](#chosen-transport).
+
 ### Workers page
 
 - A `Connection` column: `Certificate`, `TLS`, or `Plaintext`. `Plaintext`
@@ -152,7 +191,7 @@ Worker messages name the cause and the next step:
 Cannot reach coordinator at coord.example.com:50055
   Check that the port is open and coordinator.advertise is correct.
 The invite is invalid, expired, or already used
-  Get a new command from "Add worker".
+  Get a new command from "Add worker". For several hosts, use a reusable invite.
 coord.example.com:50055 belongs to a different Dagu (its CA does not match the invite)
   Check the coordinator address.
 The worker certificate expired and the invite is no longer valid
@@ -160,6 +199,9 @@ The worker certificate expired and the invite is no longer valid
 The coordinator requires TLS
   Upgrade this process, or remove peer.insecure: true.
 ```
+
+Settings that contradict each other stop the process at start. See
+[Configuration conflicts](#configuration-conflicts).
 
 `dagu worker --check` dials each coordinator, prints reachability, the
 coordinator's identity, and the credential the worker would use, then exits.
@@ -198,6 +240,9 @@ that worker.
   the chart, from a company CA, or for coordinators that share no data
   directory. On a client, `peer.ca_cert_file` alone is the CA that signs
   coordinator certificates.
+- `dagu peer init --out <dir>` writes `ca.crt`, `ca.key`, and `token` for
+  setups that must exist before the coordinator starts. It needs no running
+  Dagu and refuses to overwrite existing files.
 
 ### Coordinator certificate
 
@@ -246,6 +291,27 @@ transport in this order:
   that finds coordinators in the registry reads the CA from the same data
   directory. Older processes ignore the field.
 
+### Configuration conflicts
+
+A process refuses to start when its settings contradict each other, and
+names the setting to change:
+
+| Settings | Result |
+| --- | --- |
+| `worker.invite` with `peer.insecure: true` | Fails: `worker.invite needs TLS: remove peer.insecure: true` |
+| `worker.invite` with `peer.cert_file` or `peer.key_file` | Fails: invites need the built-in CA; remove the certificate files or the invite |
+| `peer.ca_cert_file` or `peer.ca_key_file` with `peer.cert_file`, `peer.key_file`, or `peer.client_ca_file` | Fails: use the built-in CA or your own certificates, not both |
+| A single-use invite with a data directory the worker cannot write | Fails: use a reusable invite or a writable data directory |
+| `worker.invite` with `peer.token` | Starts. The invite enrolls, and the worker stops sending the token once it holds a certificate. Logged once |
+
+### Chosen transport
+
+- At start, every peer process logs its transport and the setting that
+  chose it, such as `Peer transport: built-in TLS (from worker.invite)` or
+  `Peer transport: h2c (from peer.insecure: true)`.
+- `dagu worker --check` prints the same line, followed by what each
+  coordinator answered.
+
 ### Invites
 
 - An invite is `dagu1.<pin>.<secret>`: the pin is the base64url SHA-256 of
@@ -258,8 +324,16 @@ transport in this order:
   invite. Config output masks it like `peer.token`.
 - New coordinator RPCs create, list, and delete invites and revoke
   certificates. They take the peer token and refuse worker certificates.
-  The REST API, the CLI, and MCP call them. The API requires admin and
-  records each call in the audit log.
+  The REST API, the CLI, and MCP call them.
+- REST endpoints, admin only, with each call in the audit log. An admin API
+  key can call them.
+
+  | Endpoint | Effect |
+  | --- | --- |
+  | `POST /api/v1/workers/invites` | Body `{"reusable": false, "expiresIn": "24h"}`. Returns `{"id", "invite", "expiresAt"}`; only this response contains the invite |
+  | `GET /api/v1/workers/invites` | Lists invites without their secrets |
+  | `DELETE /api/v1/workers/invites/{id}` | Deletes an invite |
+  | `DELETE /api/v1/workers/{workerId}/certificate` | Revokes the worker's certificate |
 
 ### Enrollment and renewal
 
@@ -340,7 +414,11 @@ The existing keys keep working, with three fixes:
 - **Config:** `peer.insecure` defaults to unset instead of `true`. A process
   behaves as today unless it has a built-in TLS source from the table above.
   New keys: `peer.ca_cert_file`, `peer.ca_key_file`, `worker.invite`, and
-  `coordinator.require_tls`.
+  `coordinator.require_tls`. Settings that conflict fail at start; none of
+  them exist before this change, so no working config starts failing.
+- **CLI and API:** new commands `dagu peer init`, `dagu worker invite`, and
+  `dagu worker --check`; new endpoints under `/api/v1/workers/invites` and
+  `/api/v1/workers/{workerId}/certificate`.
 - **Persisted data:** registry entries gain `tls`, which older processes
   ignore. `worker_invites` and `worker_certificates` are new collections.
   No run data, index, or migration changes.
@@ -377,10 +455,12 @@ The existing keys keep working, with three fixes:
 
 ## Rollout
 
-1. Bring-your-own fixes: TLS selection, start checks, `dagu worker --check`.
-2. Built-in CA, coordinator certificate, one-port TLS and h2c, client
-   transport rule, registry flag.
-3. Invites, enrollment, renewal, revocation, Workers page, API, CLI, MCP.
+1. Bring-your-own fixes: TLS selection, start checks, the chosen-transport
+   log, `dagu worker --check`.
+2. Built-in CA, `dagu peer init`, coordinator certificate, one-port TLS and
+   h2c, client transport rule, registry flag.
+3. Invites, enrollment, renewal, revocation, configuration conflicts,
+   Workers page, API, CLI, MCP.
 4. Chart.
 5. Dagu Cloud console and alert.
 
