@@ -116,6 +116,30 @@ func TestTestDAGArgument(t *testing.T) {
 	}
 }
 
+func TestTestDAGArgumentCaseAlias(t *testing.T) {
+	t.Parallel()
+
+	home := writeInitDAG(t, "release.yaml", selectedDAG)
+	dags := filepath.Join(home, "dags")
+	testFile := filepath.Join(dags, "release.test.yaml")
+	alias := filepath.Join(dags, "Release.test.yaml")
+	writeTestFile(t, testFile, passingCase("release"))
+
+	want := "1 case: 1 passed, 0 failed\n"
+	if _, err := os.Stat(alias); os.IsNotExist(err) {
+		// On case-sensitive filesystems these names select two separate tests.
+		writeTestFile(t, filepath.Join(dags, "Release.yaml"), selectedDAG)
+		writeTestFile(t, alias, passingCase("Release"))
+		want = "2 cases: 2 passed, 0 failed\n"
+	} else {
+		require.NoError(t, err)
+	}
+
+	stdout, err := runTestCommand(t, home, dags, alias)
+	require.NoError(t, err)
+	assert.Contains(t, stdout, want)
+}
+
 // A DAG file or DAG name without a test file beside its DAG file, and an
 // argument that is neither a path nor a DAG name, exit with status 2 and
 // run nothing. A missing test file's error names the command that writes

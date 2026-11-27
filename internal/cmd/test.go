@@ -250,7 +250,9 @@ func selectTestFiles(ctx context.Context, root string, args []string) ([]testFil
 		if err != nil {
 			return err
 		}
-		if !slices.ContainsFunc(files, func(f testFileRef) bool { return f.path == abs }) {
+		if !slices.ContainsFunc(files, func(f testFileRef) bool {
+			return sameTestFilePath(f.path, abs)
+		}) {
 			files = append(files, testFileRef{path: abs, report: testReportPath(abs)})
 		}
 		return nil
@@ -262,6 +264,23 @@ func selectTestFiles(ctx context.Context, root string, args []string) ([]testFil
 	}
 	slices.SortFunc(files, func(a, b testFileRef) int { return cmp.Compare(a.report, b.report) })
 	return files, nil
+}
+
+// sameTestFilePath handles case-only aliases while keeping distinct files
+// on case-sensitive filesystems separate.
+func sameTestFilePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	if !strings.EqualFold(a, b) {
+		return false
+	}
+	first, err := os.Lstat(a)
+	if err != nil {
+		return false
+	}
+	second, err := os.Lstat(b)
+	return err == nil && os.SameFile(first, second)
 }
 
 // selectArgument calls add for each test file that arg selects.
