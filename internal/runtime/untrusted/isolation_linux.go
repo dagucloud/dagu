@@ -817,9 +817,9 @@ func (iso *isolation) copyOutput() error {
 	return nil
 }
 
-// shareReadOnly lets the restricted user read the regular file at path and not
-// write it. The file keeps the worker as owner and gets the group of the
-// restricted user with the mode 0440, so that no other user reads it. The
+// shareReadOnly lets the restricted user read and run the regular file at path
+// and not write it. The file keeps the worker as owner and gets the group of
+// the restricted user with the mode 0550, so that no other user reads it. The
 // changes go through a descriptor, so a link that replaces the path cannot
 // redirect them.
 func (iso *isolation) shareReadOnly(path string) error {
@@ -833,7 +833,7 @@ func (iso *isolation) shareReadOnly(path string) error {
 		if err := chownFD(e, iso.workerUID, int(iso.gid)); err != nil {
 			return true, err
 		}
-		return true, chmodFD(e, 0o440)
+		return true, chmodFD(e, 0o550)
 	})
 	if err != nil {
 		return stepError(iso.step, "share", path, err)

@@ -323,8 +323,9 @@ func TestIsolatedStepRefusesOtherFolders(t *testing.T) {
 }
 
 // A shared file, such as the script of a step, keeps the worker as owner and
-// gets the group of the restricted user with the mode 0440: the restricted
-// user reads it and cannot write it, and no other user can read it.
+// gets the group of the restricted user with the mode 0550: the restricted
+// user reads and runs it and cannot write it, and no other user can read it.
+// The nix-shell script form runs the script path itself.
 func TestIsolatedStepSharesAFileReadOnly(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
@@ -342,10 +343,10 @@ func TestIsolatedStepSharesAFileReadOnly(t *testing.T) {
 	require.NoError(t, step.ShareReadOnly(script))
 	info, err := os.Lstat(script)
 	require.NoError(t, err)
-	assert.Equal(t, fs.FileMode(0o440), info.Mode().Perm())
+	assert.Equal(t, fs.FileMode(0o550), info.Mode().Perm())
 	uid, gid := ownerOf(info)
 	assert.Equal(t, []int{os.Geteuid(), testGID}, []int{uid, gid})
-	out := runAs(t, WithStep(ctx, step), workDir, `sh `+script+`; (echo x >> `+script+`) 2>/dev/null && echo write:allowed || echo write:denied`)
+	out := runAs(t, WithStep(ctx, step), workDir, script+`; (echo x >> `+script+`) 2>/dev/null && echo write:allowed || echo write:denied`)
 	assert.Equal(t, "shared\nwrite:denied\n", out)
 }
 
