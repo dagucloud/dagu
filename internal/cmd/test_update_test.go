@@ -218,6 +218,129 @@ func TestTestUpdateCalledWith(t *testing.T) {
 	assertFileContent(t, testPath, calledWithMocks+"cases:\n"+stale("v1.2.3", "<secret:API_TOKEN>")+kept)
 }
 
+// Values of the host environment that the tests below set.
+const (
+	updateHostToken = "host-token-7f3a"
+	updatePassToken = "pass-token-91c2"
+	updateForwarded = "forwarded-5d0e"
+)
+
+// hostValuesDAG reads a host variable into a DAG env entry, which reaches a
+// run text, a variable, and a with input.
+const hostValuesDAG = `env:
+  - TOKEN: ${TEST_UPDATE_HOST_TOKEN}
+  - REGION: eu-west-1
+steps:
+  - id: deploy
+    run: ./deploy.sh ${env.TOKEN}
+  - id: notify
+    depends: deploy
+    action: http.request
+    with:
+      method: POST
+      url: https://hooks.example.invalid/deploys
+      headers:
+        Authorization: Bearer ${TOKEN}
+`
+
+// --update writes no value that the run took from the host. A value that
+// holds the value of a host variable stays as written, and so does a
+// variable that Dagu forwards from the host, also one forwarded by default.
+// Each kept value has a line that names the env entries to set, and the
+// report masks host values. A case that sets those entries in env is
+// rewritten. t.Setenv rules out t.Parallel.
+func TestTestUpdateHostValues(t *testing.T) {
+	t.Setenv("TEST_UPDATE_HOST_TOKEN", updateHostToken)
+	t.Setenv("TEST_UPDATE_PASS_TOKEN", updatePassToken)
+	t.Setenv("DAG_TEST_UPDATE_FORWARDED", updateForwarded)
+
+	home := writeInitDAG(t, "deploy.yaml", hostValuesDAG)
+	require.NoError(t, os.WriteFile(filepath.Join(home, "config.yaml"), []byte("env_passthrough: [TEST_UPDATE_PASS_TOKEN]\n"), 0o600))
+	testPath := filepath.Join(home, "dags", "deploy.test.yaml")
+	const mocks = "mocks:\n  deploy: {}\n  notify: {}\ncases:\n"
+	kept := func(region string) string {
+		return `  - name: host values stay out
+    expect:
+      steps:
+        deploy:
+          called_with:
+            run: ./deploy.sh old
+            env:
+              TOKEN: old
+              TEST_UPDATE_PASS_TOKEN: old
+              DAG_TEST_UPDATE_FORWARDED: old
+              REGION: ` + region + `
+        notify:
+          called_with:
+            with:
+              headers:
+                Authorization: Bearer old
+`
+	}
+	pinned := func(token, forwarded string) string {
+		return `  - name: the case sets the token
+    env:
+      TOKEN: test-token
+      DAG_TEST_UPDATE_FORWARDED: test-forwarded
+    expect:
+      steps:
+        deploy:
+          called_with:
+            env:
+              TOKEN: ` + token + `
+              DAG_TEST_UPDATE_FORWARDED: ` + forwarded + `
+        notify:
+          called_with:
+            with:
+              headers:
+                Authorization: Bearer ` + token + `
+`
+	}
+	require.NoError(t, os.WriteFile(testPath, []byte(mocks+kept("us-east-1")+pinned("old", "old")), 0o600))
+
+	reported := testReportPath(testPath)
+	stdout, err := runTestCommand(t, home, "--update", testPath)
+	var exit *exitStatusError
+	require.ErrorAs(t, err, &exit)
+	assert.Equal(t, testExitFailed, exit.code)
+	assertInOrder(t, stdout,
+		"FAIL "+reported+": host values stay out (",
+		`  step deploy called_with.run: expected "./deploy.sh old", got "./deploy.sh *******"`+"\n",
+		`  step deploy called_with.env.TOKEN: expected "old", got "*******"`+"\n",
+		`  step deploy called_with.env.TEST_UPDATE_PASS_TOKEN: expected "old", got "*******"`+"\n",
+		`  step deploy called_with.env.DAG_TEST_UPDATE_FORWARDED: expected "old", got "`+updateForwarded+`"`+"\n",
+		`  step notify called_with.with.headers: expected {"Authorization":"Bearer old"}, got {"Authorization":"Bearer *******"}`+"\n",
+		"  step deploy called_with.run: kept, it holds the value of host variable TEST_UPDATE_HOST_TOKEN; set TOKEN under env\n",
+		"  step deploy called_with.env.TOKEN: kept, it holds the value of host variable TEST_UPDATE_HOST_TOKEN; set TOKEN under env\n",
+		"  step deploy called_with.env.TEST_UPDATE_PASS_TOKEN: kept, it holds the value of host variable TEST_UPDATE_PASS_TOKEN; set TEST_UPDATE_PASS_TOKEN under env\n",
+		"  step deploy called_with.env.DAG_TEST_UPDATE_FORWARDED: kept, it holds the value of host variable DAG_TEST_UPDATE_FORWARDED; set DAG_TEST_UPDATE_FORWARDED under env\n",
+		"  step notify called_with.with.headers: kept, it holds the value of host variable TEST_UPDATE_HOST_TOKEN; set TOKEN under env\n",
+		"  expect updated\n",
+		"PASS "+reported+": the case sets the token (", "  expect updated\n")
+	assert.NotContains(t, stdout, updateHostToken)
+	assert.NotContains(t, stdout, updatePassToken)
+	updated := mocks + kept("eu-west-1") + pinned("test-token", "test-forwarded")
+	assertFileContent(t, testPath, updated)
+
+	stdout, err = runTestCommand(t, home, "--update", "--format", "json", testPath)
+	require.ErrorAs(t, err, &exit)
+	assert.NotContains(t, stdout, updateHostToken)
+	assert.NotContains(t, stdout, updatePassToken)
+	var report jsonTestReport
+	require.NoError(t, json.Unmarshal([]byte(stdout), &report))
+	require.Len(t, report.Cases, 2)
+	assert.Equal(t, updateUnchanged, report.Cases[0].Update)
+	assert.Equal(t, []jsonKept{
+		{Step: "deploy", Field: "called_with.run", Variables: []string{"TEST_UPDATE_HOST_TOKEN"}, Env: []string{"TOKEN"}},
+		{Step: "deploy", Field: "called_with.env.TOKEN", Variables: []string{"TEST_UPDATE_HOST_TOKEN"}, Env: []string{"TOKEN"}},
+		{Step: "deploy", Field: "called_with.env.TEST_UPDATE_PASS_TOKEN", Variables: []string{"TEST_UPDATE_PASS_TOKEN"}, Env: []string{"TEST_UPDATE_PASS_TOKEN"}},
+		{Step: "deploy", Field: "called_with.env.DAG_TEST_UPDATE_FORWARDED", Variables: []string{"DAG_TEST_UPDATE_FORWARDED"}, Env: []string{"DAG_TEST_UPDATE_FORWARDED"}},
+		{Step: "notify", Field: "called_with.with.headers", Variables: []string{"TEST_UPDATE_HOST_TOKEN"}, Env: []string{"TOKEN"}},
+	}, report.Cases[0].UpdateKept)
+	assert.Empty(t, report.Cases[1].UpdateKept)
+	assertFileContent(t, testPath, updated)
+}
+
 // --update rewrites only the cases --run selects, and keeps the expect of
 // an invalid case and of a run that does not finish. The JSON report names
 // each outcome, and a second update finds the rewritten case unchanged.

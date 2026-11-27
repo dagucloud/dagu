@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagtest"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -429,6 +430,9 @@ func runTestCase(ctx *Context, file *dagtest.File, c dagtest.Case, opts testOpti
 
 	started := time.Now()
 	defer func() { result.duration = time.Since(started) }()
+	// The host variables that the DAG's load and the run read are the
+	// case's host values.
+	ctx = ctx.WithContext(cmnvalue.TrackHostReads(ctx.Context))
 	dag, caseOpts, errs := prepareCase(ctx, file, c)
 	if len(errs) > 0 {
 		result.errors = errs

@@ -99,6 +99,9 @@ type testCase struct {
 	// scripts scripts the steps of every attempt of the run and records
 	// what each execution was called with. It is set when the run starts.
 	scripts *stepmock.Set
+	// host holds the values the run took from the host, set when the run
+	// ends.
+	host hostValues
 }
 
 // openCase creates a case directory and the stores rooted in it. The case
@@ -128,7 +131,9 @@ func openCase(ctx *Context, opts caseOptions) (*testCase, error) {
 // the same run ID, and returns the last attempt's status. A settled step
 // that queues no resume leaves the next waiting step to settle. Once the
 // case's context is canceled, the case accepts no further retry, and an
-// attempt that starts after the cancellation is interrupted at once.
+// attempt that starts after the cancellation is interrupted at once. A run
+// that returns its status also records the values it took from the host,
+// as read through the case's context.
 //
 //	attempt --> status
 //	   ^          |-- waiting ------------> settle one step --+
@@ -209,6 +214,7 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 			c.waited = nil
 			err = c.acceptRetry(dag, status)
 		default:
+			c.host = newHostValues(ctx, ctx.Config.Core.BaseEnv)
 			return status, nil
 		}
 		if err != nil {
