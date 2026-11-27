@@ -49,7 +49,8 @@ file, and the cluster issues and rotates node certificates.
 1. Coordinator traffic uses TLS by default, with no setting, on a fresh
    install and after an upgrade.
 2. A worker on another host joins with one copied command from the Web UI,
-   the CLI, or Dagu Cloud.
+   the CLI, or Dagu Cloud. Until the coordinator can accept it, the dialog
+   shows what to change instead of a command.
 3. A worker that joined with an invite holds its own certificate, not the
    peer token. Removing it keeps it out.
 4. No certificate to create, copy, renew, or match to an address.
@@ -68,6 +69,8 @@ file, and the cluster issues and rotates node certificates.
   `peer.client_ca_file`, or `peer.skip_tls_verify`.
 - Web UI/API HTTPS and the HTTP health endpoints.
 - Reaching a coordinator behind NAT. Workers still need to reach its port.
+- Changing the default listen address, or changing it from the UI. See
+  [Alternatives](#alternatives).
 
 ## User experience
 
@@ -79,49 +82,97 @@ them as `TLS`.
 
 ### A worker on another host
 
-The Workers page gets **Add worker**, for admins:
+The Workers page gets **Add worker**, for admins. It shows a command only
+when the coordinator can accept it, and until then shows what to change:
 
 ```text
-┌ Add worker ───────────────────────────────────────┐
-│ [Linux] [Docker] [Kubernetes]                      │
-│                                                    │
-│ Coordinator        coord.example.com:50055         │
-│ Labels (optional)  gpu=true                        │
-│ Invite             (•) Single use, expires in 24h  │
-│                    ( ) Reusable (containers,       │
-│                        autoscaling)                │
-│                                                    │
-│ dagu worker \                                      │
-│   --worker.coordinators=coord.example.com:50055 \  │
-│   --worker.labels=gpu=true \                       │
-│   --worker.invite=dagu1.k3f9...           [Copy]   │
-│                                                    │
-│ Waiting for the worker...                          │
-│   -> worker-a1 connected (gpu=true)                │
-└────────────────────────────────────────────────────┘
+┌ Add worker ─────────────────────────────────────────────┐
+│ 1  Accept workers from other hosts         Needs change │
+│    The coordinator listens on 127.0.0.1, so only this   │
+│    machine can connect. Add this to                     │
+│    /home/me/.config/dagu/config.yaml and restart Dagu:  │
+│                                                         │
+│      coordinator:                                       │
+│        host: 0.0.0.0                          [Copy]    │
+│                                                         │
+│ 2  Address workers use to reach this machine            │
+│    [ 192.168.1.20                 ▾]  port 50055        │
+│                                                         │
+│ 3  Worker                           Shown after 1 and 2 │
+└─────────────────────────────────────────────────────────┘
 ```
 
-- The coordinator address is the one the coordinator registered, and stays
-  editable. A loopback or `0.0.0.0` address is flagged before the command
-  can be copied, since workers on other hosts cannot reach it.
-- A single-use invite expires after 24 hours unless used. A reusable invite
-  lasts until deleted. It suits containers without a persistent volume and
-  autoscaled workers, which enroll at each start.
+Once the coordinator accepts workers from other hosts and an address is
+chosen:
+
+```text
+┌ Add worker ─────────────────────────────────────────────┐
+│ 1  Accept workers from other hosts                Ready │
+│ 2  Address  [ 192.168.1.20            ▾]  port 50055    │
+│ 3  Worker   [Linux] [Docker] [Kubernetes]               │
+│    Labels (optional)  gpu=true                          │
+│    Invite   (•) Single use, expires in 24h              │
+│             ( ) Reusable (containers, autoscaling)      │
+│                                                         │
+│    dagu worker \                                        │
+│      --worker.coordinators=192.168.1.20:50055 \         │
+│      --worker.labels=gpu=true \                         │
+│      --worker.invite=dagu1.k3f9...            [Copy]    │
+│                                                         │
+│    Waiting for the worker...                            │
+│      -> worker-a1 connected (gpu=true)                  │
+└─────────────────────────────────────────────────────────┘
+```
+
+- **Step 1** reads what the coordinator listens on. When it listens on a
+  loopback address only, step 1 shows the change for how Dagu was started:
+  - from a config file: the file's path and the lines to add;
+  - from an environment variable or a flag: that variable or flag;
+  - in a container: recreate it with
+    `-p 50055:50055 -e DAGU_COORDINATOR_HOST=0.0.0.0`;
+  - in Kubernetes: see [Kubernetes with the chart](#kubernetes-with-the-chart).
+
+  The change needs a restart; the dialog checks again when the server is
+  back. In a container, step 1 keeps the reminder to publish port 50055
+  even when ready, since Dagu cannot see the published ports.
+- **Step 2** is a required field. It starts with the address of the last
+  invite, or with `coordinator.advertise` when that is set explicitly, and
+  is empty otherwise. It suggests this host's non-loopback addresses. In a
+  container it suggests none and asks for the address of the machine that
+  runs the container. It never fills in a hostname, a container ID, or the
+  browser's host.
+- **Step 3:**
+  - A single-use invite expires after 24 hours unless used. A reusable
+    invite lasts until deleted. It suits containers without a persistent
+    volume and autoscaled workers, which enroll at each start.
+  - The Docker tab passes the invite as `DAGU_WORKER_INVITE`. The
+    Kubernetes tab creates a Secret and maps it to that variable.
+  - Labels and the address go into the command, not the invite.
 - The dialog waits. When a worker enrolls with this invite and sends its
   first heartbeat, the dialog shows its ID and labels. Closing the dialog
   keeps the invite.
-- The Docker tab passes the invite as `DAGU_WORKER_INVITE`. The Kubernetes
-  tab creates a Secret and maps it to that variable.
-- Labels and the coordinator address go into the command, not the invite.
+- When no worker arrives within 60 seconds, the dialog lists the usual
+  causes: a firewall or security group closes port 50055, a container does
+  not publish it, or the address is not reachable from the worker. It
+  suggests `dagu worker --check` on the worker host, whose error names the
+  cause. Only the worker can tell whether the address works.
 
-`dagu worker invite [--reusable] [--expires <duration>]` prints the invite
-and the command. It runs on any host whose processes call the coordinator
-with the peer token.
+`dagu worker invite --address <host:port> [--reusable] [--expires <duration>]`
+prints the invite and the command. It runs on any host whose processes call
+the coordinator with the peer token. While the coordinator listens on a
+loopback address only, it prints the change from step 1 and exits with an
+error.
 
 ### Kubernetes with the chart
 
-Distributed mode needs no TLS values. The chart creates the CA as a Secret on
-first install and keeps it on upgrade, like the planned peer token Secret.
+- Distributed mode needs no TLS values. The chart creates the CA as a Secret
+  on first install and keeps it on upgrade, like the planned peer token
+  Secret.
+- Workers in the cluster come from `workerPools` and need nothing else.
+- Workers outside the cluster need the gRPC port exposed with
+  `coordinator.service.type: LoadBalancer` or `NodePort`. The UI's Ingress
+  does not carry gRPC. Dagu cannot see the Service type from inside the
+  pod, so in a cluster step 1 states this for workers outside it.
 
 ### Dagu Cloud
 
@@ -140,7 +191,7 @@ sets. Each process needs at most these settings:
 
 | Process | Settings |
 | --- | --- |
-| Coordinator | None; `peer.ca_cert_file` and `peer.ca_key_file` to use a CA made elsewhere |
+| Coordinator | `coordinator.host: 0.0.0.0` when workers on other hosts connect, plus a published port 50055 in a container; `peer.ca_cert_file` and `peer.ca_key_file` to use a CA made elsewhere |
 | Scheduler, UI/API, CLI, or worker sharing the data directory | None |
 | The same, without the data directory | `peer.token` and `peer.ca_cert_file` |
 | Worker on another host, with an invite | `worker.coordinators` and `worker.invite` |
@@ -193,7 +244,8 @@ Worker messages name the cause and the next step:
 
 ```text
 Cannot reach coordinator at coord.example.com:50055
-  Check that the port is open and coordinator.advertise is correct.
+  Check that the coordinator accepts workers from other hosts, that port
+  50055 is open on the way, and that the address is right.
 The invite is invalid, expired, or already used
   Get a new command from "Add worker". For several hosts, use a reusable invite.
 coord.example.com:50055 belongs to a different Dagu (its CA does not match the invite)
@@ -339,6 +391,23 @@ names the setting to change:
   | `DELETE /api/v1/workers/invites/{id}` | Deletes an invite |
   | `DELETE /api/v1/workers/{workerId}/certificate` | Revokes the worker's certificate |
 
+### Join readiness
+
+- A new coordinator RPC reports what **Add worker** and `dagu worker invite`
+  need: the listen host and port, whether it listens on loopback addresses
+  only, where `coordinator.host` came from (default, a config file and its
+  path, an environment variable, or a flag), whether the coordinator runs in
+  a container (`/.dockerenv`, `/run/.containerenv`) or in Kubernetes
+  (`KUBERNETES_SERVICE_HOST`), and its non-loopback interface addresses
+  outside a container. The coordinator reports them from its own host,
+  since the API server may run on another.
+- `GET /api/v1/workers/join-readiness`, admin only, returns the report of
+  each coordinator, and the dialog shows any that is not ready. The dialog
+  calls it when it opens and again after the server restarts; nothing polls
+  it.
+- `worker_invites` keeps the address each invite was made for, which step 2
+  starts with next time.
+
 ### Enrollment
 
 ```text
@@ -407,11 +476,17 @@ The existing keys keep working, with three fixes:
   and `peer.ca_key_file`. Scheduler, UI/API, and worker pods mount the
   certificate only.
 - The rendered config drops `peer.insecure: true`.
+- `coordinator.service.type` (default `ClusterIP`) and
+  `coordinator.service.annotations` set the coordinator Service, so a
+  `LoadBalancer` or `NodePort` can expose port 50055 to workers outside the
+  cluster. Clients check the fixed name `coordinator.dagu.invalid`, so the
+  load balancer passes TCP through and needs no certificate.
 
 ### Dagu Cloud
 
-- **Add worker** calls a new server MCP action that creates an invite, as
-  the signed-in person.
+- **Add worker** calls a new server MCP action, as the signed-in person. It
+  returns the join readiness first, so the console shows the same steps,
+  and creates the invite once the coordinator is ready.
 
 ## Compatibility
 
@@ -421,8 +496,11 @@ The existing keys keep working, with three fixes:
   `coordinator.require_tls`. Settings that conflict fail at start; none of
   them exist before this change, so no working config starts failing.
 - **CLI and API:** new commands `dagu peer init`, `dagu worker invite`, and
-  `dagu worker --check`; new endpoints under `/api/v1/workers/invites` and
-  `/api/v1/workers/{workerId}/certificate`.
+  `dagu worker --check`; new endpoints under `/api/v1/workers/invites`,
+  `/api/v1/workers/{workerId}/certificate`, and
+  `/api/v1/workers/join-readiness`.
+- **Chart:** new values `coordinator.service.type` and
+  `coordinator.service.annotations`. The default Service stays `ClusterIP`.
 - **Persisted data:** registry entries gain `tls`, which older processes
   ignore. `worker_invites` and `worker_certificates` are new collections.
   No run data, index, or migration changes.
@@ -454,6 +532,8 @@ The existing keys keep working, with three fixes:
 - **Workers list:** up to three fields per worker, about 120 bytes, on the
   existing 2-second refresh of an open Workers page. The Dagu Cloud report
   grows by about 25 bytes per worker, for at most 256 workers.
+- **Join readiness:** one RPC per coordinator when the dialog opens or the
+  server restarts while it is open. No file reads and no polling.
 - **Upgrade:** generating the CA takes milliseconds, once.
 
 ## Rollout
@@ -462,14 +542,23 @@ The existing keys keep working, with three fixes:
    log, `dagu worker --check`.
 2. Built-in CA, `dagu peer init`, coordinator certificate, one-port TLS and
    h2c, client transport rule, registry flag.
-3. Invites, enrollment, revocation, configuration conflicts, Workers page,
-   API, CLI, MCP.
-4. Chart.
+3. Invites, enrollment, revocation, configuration conflicts, join
+   readiness, Workers page, API, CLI, MCP.
+4. Chart, including the coordinator Service type.
 5. Dagu Cloud console.
 
 Specs under `specs/` state the transport selection, enrollment, and
 revocation contracts. Conformance tests cover h2c and TLS on one port, the
 single-use invite, and revocation of an open connection.
+
+## Alternatives
+
+| Option | Why not |
+| --- | --- |
+| Listen on `0.0.0.0` by default | Every fresh install would open the gRPC port to the network, and macOS would ask to allow incoming connections on the first `start-all` |
+| A button that changes the listen address | A web click would open a port, and a setting the UI stores would override the config file. A container still needs its port published |
+| Fill the address from the hostname, container ID, or browser host | It shows a command that cannot work as if it would. In a container the hostname is the container ID, and the UI's Ingress does not carry gRPC |
+| Dial the entered address from the coordinator | Reaching itself from its own host says nothing about the worker's network |
 
 ## Open questions
 
