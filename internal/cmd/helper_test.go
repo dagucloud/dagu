@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -224,10 +226,26 @@ func TestDispatchThroughInterruptDeadline(t *testing.T) {
 	defer interrupt()
 	client := &stalledDispatchClient{interrupt: interrupt}
 
-	err := dispatchThroughInterrupt(context.Background(), signalCtx, interrupt, client,
-		dispatch.DispatchRequest{Task: &dispatch.DispatchTask{}}, time.Millisecond)
+	noticed := 0
+	err := dispatchThroughInterrupt(signalCtx, client, dispatch.DispatchRequest{Task: &dispatch.DispatchTask{}},
+		time.Millisecond, func() { noticed++ })
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, 1, client.calls)
+	assert.Equal(t, 1, noticed, "the interrupt is shown once")
+}
+
+// On a terminal the logger is quiet while the progress display owns stderr,
+// so the interrupt notice goes through the display.
+func TestNoticeInterruptedOnTerminal(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	progress := NewRemoteProgressDisplay(&ir.DAG{Name: "deploy"}, "run")
+	progress.out = &out
+	quiet := logger.WithLogger(context.Background(), logger.NewLogger(logger.WithQuiet()))
+
+	noticeInterrupted(quiet, progress)
+	assert.Contains(t, out.String(), interruptedNotice)
 }
 
 func TestRestoreDAGFromStatus_SMTP(t *testing.T) {

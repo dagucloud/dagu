@@ -871,6 +871,9 @@ func remoteSubRunResolver(ctx *Context, cli coordinator.Client, dagName, dagRunI
 func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, coordinatorCli coordinator.Client) error {
 	signalCtx, stop := signal.NotifyContext(ctx.Context, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// The first interrupt releases the handler, so a second one exits at once
+	// for the rest of the command.
+	context.AfterFunc(signalCtx, stop)
 	signalAwareCtx := ctx.WithContext(signalCtx)
 
 	showProgress := shouldEnableProgress(ctx)
@@ -958,8 +961,8 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 
 	err := ctx.checkProjectDispatch()
 	if err == nil {
-		err = dispatchThroughInterrupt(ctx, signalCtx, stop, coordinatorCli,
-			dispatch.DispatchRequest{Task: task}, coordinator.DefaultConfig().RequestTimeout)
+		err = dispatchThroughInterrupt(signalCtx, coordinatorCli, dispatch.DispatchRequest{Task: task},
+			coordinator.DefaultConfig().RequestTimeout, func() { noticeInterrupted(ctx, progress) })
 	}
 	if err != nil {
 		if opts.seed != nil {
@@ -982,16 +985,15 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 // dispatchThroughInterrupt sends req to the coordinator. The coordinator can
 // take a task after its caller gives up on the call, so an interrupt
 // (signalCtx done) does not cut the call short: it stops further retries and
-// fallbacks, and the attempt in flight gets timeout to end. Once the call
-// returns, a run the coordinator took exists there, so a cancellation reaches
-// it. The interrupt calls stop, so a second interrupt exits at once.
+// fallbacks, calls notice, and gives the attempt in flight timeout to end.
+// Once the call returns, a run the coordinator took exists there, so a
+// cancellation reaches it.
 func dispatchThroughInterrupt(
-	ctx context.Context,
 	signalCtx context.Context,
-	stop context.CancelFunc,
 	cli coordinator.Client,
 	req dispatch.DispatchRequest,
 	timeout time.Duration,
+	notice func(),
 ) error {
 	attemptsStop := make(chan struct{})
 	callCtx, cancelCall := context.WithCancel(coordinator.WithAttemptStop(context.WithoutCancel(signalCtx), attemptsStop))
@@ -1004,8 +1006,7 @@ func dispatchThroughInterrupt(
 			return
 		case <-signalCtx.Done():
 		}
-		stop()
-		logger.Info(ctx, "Interrupted: waiting for the coordinator to admit the run so it can be cancelled (Ctrl+C again to exit now)")
+		notice()
 		close(attemptsStop)
 		deadline := time.NewTimer(timeout)
 		defer deadline.Stop()
@@ -1016,6 +1017,20 @@ func dispatchThroughInterrupt(
 		}
 	}()
 	return cli.Dispatch(callCtx, req)
+}
+
+// interruptedNotice tells the user what an interrupted dispatch waits for.
+const interruptedNotice = "Interrupted: waiting for the coordinator to admit the run so it can be cancelled (Ctrl+C again to exit now)"
+
+// noticeInterrupted shows interruptedNotice. On a terminal the progress
+// display owns stderr and the logger is quiet, so the notice goes through the
+// display there.
+func noticeInterrupted(ctx context.Context, progress *RemoteProgressDisplay) {
+	if progress != nil {
+		progress.notice(interruptedNotice)
+		return
+	}
+	logger.Info(ctx, interruptedNotice)
 }
 
 // handleDistributedCancellation handles the cancellation of a distributed DAG run when a signal is received.
