@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -66,10 +65,10 @@ func LoadOrCreatePeerToken(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := fileutil.MkdirAll(filepath.Dir(path), peerDirMode); err != nil {
 		return "", fmt.Errorf("create peer token directory: %w", err)
 	}
-	err = fileutil.WriteFileAtomicExclusive(path, []byte(token+"\n"), 0o600)
+	err = fileutil.WriteFileAtomicExclusive(path, []byte(token+"\n"), peerFileMode)
 	if errors.Is(err, fs.ErrExist) {
 		return readPeerToken(path)
 	}

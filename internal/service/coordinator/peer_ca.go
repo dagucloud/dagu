@@ -29,7 +29,8 @@ const (
 	peerCABackdate = time.Hour
 	// peerCASerialBits is the size of the CA's random serial number.
 	peerCASerialBits = 128
-	// peerFileMode keeps CA keys and peer tokens readable by their user only.
+	// peerFileMode and peerDirMode keep CA files, peer tokens, and their
+	// directories readable by their user only.
 	peerFileMode = 0o600
 	peerDirMode  = 0o700
 
@@ -130,12 +131,18 @@ func WritePeerInit(dir string) ([]string, error) {
 		if err == nil {
 			continue
 		}
-		// Another writer created the file after the check: remove the files
-		// written here, so the directory holds no partial set from this run.
-		for _, written := range paths[:i] {
-			_ = fileutil.Remove(written)
+		// Remove the files written here, so the directory holds no partial
+		// set from this run. A write can fail after it installs its file, so
+		// that file goes too, unless another writer created it first.
+		existing := errors.Is(err, fs.ErrExist)
+		written := paths[:i]
+		if !existing {
+			written = paths[:i+1]
 		}
-		if errors.Is(err, fs.ErrExist) {
+		for _, file := range written {
+			_ = fileutil.Remove(file)
+		}
+		if existing {
 			return nil, existingPeerFile(path)
 		}
 		return nil, err
