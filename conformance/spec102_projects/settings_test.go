@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -48,21 +47,24 @@ func TestRunUsesProjectSettings(t *testing.T) {
 	t.Parallel()
 
 	dagu := harness.NewRunner(t)
-	home := filepath.Join(t.TempDir(), "dagu")
-	env := []string{"DAGU_HOME=" + home}
-	projectsOn := append(slices.Clone(env), "DAGU_EXPERIMENTAL_PROJECTS=true")
-	seedSettings(t, dagu, projectsOn)
-
-	dagFile := filepath.Join(home, "dags", "settings.yaml")
 	for _, tc := range []struct {
-		env   []string
-		scope string
+		projectsOn bool
+		scope      string
 	}{
-		{env: projectsOn, scope: "project"},
-		{env: env, scope: "workspace"},
+		{projectsOn: true, scope: "project"},
+		{projectsOn: false, scope: "workspace"},
 	} {
+		// Each install keeps its settings where its first start leaves
+		// them, so each case seeds its own.
+		home := filepath.Join(t.TempDir(), "dagu")
+		env := []string{"DAGU_HOME=" + home}
+		if tc.projectsOn {
+			env = append(env, "DAGU_EXPERIMENTAL_PROJECTS=true")
+		}
+		seedSettings(t, dagu, env)
+		dagFile := filepath.Join(home, "dags", "settings.yaml")
 		require.NoError(t, os.WriteFile(dagFile, fmt.Appendf(nil, settingsDAG, tc.scope), 0o600))
-		result := dagu.RunWithEnv(tc.env, "start", dagFile)
+		result := dagu.RunWithEnv(env, "start", dagFile)
 		result.ExpectExitCode(0)
 		require.Contains(t, result.Stdout(), "token *******")
 		require.Contains(t, result.Stdout(), "tier "+tc.scope)

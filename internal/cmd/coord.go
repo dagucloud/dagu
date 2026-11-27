@@ -229,8 +229,8 @@ func newCoordinator(
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
 		DAGRunRepository:          persistence.DAGRunRepository,
 		StateStore:                persistence.StateStore,
-		LogDir:                    cfg.Paths.LogDir,
-		ArtifactDir:               cfg.Paths.ArtifactDir,
+		LogDir:                    ctx.projectPaths().LogDir,
+		ArtifactDir:               ctx.projectPaths().ArtifactDir,
 		WorkspaceBundleDir:        workspacebundle.StoreDir(cfg.Paths.DataDir),
 		Owner:                     dispatch.CoordinatorEndpoint{ID: instanceID, Host: advertiseAddr, Port: cfg.Coordinator.Port},
 		DispatchTaskStore:         persistence.DispatchTaskStore,

@@ -31,8 +31,9 @@ const sharedDAG = "etl"
 
 // Each process opens the default project's stores on its own, and they
 // agree: what the server writes, the scheduler, runs, and workers read, and
-// the server reads the run events that runs write. With projects off or on,
-// the default project's state stays where v2 keeps it.
+// the server reads the run events that runs write. With projects off, the
+// default project's state stays where v2 keeps it; with projects on, it is
+// in the project's state directory.
 func TestStoresShareDefaultProject(t *testing.T) {
 	// Without a key in the environment, each process reads the key file
 	// in paths.data_dir, so decrypting what another wrote shows they share
@@ -43,15 +44,18 @@ func TestStoresShareDefaultProject(t *testing.T) {
 			cfg := sharedStoresConfig(t, projectsOn)
 			assertProcessesAgree(t, cfg)
 
-			data := cfg.Paths.DataDir
-			assertState(t, filemonitor.NewStateStore(filepath.Join(data, "notifications", "monitor-state.json")).Load, `"notified"`)
-			assertState(t, filemonitor.NewStateStore(filepath.Join(data, "incidents", "monitor-state.json")).Load, `"opened"`)
-			v2Events, err := fileeventstore.New(cfg.Paths.EventStoreDir)
+			state, events := cfg.Paths.DataDir, cfg.Paths.EventStoreDir
+			if projectsOn {
+				state = filepath.Join(cfg.Paths.DataDir, "projects", project.DefaultName, "state")
+				events = filepath.Join(state, "events")
+			}
+			assertState(t, filemonitor.NewStateStore(filepath.Join(state, "notifications", "monitor-state.json")).Load, `"notified"`)
+			assertState(t, filemonitor.NewStateStore(filepath.Join(state, "incidents", "monitor-state.json")).Load, `"opened"`)
+			stored, err := fileeventstore.New(events)
 			require.NoError(t, err)
-			result, err := v2Events.Query(t.Context(), eventstore.QueryFilter{DAGName: sharedDAG})
+			result, err := stored.Query(t.Context(), eventstore.QueryFilter{DAGName: sharedDAG})
 			require.NoError(t, err)
 			assert.Len(t, result.Entries, 1)
-			assert.NoDirExists(t, filepath.Join(cfg.Paths.DataDir, "projects", project.DefaultName))
 		})
 	}
 }

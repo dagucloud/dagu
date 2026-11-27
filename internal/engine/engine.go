@@ -5,6 +5,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,6 +49,11 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 		return nil, err
 	}
 	applyOptions(cfg, opts)
+	if cfg.ProjectsEnabled {
+		// The engine keeps runs where v2 does and migrates nothing, while
+		// a server with projects on reads them from each project's state.
+		return nil, errors.New("the embedded engine does not support projects: turn experimental_projects off")
+	}
 
 	log := logger.NewLogger(logger.WithQuiet())
 	if opts.Logger != nil {

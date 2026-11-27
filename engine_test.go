@@ -120,9 +120,10 @@ steps:
 	require.Contains(t, err.Error(), "coordinator")
 }
 
-// With projects on, an embedded run reads the secret and profile default of
-// its project, never those of the workspace its DAG's label names. With
-// projects off, the workspace's layers apply as in v2.
+// An embedded run reads the secret and profile default of the workspace its
+// DAG's label names, as in v2. With projects on, the engine refuses to
+// start, since it would keep runs where a server with projects on does not
+// read them.
 func TestEngineRunProjectSettings(t *testing.T) {
 	testBinary, err := os.Executable()
 	require.NoError(t, err, "Executable()")
@@ -131,7 +132,7 @@ func TestEngineRunProjectSettings(t *testing.T) {
 		projectsOn bool
 		scope      string
 	}{
-		{name: "ProjectsOn", projectsOn: true, scope: "project"},
+		{name: "ProjectsOn", projectsOn: true},
 		{name: "ProjectsOff", projectsOn: false, scope: "workspace"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -145,6 +146,10 @@ func TestEngineRunProjectSettings(t *testing.T) {
 			require.NoError(t, os.WriteFile(configFile, fmt.Appendf(nil, "experimental_projects: %t\n", tc.projectsOn), 0o600))
 
 			engine, err := dagu.New(ctx, dagu.Options{HomeDir: home, ConfigFile: configFile, DataDir: dataDir})
+			if tc.projectsOn {
+				require.ErrorContains(t, err, "does not support projects")
+				return
+			}
 			require.NoError(t, err, "New()")
 			defer func() {
 				require.NoError(t, engine.Close(context.Background()))

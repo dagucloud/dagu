@@ -30,8 +30,7 @@ func libraryConfig(t *testing.T, projectsOn bool) (*config.Config, string) {
 
 // With projects on, a project records the runs, queue items, and DAG state
 // of the library DAG etl in its library, so its own DAG etl reads none of
-// them. The default project's library is in its state directory, though
-// its own stores stay where v2 keeps them.
+// them. Each project's library is in its state directory.
 func TestLibraryStoresKeepRunsApart(t *testing.T) {
 	ctx := context.Background()
 	cfg, libraryDAG := libraryConfig(t, true)
@@ -71,7 +70,6 @@ func TestLibraryStoresKeepRunsApart(t *testing.T) {
 			}
 		})
 	}
-	assert.NoDirExists(t, filepath.Join(cfg.Paths.DataDir, "projects", project.DefaultName, "runs"))
 }
 
 // With a path set apart, a project's library keeps its runs and logs under

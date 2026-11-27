@@ -27,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -146,12 +147,14 @@ func waitForStoredDAGRunStatus(
 	t.Helper()
 
 	ref := ir.NewDAGRunRef(dagName, dagRunID)
+	paths, err := server.Config.ProjectPaths(project.DefaultName)
+	require.NoError(t, err)
 	var status *ir.DAGRunStatus
 	require.Eventually(t, func() bool {
 		// Create the repository inside the poll so attempt discovery can observe a
 		// retry/resume attempt created after polling starts.
 		repository := testutil.NewFileDAGRunRepository(
-			server.Config.Paths.DAGRunsDir,
+			paths.DAGRunsDir,
 			persis.DAGRunRepositoryOptions{
 				LatestStatusToday: server.Config.Server.LatestStatusToday,
 				Location:          server.Config.Core.Location,

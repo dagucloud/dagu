@@ -173,6 +173,7 @@ func (a *API) refuseLibraryDAG(ctx context.Context, dag *ir.DAG) error {
 // defaultWebhookProject returns the default project, whose stores are the
 // API's own.
 func (a *API) defaultWebhookProject() *WebhookProject {
+	logDir, artifactDir := a.runDirs()
 	return &WebhookProject{
 		Name:             project.DefaultName,
 		DAGRepository:    a.dagRepository,
@@ -181,8 +182,8 @@ func (a *API) defaultWebhookProject() *WebhookProject {
 		QueueStore:       a.queueStore,
 		ProfileStore:     a.profileStore,
 		DAGSettingsStore: a.dagSettingsStore,
-		LogDir:           a.config.Paths.LogDir,
-		ArtifactDir:      a.config.Paths.ArtifactDir,
+		LogDir:           logDir,
+		ArtifactDir:      artifactDir,
 		BaseConfig:       a.config.Paths.BaseConfig,
 	}
 }

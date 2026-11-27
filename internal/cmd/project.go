@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/project"
@@ -288,13 +289,10 @@ func (c *Context) projectPaths() config.ProjectPaths {
 	case c.settings != nil:
 		return c.settings.Paths
 	}
-	// A remote context opens no store; the default project keeps the
-	// directories v2 uses.
-	return config.ProjectPaths{
-		DAGsDir:     c.Config.Paths.DAGsDir,
-		LogDir:      c.Config.Paths.LogDir,
-		ArtifactDir: c.Config.Paths.ArtifactDir,
-	}
+	// A remote context opens no store; it gets the directories where the
+	// default project's stores open. The default project always resolves.
+	paths, _ := file.ProjectStorePaths(c.Config, project.DefaultName)
+	return paths
 }
 
 // projectLoadOptions returns the options that load a DAG of the addressed

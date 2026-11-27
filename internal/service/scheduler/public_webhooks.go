@@ -78,12 +78,13 @@ func (r *webhookRuns) Enqueue(ctx context.Context, dagName string, dag *ir.DAG, 
 	case err != nil:
 		return fmt.Errorf("failed to resolve DAG profile: %w", err)
 	}
+	logDir, artifactDir := runDirs(r.config)
 	return EnqueueWebhookRun(
 		ctx,
 		r.dagRunRepository,
 		r.queueStore,
-		r.config.Paths.LogDir,
-		r.config.Paths.ArtifactDir,
+		logDir,
+		artifactDir,
 		r.config.Paths.BaseConfig,
 		r.workspaceBaseConfigDir,
 		dagName,

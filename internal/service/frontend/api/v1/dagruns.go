@@ -4037,11 +4037,12 @@ type runQueue struct {
 }
 
 func (a *API) defaultRunQueue() runQueue {
+	logDir, artifactDir := a.runDirs()
 	return runQueue{
 		runs:        a.dagRunRepository,
 		queue:       a.queueStore,
-		logDir:      a.config.Paths.LogDir,
-		artifactDir: a.config.Paths.ArtifactDir,
+		logDir:      logDir,
+		artifactDir: artifactDir,
 		baseConfig:  a.config.Paths.BaseConfig,
 	}
 }

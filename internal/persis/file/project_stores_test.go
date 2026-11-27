@@ -48,10 +48,8 @@ func TestProjectStoresOffKeepV2Layout(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(cfg.Paths.DataDir, "projects.json"))
 }
 
-// With projects on, a project keeps the same DAG's records apart from the
-// default project's, in its own state directory. The default project's stay
-// where v2 keeps them, where the server and the scheduler still read and
-// write them.
+// With projects on, each project, the default one included, keeps the same
+// DAG's records apart from the others, in its own state directory.
 func TestProjectStoresOnKeepProjectsApart(t *testing.T) {
 	ctx := context.Background()
 	cfg := projectStoresConfig(t, true)
@@ -69,13 +67,13 @@ func TestProjectStoresOnKeepProjectsApart(t *testing.T) {
 	for name, stores := range opened {
 		assertSample(t, readersOf(ctx, stores), secretIDs[name], name)
 	}
-	assertSample(t, v2Readers(ctx, cfg), secretIDs[project.DefaultName], project.DefaultName)
-	weather := filepath.Join(cfg.Paths.DataDir, "projects", "weather")
-	for _, dir := range []string{"runs", "settings/secrets", "state/dag-state", "state/queue"} {
-		assert.DirExists(t, filepath.Join(weather, filepath.FromSlash(dir)))
+	for _, name := range []string{project.DefaultName, "weather"} {
+		state := filepath.Join(cfg.Paths.DataDir, "projects", name)
+		for _, dir := range []string{"runs", "settings/secrets", "state/dag-state", "state/queue"} {
+			assert.DirExists(t, filepath.Join(state, filepath.FromSlash(dir)))
+		}
 	}
 	assert.DirExists(t, filepath.Join(cfg.Paths.ProjectsDir, "weather"))
-	assert.NoDirExists(t, filepath.Join(cfg.Paths.DataDir, "projects", project.DefaultName))
 }
 
 // Every project encrypts its secrets with the server's key and keeps no key
@@ -139,15 +137,15 @@ func TestProjectStoresMapV2RunPaths(t *testing.T) {
 	}
 }
 
-// With projects on, a run of the default project writes its log where a
-// command puts it, in paths.log_dir, and its record reads that file back.
+// With projects on, a run of the default project writes its log in the
+// project's log directory, and its record reads that file back.
 func TestProjectStoresOnDefaultRunLog(t *testing.T) {
 	ctx := context.Background()
 	cfg := projectStoresConfig(t, true)
 	stores, err := persisfile.NewProjectStores(ctx, cfg, persisfile.NewServerStores(cfg), project.Project{Name: project.DefaultName}, persisfile.ProjectStoreOptions{})
 	require.NoError(t, err)
 
-	logFile, err := logpath.Generate(ctx, cfg.Paths.LogDir, "", sampleDAG, "run-1")
+	logFile, err := logpath.Generate(ctx, stores.Paths.LogDir, "", sampleDAG, "run-1")
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(logFile), 0o750))
 	require.NoError(t, os.WriteFile(logFile, []byte("hello"), 0o600))
@@ -171,43 +169,34 @@ func TestProjectStoresOnDAGChangeMarker(t *testing.T) {
 	assert.FileExists(t, marker)
 }
 
-// With projects on, a project other than the default one keeps its run
+// With projects on, each project, the default one included, keeps its run
 // events, the state of its notification and incident monitors, and its DAG
-// change marker in its own state directory, apart from the default
-// project's.
+// change marker in its own state directory, whatever
+// paths.event_store_dir says.
 func TestProjectSettingsOnKeepProjectState(t *testing.T) {
 	cfg := projectStoresConfig(t, true)
 	cfg.Paths.EventStoreDir = filepath.Join(t.TempDir(), "events")
 	server := persisfile.NewServerStores(cfg)
-	weather, err := persisfile.NewProjectSettings(cfg, server, "weather")
-	require.NoError(t, err)
-	defaults, err := persisfile.NewProjectSettings(cfg, server, project.DefaultName)
-	require.NoError(t, err)
-
-	state := filepath.Join(cfg.Paths.DataDir, "projects", "weather", "state")
-	assert.Equal(t, filepath.Join(state, "events"), weather.Paths.EventStoreDir)
-	assert.Equal(t, cfg.Paths.EventStoreDir, defaults.Paths.EventStoreDir)
-	for _, files := range [][2]string{
-		{weather.NotificationStateFile(), defaults.NotificationStateFile()},
-		{weather.IncidentStateFile(), defaults.IncidentStateFile()},
-		{weather.DAGChangeMarkerPath(), defaults.DAGChangeMarkerPath()},
-	} {
-		assert.True(t, strings.HasPrefix(files[0], state+string(filepath.Separator)), files[0])
-		assert.NotEqual(t, files[0], files[1])
+	for _, name := range []string{project.DefaultName, "weather"} {
+		settings, err := persisfile.NewProjectSettings(cfg, server, name)
+		require.NoError(t, err)
+		state := filepath.Join(cfg.Paths.DataDir, "projects", name, "state")
+		assert.Equal(t, filepath.Join(state, "events"), settings.Paths.EventStoreDir)
+		for _, file := range []string{settings.NotificationStateFile(), settings.IncidentStateFile(), settings.DAGChangeMarkerPath()} {
+			assert.True(t, strings.HasPrefix(file, state+string(filepath.Separator)), file)
+		}
 	}
-	assert.Equal(t, filepath.Join(cfg.Paths.DataDir, "notifications", "monitor-state.json"), defaults.NotificationStateFile())
-	assert.Equal(t, filepath.Join(cfg.Paths.DataDir, "incidents", "monitor-state.json"), defaults.IncidentStateFile())
 }
 
 // With projects on, the default project and another project each hold a
-// webhook for a DAG of the same name. The default project's is the one the
-// v2 webhook store reads; the other project's lies in its own settings.
+// webhook for a DAG of the same name, each in its own settings.
 func TestProjectSettingsOnKeepWebhooksApart(t *testing.T) {
 	ctx := context.Background()
 	cfg := projectStoresConfig(t, true)
 	server := persisfile.NewServerStores(cfg)
 
 	ids := map[string]string{}
+	stores := map[string]*store.WebhookStore{}
 	for _, name := range []string{project.DefaultName, "weather"} {
 		settings, err := persisfile.NewProjectSettings(cfg, server, name)
 		require.NoError(t, err)
@@ -216,17 +205,15 @@ func TestProjectSettingsOnKeepWebhooksApart(t *testing.T) {
 		webhook, err := auth.NewWebhook(sampleDAG, "hash-"+name, "dagu_wh_", "test")
 		require.NoError(t, err)
 		require.NoError(t, webhooks.Create(ctx, webhook))
-		ids[name] = webhook.ID
+		ids[name], stores[name] = webhook.ID, webhooks
 	}
 
-	v2 := persisfile.NewBackend(cfg.Paths)
-	v2Webhooks, err := store.NewWebhookStore(v2.Collection(persis.CollectionWebhooks), v2.Collection(persis.CollectionWebhookDAGClaims), nil)
-	require.NoError(t, err)
-	got, err := v2Webhooks.GetByDAGName(ctx, sampleDAG)
-	require.NoError(t, err)
-	assert.Equal(t, ids[project.DefaultName], got.ID)
-	assert.FileExists(t, filepath.Join(cfg.Paths.WebhooksDir, ids[project.DefaultName]+".json"))
-	assert.FileExists(t, filepath.Join(cfg.Paths.DataDir, "projects", "weather", "settings", "webhooks", ids["weather"]+".json"))
+	for name, webhooks := range stores {
+		got, err := webhooks.GetByDAGName(ctx, sampleDAG)
+		require.NoError(t, err)
+		assert.Equal(t, ids[name], got.ID, name)
+		assert.FileExists(t, filepath.Join(cfg.Paths.DataDir, "projects", name, "settings", "webhooks", ids[name]+".json"))
+	}
 }
 
 // projectStoresConfig sets apart every path that places a project store, as
