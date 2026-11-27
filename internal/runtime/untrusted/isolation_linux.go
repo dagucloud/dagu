@@ -873,7 +873,7 @@ func writableBy(path string, uid, gid uint32) bool {
 			owner, group := ownerOf(info)
 			mode := info.Mode()
 			canWrite := (group == int(gid) && mode&0o020 != 0) || mode&0o002 != 0
-			if owner == int(uid) || canWrite && (dir == path || missing || mode&fs.ModeSticky == 0) {
+			if owner == int(uid) || (canWrite && (dir == path || missing || mode&fs.ModeSticky == 0)) {
 				return true
 			}
 			missing = false

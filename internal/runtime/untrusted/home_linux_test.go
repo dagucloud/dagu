@@ -70,10 +70,10 @@ func TestTrustedHome(t *testing.T) {
 	require.NoError(t, os.Mkdir(inOpen, 0o700))
 	assert.NotNil(t, trustedHome(t, testUID, inOpen, none), "a HOME that the restricted user can rename is replaced")
 
-	config := filepath.Join(t.TempDir(), "home")
-	require.NoError(t, os.MkdirAll(filepath.Join(config, ".config"), 0o700))
-	require.NoError(t, os.Chmod(filepath.Join(config, ".config"), 0o777)) //nolint:gosec // a config folder that any user can write
-	assert.NotNil(t, trustedHome(t, testUID, config, none), "a default config folder that the restricted user can write is replaced")
+	xdgHome := filepath.Join(t.TempDir(), "home")
+	require.NoError(t, os.MkdirAll(filepath.Join(xdgHome, ".config"), 0o700))
+	require.NoError(t, os.Chmod(filepath.Join(xdgHome, ".config"), 0o777)) //nolint:gosec // a config folder that any user can write
+	assert.NotNil(t, trustedHome(t, testUID, xdgHome, none), "a default config folder that the restricted user can write is replaced")
 
 	// The owner of a folder can give itself write access. The test process
 	// stands in for the restricted user, so this needs no root either.
