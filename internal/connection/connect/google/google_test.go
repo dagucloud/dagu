@@ -281,11 +281,69 @@ func TestConsentErrorFixes(t *testing.T) {
 	}
 }
 
+// Remove revokes the refresh token at Google's revocation endpoint. A
+// token Google already reports as invalid counts as revoked, and a refusal
+// is reported without the token.
+func TestRemoveRevokes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		status     int
+		code       string
+		wantReason string
+	}{
+		{name: "Revoked"},
+		{name: "AlreadyInvalid", status: http.StatusBadRequest, code: "invalid_token"},
+		{name: "Refused", status: http.StatusBadRequest, code: "invalid_request", wantReason: "HTTP 400: invalid_request: Token refused"},
+		{name: "Unavailable", status: http.StatusServiceUnavailable, wantReason: "HTTP 503"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t, false)
+			f.google.revokeStatus, f.google.revokeError = tt.status, tt.code
+			require.Equal(t, connect.PhaseConnected, f.consent(t, connect.StartOptions{ExpectedAccount: "user@example.com"}).Phase)
+
+			require.NoError(t, f.engine.Remove(testCtx(t), f.conn))
+			assert.Equal(t, []string{"rt-1"}, f.google.revokedTokens())
+			revoked := f.revoked()
+			require.Len(t, revoked, 1)
+			if tt.wantReason == "" {
+				assert.Empty(t, revoked[0].Reason)
+			} else {
+				assert.Contains(t, revoked[0].Reason, tt.wantReason)
+			}
+			assert.NotContains(t, revoked[0].Reason, "rt-1")
+		})
+	}
+}
+
+// Revoking one Google refresh token may end the account's whole grant, so
+// a confirmed reconnect leaves the token it replaced unrevoked.
+func TestReconnectRevokesNothing(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, false)
+	for range 2 {
+		require.Equal(t, connect.PhaseConnected, f.consent(t, connect.StartOptions{ExpectedAccount: "user@example.com"}).Phase)
+	}
+	assert.Empty(t, f.google.revokedTokens())
+	assert.Empty(t, f.revoked())
+}
+
 type fixture struct {
 	store  connection.Store
 	conn   *connection.Connection
 	engine *connect.Engine
 	google *fakeGoogle
+
+	mu          sync.Mutex
+	revocations []connect.Revocation
+}
+
+func (f *fixture) revoked() []connect.Revocation {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.revocations)
 }
 
 // newFixture returns a connection of services through a web client, with
@@ -332,13 +390,20 @@ func newFixture(t *testing.T, agent bool, services ...connection.Service) *fixtu
 	google.SetTransport(&cfg, fake.transport())
 	provider, err := google.New(cfg)
 	require.NoError(t, err)
-	engine, err := connect.New(connect.Config{
+	f := &fixture{store: s, conn: conn, google: fake}
+	f.engine, err = connect.New(connect.Config{
 		Store:     s,
+		Locks:     stores.ConnectionLocks(),
 		Providers: map[connection.Provider]connect.Provider{connection.ProviderGoogle: provider},
 		Encryptor: enc,
+		OnRevoke: func(_ context.Context, r connect.Revocation) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.revocations = append(f.revocations, r)
+		},
 	})
 	require.NoError(t, err)
-	return &fixture{store: s, conn: conn, engine: engine, google: fake}
+	return f
 }
 
 // consent runs a server callback session through consent and returns its
@@ -379,9 +444,13 @@ type fakeGoogle struct {
 	refreshExpiresIn int
 	emailVerified    any
 	exchangeError    string
+	// revokeStatus and revokeError make the revocation endpoint refuse.
+	revokeStatus int
+	revokeError  string
 
-	mu    sync.Mutex
-	reads []string
+	mu      sync.Mutex
+	reads   []string
+	revoked []string
 }
 
 func newFakeGoogle(t *testing.T) *fakeGoogle {
@@ -402,6 +471,10 @@ func newFakeGoogle(t *testing.T) *fakeGoogle {
 		}
 		switch r.Host {
 		case "oauth2.googleapis.com":
+			if r.URL.Path == "/revoke" {
+				g.revoke(w, r)
+				return
+			}
 			g.token(w, r)
 		case "openidconnect.googleapis.com":
 			writeJSON(w, http.StatusOK, map[string]any{"sub": "sub-1", "email": "user@example.com", "email_verified": g.emailVerified})
@@ -462,6 +535,28 @@ func (g *fakeGoogle) token(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, body)
 	}
+}
+
+// revoke serves Google's revocation endpoint, which takes the token as a
+// form field and answers 200, or 400 with an OAuth error.
+func (g *fakeGoogle) revoke(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	g.revoked = append(g.revoked, r.PostFormValue("token"))
+	g.mu.Unlock()
+	switch {
+	case r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/x-www-form-urlencoded":
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	case g.revokeError != "":
+		writeJSON(w, g.revokeStatus, map[string]string{"error": g.revokeError, "error_description": "Token refused"})
+	case g.revokeStatus != 0:
+		w.WriteHeader(g.revokeStatus)
+	}
+}
+
+func (g *fakeGoogle) revokedTokens() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Clone(g.revoked)
 }
 
 // read records a REST read.

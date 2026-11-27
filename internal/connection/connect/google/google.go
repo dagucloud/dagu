@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ const (
 	authURL     = "https://accounts.google.com/o/oauth2/v2/auth"
 	tokenURL    = "https://oauth2.googleapis.com/token"
 	userinfoURL = "https://openidconnect.googleapis.com/v1/userinfo"
+	revokeURL   = "https://oauth2.googleapis.com/revoke"
 )
 
 // Pages that the fixes link to.
@@ -49,6 +51,9 @@ const (
 )
 
 const (
+	// errInvalidToken is the revocation endpoint's answer for a token that
+	// is already revoked or expired.
+	errInvalidToken = "invalid_token"
 	// emailScope is requested by every connection. Google reports it back
 	// as emailScopeAlias.
 	emailScope      = "email"
@@ -103,6 +108,7 @@ var restProbes = map[string]restProbe{
 var (
 	_ connect.Provider = (*Provider)(nil)
 	_ connect.Advisor  = (*Provider)(nil)
+	_ connect.Revoker  = (*Provider)(nil)
 )
 
 // Config is what a Provider needs.
@@ -369,6 +375,48 @@ func (p *Provider) RefreshTokenFix(remaining time.Duration) string {
 		fix += " If the app is in Testing status, Google also ends its refresh tokens after seven days. Publishing the app to Production, or making it Internal, on " + audiencePage + " removes that limit."
 	}
 	return fix
+}
+
+// RevokeScope reports that revoking a Google refresh token may end the
+// account's whole grant to the client, as Google documents for its
+// revocation endpoint.
+func (p *Provider) RevokeScope() connect.RevokeScope {
+	return connect.RevokesGrant
+}
+
+// Revoke revokes refreshToken at Google's revocation endpoint. A token
+// that Google reports as invalid_token is already unusable, so its
+// revocation succeeds.
+func (p *Provider) Revoke(ctx context.Context, _ *connection.App, refreshToken string) error {
+	form := url.Values{"token": {refreshToken}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, revokeURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	var e struct {
+		Error       string `json:"error"`
+		Description string `json:"error_description"`
+	}
+	_ = json.Unmarshal(body, &e)
+	switch {
+	case e.Error == errInvalidToken:
+		return nil
+	case e.Error == "":
+		return fmt.Errorf("revoke at Google: HTTP %d", resp.StatusCode)
+	case e.Description == "":
+		return fmt.Errorf("revoke at Google: HTTP %d: %s", resp.StatusCode, e.Error)
+	}
+	return fmt.Errorf("revoke at Google: HTTP %d: %s: %s", resp.StatusCode, e.Error, e.Description)
 }
 
 // get sends a GET with token to url, and returns the status and at most

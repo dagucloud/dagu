@@ -33,9 +33,12 @@ does not exist, which their probes rely on.
 
 The tests against Google settle one provider fact this spec depends on
 (RFC 025, criterion 42): whether revoking one Google refresh token ends the
-account's whole grant to the client. Until they record it here,
-[Token Cleanup](#token-cleanup) applies to Google as a provider whose answer
-is unknown.
+account's whole grant to the client. Google documents that revoking a
+token ends the grant, so until they record otherwise,
+[Token Cleanup](#token-cleanup) leaves Google's unused tokens unrevoked, and
+[Remove](#remove) revokes a Google refresh token at
+`https://oauth2.googleapis.com/revoke`. A token that Google answers with
+`invalid_token` is already unusable and counts as revoked.
 
 [Service Presets](#service-presets) lists the scope sets of the Google
 presets only. The parts that compile the Microsoft presets (C20 and C21)
