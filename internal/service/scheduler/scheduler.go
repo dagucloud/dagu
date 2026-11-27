@@ -44,7 +44,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // Clock is a function that returns the current time.
@@ -66,6 +65,13 @@ type queueProcessRepository interface {
 type zombieProcessRepository interface {
 	ListAllEntries(ctx context.Context) ([]proc.ProcEntry, error)
 	RemoveIfStale(ctx context.Context, entry proc.ProcEntry) error
+}
+
+// libraryRuns are the stores of the library DAG runs whose dead runs the
+// scheduler fails.
+type libraryRuns struct {
+	dagRunRepository *persis.DAGRunRepository
+	procRepository   *persis.ProcRepository
 }
 
 type Scheduler struct {
@@ -92,6 +98,7 @@ type Scheduler struct {
 	disableHealthServer bool            // Disable health server when running from start-all
 	disableSignals      bool            // Leave OS signals to start-all
 	zombieDetector      *ZombieDetector // Zombie DAG run detector
+	libraryRuns         libraryRuns
 	instanceID          string          // Unique instance identifier for service registry
 	queueProcessor      *QueueProcessor // Processor for queued DAG runs
 	queueWatcher        queuedomain.QueueWatcher
@@ -165,6 +172,11 @@ type Dependencies struct {
 	// WatchStore remembers the files watched folders held across restarts;
 	// nil remembers them for the process only.
 	WatchStore schedulerstate.WatchStore
+	// LibraryDAGRunRepository and LibraryProcRepository record the runs of
+	// the library DAGs that run in the project. The scheduler fails their
+	// dead runs too. Nil checks none.
+	LibraryDAGRunRepository *persis.DAGRunRepository
+	LibraryProcRepository   *persis.ProcRepository
 }
 
 type startupState struct {
@@ -220,6 +232,7 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	}
 	scheduler.publicWebhooks = newPublicWebhooks(cfg, deps, scheduler)
 	scheduler.folderWatcher.cfg.Store = deps.WatchStore
+	scheduler.libraryRuns = libraryRuns{dagRunRepository: deps.LibraryDAGRunRepository, procRepository: deps.LibraryProcRepository}
 	scheduler.queueProcessor.dagRunLeaseStore = deps.DAGRunLeaseStore
 	scheduler.queueProcessor.dispatchTaskStore = deps.DispatchTaskStore
 	scheduler.queueProcessor.dispatchAdmissionStore = dispatchAdmissionStoreFromTaskStore(deps.DispatchTaskStore)
@@ -286,7 +299,7 @@ func newScheduler(
 	lockDir := filepath.Join(persisfile.SchedulerProcessDir(cfg.Paths), "locks")
 	dirLock := dirlock.New(lockDir, lockOpts)
 	subCmdBuilder := launcher.NewSubCmdBuilder(cfg)
-	workspaceBaseConfigDir := workspace.BaseConfigDir(cfg.Paths.DAGsDir)
+	workspaceBaseConfigDir := cfg.WorkspaceBaseConfigDir()
 	dagExecutor := NewDAGExecutor(
 		coordinatorCli,
 		subCmdBuilder,
@@ -912,6 +925,9 @@ func (s *Scheduler) startZombieDetector(ctx context.Context) {
 		s.config.Scheduler.ZombieDetectionInterval,
 		s.config.Scheduler.FailureThreshold,
 	)
+	if s.libraryRuns.dagRunRepository != nil && s.libraryRuns.procRepository != nil {
+		s.zombieDetector.alsoCheck(s.libraryRuns.dagRunRepository, s.libraryRuns.procRepository)
+	}
 	zd := s.zombieDetector
 	s.lock.Unlock()
 
@@ -1266,7 +1282,7 @@ func (s *Scheduler) enqueueFileRun(ctx context.Context, entry DAGEntry, runID, p
 		logDir,
 		artifactDir,
 		s.config.Paths.BaseConfig,
-		workspace.BaseConfigDir(s.config.Paths.DAGsDir),
+		s.config.WorkspaceBaseConfigDir(),
 		entry.DefinitionID,
 		entry.DAG,
 		runID,

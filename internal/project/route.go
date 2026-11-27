@@ -14,7 +14,7 @@ import (
 // the scheduler reads only the default project's queues.
 var (
 	ErrWorkerRun = errors.New("cannot run DAGs on workers; only the default project's runs are dispatched")
-	ErrQueuedRun = errors.New("cannot queue runs outside the default project; start the run instead")
+	ErrQueuedRun = errors.New("cannot queue runs; only the default project's queues are processed")
 )
 
 // RefuseOtherProject returns an error wrapping err for the project called

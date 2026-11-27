@@ -116,6 +116,31 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryRepairsMatchingAttempt(t 
 	attempt.AssertExpectations(t)
 }
 
+// A detector also cleans up the dead runs of the stores it also checks,
+// such as a project's library stores.
+func TestZombieDetectorAlsoCheck(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	primaryRuns, primaryProcs := &mockDAGRunStore{}, &mockProcRepository{}
+	libraryRuns, libraryProcs := &mockDAGRunStore{}, &mockProcRepository{}
+	detector := NewZombieDetector(primaryRuns.repository(), primaryProcs, time.Second, 1)
+	detector.alsoCheck(libraryRuns.repository(), libraryProcs)
+
+	entry := testRootProcEntry("etl", "etl", "run-1", "attempt-1", false)
+	primaryProcs.On("ListAllEntries", ctx).Return([]proc.ProcEntry{}, nil).Once()
+	libraryProcs.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
+	libraryRuns.On("FindAttempt", mock.Anything, ir.NewDAGRunRef("etl", "run-1")).Return(nil, dagrun.ErrDAGRunIDNotFound).Once()
+	libraryProcs.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
+
+	detector.check(ctx)
+
+	primaryProcs.AssertExpectations(t)
+	primaryRuns.AssertExpectations(t)
+	libraryProcs.AssertExpectations(t)
+	libraryRuns.AssertExpectations(t)
+}
+
 func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithAliveLocalPIDSkipsRepair(t *testing.T) {
 	t.Parallel()
 

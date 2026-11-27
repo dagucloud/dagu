@@ -5,6 +5,7 @@ package subflow_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -250,6 +251,22 @@ func TestRouterRefusesRoutesOfOtherProjects(t *testing.T) {
 		require.NoError(t, err, name)
 	}
 	assert.Equal(t, 2, local.enqueueCount)
+}
+
+// A router that refuses workers refuses a child that would go to one, in any
+// project, and still runs a child in process.
+func TestRouterRefuseWorkers(t *testing.T) {
+	t.Parallel()
+
+	refused := errors.New("refused")
+	distributed := subflow.New(&mockDispatcher{}, config.ExecutionModeDistributed)
+	local := &stubRunner{shouldRun: true, result: &ir.RunStatus{Status: ir.Succeeded}}
+
+	_, err := subflow.NewRouter(distributed, local).RefuseWorkers(refused).Run(context.Background(), validSubWorkflowRequest())
+	require.ErrorIs(t, err, refused)
+	got, err := subflow.NewRouter(local).RefuseWorkers(refused).Run(context.Background(), validSubWorkflowRequest())
+	require.NoError(t, err)
+	assert.Equal(t, ir.Succeeded, got.Status)
 }
 
 func validSubWorkflowRequest() executor.SubWorkflowRequest {

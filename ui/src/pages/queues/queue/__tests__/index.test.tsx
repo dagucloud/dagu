@@ -1,11 +1,19 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { components, QueueType } from '@/api/v1/schema';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { components, QueueType, Status, StatusLabel } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import QueueDetailsPage from '..';
 
 const { clientMock, getMock, serviceDAGs, useQueryMock } = vi.hoisted(() => {
@@ -37,10 +45,40 @@ const cappedZeroQueue: components['schemas']['Queue'] = {
   running: [],
 };
 
+const queuedRun: components['schemas']['DAGRunSummary'] = {
+  name: 'queued-dag',
+  dagRunId: 'queued-1',
+  status: Status.Queued,
+  statusLabel: StatusLabel.queued,
+  startedAt: '',
+  finishedAt: '',
+  artifactsAvailable: false,
+  autoRetryCount: 0,
+};
+
+const activeQueue: components['schemas']['Queue'] = {
+  ...cappedZeroQueue,
+  queuedCountCapped: undefined,
+  runningCount: 1,
+  queuedCount: 1,
+  running: [
+    {
+      ...queuedRun,
+      name: 'running-dag',
+      dagRunId: 'running-1',
+      status: Status.Running,
+      statusLabel: StatusLabel.running,
+    },
+  ],
+};
+
 function renderPage(
   queue: components['schemas']['Queue'],
-  { missing = false }: { missing?: boolean } = {}
-): void {
+  {
+    missing = false,
+    runDags = true,
+  }: { missing?: boolean; runDags?: boolean } = {}
+) {
   useQueryMock.mockReturnValue({
     data: missing ? undefined : queue,
     error: missing ? { status: 404 } : null,
@@ -49,7 +87,7 @@ function renderPage(
     mutate: vi.fn(),
   });
 
-  render(
+  const router = (
     <MemoryRouter initialEntries={[`/queues/${queue.name}`]}>
       <AppBarContext.Provider
         value={
@@ -61,14 +99,36 @@ function renderPage(
       >
         <Routes>
           <Route path="/queues/:name" element={<QueueDetailsPage />} />
+          <Route path="/dags/queued-dag" element={<p>Queued run details</p>} />
         </Routes>
       </AppBarContext.Provider>
     </MemoryRouter>
   );
+
+  const page = (canRunDags: boolean) => (
+    <ConfigContext.Provider
+      value={
+        {
+          authMode: 'basic',
+          permissions: { runDags: canRunDags, writeDags: false },
+          tzOffsetInSec: 0,
+        } as Config
+      }
+    >
+      {router}
+    </ConfigContext.Provider>
+  );
+  const { rerender } = render(page(runDags));
+  return (canRunDags: boolean) => rerender(page(canRunDags));
 }
 
 describe('QueueDetailsPage', () => {
   beforeEach(() => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
     getMock.mockReset();
     useQueryMock.mockReset();
     serviceDAGs.current = [];
@@ -76,6 +136,91 @@ describe('QueueDetailsPage', () => {
       data: { items: [] },
       error: undefined,
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps queue details readable without permission to run DAGs', async () => {
+    const user = userEvent.setup();
+    getMock.mockResolvedValue({ data: { items: [queuedRun] } });
+    renderPage(activeQueue, { runDags: false });
+
+    expect(await screen.findByText('queued-1')).toBeVisible();
+    expect(screen.getByText('running-1')).toBeVisible();
+    expect(screen.getByText('Running (1)')).toBeVisible();
+    expect(screen.getByText('Queued (1)')).toBeVisible();
+    expect(screen.getByText('1 loaded')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Back' })).toHaveAttribute(
+      'href',
+      '/queues'
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Dequeue selected' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Select all loaded' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Clear selection' })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('combobox', { name: 'Backfill runs' }));
+    await user.click(
+      screen.getByRole('option', { name: 'Backfill runs only' })
+    );
+    expect(getMock).toHaveBeenLastCalledWith(
+      '/queues/{name}/items',
+      expect.objectContaining({
+        params: expect.objectContaining({
+          query: expect.objectContaining({ backfill: 'only' }),
+        }),
+      })
+    );
+
+    await user.click(await screen.findByRole('button', { name: /queued-dag/ }));
+    expect(screen.getByText('Queued run details')).toBeVisible();
+  });
+
+  it('allows selection and confirmation only while run permission is enabled', async () => {
+    const user = userEvent.setup();
+    getMock.mockResolvedValue({ data: { items: [queuedRun] } });
+    const setRunDags = renderPage(activeQueue);
+
+    const checkbox = await screen.findByRole('checkbox', {
+      name: 'Select queued-dag queued-1',
+    });
+    const dequeue = screen.getByRole('button', { name: 'Dequeue selected' });
+    expect(dequeue).toBeDisabled();
+    await user.click(checkbox);
+    expect(checkbox).toBeChecked();
+    expect(screen.getByText('1 selected of 1 loaded')).toBeVisible();
+    await user.click(dequeue);
+    const dialog = screen.getByRole('dialog', { name: 'Dequeue selected' });
+    expect(within(dialog).getByText('queued-1')).toBeVisible();
+    expect(
+      within(dialog).getByRole('button', { name: 'Dequeue 1 Run' })
+    ).toBeEnabled();
+
+    setRunDags(false);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('1 selected of 1 loaded')
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+
+    setRunDags(true);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Dequeue selected' })
+    ).toBeDisabled();
+    expect(getMock).not.toHaveBeenCalledWith(
+      '/dag-runs/{name}/{dagRunId}/dequeue',
+      expect.anything()
+    );
   });
 
   it('loads items when a capped lower-bound count is zero', async () => {

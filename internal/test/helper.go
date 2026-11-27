@@ -47,7 +47,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -664,7 +663,7 @@ func (h Helper) DAG(t *testing.T, yamlContent string) DAG {
 	if h.Config.Paths.BaseConfig != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(h.Config.Paths.BaseConfig))
 	}
-	loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(h.Config.Paths.DAGsDir)))
+	loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(h.Config.WorkspaceBaseConfigDir()))
 	dag, err := spec.Load(h.Context, testFile, loadOpts...)
 	require.NoError(t, err, "failed to load test DAG")
 

@@ -15,9 +15,9 @@ account's whole grant to the client. Until they record it here,
 [Token Cleanup](#token-cleanup) applies to Google as a provider whose answer
 is unknown.
 
-[Service Presets](#service-presets) lists the scope sets of `gmail` and
-`mailbox` only. The parts that compile the other presets (C4 for Google,
-C20 and C21 for Microsoft) add their scope sets to that section.
+[Service Presets](#service-presets) lists the scope sets of the Google
+presets only. The parts that compile the Microsoft presets (C20 and C21)
+add their scope sets to that section.
 
 A DAG that names no connection behaves as it does without this spec, with
 these exceptions:
@@ -273,7 +273,8 @@ A worker has neither.
   account fields then name the new `subject`. After the change, neither the
   broker nor the coordinator hands out a token minted for the old
   `subject`. A run that already holds one, locally or on a worker, keeps
-  using it until its next token request, as runs do after a reconnect.
+  using it until the token falls below the `minTTL` asked for or is
+  rejected, as runs do after a reconnect.
 - A `device_code` connect runs a session and needs the starter's confirm,
   as the other modes do.
 - A grant without a refresh token never becomes `needs_reconnect`.
@@ -391,13 +392,35 @@ Google presets:
 
 - A preset's hosts are its MCP URL's host, its REST hosts, and its IMAP
   and SMTP hosts.
-- Scope sets follow Google's MCP setup guide. `gmail` with `read` asks for
-  `https://www.googleapis.com/auth/gmail.readonly`. `gmail` with `write`
-  adds `https://www.googleapis.com/auth/gmail.compose` and
-  `https://www.googleapis.com/auth/gmail.modify`.
+- Scope sets follow each product's MCP setup guide, which lists every
+  scope its tools use. `read` asks for the scopes that allow no change.
+  `write` asks for those and adds the rest. Each scope below is under
+  `https://www.googleapis.com/auth/`:
+
+| Service | `read` | `write` adds |
+| --- | --- | --- |
+| `gmail` | `gmail.readonly` | `gmail.compose`, `gmail.modify` |
+| `calendar` | `calendar.calendarlist.readonly`, `calendar.events.freebusy`, `calendar.events.readonly` | `calendar.events` |
+| `drive` | `drive.readonly` | `drive.file` |
+| `docs` | `drive.readonly`, `documents.readonly` | `drive.file`, `documents` |
+| `sheets` | `drive.readonly`, `spreadsheets.readonly` | `drive.file`, `spreadsheets` |
+| `slides` | `drive.readonly`, `presentations.readonly` | `drive.file`, `presentations` |
+| `chat` | `chat.spaces.readonly`, `chat.memberships.readonly`, `chat.messages.readonly` | `chat.messages.create`, `chat.users.readstate`, `chat.users.spacesettings` |
+| `people` | `directory.readonly`, `userinfo.profile`, `contacts.readonly` | none |
+| `search` | `gmail.readonly`, `drive.readonly`, `calendar.readonly`, `chat.messages.readonly`, `chat.spaces.readonly`, `chat.memberships.readonly` | none |
+
+- `chat` with `read` cannot read notification settings: Google's
+  `get_notification_settings` tool needs `chat.users.spacesettings`, which
+  also allows changing them.
 - `mailbox` asks for `https://mail.google.com/`. `gmail` does not.
-- Every Google connection also asks for `openid` and `email`, so Dagu can
-  show the account.
+- Every Google `authorization_code` connection also asks for `openid` and
+  `email`, so Dagu can show the account. A `service_account` connection
+  asks for neither: its account is its `subject`, and domain-wide
+  delegation fails the token request for any scope the admin did not
+  authorize for the client.
+- `people` and `search` are in Google's Workspace Developer Preview. They
+  work only for an account in Google's preview program, and the presets
+  mark them as preview.
 
 Microsoft presets:
 
@@ -696,9 +719,13 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
   effective `minTTL`, or after a rejection of the stored token.
 - A caller whose token a resource rejected reports that token. The broker
   refreshes only while the reported token is still the stored one.
-  Otherwise it returns the stored token without a refresh.
+  Otherwise the report causes no refresh: it returns the stored token, as
+  any token request does, refreshing only when that token's remaining life
+  is shorter than the effective `minTTL`.
 - A connection in `pending` or `needs_reconnect`, or whose app is
-  `invalid`, fails at once, without calling the provider.
+  `invalid`, fails at once, without calling the provider. A run process
+  keeps using a token it already holds, as
+  [One Refresh per Host](#one-refresh-per-host) states.
 
 #### One Refresh per Host
 
@@ -717,6 +744,10 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
   one token call's timeout.
 - Within one run, steps and `foreach` items that use the same connection
   and resource cause no more provider requests than one step does.
+- A run process keeps the tokens it receives in memory, and counts each as
+  a token it holds. Every other process reads the token state on each
+  token request, so it hands out no token after a reconnect, a status
+  change, or a change of `subject` replaced it.
 
 #### Writes
 

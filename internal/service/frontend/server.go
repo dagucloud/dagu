@@ -712,6 +712,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	if stores.Notification != nil && eventSvc != nil && stores.NotificationState != nil {
 		notificationOpts := []notificationservice.Option{
 			notificationservice.WithPublicURL(cfg.Server.PublicURL),
+			notificationservice.WithProjectsEnabled(cfg.ProjectsEnabled),
 		}
 		// Command channels run shell commands, so they need the same server
 		// permissions as writing and running DAGs.
@@ -732,6 +733,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 				return license.HasActiveLicense(licenseChecker)
 			}),
 			incidentservice.WithPublicURL(cfg.Server.PublicURL),
+			incidentservice.WithProjectsEnabled(cfg.ProjectsEnabled),
 		)
 		apiOpts = append(apiOpts, apiv1.WithIncidentService(incidentSvc))
 	}

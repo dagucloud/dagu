@@ -5,8 +5,11 @@ package api_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -88,6 +91,140 @@ func TestNotificationChannels_CommandChannelRequiresAdmin(t *testing.T) {
 	assert.Equal(t, "Only admins can change or test local command channels", errResp.Message)
 	server.Client().Post("/api/v1/dags/daily-report/notifications/test", nil).
 		WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+}
+
+// While projects are on, channels are server-wide: only admins change or
+// test them, and a developer sees a channel's name and type, never its URL
+// or a preview of it. With projects off, a developer manages channels as
+// before.
+func TestNotificationChannels_ProjectsAdminOnly(t *testing.T) {
+	t.Parallel()
+
+	for _, projectsOn := range []bool{true, false} {
+		t.Run(fmt.Sprintf("ProjectsOn=%t", projectsOn), func(t *testing.T) {
+			t.Parallel()
+
+			server := setupWebhookTestServer(t, func(cfg *config.Config) { cfg.ProjectsEnabled = projectsOn })
+			adminToken := getWebhookAdminToken(t, server)
+			developerToken := createRuntimeProfileUserToken(t, server, adminToken, "developer-user", "developer1", api.UserRoleDeveloper)
+			input := api.NotificationChannelInput{
+				Name:    "Ops",
+				Type:    api.NotificationProviderTypeWebhook,
+				Enabled: true,
+				Webhook: &api.NotificationWebhookTargetInput{Url: new("https://hooks.example.com/T000/secret")},
+			}
+			changeStatus := http.StatusCreated
+			if projectsOn {
+				changeStatus = http.StatusForbidden
+			}
+			server.Client().Post("/api/v1/notification-channels", input).
+				WithBearerToken(developerToken).ExpectStatus(changeStatus).Send(t)
+
+			var channel api.NotificationChannel
+			server.Client().Post("/api/v1/notification-channels", input).
+				WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t).Unmarshal(t, &channel)
+			listed := server.Client().Get("/api/v1/notification-channels").
+				WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
+			var list api.NotificationChannelListResponse
+			listed.Unmarshal(t, &list)
+			idx := slices.IndexFunc(list.Channels, func(c api.NotificationChannel) bool { return c.Id == channel.Id })
+			require.NotEqual(t, -1, idx)
+			got := server.Client().Get("/api/v1/notification-channels/" + channel.Id).
+				WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
+			var fetched api.NotificationChannel
+			got.Unmarshal(t, &fetched)
+			// Each answer is checked on its own, since the list and the
+			// detail endpoint build theirs separately.
+			for _, seen := range []api.NotificationChannel{list.Channels[idx], fetched} {
+				assert.Equal(t, "Ops", seen.Name)
+				assert.Equal(t, api.NotificationProviderTypeWebhook, seen.Type)
+				assert.Equal(t, !projectsOn, seen.Webhook != nil)
+			}
+			for _, body := range []string{listed.Body, got.Body} {
+				assert.Equal(t, !projectsOn, strings.Contains(body, "urlPreview"), body)
+				assert.NotContains(t, body, "hooks.example.com")
+			}
+			server.Client().Get("/api/v1/notification-channels/"+channel.Id).
+				WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &fetched)
+			assert.NotNil(t, fetched.Webhook)
+
+			// The notification settings show a developer whether SMTP is set,
+			// but no host, account, or sender.
+			server.Client().Put("/api/v1/notification-settings", api.UpdateNotificationSettingsJSONRequestBody{
+				Smtp: &api.NotificationSMTPSettingsInput{
+					Host:     new("smtp.example.com"),
+					Port:     new("587"),
+					Username: new("mailer-account"),
+					Password: new("smtp-password"),
+					From:     new("dagu@example.com"),
+				},
+			}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+			var settings api.NotificationWorkspaceSettings
+			smtpBody := server.Client().Get("/api/v1/notification-settings").
+				WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
+			smtpBody.Unmarshal(t, &settings)
+			require.NotNil(t, settings.Smtp)
+			assert.True(t, settings.Smtp.PasswordConfigured)
+			for _, value := range []string{"smtp.example.com", "mailer-account", "dagu@example.com"} {
+				assert.Equal(t, !projectsOn, strings.Contains(smtpBody.Body, value), value)
+			}
+			if !projectsOn {
+				return
+			}
+
+			server.Client().Put("/api/v1/notification-channels/"+channel.Id, input).
+				WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+			server.Client().Post("/api/v1/notification-channels/"+channel.Id+"/test", nil).
+				WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+			server.Client().Delete("/api/v1/notification-channels/" + channel.Id).
+				WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+			server.Client().Put("/api/v1/notification-settings", api.UpdateNotificationSettingsJSONRequestBody{}).
+				WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+		})
+	}
+}
+
+// While projects are on, a developer's test send of a DAG's notifications
+// reports a failed delivery to a saved channel by the channel's name and
+// type, since the transport error names the channel's URL. An admin still
+// gets the error itself.
+func TestDAGNotifications_ProjectsHideChannelErrors(t *testing.T) {
+	t.Parallel()
+
+	server := setupWebhookTestServer(t, func(cfg *config.Config) { cfg.ProjectsEnabled = true })
+	adminToken := getWebhookAdminToken(t, server)
+	developerToken := createRuntimeProfileUserToken(t, server, adminToken, "developer-user", "developer1", api.UserRoleDeveloper)
+	// Nothing listens on port 1, so the delivery fails in transport.
+	var channel api.NotificationChannel
+	server.Client().Post("/api/v1/notification-channels", api.NotificationChannelInput{
+		Name:    "Ops",
+		Type:    api.NotificationProviderTypeWebhook,
+		Enabled: true,
+		Webhook: &api.NotificationWebhookTargetInput{
+			Url:                 new("http://127.0.0.1:1/T000/secret-token"),
+			AllowInsecureHttp:   new(true),
+			AllowPrivateNetwork: new(true),
+		},
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t).Unmarshal(t, &channel)
+	server.Client().Put("/api/v1/notification-routes/global", api.NotificationRouteSetInput{
+		Enabled: true,
+		Routes:  []api.NotificationRouteInput{{ChannelId: channel.Id, Enabled: true}},
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+	createTestDAG(t, server, adminToken, "daily-report")
+
+	for token, hidden := range map[string]bool{developerToken: true, adminToken: false} {
+		var resp api.TestDAGNotificationResponse
+		server.Client().Post("/api/v1/dags/daily-report/notifications/test", nil).
+			WithBearerToken(token).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &resp)
+		require.Len(t, resp.Results, 1)
+		require.False(t, resp.Results[0].Delivered)
+		require.NotNil(t, resp.Results[0].Error)
+		message := *resp.Results[0].Error
+		assert.Equal(t, !hidden, strings.Contains(message, "secret-token"), message)
+		if hidden {
+			assert.Equal(t, `delivery to webhook channel "Ops" failed; see the server log`, message)
+		}
+	}
 }
 
 func TestNotificationChannels_CommandChannelRequiresDAGPermissions(t *testing.T) {

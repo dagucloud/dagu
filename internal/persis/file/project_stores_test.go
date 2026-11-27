@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
@@ -187,6 +188,34 @@ func TestProjectSettingsOnKeepProjectState(t *testing.T) {
 	}
 }
 
+// With projects on, the default project and another project each hold a
+// webhook for a DAG of the same name, each in its own settings.
+func TestProjectSettingsOnKeepWebhooksApart(t *testing.T) {
+	ctx := context.Background()
+	cfg := projectStoresConfig(t, true)
+	server := persisfile.NewServerStores(cfg)
+
+	ids := map[string]string{}
+	stores := map[string]*store.WebhookStore{}
+	for _, name := range []string{project.DefaultName, "weather"} {
+		settings, err := persisfile.NewProjectSettings(cfg, server, name)
+		require.NoError(t, err)
+		webhooks, err := settings.WebhookStore(nil)
+		require.NoError(t, err)
+		webhook, err := auth.NewWebhook(sampleDAG, "hash-"+name, "dagu_wh_", "test")
+		require.NoError(t, err)
+		require.NoError(t, webhooks.Create(ctx, webhook))
+		ids[name], stores[name] = webhook.ID, webhooks
+	}
+
+	for name, webhooks := range stores {
+		got, err := webhooks.GetByDAGName(ctx, sampleDAG)
+		require.NoError(t, err)
+		assert.Equal(t, ids[name], got.ID, name)
+		assert.FileExists(t, filepath.Join(cfg.Paths.DataDir, "projects", name, "settings", "webhooks", ids[name]+".json"))
+	}
+}
+
 // projectStoresConfig sets apart every path that places a project store, as
 // an operator may, so a store that ignores the project's paths shows.
 func projectStoresConfig(t *testing.T, projectsOn bool) *config.Config {
@@ -209,6 +238,7 @@ func projectStoresConfig(t *testing.T, projectsOn bool) *config.Config {
 		ProcDir:            filepath.Join(root, "proc"),
 		SuspendFlagsDir:    filepath.Join(data, "suspend"),
 		ViewsDir:           filepath.Join(data, "views"),
+		WebhooksDir:        filepath.Join(root, "webhooks"),
 		ServiceRegistryDir: filepath.Join(data, "service-registry"),
 	}
 	return cfg

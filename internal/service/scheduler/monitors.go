@@ -45,6 +45,7 @@ func newNotificationService(
 ) *notificationservice.Service {
 	base := []notificationservice.Option{
 		notificationservice.WithPublicURL(cfg.Server.PublicURL),
+		notificationservice.WithProjectsEnabled(cfg.ProjectsEnabled),
 	}
 	// Command channels run shell commands, so they need the same server
 	// permissions as writing and running DAGs.
@@ -72,6 +73,7 @@ func newIncidentMonitor(cfg *config.Config, deps Dependencies) *chatbridge.Notif
 			return license.HasActiveLicense(checker)
 		}),
 		incidentservice.WithPublicURL(cfg.Server.PublicURL),
+		incidentservice.WithProjectsEnabled(cfg.ProjectsEnabled),
 	)
 	monitorConfig := chatbridge.DefaultNotificationMonitorConfig()
 	monitorConfig.UrgentWindow = time.Second

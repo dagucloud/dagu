@@ -6,6 +6,7 @@ package masking
 import (
 	"bytes"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -192,7 +193,6 @@ func TestMaskingWriter_FlushAndClose(t *testing.T) {
 
 			_, err := writer.Write(tt.input)
 			require.NoError(t, err)
-			assert.Empty(t, buf.String()) // Buffered, not written yet
 
 			tt.testFunc(t, writer, &buf)
 		})
@@ -229,6 +229,106 @@ func TestMaskingWriter_AddedValue(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "******* later\n******* *******\n", buf.String())
+}
+
+// pemKey is a value that spans lines, as a private key does.
+const pemKey = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\nBKcwggSjAgEAAoIBAQC7\n-----END PRIVATE KEY-----"
+
+// A step prints a multiline secret one line at a time, so no write holds
+// all of it.
+func TestMaskingWriter_MultilineSecret(t *testing.T) {
+	t.Parallel()
+
+	chunks := append([]string{"key:\n"}, strings.SplitAfter(pemKey+"\n", "\n")...)
+	chunks = append(chunks, "done\n")
+	got := maskChunks(t, false, NewValueMasker([]string{pemKey}), chunks...)
+
+	assert.Equal(t, "key:\n*******\ndone\n", got)
+}
+
+func TestMaskingWriter_SplitSecret(t *testing.T) {
+	t.Parallel()
+
+	masker := NewValueMasker([]string{"s3cr3t", pemKey})
+	input := "a s3cr3t b " + pemKey + " c\n"
+	for _, chunks := range splits(input) {
+		assert.Equal(t, "a ******* b ******* c\n", maskChunks(t, false, masker, chunks...), "chunks %q", chunks)
+	}
+}
+
+// A line with no newline flows through, but for a tail that could still
+// start a secret.
+func TestMaskingWriter_LongLine(t *testing.T) {
+	t.Parallel()
+
+	const secret = "secret123"
+	var out bytes.Buffer
+	writer := NewLogMaskingWriter(&out, NewValueMasker([]string{secret}))
+	// Each chunk ends with the start of the secret.
+	chunk := strings.Repeat("progress secret12", 256)
+	written := 0
+	for range 64 {
+		_, err := writer.Write([]byte(chunk))
+		require.NoError(t, err)
+		written += len(chunk)
+		assert.Less(t, written-out.Len(), len(secret))
+	}
+	require.NoError(t, writer.Flush())
+
+	assert.Equal(t, strings.Repeat(chunk, 64), out.String())
+}
+
+// A value added mid-stream is masked in the text written after, however
+// the writes split it.
+func TestMaskingWriter_AddedMultilineValue(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	masker := NewValueMasker([]string{"first"})
+	writer := NewMaskingWriter(&out, masker)
+
+	_, err := writer.Write([]byte("first\n"))
+	require.NoError(t, err)
+	masker.Add(pemKey)
+	for _, line := range strings.SplitAfter(pemKey+"\n", "\n") {
+		_, err := writer.Write([]byte(line))
+		require.NoError(t, err)
+	}
+	require.NoError(t, writer.Close())
+
+	assert.Equal(t, "*******\n*******\n", out.String())
+}
+
+// maskChunks writes chunks in turn through a writer over masker, a log
+// writer when tokens is set, and returns the text it writes by Close.
+func maskChunks(t *testing.T, tokens bool, masker *Masker, chunks ...string) string {
+	t.Helper()
+
+	var out bytes.Buffer
+	writer := NewMaskingWriter(&out, masker)
+	if tokens {
+		writer = NewLogMaskingWriter(&out, masker)
+	}
+	for _, chunk := range chunks {
+		_, err := writer.Write([]byte(chunk))
+		require.NoError(t, err)
+	}
+	require.NoError(t, writer.Close())
+	return out.String()
+}
+
+// splits returns the ways to write input that test a split at every byte:
+// input cut in two at each byte, and input one byte at a time.
+func splits(input string) [][]string {
+	var all [][]string
+	for i := 1; i < len(input); i++ {
+		all = append(all, []string{input[:i], input[i:]})
+	}
+	single := make([]string, len(input))
+	for i := range input {
+		single[i] = input[i : i+1]
+	}
+	return append(all, single)
 }
 
 // Provider tokens are written split in two, so a secret scanner does not
@@ -302,6 +402,65 @@ func TestLogMaskingWriter_ProviderTokens(t *testing.T) {
 			assert.Equal(t, tt.expected, buf.String())
 		})
 	}
+}
+
+func TestLogMaskingWriter_SplitTokens(t *testing.T) {
+	t.Parallel()
+
+	// "1//" inside base64 data stays unmasked when the write splits right
+	// before it.
+	base64Blob := "iVBORw0KGgoAAAANSUhEUgAA1//" + strings.Repeat("Q2xhdWRlIGRhZ3U", 4) + "=="
+	input := "Bearer " + googleAccessToken + " refresh=" + googleRefreshToken + " blob=" + base64Blob + "\n"
+	want := "Bearer ******* refresh=******* blob=" + base64Blob + "\n"
+	masker := NewValueMasker(nil)
+	for _, chunks := range splits(input) {
+		assert.Equal(t, want, maskChunks(t, true, masker, chunks...), "chunks %q", chunks)
+	}
+}
+
+// A token is masked as its writes arrive, however long it runs.
+func TestLogMaskingWriter_LongToken(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	writer := NewLogMaskingWriter(&out, NewValueMasker([]string{"secret123"}))
+	body := strings.Repeat("A", 1000)
+
+	_, err := writer.Write([]byte("Bearer ya29." + body))
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer *******", out.String())
+	for range 100 {
+		_, err := writer.Write([]byte(body))
+		require.NoError(t, err)
+	}
+	_, err = writer.Write([]byte(" done\n"))
+	require.NoError(t, err)
+
+	assert.Equal(t, "Bearer ******* done\n", out.String())
+}
+
+// A value can hold back the text after "1/" of a refresh token, so the
+// held text starts with "/", which is no token body character. The token
+// body written after it stays masked.
+func TestLogMaskingWriter_TokenAfterHeldPrefix(t *testing.T) {
+	t.Parallel()
+
+	masker := NewValueMasker([]string{"/" + strings.Repeat("A", 40) + "Z"})
+	got := maskChunks(t, true, masker, "x 1//"+strings.Repeat("A", 40), strings.Repeat("B", 40)+" \n")
+
+	assert.Equal(t, "x ******* \n", got)
+}
+
+// A pattern match that a write cuts is masked whole, even in a line longer
+// than the 64 KiB held for patterns.
+func TestMaskingWriter_PatternInLongLine(t *testing.T) {
+	t.Parallel()
+
+	masker := NewValueMasker(nil, regexp.MustCompile(`tok_[a-z]{10,}`))
+	long := strings.Repeat("x", 70<<10)
+	got := maskChunks(t, false, masker, long+" tok_abcde", "fghijkl\n")
+
+	assert.Equal(t, long+" *******\n", got)
 }
 
 func TestMaskingWriter_CloseWithCloser(t *testing.T) {

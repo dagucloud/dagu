@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -96,4 +97,79 @@ func TestProjectStoresExternalSymlinks(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NoError(t, stores.CheckStart(context.Background(), target))
 	}
+}
+
+// With projects on, a DAG's base config is its project's alone: base.yaml in
+// the DAG directory of a project other than the default one, which is no
+// DAG, and paths.base_config for the default project, which a workspace
+// label adds no layer to. With projects off, the label's workspace base
+// config layers over paths.base_config as on v2.
+func TestProjectStoresBaseConfig(t *testing.T) {
+	for _, projectsOn := range []bool{true, false} {
+		cfg := projectStoresConfig(t, projectsOn)
+		cfg.Paths.BaseConfig = filepath.Join(filepath.Dir(cfg.Paths.DAGsDir), "base.yaml")
+		writeBaseConfig(t, cfg.Paths.BaseConfig, "default")
+		writeBaseConfig(t, filepath.Join(cfg.Paths.DAGsDir, "workspaces", "ops", "base.yaml"), "ops")
+		require.NoError(t, os.WriteFile(filepath.Join(cfg.Paths.DAGsDir, "labelled.yaml"),
+			[]byte("labels: [workspace=ops]\n"+libraryTestDAG), 0o600))
+		server := persisfile.NewServerStores(cfg)
+
+		labelled, err := openProject(t, cfg, server, project.DefaultName).DAGRepository.GetMetadata(context.Background(), "labelled")
+		require.NoError(t, err)
+		assert.Contains(t, labelled.Env, "FROM_DEFAULT=yes")
+		if !projectsOn {
+			assert.Contains(t, labelled.Env, "FROM_OPS=yes")
+			continue
+		}
+		assert.NotContains(t, labelled.Env, "FROM_OPS=yes")
+
+		weather := openProject(t, cfg, server, "weather")
+		writeBaseConfig(t, filepath.Join(weather.Paths.DAGsDir, "base.yaml"), "weather")
+		writeDAGFile(t, filepath.Join(weather.Paths.DAGsDir, "forecast.yaml"))
+		forecast, err := weather.DAGRepository.GetMetadata(context.Background(), "forecast")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"FROM_WEATHER=yes"}, forecast.Env)
+		_, err = weather.DAGRepository.GetMetadata(context.Background(), "base")
+		assert.ErrorIs(t, err, persis.ErrDAGNotFound)
+		basePath := filepath.Join(weather.Paths.DAGsDir, "base.yaml")
+		_, err = weather.DAGRepository.GetMetadata(context.Background(), basePath)
+		assert.ErrorIs(t, err, persis.ErrDAGNotFound)
+		assert.ErrorContains(t, err, basePath+` is the base config of project "weather", not a DAG`)
+		listed, _, err := weather.DAGRepository.List(context.Background(), persis.DAGListOptions{})
+		require.NoError(t, err)
+		require.Len(t, listed.Items, 1)
+		assert.Equal(t, "forecast", listed.Items[0].ID)
+
+		// A project without base.yaml has no base config.
+		dayAhead := openProject(t, cfg, server, "day-ahead")
+		writeDAGFile(t, filepath.Join(dayAhead.Paths.DAGsDir, "auction.yaml"))
+		auction, err := dayAhead.DAGRepository.GetMetadata(context.Background(), "auction")
+		require.NoError(t, err)
+		assert.Empty(t, auction.BaseConfigData)
+	}
+}
+
+// Where the file system ignores case, a project's base config is no DAG by
+// any spelling of its name or path.
+func TestProjectStoresBaseConfigIgnoresCase(t *testing.T) {
+	cfg := projectStoresConfig(t, true)
+	weather := openProject(t, cfg, persisfile.NewServerStores(cfg), "weather")
+	writeBaseConfig(t, filepath.Join(weather.Paths.DAGsDir, "base.yaml"), "weather")
+	// On a case-sensitive file system BASE.yaml is another file, which no
+	// lookup finds, so the test proves nothing there.
+	if _, err := os.Stat(filepath.Join(weather.Paths.DAGsDir, "BASE.yaml")); err != nil {
+		t.Skip("the file system is case-sensitive")
+	}
+
+	for _, target := range []string{"BASE", filepath.Join(weather.Paths.DAGsDir, "BASE.yaml")} {
+		_, err := weather.DAGRepository.GetMetadata(context.Background(), target)
+		assert.ErrorIs(t, err, persis.ErrDAGNotFound, target)
+	}
+}
+
+// writeBaseConfig writes a base config that sets FROM_<SOURCE> to yes.
+func writeBaseConfig(t *testing.T, path, source string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("env:\n  - FROM_"+strings.ToUpper(source)+": \"yes\"\n"), 0o600))
 }

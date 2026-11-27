@@ -62,11 +62,12 @@ func openProject(
 }
 
 // followProjects keeps the stores of every registered project open, and
-// records the projects it releases, until ctx ends. It does nothing while
-// projects are off, since the default project is then the only one.
-func (c *Context) followProjects(ctx context.Context) {
+// records the projects it releases, until ctx ends, and returns the cache
+// that holds them. It does nothing and returns nil while projects are off,
+// since the default project is then the only one.
+func (c *Context) followProjects(ctx context.Context) *file.ProjectStoreCache {
 	if !c.Config.ProjectsEnabled {
-		return
+		return nil
 	}
 	cache := file.NewProjectStoreCache(
 		projectregistry.New(c.Config.Paths.DataDir),
@@ -77,6 +78,7 @@ func (c *Context) followProjects(ctx context.Context) {
 		c.serverStores.ProjectReleases,
 	)
 	go cache.Run(ctx)
+	return cache
 }
 
 // newPersistence gathers the stores that commands and services use from

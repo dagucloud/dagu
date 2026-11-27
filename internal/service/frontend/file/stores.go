@@ -110,7 +110,7 @@ func initStores(
 	}
 
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
-		builtinAuth, err := newBuiltinAuth(ctx, cfg, server)
+		builtinAuth, err := newBuiltinAuth(ctx, cfg, server, project)
 		if err != nil {
 			return fmt.Errorf("failed to initialize builtin auth service: %w", err)
 		}
@@ -127,6 +127,10 @@ func initStores(
 		return fmt.Errorf("failed to create Wiki store: %w", err)
 	}
 	stores.Wiki = wikiStore
+	if cfg.ProjectsEnabled && wikiStore != nil {
+		// The API addresses the default project's wiki.
+		stores.Wiki = newProjectWikis(cfg, stores.Projects, wikiStore).defaults
+	}
 
 	workspaceStore, err := newWorkspaceStore(cfg, server)
 	if err != nil {
@@ -326,7 +330,12 @@ type builtinAuth struct {
 	setupRequired bool
 }
 
-func newBuiltinAuth(ctx context.Context, cfg *config.Config, server *persisfile.ServerStores) (builtinAuth, error) {
+func newBuiltinAuth(
+	ctx context.Context,
+	cfg *config.Config,
+	server *persisfile.ServerStores,
+	project *persisfile.ProjectSettings,
+) (builtinAuth, error) {
 	tokenSecret, err := resolveTokenSecret(ctx, cfg)
 	if err != nil {
 		return builtinAuth{}, fmt.Errorf("failed to resolve token secret: %w", err)
@@ -346,7 +355,7 @@ func newBuiltinAuth(ctx context.Context, cfg *config.Config, server *persisfile.
 	if encErr != nil {
 		logger.Warn(ctx, "Failed to prepare encryption for webhook store", tag.Error(encErr))
 	}
-	webhookStore, err := server.WebhookStore(webhookEncryptor)
+	webhookStore, err := project.WebhookStore(webhookEncryptor)
 	if err != nil {
 		return builtinAuth{}, fmt.Errorf("failed to create webhook store: %w", err)
 	}

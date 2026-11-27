@@ -117,6 +117,7 @@ type API struct {
 	workerNodeStore      inventory.WorkerNodeStore
 	licenseManager       *license.Manager
 	publicWebhookStore   publicwebhook.Store
+	webhookProjects      WebhookProjects
 	cloudReport          CloudReportService
 	cloudAccess          CloudAccessService
 	apiKeyWriteMu        sync.Mutex // Serializes API key writes, so each checks the state it changes

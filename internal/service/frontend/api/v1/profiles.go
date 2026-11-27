@@ -857,14 +857,20 @@ func (a *API) ensureRunnableRuntimeProfileAvailable(ctx context.Context, name st
 }
 
 func (a *API) ensureRunnableRuntimeProfileAccess(ctx context.Context, name string, requireProtectedAccess bool) (string, error) {
+	return a.ensureRunnableProfileIn(ctx, a.profileStore, name, requireProtectedAccess)
+}
+
+// ensureRunnableProfileIn is ensureRunnableRuntimeProfileAccess for a
+// project's profiles.
+func (a *API) ensureRunnableProfileIn(ctx context.Context, profiles profilepkg.Store, name string, requireProtectedAccess bool) (string, error) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
 		return "", nil
 	}
-	if a.profileStore == nil {
+	if profiles == nil {
 		return "", profileStoreUnavailable()
 	}
-	item, err := profilepkg.NewManager(a.profileStore, a.secretStore).EnsureRunnable(ctx, trimmed)
+	item, err := profilepkg.NewManager(profiles, nil).EnsureRunnable(ctx, trimmed)
 	if errors.Is(err, profilepkg.ErrInvalidName) {
 		return "", &Error{
 			HTTPStatus: http.StatusBadRequest,

@@ -46,7 +46,6 @@ import (
 	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	spectypes "github.com/dagucloud/dagu/v2/internal/spec/types"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/parser"
 )
@@ -3925,7 +3924,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 		} else {
 			snapshotLoadOpts = append(snapshotLoadOpts,
 				spec.WithBaseConfig(a.config.Paths.BaseConfig),
-				spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+				spec.WithWorkspaceBaseConfigDir(a.config.WorkspaceBaseConfigDir()),
 			)
 		}
 
@@ -4023,8 +4022,48 @@ func (a *API) enqueuePreparedDAGRun(
 	targetNodes []string,
 	slot *requestedSlot,
 ) error {
+	return a.enqueuePreparedDAGRunIn(ctx, a.defaultRunQueue(), dag, params, dagRunID, triggerType,
+		profileName, noReuse, workerSelector, targetNodes, slot)
+}
+
+// runQueue is where a run is queued: the stores and directories of the
+// project it runs in.
+type runQueue struct {
+	runs        *persis.DAGRunRepository
+	queue       queue.QueueStore
+	logDir      string
+	artifactDir string
+	baseConfig  string
+}
+
+func (a *API) defaultRunQueue() runQueue {
+	logDir, artifactDir := a.runDirs()
+	return runQueue{
+		runs:        a.dagRunRepository,
+		queue:       a.queueStore,
+		logDir:      logDir,
+		artifactDir: artifactDir,
+		baseConfig:  a.config.Paths.BaseConfig,
+	}
+}
+
+// enqueuePreparedDAGRunIn is enqueuePreparedDAGRun for the project whose
+// queue is target.
+func (a *API) enqueuePreparedDAGRunIn(
+	ctx context.Context,
+	target runQueue,
+	dag *ir.DAG,
+	params string,
+	dagRunID string,
+	triggerType ir.TriggerType,
+	profileName string,
+	noReuse bool,
+	workerSelector map[string]string,
+	targetNodes []string,
+	slot *requestedSlot,
+) error {
 	resolvedDAG, err := spec.ResolveRuntimeParams(ctx, dag, params, spec.ResolveRuntimeParamsOptions{
-		BaseConfig: a.config.Paths.BaseConfig,
+		BaseConfig: target.baseConfig,
 	})
 	if err != nil {
 		return &Error{
@@ -4057,14 +4096,13 @@ func (a *API) enqueuePreparedDAGRun(
 	queuedDAG := dag.Clone()
 	queuedDAG.Location = ""
 
-	logDir, artifactDir := a.runDirs()
 	queued, err := intake.EnqueueRun(ctx, intake.QueueRequest{
-		DAGRunRepository:        a.dagRunRepository,
-		QueueStore:              a.queueStore,
+		DAGRunRepository:        target.runs,
+		QueueStore:              target.queue,
 		DAG:                     queuedDAG,
 		DAGRunID:                dagRunID,
-		LogBaseDir:              logDir,
-		ArtifactBaseDir:         artifactDir,
+		LogBaseDir:              target.logDir,
+		ArtifactBaseDir:         target.artifactDir,
 		TriggerType:             triggerType,
 		TriggerActor:            triggerActorFromContext(ctx),
 		ProceedOnStatusCloseErr: true,
@@ -5762,7 +5800,7 @@ func (a *API) loadCurrentRescheduleDAG(ctx context.Context, sourceFile, nameOver
 
 	loadOpts := []spec.LoadOption{
 		spec.WithBaseConfig(a.config.Paths.BaseConfig),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+		spec.WithWorkspaceBaseConfigDir(a.config.WorkspaceBaseConfigDir()),
 		spec.WithDAGsDir(a.config.Paths.DAGsDir),
 	}
 	if nameOverride != "" {
@@ -5856,6 +5894,6 @@ func (a *API) refreshBaseSMTP(ctx context.Context, dag *ir.DAG, status *ir.DAGRu
 	}
 	return spec.RefreshBaseSMTP(dag,
 		spec.WithBaseConfig(a.config.Paths.BaseConfig),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+		spec.WithWorkspaceBaseConfigDir(a.config.WorkspaceBaseConfigDir()),
 	)
 }
