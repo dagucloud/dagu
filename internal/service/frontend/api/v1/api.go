@@ -114,6 +114,7 @@ type API struct {
 	secretStore          secretpkg.Store
 	connectionStore      connection.Store
 	connectEngine        *connect.Engine
+	publicURL            func() string // The server's usable public URL, or empty
 	profileStore         profilepkg.Store
 	viewStore            view.Store
 	inventoryStore       inventory.Store
@@ -341,6 +342,14 @@ func WithConnections(store connection.Store, engine *connect.Engine) APIOption {
 	return func(a *API) {
 		a.connectionStore = store
 		a.connectEngine = engine
+	}
+}
+
+// WithPublicURLResolver returns an APIOption that sets how the API finds
+// the server's usable public URL, which is empty when it has none.
+func WithPublicURLResolver(resolve func() string) APIOption {
+	return func(a *API) {
+		a.publicURL = resolve
 	}
 }
 

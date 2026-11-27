@@ -807,28 +807,22 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	for _, opt := range opts {
 		opt(srv)
 	}
+	resolvePublicURL := func() string {
+		if srv.config.Server.PublicURL != "" {
+			return srv.config.Server.PublicURL
+		}
+		if srv.tunnelService != nil {
+			return publicURLWithBasePath(srv.tunnelService.PublicURL(), evaluatedBasePath)
+		}
+		return ""
+	}
 	if srv.notificationService != nil {
-		srv.notificationService.SetPublicURLResolver(func() string {
-			if srv.config.Server.PublicURL != "" {
-				return srv.config.Server.PublicURL
-			}
-			if srv.tunnelService != nil {
-				return publicURLWithBasePath(srv.tunnelService.PublicURL(), evaluatedBasePath)
-			}
-			return ""
-		})
+		srv.notificationService.SetPublicURLResolver(resolvePublicURL)
 	}
 	if srv.incidentService != nil {
-		srv.incidentService.SetPublicURLResolver(func() string {
-			if srv.config.Server.PublicURL != "" {
-				return srv.config.Server.PublicURL
-			}
-			if srv.tunnelService != nil {
-				return publicURLWithBasePath(srv.tunnelService.PublicURL(), evaluatedBasePath)
-			}
-			return ""
-		})
+		srv.incidentService.SetPublicURLResolver(resolvePublicURL)
 	}
+	apiOpts = append(apiOpts, apiv1.WithPublicURLResolver(resolvePublicURL))
 
 	srv.funcsConfig.APIBasePath = srv.config.Server.APIBasePath
 

@@ -21,7 +21,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/connection"
+	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/connection/connect"
+	"github.com/dagucloud/dagu/v2/internal/connection/connect/google"
+	"github.com/dagucloud/dagu/v2/internal/connection/toolcatalog"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
@@ -246,6 +249,45 @@ func TestOAuthAppInUse(t *testing.T) {
 	require.NoError(t, deleteApp())
 }
 
+// A Google client JSON registers an app as downloaded. A web client must
+// list the server callback that the server would register, and the file
+// takes the place of the client fields.
+func TestCreateOAuthAppFromClientFile(t *testing.T) {
+	f := newConnectionsFixture(t, apiv1.WithPublicURLResolver(func() string { return "https://dagu.example.com" }))
+	create := func(file string, clientID *string) (apigen.OAuthApp, error) {
+		resp, err := f.api.CreateOAuthApp(f.admin(), apigen.CreateOAuthAppRequestObject{Body: &apigen.CreateOAuthAppRequest{
+			Name: "Google", Provider: apigen.ConnectionProviderNameGoogle, ClientFile: &file, ClientId: clientID,
+		}})
+		if err := expectResponse[apigen.CreateOAuthApp201JSONResponse](resp, err); err != nil {
+			return apigen.OAuthApp{}, err
+		}
+		return apigen.OAuthApp(resp.(apigen.CreateOAuthApp201JSONResponse)), nil
+	}
+	clientFile := func(kind, redirect string) string {
+		return `{"` + kind + `": {"client_id": "client-1.apps.googleusercontent.com", "client_secret": "` + testClientSecret + `", "redirect_uris": ["` + redirect + `"]}}`
+	}
+
+	web, err := create(clientFile("web", "https://dagu.example.com/oauth/callback"), nil)
+	require.NoError(t, err)
+	assert.Equal(t, apigen.OAuthClientTypeWeb, web.ClientType)
+	assert.Equal(t, "client-1.apps.googleusercontent.com", web.ClientId)
+	assert.True(t, web.ClientSecretConfigured)
+	assert.NotContains(t, mustJSON(t, web), testClientSecret)
+	stored, err := f.store.GetApp(t.Context(), web.Id)
+	require.NoError(t, err)
+	assert.Equal(t, testClientSecret, stored.ClientSecret)
+
+	desktop, err := create(clientFile("installed", "http://localhost"), nil)
+	require.NoError(t, err)
+	assert.Equal(t, apigen.OAuthClientTypeDesktop, desktop.ClientType)
+
+	_, err = create(clientFile("web", "https://other.example.com/oauth/callback"), nil)
+	requireStatus(t, http.StatusBadRequest, err)
+	assert.ErrorContains(t, err, "https://dagu.example.com/oauth/callback")
+	_, err = create(clientFile("web", "https://dagu.example.com/oauth/callback"), new("client-2"))
+	requireStatus(t, http.StatusBadRequest, err)
+}
+
 // Apps of oauth2 and mcp are refused, since no request sets the endpoints
 // they need, nor the resource URL of an mcp connection.
 func TestCreateOAuthAppProviders(t *testing.T) {
@@ -340,7 +382,14 @@ func newConnectionsFixture(t *testing.T, opts ...apiv1.APIOption) *connectionsFi
 	enc, err := stores.Encryptor()
 	require.NoError(t, err)
 
-	f := &connectionsFixture{store: store, workspaces: workspaces, provider: &revokingProvider{}, audit: &recordingAuditStore{}, dataDir: dataDir}
+	tokens, err := broker.New(broker.Config{Store: store, Locks: stores.ConnectionLocks()})
+	require.NoError(t, err)
+	catalog, err := toolcatalog.New(toolcatalog.Config{Store: store, Locks: stores.ConnectionCatalogLocks(), Lister: toolcatalog.NewMCPLister(tokens, nil)})
+	require.NoError(t, err)
+	googleProvider, err := google.New(google.Config{Catalog: catalog})
+	require.NoError(t, err)
+
+	f := &connectionsFixture{store: store, workspaces: workspaces, provider: &revokingProvider{Provider: googleProvider}, audit: &recordingAuditStore{}, dataDir: dataDir}
 	engine, err := connect.New(connect.Config{
 		Store:     store,
 		Locks:     stores.ConnectionLocks(),
@@ -444,8 +493,8 @@ func requireStatus(t *testing.T, status int, err error) {
 	assert.Equal(t, status, apiErr.HTTPStatus)
 }
 
-// revokingProvider is a connect provider that only revokes, which is all
-// that Remove asks of one. It records each refresh token it revokes.
+// revokingProvider is the Google provider with a revocation that records
+// each refresh token it is given instead of calling Google.
 type revokingProvider struct {
 	connect.Provider
 	revoked []string

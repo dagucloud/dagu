@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/connection"
+	"github.com/dagucloud/dagu/v2/internal/connection/connect"
 )
 
 var errOAuthAppNotFound = &Error{
@@ -63,7 +64,9 @@ func (a *API) CreateOAuthApp(ctx context.Context, request api.CreateOAuthAppRequ
 		if body.ClientId != nil || body.ClientSecret != nil || body.ClientType != nil {
 			return nil, badConnectionRequest("A client file replaces clientId, clientSecret, and clientType")
 		}
-		parsed, err := a.connectEngine.ParseClientFile(provider, []byte(file))
+		// The provider checks that the client lists the redirect URI this
+		// server would register.
+		parsed, err := a.connectEngine.ParseClientFile(provider, []byte(file), connect.RedirectOptions{PublicURL: a.usablePublicURL()})
 		if err != nil {
 			return nil, badConnectionRequest(err.Error())
 		}
@@ -170,6 +173,13 @@ func (a *API) DeleteOAuthApp(ctx context.Context, request api.DeleteOAuthAppRequ
 	}
 	a.logAudit(ctx, audit.CategoryConnection, "oauth_app_delete", oauthAppAuditDetails(app, false))
 	return api.DeleteOAuthApp204Response{}, nil
+}
+
+func (a *API) usablePublicURL() string {
+	if a.publicURL == nil {
+		return ""
+	}
+	return a.publicURL()
 }
 
 // requireAppUnused refuses to act on app while a connection uses it, naming
