@@ -211,6 +211,20 @@ steps:
 	require.NoError(t, err)
 	assert.Equal(t, "prod", nestedLease.ProfileName)
 
+	// A child the run's DAG does not name as written, such as one whose name
+	// holds a reference, reads the layers of the run's own workspace, or of
+	// none.
+	unnamedChild := proto.Clone(valid).(*coordinatorv1.ResolveRuntimeProfileRequest)
+	unnamedChild.DagName = "unreachable-profile"
+	unnamedResp, err := handler.ResolveRuntimeProfile(ctx, unnamedChild)
+	require.NoError(t, err)
+	assert.Equal(t, "workspace", runtimeProfileEntryValue(unnamedResp.GetDefaults(), "TIER"))
+	assert.Equal(t, "after", runtimeProfileEntryValue(unnamedResp.GetSelected(), "ROTATED_SECRET"))
+	unnamedChild.Workspace = ""
+	unnamedResp, err = handler.ResolveRuntimeProfile(ctx, unnamedChild)
+	require.NoError(t, err)
+	assert.Equal(t, "project", runtimeProfileEntryValue(unnamedResp.GetDefaults(), "TIER"))
+
 	tests := []struct {
 		name   string
 		mutate func(*coordinatorv1.ResolveRuntimeProfileRequest)
@@ -220,7 +234,9 @@ steps:
 		{name: "profile", mutate: func(req *coordinatorv1.ResolveRuntimeProfileRequest) { req.ProfileName = "other" }},
 		{name: "workspace", mutate: func(req *coordinatorv1.ResolveRuntimeProfileRequest) { req.Workspace = "other" }},
 		{name: "lease", mutate: func(req *coordinatorv1.ResolveRuntimeProfileRequest) { req.AttemptKey = "other" }},
-		{name: "dag", mutate: func(req *coordinatorv1.ResolveRuntimeProfileRequest) { req.DagName = "unreachable-profile" }},
+		{name: "dag", mutate: func(req *coordinatorv1.ResolveRuntimeProfileRequest) {
+			req.DagName, req.Workspace = "unreachable-profile", "other"
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

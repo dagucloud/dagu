@@ -191,12 +191,8 @@ func (h *Handler) authorizeRuntimeProfile(ctx context.Context, req *coordinatorv
 	if err != nil {
 		return err
 	}
-	dag, err := h.authorizedDAG(ctx, attempt, req.GetDagName(), runtimeProfileAccessDenied)
-	if err != nil {
+	if err := h.authorizeProfileWorkspace(ctx, attempt, req.GetDagName(), req.GetWorkspace()); err != nil {
 		return err
-	}
-	if secretpkg.NormalizeWorkspace(req.GetWorkspace()) != dagWorkspace(dag) {
-		return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 	}
 
 	current, err := attempt.ReadStatus(ctx)
@@ -221,6 +217,29 @@ func (h *Handler) authorizeRuntimeProfile(ctx context.Context, req *coordinatorv
 			return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 		}
 		return status.Error(codes.Internal, err.Error())
+	}
+	return nil
+}
+
+// authorizeProfileWorkspace lets a request name the workspace of the DAG it
+// acts for. The answer depends only on the lease's profile and the
+// workspace, so a child the attempt's DAG does not name as written, such as
+// one whose name holds a reference, may name the workspace of the attempt's
+// own DAG, or none, whose layers that DAG reads as well.
+func (h *Handler) authorizeProfileWorkspace(ctx context.Context, attempt dagrun.Attempt, dagName, workspaceName string) error {
+	requested := secretpkg.NormalizeWorkspace(workspaceName)
+	dag, err := h.authorizedDAG(ctx, attempt, dagName, runtimeProfileAccessDenied)
+	if status.Code(err) == codes.PermissionDenied {
+		if workspaceName == "" {
+			return nil
+		}
+		dag, err = h.authorizedDAG(ctx, attempt, "", runtimeProfileAccessDenied)
+	}
+	if err != nil {
+		return err
+	}
+	if requested != dagWorkspace(dag) {
+		return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 	}
 	return nil
 }

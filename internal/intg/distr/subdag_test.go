@@ -921,3 +921,41 @@ steps:
 		require.Equal(t, "b:2026-03-05", results["b"])
 	})
 }
+
+// A child whose name holds a reference runs in its parent's process on the
+// worker, as a child named as written does.
+func TestSubDAG_ReferenceNamedChildOnWorker(t *testing.T) {
+	t.Parallel()
+
+	f := newTestFixture(t, `
+params:
+  - env: prod
+worker_selector:
+  test: "true"
+steps:
+  - id: call_child
+    action: dag.run
+    with:
+      dag: ref-child-${params.env}
+`)
+	f.coord.CreateDAGFile(t, f.coord.Config.Paths.DAGsDir, "ref-child-prod", []byte(`
+name: ref-child-prod
+steps:
+  - id: note
+    action: log.write
+    with:
+      message: child ran
+`))
+
+	_, err := f.dispatchDirect()
+	require.NoError(t, err)
+	status := f.waitForStatusIn([]ir.Status{ir.Succeeded, ir.Failed}, executionStatusTimeout())
+	require.Equal(t, ir.Succeeded, status.Status, status.Error)
+	f.assertWorkerID(status, "worker-1")
+
+	call := requireNodeByID(t, status, "call_child")
+	require.Len(t, call.SubRuns, 1)
+	child := readDistributedSubAttemptStatus(t, f, ir.NewDAGRunRef(status.Name, status.DAGRunID), call.SubRuns[0].DAGRunID)
+	require.Equal(t, "ref-child-prod", child.Name)
+	require.Equal(t, ir.Succeeded, child.Status)
+}
