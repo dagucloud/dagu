@@ -272,8 +272,9 @@ func (s *Store) WriteFile(ctx context.Context, name, rel string, data []byte, pr
 			return err
 		}
 		// The result describes the saved file only while the path of the skill
-		// still names the folder that the write opened.
-		if !namesRoot(s.Dir(name), root) {
+		// still names the folder that the write opened, and when the read did
+		// not meet a link there.
+		if !namesRoot(s.Dir(name), root) || hasRule(read.Issues, RuleFolderLink) {
 			return &ConflictError{Message: fmt.Sprintf("the skill folder %q was replaced during the write; read it again", name)}
 		}
 		result = read
@@ -321,6 +322,16 @@ func openSkillDir(dir string) (*os.Root, error) {
 		return nil, linkRefusal(RuleFolderLink, "", "the skill folder changed while Dagu opened it")
 	}
 	return root, nil
+}
+
+// hasRule reports whether issues hold the rule.
+func hasRule(issues []Issue, rule string) bool {
+	for _, i := range issues {
+		if i.Rule == rule {
+			return true
+		}
+	}
+	return false
 }
 
 // namesRoot reports whether dir is still the folder that root opened, not a
