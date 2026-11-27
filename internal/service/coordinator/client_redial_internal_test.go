@@ -6,6 +6,7 @@ package coordinator
 import (
 	"context"
 	"net"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -122,6 +123,33 @@ func TestClientTransportRegistryRedials(t *testing.T) {
 	assert.Equal(t, []string{"Peer transport to " + coord.addr + ": built-in TLS (from the coordinator's data directory)"}, transportLines(lines))
 }
 
+// A caller that took a connection just before its replacement still
+// finishes its call on it. The replaced connection closes once no call has
+// used it for retireGrace.
+func TestClientTransportRetiredConnectionGrace(t *testing.T) {
+	ca := newTestCA(t)
+	coord := serveTestCoordinator(t, builtinCredentials(t, ca))
+	member := coord.member(serviceregistry.TLSBuiltin)
+	config := unset(*DefaultConfig())
+	config.PublishedCAFile = publishedCA(t, ca)
+	cli := newTestClient(t, &config)
+	clock := fakeClock(cli)
+	healthCheck(t, cli, member)
+
+	taken, err := cli.getOrCreateDiscoveredClient(member)
+	require.NoError(t, err)
+	cli.config.LocalRegistry.(*mutableRegistry).set(member)
+	clock.Add(int64(replanInterval))
+	replacement, err := cli.getOrCreateDiscoveredClient(member)
+	require.NoError(t, err)
+	require.NotSame(t, taken, replacement)
+
+	require.NoError(t, cli.isHealthy(t.Context(), taken), "the taken connection still serves")
+	clock.Add(int64(retireGrace))
+	require.NoError(t, cli.isHealthy(t.Context(), replacement))
+	assert.Equal(t, connectivity.Shutdown, taken.conn.GetState())
+}
+
 // peer.insecure: false never uses h2c: a connection without a TLS source
 // fails, and a transport-level failure does not fall back (Spec 108 §Client
 // Transport).
@@ -173,7 +201,8 @@ func TestClientTransportSharedWindow(t *testing.T) {
 	assert.Len(t, second, 1, "no warning")
 	assert.Equal(t, int32(1), coord.tlsHellos.Load())
 
-	later := &h2cWindows{file: record, records: make(map[string]h2cWindow)}
+	host, _ := os.Hostname()
+	later := newH2CWindows(record, host)
 	window, open := later.active(coord.addr, time.Now())
 	assert.True(t, open, "a later process reads the window")
 	assert.Equal(t, sourceNetworkPath, window.Source)

@@ -252,7 +252,9 @@ A client picks its transport from the first row that matches:
 - The clients of a process share the window, and keep it in the data
   directory, where processes that start later on the host read it. Only the
   client that opens a window pays the failed handshake and logs its
-  warning, which names the address and the handshake error.
+  warning, which names the address and the handshake error. A data
+  directory that hosts share keeps each host's windows apart, and a window
+  read there lasts at most 10 minutes from when it is read.
 - A call whose attempt failed before it got a connection is sent once more
   over h2c while the window is open, so a fallback fails no call. A call
   that reached a coordinator is never sent again. The same holds for a call
@@ -1019,7 +1021,7 @@ and prints the message:
 - The clients on a host that fell back try TLS again at most once per
   coordinator address per 10 minutes, or after a refusal of
   `coordinator.require_tls`. They write the window record only when a
-  window opens or ends, and keep at most 64 windows.
+  window opens or ends, and keep at most 64 windows per host.
 - A connection on h2c without a TLS source reads the published CA
   certificate and the registry at most every 10 seconds.
 - A heartbeat writes a certificate record at most once a day, or once a
