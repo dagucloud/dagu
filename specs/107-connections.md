@@ -293,7 +293,13 @@ A worker has neither.
 - On one host, at most one listing of a catalog runs at a time. Readers that
   arrive during a listing wait for it and read its result.
 - A failed listing returns the provider's error to the reader and keeps the
-  previous catalog.
+  previous catalog. Readers in the listing's process receive the same
+  error. A reader in another process that waited for it finds no new
+  catalog and lists again, one process at a time.
+- A listing follows [Binding](#binding): it sends the token only over
+  HTTPS to a bound host, and follows a redirect only to HTTPS on the same
+  host and port. A 401 is handled as [Rejected Tokens](#rejected-tokens)
+  states.
 
 ### Names
 
@@ -947,9 +953,10 @@ The owning specs define each field. Every use follows these rules.
 
 #### Confirmation Requests
 
-- An MCP client that uses a connection, in `mcp.call` or Try it,
-  advertises form elicitation, and calls Google's `/mcp/v1` endpoints. An
-  `mcp.call` without a connection advertises no elicitation capability.
+- An MCP client that uses a connection, in `mcp.call`, Try it, or a tool
+  catalog listing, advertises form elicitation, and calls Google's
+  `/mcp/v1` endpoints. An `mcp.call` without a connection advertises no
+  elicitation capability.
 - Dagu never accepts a server's confirmation request on its own. Only a
   person accepts one.
 - `mcp.call` declines a confirmation request at once and fails with kind
