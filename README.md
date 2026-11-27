@@ -843,11 +843,11 @@ Operational detail for the [distributed workers](#how-you-run-dagu) topology:
 
 ```sh
 # Start coordinator with a shared peer token
-DAGU_PEER_TOKEN=<shared-token> \
+DAGU_PEER_TOKEN='replace-with-shared-token' \
   dagu coordinator --coordinator.host=0.0.0.0 --coordinator.advertise=coordinator.internal
 
 # Start workers (on separate machines) with the same token
-DAGU_PEER_TOKEN=<shared-token> \
+DAGU_PEER_TOKEN='replace-with-shared-token' \
   DAGU_WORKER_COORDINATORS=coordinator.internal:50055 \
   DAGU_WORKER_LABELS=gpu=true,memory=64G dagu worker
 ```
