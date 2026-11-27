@@ -124,3 +124,25 @@ func TestWorkerCoordinatorClientRequiresAddress(t *testing.T) {
 	require.ErrorContains(t, err, "worker.coordinators is required")
 	assert.Nil(t, client)
 }
+
+// Config.Sources names the flag that set a key, in its command-line form.
+func TestWorkerFlagSources(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte("# empty\n"), 0o600))
+
+	command := cmd.CmdWorker()
+	command.SetContext(t.Context())
+	require.NoError(t, command.ParseFlags([]string{
+		"--dagu-home", home, "--config", configPath,
+		"--peer.insecure", "--peer.cert-file=/etc/dagu/client.crt",
+	}))
+
+	ctx, err := cmd.NewContext(command, cmd.WorkerFlagsForTest)
+	require.NoError(t, err)
+	assert.Equal(t, config.ValueSource{Kind: config.SourceKindFlag, Name: "--peer.insecure"}, ctx.Config.Sources["peer.insecure"])
+	assert.Equal(t, config.ValueSource{Kind: config.SourceKindFlag, Name: "--peer.cert-file"}, ctx.Config.Sources["peer.cert_file"])
+	assert.Equal(t, config.SourceKindDefault, ctx.Config.Sources["peer.key_file"].Kind)
+}

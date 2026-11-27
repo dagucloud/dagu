@@ -2,7 +2,11 @@
 
 ## Status
 
-Partially implemented. Implemented:
+Partially implemented. Implemented: the unset default of `peer.insecure`,
+the [Start Line](#start-line) for rows 1, 2, and 5 of
+[Client Transport](#client-transport), the warnings of
+[Ignored Settings](#ignored-settings) for `peer.cert_file`, `peer.key_file`,
+`peer.client_ca_file`, and `peer.skip_tls_verify: true`, and
 [Bring Your Own Certificates](#bring-your-own-certificates).
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
@@ -10,9 +14,9 @@ section of this spec updates this status and adds conformance tests for what
 the binary shows.
 
 Until a part lands, its keys have no effect, and peer processes connect as
-they do without this spec: `peer.insecure` defaults to `true`, the
-coordinator serves h2c, or TLS when `peer.cert_file` and `peer.key_file` are
-set, and every peer authenticates with the peer token.
+they do without this spec: an unset `peer.insecure` selects h2c as `true`
+does, the coordinator serves h2c, or TLS when `peer.cert_file` and
+`peer.key_file` are set, and every peer authenticates with the peer token.
 
 ## Scope
 
@@ -250,7 +254,10 @@ output does not change.
 | The published CA certificate | `Peer transport: built-in TLS (from the coordinator's data directory)` |
 | None of these | `Peer transport: h2c (from no TLS source)` |
 
-A coordinator that does not call other coordinators logs no start line.
+A coordinator that does not call other coordinators logs no start line. A
+scheduler, a server, or `start-all` with `coordinator.enabled: false` calls
+no coordinator, so it logs no start line and no warning of
+[Ignored Settings](#ignored-settings).
 
 #### Per Coordinator
 
