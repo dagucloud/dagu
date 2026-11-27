@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -246,6 +247,21 @@ func TestNoticeInterruptedOnTerminal(t *testing.T) {
 
 	noticeInterrupted(quiet, progress)
 	assert.Contains(t, out.String(), interruptedNotice)
+}
+
+// On a terminal a worker update rewrites the line above the progress line,
+// so the header follows the notice and the update leaves the notice in place.
+func TestRemoteProgressNoticeKeepsHeaderBelow(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	progress := NewRemoteProgressDisplay(&ir.DAG{Name: "deploy"}, "run")
+	progress.out, progress.isTTY = &out, true
+
+	progress.notice(interruptedNotice)
+	_, after, found := strings.Cut(out.String(), interruptedNotice)
+	require.True(t, found)
+	assert.Contains(t, after, "▶ deploy", "the header follows the notice")
 }
 
 func TestRestoreDAGFromStatus_SMTP(t *testing.T) {

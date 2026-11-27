@@ -157,6 +157,12 @@ func (p *RemoteProgressDisplay) notice(msg string) {
 	defer p.mu.Unlock()
 	if p.isTTY {
 		_, _ = fmt.Fprintf(p.out, "\r\033[K%s\n", msg)
+		// A worker update rewrites the line above the progress line, so the
+		// header follows the notice again.
+		p.printHeader()
+		if p.workerID != "" {
+			p.updateHeaderWithWorker()
+		}
 		return
 	}
 	_, _ = fmt.Fprintln(p.out, msg)
