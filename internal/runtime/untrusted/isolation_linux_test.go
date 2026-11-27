@@ -564,7 +564,7 @@ func TestIsolatedStepLinkedEntry(t *testing.T) {
 			shared, err := os.MkdirTemp("", "dagu-untrusted-shared-")
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = os.RemoveAll(shared) })
-			require.NoError(t, os.Chmod(shared, 0o1777))
+			require.NoError(t, os.Chmod(shared, 0o777|fs.ModeSticky))
 			step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
 			require.NoError(t, err)
 			runAs(t, WithStep(ctx, step), workDir, "mkdir -p a/b && "+mk+" && ln -P a/b/e "+shared+"/e")
@@ -871,6 +871,8 @@ func TestRestoreRemovesACLs(t *testing.T) {
 	t.Parallel()
 	iso := selfIsolation(t, t.TempDir())
 	require.NoError(t, iso.handoff())
+	// The descriptors of the handoff, also when setUserACL skips the test.
+	t.Cleanup(iso.closeProtected)
 	dir := filepath.Join(iso.workDir, "out")
 	require.NoError(t, os.Mkdir(dir, 0o755))
 	setUserACL(t, dir, aclNames...)

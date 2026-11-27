@@ -8,6 +8,7 @@ package untrusted
 import (
 	"cmp"
 	"context"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -405,13 +406,10 @@ func TestReviewBareRepositoryRunsAsRoot(t *testing.T) {
 	status := exec.Command(gitBin, "status", "--porcelain")
 	status.Dir = filepath.Join(repo, "services", "api")
 	status.Env = []string{"HOME=" + t.TempDir(), "PATH=/usr/bin:/bin"}
-	statusOut, statusErr := status.CombinedOutput()
-	t.Logf("trusted git status: err=%v output=%q", statusErr, statusOut)
-	data, readErr := os.ReadFile(marker)
-	if readErr == nil {
-		t.Logf("core.fsmonitor of the agent ran as uid %s", strings.TrimSpace(string(data)))
-	}
-	assert.Error(t, readErr, "a trusted git command must not run a command of the agent")
+	statusOut, err := status.CombinedOutput()
+	require.NoError(t, err, "trusted git status: %s", statusOut)
+	_, err = os.Lstat(marker)
+	assert.ErrorIs(t, err, fs.ErrNotExist, "a trusted git command must not run a command of the agent")
 }
 
 // Property (Spec 103, "Protections for later trusted steps", .git): each .git
