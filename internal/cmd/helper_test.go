@@ -149,6 +149,25 @@ func TestDispatchRetryToSessionOwner(t *testing.T) {
 	assert.Equal(t, map[string]string{"gpu": "true"}, client.task.WorkerSelector)
 }
 
+// A step retry goes to the worker that holds that step's session, even when
+// another step's session is on another worker.
+func TestDispatchStepRetryToSessionOwner(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	retried := &ir.DAGRunStatus{Name: "agent", DAGRunID: "run", Status: ir.Succeeded, Nodes: []*ir.Node{
+		{Step: ir.Step{Name: "a"}, Status: ir.NodeSucceeded, AgentSession: &ir.AgentSession{OwnerWorkerID: "worker-1"}},
+		{Step: ir.Step{Name: "b"}, Status: ir.NodeSucceeded, AgentSession: &ir.AgentSession{OwnerWorkerID: "worker-2"}},
+	}}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "agent", WorkerSelector: map[string]string{"gpu": "true"}}, "run",
+		runOptions{retried: retried, step: "b"}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, "b", client.task.Step)
+	assert.Equal(t, "worker-2", client.task.TargetWorkerID)
+}
+
 type smtpDispatchClient struct {
 	coordinator.Client
 	task *dispatch.DispatchTask
