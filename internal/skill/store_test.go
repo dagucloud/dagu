@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -256,8 +257,102 @@ func TestChangeOfAMissingSkillMakesNoLockFolder(t *testing.T) {
 	hash := strings.Repeat("0", 64)
 	_, err := s.WriteFile(ctx, "ghost", "references/a.md", []byte("x"), skill.Precondition{IfMatch: hash})
 	require.ErrorIs(t, err, skill.ErrNotFound)
+	_, err = s.DeleteFile(ctx, "ghost", "references/a.md", skill.Precondition{IfMatch: hash})
+	require.ErrorIs(t, err, skill.ErrNotFound)
+	require.ErrorIs(t, s.DeleteSkill(ctx, "ghost", skill.Precondition{IfMatch: hash}), skill.ErrNotFound)
 	_, statErr := os.Stat(filepath.Join(filepath.Dir(s.Dir("ghost")), ".locks", "ghost"))
 	assert.True(t, os.IsNotExist(statErr))
+}
+
+// A delete of the last file of a folder removes the empty folders and then
+// succeeds: the change is applied once and reported as applied.
+func TestDeleteOfANestedFileRemovesTheEmptyFolders(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	written, err := s.WriteFile(ctx, "demo", "references/deep/x.md", []byte("x"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	deleted, err := s.DeleteFile(ctx, "demo", "references/deep/x.md", skill.Precondition{IfMatch: written.Hash})
+	require.NoError(t, err)
+	assert.Equal(t, created.Hash, deleted.Hash)
+	_, statErr := os.Stat(filepath.Join(s.Dir("demo"), "references", "deep"))
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+// A delete removes one file, or an entry that breaks the layout. A folder that
+// the layout allows stays with its files (Spec 096, "The API").
+func TestDeleteFileRefusesALayoutFolder(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/deep/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	for _, rel := range []string{"references", "references/deep"} {
+		_, err := s.DeleteFile(ctx, "demo", rel, skill.Precondition{IfMatch: cur.Hash})
+		var invalid *skill.InvalidError
+		require.ErrorAs(t, err, &invalid, rel)
+		_, statErr := os.Stat(filepath.Join(s.Dir("demo"), "references", "deep", "a.md"))
+		require.NoError(t, statErr, rel)
+	}
+
+	// A folder that breaks the layout goes with its content.
+	for _, rel := range []string{"docs/x.md", "references/.cache/y"} {
+		full := filepath.Join(s.Dir("demo"), filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+		require.NoError(t, os.WriteFile(full, []byte("x"), 0o644))
+	}
+	for _, rel := range []string{"docs", "references/.cache"} {
+		broken, err := s.Read("demo")
+		require.NoError(t, err)
+		_, err = s.DeleteFile(ctx, "demo", rel, skill.Precondition{IfMatch: broken.Hash})
+		require.NoError(t, err, rel)
+		_, statErr := os.Stat(filepath.Join(s.Dir("demo"), filepath.FromSlash(rel)))
+		require.True(t, os.IsNotExist(statErr), rel)
+	}
+	after, err := s.Read("demo")
+	require.NoError(t, err)
+	require.True(t, after.Valid(), "%v", after.Issues)
+	require.Equal(t, cur.Hash, after.Hash)
+}
+
+// On a file system that ignores case, another spelling finds SKILL.md or a
+// folder of the layout. A delete applies its rules to the stored name, so such
+// a path deletes neither.
+func TestDeleteFileNeedsTheStoredName(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	for _, rel := range []string{"skill.md", "REFERENCES"} {
+		_, err := s.DeleteFile(ctx, "demo", rel, skill.Precondition{IfMatch: cur.Hash})
+		require.ErrorIs(t, err, skill.ErrNotFound, rel)
+		after, err := s.Read("demo")
+		require.NoError(t, err)
+		require.Equal(t, cur.Hash, after.Hash, rel)
+	}
+}
+
+// A path that goes through a file is a mistake of the client, not a failure
+// of the server.
+func TestPathThroughAFileIsInvalid(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	var invalid *skill.InvalidError
+	_, err = s.WriteFile(ctx, "demo", "references/a.md/x.md", []byte("x"), skill.Precondition{IfMatch: cur.Hash})
+	require.ErrorAs(t, err, &invalid)
+	_, err = s.DeleteFile(ctx, "demo", "references/a.md/x.md", skill.Precondition{IfMatch: cur.Hash})
+	require.ErrorAs(t, err, &invalid)
+	after, err := s.Read("demo")
+	require.NoError(t, err)
+	require.Equal(t, cur.Hash, after.Hash)
 }
 
 func TestWritePreconditions(t *testing.T) {
@@ -296,6 +391,12 @@ func TestWritePreconditions(t *testing.T) {
 		var conflict *skill.ConflictError
 		require.ErrorAs(t, err, &conflict)
 		require.Equal(t, b.Hash, conflict.Current)
+		del, err := s.DeleteFile(ctx, "demo", "assets/b.bin", skill.Precondition{IfMatch: b.Hash})
+		require.NoError(t, err)
+		require.Equal(t, a.Hash, del.Hash, "the hash depends on the content only")
+		// The folder assets/ stays, the empty subfolders go.
+		_, err = s.WriteFile(ctx, "demo", "references/deep/x.md", []byte("x"), skill.Precondition{IfMatch: del.Hash})
+		require.NoError(t, err)
 	})
 	t.Run("a bad SKILL.md is refused and nothing is written", func(t *testing.T) {
 		cur, err := s.Read("demo")
@@ -319,6 +420,15 @@ func TestWritePreconditions(t *testing.T) {
 	})
 	t.Run("a missing skill", func(t *testing.T) {
 		_, err := s.WriteFile(ctx, "missing", "references/a.md", []byte("x"), skill.Precondition{IfMatch: strings.Repeat("0", 64)})
+		require.ErrorIs(t, err, skill.ErrNotFound)
+	})
+	t.Run("delete the skill", func(t *testing.T) {
+		cur, _ := s.Read("demo")
+		err := s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: strings.Repeat("0", 64)})
+		var conflict *skill.ConflictError
+		require.ErrorAs(t, err, &conflict)
+		require.NoError(t, s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: cur.Hash}))
+		_, err = s.Read("demo")
 		require.ErrorIs(t, err, skill.ErrNotFound)
 	})
 }
@@ -353,10 +463,10 @@ func TestWriteRefusesASkillThatDoesNotSettle(t *testing.T) {
 	require.Equal(t, string(before), string(after))
 }
 
-// A write never goes through a symbolic link: not the folder of the skill,
+// A write or a delete never goes through a symbolic link: not the folder of the skill,
 // not a folder below it, not the file itself. The files outside the skill stay as they
 // are, whatever hash the client sends (Spec 096, "Source of truth").
-func TestWriteRefusesSymbolicLinks(t *testing.T) {
+func TestWriteAndDeleteRefuseSymbolicLinks(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -400,9 +510,20 @@ func TestWriteRefusesSymbolicLinks(t *testing.T) {
 		requireRule(t, err, skill.RuleFolderLink)
 		_, err = s.WriteFile(ctx, "demo", "SKILL.md", []byte(good), skill.Precondition{IfMatch: cur.Hash})
 		requireRule(t, err, skill.RuleFolderLink)
+		_, err = s.DeleteFile(ctx, "demo", "SKILL.md", skill.Precondition{IfMatch: cur.Hash})
+		require.Error(t, err)
+		_, err = s.DeleteFile(ctx, "demo", "references/a.md", skill.Precondition{IfMatch: cur.Hash})
+		require.Error(t, err)
 		entries, err := os.ReadDir(outside)
 		require.NoError(t, err)
 		require.Len(t, entries, 2, "the target of the link holds SKILL.md and victim only")
+
+		// The owner can still remove the link. The target stays.
+		require.NoError(t, s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: cur.Hash}))
+		_, err = os.Lstat(s.Dir("demo"))
+		require.True(t, os.IsNotExist(err))
+		_, err = os.Stat(filepath.Join(outside, "victim"))
+		require.NoError(t, err)
 	})
 
 	t.Run("symlinked folder below the skill", func(t *testing.T) {
@@ -416,6 +537,8 @@ func TestWriteRefusesSymbolicLinks(t *testing.T) {
 		require.NotEqual(t, created.Hash, cur.Hash)
 
 		_, err = s.WriteFile(ctx, "demo", "references/a.md", []byte("x"), skill.Precondition{IfMatch: cur.Hash})
+		requireRule(t, err, skill.RuleSymlink)
+		_, err = s.DeleteFile(ctx, "demo", "references/victim", skill.Precondition{IfMatch: cur.Hash})
 		requireRule(t, err, skill.RuleSymlink)
 		untouched(t, outside)
 
@@ -457,6 +580,16 @@ func TestWriteRefusesSymbolicLinks(t *testing.T) {
 		_, err = s.WriteFile(ctx, "demo", "SKILL.md", []byte(good), skill.Precondition{IfMatch: cur.Hash})
 		requireRule(t, err, skill.RuleSymlink)
 		untouched(t, outside)
+
+		// The owner removes the link itself to repair the skill. The target stays.
+		after, err := s.DeleteFile(ctx, "demo", "references/link.md", skill.Precondition{IfMatch: cur.Hash})
+		require.NoError(t, err)
+		_, err = os.Lstat(filepath.Join(refs, "link.md"))
+		require.True(t, os.IsNotExist(err))
+		for _, f := range after.Files {
+			require.NotEqual(t, "references/link.md", f.Path)
+		}
+		untouched(t, outside)
 	})
 }
 
@@ -477,6 +610,116 @@ func TestLockFailureIsNotAConflict(t *testing.T) {
 	require.Error(t, err)
 	var conflict *skill.ConflictError
 	require.False(t, errors.As(err, &conflict), "%v", err)
+}
+
+// The lock folder of a skill goes with the skill, so the lock folders stay one
+// per skill and do not grow with each name ever written.
+func TestDeleteRemovesTheLockFolder(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	locks := filepath.Join(skill.Root(s), ".locks", "demo")
+	_, err := os.Stat(locks)
+	require.NoError(t, err)
+
+	require.NoError(t, s.DeleteSkill(context.Background(), "demo", skill.Precondition{IfMatch: created.Hash}))
+	_, err = os.Stat(locks)
+	require.ErrorIs(t, err, fs.ErrNotExist)
+	create(t, s, "demo")
+}
+
+// A delete removes the skill at once: a file that cannot be removed stays in a
+// hidden folder, never as a part of a skill that readers see.
+func TestDeleteOfASkillIsAtomic(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs Unix permissions that bind the user")
+	}
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(filepath.Join(s.Dir("demo"), "references"), 0o500))
+	t.Cleanup(func() {
+		_ = filepath.WalkDir(skill.Root(s), func(p string, d fs.DirEntry, _ error) error {
+			if d != nil && d.IsDir() {
+				_ = os.Chmod(p, 0o755)
+			}
+			return nil
+		})
+	})
+
+	err = s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: cur.Hash})
+	require.ErrorIs(t, err, skill.ErrFilesLeft)
+	_, err = s.Read("demo")
+	require.ErrorIs(t, err, skill.ErrNotFound)
+	names, _, err := s.Names()
+	require.NoError(t, err)
+	require.Empty(t, names)
+}
+
+// A read that meets the delete of its skill between its walk and its read of
+// the files finds no skill, never a part of one. The delete runs inside the
+// read, so the overlap does not depend on the scheduler. The test changes a
+// package variable, so it does not run in parallel.
+func TestReadThatMeetsADeleteFindsNoSkill(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	var deleteErr error
+	deleted := false
+	skill.AroundReadFiles(t, func() {
+		// The delete reads the skill too; only the first read of the test deletes.
+		if !deleted {
+			deleted = true
+			deleteErr = s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: cur.Hash})
+		}
+	}, func() {})
+
+	_, err = s.Read("demo")
+	require.True(t, deleted, "the read never reached its read of the files")
+	require.NoError(t, deleteErr)
+	require.ErrorIs(t, err, skill.ErrNotFound)
+}
+
+// A hidden folder that an earlier delete could not empty goes with the next
+// delete of a skill, so such folders do not pile up.
+func TestDeleteRemovesWhatEarlierDeletesLeft(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	left := filepath.Join(skill.Root(s), ".deleted.0123456789abcdef")
+	require.NoError(t, os.MkdirAll(filepath.Join(left, "references"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(left, "references", "a.md"), []byte("a"), 0o644))
+
+	require.NoError(t, s.DeleteSkill(context.Background(), "demo", skill.Precondition{IfMatch: created.Hash}))
+	_, err := os.Lstat(left)
+	require.ErrorIs(t, err, fs.ErrNotExist)
+}
+
+// A reader that opened a file before the delete of its skill gets the whole
+// file as it read it.
+func TestDeleteKeepsAnOpenFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows refuses to move a folder that holds an open file")
+	}
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("version one"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	r, err := cur.Open("references/a.md")
+	require.NoError(t, err)
+	defer func() { _ = r.Close() }()
+
+	require.NoError(t, s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: cur.Hash}))
+	data, err := io.ReadAll(r)
+	require.NoError(t, err)
+	require.Equal(t, "version one", string(data))
 }
 
 // loseLock hands the lock of the skill name to another owner, as the takeover
@@ -518,6 +761,20 @@ func TestLostLockCommitsNothing(t *testing.T) {
 		t.Parallel()
 		s, hash := setup(t)
 		_, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("two"), skill.Precondition{IfMatch: hash})
+		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
+		unchanged(t, s, hash)
+	})
+	t.Run("delete file", func(t *testing.T) {
+		t.Parallel()
+		s, hash := setup(t)
+		_, err := s.DeleteFile(ctx, "demo", "references/a.md", skill.Precondition{IfMatch: hash})
+		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
+		unchanged(t, s, hash)
+	})
+	t.Run("delete skill", func(t *testing.T) {
+		t.Parallel()
+		s, hash := setup(t)
+		err := s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: hash})
 		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
 		unchanged(t, s, hash)
 	})
@@ -622,6 +879,84 @@ func TestWriteStaysInTheFolderThatItOpened(t *testing.T) {
 	}
 }
 
+// On Windows, a file that a reader holds open cannot be deleted. A delete
+// waits a little for the reader, as a write does.
+func TestDeleteFileWaitsForAReader(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows refuses to delete an open file")
+	}
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	reader, err := os.Open(filepath.Join(s.Dir("demo"), "references", "a.md"))
+	require.NoError(t, err)
+	closed := make(chan struct{})
+	go func() {
+		defer close(closed)
+		time.Sleep(20 * time.Millisecond)
+		_ = reader.Close()
+	}()
+	t.Cleanup(func() { <-closed })
+
+	after, err := s.DeleteFile(ctx, "demo", "references/a.md", skill.Precondition{IfMatch: cur.Hash})
+	require.NoError(t, err)
+	require.Equal(t, created.Hash, after.Hash)
+}
+
+// A delete never reaches the target of a link that replaces the skill folder
+// during the delete. It deletes in the folder that it opened, and then gives a
+// conflict: the path of the skill names another folder.
+func TestDeleteStaysInTheFolderThatItOpened(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows refuses to move a folder that a process holds open")
+	}
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	outside := filepath.Join(t.TempDir(), "demo")
+	require.NoError(t, os.MkdirAll(filepath.Join(outside, "references"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "references", "a.md"), []byte("original"), 0o644))
+	skill.SetBeforeHeldCheck(s, func() {
+		require.NoError(t, os.Rename(s.Dir("demo"), s.Dir("demo")+".moved"))
+		require.NoError(t, os.Symlink(outside, s.Dir("demo")))
+	})
+
+	_, err = s.DeleteFile(ctx, "demo", "references/a.md", skill.Precondition{IfMatch: cur.Hash})
+	var conflict *skill.ConflictError
+	require.ErrorAs(t, err, &conflict, "the result would describe the link, not the folder of the delete")
+	data, err := os.ReadFile(filepath.Join(outside, "references", "a.md"))
+	require.NoError(t, err)
+	require.Equal(t, "original", string(data), "the delete went through the link")
+	_, err = os.Stat(filepath.Join(s.Dir("demo")+".moved", "references", "a.md"))
+	require.ErrorIs(t, err, fs.ErrNotExist)
+}
+
+// A skill delete removes only the folder whose hash the client sent. A folder
+// that replaces it after the check stays, and the delete gives a conflict.
+func TestDeleteSkillKeepsAFolderThatReplacedIt(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	skill.SetBeforeHeldCheck(s, func() {
+		require.NoError(t, os.Rename(s.Dir("demo"), s.Dir("demo")+".moved"))
+		require.NoError(t, os.Mkdir(s.Dir("demo"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(s.Dir("demo"), "SKILL.md"), []byte("other"), 0o644))
+	})
+
+	err := s.DeleteSkill(context.Background(), "demo", skill.Precondition{IfMatch: created.Hash})
+	var conflict *skill.ConflictError
+	require.ErrorAs(t, err, &conflict)
+	data, err := os.ReadFile(filepath.Join(s.Dir("demo"), "SKILL.md"))
+	require.NoError(t, err)
+	require.Equal(t, "other", string(data))
+}
+
 // A read right after a write gets the written version, also when the cache
 // holds the version before the write, as the cache of another process on the
 // same directory does. The write returns the hash of the files on disk. The
@@ -652,6 +987,38 @@ func TestReadAfterAWriteSeesIt(t *testing.T) {
 			require.Equal(t, content, string(text))
 		}
 		cur = written
+	}
+}
+
+// A read right after a file write or a file delete gets the new version, also
+// from a cache that held the version before, as the cache of another process on
+// the same directory does. The test moves the clock of the cache, so it is not
+// parallel.
+func TestReadAfterAFileDeleteSeesIt(t *testing.T) {
+	skill.SettleClock(t)
+	ctx := context.Background()
+	s := newStore(t)
+	other := skill.NewStore(skill.Root(s))
+	created := create(t, s, "demo")
+	_, err := other.Read("demo")
+	require.NoError(t, err)
+	written, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	for _, st := range []*skill.Store{s, other} {
+		got, err := st.Read("demo")
+		require.NoError(t, err)
+		require.Equal(t, written.Hash, got.Hash)
+	}
+
+	deleted, err := s.DeleteFile(ctx, "demo", "references/a.md", skill.Precondition{IfMatch: written.Hash})
+	require.NoError(t, err)
+	require.Equal(t, created.Hash, deleted.Hash)
+	for _, st := range []*skill.Store{s, other} {
+		got, err := st.Read("demo")
+		require.NoError(t, err)
+		require.Equal(t, deleted.Hash, got.Hash)
+		_, ok := got.File("references/a.md")
+		require.False(t, ok, "a read after the delete lists the deleted file")
 	}
 }
 

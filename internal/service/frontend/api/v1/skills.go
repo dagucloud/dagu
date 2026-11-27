@@ -150,7 +150,7 @@ func (a *API) UpdateSkill(ctx context.Context, request api.UpdateSkillRequestObj
 	if request.Body == nil {
 		return nil, ErrInvalidRequestBody
 	}
-	pre, err := skillPrecondition(request.Params.IfMatch, request.Params.IfNoneMatch)
+	pre, err := skillPrecondition(request.Params.IfMatch, request.Params.IfNoneMatch, true)
 	if err != nil {
 		return nil, err
 	}
@@ -171,6 +171,38 @@ func (a *API) UpdateSkill(ctx context.Context, request api.UpdateSkillRequestObj
 		"hash":          sk.Hash,
 	})
 	return api.UpdateSkill200JSONResponse(toSkillWriteResult(sk)), nil
+}
+
+// DeleteSkill deletes the folder of a skill with every file. Requires developer
+// role or above.
+func (a *API) DeleteSkill(ctx context.Context, request api.DeleteSkillRequestObject) (api.DeleteSkillResponseObject, error) {
+	if err := a.requireDAGWrite(ctx); err != nil {
+		return nil, err
+	}
+	if !skill.IsSafeFolderName(request.Name) {
+		return nil, errInvalidSkillName
+	}
+	pre, err := skillPrecondition(request.Params.IfMatch, request.Params.IfNoneMatch, false)
+	if err != nil {
+		return nil, err
+	}
+	err = a.skillStore().DeleteSkill(ctx, request.Name, pre)
+	if errors.Is(err, skill.ErrFilesLeft) {
+		logger.Warn(ctx, "Some files of a deleted skill remain", tag.Name(request.Name), tag.Error(err))
+		err = nil
+	}
+	if err != nil {
+		failure := a.classifySkillWrite(ctx, request.Name, err)
+		if failure.status == http.StatusConflict {
+			return api.DeleteSkill409JSONResponse(failure.body), nil
+		}
+		return nil, failure.err
+	}
+	a.logAudit(ctx, audit.CategorySystem, "skill_delete", map[string]any{
+		"resource_type": "skill",
+		"resource_id":   request.Name,
+	})
+	return api.DeleteSkill204Response{}, nil
 }
 
 // GetSkillFile streams one file of a skill, exactly as stored. A file that
@@ -213,10 +245,92 @@ func (a *API) GetSkillFile(ctx context.Context, request api.GetSkillFileRequestO
 	}, nil
 }
 
-// skillPrecondition reads the headers If-Match and If-None-Match.
-func skillPrecondition(ifMatch, ifNoneMatch *string) (skill.Precondition, error) {
+// PutSkillFile writes one file of references/, assets/ or scripts/.
+func (a *API) PutSkillFile(ctx context.Context, request api.PutSkillFileRequestObject) (api.PutSkillFileResponseObject, error) {
+	if err := a.requireDAGWrite(ctx); err != nil {
+		return nil, err
+	}
+	if !skill.IsSafeFolderName(request.Name) {
+		return nil, errInvalidSkillName
+	}
+	rel := request.Params.Path
+	if rel == skill.FileName {
+		return nil, &Error{Code: api.ErrorCodeBadRequest, Message: "SKILL.md has its own route: PUT /skills/{name}", HTTPStatus: http.StatusBadRequest}
+	}
+	pre, err := skillPrecondition(request.Params.IfMatch, request.Params.IfNoneMatch, false)
+	if err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return nil, ErrInvalidRequestBody
+	}
+	data, err := io.ReadAll(io.LimitReader(request.Body, skill.MaxFileBytes+1))
+	if err != nil {
+		return nil, ErrInvalidRequestBody
+	}
+	if len(data) > skill.MaxFileBytes {
+		return nil, errSkillFileTooLarge
+	}
+	sk, err := a.skillStore().WriteFile(ctx, request.Name, rel, data, pre)
+	if err != nil {
+		failure := a.classifySkillWrite(ctx, request.Name, err)
+		switch failure.status {
+		case http.StatusBadRequest:
+			return api.PutSkillFile400JSONResponse(failure.body), nil
+		case http.StatusConflict:
+			return api.PutSkillFile409JSONResponse(failure.body), nil
+		}
+		return nil, failure.err
+	}
+	a.logAudit(ctx, audit.CategorySystem, "skill_file_write", map[string]any{
+		"resource_type": "skill",
+		"resource_id":   request.Name,
+		"path":          rel,
+		"hash":          sk.Hash,
+	})
+	return api.PutSkillFile200JSONResponse(toSkillWriteResult(sk)), nil
+}
+
+// DeleteSkillFile deletes one file of a skill.
+func (a *API) DeleteSkillFile(ctx context.Context, request api.DeleteSkillFileRequestObject) (api.DeleteSkillFileResponseObject, error) {
+	if err := a.requireDAGWrite(ctx); err != nil {
+		return nil, err
+	}
+	if !skill.IsSafeFolderName(request.Name) {
+		return nil, errInvalidSkillName
+	}
+	pre, err := skillPrecondition(request.Params.IfMatch, request.Params.IfNoneMatch, false)
+	if err != nil {
+		return nil, err
+	}
+	sk, err := a.skillStore().DeleteFile(ctx, request.Name, request.Params.Path, pre)
+	if err != nil {
+		failure := a.classifySkillWrite(ctx, request.Name, err)
+		switch failure.status {
+		case http.StatusBadRequest:
+			return api.DeleteSkillFile400JSONResponse(failure.body), nil
+		case http.StatusConflict:
+			return api.DeleteSkillFile409JSONResponse(failure.body), nil
+		}
+		return nil, failure.err
+	}
+	a.logAudit(ctx, audit.CategorySystem, "skill_file_delete", map[string]any{
+		"resource_type": "skill",
+		"resource_id":   request.Name,
+		"path":          request.Params.Path,
+		"hash":          sk.Hash,
+	})
+	return api.DeleteSkillFile200JSONResponse(toSkillWriteResult(sk)), nil
+}
+
+// skillPrecondition reads the headers If-Match and If-None-Match. Only the
+// creation of a skill takes If-None-Match.
+func skillPrecondition(ifMatch, ifNoneMatch *string, create bool) (skill.Precondition, error) {
 	hasIfMatch := ifMatch != nil && strings.TrimSpace(*ifMatch) != ""
 	if ifNoneMatch != nil && strings.TrimSpace(*ifNoneMatch) != "" {
+		if !create {
+			return skill.Precondition{}, &Error{Code: api.ErrorCodeBadRequest, Message: "If-None-Match applies only to the creation of a skill; send If-Match", HTTPStatus: http.StatusBadRequest}
+		}
 		if hasIfMatch {
 			return skill.Precondition{}, &Error{Code: api.ErrorCodeBadRequest, Message: "send If-Match or If-None-Match, not both", HTTPStatus: http.StatusBadRequest}
 		}
