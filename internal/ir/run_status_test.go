@@ -434,8 +434,9 @@ func TestStatusBuilderRetainsHandlerAgentSessions(t *testing.T) {
 }
 
 // A retry targets the worker that holds the sessions of the steps it reruns:
-// for a step retry, the step and, with downstream, its dependants; for a run
-// retry, the steps that did not finish. Sessions of other steps do not count.
+// for a step retry, the step, its not-started dependants and, with
+// downstream, every dependant; for a run retry, the steps that did not
+// finish. Sessions of other steps do not count.
 func TestRetryAgentOwnerWorkerID(t *testing.T) {
 	t.Parallel()
 
@@ -450,6 +451,7 @@ func TestRetryAgentOwnerWorkerID(t *testing.T) {
 			Step:   ir.Step{Name: "d", InferredDepends: []ir.InferredDependency{{Step: "c"}}},
 			Status: ir.NodeNotStarted, AgentSession: session("w3"),
 		},
+		{Step: ir.Step{Name: "e"}, Status: ir.NodeAborted},
 	}}
 
 	tests := []struct {
@@ -460,9 +462,10 @@ func TestRetryAgentOwnerWorkerID(t *testing.T) {
 	}{
 		{name: "Run", want: "w3"},
 		{name: "Step", step: "b", want: "w2"},
-		{name: "StepWithoutSession", step: "c"},
+		{name: "NotStartedDependant", step: "c", want: "w3"},
 		{name: "Downstream", step: "c", downstream: true, want: "w3"},
 		{name: "DownstreamMixedOwners", step: "b", downstream: true},
+		{name: "StepWithoutSession", step: "e"},
 		{name: "UnknownStep", step: "missing"},
 	}
 	for _, tt := range tests {
@@ -471,6 +474,19 @@ func TestRetryAgentOwnerWorkerID(t *testing.T) {
 			assert.Equal(t, tt.want, ir.RetryAgentOwnerWorkerID(status, tt.step, tt.downstream))
 		})
 	}
+}
+
+// A step still recorded as running when the run stopped died with its worker,
+// so a retry of the run resumes its session there.
+func TestRetryAgentOwnerWorkerIDRunningStep(t *testing.T) {
+	t.Parallel()
+
+	status := &ir.DAGRunStatus{Nodes: []*ir.Node{{
+		Step: ir.Step{Name: "implement"}, Status: ir.NodeRunning,
+		AgentSession: &ir.AgentSession{Provider: "opencode", SessionID: "session-1", OwnerWorkerID: "w1", SessionOwned: true},
+	}}}
+
+	assert.Equal(t, "w1", ir.RetryAgentOwnerWorkerID(status, "", false))
 }
 
 func TestDAGRunStatusErrorText(t *testing.T) {

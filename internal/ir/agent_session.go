@@ -278,10 +278,15 @@ func agentSessionResourceKey(resource AgentSessionResource) string {
 
 // RetryAgentOwnerWorkerID returns the worker that holds the agent sessions a
 // retry resumes. An empty step names a retry of the run, which resumes the
-// steps that did not finish. Otherwise the retry resumes step and, with
-// includeDownstream, every step that depends on it. It returns "" when no
-// worker or more than one worker holds those sessions; the retry then has no
-// target, and a session the chosen worker does not hold cannot resume there.
+// steps that did not finish. Otherwise the retry resumes step, every
+// not-started step that depends on it, and, with includeDownstream, every
+// step that depends on it. It returns "" when no worker or more than one
+// worker holds those sessions; the retry then has no target, and a session
+// the chosen worker does not hold cannot resume there.
+//
+// A step retry also runs not-started steps unrelated to step whose upstream
+// already finished, and it does not run a dependant that a failed step outside
+// the retry blocks. The first are not counted and the second are.
 func RetryAgentOwnerWorkerID(status *DAGRunStatus, step string, includeDownstream bool) string {
 	if status == nil {
 		return ""
@@ -311,39 +316,43 @@ func RetryAgentOwnerWorkerID(status *DAGRunStatus, step string, includeDownstrea
 	return owner
 }
 
-// resumedByRunRetry reports whether a retry of the run reruns node.
+// resumedByRunRetry reports whether a retry of the run counts node's session.
+// A running node is one whose process died before the run's status was
+// repaired, so its session resumes.
 func resumedByRunRetry(node *Node) bool {
 	switch node.Status {
-	case NodeFailed, NodeRetrying, NodeAborted, NodeRejected, NodeNotStarted, NodeWaiting:
+	case NodeFailed, NodeRetrying, NodeRunning, NodeAborted, NodeRejected, NodeNotStarted, NodeWaiting:
 		return true
 	default:
 		return false
 	}
 }
 
-// stepRetrySelection returns the names of the steps a retry of step reruns:
-// step and, with includeDownstream, the steps reachable from it through
-// explicit and inferred dependencies.
+// stepRetrySelection returns the names of the steps a retry of step runs:
+// step, the not-started steps reachable from it, which the runner starts
+// once their upstream finishes, and, with includeDownstream, every step
+// reachable from it. Reachability follows explicit and inferred dependencies.
 func stepRetrySelection(nodes []*Node, step string, includeDownstream bool) map[string]struct{} {
-	selected := map[string]struct{}{step: {}}
-	if !includeDownstream {
-		return selected
-	}
-	dependants := make(map[string][]string, len(nodes))
+	dependants := make(map[string][]*Node, len(nodes))
 	for _, node := range nodes {
 		if node == nil {
 			continue
 		}
 		for _, dep := range node.Step.AllDepends() {
-			dependants[dep] = append(dependants[dep], node.Step.Name)
+			dependants[dep] = append(dependants[dep], node)
 		}
 	}
+	selected := map[string]struct{}{step: {}}
 	queue := []string{step}
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
-		for _, name := range dependants[current] {
+		for _, dependant := range dependants[current] {
+			name := dependant.Step.Name
 			if _, ok := selected[name]; ok {
+				continue
+			}
+			if !includeDownstream && dependant.Status != NodeNotStarted {
 				continue
 			}
 			selected[name] = struct{}{}
