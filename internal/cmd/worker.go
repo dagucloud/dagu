@@ -44,7 +44,7 @@ Flags:
                                            canceling them (default: 60s, 0 waits without a bound)
 
 TLS Configuration (uses global peer settings):
-  --peer.insecure                          Use insecure connection (h2c) instead of TLS (default: true)
+  --peer.insecure                          Use insecure connection (h2c) instead of TLS (unset selects h2c)
   --peer.cert-file string                  Path to TLS certificate file for mutual TLS
   --peer.key-file string                   Path to TLS key file for mutual TLS
   --peer.client-ca-file string             Path to CA certificate file for server verification

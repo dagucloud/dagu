@@ -277,6 +277,8 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			Scope:               scope,
 		}, nil
 	}
+	// Only a local context calls the coordinator.
+	logPeerTransport(ctx, commandName, cfg)
 	// Before any store opens v2 state.
 	if err := migrateState(ctx, cmd.Name(), scope, cfg); err != nil {
 		return nil, err
@@ -467,6 +469,8 @@ func loadCommandConfig(cmd *cobra.Command, flags []commandLineFlag) (*config.Con
 	if cfgPath != "" {
 		configLoaderOpts = append(configLoaderOpts, config.WithConfigFile(cfgPath))
 	}
+
+	configLoaderOpts = append(configLoaderOpts, config.WithFlags(setFlags(cmd, flags)))
 
 	// Set service type based on command to load only necessary config sections
 	configLoaderOpts = append(configLoaderOpts, config.WithService(serviceForCommand(commandFamilyName(cmd))))
