@@ -1091,6 +1091,14 @@
           "type": "string",
           "description": "Path to the client CA certificate file."
         },
+        "ca_cert_file": {
+          "type": "string",
+          "description": "Path to the peer CA certificate. On a coordinator, the CA that signs peer certificates, with ca_key_file. On other processes, the CA that signs coordinator certificates. Cannot be combined with cert_file, key_file, or client_ca_file."
+        },
+        "ca_key_file": {
+          "type": "string",
+          "description": "Path to the private key of ca_cert_file. Only a coordinator reads it."
+        },
         "skip_tls_verify": {
           "type": "boolean",
           "description": "Skip TLS certificate verification."

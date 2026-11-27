@@ -85,6 +85,14 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				apiBasePath:    apiBasePath,
 				logIdleTimeout: remoteProxyTimeout,
 			}
+			if isDownload(r, apiBasePath) {
+				// The remote node may stream a download before it has read the
+				// request body. Without full duplex, writing the response would
+				// consume the rest of the body that the proxy is still forwarding.
+				if err := http.NewResponseController(w).EnableFullDuplex(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+					logger.Error(r.Context(), "Failed to stream a download request body", tag.Error(err))
+				}
+			}
 			resp, err := remoteNodeHandler.proxy(r)
 			if err != nil {
 				// If there was an error, write the error response

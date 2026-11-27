@@ -196,6 +196,9 @@ func TestLoad_Env(t *testing.T) {
 		"DAGU_WORKER_MAX_ACTIVE_RUNS": "200",
 		"DAGU_WORKER_HEALTH_PORT":     "50102",
 
+		"DAGU_PEER_CA_CERT_FILE": filepath.Join(testPaths, "peer-ca.crt"),
+		"DAGU_PEER_CA_KEY_FILE":  filepath.Join(testPaths, "peer-ca.key"),
+
 		"DAGU_SCHEDULER_PORT":                      "9999",
 		"DAGU_SCHEDULER_ZOMBIE_DETECTION_INTERVAL": "90s",
 		"DAGU_SCHEDULER_WAKE_HOLD":                 "4m",
@@ -252,8 +255,11 @@ func TestLoad_Env(t *testing.T) {
 			EnvPassthrough:         []string{},
 			EnvPassthroughPrefixes: []string{},
 			Peer: Peer{
-				Insecure:  true, // Default is true
-				TokenFile: filepath.Join(testPaths, "data", "coordinator", "peer-token"),
+				Insecure:        true, // Default is true
+				TokenFile:       filepath.Join(testPaths, "data", "coordinator", "peer-token"),
+				CACertFile:      filepath.Join(testPaths, "peer-ca.crt"),
+				CAKeyFile:       filepath.Join(testPaths, "peer-ca.key"),
+				GeneratedCAFile: filepath.Join(testPaths, "data", "coordinator", "peer-ca.pem"),
 			},
 			BaseEnv: cfg.Core.BaseEnv, // Dynamic, copy from actual
 		},
@@ -1180,12 +1186,13 @@ scheduler:
 			EnvPassthrough:         []string{},
 			EnvPassthroughPrefixes: []string{},
 			Peer: Peer{
-				CertFile:      "/path/to/peer-cert.pem",
-				KeyFile:       "/path/to/peer-key.pem",
-				ClientCaFile:  "/path/to/peer-ca.pem",
-				SkipTLSVerify: false,
-				Insecure:      false,
-				TokenFile:     filepath.Join(resolvedTestPath(t, "/var/dagu/data"), "coordinator", "peer-token"),
+				CertFile:        "/path/to/peer-cert.pem",
+				KeyFile:         "/path/to/peer-key.pem",
+				ClientCaFile:    "/path/to/peer-ca.pem",
+				SkipTLSVerify:   false,
+				Insecure:        false,
+				TokenFile:       filepath.Join(resolvedTestPath(t, "/var/dagu/data"), "coordinator", "peer-token"),
+				GeneratedCAFile: filepath.Join(resolvedTestPath(t, "/var/dagu/data"), "coordinator", "peer-ca.pem"),
 			},
 			BaseEnv: cfg.Core.BaseEnv, // Dynamic, copy from actual
 		},

@@ -4,8 +4,10 @@
 package cmd
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -65,6 +67,8 @@ Flags:
   --peer.client-ca-file string      Path to CA certificate file for client verification (mTLS)
   --peer.insecure                   Use insecure connection (h2c) instead of TLS
   --peer.skip-tls-verify            Skip TLS certificate verification (insecure)
+  --peer.ca-cert-file string        Path to the CA certificate that signs peer certificates
+  --peer.ca-key-file string         Path to the private key of --peer.ca-cert-file
 
 Example:
   # Basic usage
@@ -99,6 +103,8 @@ var coordinatorFlags = []commandLineFlag{
 	peerKeyFileFlag,
 	peerClientCAFileFlag,
 	peerSkipTLSVerifyFlag,
+	peerCACertFileFlag,
+	peerCAKeyFileFlag,
 }
 
 func runCoordinator(ctx *Context, _ []string) error {
@@ -189,6 +195,10 @@ func newCoordinator(
 	if err != nil {
 		return nil, nil, err
 	}
+	peerCA, err := coordinatorPeerCA(ctx, cfg.Core.Peer)
+	if err != nil {
+		return nil, nil, err
+	}
 	workerNodes, err := ctx.workerNodeStore()
 	if err != nil {
 		return nil, nil, err
@@ -252,7 +262,7 @@ func newCoordinator(
 		TrustedHostKeys:           hostKeys,
 		AgentSessionCleanupQueue:  persistence.AgentSessionCleanupQueue,
 		WorkerNodeStore:           workerNodes,
-		JoinReadiness:             coordinatorJoinReadiness(cfg),
+		JoinReadiness:             coordinatorJoinReadiness(cfg, peerCA),
 		WorkerWaitTimeout:         cfg.Coordinator.WorkerWaitTimeout,
 		EventService:              ctx.event,
 		EventSourceInstance:       ctx.EventSourceInstance,
@@ -263,9 +273,9 @@ func newCoordinator(
 }
 
 // coordinatorJoinReadiness returns the settings the coordinator reports as
-// its join readiness. BuiltinTLS stays false until the coordinator has a
-// peer CA; the reason is known now only for own certificates.
-func coordinatorJoinReadiness(cfg *config.Config) coordinator.JoinReadinessConfig {
+// its join readiness. peerCA is the CA from coordinatorPeerCA. BuiltinTLS
+// stays false until the coordinator serves built-in TLS.
+func coordinatorJoinReadiness(cfg *config.Config, peerCA *coordinator.PeerCA) coordinator.JoinReadinessConfig {
 	configFile := cfg.Paths.ConfigFileUsed
 	if configFile == "" {
 		configFile = cfg.Paths.DefaultConfigFile
@@ -277,8 +287,13 @@ func coordinatorJoinReadiness(cfg *config.Config) coordinator.JoinReadinessConfi
 		HostSource: cfg.Sources["coordinator.host"],
 		Advertise:  cfg.Coordinator.Advertise,
 	}
-	if cfg.Core.Peer.CertFile != "" && cfg.Core.Peer.KeyFile != "" {
+	switch {
+	case cfg.Core.Peer.CertFile != "" && cfg.Core.Peer.KeyFile != "":
 		readiness.BuiltinTLSReason = coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_OWN_CERTIFICATES
+	case peerCA == nil:
+		// Without own certificates, only a generated CA that could not be
+		// created or read leaves the coordinator without a peer CA.
+		readiness.BuiltinTLSReason = coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_CA_UNAVAILABLE
 	}
 	return readiness
 }
@@ -324,6 +339,34 @@ func coordinatorPeerAuth(ctx *Context, cfg *config.Config) (*coordinator.PeerTok
 		slog.Bool("required", require),
 	)
 	return coordinator.NewPeerTokenAuth(token, false, require), nil
+}
+
+// coordinatorPeerCA returns the CA that signs coordinator and worker
+// certificates: the one peer.ca_cert_file and peer.ca_key_file supply, or the
+// one generated in the data directory. A coordinator with own certificates
+// has none. When the generated CA cannot be prepared, it logs a warning and
+// returns no CA and no error, so the coordinator still starts.
+func coordinatorPeerCA(ctx context.Context, peer config.Peer) (*coordinator.PeerCA, error) {
+	switch {
+	case peer.CertFile != "" && peer.KeyFile != "":
+		return nil, nil
+	case peer.CACertFile == "" && peer.CAKeyFile != "":
+		return nil, errors.New("peer.ca_key_file needs peer.ca_cert_file")
+	case peer.CACertFile != "" && peer.CAKeyFile == "":
+		return nil, errors.New("peer.ca_cert_file needs peer.ca_key_file on a coordinator")
+	case peer.CACertFile != "":
+		ca, err := coordinator.LoadPeerCA(peer.CACertFile, peer.CAKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("peer.ca_cert_file and peer.ca_key_file: %w", err)
+		}
+		return ca, nil
+	}
+	ca, err := coordinator.LoadOrCreatePeerCA(peer.GeneratedCAFile)
+	if err != nil {
+		logger.Warn(ctx, "Coordinator runs without a peer CA", tag.Error(err))
+		return nil, nil
+	}
+	return ca, nil
 }
 
 // loadCoordinatorTLSCredentials returns the coordinator's server credentials

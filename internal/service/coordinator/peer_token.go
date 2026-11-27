@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -62,15 +61,14 @@ func LoadOrCreatePeerToken(path string) (string, error) {
 		return token, err
 	}
 
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("generate peer token: %w", err)
+	token, err = newPeerToken()
+	if err != nil {
+		return "", err
 	}
-	token = hex.EncodeToString(raw)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := fileutil.MkdirAll(filepath.Dir(path), peerDirMode); err != nil {
 		return "", fmt.Errorf("create peer token directory: %w", err)
 	}
-	err = fileutil.WriteFileAtomicExclusive(path, []byte(token+"\n"), 0o600)
+	err = fileutil.WriteFileAtomicExclusive(path, []byte(token+"\n"), peerFileMode)
 	if errors.Is(err, fs.ErrExist) {
 		return readPeerToken(path)
 	}
@@ -78,6 +76,15 @@ func LoadOrCreatePeerToken(path string) (string, error) {
 		return "", fmt.Errorf("write peer token: %w", err)
 	}
 	return token, nil
+}
+
+// newPeerToken returns a random token of 64 lowercase hex characters.
+func newPeerToken() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate peer token: %w", err)
+	}
+	return hex.EncodeToString(raw), nil
 }
 
 func readPeerToken(path string) (string, error) {

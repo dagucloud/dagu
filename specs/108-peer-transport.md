@@ -7,10 +7,14 @@ the [Start Line](#start-line) for rows 1, 2, and 5 of
 [Client Transport](#client-transport), the warnings of
 [Ignored Settings](#ignored-settings) for `peer.cert_file`, `peer.key_file`,
 `peer.client_ca_file`, and `peer.skip_tls_verify: true`,
-[Bring Your Own Certificates](#bring-your-own-certificates), and the
+[Bring Your Own Certificates](#bring-your-own-certificates), the
+[Peer CA](#peer-ca) except the exit under `coordinator.require_tls: true`
+and the [Published CA Certificate](#published-ca-certificate), the rows of
+[Configuration Conflicts](#configuration-conflicts) for `peer.ca_cert_file`
+and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), and the
 coordinator call of [Join Readiness](#join-readiness), which reports
-`builtinTLS` as false until the coordinator has a peer CA, and
-`builtinTLSReason` only for own certificates.
+`builtinTLS` as false until the coordinator serves built-in TLS. Nothing
+uses the peer CA for TLS yet.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -331,8 +335,9 @@ A coordinator logs one line at start for what it serves:
     coordinator runs for a time with `peer.ca_cert_file` or with own
     certificates.
 - `peer.ca_cert_file` with `peer.ca_key_file` supplies the CA instead. The
-  certificate must be a CA certificate, the key must match it, and the
-  coordinator generates nothing.
+  certificate must be a CA certificate whose key usage, when present,
+  allows certificate signing. The key must match it, and the coordinator
+  generates nothing.
 - A coordinator with own certificates has no peer CA.
 - A coordinator that cannot create or read its generated CA, such as one
   whose data directory it cannot write, logs a warning and starts without a
@@ -984,7 +989,7 @@ handshake error that caused the fallback.
 | Case | Result |
 | --- | --- |
 | A configuration conflict | The process exits with code 1 at start, with the message of [Configuration Conflicts](#configuration-conflicts) |
-| `peer.ca_cert_file` that is not a CA certificate, or a CA key that does not match it | The coordinator exits with code 1 at start, naming the files |
+| `peer.ca_cert_file` that is not a CA certificate, whose key usage does not allow certificate signing, or a CA key that does not match it | The coordinator exits with code 1 at start, naming the files |
 | Own certificates whose key does not match | The coordinator exits with code 1 at start, naming both files |
 | `dagu peer init` into a directory with one of its files | Exits with code 1, writing nothing |
 | A server certificate that does not verify, or lacks `coordinator.dagu.invalid` | The call fails. The client does not fall back. The only exception is a certificate on an [unlisted address](#unlisted-addresses) that does not chain to the published CA certificate. One that chains to it but lacks `coordinator.dagu.invalid` fails |
@@ -1117,12 +1122,12 @@ use the built-in CA (peer.ca_cert_file, peer.ca_key_file) or your own certificat
 
 ```text
 $ dagu peer init --out ./peer
-./peer/ca.crt
-./peer/ca.key
-./peer/token
+peer/ca.crt
+peer/ca.key
+peer/token
 
 $ dagu peer init --out ./peer
-./peer/ca.crt exists; dagu peer init writes no file over an existing one
+peer/ca.crt exists; dagu peer init writes no file over an existing one
 ```
 
 The second run exits with code 1.

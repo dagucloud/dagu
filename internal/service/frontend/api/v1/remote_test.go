@@ -719,6 +719,47 @@ func TestRemoteSkillDownloadStreams(t *testing.T) {
 	}
 }
 
+// A remote node may start a skill ZIP before it has read the request body.
+// The proxy keeps forwarding the body while the ZIP streams back, so a client
+// that sends the rest of its body after the headers arrive still gets the ZIP.
+func TestRemoteSkillDownloadBodyAfterHeaders(t *testing.T) {
+	const head, rest = `{"names":`, `["demo"]}`
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.NoError(t, http.NewResponseController(w).EnableFullDuplex())
+		w.Header().Set("Content-Type", "application/zip")
+		_, _ = w.Write([]byte("zip"))
+		_ = http.NewResponseController(w).Flush()
+		body, err := io.ReadAll(r.Body)
+		assert.NoError(t, err)
+		assert.Equal(t, head+rest, string(body))
+		_, _ = w.Write([]byte("tail"))
+	}))
+	defer remote.Close()
+	resolver := remotenode.NewResolver([]config.RemoteNode{{Name: "edge", APIBaseURL: remote.URL + "/api/v1"}}, nil)
+	proxy := httptest.NewServer(WithRemoteNode(resolver, "/api/v1")(http.NotFoundHandler()))
+	defer proxy.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	bodyReader, bodyWriter := io.Pipe()
+	// The client waits for its body to end even after the deadline, so the
+	// deadline also ends the body.
+	context.AfterFunc(ctx, func() { _ = bodyWriter.CloseWithError(ctx.Err()) })
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, proxy.URL+"/api/v1/skills-download?remoteNode=edge", bodyReader)
+	require.NoError(t, err)
+	go func() { _, _ = bodyWriter.Write([]byte(head)) }()
+	resp, err := proxy.Client().Do(request)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	_, _ = bodyWriter.Write([]byte(rest))
+	require.NoError(t, bodyWriter.Close())
+
+	got, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, "ziptail", string(got))
+}
+
 func TestRemoteLogDownloadAbort(t *testing.T) {
 	for _, suffix := range []string{"/steps/log/download", "/steps/build/log/download"} {
 		t.Run(suffix, func(t *testing.T) {

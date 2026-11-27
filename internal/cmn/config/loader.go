@@ -697,6 +697,8 @@ func (l *ConfigLoader) loadPeerConfig(def PeerDef) Peer {
 		MaxRetries:    def.MaxRetries,
 		RetryInterval: l.parseDuration("peer.retry_interval", def.RetryInterval),
 		Token:         strings.TrimSpace(def.Token),
+		CACertFile:    def.CACertFile,
+		CAKeyFile:     def.CAKeyFile,
 	}
 }
 
@@ -2237,6 +2239,7 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) error {
 		cfg.Paths.ToolsDir = filepath.Join(cfg.Paths.DataDir, "tools")
 	}
 	cfg.Core.Peer.TokenFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-token")
+	cfg.Core.Peer.GeneratedCAFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-ca.pem")
 
 	// Suspend flags default under the shared data directory so every process
 	// observing the same data_dir sees identical suspension state. A legacy
@@ -2804,6 +2807,8 @@ var envBindings = []envBinding{
 	{key: "peer.cert_file", env: "PEER_CERT_FILE"},
 	{key: "peer.key_file", env: "PEER_KEY_FILE"},
 	{key: "peer.client_ca_file", env: "PEER_CLIENT_CA_FILE"},
+	{key: "peer.ca_cert_file", env: "PEER_CA_CERT_FILE"},
+	{key: "peer.ca_key_file", env: "PEER_CA_KEY_FILE"},
 	{key: "peer.skip_tls_verify", env: "PEER_SKIP_TLS_VERIFY"},
 	{key: "peer.insecure", env: "PEER_INSECURE"},
 	{key: "peer.token", env: "PEER_TOKEN", secret: true},
