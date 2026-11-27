@@ -52,6 +52,15 @@ var supportedEvents = []eventstore.EventType{
 	eventstore.TypeDAGRunRejected,
 }
 
+// routeEvents are the events a route may select: the run events and the
+// connection events, which only routes deliver. A route that selects none
+// receives defaultEvents, so routes saved before connection events existed
+// keep receiving only run events.
+var routeEvents = append(slices.Clone(supportedEvents),
+	eventstore.TypeConnectionNeedsAttention,
+	eventstore.TypeConnectionRestored,
+)
+
 var (
 	ErrSettingsNotFound   = errors.New("notification settings not found")
 	ErrInvalidSettings    = errors.New("invalid notification settings")
@@ -529,7 +538,7 @@ func normalizeRoute(route *Route) error {
 	if route.ChannelID == "" {
 		return fmt.Errorf("%w: notification route channel id is required", ErrInvalidSettings)
 	}
-	events, err := normalizeEventList(route.Events, false)
+	events, err := normalizeEventList(route.Events, routeEvents, false)
 	if err != nil {
 		return err
 	}
@@ -591,7 +600,7 @@ func normalizeSubscription(subscription *Subscription) error {
 	if subscription.ChannelID == "" {
 		return fmt.Errorf("%w: notification channel id is required", ErrInvalidSettings)
 	}
-	events, err := normalizeEventList(subscription.Events, false)
+	events, err := normalizeEventList(subscription.Events, supportedEvents, false)
 	if err != nil {
 		return err
 	}
@@ -605,7 +614,7 @@ func normalizeTarget(target *Target) error {
 		target.ID = uuid.New().String()
 	}
 	target.Name = strings.TrimSpace(target.Name)
-	events, err := normalizeEventList(target.Events, false)
+	events, err := normalizeEventList(target.Events, supportedEvents, false)
 	if err != nil {
 		return err
 	}
@@ -721,13 +730,13 @@ func validateEmails(values []string) error {
 	return nil
 }
 
-func normalizeEventList(values []eventstore.EventType, requireNonEmpty bool) ([]eventstore.EventType, error) {
+func normalizeEventList(values, supported []eventstore.EventType, requireNonEmpty bool) ([]eventstore.EventType, error) {
 	events := make([]eventstore.EventType, 0, len(values))
 	for _, event := range values {
 		if event == "" {
 			continue
 		}
-		if !slices.Contains(supportedEvents, event) {
+		if !slices.Contains(supported, event) {
 			return nil, fmt.Errorf("%w: %s", ErrUnsupportedEvent, event)
 		}
 		if !slices.Contains(events, event) {

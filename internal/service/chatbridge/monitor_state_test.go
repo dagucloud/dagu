@@ -191,6 +191,78 @@ func TestNotificationMonitor_BootstrapsFromCurrentHeadAndOnlyDeliversFutureEvent
 	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
 }
 
+// A connection event reaches each destination once, keyed by its event
+// ID, and a later restored event follows it.
+func TestNotificationMonitor_DeliversConnectionEvents(t *testing.T) {
+	t.Parallel()
+
+	store, err := fileeventstore.New(t.TempDir())
+	require.NoError(t, err)
+	service := eventstore.New(store)
+
+	var (
+		mu        sync.Mutex
+		delivered = map[string][]NotificationEvent{}
+	)
+	transport := &fakeNotificationTransport{
+		destinations: []string{"dest-1", "dest-2"},
+		flushFn: func(_ context.Context, destination string, batch NotificationBatch, _ bool) bool {
+			mu.Lock()
+			defer mu.Unlock()
+			delivered[destination] = append(delivered[destination], batch.Events...)
+			return true
+		},
+	}
+	deliveredTo := func(destination string) []NotificationEvent {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(delivered[destination])
+	}
+
+	monitor := newFileBackedMonitor(service, filepath.Join(t.TempDir(), "state.json"), transport,
+		slog.New(slog.NewTextHandler(io.Discard, nil)), newTestNotificationMonitorConfig())
+	stopMonitor := testutil.StartContextRunner(t, monitor)
+	defer stopMonitor()
+	require.Eventually(t, func() bool {
+		monitor.stateMu.Lock()
+		defer monitor.stateMu.Unlock()
+		return monitor.state.Bootstrapped
+	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+
+	source := eventstore.Source{Service: eventstore.SourceServiceServer, Instance: "test"}
+	conn := []eventstore.ConnectionName{{Workspace: "ops", Name: "work-google"}}
+	broken := eventstore.NewConnectionEvent(source, eventstore.TypeConnectionNeedsAttention, eventstore.ConnectionChange{
+		Connections: conn,
+		Status:      "needs_reconnect",
+		Reason:      "invalid_grant",
+	}, time.Now())
+	require.NoError(t, service.Emit(context.Background(), broken))
+	require.Eventually(t, func() bool {
+		return len(deliveredTo("dest-1")) == 1 && len(deliveredTo("dest-2")) == 1
+	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+
+	restored := eventstore.NewConnectionEvent(source, eventstore.TypeConnectionRestored, eventstore.ConnectionChange{
+		Connections: conn,
+		Status:      "connected",
+	}, time.Now())
+	require.NoError(t, service.Emit(context.Background(), restored))
+	require.Eventually(t, func() bool {
+		return len(deliveredTo("dest-1")) == 2 && len(deliveredTo("dest-2")) == 2
+	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+
+	for _, destination := range transport.destinations {
+		events := deliveredTo(destination)
+		require.Len(t, events, 2, destination)
+		assert.Equal(t, broken.ID, events[0].Key)
+		assert.Equal(t, eventstore.TypeConnectionNeedsAttention, events[0].Type)
+		require.NotNil(t, events[0].Connection)
+		assert.Equal(t, conn, events[0].Connection.Connections)
+		assert.Equal(t, "invalid_grant", events[0].Connection.Reason)
+		assert.Equal(t, restored.ID, events[1].Key)
+		assert.Equal(t, eventstore.TypeConnectionRestored, events[1].Type)
+	}
+}
+
 func TestNotificationMonitor_CompetingBootstrapPreservesStartupEvent(t *testing.T) {
 	t.Parallel()
 
