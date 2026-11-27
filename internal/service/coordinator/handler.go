@@ -23,6 +23,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
+	"github.com/dagucloud/dagu/v2/internal/connection"
+	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -179,6 +181,8 @@ type Handler struct {
 	dagRepository             *persis.DAGRepository              // DAG definitions for the GetDAG RPC
 	secretStore               secretpkg.Store                    // Secret registry for workers
 	profileStore              profilepkg.Store                   // Runtime profiles for workers
+	connectionStore           connection.Store                   // Connections that runs on workers declare
+	connectionTokens          broker.Source                      // Access tokens of those connections
 	projectsEnabled           bool                               // Resolve secrets and profiles without workspace layers
 	nodeInventory             inventory.Store                    // Inventory nodes for runs on workers
 	trustedHostKeys           runctx.TrustedHostKeys             // Host keys trusted for inventory nodes
@@ -260,6 +264,12 @@ type HandlerConfig struct {
 	// ProfileStore resolves runtime profiles for workers.
 	// Optional - when nil, ResolveRuntimeProfile returns FailedPrecondition.
 	ProfileStore profilepkg.Store
+
+	// ConnectionStore and ConnectionTokens answer the connection tokens of
+	// runs on workers. Optional - when either is nil,
+	// ResolveConnectionToken returns Unavailable.
+	ConnectionStore  connection.Store
+	ConnectionTokens broker.Source
 
 	// ProjectsEnabled resolves secrets and runtime profiles in the
 	// project alone: the workspace a request names adds no layer.
@@ -346,6 +356,8 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		dagRepository:             cfg.DAGRepository,
 		secretStore:               cfg.SecretStore,
 		profileStore:              cfg.ProfileStore,
+		connectionStore:           cfg.ConnectionStore,
+		connectionTokens:          cfg.ConnectionTokens,
 		projectsEnabled:           cfg.ProjectsEnabled,
 		nodeInventory:             cfg.NodeInventory,
 		trustedHostKeys:           cfg.TrustedHostKeys,

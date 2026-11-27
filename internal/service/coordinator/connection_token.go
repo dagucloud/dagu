@@ -1,0 +1,164 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package coordinator
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/connection"
+	"github.com/dagucloud/dagu/v2/internal/connection/broker"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+const connectionAccessDenied = "connection access denied"
+
+// ConnectionTokenClient answers, for a run on a worker, the connections its
+// DAG declares.
+type ConnectionTokenClient interface {
+	// ResolveConnectionToken sends req to owner, or to any coordinator when
+	// owner is empty. An error from the coordinator keeps its gRPC status.
+	ResolveConnectionToken(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ResolveConnectionTokenRequest) (*coordinatorv1.ResolveConnectionTokenResponse, error)
+}
+
+func (cli *clientImpl) ResolveConnectionToken(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ResolveConnectionTokenRequest) (*coordinatorv1.ResolveConnectionTokenResponse, error) {
+	if !emptyCoordinatorOwner(owner) && !completeCoordinatorOwner(owner) {
+		return nil, fmt.Errorf("connection token owner coordinator endpoint is incomplete")
+	}
+	var resp *coordinatorv1.ResolveConnectionTokenResponse
+	call := func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
+		var err error
+		resp, err = client.client.ResolveConnectionToken(ctx, req)
+		if err != nil {
+			return err
+		}
+		if resp == nil {
+			return fmt.Errorf("coordinator %s returned empty connection token response", member.ID)
+		}
+		return nil
+	}
+	var err error
+	if completeCoordinatorOwner(owner) {
+		err = cli.callOwner(ctx, owner, false, call)
+	} else {
+		var members []serviceregistry.HostInfo
+		if members, err = cli.getCoordinatorMembers(ctx); err == nil {
+			err = cli.attemptCall(ctx, members, call)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// ResolveConnectionToken answers a connection that the DAG of an attempt the
+// worker holds declares, resolved in the DAG's workspace. The notification
+// connection, which belongs to no workspace, never resolves.
+func (h *Handler) ResolveConnectionToken(ctx context.Context, req *coordinatorv1.ResolveConnectionTokenRequest) (*coordinatorv1.ResolveConnectionTokenResponse, error) {
+	if h.connectionStore == nil || h.connectionTokens == nil {
+		return nil, status.Error(codes.Unavailable, "connection store is not configured")
+	}
+	if req.GetConnection() == "" {
+		return nil, status.Error(codes.InvalidArgument, "connection is required")
+	}
+	dag, err := h.leaseDAG(ctx, req.GetWorkerId(), req.GetAttemptKey(), req.GetAttemptId(), req.GetDagName(), connectionAccessDenied)
+	if err != nil {
+		return nil, err
+	}
+	ref, ok := declaredConnection(dag, req.GetConnection())
+	if !ok {
+		return nil, status.Error(codes.PermissionDenied, connectionAccessDenied)
+	}
+	ws, state := workspace.WorkspaceLabelFromLabels(dag.Labels)
+	if state == workspace.WorkspaceLabelInvalid {
+		return nil, status.Errorf(codes.InvalidArgument, "connection %q: the DAG's workspace labels name no single valid workspace", ref.Name)
+	}
+	key := connection.Key{Workspace: secretpkg.NormalizeWorkspace(ws), Name: ref.Name}
+
+	if req.GetCheckOnly() {
+		if err := connection.Admit(ctx, h.connectionStore, ws, ref.Name, ref.Servers); err != nil {
+			return nil, connectionRPCError(err, codes.InvalidArgument)
+		}
+	}
+	conn, err := h.connectionStore.Get(ctx, key)
+	if err != nil {
+		return nil, connectionRPCError(fmt.Errorf("connection %q: %w", ref.Name, err), codes.Internal)
+	}
+	resp := &coordinatorv1.ResolveConnectionTokenResponse{Binding: connectionBinding(conn)}
+	if req.GetCheckOnly() {
+		return resp, nil
+	}
+
+	minTTL := time.Duration(max(req.GetMinTtlSeconds(), 0)) * time.Second
+	var expiresIn time.Duration
+	if rejected := req.GetRejectedToken(); rejected != "" {
+		resp.AccessToken, expiresIn, err = h.connectionTokens.Rejected(ctx, conn, req.GetResource(), rejected, minTTL)
+	} else {
+		resp.AccessToken, expiresIn, err = h.connectionTokens.Token(ctx, conn, req.GetResource(), minTTL)
+	}
+	if err != nil {
+		return nil, connectionRPCError(err, codes.Internal)
+	}
+	resp.ExpiresInSeconds = expiresInSeconds(expiresIn)
+	return resp, nil
+}
+
+// declaredConnection returns the connection named name that dag declares.
+func declaredConnection(dag *ir.DAG, name string) (ir.ConnectionRef, bool) {
+	for _, ref := range dag.Connections {
+		if ref.Name == name {
+			return ref, true
+		}
+	}
+	return ir.ConnectionRef{}, false
+}
+
+func connectionBinding(conn *connection.Connection) *coordinatorv1.ConnectionBinding {
+	binding := &coordinatorv1.ConnectionBinding{
+		Provider:   string(conn.Provider),
+		BoundHosts: conn.AllBoundHosts(),
+		Resource:   conn.Resource,
+	}
+	for _, svc := range conn.Services {
+		binding.Services = append(binding.Services, &coordinatorv1.ConnectionService{Name: svc.Name, Access: string(svc.Access)})
+	}
+	return binding
+}
+
+// expiresInSeconds rounds up, so a token that expires in under a second is
+// not read as one without an expiry.
+func expiresInSeconds(d time.Duration) int64 {
+	if d <= 0 {
+		return 0
+	}
+	return int64((d + time.Second - 1) / time.Second)
+}
+
+// connectionRPCError maps err to a status. fallback is the code of an error
+// of no known kind.
+func connectionRPCError(err error, fallback codes.Code) error {
+	code := fallback
+	switch {
+	case errors.Is(err, connection.ErrNotFound):
+		code = codes.NotFound
+	case errors.Is(err, broker.ErrReconnectRequired):
+		code = codes.FailedPrecondition
+	case errors.Is(err, connection.ErrInvalid):
+		code = codes.InvalidArgument
+	case errors.Is(err, context.Canceled):
+		code = codes.Canceled
+	case errors.Is(err, context.DeadlineExceeded):
+		code = codes.DeadlineExceeded
+	}
+	return status.Error(code, err.Error())
+}
