@@ -152,8 +152,9 @@ func (r *Reader) Catalog(ctx context.Context, conn *connection.Connection, servi
 // Probe lists service for conn with lister, whatever the stored catalog's
 // age, and saves the result, as a check after consent does with tokens
 // that are not live yet. It waits while another listing holds the
-// catalog's lock. A successful probe also ends this process's hold of an
-// earlier failed listing of the catalog. service is as for Catalog.
+// catalog's lock. Readers receive the probed catalog while it is fresh,
+// even when an earlier failed listing's error is held. service is as for
+// Catalog.
 func (r *Reader) Probe(ctx context.Context, conn *connection.Connection, service string, lister Lister) (*connection.Catalog, error) {
 	if conn == nil {
 		return nil, connection.ErrNotFound
@@ -166,18 +167,8 @@ func (r *Reader) Probe(ctx context.Context, conn *connection.Connection, service
 	if err != nil {
 		return nil, err
 	}
-	catalog, err := r.save(ctx, conn, t, lock, lister)
-	lock.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	key := listingKey{connectionID: conn.ID, service: t.service, endpoint: t.endpoint}
-	r.mu.Lock()
-	if l, ok := r.listings[key]; ok && !l.retryAt.IsZero() {
-		delete(r.listings, key)
-	}
-	r.mu.Unlock()
-	return catalog, nil
+	defer lock.Unlock()
+	return r.save(ctx, conn, t, lock, lister)
 }
 
 // lock takes the lock of service's catalog of conn, waiting while another
