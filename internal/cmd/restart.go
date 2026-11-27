@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -16,7 +17,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/spf13/cobra"
 )
 
@@ -134,7 +137,7 @@ func runRestart(ctx *Context, args []string) error {
 	}
 	// The run it read is stopped by its ID, which reaches a run on a worker
 	// too, where no local process holds it.
-	if err := handleRestartProcess(ctx, dag, dagStatus.DAGRunID, opts); err != nil {
+	if err := handleRestartProcess(ctx, dag, dagStatus.DAGRunID, dagStatus.BoundWorker, opts); err != nil {
 		return fmt.Errorf("restart process failed for DAG %s: %w", dag.Name, err)
 	}
 
@@ -152,18 +155,25 @@ func errRestartServiceDAG(name string, policy ir.RestartPolicy) error {
 	)
 }
 
+// handleRestartProcess stops the run oldDagRunID and starts a new one. A run
+// started bound to the worker node admitted restarts on that worker.
 func handleRestartProcess(
 	ctx *Context,
 	d *ir.DAG,
 	oldDagRunID string,
+	admitted string,
 	opts runOptions,
 ) error {
-	// A run bound to a worker node restarts on that worker. The worker is
-	// read before the run stops, so a restart that cannot reach it stops
-	// nothing.
-	worker, coordinatorCli, err := boundWorker(ctx, d, opts.targetNodes)
+	// The worker is checked before the run stops, so a restart that cannot
+	// reach it stops nothing.
+	worker, coordinatorCli, err := boundWorker(ctx, d, opts.targetNodes, admitted)
 	if err != nil {
 		return err
+	}
+	if worker != "" {
+		if err := requireWorkerOnline(ctx, coordinatorCli, worker); err != nil {
+			return err
+		}
 	}
 	opts.boundWorker = worker
 	if err := stopDAGIfRunning(ctx, ctx.DAGRunMgr, d, oldDagRunID); err != nil {
@@ -325,4 +335,17 @@ func stopRunningDAG(ctx context.Context, cli runtime.Manager, dag *ir.DAG, dagRu
 
 		time.Sleep(stopPollInterval)
 	}
+}
+
+// requireWorkerOnline fails unless the coordinator answers and lists the
+// worker as connected.
+func requireWorkerOnline(ctx context.Context, cli coordinator.Client, worker string) error {
+	workers, err := cli.GetWorkers(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to reach the coordinator of worker node %q: %w", worker, err)
+	}
+	if !slices.ContainsFunc(workers, func(w *coordinatorv1.WorkerInfo) bool { return w.GetWorkerId() == worker }) {
+		return fmt.Errorf("worker node %q is offline", worker)
+	}
+	return nil
 }
