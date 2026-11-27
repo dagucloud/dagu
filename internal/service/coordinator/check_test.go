@@ -6,6 +6,7 @@ package coordinator_test
 import (
 	"bufio"
 	"cmp"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"io"
@@ -79,16 +80,17 @@ func TestCheckNotServing(t *testing.T) {
 }
 
 // A dial that runs out of time reads as no answer, as a dropped connection
-// attempt does.
+// attempt does. A deadline already past makes the dial time out on every
+// platform, without depending on timer resolution.
 func TestCheckDialTimeout(t *testing.T) {
 	t.Parallel()
 
-	config := coordinator.DefaultConfig()
-	config.DialTimeout = time.Nanosecond
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
 
-	result := coordinator.Check(t.Context(), config, checkMember(t, startSilentListener(t)))
+	result := coordinator.Check(ctx, coordinator.DefaultConfig(), checkMember(t, startSilentListener(t)))
 
-	assert.EqualError(t, result.DialErr, "the coordinator did not answer within 1ns")
+	assert.EqualError(t, result.DialErr, "the coordinator did not answer within 10s")
 }
 
 func TestCheckTokenRefused(t *testing.T) {
