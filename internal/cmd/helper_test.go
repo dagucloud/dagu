@@ -281,6 +281,23 @@ func TestDispatchThroughInterruptDeadline(t *testing.T) {
 	assert.Equal(t, 1, noticed, "the interrupt is shown once")
 }
 
+// An interrupt that arrives before the dispatch sends nothing, so no run
+// exists to wait for or cancel.
+func TestDispatchThroughInterruptBeforeCall(t *testing.T) {
+	t.Parallel()
+
+	signalCtx, interrupt := context.WithCancel(context.Background())
+	interrupt()
+	client := &stalledDispatchClient{interrupt: interrupt}
+
+	noticed := 0
+	err := dispatchThroughInterrupt(signalCtx, client, dispatch.DispatchRequest{Task: &dispatch.DispatchTask{}},
+		time.Millisecond, func() { noticed++ })
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Zero(t, client.calls, "nothing is sent")
+	assert.Zero(t, noticed, "nothing waits on the coordinator")
+}
+
 // On a terminal the logger is quiet while the progress display owns stderr,
 // so the interrupt notice goes through the display.
 func TestNoticeInterruptedOnTerminal(t *testing.T) {

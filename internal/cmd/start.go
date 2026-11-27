@@ -987,7 +987,7 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 // (signalCtx done) does not cut the call short: it stops further retries and
 // fallbacks, calls notice, and gives the attempt in flight timeout to end.
 // Once the call returns, a run the coordinator took exists there, so a
-// cancellation reaches it.
+// cancellation reaches it. An interrupt before the call sends nothing.
 func dispatchThroughInterrupt(
 	signalCtx context.Context,
 	cli coordinator.Client,
@@ -995,6 +995,9 @@ func dispatchThroughInterrupt(
 	timeout time.Duration,
 	notice func(),
 ) error {
+	if err := signalCtx.Err(); err != nil {
+		return fmt.Errorf("interrupted before the task was sent: %w", err)
+	}
 	attemptsStop := make(chan struct{})
 	callCtx, cancelCall := context.WithCancel(coordinator.WithAttemptStop(context.WithoutCancel(signalCtx), attemptsStop))
 	defer cancelCall()
