@@ -144,9 +144,11 @@ func (e *commandExecutor) Run(ctx context.Context) error {
 	waitDone := make(chan error, 1)
 	go func() {
 		err := process.Wait()
+		// The process's own status: an output copy error fails the step, but
+		// the process can still have exited with 0.
 		logger.Debug(ctx, "Step process exited",
 			tag.PID(pid),
-			tag.ExitCode(exitCodeFromError(err)),
+			tag.ExitCode(cmd.ProcessState.ExitCode()),
 			tag.Duration(time.Since(startedAt)))
 		waitDone <- err
 	}()
