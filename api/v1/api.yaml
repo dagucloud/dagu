@@ -9808,7 +9808,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /skills/download:
+  /skills-download:
     post:
       summary: "Download several skills as one ZIP"
       description: "Streams one ZIP that holds each named skill as a top-level folder with its files exactly as stored, sorted, without duplicates. A skill that is not valid can be downloaded; its hidden files, files with hard links and files above 4 MiB stay out. Every name is checked before the first byte: an unknown name gives 404 and no ZIP. At most 100 skills and 256 MiB of files. A file that changes during the stream aborts it, so the ZIP is incomplete."

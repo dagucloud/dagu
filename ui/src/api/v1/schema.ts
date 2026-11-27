@@ -3838,7 +3838,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/skills/download": {
+    "/skills-download": {
         parameters: {
             query?: never;
             header?: never;

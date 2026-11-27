@@ -11,7 +11,7 @@ the cache of [Source of truth](#source-of-truth). `PUT /skills/{name}` creates o
 `SKILL.md`, `DELETE /skills/{name}` deletes a skill, and `PUT` and `DELETE /skills/{name}/files`
 write and delete one file, under the preconditions of
 [Preconditions and conflicts](#preconditions-and-conflicts). Unit tests cover them, and a
-conformance test covers discovery. `GET /skills/{name}/download` and `POST /skills/download`
+conformance test covers discovery. `GET /skills/{name}/download` and `POST /skills-download`
 stream ZIP files. The use of a skill by a step, its transfer to a worker and the UI come later.
 
 ## Scope
@@ -341,7 +341,7 @@ its type.
 | `PUT /skills/{name}/files?path=` | Write one file of `references/`, `assets/` or `scripts/`. The body holds the bytes. |
 | `DELETE /skills/{name}/files?path=` | Delete one file, or an entry that breaks the layout. |
 | `GET /skills/{name}/download` | Download one skill as a ZIP file. |
-| `POST /skills/download` | Download several skills as one ZIP file. Body `{names}`. |
+| `POST /skills-download` | Download several skills as one ZIP file. Body `{names}`. |
 
 The listing contains every folder of the skills directory, also a folder with no `SKILL.md` and a
 folder that breaks the format. It does not contain a plain file, a link or a hidden folder. A read of a
@@ -403,9 +403,10 @@ name of the skill as its ID.
 
 ## Download as ZIP
 
-`GET /skills/{name}/download` downloads one skill. `POST /skills/download` downloads up to 100
+`GET /skills/{name}/download` downloads one skill. `POST /skills-download` downloads up to 100
 skills. The request is a POST with a JSON body, because a list of names can be long for a URL. The
-rules for roles are the same as for the read of a skill.
+route is not below `/skills/`, so that a skill named `download` keeps its routes. The rules for roles
+are the same as for the read of a skill.
 
 The response has the type `application/zip` and the header `Cache-Control: no-store`. The header
 `Content-Disposition` is an attachment. The file name is `<name>.zip` for one skill whose name is

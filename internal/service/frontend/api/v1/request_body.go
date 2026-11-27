@@ -115,7 +115,7 @@ func closedBodyLimit(r *http.Request, mountedAPIPath string) (int64, bool) {
 		return 0, false
 	}
 	relative = strings.TrimPrefix(relative, "/")
-	if relative == "skills" || strings.HasPrefix(relative, "skills/") {
+	if relative == "skills" || relative == "skills-download" || strings.HasPrefix(relative, "skills/") {
 		return maxSkillsRequestBodyBytes, true
 	}
 	return 0, false

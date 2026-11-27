@@ -56,6 +56,17 @@ func TestClosedBodyMiddleware(t *testing.T) {
 			assert.NotContains(t, w.Body.String(), value)
 		}
 	}
+	// The download of several skills has a closed body too, and a skill named
+	// download keeps the check of its update.
+	for _, req := range []struct{ method, path, body string }{
+		{http.MethodPost, "/api/v1/skills-download", `{"names":["demo"],"name":"` + value + `"}`},
+		{http.MethodPost, "/api/v1/skills-download", `{"names":"demo"}`},
+		{http.MethodPut, "/api/v1/skills/download", `{"content":"x","contents":"` + value + `"}`},
+	} {
+		w := send(req.method, req.path, "application/json", req.body)
+		assert.Equal(t, http.StatusBadRequest, w.Code, "%s %s", req.method, req.body)
+		assert.NotContains(t, w.Body.String(), value)
+	}
 	// A file route takes raw bytes as application/octet-stream only.
 	const filePath = "/api/v1/skills/demo/files?path=assets/a.bin"
 	for _, contentType := range []string{"application/json", "text/plain", ""} {

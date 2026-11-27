@@ -425,7 +425,7 @@ func TestSkillsDownload(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(skillsDir(server), "alpha", "assets"), 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(skillsDir(server), "alpha", "assets", "x.bin"), []byte{0, 255}, 0o600))
 	post := func(body any, status int) *test.Response {
-		return server.Client().Post("/api/v1/skills/download", body).ExpectStatus(status).Send(t)
+		return server.Client().Post("/api/v1/skills-download", body).ExpectStatus(status).Send(t)
 	}
 
 	t.Run("OneSkill", func(t *testing.T) {
@@ -442,8 +442,7 @@ func TestSkillsDownload(t *testing.T) {
 		assert.Equal(t, map[string]string{"données/SKILL.md": "x"}, unzip(t, resp.Response.Body()))
 	})
 
-	// The route of the download of several skills does not hide a skill named
-	// download.
+	// A skill named download keeps its routes.
 	t.Run("ASkillNamedDownload", func(t *testing.T) {
 		assert.Equal(t, "x", getSkill(t, server, "download").Content)
 		resp := server.Client().Get("/api/v1/skills/download/download").ExpectStatus(http.StatusOK).Send(t)

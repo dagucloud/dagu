@@ -135,8 +135,10 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 		{name: "viewer reads a skill", method: http.MethodGet, path: "/api/v1/skills/demo", user: viewer, wantCall: true},
 		{name: "viewer reads a skill file", method: http.MethodGet, path: "/api/v1/skills/demo/files", user: viewer, wantCall: true},
 		{name: "viewer downloads a skill", method: http.MethodGet, path: "/api/v1/skills/demo/download", user: viewer, wantCall: true},
-		{name: "viewer downloads skills", method: http.MethodPost, path: "/api/v1/skills/download", user: viewer, wantCall: true},
-		{name: "scoped user cannot download skills", method: http.MethodPost, path: "/api/v1/skills/download", user: scoped},
+		{name: "viewer downloads skills", method: http.MethodPost, path: "/api/v1/skills-download", user: viewer, wantCall: true},
+		{name: "scoped user cannot download skills", method: http.MethodPost, path: "/api/v1/skills-download", user: scoped},
+		{name: "viewer reads a skill named download", method: http.MethodGet, path: "/api/v1/skills/download", user: viewer, wantCall: true},
+		{name: "developer writes a skill named download", method: http.MethodPut, path: "/api/v1/skills/download", user: developer, permissions: writeOnly, wantCall: true},
 		{name: "developer writes a skill", method: http.MethodPut, path: "/api/v1/skills/demo", user: developer, permissions: writeOnly, wantCall: true},
 		{name: "operator cannot write a skill", method: http.MethodPut, path: "/api/v1/skills/demo", user: operator, permissions: writeOnly},
 		{name: "developer deletes a skill", method: http.MethodDelete, path: "/api/v1/skills/demo", user: developer, permissions: writeOnly, wantCall: true},
@@ -668,7 +670,7 @@ func TestRemoteLogDownloadStreams(t *testing.T) {
 func TestRemoteSkillDownloadStreams(t *testing.T) {
 	for _, test := range []struct{ method, path string }{
 		{method: http.MethodGet, path: "/skills/demo/download"},
-		{method: http.MethodPost, path: "/skills/download"},
+		{method: http.MethodPost, path: "/skills-download"},
 	} {
 		t.Run(test.method, func(t *testing.T) {
 			first := bytes.Repeat([]byte("zip bytes"), 4096)

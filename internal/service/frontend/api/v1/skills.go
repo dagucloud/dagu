@@ -406,13 +406,13 @@ func zipDisposition(names []string, now time.Time) string {
 
 // isSkillDownload matches the ZIP downloads of skills.
 func isSkillDownload(r *http.Request, apiBasePath string) bool {
-	suffix, ok := strings.CutPrefix(r.URL.Path, strings.TrimRight(apiBasePath, "/")+"/skills/")
-	if !ok {
-		return false
+	base := strings.TrimRight(apiBasePath, "/")
+	if r.Method == http.MethodPost {
+		return r.URL.Path == base+"/skills-download"
 	}
+	suffix, ok := strings.CutPrefix(r.URL.Path, base+"/skills/")
 	name, rest, _ := strings.Cut(suffix, "/")
-	return (r.Method == http.MethodPost && suffix == "download") ||
-		(r.Method == http.MethodGet && name != "" && rest == "download")
+	return ok && r.Method == http.MethodGet && name != "" && rest == "download"
 }
 
 // skillPrecondition reads the headers If-Match and If-None-Match. Only the
