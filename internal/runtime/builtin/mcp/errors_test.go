@@ -139,7 +139,8 @@ func TestRateLimitedPageExcerpt(t *testing.T) {
 	assert.Equal(t, kindRateLimited, errKind(t, err))
 	assert.Contains(t, err.Error(), "<html><title>busy busy")
 	assert.NotContains(t, err.Error(), "try later")
-	assert.Less(t, len(err.Error()), len(page)/2)
+	assert.NotContains(t, err.Error(), "</title>")
+	assert.True(t, strings.HasSuffix(err.Error(), "..."), err.Error())
 }
 
 func TestNoImplicitRetry(t *testing.T) {
