@@ -4,10 +4,13 @@
 package api_test
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
@@ -29,6 +32,13 @@ func writeSkillFile(t *testing.T, server test.Server, name, content string) {
 	folder := filepath.Join(skillsDir(server), name)
 	require.NoError(t, os.MkdirAll(folder, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(folder, "SKILL.md"), []byte(content), 0o600))
+}
+
+func getSkill(t *testing.T, server test.Server, name string) api.SkillDetail {
+	t.Helper()
+	var out api.GetSkill200JSONResponse
+	server.Client().Get("/api/v1/skills/"+name).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &out)
+	return api.SkillDetail(out)
 }
 
 func issueRules(issues []api.SkillIssue) []string {
@@ -82,6 +92,125 @@ func TestSkillsList(t *testing.T) {
 		assert.True(t, got[3].Valid, "a short description is a warning, not an error")
 		assert.Contains(t, issueRules(got[3].Warnings), "description-short")
 	})
+}
+
+func TestSkillsGet(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	writeSkillFile(t, server, "refund-policy", validSkill)
+	writeSkillFile(t, server, "broken", "---\nname: other\ndescription: d\nmodel: x\n---\nBody\n")
+	require.NoError(t, os.MkdirAll(filepath.Join(skillsDir(server), "refund-policy", "references"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(skillsDir(server), "refund-policy", "references", "faq.md"), []byte("# FAQ\n"), 0o600))
+
+	t.Run("Valid", func(t *testing.T) {
+		out := getSkill(t, server, "refund-policy")
+		assert.Equal(t, "refund-policy", out.Name)
+		assert.Equal(t, validSkill, out.Content)
+		assert.Empty(t, out.Errors)
+		assert.Empty(t, out.Warnings)
+		assert.Len(t, out.Hash, 64)
+		assert.Equal(t, out.Hash, out.Summary.Hash)
+		require.Len(t, out.Files, 2)
+		assert.Equal(t, "SKILL.md", out.Files[0].Path)
+		assert.Equal(t, "references/faq.md", out.Files[1].Path)
+		assert.True(t, out.Files[1].Text)
+	})
+
+	t.Run("Invalid", func(t *testing.T) {
+		out := getSkill(t, server, "broken")
+		assert.Contains(t, out.Content, "name: other")
+		assert.ElementsMatch(t, []string{"front-matter-key", "name-folder"}, issueRules(out.Errors))
+		assert.False(t, out.Summary.Valid)
+	})
+
+	t.Run("NotFound", func(t *testing.T) {
+		server.Client().Get("/api/v1/skills/missing").ExpectStatus(http.StatusNotFound).Send(t)
+	})
+
+	t.Run("UnsafeName", func(t *testing.T) {
+		server.Client().Get("/api/v1/skills/.hidden").ExpectStatus(http.StatusBadRequest).Send(t)
+		server.Client().Get("/api/v1/skills/a%5Cb").ExpectStatus(http.StatusBadRequest).Send(t)
+	})
+}
+
+// A file is sent as stored, as an attachment of type application/octet-stream,
+// with the hash of the skill in ETag. A link in the folder is never followed.
+func TestSkillsReadFile(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	writeSkillFile(t, server, "refund-policy", validSkill)
+	folder := filepath.Join(skillsDir(server), "refund-policy")
+	write := func(rel string, data []byte) {
+		t.Helper()
+		full := filepath.Join(folder, filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
+		require.NoError(t, os.WriteFile(full, data, 0o600))
+	}
+	write("references/faq.md", []byte("# FAQ\n"))
+	write("assets/logo.bin", []byte{0, 1, 2, 255})
+	write("assets/page.html", []byte("<script>alert(1)</script>"))
+	secret := filepath.Join(t.TempDir(), "secret.md")
+	require.NoError(t, os.WriteFile(secret, []byte("secret"), 0o600))
+	require.NoError(t, os.Symlink(secret, filepath.Join(folder, "references", "link.md")))
+	hash := getSkill(t, server, "refund-policy").Hash
+	get := func(rel string, status int) *test.Response {
+		return server.Client().Get("/api/v1/skills/refund-policy/files?path=" + rel).ExpectStatus(status).Send(t)
+	}
+
+	for rel, want := range map[string][]byte{
+		"references/faq.md": []byte("# FAQ\n"),
+		"assets/logo.bin":   {0, 1, 2, 255},
+		"assets/page.html":  []byte("<script>alert(1)</script>"),
+	} {
+		resp := get(rel, http.StatusOK)
+		assert.Equal(t, want, resp.Response.Body(), rel)
+		assert.Equal(t, `"`+hash+`"`, resp.Response.Header().Get("ETag"), rel)
+		assert.Equal(t, "application/octet-stream", resp.Response.Header().Get("Content-Type"), rel)
+		assert.True(t, strings.HasPrefix(resp.Response.Header().Get("Content-Disposition"), "attachment;"), rel)
+	}
+
+	write("assets/big.bin", bytes.Repeat([]byte("x"), skill.MaxFileBytes+1))
+	get("assets/big.bin", http.StatusRequestEntityTooLarge)
+	get("references/none.md", http.StatusNotFound)
+	assert.NotContains(t, get("references/link.md", http.StatusNotFound).Body, "secret")
+	get("..%2F..%2FSKILL.md", http.StatusBadRequest)
+	get("%2Fetc%2Fpasswd", http.StatusBadRequest)
+	server.Client().Get("/api/v1/skills/missing/files?path=SKILL.md").ExpectStatus(http.StatusNotFound).Send(t)
+}
+
+// A file of a skill that the server cannot read gives 500, not 404, and the
+// body names no server path. The test needs a user other than root.
+func TestSkillsReadFileUnreadable(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a folder of mode 0000")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("a folder mode of 0 does not stop a read on Windows")
+	}
+	server := test.SetupServer(t)
+	writeSkillFile(t, server, "refund-policy", validSkill)
+	locked := filepath.Join(skillsDir(server), "refund-policy", "references")
+	require.NoError(t, os.MkdirAll(locked, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(locked, "faq.md"), []byte("# FAQ\n"), 0o600))
+	require.NoError(t, os.Chmod(locked, 0))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+
+	resp := server.Client().Get("/api/v1/skills/refund-policy/files?path=references/faq.md").
+		ExpectStatus(http.StatusInternalServerError).Send(t)
+	assert.NotContains(t, resp.Body, skillsDir(server))
+}
+
+func TestSkillsPathTraversal(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	outside := filepath.Join(server.Config.Paths.DAGsDir, "SKILL.md")
+	require.NoError(t, os.WriteFile(outside, []byte(validSkill), 0o600))
+
+	for _, name := range []string{"..", "..%2F..", "%2e%2e", "a%2Fb"} {
+		status := server.Client().Get("/api/v1/skills/" + name).Send(t).Response.StatusCode()
+		assert.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, status, "GET %s", name)
+	}
 }
 
 // A listing reads at most skill.MaxListedSkills folders, the first in name

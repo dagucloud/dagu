@@ -9806,6 +9806,119 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /skills/{name}:
+    get:
+      summary: "Get a skill"
+      description: "Returns the raw SKILL.md of a skill, its hash, its files, and its errors and warnings."
+      operationId: "getSkill"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/SkillName"
+      responses:
+        "200":
+          description: "Skill"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillDetail"
+        "400":
+          description: "Invalid skill name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Skill not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "SKILL.md changed after the server read the skill; read it again"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /skills/{name}/files:
+    get:
+      summary: "Get one file of a skill"
+      description: "Streams the bytes of one file of a skill, exactly as stored, as an attachment. The header ETag holds the hash of the skill. A file that changes during the stream ends the stream before its last bytes."
+      operationId: "getSkillFile"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/SkillName"
+        - $ref: "#/components/parameters/SkillFilePath"
+      responses:
+        "200":
+          description: "File content"
+          headers:
+            Content-Disposition:
+              schema:
+                type: "string"
+              description: "Attachment file name"
+            ETag:
+              schema:
+                type: "string"
+              description: "The hash of the skill"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: "Invalid skill name or path"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Skill or file not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The skill changed while the server read the file; read it again"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: "The file is above 4 MiB"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /calendars:
     get:
       summary: "List business calendars"
@@ -14647,6 +14760,26 @@ components:
       schema:
         type: string
 
+    SkillName:
+      name: name
+      in: path
+      description: name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server).
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+
+    SkillFilePath:
+      name: path
+      in: query
+      description: "Path of a file of the skill, relative to its folder, with / separators, for example references/guide.md"
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+
   schemas:
     Tags:
       type: array
@@ -15123,6 +15256,30 @@ components:
         - rule
         - message
 
+    SkillFile:
+      type: object
+      description: "One file of a skill"
+      properties:
+        path:
+          type: string
+          description: "Path relative to the skill folder, with / separators"
+        size:
+          type: integer
+          format: int64
+          description: "Size in bytes"
+        sha256:
+          type: string
+          description: "SHA-256 of the content, in lower case hexadecimal"
+        text:
+          type: boolean
+          description: "True for a text file that the model can read (SKILL.md, references/ and scripts/)"
+      required:
+        - path
+        - size
+        - sha256
+        - text
+
+
     SkillSummary:
       type: object
       description: "A skill folder of the skills directory"
@@ -15173,6 +15330,54 @@ components:
         - totalBytes
         - bodyLines
         - bodyTokens
+
+    SkillDetail:
+      type: object
+      description: "A skill with the content of SKILL.md and the list of its files"
+      properties:
+        name:
+          type: string
+          description: "Name of the skill"
+        content:
+          type: string
+          description: "The raw content of SKILL.md. Empty when the file does not exist, is above 4 MiB or is not UTF-8."
+        hash:
+          type: string
+          description: "Hash of the version of the skill. Send it in If-Match for a write."
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillIssue"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillIssue"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillFile"
+        license:
+          type: string
+        compatibility:
+          type: string
+        allowedTools:
+          type: string
+          description: "The value of allowed-tools. Informational: it never widens the permissions of a step."
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        summary:
+          $ref: "#/components/schemas/SkillSummary"
+      required:
+        - name
+        - content
+        - hash
+        - errors
+        - warnings
+        - files
+        - summary
+
 
     ToolDefinition:
       type: object

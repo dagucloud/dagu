@@ -132,6 +132,8 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 		{name: "operator cannot preview an inline spec", method: http.MethodPost, path: "/api/v1/dag-runs/preview", user: operator, permissions: writeAndRun},
 		{name: "developer reads workers", method: http.MethodGet, path: "/api/v1/workers", user: developer, wantCall: true},
 		{name: "viewer lists skills", method: http.MethodGet, path: "/api/v1/skills", user: viewer, wantCall: true},
+		{name: "viewer reads a skill", method: http.MethodGet, path: "/api/v1/skills/demo", user: viewer, wantCall: true},
+		{name: "viewer reads a skill file", method: http.MethodGet, path: "/api/v1/skills/demo/files", user: viewer, wantCall: true},
 		{name: "node lists are never forwarded", method: http.MethodGet, path: "/api/v1/nodes", user: admin, permissions: writeAndRun},
 		{name: "nodes are never forwarded", method: http.MethodGet, path: "/api/v1/nodes/web01", user: admin, permissions: writeAndRun},
 		{name: "node labels are never forwarded", method: http.MethodGet, path: "/api/v1/node-labels", user: admin, permissions: writeAndRun},
@@ -543,6 +545,33 @@ func TestRemoteNodeProxyPreservesStructuredError(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 	assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
 	assert.JSONEq(t, responseBody, recorder.Body.String())
+}
+
+// A skill file read through a remote node keeps the headers that name the
+// skill version and the file.
+func TestRemoteNodeProxyKeepsFileHeaders(t *testing.T) {
+	remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", `attachment; filename="a.bin"`)
+		w.Header().Set("ETag", `"abc123"`)
+		_, _ = w.Write([]byte("bytes"))
+	}))
+	t.Cleanup(remoteServer.Close)
+
+	resolver := remotenode.NewResolver([]config.RemoteNode{{
+		Name:       "edge",
+		APIBaseURL: remoteServer.URL + "/api/v1",
+	}}, nil)
+	handler := WithRemoteNode(resolver, "/api/v1")(http.NotFoundHandler())
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/skills/demo/files?path=a.bin&remoteNode=edge", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, `"abc123"`, recorder.Header().Get("ETag"))
+	assert.Equal(t, `attachment; filename="a.bin"`, recorder.Header().Get("Content-Disposition"))
+	assert.Equal(t, "bytes", recorder.Body.String())
 }
 
 func TestLegacyWikiProxyPath(t *testing.T) {
