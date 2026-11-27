@@ -173,11 +173,12 @@ The child runs of a step with `nodes` bound to SSH nodes run on the worker
 that runs their parent, and those bound to worker nodes run on those
 workers. A child DAG file whose name holds a reference, such as
 `dag: deploy-${params.app}`, reads neither its nodes nor its own declared
-`secrets:` on a worker: the coordinator serves only the child DAGs a run
-names as written, in its steps, `foreach` bodies, and handlers. To run such
-a child on a worker, name the child DAG as written, or run the parent on
-the Dagu host. Each child run reads its own node again, so a run never
-reuses an answer another run read. A worker that cannot reach the coordinator, or
+`secrets:` when it runs on the worker that runs its parent: the coordinator
+serves only the child DAGs a run names as written, in its steps, `foreach`
+bodies, and handlers. A child dispatched to a worker, such as one bound to
+a worker node, reads both. For a child that runs with its parent, name the
+child DAG as written, or run the parent on the Dagu host. Each child run
+reads its own node again, so a run never reuses an answer another run read. A worker that cannot reach the coordinator, or
 whose coordinator answers no lookup, fails the step or the run as an
 unreadable inventory does.
 
