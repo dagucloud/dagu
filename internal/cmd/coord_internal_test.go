@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -37,9 +38,9 @@ func TestCoordinatorPeerCA(t *testing.T) {
 		{name: "KeyWithoutCert", peer: config.Peer{CAKeyFile: caKey}, wantErr: "peer.ca_key_file needs peer.ca_cert_file"},
 		{name: "CertWithoutKey", peer: config.Peer{CACertFile: caCert}, wantErr: "peer.ca_cert_file needs peer.ca_key_file on a coordinator"},
 		{name: "SuppliedNotACertificate", peer: config.Peer{CACertFile: supplied[2], CAKeyFile: caKey}, wantErr: supplied[2]},
-		// A coordinator that cannot write its data directory starts without
-		// a CA, as it did before the peer CA.
-		{name: "GeneratedUnwritable", peer: config.Peer{GeneratedCAFile: filepath.Join(notADir, "coordinator", "peer-ca.pem")}},
+		// A generated CA that cannot be read gives no CA and no error, so the
+		// coordinator still starts.
+		{name: "GeneratedUnreadable", peer: config.Peer{GeneratedCAFile: filepath.Join(notADir, "coordinator", "peer-ca.pem")}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -59,4 +60,24 @@ func TestCoordinatorPeerCA(t *testing.T) {
 			assert.Equal(t, tt.generates, statErr == nil)
 		})
 	}
+}
+
+// A coordinator that cannot create the generated CA in a read-only data
+// directory gets no CA and no error, so it still starts.
+func TestCoordinatorPeerCAReadOnlyDataDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions do not stop writes on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root writes to read-only directories")
+	}
+	dataDir := t.TempDir()
+	require.NoError(t, os.Chmod(dataDir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(dataDir, 0o700) })
+	generated := filepath.Join(dataDir, "coordinator", "peer-ca.pem")
+
+	ca, err := coordinatorPeerCA(context.Background(), config.Peer{GeneratedCAFile: generated})
+	require.NoError(t, err)
+	assert.Nil(t, ca)
+	assert.NoDirExists(t, filepath.Dir(generated))
 }

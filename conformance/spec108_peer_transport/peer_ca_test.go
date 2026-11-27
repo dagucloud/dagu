@@ -5,12 +5,12 @@ package spec108_peer_transport_test
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +28,7 @@ func TestPeerInit(t *testing.T) {
 		want += filepath.Join("peer", name) + "\n"
 	}
 	result.ExpectStdout(want)
-	token, err := os.ReadFile(dagu.ProjectPath("peer/token"))
+	token, err := fileutil.ReadFile(dagu.ProjectPath("peer/token"))
 	require.NoError(t, err)
 	assert.Regexp(t, regexp.MustCompile(`^[0-9a-f]{64}\n$`), string(token))
 
@@ -116,7 +116,7 @@ func readPeerFiles(t *testing.T, dagu *harness.Runner) map[string]string {
 	t.Helper()
 	contents := make(map[string]string, len(peerFiles))
 	for _, name := range peerFiles {
-		data, err := os.ReadFile(dagu.ProjectPath(filepath.Join("peer", name)))
+		data, err := fileutil.ReadFile(dagu.ProjectPath(filepath.Join("peer", name)))
 		require.NoError(t, err)
 		contents[name] = string(data)
 	}

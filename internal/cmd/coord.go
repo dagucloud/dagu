@@ -338,8 +338,8 @@ func coordinatorPeerAuth(ctx *Context, cfg *config.Config) (*coordinator.PeerTok
 // coordinatorPeerCA returns the CA that signs coordinator and worker
 // certificates: the one peer.ca_cert_file and peer.ca_key_file supply, or the
 // one generated in the data directory. A coordinator with own certificates
-// has none. When the generated CA cannot be prepared, the coordinator still
-// starts without one and logs a warning, as it did before the peer CA.
+// has none. When the generated CA cannot be prepared, it logs a warning and
+// returns no CA and no error, so the coordinator still starts.
 func coordinatorPeerCA(ctx context.Context, peer config.Peer) (*coordinator.PeerCA, error) {
 	switch {
 	case peer.CertFile != "" && peer.KeyFile != "":
