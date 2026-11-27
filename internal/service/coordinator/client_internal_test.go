@@ -168,10 +168,14 @@ func TestDispatchStopsRetryingWhenAttemptsStop(t *testing.T) {
 	cfg.RetryInterval = time.Hour
 	cli := New(registry, cfg)
 
-	err := cli.Dispatch(WithAttemptStop(context.Background(), stop), dispatch.DispatchRequest{
+	// The deadline only bounds a broken cutoff; the call must end before it.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	err := cli.Dispatch(WithAttemptStop(ctx, stop), dispatch.DispatchRequest{
 		Task: &dispatch.DispatchTask{Operation: dispatch.DispatchOperationStart, Target: "deploy", DAGRunID: "run"},
 	})
 	require.ErrorContains(t, err, "no coordinators available")
+	require.NoError(t, ctx.Err(), "the call ends when its attempts stop, before its deadline")
 	require.Equal(t, 1, registry.lookups)
 }
 
@@ -202,10 +206,14 @@ func TestDispatchHealthCheckEndsWhenAttemptsStop(t *testing.T) {
 		healthClient: stalledHealthClient{stop: sync.OnceFunc(func() { close(stop) })},
 	}
 
-	err := cli.Dispatch(WithAttemptStop(context.Background(), stop), dispatch.DispatchRequest{
+	// The deadline only bounds a broken cutoff; the call must end before it.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	err := cli.Dispatch(WithAttemptStop(ctx, stop), dispatch.DispatchRequest{
 		Task: &dispatch.DispatchTask{Operation: dispatch.DispatchOperationStart, Target: "deploy", DAGRunID: "run"},
 	})
 	require.ErrorContains(t, err, "health check failed")
+	require.NoError(t, ctx.Err(), "the call ends when its attempts stop, before its deadline")
 }
 
 // The upload of a dispatch's workspace admits nothing, so it ends as soon as
@@ -226,7 +234,10 @@ func TestDispatchWorkspaceUploadEndsWhenAttemptsStop(t *testing.T) {
 		healthClient: stalledHealthClient{stop: sync.OnceFunc(func() { close(stop) })},
 	}
 
-	err := cli.Dispatch(WithAttemptStop(context.Background(), stop), dispatch.DispatchRequest{
+	// The deadline only bounds a broken cutoff; the call must end before it.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	err := cli.Dispatch(WithAttemptStop(ctx, stop), dispatch.DispatchRequest{
 		Task: &dispatch.DispatchTask{
 			Operation:     dispatch.DispatchOperationStart,
 			Target:        "deploy",
@@ -237,4 +248,5 @@ func TestDispatchWorkspaceUploadEndsWhenAttemptsStop(t *testing.T) {
 		},
 	})
 	require.ErrorContains(t, err, "upload DAG file dependencies")
+	require.NoError(t, ctx.Err(), "the call ends when its attempts stop, before its deadline")
 }

@@ -214,8 +214,13 @@ type stalledDispatchClient struct {
 func (c *stalledDispatchClient) Dispatch(ctx context.Context, _ dispatch.DispatchRequest) error {
 	c.calls++
 	c.interrupt()
-	<-ctx.Done()
-	return ctx.Err()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(time.Minute):
+		// Fails the test instead of hanging it when the deadline is lost.
+		return errors.New("the interrupted dispatch was not cut off")
+	}
 }
 
 // An interrupted dispatch to a coordinator that stalls ends one timeout after
