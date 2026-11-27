@@ -5,6 +5,7 @@ package distr_test
 
 import (
 	"encoding/hex"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -161,10 +162,19 @@ func TestConnections_ExportOnWorker(t *testing.T) {
 			require.Contains(t, stdout, "token=*******")
 			for _, dir := range []string{f.coord.Config.Paths.DataDir, f.coord.Config.Paths.LogDir} {
 				require.NoError(t, filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+					// The coordinator and the worker still run, so lock
+					// directories and temporary files can vanish between
+					// listing and reading. Those hold no persisted state.
+					if errors.Is(err, fs.ErrNotExist) {
+						return nil
+					}
 					if err != nil || d.IsDir() {
 						return err
 					}
 					data, err := os.ReadFile(path)
+					if errors.Is(err, fs.ErrNotExist) {
+						return nil
+					}
 					if err == nil && strings.Contains(string(data), token) {
 						t.Errorf("%s holds the token", path)
 					}
