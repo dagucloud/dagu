@@ -49,6 +49,7 @@ const CATEGORIES = [
   { value: 'doc', label: 'Wiki' },
   { value: 'mcp', label: 'MCP' },
   { value: 'secret', label: 'Secret' },
+  { value: 'connection', label: 'Connection' },
   { value: 'workspace', label: 'Workspace' },
   { value: 'system', label: 'System' },
 ];

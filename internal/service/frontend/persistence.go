@@ -4,8 +4,12 @@
 package frontend
 
 import (
+	"context"
+	"sync/atomic"
+
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/connection"
 	"github.com/dagucloud/dagu/v2/internal/connection/connect"
 	"github.com/dagucloud/dagu/v2/internal/dagpin"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
@@ -58,6 +62,30 @@ type Stores struct {
 	PublicWebhooks       publicwebhook.Store
 	// Projects is the project registry. It is nil while projects are off.
 	Projects project.Registry
-	// Connect runs connect sessions. It is nil without encrypted storage.
+	// Connections keeps OAuth apps and connections. It is nil without
+	// encrypted storage, as Connect and ConnectEvents are.
+	Connections connection.Store
+	// Connect runs connect sessions.
 	Connect *connect.Engine
+	// ConnectEvents receives what Connect reports.
+	ConnectEvents *ConnectEvents
+}
+
+// ConnectEvents passes the reports of a connect engine, which the stores
+// build before the API exists, to the handler that the server sets. A
+// report that comes before the handler is set is dropped.
+type ConnectEvents struct {
+	revoked atomic.Pointer[func(context.Context, connect.Revocation)]
+}
+
+// Revoked passes r to the handler that HandleRevoked set.
+func (e *ConnectEvents) Revoked(ctx context.Context, r connect.Revocation) {
+	if fn := e.revoked.Load(); fn != nil {
+		(*fn)(ctx, r)
+	}
+}
+
+// HandleRevoked sets the handler of Revoked.
+func (e *ConnectEvents) HandleRevoked(fn func(context.Context, connect.Revocation)) {
+	e.revoked.Store(&fn)
 }
