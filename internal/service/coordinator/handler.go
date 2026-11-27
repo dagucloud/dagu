@@ -193,6 +193,8 @@ type Handler struct {
 	trustedHostKeys           runctx.TrustedHostKeys             // Host keys trusted for inventory nodes
 	agentSessionCleanupQueue  *agentsession.CleanupQueue         // Deferred provider cleanup owned by workers
 	workerNodes               *workerNodeRecorder                // Records workers that set an ID as nodes
+	joinReadiness             JoinReadinessConfig                // Settings reported by GetJoinReadiness
+	hostProbe                 hostProbe                          // Where this process runs, for GetJoinReadiness
 
 	// Open attempts cache for status persistence
 	attemptsMu   sync.RWMutex
@@ -296,6 +298,9 @@ type HandlerConfig struct {
 	// Optional - when nil, no worker node is recorded.
 	WorkerNodeStore inventory.WorkerNodeStore
 
+	// JoinReadiness holds the settings that GetJoinReadiness reports.
+	JoinReadiness JoinReadinessConfig
+
 	// StaleHeartbeatThreshold is the duration after which a worker's heartbeat
 	// is considered stale. Defaults to 30 seconds if not set.
 	StaleHeartbeatThreshold time.Duration
@@ -368,6 +373,8 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		trustedHostKeys:           cfg.TrustedHostKeys,
 		agentSessionCleanupQueue:  cfg.AgentSessionCleanupQueue,
 		workerNodes:               newWorkerNodeRecorder(cfg.WorkerNodeStore),
+		joinReadiness:             cfg.JoinReadiness,
+		hostProbe:                 systemHostProbe(),
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
 		workerWaitTimeout:         cfg.WorkerWaitTimeout,

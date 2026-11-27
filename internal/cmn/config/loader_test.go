@@ -238,6 +238,7 @@ func TestLoad_Env(t *testing.T) {
 	require.NotEmpty(t, cfg.Paths.ConfigFileUsed)
 	cfg.Paths.ConfigFileUsed = ""
 	cfg.Paths.ConfigFilesUsed = nil
+	cfg.Paths.DefaultConfigFile = ""
 
 	expected := &Config{
 		Core: Core{
@@ -1997,6 +1998,7 @@ func loadFromYAML(t *testing.T, yamlContent string) *Config {
 	cfg := testLoad(t, WithConfigFile(configFile))
 	cfg.Paths.ConfigFileUsed = ""
 	cfg.Paths.ConfigFilesUsed = nil
+	cfg.Paths.DefaultConfigFile = ""
 	return cfg
 }
 
@@ -2201,6 +2203,14 @@ func TestLoad_ConfigFileUsed(t *testing.T) {
 	cfg := testLoad(t, WithConfigFile(configFile))
 
 	assert.Equal(t, configFile, cfg.Paths.ConfigFileUsed)
+}
+
+func TestLoad_DefaultConfigFile(t *testing.T) {
+	home := t.TempDir()
+	cfg := testLoad(t, WithAppHomeDir(home))
+
+	assert.Empty(t, cfg.Paths.ConfigFileUsed)
+	assert.Equal(t, filepath.Join(home, "config.yaml"), cfg.Paths.DefaultConfigFile)
 }
 
 func TestLoad_ConfigFileUsed_RelativePath(t *testing.T) {

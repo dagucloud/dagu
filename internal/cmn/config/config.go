@@ -677,6 +677,9 @@ type PathsConfig struct {
 	ViewsDir              string
 	ConfigFileUsed        string
 	ConfigFilesUsed       []string
+	// DefaultConfigFile is the config.yaml in the config directory, which
+	// Load reads when no config file is given.
+	DefaultConfigFile string
 	// Explicit reports which paths the configuration sets rather than
 	// leaving to their defaults.
 	Explicit ExplicitPaths

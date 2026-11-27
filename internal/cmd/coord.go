@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -251,6 +252,7 @@ func newCoordinator(
 		TrustedHostKeys:           hostKeys,
 		AgentSessionCleanupQueue:  persistence.AgentSessionCleanupQueue,
 		WorkerNodeStore:           workerNodes,
+		JoinReadiness:             coordinatorJoinReadiness(cfg),
 		WorkerWaitTimeout:         cfg.Coordinator.WorkerWaitTimeout,
 		EventService:              ctx.event,
 		EventSourceInstance:       ctx.EventSourceInstance,
@@ -258,6 +260,27 @@ func newCoordinator(
 
 	// Create and return service with advertise address for service registry
 	return coordinator.NewService(grpcServer, handler, listener, healthServer, httpHealthServer, persistence.ServiceRegistry, cfg, instanceID, advertiseAddr), handler, nil
+}
+
+// coordinatorJoinReadiness returns the settings the coordinator reports as
+// its join readiness. BuiltinTLS stays false until the coordinator has a
+// peer CA; the reason is known now only for own certificates.
+func coordinatorJoinReadiness(cfg *config.Config) coordinator.JoinReadinessConfig {
+	configFile := cfg.Paths.ConfigFileUsed
+	if configFile == "" {
+		configFile = cfg.Paths.DefaultConfigFile
+	}
+	readiness := coordinator.JoinReadinessConfig{
+		ListenHost: cfg.Coordinator.Host,
+		Port:       cfg.Coordinator.Port,
+		ConfigFile: configFile,
+		HostSource: cfg.Sources["coordinator.host"],
+		Advertise:  cfg.Coordinator.Advertise,
+	}
+	if cfg.Core.Peer.CertFile != "" && cfg.Core.Peer.KeyFile != "" {
+		readiness.BuiltinTLSReason = coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_OWN_CERTIFICATES
+	}
+	return readiness
 }
 
 // coordinatorConnections returns the connection store and the token broker

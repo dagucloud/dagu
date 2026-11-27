@@ -6,8 +6,11 @@ Partially implemented. Implemented: the unset default of `peer.insecure`,
 the [Start Line](#start-line) for rows 1, 2, and 5 of
 [Client Transport](#client-transport), the warnings of
 [Ignored Settings](#ignored-settings) for `peer.cert_file`, `peer.key_file`,
-`peer.client_ca_file`, and `peer.skip_tls_verify: true`, and
-[Bring Your Own Certificates](#bring-your-own-certificates).
+`peer.client_ca_file`, and `peer.skip_tls_verify: true`,
+[Bring Your Own Certificates](#bring-your-own-certificates), and the
+coordinator call of [Join Readiness](#join-readiness), which reports
+`builtinTLS` as false until the coordinator has a peer CA, and
+`builtinTLSReason` only for own certificates.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -480,7 +483,8 @@ report join readiness.
   invites need the built-in CA: this coordinator could not create or read its CA; see its start warning
   ```
 
-  Join readiness still answers, and reports the reason.
+  Join readiness still answers, and reports the reason in
+  `builtinTLSReason`.
 - The REST API, `dagu worker invite`, and the MCP action call them.
 
 ### Enrollment
@@ -698,12 +702,13 @@ A coordinator reports, from its own host:
 | --- | --- |
 | `listenHost`, `port` | `coordinator.host` and `coordinator.port` |
 | `configFile` | The config file the coordinator read, or the default path it would read |
-| `loopbackOnly` | True when `coordinator.host` is `localhost`, an address in `127.0.0.0/8`, or `::1` |
+| `loopbackOnly` | True when `coordinator.host` is `localhost`, an address in `127.0.0.0/8`, or `[::1]` |
 | `hostSource` | Where `coordinator.host` came from: `default`, `file` with its path, `env` with the variable, or `flag` with the flag |
 | `advertise` | `coordinator.advertise` when set explicitly, else none |
 | `environment` | `host`, `container`, or `kubernetes`, by the rule of [Environment](#environment) |
-| `addresses` | Its non-loopback interface addresses when `environment` is `host`, else none |
+| `addresses` | When `environment` is `host`: for `coordinator.host` empty, `0.0.0.0`, or `[::]`, its interface addresses other than loopback and link-local ones; for another IP address that is not loopback, that address. Else none |
 | `builtinTLS` | True only when the coordinator has a usable peer CA. False for a coordinator with own certificates, and for one that serves h2c only because it cannot create or read its generated CA |
+| `builtinTLSReason` | Why `builtinTLS` is false: `ownCertificates` for a coordinator with own certificates, `caUnavailable` for one that cannot create or read its generated CA. None when `builtinTLS` is true |
 | `ready` | True when `loopbackOnly` is false and `builtinTLS` is true |
 
 - The report reads no file and starts nothing periodic.
@@ -752,7 +757,8 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
 - It first reads join readiness. While a coordinator is not ready, it
   prints the change to make for each such coordinator, creates no invite,
   and exits with code 1. For `loopbackOnly`, the change follows
-  `hostSource`, as the dialog's step 1 does.
+  `hostSource`, and without `builtinTLS`, it follows `builtinTLSReason`,
+  as the dialog's step 1 does.
 - On success it prints the invite kind and expiry, the invite, and the
   command to run on the worker host, and exits with code 0:
 
@@ -838,7 +844,10 @@ and prints the message:
       value `0.0.0.0`
     - otherwise: `configFile` and the lines `coordinator:` and
       `  host: 0.0.0.0` to add to it
-  - Without `builtinTLS`, that invites need the built-in CA.
+  - Without `builtinTLS`, that invites need the built-in CA, and for
+    `builtinTLSReason` `ownCertificates`, that the coordinator uses
+    `peer.cert_file` and `peer.key_file`, or for `caUnavailable`, that it
+    could not create or read its CA and to see its start warning.
   - Each change needs a restart.
 - Step 1 keeps, even when ready, the reminder to publish port `<port>` in a
   container, and in Kubernetes the statement that workers outside the
