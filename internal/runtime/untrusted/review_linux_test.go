@@ -346,7 +346,7 @@ func TestReviewConcurrentTrustedWriteReachesGit(t *testing.T) {
 	ctx := context.Background()
 	workDir := testWorkDir(t)
 	repo := filepath.Join(workDir, "repo")
-	step, err := Begin(ctx, testRequest(t, workDir, repo))
+	step, err := beginStep(t, ctx, testRequest(t, workDir, repo))
 	require.NoError(t, err)
 	runAs(t, WithStep(ctx, step), repo, `rm -rf src && ln -s .git/hooks src`)
 
@@ -387,7 +387,7 @@ func TestReviewBareRepositoryRunsAsRoot(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(repo, "services", "api"), 0o755))
 
 	marker := filepath.Join(t.TempDir(), "fsmonitor-ran")
-	step, err := Begin(ctx, testRequest(t, workDir, repo))
+	step, err := beginStep(t, ctx, testRequest(t, workDir, repo))
 	require.NoError(t, err)
 	agent := strings.Join([]string{
 		`cd services`,
@@ -429,7 +429,7 @@ func TestReviewGitFileTargetIsNotProtected(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "config"), []byte("[core]\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(repo, ".git"), []byte("gitdir: ../repo.gitdir\n"), 0o644))
 
-	step, err := Begin(ctx, testRequest(t, workDir, repo))
+	step, err := beginStep(t, ctx, testRequest(t, workDir, repo))
 	require.NoError(t, err)
 	out := runAs(t, WithStep(ctx, step), repo,
 		`(printf '#!/bin/sh\nid -u > /tmp/hook\n' > ../repo.gitdir/hooks/pre-commit && chmod 755 ../repo.gitdir/hooks/pre-commit) 2>/dev/null && echo hook:allowed || echo hook:denied`)
@@ -459,7 +459,7 @@ func TestReviewSymlinkReadAsRootAfterRestore(t *testing.T) {
 	require.NoError(t, os.Chmod(key.Name(), 0o400))
 	t.Cleanup(func() { _ = os.Remove(key.Name()) })
 
-	step, err := Begin(ctx, testRequest(t, workDir, repo))
+	step, err := beginStep(t, ctx, testRequest(t, workDir, repo))
 	require.NoError(t, err)
 	out := runAs(t, WithStep(ctx, step), repo,
 		`cat `+key.Name()+` >/dev/null 2>&1 && echo read:allowed || echo read:denied; ln -s `+key.Name()+` summary.txt && echo link:made`)

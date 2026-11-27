@@ -448,7 +448,7 @@ func TestIsolatedStepNewGit(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
 	workDir := testWorkDir(t)
-	step, err := Begin(ctx, testRequest(t, workDir, filepath.Join(workDir, "repo")))
+	step, err := beginStep(t, ctx, testRequest(t, workDir, filepath.Join(workDir, "repo")))
 	require.NoError(t, err)
 	runAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"), `mkdir -p src/.git/hooks && echo evil > src/.git/hooks/pre-commit`)
 
