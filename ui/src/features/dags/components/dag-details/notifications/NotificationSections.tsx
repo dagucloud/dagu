@@ -238,10 +238,16 @@ function ProviderFieldsBody({ draft, onChange }: ProviderFieldsProps) {
     const hasSlackURL =
       isSlackIncomingWebhookURL(draft.webhook.url) ||
       isSlackIncomingWebhookURL(draft.webhook.urlPreview || '');
+    const dropsSavedHeaders =
+      Object.keys(draft.webhook.headerPreviews || {}).length > 0 &&
+      !draft.webhook.headers.trim() &&
+      !draft.webhook.clearHeaders;
+    const dropsSavedHMAC =
+      !!draft.webhook.hmacSecretConfigured &&
+      !draft.webhook.hmacSecret.trim() &&
+      !draft.webhook.clearHmacSecret;
     const dropsSavedSecrets =
-      draft.webhook.url.trim() !== '' &&
-      (Object.keys(draft.webhook.headerPreviews || {}).length > 0 ||
-        !!draft.webhook.hmacSecretConfigured);
+      draft.webhook.url.trim() !== '' && (dropsSavedHeaders || dropsSavedHMAC);
     return (
       <div className="space-y-3">
         <div className="space-y-2">
