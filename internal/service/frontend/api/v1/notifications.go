@@ -924,9 +924,9 @@ func toAPINotificationRoute(route notificationmodel.PublicRoute) api.Notificatio
 		Enabled:   route.Enabled,
 	}
 	if len(route.Events) > 0 {
-		events := make([]api.NotificationEventType, 0, len(route.Events))
+		events := make([]api.NotificationRouteEventType, 0, len(route.Events))
 		for _, event := range route.Events {
-			events = append(events, api.NotificationEventType(event))
+			events = append(events, api.NotificationRouteEventType(event))
 		}
 		result.Events = &events
 	}

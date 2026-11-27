@@ -6524,10 +6524,15 @@ export interface components {
          */
         NotificationTargetProviderType: NotificationTargetProviderType;
         /**
-         * @description Event that can trigger server-side notifications. Rules configured for dag.run.succeeded also match dag.run.partially_succeeded; rules configured only for dag.run.partially_succeeded do not match clean successes. Only notification routes take the connection events: connection.needs_attention when a connection needs a reconnect or its OAuth app is refused, and connection.restored when it works again. A route that lists no events receives the default run events only.
+         * @description DAG run event that can trigger server-side notifications. Rules configured for dag.run.succeeded also match dag.run.partially_succeeded; rules configured only for dag.run.partially_succeeded do not match clean successes.
          * @enum {string}
          */
         NotificationEventType: NotificationEventType;
+        /**
+         * @description Event that a notification route can select: a DAG run event, or a connection event. connection.needs_attention is sent when a connection needs a reconnect or its OAuth app is refused. connection.restored is sent when a connection is reconnected, or when an admin changes the client ID or secret of a refused app, which returns the app to ok before the provider has accepted the new client. A route that lists no events receives the default run events only.
+         * @enum {string}
+         */
+        NotificationRouteEventType: NotificationRouteEventType;
         /** @description Email notification target. SMTP transport is configured in workspace notification settings. */
         NotificationEmailTarget: {
             /** @description Sender address. Defaults to the workspace SMTP sender. */
@@ -6633,7 +6638,7 @@ export interface components {
             /** @description Whether this route receives notifications */
             enabled: boolean;
             /** @description Events delivered by this route. Omit only for backward compatibility; new clients should send an explicit event list. */
-            events?: components["schemas"]["NotificationEventType"][];
+            events?: components["schemas"]["NotificationRouteEventType"][];
         };
         /** @description Route from notification events to a notification channel */
         NotificationRoute: {
@@ -6644,7 +6649,7 @@ export interface components {
             /** @description Whether this route receives notifications */
             enabled: boolean;
             /** @description Events delivered by this route. Empty is treated as operational defaults for backward compatibility. */
-            events?: components["schemas"]["NotificationEventType"][];
+            events?: components["schemas"]["NotificationRouteEventType"][];
         };
         /** @description Replacement route set for a global or workspace notification scope */
         NotificationRouteSetInput: {
@@ -29827,6 +29832,14 @@ export enum NotificationTargetProviderType {
     teams = "teams"
 }
 export enum NotificationEventType {
+    dag_run_waiting = "dag.run.waiting",
+    dag_run_succeeded = "dag.run.succeeded",
+    dag_run_partially_succeeded = "dag.run.partially_succeeded",
+    dag_run_failed = "dag.run.failed",
+    dag_run_aborted = "dag.run.aborted",
+    dag_run_rejected = "dag.run.rejected"
+}
+export enum NotificationRouteEventType {
     dag_run_waiting = "dag.run.waiting",
     dag_run_succeeded = "dag.run.succeeded",
     dag_run_partially_succeeded = "dag.run.partially_succeeded",

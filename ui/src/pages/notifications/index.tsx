@@ -74,7 +74,7 @@ import {
 } from '@/features/dags/components/dag-details/notifications/notificationDrafts';
 import {
   components,
-  NotificationEventType,
+  NotificationRouteEventType,
   NotificationProviderType,
   NotificationSMTPOAuthProvider,
 } from '@/api/v1/schema';
@@ -164,7 +164,7 @@ type DraftRoute = {
   id?: string;
   channelId: string;
   enabled: boolean;
-  events: NotificationEventType[];
+  events: NotificationRouteEventType[];
 };
 
 type DraftRouteSet = {
@@ -195,34 +195,37 @@ const blankRouteSet: DraftRouteSet = {
 // A saved route without events receives these run events. A new route
 // also selects the connection events.
 const IMPLICIT_ROUTE_EVENTS = [
-  NotificationEventType.dag_run_failed,
-  NotificationEventType.dag_run_aborted,
-  NotificationEventType.dag_run_rejected,
-  NotificationEventType.dag_run_waiting,
+  NotificationRouteEventType.dag_run_failed,
+  NotificationRouteEventType.dag_run_aborted,
+  NotificationRouteEventType.dag_run_rejected,
+  NotificationRouteEventType.dag_run_waiting,
 ];
 
 const DEFAULT_ROUTE_EVENTS = [
   ...IMPLICIT_ROUTE_EVENTS,
-  NotificationEventType.connection_needs_attention,
-  NotificationEventType.connection_restored,
+  NotificationRouteEventType.connection_needs_attention,
+  NotificationRouteEventType.connection_restored,
 ];
 
 // Only routes deliver connection events, so DAG settings do not offer them.
 const ROUTE_EVENT_OPTIONS = [
-  ...EVENT_OPTIONS,
+  ...EVENT_OPTIONS.map((option) => ({
+    ...option,
+    value: option.value as string as NotificationRouteEventType,
+  })),
   {
-    value: NotificationEventType.connection_needs_attention,
+    value: NotificationRouteEventType.connection_needs_attention,
     label: 'Connection needs attention',
   },
   {
-    value: NotificationEventType.connection_restored,
+    value: NotificationRouteEventType.connection_restored,
     label: 'Connection restored',
   },
 ];
 
 function sameEvents(
-  left: NotificationEventType[],
-  right: NotificationEventType[]
+  left: NotificationRouteEventType[],
+  right: NotificationRouteEventType[]
 ): boolean {
   return (
     left.length === right.length && left.every((event) => right.includes(event))
@@ -643,17 +646,17 @@ function AddRuleDialog({
   );
 }
 
-function eventDotClass(event: NotificationEventType): string {
+function eventDotClass(event: NotificationRouteEventType): string {
   switch (event) {
-    case NotificationEventType.dag_run_failed:
+    case NotificationRouteEventType.dag_run_failed:
       return 'bg-error';
-    case NotificationEventType.dag_run_aborted:
-    case NotificationEventType.dag_run_rejected:
+    case NotificationRouteEventType.dag_run_aborted:
+    case NotificationRouteEventType.dag_run_rejected:
       return 'bg-[var(--status-aborted)]';
-    case NotificationEventType.dag_run_succeeded:
-    case NotificationEventType.connection_restored:
+    case NotificationRouteEventType.dag_run_succeeded:
+    case NotificationRouteEventType.connection_restored:
       return 'bg-success';
-    case NotificationEventType.connection_needs_attention:
+    case NotificationRouteEventType.connection_needs_attention:
       return 'bg-error';
     default:
       return 'bg-warning';
