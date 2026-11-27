@@ -62,13 +62,14 @@ func TestClosedBodyMiddleware(t *testing.T) {
 	for _, req := range []struct{ method, path, body string }{
 		{http.MethodPut, "/api/v1/skills/demo", good},
 		{http.MethodPost, "/api/v1/other", `{"anything":1}`},
+		{http.MethodPost, "/api/v1/auth/login", `{"username":"","password":""}`},
 		{http.MethodPost, "/api/v1/skills/demo", `{"a":1}`},
 		{http.MethodPut, "/api/v1/skills/demo/unknown", `{"b":2}`},
 	} {
 		w := send(req.method, req.path, "application/json", req.body)
 		assert.Equal(t, http.StatusNoContent, w.Code, "%s %s", req.method, req.path)
 	}
-	assert.Equal(t, []string{good, `{"anything":1}`, `{"a":1}`, `{"b":2}`}, reached, "the handler reads the whole body")
+	assert.Equal(t, []string{good, `{"anything":1}`, `{"username":"","password":""}`, `{"a":1}`, `{"b":2}`}, reached, "the handler reads the whole body")
 
 	w := send(http.MethodPut, "/api/v1/skills/demo/unknown", "application/json", tooLarge)
 	assert.Equal(t, http.StatusNoContent, w.Code, "an unknown route gets no 413, whatever its body")

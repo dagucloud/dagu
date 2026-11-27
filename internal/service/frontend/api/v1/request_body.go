@@ -39,7 +39,7 @@ func closedBodyMiddleware(swagger *openapi3.T, mountedAPIPath string) func(http.
 	filterOptions.WithCustomSchemaErrorFunc(func(err *openapi3.SchemaError) string { return err.Reason })
 	limited := closedBodyLimitMiddleware(swagger, mountedAPIPath)
 	return func(next http.Handler) http.Handler {
-		return limited(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapimiddleware.Options{
+		validated := limited(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapimiddleware.Options{
 			SilenceServersWarning: true,
 			Options:               filterOptions,
 			ErrorHandlerWithOpts: func(_ context.Context, err error, w http.ResponseWriter, r *http.Request, opts oapimiddleware.ErrorHandlerOpts) {
@@ -52,6 +52,13 @@ func closedBodyMiddleware(swagger *openapi3.T, mountedAPIPath string) func(http.
 				WriteErrorResponse(w, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: message})
 			},
 		})(next))
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := closedBodyLimit(r, mountedAPIPath); !ok {
+				next.ServeHTTP(w, r)
+				return
+			}
+			validated.ServeHTTP(w, r)
+		})
 	}
 }
 
