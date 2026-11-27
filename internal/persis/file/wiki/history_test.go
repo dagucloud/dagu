@@ -188,8 +188,9 @@ func TestMoveHistoryFinishesInterruptedMove(t *testing.T) {
 	assert.Equal(t, 0, revisionBlobCount(t, f.shared))
 }
 
-// TestMoveHistoryCapsRevisions merges revisions the store of its own made
-// after the switch with the moved ones, keeping the newest up to the limit.
+// TestMoveHistoryCapsRevisions fills the store of its own with the limit of
+// revisions after the switch. Those stay, and the moved one, which no longer
+// fits, is dropped with its blob.
 func TestMoveHistoryCapsRevisions(t *testing.T) {
 	f := newHistoryFixture(t)
 	ctx := context.Background()
@@ -209,4 +210,5 @@ func TestMoveHistoryCapsRevisions(t *testing.T) {
 		assert.NotEqual(t, "v1", got.Content)
 	}
 	assert.Equal(t, pageRevisionLimit, revisionBlobCount(t, f.own))
+	assert.Equal(t, 0, revisionBlobCount(t, f.shared))
 }

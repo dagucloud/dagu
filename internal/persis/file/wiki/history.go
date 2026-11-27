@@ -29,8 +29,8 @@ var renameAttachment = fileutil.Rename
 // each is keyed by its page's path under that directory. It moves them
 // whether or not the pages are still there.
 //
-// Revisions merge with dst's, keeping the newest up to the per-page limit.
-// A creation time dst already has for a page stays. An attachment whose name
+// A page's revisions in dst stay, and the newest moved ones fill the rest of
+// the per-page limit; the others are dropped. A creation time dst already has for a page stays. An attachment whose name
 // dst already has for the page with other content stays where it is, and a
 // warning names it. Calling it again after an interruption finishes the move.
 func (s *Store) MoveHistory(ctx context.Context, inRoot func(dir string) bool, dst *Store) error {
@@ -84,44 +84,14 @@ func (s *Store) moveRevisions(inRoot func(dir string) bool, dst *Store) error {
 	if err != nil {
 		return err
 	}
-	var pruned []string
 	for rel, entries := range moved {
-		merged := slices.Clone(target[rel])
-		inDst := make(map[string]bool, len(merged))
-		for _, entry := range merged {
-			inDst[entry.File] = true
+		target[rel], err = s.mergeRevisions(target[rel], entries, dst)
+		if err != nil {
+			return err
 		}
-		for _, entry := range entries {
-			if !inDst[entry.File] {
-				merged = append(merged, entry)
-			}
-		}
-		slices.SortStableFunc(merged, func(a, b pageRevisionEntry) int { return b.SavedAt.Compare(a.SavedAt) })
-		if len(merged) > pageRevisionLimit {
-			for _, entry := range merged[pageRevisionLimit:] {
-				if inDst[entry.File] {
-					pruned = append(pruned, entry.File)
-				}
-			}
-			merged = merged[:pageRevisionLimit]
-		}
-		for _, entry := range merged {
-			if inDst[entry.File] {
-				continue
-			}
-			if err := copyRevisionBlob(s.revisionBlobPath(entry.File), dst.revisionBlobPath(entry.File)); err != nil {
-				return err
-			}
-		}
-		target[rel] = merged
 	}
 	if err := dst.saveRevisionsManifest(target); err != nil {
 		return err
-	}
-	for _, file := range pruned {
-		if err := fileutil.Remove(dst.revisionBlobPath(file)); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("filewiki: failed to prune revision blob: %w", err)
-		}
 	}
 	for _, entries := range moved {
 		for _, entry := range entries {
@@ -132,6 +102,30 @@ func (s *Store) moveRevisions(inRoot func(dir string) bool, dst *Store) error {
 	}
 	return s.saveRevisionsManifest(manifest)
 }
+
+// mergeRevisions returns a page's revisions in dst, kept, with the newest of
+// moved that fit under the per-page limit, newest first, and copies the
+// blobs of the moved ones it takes to dst. No revision of dst is dropped, so
+// no blob of dst loses its manifest entry.
+func (s *Store) mergeRevisions(kept, moved []pageRevisionEntry, dst *Store) ([]pageRevisionEntry, error) {
+	merged := slices.Clone(kept)
+	inDst := make(map[string]bool, len(kept))
+	for _, entry := range kept {
+		inDst[entry.File] = true
+	}
+	moved = slices.DeleteFunc(slices.Clone(moved), func(e pageRevisionEntry) bool { return inDst[e.File] })
+	slices.SortStableFunc(moved, newestFirst)
+	for _, entry := range moved[:min(len(moved), max(pageRevisionLimit-len(kept), 0))] {
+		if err := copyRevisionBlob(s.revisionBlobPath(entry.File), dst.revisionBlobPath(entry.File)); err != nil {
+			return nil, err
+		}
+		merged = append(merged, entry)
+	}
+	slices.SortStableFunc(merged, newestFirst)
+	return merged, nil
+}
+
+func newestFirst(a, b pageRevisionEntry) int { return b.SavedAt.Compare(a.SavedAt) }
 
 // copyRevisionBlob copies a revision blob. A blob gone from src is skipped,
 // since its revision then reads as missing in either store.

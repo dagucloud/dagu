@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -161,19 +162,24 @@ func (w *projectWikis) cachedStore(id string) *filewiki.Store {
 
 // inPlaceDirs returns a function that reports whether a top-level directory
 // of the default wiki directory holds the pages of the migrated project from
-// workspace name. Names compare without regard to case, as the in-place wiki
-// finds its directory, unless another migrated project's workspace name
-// differs from name only in case; then each owns only the directory spelled
-// as its name. Call it after migratedRoots.
+// workspace name, by the rule inPlaceRoot follows. Call it after
+// migratedRoots.
 func (w *projectWikis) inPlaceDirs(name string) func(dir string) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	for other := range w.onDisk {
-		if other != name && strings.EqualFold(other, name) {
-			return func(dir string) bool { return dir == name }
-		}
+	if sharesFold(name, slices.Collect(maps.Keys(w.onDisk))) {
+		return func(dir string) bool { return dir == name }
 	}
 	return func(dir string) bool { return strings.EqualFold(dir, name) }
+}
+
+// sharesFold reports whether another of names differs from name only in
+// case. Such projects each own only the directory spelled as their name.
+// Any other project owns its directory in whatever case it is spelled.
+func sharesFold(name string, names []string) bool {
+	return slices.ContainsFunc(names, func(other string) bool {
+		return other != name && strings.EqualFold(other, name)
+	})
 }
 
 // warnLeftPages logs the pages left in the v2 wiki directory of p, a
@@ -263,7 +269,10 @@ func (w *projectWikis) migratedRoots(ctx context.Context) ([]string, error) {
 	roots := slices.Clone(names)
 	onDisk := make(map[string]string, len(names))
 	for _, name := range names {
-		onDisk[name] = diskSpelling(name, dirs)
+		onDisk[name] = name
+		if !sharesFold(name, names) {
+			onDisk[name] = diskSpelling(name, dirs)
+		}
 		for _, dir := range dirs {
 			if strings.EqualFold(dir, name) && !slices.Contains(roots, dir) {
 				roots = append(roots, dir)
@@ -275,8 +284,9 @@ func (w *projectWikis) migratedRoots(ctx context.Context) ([]string, error) {
 }
 
 // inPlaceRoot returns the directory under the default wiki directory that
-// holds the pages of the migrated project from workspace name. Call it
-// after migratedRoots.
+// holds the pages of the migrated project from workspace name: the one
+// spelled as name when sharesFold says so, and otherwise the one on disk
+// that matches name without regard to case. Call it after migratedRoots.
 func (w *projectWikis) inPlaceRoot(name string) string {
 	w.mu.Lock()
 	defer w.mu.Unlock()

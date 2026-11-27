@@ -1067,6 +1067,11 @@ Rules:
 
 - Project `X`'s wiki is `<wiki>/X/` until `<projects_dir>/X/wiki/` exists.
   Its pages keep their attachments, revisions, and page metadata.
+- `<wiki>/X/` is the directory whose name matches `X`'s workspace name
+  without regard to case. When another migrated project's workspace name
+  differs from `X`'s only in case, it is the directory spelled exactly as
+  `X`'s workspace name, and `X`'s wiki is empty until that directory
+  exists. The move and the warning below follow the same rule.
 - The default project's wiki leaves `<wiki>/X/` out, compared without regard
   to case. Its lists, search, and reads show no page there, and a write
   there, including a rename into or out of it, is refused as a conflict.
@@ -1082,13 +1087,11 @@ Rules:
   `X`'s `state/` directory. Each keeps its page's path under `<wiki>/X/`.
   - It moves them for every page under `<wiki>/X/`, including pages still
     there, so a page moved later keeps its history.
-  - `<wiki>/X/` is matched without regard to case, as `X` found it in
-    place. When another migrated project's workspace name differs from
-    `X`'s only in case, each takes only the history under its own spelling.
   - An attachment is renamed, or copied when the rename crosses file
     systems or mounts.
-  - A page's moved revisions merge with any `X`'s wiki already has, and
-    the newest 20 stay. A creation time `X`'s wiki already has for a page
+  - The revisions `X`'s wiki already has for a page stay, and the newest
+    moved ones fill the rest of its 20; the others are dropped. A creation
+    time `X`'s wiki already has for a page
     stays. An attachment of the same name with other content stays where
     it is, and the server logs a warning that names it.
   - When the move fails, `X`'s wiki request fails with the reason, and the

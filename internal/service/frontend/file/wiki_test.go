@@ -276,6 +276,28 @@ func TestMovedWikiLeavesProjectOfOtherCase(t *testing.T) {
 	assert.NotContains(t, logs.String(), "Wiki pages left")
 }
 
+// TestProjectOfOtherCaseWithoutFolderStartsEmpty registers project Ops2
+// from workspace Ops, which had no wiki directory, beside ops, which has
+// one. The in-place wiki of Ops2 must not adopt ops's directory: it starts
+// empty, and its pages land in a directory of its own.
+func TestProjectOfOtherCaseWithoutFolderStartsEmpty(t *testing.T) {
+	f := newWikiFixture(t)
+	if fileutil.IsCaseInsensitiveFS(f.cfg.Paths.WikiDir) {
+		t.Skip("the file system does not tell ops from Ops")
+	}
+	ctx := t.Context()
+	other, err := f.registry.Create(ctx, project.CreateInput{Name: "Ops2", MigratedFrom: "Ops"})
+	require.NoError(t, err)
+	otherWiki := f.wiki(t, other)
+
+	assert.Empty(t, flatIDs(t, otherWiki))
+	_, err = otherWiki.Get(ctx, "runbook")
+	require.ErrorIs(t, err, wiki.ErrPageNotFound)
+	require.NoError(t, otherWiki.Create(ctx, "plan", "x"))
+	assert.FileExists(t, filepath.Join(f.cfg.Paths.WikiDir, "Ops", "plan.md"))
+	assert.Equal(t, []string{"runbook"}, flatIDs(t, f.wiki(t, f.ops)))
+}
+
 // TestProjectWikiInDAGDirectory proves that a project's pages live in wiki/
 // of its DAG directory, and that its revisions and page metadata stay out of
 // the projects directory.
