@@ -22,11 +22,13 @@ and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
 callers of the [Workers Page](#workers-page), the coordinator call of
 [Join Readiness](#join-readiness), the [Invites](#invites) and their
 [Coordinator Calls](#coordinator-calls) except removal and the daily
-deletion of ended [Invite Records](#invite-records), and the
+deletion of ended [Invite Records](#invite-records), the
 [Coordinator Side](#coordinator-side) of enrollment with the
 [Worker Certificate](#worker-certificate) and its record, except refusing
-the key of a revoked certificate. Clients that share a coordinator's data
-directory use built-in TLS. No client enrolls yet.
+the key of a revoked certificate, and
+[`dagu worker --check`](#dagu-worker---check) without the lines of invite
+workers. Clients that share a coordinator's data directory use built-in
+TLS. No client enrolls yet.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -860,20 +862,42 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
 ### `dagu worker --check`
 
 - It loads the worker's configuration, prints the start line and the
-  warnings of [Ignored Settings](#ignored-settings), and then for each
-  address in `worker.coordinators`:
-  - whether the address is reachable
-  - the handshake result
-  - the credential the worker would use
-  - what the coordinator answered
+  warnings of [Ignored Settings](#ignored-settings) to standard output
+  instead of logging them, and then for each address in
+  `worker.coordinators`:
+  - whether the address is reachable, and otherwise the message of
+    [Messages](#messages)
+  - the handshake result: none over h2c, or the names the server
+    certificate covers and the CA it chains to
+  - the credential the worker would use: a client certificate, and the peer
+    token from `peer.token`, from the coordinator's data directory, or none
+  - what the coordinator answered to a health check and to a call that
+    needs the credential
+- Without `worker.coordinators`, it checks each live coordinator in the
+  service registry of its data directory instead, then exits with code 1,
+  since a worker does not start without `worker.coordinators`.
+- It reports an h2c worker whose address serves only TLS as such.
 - An invite worker also gets whether the coordinator's CA matches the
   invite's pin, and, with a worker certificate, its certificate ID, invite
   ID, and whether the coordinator accepts it.
 - A failed handshake states the names the server certificate covers, the
   address dialed, and the CA the certificate chains to.
-- It never enrolls and never consumes an invite.
+- It never enrolls, never consumes an invite, registers no worker, takes no
+  task, and changes no state on the coordinator.
 - It exits with code 0 when every coordinator passes, and with code 1
   otherwise.
+
+```text
+$ dagu worker --check --worker.coordinators=127.0.0.1:50055 --peer.insecure=false --peer.client-ca-file=ca.crt
+Peer transport: TLS (from peer.insecure: false)
+Coordinator 127.0.0.1:50055
+  Reachable: yes
+  Handshake: failed, the certificate does not cover 127.0.0.1
+    Address dialed: 127.0.0.1:50055
+    Certificate covers: coordinator.example.com
+    Certificate chains to: Example CA
+Error: 1 of 1 coordinators did not pass the check
+```
 
 ### Configuration Conflicts
 
