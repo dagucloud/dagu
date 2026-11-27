@@ -18,7 +18,13 @@ import (
 // the test.
 func trustedHome(t *testing.T, uid uint32, home string, lookup func(string) (string, bool)) map[string]string {
 	t.Helper()
-	entries, remove, err := TrustedHome(uid, testGID, "", home, lookup)
+	return trustedHomeIn(t, uid, "", home, lookup)
+}
+
+// trustedHomeIn is trustedHome for a process in the working directory dir.
+func trustedHomeIn(t *testing.T, uid uint32, dir, home string, lookup func(string) (string, bool)) map[string]string {
+	t.Helper()
+	entries, remove, err := TrustedHome(uid, testGID, dir, home, lookup)
 	require.NoError(t, err)
 	if remove != nil {
 		t.Cleanup(func() { _ = remove() })
@@ -70,12 +76,7 @@ func TestTrustedHome(t *testing.T) {
 	inOpen := filepath.Join(open, "home")
 	require.NoError(t, os.Mkdir(inOpen, 0o700))
 	assert.NotNil(t, trustedHome(t, testUID, inOpen, none), "a HOME that the restricted user can rename is replaced")
-	relative, removeRelative, err := TrustedHome(testUID, testGID, open, "home", none)
-	require.NoError(t, err)
-	if removeRelative != nil {
-		t.Cleanup(func() { _ = removeRelative() })
-	}
-	assert.NotNil(t, relative, "a relative HOME counts from the working directory of the process")
+	assert.NotNil(t, trustedHomeIn(t, testUID, open, "home", none), "a relative HOME counts from the working directory of the process")
 
 	// The target holds every XDG folder, so that only the link is unsafe.
 	target := t.TempDir()
@@ -102,6 +103,16 @@ func TestTrustedHome(t *testing.T) {
 	owned := t.TempDir()
 	require.NoError(t, os.Chmod(owned, 0o500))
 	assert.True(t, writableBy(owned, uint32(os.Getuid()), testGID), "a folder of the restricted user counts as writable whatever its mode") // #nosec G115 -- a user ID is not negative.
+}
+
+// A relative working directory counts from the folder of the worker, and the
+// default config folder below a relative HOME counts from it once. It changes
+// the folder of the process, so it does not run in parallel.
+func TestTrustedHomeRelativeWorkingDir(t *testing.T) {
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.MkdirAll(filepath.Join("work", "home", ".config"), 0o700))
+	require.NoError(t, os.Chmod(filepath.Join("work", "home", ".config"), 0o777)) //nolint:gosec // a config folder that any user can write
+	assert.NotNil(t, trustedHomeIn(t, testUID, "work", "home", func(string) (string, bool) { return "", false }))
 }
 
 // A private HOME in a temp folder that the restricted user could rename fails

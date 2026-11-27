@@ -43,10 +43,12 @@ func TrustedHome(uid, gid uint32, workingDir, home string, lookup func(string) (
 	unsafe := home == "" || writableBy(home, uid, gid)
 	for _, folder := range homeFolders {
 		dir, ok := lookup(folder.name)
-		if !ok || dir == "" {
+		if ok && dir != "" {
+			dir = inWorkingDir(dir)
+		} else {
 			dir = home + string(filepath.Separator) + folder.dir
 		}
-		if writableBy(inWorkingDir(dir), uid, gid) {
+		if writableBy(dir, uid, gid) {
 			unsafe = true
 		}
 	}
