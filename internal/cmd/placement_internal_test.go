@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -12,33 +13,32 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/project"
 )
 
-// placementContext is the context of a run command with the command line
-// args, on a host with the given coordinator.enabled and default execution
-// mode.
-func placementContext(t *testing.T, enabled bool, mode config.ExecutionMode, args ...string) *Context {
+// placementContext is the context of a run command on a host with the
+// given coordinator.enabled and default execution mode. placed marks a run
+// that a Dagu process launched after placing it.
+func placementContext(t *testing.T, enabled bool, mode config.ExecutionMode, placed bool) *Context {
 	t.Helper()
-	command := &cobra.Command{Use: "start"}
-	initFlags(command, noDispatchFlag)
-	require.NoError(t, command.ParseFlags(args))
 	return &Context{
 		Context: context.Background(),
-		Command: command,
+		Command: &cobra.Command{Use: "start"},
 		Config: &config.Config{
 			Coordinator:     config.Coordinator{Enabled: enabled},
 			Core:            config.Core{Peer: config.Peer{Insecure: true}},
 			DefaultExecMode: mode,
 		},
+		runPlaced: placed,
 	}
 }
 
 // A user-invoked run goes to the coordinator exactly when the API and the
-// scheduler would send it there. A run that a Dagu process launched with
-// --no-dispatch was already placed, and runs on this host.
+// scheduler would send it there. A run that a Dagu process launched after
+// placing it runs on this host.
 func TestPlaceRun(t *testing.T) {
 	t.Parallel()
 
@@ -48,7 +48,7 @@ func TestPlaceRun(t *testing.T) {
 		dag      *ir.DAG
 		enabled  bool
 		mode     config.ExecutionMode
-		args     []string
+		placed   bool
 		dispatch bool
 	}{
 		{name: "WorkerSelector", dag: &ir.DAG{WorkerSelector: selector}, enabled: true, dispatch: true},
@@ -56,13 +56,13 @@ func TestPlaceRun(t *testing.T) {
 		{name: "LocalMode", dag: &ir.DAG{}, enabled: true},
 		{name: "SelectorLocal", dag: &ir.DAG{ForceLocal: true}, enabled: true, mode: config.ExecutionModeDistributed},
 		{name: "CoordinatorDisabled", dag: &ir.DAG{WorkerSelector: selector}, mode: config.ExecutionModeDistributed},
-		{name: "LaunchedPlaced", dag: &ir.DAG{WorkerSelector: selector}, enabled: true, args: []string{"--no-dispatch"}},
+		{name: "LaunchedPlaced", dag: &ir.DAG{WorkerSelector: selector}, enabled: true, placed: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			placement, err := placeRun(placementContext(t, tt.enabled, tt.mode, tt.args...), tt.dag, nil, "")
+			placement, err := placeRun(placementContext(t, tt.enabled, tt.mode, tt.placed), tt.dag, nil, "")
 			require.NoError(t, err)
 			assert.Equal(t, tt.dispatch, placement.dispatched())
 			assert.Empty(t, placement.worker)
@@ -75,7 +75,7 @@ func TestPlaceRun(t *testing.T) {
 func TestPlaceRunBuild(t *testing.T) {
 	t.Parallel()
 
-	ctx := placementContext(t, true, config.ExecutionModeDistributed)
+	ctx := placementContext(t, true, config.ExecutionModeDistributed, false)
 	_, err := placeRun(ctx, &ir.DAG{Type: ir.TypeBuild}, nil, "")
 	require.ErrorIs(t, err, dispatch.ErrBuildRequiresLocal)
 }
@@ -85,7 +85,7 @@ func TestPlaceRunBuild(t *testing.T) {
 func TestPlaceRunLocalWithoutClient(t *testing.T) {
 	t.Parallel()
 
-	ctx := placementContext(t, true, config.ExecutionModeLocal)
+	ctx := placementContext(t, true, config.ExecutionModeLocal, false)
 	ctx.Config.Core.Peer.Insecure = false
 
 	placement, err := placeRun(ctx, &ir.DAG{}, nil, "")
@@ -102,7 +102,7 @@ func TestPlaceRunLocalWithoutClient(t *testing.T) {
 func TestPlaceRunOtherProject(t *testing.T) {
 	t.Parallel()
 
-	ctx := placementContext(t, true, config.ExecutionModeLocal)
+	ctx := placementContext(t, true, config.ExecutionModeLocal, false)
 	ctx.Config.ProjectsEnabled = true
 	ctx.project = project.Project{Name: "weather"}
 
@@ -112,4 +112,15 @@ func TestPlaceRunOtherProject(t *testing.T) {
 	placement, err := placeRun(ctx, &ir.DAG{}, nil, "")
 	require.NoError(t, err)
 	assert.False(t, placement.dispatched())
+}
+
+// The launch marker leaves the environment of the command it marks, so a step
+// of the run that starts dagu does not inherit it and places its own run.
+func TestClaimRunPlaced(t *testing.T) {
+	t.Setenv(runenv.EnvKeyRunPlaced, "1")
+
+	assert.True(t, claimRunPlaced())
+	_, inherited := os.LookupEnv(runenv.EnvKeyRunPlaced)
+	assert.False(t, inherited, "the marker is removed")
+	assert.False(t, claimRunPlaced(), "a command without the marker places its run")
 }

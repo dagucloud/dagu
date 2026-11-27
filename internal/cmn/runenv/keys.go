@@ -76,6 +76,11 @@ const (
 	// an already-queued run from the scheduler/worker queue dispatch path.
 	EnvKeyQueueDispatchRetry = "DAGU_QUEUE_DISPATCH_RETRY"
 
+	// EnvKeyRunPlaced marks a start or retry that a Dagu process launched for
+	// a run it placed on its own host. The launched command removes it from
+	// its environment as it starts, so the run's steps do not inherit it.
+	EnvKeyRunPlaced = "DAGU_RUN_PLACED"
+
 	// EnvKeyDAGDefinitionID carries the stable persistence identity into subprocesses.
 	EnvKeyDAGDefinitionID = "DAGU_DAG_DEFINITION_ID"
 

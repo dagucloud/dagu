@@ -4,20 +4,13 @@
 package cmd
 
 import (
+	"os"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 )
-
-// noDispatchFlag marks a run that a Dagu process launched after it chose to
-// run it on this host, so the run does not choose again. Every start and
-// retry that the launcher builds sets it.
-var noDispatchFlag = commandLineFlag{
-	name:   "no-dispatch",
-	usage:  "Run on this host without the coordinator (set by Dagu for a run it already placed)",
-	isBool: true,
-	hidden: true,
-}
 
 // runPlacement is where a run started by a command runs.
 type runPlacement struct {
@@ -37,10 +30,10 @@ func (p runPlacement) dispatched() bool {
 // and the scheduler apply: on the worker of the worker node it is bound to,
 // through the coordinator for a worker selector or the distributed execution
 // mode, or on this host. targetNodes and admitted are as for boundWorker. A
-// run launched with --no-dispatch runs on this host. A run the rules
-// dispatch fails when it cannot be dispatched.
+// run that a Dagu process launched after placing it runs on this host. A
+// run the rules dispatch fails when it cannot be dispatched.
 func placeRun(ctx *Context, dag *ir.DAG, targetNodes []string, admitted string) (runPlacement, error) {
-	if launchedPlaced(ctx) {
+	if ctx.runPlaced {
 		return runPlacement{}, nil
 	}
 	worker, client, err := boundWorker(ctx, dag, targetNodes, admitted)
@@ -66,9 +59,11 @@ func placeRun(ctx *Context, dag *ir.DAG, targetNodes []string, admitted string) 
 	return runPlacement{client: client, worker: worker}, nil
 }
 
-// launchedPlaced reports whether a Dagu process launched the command for a
-// run it already placed on this host.
-func launchedPlaced(ctx *Context) bool {
-	placed, err := ctx.Command.Flags().GetBool(noDispatchFlag.name)
-	return err == nil && placed
+// claimRunPlaced reports whether a Dagu process launched this command for a
+// run it placed on this host, and removes the marker from the environment so
+// the run's steps, and the commands they start, place their own runs.
+func claimRunPlaced() bool {
+	placed := os.Getenv(runenv.EnvKeyRunPlaced) != ""
+	_ = os.Unsetenv(runenv.EnvKeyRunPlaced)
+	return placed
 }

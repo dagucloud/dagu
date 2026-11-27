@@ -145,8 +145,8 @@ steps:
 	})
 }
 
-// A local scheduled start passes its params on stdin, and carries
-// --no-dispatch so the child does not place the run the scheduler placed.
+// A local scheduled start passes its params on stdin, and carries the
+// placement marker so the child does not place the run the scheduler placed.
 func TestDAGExecutorLocalParams(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -156,7 +156,7 @@ func TestDAGExecutorLocalParams(t *testing.T) {
 	dir := t.TempDir()
 	executable := filepath.Join(dir, "capture-input")
 	require.NoError(t, os.WriteFile(executable, []byte(`#!/bin/sh
-[ "$1" = start ] && [ "$2" = --no-dispatch ] && [ "$3" = --params-stdin ] || exit 1
+[ "$1" = start ] && [ "$2" = --params-stdin ] && [ "$DAGU_RUN_PLACED" = 1 ] || exit 1
 cat > "$0.tmp"
 mv "$0.tmp" "$0.params"
 `), 0700))

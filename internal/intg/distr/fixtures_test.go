@@ -19,6 +19,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/artifactpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -591,12 +592,12 @@ func (f *testFixture) retry(dagRunID string) error {
 	return launcher.Start(f.coord.Context, asUser(retrySpec))
 }
 
-// asUser returns spec as a user runs the command: without the --no-dispatch
-// that the launcher adds for a run its caller already placed, so the command
-// places the run itself.
+// asUser returns spec as a user runs the command: without the placement
+// marker that the launcher adds for a run its caller already placed, so the
+// command places the run itself.
 func asUser(spec launcher.CmdSpec) launcher.CmdSpec {
-	spec.Args = slices.DeleteFunc(slices.Clone(spec.Args), func(arg string) bool {
-		return arg == "--no-dispatch"
+	spec.Env = slices.DeleteFunc(slices.Clone(spec.Env), func(entry string) bool {
+		return strings.HasPrefix(entry, runenv.EnvKeyRunPlaced+"=")
 	})
 	return spec
 }

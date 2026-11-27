@@ -66,7 +66,6 @@ var retryFlags = []commandLineFlag{
 	retryPathFlag,
 	defaultWorkingDirFlag,
 	retryWorkerIDFlag,
-	noDispatchFlag,
 	attemptIDFlag,
 	triggerActorFlag,
 }
@@ -89,7 +88,6 @@ func runRetry(ctx *Context, args []string) error {
 			retryPathFlag,
 			defaultWorkingDirFlag,
 			retryWorkerIDFlag,
-			noDispatchFlag,
 			attemptIDFlag,
 			triggerActorFlag,
 		} {

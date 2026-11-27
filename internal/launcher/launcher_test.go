@@ -423,14 +423,12 @@ func TestSubCmdBuilderProject(t *testing.T) {
 			t.Parallel()
 			b := tt.builder
 			tail := append(slices.Clone(tt.flags), "--config", "/etc/dagu/config.yaml")
-			// A start or retry runs where its caller placed it. A restart
-			// places its new run itself.
 			assert.Equal(t, [][]string{
-				append(append([]string{"start", "--no-dispatch", "--run-id=run-1"}, tail...), "/dags/etl.yaml"),
+				append(append([]string{"start", "--run-id=run-1"}, tail...), "/dags/etl.yaml"),
 				append(append([]string{"enqueue", "--run-id=run-1"}, tail...), "/dags/etl.yaml"),
 				append([]string{"dequeue", "etl", "--dag-run=etl:run-1"}, tail...),
 				append(append([]string{"restart"}, tail...), "/dags/etl.yaml"),
-				append(append([]string{"retry", "--no-dispatch", "--run-id=run-1", "-q"}, tail...), "etl"),
+				append(append([]string{"retry", "--run-id=run-1", "-q"}, tail...), "etl"),
 			}, [][]string{
 				b.Start(dag, launcher.StartOptions{DAGRunID: "run-1"}).Args,
 				b.Enqueue(dag, launcher.EnqueueOptions{DAGRunID: "run-1"}).Args,
@@ -1039,4 +1037,22 @@ func TestLaunchMarksMissingExecutable(t *testing.T) {
 			require.NotErrorIs(t, err, launcher.ErrExecutableMissing)
 		})
 	}
+}
+
+// A start or retry runs where its caller placed it, so its command carries
+// the placement marker once, inherited or not. An enqueue or a restart places
+// its run itself.
+func TestSubCmdBuilderRunPlaced(t *testing.T) {
+	t.Setenv(runenv.EnvKeyRunPlaced, "1")
+	builder := launcher.NewSubCmdBuilder(&config.Config{Paths: config.PathsConfig{Executable: "/usr/bin/dagu"}})
+	dag := &ir.DAG{Name: "etl", Location: "/dags/etl.yaml"}
+	marker := runenv.EnvKeyRunPlaced + "=1"
+	count := func(env []string) int {
+		return len(slices.DeleteFunc(slices.Clone(env), func(e string) bool { return e != marker }))
+	}
+
+	assert.Equal(t, 1, count(builder.Start(dag, launcher.StartOptions{}).Env))
+	assert.Equal(t, 1, count(builder.Retry(dag, launcher.RetryOptions{DAGRunID: "run-1"}).Env))
+	assert.Zero(t, count(builder.Enqueue(dag, launcher.EnqueueOptions{}).Env))
+	assert.Zero(t, count(builder.Restart(dag, launcher.RestartOptions{}).Env))
 }
