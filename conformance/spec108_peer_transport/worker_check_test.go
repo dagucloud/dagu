@@ -78,13 +78,60 @@ func TestWorkerCheckHandshake(t *testing.T) {
 			for _, want := range []string{
 				tc.want,
 				"    Address dialed: " + addr + "\n",
-				"    Certificate covers: coordinator.test\n",
+				"    Certificate covers: DNS:coordinator.test\n",
 				"    Certificate chains to: server (the certificate signs itself)\n",
 			} {
 				assert.Contains(t, result.Stdout(), want)
 			}
 		})
 	}
+}
+
+// A coordinator that requires a client certificate refuses none, and one
+// another CA signed, and the check says which (Spec 108 §dagu worker
+// --check).
+func TestWorkerCheckClientCertificate(t *testing.T) {
+	dir := t.TempDir()
+	serverCert, serverKey := peercert.Write(t, dir, peercert.Options{Name: "server", IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1)}})
+	clientCA, _ := peercert.Write(t, dir, peercert.Options{Name: "client-ca"})
+	otherCert, otherKey := peercert.Write(t, dir, peercert.Options{Name: "other-client"})
+	dagu := harness.NewRunner(t)
+	addr := startCoordinator(t, dagu, nil,
+		"--peer.cert-file="+serverCert, "--peer.key-file="+serverKey, "--peer.client-ca-file="+clientCA)
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "None", want: "  Handshake: failed, the coordinator requires a client certificate, and the worker sends none"},
+		{name: "OtherCA", args: []string{"--peer.cert-file=" + otherCert, "--peer.key-file=" + otherKey},
+			want: "  Handshake: failed, the coordinator refused the client certificate " + otherCert},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := dagu.Run(append([]string{"worker", "--check", "--worker.coordinators=" + addr,
+				"--peer.insecure=false", "--peer.client-ca-file=" + serverCert}, tc.args...)...)
+
+			result.ExpectExitCode(1)
+			assert.Contains(t, result.Stdout(), tc.want)
+		})
+	}
+}
+
+// Without worker.coordinators, the check dials the coordinators in the
+// service registry of its data directory, then fails since the worker does
+// not start without worker.coordinators (Spec 108 §dagu worker --check).
+func TestWorkerCheckRegistry(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	sharedHome := []string{"DAGU_HOME=" + t.TempDir()}
+	addr := startCoordinator(t, dagu, sharedHome)
+
+	result := dagu.RunWithEnv(sharedHome, "worker", "--check")
+
+	result.ExpectExitCode(1)
+	assert.Contains(t, result.Stdout(), "Coordinator "+addr+"\n  Reachable: yes\n")
+	assert.Contains(t, result.Stdout(), "  Coordinator answered: serving, and it accepted the call\n")
+	result.ExpectStderrContains("worker.coordinators is required: set it to the address of a coordinator above that passed")
 }
 
 // startCoordinator starts a coordinator on a loopback port with env and

@@ -865,10 +865,13 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
   warnings of [Ignored Settings](#ignored-settings) to standard output
   instead of logging them, and then for each address in
   `worker.coordinators`:
-  - whether the address is reachable, and otherwise the message of
-    [Messages](#messages)
+  - whether the address is reachable, directly or through the HTTPS proxy
+    that the environment names for the address, as gRPC dials it, and
+    otherwise the message of [Messages](#messages)
   - the handshake result: none over h2c, or the names the server
-    certificate covers and the CA it chains to
+    certificate covers, each marked `DNS:` or `IP:`, and the CA it chains
+    to. A handshake that `peer.skip_tls_verify: true` let pass says that
+    the certificate was not verified.
   - the credential the worker would use: a client certificate, and the peer
     token from `peer.token`, from the coordinator's data directory, or none
   - what the coordinator answered to a health check and to a call that
@@ -881,7 +884,14 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
   invite's pin, and, with a worker certificate, its certificate ID, invite
   ID, and whether the coordinator accepts it.
 - A failed handshake states the names the server certificate covers, the
-  address dialed, and the CA the certificate chains to.
+  address dialed, and the CA the certificate chains to. It names each
+  problem in plain words: a name the certificate does not cover, an IP
+  address the certificate lists as a DNS name, a CA the worker does not
+  trust, an expired certificate, a certificate without server
+  authentication, and a coordinator that requires a client certificate and
+  refuses the worker's, or its lack of one.
+- A coordinator that does not answer within the dial timeout gets that
+  message, not a transport error.
 - It never enrolls, never consumes an invite, registers no worker, takes no
   task, and changes no state on the coordinator.
 - It exits with code 0 when every coordinator passes, and with code 1
@@ -894,7 +904,7 @@ Coordinator 127.0.0.1:50055
   Reachable: yes
   Handshake: failed, the certificate does not cover 127.0.0.1
     Address dialed: 127.0.0.1:50055
-    Certificate covers: coordinator.example.com
+    Certificate covers: DNS:coordinator.example.com
     Certificate chains to: Example CA
 Error: 1 of 1 coordinators did not pass the check
 ```
