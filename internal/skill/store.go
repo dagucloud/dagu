@@ -32,15 +32,7 @@ const (
 	// lockStaleThreshold is the age after which another writer takes a lock that
 	// its holder no longer refreshes.
 	lockStaleThreshold = 30 * time.Second
-	// deletedDirPrefix starts the name of the hidden folder that a delete moves
-	// a skill to before it removes the files.
-	deletedDirPrefix = ".deleted."
 )
-
-// ErrFilesLeft is returned by DeleteSkill when the skill is deleted but some of
-// its files could not be removed. They stay in a hidden folder of the skills
-// directory, which no read lists.
-var ErrFilesLeft = errors.New("the skill is deleted, but some of its files remain in a hidden folder")
 
 // ErrPreconditionRequired is returned for a write that has no precondition.
 var ErrPreconditionRequired = errors.New("a write needs a precondition: the hash that the client read, or the rule that the skill must not exist")
@@ -432,44 +424,6 @@ func checkQuota(current *Skill, rel string, size int64) error {
 	return nil
 }
 
-// DeleteSkill deletes the whole folder of a skill, with every file. A reader
-// sees the whole skill or no skill. It returns ErrFilesLeft when the skill is
-// gone but some of its files could not be removed.
-func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) error {
-	if !IsSafeFolderName(name) {
-		return ErrNotFound
-	}
-	if pre.MustNotExist {
-		return ErrPreconditionRequired
-	}
-	return s.withLock(ctx, name, pre, func(held func() error) error {
-		current, err := s.checkPrecondition(name, pre)
-		if err != nil {
-			return err
-		}
-		if current == nil {
-			return ErrNotFound
-		}
-		if err := held(); err != nil {
-			return err
-		}
-		// One rename removes the skill for every reader; the files go after it. A
-		// reader that holds a file open keeps reading the version it opened.
-		hidden := filepath.Join(s.root, fmt.Sprintf("%s%016x", deletedDirPrefix, rand.Uint64())) //nolint:gosec // the name of a hidden folder, not a secret
-		if err := fileutil.Rename(s.Dir(name), hidden); err != nil {
-			return fmt.Errorf("delete the skill folder: %w", err)
-		}
-		left := fileutil.RemoveAll(hidden)
-		if err := fileutil.SyncDir(s.root); err != nil {
-			return fmt.Errorf("delete the skill folder: %w", err)
-		}
-		if left != nil {
-			return fmt.Errorf("%w: %s: %v", ErrFilesLeft, hidden, left)
-		}
-		return nil
-	})
-}
-
 // checkPrecondition reads the skill and compares it with the precondition. It
 // returns the current skill, or nil when the folder does not exist.
 func (s *Store) checkPrecondition(name string, pre Precondition) (*Skill, error) {
@@ -531,33 +485,16 @@ func (s *Store) withLock(ctx context.Context, name string, pre Precondition, fn 
 	lock := dirlock.New(lockDir, &dirlock.LockOptions{StaleThreshold: lockStaleThreshold})
 	lctx, cancel := context.WithTimeout(ctx, lockTimeout)
 	defer cancel()
-	for {
-		if err := os.MkdirAll(lockDir, dirPerm); err != nil {
-			return fmt.Errorf("create the lock folder: %w", err)
-		}
-		err := lock.Lock(lctx)
-		if err == nil {
-			break
-		}
-		// The writer that deleted the skill can remove the lock folder while
-		// this one takes the lock.
-		if errors.Is(err, fs.ErrNotExist) && lctx.Err() == nil {
-			continue
-		}
+	if err := os.MkdirAll(lockDir, dirPerm); err != nil {
+		return fmt.Errorf("create the lock folder: %w", err)
+	}
+	if err := lock.Lock(lctx); err != nil {
 		// Only the end of the wait for another writer is a conflict.
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 			return &ConflictError{Message: fmt.Sprintf("another writer holds the skill %q", name)}
 		}
 		return fmt.Errorf("lock the skill %q: %w", name, err)
 	}
-	// The lock folder of a skill that no longer exists goes after the unlock, so
-	// the lock folders stay one per skill. Remove deletes an empty folder only,
-	// never the lock of another writer.
-	defer func() {
-		if _, err := os.Lstat(s.Dir(name)); errors.Is(err, fs.ErrNotExist) {
-			_ = os.Remove(lockDir)
-		}
-	}()
 	defer func() { _ = lock.Unlock() }()
 	// A slow write on shared storage can last longer than the stale threshold. The
 	// heartbeat keeps the lock fresh, so another instance does not take it. held

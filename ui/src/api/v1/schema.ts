@@ -3856,11 +3856,7 @@ export interface paths {
          */
         put: operations["updateSkill"];
         post?: never;
-        /**
-         * Delete a skill
-         * @description Deletes the whole folder of a skill with every file. Send If-Match with the hash that the client read. Requires developer role or above.
-         */
-        delete: operations["deleteSkill"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -22467,98 +22463,6 @@ export interface operations {
                 };
             };
             /** @description The request has no If-Match or If-None-Match header */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unexpected error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    deleteSkill: {
-        parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
-            header?: {
-                /** @description The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header. */
-                "If-Match"?: string;
-                /** @description Not allowed: only the creation of a skill takes If-None-Match. The header gives 400. */
-                "If-None-Match"?: string;
-            };
-            path: {
-                /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */
-                name: components["parameters"]["SkillName"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Skill deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Invalid skill name or precondition header */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Requires developer role or above */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Skill not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The skill changed after the client read it */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SkillError"];
-                };
-            };
-            /** @description The request has no If-Match header */
             428: {
                 headers: {
                     [name: string]: unknown;

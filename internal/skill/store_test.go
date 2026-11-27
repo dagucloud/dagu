@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -256,7 +255,6 @@ func TestChangeOfAMissingSkillMakesNoLockFolder(t *testing.T) {
 	hash := strings.Repeat("0", 64)
 	_, err := s.WriteFile(ctx, "ghost", "references/a.md", []byte("x"), skill.Precondition{IfMatch: hash})
 	require.ErrorIs(t, err, skill.ErrNotFound)
-	require.ErrorIs(t, s.DeleteSkill(ctx, "ghost", skill.Precondition{IfMatch: hash}), skill.ErrNotFound)
 	_, statErr := os.Stat(filepath.Join(filepath.Dir(s.Dir("ghost")), ".locks", "ghost"))
 	assert.True(t, os.IsNotExist(statErr))
 }
@@ -322,15 +320,6 @@ func TestWritePreconditions(t *testing.T) {
 		_, err := s.WriteFile(ctx, "missing", "references/a.md", []byte("x"), skill.Precondition{IfMatch: strings.Repeat("0", 64)})
 		require.ErrorIs(t, err, skill.ErrNotFound)
 	})
-	t.Run("delete the skill", func(t *testing.T) {
-		cur, _ := s.Read("demo")
-		err := s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: strings.Repeat("0", 64)})
-		var conflict *skill.ConflictError
-		require.ErrorAs(t, err, &conflict)
-		require.NoError(t, s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: cur.Hash}))
-		_, err = s.Read("demo")
-		require.ErrorIs(t, err, skill.ErrNotFound)
-	})
 }
 
 // A read that does not settle holds no version of the skill, so its hash
@@ -363,10 +352,10 @@ func TestWriteRefusesASkillThatDoesNotSettle(t *testing.T) {
 	require.Equal(t, string(before), string(after))
 }
 
-// A write or a delete never goes through a symbolic link: not the folder of the skill,
+// A write never goes through a symbolic link: not the folder of the skill,
 // not a folder below it, not the file itself. The files outside the skill stay as they
 // are, whatever hash the client sends (Spec 096, "Source of truth").
-func TestWriteAndDeleteRefuseSymbolicLinks(t *testing.T) {
+func TestWriteRefusesSymbolicLinks(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -413,13 +402,6 @@ func TestWriteAndDeleteRefuseSymbolicLinks(t *testing.T) {
 		entries, err := os.ReadDir(outside)
 		require.NoError(t, err)
 		require.Len(t, entries, 2, "the target of the link holds SKILL.md and victim only")
-
-		// The owner can still remove the link. The target stays.
-		require.NoError(t, s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: cur.Hash}))
-		_, err = os.Lstat(s.Dir("demo"))
-		require.True(t, os.IsNotExist(err))
-		_, err = os.Stat(filepath.Join(outside, "victim"))
-		require.NoError(t, err)
 	})
 
 	t.Run("symlinked folder below the skill", func(t *testing.T) {
@@ -496,75 +478,6 @@ func TestLockFailureIsNotAConflict(t *testing.T) {
 	require.False(t, errors.As(err, &conflict), "%v", err)
 }
 
-// The lock folder of a skill goes with the skill, so the lock folders stay one
-// per skill and do not grow with each name ever written.
-func TestDeleteRemovesTheLockFolder(t *testing.T) {
-	t.Parallel()
-	s := newStore(t)
-	created := create(t, s, "demo")
-	locks := filepath.Join(skill.Root(s), ".locks", "demo")
-	_, err := os.Stat(locks)
-	require.NoError(t, err)
-
-	require.NoError(t, s.DeleteSkill(context.Background(), "demo", skill.Precondition{IfMatch: created.Hash}))
-	_, err = os.Stat(locks)
-	require.ErrorIs(t, err, fs.ErrNotExist)
-	create(t, s, "demo")
-}
-
-// A delete removes the skill at once: a file that cannot be removed stays in a
-// hidden folder, never as a part of a skill that readers see.
-func TestDeleteOfASkillIsAtomic(t *testing.T) {
-	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
-		t.Skip("needs Unix permissions that bind the user")
-	}
-	t.Parallel()
-	ctx := context.Background()
-	s := newStore(t)
-	created := create(t, s, "demo")
-	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
-	require.NoError(t, err)
-	require.NoError(t, os.Chmod(filepath.Join(s.Dir("demo"), "references"), 0o500))
-	t.Cleanup(func() {
-		_ = filepath.WalkDir(skill.Root(s), func(p string, d fs.DirEntry, _ error) error {
-			if d != nil && d.IsDir() {
-				_ = os.Chmod(p, 0o755)
-			}
-			return nil
-		})
-	})
-
-	err = s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: cur.Hash})
-	require.ErrorIs(t, err, skill.ErrFilesLeft)
-	_, err = s.Read("demo")
-	require.ErrorIs(t, err, skill.ErrNotFound)
-	names, _, err := s.Names()
-	require.NoError(t, err)
-	require.Empty(t, names)
-}
-
-// A reader that opened a file before the delete of its skill gets the whole
-// file as it read it.
-func TestDeleteKeepsAnOpenFile(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows refuses to move a folder that holds an open file")
-	}
-	t.Parallel()
-	ctx := context.Background()
-	s := newStore(t)
-	created := create(t, s, "demo")
-	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("version one"), skill.Precondition{IfMatch: created.Hash})
-	require.NoError(t, err)
-	r, err := cur.Open("references/a.md")
-	require.NoError(t, err)
-	defer func() { _ = r.Close() }()
-
-	require.NoError(t, s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: cur.Hash}))
-	data, err := io.ReadAll(r)
-	require.NoError(t, err)
-	require.Equal(t, "version one", string(data))
-}
-
 // loseLock hands the lock of the skill name to another owner, as the takeover
 // of a stale lock by another instance would.
 func loseLock(t *testing.T, s *skill.Store, name string) {
@@ -616,13 +529,6 @@ func TestLostLockCommitsNothing(t *testing.T) {
 		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
 		_, err = os.Lstat(s.Dir("fresh"))
 		require.ErrorIs(t, err, fs.ErrNotExist, "a creation that commits nothing leaves no folder")
-	})
-	t.Run("delete skill", func(t *testing.T) {
-		t.Parallel()
-		s, hash := setup(t)
-		err := s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: hash})
-		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
-		unchanged(t, s, hash)
 	})
 }
 

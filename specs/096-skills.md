@@ -7,11 +7,10 @@ Partially implemented.
 DAG discovery skips the skills directory, as [Terms](#terms) states. `GET /skills` lists the skill
 folders with their hash and the errors and the warnings of the format and the folder rules.
 `GET /skills/{name}` reads one skill, and `GET /skills/{name}/files` streams one file. The reads use
-the cache of [Source of truth](#source-of-truth). `PUT /skills/{name}` writes `SKILL.md` and
-`DELETE /skills/{name}` deletes a skill, under the preconditions of
-[Preconditions and conflicts](#preconditions-and-conflicts). Unit tests cover them, and a
-conformance test covers discovery. The file writes and the ZIP download are specified but not built
-yet.
+the cache of [Source of truth](#source-of-truth). `PUT /skills/{name}` creates or replaces
+`SKILL.md` under the preconditions of [Preconditions and conflicts](#preconditions-and-conflicts).
+Unit tests cover them, and a conformance test covers discovery. The delete of a skill, the file
+writes and the ZIP download are specified but not built yet.
 
 ## Scope
 
@@ -290,17 +289,11 @@ of the skill, removes it, which is what the client asked for.
 The lock is a directory lock (`dirlock`) at `skills/.locks/<name>/`. It is held for the time of one
 write. A holder that crashes gives the lock free after 30 seconds, and one writer takes it over. A
 writer that has lost its lock commits nothing. A writer waits at most 15 seconds and then gets 409.
-Another error of the lock gives 500. The folder `.locks/<name>/` goes when the skill folder is gone
-after a write or a delete. The directory `.locks` is hidden: the listing ignores it. A repository
-that syncs the DAGs directory SHOULD ignore `.locks/`.
+Another error of the lock gives 500. The directory `.locks` is hidden: the listing ignores it. A
+repository that syncs the DAGs directory SHOULD ignore `.locks/`.
 
 A read that did not settle (`changing`) holds no version, so its hash passes no precondition: the
 write gives 409 with no `hash`. A write to a skill that Dagu cannot read (`unreadable`) gives 500.
-
-A delete first renames the skill folder to a hidden folder `.deleted.<random>` of the skills
-directory, then removes the files. A reader sees the whole skill or no skill. A reader that holds a
-file open keeps the version that it opened. A file that cannot be removed stays in the hidden
-folder, and the server logs it.
 
 ### Secrets
 
@@ -497,32 +490,28 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | `TestSkillsReadFile` (unit) | `GET /skills/{name}/files` sends a text file and a binary file as stored, as an attachment of type `application/octet-stream` with the hash in `ETag`. A file above 4 MiB gives 413, a link 404 and a path that leaves the folder 400. |
 | `TestSkillFileStreamAborts` (unit) | A file that changes during the stream aborts the response, and no error body joins the partial file. |
 | `TestSkillsReadFileUnreadable` (unit) | `GET /skills/{name}/files` gives 500, not 404, for a skill that the server cannot read, and the body names no server path. |
-| `TestSkillsPathTraversal` (unit) | A skill name that leaves the skills directory gives 400 or 404 for a read, a write and a delete, and no file outside it changes. |
+| `TestSkillsPathTraversal` (unit) | A skill name that leaves the skills directory gives 400 or 404 for a read and a write, and no file outside it changes. |
 | `TestCheckPath` (unit) | A write accepts `SKILL.md` and a path of the layout, and refuses an escape, a hidden name and a path outside the layout. |
 | `TestWritePreconditions` (unit) | A create of an existing skill and a stale hash give a conflict with the current hash and change nothing. A write needs a precondition. The hashes chain. A bad `SKILL.md` is refused. |
 | `TestWriteRefusesASkillThatDoesNotSettle` (unit) | The hash of a read that did not settle passes no precondition. |
-| `TestWriteAndDeleteRefuseSymbolicLinks` (unit) | A write never goes through a link of the folder, of a folder below it or of the file. A delete of a linked skill removes the link only. |
+| `TestWriteRefusesSymbolicLinks` (unit) | A write never goes through a link of the folder, of a folder below it or of the file. |
 | `TestWriteStaysInTheFolderThatItOpened` (unit) | A skill folder or a skills directory that becomes a link during the write leaves the link target as it was. |
-| `TestLostLockCommitsNothing` (unit) | A writer that lost its lock writes, creates and deletes nothing, and leaves no folder. |
+| `TestLostLockCommitsNothing` (unit) | A writer that lost its lock writes and creates nothing, and leaves no folder. |
 | `TestStaleLockIsTakenOverOnce` (unit) | The lock of a holder that died goes to one writer; the other gets a conflict. |
 | `TestLockFailureIsNotAConflict` (unit) | A lock error other than a held lock is not a conflict. |
 | `TestTwoWritersRace` (unit) | Of two writers with the same hash, one wins and the other gets a conflict. |
 | `TestReaderNeverSeesAHalfWrittenFile` (unit) | A reader during a stream of writes sees one complete version or `changing`, never a mix. |
 | `TestReadAfterAWriteSeesIt` (unit) | A read right after a write gets the written version, also from a cache that held the version before, and the write returns the hash on disk. |
-| `TestDeleteOfASkillIsAtomic` (unit) | A file that a delete cannot remove never leaves a part of the skill. |
-| `TestDeleteKeepsAnOpenFile` (unit) | A reader that opened a file before a delete reads the whole file. |
-| `TestDeleteRemovesTheLockFolder` (unit) | A delete removes the lock folder of the skill. |
 | `TestClosedBodyMiddleware` (unit) | A skills body with an unknown field, a wrong type or more than 8 MiB is refused for every `Content-Type`, and the error quotes no value. |
 | `TestSkillsPutNeedsAPrecondition` (unit) | `PUT /skills/{name}` gives 428 with no precondition and 400 for an `If-Match` that is not 64 hexadecimal characters. |
 | `TestSkillsPutChainAndConflict` (unit) | A create, an update with the hash, a stale hash and a change on disk give 200 or 409 with the current hash. An invalid `SKILL.md` gives 400 with its rules. |
-| `TestSkillsDelete` (unit) | `DELETE /skills/{name}` gives 428, 409, 400 for `If-None-Match`, 204 and then 404. |
 | `TestSkillsTwoInstancesRaceOnOneDirectory` (unit) | Two API instances on one directory: one write wins, the other gets 409. |
-| `TestSkillsWriteNeedsDeveloper` (unit) | A viewer reads skills and cannot write or delete them. |
+| `TestSkillsWriteNeedsDeveloper` (unit) | A viewer reads skills and cannot write them. |
 | `TestSkillsWritesFollowTheDAGWriteRules` (unit) | A write needs `write_dags`, and the read-only mode of Git Sync refuses it. |
-| `TestSkillsWritesAreAudited` (unit) | A write and a delete each give an audit event with the name and the hash, and no content. |
+| `TestSkillsWritesAreAudited` (unit) | Each write gives an audit event with the name and the hash, and no content. |
 | `TestSkillsWriteFailureNamesNoServerPath` (unit) | A write that the disk refuses gives 500 and names no server path. |
 
-The file writes and the ZIP download have no test yet.
+The delete of a skill, the file writes and the ZIP download have no test yet.
 
 ## Open items
 

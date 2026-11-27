@@ -57,14 +57,6 @@ func putSkill(server test.Server, path string, body any, headers map[string]stri
 	return r
 }
 
-func deleteSkill(server test.Server, path string, headers map[string]string) *test.Request {
-	r := server.Client().Delete(path)
-	for k, v := range headers {
-		r = r.WithHeader(k, v)
-	}
-	return r
-}
-
 // newSkillsAPI builds an API on the DAGs directory of helper. Two of them on one
 // helper stand for two servers that share the directory.
 func newSkillsAPI(helper test.Helper, opts ...localapi.APIOption) *localapi.API {
@@ -271,25 +263,6 @@ func TestSkillsPutChainAndConflict(t *testing.T) {
 	})
 }
 
-func TestSkillsDelete(t *testing.T) {
-	t.Parallel()
-	server := test.SetupServer(t)
-	writeSkillFile(t, server, "refund-policy", validSkill)
-	extra := filepath.Join(skillsDir(server), "refund-policy", "references")
-	require.NoError(t, os.MkdirAll(extra, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(extra, "a.md"), []byte("x"), 0o600))
-	h := getSkill(t, server, "refund-policy").Hash
-
-	deleteSkill(server, "/api/v1/skills/refund-policy", nil).ExpectStatus(http.StatusPreconditionRequired).Send(t)
-	deleteSkill(server, "/api/v1/skills/refund-policy", skillIfMatch(strings.Repeat("0", 64))).ExpectStatus(http.StatusConflict).Send(t)
-	deleteSkill(server, "/api/v1/skills/refund-policy", map[string]string{"If-Match": h, "If-None-Match": "*"}).ExpectStatus(http.StatusBadRequest).Send(t)
-	deleteSkill(server, "/api/v1/skills/refund-policy", skillIfMatch(h)).ExpectStatus(http.StatusNoContent).Send(t)
-	_, err := os.Stat(filepath.Join(skillsDir(server), "refund-policy"))
-	assert.ErrorIs(t, err, os.ErrNotExist, "the whole folder goes")
-	deleteSkill(server, "/api/v1/skills/refund-policy", skillIfMatch(h)).ExpectStatus(http.StatusNotFound).Send(t)
-	deleteSkill(server, "/api/v1/skills/.x", skillIfMatch(h)).ExpectStatus(http.StatusBadRequest).Send(t)
-}
-
 // A file is sent as stored, as an attachment of type application/octet-stream,
 // with the hash of the skill in ETag. A link in the folder is never followed.
 func TestSkillsReadFile(t *testing.T) {
@@ -383,19 +356,11 @@ func TestSkillsPathTraversal(t *testing.T) {
 	require.NoError(t, os.WriteFile(outside, []byte(validSkill), 0o600))
 
 	for _, name := range []string{"..", "..%2F..", "%2e%2e", "a%2Fb"} {
-		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
-			var req *test.Request
-			switch method {
-			case http.MethodGet:
-				req = server.Client().Get("/api/v1/skills/" + name)
-			case http.MethodPut:
-				req = putSkill(server, "/api/v1/skills/"+name, api.UpdateSkillJSONRequestBody{Content: validSkill}, map[string]string{"If-None-Match": "*"})
-			default:
-				req = deleteSkill(server, "/api/v1/skills/"+name, skillIfMatch(strings.Repeat("0", 64)))
-			}
-			status := req.Send(t).Response.StatusCode()
-			assert.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, status, "%s %s", method, name)
-		}
+		status := server.Client().Get("/api/v1/skills/" + name).Send(t).Response.StatusCode()
+		assert.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, status, "GET %s", name)
+		status = putSkill(server, "/api/v1/skills/"+name, api.UpdateSkillJSONRequestBody{Content: validSkill}, map[string]string{"If-None-Match": "*"}).
+			Send(t).Response.StatusCode()
+		assert.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, status, "PUT %s", name)
 	}
 
 	_, err := os.Stat(outside)
@@ -465,8 +430,6 @@ func TestSkillsWriteNeedsDeveloper(t *testing.T) {
 		Body: &api.UpdateSkillJSONRequestBody{Content: validSkill + "More.\n"},
 	})
 	requireAPIErrorStatus(t, err, http.StatusForbidden)
-	_, err = apiImpl.DeleteSkill(viewer, api.DeleteSkillRequestObject{Name: "refund-policy", Params: api.DeleteSkillParams{IfMatch: &h}})
-	requireAPIErrorStatus(t, err, http.StatusForbidden)
 
 	got, err := apiImpl.GetSkill(viewer, api.GetSkillRequestObject{Name: "refund-policy"})
 	require.NoError(t, err)
@@ -486,38 +449,40 @@ func TestSkillsWritesFollowTheDAGWriteRules(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			apiImpl := newSkillsAPI(test.Setup(t, test.WithConfigMutator(mutate)))
-			ctx := context.Background()
-			none, h := "*", strings.Repeat("0", 64)
-			_, err := apiImpl.UpdateSkill(ctx, api.UpdateSkillRequestObject{
+			helper := test.Setup(t, test.WithConfigMutator(mutate))
+			none := "*"
+			_, err := newSkillsAPI(helper).UpdateSkill(context.Background(), api.UpdateSkillRequestObject{
 				Name: "refund-policy", Params: api.UpdateSkillParams{IfNoneMatch: &none},
 				Body: &api.UpdateSkillJSONRequestBody{Content: validSkill},
 			})
 			requireAPIErrorStatus(t, err, http.StatusForbidden)
-			_, err = apiImpl.DeleteSkill(ctx, api.DeleteSkillRequestObject{Name: "refund-policy", Params: api.DeleteSkillParams{IfMatch: &h}})
-			requireAPIErrorStatus(t, err, http.StatusForbidden)
+			_, err = os.Stat(filepath.Join(helper.Config.Paths.DAGsDir, "skills", "refund-policy"))
+			require.ErrorIs(t, err, os.ErrNotExist)
 		})
 	}
 }
 
-// Each write and each delete leaves one audit entry with the name and the hash
-// of the skill, and no content of the skill.
+// Each write leaves one audit entry with the name and the new hash of the
+// skill, and no content of the skill.
 func TestSkillsWritesAreAudited(t *testing.T) {
 	t.Parallel()
 	auditStore := &recordingAuditStore{}
 	apiImpl := newSkillsAPI(test.Setup(t), localapi.WithAuditService(audit.New(auditStore)))
 	ctx := context.Background()
 	h := createSkill(t, ctx, apiImpl)
-	_, err := apiImpl.DeleteSkill(ctx, api.DeleteSkillRequestObject{Name: "refund-policy", Params: api.DeleteSkillParams{IfMatch: &h}})
+	updated, err := apiImpl.UpdateSkill(ctx, api.UpdateSkillRequestObject{
+		Name: "refund-policy", Params: api.UpdateSkillParams{IfMatch: &h},
+		Body: &api.UpdateSkillJSONRequestBody{Content: validSkill + "Refund twice.\n"},
+	})
 	require.NoError(t, err)
 
 	require.Len(t, auditStore.entries, 2)
-	assert.Equal(t, "skill_update", auditStore.entries[0].Action)
-	assert.Contains(t, auditStore.entries[0].Details, h)
-	assert.Equal(t, "skill_delete", auditStore.entries[1].Action)
-	for _, entry := range auditStore.entries {
+	for i, hash := range []string{h, updated.(api.UpdateSkill200JSONResponse).Hash} {
+		entry := auditStore.entries[i]
+		assert.Equal(t, "skill_update", entry.Action)
 		assert.Contains(t, entry.Details, "refund-policy")
-		assert.NotContains(t, entry.Details, "Refund in 30 days", "an audit entry holds no content of the skill")
+		assert.Contains(t, entry.Details, hash)
+		assert.NotContains(t, entry.Details, "Refund", "an audit entry holds no content of the skill")
 	}
 }
 
