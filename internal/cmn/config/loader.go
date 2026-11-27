@@ -1659,6 +1659,7 @@ func (l *ConfigLoader) loadCoordinatorConfig(cfg *Config, def Definition) {
 		cfg.Coordinator.Port = def.Coordinator.Port
 		cfg.Coordinator.HealthPort = def.Coordinator.HealthPort
 		cfg.Coordinator.RequireToken = def.Coordinator.RequireToken
+		cfg.Coordinator.RequireTLS = def.Coordinator.RequireTLS
 		if def.Coordinator.WorkerWaitTimeout != "" {
 			timeout, err := time.ParseDuration(def.Coordinator.WorkerWaitTimeout)
 			if err != nil {
@@ -2794,6 +2795,7 @@ var envBindings = []envBinding{
 	{key: "coordinator.health_port", env: "COORDINATOR_HEALTH_PORT"},
 	{key: "coordinator.worker_wait_timeout", env: "COORDINATOR_WORKER_WAIT_TIMEOUT"},
 	{key: "coordinator.require_token", env: "COORDINATOR_REQUIRE_TOKEN"},
+	{key: "coordinator.require_tls", env: "COORDINATOR_REQUIRE_TLS"},
 
 	// Worker
 	{key: "worker.id", env: "WORKER_ID"},
