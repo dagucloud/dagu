@@ -17,6 +17,20 @@ var (
 	ErrDefaultProject     = errors.New("the default project cannot be deleted")
 )
 
+// Errors that refuse a create or a delete. A refused create or delete
+// changes nothing.
+var (
+	// ErrStateDirTaken reports that a state directory of the name to create
+	// records another project.
+	ErrStateDirTaken = errors.New("a state directory of this name records another project")
+	// ErrProtectedPath reports that a project's DAG directory would be or
+	// contain a path that the server, the library, or another project uses.
+	ErrProtectedPath = errors.New("protected paths in the project directory")
+	// ErrDeleteRefused reports that a project cannot be deleted in its
+	// current state.
+	ErrDeleteRefused = errors.New("project cannot be deleted")
+)
+
 // Registry is the server-wide list of projects, and the only one: a project
 // exists exactly when the registry holds it. Methods that take an ID return
 // ErrNotFound when no project has it. Implementations are safe for

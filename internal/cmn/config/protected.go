@@ -6,11 +6,13 @@ package config
 import (
 	"fmt"
 	"strings"
+
+	"github.com/dagucloud/dagu/v2/internal/project"
 )
 
-// CheckProjectDAGsDir returns an error that names each protected path that
-// dir, the DAG directory of a project other than the default one, would be
-// or contain. The protected paths are the paths that a paths setting other
+// CheckProjectDAGsDir returns an error wrapping project.ErrProtectedPath
+// that names each protected path that dir, the DAG directory of a project
+// other than the default one, would be or contain. The protected paths are the paths that a paths setting other
 // than paths.projects_dir names, whether set or defaulted, the default
 // project's wiki directory, paths.base_config, and config.yaml, so removing
 // the directory never removes the files of the server, the library, or
@@ -27,7 +29,7 @@ func (c *Config) CheckProjectDAGsDir(dir string) error {
 	if len(hits) == 0 {
 		return nil
 	}
-	return fmt.Errorf("the project directory %q holds protected paths: %s", dir, strings.Join(hits, ", "))
+	return fmt.Errorf("%w %q: %s", project.ErrProtectedPath, dir, strings.Join(hits, ", "))
 }
 
 func (c *Config) protectedPaths() []namedPath {

@@ -34,6 +34,10 @@ const (
 	ServiceNameCoordinator ServiceName = "coordinator"
 	// ServiceNameScheduler is the name of the scheduler service
 	ServiceNameScheduler ServiceName = "scheduler"
+	// ServiceNameServer is the name of the web server, which registers
+	// while projects are on so that a project delete waits for it to
+	// release the project.
+	ServiceNameServer ServiceName = "server"
 )
 
 // ServiceStatus represents the operational status of a service instance
