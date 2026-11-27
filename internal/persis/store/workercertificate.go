@@ -113,7 +113,7 @@ func (s *WorkerCertificateStore) load(ctx context.Context, id string) (persis.Wo
 	certRec, cert, certErr := s.getCertificate(ctx, id)
 	// An unreadable certificate record still lets the removal record, which
 	// holds the whole certificate, answer.
-	unreadable := certRec != nil || errors.Is(certErr, persis.ErrCorrupt)
+	unreadable := certErr != nil && (certRec != nil || errors.Is(certErr, persis.ErrCorrupt))
 	if certErr != nil && !errors.Is(certErr, persis.ErrWorkerCertificateNotFound) && !unreadable {
 		return persis.WorkerCertificate{}, nil, certErr
 	}
