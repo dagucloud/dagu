@@ -110,6 +110,10 @@ type DispatchTaskStore interface {
 	ListBundleDigests(ctx context.Context) ([]string, error)
 	CountOutstandingByQueue(ctx context.Context, queueName string, claimTimeout time.Duration) (int, error)
 	HasOutstandingAttempt(ctx context.Context, attemptKey string, claimTimeout time.Duration) (bool, error)
+	// HasOutstandingAttemptUncached is HasOutstandingAttempt read from the
+	// shared records, so it sees tasks other coordinators queued since the
+	// store last reconciled its cache.
+	HasOutstandingAttemptUncached(ctx context.Context, attemptKey string) (bool, error)
 	// ListExpiredHeld returns the pending tasks whose HoldUntil has passed at
 	// now. They are no longer claimable; the coordinator fails their runs and
 	// removes them with DeletePending.

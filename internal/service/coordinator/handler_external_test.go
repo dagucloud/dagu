@@ -291,6 +291,10 @@ func (s *claimReleaseStore) HasOutstandingAttempt(context.Context, string, time.
 	return false, nil
 }
 
+func (s *claimReleaseStore) HasOutstandingAttemptUncached(context.Context, string) (bool, error) {
+	return false, nil
+}
+
 func (s *claimReleaseStore) ListExpiredHeld(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
 	return nil, nil
 }
@@ -338,6 +342,10 @@ func (s *pollingDispatchStore) CountOutstandingByQueue(context.Context, string, 
 }
 
 func (s *pollingDispatchStore) HasOutstandingAttempt(context.Context, string, time.Duration) (bool, error) {
+	return false, nil
+}
+
+func (s *pollingDispatchStore) HasOutstandingAttemptUncached(context.Context, string) (bool, error) {
 	return false, nil
 }
 

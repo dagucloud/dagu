@@ -1416,12 +1416,6 @@ func (h *Handler) admittedRepeat(ctx context.Context, task *coordinatorv1.Task) 
 	return admitted, err
 }
 
-// uncachedOutstandingChecker is a dispatch store that can check the shared
-// records, which other coordinators write, rather than its cached index.
-type uncachedOutstandingChecker interface {
-	HasOutstandingAttemptUncached(ctx context.Context, attemptKey string) (bool, error)
-}
-
 // dispatchOutstanding reports whether the attempt's task waits in the queue,
 // is claimed, or runs under a lease. A fresh check also sees tasks that
 // other coordinators queued since this one last read the shared records.
@@ -1431,8 +1425,8 @@ func (h *Handler) dispatchOutstanding(ctx context.Context, attemptKey string, fr
 	}
 	var outstanding bool
 	var err error
-	if checker, ok := h.dispatchTaskStore.(uncachedOutstandingChecker); ok && fresh {
-		outstanding, err = checker.HasOutstandingAttemptUncached(ctx, attemptKey)
+	if fresh {
+		outstanding, err = h.dispatchTaskStore.HasOutstandingAttemptUncached(ctx, attemptKey)
 	} else {
 		outstanding, err = h.dispatchTaskStore.HasOutstandingAttempt(ctx, attemptKey, 0)
 	}

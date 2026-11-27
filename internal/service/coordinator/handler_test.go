@@ -1839,6 +1839,10 @@ func (s *failingDispatchTaskStore) HasOutstandingAttempt(context.Context, string
 	return false, nil
 }
 
+func (s *failingDispatchTaskStore) HasOutstandingAttemptUncached(context.Context, string) (bool, error) {
+	return false, nil
+}
+
 func (s *failingDispatchTaskStore) ListExpiredHeld(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
 	return nil, nil
 }
