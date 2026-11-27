@@ -275,3 +275,30 @@ func TestDispatchRepeatAfterRollbackIsRefused(t *testing.T) {
 	assert.Contains(t, err.Error(), "disk full")
 	assert.Same(t, admitted, f.attempt("run-rollback"))
 }
+
+// A repeat of an admitted dispatch succeeds after its bound worker went
+// offline; a new dispatch to that worker is still refused.
+func TestDispatchRepeatSurvivesOfflineBoundWorker(t *testing.T) {
+	f := newHoldFixture(t, 0)
+	f.heartbeat(t, "node-a", nil)
+	bound := func(runID string) *coordinatorv1.Task {
+		task := repeatTask(runID)
+		task.TargetWorkerId, task.BoundNode = "node-a", "node-a"
+		return task
+	}
+	_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: bound("run-bound")})
+	require.NoError(t, err)
+	admitted := f.attempt("run-bound")
+	require.NoError(t, f.heartbeats.Upsert(t.Context(), dispatch.WorkerHeartbeatRecord{
+		WorkerID: "node-a", LastHeartbeatAt: time.Now().Add(-time.Hour).UnixMilli(),
+	}))
+
+	_, err = f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: bound("run-bound")})
+	require.NoError(t, err)
+	assert.Same(t, admitted, f.attempt("run-bound"))
+
+	_, err = f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: bound("run-other")})
+	require.Error(t, err)
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+	assert.Contains(t, err.Error(), "offline")
+}

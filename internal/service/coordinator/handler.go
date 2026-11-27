@@ -630,12 +630,26 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		return nil, status.Error(codes.FailedPrecondition, "dispatch admission store is not configured")
 	}
 
+	admission := h.admissionLocks.lock(req.Task.DagRunId)
+	defer h.admissionLocks.unlock(req.Task.DagRunId, admission)
+
 	healthyWorkers, err := h.listHealthyWorkers(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to list workers: "+err.Error())
 	}
 	declares := sync.OnceValue(func() bool { return declaresConnections(ctx, req.Task) })
 	shortfall := workerShortfall(healthyWorkers, req.Task, declares)
+	// A repeat of an admitted dispatch needs no worker now, so a shortfall
+	// does not refuse it.
+	if shortfall != nil && (req.Task.BoundNode != "" || !h.holdsDispatch(req.Task)) {
+		admitted, err := h.admittedRepeat(ctx, req.Task)
+		if err != nil {
+			return nil, status.Error(prepareAttemptErrorCode(err), "failed to prepare attempt: "+err.Error())
+		}
+		if admitted {
+			return &coordinatorv1.DispatchResponse{}, nil
+		}
+	}
 	// A run bound to a worker node fails at once while its worker is offline,
 	// or too old for the run's connections, rather than waiting for it
 	// (RFC 013 §Matching).
@@ -654,8 +668,6 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		return nil, err
 	}
 
-	admission := h.admissionLocks.lock(req.Task.DagRunId)
-	defer h.admissionLocks.unlock(req.Task.DagRunId, admission)
 	prepared, err := h.prepareAttemptForDispatch(ctx, req.Task)
 	if err != nil {
 		h.releaseAdmissionToken(ctx, admissionToken)
@@ -1181,24 +1193,9 @@ func (h *Handler) repeatedDispatchAttempt(
 	runStatus *ir.DAGRunStatus,
 	dag *ir.DAG,
 ) (*preparedDispatchAttempt, error) {
-	stored, err := attempt.ReadDAG(ctx)
+	admitted, err := h.repeatAdmitted(ctx, task, attempt, runStatus, dag)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read the DAG of attempt %s: %w", task.AttemptId, err)
-	}
-	if stored == nil || !bytes.Equal(stored.YamlData, dag.YamlData) {
-		return nil, fmt.Errorf("%w: attempt %s holds a different definition", errDispatchConflict, task.AttemptId)
-	}
-	if runStatus == nil {
-		return nil, fmt.Errorf("attempt %s has no status", task.AttemptId)
-	}
-	if runStatus.Status == ir.Failed && strings.HasPrefix(runStatus.Error, handoffFailedPrefix) {
-		return nil, fmt.Errorf("%w: %s", errDispatchRolledBack, runStatus.Error)
-	}
-	admitted := runStatus.Status != ir.NotStarted && runStatus.Status != ir.Queued
-	if !admitted {
-		if admitted, err = h.dispatchOutstanding(ctx, task.AttemptKey); err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 	if admitted {
 		return &preparedDispatchAttempt{attempt: attempt, admitted: true}, nil
@@ -1222,6 +1219,86 @@ func (h *Handler) repeatedDispatchAttempt(
 		tag.AttemptKey(task.AttemptKey),
 	)
 	return &preparedDispatchAttempt{attempt: attempt, newlyCreated: true}, nil
+}
+
+// repeatAdmitted reports whether the earlier dispatch of the attempt that
+// task repeats reached the queue or a worker. It fails when the repeat's
+// definition differs or the earlier dispatch was rolled back.
+func (h *Handler) repeatAdmitted(
+	ctx context.Context,
+	task *coordinatorv1.Task,
+	attempt dagrun.Attempt,
+	runStatus *ir.DAGRunStatus,
+	dag *ir.DAG,
+) (bool, error) {
+	stored, err := attempt.ReadDAG(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to read the DAG of attempt %s: %w", task.AttemptId, err)
+	}
+	if stored == nil || !bytes.Equal(stored.YamlData, dag.YamlData) {
+		return false, fmt.Errorf("%w: attempt %s holds a different definition", errDispatchConflict, task.AttemptId)
+	}
+	if runStatus == nil {
+		return false, fmt.Errorf("attempt %s has no status", task.AttemptId)
+	}
+	if runStatus.Status == ir.Failed && strings.HasPrefix(runStatus.Error, handoffFailedPrefix) {
+		return false, fmt.Errorf("%w: %s", errDispatchRolledBack, runStatus.Error)
+	}
+	if runStatus.Status != ir.NotStarted && runStatus.Status != ir.Queued {
+		return true, nil
+	}
+	return h.dispatchOutstanding(ctx, task.AttemptKey)
+}
+
+// admittedRepeat reports whether task repeats a dispatch that was admitted,
+// without preparing an attempt when it does not.
+func (h *Handler) admittedRepeat(ctx context.Context, task *coordinatorv1.Task) (bool, error) {
+	if task.AttemptId == "" {
+		return false, nil
+	}
+	held := h.runLocks.lock(task.DagRunId)
+	defer h.runLocks.unlock(task.DagRunId, held)
+
+	loadOpts := []spec.LoadOption{spec.WithName(task.Target)}
+	if task.BaseConfig != "" {
+		loadOpts = append(loadOpts, spec.WithBaseConfigContent([]byte(task.BaseConfig)))
+	}
+	dag, err := spec.LoadYAML(ctx, []byte(task.Definition), loadOpts...)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse DAG definition: %w", err)
+	}
+	probe := &coordinatorv1.Task{AttemptId: task.AttemptId}
+	var attempt dagrun.Attempt
+	switch {
+	case task.ParentDagRunId != "":
+		if task.NodeStep != "" {
+			if dag, err = dag.NodeStepChild(task.NodeStep); err != nil {
+				return false, fmt.Errorf("failed to parse DAG definition: %w", err)
+			}
+		}
+		rootRef := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+		attempt, err = h.dagRunRepository.FindSubAttempt(ctx, rootRef, task.DagRunId)
+		probe.AttemptKey = ir.GenerateAttemptKey(rootRef.Name, rootRef.ID, task.Target, task.DagRunId, task.AttemptId)
+	case task.RootDagRunId == "" || task.RootDagRunId == task.DagRunId:
+		attempt, err = h.dagRunRepository.FindAttempt(ctx, ir.DAGRunRef{Name: dag.Name, ID: task.DagRunId})
+		probe.AttemptKey = ir.GenerateAttemptKey(task.Target, task.DagRunId, task.Target, task.DagRunId, task.AttemptId)
+	default:
+		return false, nil
+	}
+	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to find existing attempt: %w", err)
+	}
+	if attempt.ID() != task.AttemptId {
+		return false, nil
+	}
+	runStatus, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to read existing attempt: %w", err)
+	}
+	return h.repeatAdmitted(ctx, probe, attempt, runStatus, dag)
 }
 
 // dispatchOutstanding reports whether the attempt's task waits in the queue,
