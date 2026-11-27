@@ -9,7 +9,8 @@ the [Start Line](#start-line) for rows 1, 2, and 5 of
 `peer.client_ca_file`, and `peer.skip_tls_verify: true`,
 [Bring Your Own Certificates](#bring-your-own-certificates), and the
 coordinator call of [Join Readiness](#join-readiness), which reports
-`builtinTLS` as false until the coordinator has a peer CA.
+`builtinTLS` as false until the coordinator has a peer CA, and
+`builtinTLSReason` only for own certificates.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -482,7 +483,8 @@ report join readiness.
   invites need the built-in CA: this coordinator could not create or read its CA; see its start warning
   ```
 
-  Join readiness still answers, with `builtinTLS` false.
+  Join readiness still answers, and reports the reason in
+  `builtinTLSReason`.
 - The REST API, `dagu worker invite`, and the MCP action call them.
 
 ### Enrollment
@@ -700,16 +702,16 @@ A coordinator reports, from its own host:
 | --- | --- |
 | `listenHost`, `port` | `coordinator.host` and `coordinator.port` |
 | `configFile` | The config file the coordinator read, or the default path it would read |
-| `loopbackOnly` | True when `coordinator.host` is `localhost`, an address in `127.0.0.0/8`, or `::1` |
+| `loopbackOnly` | True when `coordinator.host` is `localhost`, an address in `127.0.0.0/8`, or `[::1]` |
 | `hostSource` | Where `coordinator.host` came from: `default`, `file` with its path, `env` with the variable, or `flag` with the flag |
 | `advertise` | `coordinator.advertise` when set explicitly, else none |
 | `environment` | `host`, `container`, or `kubernetes`, by the rule of [Environment](#environment) |
-| `addresses` | Its interface addresses, other than loopback and link-local ones, when `environment` is `host`, else none |
+| `addresses` | When `environment` is `host`: for `coordinator.host` empty, `0.0.0.0`, or `[::]`, its interface addresses other than loopback and link-local ones; for another IP address that is not loopback, that address. Else none |
 | `builtinTLS` | True only when the coordinator has a usable peer CA. False for a coordinator with own certificates, and for one that serves h2c only because it cannot create or read its generated CA |
+| `builtinTLSReason` | Why `builtinTLS` is false: `ownCertificates` for a coordinator with own certificates, `caUnavailable` for one that cannot create or read its generated CA. None when `builtinTLS` is true |
 | `ready` | True when `loopbackOnly` is false and `builtinTLS` is true |
 
-- The report reads no file, other than checking whether the files of
-  [Environment](#environment) exist, and starts nothing periodic.
+- The report reads no file and starts nothing periodic.
 - `GET /api/v1/workers/join-readiness` returns the report of each
   coordinator in the registry, and `lastInviteAddress`: the `address` of the
   newest invite that has one.
@@ -755,7 +757,8 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
 - It first reads join readiness. While a coordinator is not ready, it
   prints the change to make for each such coordinator, creates no invite,
   and exits with code 1. For `loopbackOnly`, the change follows
-  `hostSource`, as the dialog's step 1 does.
+  `hostSource`, and without `builtinTLS`, it follows `builtinTLSReason`,
+  as the dialog's step 1 does.
 - On success it prints the invite kind and expiry, the invite, and the
   command to run on the worker host, and exits with code 0:
 
@@ -841,7 +844,10 @@ and prints the message:
       value `0.0.0.0`
     - otherwise: `configFile` and the lines `coordinator:` and
       `  host: 0.0.0.0` to add to it
-  - Without `builtinTLS`, that invites need the built-in CA.
+  - Without `builtinTLS`, that invites need the built-in CA, and for
+    `builtinTLSReason` `ownCertificates`, that the coordinator uses
+    `peer.cert_file` and `peer.key_file`, or for `caUnavailable`, that it
+    could not create or read its CA and to see its start warning.
   - Each change needs a restart.
 - Step 1 keeps, even when ready, the reminder to publish port `<port>` in a
   container, and in Kubernetes the statement that workers outside the

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -29,10 +30,20 @@ func TestCoordinatorJoinReadiness(t *testing.T) {
 		assert.Equal(t, "/etc/dagu/config.yaml", got.ConfigFile)
 		assert.Equal(t, envSource, got.HostSource)
 		assert.Equal(t, "dagu.example.com", got.Advertise)
+		assert.Equal(t, coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_UNSPECIFIED, got.BuiltinTLSReason)
 	})
 
 	t.Run("no config file", func(t *testing.T) {
 		got := coordinatorJoinReadiness(newConfig(""))
 		assert.Equal(t, "/home/dagu/.config/dagu/config.yaml", got.ConfigFile)
+	})
+
+	t.Run("own certificates", func(t *testing.T) {
+		cfg := newConfig("")
+		cfg.Core.Peer.CertFile = "/etc/dagu/peer.crt"
+		cfg.Core.Peer.KeyFile = "/etc/dagu/peer.key"
+		got := coordinatorJoinReadiness(cfg)
+		assert.False(t, got.BuiltinTLS)
+		assert.Equal(t, coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_OWN_CERTIFICATES, got.BuiltinTLSReason)
 	})
 }
