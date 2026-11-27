@@ -1561,7 +1561,7 @@ function NotificationChannelsContent({ remoteNode }: { remoteNode: string }) {
   const emailConfigured = !!(savedSMTP?.host || savedSMTP?.oauth);
   const smtpDropsSavedPassword =
     smtpDraft.passwordConfigured &&
-    !smtpDraft.password &&
+    !smtpDraft.password.trim() &&
     !smtpDraft.clearPassword &&
     (smtpDraft.host.trim().toLowerCase() !==
       (savedSMTP?.host || '').trim().toLowerCase() ||
