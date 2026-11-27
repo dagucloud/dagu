@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
 func TestLoadOrCreatePeerToken(t *testing.T) {
@@ -96,25 +97,34 @@ func logCapture(ctx context.Context) (context.Context, *bytes.Buffer) {
 }
 
 // A refused call is logged with its method and the fixes, at most once per
-// warn interval, and is remembered so a dispatch failure can name it.
+// warn interval. A refused worker call is remembered so a dispatch failure
+// can name it.
 func TestPeerTokenAuthLogsRefusal(t *testing.T) {
-	const method = "/coordinator.v1.CoordinatorService/Poll"
+	const method = coordinatorv1.CoordinatorService_Poll_FullMethodName
 	auth := NewPeerTokenAuth("coordinator-token", false, true)
-	assert.False(t, auth.refusedRecently())
+	assert.False(t, auth.refusedWorkerRecently())
 
 	ctx, logs := logCapture(callContext(t, newPeerTokenCredentials("", "")))
 	require.Error(t, auth.authorize(ctx, method))
 	assert.Contains(t, logs.String(), "Coordinator refused a call without a peer token")
 	assert.Contains(t, logs.String(), method)
 	assert.Contains(t, logs.String(), "coordinator.require_token: false")
-	assert.True(t, auth.refusedRecently())
+	assert.True(t, auth.refusedWorkerRecently())
 
 	logs.Reset()
 	require.Error(t, auth.authorize(ctx, method))
 	assert.Empty(t, logs.String())
 
-	auth.lastRefusal = auth.lastRefusal.Add(-peerTokenRefusalWindow)
-	assert.False(t, auth.refusedRecently())
+	auth.lastWorkerRefusal = auth.lastWorkerRefusal.Add(-peerTokenRefusalWindow)
+	assert.False(t, auth.refusedWorkerRecently())
+
+	// A refused call that workers do not need to register is logged but not
+	// remembered.
+	other := NewPeerTokenAuth("coordinator-token", false, true)
+	ctx, logs = logCapture(callContext(t, newPeerTokenCredentials("", "")))
+	require.Error(t, other.authorize(ctx, coordinatorv1.CoordinatorService_GetWorkers_FullMethodName))
+	assert.Contains(t, logs.String(), "Coordinator refused a call without a peer token")
+	assert.False(t, other.refusedWorkerRecently())
 }
 
 // With coordinator.require_token false, a call without a token passes and the
@@ -125,7 +135,7 @@ func TestPeerTokenAuthOptOutWarns(t *testing.T) {
 
 	require.NoError(t, auth.authorize(ctx, "/coordinator.v1.CoordinatorService/Poll"))
 	assert.Contains(t, logs.String(), "Coordinator accepted a call without a peer token")
-	assert.False(t, auth.refusedRecently())
+	assert.False(t, auth.refusedWorkerRecently())
 }
 
 // A coordinator that regenerates its token, after its token file is removed,

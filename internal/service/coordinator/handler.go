@@ -629,7 +629,11 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 			h.withPeerRefusal(fmt.Sprintf("worker node %q is offline", req.Task.BoundNode)))
 	}
 	if shortfall != nil && !h.holdsDispatch(req.Task) {
-		return nil, status.Error(dispatchErrorCode(shortfall), h.withPeerRefusal(shortfall.Error()))
+		reason := shortfall.Error()
+		if !errors.Is(shortfall, errNoConnectionWorkers) {
+			reason = h.withPeerRefusal(reason)
+		}
+		return nil, status.Error(dispatchErrorCode(shortfall), reason)
 	}
 	req.Task.NeedsConnectionTokens = declares()
 	if err := h.prepareDispatchTaskWorkspace(ctx, req.Task); err != nil {
@@ -1598,13 +1602,15 @@ func heldDispatchFailure(task *dispatch.DispatchTask, wait time.Duration) string
 }
 
 // withPeerRefusal adds to the reason a dispatch found no worker that the
-// coordinator recently refused calls for its peer token, since a refused
-// worker cannot register.
+// coordinator recently refused worker calls for its peer token. Run errors
+// are visible to run readers, so the text names only the fixes that keep the
+// check on.
 func (h *Handler) withPeerRefusal(reason string) string {
-	if !h.peerAuth.refusedRecently() {
+	if !h.peerAuth.refusedWorkerRecently() {
 		return reason
 	}
-	return reason + "; workers were refused for a missing or different peer token: " + peerTokenMissingHint
+	return reason + "; workers were refused for a missing or different peer token: " +
+		"set the same peer.token on the coordinator and every worker, or run the workers on the coordinator's data directory as its OS user"
 }
 
 func (h *Handler) releasePreparedDispatchAttempt(ctx context.Context, dagRunID string, attempt dagrun.Attempt) {

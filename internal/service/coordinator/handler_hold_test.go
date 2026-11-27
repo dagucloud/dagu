@@ -190,11 +190,15 @@ func TestDispatchHoldDeadlineFailsAttempt(t *testing.T) {
 // its peer token, says that workers were refused.
 func TestDispatchFailureNamesPeerTokenRefusal(t *testing.T) {
 	const note = "workers were refused for a missing or different peer token"
-	refuseCall := func(t *testing.T, h *Handler) {
+	refuseMethod := func(t *testing.T, h *Handler, method string) {
 		t.Helper()
 		h.peerAuth = NewPeerTokenAuth("coordinator-token", false, true)
 		ctx := callContext(t, newPeerTokenCredentials("", ""))
-		require.Error(t, h.peerAuth.authorize(ctx, "/coordinator.v1.CoordinatorService/Poll"))
+		require.Error(t, h.peerAuth.authorize(ctx, method))
+	}
+	refuseCall := func(t *testing.T, h *Handler) {
+		t.Helper()
+		refuseMethod(t, h, coordinatorv1.CoordinatorService_Poll_FullMethodName)
 	}
 
 	t.Run("held", func(t *testing.T) {
@@ -207,6 +211,8 @@ func TestDispatchFailureNamesPeerTokenRefusal(t *testing.T) {
 		runStatus := f.status(t, "run-refused")
 		assert.Equal(t, ir.Failed, runStatus.Status)
 		assert.Contains(t, runStatus.Error, "no worker matched the selector {type: cpu} within 1m0s; "+note)
+		// Run errors name only the fixes that keep the check on.
+		assert.NotContains(t, runStatus.Error, "require_token")
 	})
 
 	t.Run("refused at once", func(t *testing.T) {
@@ -215,6 +221,29 @@ func TestDispatchFailureNamesPeerTokenRefusal(t *testing.T) {
 		_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: cpuTask("run-refused")})
 		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 		assert.ErrorContains(t, err, note)
+	})
+
+	// A refused call that a worker does not need to register, such as one
+	// from a server, does not explain a missing worker.
+	t.Run("refused non-worker call", func(t *testing.T) {
+		f := newHoldFixture(t, 0)
+		refuseMethod(t, f.h, coordinatorv1.CoordinatorService_GetWorkers_FullMethodName)
+		_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: cpuTask("run-refused")})
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), note)
+	})
+
+	// Registered workers too old for the DAG's connections are not a token
+	// problem.
+	t.Run("workers without connection support", func(t *testing.T) {
+		f := newHoldFixture(t, 0)
+		refuseCall(t, f.h)
+		task := cpuTask("run-refused")
+		task.WorkerSelector = map[string]string{"type": "gpu"}
+		task.Definition = "steps:\n  - name: read\n    action: mcp.call\n    with: {connection: work, tool: search}\n"
+		_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: task})
+		assert.ErrorContains(t, err, "the DAG declares connections")
+		assert.NotContains(t, err.Error(), note)
 	})
 
 	t.Run("no refusal", func(t *testing.T) {

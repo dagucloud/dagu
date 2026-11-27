@@ -27,6 +27,7 @@ import (
 	appconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
 const (
@@ -41,8 +42,8 @@ const (
 	// peerTokenWarnInterval bounds how often the coordinator logs that it
 	// accepted or refused a call without a valid peer token.
 	peerTokenWarnInterval = 10 * time.Minute
-	// peerTokenRefusalWindow is how long a refused call explains a dispatch
-	// that found no worker.
+	// peerTokenRefusalWindow is how long a refused worker call explains a
+	// dispatch that found no worker.
 	peerTokenRefusalWindow = 10 * time.Minute
 	// peerTokenMissingHint names the fixes for a call without a peer token.
 	peerTokenMissingHint = "set the same peer.token on the coordinator and every peer, let the peer read the coordinator's data directory, or set coordinator.require_token: false" //nolint:gosec // A log hint, not a credential.
@@ -164,7 +165,9 @@ type PeerTokenAuth struct {
 	mu             sync.Mutex
 	lastWarn       time.Time
 	lastRefusalLog time.Time
-	lastRefusal    time.Time
+	// lastWorkerRefusal is the last refusal of a call a worker needs to
+	// register.
+	lastWorkerRefusal time.Time
 }
 
 // NewPeerTokenAuth returns a check for token. configured reports whether the
@@ -220,21 +223,30 @@ func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
 	return nil
 }
 
-// refusedRecently reports whether the coordinator refused a call for its
-// peer token within peerTokenRefusalWindow.
-func (a *PeerTokenAuth) refusedRecently() bool {
+// refusedWorkerRecently reports whether the coordinator refused a call a
+// worker needs to register within peerTokenRefusalWindow.
+func (a *PeerTokenAuth) refusedWorkerRecently() bool {
 	if a == nil {
 		return false
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return !a.lastRefusal.IsZero() && time.Since(a.lastRefusal) < peerTokenRefusalWindow
+	return !a.lastWorkerRefusal.IsZero() && time.Since(a.lastWorkerRefusal) < peerTokenRefusalWindow
+}
+
+// registersWorker reports whether method is a call a worker must make to
+// register: a refusal of any other call does not keep a worker away.
+func registersWorker(method string) bool {
+	return method == coordinatorv1.CoordinatorService_Poll_FullMethodName ||
+		method == coordinatorv1.CoordinatorService_Heartbeat_FullMethodName
 }
 
 func (a *PeerTokenAuth) refuse(ctx context.Context, method string, mismatched bool) {
 	now := time.Now()
 	a.mu.Lock()
-	a.lastRefusal = now
+	if registersWorker(method) {
+		a.lastWorkerRefusal = now
+	}
 	due := logDue(&a.lastRefusalLog, now)
 	a.mu.Unlock()
 	if !due {
