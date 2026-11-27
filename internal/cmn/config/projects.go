@@ -25,8 +25,11 @@ const projectsSwitchKey = "experimental_projects"
 //	    dag-run-work/               unless paths.dag_run_work_dir is set
 //	    events/                     whatever paths.event_store_dir says
 //	    dag-state/ queue/ proc/ suspend/ views/
+//	  library/                      the library DAGs that run in the project:
+//	    logs/ artifacts/ runs/ state/   laid out as the project's own
 //	<log_dir>/.projects/<name>/     when paths.log_dir is set; likewise for
 //	                                artifact_dir, dag_runs_dir, dag_run_work_dir
+//	<log_dir>/.projects/<name>.library/   the library DAGs' logs then
 const (
 	defaultProjectName       = "default"
 	projectStatesDirName     = "projects"
@@ -43,6 +46,10 @@ const (
 	projectProcDirName       = "proc"
 	projectSuspendDirName    = "suspend"
 	projectViewsDirName      = "views"
+	projectLibraryDirName    = "library"
+	// setApartLibrarySuffix names a project's library directory under a
+	// path set apart. A project name has no ".", so no project takes it.
+	setApartLibrarySuffix = ".library"
 )
 
 // ProjectPaths holds the directories of one project.
@@ -106,22 +113,60 @@ func (c *Config) ProjectPaths(name string) (ProjectPaths, error) {
 		}, nil
 	}
 
+	name, err := projectDirName(name)
+	if err != nil {
+		return ProjectPaths{}, err
+	}
 	dagsDir := c.Paths.DAGsDir
-	if isDefault {
-		name = defaultProjectName
-	} else {
-		if !isPathElement(name) {
-			return ProjectPaths{}, fmt.Errorf("project name %q is not a directory name", name)
-		}
+	if !isDefault {
 		dagsDir = filepath.Join(c.Paths.ProjectsDir, name)
 	}
 
 	stateDir := filepath.Join(c.Paths.DataDir, projectStatesDirName, name)
+	paths := c.statePaths(stateDir, name)
+	paths.DAGsDir = dagsDir
+	paths.RecordDirs = []string{stateDir}
+	// The library directories set apart are the project's too, so each
+	// records the project as well.
+	for _, setApart := range []string{name, name + setApartLibrarySuffix} {
+		for _, dir := range c.setApartDirs(setApart) {
+			if !slices.Contains(paths.RecordDirs, dir) {
+				paths.RecordDirs = append(paths.RecordDirs, dir)
+			}
+		}
+	}
+	return paths, nil
+}
+
+// LibraryPaths returns the directories where the project called name keeps
+// the runs, logs, artifacts, queues, and DAG state of the library DAGs it
+// runs: library/ in its state directory, and .projects/<name>.library/ under
+// each path set apart. DAGsDir, SettingsDir, and EventStoreDir are the
+// project's, and RecordDirs is empty. It fails while projects are off.
+func (c *Config) LibraryPaths(name string) (ProjectPaths, error) {
+	if !c.ProjectsEnabled {
+		return ProjectPaths{}, fmt.Errorf("project %q: projects are off", name)
+	}
+	project, err := c.ProjectPaths(name)
+	if err != nil {
+		return ProjectPaths{}, err
+	}
+	name, _ = projectDirName(name)
+	paths := c.statePaths(filepath.Join(project.StateDir, projectLibraryDirName), name+setApartLibrarySuffix)
+	paths.DAGsDir = project.DAGsDir
+	paths.SettingsDir = project.SettingsDir
+	paths.EventStoreDir = project.EventStoreDir
+	return paths, nil
+}
+
+// statePaths lays out the stores of a project's state directory stateDir.
+// A path that the configuration sets apart goes to <root>/.projects/<setApart>
+// instead.
+func (c *Config) statePaths(stateDir, setApart string) ProjectPaths {
 	otherDir := filepath.Join(stateDir, projectOtherStateDirName)
 	// The paths settings that place these stores only tell migration where
 	// v2 kept their data.
 	paths := ProjectPaths{
-		DAGsDir:         dagsDir,
 		StateDir:        stateDir,
 		EventStoreDir:   filepath.Join(otherDir, projectEventsDirName),
 		SettingsDir:     filepath.Join(stateDir, projectSettingsDirName),
@@ -131,19 +176,12 @@ func (c *Config) ProjectPaths(name string) (ProjectPaths, error) {
 		ProcDir:         filepath.Join(otherDir, projectProcDirName),
 		SuspendFlagsDir: filepath.Join(otherDir, projectSuspendDirName),
 		ViewsDir:        filepath.Join(otherDir, projectViewsDirName),
-		RecordDirs:      []string{stateDir},
 	}
-	// place returns inState, or <root>/.projects/<name> when the
-	// configuration sets root.
 	place := func(explicit bool, root, inState string) string {
 		if !explicit {
 			return inState
 		}
-		dir := filepath.Join(root, setApartProjectsDirName, name)
-		if !slices.Contains(paths.RecordDirs, dir) {
-			paths.RecordDirs = append(paths.RecordDirs, dir)
-		}
-		return dir
+		return filepath.Join(root, setApartProjectsDirName, setApart)
 	}
 	explicit := c.Paths.Explicit
 	paths.LogDir = place(explicit.LogDir, c.Paths.LogDir,
@@ -154,7 +192,40 @@ func (c *Config) ProjectPaths(name string) (ProjectPaths, error) {
 		filepath.Join(stateDir, projectRunsDirName))
 	paths.DAGRunWorkDir = place(explicit.DAGRunWorkDir, c.Paths.DAGRunWorkDir,
 		filepath.Join(otherDir, projectRunWorkDirName))
-	return paths, nil
+	return paths
+}
+
+// setApartDirs returns <root>/.projects/<setApart> for each root that the
+// configuration sets apart.
+func (c *Config) setApartDirs(setApart string) []string {
+	var dirs []string
+	explicit := c.Paths.Explicit
+	for _, root := range []struct {
+		set bool
+		dir string
+	}{
+		{explicit.LogDir, c.Paths.LogDir},
+		{explicit.ArtifactDir, c.Paths.ArtifactDir},
+		{explicit.DAGRunsDir, c.Paths.DAGRunsDir},
+		{explicit.DAGRunWorkDir, c.Paths.DAGRunWorkDir},
+	} {
+		if root.set {
+			dirs = append(dirs, filepath.Join(root.dir, setApartProjectsDirName, setApart))
+		}
+	}
+	return dirs
+}
+
+// projectDirName returns the name of the project called name as its
+// directories spell it.
+func projectDirName(name string) (string, error) {
+	if strings.EqualFold(name, defaultProjectName) {
+		return defaultProjectName, nil
+	}
+	if !isPathElement(name) {
+		return "", fmt.Errorf("project name %q is not a directory name", name)
+	}
+	return name, nil
 }
 
 // isPathElement reports whether name is a single directory name that stays

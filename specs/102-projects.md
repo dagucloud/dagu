@@ -120,11 +120,18 @@ A project's DAG directory is the directory that holds its DAG files. See
 [Layout](#layout).
 
 A project's state directory is `<data_dir>/projects/<name>/`. Its state
-directories are that directory and each `.projects/<name>/` directory under
-a [path set apart](#paths-set-apart).
+directories are that directory and each `.projects/<name>/` and
+`.projects/<name>.library/` directory under a
+[path set apart](#paths-set-apart).
+
+A project's library directories are `library/` in its state directory and
+each `.projects/<name>.library/` directory under a path set apart. They hold
+the runs of the library DAGs that run in the project. See
+[Runs of Library DAGs](#runs-of-library-dags).
 
 The library is the directory `paths.alt_dags_dir`. A library DAG is a DAG
-file in the library. The library belongs to no project.
+file in the library, or a DAG defined in such a file. The library belongs
+to no project.
 
 A file that runs in place is a DAG file outside a project's DAG directory
 that the registry records as that project's. Only migration records such
@@ -257,6 +264,8 @@ $DAGU_HOME/
       default/           the default project's state directory
       weather/           the weather project's state directory
         runs/ logs/ artifacts/ settings/ state/
+        library/         the runs of library DAGs in weather
+          runs/ logs/ artifacts/ state/
   projects/              paths.projects_dir
     weather/             the weather project's DAG directory
       base.yaml          its base config
@@ -290,6 +299,14 @@ $DAGU_HOME/
   policies, and `state/` for the rest of its
   [project state](#server-wide-and-project-state).
 - The default project's state directory is `<data_dir>/projects/default/`.
+- `library/` in a state directory holds the runs of the library DAGs that
+  run in the project, laid out as the project's own: `runs/`, `logs/`,
+  `artifacts/`, and `state/` for their run work directories, process
+  heartbeats, queues, and DAG state.
+- The default project's is `<data_dir>/projects/default/library/`. No v2
+  directory and no DAG's directory is there, so it holds the default
+  project's library runs before and after migration moves the rest of the
+  default project's state.
 - Each of a project's state directories records the project's ID and name.
 
 #### Paths Set Apart
@@ -298,8 +315,13 @@ $DAGU_HOME/
   `paths.dag_run_work_dir` is set, by `config.yaml`, the environment, or a
   flag, each project's logs, artifacts, runs, or run work directories live
   under that path in `.projects/<name>/`, instead of in the state directory.
-- Each such `.projects/<name>/` directory is one of the project's state
-  directories and records the project's ID and name.
+- The logs, artifacts, runs, or run work directories of the library DAGs
+  that run in the project live under that path in
+  `.projects/<name>.library/`. A project name has no `.`, so no project
+  has that directory.
+- Each such `.projects/<name>/` and `.projects/<name>.library/` directory
+  is one of the project's state directories and records the project's ID
+  and name.
 
 #### Server-Wide State in `paths.data_dir`
 
@@ -596,9 +618,10 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 
 #### Resolution
 
-- `dag.run` resolves its target in the caller's project, then in the
-  library. In the caller's project, a name resolves in its DAG directory,
-  then among its files that run in place.
+- `dag.run` resolves a name among the DAGs defined in the caller's file,
+  then in the caller's project, then in the library. In the caller's
+  project, a name resolves in its DAG directory, then among its files that
+  run in place.
 - A path target must lie inside the caller's project DAG directory or the
   library once symbolic links resolve, or be a file that runs in place as
   the caller's project's.
@@ -608,7 +631,7 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 - A `dag.run` inside a library DAG resolves in the same project, then the
   library.
 - A project DAG shadows a library DAG of the same name: `dag.run` finds the
-  project's DAG.
+  project's DAG. A DAG defined in the caller's file shadows both.
 - Every project can call the library. A library call is not a call across
   projects.
 
@@ -618,8 +641,32 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   `dag.run`, or the project given to an explicit start. Its run is recorded
   there, and it uses that project's base config, secrets, and profiles.
 - A project keeps a library DAG's runs and DAG state apart from its own
-  DAGs'. A project DAG added later under the same name starts with no runs,
-  and the library DAG's runs in that project stay reachable.
+  DAGs', in its [library directories](#terms). A project DAG added later
+  under the same name starts with no runs and no DAG state, and the library
+  DAG's runs in that project stay reachable.
+- An explicit start of a library DAG records the whole run in the
+  project's library directories: its run record, logs, artifacts, run work
+  directory, process heartbeat, and queue item. A child of that run is
+  recorded under it.
+- A library DAG that `dag.run` starts is recorded under its caller's run,
+  as every child is.
+- A CLI command given a library DAG's file by path, such as `dagu status`,
+  `dagu retry`, or `dagu stop`, reads and changes that library DAG's runs
+  in the addressed project. Given a name, it addresses the project's DAG.
+- DAG state (Spec 068) keeps the meaning of each scope within the project.
+  A library DAG's name namespaces its state apart from a project DAG of the
+  same name:
+
+  | Scope | Namespaced by | Kept in |
+  | --- | --- | --- |
+  | `dag` | the DAG of the step | the library directories when that DAG is a library DAG, else the project's state |
+  | `root_dag` | the DAG of the root run | the library directories when that DAG is a library DAG, else the project's state |
+  | `global` | `with.namespace` | the project's state |
+  | `custom` | `with.namespace` | the project's state |
+
+  So a library DAG that `dag.run` starts shares `root_dag`, `global`, and
+  `custom` state with its caller, and keeps its `dag` state apart from a
+  project DAG of its name.
 - API paths, URLs, and CLI commands address a library DAG in a project with
   `library` beside `project`.
 - An explicit start of a library DAG is refused in a project that has a DAG
@@ -1259,6 +1306,11 @@ With `paths.log_dir: /var/log/dagu`, the logs of `intraday` are under
 `/var/log/dagu/.projects/intraday/`, and that directory records the ID and
 name of `intraday`.
 
+The library DAGs that run in `intraday` keep their runs in
+`/srv/dagu/data/projects/intraday/library/`, and, with
+`paths.log_dir: /var/log/dagu`, their logs in
+`/var/log/dagu/.projects/intraday.library/`.
+
 `forecast` runs with `/srv/dagu/projects/intraday/base.yaml`, then
 `forecast.yaml`. `auction` runs with no base config. `cleanup` runs with
 `/srv/dagu/base.yaml`, then `cleanup.yaml`.
@@ -1300,6 +1352,9 @@ steps:
 
 A run of `forecast` records a child run of `ABC` in `intraday`, which uses
 `/srv/dagu/projects/intraday/base.yaml` and the secrets of `intraday`. A
+state step of `ABC` with `scope: dag` keeps its value in the library
+directories of `intraday`; one with `scope: root_dag` shares the value of
+`forecast`'s run. A
 run of `auction` records a child run of `ABC` in `day-ahead`. A user with a
 role only in `day-ahead` sees the second child run and gets `404` for the
 first.
@@ -1312,7 +1367,7 @@ scheduled.
 After the operator adds `/srv/dagu/projects/intraday/ABC.yaml`:
 
 - `forecast`'s `dag.run` of `ABC` runs the project's `ABC`, which has no
-  runs.
+  runs and no DAG state.
 - The runs of the library `ABC` in `intraday` stay reachable with `library`
   beside `project`.
 - An explicit start of the library `ABC` in `intraday` is refused.

@@ -186,7 +186,7 @@ func TestProjectEnqueue(t *testing.T) {
 	h.file(t, "projects/weather/forecast.yaml")
 
 	_, _, err := h.runDagu(t, []*cobra.Command{Enqueue()}, "enqueue", "--project", "weather", "forecast")
-	require.ErrorContains(t, err, "project weather cannot queue runs outside the default project")
+	require.ErrorContains(t, err, "project weather cannot queue runs; only the default project's queues are processed; run it with dagu start instead")
 	ctx, err := NewContext(h.command(t, "enqueue", "weather"), nil)
 	require.NoError(t, err)
 	items, err := ctx.Persistence.QueueStore.All(ctx)

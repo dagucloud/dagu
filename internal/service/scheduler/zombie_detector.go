@@ -42,6 +42,8 @@ type ZombieDetector struct {
 	runMutexes       map[string]*sync.Mutex
 	quit             chan struct{}
 	closeOnce        sync.Once
+	// others check more run and process stores on each tick.
+	others []*ZombieDetector
 }
 
 // NewZombieDetector creates a new zombie detector
@@ -68,6 +70,21 @@ func NewZombieDetector(
 	}
 }
 
+// alsoCheck makes z also clean up the dead runs that the given stores
+// record, on each of its ticks.
+func (z *ZombieDetector) alsoCheck(dagRunRepository *persis.DAGRunRepository, procRepository zombieProcessRepository) {
+	z.others = append(z.others, NewZombieDetector(dagRunRepository, procRepository, z.interval, z.failureThreshold))
+}
+
+// check cleans up the dead runs of z's stores and of each store that
+// alsoCheck added.
+func (z *ZombieDetector) check(ctx context.Context) {
+	z.detectAndCleanZombies(ctx)
+	for _, other := range z.others {
+		other.detectAndCleanZombies(ctx)
+	}
+}
+
 // Start begins the zombie detection loop
 func (z *ZombieDetector) Start(ctx context.Context) {
 	ticker := time.NewTicker(z.interval)
@@ -82,7 +99,7 @@ func (z *ZombieDetector) Start(ctx context.Context) {
 						logger.Error(ctx, "Zombie detection check panicked", tag.Error(panicToError(r)))
 					}
 				}()
-				z.detectAndCleanZombies(ctx)
+				z.check(ctx)
 			}()
 
 		case <-z.quit:
