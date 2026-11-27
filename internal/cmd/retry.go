@@ -226,7 +226,7 @@ func runRetry(ctx *Context, args []string) error {
 		}
 	}
 
-	dag, err = restoreDAGFromStatus(ctx.Context, dag, status, ctx.Persistence.DAGRunRepository)
+	dag, err = ctx.restoreRunDAG(dag, status)
 	if err != nil {
 		return fmt.Errorf("failed to restore DAG from status: %w", err)
 	}

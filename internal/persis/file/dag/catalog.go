@@ -76,20 +76,30 @@ func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*
 // base config applies to every DAG but is not one, even when it lives in a DAG
 // directory.
 func (store *Store) withoutBaseConfig(files []DiscoveredFile) []DiscoveredFile {
-	if store.baseConfigPath == "" {
-		return files
-	}
-	baseConfig, err := filepath.Abs(store.baseConfigPath)
-	if err != nil {
-		return files
-	}
-	baseConfig, err = filepath.EvalSymlinks(baseConfig)
-	if err != nil {
+	baseConfig := store.resolvedBaseConfig()
+	if baseConfig == "" {
 		return files
 	}
 	return slices.DeleteFunc(files, func(file DiscoveredFile) bool {
 		return file.ResolvedPath == baseConfig
 	})
+}
+
+// resolvedBaseConfig returns the absolute path of the base config with its
+// links resolved, or "" when the store has none or the file does not exist.
+func (store *Store) resolvedBaseConfig() string {
+	if store.baseConfigPath == "" {
+		return ""
+	}
+	baseConfig, err := filepath.Abs(store.baseConfigPath)
+	if err != nil {
+		return ""
+	}
+	baseConfig, err = filepath.EvalSymlinks(baseConfig)
+	if err != nil {
+		return ""
+	}
+	return baseConfig
 }
 
 func newCatalog(entries []*indexv1.DAGIndexEntry, scanErrors []error, checkConflicts bool) *catalog {

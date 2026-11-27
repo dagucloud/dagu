@@ -127,6 +127,10 @@ func initStores(
 		return fmt.Errorf("failed to create Wiki store: %w", err)
 	}
 	stores.Wiki = wikiStore
+	if cfg.ProjectsEnabled && wikiStore != nil {
+		// The API addresses the default project's wiki.
+		stores.Wiki = newProjectWikis(cfg, stores.Projects, wikiStore).defaults
+	}
 
 	workspaceStore, err := newWorkspaceStore(cfg, server)
 	if err != nil {

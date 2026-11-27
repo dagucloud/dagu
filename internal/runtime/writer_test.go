@@ -246,9 +246,10 @@ func TestFlushableMultiWriter_Integration(t *testing.T) {
 	})
 }
 
-// A periodic flush must not write a partial line, or a secret split across
-// writes reaches the log unmasked. Flush ends the attempt and writes it all.
-func TestSafeBufferedWriter_MaskedPartialLine(t *testing.T) {
+// A periodic flush must not write the start of a secret the masking writer
+// holds, or a secret split across writes reaches the log unmasked. Flush
+// ends the attempt and writes it all.
+func TestSafeBufferedWriter_HeldSecretStart(t *testing.T) {
 	var out bytes.Buffer
 	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: []string{"TOKEN=s3cr3t"}})
 	w := newSafeBufferedWriter(masking.NewMaskingWriter(&out, masker))
@@ -264,9 +265,9 @@ func TestSafeBufferedWriter_MaskedPartialLine(t *testing.T) {
 	assert.Equal(t, "*******", out.String())
 }
 
-// A periodic flush must not send a partial line to the stream, or a secret
-// split across writes reaches the coordinator unmasked.
-func TestMaskingStreamWriter_PartialLine(t *testing.T) {
+// A periodic flush must not send the start of a secret to the stream, or a
+// secret split across writes reaches the coordinator unmasked.
+func TestMaskingStreamWriter_HeldSecretStart(t *testing.T) {
 	stream := &recordingStream{}
 	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: []string{"TOKEN=s3cr3t"}})
 	w := newMaskingStreamWriter(stream, masker)

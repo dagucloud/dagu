@@ -20,7 +20,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/yamlutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/goccy/go-yaml"
 )
@@ -560,7 +559,7 @@ func (a *API) specValueReferenceNotices(ctx context.Context, name, source string
 		spec.WithName(name),
 		spec.WithAllowBuildErrors(),
 		spec.WithoutEval(),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+		spec.WithWorkspaceBaseConfigDir(a.config.WorkspaceBaseConfigDir()),
 	}
 	if a.config.Paths.BaseConfig != "" {
 		opts = append(opts, spec.WithBaseConfig(a.config.Paths.BaseConfig))
