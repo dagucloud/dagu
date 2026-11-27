@@ -6703,3 +6703,49 @@ func TestKeepLegacyLogPaths(t *testing.T) {
 	assert.Equal(t, filepath.Join(newDir, "scheduler.log"), status.Log)
 	assert.Equal(t, filepath.Join(newDir, "fetch%20data.stdout.log"), status.Nodes[0].Stdout)
 }
+
+// A status report that bootstraps a missing sub-DAG attempt closes the handle
+// that its cache entry held before.
+func TestReportStatusBootstrapClosesReplacedAttempt(t *testing.T) {
+	t.Parallel()
+
+	store := newMockDAGRunStore()
+	baseDir := filepath.Join(t.TempDir(), "distributed")
+	leaseStore := newTestDAGRunLeaseStore(baseDir)
+	owner := dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234}
+	h := NewHandler(HandlerConfig{
+		DAGRunRepository:          store.repository,
+		DAGRunLeaseStore:          leaseStore,
+		ActiveDistributedRunStore: newTestActiveDistributedRunStore(baseDir),
+		Owner:                     owner,
+	})
+	ctx := context.Background()
+
+	rootRef := ir.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
+	rootAttemptKey := ir.GenerateAttemptKey(rootRef.Name, rootRef.ID, rootRef.Name, rootRef.ID, "root-attempt-1")
+	store.addAttempt(rootRef, &ir.DAGRunStatus{
+		Name: rootRef.Name, DAGRunID: rootRef.ID, Root: rootRef,
+		AttemptID: "root-attempt-1", AttemptKey: rootAttemptKey, Status: ir.Running, WorkerID: "worker-1",
+	})
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+		AttemptKey: rootAttemptKey, DAGRun: rootRef, Root: rootRef,
+		AttemptID: "root-attempt-1", WorkerID: "worker-1", Owner: owner,
+	}))
+	stale := &mockAttempt{status: &ir.DAGRunStatus{AttemptID: "stale-attempt"}, isOpen: true}
+	h.attemptsMu.Lock()
+	h.openAttempts["child-run-123"] = stale
+	h.attemptsMu.Unlock()
+
+	running, err := convert.DAGRunStatusToProto(&ir.DAGRunStatus{
+		Name: "child-dag", DAGRunID: "child-run-123", Root: rootRef,
+		AttemptID: "child-attempt-1", Status: ir.Running, WorkerID: "worker-1",
+	})
+	require.NoError(t, err)
+	resp, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{
+		Status: running, WorkerId: "worker-1", OwnerCoordinatorId: "coord-a",
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Accepted)
+
+	assert.True(t, stale.WasClosed(), "the replaced cached attempt must be closed")
+}

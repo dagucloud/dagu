@@ -3079,9 +3079,7 @@ func (h *Handler) bootstrapMissingSubAttempt(
 		runStatus.WorkerID = reportingWorkerID
 	}
 
-	h.attemptsMu.Lock()
-	h.openAttempts[runStatus.DAGRunID] = attempt
-	h.attemptsMu.Unlock()
+	h.cacheOpenAttempt(ctx, runStatus.DAGRunID, attempt)
 
 	return attempt, true, nil
 }
