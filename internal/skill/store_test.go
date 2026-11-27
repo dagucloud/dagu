@@ -572,7 +572,8 @@ func TestTwoWritersRace(t *testing.T) {
 
 // A write never reaches the target of a link that replaces the skill folder or
 // the skills directory during the write. A write stays in the skill folder that
-// it opened. A moved skills directory moves the lock too, so that write stops.
+// it opened, and then gives a conflict: the path of the skill names another
+// folder. A moved skills directory moves the lock too, so that write stops.
 func TestWriteStaysInTheFolderThatItOpened(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows refuses to move a folder that a process holds open")
@@ -605,6 +606,10 @@ func TestWriteStaysInTheFolderThatItOpened(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "original", string(data), "the write went through the link")
 			moved, want := filepath.Join(s.Dir("demo")+".moved", "SKILL.md"), good
+			if !inSkillsDir {
+				var conflict *skill.ConflictError
+				require.ErrorAs(t, writeErr, &conflict, "the result would describe the link, not the saved file")
+			}
 			if inSkillsDir {
 				require.ErrorIs(t, writeErr, dirlock.ErrLockNotHeld)
 				moved, want = filepath.Join(skill.Root(s)+".moved", "demo", "SKILL.md"), string(before)

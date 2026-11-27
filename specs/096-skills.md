@@ -498,7 +498,7 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | `TestWritePreconditions` (unit) | A create of an existing skill and a stale hash give a conflict with the current hash and change nothing. A write needs a precondition. The hashes chain. A bad `SKILL.md` is refused. |
 | `TestWriteRefusesASkillThatDoesNotSettle` (unit) | The hash of a read that did not settle passes no precondition. |
 | `TestWriteRefusesSymbolicLinks` (unit) | A write never goes through a link of the folder, of a folder below it or of the file. |
-| `TestWriteStaysInTheFolderThatItOpened` (unit) | A skill folder or a skills directory that becomes a link during the write leaves the link target as it was; the write stays in the folder that it opened, or stops when the lock moved with the skills directory. |
+| `TestWriteStaysInTheFolderThatItOpened` (unit) | A skill folder or a skills directory that becomes a link during the write leaves the link target as it was; the write stays in the folder that it opened and gives a conflict, or stops when the lock moved with the skills directory. |
 | `TestLostLockCommitsNothing` (unit) | A writer that lost its lock writes and creates nothing, and leaves no folder. |
 | `TestLockFailureIsNotAConflict` (unit) | A lock error other than a held lock is not a conflict. |
 | `TestTwoWritersRace` (unit) | Of two writers with the same hash, one wins and the other gets a conflict, also when a holder that died left the lock. |

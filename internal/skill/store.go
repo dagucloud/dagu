@@ -227,6 +227,7 @@ func (s *Store) WriteFile(ctx context.Context, name, rel string, data []byte, pr
 	}
 
 	var result *Skill
+	committed := false
 	err = s.withLock(ctx, name, pre, func(held func() error) error {
 		current, err := s.checkPrecondition(name, pre)
 		if err != nil {
@@ -252,7 +253,7 @@ func (s *Store) WriteFile(ctx context.Context, name, rel string, data []byte, pr
 			// A creation that commits nothing leaves no folder. Remove deletes an
 			// empty folder only, so a file of another writer stays.
 			defer func() {
-				if result == nil {
+				if !committed {
 					_ = os.Remove(s.Dir(name))
 				}
 			}()
@@ -265,8 +266,18 @@ func (s *Store) WriteFile(ctx context.Context, name, rel string, data []byte, pr
 		if err := writeInRoot(root, rel, data, held); err != nil {
 			return err
 		}
-		result, err = Read(s.Dir(name))
-		return err
+		committed = true
+		read, err := Read(s.Dir(name))
+		if err != nil {
+			return err
+		}
+		// The result describes the saved file only while the path of the skill
+		// still names the folder that the write opened.
+		if !namesRoot(s.Dir(name), root) {
+			return &ConflictError{Message: fmt.Sprintf("the skill folder %q was replaced during the write; read it again", name)}
+		}
+		result = read
+		return nil
 	})
 	return result, err
 }
@@ -310,6 +321,17 @@ func openSkillDir(dir string) (*os.Root, error) {
 		return nil, linkRefusal(RuleFolderLink, "", "the skill folder changed while Dagu opened it")
 	}
 	return root, nil
+}
+
+// namesRoot reports whether dir is still the folder that root opened, not a
+// link or another folder.
+func namesRoot(dir string, root *os.Root) bool {
+	opened, err := root.Stat(".")
+	if err != nil {
+		return false
+	}
+	info, err := os.Lstat(dir)
+	return err == nil && os.SameFile(info, opened)
 }
 
 // checkNoLink returns an error when a component of rel, from the top folder to the
