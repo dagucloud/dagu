@@ -329,6 +329,17 @@ func TestSkillsFiles(t *testing.T) {
 		cur.Hash = removed.Hash
 	})
 
+	// A file of 0 bytes, such as a .gitkeep or an __init__.py, is a valid file.
+	t.Run("AnEmptyFile", func(t *testing.T) {
+		h := getSkill(t, server, "refund-policy").Hash
+		for _, rel := range []string{"assets/.gitkeep", "scripts/__init__.py"} {
+			h = putFile(rel, []byte{}, h, http.StatusOK).Hash
+			resp := server.Client().Get("/api/v1/skills/refund-policy/files?path=" + rel).ExpectStatus(http.StatusOK).Send(t)
+			assert.Empty(t, resp.Response.Body(), rel)
+			assert.Equal(t, `"`+h+`"`, resp.Response.Header().Get("ETag"), rel)
+		}
+	})
+
 	t.Run("RulesOfTheFolderApply", func(t *testing.T) {
 		h := getSkill(t, server, "refund-policy").Hash
 		putFile("README.md", []byte("x"), h, http.StatusBadRequest)

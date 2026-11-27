@@ -86,4 +86,12 @@ func TestClosedBodyMiddleware(t *testing.T) {
 	assert.Equal(t, []string{"\xff\x00"}, reached, "a file reaches the handler as sent")
 	w = send(http.MethodPut, filePath, "application/octet-stream", tooLarge)
 	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+
+	// An empty file has no bytes to check, so it passes with any type or none.
+	reached = nil
+	for _, contentType := range []string{"application/octet-stream", ""} {
+		w = send(http.MethodPut, filePath, contentType, "")
+		assert.Equal(t, http.StatusNoContent, w.Code, "Content-Type %q", contentType)
+	}
+	assert.Equal(t, []string{"", ""}, reached)
 }

@@ -327,7 +327,8 @@ A JSON body of a skill route has a closed schema. An unknown field gives the sta
 above 8 MiB gives the status 413. The check applies to every `Content-Type`. The error never quotes
 a value of the body. A request for a remote node gets the check of that node. The body of
 `PUT /skills/{name}/files` is the bytes of the file, with the type `application/octet-stream`.
-Another type, or none, gives 400.
+Another type, or none, gives 400. An empty body writes an empty file, such as a `.gitkeep`, whatever
+its type.
 
 | Route | Meaning |
 | --- | --- |
@@ -539,10 +540,10 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | `TestReadThatMeetsADeleteFindsNoSkill` (unit) | A read that meets the delete of its skill finds no skill, never a part of one. |
 | `TestDeleteRemovesTheLockFolder` (unit) | A delete removes the lock folder of the skill. |
 | `TestDeleteRemovesWhatEarlierDeletesLeft` (unit) | A delete removes the hidden folders that earlier deletes left. |
-| `TestClosedBodyMiddleware` (unit) | A skills body with an unknown field, a wrong type or more than 8 MiB is refused for every `Content-Type`, and the error quotes no value. A file body passes as `application/octet-stream` only. |
+| `TestClosedBodyMiddleware` (unit) | A skills body with an unknown field, a wrong type or more than 8 MiB is refused for every `Content-Type`, and the error quotes no value. A file body passes as `application/octet-stream` only, and an empty body passes with any type. |
 | `TestSkillsPutNeedsAPrecondition` (unit) | `PUT /skills/{name}` gives 428 with no precondition and 400 for an `If-Match` that is not 64 hexadecimal characters. |
 | `TestSkillsPutChainAndConflict` (unit) | A create, an update with the hash, a stale hash and a change on disk give 200 or 409 with the current hash. An invalid `SKILL.md` gives 400 with its rules. |
-| `TestSkillsFiles` (unit) | The file routes chain the hashes, apply the rules of the folder, the 4 MiB limit and the preconditions, and delete an entry that breaks the layout. |
+| `TestSkillsFiles` (unit) | The file routes chain the hashes, write and read an empty file, apply the rules of the folder, the 4 MiB limit and the preconditions, and delete an entry that breaks the layout. |
 | `TestSkillsDelete` (unit) | `DELETE /skills/{name}` gives 428, 409, 400 for `If-None-Match`, 204 and then 404. |
 | `TestSkillsWriteRefusesSymbolicLinks` (unit) | A file write through a linked skill folder or a linked folder of a skill gives 400 and writes nothing outside. |
 | `TestSkillsTwoInstancesRaceOnOneDirectory` (unit) | Two API instances on one directory: one write wins, the other gets 409. |

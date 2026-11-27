@@ -3920,7 +3920,7 @@ export interface paths {
         get: operations["getSkillFile"];
         /**
          * Create or replace one file of a skill
-         * @description Writes one file under references/, assets/ or scripts/ atomically. The body holds the bytes of the file. A file of references/ or scripts/ MUST be valid UTF-8. Send If-Match with the hash that the client read. SKILL.md has its own route. Requires developer role or above.
+         * @description Writes one file under references/, assets/ or scripts/ atomically. The body holds the bytes of the file. A file of references/ or scripts/ MUST be valid UTF-8. Send If-Match with the hash that the client read. SKILL.md has its own route. An empty body writes an empty file, whatever its Content-Type. Requires developer role or above.
          */
         put: operations["putSkillFile"];
         post?: never;
@@ -22873,7 +22873,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/octet-stream": string;
             };
