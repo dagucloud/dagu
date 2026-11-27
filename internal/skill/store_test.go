@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -443,6 +444,25 @@ func TestWriteAndDeleteRefuseSymbolicLinks(t *testing.T) {
 		requireRule(t, err, skill.RuleSymlink)
 		untouched(t, outside)
 	})
+}
+
+// A lock that fails for another reason than a writer that holds it is an
+// error, not a conflict: a conflict tells the client to read and retry.
+func TestLockFailureIsNotAConflict(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs Unix permissions that bind the user")
+	}
+	t.Parallel()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	locks := filepath.Join(skill.Root(s), ".locks", "demo")
+	require.NoError(t, os.Chmod(locks, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(locks, 0o755) })
+
+	_, err := s.WriteFile(context.Background(), "demo", "SKILL.md", []byte(good), skill.Precondition{IfMatch: created.Hash})
+	require.Error(t, err)
+	var conflict *skill.ConflictError
+	require.False(t, errors.As(err, &conflict), "%v", err)
 }
 
 // loseLock hands the lock of the skill name to another owner, as the takeover

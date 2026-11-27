@@ -489,7 +489,11 @@ func (s *Store) withLock(ctx context.Context, name string, pre Precondition, fn 
 	lctx, cancel := context.WithTimeout(ctx, lockTimeout)
 	defer cancel()
 	if err := lock.Lock(lctx); err != nil {
-		return &ConflictError{Message: fmt.Sprintf("another writer holds the skill %q", name)}
+		// Only the end of the wait for another writer is a conflict.
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			return &ConflictError{Message: fmt.Sprintf("another writer holds the skill %q", name)}
+		}
+		return fmt.Errorf("lock the skill %q: %w", name, err)
 	}
 	defer func() { _ = lock.Unlock() }()
 	// A slow write on shared storage can last longer than the stale threshold. The
