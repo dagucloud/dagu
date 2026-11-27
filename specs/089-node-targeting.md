@@ -166,19 +166,24 @@ or rescheduled run does. It never runs on the Dagu host or on another
 worker:
 
 - It goes to its worker whatever the default execution mode, through a
-  coordinator. A start request or a queued run where no coordinator is
-  configured fails (`node "tokyo-gw" is a worker node: a run bound to a
-  worker node reaches its worker through a coordinator, and none is
-  configured`).
-- The node is read again when the run is dispatched, not kept from when it
-  was admitted. A worker that is offline then, by the rule of
-  [Spec 088](088-node-inventory.md#worker-nodes), fails the run at once,
-  with `worker node "tokyo-gw" is offline`, rather than waiting for it: a
-  start and a retry fail before any attempt exists, and a queued run fails.
-- A worker node forgotten since is no longer a node. A start refuses it, as
-  any name that is no node, and a retry or a queued run of a run bound to
-  it fails before any step, as a run bound to a node that left the
-  inventories does.
+  coordinator. Where `coordinator.enabled` is false
+  ([Spec 092](092-agent-workers.md)), the command, the request (503), or
+  the scheduler fails it before any attempt exists (`node "tokyo-gw" is a
+  worker node: a run bound to a worker node reaches its worker through a
+  coordinator, and none is configured`).
+- The run records the worker node it is bound to, as `boundWorker` in its
+  status, when it is enqueued or first runs, and its retries, its restart,
+  its resume, and edit-and-retry runs from it keep it. The node is read
+  again each time the run is dispatched: a worker that is offline then, by
+  the rule of [Spec 088](088-node-inventory.md#worker-nodes), fails the
+  run at once, with `worker node "tokyo-gw" is offline`, rather than
+  waiting for it. A start, a retry, a restart, or a resume fails before any
+  attempt exists, a request with 409, and a queued run fails.
+- A name that no longer names the recorded worker node, because the worker
+  was forgotten or an inventory node, which wins a name from a worker, took
+  it, fails the run the same way (`node "tokyo-gw": the run was started
+  bound to that worker node, which it no longer names`), so the run never
+  becomes bound to another node. A new start reads the name as it is then.
 - A `node: required` DAG sets no `worker_selector`, and a worker selector
   given when it is started or enqueued is refused, so the node alone
   decides where the run runs.
@@ -243,7 +248,7 @@ and a mistake fails the request:
   mistyped name never starts a run;
 - a `node: required` DAG takes exactly one node, an inventory node or a
   worker node, and the run is bound to it as a child of a `dag.run` step
-  with `nodes` is ([Bound runs](#bound-runs));
+  with `nodes` is ([Bound runs](#bound-runs)).
   The start and enqueue requests refuse such a DAG without a node; `dagu
   start` and `dagu enqueue` record a run that fails before any step;
 - any other DAG takes a list only when a step, a `foreach` body, or a
@@ -391,11 +396,12 @@ start, enqueue, and reschedule requests also fail so for a `node: required`
 DAG without exactly one node, and a reschedule for a list that no longer
 passes these checks. `dagu start` refuses `--node` with `--from-run-id`.
 
-`dagu start`, `dagu retry`, `dagu restart`, and the start and retry
-requests fail before any attempt exists when they bind a run to a worker
-node whose worker is offline (`worker node "tokyo-gw" is offline`), and the
-start requests also when no coordinator is configured. A queued run bound
-to a worker node fails before it starts for the same reasons.
+`dagu start`, `dagu retry`, `dagu restart`, and the start, retry, and
+resume requests fail before any attempt exists when they bind a run to a
+worker node whose worker is offline (`worker node "tokyo-gw" is offline`),
+when the run was started bound to a worker node its name no longer names,
+and when `coordinator.enabled` is false. A queued run bound to a worker
+node fails before it starts for the same reasons.
 
 A step with `nodes` fails before any node starts, with the error, when:
 
