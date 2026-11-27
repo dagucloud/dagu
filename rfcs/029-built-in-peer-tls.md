@@ -554,7 +554,8 @@ worker                                         coordinator
   `removing`, a stored state that survives a coordinator restart. `Poll`
   gives the worker no new tasks, and calls for the runs it already holds
   keep working. The certificate is revoked when the worker holds no task,
-  at least 30 seconds after it became `removing`. A task counts as held from
+  at least 30 seconds after it became `removing`, or when the worker stops
+  sending heartbeats. A task counts as held from
   the moment a coordinator hands it out until the worker reports its end
   or its lease expires, so a task another coordinator hands out before its
   next reread is waited for too. A connected worker without runs goes

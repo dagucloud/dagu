@@ -459,8 +459,8 @@ report join readiness.
 - Each takes the peer token, whatever `coordinator.require_token` says. A
   call without it fails with `Unauthenticated`. A call with a worker
   certificate fails with `PermissionDenied`.
-- On a coordinator without a peer CA, each fails with
-  `FailedPrecondition`. With own certificates:
+- On a coordinator without a peer CA, each call except join readiness
+  fails with `FailedPrecondition`. With own certificates:
 
   ```text
   invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file
@@ -968,7 +968,7 @@ handshake error that caused the fallback.
 | `peer.ca_cert_file` that is not a CA certificate, or a CA key that does not match it | The coordinator exits with code 1 at start, naming the files |
 | Own certificates whose key does not match | The coordinator exits with code 1 at start, naming both files |
 | `dagu peer init` into a directory with one of its files | Exits with code 1, writing nothing |
-| A server certificate that does not verify, or lacks `coordinator.dagu.invalid` | The call fails. The client does not fall back, except on an [unlisted address](#unlisted-addresses) |
+| A server certificate that does not verify, or lacks `coordinator.dagu.invalid` | The call fails. The client does not fall back. The only exception is a certificate on an [unlisted address](#unlisted-addresses) that does not chain to the published CA certificate. One that chains to it but lacks `coordinator.dagu.invalid` fails |
 | A transport-level handshake failure of a worker certificate client or an invite worker | The call fails. The worker tries the next coordinator |
 | An invite worker and a coordinator without built-in TLS | The worker counts it as unavailable and tries the next |
 | A coordinator that cannot create or read its generated CA | A warning, and the coordinator serves h2c only, as [Peer CA](#peer-ca) states. With `coordinator.require_tls: true`, it exits with code 1 at start |
