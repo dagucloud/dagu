@@ -131,7 +131,7 @@ func keptPaths(cfg *config.Config, dirs []persisfile.V2StateDir, index int) []st
 	p := cfg.Paths
 	kept := []string{
 		p.DataDir, p.AdminLogsDir, p.DAGsDir, p.ProjectsDir, p.AltDAGsDir, p.WikiDir, p.CalendarsDir,
-		p.BaseConfig, p.ServiceRegistryDir, p.UsersDir, p.APIKeysDir, p.WebhooksDir, p.ContextsDir,
+		p.BaseConfig, p.ServiceRegistryDir, p.UsersDir, p.APIKeysDir, p.ContextsDir,
 		p.RemoteNodesDir, p.WorkspacesDir, p.ToolsDir,
 	}
 	for i, dir := range dirs {

@@ -76,6 +76,8 @@ var v2State = map[string]string{
 	"data/dag-pins/u1.json":                                            "data/projects/default/state/dag-pins/u1.json",
 	"data/secrets/token.json":                                          "data/projects/default/settings/secrets/token.json",
 	"data/profiles/prod.json":                                          "data/projects/default/settings/profiles/prod.json",
+	"data/webhooks/w1.json":                                            "data/projects/default/settings/webhooks/w1.json",
+	"data/webhook-dag-claims/etl.json":                                 "data/projects/default/settings/webhook-dag-claims/etl.json",
 	"data/backfills/b1.json":                                           "data/projects/default/state/backfills/b1.json",
 	"data/cache/dag-index/index.json":                                  "data/projects/default/state/cache/dag-index/index.json",
 	"data/notifications/routes/etl.json":                               "data/projects/default/settings/notifications/routes/etl.json",
