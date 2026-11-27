@@ -430,12 +430,14 @@ func TestStartGivesStepsTheProject(t *testing.T) {
 }
 
 // A run sent to a worker carries the project the command addresses, so the
-// coordinator records it there. The default project's runs carry none, as
-// they did before projects.
+// coordinator records it there, and that project's base config alone. The
+// default project's runs carry no project, as they did before projects.
 func TestProjectDispatch(t *testing.T) {
 	t.Parallel()
 	h := newProjectsHome(t, true)
 	stop := errors.New("stop after dispatch")
+	defaultBase := "env:\n  - FROM_DEFAULT_BASE: \"1\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(h.home, "base.yaml"), []byte(defaultBase), 0o600))
 
 	for _, projectName := range []string{"weather", "default"} {
 		ctx, err := NewContext(h.command(t, "start", projectName), nil)
@@ -452,6 +454,8 @@ func TestProjectDispatch(t *testing.T) {
 			require.NotEmpty(t, want.ID)
 		}
 		assert.Equal(t, want, client.task.Project, projectName)
+		// weather has no base.yaml of its own.
+		assert.Equal(t, projectName == "default", client.task.BaseConfig == defaultBase, projectName)
 	}
 }
 

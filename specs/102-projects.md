@@ -835,6 +835,13 @@ Rules:
   cleanups.
 - A call without a project ID addresses the default project. The
   coordinator refuses such a call for a task of another project.
+- A worker's calls for another project's DAG state and DAG definitions name
+  the attempt they act for, and the coordinator serves them only while that
+  worker holds the attempt's lease in that project.
+- Dispatches, run status queries, and cancel requests also come from the
+  server, the scheduler, and the CLI, which hold no lease. The coordinator
+  serves them for any project to a caller with the peer token, the same
+  credential that lets a caller dispatch any DAG to any worker.
 - A `dag.run` inside a distributed run resolves only in the task's project,
   then the library.
 - A worker reads no project directory. It sees a project's files only through

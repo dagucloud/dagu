@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -15,29 +17,36 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 )
 
+// projectStoreRetryDelay is how long a coordinator serves the stores of a
+// project whose settings stores failed to open before it opens them again.
+const projectStoreRetryDelay = 10 * time.Second
+
 // coordinatorProjects serves a coordinator the stores of the registered
 // projects that a cache holds. It opens a project's settings stores once per
 // set of stores the cache holds for it.
 type coordinatorProjects struct {
+	cfg   *config.Config
 	cache *file.ProjectStoreCache
 
 	mu     sync.Mutex
 	opened map[dispatch.ProjectScope]openedProjectStores
 }
 
-// openedProjectStores are the coordinator stores built from source.
+// openedProjectStores are the coordinator stores built from source. When
+// some failed to open, retryAt is when they are opened again.
 type openedProjectStores struct {
-	source *file.ProjectStores
-	stores *coordinator.ProjectStores
+	source  *file.ProjectStores
+	stores  *coordinator.ProjectStores
+	retryAt time.Time
 }
 
 // coordinatorProjectSource returns the coordinator's source of the stores
 // that cache holds, or nil while projects are off and there is no cache.
-func coordinatorProjectSource(cache *file.ProjectStoreCache) coordinator.ProjectSource {
+func coordinatorProjectSource(cfg *config.Config, cache *file.ProjectStoreCache) coordinator.ProjectSource {
 	if cache == nil {
 		return nil
 	}
-	return &coordinatorProjects{cache: cache, opened: make(map[dispatch.ProjectScope]openedProjectStores)}
+	return &coordinatorProjects{cfg: cfg, cache: cache, opened: make(map[dispatch.ProjectScope]openedProjectStores)}
 }
 
 func (p *coordinatorProjects) Stores(ctx context.Context, scope dispatch.ProjectScope) (*coordinator.ProjectStores, error) {
@@ -45,7 +54,12 @@ func (p *coordinatorProjects) Stores(ctx context.Context, scope dispatch.Project
 	if scope.ID != "" {
 		var ok bool
 		if project, ok = p.cache.Get(scope.ID); !ok {
-			return nil, fmt.Errorf("project %s is not registered, or its stores are not open", scope.ID)
+			return nil, fmt.Errorf("project %s is not registered, or its stores are not open yet", scope.ID)
+		}
+		// The default project is addressed by the empty ID alone, so its
+		// runs have one key for locks and leases.
+		if project == p.cache.Default() {
+			return nil, fmt.Errorf("project %s is the default project, which calls address without an ID", scope.ID)
 		}
 	}
 	runs := project
@@ -56,15 +70,20 @@ func (p *coordinatorProjects) Stores(ctx context.Context, scope dispatch.Project
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if opened, ok := p.opened[scope]; ok && opened.source == runs {
+	opened, ok := p.opened[scope]
+	p.mu.Unlock()
+	if ok && opened.source == runs && (opened.retryAt.IsZero() || time.Now().Before(opened.retryAt)) {
 		return opened.stores, nil
 	}
-	stores, complete := openCoordinatorStores(ctx, project, runs)
-	// A store that failed to open is tried again on the next call.
-	if complete {
-		p.opened[scope] = openedProjectStores{source: runs, stores: stores}
+	// Stores open without the lock, so a slow open delays no other project.
+	stores, complete := openCoordinatorStores(ctx, p.cfg, project, runs)
+	opened = openedProjectStores{source: runs, stores: stores}
+	if !complete {
+		opened.retryAt = time.Now().Add(projectStoreRetryDelay)
 	}
+	p.mu.Lock()
+	p.opened[scope] = opened
+	p.mu.Unlock()
 	return stores, nil
 }
 
@@ -92,7 +111,7 @@ func (p *coordinatorProjects) Projects() []dispatch.ProjectScope {
 // openCoordinatorStores returns the coordinator stores of the runs that
 // runs records, with the settings of project, whose runs they are, and
 // whether every store opened.
-func openCoordinatorStores(ctx context.Context, project, runs *file.ProjectStores) (*coordinator.ProjectStores, bool) {
+func openCoordinatorStores(ctx context.Context, cfg *config.Config, project, runs *file.ProjectStores) (*coordinator.ProjectStores, bool) {
 	stores := &coordinator.ProjectStores{
 		DAGRunRepository:         runs.DAGRunRepository,
 		LogDir:                   runs.Paths.LogDir,
@@ -102,8 +121,10 @@ func openCoordinatorStores(ctx context.Context, project, runs *file.ProjectStore
 		SecretStore:              project.SecretStore(ctx),
 		ProfileStore:             project.ProfileStore(ctx),
 		AgentSessionCleanupQueue: runs.AgentSessionCleanupQueue,
+		EventService:             newEventService(ctx, cfg, project.Paths.EventStoreDir),
 	}
-	complete := stores.SecretStore != nil && stores.ProfileStore != nil
+	complete := stores.SecretStore != nil && stores.ProfileStore != nil &&
+		(stores.EventService != nil || !cfg.EventStore.Enabled)
 	if inventories, err := project.CachedInventoryStore(); err != nil {
 		complete = false
 		logger.Warn(ctx, "Node inventory of a project is unavailable", tag.Dir(project.Paths.StateDir), tag.Error(err))

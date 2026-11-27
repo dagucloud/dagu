@@ -308,6 +308,16 @@ func (c *Context) projectBaseConfigOptions() []spec.LoadOption {
 	}
 }
 
+// projectBaseConfigFile returns the addressed project's base config file,
+// or "" when it has none.
+func (c *Context) projectBaseConfigFile() string {
+	if c.projectStores == nil {
+		return c.Config.Paths.BaseConfig
+	}
+	baseConfig, _ := c.projectStores.BaseConfig()
+	return baseConfig
+}
+
 // baseConfigOptions returns the options that apply the default project's
 // base config to a DAG it loads.
 func baseConfigOptions(cfg *config.Config) []spec.LoadOption {

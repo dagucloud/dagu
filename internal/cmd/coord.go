@@ -244,7 +244,7 @@ func newCoordinator(
 		DAGRepository:             persistence.DAGRepository,
 		SecretStore:               secretStore,
 		ProfileStore:              profileStore,
-		Projects:                  coordinatorProjectSource(projects),
+		Projects:                  coordinatorProjectSource(cfg, projects),
 		ProjectsEnabled:           cfg.ProjectsEnabled,
 		NodeInventory:             nodeInventory,
 		TrustedHostKeys:           hostKeys,
