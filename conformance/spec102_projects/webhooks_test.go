@@ -112,13 +112,21 @@ func requireTrigger(t *testing.T, base, path, token string, want int) {
 // given, and returns the status code and body.
 func post(t *testing.T, url, token, body string) (int, string) {
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, strings.NewReader(body))
+	return authorized(t, http.MethodPost, url, token, body)
+}
+
+// authorized makes a request with a JSON body and a bearer token, when given,
+// and returns the status code and body.
+func authorized(t *testing.T, method, url, token, body string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), method, url, strings.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	// A project delete waits for every process to release the project.
+	resp, err := (&http.Client{Timeout: time.Minute}).Do(req)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	var answer bytes.Buffer

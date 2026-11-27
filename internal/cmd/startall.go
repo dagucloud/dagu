@@ -205,7 +205,9 @@ func runStartAll(ctx *Context, _ []string) error {
 	serverOpts = append(serverOpts, frontend.WithOnReady(printStartupBanner(serviceCtx, stores.AuthSetupRequired)))
 	webStopped, onWebStopped := closedOnce()
 	serverOpts = append(serverOpts, frontend.WithOnStopped(onWebStopped))
-	serverOpts = append(serverOpts, serviceCtx.followServedProjects(serviceCtx)...)
+	projectOpts, unregister := serviceCtx.followServedProjects(serviceCtx)
+	defer unregister()
+	serverOpts = append(serverOpts, projectOpts...)
 
 	// Use serviceCtx so auth initialization can respond to termination signals
 	server, err := newServer(serviceCtx, resourceService, stores, serverOpts...)

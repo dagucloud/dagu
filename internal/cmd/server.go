@@ -37,6 +37,7 @@ import (
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	frontendfile "github.com/dagucloud/dagu/v2/internal/service/frontend/file"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
 	"github.com/spf13/cobra"
 )
@@ -107,15 +108,33 @@ func newServer(ctx *Context, rs *resource.Service, stores frontend.Stores, opts 
 }
 
 // followServedProjects follows the registered projects, as followProjects
-// does, and returns the server options that let webhook requests reach
-// them. It returns none while projects are off.
-func (c *Context) followServedProjects(ctx context.Context) []frontend.ServerOption {
+// does, registers the server in the service registry, where it records the
+// projects it releases, and returns the server options that let webhook
+// requests reach them. Call unregister once the server stops. It does
+// nothing while projects are off.
+func (c *Context) followServedProjects(ctx context.Context) (opts []frontend.ServerOption, unregister func()) {
 	cache := c.followProjects(ctx)
 	if cache == nil {
-		return nil
+		return nil, func() {}
+	}
+	registry := c.serverStores.ServiceRegistry
+	hostname, _ := os.Hostname()
+	host := serviceregistry.HostInfo{
+		ID:        fmt.Sprintf("%s-%d-%d", hostname, os.Getpid(), time.Now().Unix()),
+		Host:      hostname,
+		Port:      c.Config.Server.Port,
+		Status:    serviceregistry.ServiceStatusActive,
+		StartedAt: time.Now(),
+	}
+	unregister = func() {}
+	if err := registry.Register(ctx, serviceregistry.ServiceNameServer, host); err != nil {
+		// A project delete then does not wait for this server.
+		logger.Error(ctx, "Failed to register with service registry", tag.Error(err))
+	} else {
+		unregister = func() { registry.Unregister(context.WithoutCancel(ctx)) }
 	}
 	projects := frontendfile.NewWebhookProjects(c.Config, c.serverStores, projectregistry.New(c.Config.Paths.DataDir), cache)
-	return []frontend.ServerOption{frontend.WithAPIOption(apiv1.WithWebhookProjects(projects))}
+	return []frontend.ServerOption{frontend.WithAPIOption(apiv1.WithWebhookProjects(projects))}, unregister
 }
 
 // runServer initializes and runs the web UI server and its resource monitoring service.
@@ -204,7 +223,9 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	serverOpts = append(serverOpts, frontend.WithOnReady(printStartupBanner(serviceCtx, stores.AuthSetupRequired)))
 	webStopped, onWebStopped := closedOnce()
 	serverOpts = append(serverOpts, frontend.WithOnStopped(onWebStopped))
-	serverOpts = append(serverOpts, serviceCtx.followServedProjects(serviceCtx)...)
+	projectOpts, unregister := serviceCtx.followServedProjects(serviceCtx)
+	defer unregister()
+	serverOpts = append(serverOpts, projectOpts...)
 
 	// Initialize server (includes auth setup). Use serviceCtx so auth providers can
 	// respond to termination signals during potentially slow network operations.

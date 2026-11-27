@@ -536,8 +536,13 @@ Rules:
   notification routes, or incident policies addresses one project. No path
   addresses them outside a project, so a client that writes v2's global
   entries gets an error and writes nothing.
-- `/projects` lists the projects the caller can see. See
-  [Lifecycle](#lifecycle) for create, display name changes, and delete.
+- `/projects` lists the projects the caller can see, the default project
+  first, then by name, each with the caller's role in it and its state:
+  `active`, `missing`, or `deleting`. For an admin, it also lists the
+  [unattached state directories](#changed-on-disk). See
+  [Lifecycle](#lifecycle) for create, display name changes, and delete,
+  which only admins make.
+- While projects are off, `/projects` answers `404` to every request.
 
 #### MCP
 
@@ -765,7 +770,25 @@ Rules:
   the project's, whether or not the file exists now.
 - Delete is refused while the project's DAG directory is or contains a
   [protected path](#protected-paths).
-- A refused delete changes nothing. A mark it set is removed.
+- Delete is refused while `<wiki>/X/`, the wiki folder of the v2 workspace
+  that a migrated project came from, holds pages, whether or not
+  `<projects_dir>/<name>/wiki/` exists. The default project's wiki leaves
+  that folder out only while the project is registered, so a delete would
+  show its pages to users with no role in the project. The admin moves the
+  pages to `<projects_dir>/<name>/wiki/` or removes them first.
+- Delete is refused when a live process has not released the project
+  within 45 seconds. A process that ended without leaving the service
+  registry stops counting as live within 30 seconds.
+- Each server, scheduler, and coordinator process, while projects are on,
+  is listed in the service registry, where it records the projects it has
+  released.
+- Delete removes, in this order: the DAG directory, the state directories,
+  the grants, each API key left with no role, and last the registry entry,
+  which holds the Dagu Cloud binding. A state directory that records
+  another project is kept.
+- A refused delete changes nothing. A mark it set is removed. A delete that
+  fails while removing keeps the mark, and a later delete of the project
+  finishes it.
 
 #### Changed on Disk
 
@@ -776,7 +799,8 @@ Rules:
   place that exists is not missing, and keeps running that file.
 - A DAG directory renamed outside Dagu is not a project until an admin
   creates a project of its new name. The old project is missing.
-- An unattached state directory is listed for admins to restore or delete.
+- An unattached state directory, one in `<data_dir>/projects/` that records
+  a project the registry lacks, is listed for admins to restore or delete.
   It is never attached to a project by its name.
 
 #### The Default Project
@@ -1242,7 +1266,11 @@ Delete is refused, and changes nothing, when:
   one;
 - the registry records a file that runs in place as the project's;
 - the project's DAG directory is or contains a
-  [protected path](#protected-paths).
+  [protected path](#protected-paths);
+- the project was made by migration and `<wiki>/X/`, the wiki folder of its
+  v2 workspace, holds pages;
+- a live server, scheduler, or coordinator has not released the project
+  within 45 seconds.
 
 ### Choosing a Project
 
