@@ -111,8 +111,7 @@ func TestMonitoringUnknownLevel(t *testing.T) {
 	assert.False(t, status.Chosen)
 }
 
-// The last report is shown as sent, except for the heartbeat secret.
-func TestLastReportRedacted(t *testing.T) {
+func TestLastReportBody(t *testing.T) {
 	t.Parallel()
 
 	console := newFakeConsole(t)
@@ -129,10 +128,7 @@ func TestLastReportRedacted(t *testing.T) {
 
 	status, err = m.Status(t.Context())
 	require.NoError(t, err)
-	require.Contains(t, sent.body, `"heartbeat_secret":"hb-secret"`)
-	assert.Equal(t,
-		strings.Replace(sent.body, `"heartbeat_secret":"hb-secret"`, `"heartbeat_secret":"[redacted]"`, 1),
-		string(status.LastReport))
+	assert.Equal(t, sent.body, string(status.LastReport))
 	assert.False(t, status.LastReportAt.IsZero())
 }
 
@@ -155,9 +151,7 @@ func TestLastReportOnlyWhenAccepted(t *testing.T) {
 	accepted := console.next(t)
 	status, err = m.Status(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t,
-		strings.Replace(accepted.body, `"heartbeat_secret":"hb-secret"`, `"heartbeat_secret":"[redacted]"`, 1),
-		string(status.LastReport))
+	assert.Equal(t, accepted.body, string(status.LastReport))
 }
 
 // The reporter follows the level an administrator chooses. Off sends
@@ -502,7 +496,7 @@ func TestReportOffStopsReportInFlight(t *testing.T) {
 	clock.next()
 	select {
 	case body := <-later:
-		assert.JSONEq(t, `{"protocol":2,"license_id":"","server_id":"srv-1","heartbeat_secret":"","level":"off"}`, body)
+		assert.JSONEq(t, `{"protocol":2,"license_id":"","server_id":"srv-1","level":"off"}`, body)
 	case <-time.After(testTimeout):
 		t.Fatal("the console was not told that reporting stopped")
 	}
@@ -541,7 +535,7 @@ func TestReportUnreadableLevel(t *testing.T) {
 
 // offReport is the report that tells the fake console that the server no
 // longer reports.
-const offReport = `{"protocol":2,"license_id":"lic-1","server_id":"srv-1","heartbeat_secret":"hb-secret","level":"off"}`
+const offReport = `{"protocol":2,"license_id":"lic-1","server_id":"srv-1","level":"off"}`
 
 // chosenLevel is monitoring whose level an administrator chooses, starting
 // with none.

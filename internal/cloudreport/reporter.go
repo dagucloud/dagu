@@ -617,10 +617,9 @@ func retryAfter(header string) time.Duration {
 
 // reportRequest is the body of POST /api/v1/servers/report.
 type reportRequest struct {
-	Protocol        int    `json:"protocol"`
-	LicenseID       string `json:"license_id"`
-	ServerID        string `json:"server_id"`
-	HeartbeatSecret string `json:"heartbeat_secret"`
+	Protocol  int    `json:"protocol"`
+	LicenseID string `json:"license_id"`
+	ServerID  string `json:"server_id"`
 	// Level is the level the report was sent at. A report at off says that
 	// the server no longer reports, and carries nothing else.
 	Level config.ReportLevel `json:"level"`
@@ -763,11 +762,10 @@ func (r *response) message() string {
 // send sends a report at level.
 func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, level config.ReportLevel) (*response, error) {
 	report := reportRequest{
-		Protocol:        protocolVersion,
-		LicenseID:       creds.LicenseID,
-		ServerID:        creds.ServerID,
-		HeartbeatSecret: creds.HeartbeatSecret,
-		Level:           level,
+		Protocol:  protocolVersion,
+		LicenseID: creds.LicenseID,
+		ServerID:  creds.ServerID,
+		Level:     level,
 	}
 	if level.Reports() {
 		now := r.now()
@@ -829,6 +827,7 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("Authorization", "Bearer "+creds.HeartbeatSecret)
 	req.Header.Set("User-Agent", "dagu-oss/"+config.Version)
 
 	resp, err := r.client.Do(req)

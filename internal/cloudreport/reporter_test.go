@@ -60,12 +60,12 @@ func TestReportPayload(t *testing.T) {
 	assert.Equal(t, "/api/v1/servers/report", report.path)
 	assert.Equal(t, "application/json", report.header.Get("Content-Type"))
 	assert.Equal(t, "gzip", report.header.Get("Content-Encoding"))
+	assert.Equal(t, "Bearer hb-secret", report.header.Get("Authorization"))
 	assert.Equal(t, "dagu-oss/"+config.Version, report.header.Get("User-Agent"))
 	assert.JSONEq(t, fmt.Sprintf(`{
 		"protocol": 2,
 		"license_id": "lic-1",
 		"server_id": "srv-1",
-		"heartbeat_secret": "hb-secret",
 		"level": "runs",
 		"sent_at": "2026-10-10T09:30:30Z",
 		"health": {

@@ -9312,7 +9312,7 @@ export interface components {
             noticeDismissed: boolean;
             /** @description When Dagu Console accepted the last report this server sent */
             lastReportAt?: string;
-            /** @description JSON body of the last report, as sent, with heartbeat_secret replaced by "[redacted]" */
+            /** @description Decompressed JSON body of the last accepted report */
             lastReport?: string;
             /**
              * Format: date-time
