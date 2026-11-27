@@ -91,7 +91,7 @@ func NewValueMasker(values []string, patterns ...*regexp.Regexp) *Masker {
 
 // Add makes m also mask each of values, as NewValueMasker does, in every
 // text masked after Add returns. Writers that already wrap m, such as a
-// MaskingWriter, mask them in the lines they write from then on. Empty
+// MaskingWriter, mask them in the text they write from then on. Empty
 // values are ignored.
 func (m *Masker) Add(values ...string) {
 	m.mu.Lock()
@@ -191,57 +191,99 @@ func (m *Masker) mask(input string, tokens bool) string {
 // with overlapping ranges joined. With tokens set, the ranges include the
 // provider tokens in text.
 func (m *Masker) spans(text string, tokens bool) []span {
+	return m.scan(text, 0, tokens).spans
+}
+
+// scanResult is what scan finds in a text.
+type scanResult struct {
+	// spans are the ranges to mask, sorted, with overlapping ranges joined.
+	spans []span
+	// open is the offset from which text that follows could still change
+	// spans: the start of a value or provider token that text ends before
+	// completing. It is the length of text when nothing can.
+	open int
+	// token is the format of a provider token that runs to the end of text
+	// from offset tokenAt, so the text that follows can continue it; nil
+	// when no token does.
+	token   *providerToken
+	tokenAt int
+}
+
+// scan returns the ranges of text to mask, as spans does, and what text
+// that follows could change. before is the byte that precedes text in a
+// stream, or 0 when nothing does.
+func (m *Masker) scan(text string, before byte, tokens bool) scanResult {
+	r := scanResult{open: len(text)}
 	if m == nil {
-		return nil
+		return r
 	}
-	var spans []span
 	if values := m.values.Load(); values != nil {
 		for i := range len(text) {
 			if !values.starts(text[i]) {
 				continue
 			}
-			if n := values.longestPrefix(text[i:]); n > 0 {
-				spans = append(spans, span{start: i, end: i + n})
+			n, open := values.longestPrefix(text[i:])
+			if n > 0 {
+				r.spans = append(r.spans, span{start: i, end: i + n})
+			}
+			if open {
+				r.open = min(r.open, i)
 			}
 		}
 	}
 	for _, pattern := range m.patterns {
 		for _, match := range pattern.FindAllStringIndex(text, -1) {
-			spans = append(spans, span{start: match[0], end: match[1]})
+			r.spans = append(r.spans, span{start: match[0], end: match[1]})
 		}
 	}
 	if tokens {
-		for _, token := range providerTokens {
-			spans = appendTokenSpans(spans, text, token)
+		for i := range providerTokens {
+			r.addTokens(text, before, &providerTokens[i])
 		}
 	}
-	return joinSpans(spans)
+	r.spans = joinSpans(r.spans)
+	return r
 }
 
-// appendTokenSpans appends to spans the tokens of format token in text.
-// Only a prefix where a token can start is followed into its body, so text
-// is read once: a rejected prefix costs no more than the search for the
-// next one.
-func appendTokenSpans(spans []span, text string, token providerToken) []span {
+// addTokens adds to r the tokens of format token in text, which follows
+// the byte before. Only a prefix where a token can start is followed into
+// its body, so text is read once: a rejected prefix costs no more than the
+// search for the next one.
+func (r *scanResult) addTokens(text string, before byte, token *providerToken) {
 	for offset := 0; ; {
 		i := strings.Index(text[offset:], token.prefix)
 		if i < 0 {
-			return spans
+			break
 		}
 		start := offset + i
 		body := start + len(token.prefix)
 		end := body
-		if !token.inBase64 || tokenStart(text, start) {
+		followed := !token.inBase64 || tokenStart(text, start, before)
+		if followed {
 			for end < len(text) && token.inBody(text[end]) {
 				end++
 			}
 		}
 		if end-body < token.minBody {
+			// A body cut short by the end of text can still grow.
+			if followed && end == len(text) {
+				r.open = min(r.open, start)
+			}
 			offset = start + 1
 			continue
 		}
-		spans = append(spans, span{start: start, end: end})
+		r.spans = append(r.spans, span{start: start, end: end})
+		if end == len(text) && r.token == nil {
+			r.token, r.tokenAt = token, start
+		}
 		offset = end
+	}
+	// Text that ends inside the prefix can still start a token.
+	for n := len(token.prefix) - 1; n > 0; n-- {
+		if strings.HasSuffix(text, token.prefix[:n]) {
+			r.open = min(r.open, len(text)-n)
+			return
+		}
 	}
 }
 
@@ -252,13 +294,15 @@ func (t providerToken) inBody(b byte) bool {
 }
 
 // tokenStart reports whether a token whose prefix base64 data can hold
-// starts at offset start of text. A prefix right after a base64 or token
-// character lies inside other text, such as base64 data.
-func tokenStart(text string, start int) bool {
-	if start == 0 {
-		return true
+// starts at offset start of text, which follows the byte before. A prefix
+// right after a base64 or token character lies inside other text, such as
+// base64 data.
+func tokenStart(text string, start int, before byte) bool {
+	b := before
+	if start > 0 {
+		b = text[start-1]
 	}
-	switch b := text[start-1]; {
+	switch {
 	case 'a' <= b && b <= 'z', 'A' <= b && b <= 'Z', '0' <= b && b <= '9':
 		return false
 	case b == '+', b == '/', b == '_', b == '-':

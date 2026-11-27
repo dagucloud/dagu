@@ -79,16 +79,16 @@ func (s *safeBufferedWriter) Write(p []byte) (int, error) {
 	return s.bw.Write(p)
 }
 
-// FlushIfDue writes buffered output through. A partial line the wrapped
-// writer holds back, such as one awaiting secret masking, stays held.
+// FlushIfDue writes buffered output through. Text the wrapped writer holds
+// back, such as the start of a secret awaiting the rest, stays held.
 func (s *safeBufferedWriter) FlushIfDue() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.bw.Flush()
 }
 
-// Flush writes all buffered output through, including a partial line the
-// wrapped writer holds back.
+// Flush writes all buffered output through, including text the wrapped
+// writer holds back.
 func (s *safeBufferedWriter) Flush() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -102,9 +102,9 @@ func (s *safeBufferedWriter) Flush() error {
 }
 
 // maskingStreamWriter masks secrets and provider token formats in step output
-// streamed to a remote log, as local step logs do. A partial line is held
-// until it completes or Flush or Close is called, so a secret split across
-// writes is masked whole.
+// streamed to a remote log, as local step logs do. Text that could still
+// start a secret is held until the rest arrives or Flush or Close is
+// called, so a secret split across writes is masked whole.
 type maskingStreamWriter struct {
 	mu     sync.Mutex
 	masked *masking.MaskingWriter
@@ -121,7 +121,7 @@ func (w *maskingStreamWriter) Write(p []byte) (int, error) {
 	return w.masked.Write(p)
 }
 
-// FlushIfDue sends due output to the stream. A held partial line stays held.
+// FlushIfDue sends due output to the stream. Held text stays held.
 func (w *maskingStreamWriter) FlushIfDue() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -131,7 +131,7 @@ func (w *maskingStreamWriter) FlushIfDue() error {
 	return nil
 }
 
-// Flush sends all output to the stream, including a held partial line.
+// Flush sends all output to the stream, including held text.
 func (w *maskingStreamWriter) Flush() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -144,7 +144,7 @@ func (w *maskingStreamWriter) Flush() error {
 	return nil
 }
 
-// Close sends a held partial line and closes the stream.
+// Close sends held text and closes the stream.
 func (w *maskingStreamWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
