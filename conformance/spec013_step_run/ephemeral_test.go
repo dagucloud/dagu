@@ -102,13 +102,13 @@ func runReport(t *testing.T, server test.Server, name, runID string) string {
 	for _, node := range run.Nodes {
 		fmt.Fprintf(&report, "step %s: %s, started %q, finished %q\n", node.Step.Name, node.StatusLabel, node.StartedAt, node.FinishedAt)
 	}
-	report.WriteString(logTail(t, server, base+"/log?tail=50", "run log"))
+	report.WriteString(logTail(t, server, base+"/log?tail=100", "run log"))
 	for _, node := range run.Nodes {
-		if node.StartedAt == "" {
+		if node.Status == api.NodeStatusNotStarted {
 			continue
 		}
 		for _, stream := range []string{"stdout", "stderr"} {
-			path := fmt.Sprintf("%s/steps/%s/log?stream=%s&tail=50", base, node.Step.Name, stream)
+			path := fmt.Sprintf("%s/steps/%s/log?stream=%s&tail=100", base, node.Step.Name, stream)
 			report.WriteString(logTail(t, server, path, node.Step.Name+" "+stream))
 		}
 	}
