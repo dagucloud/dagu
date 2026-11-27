@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -337,14 +338,24 @@ func stopRunningDAG(ctx context.Context, cli runtime.Manager, dag *ir.DAG, dagRu
 	}
 }
 
-// requireWorkerOnline fails unless the coordinator answers and lists the
-// worker as connected.
+// requireWorkerOnline fails unless the coordinator answers and the worker
+// sent a heartbeat recently enough for a dispatch to reach it. The worker
+// can still be lost while the run stops and during restart_wait_sec; the
+// dispatch then fails as offline.
 func requireWorkerOnline(ctx context.Context, cli coordinator.Client, worker string) error {
 	workers, err := cli.GetWorkers(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to reach the coordinator of worker node %q: %w", worker, err)
 	}
-	if !slices.ContainsFunc(workers, func(w *coordinatorv1.WorkerInfo) bool { return w.GetWorkerId() == worker }) {
+	now := time.Now()
+	if !slices.ContainsFunc(workers, func(w *coordinatorv1.WorkerInfo) bool {
+		// The coordinator lists stale heartbeats until it sweeps them, so the
+		// check applies the freshness rule its dispatch applies.
+		return w.GetWorkerId() == worker && dispatch.WorkerHeartbeatFresh(dispatch.WorkerHeartbeatRecord{
+			WorkerID:        w.GetWorkerId(),
+			LastHeartbeatAt: time.Unix(w.GetLastHeartbeatAt(), 0).UnixMilli(),
+		}, now, dispatch.DefaultStaleWorkerHeartbeatThreshold)
+	}) {
 		return fmt.Errorf("worker node %q is offline", worker)
 	}
 	return nil
