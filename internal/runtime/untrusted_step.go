@@ -73,9 +73,13 @@ func gatedStep(step ir.Step) bool {
 // "Isolation", rule 1). In a run with an isolated untrusted step, an
 // untrusted step holds the run alone, and a trusted step waits for its end.
 // It returns the function that gives the place back. An error is the end of
-// ctx, or the stop of the isolation of the process.
+// ctx, the stop of the isolation of the process, or a work directory that was
+// not given back safely.
 func enterStepGate(ctx context.Context, node *Node) (func(), error) {
-	if !isolatedRun(ctx) || !gatedStep(node.Step()) {
+	if !isolatedRun(ctx) {
+		return func() {}, checkWorkDir(ctx)
+	}
+	if !gatedStep(node.Step()) {
 		return func() {}, nil
 	}
 	if err := untrusted.Poisoned(); err != nil {
@@ -83,23 +87,28 @@ func enterStepGate(ctx context.Context, node *Node) (func(), error) {
 	}
 	gate := GetDAGContext(ctx).StepGate
 	log := node.outputs.stderrLog()
+	var leave func()
+	var err error
 	if node.Step().IsUntrusted() {
-		return unlessPoisoned(gate.Write(ctx, func() { untrusted.WriteLine(log, untrusted.WaitingRunLine) }))
+		leave, err = unlessPoisoned(gate.Write(ctx, func() { untrusted.WriteLine(log, untrusted.WaitingRunLine) }))
+	} else {
+		leave, err = unlessPoisoned(gate.Read(ctx, func() { untrusted.WriteLine(log, untrusted.WaitingTrustedLine) }))
 	}
-	return unlessPoisoned(gate.Read(ctx, func() { untrusted.WriteLine(log, untrusted.WaitingTrustedLine) }))
+	return unlessUnsafeWorkDir(ctx, leave, err)
 }
 
 // enterTrustedGate takes a place of a trusted reader for the trusted code of a
 // node, such as its preconditions, also for an untrusted step.
 func enterTrustedGate(ctx context.Context, node *Node) (func(), error) {
 	if !isolatedRun(ctx) {
-		return func() {}, nil
+		return func() {}, checkWorkDir(ctx)
 	}
 	if err := untrusted.Poisoned(); err != nil {
 		return nil, err
 	}
 	log := node.outputs.stderrLog()
-	return unlessPoisoned(GetDAGContext(ctx).StepGate.Read(ctx, func() { untrusted.WriteLine(log, untrusted.WaitingTrustedLine) }))
+	leave, err := unlessPoisoned(GetDAGContext(ctx).StepGate.Read(ctx, func() { untrusted.WriteLine(log, untrusted.WaitingTrustedLine) }))
+	return unlessUnsafeWorkDir(ctx, leave, err)
 }
 
 // unlessPoisoned gives back a place of the gate when the isolation of the
@@ -114,6 +123,31 @@ func unlessPoisoned(leave func(), err error) (func(), error) {
 		return nil, err
 	}
 	return leave, nil
+}
+
+// unlessUnsafeWorkDir gives back a place of the gate when the work directory
+// of the run was not given back safely.
+func unlessUnsafeWorkDir(ctx context.Context, leave func(), err error) (func(), error) {
+	if err != nil {
+		return nil, err
+	}
+	if err := checkWorkDir(ctx); err != nil {
+		leave()
+		return nil, err
+	}
+	return leave, nil
+}
+
+// checkWorkDir fails a step of a run with an untrusted step while the work
+// directory of the run is not known to be safe: an untrusted step got it and no
+// restore made it safe again (Spec 103, "Isolation"). A step of an isolated
+// run checks once it holds its place in the gate, after the end of the
+// untrusted step that held the run.
+func checkWorkDir(ctx context.Context) error {
+	if !untrustedRun(ctx) {
+		return nil
+	}
+	return untrusted.CheckWorkDir(GetDAGContext(ctx).RunWorkDir)
 }
 
 // checkUntrustedExecutor fails an untrusted step whose executor does not start
