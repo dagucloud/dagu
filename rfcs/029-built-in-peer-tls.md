@@ -385,6 +385,7 @@ transport in this order:
 | `peer.insecure: true` | h2c, as today |
 | `peer.insecure: false` with `peer.cert_file`, `peer.key_file`, `peer.client_ca_file`, or `peer.skip_tls_verify` | TLS with those files, as today |
 | A worker invite or certificate, `peer.ca_cert_file`, or the CA certificate a coordinator publishes in the client's data directory while the registry there lists a coordinator that reports built-in TLS | Built-in TLS |
+| `peer.insecure: false` without those files or a built-in TLS source | Fails at start with `TLS enabled but no certificates provided`, as today |
 | None of these | h2c, as today |
 
 - `peer.insecure: true` remains for networks that already encrypt traffic,
@@ -415,8 +416,8 @@ transport in this order:
   reason `tls failed on the network path`.
 - A certificate that does not verify never falls back. A worker on an
   invite never falls back either: it has no other credential, so it needs
-  TLS end to end. `coordinator.require_tls` refuses the fallback's calls,
-  and v3.0 removes the fallback with open question 1.
+  TLS end to end. `coordinator.require_tls` refuses the fallback's calls.
+  Whether v3.0 removes the fallback is open question 1.
 
 ### Configuration conflicts
 
@@ -546,8 +547,11 @@ worker                                         coordinator
   `removing`, a stored state that survives a coordinator restart. `Poll`
   gives the worker no new tasks, and calls for the runs it already holds
   keep working. The certificate is revoked when the worker's heartbeat
-  lists no running tasks. Other coordinators see `removing` at their next
-  reread, so a task one hands out in that window is waited for too.
+  lists no running tasks, at least 30 seconds after it became `removing`.
+  Other coordinators see `removing` at their next reread, so a task one
+  hands out in that window shows in the heartbeat and is waited for too,
+  and no task is handed out after the certificate is revoked. A connected
+  worker without runs goes through `removing` the same way.
 - **Stop its runs** sends the existing cancel request for each run. Runs
   that reach no final status within 2 minutes are left to the stale-lease
   check, and the certificate is revoked then.

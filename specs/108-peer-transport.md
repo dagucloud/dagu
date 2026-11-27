@@ -559,11 +559,13 @@ The `worker_certificates` collection keeps one record per certificate:
 - The worker takes the lock before it enrolls or connects, holds it while
   it runs, and refreshes it at an interval shorter than 30 seconds.
 - A lock not refreshed for 30 seconds is stale.
-- A worker that finds the lock held waits until the lock is released or
-  stale, and then takes it. A restarted container whose previous process
-  held the lock therefore starts within 30 seconds.
-- A worker whose wait ends with the lock still refreshed by another holder
-  exits with code 1 and the message of [Messages](#messages).
+- A worker that finds the lock held waits at most 30 seconds. When the
+  lock is released or goes stale within that wait, the worker takes it, so
+  a restarted container whose previous process held the lock starts within
+  30 seconds.
+- When the 30 seconds pass with the lock still refreshed by another holder,
+  the worker exits with code 1 and the message of [Messages](#messages).
+  It never waits longer.
 
 #### Environment
 
@@ -592,20 +594,24 @@ or `stop`:
 | Worker | `finish` | `stop` |
 | --- | --- | --- |
 | Not connected: its last heartbeat is stale | Revoked at once | Revoked at once |
-| Connected, no running tasks | Revoked at once | Revoked at once |
+| Connected, no running tasks | `removing` | `removing` |
 | Connected, with running tasks | `removing` | `removing`, and each run is canceled |
 
 - In state `removing`:
   - `Poll` gives the worker no new tasks.
   - Calls for the runs the worker already holds keep working.
   - The certificate is revoked at the first heartbeat that lists no running
-    tasks, or when the worker's heartbeat goes stale.
+    tasks and arrives at least 30 seconds after the certificate became
+    `removing`, or when the worker's heartbeat goes stale.
   - The state survives a coordinator restart.
-  - A task another coordinator hands out before its next reread is waited
-    for like the others.
+  - Every coordinator sees `removing` within 30 seconds, at its next
+    reread, and gives the worker no task after that. A task one hands out
+    before its reread shows in the worker's heartbeat and is waited for
+    like the others, so no coordinator hands out a task after the
+    certificate is revoked.
 - With `stop`, each run gets the existing cancel request. The certificate is
-  revoked when the runs end, or 2 minutes after the cancel requests,
-  whichever comes first. Runs without a final status by then are left to
+  revoked when the runs end, but not before 30 seconds in `removing`, or 2
+  minutes after the cancel requests, whichever comes first. Runs without a final status by then are left to
   the stale-lease check.
 - A removal with `stop` of a worker in `removing` cancels its runs as above.
 - A worker on the peer token cannot be removed. The removal fails and says
@@ -659,7 +665,7 @@ A coordinator reports, from its own host:
 | `advertise` | `coordinator.advertise` when set explicitly, else none |
 | `environment` | `host`, `container`, or `kubernetes`, by the rule of [Environment](#environment) |
 | `addresses` | Its non-loopback interface addresses when `environment` is `host`, else none |
-| `builtinTLS` | False for a coordinator with own certificates |
+| `builtinTLS` | True only when the coordinator has a usable peer CA. False for a coordinator with own certificates, and for one that serves h2c only because it cannot create or read its generated CA |
 | `ready` | True when `loopbackOnly` is false and `builtinTLS` is true |
 
 - The report reads no file and starts nothing periodic.
@@ -1031,8 +1037,8 @@ Worker `worker-a1` holds a certificate and runs two tasks.
    `{"state": "removing"}`. The Workers page shows `Removing (2 runs left)`.
 2. `Poll` gives `worker-a1` no task. Both runs finish and report their
    status.
-3. The next heartbeat lists no running tasks, and the certificate is
-   revoked. The worker's next call fails, and it exits with
+3. The first heartbeat that lists no running tasks, at least 30 seconds
+   after the removal, revokes the certificate. The worker's next call fails, and it exits with
    `This worker was removed from the coordinator`.
 4. A restart of `worker-a1` with the same invite exits with the same
    message. A restart with a new invite enrolls with a new key.
@@ -1040,7 +1046,8 @@ Worker `worker-a1` holds a certificate and runs two tasks.
 ### Two Workers on One Volume
 
 Two containers mount `dagu-worker:/var/lib/dagu`, with one reusable invite.
-The first enrolls and holds the lock. The second exits with code 1 and
+The first enrolls and holds the lock. The second waits 30 seconds while the
+first keeps refreshing the lock, then exits with code 1 and
 `Another worker uses this data directory`.
 
 ### Configuration Conflicts
