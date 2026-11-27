@@ -40,8 +40,10 @@ func Admit(ctx context.Context, store Store, workspace, name string, servers []s
 		if !slices.ContainsFunc(conn.Services, func(svc Service) bool { return svc.Name == server }) {
 			return fmt.Errorf("connection %q: server %q is not one of its services (%s)", name, server, serviceNames(conn.Services))
 		}
-		if p, ok := LookupPreset(conn.Provider, server); ok && p.MCPURL == "" {
-			return fmt.Errorf("connection %q: service %q has no MCP server", name, server)
+		if conn.usesPresets() {
+			if p, ok := LookupPreset(conn.Provider, server); !ok || p.MCPURL == "" {
+				return fmt.Errorf("connection %q: service %q has no MCP server", name, server)
+			}
 		}
 		if agentServer == "" && conn.needsAgent(server) {
 			agentServer = server
@@ -58,6 +60,13 @@ func Admit(ctx context.Context, store Store, workspace, name string, servers []s
 		return fmt.Errorf("connection %q: app %q lacks the agent flag, which Google MCP server %q needs on a connection that signs in a user", name, app.Name, agentServer)
 	}
 	return nil
+}
+
+// usesPresets reports whether c's services are presets compiled into the
+// binary, so a service without one, or without an MCP server, cannot be
+// called through mcp.call.
+func (c *Connection) usesPresets() bool {
+	return c.Provider == ProviderGoogle || c.Provider == ProviderMicrosoft
 }
 
 // needsAgent reports whether calling service as an MCP server through c

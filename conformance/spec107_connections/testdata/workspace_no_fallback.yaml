@@ -1,3 +1,4 @@
+working_dir: .
 steps:
   - name: first
     run: echo executed > executed.txt

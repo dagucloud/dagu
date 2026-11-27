@@ -145,10 +145,8 @@ steps:
     with: {connection: missing, server: gmail, tool: search_threads}
 `, marker)))
 	require.NoError(t, err, "RunYAML()")
-	status, err := run.Wait(ctx)
-	require.NoError(t, err, "Wait()")
-	require.Equal(t, "failed", status.Status)
-	require.Contains(t, status.Error, `connection not found: "missing"`)
+	_, err = run.Wait(ctx)
+	require.ErrorContains(t, err, `connection not found: "missing"`, "Wait()")
 	require.NoFileExists(t, marker)
 }
 
