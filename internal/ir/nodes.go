@@ -87,6 +87,8 @@ func (d *DAG) NodeStepChild(stepName string) (*DAG, error) {
 	child.SSH, child.Container = nil, nil
 	child.WorkerSelector, child.ForceLocal = nil, false
 	child.HandlerOn = HandlerOn{}
+	// A command step names no connection, so the child declares none.
+	child.Connections = nil
 	child.Preconditions = nil
 	child.Schedule, child.StopSchedule, child.RestartSchedule = nil, nil, nil
 	child.LocalDAGs = nil
