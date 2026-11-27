@@ -63,7 +63,12 @@ func oauthCallbackHandler(engine *connect.Engine) http.HandlerFunc {
 		case err != nil:
 			status, message = http.StatusInternalServerError, callbackFailedMessage
 		}
-		if err != nil {
+		// Anyone may send a refused callback, so only failures of a valid
+		// session log at warn.
+		switch {
+		case errors.Is(err, connect.ErrCallbackRefused):
+			logger.Debug(r.Context(), "OAuth callback refused", tag.Error(err))
+		case err != nil:
 			logger.Warn(r.Context(), "OAuth callback did not complete a connect session", tag.Error(err))
 		}
 		h := w.Header()

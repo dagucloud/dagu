@@ -1012,14 +1012,15 @@ func sanitizedRequestLogger(httpLogger *httplog.Logger) func(next http.Handler) 
 var secretQueryParams = []string{"token", "code", "state"}
 
 // redactSecretsFromRequest returns a request with the secretQueryParams
-// redacted. If none is present, the original request is returned unchanged.
+// redacted, and without the pairs a query parser drops, which may hide one.
+// If neither is present, the original request is returned unchanged.
 func redactSecretsFromRequest(r *http.Request) *http.Request {
 	if r.URL.RawQuery == "" {
 		return r
 	}
 
-	q := r.URL.Query()
-	found := false
+	q, err := url.ParseQuery(r.URL.RawQuery)
+	found := err != nil
 	for _, name := range secretQueryParams {
 		if q.Has(name) {
 			q.Set(name, "[REDACTED]")
