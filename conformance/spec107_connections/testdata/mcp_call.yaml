@@ -1,0 +1,12 @@
+working_dir: .
+labels: [workspace=ops]
+env:
+  - MCP_URL: ${MCP_URL}
+steps:
+  - id: whoami
+    action: mcp.call
+    with:
+      connection: work-api
+      url: ${MCP_URL}
+      tool: whoami
+    stdout: whoami.out

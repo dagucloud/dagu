@@ -39,8 +39,7 @@ steps:
 // An in-process child of a run on a worker checks its connections through
 // the coordinator before its first step. A connection its workspace lacks
 // fails the child with no step started. Once the workspace has it, the step
-// starts, and fails without a token, which no step on a worker asks for
-// yet.
+// starts, and fails without a token: the connection was never connected.
 func TestConnections_CheckedOnWorker(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

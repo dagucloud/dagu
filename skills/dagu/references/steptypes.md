@@ -623,13 +623,30 @@ steps:
     run: echo "${PAGE.structured_content.pages}"
 ```
 
-stdout is `{"content": [...], "structured_content": ..., "json": ..., "is_error": false}`. Read it with `${PAGE.content}` and `${PAGE.structured_content.<field>}`. For a tool that returns JSON as its only text item and no structured content, `json` holds the parsed object or array, read with `${PAGE.json.<field>}`; otherwise it is `null`. A tool that reports `isError` fails the step. A failed call writes `{"error": {"kind": "...", "message": "..."}}`, where `kind` is `tool`, `auth`, `protocol`, `transport`, `timeout`, or `canceled`.
+stdout is `{"content": [...], "structured_content": ..., "json": ..., "is_error": false}`. Read it with `${PAGE.content}` and `${PAGE.structured_content.<field>}`. For a tool that returns JSON as its only text item and no structured content, `json` holds the parsed object or array, read with `${PAGE.json.<field>}`; otherwise it is `null`. A tool that reports `isError` fails the step. A failed call writes `{"error": {"kind": "...", "message": "..."}}`, where `kind` is `tool`, `auth`, `protocol`, `transport`, `rate_limited` (HTTP 429, with `retry_after` when the server sent `Retry-After`), `confirmation_required`, `timeout`, or `canceled`.
 
 Image, audio, and blob resource data is base64 in the output by default. With `save_binary: true`, each such item is saved to the run artifacts under `mcp/<step id>/`, and the item carries `path` (relative to `$DAG_RUN_ARTIFACTS_DIR`) instead of the data.
 
 Put credentials in `headers`, never in the URL. Values of headers and URL query parameters whose name contains `auth`, `key`, `token`, `secret`, `cookie`, or `password` are masked in the output. Redirects are not followed.
 
-`with` fields: `url`, `tool`, `arguments` (object, or a `${...}` reference to a JSON object), `headers`, `include_raw`, `save_binary`.
+A connection (an OAuth sign-in such as a Google Workspace account, set up by an admin or manager) takes the place of `url` and the `Authorization` header. `server` names the connection's service, such as `gmail`, whose MCP server the call uses; `url` is still allowed, but only on the connection's bound hosts over HTTPS. Both names are literals, and the run checks them before its first step. Dagu sends the token, refreshes it once when the server refuses it, and masks it in the step's logs and output. `headers` may not set `Authorization` beside `connection`.
+
+```yaml
+labels:
+  - workspace=ops
+steps:
+  - id: unread
+    action: mcp.call
+    with:
+      connection: work-google
+      server: gmail
+      tool: search_threads
+      arguments: { query: "is:unread newer_than:1d" }
+```
+
+Through a connection, an `auth` error carries `connection`, and `detail: reconnect_required` when the connection needs reconnecting or `detail: insufficient_scope` with the missing `scope`. A server that asks to confirm the action fails the call with `confirmation_required`; approve it once in Try it, ask the Workspace admin to change the confirmation rules, or use `http.request` with a standard connection.
+
+`with` fields: `url`, `tool`, `connection`, `server`, `arguments` (object, or a `${...}` reference to a JSON object), `headers`, `include_raw`, `save_binary`.
 
 ## a2a.send and a2a.get_task
 
