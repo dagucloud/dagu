@@ -70,6 +70,15 @@ func TestTrustedHome(t *testing.T) {
 	require.NoError(t, os.Mkdir(inOpen, 0o700))
 	assert.NotNil(t, trustedHome(t, testUID, inOpen, none), "a HOME that the restricted user can rename is replaced")
 
+	// The target holds every XDG folder, so that only the link is unsafe.
+	target := t.TempDir()
+	for _, folder := range homeFolders {
+		require.NoError(t, os.MkdirAll(filepath.Join(target, folder.dir), 0o700))
+	}
+	link := filepath.Join(open, "link")
+	require.NoError(t, os.Symlink(target, link))
+	assert.NotNil(t, trustedHome(t, testUID, link, none), "a link to a safe HOME that the restricted user can replace is replaced")
+
 	xdgHome := filepath.Join(t.TempDir(), "home")
 	require.NoError(t, os.MkdirAll(filepath.Join(xdgHome, ".config"), 0o700))
 	require.NoError(t, os.Chmod(filepath.Join(xdgHome, ".config"), 0o777)) //nolint:gosec // a config folder that any user can write
@@ -94,4 +103,24 @@ func TestTrustedHomeNeedsASafeTempFolder(t *testing.T) {
 	names, err := os.ReadDir(open)
 	require.NoError(t, err)
 	assert.Empty(t, names, "the private HOME is removed")
+}
+
+// A link of the restricted user in a sticky folder can be replaced by it,
+// although the sticky bit keeps it from replacing an entry of the worker. The
+// folder is writable by the group, not by all, so that fs.protected_symlinks
+// does not already stop the link.
+func TestTrustedHomeLinkOfTheUser(t *testing.T) {
+	requireIsolation(t)
+	shared := t.TempDir()
+	require.NoError(t, os.Chown(shared, os.Geteuid(), testGID))
+	require.NoError(t, os.Chmod(shared, os.ModeSticky|0o770))
+	safe := t.TempDir()
+	require.NoError(t, os.Chmod(safe, 0o700))
+	link := filepath.Join(shared, "home")
+	require.NoError(t, os.Symlink(safe, link))
+	none := func(string) (string, bool) { return "", false }
+	assert.Nil(t, trustedHome(t, testUID, link, none), "a link of the worker in a sticky folder stays")
+
+	require.NoError(t, os.Lchown(link, testUID, testGID))
+	assert.NotNil(t, trustedHome(t, testUID, link, none))
 }
