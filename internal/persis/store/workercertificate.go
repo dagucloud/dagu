@@ -110,8 +110,11 @@ func (s *WorkerCertificateStore) Get(ctx context.Context, id string) (persis.Wor
 // read was missing at the first, and the result is a state the certificate
 // held during the call.
 func (s *WorkerCertificateStore) load(ctx context.Context, id string) (persis.WorkerCertificate, *persis.Record, error) {
-	_, cert, certErr := s.getCertificate(ctx, id)
-	if certErr != nil && !errors.Is(certErr, persis.ErrWorkerCertificateNotFound) {
+	certRec, cert, certErr := s.getCertificate(ctx, id)
+	// An unreadable certificate record still lets the removal record, which
+	// holds the whole certificate, answer.
+	unreadable := certRec != nil || errors.Is(certErr, persis.ErrCorrupt)
+	if certErr != nil && !errors.Is(certErr, persis.ErrWorkerCertificateNotFound) && !unreadable {
 		return persis.WorkerCertificate{}, nil, certErr
 	}
 	removalRec, removed, err := s.getRemoval(ctx, id)

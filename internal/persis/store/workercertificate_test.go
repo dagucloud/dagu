@@ -203,6 +203,26 @@ func TestWorkerCertificateStore_RecordHeartbeatRepairsRecord(t *testing.T) {
 	}
 }
 
+// A removed certificate whose certificate record became unreadable is read
+// from its removal record, and its removal still moves forward.
+func TestWorkerCertificateStore_RemovalWithUnreadableRecord(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	col := file.NewBackend(config.PathsConfig{DataDir: dataDir}).Collection(persis.CollectionWorkerCertificates)
+	s, err := store.NewWorkerCertificateStore(col)
+	require.NoError(t, err)
+	cert := workerCertificate("cert-1")
+	createCertificate(t, s, cert)
+	setState(t, s, "cert-1", persis.WorkerCertificateRemoving)
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "worker-certificates", "certs", "cert-1.json"), []byte("{"), 0o600))
+
+	want := cert
+	want.State = persis.WorkerCertificateRemoving
+	assert.Equal(t, want, getCertificate(t, s, "cert-1"))
+	want.State = persis.WorkerCertificateRevoked
+	assert.Equal(t, want, setState(t, s, "cert-1", persis.WorkerCertificateRevoked))
+}
+
 // Another coordinator read the certificate record before a prune deleted
 // it. Between Get's two reads, that coordinator's removal lands and a
 // heartbeat writes the certificate record again. The certificate was never
@@ -384,6 +404,7 @@ func TestWorkerCertificateStore_RecordHeartbeatBoundsChanges(t *testing.T) {
 		beat.LastHeartbeatAt = enrolledAt.Add(time.Duration(i) * time.Second)
 		before := col.writes
 		require.NoError(t, s.RecordHeartbeat(ctx, beat))
+		require.LessOrEqual(t, col.writes-before, 1)
 		if col.writes > before {
 			writtenAt = append(writtenAt, beat.LastHeartbeatAt)
 		}
