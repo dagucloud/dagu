@@ -37,6 +37,8 @@ func TestRunSplitsSharedDAGName(t *testing.T) {
 	runs := filepath.Join(in.root, "data", "dag-runs")
 	billingRun := in.writeRun(t, runs, "report", "run_b", []string{"workspace=billing"}, 2)
 	defaultRun := in.writeRun(t, runs, "report", "run_d", nil, 1)
+	// A run whose ID ends in another run's ID keeps its own queue item.
+	in.writeRun(t, runs, "report", "x_run_b", nil, 1)
 	in.writeRun(t, runs, "dup", "run_x", []string{"workspace=billing"}, 1)
 	for _, rel := range []string{
 		"data/suspend/report.suspend",
@@ -45,6 +47,7 @@ func TestRunSplitsSharedDAGName(t *testing.T) {
 		"data/suspend/dup-b.suspend",
 		"data/queue/report/item_low_20260102_000000_000000000Z_run_b.json",
 		"data/queue/report/item_low_20260102_000000_000000000Z_run_d.json",
+		"data/queue/report/item_low_20260102_000000_000000000Z_x_run_b.json",
 		"data/slot-index/7265706f7274/2026-01-02.jsonl",
 	} {
 		writeFile(t, filepath.Join(in.root, rel))
@@ -67,6 +70,7 @@ func TestRunSplitsSharedDAGName(t *testing.T) {
 	assert.FileExists(t, filepath.Join(state, "default", "logs", "report", "flat_run_d.log"))
 	assert.FileExists(t, filepath.Join(state, "billing", "state", "queue", "report", "item_low_20260102_000000_000000000Z_run_b.json"))
 	assert.FileExists(t, filepath.Join(state, "default", "state", "queue", "report", "item_low_20260102_000000_000000000Z_run_d.json"))
+	assert.FileExists(t, filepath.Join(state, "default", "state", "queue", "report", "item_low_20260102_000000_000000000Z_x_run_b.json"))
 	assert.FileExists(t, filepath.Join(state, "default", "state", "slot-index", "7265706f7274", "2026-01-02.jsonl"))
 	for _, flag := range []string{"report", "dup-a", "dup-b"} {
 		assert.FileExists(t, filepath.Join(state, "billing", "state", "suspend", flag+".suspend"))
@@ -126,28 +130,50 @@ func TestRunLeavesDirectoriesOfOtherDAGs(t *testing.T) {
 
 // The logs of a workspace DAG that v2 kept on another file system through a
 // link stay there: the project's directory of logs links beside the default
-// project's.
+// project's. A link that a killed attempt left leading nowhere is completed
+// or made again.
 func TestRunKeepsWorkspaceLogsOnLinkedDisk(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("creating symbolic links needs a privilege on Windows")
 	}
 	t.Parallel()
-	in := newWorkspaceInstall(t)
-	logs := in.cfg.Paths.LogDir
-	disk := filepath.Join(in.root, "disk", "logs")
-	require.NoError(t, os.MkdirAll(filepath.Dir(disk), 0o750))
-	require.NoError(t, os.Rename(logs, disk))
-	writeFile(t, filepath.Join(disk, "admin", "audit", "a.jsonl"))
-	require.NoError(t, os.Symlink(disk, logs))
-	m := newStateMigrator(t, in.cfg)
-	m.mover.sameFileSystem = otherFileSystem
+	for _, tc := range []struct {
+		name string
+		// left returns the target of the link that a killed attempt left as
+		// the project's directory of logs, or "" for none, from the real
+		// path of the disk.
+		left func(disk string) string
+	}{
+		{name: "First", left: func(string) string { return "" }},
+		{name: "KilledBeforeTarget", left: func(disk string) string { return filepath.Join(disk, ".projects", "billing") }},
+		{name: "LeadingNowhere", left: func(disk string) string { return filepath.Join(disk, "gone") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := newWorkspaceInstall(t)
+			logs := in.cfg.Paths.LogDir
+			disk := filepath.Join(in.root, "disk", "logs")
+			require.NoError(t, os.MkdirAll(filepath.Dir(disk), 0o750))
+			require.NoError(t, os.Rename(logs, disk))
+			writeFile(t, filepath.Join(disk, "admin", "audit", "a.jsonl"))
+			require.NoError(t, os.Symlink(disk, logs))
+			billing := filepath.Join(in.cfg.Paths.DataDir, "projects", "billing", "logs")
+			real, err := filepath.EvalSymlinks(disk)
+			require.NoError(t, err)
+			if target := tc.left(real); target != "" {
+				require.NoError(t, os.MkdirAll(filepath.Dir(billing), 0o750))
+				require.NoError(t, os.Symlink(target, billing))
+			}
+			m := newStateMigrator(t, in.cfg)
+			m.mover.sameFileSystem = otherFileSystem
 
-	require.NoError(t, m.Run(context.Background()))
+			require.NoError(t, m.Run(context.Background()))
 
-	billing := filepath.Join(in.cfg.Paths.DataDir, "projects", "billing", "logs")
-	assert.FileExists(t, filepath.Join(billing, "invoices", "dag-run_1", "run.log"))
-	assert.FileExists(t, filepath.Join(disk, ".projects", "billing", "invoices", "dag-run_1", "run.log"),
-		"the logs stay on their disk")
+			assert.FileExists(t, filepath.Join(billing, "invoices", "dag-run_1", "run.log"))
+			assert.FileExists(t, filepath.Join(disk, ".projects", "billing", "invoices", "dag-run_1", "run.log"),
+				"the logs stay on their disk")
+		})
+	}
 }
 
 func readAttention(t *testing.T, in *workspaceInstall) []attentionItem {

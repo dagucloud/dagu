@@ -165,7 +165,12 @@ func DAGRunPaths(
 		true,
 	)
 	queue := escapeSegment(name, true)
+	items, err := queueItemsByRun(filepath.Join(queueDirOf(from), queue))
+	if err != nil {
+		return nil, err
+	}
 	var paths []DAGStatePath
+	seen := make(map[string]struct{})
 	for _, runDir := range runDirs {
 		statuses, err := runStatuses(ctx, runDir)
 		if err != nil {
@@ -187,31 +192,53 @@ func DAGRunPaths(
 		paths = append(paths, DAGStatePath{From: runDir, To: filepath.Join(to.DAGRunsDir, rel)})
 		for _, status := range statuses {
 			for _, log := range runLogs(status) {
-				if err := appendRunLog(&paths, from.LogDir, to.LogDir, mapper.ResolveLog(log)); err != nil {
+				if err := appendRunLog(&paths, seen, from.LogDir, to.LogDir, mapper.ResolveLog(log)); err != nil {
 					return nil, err
 				}
 			}
 			if status.ArchiveDir != "" {
 				dir := mapper.ResolveArtifact(status.ArchiveDir)
-				if err := appendWithin(&paths, from.ArtifactDir, to.ArtifactDir, dir); err != nil {
+				if err := appendWithin(&paths, seen, from.ArtifactDir, to.ArtifactDir, dir); err != nil {
 					return nil, err
 				}
 				if meta, ok := artifactpath.MetaPath(from.ArtifactDir, dir); ok {
-					if err := appendWithin(&paths, from.ArtifactDir, to.ArtifactDir, meta); err != nil {
+					if err := appendWithin(&paths, seen, from.ArtifactDir, to.ArtifactDir, meta); err != nil {
 						return nil, err
 					}
 				}
 			}
 		}
-		items, err := filepath.Glob(filepath.Join(queueDirOf(from), queue, "item_*_"+latest.DAGRunID+".json"))
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range items {
-			paths = append(paths, DAGStatePath{From: item, To: filepath.Join(queueDirOf(to), queue, filepath.Base(item))})
+		for _, item := range items[latest.DAGRunID] {
+			paths = append(paths, DAGStatePath{
+				From: filepath.Join(queueDirOf(from), queue, item),
+				To:   filepath.Join(queueDirOf(to), queue, item),
+			})
 		}
 	}
 	return paths, nil
+}
+
+// queueItemPattern matches the file of a queue item, item_<priority>_<time>Z_<run ID>.json,
+// and captures the run ID.
+var queueItemPattern = regexp.MustCompile(`^item_[a-z]+_[0-9]{8}_[0-9]{6}_[0-9]{9}Z_(.+)\.json$`)
+
+// queueItemsByRun returns the names of the item files in the queue
+// directory dir, by the ID of each item's run.
+func queueItemsByRun(dir string) (map[string][]string, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	items := make(map[string][]string)
+	for _, entry := range entries {
+		if match := queueItemPattern.FindStringSubmatch(entry.Name()); match != nil && !entry.IsDir() {
+			items[match[1]] = append(items[match[1]], entry.Name())
+		}
+	}
+	return items, nil
 }
 
 // queueDirOf returns the directory of the queues of the stores on p.
@@ -231,11 +258,11 @@ func runStatuses(ctx context.Context, runDir string) ([]*ir.DAGRunStatus, error)
 		return nil, err
 	}
 	var statuses []*ir.DAGRunStatus
-	for i := len(entries) - 1; i >= 0; i-- {
-		if !entries[i].IsDir() || !filedagrun.IsAttemptDirName(entries[i].Name()) {
+	for _, entry := range slices.Backward(entries) {
+		if !entry.IsDir() || !filedagrun.IsAttemptDirName(entry.Name()) {
 			continue
 		}
-		attempt, err := run.AttemptByDir(entries[i].Name(), nil)
+		attempt, err := run.AttemptByDir(entry.Name(), nil)
 		if err != nil {
 			continue
 		}
@@ -260,7 +287,7 @@ func runLogs(status *ir.DAGRunStatus) []string {
 // appendRunLog adds the directory of one run's logs that holds the log at
 // path, <DAG>/<run>/ in fromDir, paired with its place in toDir. A log kept
 // directly in a DAG's directory, which other runs share, moves on its own.
-func appendRunLog(paths *[]DAGStatePath, fromDir, toDir, path string) error {
+func appendRunLog(paths *[]DAGStatePath, seen map[string]struct{}, fromDir, toDir, path string) error {
 	rel, err := filepath.Rel(fromDir, path)
 	if err != nil {
 		return nil
@@ -269,7 +296,7 @@ func appendRunLog(paths *[]DAGStatePath, fromDir, toDir, path string) error {
 	if len(parts) > 2 {
 		path = filepath.Join(fromDir, parts[0], parts[1])
 	}
-	return appendWithin(paths, fromDir, toDir, path)
+	return appendWithin(paths, seen, fromDir, toDir, path)
 }
 
 // DAGStateRoots returns the directories of the stores on from that DAG
@@ -326,15 +353,17 @@ func appendExisting(paths *[]DAGStatePath, fromDir, toDir, rel string) error {
 }
 
 // appendWithin adds path to paths, paired with its place in toDir, when it
-// exists and lies inside fromDir. A path outside, which a DAG set, stays.
-func appendWithin(paths *[]DAGStatePath, fromDir, toDir, path string) error {
+// exists, lies inside fromDir, and is not in seen, the paths added so far.
+// A path outside, which a DAG set, stays.
+func appendWithin(paths *[]DAGStatePath, seen map[string]struct{}, fromDir, toDir, path string) error {
 	rel, err := filepath.Rel(fromDir, path)
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return nil
 	}
-	if slices.ContainsFunc(*paths, func(p DAGStatePath) bool { return p.From == path }) {
+	if _, ok := seen[path]; ok {
 		return nil
 	}
+	seen[path] = struct{}{}
 	return appendExisting(paths, fromDir, toDir, rel)
 }
 

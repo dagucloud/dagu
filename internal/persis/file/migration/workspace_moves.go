@@ -306,7 +306,8 @@ func uniqueMoves(moves []move) []move {
 // project's in the link's target, so the state moves by rename. Where the
 // link cannot be made, as on Windows without the privilege to create
 // symbolic links, the directory stays plain and the state is copied. A
-// directory of to that exists is left as it is.
+// link that an attempt killed partway left is completed, or made again when
+// it leads nowhere; any other directory of to that exists is left as it is.
 func linkStateRoots(
 	ctx context.Context, from, to config.ProjectPaths, name string, sameFileSystem func(a, b string) (bool, error),
 ) error {
@@ -325,16 +326,20 @@ func linkStateRoots(
 		if !link {
 			continue
 		}
-		found, err := exists(root.To)
-		if err != nil {
-			return fmt.Errorf("plan the migration: %w", err)
-		}
-		if found {
-			continue
-		}
 		real, err := realPath(root.From)
 		if err != nil {
 			return fmt.Errorf("plan the migration: %w", err)
+		}
+		target := filepath.Join(real, setApartDirName, name)
+		if filepath.Base(real) == project.DefaultName && filepath.Base(filepath.Dir(real)) == setApartDirName {
+			target = filepath.Join(filepath.Dir(real), name)
+		}
+		missing, err := needsLink(root.To, target)
+		if err != nil {
+			return fmt.Errorf("plan the migration: %w", err)
+		}
+		if !missing {
+			continue
 		}
 		same, err := sameFileSystem(real, root.To)
 		if err != nil {
@@ -343,22 +348,42 @@ func linkStateRoots(
 		if same {
 			continue
 		}
-		target := filepath.Join(real, setApartDirName, name)
-		if filepath.Base(real) == project.DefaultName && filepath.Base(filepath.Dir(real)) == setApartDirName {
-			target = filepath.Join(filepath.Dir(real), name)
-		}
-		if err := fileutil.MkdirAll(filepath.Dir(root.To), dirPerm); err != nil {
-			return err
+		// The target goes first, so a link never leads nowhere.
+		for _, dir := range []string{target, filepath.Dir(root.To)} {
+			if err := fileutil.MkdirAll(dir, dirPerm); err != nil {
+				return err
+			}
 		}
 		if err := os.Symlink(target, root.To); err != nil {
 			logger.Warn(ctx, "Copying a project's state off the disk a link leads to, since the link cannot be made; "+
 				"on Windows, creating symbolic links needs Developer Mode or an elevated process",
 				tag.Name(name), tag.Path(root.To), tag.Error(err))
-			continue
-		}
-		if err := fileutil.MkdirAll(target, dirPerm); err != nil {
-			return errors.Join(err, fileutil.Remove(root.To))
 		}
 	}
 	return nil
+}
+
+// needsLink reports whether path, the directory of a project's store, is to
+// be made a link to target. A link to target that an earlier attempt made
+// gets target back when it is gone, and a link that leads nowhere is
+// removed to be made again.
+func needsLink(path, target string) (bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	dest, link, err := readLink(path, info.Mode())
+	if err != nil || !link {
+		return false, err
+	}
+	if filepath.Clean(dest) == filepath.Clean(target) {
+		return false, fileutil.MkdirAll(target, dirPerm)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
+	return true, fileutil.Remove(path)
 }
