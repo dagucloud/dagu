@@ -271,11 +271,14 @@ func initEncryptedStores(
 		return
 	}
 
-	connectEngine, err := newConnectEngine(cfg, server, encryptor)
+	connectEvents := &frontend.ConnectEvents{}
+	connections, connectEngine, err := newConnectEngine(cfg, server, encryptor, connectEvents)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create connect engine", tag.Error(err))
 	} else {
+		stores.Connections = connections
 		stores.Connect = connectEngine
+		stores.ConnectEvents = connectEvents
 	}
 
 	remoteNodeStore, err := newRemoteNodeStore(cfg, server, encryptor)
@@ -306,22 +309,24 @@ func initEncryptedStores(
 	}
 }
 
-// newConnectEngine runs connect sessions over the server's connection
-// store. Providers register as they are added.
+// newConnectEngine returns the server's connection store and an engine
+// that runs connect sessions over it and reports to events. Providers
+// register as they are added.
 func newConnectEngine(
 	cfg *config.Config,
 	server *persisfile.ServerStores,
 	encryptor *crypto.Encryptor,
-) (*connect.Engine, error) {
+	events *frontend.ConnectEvents,
+) (connection.Store, *connect.Engine, error) {
 	connections, err := server.ConnectionStore()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// The server runs long, so its broker caches no token: a reconnect or
 	// a status change reaches the next request.
 	tokens, err := broker.New(broker.Config{Store: connections, Locks: server.ConnectionLocks()})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	catalog, err := toolcatalog.New(toolcatalog.Config{
 		Store:  connections,
@@ -329,13 +334,13 @@ func newConnectEngine(
 		Lister: toolcatalog.NewMCPLister(tokens, nil),
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	googleProvider, err := google.New(google.Config{Catalog: catalog})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return connect.New(connect.Config{
+	engine, err := connect.New(connect.Config{
 		Store: connections,
 		Locks: server.ConnectionLocks(),
 		Providers: map[connection.Provider]connect.Provider{
@@ -343,7 +348,12 @@ func newConnectEngine(
 		},
 		Encryptor:       encryptor,
 		AnyUserConfirms: cfg.Server.Auth.Mode == config.AuthModeNone,
+		OnRevoke:        events.Revoked,
 	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return connections, engine, nil
 }
 
 func newRemoteNodeStore(

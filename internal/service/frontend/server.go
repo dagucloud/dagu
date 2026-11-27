@@ -681,6 +681,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	if stores.Secret != nil {
 		apiOpts = append(apiOpts, apiv1.WithSecretStore(stores.Secret))
 	}
+	if stores.Connections != nil && stores.Connect != nil {
+		apiOpts = append(apiOpts, apiv1.WithConnections(stores.Connections, stores.Connect))
+	}
 	if stores.Profile != nil {
 		apiOpts = append(apiOpts, apiv1.WithProfileStore(stores.Profile))
 	}
@@ -877,6 +880,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	allAPIOptions := append(apiOpts, srv.tunnelAPIOpts...)
 
 	srv.apiV1 = apiv1.New(dr, dagRunRepository, qs, processes, drm, cfg, cc, sr, mr, rs, allAPIOptions...)
+	if stores.ConnectEvents != nil {
+		stores.ConnectEvents.HandleRevoked(srv.apiV1.AuditRevocation)
+	}
 
 	return srv, nil
 }
