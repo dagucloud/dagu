@@ -18,6 +18,11 @@ import (
 // provider's message.
 const maxRateLimitBody = 4 << 10
 
+// maxRateLimitMessage bounds the provider's message in a rate_limited
+// error, which reaches the step's output, error, and status. A proxy's
+// HTML error page then adds one short line.
+const maxRateLimitMessage = 200
+
 // observingTransport injects static headers and remembers the first
 // authentication rejection, rate limit, unavailable status, or network
 // failure, which the SDK does not expose as typed errors.
@@ -114,13 +119,30 @@ func providerMessage(body []byte) string {
 
 func (l *rateLimit) callError(redact redactor) *callError {
 	msg := "server responded with HTTP 429 " + http.StatusText(http.StatusTooManyRequests)
-	if l.message != "" {
-		msg += ": " + redact.apply(l.message)
+	// Secrets are redacted from the whole message before it is cut, so no
+	// part of one is left at the cut.
+	if message := excerpt(redact.apply(l.message)); message != "" {
+		msg += ": " + message
 	}
-	if l.retryAfter != "" {
-		msg += "; retry after " + l.retryAfter
+	retryAfter := redact.apply(l.retryAfter)
+	if retryAfter != "" {
+		msg += "; retry after " + retryAfter
 	}
-	return &callError{kind: kindRateLimited, message: msg, retryAfter: l.retryAfter}
+	return &callError{kind: kindRateLimited, message: msg, retryAfter: retryAfter}
+}
+
+// excerpt returns the first line of s, cut to maxRateLimitMessage bytes on
+// a rune boundary, with "..." when anything was left out.
+func excerpt(s string) string {
+	line, rest, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	line = strings.TrimSpace(line)
+	if len(line) > maxRateLimitMessage {
+		return strings.ToValidUTF8(line[:maxRateLimitMessage], "") + "..."
+	}
+	if rest != "" {
+		return line + " ..."
+	}
+	return line
 }
 
 type readCloser struct {

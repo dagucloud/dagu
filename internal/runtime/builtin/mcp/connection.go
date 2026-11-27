@@ -158,7 +158,7 @@ func (cc *connectionCall) refusal(err error, redact redactor) *callError {
 	}
 	cerr := authError(cc.name, errors.New(redact.apply(rejected.Error())))
 	if rejected.Status == http.StatusForbidden && rejected.Code == detailInsufficientScope {
-		cerr.detail, cerr.scope = detailInsufficientScope, rejected.Scope
+		cerr.detail, cerr.scope = detailInsufficientScope, redact.apply(rejected.Scope)
 	}
 	return cerr
 }

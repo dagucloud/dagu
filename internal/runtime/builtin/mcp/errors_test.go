@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -120,6 +121,25 @@ func TestRateLimited(t *testing.T) {
 		"message":     "server responded with HTTP 429 Too Many Requests: Quota exceeded for quota metric 'Queries'; retry after 30",
 		"retry_after": "30",
 	}, decode(t, out)["error"])
+}
+
+// A 429 page that is not JSON, such as a proxy's, adds only the start of
+// its first line to the error.
+func TestRateLimitedPageExcerpt(t *testing.T) {
+	t.Parallel()
+	page := "<html><title>" + strings.Repeat("busy ", 100) + "</title>\n<body>try later</body></html>"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(page))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := run(t.Context(), t, map[string]any{"url": srv.URL, "tool": "echo"})
+	require.Error(t, err)
+	assert.Equal(t, kindRateLimited, errKind(t, err))
+	assert.Contains(t, err.Error(), "<html><title>busy busy")
+	assert.NotContains(t, err.Error(), "try later")
+	assert.Less(t, len(err.Error()), len(page)/2)
 }
 
 func TestNoImplicitRetry(t *testing.T) {
