@@ -525,9 +525,10 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   with no role, and Dagu Cloud binding, and last the registry entry. A
   process that starts while a project is marked deleting finishes the
   delete.
-  - When the DAG directory is in a git checkout or contains one, delete is
-    refused while the directory exists: the checkout owns those files, so
-    they are removed there first.
+  - While a git checkout tracks files in the DAG directory, delete is
+    refused: the checkout owns those files, so they are removed there
+    first. A checkout that tracks nothing there, such as a dotfiles
+    repository in the home directory, does not block delete.
   - Delete is also refused while the registry records a file that runs in
     place as the project's ([Migration](#migration)), whether or not the
     file exists now. Left behind without its record, the file would run in
