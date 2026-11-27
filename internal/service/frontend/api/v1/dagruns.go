@@ -3380,7 +3380,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 	}
 
 	// A run bound to a worker node is retried on that worker.
-	worker, err := a.boundWorker(ctx, dag, prevStatus.TargetNodes)
+	worker, err := a.boundWorker(ctx, dag, prevStatus.TargetNodes, prevStatus.BoundWorker, false)
 	if err != nil {
 		return retryDAGRunResult{}, err
 	}
@@ -3437,6 +3437,9 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		)
 
 		if err := a.coordinatorCli.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
+			if worker != "" {
+				err = workerDispatchError(err)
+			}
 			return retryDAGRunResult{}, fmt.Errorf("error dispatching retry to coordinator: %w", err)
 		}
 
@@ -4100,6 +4103,11 @@ func (a *API) enqueuePreparedDAGRunIn(
 		}
 	}
 
+	// The queued run keeps the worker node it is bound to.
+	worker, err := a.boundWorker(ctx, dag, targetNodes, "", true)
+	if err != nil {
+		return err
+	}
 	queuedDAG := dag.Clone()
 	queuedDAG.Location = ""
 
@@ -4116,6 +4124,7 @@ func (a *API) enqueuePreparedDAGRunIn(
 		ProfileName:             profileName,
 		NoReuse:                 noReuse,
 		TargetNodes:             targetNodes,
+		BoundWorker:             worker,
 		ScheduleTime:            slot.scheduleTimeOrEmpty(),
 		ScheduleWindow:          slot.windowOrZero(),
 	})
@@ -4633,7 +4642,7 @@ func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.
 	var worker string
 	var err error
 	if status.Parent.Zero() {
-		if worker, err = a.boundWorker(ctx, dag, status.TargetNodes); err != nil {
+		if worker, err = a.boundWorker(ctx, dag, status.TargetNodes, status.BoundWorker, false); err != nil {
 			return err
 		}
 	}
@@ -4678,6 +4687,9 @@ func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.
 		}
 		task := executor.CreateTask(dag.Name, string(dag.YamlData), dispatch.DispatchOperationRetry, runID, options...)
 		if err := a.coordinatorCli.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
+			if worker != "" {
+				err = workerDispatchError(err)
+			}
 			return fmt.Errorf("dispatch managed-agent resume: %w", err)
 		}
 		return nil

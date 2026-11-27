@@ -415,7 +415,7 @@ func (e *DAGExecutor) boundWorker(ctx context.Context, dag *ir.DAG, status *ir.D
 	if status == nil || !status.Parent.Zero() {
 		return "", nil
 	}
-	return intake.BoundWorker(ctx, dag, status.TargetNodes, e.nodes, e.coordinatorCli != nil)
+	return intake.BoundWorker(ctx, dag, status.TargetNodes, e.nodes, e.coordinatorCli != nil, status.BoundWorker)
 }
 
 // distributedRun reports whether a queued run goes to the coordinator: a run

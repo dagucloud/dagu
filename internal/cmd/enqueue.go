@@ -87,6 +87,12 @@ func runEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// The queued run keeps the worker node it is bound to, and needs no
+	// coordinator until it leaves the queue.
+	worker, err := readBoundWorker(ctx, dag, targetNodes, true, "")
+	if err != nil {
+		return err
+	}
 
 	triggerType, err := parseTriggerTypeParam(ctx)
 	if err != nil {
@@ -127,6 +133,7 @@ func runEnqueue(ctx *Context, args []string) error {
 		definitionID:   dagDefinitionIDFromEnv(),
 		noReuse:        noReuse,
 		targetNodes:    targetNodes,
+		boundWorker:    worker,
 	})
 }
 
@@ -170,6 +177,7 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		DefinitionID:            opts.definitionID,
 		NoReuse:                 opts.noReuse,
 		TargetNodes:             opts.targetNodes,
+		BoundWorker:             opts.boundWorker,
 		ProceedOnStatusCloseErr: true,
 	})
 	if err != nil {

@@ -431,7 +431,7 @@ func tryExecuteDAG(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 	if opts.workerID == "local" {
 		// A run bound to a worker node runs on that worker, whatever the
 		// default execution mode.
-		worker, coordinatorCli, err := boundWorker(ctx, dag, opts.targetNodes)
+		worker, coordinatorCli, err := boundWorker(ctx, dag, opts.targetNodes, "")
 		if err != nil {
 			return err
 		}

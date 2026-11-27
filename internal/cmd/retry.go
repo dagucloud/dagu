@@ -298,7 +298,7 @@ func runRetry(ctx *Context, args []string) error {
 	// A run bound to a worker node is retried on that worker. The queue
 	// sends such a run to its worker itself.
 	if workerID == "local" && !queueDispatchRetry && status.Parent.Zero() {
-		worker, coordinatorCli, err := boundWorker(ctx, dag, status.TargetNodes)
+		worker, coordinatorCli, err := boundWorker(ctx, dag, status.TargetNodes, status.BoundWorker)
 		if err != nil {
 			return err
 		}

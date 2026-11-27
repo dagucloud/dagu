@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/require"
 )
 
@@ -90,25 +91,36 @@ func TestBoundWorker(t *testing.T) {
 		name          string
 		dag           *ir.DAG
 		names         []string
+		nodes         fixedNodes
 		noCoordinator bool
+		admitted      string
 		want          string
-		wantErr       bool
+		wantErr       error
 	}{
-		{name: "bound to a worker node", dag: bound, names: []string{"Tokyo-GW"}, want: "tokyo-gw"},
-		{name: "bound to an SSH node", dag: bound, names: []string{"web01"}},
+		{name: "bound to a worker node", dag: bound, names: []string{"Tokyo-GW"}, nodes: nodes, want: "tokyo-gw"},
+		{name: "bound to an SSH node", dag: bound, names: []string{"web01"}, nodes: nodes},
 		// The agent fails such a run before any step.
-		{name: "bound to a forgotten worker node", dag: bound, names: []string{"osaka-gw"}},
-		{name: "not bound", dag: nodeStep, names: []string{"tokyo-gw"}},
-		{name: "no coordinator", dag: bound, names: []string{"tokyo-gw"}, noCoordinator: true, wantErr: true},
-		{name: "an SSH node needs no coordinator", dag: bound, names: []string{"web01"}, noCoordinator: true},
+		{name: "a new run bound to no node", dag: bound, names: []string{"osaka-gw"}, nodes: nodes},
+		{name: "not bound", dag: nodeStep, names: []string{"tokyo-gw"}, nodes: nodes},
+		{name: "no coordinator", dag: bound, names: []string{"tokyo-gw"}, nodes: nodes, noCoordinator: true, wantErr: ErrNoCoordinator},
+		{name: "an SSH node needs no coordinator", dag: bound, names: []string{"web01"}, nodes: nodes, noCoordinator: true},
+		{name: "started bound to its worker", dag: bound, names: []string{"tokyo-gw"}, nodes: nodes, admitted: "tokyo-gw", want: "tokyo-gw"},
+		// An inventory node wins a name from a worker.
+		{name: "an inventory node took the name", dag: bound, names: []string{"web01"}, nodes: nodes, admitted: "web01", wantErr: ErrWorkerNodeChanged},
+		{name: "the worker was forgotten", dag: bound, names: []string{"osaka-gw"}, nodes: nodes, admitted: "osaka-gw", wantErr: ErrWorkerNodeChanged},
+		{name: "no nodes to read", dag: bound, names: []string{"tokyo-gw"}, admitted: "tokyo-gw", want: "tokyo-gw"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := BoundWorker(context.Background(), tc.dag, tc.names, nodes, !tc.noCoordinator)
-			if tc.wantErr {
-				require.ErrorIs(t, err, ErrNoCoordinator)
-				require.ErrorContains(t, err, `node "tokyo-gw" is a worker node`)
+			// A nil list stands for a run that reads no nodes.
+			var selector runtime.NodeSelector
+			if tc.nodes != nil {
+				selector = tc.nodes
+			}
+			got, err := BoundWorker(context.Background(), tc.dag, tc.names, selector, !tc.noCoordinator, tc.admitted)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
 				return
 			}
 			require.NoError(t, err)

@@ -1626,10 +1626,10 @@ func isNoAvailableWorker(err error) bool {
 }
 
 // isWorkerNodeUnreachable reports a dispatch of a run bound to a worker node
-// that no coordinator can reach, or that the coordinator refused because the
-// worker is offline.
+// that no coordinator can reach, whose node no longer names its worker, or
+// that the coordinator refused because the worker is offline.
 func isWorkerNodeUnreachable(err error) bool {
-	if errors.Is(err, intake.ErrNoCoordinator) {
+	if errors.Is(err, intake.ErrNoCoordinator) || errors.Is(err, intake.ErrWorkerNodeChanged) {
 		return true
 	}
 	message := errorMessage(err)

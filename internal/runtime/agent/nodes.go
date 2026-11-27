@@ -152,6 +152,23 @@ func (a *Agent) lookupBoundNode(ctx context.Context) (*nodeBinding, error) {
 	return binding, nil
 }
 
+// boundWorker returns the worker node the run was started bound to, which a
+// later dispatch of the run keeps: the run's own node when it is bound to a
+// worker node, else what the run it continues recorded.
+func (a *Agent) boundWorker() string {
+	switch {
+	case a.binding != nil && a.binding.node.Kind == inventory.NodeKindWorker:
+		return a.binding.node.Name
+	case a.binding == nil && a.boundNode != "" && a.runsOnWorker(a.boundNode):
+		// The run failed before it read its node, on the worker of its name.
+		return a.boundNode
+	case a.statusSourceTarget() != nil:
+		return a.statusSourceTarget().BoundWorker
+	default:
+		return ""
+	}
+}
+
 // runsOnWorker reports whether the run runs on the worker whose ID is
 // workerID. A run on the Dagu host runs on no worker.
 func (a *Agent) runsOnWorker(workerID string) bool {
