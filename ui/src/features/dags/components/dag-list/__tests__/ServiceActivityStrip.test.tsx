@@ -156,6 +156,11 @@ describe('ServiceActivityStrip', () => {
     // The up time does not count as a run.
     expect(strip).toHaveAttribute('data-runs', '1');
     expect(cells[20]).toHaveAttribute('title', expect.stringMatching(/ · Up$/));
+    // A failure with no run start in the cell still shows in its tooltip.
+    expect(cells[22]).toHaveAttribute(
+      'title',
+      expect.stringContaining('Runs 0 · Failed 1')
+    );
     expect(cells[19]).toHaveAttribute(
       'title',
       expect.stringContaining('Runs 1 · Failed 0')

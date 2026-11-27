@@ -292,7 +292,7 @@ function Figure({ label, children }: { label: string; children: ReactNode }) {
 
 function cellTitle(cell: ServiceCell, ts: ReturnType<typeof useI18n>['ts']) {
   const time = formatAbsoluteTime(cell.start, { seconds: false }) ?? '';
-  if (cell.count === 0) {
+  if (cell.count === 0 && cell.failures === 0) {
     return `${time} · ${cell.upMs > 0 ? ts('Up') : ts('No runs')}`;
   }
   return `${time} · ${ts('Runs {count} · Failed {failures}', {
