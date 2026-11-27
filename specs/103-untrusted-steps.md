@@ -327,7 +327,16 @@ The rules, in order:
 
    A link that replaces a path while Dagu changes an owner or a mode cannot redirect the change. A
    file with more than one link fails the step, because a change of owner would also give away its
-   other paths.
+   other paths. In a git folder, such a file fails the step only when Dagu must change its owner or
+   its mode. A device node fails the step, because the restricted user could open the device.
+
+   Before it changes the first owner, Dagu makes the file `<work directory>.untrusted-handoff` next
+   to the work directory. The restore of rule 8 removes it once the work directory is safe again.
+   While the file exists, the next untrusted step fails before it gets the work directory, and every
+   step, precondition and repeat condition of a run with an untrusted step fails and stops the run,
+   in any process. So a process that stops during an untrusted step, or a restore that stops the
+   run, leaves no work directory that a later step uses. The operator removes the work directory
+   and the file.
 
    During the step, a work directory looks like this:
 
@@ -350,8 +359,9 @@ The rules, in order:
 
 6. **Files of the attempt.** The MCP config of the attempt (Spec 091) holds the secret of the tool
    bridge. The restricted user owns it, with the mode `0400`. The restricted user can read and
-   cannot write the skills folder (Spec 091) and the script of the step. It can write the file of
-   `DAGU_OUTPUT_FILE`.
+   cannot write the skills folder (Spec 091) and the script of the step. The script keeps the worker
+   user as owner and gets the group of the restricted user with the mode `0440`, so no other user
+   can read it. The restricted user can write the file of `DAGU_OUTPUT_FILE`.
 
 7. **End.** The step ends after a success, a failure, a timeout or a stop. Dagu then sends
    `SIGKILL` to every process of the restricted user: every thread group that has a live task of
@@ -372,7 +382,9 @@ The rules, in order:
      counts as a folder.
    - a file with more than one link
 
-   A file of the restricted user loses its set-user-ID and set-group-ID bits.
+   A file of the restricted user loses its set-user-ID and set-group-ID bits. An entry of the
+   restricted user loses its POSIX ACLs, so that a default ACL does not pass to a `.git` that a
+   later trusted step makes.
 
 A failure of any action of this list fails the step. The error names the action and the path.
 
@@ -380,6 +392,8 @@ These failures also stop the run, because Dagu cannot give a safe work directory
 
 - A task of the restricted user is still alive 30 seconds after `SIGKILL`.
 - An entry of a git folder, or a `.git` entry, changed or is gone.
+- Dagu cannot read a part of the work directory, cannot remove an entry of rule 8, or finds a tree
+  more than 256 folders deep.
 
 After such a failure, every later step of a run with an untrusted step fails in the same process.
 
@@ -497,6 +511,7 @@ These cases fail a step or a run:
 | A failed action of [Isolation](#isolation), such as a change of owner | The step fails. The error names the action and the path. |
 | An untrusted step in a process with no restricted user and no `untrusted.isolation: off` | The step fails with the reason `isolation_required`. |
 | A task of the restricted user alive 30 seconds after `SIGKILL`, or a changed or missing git entry | The step fails and the run stops. Every later step of a run with an untrusted step fails in the same process. |
+| A step of a run whose work directory has the file `<work directory>.untrusted-handoff` | The step fails and the run stops, in any process. |
 
 ## Limits
 
