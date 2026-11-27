@@ -167,10 +167,10 @@ worker:
 
 - It goes to its worker whatever the default execution mode, through a
   coordinator. Where `coordinator.enabled` is false
-  ([Spec 092](092-agent-workers.md)), the command, the request (503), or
-  the scheduler fails it before any attempt exists (`node "tokyo-gw" is a
-  worker node: a run bound to a worker node reaches its worker through a
-  coordinator, and none is configured`).
+  ([Spec 092](092-agent-workers.md)), the command or the request (503)
+  fails it before any attempt exists, and the scheduler fails the queued
+  run (`node "tokyo-gw" is a worker node: a run bound to a worker node
+  reaches its worker through a coordinator, and none is configured`).
 - The run records the worker node it is bound to, as `boundWorker` in its
   status, when it is enqueued or first runs, and its retries, its restart,
   its resume, and edit-and-retry runs from it keep it. The node is read
