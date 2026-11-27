@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -244,7 +245,7 @@ func skillPrecondition(ifMatch, ifNoneMatch *string) (skill.Precondition, error)
 		return skill.Precondition{}, errSkillPreconditionRequired
 	}
 	hash := strings.Trim(strings.TrimPrefix(strings.TrimSpace(*ifMatch), "W/"), `"`)
-	if len(hash) != 64 {
+	if _, err := hex.DecodeString(hash); err != nil || len(hash) != 64 {
 		return skill.Precondition{}, &Error{Code: api.ErrorCodeBadRequest, Message: "If-Match must be the hash of the skill (64 hexadecimal characters)", HTTPStatus: http.StatusBadRequest}
 	}
 	return skill.Precondition{IfMatch: hash}, nil

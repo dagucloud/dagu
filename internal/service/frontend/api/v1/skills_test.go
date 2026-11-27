@@ -161,7 +161,9 @@ func TestSkillsPutNeedsAPrecondition(t *testing.T) {
 	body := api.UpdateSkillJSONRequestBody{Content: validSkill}
 
 	putSkill(server, "/api/v1/skills/refund-policy", body, nil).ExpectStatus(http.StatusPreconditionRequired).Send(t)
-	putSkill(server, "/api/v1/skills/refund-policy", body, skillIfMatch("nope")).ExpectStatus(http.StatusBadRequest).Send(t)
+	for _, value := range []string{"nope", strings.Repeat("z", 64)} {
+		putSkill(server, "/api/v1/skills/refund-policy", body, skillIfMatch(value)).ExpectStatus(http.StatusBadRequest).Send(t)
+	}
 	_, err := os.Stat(filepath.Join(skillsDir(server), "refund-policy"))
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
