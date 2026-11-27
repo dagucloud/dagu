@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -25,7 +26,7 @@ func TestStateStoreClientUsesCoordinatorRPC(t *testing.T) {
 	handler := NewHandler(HandlerConfig{
 		StateStore: store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state")),
 	})
-	stateStore := NewStateStoreClient(fakeStateClient{handler: handler})
+	stateStore := NewStateStoreClient(fakeStateClient{handler: handler}, dispatch.ProjectScope{})
 	ctx := context.Background()
 	ref := dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "cursor"}
 
@@ -57,7 +58,7 @@ func TestStateStoreClientValidatesBeforeRPC(t *testing.T) {
 		handler: NewHandler(HandlerConfig{
 			StateStore: store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state")),
 		}),
-	})
+	}, dispatch.ProjectScope{})
 	ctx := context.Background()
 
 	_, err := stateStore.Get(ctx, dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "../bad"})
@@ -77,7 +78,7 @@ func TestStateStoreClientNormalizesValueBeforeRPC(t *testing.T) {
 	t.Parallel()
 
 	client := &capturingStateClient{}
-	stateStore := NewStateStoreClient(client)
+	stateStore := NewStateStoreClient(client, dispatch.ProjectScope{})
 	ref := dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "cursor"}
 
 	entry, err := stateStore.Put(context.Background(), ref, json.RawMessage(`{ "b": 2, "a": 1 }`), dagrun.StatePutOptions{})

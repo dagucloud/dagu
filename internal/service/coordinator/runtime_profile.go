@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -28,6 +29,8 @@ type RuntimeProfileRun struct {
 	AttemptKey string
 	AttemptID  string
 	DAGName    string
+	// Project is the project whose run the attempt runs.
+	Project dispatch.ProjectScope
 }
 
 const runtimeProfileAccessDenied = "runtime profile access denied"
@@ -126,6 +129,7 @@ func runtimeProfileRequest(req profilepkg.RuntimeRequest, run RuntimeProfileRun)
 		ProfileName: req.ProfileName,
 		Workspace:   req.Workspace,
 		DagName:     run.DAGName,
+		Project:     convert.ProjectScopeToProto(run.Project),
 	}
 }
 
@@ -133,14 +137,18 @@ func (h *Handler) ResolveRuntimeProfile(
 	ctx context.Context,
 	req *coordinatorv1.ResolveRuntimeProfileRequest,
 ) (*coordinatorv1.ResolveRuntimeProfileResponse, error) {
-	if h.profileStore == nil {
+	ctx, err := h.inProjectOf(ctx, req.GetProject())
+	if err != nil {
+		return nil, err
+	}
+	if h.stores(ctx).ProfileStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "profile store is not configured")
 	}
 	if err := h.authorizeRuntimeProfile(ctx, req); err != nil {
 		return nil, err
 	}
 
-	resolved, err := h.runtimeProfileResolver().ResolveRuntime(ctx, profilepkg.RuntimeRequest{
+	resolved, err := h.runtimeProfileResolver(ctx).ResolveRuntime(ctx, profilepkg.RuntimeRequest{
 		ProfileName: req.GetProfileName(),
 		Workspace:   req.GetWorkspace(),
 	})
@@ -152,11 +160,11 @@ func (h *Handler) ResolveRuntimeProfile(
 
 // runtimeProfileResolver returns the resolver for workers' requests. While
 // projects are on, the workspace a request names adds no layer.
-func (h *Handler) runtimeProfileResolver() profilepkg.RuntimeResolver {
+func (h *Handler) runtimeProfileResolver(ctx context.Context) profilepkg.RuntimeResolver {
 	if h.projectsEnabled {
-		return profilepkg.NewProjectResolver(h.profileStore, h.secretStore)
+		return profilepkg.NewProjectResolver(h.stores(ctx).ProfileStore, h.stores(ctx).SecretStore)
 	}
-	return profilepkg.NewResolver(h.profileStore, h.secretStore)
+	return profilepkg.NewResolver(h.stores(ctx).ProfileStore, h.stores(ctx).SecretStore)
 }
 
 func (h *Handler) authorizeRuntimeProfile(ctx context.Context, req *coordinatorv1.ResolveRuntimeProfileRequest) error {
@@ -169,7 +177,7 @@ func (h *Handler) authorizeRuntimeProfile(ctx context.Context, req *coordinatorv
 	if h.dagRunLeaseStore == nil {
 		return status.Error(codes.FailedPrecondition, "dag-run lease store is not configured")
 	}
-	if h.dagRunRepository == nil {
+	if h.stores(ctx).DAGRunRepository == nil {
 		return status.Error(codes.FailedPrecondition, "DAG-run repository is not configured")
 	}
 

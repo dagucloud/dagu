@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -141,10 +142,10 @@ func (h *Handler) leaseProfileName(
 }
 
 func (h *Handler) rootProfileName(ctx context.Context, root ir.DAGRunRef) (string, error) {
-	if h.dagRunRepository == nil {
+	if h.stores(ctx).DAGRunRepository == nil {
 		return "", nil
 	}
-	attempt, err := h.dagRunRepository.FindAttempt(ctx, root)
+	attempt, err := h.stores(ctx).DAGRunRepository.FindAttempt(ctx, root)
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusData) {
 			return "", nil
@@ -298,6 +299,7 @@ func (o *attemptOwnership) upsertLeaseFromStatus(
 		Owner:           o.owner,
 		ClaimedAt:       now.UnixMilli(),
 		LastHeartbeatAt: now.UnixMilli(),
+		Project:         scopeOf(ctx),
 	}
 	if existing, err := o.leaseStore.Get(ctx, attemptKey); err == nil && existing != nil {
 		lease.ClaimedAt = existing.ClaimedAt
@@ -403,6 +405,7 @@ func (o *attemptOwnership) upsertActiveFromStatus(
 		WorkerID:   workerID,
 		Status:     runStatus.Status,
 		UpdatedAt:  o.now().UnixMilli(),
+		Project:    scopeOf(ctx),
 	}
 	if err := o.activeRunStore.Upsert(ctx, record); err != nil {
 		logger.Warn(ctx, "Failed to upsert active distributed run",
@@ -455,6 +458,7 @@ func (o *attemptOwnership) upsertActiveFromTask(
 		WorkerID:  workerID,
 		Status:    ir.Queued,
 		UpdatedAt: now.UnixMilli(),
+		Project:   convert.ProtoToProjectScope(task.GetProject()),
 	}
 	if err := o.activeRunStore.Upsert(ctx, record); err != nil {
 		logger.Warn(ctx, "Failed to upsert active distributed run from task claim",
@@ -502,6 +506,7 @@ func (o *attemptOwnership) leaseFromTask(
 		WorkspaceBundleDigest: task.WorkspaceBundleDigest,
 		ClaimedAt:             now.UnixMilli(),
 		LastHeartbeatAt:       now.UnixMilli(),
+		Project:               convert.ProtoToProjectScope(task.GetProject()),
 	}
 }
 

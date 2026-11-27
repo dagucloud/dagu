@@ -165,10 +165,8 @@ type Handler struct {
 	dispatchPollMaxWait     time.Duration
 
 	// Optional worker runtime services.
-	dagRunRepository          *persis.DAGRunRepository           // For status persistence
-	logDir                    string                             // For log storage
-	artifactDir               string                             // For artifact storage
-	stateStore                dagrun.StateStore                  // For persistent DAG state shared across DAG runs
+	defaults                  ProjectStores                      // Stores of the default project's own DAGs' runs
+	projects                  ProjectSource                      // Stores of the other projects' runs
 	workspaceBundleDir        string                             // Root for immutable task workspace bundles and staging
 	workspaceBundleStore      *workspacebundle.Store             // For immutable task workspace bundles
 	dispatchTaskStore         dispatch.DispatchTaskStore         // Shared distributed dispatch queue
@@ -176,18 +174,12 @@ type Handler struct {
 	workerHeartbeatStore      dispatch.WorkerHeartbeatStore      // Shared worker presence
 	dagRunLeaseStore          dispatch.DAGRunLeaseStore          // Shared distributed run leases
 	activeDistributedRunStore dispatch.ActiveDistributedRunStore // Shared active distributed attempt index
-	dagRepository             *persis.DAGRepository              // DAG definitions for the GetDAG RPC
-	secretStore               secretpkg.Store                    // Secret registry for workers
-	profileStore              profilepkg.Store                   // Runtime profiles for workers
 	projectsEnabled           bool                               // Resolve secrets and profiles without workspace layers
-	nodeInventory             inventory.Store                    // Inventory nodes for runs on workers
-	trustedHostKeys           runctx.TrustedHostKeys             // Host keys trusted for inventory nodes
-	agentSessionCleanupQueue  *agentsession.CleanupQueue         // Deferred provider cleanup owned by workers
 	workerNodes               *workerNodeRecorder                // Records workers that set an ID as nodes
 
 	// Open attempts cache for status persistence
 	attemptsMu   sync.RWMutex
-	openAttempts map[string]dagrun.Attempt // dagRunID -> open attempt
+	openAttempts map[string]dagrun.Attempt // run key (see runKey) -> open attempt
 
 	// Serializes status writes and repairs for each DAG run.
 	runLocks runLockSet
@@ -261,6 +253,11 @@ type HandlerConfig struct {
 	// Optional - when nil, ResolveRuntimeProfile returns FailedPrecondition.
 	ProfileStore profilepkg.Store
 
+	// Projects finds the stores of the runs of the projects other than the
+	// default project's own DAGs, which the fields above hold. Optional -
+	// when nil, a call that addresses another project is refused.
+	Projects ProjectSource
+
 	// ProjectsEnabled resolves secrets and runtime profiles in the
 	// project alone: the workspace a request names adds no layer.
 	ProjectsEnabled bool
@@ -332,10 +329,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		dispatchPollMaxWait:       defaultDispatchPollMaxWait,
 		openAttempts:              make(map[string]dagrun.Attempt),
 		owner:                     cfg.Owner,
-		dagRunRepository:          cfg.DAGRunRepository,
-		logDir:                    cfg.LogDir,
-		artifactDir:               cfg.ArtifactDir,
-		stateStore:                cfg.StateStore,
+		projects:                  cfg.Projects,
 		workspaceBundleDir:        cfg.WorkspaceBundleDir,
 		workspaceBundleStore:      bundleStore,
 		dispatchTaskStore:         cfg.DispatchTaskStore,
@@ -343,19 +337,25 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		workerHeartbeatStore:      cfg.WorkerHeartbeatStore,
 		dagRunLeaseStore:          cfg.DAGRunLeaseStore,
 		activeDistributedRunStore: cfg.ActiveDistributedRunStore,
-		dagRepository:             cfg.DAGRepository,
-		secretStore:               cfg.SecretStore,
-		profileStore:              cfg.ProfileStore,
 		projectsEnabled:           cfg.ProjectsEnabled,
-		nodeInventory:             cfg.NodeInventory,
-		trustedHostKeys:           cfg.TrustedHostKeys,
-		agentSessionCleanupQueue:  cfg.AgentSessionCleanupQueue,
 		workerNodes:               newWorkerNodeRecorder(cfg.WorkerNodeStore),
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
 		workerWaitTimeout:         cfg.WorkerWaitTimeout,
 		eventService:              cfg.EventService,
 		eventSourceInstance:       cfg.EventSourceInstance,
+		defaults: ProjectStores{
+			DAGRunRepository:         cfg.DAGRunRepository,
+			LogDir:                   cfg.LogDir,
+			ArtifactDir:              cfg.ArtifactDir,
+			StateStore:               cfg.StateStore,
+			DAGRepository:            cfg.DAGRepository,
+			SecretStore:              cfg.SecretStore,
+			ProfileStore:             cfg.ProfileStore,
+			NodeInventory:            cfg.NodeInventory,
+			TrustedHostKeys:          cfg.TrustedHostKeys,
+			AgentSessionCleanupQueue: cfg.AgentSessionCleanupQueue,
+		},
 	}
 }
 
@@ -533,6 +533,10 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	if req.Task == nil {
 		return nil, status.Error(codes.InvalidArgument, "task is required")
 	}
+	ctx, err := h.inProjectOf(ctx, req.Task.GetProject())
+	if err != nil {
+		return nil, err
+	}
 	admissionToken := strings.TrimSpace(req.AdmissionReservationToken)
 
 	// Validate task.Definition is provided - required for distributed execution
@@ -561,7 +565,7 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		}
 
 		var prepared *preparedDispatchAttempt
-		if h.dagRunRepository != nil {
+		if h.stores(ctx).DAGRunRepository != nil {
 			var err error
 			prepared, err = h.prepareAttemptForDispatch(ctx, req.Task)
 			if err != nil {
@@ -577,7 +581,7 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		}
 		return &coordinatorv1.DispatchResponse{}, nil
 	}
-	if h.dagRunRepository == nil {
+	if h.stores(ctx).DAGRunRepository == nil {
 		return nil, status.Error(codes.FailedPrecondition, "distributed dispatch requires DAG run storage")
 	}
 	if admissionToken != "" && h.dispatchAdmissionStore == nil {
@@ -680,14 +684,14 @@ func (h *Handler) prepareDispatchTaskWorkspace(ctx context.Context, task *coordi
 	if !runtimeexec.HasDAGFileDependencies(candidate) {
 		return nil
 	}
-	if h.dagRepository == nil {
+	if h.stores(ctx).DAGRepository == nil {
 		return status.Errorf(codes.FailedPrecondition, "DAG repository is not configured for dependency-bearing task %q", task.Target)
 	}
 	if h.workspaceBundleStore == nil || strings.TrimSpace(h.workspaceBundleDir) == "" {
 		return status.Error(codes.FailedPrecondition, "workspace bundle store is not configured")
 	}
 
-	authoritative, err := h.dagRepository.GetDetails(ctx, task.Target, persis.DAGLoadOptions{})
+	authoritative, err := h.stores(ctx).DAGRepository.GetDetails(ctx, task.Target, persis.DAGLoadOptions{})
 	if err != nil {
 		code := codes.Internal
 		if errors.Is(err, persis.ErrDAGNotFound) {
@@ -846,7 +850,7 @@ func staleQueueDispatchError(reason string) error {
 // This is called when the coordinator receives a dispatch for a root-level DAG run
 // (not a sub-DAG), so it has a place to store status updates from the worker.
 func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.Task) (*preparedDispatchAttempt, error) {
-	if h.dagRunRepository == nil {
+	if h.stores(ctx).DAGRunRepository == nil {
 		return nil, nil
 	}
 
@@ -874,7 +878,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 	}
 
 	// Check if dag-run already exists (e.g., queued via enqueue command)
-	existingAttempt, findErr := h.dagRunRepository.FindAttempt(ctx, ref)
+	existingAttempt, findErr := h.stores(ctx).DAGRunRepository.FindAttempt(ctx, ref)
 	if queueDispatchStatus != nil {
 		if queueDispatchStatus.AttemptID == "" {
 			return nil, staleQueueDispatchError("queued attempt ID is missing")
@@ -933,7 +937,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 		}
 
 		h.attemptsMu.Lock()
-		h.openAttempts[task.DagRunId] = existingAttempt
+		h.openAttempts[h.runKey(ctx, task.DagRunId)] = existingAttempt
 		h.attemptsMu.Unlock()
 
 		logger.Info(ctx, "Reusing existing queued attempt for dispatched task",
@@ -949,7 +953,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 	isRetry := task.Operation == coordinatorv1.Operation_OPERATION_RETRY || findErr == nil
 	opts := persis.DAGRunCreateAttemptOptions{Retry: isRetry}
 
-	attempt, err := h.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), task.DagRunId, opts)
+	attempt, err := h.stores(ctx).DAGRunRepository.CreateAttempt(ctx, dag, time.Now(), task.DagRunId, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create attempt: %w", err)
 	}
@@ -967,7 +971,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 	}
 
 	h.attemptsMu.Lock()
-	h.openAttempts[task.DagRunId] = attempt
+	h.openAttempts[h.runKey(ctx, task.DagRunId)] = attempt
 	h.attemptsMu.Unlock()
 
 	logger.Info(ctx, "Created DAGRun attempt for dispatched task",
@@ -1016,7 +1020,7 @@ func (h *Handler) ensureTaskAttemptMetadata(task *coordinatorv1.Task) {
 // This is called when the coordinator receives a dispatch for a sub-DAG
 // (dispatched from a parent DAG), so it has a place to store status updates from the worker.
 func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinatorv1.Task) (*preparedDispatchAttempt, error) {
-	if h.dagRunRepository == nil {
+	if h.stores(ctx).DAGRunRepository == nil {
 		return nil, nil
 	}
 
@@ -1042,7 +1046,7 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 	labels := labelsForInitialStatus(task, dag)
 	task.Labels = strings.Join(labels, ",")
 
-	attempt, err := h.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), task.DagRunId, persis.DAGRunCreateAttemptOptions{
+	attempt, err := h.stores(ctx).DAGRunRepository.CreateAttempt(ctx, dag, time.Now(), task.DagRunId, persis.DAGRunCreateAttemptOptions{
 		RootDAGRun: rootRef,
 	})
 	if err != nil {
@@ -1065,7 +1069,7 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 	}
 
 	h.attemptsMu.Lock()
-	h.openAttempts[task.DagRunId] = attempt
+	h.openAttempts[h.runKey(ctx, task.DagRunId)] = attempt
 	h.attemptsMu.Unlock()
 
 	logger.Info(ctx, "Created sub-DAG attempt for distributed execution",
@@ -1166,13 +1170,13 @@ func (h *Handler) prepareAttemptForDispatch(ctx context.Context, task *coordinat
 	if task == nil {
 		return nil, fmt.Errorf("task is required")
 	}
-	if h.dagRunRepository == nil {
+	if h.stores(ctx).DAGRunRepository == nil {
 		h.ensureTaskAttemptMetadata(task)
 		return nil, nil
 	}
 
-	held := h.runLocks.lock(task.DagRunId)
-	defer h.runLocks.unlock(task.DagRunId, held)
+	held := h.runLocks.lock(h.runKey(ctx, task.DagRunId))
+	defer h.runLocks.unlock(h.runKey(ctx, task.DagRunId), held)
 
 	isRootRun := task.ParentDagRunId == "" &&
 		(task.RootDagRunId == "" || task.RootDagRunId == task.DagRunId)
@@ -1273,8 +1277,8 @@ func (h *Handler) markPreparedAttemptDispatchFailed(ctx context.Context, task *c
 		return
 	}
 	dagRunID := task.GetDagRunId()
-	held := h.runLocks.lock(dagRunID)
-	defer h.runLocks.unlock(dagRunID, held)
+	held := h.runLocks.lock(h.runKey(ctx, dagRunID))
+	defer h.runLocks.unlock(h.runKey(ctx, dagRunID), held)
 	defer h.releasePreparedDispatchAttempt(context.WithoutCancel(ctx), dagRunID, prepared.attempt)
 
 	if !prepared.newlyCreated {
@@ -1348,8 +1352,8 @@ func (h *Handler) markPreparedAttemptHeld(ctx context.Context, task *coordinator
 		return nil
 	}
 	dagRunID := task.GetDagRunId()
-	held := h.runLocks.lock(dagRunID)
-	defer h.runLocks.unlock(dagRunID, held)
+	held := h.runLocks.lock(h.runKey(ctx, dagRunID))
+	defer h.runLocks.unlock(h.runKey(ctx, dagRunID), held)
 
 	runStatus, err := prepared.attempt.ReadStatusUncached(ctx)
 	if err != nil {
@@ -1388,7 +1392,7 @@ func (h *Handler) markPreparedAttemptHeld(ctx context.Context, task *coordinator
 // It runs with the zombie detector, so the failure follows the deadline by
 // at most one detection interval.
 func (h *Handler) expireHeldDispatches(ctx context.Context, now time.Time) {
-	if h.dispatchTaskStore == nil || h.dagRunRepository == nil {
+	if h.dispatchTaskStore == nil || h.stores(ctx).DAGRunRepository == nil {
 		return
 	}
 	expired, err := h.dispatchTaskStore.ListExpiredHeld(ctx, now)
@@ -1410,8 +1414,14 @@ func (h *Handler) failHeldDispatch(ctx context.Context, task *dispatch.DispatchT
 	if task == nil {
 		return
 	}
-	held := h.runLocks.lock(task.DAGRunID)
-	defer h.runLocks.unlock(task.DAGRunID, held)
+	ctx, err := h.inProject(ctx, task.Project)
+	if err != nil {
+		logger.Warn(ctx, "Failed to open the project of a held dispatch past its wait",
+			tag.RunID(task.DAGRunID), tag.Error(err))
+		return
+	}
+	held := h.runLocks.lock(h.runKey(ctx, task.DAGRunID))
+	defer h.runLocks.unlock(h.runKey(ctx, task.DAGRunID), held)
 
 	storeCtx := context.WithoutCancel(ctx)
 	rootRef := ir.DAGRunRef{Name: task.RootDAGRunName, ID: task.RootDAGRunID}
@@ -1454,7 +1464,7 @@ func (h *Handler) failHeldDispatch(ctx context.Context, task *dispatch.DispatchT
 // worker claimed it. A task whose run still waits keeps its place however long
 // the matching workers stay busy.
 func (h *Handler) dropOrphanedDispatches(ctx context.Context, now time.Time) {
-	if h.dispatchTaskStore == nil || h.dagRunRepository == nil {
+	if h.dispatchTaskStore == nil || h.stores(ctx).DAGRunRepository == nil {
 		return
 	}
 	tasks, err := h.dispatchTaskStore.ListStalePending(ctx, now.Add(-h.staleLeaseThreshold))
@@ -1481,6 +1491,12 @@ func (h *Handler) dropOrphanedDispatches(ctx context.Context, now time.Time) {
 // longer waits for the attempt the task starts. A run that cannot be read
 // keeps its task, so the next pass checks it again.
 func (h *Handler) dispatchOrphaned(ctx context.Context, task *dispatch.DispatchTask) bool {
+	ctx, err := h.inProject(ctx, task.Project)
+	if err != nil {
+		logger.Warn(ctx, "Failed to open the project of a long-pending dispatch",
+			tag.RunID(task.DAGRunID), tag.Error(err))
+		return false
+	}
 	rootRef := ir.DAGRunRef{Name: task.RootDAGRunName, ID: task.RootDAGRunID}
 	_, runStatus, err := h.resolveLatestAttempt(ctx, task.Target, task.DAGRunID, rootRef)
 	switch {
@@ -1502,9 +1518,9 @@ func (h *Handler) dispatchOrphaned(ctx context.Context, task *dispatch.DispatchT
 // it opens the attempt for the one write.
 func (h *Handler) writeHeldAttemptStatus(ctx context.Context, dagRunID string, attempt dagrun.Attempt, runStatus ir.DAGRunStatus) error {
 	h.attemptsMu.Lock()
-	cached, ok := h.openAttempts[dagRunID]
+	cached, ok := h.openAttempts[h.runKey(ctx, dagRunID)]
 	if ok && cached.ID() == attempt.ID() {
-		delete(h.openAttempts, dagRunID)
+		delete(h.openAttempts, h.runKey(ctx, dagRunID))
 	} else {
 		cached = nil
 	}
@@ -1537,8 +1553,8 @@ func (h *Handler) releasePreparedDispatchAttempt(ctx context.Context, dagRunID s
 	}
 
 	h.attemptsMu.Lock()
-	if cachedAttempt, ok := h.openAttempts[dagRunID]; ok && cachedAttempt.ID() == attempt.ID() {
-		delete(h.openAttempts, dagRunID)
+	if cachedAttempt, ok := h.openAttempts[h.runKey(ctx, dagRunID)]; ok && cachedAttempt.ID() == attempt.ID() {
+		delete(h.openAttempts, h.runKey(ctx, dagRunID))
 	}
 	h.attemptsMu.Unlock()
 
@@ -1743,25 +1759,44 @@ func (h *Handler) ClaimAgentSessionCleanup(
 	if req.WorkerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "worker_id is required")
 	}
-	if h.agentSessionCleanupQueue == nil || h.dagRunRepository == nil {
+	// Each project queues the cleanups of its own removed runs.
+	var (
+		resp *coordinatorv1.ClaimAgentSessionCleanupResponse
+		err  error
+	)
+	h.eachProject(ctx, func(ctx context.Context) bool {
+		resp, err = h.claimAgentSessionCleanup(ctx, req.WorkerId)
+		return err == nil && !resp.GetFound()
+	})
+	return resp, err
+}
+
+// claimAgentSessionCleanup reserves a cleanup that the project ctx
+// addresses queued for workerID.
+func (h *Handler) claimAgentSessionCleanup(
+	ctx context.Context,
+	workerID string,
+) (*coordinatorv1.ClaimAgentSessionCleanupResponse, error) {
+	req := &coordinatorv1.ClaimAgentSessionCleanupRequest{WorkerId: workerID}
+	if h.stores(ctx).AgentSessionCleanupQueue == nil || h.stores(ctx).DAGRunRepository == nil {
 		return nil, status.Error(codes.Unimplemented, "agent session cleanup is not configured")
 	}
-	job, err := h.agentSessionCleanupQueue.Claim(ctx, req.WorkerId, time.Minute)
+	job, err := h.stores(ctx).AgentSessionCleanupQueue.Claim(ctx, req.WorkerId, time.Minute)
 	if errors.Is(err, persis.ErrNotFound) {
 		return &coordinatorv1.ClaimAgentSessionCleanupResponse{}, nil
 	}
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to claim agent session cleanup: "+err.Error())
 	}
-	_, findErr := h.dagRunRepository.FindAttempt(ctx, job.Root)
+	_, findErr := h.stores(ctx).DAGRunRepository.FindAttempt(ctx, job.Root)
 	if findErr == nil {
-		if err := h.agentSessionCleanupQueue.Release(ctx, req.WorkerId, job.ID, job.ClaimToken, "DAG run still exists"); err != nil {
+		if err := h.stores(ctx).AgentSessionCleanupQueue.Release(ctx, req.WorkerId, job.ID, job.ClaimToken, "DAG run still exists"); err != nil {
 			return nil, status.Error(codes.Internal, "failed to release agent session cleanup: "+err.Error())
 		}
 		return &coordinatorv1.ClaimAgentSessionCleanupResponse{}, nil
 	}
 	if !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) {
-		_ = h.agentSessionCleanupQueue.Release(ctx, req.WorkerId, job.ID, job.ClaimToken, findErr.Error())
+		_ = h.stores(ctx).AgentSessionCleanupQueue.Release(ctx, req.WorkerId, job.ID, job.ClaimToken, findErr.Error())
 		return nil, status.Error(codes.Internal, "failed to verify removed DAG run: "+findErr.Error())
 	}
 	return &coordinatorv1.ClaimAgentSessionCleanupResponse{
@@ -1774,6 +1809,7 @@ func (h *Handler) ClaimAgentSessionCleanup(
 		OwnerCoordinatorId:   h.owner.ID,
 		OwnerCoordinatorHost: h.owner.Host,
 		OwnerCoordinatorPort: int32(h.owner.Port), //nolint:gosec // Configured network ports fit in int32.
+		Project:              convert.ProjectScopeToProto(scopeOf(ctx)),
 	}, nil
 }
 
@@ -1785,14 +1821,17 @@ func (h *Handler) CompleteAgentSessionCleanup(
 	if req.WorkerId == "" || req.JobId == "" || req.ClaimToken == "" {
 		return nil, status.Error(codes.InvalidArgument, "worker_id, job_id, and claim_token are required")
 	}
-	if h.agentSessionCleanupQueue == nil {
+	ctx, err := h.inProjectOf(ctx, req.GetProject())
+	if err != nil {
+		return nil, err
+	}
+	if h.stores(ctx).AgentSessionCleanupQueue == nil {
 		return nil, status.Error(codes.Unimplemented, "agent session cleanup is not configured")
 	}
-	var err error
 	if req.Error == "" {
-		err = h.agentSessionCleanupQueue.Complete(ctx, req.WorkerId, req.JobId, req.ClaimToken)
+		err = h.stores(ctx).AgentSessionCleanupQueue.Complete(ctx, req.WorkerId, req.JobId, req.ClaimToken)
 	} else {
-		err = h.agentSessionCleanupQueue.Release(ctx, req.WorkerId, req.JobId, req.ClaimToken, req.Error)
+		err = h.stores(ctx).AgentSessionCleanupQueue.Release(ctx, req.WorkerId, req.JobId, req.ClaimToken, req.Error)
 	}
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to update agent session cleanup: "+err.Error())
@@ -1820,21 +1859,27 @@ func (h *Handler) RunHeartbeat(ctx context.Context, req *coordinatorv1.RunHeartb
 			cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
 			continue
 		}
-		if err := h.validateAttempt(ctx, identity); err != nil {
+		taskCtx, err := h.inLeaseProject(ctx, task.AttemptKey)
+		if err != nil {
+			logger.Warn(ctx, "Skipping run heartbeat for a project this coordinator cannot open",
+				tag.AttemptKey(task.AttemptKey), tag.Error(err))
+			continue
+		}
+		if err := h.validateAttempt(taskCtx, identity); err != nil {
 			if status.Code(err) == codes.FailedPrecondition {
 				cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
 				continue
 			}
 			return nil, err
 		}
-		if err := h.refreshRunLease(ctx, task.AttemptKey, observedAt); err != nil {
+		if err := h.refreshRunLease(taskCtx, task.AttemptKey, observedAt); err != nil {
 			if errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) || errors.Is(err, persis.ErrCorrupt) {
 				cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
 				continue
 			}
 			return nil, status.Error(codes.Internal, "failed to refresh run lease: "+err.Error())
 		}
-		h.repairStaleLeaseFailureFromRunHeartbeat(ctx, req.WorkerId, task, observedAt)
+		h.repairStaleLeaseFailureFromRunHeartbeat(taskCtx, req.WorkerId, task, observedAt)
 	}
 
 	cancelledRuns = appendCancelledRuns(cancelledRuns, h.getCancelledRunsForWorker(ctx, &coordinatorv1.WorkerStats{
@@ -1860,7 +1905,7 @@ func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
 	task *coordinatorv1.RunningTask,
 	observedAt time.Time,
 ) {
-	if h.dagRunRepository == nil || h.dagRunLeaseStore == nil || task == nil || task.AttemptKey == "" {
+	if h.stores(ctx).DAGRunRepository == nil || h.dagRunLeaseStore == nil || task == nil || task.AttemptKey == "" {
 		return
 	}
 
@@ -1897,7 +1942,7 @@ func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
 		return
 	}
 
-	repairedStatus, swapped, err := h.dagRunRepository.CompareAndSwapLatestAttemptStatus(
+	repairedStatus, swapped, err := h.stores(ctx).DAGRunRepository.CompareAndSwapLatestAttemptStatus(
 		repairCtx,
 		lease.DAGRun,
 		lease.AttemptID,
@@ -2016,7 +2061,7 @@ func (h *Handler) listHealthyWorkers(ctx context.Context) ([]dispatch.WorkerHear
 }
 
 func (h *Handler) refreshLeasesFromHeartbeat(ctx context.Context, workerID string, stats *coordinatorv1.WorkerStats, observedAt time.Time) {
-	if h.dagRunRepository == nil || stats == nil || len(stats.RunningTasks) == 0 {
+	if h.stores(ctx).DAGRunRepository == nil || stats == nil || len(stats.RunningTasks) == 0 {
 		return
 	}
 	for _, task := range stats.RunningTasks {
@@ -2029,8 +2074,8 @@ func (h *Handler) refreshLeaseForRunningTask(ctx context.Context, workerID strin
 		return
 	}
 
-	held := h.runLocks.lock(task.DagRunId)
-	defer h.runLocks.unlock(task.DagRunId, held)
+	held := h.runLocks.lock(h.runKey(ctx, task.DagRunId))
+	defer h.runLocks.unlock(h.runKey(ctx, task.DagRunId), held)
 
 	attempt, err := h.openRunningAttemptLocked(ctx, task)
 	if err != nil {
@@ -2171,7 +2216,7 @@ func appendCancelledRunIfMissing(cancelledRuns []*coordinatorv1.CancelledRun, at
 
 // getCancelledRunsForWorker checks which of the worker's running tasks have been cancelled.
 func (h *Handler) getCancelledRunsForWorker(ctx context.Context, stats *coordinatorv1.WorkerStats) []*coordinatorv1.CancelledRun {
-	if h.dagRunRepository == nil || stats == nil || len(stats.RunningTasks) == 0 {
+	if h.stores(ctx).DAGRunRepository == nil || stats == nil || len(stats.RunningTasks) == 0 {
 		return nil
 	}
 
@@ -2187,6 +2232,12 @@ func (h *Handler) getCancelledRunsForWorker(ctx context.Context, stats *coordina
 // isTaskCancelled checks if a task has been marked for cancellation.
 func (h *Handler) isTaskCancelled(ctx context.Context, task *coordinatorv1.RunningTask) bool {
 	if task == nil {
+		return false
+	}
+	ctx, err := h.inLeaseProject(ctx, task.AttemptKey)
+	if err != nil {
+		logger.Warn(ctx, "Failed to open the project of a running task while checking cancellation",
+			tag.AttemptKey(task.AttemptKey), tag.Error(err))
 		return false
 	}
 
@@ -2224,9 +2275,12 @@ func (h *Handler) isTaskCancelled(ctx context.Context, task *coordinatorv1.Runni
 
 // ReportStatus receives status updates from workers and persists them.
 func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
-	ctx = h.eventContext(ctx)
+	ctx, err := h.inProjectOf(h.eventContext(ctx), req.GetProject())
+	if err != nil {
+		return nil, err
+	}
 
-	if h.dagRunRepository == nil {
+	if h.stores(ctx).DAGRunRepository == nil {
 		return nil, status.Error(codes.FailedPrecondition, "status reporting not configured: DAG run storage not available")
 	}
 	if req.Status == nil {
@@ -2255,14 +2309,14 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	}
 
 	// Transform worker-local log paths to coordinator paths.
-	h.transformLogPaths(dagRunStatus)
+	h.transformLogPaths(ctx, dagRunStatus)
 	if h.dagRunLeaseStore == nil {
 		dagRunStatus.LeaseAt = time.Now().UnixMilli()
 	}
 
 	// Acquire per-run mutex to serialize with markRunFailed
-	held := h.runLocks.lock(dagRunStatus.DAGRunID)
-	defer h.runLocks.unlock(dagRunStatus.DAGRunID, held)
+	held := h.runLocks.lock(h.runKey(ctx, dagRunStatus.DAGRunID))
+	defer h.runLocks.unlock(h.runKey(ctx, dagRunStatus.DAGRunID), held)
 
 	latestAttempt, latestStatus, err := h.resolveLatestAttempt(ctx, dagRunStatus.Name, dagRunStatus.DAGRunID, dagRunStatus.Root)
 	if err != nil {
@@ -2281,8 +2335,8 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 			return nil, status.Error(codes.Internal, "failed to bootstrap sub-attempt: "+bootstrapErr.Error())
 		}
 		if bootstrapped {
-			h.transformLogPaths(dagRunStatus)
-			h.keepLegacyLogPaths(nil, dagRunStatus)
+			h.transformLogPaths(ctx, dagRunStatus)
+			h.keepLegacyLogPaths(ctx, nil, dagRunStatus)
 			if err := h.transformArtifactPaths(ctx, bootstrappedAttempt, nil, dagRunStatus); err != nil {
 				return nil, status.Error(codes.Internal, "failed to resolve artifact path: "+err.Error())
 			}
@@ -2339,7 +2393,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	if err := h.transformArtifactPaths(ctx, latestAttempt, latestStatus, dagRunStatus); err != nil {
 		return nil, status.Error(codes.Internal, "failed to resolve artifact path: "+err.Error())
 	}
-	h.keepLegacyLogPaths(latestStatus, dagRunStatus)
+	h.keepLegacyLogPaths(ctx, latestStatus, dagRunStatus)
 	if len(latestStatus.Labels) > 0 {
 		dagRunStatus.Labels = append([]string(nil), latestStatus.Labels...)
 	}
@@ -2363,7 +2417,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	attempt := latestAttempt
 	if dagRunStatus.Status == ir.Waiting {
 		h.closeCachedAttemptForRun(ctx, context.WithoutCancel(ctx), dagRunStatus.DAGRunID, latestAttempt.ID())
-		persisted, swapped, err := h.dagRunRepository.CompareAndSwapLatestAttemptStatus(
+		persisted, swapped, err := h.stores(ctx).DAGRunRepository.CompareAndSwapLatestAttemptStatus(
 			ctx,
 			dagRunStatus.DAGRun(),
 			latestAttempt.ID(),
@@ -2542,7 +2596,7 @@ func (h *Handler) bootstrapMissingSubAttempt(
 		return nil, false, nil
 	}
 
-	rootAttempt, err := h.dagRunRepository.FindAttempt(ctx, rootRef)
+	rootAttempt, err := h.stores(ctx).DAGRunRepository.FindAttempt(ctx, rootRef)
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			return nil, false, nil
@@ -2561,7 +2615,7 @@ func (h *Handler) bootstrapMissingSubAttempt(
 	}
 
 	dag := &ir.DAG{Name: runStatus.Name, SourceFile: sourceFile}
-	attempt, err := h.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), runStatus.DAGRunID, persis.DAGRunCreateAttemptOptions{
+	attempt, err := h.stores(ctx).DAGRunRepository.CreateAttempt(ctx, dag, time.Now(), runStatus.DAGRunID, persis.DAGRunCreateAttemptOptions{
 		RootDAGRun: rootRef,
 	})
 	if err != nil {
@@ -2588,7 +2642,7 @@ func (h *Handler) bootstrapMissingSubAttempt(
 	}
 
 	h.attemptsMu.Lock()
-	h.openAttempts[runStatus.DAGRunID] = attempt
+	h.openAttempts[h.runKey(ctx, runStatus.DAGRunID)] = attempt
 	h.attemptsMu.Unlock()
 
 	return attempt, true, nil
@@ -2640,18 +2694,19 @@ func (h *Handler) sameAttemptCancellationRequested(
 // transformLogPaths rewrites worker-local log paths to coordinator paths, as
 // this version names them. keepLegacyLogPaths then corrects the paths of a
 // run in flight across an upgrade.
-func (h *Handler) transformLogPaths(status *ir.DAGRunStatus) {
-	if h.logDir == "" {
+func (h *Handler) transformLogPaths(ctx context.Context, status *ir.DAGRunStatus) {
+	logDir := h.stores(ctx).LogDir
+	if logDir == "" {
 		return
 	}
 	dagName, dagRunID, attemptID := logAttempt(status)
 	stdout := StreamTypeToExtension(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT)
 	stderr := StreamTypeToExtension(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR)
 	logNodes(status, func(node *ir.Node, name string) {
-		node.Stdout = attemptLogFile(h.logDir, dagName, dagRunID, attemptID, stepLogFile(name, stdout))
-		node.Stderr = attemptLogFile(h.logDir, dagName, dagRunID, attemptID, stepLogFile(name, stderr))
+		node.Stdout = attemptLogFile(logDir, dagName, dagRunID, attemptID, stepLogFile(name, stdout))
+		node.Stderr = attemptLogFile(logDir, dagName, dagRunID, attemptID, stepLogFile(name, stderr))
 	})
-	status.Log = attemptLogFile(h.logDir, dagName, dagRunID, attemptID, schedulerLogFile)
+	status.Log = attemptLogFile(logDir, dagName, dagRunID, attemptID, schedulerLogFile)
 }
 
 // keepLegacyLogPaths points the log paths of a run in flight across an
@@ -2660,8 +2715,9 @@ func (h *Handler) transformLogPaths(status *ir.DAGRunStatus) {
 // stored before, does not hold already is checked, so a run this version
 // started reaches the file system on its first report only. A nil latest
 // checks every path.
-func (h *Handler) keepLegacyLogPaths(latest, status *ir.DAGRunStatus) {
-	if h.logDir == "" {
+func (h *Handler) keepLegacyLogPaths(ctx context.Context, latest, status *ir.DAGRunStatus) {
+	logDir := h.stores(ctx).LogDir
+	if logDir == "" {
 		return
 	}
 	stored := map[string]*ir.Node{}
@@ -2676,14 +2732,14 @@ func (h *Handler) keepLegacyLogPaths(latest, status *ir.DAGRunStatus) {
 	logNodes(status, func(node *ir.Node, name string) {
 		prev := stored[name]
 		if prev == nil || prev.Stdout != node.Stdout {
-			node.Stdout = stepLogPath(h.logDir, dagName, dagRunID, attemptID, name, stdout, steps)
+			node.Stdout = stepLogPath(logDir, dagName, dagRunID, attemptID, name, stdout, steps)
 		}
 		if prev == nil || prev.Stderr != node.Stderr {
-			node.Stderr = stepLogPath(h.logDir, dagName, dagRunID, attemptID, name, stderr, steps)
+			node.Stderr = stepLogPath(logDir, dagName, dagRunID, attemptID, name, stderr, steps)
 		}
 	})
 	if latest == nil || latest.Log != status.Log {
-		status.Log = schedulerLogPath(h.logDir, dagName, dagRunID, attemptID)
+		status.Log = schedulerLogPath(logDir, dagName, dagRunID, attemptID)
 	}
 }
 
@@ -2780,7 +2836,7 @@ func (h *Handler) transformArtifactPaths(
 
 		// The worker directory is throwaway staging, so a fresh coordinator
 		// path is assigned rather than mirroring the reported name.
-		artifactDir, err := artifactpath.NewRunDir(ctx, h.artifactDir, overrideDir, dag.Name, incoming.DAGRunID, artifactRunTime(incoming))
+		artifactDir, err := artifactpath.NewRunDir(ctx, h.stores(ctx).ArtifactDir, overrideDir, dag.Name, incoming.DAGRunID, artifactRunTime(incoming))
 		if err != nil {
 			return fmt.Errorf("resolve artifact directory: %w", err)
 		}
@@ -2842,7 +2898,7 @@ func (h *Handler) persistChatMessages(ctx context.Context, attempt dagrun.Attemp
 func (h *Handler) getOrOpenRootLocked(ctx context.Context, dagName, dagRunID string) (dagrun.Attempt, error) {
 	ref := ir.DAGRunRef{Name: dagName, ID: dagRunID}
 	return h.getOrOpenLocked(ctx, dagRunID, func() (dagrun.Attempt, error) {
-		return h.dagRunRepository.FindAttempt(ctx, ref)
+		return h.stores(ctx).DAGRunRepository.FindAttempt(ctx, ref)
 	})
 }
 
@@ -2851,7 +2907,7 @@ func (h *Handler) resolveLatestAttempt(
 	dagName, dagRunID string,
 	rootRef ir.DAGRunRef,
 ) (dagrun.Attempt, *ir.DAGRunStatus, error) {
-	if h.dagRunRepository == nil {
+	if h.stores(ctx).DAGRunRepository == nil {
 		return nil, nil, dagrun.ErrDAGRunIDNotFound
 	}
 
@@ -2863,9 +2919,9 @@ func (h *Handler) resolveLatestAttempt(
 		if rootRef.Name == "" {
 			return nil, nil, fmt.Errorf("missing root dag run name for sub-dag %s", dagRunID)
 		}
-		attempt, err = h.dagRunRepository.FindSubAttempt(ctx, rootRef, dagRunID)
+		attempt, err = h.stores(ctx).DAGRunRepository.FindSubAttempt(ctx, rootRef, dagRunID)
 	} else {
-		attempt, err = h.dagRunRepository.FindAttempt(ctx, ir.DAGRunRef{Name: dagName, ID: dagRunID})
+		attempt, err = h.stores(ctx).DAGRunRepository.FindAttempt(ctx, ir.DAGRunRef{Name: dagName, ID: dagRunID})
 	}
 	if err != nil {
 		return nil, nil, err
@@ -2890,13 +2946,13 @@ func (h *Handler) replaceOpenAttempt(
 	expectedAttemptID string,
 ) (dagrun.Attempt, error) {
 	h.attemptsMu.Lock()
-	cachedAttempt, ok := h.openAttempts[cacheKey]
+	cachedAttempt, ok := h.openAttempts[h.runKey(ctx, cacheKey)]
 	if ok && cachedAttempt.ID() == expectedAttemptID {
 		h.attemptsMu.Unlock()
 		return cachedAttempt, nil
 	}
 	if ok {
-		delete(h.openAttempts, cacheKey)
+		delete(h.openAttempts, h.runKey(ctx, cacheKey))
 	}
 	h.attemptsMu.Unlock()
 
@@ -2916,29 +2972,29 @@ func (h *Handler) replaceOpenAttempt(
 
 	h.attemptsMu.Lock()
 	defer h.attemptsMu.Unlock()
-	h.openAttempts[cacheKey] = latestAttempt
+	h.openAttempts[h.runKey(ctx, cacheKey)] = latestAttempt
 	return latestAttempt, nil
 }
 
 // getOrOpenSubAttempt retrieves an open sub-attempt from cache or opens a new one.
 // This is used for sub-DAG status reporting in distributed execution.
 func (h *Handler) getOrOpenSubAttempt(ctx context.Context, rootRef ir.DAGRunRef, subDAGRunID string) (dagrun.Attempt, error) {
-	held := h.runLocks.lock(subDAGRunID)
-	defer h.runLocks.unlock(subDAGRunID, held)
+	held := h.runLocks.lock(h.runKey(ctx, subDAGRunID))
+	defer h.runLocks.unlock(h.runKey(ctx, subDAGRunID), held)
 
 	return h.getOrOpenSubLocked(ctx, rootRef, subDAGRunID)
 }
 
 func (h *Handler) getOrOpenSubLocked(ctx context.Context, rootRef ir.DAGRunRef, subDAGRunID string) (dagrun.Attempt, error) {
 	return h.getOrOpenLocked(ctx, subDAGRunID, func() (dagrun.Attempt, error) {
-		return h.dagRunRepository.FindSubAttempt(ctx, rootRef, subDAGRunID)
+		return h.stores(ctx).DAGRunRepository.FindSubAttempt(ctx, rootRef, subDAGRunID)
 	})
 }
 
 // getOrOpenLocked retrieves or opens an attempt while its run lock is held.
 func (h *Handler) getOrOpenLocked(ctx context.Context, cacheKey string, finder func() (dagrun.Attempt, error)) (dagrun.Attempt, error) {
 	h.attemptsMu.RLock()
-	if attempt, ok := h.openAttempts[cacheKey]; ok {
+	if attempt, ok := h.openAttempts[h.runKey(ctx, cacheKey)]; ok {
 		h.attemptsMu.RUnlock()
 		return attempt, nil
 	}
@@ -2955,46 +3011,71 @@ func (h *Handler) getOrOpenLocked(ctx context.Context, cacheKey string, finder f
 
 	h.attemptsMu.Lock()
 	defer h.attemptsMu.Unlock()
-	h.openAttempts[cacheKey] = attempt
+	h.openAttempts[h.runKey(ctx, cacheKey)] = attempt
 	return attempt, nil
 }
 
 // StreamLogs receives log streams from workers and writes them to local filesystem.
 func (h *Handler) StreamLogs(stream coordinatorv1.CoordinatorService_StreamLogsServer) error {
-	if h.logDir == "" {
+	if h.projects == nil && h.defaults.LogDir == "" {
+		return status.Error(codes.FailedPrecondition, "log streaming not configured: logDir is empty")
+	}
+	scoped, err := h.scopeLogStream(stream)
+	if scoped == nil || err != nil {
+		return err
+	}
+	logDir := h.stores(scoped.ctx).LogDir
+	if logDir == "" {
 		return status.Error(codes.FailedPrecondition, "log streaming not configured: logDir is empty")
 	}
 
 	// Delegate to the log handler
-	logHandler := newLogHandler(h.logDir)
-	logHandler.stepNames = func(chunk *coordinatorv1.LogChunk) []string { return h.runLogStepNames(stream.Context(), chunk) }
+	logHandler := newLogHandler(logDir)
+	logHandler.stepNames = func(chunk *coordinatorv1.LogChunk) []string { return h.runLogStepNames(scoped.ctx, chunk) }
 	if h.dagRunLeaseStore != nil {
 		logHandler.attemptValidator = h.validateAttempt
 	}
-	defer logHandler.Close(stream.Context()) // Ensure file handles are closed on stream end or error
-	return logHandler.handleStream(stream)
+	defer logHandler.Close(scoped.ctx) // Ensure file handles are closed on stream end or error
+	return logHandler.handleStream(scoped)
 }
 
 // StreamArtifacts receives artifact streams from workers and writes them to local filesystem.
 func (h *Handler) StreamArtifacts(stream coordinatorv1.CoordinatorService_StreamArtifactsServer) error {
-	if h.artifactDir == "" {
+	if h.projects == nil {
+		if h.defaults.ArtifactDir == "" {
+			return status.Error(codes.FailedPrecondition, "artifact streaming not configured: artifactDir is empty")
+		}
+		if h.defaults.DAGRunRepository == nil {
+			return status.Error(codes.FailedPrecondition, "artifact streaming not configured: dagRunRepository is empty")
+		}
+	}
+	scoped, err := h.scopeArtifactStream(stream)
+	if scoped == nil || err != nil {
+		return err
+	}
+	stores := h.stores(scoped.ctx)
+	if stores.ArtifactDir == "" {
 		return status.Error(codes.FailedPrecondition, "artifact streaming not configured: artifactDir is empty")
 	}
-	if h.dagRunRepository == nil {
+	if stores.DAGRunRepository == nil {
 		return status.Error(codes.FailedPrecondition, "artifact streaming not configured: dagRunRepository is empty")
 	}
 
-	artifactHandler := newArtifactHandler(h.dagRunRepository)
+	artifactHandler := newArtifactHandler(stores.DAGRunRepository)
 	if h.dagRunLeaseStore != nil {
 		artifactHandler.attemptValidator = h.validateAttempt
 	}
-	return artifactHandler.handleStream(stream)
+	return artifactHandler.handleStream(scoped)
 }
 
 // GetDAGRunStatus retrieves the status of a DAG run.
 // Parent DAGs use this to poll remote sub-DAG status through the coordinator.
 func (h *Handler) GetDAGRunStatus(ctx context.Context, req *coordinatorv1.GetDAGRunStatusRequest) (*coordinatorv1.GetDAGRunStatusResponse, error) {
-	if h.dagRunRepository == nil {
+	ctx, err := h.inProjectOf(ctx, req.GetProject())
+	if err != nil {
+		return nil, err
+	}
+	if h.stores(ctx).DAGRunRepository == nil {
 		return nil, status.Error(codes.FailedPrecondition, "DAG run status query not configured: dagRunRepository is nil")
 	}
 
@@ -3003,7 +3084,6 @@ func (h *Handler) GetDAGRunStatus(ctx context.Context, req *coordinatorv1.GetDAG
 	}
 
 	var attempt dagrun.Attempt
-	var err error
 
 	// Always read the latest attempt from disk rather than using the openAttempts
 	// cache. Remote workers report status to the coordinator, and ReportStatus
@@ -3011,11 +3091,11 @@ func (h *Handler) GetDAGRunStatus(ctx context.Context, req *coordinatorv1.GetDAG
 	if req.RootDagRunName != "" && req.RootDagRunId != "" {
 		// Look up as a sub-DAG
 		rootRef := ir.DAGRunRef{Name: req.RootDagRunName, ID: req.RootDagRunId}
-		attempt, err = h.dagRunRepository.FindSubAttempt(ctx, rootRef, req.DagRunId)
+		attempt, err = h.stores(ctx).DAGRunRepository.FindSubAttempt(ctx, rootRef, req.DagRunId)
 	} else {
 		// Look up as a top-level DAG run
 		ref := ir.DAGRunRef{Name: req.DagName, ID: req.DagRunId}
-		attempt, err = h.dagRunRepository.FindAttempt(ctx, ref)
+		attempt, err = h.stores(ctx).DAGRunRepository.FindAttempt(ctx, ref)
 	}
 
 	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) {
@@ -3046,10 +3126,14 @@ func (h *Handler) GetDAGRunStatus(ctx context.Context, req *coordinatorv1.GetDAG
 // GetDAG retrieves the raw specification of a DAG by name.
 // Workers use this to obtain DAG definitions that may not be available locally.
 func (h *Handler) GetDAG(ctx context.Context, req *coordinatorv1.GetDAGRequest) (*coordinatorv1.GetDAGResponse, error) {
-	if h.dagRepository == nil {
+	ctx, err := h.inProjectOf(ctx, req.GetProject())
+	if err != nil {
+		return nil, err
+	}
+	if h.stores(ctx).DAGRepository == nil {
 		return nil, status.Error(codes.Unimplemented, "DAG store not configured: GetDAG is not available")
 	}
-	spec, err := h.dagRepository.GetSpec(ctx, req.Name)
+	spec, err := h.stores(ctx).DAGRepository.GetSpec(ctx, req.Name)
 	if err != nil {
 		return &coordinatorv1.GetDAGResponse{Error: err.Error()}, nil
 	}
@@ -3208,12 +3292,12 @@ func (h *Handler) bundleDigests(ctx context.Context) (map[string]struct{}, error
 // bounded by the number of active distributed attempts instead of historical
 // DAG-run status files.
 func (h *Handler) detectStaleLeases(ctx context.Context) {
-	if h.dagRunRepository == nil {
+	if h.stores(ctx).DAGRunRepository == nil {
 		return
 	}
 	if h.dagRunLeaseStore == nil {
 		activeStatuses := []ir.Status{ir.Running}
-		statuses, err := h.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{Statuses: activeStatuses, Unbounded: true})
+		statuses, err := h.stores(ctx).DAGRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{Statuses: activeStatuses, Unbounded: true})
 		if err != nil {
 			logger.Error(ctx, "Failed to list active statuses for lease check", tag.Error(err))
 			return
@@ -3259,6 +3343,12 @@ func (h *Handler) reconcileLease(ctx context.Context, lease dispatch.DAGRunLease
 			tag.DAG(lease.DAGRun.Name),
 			tag.RunID(lease.DAGRun.ID),
 		)
+		return
+	}
+	ctx, err := h.inProject(ctx, lease.Project)
+	if err != nil {
+		logger.Warn(ctx, "Skipping distributed lease reconciliation for a project this coordinator cannot open",
+			tag.RunID(lease.DAGRun.ID), tag.AttemptKey(lease.AttemptKey), tag.Error(err))
 		return
 	}
 	ownership := h.attemptOwnership()
@@ -3379,8 +3469,8 @@ func (h *Handler) repairStaleRun(
 ) (*ir.DAGRunStatus, bool, error) {
 	repairCtx := context.WithoutCancel(ctx)
 	if status != nil && status.DAGRunID != "" {
-		held := h.runLocks.lock(status.DAGRunID)
-		defer h.runLocks.unlock(status.DAGRunID, held)
+		held := h.runLocks.lock(h.runKey(ctx, status.DAGRunID))
+		defer h.runLocks.unlock(h.runKey(ctx, status.DAGRunID), held)
 
 		attemptID := status.AttemptID
 		if attemptID == "" {
@@ -3390,7 +3480,7 @@ func (h *Handler) repairStaleRun(
 	}
 
 	return runtime.RepairStaleRemoteRun(repairCtx, runtime.StaleRunRepairConfig{
-		DAGRunRepository:              h.dagRunRepository,
+		DAGRunRepository:              h.stores(ctx).DAGRunRepository,
 		DAGRunLeaseStore:              h.dagRunLeaseStore,
 		WorkerHeartbeatStore:          h.workerHeartbeatStore,
 		StaleLeaseThreshold:           h.staleLeaseThreshold,
@@ -3400,7 +3490,7 @@ func (h *Handler) repairStaleRun(
 
 func (h *Handler) reconcileRemoteStatuses(ctx context.Context, now time.Time) {
 	ownership := h.attemptOwnership()
-	statuses, err := h.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{Statuses: []ir.Status{ir.Running, ir.NotStarted}, Unbounded: true})
+	statuses, err := h.stores(ctx).DAGRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{Statuses: []ir.Status{ir.Running, ir.NotStarted}, Unbounded: true})
 	if err != nil {
 		logger.Error(ctx, "Failed to list distributed statuses for orphaned lease check", tag.Error(err))
 		return
@@ -3470,6 +3560,12 @@ func (h *Handler) reconcileActiveRuns(ctx context.Context, now time.Time) {
 
 	for _, record := range records {
 		if record.AttemptKey == "" {
+			continue
+		}
+		ctx, err := h.inProject(ctx, record.Project)
+		if err != nil {
+			logger.Warn(ctx, "Skipping active distributed run of a project this coordinator cannot open",
+				tag.RunID(record.DAGRun.ID), tag.AttemptKey(record.AttemptKey), tag.Error(err))
 			continue
 		}
 
@@ -3644,14 +3740,14 @@ func (h *Handler) resolveAttemptIDForStatus(ctx context.Context, status *ir.DAGR
 
 	storeCtx := context.WithoutCancel(ctx)
 	if !status.Root.Zero() {
-		attempt, err := h.dagRunRepository.FindSubAttempt(storeCtx, status.Root, status.DAGRunID)
+		attempt, err := h.stores(ctx).DAGRunRepository.FindSubAttempt(storeCtx, status.Root, status.DAGRunID)
 		if err != nil {
 			return "", err
 		}
 		return attempt.ID(), nil
 	}
 
-	attempt, err := h.dagRunRepository.FindAttempt(storeCtx, status.DAGRun())
+	attempt, err := h.stores(ctx).DAGRunRepository.FindAttempt(storeCtx, status.DAGRun())
 	if err != nil {
 		return "", err
 	}
@@ -3668,8 +3764,8 @@ func (h *Handler) failCurrentRemoteAttempt(
 	expectedStatuses ...ir.Status,
 ) {
 	storeCtx := context.WithoutCancel(ctx)
-	held := h.runLocks.lock(dagRun.ID)
-	defer h.runLocks.unlock(dagRun.ID, held)
+	held := h.runLocks.lock(h.runKey(ctx, dagRun.ID))
+	defer h.runLocks.unlock(h.runKey(ctx, dagRun.ID), held)
 
 	if attemptID == "" {
 		logger.Error(ctx, "Skipping distributed stale-run repair due to missing attempt ID",
@@ -3710,7 +3806,7 @@ func (h *Handler) failCurrentRemoteAttempt(
 	)
 
 	for _, expectedStatus := range expectedStatuses {
-		status, swapped, err = h.dagRunRepository.CompareAndSwapLatestAttemptStatus(
+		status, swapped, err = h.stores(ctx).DAGRunRepository.CompareAndSwapLatestAttemptStatus(
 			storeCtx,
 			dagRun,
 			attemptID,
@@ -3770,12 +3866,12 @@ func (h *Handler) failCurrentRemoteAttempt(
 
 func (h *Handler) closeCachedAttemptForRun(ctx, closeCtx context.Context, dagRunID, attemptID string) {
 	h.attemptsMu.Lock()
-	cachedAttempt, ok := h.openAttempts[dagRunID]
+	cachedAttempt, ok := h.openAttempts[h.runKey(ctx, dagRunID)]
 	if ok && attemptID != "" && cachedAttempt.ID() != attemptID {
 		ok = false
 	}
 	if ok {
-		delete(h.openAttempts, dagRunID)
+		delete(h.openAttempts, h.runKey(ctx, dagRunID))
 	}
 	h.attemptsMu.Unlock()
 
@@ -3796,19 +3892,19 @@ func (h *Handler) closeCachedAttemptForRun(ctx, closeCtx context.Context, dagRun
 // cleanup paths. It marks the latest active attempt failed without requiring a
 // lease record.
 func (h *Handler) markRunFailed(ctx context.Context, dagName, dagRunID, reason string) {
-	if h.dagRunRepository == nil {
+	if h.stores(ctx).DAGRunRepository == nil {
 		return
 	}
 	storeCtx := context.WithoutCancel(ctx)
 
-	held := h.runLocks.lock(dagRunID)
-	defer h.runLocks.unlock(dagRunID, held)
+	held := h.runLocks.lock(h.runKey(ctx, dagRunID))
+	defer h.runLocks.unlock(h.runKey(ctx, dagRunID), held)
 
 	var attempt dagrun.Attempt
 	var needsOpen bool
 
 	h.attemptsMu.RLock()
-	cachedAttempt, ok := h.openAttempts[dagRunID]
+	cachedAttempt, ok := h.openAttempts[h.runKey(ctx, dagRunID)]
 	h.attemptsMu.RUnlock()
 
 	if ok {
@@ -3816,7 +3912,7 @@ func (h *Handler) markRunFailed(ctx context.Context, dagName, dagRunID, reason s
 		needsOpen = false
 	} else {
 		ref := ir.DAGRunRef{Name: dagName, ID: dagRunID}
-		foundAttempt, err := h.dagRunRepository.FindAttempt(storeCtx, ref)
+		foundAttempt, err := h.stores(ctx).DAGRunRepository.FindAttempt(storeCtx, ref)
 		if err != nil {
 			logger.Error(ctx, "Failed to find attempt for zombie cleanup",
 				tag.DAG(dagName), tag.RunID(dagRunID), tag.Error(err))
@@ -3882,7 +3978,7 @@ func (h *Handler) markRunFailed(ctx context.Context, dagName, dagRunID, reason s
 // markWorkerTasksFailed is kept for compatibility with tests that exercise the
 // worker-heartbeat cleanup path directly.
 func (h *Handler) markWorkerTasksFailed(ctx context.Context, info *heartbeatInfo) {
-	if h.dagRunRepository == nil || info == nil || info.stats == nil {
+	if h.stores(ctx).DAGRunRepository == nil || info == nil || info.stats == nil {
 		return
 	}
 	for _, task := range info.stats.RunningTasks {
@@ -3896,7 +3992,11 @@ func (h *Handler) markWorkerTasksFailed(ctx context.Context, info *heartbeatInfo
 // RequestCancel handles requests to cancel a DAG run.
 // Parent workers use this for sub-DAG cancellation through the coordinator.
 func (h *Handler) RequestCancel(ctx context.Context, req *coordinatorv1.RequestCancelRequest) (*coordinatorv1.RequestCancelResponse, error) {
-	if h.dagRunRepository == nil {
+	ctx, err := h.inProjectOf(ctx, req.GetProject())
+	if err != nil {
+		return nil, err
+	}
+	if h.stores(ctx).DAGRunRepository == nil {
 		return nil, status.Error(codes.FailedPrecondition, "cancellation not available: DAG run storage not configured")
 	}
 	if req.DagName == "" {
@@ -3913,18 +4013,17 @@ func (h *Handler) RequestCancel(ctx context.Context, req *coordinatorv1.RequestC
 
 	// Find the attempt (either root or sub-DAG)
 	var attempt dagrun.Attempt
-	var err error
 
 	isSubDAG := req.RootDagRunId != "" && req.RootDagRunId != req.DagRunId
 	if isSubDAG {
 		rootRef := ir.DAGRunRef{Name: req.RootDagRunName, ID: req.RootDagRunId}
-		attempt, err = h.dagRunRepository.FindSubAttempt(ctx, rootRef, req.DagRunId)
+		attempt, err = h.stores(ctx).DAGRunRepository.FindSubAttempt(ctx, rootRef, req.DagRunId)
 		logger.Info(ctx, "Looking up sub-DAG attempt for cancellation",
 			slog.String("root-dag-run-id", req.RootDagRunId),
 		)
 	} else {
 		ref := ir.DAGRunRef{Name: req.DagName, ID: req.DagRunId}
-		attempt, err = h.dagRunRepository.FindAttempt(ctx, ref)
+		attempt, err = h.stores(ctx).DAGRunRepository.FindAttempt(ctx, ref)
 		logger.Info(ctx, "Looking up DAG attempt for cancellation")
 	}
 

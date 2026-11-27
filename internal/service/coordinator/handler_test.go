@@ -570,7 +570,7 @@ func TestTransformArtifactPathsCreatesDirectory(t *testing.T) {
 	t.Parallel()
 
 	baseDir := t.TempDir()
-	handler := &Handler{artifactDir: baseDir}
+	handler := &Handler{defaults: ProjectStores{ArtifactDir: baseDir}}
 	attempt := &mockAttempt{
 		dag: &ir.DAG{
 			Name: "test-dag",
@@ -600,7 +600,7 @@ func TestTransformArtifactPathsSanitizesDAGName(t *testing.T) {
 	t.Parallel()
 
 	baseDir := t.TempDir()
-	handler := &Handler{artifactDir: baseDir}
+	handler := &Handler{defaults: ProjectStores{ArtifactDir: baseDir}}
 	attempt := &mockAttempt{
 		dag: &ir.DAG{
 			Name: "../weird/..-dag--name",
@@ -633,7 +633,7 @@ func TestTransformArtifactPathsPreservesLatestArchiveDir(t *testing.T) {
 
 	baseDir := t.TempDir()
 	existingArchiveDir := filepath.Join(baseDir, "test-dag", "dag-run_20260412_000000Z_run-123")
-	handler := &Handler{artifactDir: baseDir}
+	handler := &Handler{defaults: ProjectStores{ArtifactDir: baseDir}}
 	incoming := &ir.DAGRunStatus{DAGRunID: "run-123"}
 	latestStatus := &ir.DAGRunStatus{ArchiveDir: existingArchiveDir}
 
@@ -649,7 +649,7 @@ func TestTransformArtifactPathsPreservesLatestArchiveDir(t *testing.T) {
 func TestTransformArtifactPathsRejectsEmptyExpandedBaseDir(t *testing.T) {
 	t.Setenv("EMPTY_ARTIFACT_DIR", "")
 
-	handler := &Handler{artifactDir: t.TempDir()}
+	handler := &Handler{defaults: ProjectStores{ArtifactDir: t.TempDir()}}
 	attempt := &mockAttempt{
 		dag: &ir.DAG{
 			Name: "test-dag",
@@ -5971,7 +5971,7 @@ func TestHandler_StreamLogs(t *testing.T) {
 		h := NewHandler(HandlerConfig{}) // No logDir
 		// StreamLogs requires a mock stream, but we can test the precondition check
 		// by checking that logDir is empty
-		require.Empty(t, h.logDir)
+		require.Empty(t, h.defaults.LogDir)
 	})
 
 	t.Run("WithLogDirConfigured", func(t *testing.T) {
@@ -5979,7 +5979,7 @@ func TestHandler_StreamLogs(t *testing.T) {
 
 		logDir := t.TempDir()
 		h := NewHandler(HandlerConfig{LogDir: logDir})
-		require.Equal(t, logDir, h.logDir)
+		require.Equal(t, logDir, h.defaults.LogDir)
 	})
 }
 
@@ -6114,7 +6114,7 @@ func TestHandlerOptions(t *testing.T) {
 		store := newMockDAGRunStore()
 		h := NewHandler(HandlerConfig{DAGRunRepository: store.repository})
 
-		require.Same(t, store.repository, h.dagRunRepository)
+		require.Same(t, store.repository, h.defaults.DAGRunRepository)
 	})
 
 	t.Run("WithLogDir", func(t *testing.T) {
@@ -6123,7 +6123,7 @@ func TestHandlerOptions(t *testing.T) {
 		logDir := "/var/log/test"
 		h := NewHandler(HandlerConfig{LogDir: logDir})
 
-		require.Equal(t, logDir, h.logDir)
+		require.Equal(t, logDir, h.defaults.LogDir)
 	})
 
 	t.Run("MultipleOptions", func(t *testing.T) {
@@ -6133,8 +6133,8 @@ func TestHandlerOptions(t *testing.T) {
 		logDir := "/var/log/test"
 		h := NewHandler(HandlerConfig{DAGRunRepository: store.repository, LogDir: logDir})
 
-		require.Same(t, store.repository, h.dagRunRepository)
-		require.Equal(t, logDir, h.logDir)
+		require.Same(t, store.repository, h.defaults.DAGRunRepository)
+		require.Equal(t, logDir, h.defaults.LogDir)
 	})
 }
 
@@ -6660,8 +6660,8 @@ func TestKeepLegacyLogPaths(t *testing.T) {
 	released.Nodes[2].Stdout = filepath.Join(legacyDir, "a_b.stdout.log")
 
 	status := report()
-	h.transformLogPaths(status)
-	h.keepLegacyLogPaths(released, status)
+	h.transformLogPaths(t.Context(), status)
+	h.keepLegacyLogPaths(t.Context(), released, status)
 	assert.Equal(t, filepath.Join(legacyDir, "scheduler.log"), status.Log)
 	assert.Equal(t, filepath.Join(legacyDir, "fetch_data.stdout.log"), status.Nodes[0].Stdout)
 	assert.Equal(t, filepath.Join(newDir, "fetch%20data.stderr.log"), status.Nodes[0].Stderr)
@@ -6669,10 +6669,10 @@ func TestKeepLegacyLogPaths(t *testing.T) {
 	assert.Equal(t, filepath.Join(newDir, "a%20b.stdout.log"), status.Nodes[2].Stdout)
 
 	stored := report()
-	h.transformLogPaths(stored)
+	h.transformLogPaths(t.Context(), stored)
 	status = report()
-	h.transformLogPaths(status)
-	h.keepLegacyLogPaths(stored, status)
+	h.transformLogPaths(t.Context(), status)
+	h.keepLegacyLogPaths(t.Context(), stored, status)
 	assert.Equal(t, filepath.Join(newDir, "scheduler.log"), status.Log)
 	assert.Equal(t, filepath.Join(newDir, "fetch%20data.stdout.log"), status.Nodes[0].Stdout)
 }

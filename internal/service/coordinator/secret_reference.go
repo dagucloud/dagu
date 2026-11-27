@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
@@ -35,6 +36,8 @@ type SecretReferenceRun struct {
 	AttemptKey string
 	AttemptID  string
 	DAGName    string
+	// Project is the project whose run the attempt runs.
+	Project dispatch.ProjectScope
 }
 
 const secretReferenceAccessDenied = "secret reference access denied"
@@ -158,11 +161,16 @@ func secretReferenceRequest(ref secretref.Ref, workspace string, checkOnly bool,
 		AttemptKey: run.AttemptKey,
 		AttemptId:  run.AttemptID,
 		DagName:    run.DAGName,
+		Project:    convert.ProjectScopeToProto(run.Project),
 	}
 }
 
 func (h *Handler) ResolveSecretReference(ctx context.Context, req *coordinatorv1.ResolveSecretReferenceRequest) (*coordinatorv1.ResolveSecretReferenceResponse, error) {
-	if h.secretStore == nil {
+	ctx, err := h.inProjectOf(ctx, req.GetProject())
+	if err != nil {
+		return nil, err
+	}
+	if h.stores(ctx).SecretStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "secret store is not configured")
 	}
 	if req == nil {
@@ -188,7 +196,7 @@ func (h *Handler) ResolveSecretReference(ctx context.Context, req *coordinatorv1
 		return nil, err
 	}
 
-	resolver := h.secretReferenceResolver(req.GetWorkspace())
+	resolver := h.secretReferenceResolver(ctx, req.GetWorkspace())
 	if req.GetCheckOnly() {
 		if err := resolver.CheckReferenceAccessibility(ctx, ref); err != nil {
 			return nil, secretReferenceRPCError(err)
@@ -205,11 +213,11 @@ func (h *Handler) ResolveSecretReference(ctx context.Context, req *coordinatorv1
 
 // secretReferenceResolver returns the resolver for a request that names
 // workspace. While projects are on, the workspace adds no layer.
-func (h *Handler) secretReferenceResolver(workspace string) *secretpkg.ReferenceResolver {
+func (h *Handler) secretReferenceResolver(ctx context.Context, workspace string) *secretpkg.ReferenceResolver {
 	if h.projectsEnabled {
-		return secretpkg.NewProjectReferenceResolver(h.secretStore)
+		return secretpkg.NewProjectReferenceResolver(h.stores(ctx).SecretStore)
 	}
-	return secretpkg.NewReferenceResolver(h.secretStore, workspace)
+	return secretpkg.NewReferenceResolver(h.stores(ctx).SecretStore, workspace)
 }
 
 func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinatorv1.ResolveSecretReferenceRequest, ref secretref.Ref) error {
@@ -246,7 +254,7 @@ func (h *Handler) leaseDAG(ctx context.Context, workerID, attemptKey, attemptID,
 	if h.dagRunLeaseStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "dag-run lease store is not configured")
 	}
-	if h.dagRunRepository == nil {
+	if h.stores(ctx).DAGRunRepository == nil {
 		return nil, status.Error(codes.FailedPrecondition, "DAG-run repository is not configured")
 	}
 
@@ -275,15 +283,18 @@ func (h *Handler) authorizedAttempt(ctx context.Context, lease *dispatch.DAGRunL
 	if lease == nil {
 		return nil, status.Error(codes.PermissionDenied, deniedMessage)
 	}
+	if err := h.checkLeaseProject(ctx, lease); err != nil {
+		return nil, err
+	}
 
 	var (
 		attempt dagrun.Attempt
 		err     error
 	)
 	if !lease.Root.Zero() && lease.Root != lease.DAGRun {
-		attempt, err = h.dagRunRepository.FindSubAttempt(ctx, lease.Root, lease.DAGRun.ID)
+		attempt, err = h.stores(ctx).DAGRunRepository.FindSubAttempt(ctx, lease.Root, lease.DAGRun.ID)
 	} else {
-		attempt, err = h.dagRunRepository.FindAttempt(ctx, lease.DAGRun)
+		attempt, err = h.stores(ctx).DAGRunRepository.FindAttempt(ctx, lease.DAGRun)
 	}
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusData) {
@@ -341,7 +352,7 @@ func (h *Handler) reachableDAG(ctx context.Context, dag *ir.DAG, name string, vi
 	if child := localDAGByName(dag, name); child != nil {
 		return child
 	}
-	if h.dagRepository == nil {
+	if h.stores(ctx).DAGRepository == nil {
 		return nil
 	}
 
@@ -351,7 +362,7 @@ func (h *Handler) reachableDAG(ctx context.Context, dag *ir.DAG, name string, vi
 		}
 		visited[childName] = struct{}{}
 
-		child, err := h.dagRepository.GetDetails(ctx, childName, persis.DAGLoadOptions{})
+		child, err := h.stores(ctx).DAGRepository.GetDetails(ctx, childName, persis.DAGLoadOptions{})
 		if err != nil {
 			continue
 		}

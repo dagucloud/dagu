@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/sshconn"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -26,7 +27,11 @@ const nodeAccessDenied = "node access denied"
 // the inventory from a run). Only an attempt with a fresh lease whose DAG
 // targets nodes is answered. Credentials are answered as secret refs.
 func (h *Handler) ResolveNodes(ctx context.Context, req *coordinatorv1.ResolveNodesRequest) (*coordinatorv1.ResolveNodesResponse, error) {
-	if h.nodeInventory == nil {
+	ctx, err := h.inProjectOf(ctx, req.GetProject())
+	if err != nil {
+		return nil, err
+	}
+	if h.stores(ctx).NodeInventory == nil {
 		return nil, status.Error(codes.FailedPrecondition, "node inventory is not configured")
 	}
 	if req == nil {
@@ -84,21 +89,21 @@ func (h *Handler) candidateNodes(ctx context.Context) ([]inventory.ResolvedNode,
 	if h.workerNodes != nil {
 		workers = h.workerNodes.store
 	}
-	return inventory.NewProjectNodes(h.nodeInventory, workers).Nodes(ctx)
+	return inventory.NewProjectNodes(h.stores(ctx).NodeInventory, workers).Nodes(ctx)
 }
 
 // authorizeNodeSecret lets a run read ref for node when the run targets
 // nodes, node is an enabled node, and its connection uses ref, through its
 // bastion included.
 func (h *Handler) authorizeNodeSecret(ctx context.Context, dag *ir.DAG, node, ref string) error {
-	if h.nodeInventory == nil {
+	if h.stores(ctx).NodeInventory == nil {
 		return status.Error(codes.FailedPrecondition, "node inventory is not configured")
 	}
 	if !targetsNodes(dag) {
 		return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
 	}
 	// Worker nodes have no credentials.
-	candidates, err := h.nodeInventory.Nodes(ctx)
+	candidates, err := h.stores(ctx).NodeInventory.Nodes(ctx)
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
@@ -190,7 +195,7 @@ func findNode(nodes []inventory.ResolvedNode, name string) *inventory.ResolvedNo
 // that has one, once per node, under the node's name as the inventory spells
 // it.
 func (h *Handler) trustedHostKeysOf(ctx context.Context, nodes []inventory.ResolvedNode) ([]*coordinatorv1.TrustedHostKey, error) {
-	if h.trustedHostKeys == nil {
+	if h.stores(ctx).TrustedHostKeys == nil {
 		return nil, nil
 	}
 	var keys []*coordinatorv1.TrustedHostKey
@@ -204,7 +209,7 @@ func (h *Handler) trustedHostKeysOf(ctx context.Context, nodes []inventory.Resol
 			continue
 		}
 		seen[folded] = struct{}{}
-		key, err := h.trustedHostKeys.Get(ctx, node.Name)
+		key, err := h.stores(ctx).TrustedHostKeys.Get(ctx, node.Name)
 		if errors.Is(err, inventory.ErrNoTrustedHostKey) {
 			continue
 		}
@@ -327,6 +332,7 @@ func (cli *clientImpl) ResolveNodes(ctx context.Context, owner serviceregistry.H
 		DagName:    run.DAGName,
 		Selector:   selector,
 		Names:      names,
+		Project:    convert.ProjectScopeToProto(run.Project),
 	}
 	var resp *coordinatorv1.ResolveNodesResponse
 	call := func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
