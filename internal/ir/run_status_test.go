@@ -512,6 +512,20 @@ func TestRetryPathAgentOwnerWorkerID(t *testing.T) {
 		}
 	}
 
+	// Each sibling is a not-started dependant that the retry runs too.
+	callSibling := func(owner string) *ir.Node {
+		return &ir.Node{
+			Step: ir.Step{Name: "after-call", Depends: []string{"call"}}, Status: ir.NodeNotStarted,
+			AgentSession: &ir.AgentSession{Provider: "opencode", OwnerWorkerID: owner},
+		}
+	}
+	agentSibling := func(owner string) *ir.Node {
+		return &ir.Node{
+			Step: ir.Step{Name: "after-agent", Depends: []string{"agent"}}, Status: ir.NodeNotStarted,
+			AgentSession: &ir.AgentSession{Provider: "opencode", OwnerWorkerID: owner},
+		}
+	}
+
 	tests := []struct {
 		name string
 		root *ir.DAGRunStatus
@@ -522,6 +536,8 @@ func TestRetryPathAgentOwnerWorkerID(t *testing.T) {
 		{name: "SubDispatched", root: run("w1", call("")), sub: run("w2", agent("w2"))},
 		{name: "NoSub", root: run("w1", call("w3")), want: "w3"},
 		{name: "MixedOwners", root: run("w1", call("w3")), sub: run("w1", agent("w1"))},
+		{name: "MixedRootOwners", root: run("w1", call("w3"), callSibling("w4")), sub: run("w1", agent("w1"))},
+		{name: "MixedSubOwners", root: run("w1", call("w1")), sub: run("w1", agent("w1"), agentSibling("w2"))},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

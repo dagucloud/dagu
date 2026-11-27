@@ -288,8 +288,14 @@ func agentSessionResourceKey(resource AgentSessionResource) string {
 // already finished, and it does not run a dependant that a failed step outside
 // the retry blocks. The first are not counted and the second are.
 func RetryAgentOwnerWorkerID(status *DAGRunStatus, step string, includeDownstream bool) string {
+	return soleOwner(addRetryOwners(nil, status, step, includeDownstream))
+}
+
+// addRetryOwners adds to owners the workers that hold the sessions a retry of
+// status resumes, as RetryAgentOwnerWorkerID selects them.
+func addRetryOwners(owners map[string]struct{}, status *DAGRunStatus, step string, includeDownstream bool) map[string]struct{} {
 	if status == nil {
-		return ""
+		return owners
 	}
 	resumes := resumedByRunRetry
 	if step != "" {
@@ -299,7 +305,6 @@ func RetryAgentOwnerWorkerID(status *DAGRunStatus, step string, includeDownstrea
 			return ok
 		}
 	}
-	var owner string
 	for _, node := range status.Nodes {
 		if node == nil || node.AgentSession == nil || !resumes(node) {
 			continue
@@ -308,12 +313,24 @@ func RetryAgentOwnerWorkerID(status *DAGRunStatus, step string, includeDownstrea
 		if session.RestartPending || session.OwnerWorkerID == "" {
 			continue
 		}
-		if owner != "" && owner != session.OwnerWorkerID {
-			return ""
+		if owners == nil {
+			owners = make(map[string]struct{}, 1)
 		}
-		owner = session.OwnerWorkerID
+		owners[session.OwnerWorkerID] = struct{}{}
 	}
-	return owner
+	return owners
+}
+
+// soleOwner returns the only worker in owners, or "" when there is none or
+// more than one.
+func soleOwner(owners map[string]struct{}) string {
+	if len(owners) != 1 {
+		return ""
+	}
+	for owner := range owners {
+		return owner
+	}
+	return ""
 }
 
 // resumedByRunRetry reports whether a retry of the run counts node's session.
@@ -369,17 +386,9 @@ func stepRetrySelection(nodes []*Node, step string, includeDownstream bool) map[
 // dispatched on its own, so sub counts only when it ran on the worker that ran
 // status. A nil sub counts no sessions.
 func RetryPathAgentOwnerWorkerID(status *DAGRunStatus, rootStep string, sub *DAGRunStatus, step string, includeDownstream bool) string {
-	owner := RetryAgentOwnerWorkerID(status, rootStep, false)
-	if status == nil || sub == nil || sub.WorkerID != status.WorkerID {
-		return owner
+	owners := addRetryOwners(nil, status, rootStep, false)
+	if status != nil && sub != nil && sub.WorkerID == status.WorkerID {
+		owners = addRetryOwners(owners, sub, step, includeDownstream)
 	}
-	subOwner := RetryAgentOwnerWorkerID(sub, step, includeDownstream)
-	switch {
-	case subOwner == "":
-		return owner
-	case owner == "" || owner == subOwner:
-		return subOwner
-	default:
-		return ""
-	}
+	return soleOwner(owners)
 }
