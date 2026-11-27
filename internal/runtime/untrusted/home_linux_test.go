@@ -18,7 +18,7 @@ import (
 // the test.
 func trustedHome(t *testing.T, uid uint32, home string, lookup func(string) (string, bool)) map[string]string {
 	t.Helper()
-	entries, remove, err := TrustedHome(uid, testGID, home, lookup)
+	entries, remove, err := TrustedHome(uid, testGID, "", home, lookup)
 	require.NoError(t, err)
 	if remove != nil {
 		t.Cleanup(func() { _ = remove() })
@@ -36,7 +36,7 @@ func TestTrustedHome(t *testing.T) {
 
 	shared := t.TempDir()
 	require.NoError(t, os.Chmod(shared, os.ModeSticky|0o777)) //nolint:gosec // a folder that any user can write, as /tmp
-	entries, remove, err := TrustedHome(testUID, testGID, shared, none)
+	entries, remove, err := TrustedHome(testUID, testGID, "", shared, none)
 	require.NoError(t, err)
 	require.NotNil(t, entries)
 	private := entries["HOME"]
@@ -70,6 +70,12 @@ func TestTrustedHome(t *testing.T) {
 	inOpen := filepath.Join(open, "home")
 	require.NoError(t, os.Mkdir(inOpen, 0o700))
 	assert.NotNil(t, trustedHome(t, testUID, inOpen, none), "a HOME that the restricted user can rename is replaced")
+	relative, removeRelative, err := TrustedHome(testUID, testGID, open, "home", none)
+	require.NoError(t, err)
+	if removeRelative != nil {
+		t.Cleanup(func() { _ = removeRelative() })
+	}
+	assert.NotNil(t, relative, "a relative HOME counts from the working directory of the process")
 
 	// The target holds every XDG folder, so that only the link is unsafe.
 	target := t.TempDir()
@@ -104,7 +110,7 @@ func TestTrustedHomeNeedsASafeTempFolder(t *testing.T) {
 	open := t.TempDir()
 	require.NoError(t, os.Chmod(open, 0o777)) //nolint:gosec // a folder that any user can write, without the sticky bit
 	t.Setenv("TMPDIR", open)
-	entries, _, err := TrustedHome(testUID, testGID, "", func(string) (string, bool) { return "", false })
+	entries, _, err := TrustedHome(testUID, testGID, "", "", func(string) (string, bool) { return "", false })
 	require.ErrorContains(t, err, "the restricted user can replace the private HOME")
 	assert.Nil(t, entries)
 	names, err := os.ReadDir(open)

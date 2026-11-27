@@ -67,7 +67,7 @@ func withTrustedHome(ctx context.Context, node *Node) (context.Context, func(), 
 		env = NewEnv(ctx, node.Step())
 	}
 	home, _ := env.Scope.Get("HOME")
-	entries, remove, err := untrusted.TrustedHome(cfg.UID, cfg.GID, home, env.Scope.Get)
+	entries, remove, err := untrusted.TrustedHome(cfg.UID, cfg.GID, env.WorkingDir, home, env.Scope.Get)
 	if err != nil {
 		return ctx, nil, fmt.Errorf("step %q: make a private HOME for a trusted step: %w", node.Step().Name, err)
 	}

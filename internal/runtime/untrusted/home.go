@@ -28,17 +28,25 @@ var homeFolders = []struct{ name, dir string }{
 // TrustedHome returns the variables that give a trusted process a new private
 // HOME, and the function that removes that HOME, when the restricted user uid
 // or its group gid can write or replace the folder home, or a folder of the XDG
-// variables: the one that lookup gives, or its default below home. It returns
-// nil when the folders are safe.
-func TrustedHome(uid, gid uint32, home string, lookup func(string) (string, bool)) (map[string]string, func() error, error) {
+// variables: the one that lookup gives, or its default below home. A relative
+// path counts from workingDir, the working directory of the process. It
+// returns nil when the folders are safe.
+func TrustedHome(uid, gid uint32, workingDir, home string, lookup func(string) (string, bool)) (map[string]string, func() error, error) {
+	// Not filepath.Join: a cleaned path drops a ".." after a link.
+	inWorkingDir := func(path string) string {
+		if path == "" || workingDir == "" || filepath.IsAbs(path) {
+			return path
+		}
+		return workingDir + string(filepath.Separator) + path
+	}
+	home = inWorkingDir(home)
 	unsafe := home == "" || writableBy(home, uid, gid)
 	for _, folder := range homeFolders {
 		dir, ok := lookup(folder.name)
 		if !ok || dir == "" {
-			// Not filepath.Join: a cleaned path drops a ".." after a link.
 			dir = home + string(filepath.Separator) + folder.dir
 		}
-		if writableBy(dir, uid, gid) {
+		if writableBy(inWorkingDir(dir), uid, gid) {
 			unsafe = true
 		}
 	}
