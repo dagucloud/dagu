@@ -80,7 +80,7 @@ wrong and what to do.
 
 ## Terms
 
-`<data_dir>` is `paths.data_dir`.
+The data directory is `paths.data_dir`.
 
 A peer process is a process that serves or calls the coordinator's gRPC
 port: the coordinator, the scheduler, the server, a worker, `start-all`, a
@@ -89,7 +89,7 @@ CLI command that calls the coordinator, and a run process.
 A client is a peer process when it calls a coordinator.
 
 The peer token is `peer.token`, or the token the coordinator generates in
-`<data_dir>/coordinator/peer-token`.
+its data directory.
 
 h2c is HTTP/2 over plaintext TCP.
 
@@ -107,9 +107,13 @@ An invite is the string `worker.invite` carries. A worker certificate is a
 certificate a coordinator issues to a worker at enrollment. An invite worker
 is a worker that has `worker.invite` set or holds a worker certificate.
 
+The published CA certificate is the copy of the peer CA certificate that a
+coordinator keeps in its data directory for the clients that share it.
+
 A TLS source is what lets a client use built-in TLS: a worker invite or
-certificate, `peer.ca_cert_file`, or a service registry entry that reports
-built-in TLS together with the CA certificate in `<data_dir>`.
+certificate, `peer.ca_cert_file`, or the published CA certificate while the
+service registry in the client's data directory lists a coordinator that
+reports built-in TLS.
 
 A TLS setting is `peer.cert_file`, `peer.key_file`, `peer.client_ca_file`,
 `peer.skip_tls_verify: true`, or `peer.ca_cert_file`.
@@ -147,13 +151,12 @@ A client picks its transport from the first row that matches:
 | Configuration | Transport |
 | --- | --- |
 | `peer.insecure: true` | h2c |
-| `peer.insecure: false` with `peer.cert_file`, `peer.client_ca_file`, or `peer.skip_tls_verify: true` | TLS with those settings, verified against `peer.client_ca_file` or the system roots |
+| `peer.insecure: false` with `peer.cert_file`, `peer.key_file`, `peer.client_ca_file`, or `peer.skip_tls_verify: true` | TLS with those settings, verified against `peer.client_ca_file` or the system roots |
 | A TLS source | Built-in TLS |
-| `peer.insecure: false` | TLS verified against the system roots |
+| `peer.insecure: false` | None: the process exits with code 1 at start with `TLS enabled but no certificates provided` |
 | None of these | h2c |
 
-- Rows 1, 2, 4, and 5 are the transports of a Dagu that predates this
-  spec.
+- Rows 1, 2, 4, and 5 behave as a Dagu that predates this spec does.
 - A TLS setting that no matching row uses has no effect, and the process
   warns at start, as [Ignored Settings](#ignored-settings) states. In
   particular, `peer.cert_file`, `peer.key_file`, or `peer.client_ca_file`
@@ -170,14 +173,21 @@ A client picks its transport from the first row that matches:
   against the CA certificate it stored at enrollment.
 - A client with `peer.ca_cert_file` verifies every coordinator against that
   certificate.
-- A client that finds coordinators in the service registry, with neither of
-  the above, uses built-in TLS for each coordinator whose entry has
-  `"tls": "builtin"`, and verifies it against
-  `<data_dir>/coordinator/peer-ca.crt`. It reads that file when it opens a
-  connection. A coordinator whose entry lacks the field, or whose CA
-  certificate the client cannot read, gets h2c.
-- A client with `worker.coordinators` and none of the above has no TLS
-  source.
+- A client with neither of the above that can read the published CA
+  certificate in its own data directory, while the service registry there
+  lists a live coordinator entry with `"tls": "builtin"`, uses built-in TLS
+  and verifies against that certificate. This holds however the client
+  finds coordinators:
+  - A client that finds coordinators in the service registry uses built-in
+    TLS for each entry with `"tls": "builtin"`, and h2c for an entry
+    without it.
+  - A client with `worker.coordinators`, such as a worker, uses built-in TLS
+    for each of those addresses. An address need not match a registry
+    entry: in Compose, the worker dials the service name while the entry
+    holds the advertised host.
+- The client checks the published CA certificate and the registry when it
+  opens a connection. Without both, it has no TLS source, and it uses h2c
+  as before this spec.
 - Built-in TLS verifies the chain against the CA certificate, and requires
   the server certificate to name `coordinator.dagu.invalid` and to allow
   server authentication. It does not compare the dialed address with the
@@ -194,27 +204,33 @@ A client picks its transport from the first row that matches:
   handshake error.
 - These never fall back:
   - an invite worker, with or without a worker certificate
-  - a client on TLS from rows 2 or 4 of [Client Transport](#client-transport)
+  - a client on TLS from row 2 of [Client Transport](#client-transport)
   - a handshake that fails for any reason other than a transport-level
     failure, such as a certificate that does not verify
 - A coordinator with `coordinator.require_tls: true` refuses the calls a
   client makes after a fallback, as [Require TLS](#require-tls) states.
+- The fallback also covers a coordinator that a downgrade left on h2c only
+  while its published CA certificate remains: the handshake fails at the
+  transport level, and the client keeps working over h2c.
 
 ### Chosen Transport
 
 #### Start Line
 
 The coordinator, the scheduler, the server, a worker, and `start-all` log
-one line at start, at level info, for the transport they use as clients:
+one line at start, at level info, for the transport they use as clients. A
+CLI command and a run process log the line, and the warnings of
+[Ignored Settings](#ignored-settings), at level debug, so their terminal
+output does not change.
 
 | Case | Line |
 | --- | --- |
 | Row 1 | `Peer transport: h2c (from peer.insecure: true)` |
-| Row 2 or 4 | `Peer transport: TLS (from peer.insecure: false)` |
+| Row 2 | `Peer transport: TLS (from peer.insecure: false)` |
 | Invite worker with a worker certificate | `Peer transport: built-in TLS (from worker certificate)` |
 | Invite worker without one | `Peer transport: built-in TLS (from worker.invite)` |
 | `peer.ca_cert_file` | `Peer transport: built-in TLS (from peer.ca_cert_file)` |
-| Service registry, with `<data_dir>/coordinator/peer-ca.crt` readable at start | `Peer transport: built-in TLS (from the service registry)` |
+| The published CA certificate | `Peer transport: built-in TLS (from the coordinator's data directory)` |
 | None of these | `Peer transport: h2c (from no TLS source)` |
 
 A coordinator that does not call other coordinators logs no start line.
@@ -229,7 +245,7 @@ the transport to that address changes:
 Peer transport to <host>:<port>: <transport> (from <source>)
 ```
 
-`<source>` is `the service registry`, `no TLS source`, or
+`<source>` is `the coordinator's data directory`, `no TLS source`, or
 `tls failed on the network path`.
 
 #### Coordinator Line
@@ -269,7 +285,7 @@ A coordinator logs one line at start for what it serves:
   | Value | When |
   | --- | --- |
   | `peer.insecure` | Row 1 |
-  | `no TLS source` | Row 5, or a coordinator whose registry entry lacks `"tls": "builtin"` |
+  | `no TLS source` | Row 5, a registry entry without `"tls": "builtin"`, or a published CA certificate the client cannot read |
   | `tls failed on the network path` | After a fallback |
 
 - A call over h2c without the key comes from a Dagu that predates this
@@ -279,31 +295,38 @@ A coordinator logs one line at start for what it serves:
 
 - A coordinator without own certificates and without `peer.ca_cert_file`
   uses a generated CA:
-  - The CA certificate is `<data_dir>/coordinator/peer-ca.crt` and its key
-    is `<data_dir>/coordinator/peer-ca.key`, both PEM, mode `0600`.
-  - When neither file exists, the coordinator generates an ECDSA
-    P-256 key and a self-signed CA certificate, and creates both files with
-    an exclusive write. Coordinators that start together on one data
-    directory end with one CA.
+  - On its first start, it generates an ECDSA P-256 CA and keeps it in its
+    data directory, readable by its user only. Coordinators that start
+    together on one data directory end with one CA.
   - The CA certificate's `notAfter` is `99991231235959Z`, the value RFC 5280
     gives for a certificate with no expiry date.
-  - A later start reuses the files. They are never regenerated.
+  - Later starts reuse it. It is never regenerated, also not while the
+    coordinator runs for a time with `peer.ca_cert_file` or with own
+    certificates.
 - `peer.ca_cert_file` with `peer.ca_key_file` supplies the CA instead. The
   certificate must be a CA certificate, the key must match it, and the
   coordinator generates nothing.
-- A coordinator with own certificates has no peer CA, and generates and
-  publishes nothing.
+- A coordinator with own certificates has no peer CA.
+- A coordinator that cannot create or read its generated CA, such as one
+  whose data directory it cannot write, logs a warning and starts without a
+  peer CA: it serves h2c only, publishes no CA certificate, and registers no
+  `"tls": "builtin"`, so it starts as it did before this spec. With
+  `coordinator.require_tls: true`, it exits with code 1 at start instead.
 
 #### Published CA Certificate
 
-- A coordinator with a peer CA publishes its CA certificate at
-  `<data_dir>/coordinator/peer-ca.crt`, mode `0600`. With a generated CA,
-  that is the generated file. With `peer.ca_cert_file`, the coordinator
-  writes the certificate there at start, atomically, when the file is
-  missing or differs.
+- A coordinator with a peer CA writes the certificate of the CA it uses,
+  generated or from `peer.ca_cert_file`, to its data directory as the
+  published CA certificate, when it is missing or differs. Publishing never
+  changes the generated CA.
+- A coordinator without a peer CA removes the published CA certificate at
+  start, so clients that share its data directory stay off built-in TLS.
 - The coordinator adds `"tls": "builtin"` to the service registry entry it
-  registers. A coordinator with own certificates does not.
-- Older processes ignore the field and the file.
+  registers. A coordinator without a peer CA does not.
+- Older processes ignore the field and the file. A client uses the
+  published CA certificate only while the registry lists a live entry with
+  `"tls": "builtin"`, so a certificate that an older coordinator leaves
+  behind selects nothing.
 
 #### `dagu peer init`
 
@@ -311,8 +334,8 @@ A coordinator logs one line at start for what it serves:
 dagu peer init --out <dir>
 ```
 
-- It writes `ca.crt`, `ca.key`, and `token` into `<dir>`, each mode `0600`,
-  creating `<dir>` with mode `0700` when it is missing.
+- It writes `ca.crt`, `ca.key`, and `token` into `<dir>`, each readable by
+  its user only, and creates `<dir>` when it is missing.
 - `ca.crt` and `ca.key` are a CA as the coordinator generates one. `token`
   is a peer token in the format the coordinator generates: 64 lowercase hex
   characters and a newline.
@@ -396,7 +419,6 @@ The `worker_invites` collection keeps one record per invite:
 | Field | Value |
 | --- | --- |
 | `id` | A random ID, assigned on create |
-| `secret_sha256` | The SHA-256 of the secret. The secret itself is not stored |
 | `kind` | `single_use` or `reusable` |
 | `expires_at` | The expiry, or none |
 | `address` | The `host:port` the invite was made for, or none |
@@ -405,8 +427,8 @@ The `worker_invites` collection keeps one record per invite:
 | `use_count` | The number of enrollments it admitted |
 | `last_used_at` | The time of its last enrollment, or none |
 
-- A single-use invite is consumed with a compare-and-swap on its record, so
-  two coordinators never both accept it.
+- No record holds the invite or its secret.
+- Two coordinators never both accept one single-use invite.
 - Records stay until the invite is deleted.
 
 ### Coordinator Calls
@@ -448,8 +470,9 @@ worker                                          coordinator
 - It sends `Enroll` with the invite, a certificate signing request for the
   key, its worker ID, its host name, and whether it can keep its
   certificate. It can keep it when its data directory is writable.
-- It does not send the peer token once it holds a worker certificate. A
-  worker with `worker.invite` and `peer.token` logs this once at start.
+- On built-in TLS with a worker certificate, it does not send the peer
+  token. A worker with `worker.invite` and `peer.token` logs this once at
+  start.
 
 #### Coordinator Side
 
@@ -463,6 +486,11 @@ worker                                          coordinator
 On success the coordinator, in this order, consumes a single-use invite,
 increments `use_count` and sets `last_used_at`, records the certificate,
 and returns the certificate and the CA certificate.
+
+A worker that loses the response holds no certificate. Its retry with the
+consumed single-use invite is refused like any used invite, and its message
+asks for a new command from **Add worker**. A reusable invite enrolls the
+retry as a new certificate.
 
 #### Worker Certificate
 
@@ -482,7 +510,6 @@ The `worker_certificates` collection keeps one record per certificate:
 | --- | --- |
 | `id` | The certificate ID |
 | `invite_id` | The invite it enrolled with |
-| `key_sha256` | The SHA-256 of the certificate's public key (SubjectPublicKeyInfo DER) |
 | `state` | `active`, `removing`, or `revoked` |
 | `worker_id` | The worker ID at its last heartbeat |
 | `host` | The host name the worker reported |
@@ -502,42 +529,41 @@ The `worker_certificates` collection keeps one record per certificate:
 
 #### Worker Files
 
-An invite worker keeps its certificate in
-`<data_dir>/worker-certificate/`, mode `0700`, each file mode `0600`:
-
-| File | Content |
-| --- | --- |
-| `key.pem` | The private key |
-| `cert.pem` | The worker certificate |
-| `ca.pem` | The CA certificate from `Enroll` |
-| `invite.sha256` | The SHA-256 of the invite it enrolled with, in hex |
-| `lock` | The lock of [Worker Lock](#worker-lock) |
-
+- An invite worker keeps its key, its worker certificate, the CA
+  certificate from `Enroll`, and which invite it enrolled with in its data
+  directory, readable by its user only, and reuses them across restarts.
+  It holds its [lock](#worker-lock) there too.
+- Run processes the worker starts use the same key and certificate.
 - A worker that cannot write its data directory holds its key and
   certificate in memory only, takes no lock, and enrolls again at each
-  start.
-- Run processes the worker starts read the same files.
+  start. A run process it starts gets the key and certificate from the
+  worker, never through an environment variable or a command-line
+  argument.
 
 #### Worker Start
 
-| Files at start | Behavior |
+| Data directory at start | Behavior |
 | --- | --- |
 | No certificate | Enrolls with `worker.invite` |
-| A certificate | Connects with it and ignores `worker.invite`, so a restart does not use up a single-use invite |
-| A certificate the coordinator refuses as revoked, and `worker.invite` with a hash that differs from `invite.sha256` | Generates a new key, enrolls with the new invite, and replaces its files |
+| A certificate whose CA has the pin of `worker.invite`, or no `worker.invite` | Connects with it and ignores `worker.invite`, so a restart does not use up a single-use invite |
+| A certificate whose CA does not have the pin of `worker.invite` | Generates a new key, enrolls with the invite, and replaces its files. A restart with the same invite then keeps the new certificate |
+| A certificate the coordinator refuses as revoked, and an invite other than the one it enrolled with | Generates a new key, enrolls with the new invite, and replaces its files |
 | A certificate the coordinator refuses as revoked, and the same invite or none | Exits with the message of [Messages](#messages) |
+| A certificate, and `peer.insecure: true` | Row 1 of [Client Transport](#client-transport) applies: the worker uses h2c and the peer token, and warns at start that its certificate is unused |
 
 #### Worker Lock
 
 - Only a worker that holds or obtains a worker certificate takes the lock.
   Workers that share a data directory on the peer token, as in
   shared-filesystem mode, take none.
-- The worker takes the lock before it enrolls or connects, and holds it
-  while it runs.
-- A lock whose holder has exited is taken over within 30 seconds of the
-  holder's last refresh.
-- A worker that finds the lock held by a live holder exits with code 1 and
-  the message of [Messages](#messages).
+- The worker takes the lock before it enrolls or connects, holds it while
+  it runs, and refreshes it at an interval shorter than 30 seconds.
+- A lock not refreshed for 30 seconds is stale.
+- A worker that finds the lock held waits until the lock is released or
+  stale, and then takes it. A restarted container whose previous process
+  held the lock therefore starts within 30 seconds.
+- A worker whose wait ends with the lock still refreshed by another holder
+  exits with code 1 and the message of [Messages](#messages).
 
 #### Environment
 
@@ -614,8 +640,8 @@ or `stop`:
 #### h2c Callers
 
 - A coordinator keeps, in memory, the hosts that called it over h2c in the
-  last 10 minutes, other than workers' calls, keyed by remote address and
-  reason, with the time of the last call. It keeps at most 64 entries and
+  last 10 minutes, other than workers' calls, keyed by remote host (without
+  the port) and reason, with the time of the last call. It keeps at most 64 entries and
   drops the oldest first.
 - `GET /api/v1/services/coordinator` returns them for each coordinator, with
   host, reason, and last call time.
@@ -648,11 +674,22 @@ A coordinator reports, from its own host:
 | `POST /api/v1/workers/invites` | Body `{"reusable": false, "expiresIn": "24h", "address": "192.168.1.20:50055"}`, every field optional. Returns `201` with `{"id", "invite", "expiresAt"}`. Only this response contains the invite |
 | `GET /api/v1/workers/invites` | Lists invites with `id`, `kind`, `createdBy`, `createdAt`, `expiresAt`, `useCount`, `lastUsedAt`, and `address`. No secret |
 | `DELETE /api/v1/workers/invites/{id}` | Deletes the invite. `404` when none has the ID |
-| `DELETE /api/v1/workers/{workerId}/certificate` | Removes the worker. `?runs=finish`, the default, or `?runs=stop`. Returns `{"state": "removing"}` or `{"state": "removed"}`. `404` when no worker has the ID; `409` for a worker on the peer token |
+| `DELETE /api/v1/workers/{workerId}/certificate` | Removes the worker. `?runs=finish`, the default, or `?runs=stop`. Returns `{"state": "removing"}` or `{"state": "removed"}`. `404` when no worker has the ID |
 | `GET /api/v1/workers/join-readiness` | Returns the reports of [Join Readiness](#join-readiness) |
 
 - Each endpoint is admin only. An API key with the admin role can call it.
 - `expiresIn` is a positive Go duration.
+- `POST /api/v1/workers/invites` does not check `loopbackOnly`, since
+  automation may reach a loopback listener through a tunnel. It refuses
+  only a coordinator without built-in TLS.
+- When the coordinator refuses or cannot be reached, the server answers:
+
+  | Case | Status |
+  | --- | --- |
+  | A coordinator with own certificates (`FailedPrecondition`) | `409`, with the coordinator's message |
+  | A worker on the peer token, for a removal | `409` |
+  | No coordinator is running or reachable | `503` |
+  | The server lacks the peer token (`Unauthenticated`) | `503`, saying the server needs `peer.token` or the coordinator's data directory |
 - Each create, delete, and removal writes an audit entry with the invite ID
   or the worker and certificate IDs: `worker_invite_create`,
   `worker_invite_delete`, and `worker_remove`. No audit entry holds an
@@ -686,7 +723,7 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
 
 - It loads the worker's configuration, prints the start line and the
   warnings of [Ignored Settings](#ignored-settings), and then for each
-  coordinator, from `worker.coordinators` or the registry:
+  address in `worker.coordinators`:
   - whether the address is reachable
   - the handshake result
   - the credential the worker would use
@@ -708,7 +745,6 @@ and prints the message:
 | Settings | Message |
 | --- | --- |
 | `worker.invite` with `peer.insecure: true` | `worker.invite needs TLS: remove peer.insecure: true` |
-| A worker certificate in the data directory with `peer.insecure: true` | `this worker holds a certificate from an invite and needs TLS: remove peer.insecure: true` |
 | `worker.invite` with `peer.cert_file`, `peer.key_file`, `peer.client_ca_file`, or `peer.skip_tls_verify: true` | `worker.invite needs the built-in CA: remove <setting> or the invite` |
 | `worker.invite` with a `peer.ca_cert_file` whose pin differs from the invite's | `peer.ca_cert_file is not the CA that worker.invite names: remove peer.ca_cert_file or use an invite from this CA` |
 | `peer.ca_cert_file` or `peer.ca_key_file` with `peer.cert_file`, `peer.key_file`, or `peer.client_ca_file` | `use the built-in CA (peer.ca_cert_file, peer.ca_key_file) or your own certificates (peer.cert_file, peer.key_file, peer.client_ca_file), not both` |
@@ -723,8 +759,11 @@ and prints the message:
   cannot write its data directory says so in `Enroll`, and the coordinator
   refuses a single-use invite without consuming it. The worker then exits
   with the message above.
-- Each row involves a key or a file that is new with this spec, so no
-  configuration that starts today fails.
+- Each row involves a key that is new with this spec, so no configuration
+  that starts today fails.
+- A worker that holds a certificate and has `peer.insecure: true`, without
+  `worker.invite`, is not a conflict: row 1 applies, as
+  [Worker Start](#worker-start) states.
 
 ### Bring Your Own Certificates
 
@@ -742,17 +781,20 @@ and prints the message:
 #### Add Worker
 
 - **Add worker** is on the Workers page, for admins.
-- Step 1 shows each coordinator whose join readiness is not ready:
+- Step 1 shows each coordinator whose join readiness is not ready. `<port>`
+  below is the reported `port`:
   - While `loopbackOnly`, the change for how Dagu was started:
+    - in Kubernetes: set `coordinator.host` to `0.0.0.0` through the
+      chart's values
     - in a container: recreate it with
-      `-p 50055:50055 -e DAGU_COORDINATOR_HOST=0.0.0.0`
+      `-p <port>:<port> -e DAGU_COORDINATOR_HOST=0.0.0.0`
     - for `hostSource` `env` or `flag`: that variable or flag with the
       value `0.0.0.0`
     - otherwise: `configFile` and the lines `coordinator:` and
       `  host: 0.0.0.0` to add to it
   - Without `builtinTLS`, that invites need the built-in CA.
   - Each change needs a restart.
-- Step 1 keeps, even when ready, the reminder to publish port 50055 in a
+- Step 1 keeps, even when ready, the reminder to publish port `<port>` in a
   container, and in Kubernetes the statement that workers outside the
   cluster need the coordinator Service to be of type `LoadBalancer` or
   `NodePort`.
@@ -776,7 +818,7 @@ and prints the message:
   with the invite's ID, and then shows its ID and labels. Closing the dialog
   keeps the invite.
 - When no worker arrives within 60 seconds, it lists the usual causes (a
-  firewall or security group closes port 50055, a container does not
+  firewall or security group closes the port, a container does not
   publish it, the address is not reachable from the worker) and suggests
   `dagu worker --check` on the worker host.
 
@@ -804,8 +846,10 @@ and prints the message:
   admits new workers, names the other workers that use it, and offers to
   delete it.
 - For a worker with `environment: kubernetes`, the confirmation says the pod
-  keeps restarting until the Deployment is scaled down or the pod is
-  deleted.
+  keeps restarting until the Deployment is scaled down. A deleted pod comes
+  back as a new pod with an empty data directory, which enrolls again
+  while its reusable invite exists, so the confirmation offers to delete
+  the invite first.
 - **Invites** lists invites with kind, creator, creation and expiry times,
   use count, and last use, and deletes one.
 - System status lists the [h2c callers](#h2c-callers).
@@ -820,11 +864,13 @@ and prints the message:
 
 ### Secrets in Output
 
-- No invite secret, CA key, worker key, or peer token appears in an API
-  response, CLI output, MCP result, log line, audit entry, or Dagu Cloud
-  report.
-- An invite appears exactly once: in the create response, in the
-  `dagu worker invite` output, or in the MCP result that creates it.
+- No CA key, worker key, or peer token appears in an API response, CLI
+  output, MCP result, log line, audit entry, or Dagu Cloud report.
+- An invite appears only in the output of the call that creates it: the
+  `POST /api/v1/workers/invites` response, the `dagu worker invite` output,
+  or the MCP result that creates it. That output may show it more than
+  once, such as the invite and the command that carries it. No later
+  response, listing, log line, audit entry, or report contains it.
 
 ### Versions
 
@@ -833,7 +879,8 @@ and prints the message:
 | Predates this spec | Any client without an invite | No CA and no registry field, so the client uses h2c |
 | This spec | Predates this spec | The coordinator serves h2c on the same port |
 | Predates this spec, beside one of this spec | Invite worker | The worker counts the older coordinator as unavailable and tries the next |
-| Downgraded | Invite worker | The worker fails until it gets `peer.token`. Clients on the peer token keep working |
+| Downgraded | Invite worker | The worker fails until it gets `peer.token` and `peer.insecure: true`, and loses `worker.invite`. Clients on the peer token keep working |
+| Downgraded, its published CA certificate left behind | Client on the peer token | The older coordinator's registry entry has no `"tls": "builtin"`, so the client uses h2c. A client that dials before the entry changes falls back on the failed handshake |
 
 - A remote worker keeps its configuration until it gets an invite.
 - No run data, index, or migration changes.
@@ -841,8 +888,12 @@ and prints the message:
 ## Constraints
 
 - A coordinator rereads the revoked and `removing` sets every 30 seconds and
-  prunes certificate records once a day. Nothing else in this spec runs on a
-  timer.
+  prunes certificate records once a day. A worker with a certificate
+  refreshes its lock at an interval shorter than 30 seconds. Nothing else in
+  this spec runs on a timer.
+- A client that uses the published CA certificate reads it and the registry
+  when it opens a connection. Connections are long-lived, so this does not
+  grow with runs.
 - Join readiness is read only when the dialog opens, when the server comes
   back while it is open, and by `dagu worker invite`.
 - A client that fell back tries TLS again at most once per coordinator
@@ -850,8 +901,6 @@ and prints the message:
 - A heartbeat writes a certificate record at most once a day.
 - Invites are read only at enrollment and when listed.
 - The h2c callers take at most 64 entries per coordinator.
-- The CA, keys, certificates, and the worker lock are written with
-  owner-only modes, and on Windows through the retrying file helpers.
 
 ## Errors
 
@@ -864,6 +913,7 @@ A worker prints the cause and the next step:
 | The address does not answer | `Cannot reach coordinator at <host>:<port>`<br>`Check that the coordinator accepts workers from other hosts, that port <port> is open on the way, and that the address is right.` |
 | `Enroll` refuses the invite | `The invite is invalid, expired, or already used`<br>`Get a new command from "Add worker". For several hosts, use a reusable invite.` |
 | The CA in the handshake does not have the invite's pin | `<host>:<port> belongs to a different Dagu (its CA does not match the invite)`<br>`Check the coordinator address.` |
+| A worker with a certificate and no `worker.invite` meets a coordinator whose CA did not sign that certificate | `<host>:<port> belongs to a different Dagu than the one this worker joined`<br>`Get a new command from "Add worker" to join it.` |
 | The worker certificate is refused as revoked | `This worker was removed from the coordinator`<br>`Get a new command from "Add worker" to add it again.` |
 | The lock is held by a live worker | `Another worker uses this data directory`<br>`Give each worker its own data directory or volume.` |
 | The coordinator refuses h2c | `The coordinator requires TLS`<br>`Upgrade this process, or remove peer.insecure: true.` |
@@ -877,14 +927,15 @@ handshake error that caused the fallback.
 | --- | --- |
 | A configuration conflict | The process exits with code 1 at start, with the message of [Configuration Conflicts](#configuration-conflicts) |
 | `peer.ca_cert_file` that is not a CA certificate, or a CA key that does not match it | The coordinator exits with code 1 at start, naming the files |
-| On a coordinator without `peer.ca_cert_file`, one of `<data_dir>/coordinator/peer-ca.crt` and `peer-ca.key` without the other, or a pair that does not match | The coordinator exits with code 1 at start, naming both files. The message says to set the `peer.ca_cert_file` and `peer.ca_key_file` that wrote the certificate, or to delete both files for a new CA, which ends every invite and worker certificate |
 | Own certificates whose key does not match | The coordinator exits with code 1 at start, naming both files |
 | `dagu peer init` into a directory with one of its files | Exits with code 1, writing nothing |
 | A server certificate that does not verify, or lacks `coordinator.dagu.invalid` | The call fails. The client does not fall back |
 | A transport-level handshake failure of a worker certificate client or an invite worker | The call fails. The worker tries the next coordinator |
 | An invite worker and a coordinator without built-in TLS | The worker counts it as unavailable and tries the next |
+| A coordinator that cannot create or read its generated CA | A warning, and the coordinator serves h2c only, as [Peer CA](#peer-ca) states. With `coordinator.require_tls: true`, it exits with code 1 at start |
 | No coordinator reachable for an invite worker | The worker keeps retrying as it does today, logging the message of the last failure |
-| `Enroll` refuses the invite, or no reachable coordinator has the invite's pin | The worker exits with code 1 and the message of [Messages](#messages) |
+| `Enroll` refuses the invite, no reachable coordinator has the invite's pin, or no reachable coordinator's CA signed the worker's certificate | The worker exits with code 1 and the message of [Messages](#messages) |
+| `peer.insecure: false` without a TLS setting or a TLS source | The process exits with code 1 at start with `TLS enabled but no certificates provided`, as before this spec |
 | `Enroll` over h2c | `Unauthenticated`: `enrollment needs TLS` |
 | `Enroll` with an invite that has ended or does not exist | `PermissionDenied`: `the invite is invalid, expired, or already used` |
 | `Enroll` with a single-use invite from a worker that cannot keep its certificate | `FailedPrecondition`; the invite is not consumed |
@@ -907,18 +958,18 @@ A `start-all` from a config without `peer` keys:
 
 ```text
 Coordinator transport: built-in TLS and h2c (from the generated CA)
-Peer transport: built-in TLS (from the service registry)
+Peer transport: built-in TLS (from the coordinator's data directory)
 ```
 
-`<data_dir>/coordinator/peer-ca.crt` and `peer-ca.key` exist. The
-scheduler, the server, and local runs call the coordinator over TLS. The
-same data directory started again keeps the same CA.
+The data directory holds the generated CA and the published CA
+certificate. The scheduler, the server, and local runs call the coordinator
+over TLS. The same data directory started again keeps the same CA.
 
 ### Two Transports on One Port
 
 A coordinator of this spec on port 50055. A worker that predates this spec,
 with `peer.insecure: true`, and a worker of this spec that shares the data
-directory both connect.
+directory, with `worker.coordinators: coordinator:50055`, both connect.
 
 - `GET /api/v1/workers` shows the old worker with `connection: plaintext`
   and `plaintextReason: older version`, and the new one with
@@ -927,6 +978,8 @@ directory both connect.
   [Require TLS](#require-tls) message, and the new one keeps working.
 
 ### Ignored File
+
+A worker on another host, sharing no data directory:
 
 ```yaml
 peer:
@@ -948,7 +1001,7 @@ A worker shares the data directory, and its path to the coordinator passes
 a proxy that expects plaintext gRPC.
 
 ```text
-Peer transport: built-in TLS (from the service registry)
+Peer transport: built-in TLS (from the coordinator's data directory)
 Peer transport to coordinator:50055: h2c (from tls failed on the network path)
 ```
 
@@ -962,7 +1015,7 @@ next new connection tries TLS again.
 1. `dagu worker invite --address 192.168.1.20:50055` prints an invite.
 2. `dagu worker --worker.coordinators=192.168.1.20:50055 --worker.invite=<invite>`
    on host A logs `Peer transport: built-in TLS (from worker.invite)`,
-   enrolls, and writes `<data_dir>/worker-certificate/`. The invite's
+   enrolls, and keeps its certificate in its data directory. The invite's
    `use_count` is 1.
 3. Host A restarts the worker. It logs
    `Peer transport: built-in TLS (from worker certificate)` and does not
