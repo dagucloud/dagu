@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
@@ -233,4 +234,51 @@ func TestWikiLinksResolveInPageProject(t *testing.T) {
 	assert.Equal(t, []string{"runbook"}, backlinkIDs(opsWiki, "home"))
 	assert.Empty(t, backlinkIDs(f.defaultWiki(t), "home"))
 	assert.Equal(t, []string{"home"}, backlinkIDs(f.defaultWiki(t), "runbook"))
+}
+
+// TestInPlacePages proves that a migrated project's in-place wiki folder
+// counts as holding pages until its last page goes, also once the project
+// has a wiki of its own, since the default wiki would then show them.
+func TestInPlacePages(t *testing.T) {
+	f := newWikiFixture(t)
+	ctx := t.Context()
+	holds := func() bool {
+		held, err := f.wikis.InPlacePages(ctx, f.ops)
+		require.NoError(t, err)
+		return held
+	}
+
+	assert.True(t, holds())
+	require.NoError(t, os.MkdirAll(filepath.Join(f.cfg.Paths.ProjectsDir, "ops", "wiki"), 0o750))
+	assert.True(t, holds())
+
+	inPlace := &wikiView{store: f.wikis.shared, root: "ops"}
+	require.NoError(t, inPlace.Delete(ctx, "runbook"))
+	assert.False(t, holds())
+}
+
+// TestInPlacePagesInAnyCase proves that pages in a folder spelled in
+// another case count, since the default wiki leaves that folder out too,
+// unless another migrated project's workspace has that spelling.
+func TestInPlacePagesInAnyCase(t *testing.T) {
+	f := newWikiFixture(t)
+	ctx := t.Context()
+	probe := filepath.Join(t.TempDir(), "probe")
+	require.NoError(t, os.WriteFile(probe, nil, 0o600))
+	if _, err := os.Stat(filepath.Join(filepath.Dir(probe), "PROBE")); err == nil {
+		t.Skip("a file system that ignores case holds one folder for both spellings")
+	}
+	require.NoError(t, (&wikiView{store: f.wikis.shared, root: "ops"}).Delete(ctx, "runbook"))
+	require.NoError(t, f.wikis.shared.Create(ctx, "OPS/page", "x"))
+
+	held, err := f.wikis.InPlacePages(ctx, f.ops)
+	require.NoError(t, err)
+	assert.True(t, held)
+
+	f.wikis.checkedAt = time.Time{}
+	_, err = f.registry.Create(ctx, project.CreateInput{Name: "OPS2", MigratedFrom: "OPS"})
+	require.NoError(t, err)
+	held, err = f.wikis.InPlacePages(ctx, f.ops)
+	require.NoError(t, err)
+	assert.False(t, held, "OPS/ belongs to the project from workspace OPS")
 }

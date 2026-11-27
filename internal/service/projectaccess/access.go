@@ -75,13 +75,9 @@ func roleIn(user *auth.User, p project.Project) auth.Role {
 	if user == nil {
 		return auth.RoleNone
 	}
-	serverRole := user.Role
 	// Workspace rules require RoleViewer of a user limited to some
 	// workspaces, so that role does not reach every project.
-	if !auth.NormalizeWorkspaceAccess(user.WorkspaceAccess).All {
-		serverRole = auth.RoleNone
-	}
-	return auth.RoleInProject(serverRole, user.ProjectGrants, p.ID)
+	return auth.RoleInProject(auth.ServerRole(user.Role, user.WorkspaceAccess), user.ProjectGrants, p.ID)
 }
 
 func notFound(name string) error {

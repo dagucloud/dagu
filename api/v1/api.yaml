@@ -14224,6 +14224,170 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /projects:
+    get:
+      summary: "List projects"
+      description: "Lists the projects the caller has a role in, the default project first, then by name, each with the caller's role and its state. For an admin, it also lists the state directories that record a project the registry lacks. On a remote node, it needs a local admin, since the node answers with its stored credential. Not found while projects are off."
+      operationId: "listProjects"
+      tags:
+        - "projects"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "The projects the caller can see"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectListResponse"
+        "404":
+          description: "Projects are off"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: "Create a project"
+      description: "Registers a project. Its DAG directory is `<projects_dir>/<name>`, created when it does not exist. Every server, scheduler, and coordinator starts using the project without a restart. Admin only, and audited. Not found while projects are off."
+      operationId: "createProject"
+      tags:
+        - "projects"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+      responses:
+        "201":
+          description: "The project as registered"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          description: "The name or display name breaks the rules; nothing was stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not an admin"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Projects are off"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "A project of that name exists in any case, a state directory of that name records another project, the DAG directory would hold a protected path, or another create or delete of a project is running; nothing was stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{projectName}:
+    patch:
+      summary: "Change a project's display name"
+      description: "Changes the display name of the project, the default project included. Only the registry changes. Admin only, and audited. Not found while projects are off."
+      operationId: "updateProject"
+      tags:
+        - "projects"
+      parameters:
+        - $ref: "#/components/parameters/ProjectName"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectRequest"
+      responses:
+        "200":
+          description: "The project as stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          description: "The display name breaks the rules; nothing was stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not an admin"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No project has this name, or projects are off"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: "Delete a project"
+      description: "Marks the project deleting, waits until every live server, scheduler, and coordinator has released it, and removes its DAG directory, its state directories, its grants, each API key left with no role, and its registry entry. A refused delete changes nothing, and `message` says why. Admin only, and audited. Not found while projects are off."
+      operationId: "deleteProject"
+      tags:
+        - "projects"
+      parameters:
+        - $ref: "#/components/parameters/ProjectName"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "204":
+          description: "The project was deleted"
+        "403":
+          description: "Not an admin"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No project has this name, or projects are off"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The delete is refused: the project is the default project, has a run that is queued, running, or waiting, a git checkout tracks files in its DAG directory, its DAG directory holds a protected path, a file runs in place as its, its in-place wiki folder holds pages, a live process did not release it in time, or another create or delete of a project is running"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     basicAuth:
@@ -14530,6 +14694,15 @@ components:
       schema:
         type: string
         default: "local"
+
+    ProjectName:
+      name: projectName
+      in: path
+      required: true
+      description: "Name of the project, matched without regard to case"
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
 
     LogStartTime:
       name: startTime
@@ -24721,6 +24894,82 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WorkspaceResponse"
+
+    CreateProjectRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: "1 to 64 ASCII letters, digits, `_`, and `-`, starting with a letter or digit; not `default` or a Windows device name, in any case"
+        displayName:
+          type: string
+          description: "Up to 200 characters. The name when omitted or empty"
+
+    UpdateProjectRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+          description: "Up to 200 characters. Empty restores the name. A request without it is refused with 400"
+
+    ProjectState:
+      type: string
+      description: "`active`; `missing` when its DAG directory is gone and it runs no file in place that exists, so it is not scheduled; `deleting` while the project is marked deleting: a delete is in progress, or one failed after it began removing files, and deleting the project again finishes it"
+      enum:
+        - active
+        - missing
+        - deleting
+
+    Project:
+      type: object
+      required:
+        - name
+        - displayName
+        - createdAt
+        - state
+        - role
+      properties:
+        name:
+          type: string
+        displayName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        state:
+          $ref: "#/components/schemas/ProjectState"
+        role:
+          $ref: "#/components/schemas/UserRole"
+
+    UnattachedStateDir:
+      type: object
+      description: "A state directory that records a project the registry lacks. A create of that name is refused until an admin restores or deletes it"
+      required:
+        - path
+        - name
+      properties:
+        path:
+          type: string
+        name:
+          type: string
+          description: "Name of the project the directory records"
+
+    ProjectListResponse:
+      type: object
+      required:
+        - projects
+      properties:
+        projects:
+          type: array
+          items:
+            $ref: "#/components/schemas/Project"
+        unattachedStateDirs:
+          type: array
+          description: "Listed for admins only"
+          items:
+            $ref: "#/components/schemas/UnattachedStateDir"
 
     WorkspaceDeprecationResponse:
       type: object

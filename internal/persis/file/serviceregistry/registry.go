@@ -226,14 +226,14 @@ func (r *registry) UpdateStatus(_ context.Context, serviceName serviceregistry.S
 	return writeInstanceFile(reg.fileName, reg.instanceInfo)
 }
 
-// SetReleasedProjects records projectIDs in the instance file of every
+// SetReleasedProjects records marks in the instance file of every
 // service this process registers, now or later. A file that fails to write
 // is written again on the next heartbeat.
-func (r *registry) SetReleasedProjects(_ context.Context, projectIDs []string) error {
+func (r *registry) SetReleasedProjects(_ context.Context, marks []string) error {
 	r.registrationsMu.Lock()
 	defer r.registrationsMu.Unlock()
 
-	r.releasedProjects = slices.Clone(projectIDs)
+	r.releasedProjects = slices.Clone(marks)
 	var errs []error
 	for _, reg := range r.registrations {
 		reg.instanceInfo.ReleasedProjects = r.releasedProjects

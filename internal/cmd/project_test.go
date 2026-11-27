@@ -175,7 +175,7 @@ func TestProjectCommandsAddressNoProject(t *testing.T) {
 	}
 	stdout, _, err := h.runDagu(t, []*cobra.Command{Project()}, "project", "--help")
 	require.NoError(t, err)
-	assert.Contains(t, stdout, "Create and list projects")
+	assert.Contains(t, stdout, "Create, list, and delete projects")
 }
 
 // TestProjectEnqueue proves that a project other than the default one does
@@ -318,7 +318,7 @@ func TestProjectCommandOff(t *testing.T) {
 	_, before, beforeErr := h.runDagu(t, []*cobra.Command{Version()}, "project", "list")
 	require.Error(t, beforeErr)
 	require.Contains(t, before, `unknown command "project" for "dagu"`)
-	for _, args := range [][]string{{"project"}, {"project", "list"}, {"project", "create", "ops"}} {
+	for _, args := range [][]string{{"project"}, {"project", "list"}, {"project", "create", "ops"}, {"project", "delete", "weather"}} {
 		_, stderr, err := h.runDagu(t, []*cobra.Command{Version(), Project()}, args...)
 		require.EqualError(t, err, beforeErr.Error(), args)
 		assert.Equal(t, before, stderr, args)
@@ -335,6 +335,7 @@ func TestProjectCommandOff(t *testing.T) {
 	root.AddCommand(Version(), Project())
 	assert.NotContains(t, root.UsageString(), projectCommandName)
 	assert.NoDirExists(t, filepath.Join(h.dags, "projects", "ops"))
+	assert.DirExists(t, filepath.Join(h.dags, "projects", "weather"))
 }
 
 func TestProjectCommands(t *testing.T) {
@@ -365,6 +366,13 @@ func TestProjectCommands(t *testing.T) {
 	assert.Equal(t, []string{"intraday", "intraday", "missing"}, row(lines[2], filepath.Join(h.dags, "projects", "intraday")))
 	assert.Equal(t, []string{"ops", "ops", "active"}, row(lines[3], filepath.Join(h.dags, "projects", "ops")))
 	assert.Equal(t, []string{"weather", "weather", "active"}, row(lines[4], filepath.Join(h.dags, "projects", "weather")))
+
+	stdout, _, err = h.runDagu(t, commands, "project", "delete", "Weather")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "Deleted project weather")
+	assert.NoDirExists(t, filepath.Join(h.dags, "projects", "weather"))
+	_, _, err = h.runDagu(t, commands, "project", "delete", "default")
+	require.ErrorIs(t, err, project.ErrDefaultProject)
 }
 
 // TestStartGivesStepsTheProject proves Spec 102 "Steps": each step of a run

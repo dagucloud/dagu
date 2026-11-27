@@ -20,6 +20,16 @@ type ProjectGrant struct {
 	Role Role `json:"role"`
 }
 
+// ServerRole returns the role that applies in every project to a user or
+// API key with role and workspace access: role, unless the workspace access
+// is limited to some workspaces, which leaves no server-wide role.
+func ServerRole(role Role, access *WorkspaceAccess) Role {
+	if !NormalizeWorkspaceAccess(access).All {
+		return RoleNone
+	}
+	return role
+}
+
 // RoleInProject returns the role that applies in the project with the given
 // ID: the higher of serverRole and the role grants give that project.
 // RoleNone means no access to the project. A grant never gives RoleAdmin.

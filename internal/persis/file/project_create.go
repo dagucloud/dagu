@@ -18,17 +18,27 @@ import (
 // projectDirPermission is the mode of a DAG directory that create makes.
 const projectDirPermission = 0o750
 
-// ErrStateDirTaken reports that a state directory of the name to create
-// records another project.
-var ErrStateDirTaken = errors.New("a state directory of this name records another project")
-
 // CreateProject registers a project, makes its DAG directory when it does
 // not exist, and records the project in each of its state directories.
 // Besides the errors of Registry.Create, it refuses, and changes nothing,
-// when the DAG directory would be or contain a protected path, and with an
-// error wrapping ErrStateDirTaken while a state directory of the name
-// records another project.
+// with an error wrapping project.ErrProtectedPath when the DAG directory
+// would be or contain a protected path, and with one wrapping
+// project.ErrStateDirTaken while a state directory of the name records
+// another project, and with project.ErrLifecycleBusy while another create
+// or delete runs.
 func CreateProject(ctx context.Context, cfg *config.Config, registry project.Registry, in project.CreateInput) (project.Project, error) {
+	var created project.Project
+	err := withLifecycleLock(ctx, cfg, func() error {
+		var err error
+		created, err = createProject(ctx, cfg, registry, in)
+		return err
+	})
+	return created, err
+}
+
+// createProject is CreateProject under the lifecycle lock, so that no
+// delete of a project of the same name is removing its directories.
+func createProject(ctx context.Context, cfg *config.Config, registry project.Registry, in project.CreateInput) (project.Project, error) {
 	if err := project.ValidateName(in.Name); err != nil {
 		return project.Project{}, err
 	}
@@ -52,7 +62,7 @@ func CreateProject(ctx context.Context, cfg *config.Config, registry project.Reg
 		switch {
 		case err == nil:
 			return project.Project{}, fmt.Errorf("%s records project %s (%s); restore or delete it first: %w",
-				dir, record.Name, record.ID, ErrStateDirTaken)
+				dir, record.Name, record.ID, project.ErrStateDirTaken)
 		case !errors.Is(err, fs.ErrNotExist):
 			return project.Project{}, err
 		}

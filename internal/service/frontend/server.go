@@ -537,6 +537,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	if stores.Projects != nil {
 		apiOpts = append(apiOpts, apiv1.WithProjectAccess(projectaccess.New(stores.Projects)))
 	}
+	if stores.ProjectLifecycle != nil {
+		apiOpts = append(apiOpts, apiv1.WithProjectLifecycle(stores.ProjectLifecycle))
+	}
 
 	var authSvc *authservice.Service
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {

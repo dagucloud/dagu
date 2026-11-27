@@ -50,3 +50,16 @@ func ValidateDisplayName(displayName string) error {
 	}
 	return nil
 }
+
+// CompareNames orders the default project first, then the others by name.
+func CompareNames(a, b string) int {
+	aDefault, bDefault := a == DefaultName, b == DefaultName
+	switch {
+	case aDefault == bDefault:
+		return strings.Compare(a, b)
+	case aDefault:
+		return -1
+	default:
+		return 1
+	}
+}

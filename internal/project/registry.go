@@ -17,6 +17,23 @@ var (
 	ErrDefaultProject     = errors.New("the default project cannot be deleted")
 )
 
+// Errors that refuse a create or a delete. A refused create or delete
+// changes nothing.
+var (
+	// ErrStateDirTaken reports that a state directory of the name to create
+	// records another project.
+	ErrStateDirTaken = errors.New("a state directory of this name records another project")
+	// ErrProtectedPath reports that a project's DAG directory would be or
+	// contain a path that the server, the library, or another project uses.
+	ErrProtectedPath = errors.New("protected paths in the project directory")
+	// ErrDeleteRefused reports that a project cannot be deleted in its
+	// current state.
+	ErrDeleteRefused = errors.New("project cannot be deleted")
+	// ErrLifecycleBusy reports that another create or delete of a project
+	// is in progress.
+	ErrLifecycleBusy = errors.New("another project is being created or deleted; try again")
+)
+
 // Registry is the server-wide list of projects, and the only one: a project
 // exists exactly when the registry holds it. Methods that take an ID return
 // ErrNotFound when no project has it. Implementations are safe for
@@ -48,7 +65,8 @@ type Registry interface {
 	SetDisplayName(ctx context.Context, id, displayName string) (Project, error)
 
 	// SetDeleting marks or unmarks a project as being deleted and returns
-	// the project. It returns ErrDefaultProject when asked to mark the
+	// the project. Each mark gets a new DeleteMark, also on a project that
+	// is marked already. It returns ErrDefaultProject when asked to mark the
 	// default project.
 	SetDeleting(ctx context.Context, id string, deleting bool) (Project, error)
 

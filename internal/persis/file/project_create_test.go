@@ -45,7 +45,7 @@ func TestCreateProject(t *testing.T) {
 	require.NoError(t, projectrecord.Write(filepath.Join(cfg.Paths.DataDir, "projects", "intraday"),
 		projectrecord.Record{ID: "an-older-id", Name: "intraday"}))
 	_, err = create("intraday")
-	require.ErrorIs(t, err, persisfile.ErrStateDirTaken)
+	require.ErrorIs(t, err, project.ErrStateDirTaken)
 	assert.NoDirExists(t, filepath.Join(cfg.Paths.ProjectsDir, "intraday"))
 
 	cfg.Paths.CalendarsDir = filepath.Join(cfg.Paths.ProjectsDir, "calendars")

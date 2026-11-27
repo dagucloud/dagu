@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
@@ -109,6 +110,32 @@ func (m *apiKeyManager) projectGrants(grants []api.ProjectGrant) ([]auth.Project
 		resolved = append(resolved, auth.ProjectGrant{ProjectID: id, Role: role})
 	}
 	return resolved, nil
+}
+
+// refuseGrantsOnDeleting refuses grants on a project that is marked
+// deleting or no longer registered. Call it holding apiKeyWriteMu, which a
+// project delete holds while it removes the project's grants, so a grant
+// written after that removal cannot outlive the project.
+func (a *API) refuseGrantsOnDeleting(ctx context.Context, grants []auth.ProjectGrant) error {
+	if len(grants) == 0 || a.projectAccess == nil {
+		return nil
+	}
+	registered, err := a.projectAccess.List(ctx, &auth.User{Role: auth.RoleAdmin})
+	if err != nil {
+		return fmt.Errorf("list projects for API key grants: %w", err)
+	}
+	for _, grant := range grants {
+		i := slices.IndexFunc(registered, func(access projectaccess.Access) bool {
+			return access.Project.ID == grant.ProjectID
+		})
+		if i < 0 {
+			return badProjectGrantError("Project not found")
+		}
+		if registered[i].Project.Deleting {
+			return badProjectGrantError(fmt.Sprintf("Project %q is being deleted", registered[i].Project.Name))
+		}
+	}
+	return nil
 }
 
 // toAPIKey converts key, naming each project of its grants that the caller

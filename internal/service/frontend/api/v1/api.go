@@ -123,6 +123,7 @@ type API struct {
 	apiKeyWriteMu        sync.Mutex // Serializes API key writes, so each checks the state it changes
 	workspaceStore       workspace.Store
 	projectAccess        *projectaccess.Checker
+	projectLifecycle     ProjectLifecycle
 	runLogDir            string // Logs of the runs that the API queues
 	runArtifactDir       string // Artifacts of the runs that the API queues
 	leaseStaleThreshold  time.Duration
@@ -671,6 +672,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		r.Use(stepLogDownloadFormAuth(mountedAPIPath))
 		r.Use(frontendauth.Middleware(authOptions))
 		r.Use(a.restAuditSubjectMiddleware())
+		r.Use(a.projectsOffMiddleware(mountedAPIPath))
 		r.Use(remoteNodeAuthorization)
 		r.Use(humanTaskInputMiddleware(mountedAPIPath))
 		r.Use(inventoryBodyMiddleware(mountedAPIPath))

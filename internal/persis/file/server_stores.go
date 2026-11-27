@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	fileserviceregistry "github.com/dagucloud/dagu/v2/internal/persis/file/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -49,6 +50,9 @@ type ServerStores struct {
 	backend *Backend
 	pauses  *store.SchedulerPauseStore
 	owners  *filedag.Owners
+	// inPlace reads the registry's records of the files that run in place.
+	// Nil records none: the registry has no such records yet.
+	inPlace project.InPlaceRecords
 
 	encryptorMu sync.Mutex
 	encryptor   *crypto.Encryptor
@@ -66,6 +70,7 @@ func NewServerStores(cfg *config.Config) *ServerStores {
 		workspacebundle.DefaultLimits(),
 	)
 	pauses := store.NewSchedulerPauseStore(backend.Collection(persis.CollectionSchedulerProcess))
+	var inPlace project.InPlaceRecords
 	return &ServerStores{
 		ServiceRegistry: registry,
 		ProjectReleases: registry,
@@ -83,11 +88,12 @@ func NewServerStores(cfg *config.Config) *ServerStores {
 		cfg:                       cfg,
 		backend:                   backend,
 		pauses:                    pauses,
+		inPlace:                   inPlace,
 		owners: filedag.NewOwners(filedag.OwnerDirs{
 			DAGsDir:     cfg.Paths.DAGsDir,
 			ProjectsDir: cfg.Paths.ProjectsDir,
 			Library:     cfg.Paths.AltDAGsDir,
-		}, projectregistry.New(cfg.Paths.DataDir), nil),
+		}, projectregistry.New(cfg.Paths.DataDir), inPlace),
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
+	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/upgrade"
 	"github.com/dagucloud/dagu/v2/internal/view"
 	"github.com/dagucloud/dagu/v2/internal/wiki"
@@ -60,4 +61,7 @@ type Stores struct {
 	Projects project.Registry
 	// Connect runs connect sessions. It is nil without encrypted storage.
 	Connect *connect.Engine
+	// ProjectLifecycle creates and deletes the registry's projects. It is
+	// nil while projects are off.
+	ProjectLifecycle apiv1.ProjectLifecycle
 }

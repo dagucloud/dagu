@@ -110,6 +110,7 @@ func initStores(
 		stores.Projects = projectregistry.New(cfg.Paths.DataDir)
 	}
 
+	var apiKeyStore authmodel.APIKeyStore
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
 		builtinAuth, err := newBuiltinAuth(ctx, cfg, server, project)
 		if err != nil {
@@ -117,6 +118,7 @@ func initStores(
 		}
 		stores.AuthService = builtinAuth.service
 		stores.UserStore = builtinAuth.userStore
+		apiKeyStore = builtinAuth.apiKeyStore
 		stores.AuthSetupRequired = builtinAuth.setupRequired
 		stores.PublicWebhooks = server.PublicWebhookStore()
 	}
@@ -128,9 +130,16 @@ func initStores(
 		return fmt.Errorf("failed to create Wiki store: %w", err)
 	}
 	stores.Wiki = wikiStore
+	var wikis *projectWikis
 	if cfg.ProjectsEnabled && wikiStore != nil {
 		// The API addresses the default project's wiki.
-		stores.Wiki = newProjectWikis(cfg, stores.Projects, wikiStore).defaults
+		wikis = newProjectWikis(cfg, stores.Projects, wikiStore)
+		stores.Wiki = wikis.defaults
+	}
+	if cfg.ProjectsEnabled {
+		// A delete edits the grants through the stores the API serves, so
+		// their indexes stay current.
+		stores.ProjectLifecycle = newProjectLifecycle(cfg, server, stores.Projects, wikis, stores.UserStore, apiKeyStore)
 	}
 
 	workspaceStore, err := newWorkspaceStore(cfg, server)
@@ -353,6 +362,7 @@ func newMonitorLease(stateFile string) func() chatbridge.Lease {
 type builtinAuth struct {
 	service       *authservice.Service
 	userStore     authmodel.UserStore
+	apiKeyStore   authmodel.APIKeyStore
 	setupRequired bool
 }
 
@@ -431,7 +441,7 @@ func newBuiltinAuth(
 	}
 
 	logger.Info(ctx, "Builtin auth initialized", slog.Bool("setupRequired", setupRequired))
-	return builtinAuth{service: authSvc, userStore: userStore, setupRequired: setupRequired}, nil
+	return builtinAuth{service: authSvc, userStore: userStore, apiKeyStore: apiKeyStore, setupRequired: setupRequired}, nil
 }
 
 func resolveTokenSecret(ctx context.Context, cfg *config.Config) (authmodel.TokenSecret, error) {

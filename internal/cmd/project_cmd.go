@@ -7,13 +7,12 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"strings"
 	"text/tabwriter"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/project"
+	frontendfile "github.com/dagucloud/dagu/v2/internal/service/frontend/file"
 	"github.com/spf13/cobra"
 )
 
@@ -21,18 +20,12 @@ import (
 // projects are experimental.
 const projectCommandName = "project"
 
-// Project states that dagu project list shows.
-const (
-	projectStateActive   = "active"
-	projectStateMissing  = "missing"
-	projectStateDeleting = "deleting"
-)
-
-// Project returns the command group that creates and lists projects.
+// Project returns the command group that creates, lists, and deletes
+// projects.
 func Project() *cobra.Command {
 	cmd := newProjectCommand(&cobra.Command{
 		Use:    projectCommandName,
-		Short:  "Create and list projects",
+		Short:  "Create, list, and delete projects",
 		Hidden: true,
 	}, cobra.NoArgs, func(ctx *Context, _ []string) error {
 		return ctx.Command.Help()
@@ -49,7 +42,7 @@ func Project() *cobra.Command {
 		_ = unknownProjectCommand(c)
 		exitProjectHelp(1)
 	})
-	cmd.AddCommand(projectCreateCommand(), projectListCommand())
+	cmd.AddCommand(projectCreateCommand(), projectListCommand(), projectDeleteCommand())
 	return cmd
 }
 
@@ -105,6 +98,31 @@ the project without a restart.`,
 	})
 }
 
+func projectDeleteCommand() *cobra.Command {
+	return newProjectCommand(&cobra.Command{
+		Use:   "delete <name>",
+		Short: "Delete a project",
+		Long: `Delete a project once every server, scheduler, and coordinator has released
+it. Its DAG directory, state directories, grants, and each API key left with
+no role are removed. The delete is refused, and changes nothing, while the
+project has a run that is queued, running, or waiting, while a git
+checkout tracks files in its DAG directory, while a file runs in place as the
+project's, while its in-place wiki folder holds pages, and for the default
+project.`,
+	}, cobra.ExactArgs(1), func(ctx *Context, args []string) error {
+		lifecycle, err := frontendfile.NewProjectLifecycle(ctx.Config, ctx.serverStores)
+		if err != nil {
+			return err
+		}
+		deleted, err := lifecycle.Delete(ctx, args[0], nil)
+		if err != nil {
+			return fmt.Errorf("delete project %s: %w", args[0], err)
+		}
+		_, err = fmt.Fprintf(ctx.Command.OutOrStdout(), "Deleted project %s.\n", deleted.Name)
+		return err
+	})
+}
+
 func projectListCommand() *cobra.Command {
 	return newProjectCommand(&cobra.Command{
 		Use:   "list",
@@ -119,7 +137,7 @@ func projectListCommand() *cobra.Command {
 			projects = append(projects, project.Project{Name: project.DefaultName, DisplayName: project.DefaultName})
 		}
 		slices.SortStableFunc(projects, func(a, b project.Project) int {
-			return compareProjects(a.Name, b.Name)
+			return project.CompareNames(a.Name, b.Name)
 		})
 
 		w := tabwriter.NewWriter(ctx.Command.OutOrStdout(), 0, 2, 2, ' ', 0)
@@ -131,36 +149,14 @@ func projectListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Name, p.DisplayName, projectState(p, paths.DAGsDir), paths.DAGsDir); err != nil {
+			state, err := ctx.serverStores.ProjectState(ctx, p)
+			if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Name, p.DisplayName, state, paths.DAGsDir); err != nil {
 				return err
 			}
 		}
 		return w.Flush()
 	})
-}
-
-// compareProjects orders the default project first, then by name.
-func compareProjects(a, b string) int {
-	switch {
-	case a == b:
-		return 0
-	case a == project.DefaultName:
-		return -1
-	case b == project.DefaultName:
-		return 1
-	}
-	return strings.Compare(a, b)
-}
-
-// projectState tells whether p is being deleted, or is missing its DAG
-// directory.
-func projectState(p project.Project, dagsDir string) string {
-	switch {
-	case p.Deleting:
-		return projectStateDeleting
-	case !fileutil.FileExists(dagsDir):
-		return projectStateMissing
-	default:
-		return projectStateActive
-	}
 }
