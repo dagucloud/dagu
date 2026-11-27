@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/binary"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -261,6 +262,28 @@ func TestIsolatedStepDeviceNode(t *testing.T) {
 			assert.Equal(t, fs.FileMode(0o600), permOf(t, node))
 		})
 	}
+}
+
+// A socket in the work directory keeps the worker as owner and its mode: as
+// its owner, the restricted user could set the bit w and connect to the
+// program that listens, such as a daemon of root.
+func TestIsolatedStepKeepsSockets(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	sock := filepath.Join(workDir, "repo", "src", "d.sock")
+	ln, err := net.Listen("unix", sock)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	require.NoError(t, os.Chmod(sock, 0o660))
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+
+	out := runAs(t, WithStep(ctx, step), workDir, `chmod 666 repo/src/d.sock 2>/dev/null && echo chmod:allowed || echo chmod:denied`)
+	assert.Equal(t, "chmod:denied\n", out)
+	require.NoError(t, step.End(ctx))
+	assert.Equal(t, os.Geteuid(), ownerUID(t, sock))
+	assert.Equal(t, fs.FileMode(0o660), permOf(t, sock))
 }
 
 // Untrusted steps run one at a time. The second step waits with a line in its

@@ -37,6 +37,7 @@ type fsEntry struct {
 func (e *fsEntry) isDir() bool     { return e.st.Mode&unix.S_IFMT == unix.S_IFDIR }
 func (e *fsEntry) isLink() bool    { return e.st.Mode&unix.S_IFMT == unix.S_IFLNK }
 func (e *fsEntry) isRegular() bool { return e.st.Mode&unix.S_IFMT == unix.S_IFREG }
+func (e *fsEntry) isSocket() bool  { return e.st.Mode&unix.S_IFMT == unix.S_IFSOCK }
 func (e *fsEntry) uid() int        { return int(e.st.Uid) }
 func (e *fsEntry) gid() int        { return int(e.st.Gid) }
 

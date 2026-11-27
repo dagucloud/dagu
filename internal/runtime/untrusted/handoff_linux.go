@@ -19,7 +19,7 @@ import (
 
 // Spec 103, "Isolation", rules 3 and 8. The handoff gives the work directory to
 // the restricted user, except the folders that git opens as a repository (the
-// git folders) and the entries named .git. These stay with the worker, readable
+// git folders), the entries named .git and the sockets. These stay with the worker, readable
 // and not writable by the restricted user, until the restore gives them their
 // modes back. The work directory and each folder on the way to a git folder or
 // to a .git keep the owner of the worker with the mode 1777, so that the
@@ -222,6 +222,12 @@ func (iso *isolation) handoff() error {
 		default:
 			if err := iso.checkNoDevice(e); err != nil {
 				return false, err
+			}
+			// A connect needs only the bit w on a socket, which its owner can
+			// set: the restricted user could drive the program that listens,
+			// such as a daemon of root.
+			if e.isSocket() {
+				return false, nil
 			}
 			// A change of owner acts on the file, so it would also give the
 			// other paths of a file with more than one link.

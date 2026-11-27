@@ -324,6 +324,9 @@ The rules, in order:
    - The work directory, and each folder on the way to a git folder or to a `.git` entry, keeps the
      worker user as owner and gets the mode `1777`. The restricted user can create and remove its
      own entries there, and cannot rename or remove an entry of another owner.
+   - Each Unix socket keeps its owner and its mode. A connect needs only write permission on the
+     socket, which its owner can set, so the restricted user could drive the program that listens,
+     such as a daemon that runs as root.
 
    A link that replaces a path while Dagu changes an owner or a mode cannot redirect the change. A
    file with more than one link fails the step, because a change of owner would also give away its
