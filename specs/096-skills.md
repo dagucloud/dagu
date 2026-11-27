@@ -294,6 +294,10 @@ writer that has lost its lock commits nothing. A writer waits at most 15 seconds
 Another error of the lock gives 500. The directory `.locks` is hidden: the listing ignores it. A
 repository that syncs the DAGs directory SHOULD ignore `.locks/`.
 
+A writer commits only within 22.5 seconds of its last renewal of the lock, and another writer judges
+the lock free 30 seconds after that renewal, by its own clock. The instances that share a DAGs
+directory MUST have clocks that agree within 7.5 seconds.
+
 A read that did not settle (`changing`) holds no version, so its hash passes no precondition: the
 write gives 409 with no `hash`. A write to a skill that Dagu cannot read (`unreadable`) gives 500.
 
