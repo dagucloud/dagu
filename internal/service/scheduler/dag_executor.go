@@ -16,9 +16,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -64,6 +66,9 @@ type DAGExecutor struct {
 	workspaceBaseConfigDir string
 	profileResolver        DAGProfileResolver
 	openCodeHost           *opencodehost.Host
+	// nodes reads the node a queued run is bound to, so a run bound to a
+	// worker node goes to that worker. Nil binds no run to a worker.
+	nodes runtime.NodeSelector
 }
 
 type DAGProfileResolver interface {
@@ -229,12 +234,15 @@ func (e *DAGExecutor) executeDAG(
 	if previousStatus != nil {
 		triggerActor = previousStatus.TriggerActor
 	}
+	worker, err := e.boundWorker(ctx, dag, previousStatus)
+	if err != nil {
+		return err
+	}
 
-	if e.shouldUseDistributedExecution(dag) {
+	if worker != "" || e.shouldUseDistributedExecution(dag) {
 		if dag.Type == ir.TypeBuild {
 			return dispatch.ErrBuildRequiresLocal
 		}
-		var err error
 		dag, err = spec.RefreshBaseSMTP(dag,
 			spec.WithBaseConfig(e.baseConfigPath),
 			spec.WithWorkspaceBaseConfigDir(e.workspaceBaseConfigDir),
@@ -267,7 +275,9 @@ func (e *DAGExecutor) executeDAG(
 		if previousStatus != nil && len(previousStatus.ParamsList) == 0 && previousStatus.Params != "" {
 			taskOpts = append(taskOpts, executor.WithTaskParams(previousStatus.Params))
 		}
-		if workerID := ir.RetryAgentOwnerWorkerID(previousStatus, false); workerID != "" {
+		if worker != "" {
+			taskOpts = append(taskOpts, executor.WithTargetWorkerID(worker), executor.WithBoundNode(worker, ""))
+		} else if workerID := ir.RetryAgentOwnerWorkerID(previousStatus, false); workerID != "" {
 			taskOpts = append(taskOpts, executor.WithTargetWorkerID(workerID))
 		}
 		if dag.SourceFile != "" {
@@ -294,7 +304,7 @@ func (e *DAGExecutor) executeDAG(
 	if previousStatus != nil {
 		params = previousStatus.ParamsList
 	}
-	dag, err := e.prepareDAGForSubprocess(ctx, dag, params)
+	dag, err = e.prepareDAGForSubprocess(ctx, dag, params)
 	if err != nil {
 		return fmt.Errorf("failed to prepare DAG env for subprocess: %w", err)
 	}
@@ -396,6 +406,28 @@ func (e *DAGExecutor) executableMissing() bool {
 // IsDistributed returns whether the given DAG would use distributed execution.
 func (e *DAGExecutor) IsDistributed(dag *ir.DAG) bool {
 	return e.shouldUseDistributedExecution(dag)
+}
+
+// boundWorker returns the worker that runs a queued or retried run whose
+// status is status, or "" for a run not bound to a worker node
+// (intake.BoundWorker).
+func (e *DAGExecutor) boundWorker(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus) (string, error) {
+	if status == nil || !status.Parent.Zero() {
+		return "", nil
+	}
+	return intake.BoundWorker(ctx, dag, status.TargetNodes, e.nodes, e.coordinatorCli != nil, status.BoundWorker)
+}
+
+// distributedRun reports whether a queued run goes to the coordinator: a run
+// of a DAG that uses distributed execution, or a run bound to a worker node.
+// A run whose node cannot be read goes there too, and its dispatch reads the
+// node again.
+func (e *DAGExecutor) distributedRun(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus) bool {
+	if e.shouldUseDistributedExecution(dag) {
+		return true
+	}
+	worker, err := e.boundWorker(ctx, dag, status)
+	return worker != "" || err != nil
 }
 
 // dispatchToCoordinator dispatches a task to the coordinator for distributed execution.

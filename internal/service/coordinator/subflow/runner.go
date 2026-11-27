@@ -408,6 +408,11 @@ func (r *Runner) taskOptions(
 			executor.WithBoundNode(req.Node, req.NodeStep),
 		)
 	}
+	// A child of a narrowed run keeps the list, which narrows the steps
+	// with nodes of its own child runs.
+	if len(req.TargetNodes) > 0 {
+		options = append(options, executor.WithTargetNodes(req.TargetNodes))
+	}
 	if req.ParallelItem != "" {
 		options = append(options, executor.WithParallelItem(req.ParallelItem))
 	}

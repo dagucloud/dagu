@@ -119,7 +119,8 @@ describe('StartDAGModal', () => {
       useQueryMock.mockReturnValue({
         data: {
           nodes: [
-            { name: 'gw01', kind: 'worker', disabled: false },
+            { name: 'gw01', kind: 'worker', disabled: false, online: true },
+            { name: 'gw02', kind: 'worker', disabled: false, online: false },
             { name: 'web01', kind: 'ssh', disabled: false },
             { name: 'web02', kind: 'ssh', disabled: true },
             { name: 'web03', kind: 'ssh', disabled: false },
@@ -135,8 +136,9 @@ describe('StartDAGModal', () => {
       expect(useQueryMock).not.toHaveBeenCalled();
     });
 
-    // A disabled node fails a bound run, and a run binds only to an SSH
-    // node, so neither a disabled node nor a worker node is offered.
+    // A disabled node and an offline worker node fail a bound run, so they
+    // are not offered. An online worker node is, since the run then runs on
+    // that worker.
     it('starts on the chosen enabled node', async () => {
       const user = userEvent.setup();
       const onSubmit = renderModal({ name: 'deploy-one', nodeRequired: true });
@@ -144,7 +146,7 @@ describe('StartDAGModal', () => {
       await user.click(screen.getByRole('combobox', { name: 'Node' }));
       expect(
         screen.getAllByRole('option').map((option) => option.textContent)
-      ).toEqual(['web01', 'web03']);
+      ).toEqual(['gw01', 'web01', 'web03']);
       await user.click(screen.getByRole('option', { name: 'web03' }));
       await user.click(screen.getByRole('button', { name: 'Enqueue' }));
 

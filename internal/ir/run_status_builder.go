@@ -201,6 +201,13 @@ func WithBoundNode(node string) StatusOption {
 	}
 }
 
+// WithBoundWorker sets the worker node a run was started bound to.
+func WithBoundWorker(worker string) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.BoundWorker = worker
+	}
+}
+
 // WithTargetNodes sets the nodes the run is narrowed to.
 func WithTargetNodes(nodes []string) StatusOption {
 	return func(status *DAGRunStatus) {

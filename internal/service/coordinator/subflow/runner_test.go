@@ -268,6 +268,7 @@ func TestRunnerRunDispatchesBoundWorkerChild(t *testing.T) {
 		Node:           "tokyo-gw",
 		TargetWorkerID: "tokyo-gw",
 		NodeStep:       "deploy",
+		TargetNodes:    []string{"tokyo-gw", "web01"},
 	})
 	require.NoError(t, err)
 
@@ -276,6 +277,7 @@ func TestRunnerRunDispatchesBoundWorkerChild(t *testing.T) {
 	assert.Equal(t, "tokyo-gw", task.TargetWorkerID)
 	assert.Equal(t, "tokyo-gw", task.BoundNode)
 	assert.Equal(t, "deploy", task.NodeStep)
+	assert.Equal(t, []string{"tokyo-gw", "web01"}, task.TargetNodes, "the child keeps its parent's node list")
 	assert.Equal(t, `version="1.2"`, task.Params)
 }
 

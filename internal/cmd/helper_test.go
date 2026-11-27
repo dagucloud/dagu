@@ -78,6 +78,57 @@ func TestDispatchSeededRun(t *testing.T) {
 	assert.Equal(t, ir.Queued, client.task.PreviousStatus.Status)
 }
 
+// A run bound to a worker node is dispatched to that worker, bound to it, so
+// the coordinator refuses it at once while the worker is offline.
+func TestDispatchBoundWorker(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "deploy-one", NodeRequired: true}, "run",
+		runOptions{targetNodes: []string{"gw-1"}, boundWorker: "gw-1"}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, dispatch.DispatchOperationStart, client.task.Operation)
+	assert.Equal(t, "gw-1", client.task.TargetWorkerID)
+	assert.Equal(t, "gw-1", client.task.BoundNode)
+	assert.Empty(t, client.task.NodeStep)
+}
+
+// A started run reaches its worker with the params it was started with, since
+// the worker loads the definition again.
+func TestDispatchParams(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	dag := &ir.DAG{Name: "deploy-one", Params: []string{"DIR=/tmp/a b"}}
+	err := dispatchToCoordinatorAndWait(ctx, dag, "run", runOptions{}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, `DIR="/tmp/a b"`, client.task.Params)
+}
+
+// A retry of a run bound to a worker node is dispatched to that worker as a
+// retry of the run, with the step it retries.
+func TestDispatchBoundWorkerRetry(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	retried := &ir.DAGRunStatus{Name: "deploy-one", DAGRunID: "run", Status: ir.Failed, TargetNodes: []string{"gw-1"}}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "deploy-one", NodeRequired: true}, "run",
+		runOptions{retried: retried, boundWorker: "gw-1", step: "restart"}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, dispatch.DispatchOperationRetry, client.task.Operation)
+	require.NotNil(t, client.task.PreviousStatus)
+	assert.Equal(t, ir.Failed, client.task.PreviousStatus.Status)
+	assert.Equal(t, "restart", client.task.Step)
+	assert.Equal(t, "gw-1", client.task.TargetWorkerID)
+	assert.Equal(t, []string{"gw-1"}, client.task.TargetNodes, "the retry keeps the run's node list")
+}
+
 type smtpDispatchClient struct {
 	coordinator.Client
 	task *dispatch.DispatchTask

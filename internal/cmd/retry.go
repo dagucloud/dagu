@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/spf13/cobra"
 )
@@ -292,6 +293,22 @@ func runRetry(ctx *Context, args []string) error {
 		includeDownstream:   includeDownstream,
 		bypassPreconditions: bypassPreconditions,
 		retryPath:           retryPath,
+	}
+
+	// A run bound to a worker node is retried on that worker. The queue
+	// sends such a run to its worker itself.
+	if workerID == "local" && !queueDispatchRetry && status.Parent.Zero() {
+		worker, coordinatorCli, err := boundWorker(ctx, dag, status.TargetNodes, status.BoundWorker)
+		if err != nil {
+			return err
+		}
+		if worker != "" {
+			run.boundWorker = worker
+			run.retried = status
+			// The retried status keeps the run's slot.
+			run.scheduleTime = ""
+			return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, run, coordinatorCli)
+		}
 	}
 
 	if workerID == "local" {
@@ -804,4 +821,23 @@ func withRetryAgent(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts run
 	)
 
 	return run(agentInstance, logFile)
+}
+
+// retryTaskOptions returns the options of a retry that a run bound to a
+// worker node sends to that worker.
+func retryTaskOptions(opts runOptions) []executor.TaskOption {
+	taskOpts := []executor.TaskOption{executor.WithPreviousStatus(opts.retried)}
+	if opts.step != "" {
+		taskOpts = append(taskOpts, executor.WithStep(opts.step))
+	}
+	if opts.includeDownstream {
+		taskOpts = append(taskOpts, executor.WithIncludeDownstream(true))
+	}
+	if opts.bypassPreconditions {
+		taskOpts = append(taskOpts, executor.WithBypassPreconditions(true))
+	}
+	if len(opts.retryPath.Hops) > 0 {
+		taskOpts = append(taskOpts, executor.WithRetryPath(opts.retryPath))
+	}
+	return taskOpts
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 )
 
 // flagNode narrows a run to the named nodes (RFC 013 §Narrowing a
@@ -72,4 +73,33 @@ func narrowRun(ctx *Context, dag *ir.DAG, names []string) ([]string, error) {
 		return nil, fmt.Errorf("invalid node list: %w", err)
 	}
 	return listed, nil
+}
+
+// boundWorker returns the worker that runs a run of dag with the node list
+// names (intake.BoundWorker), with a client of the coordinator that reaches
+// it, or "" and nil for a run not bound to a worker node. admitted is the
+// worker node the run was started bound to, or empty for a new run.
+func boundWorker(ctx *Context, dag *ir.DAG, names []string, admitted string) (string, coordinator.Client, error) {
+	worker, err := readBoundWorker(ctx, dag, names, ctx.coordinatorEnabled(), admitted)
+	if err != nil || worker == "" {
+		return "", nil, err
+	}
+	client, err := ctx.coordinatorClient()
+	if err != nil {
+		return "", nil, err
+	}
+	return worker, client, nil
+}
+
+// readBoundWorker reads the worker node a run of dag with the node list
+// names is bound to (intake.BoundWorker).
+func readBoundWorker(ctx *Context, dag *ir.DAG, names []string, hasCoordinator bool, admitted string) (string, error) {
+	if !dag.NodeRequired || len(names) == 0 {
+		return "", nil
+	}
+	nodes, err := ctx.inventoryStore()
+	if err != nil {
+		return "", fmt.Errorf("failed to open the node inventory: %w", err)
+	}
+	return intake.BoundWorker(ctx, dag, names, inventory.NewProjectNodes(nodes, ctx.runtimeWorkerNodeStore()), hasCoordinator, admitted)
 }

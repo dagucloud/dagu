@@ -3414,6 +3414,33 @@ coordinator:
 	})
 }
 
+// A run command loads no coordinator section, yet reads whether this host
+// has a coordinator.
+func TestConfigLoaderCoordinatorEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		env  string
+		want bool
+	}{
+		{name: "default", yaml: "# empty", want: true},
+		{name: "disabled", yaml: "coordinator:\n  enabled: false\n", want: false},
+		{name: "disabled from env", yaml: "# empty", env: "false", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.env != "" {
+				t.Setenv("DAGU_COORDINATOR_ENABLED", tc.env)
+			}
+			configFile := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(configFile, []byte(tc.yaml), 0600))
+			loader := NewConfigLoader(viper.New(), WithAppHomeDir(t.TempDir()), WithConfigFile(configFile), WithService(ServiceAgent))
+			_, err := loader.Load()
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, loader.CoordinatorEnabled())
+		})
+	}
+}
+
 func TestLoad_TunnelConfig(t *testing.T) {
 	t.Run("TunnelDefault", func(t *testing.T) {
 		cfg := loadFromYAML(t, "# empty")

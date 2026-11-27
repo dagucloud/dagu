@@ -1706,6 +1706,8 @@ type startDAGRunOptions struct {
 	workerSelector map[string]string
 	// targetNodes is the run's node list, passed to the start subprocess.
 	targetNodes []string
+	// boundWorker is the worker that runs a run bound to a worker node.
+	boundWorker string
 	// scheduleTime and scheduleWindow name the schedule slot the run is for.
 	scheduleTime   string
 	scheduleWindow ir.ScheduleWindow
@@ -1848,6 +1850,12 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *ir.DAG, opts 
 	if len(opts.targetNodes) > 0 {
 		taskOpts = append(taskOpts, executor.WithTargetNodes(opts.targetNodes))
 	}
+	if opts.boundWorker != "" {
+		taskOpts = append(taskOpts,
+			executor.WithTargetWorkerID(opts.boundWorker),
+			executor.WithBoundNode(opts.boundWorker, ""),
+		)
+	}
 	if opts.scheduleTime != "" {
 		taskOpts = append(taskOpts,
 			executor.WithScheduleTime(opts.scheduleTime),
@@ -1875,6 +1883,9 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *ir.DAG, opts 
 	)
 
 	if err := a.coordinatorCli.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
+		if opts.boundWorker != "" {
+			err = workerDispatchError(err)
+		}
 		return fmt.Errorf("error dispatching to coordinator: %w", err)
 	}
 
@@ -1934,8 +1945,14 @@ func (a *API) startPreparedDAGRunWithOptions(
 	opts startDAGRunOptions,
 	dispatchParams string,
 ) (*launcher.StartResult, error) {
+	// A run bound to a worker node runs on that worker, whatever the default
+	// execution mode.
+	var err error
+	if opts.boundWorker, err = a.boundWorker(ctx, dag, opts.targetNodes, "", false); err != nil {
+		return nil, err
+	}
 	// Check if this DAG should be dispatched to the coordinator for distributed execution
-	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
+	if opts.boundWorker != "" || dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
 		if dag.Type == ir.TypeBuild {
 			return nil, buildRequiresLocalAPIError()
 		}
