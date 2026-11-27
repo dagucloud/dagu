@@ -11,7 +11,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
-	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
@@ -116,10 +115,11 @@ func (c *Context) workerNodeStore() (*store.WorkerNodeStore, error) {
 }
 
 // runtimeWorkerNodeStore returns the worker nodes for runs, or nil when the
-// backend cannot hold them. A project whose runs cannot go to workers has no
+// backend cannot hold them. A run that cannot go to workers, as one of a
+// project other than the default one or of a library DAG cannot, has no
 // worker nodes, so its steps never match a node they cannot run on.
 func (c *Context) runtimeWorkerNodeStore() inventory.WorkerNodeStore {
-	if project.RefuseOtherProject(c.projectName(), project.ErrWorkerRun) != nil {
+	if c.checkProjectDispatch() != nil {
 		return nil
 	}
 	workers, err := c.workerNodeStore()

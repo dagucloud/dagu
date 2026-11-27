@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -89,31 +90,52 @@ func seedRuntimeSettings(t *testing.T, stores executionStores, name string) {
 	require.NoError(t, err)
 }
 
-// Only the default project's runs go to workers, so only its runs match
-// worker nodes. Another project's steps match its inventory nodes alone.
+// Only runs that can go to workers match worker nodes: the default
+// project's, but not a library DAG's, nor another project's. Those match
+// their inventory nodes alone.
 func TestRuntimeStoresWorkerNodesInDefaultProject(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
 	cfg := runtimeStoresConfig(t)
+	cfg.Paths.AltDAGsDir = filepath.Join(filepath.Dir(cfg.Paths.DAGsDir), "library")
+	libraryDAG := filepath.Join(cfg.Paths.AltDAGsDir, "etl.yaml")
+	require.NoError(t, os.MkdirAll(cfg.Paths.AltDAGsDir, 0o750))
+	require.NoError(t, os.WriteFile(libraryDAG, []byte("steps:\n  - run: echo etl\n"), 0o600))
 	server := file.NewServerStores(cfg)
 	workers, err := server.WorkerNodeStore()
 	require.NoError(t, err)
 	require.NoError(t, workers.Record(ctx, inventory.WorkerNode{Name: "gw-1", Host: "gw.tokyo", Labels: ir.NewLabels([]string{"web"}), Online: true}))
 
-	for name, want := range map[string][]string{
-		project.DefaultName: {"gw-1", "web01"},
-		"weather":           {"web01"},
+	defaults, err := file.NewProjectStores(ctx, cfg, server, project.Project{Name: project.DefaultName}, file.ProjectStoreOptions{})
+	require.NoError(t, err)
+	library, err := defaults.RunStores(ctx, libraryDAG)
+	require.NoError(t, err)
+	require.True(t, library.InLibrary())
+	weather, err := file.NewProjectSettings(cfg, server, "weather")
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name    string
+		project string
+		stores  *file.ProjectStores
+		want    []string
+	}{
+		{name: "default", project: project.DefaultName, stores: defaults, want: []string{"gw-1", "web01"}},
+		{name: "library", project: project.DefaultName, stores: library, want: []string{"web01"}},
+		{name: "other project", project: "weather", stores: &file.ProjectStores{ProjectSettings: weather}, want: []string{"web01"}},
 	} {
-		settings, err := file.NewProjectSettings(cfg, server, name)
-		require.NoError(t, err)
-		c := &Context{Context: ctx, Config: cfg, serverStores: server, settings: settings,
-			projectStores: &file.ProjectStores{ProjectSettings: settings}, project: project.Project{Name: name}}
+		c := &Context{Context: ctx, Config: cfg, serverStores: server, settings: tc.stores.ProjectSettings,
+			projectStores: tc.stores, project: project.Project{Name: tc.project}}
 		stores := c.runtimeStores()
-		_, err = stores.Inventory.Create(ctx, inventory.Inventory{Name: "fleet", Nodes: []inventory.Node{
-			{Name: "web01", Host: "10.0.1.11", Labels: []string{"web"}},
-		}})
-		require.NoError(t, err)
+		// A library DAG runs with its project's settings, so it reads the
+		// default project's inventory.
+		if tc.name != "library" {
+			_, err := stores.Inventory.Create(ctx, inventory.Inventory{Name: "fleet", Nodes: []inventory.Node{
+				{Name: "web01", Host: "10.0.1.11", Labels: []string{"web"}},
+			}})
+			require.NoError(t, err, tc.name)
+		}
 
 		matched, err := stores.Nodes.Select(ctx, "web")
 		require.NoError(t, err)
@@ -124,7 +146,7 @@ func TestRuntimeStoresWorkerNodesInDefaultProject(t *testing.T) {
 			for i, node := range nodes {
 				names[i] = node.Name
 			}
-			assert.Equal(t, want, names, name)
+			assert.Equal(t, tc.want, names, tc.name)
 		}
 	}
 }
