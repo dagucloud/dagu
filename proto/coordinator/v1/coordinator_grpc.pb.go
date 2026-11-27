@@ -48,6 +48,10 @@ const (
 	CoordinatorService_ResolveNodes_FullMethodName                = "/coordinator.v1.CoordinatorService/ResolveNodes"
 	CoordinatorService_ResolveConnectionToken_FullMethodName      = "/coordinator.v1.CoordinatorService/ResolveConnectionToken"
 	CoordinatorService_GetJoinReadiness_FullMethodName            = "/coordinator.v1.CoordinatorService/GetJoinReadiness"
+	CoordinatorService_CreateInvite_FullMethodName                = "/coordinator.v1.CoordinatorService/CreateInvite"
+	CoordinatorService_ListInvites_FullMethodName                 = "/coordinator.v1.CoordinatorService/ListInvites"
+	CoordinatorService_DeleteInvite_FullMethodName                = "/coordinator.v1.CoordinatorService/DeleteInvite"
+	CoordinatorService_Enroll_FullMethodName                      = "/coordinator.v1.CoordinatorService/Enroll"
 )
 
 // CoordinatorServiceClient is the client API for CoordinatorService service.
@@ -123,6 +127,19 @@ type CoordinatorServiceClient interface {
 	// GetJoinReadiness reports, from the coordinator's own host, whether a
 	// worker on another host can join it. It takes the peer token.
 	GetJoinReadiness(ctx context.Context, in *GetJoinReadinessRequest, opts ...grpc.CallOption) (*GetJoinReadinessResponse, error)
+	// CreateInvite creates an invite that lets workers enroll for a worker
+	// certificate. Only its response contains the invite. It takes the peer
+	// token.
+	CreateInvite(ctx context.Context, in *CreateInviteRequest, opts ...grpc.CallOption) (*CreateInviteResponse, error)
+	// ListInvites lists the invites without their secrets. It takes the peer
+	// token.
+	ListInvites(ctx context.Context, in *ListInvitesRequest, opts ...grpc.CallOption) (*ListInvitesResponse, error)
+	// DeleteInvite deletes an invite, so it enrolls no further worker. It
+	// takes the peer token.
+	DeleteInvite(ctx context.Context, in *DeleteInviteRequest, opts ...grpc.CallOption) (*DeleteInviteResponse, error)
+	// Enroll issues a worker certificate for the key of a certificate signing
+	// request, admitted by an invite. It needs built-in TLS and no peer token.
+	Enroll(ctx context.Context, in *EnrollRequest, opts ...grpc.CallOption) (*EnrollResponse, error)
 }
 
 type coordinatorServiceClient struct {
@@ -411,6 +428,46 @@ func (c *coordinatorServiceClient) GetJoinReadiness(ctx context.Context, in *Get
 	return out, nil
 }
 
+func (c *coordinatorServiceClient) CreateInvite(ctx context.Context, in *CreateInviteRequest, opts ...grpc.CallOption) (*CreateInviteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateInviteResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_CreateInvite_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coordinatorServiceClient) ListInvites(ctx context.Context, in *ListInvitesRequest, opts ...grpc.CallOption) (*ListInvitesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListInvitesResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_ListInvites_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coordinatorServiceClient) DeleteInvite(ctx context.Context, in *DeleteInviteRequest, opts ...grpc.CallOption) (*DeleteInviteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteInviteResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_DeleteInvite_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coordinatorServiceClient) Enroll(ctx context.Context, in *EnrollRequest, opts ...grpc.CallOption) (*EnrollResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EnrollResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_Enroll_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoordinatorServiceServer is the server API for CoordinatorService service.
 // All implementations must embed UnimplementedCoordinatorServiceServer
 // for forward compatibility.
@@ -484,6 +541,19 @@ type CoordinatorServiceServer interface {
 	// GetJoinReadiness reports, from the coordinator's own host, whether a
 	// worker on another host can join it. It takes the peer token.
 	GetJoinReadiness(context.Context, *GetJoinReadinessRequest) (*GetJoinReadinessResponse, error)
+	// CreateInvite creates an invite that lets workers enroll for a worker
+	// certificate. Only its response contains the invite. It takes the peer
+	// token.
+	CreateInvite(context.Context, *CreateInviteRequest) (*CreateInviteResponse, error)
+	// ListInvites lists the invites without their secrets. It takes the peer
+	// token.
+	ListInvites(context.Context, *ListInvitesRequest) (*ListInvitesResponse, error)
+	// DeleteInvite deletes an invite, so it enrolls no further worker. It
+	// takes the peer token.
+	DeleteInvite(context.Context, *DeleteInviteRequest) (*DeleteInviteResponse, error)
+	// Enroll issues a worker certificate for the key of a certificate signing
+	// request, admitted by an invite. It needs built-in TLS and no peer token.
+	Enroll(context.Context, *EnrollRequest) (*EnrollResponse, error)
 	mustEmbedUnimplementedCoordinatorServiceServer()
 }
 
@@ -571,6 +641,18 @@ func (UnimplementedCoordinatorServiceServer) ResolveConnectionToken(context.Cont
 }
 func (UnimplementedCoordinatorServiceServer) GetJoinReadiness(context.Context, *GetJoinReadinessRequest) (*GetJoinReadinessResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetJoinReadiness not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) CreateInvite(context.Context, *CreateInviteRequest) (*CreateInviteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateInvite not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) ListInvites(context.Context, *ListInvitesRequest) (*ListInvitesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListInvites not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) DeleteInvite(context.Context, *DeleteInviteRequest) (*DeleteInviteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteInvite not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) Enroll(context.Context, *EnrollRequest) (*EnrollResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Enroll not implemented")
 }
 func (UnimplementedCoordinatorServiceServer) mustEmbedUnimplementedCoordinatorServiceServer() {}
 func (UnimplementedCoordinatorServiceServer) testEmbeddedByValue()                            {}
@@ -1021,6 +1103,78 @@ func _CoordinatorService_GetJoinReadiness_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoordinatorService_CreateInvite_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateInviteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).CreateInvite(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_CreateInvite_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).CreateInvite(ctx, req.(*CreateInviteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoordinatorService_ListInvites_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListInvitesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).ListInvites(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_ListInvites_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).ListInvites(ctx, req.(*ListInvitesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoordinatorService_DeleteInvite_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteInviteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).DeleteInvite(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_DeleteInvite_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).DeleteInvite(ctx, req.(*DeleteInviteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoordinatorService_Enroll_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EnrollRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).Enroll(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_Enroll_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).Enroll(ctx, req.(*EnrollRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CoordinatorService_ServiceDesc is the grpc.ServiceDesc for CoordinatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1115,6 +1269,22 @@ var CoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetJoinReadiness",
 			Handler:    _CoordinatorService_GetJoinReadiness_Handler,
+		},
+		{
+			MethodName: "CreateInvite",
+			Handler:    _CoordinatorService_CreateInvite_Handler,
+		},
+		{
+			MethodName: "ListInvites",
+			Handler:    _CoordinatorService_ListInvites_Handler,
+		},
+		{
+			MethodName: "DeleteInvite",
+			Handler:    _CoordinatorService_DeleteInvite_Handler,
+		},
+		{
+			MethodName: "Enroll",
+			Handler:    _CoordinatorService_Enroll_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

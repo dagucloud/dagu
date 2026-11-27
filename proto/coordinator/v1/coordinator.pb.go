@@ -353,6 +353,50 @@ func (x HostEnvironment) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
+type InviteKind int32
+
+const (
+	InviteKind_INVITE_KIND_UNSPECIFIED InviteKind = 0
+	InviteKind_INVITE_KIND_SINGLE_USE  InviteKind = 1 // Enrolls one worker
+	InviteKind_INVITE_KIND_REUSABLE    InviteKind = 2 // Enrolls any number of workers
+)
+
+// Enum value maps for InviteKind.
+var (
+	InviteKind_name = map[int32]string{
+		0: "INVITE_KIND_UNSPECIFIED",
+		1: "INVITE_KIND_SINGLE_USE",
+		2: "INVITE_KIND_REUSABLE",
+	}
+	InviteKind_value = map[string]int32{
+		"INVITE_KIND_UNSPECIFIED": 0,
+		"INVITE_KIND_SINGLE_USE":  1,
+		"INVITE_KIND_REUSABLE":    2,
+	}
+)
+
+func (x InviteKind) Enum() *InviteKind {
+	p := new(InviteKind)
+	*p = x
+	return p
+}
+
+func (x InviteKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (InviteKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_proto_coordinator_v1_coordinator_proto_enumTypes[7].Descriptor()
+}
+
+func (InviteKind) Type() protoreflect.EnumType {
+	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[7]
+}
+
+func (x InviteKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
 // Request message for polling a task.
 type PollRequest struct {
 	state    protoimpl.MessageState `protogen:"hybrid.v1"`
@@ -8322,6 +8366,744 @@ func (b0 ConfigSource_builder) Build() *ConfigSource {
 	return m0
 }
 
+type CreateInviteRequest struct {
+	state    protoimpl.MessageState `protogen:"hybrid.v1"`
+	Reusable bool                   `protobuf:"varint,1,opt,name=reusable,proto3" json:"reusable,omitempty"` // True for an invite that enrolls any number of workers
+	// Seconds until the invite ends, or 0 for the default: 24 hours for a
+	// single-use invite, none for a reusable one.
+	ExpiresInSeconds int64  `protobuf:"varint,2,opt,name=expires_in_seconds,json=expiresInSeconds,proto3" json:"expires_in_seconds,omitempty"`
+	Address          string `protobuf:"bytes,3,opt,name=address,proto3" json:"address,omitempty"`                      // The host:port the invite is made for, or empty
+	CreatedBy        string `protobuf:"bytes,4,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"` // The user who asked for it, or empty for the peer token
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *CreateInviteRequest) Reset() {
+	*x = CreateInviteRequest{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[71]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateInviteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateInviteRequest) ProtoMessage() {}
+
+func (x *CreateInviteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[71]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CreateInviteRequest) GetReusable() bool {
+	if x != nil {
+		return x.Reusable
+	}
+	return false
+}
+
+func (x *CreateInviteRequest) GetExpiresInSeconds() int64 {
+	if x != nil {
+		return x.ExpiresInSeconds
+	}
+	return 0
+}
+
+func (x *CreateInviteRequest) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *CreateInviteRequest) GetCreatedBy() string {
+	if x != nil {
+		return x.CreatedBy
+	}
+	return ""
+}
+
+func (x *CreateInviteRequest) SetReusable(v bool) {
+	x.Reusable = v
+}
+
+func (x *CreateInviteRequest) SetExpiresInSeconds(v int64) {
+	x.ExpiresInSeconds = v
+}
+
+func (x *CreateInviteRequest) SetAddress(v string) {
+	x.Address = v
+}
+
+func (x *CreateInviteRequest) SetCreatedBy(v string) {
+	x.CreatedBy = v
+}
+
+type CreateInviteRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Reusable bool
+	// Seconds until the invite ends, or 0 for the default: 24 hours for a
+	// single-use invite, none for a reusable one.
+	ExpiresInSeconds int64
+	Address          string
+	CreatedBy        string
+}
+
+func (b0 CreateInviteRequest_builder) Build() *CreateInviteRequest {
+	m0 := &CreateInviteRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Reusable = b.Reusable
+	x.ExpiresInSeconds = b.ExpiresInSeconds
+	x.Address = b.Address
+	x.CreatedBy = b.CreatedBy
+	return m0
+}
+
+type CreateInviteResponse struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Invite        string                 `protobuf:"bytes,1,opt,name=invite,proto3" json:"invite,omitempty"` // dagu1.<pin>.<secret>
+	Record        *InviteRecord          `protobuf:"bytes,2,opt,name=record,proto3" json:"record,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateInviteResponse) Reset() {
+	*x = CreateInviteResponse{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[72]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateInviteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateInviteResponse) ProtoMessage() {}
+
+func (x *CreateInviteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[72]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CreateInviteResponse) GetInvite() string {
+	if x != nil {
+		return x.Invite
+	}
+	return ""
+}
+
+func (x *CreateInviteResponse) GetRecord() *InviteRecord {
+	if x != nil {
+		return x.Record
+	}
+	return nil
+}
+
+func (x *CreateInviteResponse) SetInvite(v string) {
+	x.Invite = v
+}
+
+func (x *CreateInviteResponse) SetRecord(v *InviteRecord) {
+	x.Record = v
+}
+
+func (x *CreateInviteResponse) HasRecord() bool {
+	if x == nil {
+		return false
+	}
+	return x.Record != nil
+}
+
+func (x *CreateInviteResponse) ClearRecord() {
+	x.Record = nil
+}
+
+type CreateInviteResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Invite string
+	Record *InviteRecord
+}
+
+func (b0 CreateInviteResponse_builder) Build() *CreateInviteResponse {
+	m0 := &CreateInviteResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Invite = b.Invite
+	x.Record = b.Record
+	return m0
+}
+
+type ListInvitesRequest struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListInvitesRequest) Reset() {
+	*x = ListInvitesRequest{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[73]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListInvitesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListInvitesRequest) ProtoMessage() {}
+
+func (x *ListInvitesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[73]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+type ListInvitesRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+}
+
+func (b0 ListInvitesRequest_builder) Build() *ListInvitesRequest {
+	m0 := &ListInvitesRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	return m0
+}
+
+type ListInvitesResponse struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Invites       []*InviteRecord        `protobuf:"bytes,1,rep,name=invites,proto3" json:"invites,omitempty"` // Oldest first
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListInvitesResponse) Reset() {
+	*x = ListInvitesResponse{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[74]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListInvitesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListInvitesResponse) ProtoMessage() {}
+
+func (x *ListInvitesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[74]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ListInvitesResponse) GetInvites() []*InviteRecord {
+	if x != nil {
+		return x.Invites
+	}
+	return nil
+}
+
+func (x *ListInvitesResponse) SetInvites(v []*InviteRecord) {
+	x.Invites = v
+}
+
+type ListInvitesResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Invites []*InviteRecord
+}
+
+func (b0 ListInvitesResponse_builder) Build() *ListInvitesResponse {
+	m0 := &ListInvitesResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Invites = b.Invites
+	return m0
+}
+
+type DeleteInviteRequest struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteInviteRequest) Reset() {
+	*x = DeleteInviteRequest{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[75]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteInviteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteInviteRequest) ProtoMessage() {}
+
+func (x *DeleteInviteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[75]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *DeleteInviteRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DeleteInviteRequest) SetId(v string) {
+	x.Id = v
+}
+
+type DeleteInviteRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Id string
+}
+
+func (b0 DeleteInviteRequest_builder) Build() *DeleteInviteRequest {
+	m0 := &DeleteInviteRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Id = b.Id
+	return m0
+}
+
+type DeleteInviteResponse struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteInviteResponse) Reset() {
+	*x = DeleteInviteResponse{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[76]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteInviteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteInviteResponse) ProtoMessage() {}
+
+func (x *DeleteInviteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[76]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+type DeleteInviteResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+}
+
+func (b0 DeleteInviteResponse_builder) Build() *DeleteInviteResponse {
+	m0 := &DeleteInviteResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	return m0
+}
+
+// An invite's record. It never holds the invite or its secret.
+type InviteRecord struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Kind          InviteKind             `protobuf:"varint,2,opt,name=kind,proto3,enum=coordinator.v1.InviteKind" json:"kind,omitempty"`
+	ExpiresAt     int64                  `protobuf:"varint,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`      // Unix timestamp in seconds, or 0 for none
+	Address       string                 `protobuf:"bytes,4,opt,name=address,proto3" json:"address,omitempty"`                            // The host:port the invite was made for, or empty
+	CreatedBy     string                 `protobuf:"bytes,5,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`       // The user, or "peer token"
+	CreatedAt     int64                  `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`      // Unix timestamp in seconds
+	UseCount      int32                  `protobuf:"varint,7,opt,name=use_count,json=useCount,proto3" json:"use_count,omitempty"`         // The number of enrollments it admitted
+	LastUsedAt    int64                  `protobuf:"varint,8,opt,name=last_used_at,json=lastUsedAt,proto3" json:"last_used_at,omitempty"` // Unix timestamp in seconds, or 0 before the first use
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InviteRecord) Reset() {
+	*x = InviteRecord{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[77]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InviteRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InviteRecord) ProtoMessage() {}
+
+func (x *InviteRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[77]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *InviteRecord) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *InviteRecord) GetKind() InviteKind {
+	if x != nil {
+		return x.Kind
+	}
+	return InviteKind_INVITE_KIND_UNSPECIFIED
+}
+
+func (x *InviteRecord) GetExpiresAt() int64 {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return 0
+}
+
+func (x *InviteRecord) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *InviteRecord) GetCreatedBy() string {
+	if x != nil {
+		return x.CreatedBy
+	}
+	return ""
+}
+
+func (x *InviteRecord) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+func (x *InviteRecord) GetUseCount() int32 {
+	if x != nil {
+		return x.UseCount
+	}
+	return 0
+}
+
+func (x *InviteRecord) GetLastUsedAt() int64 {
+	if x != nil {
+		return x.LastUsedAt
+	}
+	return 0
+}
+
+func (x *InviteRecord) SetId(v string) {
+	x.Id = v
+}
+
+func (x *InviteRecord) SetKind(v InviteKind) {
+	x.Kind = v
+}
+
+func (x *InviteRecord) SetExpiresAt(v int64) {
+	x.ExpiresAt = v
+}
+
+func (x *InviteRecord) SetAddress(v string) {
+	x.Address = v
+}
+
+func (x *InviteRecord) SetCreatedBy(v string) {
+	x.CreatedBy = v
+}
+
+func (x *InviteRecord) SetCreatedAt(v int64) {
+	x.CreatedAt = v
+}
+
+func (x *InviteRecord) SetUseCount(v int32) {
+	x.UseCount = v
+}
+
+func (x *InviteRecord) SetLastUsedAt(v int64) {
+	x.LastUsedAt = v
+}
+
+type InviteRecord_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Id         string
+	Kind       InviteKind
+	ExpiresAt  int64
+	Address    string
+	CreatedBy  string
+	CreatedAt  int64
+	UseCount   int32
+	LastUsedAt int64
+}
+
+func (b0 InviteRecord_builder) Build() *InviteRecord {
+	m0 := &InviteRecord{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Id = b.Id
+	x.Kind = b.Kind
+	x.ExpiresAt = b.ExpiresAt
+	x.Address = b.Address
+	x.CreatedBy = b.CreatedBy
+	x.CreatedAt = b.CreatedAt
+	x.UseCount = b.UseCount
+	x.LastUsedAt = b.LastUsedAt
+	return m0
+}
+
+type EnrollRequest struct {
+	state    protoimpl.MessageState `protogen:"hybrid.v1"`
+	Invite   string                 `protobuf:"bytes,1,opt,name=invite,proto3" json:"invite,omitempty"` // dagu1.<pin>.<secret>
+	Csr      []byte                 `protobuf:"bytes,2,opt,name=csr,proto3" json:"csr,omitempty"`       // DER certificate signing request for the worker's key
+	WorkerId string                 `protobuf:"bytes,3,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
+	Host     string                 `protobuf:"bytes,4,opt,name=host,proto3" json:"host,omitempty"` // The worker's host name
+	// True when the worker keeps its certificate across restarts. A
+	// single-use invite enrolls only such a worker.
+	KeepsCertificate bool `protobuf:"varint,5,opt,name=keeps_certificate,json=keepsCertificate,proto3" json:"keeps_certificate,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *EnrollRequest) Reset() {
+	*x = EnrollRequest{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[78]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnrollRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnrollRequest) ProtoMessage() {}
+
+func (x *EnrollRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[78]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *EnrollRequest) GetInvite() string {
+	if x != nil {
+		return x.Invite
+	}
+	return ""
+}
+
+func (x *EnrollRequest) GetCsr() []byte {
+	if x != nil {
+		return x.Csr
+	}
+	return nil
+}
+
+func (x *EnrollRequest) GetWorkerId() string {
+	if x != nil {
+		return x.WorkerId
+	}
+	return ""
+}
+
+func (x *EnrollRequest) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *EnrollRequest) GetKeepsCertificate() bool {
+	if x != nil {
+		return x.KeepsCertificate
+	}
+	return false
+}
+
+func (x *EnrollRequest) SetInvite(v string) {
+	x.Invite = v
+}
+
+func (x *EnrollRequest) SetCsr(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.Csr = v
+}
+
+func (x *EnrollRequest) SetWorkerId(v string) {
+	x.WorkerId = v
+}
+
+func (x *EnrollRequest) SetHost(v string) {
+	x.Host = v
+}
+
+func (x *EnrollRequest) SetKeepsCertificate(v bool) {
+	x.KeepsCertificate = v
+}
+
+type EnrollRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Invite   string
+	Csr      []byte
+	WorkerId string
+	Host     string
+	// True when the worker keeps its certificate across restarts. A
+	// single-use invite enrolls only such a worker.
+	KeepsCertificate bool
+}
+
+func (b0 EnrollRequest_builder) Build() *EnrollRequest {
+	m0 := &EnrollRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Invite = b.Invite
+	x.Csr = b.Csr
+	x.WorkerId = b.WorkerId
+	x.Host = b.Host
+	x.KeepsCertificate = b.KeepsCertificate
+	return m0
+}
+
+type EnrollResponse struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Certificate   []byte                 `protobuf:"bytes,1,opt,name=certificate,proto3" json:"certificate,omitempty"`                          // DER worker certificate
+	CaCertificate []byte                 `protobuf:"bytes,2,opt,name=ca_certificate,json=caCertificate,proto3" json:"ca_certificate,omitempty"` // DER peer CA certificate
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnrollResponse) Reset() {
+	*x = EnrollResponse{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[79]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnrollResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnrollResponse) ProtoMessage() {}
+
+func (x *EnrollResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[79]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *EnrollResponse) GetCertificate() []byte {
+	if x != nil {
+		return x.Certificate
+	}
+	return nil
+}
+
+func (x *EnrollResponse) GetCaCertificate() []byte {
+	if x != nil {
+		return x.CaCertificate
+	}
+	return nil
+}
+
+func (x *EnrollResponse) SetCertificate(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.Certificate = v
+}
+
+func (x *EnrollResponse) SetCaCertificate(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.CaCertificate = v
+}
+
+type EnrollResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Certificate   []byte
+	CaCertificate []byte
+}
+
+func (b0 EnrollResponse_builder) Build() *EnrollResponse {
+	m0 := &EnrollResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Certificate = b.Certificate
+	x.CaCertificate = b.CaCertificate
+	return m0
+}
+
 var File_proto_coordinator_v1_coordinator_proto protoreflect.FileDescriptor
 
 const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
@@ -8797,7 +9579,44 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x12builtin_tls_reason\x18\v \x01(\x0e2 .coordinator.v1.BuiltinTLSReasonR\x10builtinTlsReason\"X\n" +
 	"\fConfigSource\x124\n" +
 	"\x04kind\x18\x01 \x01(\x0e2 .coordinator.v1.ConfigSourceKindR\x04kind\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name*P\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\x98\x01\n" +
+	"\x13CreateInviteRequest\x12\x1a\n" +
+	"\breusable\x18\x01 \x01(\bR\breusable\x12,\n" +
+	"\x12expires_in_seconds\x18\x02 \x01(\x03R\x10expiresInSeconds\x12\x18\n" +
+	"\aaddress\x18\x03 \x01(\tR\aaddress\x12\x1d\n" +
+	"\n" +
+	"created_by\x18\x04 \x01(\tR\tcreatedBy\"d\n" +
+	"\x14CreateInviteResponse\x12\x16\n" +
+	"\x06invite\x18\x01 \x01(\tR\x06invite\x124\n" +
+	"\x06record\x18\x02 \x01(\v2\x1c.coordinator.v1.InviteRecordR\x06record\"\x14\n" +
+	"\x12ListInvitesRequest\"M\n" +
+	"\x13ListInvitesResponse\x126\n" +
+	"\ainvites\x18\x01 \x03(\v2\x1c.coordinator.v1.InviteRecordR\ainvites\"%\n" +
+	"\x13DeleteInviteRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x16\n" +
+	"\x14DeleteInviteResponse\"\x84\x02\n" +
+	"\fInviteRecord\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12.\n" +
+	"\x04kind\x18\x02 \x01(\x0e2\x1a.coordinator.v1.InviteKindR\x04kind\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x03 \x01(\x03R\texpiresAt\x12\x18\n" +
+	"\aaddress\x18\x04 \x01(\tR\aaddress\x12\x1d\n" +
+	"\n" +
+	"created_by\x18\x05 \x01(\tR\tcreatedBy\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x06 \x01(\x03R\tcreatedAt\x12\x1b\n" +
+	"\tuse_count\x18\a \x01(\x05R\buseCount\x12 \n" +
+	"\flast_used_at\x18\b \x01(\x03R\n" +
+	"lastUsedAt\"\x97\x01\n" +
+	"\rEnrollRequest\x12\x16\n" +
+	"\x06invite\x18\x01 \x01(\tR\x06invite\x12\x10\n" +
+	"\x03csr\x18\x02 \x01(\fR\x03csr\x12\x1b\n" +
+	"\tworker_id\x18\x03 \x01(\tR\bworkerId\x12\x12\n" +
+	"\x04host\x18\x04 \x01(\tR\x04host\x12+\n" +
+	"\x11keeps_certificate\x18\x05 \x01(\bR\x10keepsCertificate\"Y\n" +
+	"\x0eEnrollResponse\x12 \n" +
+	"\vcertificate\x18\x01 \x01(\fR\vcertificate\x12%\n" +
+	"\x0eca_certificate\x18\x02 \x01(\fR\rcaCertificate*P\n" +
 	"\tOperation\x12\x19\n" +
 	"\x15OPERATION_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fOPERATION_START\x10\x01\x12\x13\n" +
@@ -8830,7 +9649,12 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x1cHOST_ENVIRONMENT_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15HOST_ENVIRONMENT_HOST\x10\x01\x12\x1e\n" +
 	"\x1aHOST_ENVIRONMENT_CONTAINER\x10\x02\x12\x1f\n" +
-	"\x1bHOST_ENVIRONMENT_KUBERNETES\x10\x032\xce\x13\n" +
+	"\x1bHOST_ENVIRONMENT_KUBERNETES\x10\x03*_\n" +
+	"\n" +
+	"InviteKind\x12\x1b\n" +
+	"\x17INVITE_KIND_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16INVITE_KIND_SINGLE_USE\x10\x01\x12\x18\n" +
+	"\x14INVITE_KIND_REUSABLE\x10\x022\xa5\x16\n" +
 	"\x12CoordinatorService\x12A\n" +
 	"\x04Poll\x12\x1b.coordinator.v1.PollRequest\x1a\x1c.coordinator.v1.PollResponse\x12M\n" +
 	"\bDispatch\x12\x1f.coordinator.v1.DispatchRequest\x1a .coordinator.v1.DispatchResponse\x12S\n" +
@@ -8859,10 +9683,14 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x15ResolveRuntimeProfile\x12,.coordinator.v1.ResolveRuntimeProfileRequest\x1a-.coordinator.v1.ResolveRuntimeProfileResponse\x12Y\n" +
 	"\fResolveNodes\x12#.coordinator.v1.ResolveNodesRequest\x1a$.coordinator.v1.ResolveNodesResponse\x12w\n" +
 	"\x16ResolveConnectionToken\x12-.coordinator.v1.ResolveConnectionTokenRequest\x1a..coordinator.v1.ResolveConnectionTokenResponse\x12e\n" +
-	"\x10GetJoinReadiness\x12'.coordinator.v1.GetJoinReadinessRequest\x1a(.coordinator.v1.GetJoinReadinessResponseBAZ?github.com/dagucloud/dagu/v2/proto/coordinator/v1;coordinatorv1b\x06proto3"
+	"\x10GetJoinReadiness\x12'.coordinator.v1.GetJoinReadinessRequest\x1a(.coordinator.v1.GetJoinReadinessResponse\x12Y\n" +
+	"\fCreateInvite\x12#.coordinator.v1.CreateInviteRequest\x1a$.coordinator.v1.CreateInviteResponse\x12V\n" +
+	"\vListInvites\x12\".coordinator.v1.ListInvitesRequest\x1a#.coordinator.v1.ListInvitesResponse\x12Y\n" +
+	"\fDeleteInvite\x12#.coordinator.v1.DeleteInviteRequest\x1a$.coordinator.v1.DeleteInviteResponse\x12G\n" +
+	"\x06Enroll\x12\x1d.coordinator.v1.EnrollRequest\x1a\x1e.coordinator.v1.EnrollResponseBAZ?github.com/dagucloud/dagu/v2/proto/coordinator/v1;coordinatorv1b\x06proto3"
 
-var file_proto_coordinator_v1_coordinator_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_proto_coordinator_v1_coordinator_proto_msgTypes = make([]protoimpl.MessageInfo, 75)
+var file_proto_coordinator_v1_coordinator_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_proto_coordinator_v1_coordinator_proto_msgTypes = make([]protoimpl.MessageInfo, 84)
 var file_proto_coordinator_v1_coordinator_proto_goTypes = []any{
 	(Operation)(0),                              // 0: coordinator.v1.Operation
 	(WorkerHealthStatus)(0),                     // 1: coordinator.v1.WorkerHealthStatus
@@ -8871,187 +9699,208 @@ var file_proto_coordinator_v1_coordinator_proto_goTypes = []any{
 	(BuiltinTLSReason)(0),                       // 4: coordinator.v1.BuiltinTLSReason
 	(ConfigSourceKind)(0),                       // 5: coordinator.v1.ConfigSourceKind
 	(HostEnvironment)(0),                        // 6: coordinator.v1.HostEnvironment
-	(*PollRequest)(nil),                         // 7: coordinator.v1.PollRequest
-	(*PollResponse)(nil),                        // 8: coordinator.v1.PollResponse
-	(*DispatchRequest)(nil),                     // 9: coordinator.v1.DispatchRequest
-	(*DispatchResponse)(nil),                    // 10: coordinator.v1.DispatchResponse
-	(*Task)(nil),                                // 11: coordinator.v1.Task
-	(*GetWorkersRequest)(nil),                   // 12: coordinator.v1.GetWorkersRequest
-	(*GetWorkersResponse)(nil),                  // 13: coordinator.v1.GetWorkersResponse
-	(*WorkerInfo)(nil),                          // 14: coordinator.v1.WorkerInfo
-	(*HeartbeatRequest)(nil),                    // 15: coordinator.v1.HeartbeatRequest
-	(*MachineSample)(nil),                       // 16: coordinator.v1.MachineSample
-	(*MachineUsage)(nil),                        // 17: coordinator.v1.MachineUsage
-	(*MachineLoad)(nil),                         // 18: coordinator.v1.MachineLoad
-	(*HeartbeatResponse)(nil),                   // 19: coordinator.v1.HeartbeatResponse
-	(*AckTaskClaimRequest)(nil),                 // 20: coordinator.v1.AckTaskClaimRequest
-	(*AckTaskClaimResponse)(nil),                // 21: coordinator.v1.AckTaskClaimResponse
-	(*ClaimAgentSessionCleanupRequest)(nil),     // 22: coordinator.v1.ClaimAgentSessionCleanupRequest
-	(*ClaimAgentSessionCleanupResponse)(nil),    // 23: coordinator.v1.ClaimAgentSessionCleanupResponse
-	(*CompleteAgentSessionCleanupRequest)(nil),  // 24: coordinator.v1.CompleteAgentSessionCleanupRequest
-	(*CompleteAgentSessionCleanupResponse)(nil), // 25: coordinator.v1.CompleteAgentSessionCleanupResponse
-	(*RunHeartbeatRequest)(nil),                 // 26: coordinator.v1.RunHeartbeatRequest
-	(*RunHeartbeatResponse)(nil),                // 27: coordinator.v1.RunHeartbeatResponse
-	(*CancelledRun)(nil),                        // 28: coordinator.v1.CancelledRun
-	(*WorkerStats)(nil),                         // 29: coordinator.v1.WorkerStats
-	(*RunningTask)(nil),                         // 30: coordinator.v1.RunningTask
-	(*ReportStatusRequest)(nil),                 // 31: coordinator.v1.ReportStatusRequest
-	(*ReportStatusResponse)(nil),                // 32: coordinator.v1.ReportStatusResponse
-	(*DAGRunStatusProto)(nil),                   // 33: coordinator.v1.DAGRunStatusProto
-	(*LogChunk)(nil),                            // 34: coordinator.v1.LogChunk
-	(*StreamLogsResponse)(nil),                  // 35: coordinator.v1.StreamLogsResponse
-	(*ArtifactChunk)(nil),                       // 36: coordinator.v1.ArtifactChunk
-	(*StreamArtifactsResponse)(nil),             // 37: coordinator.v1.StreamArtifactsResponse
-	(*WorkspaceBundle)(nil),                     // 38: coordinator.v1.WorkspaceBundle
-	(*WorkspaceBundleChunk)(nil),                // 39: coordinator.v1.WorkspaceBundleChunk
-	(*PutWorkspaceBundleResponse)(nil),          // 40: coordinator.v1.PutWorkspaceBundleResponse
-	(*HasWorkspaceBundleRequest)(nil),           // 41: coordinator.v1.HasWorkspaceBundleRequest
-	(*HasWorkspaceBundleResponse)(nil),          // 42: coordinator.v1.HasWorkspaceBundleResponse
-	(*GetWorkspaceBundleRequest)(nil),           // 43: coordinator.v1.GetWorkspaceBundleRequest
-	(*GetDAGRunStatusRequest)(nil),              // 44: coordinator.v1.GetDAGRunStatusRequest
-	(*GetDAGRunStatusResponse)(nil),             // 45: coordinator.v1.GetDAGRunStatusResponse
-	(*RequestCancelRequest)(nil),                // 46: coordinator.v1.RequestCancelRequest
-	(*RequestCancelResponse)(nil),               // 47: coordinator.v1.RequestCancelResponse
-	(*StateRef)(nil),                            // 48: coordinator.v1.StateRef
-	(*StateUpdateSource)(nil),                   // 49: coordinator.v1.StateUpdateSource
-	(*StateEntry)(nil),                          // 50: coordinator.v1.StateEntry
-	(*GetStateRequest)(nil),                     // 51: coordinator.v1.GetStateRequest
-	(*GetStateResponse)(nil),                    // 52: coordinator.v1.GetStateResponse
-	(*PutStateRequest)(nil),                     // 53: coordinator.v1.PutStateRequest
-	(*PutStateResponse)(nil),                    // 54: coordinator.v1.PutStateResponse
-	(*DeleteStateRequest)(nil),                  // 55: coordinator.v1.DeleteStateRequest
-	(*DeleteStateResponse)(nil),                 // 56: coordinator.v1.DeleteStateResponse
-	(*ListStateRequest)(nil),                    // 57: coordinator.v1.ListStateRequest
-	(*ListStateResponse)(nil),                   // 58: coordinator.v1.ListStateResponse
-	(*GetDAGRequest)(nil),                       // 59: coordinator.v1.GetDAGRequest
-	(*GetDAGResponse)(nil),                      // 60: coordinator.v1.GetDAGResponse
-	(*ResolveSecretReferenceRequest)(nil),       // 61: coordinator.v1.ResolveSecretReferenceRequest
-	(*ResolveSecretReferenceResponse)(nil),      // 62: coordinator.v1.ResolveSecretReferenceResponse
-	(*ResolveRuntimeProfileRequest)(nil),        // 63: coordinator.v1.ResolveRuntimeProfileRequest
-	(*RuntimeProfileEntry)(nil),                 // 64: coordinator.v1.RuntimeProfileEntry
-	(*RuntimeProfileLayer)(nil),                 // 65: coordinator.v1.RuntimeProfileLayer
-	(*ResolveRuntimeProfileResponse)(nil),       // 66: coordinator.v1.ResolveRuntimeProfileResponse
-	(*ResolveConnectionTokenRequest)(nil),       // 67: coordinator.v1.ResolveConnectionTokenRequest
-	(*ResolveConnectionTokenResponse)(nil),      // 68: coordinator.v1.ResolveConnectionTokenResponse
-	(*ConnectionBinding)(nil),                   // 69: coordinator.v1.ConnectionBinding
-	(*ConnectionService)(nil),                   // 70: coordinator.v1.ConnectionService
-	(*ResolveNodesRequest)(nil),                 // 71: coordinator.v1.ResolveNodesRequest
-	(*ResolveNodesResponse)(nil),                // 72: coordinator.v1.ResolveNodesResponse
-	(*ResolvedNode)(nil),                        // 73: coordinator.v1.ResolvedNode
-	(*TrustedHostKey)(nil),                      // 74: coordinator.v1.TrustedHostKey
-	(*GetJoinReadinessRequest)(nil),             // 75: coordinator.v1.GetJoinReadinessRequest
-	(*GetJoinReadinessResponse)(nil),            // 76: coordinator.v1.GetJoinReadinessResponse
-	(*ConfigSource)(nil),                        // 77: coordinator.v1.ConfigSource
-	nil,                                         // 78: coordinator.v1.PollRequest.LabelsEntry
-	nil,                                         // 79: coordinator.v1.Task.WorkerSelectorEntry
-	nil,                                         // 80: coordinator.v1.WorkerInfo.LabelsEntry
-	nil,                                         // 81: coordinator.v1.HeartbeatRequest.LabelsEntry
+	(InviteKind)(0),                             // 7: coordinator.v1.InviteKind
+	(*PollRequest)(nil),                         // 8: coordinator.v1.PollRequest
+	(*PollResponse)(nil),                        // 9: coordinator.v1.PollResponse
+	(*DispatchRequest)(nil),                     // 10: coordinator.v1.DispatchRequest
+	(*DispatchResponse)(nil),                    // 11: coordinator.v1.DispatchResponse
+	(*Task)(nil),                                // 12: coordinator.v1.Task
+	(*GetWorkersRequest)(nil),                   // 13: coordinator.v1.GetWorkersRequest
+	(*GetWorkersResponse)(nil),                  // 14: coordinator.v1.GetWorkersResponse
+	(*WorkerInfo)(nil),                          // 15: coordinator.v1.WorkerInfo
+	(*HeartbeatRequest)(nil),                    // 16: coordinator.v1.HeartbeatRequest
+	(*MachineSample)(nil),                       // 17: coordinator.v1.MachineSample
+	(*MachineUsage)(nil),                        // 18: coordinator.v1.MachineUsage
+	(*MachineLoad)(nil),                         // 19: coordinator.v1.MachineLoad
+	(*HeartbeatResponse)(nil),                   // 20: coordinator.v1.HeartbeatResponse
+	(*AckTaskClaimRequest)(nil),                 // 21: coordinator.v1.AckTaskClaimRequest
+	(*AckTaskClaimResponse)(nil),                // 22: coordinator.v1.AckTaskClaimResponse
+	(*ClaimAgentSessionCleanupRequest)(nil),     // 23: coordinator.v1.ClaimAgentSessionCleanupRequest
+	(*ClaimAgentSessionCleanupResponse)(nil),    // 24: coordinator.v1.ClaimAgentSessionCleanupResponse
+	(*CompleteAgentSessionCleanupRequest)(nil),  // 25: coordinator.v1.CompleteAgentSessionCleanupRequest
+	(*CompleteAgentSessionCleanupResponse)(nil), // 26: coordinator.v1.CompleteAgentSessionCleanupResponse
+	(*RunHeartbeatRequest)(nil),                 // 27: coordinator.v1.RunHeartbeatRequest
+	(*RunHeartbeatResponse)(nil),                // 28: coordinator.v1.RunHeartbeatResponse
+	(*CancelledRun)(nil),                        // 29: coordinator.v1.CancelledRun
+	(*WorkerStats)(nil),                         // 30: coordinator.v1.WorkerStats
+	(*RunningTask)(nil),                         // 31: coordinator.v1.RunningTask
+	(*ReportStatusRequest)(nil),                 // 32: coordinator.v1.ReportStatusRequest
+	(*ReportStatusResponse)(nil),                // 33: coordinator.v1.ReportStatusResponse
+	(*DAGRunStatusProto)(nil),                   // 34: coordinator.v1.DAGRunStatusProto
+	(*LogChunk)(nil),                            // 35: coordinator.v1.LogChunk
+	(*StreamLogsResponse)(nil),                  // 36: coordinator.v1.StreamLogsResponse
+	(*ArtifactChunk)(nil),                       // 37: coordinator.v1.ArtifactChunk
+	(*StreamArtifactsResponse)(nil),             // 38: coordinator.v1.StreamArtifactsResponse
+	(*WorkspaceBundle)(nil),                     // 39: coordinator.v1.WorkspaceBundle
+	(*WorkspaceBundleChunk)(nil),                // 40: coordinator.v1.WorkspaceBundleChunk
+	(*PutWorkspaceBundleResponse)(nil),          // 41: coordinator.v1.PutWorkspaceBundleResponse
+	(*HasWorkspaceBundleRequest)(nil),           // 42: coordinator.v1.HasWorkspaceBundleRequest
+	(*HasWorkspaceBundleResponse)(nil),          // 43: coordinator.v1.HasWorkspaceBundleResponse
+	(*GetWorkspaceBundleRequest)(nil),           // 44: coordinator.v1.GetWorkspaceBundleRequest
+	(*GetDAGRunStatusRequest)(nil),              // 45: coordinator.v1.GetDAGRunStatusRequest
+	(*GetDAGRunStatusResponse)(nil),             // 46: coordinator.v1.GetDAGRunStatusResponse
+	(*RequestCancelRequest)(nil),                // 47: coordinator.v1.RequestCancelRequest
+	(*RequestCancelResponse)(nil),               // 48: coordinator.v1.RequestCancelResponse
+	(*StateRef)(nil),                            // 49: coordinator.v1.StateRef
+	(*StateUpdateSource)(nil),                   // 50: coordinator.v1.StateUpdateSource
+	(*StateEntry)(nil),                          // 51: coordinator.v1.StateEntry
+	(*GetStateRequest)(nil),                     // 52: coordinator.v1.GetStateRequest
+	(*GetStateResponse)(nil),                    // 53: coordinator.v1.GetStateResponse
+	(*PutStateRequest)(nil),                     // 54: coordinator.v1.PutStateRequest
+	(*PutStateResponse)(nil),                    // 55: coordinator.v1.PutStateResponse
+	(*DeleteStateRequest)(nil),                  // 56: coordinator.v1.DeleteStateRequest
+	(*DeleteStateResponse)(nil),                 // 57: coordinator.v1.DeleteStateResponse
+	(*ListStateRequest)(nil),                    // 58: coordinator.v1.ListStateRequest
+	(*ListStateResponse)(nil),                   // 59: coordinator.v1.ListStateResponse
+	(*GetDAGRequest)(nil),                       // 60: coordinator.v1.GetDAGRequest
+	(*GetDAGResponse)(nil),                      // 61: coordinator.v1.GetDAGResponse
+	(*ResolveSecretReferenceRequest)(nil),       // 62: coordinator.v1.ResolveSecretReferenceRequest
+	(*ResolveSecretReferenceResponse)(nil),      // 63: coordinator.v1.ResolveSecretReferenceResponse
+	(*ResolveRuntimeProfileRequest)(nil),        // 64: coordinator.v1.ResolveRuntimeProfileRequest
+	(*RuntimeProfileEntry)(nil),                 // 65: coordinator.v1.RuntimeProfileEntry
+	(*RuntimeProfileLayer)(nil),                 // 66: coordinator.v1.RuntimeProfileLayer
+	(*ResolveRuntimeProfileResponse)(nil),       // 67: coordinator.v1.ResolveRuntimeProfileResponse
+	(*ResolveConnectionTokenRequest)(nil),       // 68: coordinator.v1.ResolveConnectionTokenRequest
+	(*ResolveConnectionTokenResponse)(nil),      // 69: coordinator.v1.ResolveConnectionTokenResponse
+	(*ConnectionBinding)(nil),                   // 70: coordinator.v1.ConnectionBinding
+	(*ConnectionService)(nil),                   // 71: coordinator.v1.ConnectionService
+	(*ResolveNodesRequest)(nil),                 // 72: coordinator.v1.ResolveNodesRequest
+	(*ResolveNodesResponse)(nil),                // 73: coordinator.v1.ResolveNodesResponse
+	(*ResolvedNode)(nil),                        // 74: coordinator.v1.ResolvedNode
+	(*TrustedHostKey)(nil),                      // 75: coordinator.v1.TrustedHostKey
+	(*GetJoinReadinessRequest)(nil),             // 76: coordinator.v1.GetJoinReadinessRequest
+	(*GetJoinReadinessResponse)(nil),            // 77: coordinator.v1.GetJoinReadinessResponse
+	(*ConfigSource)(nil),                        // 78: coordinator.v1.ConfigSource
+	(*CreateInviteRequest)(nil),                 // 79: coordinator.v1.CreateInviteRequest
+	(*CreateInviteResponse)(nil),                // 80: coordinator.v1.CreateInviteResponse
+	(*ListInvitesRequest)(nil),                  // 81: coordinator.v1.ListInvitesRequest
+	(*ListInvitesResponse)(nil),                 // 82: coordinator.v1.ListInvitesResponse
+	(*DeleteInviteRequest)(nil),                 // 83: coordinator.v1.DeleteInviteRequest
+	(*DeleteInviteResponse)(nil),                // 84: coordinator.v1.DeleteInviteResponse
+	(*InviteRecord)(nil),                        // 85: coordinator.v1.InviteRecord
+	(*EnrollRequest)(nil),                       // 86: coordinator.v1.EnrollRequest
+	(*EnrollResponse)(nil),                      // 87: coordinator.v1.EnrollResponse
+	nil,                                         // 88: coordinator.v1.PollRequest.LabelsEntry
+	nil,                                         // 89: coordinator.v1.Task.WorkerSelectorEntry
+	nil,                                         // 90: coordinator.v1.WorkerInfo.LabelsEntry
+	nil,                                         // 91: coordinator.v1.HeartbeatRequest.LabelsEntry
 }
 var file_proto_coordinator_v1_coordinator_proto_depIdxs = []int32{
-	78, // 0: coordinator.v1.PollRequest.labels:type_name -> coordinator.v1.PollRequest.LabelsEntry
-	11, // 1: coordinator.v1.PollResponse.task:type_name -> coordinator.v1.Task
-	11, // 2: coordinator.v1.DispatchRequest.task:type_name -> coordinator.v1.Task
+	88, // 0: coordinator.v1.PollRequest.labels:type_name -> coordinator.v1.PollRequest.LabelsEntry
+	12, // 1: coordinator.v1.PollResponse.task:type_name -> coordinator.v1.Task
+	12, // 2: coordinator.v1.DispatchRequest.task:type_name -> coordinator.v1.Task
 	0,  // 3: coordinator.v1.Task.operation:type_name -> coordinator.v1.Operation
-	79, // 4: coordinator.v1.Task.worker_selector:type_name -> coordinator.v1.Task.WorkerSelectorEntry
-	33, // 5: coordinator.v1.Task.previous_status:type_name -> coordinator.v1.DAGRunStatusProto
-	14, // 6: coordinator.v1.GetWorkersResponse.workers:type_name -> coordinator.v1.WorkerInfo
-	80, // 7: coordinator.v1.WorkerInfo.labels:type_name -> coordinator.v1.WorkerInfo.LabelsEntry
-	30, // 8: coordinator.v1.WorkerInfo.running_tasks:type_name -> coordinator.v1.RunningTask
+	89, // 4: coordinator.v1.Task.worker_selector:type_name -> coordinator.v1.Task.WorkerSelectorEntry
+	34, // 5: coordinator.v1.Task.previous_status:type_name -> coordinator.v1.DAGRunStatusProto
+	15, // 6: coordinator.v1.GetWorkersResponse.workers:type_name -> coordinator.v1.WorkerInfo
+	90, // 7: coordinator.v1.WorkerInfo.labels:type_name -> coordinator.v1.WorkerInfo.LabelsEntry
+	31, // 8: coordinator.v1.WorkerInfo.running_tasks:type_name -> coordinator.v1.RunningTask
 	1,  // 9: coordinator.v1.WorkerInfo.health_status:type_name -> coordinator.v1.WorkerHealthStatus
-	81, // 10: coordinator.v1.HeartbeatRequest.labels:type_name -> coordinator.v1.HeartbeatRequest.LabelsEntry
-	29, // 11: coordinator.v1.HeartbeatRequest.stats:type_name -> coordinator.v1.WorkerStats
-	16, // 12: coordinator.v1.HeartbeatRequest.machine:type_name -> coordinator.v1.MachineSample
-	17, // 13: coordinator.v1.MachineSample.memory:type_name -> coordinator.v1.MachineUsage
-	17, // 14: coordinator.v1.MachineSample.disk:type_name -> coordinator.v1.MachineUsage
-	17, // 15: coordinator.v1.MachineSample.log_disk:type_name -> coordinator.v1.MachineUsage
-	18, // 16: coordinator.v1.MachineSample.load:type_name -> coordinator.v1.MachineLoad
-	28, // 17: coordinator.v1.HeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
-	30, // 18: coordinator.v1.RunHeartbeatRequest.running_tasks:type_name -> coordinator.v1.RunningTask
-	28, // 19: coordinator.v1.RunHeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
-	30, // 20: coordinator.v1.WorkerStats.running_tasks:type_name -> coordinator.v1.RunningTask
-	33, // 21: coordinator.v1.ReportStatusRequest.status:type_name -> coordinator.v1.DAGRunStatusProto
+	91, // 10: coordinator.v1.HeartbeatRequest.labels:type_name -> coordinator.v1.HeartbeatRequest.LabelsEntry
+	30, // 11: coordinator.v1.HeartbeatRequest.stats:type_name -> coordinator.v1.WorkerStats
+	17, // 12: coordinator.v1.HeartbeatRequest.machine:type_name -> coordinator.v1.MachineSample
+	18, // 13: coordinator.v1.MachineSample.memory:type_name -> coordinator.v1.MachineUsage
+	18, // 14: coordinator.v1.MachineSample.disk:type_name -> coordinator.v1.MachineUsage
+	18, // 15: coordinator.v1.MachineSample.log_disk:type_name -> coordinator.v1.MachineUsage
+	19, // 16: coordinator.v1.MachineSample.load:type_name -> coordinator.v1.MachineLoad
+	29, // 17: coordinator.v1.HeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
+	31, // 18: coordinator.v1.RunHeartbeatRequest.running_tasks:type_name -> coordinator.v1.RunningTask
+	29, // 19: coordinator.v1.RunHeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
+	31, // 20: coordinator.v1.WorkerStats.running_tasks:type_name -> coordinator.v1.RunningTask
+	34, // 21: coordinator.v1.ReportStatusRequest.status:type_name -> coordinator.v1.DAGRunStatusProto
 	2,  // 22: coordinator.v1.LogChunk.stream_type:type_name -> coordinator.v1.LogStreamType
-	38, // 23: coordinator.v1.WorkspaceBundleChunk.bundle:type_name -> coordinator.v1.WorkspaceBundle
-	33, // 24: coordinator.v1.GetDAGRunStatusResponse.status:type_name -> coordinator.v1.DAGRunStatusProto
-	48, // 25: coordinator.v1.StateEntry.ref:type_name -> coordinator.v1.StateRef
-	49, // 26: coordinator.v1.StateEntry.updated_by:type_name -> coordinator.v1.StateUpdateSource
-	48, // 27: coordinator.v1.GetStateRequest.ref:type_name -> coordinator.v1.StateRef
-	50, // 28: coordinator.v1.GetStateResponse.entry:type_name -> coordinator.v1.StateEntry
-	48, // 29: coordinator.v1.PutStateRequest.ref:type_name -> coordinator.v1.StateRef
-	49, // 30: coordinator.v1.PutStateRequest.updated_by:type_name -> coordinator.v1.StateUpdateSource
-	50, // 31: coordinator.v1.PutStateResponse.entry:type_name -> coordinator.v1.StateEntry
-	48, // 32: coordinator.v1.DeleteStateRequest.ref:type_name -> coordinator.v1.StateRef
-	50, // 33: coordinator.v1.ListStateResponse.entries:type_name -> coordinator.v1.StateEntry
-	64, // 34: coordinator.v1.RuntimeProfileLayer.entries:type_name -> coordinator.v1.RuntimeProfileEntry
-	65, // 35: coordinator.v1.ResolveRuntimeProfileResponse.defaults:type_name -> coordinator.v1.RuntimeProfileLayer
-	65, // 36: coordinator.v1.ResolveRuntimeProfileResponse.selected:type_name -> coordinator.v1.RuntimeProfileLayer
-	69, // 37: coordinator.v1.ResolveConnectionTokenResponse.binding:type_name -> coordinator.v1.ConnectionBinding
-	70, // 38: coordinator.v1.ConnectionBinding.services:type_name -> coordinator.v1.ConnectionService
-	73, // 39: coordinator.v1.ResolveNodesResponse.nodes:type_name -> coordinator.v1.ResolvedNode
-	73, // 40: coordinator.v1.ResolveNodesResponse.bastions:type_name -> coordinator.v1.ResolvedNode
-	74, // 41: coordinator.v1.ResolveNodesResponse.trusted_host_keys:type_name -> coordinator.v1.TrustedHostKey
+	39, // 23: coordinator.v1.WorkspaceBundleChunk.bundle:type_name -> coordinator.v1.WorkspaceBundle
+	34, // 24: coordinator.v1.GetDAGRunStatusResponse.status:type_name -> coordinator.v1.DAGRunStatusProto
+	49, // 25: coordinator.v1.StateEntry.ref:type_name -> coordinator.v1.StateRef
+	50, // 26: coordinator.v1.StateEntry.updated_by:type_name -> coordinator.v1.StateUpdateSource
+	49, // 27: coordinator.v1.GetStateRequest.ref:type_name -> coordinator.v1.StateRef
+	51, // 28: coordinator.v1.GetStateResponse.entry:type_name -> coordinator.v1.StateEntry
+	49, // 29: coordinator.v1.PutStateRequest.ref:type_name -> coordinator.v1.StateRef
+	50, // 30: coordinator.v1.PutStateRequest.updated_by:type_name -> coordinator.v1.StateUpdateSource
+	51, // 31: coordinator.v1.PutStateResponse.entry:type_name -> coordinator.v1.StateEntry
+	49, // 32: coordinator.v1.DeleteStateRequest.ref:type_name -> coordinator.v1.StateRef
+	51, // 33: coordinator.v1.ListStateResponse.entries:type_name -> coordinator.v1.StateEntry
+	65, // 34: coordinator.v1.RuntimeProfileLayer.entries:type_name -> coordinator.v1.RuntimeProfileEntry
+	66, // 35: coordinator.v1.ResolveRuntimeProfileResponse.defaults:type_name -> coordinator.v1.RuntimeProfileLayer
+	66, // 36: coordinator.v1.ResolveRuntimeProfileResponse.selected:type_name -> coordinator.v1.RuntimeProfileLayer
+	70, // 37: coordinator.v1.ResolveConnectionTokenResponse.binding:type_name -> coordinator.v1.ConnectionBinding
+	71, // 38: coordinator.v1.ConnectionBinding.services:type_name -> coordinator.v1.ConnectionService
+	74, // 39: coordinator.v1.ResolveNodesResponse.nodes:type_name -> coordinator.v1.ResolvedNode
+	74, // 40: coordinator.v1.ResolveNodesResponse.bastions:type_name -> coordinator.v1.ResolvedNode
+	75, // 41: coordinator.v1.ResolveNodesResponse.trusted_host_keys:type_name -> coordinator.v1.TrustedHostKey
 	3,  // 42: coordinator.v1.ResolvedNode.kind:type_name -> coordinator.v1.NodeKind
-	77, // 43: coordinator.v1.GetJoinReadinessResponse.host_source:type_name -> coordinator.v1.ConfigSource
+	78, // 43: coordinator.v1.GetJoinReadinessResponse.host_source:type_name -> coordinator.v1.ConfigSource
 	6,  // 44: coordinator.v1.GetJoinReadinessResponse.environment:type_name -> coordinator.v1.HostEnvironment
 	4,  // 45: coordinator.v1.GetJoinReadinessResponse.builtin_tls_reason:type_name -> coordinator.v1.BuiltinTLSReason
 	5,  // 46: coordinator.v1.ConfigSource.kind:type_name -> coordinator.v1.ConfigSourceKind
-	7,  // 47: coordinator.v1.CoordinatorService.Poll:input_type -> coordinator.v1.PollRequest
-	9,  // 48: coordinator.v1.CoordinatorService.Dispatch:input_type -> coordinator.v1.DispatchRequest
-	12, // 49: coordinator.v1.CoordinatorService.GetWorkers:input_type -> coordinator.v1.GetWorkersRequest
-	15, // 50: coordinator.v1.CoordinatorService.Heartbeat:input_type -> coordinator.v1.HeartbeatRequest
-	20, // 51: coordinator.v1.CoordinatorService.AckTaskClaim:input_type -> coordinator.v1.AckTaskClaimRequest
-	22, // 52: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:input_type -> coordinator.v1.ClaimAgentSessionCleanupRequest
-	24, // 53: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:input_type -> coordinator.v1.CompleteAgentSessionCleanupRequest
-	26, // 54: coordinator.v1.CoordinatorService.RunHeartbeat:input_type -> coordinator.v1.RunHeartbeatRequest
-	31, // 55: coordinator.v1.CoordinatorService.ReportStatus:input_type -> coordinator.v1.ReportStatusRequest
-	34, // 56: coordinator.v1.CoordinatorService.StreamLogs:input_type -> coordinator.v1.LogChunk
-	36, // 57: coordinator.v1.CoordinatorService.StreamArtifacts:input_type -> coordinator.v1.ArtifactChunk
-	39, // 58: coordinator.v1.CoordinatorService.PutWorkspaceBundle:input_type -> coordinator.v1.WorkspaceBundleChunk
-	41, // 59: coordinator.v1.CoordinatorService.HasWorkspaceBundle:input_type -> coordinator.v1.HasWorkspaceBundleRequest
-	43, // 60: coordinator.v1.CoordinatorService.GetWorkspaceBundle:input_type -> coordinator.v1.GetWorkspaceBundleRequest
-	44, // 61: coordinator.v1.CoordinatorService.GetDAGRunStatus:input_type -> coordinator.v1.GetDAGRunStatusRequest
-	46, // 62: coordinator.v1.CoordinatorService.RequestCancel:input_type -> coordinator.v1.RequestCancelRequest
-	51, // 63: coordinator.v1.CoordinatorService.GetState:input_type -> coordinator.v1.GetStateRequest
-	53, // 64: coordinator.v1.CoordinatorService.PutState:input_type -> coordinator.v1.PutStateRequest
-	55, // 65: coordinator.v1.CoordinatorService.DeleteState:input_type -> coordinator.v1.DeleteStateRequest
-	57, // 66: coordinator.v1.CoordinatorService.ListState:input_type -> coordinator.v1.ListStateRequest
-	59, // 67: coordinator.v1.CoordinatorService.GetDAG:input_type -> coordinator.v1.GetDAGRequest
-	61, // 68: coordinator.v1.CoordinatorService.ResolveSecretReference:input_type -> coordinator.v1.ResolveSecretReferenceRequest
-	63, // 69: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:input_type -> coordinator.v1.ResolveRuntimeProfileRequest
-	71, // 70: coordinator.v1.CoordinatorService.ResolveNodes:input_type -> coordinator.v1.ResolveNodesRequest
-	67, // 71: coordinator.v1.CoordinatorService.ResolveConnectionToken:input_type -> coordinator.v1.ResolveConnectionTokenRequest
-	75, // 72: coordinator.v1.CoordinatorService.GetJoinReadiness:input_type -> coordinator.v1.GetJoinReadinessRequest
-	8,  // 73: coordinator.v1.CoordinatorService.Poll:output_type -> coordinator.v1.PollResponse
-	10, // 74: coordinator.v1.CoordinatorService.Dispatch:output_type -> coordinator.v1.DispatchResponse
-	13, // 75: coordinator.v1.CoordinatorService.GetWorkers:output_type -> coordinator.v1.GetWorkersResponse
-	19, // 76: coordinator.v1.CoordinatorService.Heartbeat:output_type -> coordinator.v1.HeartbeatResponse
-	21, // 77: coordinator.v1.CoordinatorService.AckTaskClaim:output_type -> coordinator.v1.AckTaskClaimResponse
-	23, // 78: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:output_type -> coordinator.v1.ClaimAgentSessionCleanupResponse
-	25, // 79: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:output_type -> coordinator.v1.CompleteAgentSessionCleanupResponse
-	27, // 80: coordinator.v1.CoordinatorService.RunHeartbeat:output_type -> coordinator.v1.RunHeartbeatResponse
-	32, // 81: coordinator.v1.CoordinatorService.ReportStatus:output_type -> coordinator.v1.ReportStatusResponse
-	35, // 82: coordinator.v1.CoordinatorService.StreamLogs:output_type -> coordinator.v1.StreamLogsResponse
-	37, // 83: coordinator.v1.CoordinatorService.StreamArtifacts:output_type -> coordinator.v1.StreamArtifactsResponse
-	40, // 84: coordinator.v1.CoordinatorService.PutWorkspaceBundle:output_type -> coordinator.v1.PutWorkspaceBundleResponse
-	42, // 85: coordinator.v1.CoordinatorService.HasWorkspaceBundle:output_type -> coordinator.v1.HasWorkspaceBundleResponse
-	39, // 86: coordinator.v1.CoordinatorService.GetWorkspaceBundle:output_type -> coordinator.v1.WorkspaceBundleChunk
-	45, // 87: coordinator.v1.CoordinatorService.GetDAGRunStatus:output_type -> coordinator.v1.GetDAGRunStatusResponse
-	47, // 88: coordinator.v1.CoordinatorService.RequestCancel:output_type -> coordinator.v1.RequestCancelResponse
-	52, // 89: coordinator.v1.CoordinatorService.GetState:output_type -> coordinator.v1.GetStateResponse
-	54, // 90: coordinator.v1.CoordinatorService.PutState:output_type -> coordinator.v1.PutStateResponse
-	56, // 91: coordinator.v1.CoordinatorService.DeleteState:output_type -> coordinator.v1.DeleteStateResponse
-	58, // 92: coordinator.v1.CoordinatorService.ListState:output_type -> coordinator.v1.ListStateResponse
-	60, // 93: coordinator.v1.CoordinatorService.GetDAG:output_type -> coordinator.v1.GetDAGResponse
-	62, // 94: coordinator.v1.CoordinatorService.ResolveSecretReference:output_type -> coordinator.v1.ResolveSecretReferenceResponse
-	66, // 95: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:output_type -> coordinator.v1.ResolveRuntimeProfileResponse
-	72, // 96: coordinator.v1.CoordinatorService.ResolveNodes:output_type -> coordinator.v1.ResolveNodesResponse
-	68, // 97: coordinator.v1.CoordinatorService.ResolveConnectionToken:output_type -> coordinator.v1.ResolveConnectionTokenResponse
-	76, // 98: coordinator.v1.CoordinatorService.GetJoinReadiness:output_type -> coordinator.v1.GetJoinReadinessResponse
-	73, // [73:99] is the sub-list for method output_type
-	47, // [47:73] is the sub-list for method input_type
-	47, // [47:47] is the sub-list for extension type_name
-	47, // [47:47] is the sub-list for extension extendee
-	0,  // [0:47] is the sub-list for field type_name
+	85, // 47: coordinator.v1.CreateInviteResponse.record:type_name -> coordinator.v1.InviteRecord
+	85, // 48: coordinator.v1.ListInvitesResponse.invites:type_name -> coordinator.v1.InviteRecord
+	7,  // 49: coordinator.v1.InviteRecord.kind:type_name -> coordinator.v1.InviteKind
+	8,  // 50: coordinator.v1.CoordinatorService.Poll:input_type -> coordinator.v1.PollRequest
+	10, // 51: coordinator.v1.CoordinatorService.Dispatch:input_type -> coordinator.v1.DispatchRequest
+	13, // 52: coordinator.v1.CoordinatorService.GetWorkers:input_type -> coordinator.v1.GetWorkersRequest
+	16, // 53: coordinator.v1.CoordinatorService.Heartbeat:input_type -> coordinator.v1.HeartbeatRequest
+	21, // 54: coordinator.v1.CoordinatorService.AckTaskClaim:input_type -> coordinator.v1.AckTaskClaimRequest
+	23, // 55: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:input_type -> coordinator.v1.ClaimAgentSessionCleanupRequest
+	25, // 56: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:input_type -> coordinator.v1.CompleteAgentSessionCleanupRequest
+	27, // 57: coordinator.v1.CoordinatorService.RunHeartbeat:input_type -> coordinator.v1.RunHeartbeatRequest
+	32, // 58: coordinator.v1.CoordinatorService.ReportStatus:input_type -> coordinator.v1.ReportStatusRequest
+	35, // 59: coordinator.v1.CoordinatorService.StreamLogs:input_type -> coordinator.v1.LogChunk
+	37, // 60: coordinator.v1.CoordinatorService.StreamArtifacts:input_type -> coordinator.v1.ArtifactChunk
+	40, // 61: coordinator.v1.CoordinatorService.PutWorkspaceBundle:input_type -> coordinator.v1.WorkspaceBundleChunk
+	42, // 62: coordinator.v1.CoordinatorService.HasWorkspaceBundle:input_type -> coordinator.v1.HasWorkspaceBundleRequest
+	44, // 63: coordinator.v1.CoordinatorService.GetWorkspaceBundle:input_type -> coordinator.v1.GetWorkspaceBundleRequest
+	45, // 64: coordinator.v1.CoordinatorService.GetDAGRunStatus:input_type -> coordinator.v1.GetDAGRunStatusRequest
+	47, // 65: coordinator.v1.CoordinatorService.RequestCancel:input_type -> coordinator.v1.RequestCancelRequest
+	52, // 66: coordinator.v1.CoordinatorService.GetState:input_type -> coordinator.v1.GetStateRequest
+	54, // 67: coordinator.v1.CoordinatorService.PutState:input_type -> coordinator.v1.PutStateRequest
+	56, // 68: coordinator.v1.CoordinatorService.DeleteState:input_type -> coordinator.v1.DeleteStateRequest
+	58, // 69: coordinator.v1.CoordinatorService.ListState:input_type -> coordinator.v1.ListStateRequest
+	60, // 70: coordinator.v1.CoordinatorService.GetDAG:input_type -> coordinator.v1.GetDAGRequest
+	62, // 71: coordinator.v1.CoordinatorService.ResolveSecretReference:input_type -> coordinator.v1.ResolveSecretReferenceRequest
+	64, // 72: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:input_type -> coordinator.v1.ResolveRuntimeProfileRequest
+	72, // 73: coordinator.v1.CoordinatorService.ResolveNodes:input_type -> coordinator.v1.ResolveNodesRequest
+	68, // 74: coordinator.v1.CoordinatorService.ResolveConnectionToken:input_type -> coordinator.v1.ResolveConnectionTokenRequest
+	76, // 75: coordinator.v1.CoordinatorService.GetJoinReadiness:input_type -> coordinator.v1.GetJoinReadinessRequest
+	79, // 76: coordinator.v1.CoordinatorService.CreateInvite:input_type -> coordinator.v1.CreateInviteRequest
+	81, // 77: coordinator.v1.CoordinatorService.ListInvites:input_type -> coordinator.v1.ListInvitesRequest
+	83, // 78: coordinator.v1.CoordinatorService.DeleteInvite:input_type -> coordinator.v1.DeleteInviteRequest
+	86, // 79: coordinator.v1.CoordinatorService.Enroll:input_type -> coordinator.v1.EnrollRequest
+	9,  // 80: coordinator.v1.CoordinatorService.Poll:output_type -> coordinator.v1.PollResponse
+	11, // 81: coordinator.v1.CoordinatorService.Dispatch:output_type -> coordinator.v1.DispatchResponse
+	14, // 82: coordinator.v1.CoordinatorService.GetWorkers:output_type -> coordinator.v1.GetWorkersResponse
+	20, // 83: coordinator.v1.CoordinatorService.Heartbeat:output_type -> coordinator.v1.HeartbeatResponse
+	22, // 84: coordinator.v1.CoordinatorService.AckTaskClaim:output_type -> coordinator.v1.AckTaskClaimResponse
+	24, // 85: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:output_type -> coordinator.v1.ClaimAgentSessionCleanupResponse
+	26, // 86: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:output_type -> coordinator.v1.CompleteAgentSessionCleanupResponse
+	28, // 87: coordinator.v1.CoordinatorService.RunHeartbeat:output_type -> coordinator.v1.RunHeartbeatResponse
+	33, // 88: coordinator.v1.CoordinatorService.ReportStatus:output_type -> coordinator.v1.ReportStatusResponse
+	36, // 89: coordinator.v1.CoordinatorService.StreamLogs:output_type -> coordinator.v1.StreamLogsResponse
+	38, // 90: coordinator.v1.CoordinatorService.StreamArtifacts:output_type -> coordinator.v1.StreamArtifactsResponse
+	41, // 91: coordinator.v1.CoordinatorService.PutWorkspaceBundle:output_type -> coordinator.v1.PutWorkspaceBundleResponse
+	43, // 92: coordinator.v1.CoordinatorService.HasWorkspaceBundle:output_type -> coordinator.v1.HasWorkspaceBundleResponse
+	40, // 93: coordinator.v1.CoordinatorService.GetWorkspaceBundle:output_type -> coordinator.v1.WorkspaceBundleChunk
+	46, // 94: coordinator.v1.CoordinatorService.GetDAGRunStatus:output_type -> coordinator.v1.GetDAGRunStatusResponse
+	48, // 95: coordinator.v1.CoordinatorService.RequestCancel:output_type -> coordinator.v1.RequestCancelResponse
+	53, // 96: coordinator.v1.CoordinatorService.GetState:output_type -> coordinator.v1.GetStateResponse
+	55, // 97: coordinator.v1.CoordinatorService.PutState:output_type -> coordinator.v1.PutStateResponse
+	57, // 98: coordinator.v1.CoordinatorService.DeleteState:output_type -> coordinator.v1.DeleteStateResponse
+	59, // 99: coordinator.v1.CoordinatorService.ListState:output_type -> coordinator.v1.ListStateResponse
+	61, // 100: coordinator.v1.CoordinatorService.GetDAG:output_type -> coordinator.v1.GetDAGResponse
+	63, // 101: coordinator.v1.CoordinatorService.ResolveSecretReference:output_type -> coordinator.v1.ResolveSecretReferenceResponse
+	67, // 102: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:output_type -> coordinator.v1.ResolveRuntimeProfileResponse
+	73, // 103: coordinator.v1.CoordinatorService.ResolveNodes:output_type -> coordinator.v1.ResolveNodesResponse
+	69, // 104: coordinator.v1.CoordinatorService.ResolveConnectionToken:output_type -> coordinator.v1.ResolveConnectionTokenResponse
+	77, // 105: coordinator.v1.CoordinatorService.GetJoinReadiness:output_type -> coordinator.v1.GetJoinReadinessResponse
+	80, // 106: coordinator.v1.CoordinatorService.CreateInvite:output_type -> coordinator.v1.CreateInviteResponse
+	82, // 107: coordinator.v1.CoordinatorService.ListInvites:output_type -> coordinator.v1.ListInvitesResponse
+	84, // 108: coordinator.v1.CoordinatorService.DeleteInvite:output_type -> coordinator.v1.DeleteInviteResponse
+	87, // 109: coordinator.v1.CoordinatorService.Enroll:output_type -> coordinator.v1.EnrollResponse
+	80, // [80:110] is the sub-list for method output_type
+	50, // [50:80] is the sub-list for method input_type
+	50, // [50:50] is the sub-list for extension type_name
+	50, // [50:50] is the sub-list for extension extendee
+	0,  // [0:50] is the sub-list for field type_name
 }
 
 func init() { file_proto_coordinator_v1_coordinator_proto_init() }
@@ -9068,8 +9917,8 @@ func file_proto_coordinator_v1_coordinator_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_coordinator_v1_coordinator_proto_rawDesc), len(file_proto_coordinator_v1_coordinator_proto_rawDesc)),
-			NumEnums:      7,
-			NumMessages:   75,
+			NumEnums:      8,
+			NumMessages:   84,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

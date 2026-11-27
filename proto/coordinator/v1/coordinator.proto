@@ -96,6 +96,23 @@ service CoordinatorService {
   // GetJoinReadiness reports, from the coordinator's own host, whether a
   // worker on another host can join it. It takes the peer token.
   rpc GetJoinReadiness (GetJoinReadinessRequest) returns (GetJoinReadinessResponse);
+
+  // CreateInvite creates an invite that lets workers enroll for a worker
+  // certificate. Only its response contains the invite. It takes the peer
+  // token.
+  rpc CreateInvite (CreateInviteRequest) returns (CreateInviteResponse);
+
+  // ListInvites lists the invites without their secrets. It takes the peer
+  // token.
+  rpc ListInvites (ListInvitesRequest) returns (ListInvitesResponse);
+
+  // DeleteInvite deletes an invite, so it enrolls no further worker. It
+  // takes the peer token.
+  rpc DeleteInvite (DeleteInviteRequest) returns (DeleteInviteResponse);
+
+  // Enroll issues a worker certificate for the key of a certificate signing
+  // request, admitted by an invite. It needs built-in TLS and no peer token.
+  rpc Enroll (EnrollRequest) returns (EnrollResponse);
 }
 
 // Request message for polling a task.
@@ -807,4 +824,65 @@ enum HostEnvironment {
   HOST_ENVIRONMENT_HOST = 1;        // Neither of the below
   HOST_ENVIRONMENT_CONTAINER = 2;   // /.dockerenv or /run/.containerenv exists
   HOST_ENVIRONMENT_KUBERNETES = 3;  // KUBERNETES_SERVICE_HOST is set
+}
+
+message CreateInviteRequest {
+  bool reusable = 1;  // True for an invite that enrolls any number of workers
+  // Seconds until the invite ends, or 0 for the default: 24 hours for a
+  // single-use invite, none for a reusable one.
+  int64 expires_in_seconds = 2;
+  string address = 3;     // The host:port the invite is made for, or empty
+  string created_by = 4;  // The user who asked for it, or empty for the peer token
+}
+
+message CreateInviteResponse {
+  string invite = 1;  // dagu1.<pin>.<secret>
+  InviteRecord record = 2;
+}
+
+message ListInvitesRequest {
+}
+
+message ListInvitesResponse {
+  repeated InviteRecord invites = 1;  // Oldest first
+}
+
+message DeleteInviteRequest {
+  string id = 1;
+}
+
+message DeleteInviteResponse {
+}
+
+// An invite's record. It never holds the invite or its secret.
+message InviteRecord {
+  string id = 1;
+  InviteKind kind = 2;
+  int64 expires_at = 3;  // Unix timestamp in seconds, or 0 for none
+  string address = 4;    // The host:port the invite was made for, or empty
+  string created_by = 5; // The user, or "peer token"
+  int64 created_at = 6;  // Unix timestamp in seconds
+  int32 use_count = 7;   // The number of enrollments it admitted
+  int64 last_used_at = 8; // Unix timestamp in seconds, or 0 before the first use
+}
+
+enum InviteKind {
+  INVITE_KIND_UNSPECIFIED = 0;
+  INVITE_KIND_SINGLE_USE = 1;  // Enrolls one worker
+  INVITE_KIND_REUSABLE = 2;    // Enrolls any number of workers
+}
+
+message EnrollRequest {
+  string invite = 1;  // dagu1.<pin>.<secret>
+  bytes csr = 2;      // DER certificate signing request for the worker's key
+  string worker_id = 3;
+  string host = 4;    // The worker's host name
+  // True when the worker keeps its certificate across restarts. A
+  // single-use invite enrolls only such a worker.
+  bool keeps_certificate = 5;
+}
+
+message EnrollResponse {
+  bytes certificate = 1;     // DER worker certificate
+  bytes ca_certificate = 2;  // DER peer CA certificate
 }
