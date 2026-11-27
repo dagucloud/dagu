@@ -4,9 +4,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
@@ -153,10 +155,13 @@ func toConnectionToolServer(server string, catalog *connection.Catalog, err erro
 }
 
 // jsonObject decodes raw as a JSON object, or returns an empty one when it
-// holds none.
+// holds none. Numbers keep their literal, so a schema's large integer
+// bounds survive.
 func jsonObject(raw json.RawMessage) map[string]any {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
 	var obj map[string]any
-	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
+	if err := dec.Decode(&obj); err != nil || obj == nil || !errors.Is(dec.Decode(&struct{}{}), io.EOF) {
 		return map[string]any{}
 	}
 	return obj

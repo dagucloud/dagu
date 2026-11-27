@@ -101,6 +101,91 @@ func TestConnectFlow(t *testing.T) {
 	assert.NotContains(t, mustJSON(t, f.audit.entries), state)
 }
 
+// A paste connect whose expected account the provider vouches for goes
+// live inside the complete, which audits the confirm with the account.
+func TestCompleteConfirmsExpectedAccount(t *testing.T) {
+	f := newConnectionsFixture(t)
+	admin := f.admin()
+	f.createConnection(t, admin, "ops", "work", f.createDesktopApp(t, admin).Id)
+	start := f.startAuthorization(t, admin, &apigen.StartConnectionAuthorizationRequest{ExpectedAccount: new(testAccount)})
+	authURL, err := url.Parse(start.AuthorizationUrl)
+	require.NoError(t, err)
+	state := authURL.Query().Get("state")
+
+	resp, err := f.api.CompleteConnectionAuthorization(admin, apigen.CompleteConnectionAuthorizationRequestObject{
+		Name:   "work",
+		Params: apigen.CompleteConnectionAuthorizationParams{Workspace: new("ops")},
+		Body:   &apigen.CompleteConnectionAuthorizationRequest{State: &state, Code: new(testCode)},
+	})
+	require.NoError(t, expectResponse[apigen.CompleteConnectionAuthorization204Response](resp, err))
+
+	assert.Equal(t, apigen.ConnectionAuthorizationPhaseConnected, f.session(t, admin, start.Session).Phase)
+	last := f.audit.entries[len(f.audit.entries)-1]
+	assert.Equal(t, "connection_connect_confirm", last.Action)
+	assert.Contains(t, mustJSON(t, last), testAccount)
+}
+
+// Only a manager starts, completes, confirms, or cancels a connect. A
+// developer, who may test the connection, may do none of them.
+func TestConnectRoles(t *testing.T) {
+	f := newConnectionsFixture(t)
+	admin := f.admin()
+	f.createConnection(t, admin, "ops", "work", f.createDesktopApp(t, admin).Id)
+	developer := asConnectionUser(auth.RoleViewer, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{{Workspace: "ops", Role: auth.RoleDeveloper}}})
+	ws := new("ops")
+	for name, call := range map[string]func() error{
+		"Start": func() error {
+			_, err := f.api.StartConnectionAuthorization(developer, apigen.StartConnectionAuthorizationRequestObject{
+				Name: "work", Params: apigen.StartConnectionAuthorizationParams{Workspace: ws},
+			})
+			return err
+		},
+		"Complete": func() error {
+			_, err := f.api.CompleteConnectionAuthorization(developer, apigen.CompleteConnectionAuthorizationRequestObject{
+				Name: "work", Params: apigen.CompleteConnectionAuthorizationParams{Workspace: ws},
+				Body: &apigen.CompleteConnectionAuthorizationRequest{State: new("state"), Code: new(testCode)},
+			})
+			return err
+		},
+		"Confirm": func() error {
+			_, err := f.api.ConfirmConnectionAuthorization(developer, apigen.ConfirmConnectionAuthorizationRequestObject{
+				Name: "work", Params: apigen.ConfirmConnectionAuthorizationParams{Workspace: ws},
+				Body: &apigen.ConfirmConnectionAuthorizationRequest{Session: "session"},
+			})
+			return err
+		},
+		"Cancel": func() error {
+			_, err := f.api.CancelConnectionAuthorization(developer, apigen.CancelConnectionAuthorizationRequestObject{
+				Name: "work", Params: apigen.CancelConnectionAuthorizationParams{Workspace: ws, Session: "session"},
+			})
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			requireForbidden(t, call())
+		})
+	}
+}
+
+// On a server without a public URL, a client file uploaded from the
+// server's localhost origin must list the callback at that origin, since a
+// session started there redirects to it.
+func TestClientFileLocalhost(t *testing.T) {
+	f := newConnectionsFixture(t)
+	ctx := apiv1.WithLocalhostOrigin(f.admin(), "http://localhost:8080")
+	create := func(redirect string) error {
+		file := `{"web": {"client_id": "client-1.apps.googleusercontent.com", "client_secret": "` + testClientSecret + `", "redirect_uris": ["` + redirect + `"]}}`
+		resp, err := f.api.CreateOAuthApp(ctx, apigen.CreateOAuthAppRequestObject{Body: &apigen.CreateOAuthAppRequest{
+			Name: "Google", Provider: apigen.CreateOAuthAppRequestProviderGoogle, ClientFile: &file,
+		}})
+		return expectResponse[apigen.CreateOAuthApp201JSONResponse](resp, err)
+	}
+	err := create(testPublicURL + "/oauth/callback")
+	requireStatus(t, http.StatusBadRequest, err)
+	assert.ErrorContains(t, err, "http://localhost:8080/oauth/callback")
+	require.NoError(t, create("http://localhost:8080/oauth/callback"))
+}
+
 // The redirect mode follows the app's client type and the server's public
 // URL. A mode that does not work starts no session.
 func TestStartConnectionRedirect(t *testing.T) {
@@ -200,7 +285,7 @@ func TestTestConnectionAndTools(t *testing.T) {
 		ListedAt: time.Now(),
 		Tools: []connection.Tool{{
 			Name: "search_threads", Description: "Search mail",
-			InputSchema: json.RawMessage(`{"type":"object"}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"integer","maximum":9007199254740993}}}`),
 			Annotations: json.RawMessage(`{"readOnlyHint":true}`),
 		}},
 	})
@@ -213,7 +298,8 @@ func TestTestConnectionAndTools(t *testing.T) {
 	require.Len(t, servers[0].Tools, 1)
 	tool := servers[0].Tools[0]
 	assert.Equal(t, "search_threads", tool.Name)
-	assert.Equal(t, map[string]any{"type": "object"}, tool.InputSchema)
+	assert.Equal(t, "object", tool.InputSchema["type"])
+	assert.Contains(t, mustJSON(t, tool), `"maximum":9007199254740993`, "a large integer keeps its literal")
 	assert.Equal(t, map[string]any{"readOnlyHint": true}, valueOf(tool.Annotations))
 	// calendar is not a service of the connection.
 	_, err = tools(developer, new("calendar"))

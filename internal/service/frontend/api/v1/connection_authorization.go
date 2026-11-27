@@ -22,6 +22,17 @@ import (
 
 const localhostHost = "localhost"
 
+// forwardingHeaders mark a request that a proxy passed on.
+var forwardingHeaders = []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP"}
+
+// errConnectionAppMissing reports a connection whose app was deleted while
+// a connection was being created on it.
+var errConnectionAppMissing = &Error{
+	HTTPStatus: http.StatusConflict,
+	Code:       api.ErrorCodeConflict,
+	Message:    "The connection's OAuth app no longer exists. Remove the connection and add it again",
+}
+
 // localhostOriginKey keys the origin of a request that reached the server
 // at localhost.
 type localhostOriginKey struct{}
@@ -96,8 +107,14 @@ func (a *API) CompleteConnectionAuthorization(ctx context.Context, request api.C
 	if err != nil {
 		return nil, err
 	}
-	if err := a.connectEngine.Complete(ctx, conn, params); err != nil {
+	confirmed, err := a.connectEngine.Complete(ctx, conn, params)
+	if err != nil {
 		return nil, connectError(err)
+	}
+	if confirmed {
+		// The tokens are live, so a failed read of the account only leaves
+		// it out of the audit entry.
+		_, _ = a.auditConfirm(ctx, conn)
 	}
 	return api.CompleteConnectionAuthorization204Response{}, nil
 }
@@ -115,15 +132,22 @@ func (a *API) ConfirmConnectionAuthorization(ctx context.Context, request api.Co
 	if err := a.connectEngine.Confirm(ctx, conn, request.Body.Session, connectUser(ctx)); err != nil {
 		return nil, connectError(err)
 	}
-	// The confirm is audited even when the connection cannot be read back.
-	resp, err := a.connectionResponse(ctx, conn)
-	details := connectionAuditKey(conn)
-	details["account"] = valueOf(resp.Account)
-	a.logAudit(ctx, audit.CategoryConnection, "connection_connect_confirm", details)
+	resp, err := a.auditConfirm(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
 	return api.ConfirmConnectionAuthorization200JSONResponse(resp), nil
+}
+
+// auditConfirm records that the tokens of conn's session went live, with
+// the account they signed in, and returns conn as the API shows it. The
+// entry is written even when conn cannot be read back.
+func (a *API) auditConfirm(ctx context.Context, conn *connection.Connection) (api.Connection, error) {
+	resp, err := a.connectionResponse(ctx, conn)
+	details := connectionAuditKey(conn)
+	details["account"] = valueOf(resp.Account)
+	a.logAudit(ctx, audit.CategoryConnection, "connection_connect_confirm", details)
+	return resp, err
 }
 
 // CancelConnectionAuthorization fails a session that has not ended.
@@ -140,8 +164,8 @@ func (a *API) CancelConnectionAuthorization(ctx context.Context, request api.Can
 }
 
 // usablePublicURL returns the server's usable public URL: the configured
-// or tunnel URL, else the origin of a request that reached the server at
-// localhost, or empty.
+// or tunnel URL, else the origin of a request that reached the server
+// directly at localhost, or empty.
 func (a *API) usablePublicURL(ctx context.Context) string {
 	if a.publicURL != nil {
 		if u := a.publicURL(); u != "" {
@@ -153,18 +177,13 @@ func (a *API) usablePublicURL(ctx context.Context) string {
 }
 
 // localhostOrigin records the origin, with basePath, of a request that
-// reached the server at localhost or a loopback address. A browser on the
-// host that sent it reaches the server's callback there.
+// reached the server directly at localhost or a loopback address. A browser
+// on the host that sent it reaches the server's callback there.
 func localhostOrigin(basePath string) api.StrictMiddlewareFunc {
 	basePath = strings.Trim(strings.TrimSpace(basePath), "/")
 	return func(next api.StrictHandlerFunc, _ string) api.StrictHandlerFunc {
 		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
-			if isLocalhost((&url.URL{Host: r.Host}).Hostname()) {
-				scheme := "http"
-				if r.TLS != nil {
-					scheme = "https"
-				}
-				origin := scheme + "://" + r.Host
+			if origin := localOrigin(r); origin != "" {
 				if basePath != "" {
 					origin += "/" + basePath
 				}
@@ -173,6 +192,44 @@ func localhostOrigin(basePath string) api.StrictMiddlewareFunc {
 			return next(ctx, w, r, request)
 		}
 	}
+}
+
+// localOrigin returns the origin at which r reached the server when it
+// came from a loopback peer to a localhost or loopback host, or "". A proxy
+// on the same host may rewrite Host to a loopback address, so a request
+// with a forwarding header, or from a browser page of another origin, does
+// not count.
+func localOrigin(r *http.Request) string {
+	if !isLocalhost((&url.URL{Host: r.Host}).Hostname()) || !isLocalhost(peerHost(r.RemoteAddr)) {
+		return ""
+	}
+	for _, header := range forwardingHeaders {
+		if r.Header.Get(header) != "" {
+			return ""
+		}
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	origin := scheme + "://" + r.Host
+	for _, header := range []string{"Origin", "Referer"} {
+		if v := r.Header.Get(header); v != "" {
+			u, err := url.Parse(v)
+			if err != nil || u.Scheme+"://"+u.Host != origin {
+				return ""
+			}
+		}
+	}
+	return origin
+}
+
+func peerHost(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return remoteAddr
+	}
+	return host
 }
 
 // isLocalhost reports whether host is localhost or a loopback address,
@@ -251,6 +308,8 @@ func connectError(err error) error {
 	var status int
 	code := api.ErrorCodeConflict
 	switch {
+	case errors.Is(err, connection.ErrAppNotFound):
+		return errConnectionAppMissing
 	case errors.Is(err, connection.ErrNotFound):
 		return errConnectionNotFound
 	case errors.Is(err, connect.ErrSessionNotFound):
@@ -263,6 +322,8 @@ func connectError(err error) error {
 	case errors.Is(err, connect.ErrSessionEnded), errors.Is(err, connect.ErrAwaitingConsent),
 		errors.Is(err, connect.ErrCallbackRefused), errors.Is(err, broker.ErrReconnectRequired):
 		status = http.StatusConflict
+	case errors.Is(err, broker.ErrRefreshFailed):
+		status, code = http.StatusBadGateway, api.ErrorCodeBadGateway
 	default:
 		return err
 	}
