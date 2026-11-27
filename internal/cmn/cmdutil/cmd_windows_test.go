@@ -140,6 +140,8 @@ func childProcesses(t *testing.T, parent treeProcess) []treeProcess {
 				} else {
 					children = append(children, child)
 				}
+			} else {
+				t.Logf("Not tracking %d (%s): %v", entry.ProcessID, image, err)
 			}
 		}
 		if err := windows.Process32Next(snapshot, &entry); err != nil {
