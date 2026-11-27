@@ -35,8 +35,7 @@ func loadPeerKeyPair(peer config.Peer) (tls.Certificate, error) {
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("read peer.key_file: %w", err)
 	}
-	leaf, err := parseLeafCertificate(certPEM)
-	if err != nil {
+	if _, err := parseLeafCertificate(certPEM); err != nil {
 		return tls.Certificate{}, fmt.Errorf("peer.cert_file %s holds no valid certificate: %w", peer.CertFile, err)
 	}
 	pair, err := tls.X509KeyPair(certPEM, keyPEM)
@@ -45,7 +44,6 @@ func loadPeerKeyPair(peer config.Peer) (tls.Certificate, error) {
 			"peer.key_file %s is not the key of the certificate in peer.cert_file %s (%v): set peer.key_file to the private key of that certificate",
 			peer.KeyFile, peer.CertFile, err)
 	}
-	pair.Leaf = leaf
 	return pair, nil
 }
 
@@ -89,12 +87,14 @@ func warnPeerClientAuth(ctx context.Context, peer config.Peer) {
 	if peer.Insecure || peer.ClientCaFile == "" || peer.CertFile == "" || peer.KeyFile == "" {
 		return
 	}
-	pair, err := loadPeerKeyPair(peer)
+	// The coordinator has loaded this file, so the read or the parse fails
+	// only when the file changed since.
+	certPEM, err := fileutil.ReadFile(peer.CertFile)
 	if err != nil {
-		// The coordinator does not start with a pair that fails to load.
 		return
 	}
-	if allowsClientAuth(pair.Leaf) {
+	leaf, err := parseLeafCertificate(certPEM)
+	if err != nil || allowsClientAuth(leaf) {
 		return
 	}
 	logger.Warn(ctx, "Peer certificate does not allow client authentication",

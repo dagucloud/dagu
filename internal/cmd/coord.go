@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/connection"
@@ -315,7 +316,7 @@ func loadCoordinatorTLSCredentials(cert tls.Certificate, clientCAFile string) (c
 	// If CA file is provided, enable mutual TLS
 	if clientCAFile != "" {
 		// Load CA certificate
-		caCert, err := os.ReadFile(clientCAFile)
+		caCert, err := fileutil.ReadFile(clientCAFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read CA certificate: %w", err)
 		}
