@@ -4,6 +4,7 @@ import {
   components,
   NotificationEventType,
   NotificationProviderType,
+  NotificationRouteEventType,
 } from '../../../../../api/v1/schema';
 import {
   authHeaders,
@@ -27,7 +28,10 @@ type UseNotificationSettingsArgs = {
 
 type NotificationRouteSet = components['schemas']['NotificationRouteSet'];
 
-const RUN_EVENTS = new Set<string>(Object.values(NotificationEventType));
+const CONNECTION_EVENTS = new Set<string>([
+  NotificationRouteEventType.connection_needs_attention,
+  NotificationRouteEventType.connection_restored,
+]);
 
 export type EffectiveNotificationRoute = {
   id: string;
@@ -212,9 +216,9 @@ export function useNotificationSettings({
         events:
           route.events && route.events.length > 0
             ? route.events.flatMap((event) =>
-                RUN_EVENTS.has(event)
-                  ? [event as string as NotificationEventType]
-                  : []
+                CONNECTION_EVENTS.has(event)
+                  ? []
+                  : [event as string as NotificationEventType]
               )
             : DEFAULT_NOTIFICATION_EVENTS,
       };
