@@ -807,8 +807,8 @@ and prints the message:
 - A coordinator with own certificates exits with code 1 at start when the
   key does not match the certificate, naming both files.
 - It warns at start when the certificate does not name the address it
-  advertises, which is `coordinator.advertise` or, when that is unset, the
-  detected hostname. It also warns when the certificate has expired or
+  advertises: `coordinator.advertise`, else the detected hostname, else
+  `coordinator.host` when no hostname is detected. It also warns when the certificate has expired or
   expires within 14 days.
 - A process that serves and calls with the same `peer.cert_file` while
   `peer.client_ca_file` is set, such as `start-all`, warns at start when the

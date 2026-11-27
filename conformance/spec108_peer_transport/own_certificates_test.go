@@ -4,11 +4,15 @@
 package spec108_peer_transport_test
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"strings"
+	"net"
+	"strconv"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 	"github.com/dagucloud/dagu/v2/internal/test/peercert"
@@ -42,13 +46,15 @@ func TestOwnCertificateWarnings(t *testing.T) {
 		NotAfter:    time.Now().Add(7 * 24 * time.Hour),
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	})
+	coordinatorPort := strconv.Itoa(harness.FreePort(t))
+	coordinatorAddr := net.JoinHostPort("127.0.0.1", coordinatorPort)
 	services := harness.NewRunner(t).StartWithEnv([]string{"DAGU_AUTH_MODE=none"},
 		"start-all",
 		"--host=127.0.0.1",
 		fmt.Sprintf("--port=%d", harness.FreePort(t)),
 		"--coordinator.host=127.0.0.1",
 		"--coordinator.advertise=127.0.0.1",
-		fmt.Sprintf("--coordinator.port=%d", harness.FreePort(t)),
+		"--coordinator.port="+coordinatorPort,
 		"--peer.insecure=false",
 		"--peer.cert-file="+certFile,
 		"--peer.key-file="+keyFile,
@@ -56,31 +62,30 @@ func TestOwnCertificateWarnings(t *testing.T) {
 	)
 	defer services.Stop()
 
-	want := []string{
+	waitForOutput(t, services,
 		"Coordinator certificate does not name the advertised address",
 		"Coordinator certificate expires within 14 days",
 		"Peer certificate does not allow client authentication",
-		"Starting to serve on coordinator service",
-	}
-	deadline := time.Now().Add(harness.WaitTimeout(t))
-	for !containsAll(services.Output(), want) {
-		select {
-		case <-services.Done():
-			t.Fatalf("start-all exited: %s", services.FailureOutput())
-		default:
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("start-all did not log %q:\n%s", want, services.Output())
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	)
+	expectClientCertRequired(t, coordinatorAddr)
 }
 
-func containsAll(output string, parts []string) bool {
-	for _, part := range parts {
-		if !strings.Contains(output, part) {
-			return false
-		}
-	}
-	return true
+// expectClientCertRequired fails the test unless a TLS server at addr
+// completes a handshake and then refuses the client for sending no
+// certificate. A process that exited, or one that listens without serving,
+// fails it.
+func expectClientCertRequired(t *testing.T, addr string) {
+	t.Helper()
+	dialer := &net.Dialer{Timeout: harness.WaitTimeout(t)}
+	connection, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		NextProtos: []string{"h2"},
+		// The check is about the server's reply, not its identity.
+		InsecureSkipVerify: true,
+	})
+	require.NoError(t, err)
+	defer func() { _ = connection.Close() }()
+	require.NoError(t, connection.SetReadDeadline(time.Now().Add(harness.WaitTimeout(t))))
+	_, err = connection.Read(make([]byte, 1))
+	require.ErrorContains(t, err, "certificate required")
 }
