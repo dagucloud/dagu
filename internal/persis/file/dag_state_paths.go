@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	fileartifact "github.com/dagucloud/dagu/v2/internal/persis/file/artifact"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
@@ -35,14 +36,11 @@ type DAGStatePath struct {
 	To   string
 }
 
-// DAGStateKeys names the state of one DAG.
+// DAGStateKeys names the state that one DAG name keys.
 type DAGStateKeys struct {
 	// Name is the DAG's name, which keys its runs, logs, artifacts, DAG
-	// state, and slot index.
+	// state, slot index, and own queue.
 	Name string
-	// FileName is the name of the DAG's file without its extension, which
-	// keys its suspend flag, DAG settings, scheduler record, and webhook.
-	FileName string
 	// OwnQueue reports that the DAG's runs queue in the queue of its own
 	// name, which no other DAG uses.
 	OwnQueue bool
@@ -61,15 +59,15 @@ type rootEntry struct {
 // kept by date, which no DAG's directory of artifacts is.
 var legacyArtifactDirPattern = regexp.MustCompile(`^[0-9]{4}$`)
 
-// DAGStatePaths returns each file and directory that holds state of the DAG
-// keys names in the stores on from, paired with where the stores on to keep
-// it: its runs, ephemeral runs, run work directories, logs, artifacts,
-// queue, suspend flag, the DAG state it keeps for itself and for its
-// sub-DAG runs, DAG settings, scheduler record, slot index, and webhook.
-// Both are a project's paths while projects are on. A path that does not
-// exist is left out.
-func DAGStatePaths(ctx context.Context, from, to config.ProjectPaths, keys DAGStateKeys) ([]DAGStatePath, error) {
-	name, fileName := keys.Name, keys.FileName
+// DAGStatePaths returns each file and directory that holds state that the
+// DAG name of keys keys in the stores on from, paired with where the stores
+// on to keep it: its runs, ephemeral runs, run work directories, logs,
+// artifacts, queue, the DAG state it keeps for itself and for its sub-DAG
+// runs, and slot index. Both are a project's paths while projects are on.
+// A path that does not exist is left out. DAGFileStatePaths returns the
+// state that a DAG's file name keys.
+func DAGStatePaths(from, to config.ProjectPaths, keys DAGStateKeys) ([]DAGStatePath, error) {
+	name := keys.Name
 	roots := stateRoots(from, to)
 	entries := []rootEntry{
 		{&roots.runs, filedagrun.DAGDirName(roots.runs.From, name)},
@@ -77,7 +75,6 @@ func DAGStatePaths(ctx context.Context, from, to config.ProjectPaths, keys DAGSt
 		{&roots.work, filedagrun.DAGDirName(roots.work.From, name)},
 		{&roots.logs, fileutil.SafeKey(name)},
 		{&roots.artifacts, fileutil.SafeKey(name)},
-		{&roots.suspend, dagindex.SuspendFlagName(fileName)},
 		{&roots.slots, hex.EncodeToString([]byte(name))},
 	}
 	if keys.OwnQueue {
@@ -109,9 +106,18 @@ func DAGStatePaths(ctx context.Context, from, to config.ProjectPaths, keys DAGSt
 	if err != nil {
 		return nil, err
 	}
-	paths = append(paths, artifacts...)
+	return append(paths, artifacts...), nil
+}
 
-	// The records the API and the scheduler keep by the DAG's file name.
+// DAGFileStatePaths returns each file that holds state that the file name
+// fileName, without its extension, keys in the stores on from, paired with
+// where the stores on to keep it: the DAG's suspend flag, DAG settings,
+// scheduler record, and webhook. A file that does not exist is left out.
+func DAGFileStatePaths(ctx context.Context, from, to config.ProjectPaths, fileName string) ([]DAGStatePath, error) {
+	var paths []DAGStatePath
+	if err := appendExisting(&paths, from.SuspendFlagsDir, to.SuspendFlagsDir, dagindex.SuspendFlagName(fileName)); err != nil {
+		return nil, err
+	}
 	fromSpecs, toSpecs := projectCollectionSpecs(from), projectCollectionSpecs(to)
 	records := []struct{ collection, id string }{
 		{persis.CollectionDAGSettings, fileName},
@@ -139,9 +145,11 @@ func DAGStatePaths(ctx context.Context, from, to config.ProjectPaths, keys DAGSt
 
 // DAGRunPaths returns the run directories of the runs of the DAG called
 // name in the stores on from, the default project's, that dest places in
-// another project by the labels each run recorded, paired with their places
-// in that project's stores, together with each run's directories of logs
-// and artifacts in from's own directories.
+// another project by the labels each run's latest attempt recorded, paired
+// with their places in that project's stores. Each such run takes along its
+// queue item and, in from's own directories, the logs of every attempt and
+// its artifacts. A directory that holds the logs of other runs as well, as
+// in an older layout, stays; its run's files move one by one.
 func DAGRunPaths(
 	ctx context.Context, cfg *config.Config, from config.ProjectPaths, name string,
 	dest func(labels []string) (config.ProjectPaths, bool),
@@ -156,22 +164,19 @@ func DAGRunPaths(
 		runpath.Dirs{Log: cfg.Paths.LogDir, Artifact: cfg.Paths.ArtifactDir},
 		true,
 	)
+	queue := escapeSegment(name, true)
 	var paths []DAGStatePath
 	for _, runDir := range runDirs {
-		run, err := filedagrun.NewDAGRun(runDir)
+		statuses, err := runStatuses(ctx, runDir)
 		if err != nil {
 			return nil, err
 		}
-		attempt, err := run.LatestAttempt(ctx, nil)
-		if err != nil {
+		if len(statuses) == 0 {
 			// A run without a readable attempt stays in from.
 			continue
 		}
-		status, err := attempt.ReadStatus(ctx)
-		if err != nil {
-			continue
-		}
-		to, ok := dest(status.Labels)
+		latest := statuses[0]
+		to, ok := dest(latest.Labels)
 		if !ok {
 			continue
 		}
@@ -180,24 +185,91 @@ func DAGRunPaths(
 			return nil, err
 		}
 		paths = append(paths, DAGStatePath{From: runDir, To: filepath.Join(to.DAGRunsDir, rel)})
-		if status.Log != "" {
-			if err := appendWithin(&paths, from.LogDir, to.LogDir, filepath.Dir(mapper.ResolveLog(status.Log))); err != nil {
-				return nil, err
-			}
-		}
-		if status.ArchiveDir != "" {
-			dir := mapper.ResolveArtifact(status.ArchiveDir)
-			if err := appendWithin(&paths, from.ArtifactDir, to.ArtifactDir, dir); err != nil {
-				return nil, err
-			}
-			if meta, ok := artifactpath.MetaPath(from.ArtifactDir, dir); ok {
-				if err := appendWithin(&paths, from.ArtifactDir, to.ArtifactDir, meta); err != nil {
+		for _, status := range statuses {
+			for _, log := range runLogs(status) {
+				if err := appendRunLog(&paths, from.LogDir, to.LogDir, mapper.ResolveLog(log)); err != nil {
 					return nil, err
 				}
 			}
+			if status.ArchiveDir != "" {
+				dir := mapper.ResolveArtifact(status.ArchiveDir)
+				if err := appendWithin(&paths, from.ArtifactDir, to.ArtifactDir, dir); err != nil {
+					return nil, err
+				}
+				if meta, ok := artifactpath.MetaPath(from.ArtifactDir, dir); ok {
+					if err := appendWithin(&paths, from.ArtifactDir, to.ArtifactDir, meta); err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
+		items, err := filepath.Glob(filepath.Join(queueDirOf(from), queue, "item_*_"+latest.DAGRunID+".json"))
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			paths = append(paths, DAGStatePath{From: item, To: filepath.Join(queueDirOf(to), queue, filepath.Base(item))})
 		}
 	}
 	return paths, nil
+}
+
+// queueDirOf returns the directory of the queues of the stores on p.
+func queueDirOf(p config.ProjectPaths) string {
+	return projectCollectionSpecs(p)[persis.CollectionQueue].dir
+}
+
+// runStatuses returns the status of each attempt of the run in runDir that
+// can be read, the latest first.
+func runStatuses(ctx context.Context, runDir string) ([]*ir.DAGRunStatus, error) {
+	run, err := filedagrun.NewDAGRun(runDir)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(runDir)
+	if err != nil {
+		return nil, err
+	}
+	var statuses []*ir.DAGRunStatus
+	for i := len(entries) - 1; i >= 0; i-- {
+		if !entries[i].IsDir() || !filedagrun.IsAttemptDirName(entries[i].Name()) {
+			continue
+		}
+		attempt, err := run.AttemptByDir(entries[i].Name(), nil)
+		if err != nil {
+			continue
+		}
+		if status, err := attempt.ReadStatus(ctx); err == nil {
+			statuses = append(statuses, status)
+		}
+	}
+	return statuses, nil
+}
+
+// runLogs returns the log and step output paths that status records.
+func runLogs(status *ir.DAGRunStatus) []string {
+	logs := []string{status.Log}
+	for _, node := range status.Nodes {
+		if node != nil {
+			logs = append(logs, node.Stdout, node.Stderr)
+		}
+	}
+	return slices.DeleteFunc(logs, func(log string) bool { return log == "" })
+}
+
+// appendRunLog adds the directory of one run's logs that holds the log at
+// path, <DAG>/<run>/ in fromDir, paired with its place in toDir. A log kept
+// directly in a DAG's directory, which other runs share, moves on its own.
+func appendRunLog(paths *[]DAGStatePath, fromDir, toDir, path string) error {
+	rel, err := filepath.Rel(fromDir, path)
+	if err != nil {
+		return nil
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	if len(parts) > 2 {
+		path = filepath.Join(fromDir, parts[0], parts[1])
+	}
+	return appendWithin(paths, fromDir, toDir, path)
 }
 
 // DAGStateRoots returns the directories of the stores on from that DAG

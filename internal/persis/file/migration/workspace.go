@@ -54,7 +54,7 @@ type scannedDAG struct {
 // registered by an earlier attempt keeps its ID and name and gets the
 // records of the current files, so a resumed plan places state in the same
 // projects.
-func workspaceMovePlanner(cfg *config.Config) func(context.Context) ([]move, error) {
+func workspaceMovePlanner(cfg *config.Config, sameFileSystem func(a, b string) (bool, error)) func(context.Context) ([]move, error) {
 	return func(ctx context.Context) ([]move, error) {
 		workspaces, err := v2Workspaces(ctx, cfg)
 		if err != nil || len(workspaces) == 0 {
@@ -68,7 +68,7 @@ func workspaceMovePlanner(cfg *config.Config) func(context.Context) ([]move, err
 		if err != nil {
 			return nil, err
 		}
-		return planWorkspaceMoves(ctx, cfg, names, dags)
+		return planWorkspaceMoves(ctx, cfg, names, dags, sameFileSystem)
 	}
 }
 
@@ -157,12 +157,18 @@ func registerWorkspaces(
 	if err != nil {
 		return nil, err
 	}
+	fileOwner := fileStateOwners(dags)
 	for _, ws := range workspaces {
 		in := project.CreateInput{Name: names[ws], DisplayName: ws, MigratedFrom: ws}
 		for _, dag := range dags {
-			if dag.workspace == ws {
+			if dag.workspace != ws {
+				continue
+			}
+			in.InPlaceFiles = append(in.InPlaceFiles, dag.path)
+			// v2's webhook URL of the file name reaches the project that
+			// gets its webhook.
+			if fileOwner[planKey(dag.fileName)] == ws && !slices.Contains(in.MigratedDAGs, dag.fileName) {
 				in.MigratedDAGs = append(in.MigratedDAGs, dag.fileName)
-				in.InPlaceFiles = append(in.InPlaceFiles, dag.path)
 			}
 		}
 		p, err := registry.RegisterMigrated(ctx, in)

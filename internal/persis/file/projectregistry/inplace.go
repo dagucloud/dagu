@@ -14,6 +14,8 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/project"
 )
 
@@ -60,7 +62,8 @@ func (rec *inPlaceRecords) InPlaceOwner(ctx context.Context, path string) (strin
 			if !ended {
 				return e.Name, nil
 			}
-			return "", rec.registry.endInPlace(ctx, e.ID, []string{file})
+			rec.end(ctx, e, []string{file})
+			return "", nil
 		}
 	}
 	return "", nil
@@ -88,11 +91,19 @@ func (rec *inPlaceRecords) InPlaceFiles(ctx context.Context, name string) ([]str
 		}
 	}
 	if len(ended) > 0 {
-		if err := rec.registry.endInPlace(ctx, entries[i].ID, ended); err != nil {
-			return nil, err
-		}
+		rec.end(ctx, entries[i], ended)
 	}
 	return files, nil
+}
+
+// end stores the end of the records of files of the project of e. A read
+// that fails to store it still treats the records as ended, and the next
+// read that sees them tries again.
+func (rec *inPlaceRecords) end(ctx context.Context, e entry, files []string) {
+	if err := rec.registry.endInPlace(ctx, e.ID, files); err != nil {
+		logger.Warn(ctx, "Failed to record the end of files that ran in place; retrying on the next lookup",
+			tag.Name(e.Name), tag.Error(err))
+	}
 }
 
 // load returns the registry's entries, read again only when the file

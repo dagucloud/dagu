@@ -6,6 +6,7 @@ package projectregistry_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
@@ -112,6 +113,41 @@ func TestRegisterMigrated(t *testing.T) {
 	require.NoError(t, err)
 	_, err = reg.RegisterMigrated(ctx, project.CreateInput{Name: "OPS", MigratedFrom: "OPS"})
 	require.ErrorIs(t, err, project.ErrNameTaken)
+}
+
+// A lookup that cannot store the end of a record still treats the record
+// as ended, and a later lookup stores it.
+func TestInPlaceEndRetried(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a read-only directory still takes new files on Windows")
+	}
+	t.Parallel()
+	ctx := t.Context()
+	root := t.TempDir()
+	data, projects := filepath.Join(root, "data"), filepath.Join(root, "projects")
+	invoices := filepath.Join(root, "dags", "invoices.yaml")
+	reg := projectregistry.New(data)
+	_, err := reg.Create(ctx, project.CreateInput{Name: "billing", MigratedFrom: "billing", InPlaceFiles: []string{invoices}})
+	require.NoError(t, err)
+	moved := filepath.Join(projects, "billing", "invoices.yaml")
+	writeDAGFile(t, moved)
+	records := reg.InPlace(projects)
+
+	require.NoError(t, os.Chmod(data, 0o500))
+	files, err := records.InPlaceFiles(ctx, "billing")
+	require.NoError(t, os.Chmod(data, 0o700))
+	require.NoError(t, err)
+	require.Empty(t, files)
+	stored, err := os.ReadFile(filepath.Join(data, "projects.json"))
+	require.NoError(t, err)
+	require.Contains(t, string(stored), "invoices.yaml", "the end could not be stored")
+
+	files, err = records.InPlaceFiles(ctx, "billing")
+	require.NoError(t, err)
+	require.Empty(t, files)
+	stored, err = os.ReadFile(filepath.Join(data, "projects.json"))
+	require.NoError(t, err)
+	require.NotContains(t, string(stored), "invoices.yaml", "the next lookup stored the end")
 }
 
 func writeDAGFile(t *testing.T, path string) {

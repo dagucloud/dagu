@@ -997,13 +997,20 @@ Rules:
   settings, and the rest of its state move from v2's directories in
   `<data_dir>`, and its logs from the default log directory, into its state
   directories.
-- v2 keeps a DAG's runs and state by the DAG's name. When DAGs of more than
-  one project have the same name, each run of that name moves to the
-  project of the workspace that the run's labels name, or stays in the
-  default project when they name none, as v2 showed the run to that
-  workspace's users. The rest of the name's state, such as its suspend
-  flag, DAG settings, and DAG state, stays in the default project, and the
-  report lists the name.
+- v2 keeps a DAG's runs, logs, artifacts, DAG state, slot index, and own
+  queue by the DAG's name. When DAGs of more than one project have the same
+  name, each run of that name moves with its logs, artifacts, and queue
+  item to the project of the workspace that the run's labels name, or
+  stays in the default project when they name none, as v2 showed the run
+  to that workspace's users. The rest of the name's state stays in the
+  default project, and the report lists the name.
+- v2 keeps a DAG's suspend flag, DAG settings, scheduler record, and
+  webhook by its file's name, so they move with the file to its project.
+  When files of more than one project have the same name, they stay in the
+  default project when it has such a file, else move to the project of the
+  one whose path sorts first, so v2's webhook URL of the name keeps reaching a DAG
+  that holds its webhook. A suspend flag is copied to each project with
+  such a file, so no suspended DAG resumes. The report lists the name.
 - State moves by rename. A directory on another file system, such as one
   that `paths.queue_dir` placed, is copied.
 - A v2 directory that is a symbolic link or a junction moves as a link.
@@ -1188,6 +1195,7 @@ attention:
   so the file in `<projects_dir>/X/` runs in its place
 - each DAG name that DAGs of more than one project share, whose state
   other than its runs stays in the default project
+- each DAG file name that files of more than one project share
 
 The text of the report is not part of this contract. For example:
 

@@ -150,7 +150,7 @@ func New(
 	stopRuns func(context.Context) ([]string, error),
 ) *Migrator {
 	dir := filepath.Join(cfg.Paths.DataDir, dirName)
-	return &Migrator{
+	m := &Migrator{
 		journal: journal{dir: dir},
 		lock: dirlock.New(dir, &dirlock.LockOptions{
 			StaleThreshold:   lockStaleThreshold,
@@ -159,11 +159,14 @@ func New(
 		services:  services,
 		mover:     newMover(),
 		stopRuns:  stopRuns,
-		planMoves: versionPlanner(cfg),
 		pollTicks: newPollTicker,
 		now:       time.Now,
 		progress:  Progress{Phase: phaseStarting},
 	}
+	// The planner asks the mover, which tests replace, which paths share a
+	// file system.
+	m.planMoves = versionPlanner(cfg, func(a, b string) (bool, error) { return m.mover.sameFileSystem(a, b) })
+	return m
 }
 
 func newPollTicker() (<-chan time.Time, func()) {

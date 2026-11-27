@@ -11,12 +11,14 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -26,6 +28,9 @@ const (
 	// attentionSharedName is the kind of an attention item for a DAG name
 	// that DAGs of more than one project share.
 	attentionSharedName = "shared-dag-name"
+	// attentionSharedFileName is the kind of an attention item for a DAG
+	// file name that files of more than one project share.
+	attentionSharedFileName = "shared-dag-file-name"
 	// setApartDirName holds the state of each project beside the others in
 	// a path set apart, and beside a link's target.
 	setApartDirName = ".projects"
@@ -50,13 +55,23 @@ type attentionItem struct {
 // from the default project into the project of its workspace, names giving
 // each workspace's project.
 //
-// v2 keeps a DAG's state by its name, so DAGs of the same name share it. A
-// name that only one project's DAGs have moves with all its state. For a
-// name that DAGs of several projects have, each run moves to the project of
-// the workspace that the run's labels name, as v2 showed it to that
-// workspace's users, and the rest of the name's state stays in the default
-// project; the name is recorded for the migration report.
-func planWorkspaceMoves(ctx context.Context, cfg *config.Config, names map[string]string, dags []scannedDAG) ([]move, error) {
+// v2 keeps most of a DAG's state by the DAG's name, so DAGs of the same name
+// share it. A name that only one project's DAGs have moves with all of that
+// state. For a name that DAGs of several projects have, each run moves to
+// the project of the workspace that the run's labels name, as v2 showed it
+// to that workspace's users, and the rest stays in the default project.
+//
+// v2 keeps the suspend flag, DAG settings, scheduler record, and webhook of
+// a DAG by its file's name, which follows its file's project; see
+// fileStateOwners. A suspend flag that files of several projects share is
+// copied to each of them, so no suspended DAG resumes.
+//
+// Each name or file name that several projects share is recorded for the
+// migration report.
+func planWorkspaceMoves(
+	ctx context.Context, cfg *config.Config, names map[string]string, dags []scannedDAG,
+	sameFileSystem func(a, b string) (bool, error),
+) ([]move, error) {
 	from, err := cfg.ProjectPaths(project.DefaultName)
 	if err != nil {
 		return nil, err
@@ -67,23 +82,19 @@ func planWorkspaceMoves(ctx context.Context, cfg *config.Config, names map[strin
 		if err != nil {
 			return nil, err
 		}
-		if err := linkStateRoots(from, to, name); err != nil {
+		if err := linkStateRoots(ctx, from, to, name, sameFileSystem); err != nil {
 			return nil, err
 		}
 		paths[ws] = to
 	}
-
-	owners := make(map[string][]string)
+	projectOf := func(ws string) string {
+		if ws == "" {
+			return project.DefaultName
+		}
+		return names[ws]
+	}
 	allNames := make([]string, 0, len(dags))
 	for _, dag := range dags {
-		owner := project.DefaultName
-		if dag.workspace != "" {
-			owner = names[dag.workspace]
-		}
-		key := strings.ToLower(dag.name)
-		if !slices.Contains(owners[key], owner) {
-			owners[key] = append(owners[key], owner)
-		}
 		allNames = append(allNames, dag.name)
 	}
 	byRunLabels := func(labels []string) (config.ProjectPaths, bool) {
@@ -95,18 +106,18 @@ func planWorkspaceMoves(ctx context.Context, cfg *config.Config, names map[strin
 	var (
 		moves     []move
 		attention []attentionItem
-		planned   = make(map[string]bool)
 	)
+	nameOwners := groupOwners(dags, func(dag scannedDAG) string { return dag.name })
+	planned := make(map[string]bool)
 	for _, dag := range dags {
-		key := strings.ToLower(dag.name)
+		key := planKey(dag.name)
 		if dag.workspace == "" || planned[key] {
 			continue
 		}
 		planned[key] = true
 		var found []persisfile.DAGStatePath
-		if shared := owners[key]; len(shared) > 1 {
-			slices.Sort(shared)
-			attention = append(attention, attentionItem{Kind: attentionSharedName, DAG: dag.name, Projects: shared})
+		if owners := nameOwners[key]; len(owners) > 1 {
+			attention = append(attention, sharedItem(attentionSharedName, dag.name, owners, projectOf))
 			for _, spelling := range spellings(dags, key) {
 				runs, err := persisfile.DAGRunPaths(ctx, cfg, from, spelling, byRunLabels)
 				if err != nil {
@@ -115,9 +126,8 @@ func planWorkspaceMoves(ctx context.Context, cfg *config.Config, names map[strin
 				found = append(found, runs...)
 			}
 		} else {
-			found, err = persisfile.DAGStatePaths(ctx, from, paths[dag.workspace], persisfile.DAGStateKeys{
+			found, err = persisfile.DAGStatePaths(from, paths[dag.workspace], persisfile.DAGStateKeys{
 				Name:     dag.name,
-				FileName: dag.fileName,
 				OwnQueue: ownsQueue(cfg, dags, dag),
 				Others:   slices.DeleteFunc(slices.Clone(allNames), func(n string) bool { return n == dag.name }),
 			})
@@ -125,22 +135,136 @@ func planWorkspaceMoves(ctx context.Context, cfg *config.Config, names map[strin
 				return nil, err
 			}
 		}
-		for _, path := range found {
-			moves = append(moves, move{From: path.From, To: path.To})
-		}
+		moves = appendMoves(moves, found)
 	}
+
+	fileOwner := fileStateOwners(dags)
+	fileOwners := groupOwners(dags, func(dag scannedDAG) string { return dag.fileName })
+	flagOwners := groupOwners(dags, func(dag scannedDAG) string { return dagindex.SuspendFlagName(dag.fileName) })
+	planned = make(map[string]bool)
+	for _, dag := range dags {
+		key := planKey(dag.fileName)
+		if planned[key] {
+			continue
+		}
+		planned[key] = true
+		if owners := fileOwners[key]; len(owners) > 1 {
+			attention = append(attention, sharedItem(attentionSharedFileName, dag.fileName, owners, projectOf))
+		}
+		flag := dagindex.SuspendFlagName(dag.fileName)
+		flagShared := len(flagOwners[planKey(flag)]) > 1
+		if flagShared {
+			for _, ws := range flagOwners[planKey(flag)] {
+				if ws != "" {
+					if err := copySuspendFlag(from, paths[ws], flag); err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
+		ws := fileOwner[key]
+		if ws == "" {
+			continue
+		}
+		found, err := persisfile.DAGFileStatePaths(ctx, from, paths[ws], dag.fileName)
+		if err != nil {
+			return nil, err
+		}
+		if flagShared {
+			found = slices.DeleteFunc(found, func(p persisfile.DAGStatePath) bool {
+				return p.From == filepath.Join(from.SuspendFlagsDir, flag)
+			})
+		}
+		moves = appendMoves(moves, found)
+	}
+
 	if err := (journal{dir: filepath.Join(cfg.Paths.DataDir, dirName)}).writeJSON(attentionFileName, attentionFile{Items: attention}); err != nil {
 		return nil, err
 	}
 	return uniqueMoves(moves), nil
 }
 
-// spellings returns each spelling, among dags, of the DAG name whose lower
-// case is key. File systems that ignore case keep their state in one place.
+// fileStateOwners returns, by planKey of a file name, the workspace whose
+// project gets the state v2 keeps by that file name, "" for the default
+// project. Files of one name in several projects, which only recursive
+// discovery finds, leave it in the default project when it has such a file,
+// else give it to the project of the one whose path sorts first, as dags
+// are sorted, so v2's webhook URL of the name keeps reaching a DAG with its
+// webhook.
+func fileStateOwners(dags []scannedDAG) map[string]string {
+	owners := make(map[string]string)
+	for _, dag := range dags {
+		key := planKey(dag.fileName)
+		owner, seen := owners[key]
+		switch {
+		case !seen:
+			owners[key] = dag.workspace
+		case owner != "" && dag.workspace == "":
+			owners[key] = ""
+		}
+	}
+	return owners
+}
+
+// groupOwners returns, by planKey of the key of each DAG of dags, the
+// workspaces of the DAGs with that key, "" for the default project, in the
+// order of dags.
+func groupOwners(dags []scannedDAG, key func(scannedDAG) string) map[string][]string {
+	owners := make(map[string][]string)
+	for _, dag := range dags {
+		k := planKey(key(dag))
+		if !slices.Contains(owners[k], dag.workspace) {
+			owners[k] = append(owners[k], dag.workspace)
+		}
+	}
+	return owners
+}
+
+// sharedItem returns the attention item of kind for the name that the
+// workspaces owners share.
+func sharedItem(kind, name string, owners []string, projectOf func(string) string) attentionItem {
+	projects := make([]string, 0, len(owners))
+	for _, ws := range owners {
+		projects = append(projects, projectOf(ws))
+	}
+	slices.Sort(projects)
+	return attentionItem{Kind: kind, DAG: name, Projects: projects}
+}
+
+// copySuspendFlag copies the suspend flag of the default project's stores
+// on from to the stores on to, unless to holds it already.
+func copySuspendFlag(from, to config.ProjectPaths, flag string) error {
+	data, err := fileutil.ReadFile(filepath.Join(from.SuspendFlagsDir, flag))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("plan the migration: %w", err)
+	}
+	target := filepath.Join(to.SuspendFlagsDir, flag)
+	if found, err := exists(target); err != nil || found {
+		return err
+	}
+	if err := fileutil.MkdirAll(to.SuspendFlagsDir, dirPerm); err != nil {
+		return err
+	}
+	return fileutil.WriteFileAtomic(target, data, filePerm)
+}
+
+func appendMoves(moves []move, paths []persisfile.DAGStatePath) []move {
+	for _, path := range paths {
+		moves = append(moves, move{From: path.From, To: path.To})
+	}
+	return moves
+}
+
+// spellings returns each spelling, among dags, of the DAG name whose
+// planKey is key. File systems that ignore case keep their state in one
+// place.
 func spellings(dags []scannedDAG, key string) []string {
 	var names []string
 	for _, dag := range dags {
-		if strings.ToLower(dag.name) == key && !slices.Contains(names, dag.name) {
+		if planKey(dag.name) == key && !slices.Contains(names, dag.name) {
 			names = append(names, dag.name)
 		}
 	}
@@ -176,11 +300,16 @@ func uniqueMoves(moves []move) []move {
 }
 
 // linkStateRoots keeps on the disk a link leads to the state that moves
-// from a store directory of from that is a symbolic link or a junction, as
-// version 2 kept the default project's: the directory of to becomes a link
-// to a directory beside the default project's in the link's target, so the
-// state moves by rename. A directory of to that exists is left as it is.
-func linkStateRoots(from, to config.ProjectPaths, name string) error {
+// from a store directory of from that is a symbolic link or a junction to
+// another file system, as version 2 kept the default project's: the
+// directory of to becomes a link to a directory beside the default
+// project's in the link's target, so the state moves by rename. Where the
+// link cannot be made, as on Windows without the privilege to create
+// symbolic links, the directory stays plain and the state is copied. A
+// directory of to that exists is left as it is.
+func linkStateRoots(
+	ctx context.Context, from, to config.ProjectPaths, name string, sameFileSystem func(a, b string) (bool, error),
+) error {
 	for _, root := range persisfile.DAGStateRoots(from, to) {
 		info, err := os.Lstat(root.From)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -207,20 +336,28 @@ func linkStateRoots(from, to config.ProjectPaths, name string) error {
 		if err != nil {
 			return fmt.Errorf("plan the migration: %w", err)
 		}
+		same, err := sameFileSystem(real, root.To)
+		if err != nil {
+			return fmt.Errorf("plan the migration: %w", err)
+		}
+		if same {
+			continue
+		}
 		target := filepath.Join(real, setApartDirName, name)
 		if filepath.Base(real) == project.DefaultName && filepath.Base(filepath.Dir(real)) == setApartDirName {
 			target = filepath.Join(filepath.Dir(real), name)
-		}
-		if err := fileutil.MkdirAll(target, dirPerm); err != nil {
-			return err
 		}
 		if err := fileutil.MkdirAll(filepath.Dir(root.To), dirPerm); err != nil {
 			return err
 		}
 		if err := os.Symlink(target, root.To); err != nil {
-			return fmt.Errorf("keep the state of project %s in %s on its disk with the link %s: %w; "+
-				"making a link needs the privilege to create symbolic links (on Windows, Developer Mode or "+
-				"an elevated process)", name, target, root.To, err)
+			logger.Warn(ctx, "Copying a project's state off the disk a link leads to, since the link cannot be made; "+
+				"on Windows, creating symbolic links needs Developer Mode or an elevated process",
+				tag.Name(name), tag.Path(root.To), tag.Error(err))
+			continue
+		}
+		if err := fileutil.MkdirAll(target, dirPerm); err != nil {
+			return errors.Join(err, fileutil.Remove(root.To))
 		}
 	}
 	return nil

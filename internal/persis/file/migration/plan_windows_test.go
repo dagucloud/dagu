@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -60,4 +61,30 @@ func TestRunKeepsSplitJunctionOnItsDisk(t *testing.T) {
 	assert.FileExists(t, filepath.Join(logs, "etl", "run_1.log"))
 	assert.FileExists(t, filepath.Join(disk, ".projects", "default", "etl", "run_1.log"), "the logs stay where the junction leads")
 	assert.FileExists(t, filepath.Join(cfg.Paths.LogDir, "admin", "audit", "a.jsonl"))
+}
+
+// A workspace whose DAG's runs v2 kept through a junction migrates without
+// the privilege to create symbolic links. The planner takes the junction
+// for one to another volume, so it tries to link the project's directory
+// beside it, and copies the runs when it cannot.
+func TestRunMigratesWorkspaceThroughJunction(t *testing.T) {
+	t.Parallel()
+	in := newWorkspaceInstall(t)
+	runs := in.cfg.Paths.DAGRunsDir
+	disk := filepath.Join(in.root, "disk", "dag-runs")
+	require.NoError(t, os.MkdirAll(filepath.Dir(disk), 0o750))
+	require.NoError(t, os.Rename(runs, disk))
+	out, err := exec.Command("cmd", "/c", "mklink", "/J", runs, disk).CombinedOutput()
+	require.NoError(t, err, "%s", out)
+	m := newStateMigrator(t, in.cfg)
+	billing := filepath.Join(in.cfg.Paths.DataDir, "projects", "billing")
+	m.mover.sameFileSystem = func(_, b string) (bool, error) {
+		return !strings.HasPrefix(strings.ToLower(b), strings.ToLower(billing)), nil
+	}
+
+	require.NoError(t, m.Run(context.Background()))
+
+	assert.FileExists(t, filepath.Join(billing, "runs", "invoices", "dag-runs", "2026", "01", "02", "dag-run_1", "status.jsonl"))
+	assert.FileExists(t, filepath.Join(in.cfg.Paths.DataDir, "projects", "con-2", "runs", "deploy",
+		"dag-runs", "2026", "01", "02", "dag-run_4", "status.jsonl"))
 }
