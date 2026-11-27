@@ -4,6 +4,8 @@
 package store_test
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -190,6 +192,49 @@ func TestWorkerCertificateStore_RecordHeartbeatRepairsRecord(t *testing.T) {
 			assert.Equal(t, beat, getCertificate(t, s, "cert-1"))
 		})
 	}
+}
+
+// Two coordinators repair one unreadable record. The one with the older
+// report read the file before the newer report replaced it, and the newer
+// report stays.
+func TestWorkerCertificateStore_RecordHeartbeatRepairKeepsNewerReport(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	dataDir := t.TempDir()
+	path := filepath.Join(dataDir, "worker-certificates", "certs", "cert-1.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("{"), 0o600))
+	openCollection := func() *file.Collection {
+		return file.NewBackend(config.PathsConfig{DataDir: dataDir}).Collection(persis.CollectionWorkerCertificates).(*file.Collection)
+	}
+	first, err := store.NewWorkerCertificateStore(openCollection())
+	require.NoError(t, err)
+	second, err := store.NewWorkerCertificateStore(&staleCorruptRead{Collection: openCollection()})
+	require.NoError(t, err)
+
+	newer := workerCertificate("cert-1")
+	newer.LastHeartbeatAt = enrolledAt.Add(time.Hour)
+	require.NoError(t, first.RecordHeartbeat(ctx, newer))
+	older := workerCertificate("cert-1")
+	older.WorkerID = "worker-older"
+	require.NoError(t, second.RecordHeartbeat(ctx, older))
+
+	assert.Equal(t, newer, getCertificate(t, first, "cert-1"))
+}
+
+// staleCorruptRead answers its first Get with the unreadable file it saw
+// before another client repaired it.
+type staleCorruptRead struct {
+	*file.Collection
+	served bool
+}
+
+func (c *staleCorruptRead) Get(ctx context.Context, id string) (*persis.Record, error) {
+	if !c.served {
+		c.served = true
+		return nil, fmt.Errorf("file backend: %w at %q: invalid JSON", persis.ErrCorrupt, id)
+	}
+	return c.Collection.Get(ctx, id)
 }
 
 func TestWorkerCertificateStore_RecordHeartbeat(t *testing.T) {

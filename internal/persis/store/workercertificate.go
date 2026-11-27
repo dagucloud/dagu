@@ -200,12 +200,12 @@ func (s *WorkerCertificateStore) RecordHeartbeat(ctx context.Context, cert persi
 			// The stored payload cannot be read, so the report replaces it.
 		case errors.Is(err, persis.ErrCorrupt):
 			// The stored file cannot be read at all, so no compare-and-swap
-			// can match it. The report replaces it.
-			rec, err := encodeWorkerCertificate(cert)
-			if err != nil {
-				return err
-			}
-			return s.col.Put(ctx, rec)
+			// can match it. It is removed only while still unreadable, and
+			// the report is then created, so a repair that read the file
+			// before a newer report replaced it does not overwrite that
+			// report.
+			_, retryErr := removeCorruptRecordForRetry(ctx, s.col, workerCertificatePrefix+cert.ID, err)
+			return retryErr
 		default:
 			return err
 		}
