@@ -507,8 +507,12 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []serviceregistr
 			continue
 		}
 
-		// Check if the coordinator is healthy
-		if err := cli.isHealthy(ctx, client); err != nil {
+		// Check if the coordinator is healthy. The check changes nothing, so
+		// it ends as soon as the call's attempts stop.
+		healthCtx, cancelHealth := contextUntilAttemptStop(ctx)
+		err = cli.isHealthy(healthCtx, client)
+		cancelHealth()
+		if err != nil {
 			logger.Warn(ctx, "Failed to check coordinator health",
 				slog.String("coordinator-id", member.ID),
 				tag.Host(member.Host),
