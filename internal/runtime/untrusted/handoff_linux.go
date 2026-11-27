@@ -69,12 +69,6 @@ func isGitFolder(fd int) bool {
 	return hasChild(fd, "HEAD", 0) && hasChild(fd, "objects", 0) && hasChild(fd, "refs", 0)
 }
 
-// within reports whether path is root or a path below it.
-func within(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
-}
-
 // insideWork reports whether path is the work directory or a path below it.
 func (iso *isolation) insideWork(path string) bool {
 	return within(iso.workDir, path) || within(iso.lexicalWork, path)
@@ -679,12 +673,14 @@ func (iso *isolation) checkGitRemoved() error {
 // back, through the descriptor that the isolation kept.
 func (iso *isolation) restoreModes() error {
 	var errs []error
-	for path, dir := range iso.protected {
-		if err := chmodFDPath(dir.fd, path, dir.mode); err != nil {
-			errs = append(errs, stepError(iso.step, "change the mode of", path, err))
+	for _, dirs := range []map[string]protectedDir{iso.protected, iso.passDirs} {
+		for path, dir := range dirs {
+			if err := chmodFDPath(dir.fd, path, dir.mode); err != nil {
+				errs = append(errs, stepError(iso.step, "change the mode of", path, err))
+			}
+			_ = unix.Close(dir.fd)
+			delete(dirs, path)
 		}
-		_ = unix.Close(dir.fd)
-		delete(iso.protected, path)
 	}
 	return errors.Join(errs...)
 }

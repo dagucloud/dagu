@@ -75,6 +75,11 @@ type Request struct {
 	Config config.UntrustedConfig
 	// WorkDir is the work directory of the run (DAG_RUN_WORK_DIR).
 	WorkDir string
+	// ManagedRoot is the root of the work directories that Dagu makes for
+	// its runs (paths.dag_run_work_dir). A folder of a run below it can get
+	// the bit x for others during the step, so that the restricted user can
+	// reach the work directory.
+	ManagedRoot string
 	// WorkingDir is the working directory of the step. It must be in WorkDir.
 	WorkingDir string
 	// OutputLimit is the size limit of the output file.
@@ -304,6 +309,15 @@ func CheckWorkDir(workDir string) error {
 	default:
 		return fmt.Errorf("read %s: %w: %w", marker, err, ErrRunAborted)
 	}
+}
+
+// ShareReadOnly lets the restricted user read the regular file at path and not
+// write it; no other user can read it. Without isolation, it does nothing.
+func (s *Step) ShareReadOnly(path string) error {
+	if !s.Isolated() {
+		return nil
+	}
+	return s.iso.shareReadOnly(path)
 }
 
 func writeLine(w io.Writer, line string) {

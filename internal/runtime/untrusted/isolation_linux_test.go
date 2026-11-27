@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -242,6 +243,33 @@ func TestIsolatedStepPlace(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "symbolic link")
 	assert.NoDirExists(t, filepath.Join(outside, "x"))
+}
+
+// A shared file, such as the script of a step, keeps the worker as owner and
+// gets the group of the restricted user with the mode 0440: the restricted
+// user reads it and cannot write it, and no other user can read it.
+func TestIsolatedStepSharesAFileReadOnly(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	// The system temp folder holds the script of a step.
+	dir, err := os.MkdirTemp("", "dagu-untrusted-share-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	require.NoError(t, os.Chmod(dir, 0o755))
+	script := filepath.Join(dir, "script.sh")
+	require.NoError(t, os.WriteFile(script, []byte("echo shared\n"), 0o750))
+
+	require.NoError(t, step.ShareReadOnly(script))
+	info, err := os.Lstat(script)
+	require.NoError(t, err)
+	assert.Equal(t, fs.FileMode(0o440), info.Mode().Perm())
+	uid, gid := ownerOf(info)
+	assert.Equal(t, []int{os.Geteuid(), testGID}, []int{uid, gid})
+	out := runAs(t, WithStep(ctx, step), workDir, `sh `+script+`; (echo x >> `+script+`) 2>/dev/null && echo write:allowed || echo write:denied`)
+	assert.Equal(t, "shared\nwrite:denied\n", out)
 }
 
 // A device node in the work directory, also in .git, fails the step: as its
@@ -1151,4 +1179,153 @@ func ownerUID(t *testing.T, path string) int {
 	require.NoError(t, err)
 	uid, _ := ownerOf(info)
 	return uid
+}
+
+// waitEnded waits until the process pid has ended. Its parent has not reaped
+// it yet, so it stays a zombie.
+func waitEnded(t *testing.T, pid int) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+		if err != nil {
+			return false
+		}
+		// The state follows the command name, which is in parentheses.
+		i := bytes.LastIndexByte(data, ')')
+		return i >= 0 && i+2 < len(data) && data[i+2] == 'Z'
+	}, 10*time.Second, 10*time.Millisecond)
+}
+
+// requireWaitReturns fails when Wait of the process does not return soon,
+// as when a process it left still holds its pipe.
+func requireWaitReturns(t *testing.T, process *cmdutil.ManagedProcess) {
+	t.Helper()
+	waited := make(chan error, 1)
+	go func() { waited <- process.Wait() }()
+	select {
+	case err := <-waited:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the process left by the first one kept its pipe open")
+	}
+}
+
+// The end of a process of the step does not stop another process of the step
+// that runs, whichever of the two was prepared first, and also when no watcher
+// can follow the other process. Both are prepared before either starts, and
+// the process that ends starts first.
+func TestIsolatedStepKeepsAnotherProcess(t *testing.T) {
+	t.Run("prepared first", func(t *testing.T) { testKeepsAnotherProcess(t, true, false) })
+	t.Run("prepared last", func(t *testing.T) { testKeepsAnotherProcess(t, false, false) })
+	t.Run("unwatched", func(t *testing.T) { testKeepsAnotherProcess(t, true, true) })
+}
+
+func testKeepsAnotherProcess(t *testing.T, endingPreparedFirst, stayingUnwatched bool) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := Begin(ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = step.End(ctx) })
+
+	command := func(args ...string) *exec.Cmd {
+		cmd := exec.Command(args[0], args[1:]...) //nolint:gosec
+		cmd.Dir = workDir
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		return cmd
+	}
+	ending, staying := command("/bin/true"), command("/bin/sleep", "1000")
+	releases := make(map[*exec.Cmd]func())
+	prepare := func(cmd *exec.Cmd) {
+		release, err := step.prepare(cmd)
+		require.NoError(t, err)
+		releases[cmd] = release
+	}
+	if endingPreparedFirst {
+		prepare(ending)
+		prepare(staying)
+	} else {
+		prepare(staying)
+		prepare(ending)
+	}
+	start := func(cmd *exec.Cmd) *cmdutil.ManagedProcess {
+		process, err := cmdutil.StartManagedProcess(cmd)
+		releases[cmd]()
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = process.Release() })
+		step.iso.started(process.PID())
+		return process
+	}
+	endingProcess := start(ending)
+	if stayingUnwatched {
+		pidfdOpen = func(int, int) (int, error) { return -1, unix.EMFILE }
+		t.Cleanup(func() { pidfdOpen = unix.PidfdOpen })
+	}
+	stayingProcess := start(staying)
+
+	require.NoError(t, endingProcess.Wait())
+	ended := make(chan struct{})
+	go func() {
+		_ = stayingProcess.Wait()
+		close(ended)
+	}()
+	select {
+	case <-ended:
+		t.Fatal("the end of one process stopped the other one")
+	case <-time.After(time.Second):
+	}
+}
+
+// A process that fails to start does not keep the watcher of the process
+// before it from stopping what that process left: the leftover holds the
+// stdout pipe, so Wait returns only once the watcher stops it. The subtests
+// fail the second start before and after the first process ends.
+func TestIsolatedStepFailedStartKeepsTheCleanup(t *testing.T) {
+	t.Run("before", func(t *testing.T) { testFailedStartKeepsTheCleanup(t, false) })
+	t.Run("after", func(t *testing.T) { testFailedStartKeepsTheCleanup(t, true) })
+}
+
+func testFailedStartKeepsTheCleanup(t *testing.T, failAfterExit bool) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := Begin(ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = step.End(ctx) })
+	stepCtx := WithStep(ctx, step)
+
+	script := "sleep 1000 & sleep 1"
+	if failAfterExit {
+		script = "sleep 1000 &"
+	}
+	first := exec.Command("/bin/sh", "-c", script) //nolint:gosec
+	first.Dir = workDir
+	first.Env = []string{"PATH=/usr/bin:/bin"}
+	var stdout bytes.Buffer
+	first.Stdout = &stdout
+	failing := exec.Command(filepath.Join(workDir, "no-such-binary")) //nolint:gosec
+	failing.Dir = workDir
+
+	if failAfterExit {
+		// The failing start is prepared before the first process starts, so
+		// the first process ends while the other one is still starting. The
+		// start fails only after the watcher saw the end.
+		release, err := step.prepare(failing)
+		require.NoError(t, err)
+		defer release()
+		firstProcess, err := StartManagedProcess(stepCtx, first)
+		require.NoError(t, err)
+		defer func() { _ = firstProcess.Release() }()
+		waitEnded(t, firstProcess.PID())
+		time.Sleep(time.Second)
+		step.iso.abandon()
+		requireWaitReturns(t, firstProcess)
+		return
+	}
+	firstProcess, err := StartManagedProcess(stepCtx, first)
+	require.NoError(t, err)
+	defer func() { _ = firstProcess.Release() }()
+	_, err = StartManagedProcess(stepCtx, failing)
+	require.Error(t, err)
+	requireWaitReturns(t, firstProcess)
 }

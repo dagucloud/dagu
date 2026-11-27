@@ -32,6 +32,7 @@ func beginUntrustedStep(ctx context.Context, node *Node) (context.Context, *untr
 		StepName:    step.Name,
 		Config:      config.GetConfig(ctx).Untrusted,
 		WorkDir:     GetDAGContext(ctx).RunWorkDir,
+		ManagedRoot: config.GetConfig(ctx).Paths.DAGRunWorkDir,
 		WorkingDir:  env.WorkingDir,
 		OutputLimit: maxOutputSize(ctx),
 		LockDir:     config.GetConfig(ctx).Paths.DataDir,
@@ -46,6 +47,31 @@ func beginUntrustedStep(ctx context.Context, node *Node) (context.Context, *untr
 		ctx = WithEnv(ctx, env)
 	}
 	return ctx, session, nil
+}
+
+// withTrustedHome gives a trusted step of an isolated run a private HOME when
+// the restricted user can write the HOME of the worker (Spec 092, "Trusted
+// steps after an untrusted step"). Then a file that an untrusted step planted
+// there, such as a git config with hooks, does not reach the trusted step.
+func withTrustedHome(ctx context.Context, node *Node) (context.Context, error) {
+	cfg := config.GetConfig(ctx).Untrusted
+	if !cfg.Enabled {
+		return ctx, nil
+	}
+	env, ok := LookupEnv(ctx)
+	if !ok {
+		env = NewEnv(ctx, node.Step())
+	}
+	home, _ := env.Scope.Get("HOME")
+	entries, err := untrusted.TrustedHome(cfg.UID, cfg.GID, home, env.Scope.Get)
+	if err != nil {
+		return ctx, fmt.Errorf("step %q: make a private HOME for a trusted step: %w", node.Step().Name, err)
+	}
+	if entries == nil {
+		return ctx, nil
+	}
+	env.Scope = env.Scope.WithEntries(entries, cmnvalue.EnvSourceStepEnv)
+	return WithEnv(ctx, env), nil
 }
 
 // untrustedRun reports whether the run of ctx has an untrusted step.

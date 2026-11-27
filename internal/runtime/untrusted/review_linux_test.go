@@ -6,6 +6,7 @@
 package untrusted
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"io/fs"
@@ -475,4 +476,40 @@ func TestReviewSymlinkReadAsRootAfterRestore(t *testing.T) {
 		t.Logf("the trusted read got %q", data)
 	}
 	assert.NotEqual(t, "WORKER-PRIVATE-KEY", string(data), "a trusted read of a file of the agent must not reach a file of the worker")
+}
+
+// Property (Spec 092, "Process"): each process of the step runs. A step with
+// two processes (run with a list of commands, or a harness attempt after
+// another) starts the second process when the first ends. The first process
+// leaves a child, and the watcher that stops that child must not also stop
+// the second process.
+func TestReviewWatcherKillsNextProcess(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := Begin(ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, step.End(ctx)) }()
+	stepCtx := WithStep(ctx, step)
+
+	killed := 0
+	const rounds = 5
+	for range rounds {
+		// The first command starts a server in the background, as "npm start &".
+		runAs(t, stepCtx, workDir, `sleep 1000 &`)
+		cmd := exec.Command("/bin/sh", "-c", "sleep 0.3; echo second") //nolint:gosec
+		cmd.Dir = workDir
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		var stdout bytes.Buffer
+		cmd.Stdout = &stdout
+		process, err := StartManagedProcess(stepCtx, cmd)
+		require.NoError(t, err)
+		waitErr := process.Wait()
+		_ = process.Release()
+		if waitErr != nil {
+			killed++
+			t.Logf("second process: %v", waitErr)
+		}
+	}
+	assert.Zero(t, killed, "the watcher of the first process killed the second process in "+strconv.Itoa(killed)+" of "+strconv.Itoa(rounds)+" rounds")
 }
