@@ -58,6 +58,27 @@ func (ca *PeerCA) republishCertificate(path string) error {
 	return nil
 }
 
+// retryCertificate retries a write of the CA certificate to path that
+// failed at start, when path held previous, nil for no file. It writes only
+// over previous or a missing file, so it never replaces a certificate that
+// another coordinator published since, and reports whether no retry is left:
+// path holds this certificate, or another coordinator's.
+func (ca *PeerCA) retryCertificate(path string, previous []byte) (bool, error) {
+	current, err := fileutil.ReadFile(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return true, ca.republishCertificate(path)
+	case err != nil:
+		return false, err
+	case !bytes.Equal(current, previous):
+		return true, nil
+	}
+	if err := fileutil.WriteFileAtomic(path, ca.certificatePEM(), publishedCAFileMode); err != nil {
+		return false, fmt.Errorf("write published CA certificate: %w", err)
+	}
+	return true, nil
+}
+
 func (ca *PeerCA) certificatePEM() []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.cert.Raw})
 }

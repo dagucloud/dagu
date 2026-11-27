@@ -287,7 +287,7 @@ func newCoordinator(
 	// Create and return service with advertise address for service registry
 	svc := coordinator.NewService(grpcServer, handler, listener, healthServer, httpHealthServer, persistence.ServiceRegistry, cfg, instanceID, advertiseAddr)
 	if peerCA.ca != nil {
-		svc.ServeBuiltinTLS(peerCA.ca, cfg.Core.Peer.PublishedCAFile, peerCA.published)
+		svc.ServeBuiltinTLS(peerCA.ca, cfg.Core.Peer.PublishedCAFile, peerCA.published, peerCA.previous)
 	}
 	return svc, handler, nil
 }
@@ -297,6 +297,9 @@ func newCoordinator(
 type preparedPeerCA struct {
 	ca        *coordinator.PeerCA
 	published bool
+	// previous is what the published CA certificate held when publishing
+	// failed, nil for no file.
+	previous []byte
 	// undo removes the certificate that preparing published.
 	undo func()
 }
@@ -328,10 +331,12 @@ func prepareCoordinatorPeerCA(ctx context.Context, cfg *config.Config) (prepared
 	case peer.CertFile != "" && peer.KeyFile != "":
 		err = coordinator.RemovePublishedCertificate(peer.PublishedCAFile)
 	}
+	prepared := preparedPeerCA{ca: ca, published: err == nil, undo: undo}
 	if err != nil {
 		logger.Warn(ctx, "Clients that share the data directory may not use built-in TLS", tag.Error(err))
+		prepared.previous, _ = fileutil.ReadFile(peer.PublishedCAFile)
 	}
-	return preparedPeerCA{ca: ca, published: err == nil, undo: undo}, nil
+	return prepared, nil
 }
 
 // coordinatorTransport returns the server options that set what the
