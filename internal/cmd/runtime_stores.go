@@ -4,9 +4,12 @@
 package cmd
 
 import (
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/connection/statusevent"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -49,7 +52,8 @@ func (c *Context) runtimeStores() executionStores {
 		stores.Nodes = inventory.NewProjectNodes(inventories, c.runtimeWorkerNodeStore())
 	}
 	if c.serverStores != nil {
-		stores.Connections = agent.NewStoreConnectionChecker(c.serverStores.ConnectionStore, c.serverStores.ConnectionLocks())
+		recorder := c.connectionStatusRecorder(eventstore.SourceServiceCLI)
+		stores.Connections = agent.NewStoreConnectionChecker(c.serverStores.ConnectionStore, c.serverStores.ConnectionLocks(), recorder.Record)
 	}
 	if c.Config.ProjectsEnabled {
 		if stores.SecretStore != nil {
@@ -60,6 +64,27 @@ func (c *Context) runtimeStores() executionStores {
 		}
 	}
 	return stores
+}
+
+// connectionStatusRecorder returns the recorder of the connection status
+// changes that this process makes, as service. It opens no store until a
+// status changes.
+func (c *Context) connectionStatusRecorder(service string) *statusevent.Recorder {
+	cfg := statusevent.Config{
+		Store:  c.serverStores.ConnectionStore,
+		Events: c.event,
+		Source: eventstore.Source{Service: service, Instance: c.EventSourceInstance},
+	}
+	if c.Config.Server.Audit.Enabled {
+		cfg.Audit = func() (audit.Store, error) {
+			store, err := c.serverStores.AuditStore(0)
+			if err != nil {
+				return nil, err
+			}
+			return store, nil
+		}
+	}
+	return statusevent.New(cfg)
 }
 
 // connectionsFor returns the checker of the connections of a run that

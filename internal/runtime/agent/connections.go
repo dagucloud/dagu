@@ -38,20 +38,26 @@ type ConnectionChecker interface {
 // against the store open returns. Its runs take tokens from one broker
 // over that store and locks, which keeps the tokens it hands out, so a
 // run and its in-process sub-DAGs share them. It calls open once, on
-// first use.
-func NewStoreConnectionChecker(open func() (connection.Store, error), locks connection.Locks) ConnectionChecker {
-	return &storeConnectionChecker{open: open, locks: locks}
+// first use. onStatusChange, when set, receives the status changes that
+// the broker's writes make.
+func NewStoreConnectionChecker(
+	open func() (connection.Store, error),
+	locks connection.Locks,
+	onStatusChange func(context.Context, broker.StatusChange),
+) ConnectionChecker {
+	return &storeConnectionChecker{open: open, locks: locks, onStatusChange: onStatusChange}
 }
 
 // storeConnectionChecker opens its store on first use, so a run whose DAG
 // declares no connection reads no connection file.
 type storeConnectionChecker struct {
-	open   func() (connection.Store, error)
-	locks  connection.Locks
-	once   sync.Once
-	store  connection.Store
-	tokens *broker.Broker
-	err    error
+	open           func() (connection.Store, error)
+	locks          connection.Locks
+	onStatusChange func(context.Context, broker.StatusChange)
+	once           sync.Once
+	store          connection.Store
+	tokens         *broker.Broker
+	err            error
 }
 
 func (c *storeConnectionChecker) load() error {
@@ -59,7 +65,12 @@ func (c *storeConnectionChecker) load() error {
 		if c.store, c.err = c.open(); c.err != nil || c.locks == nil {
 			return
 		}
-		c.tokens, c.err = broker.New(broker.Config{Store: c.store, Locks: c.locks, CacheTokens: true})
+		c.tokens, c.err = broker.New(broker.Config{
+			Store:          c.store,
+			Locks:          c.locks,
+			CacheTokens:    true,
+			OnStatusChange: c.onStatusChange,
+		})
 	})
 	return c.err
 }

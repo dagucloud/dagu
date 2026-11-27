@@ -724,7 +724,9 @@ func (e *Engine) runtimeStores(ctx context.Context) RuntimeStores {
 		stores.MaterializationStore = filematerialization.New(filepath.Join(e.cfg.Paths.DataDir, "materializations"))
 	}
 	if stores.OpenConnectionStore != nil {
-		stores.connectionChecker = rtagent.NewStoreConnectionChecker(stores.OpenConnectionStore, stores.ConnectionLocks)
+		// The embedded engine has no event store, so its status changes
+		// record no event, as its runs record none.
+		stores.connectionChecker = rtagent.NewStoreConnectionChecker(stores.OpenConnectionStore, stores.ConnectionLocks, nil)
 	}
 	if e.cfg.ProjectsEnabled {
 		if stores.SecretStore != nil {

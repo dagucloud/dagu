@@ -431,7 +431,12 @@ func coordinatorConnections(ctx *Context) (connection.Store, broker.Source) {
 	store, err := ctx.serverStores.ConnectionStore()
 	if err == nil {
 		var tokens *broker.Broker
-		if tokens, err = broker.New(broker.Config{Store: store, Locks: ctx.serverStores.ConnectionLocks()}); err == nil {
+		tokens, err = broker.New(broker.Config{
+			Store:          store,
+			Locks:          ctx.serverStores.ConnectionLocks(),
+			OnStatusChange: ctx.connectionStatusRecorder(eventstore.SourceServiceCoordinator).Record,
+		})
+		if err == nil {
 			return store, tokens
 		}
 	}

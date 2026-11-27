@@ -122,7 +122,7 @@ func TestStoreConnections(t *testing.T) {
 	}
 	setToken("at-1")
 
-	checker := agent.NewStoreConnectionChecker(stores.ConnectionStore, stores.ConnectionLocks())
+	checker := agent.NewStoreConnectionChecker(stores.ConnectionStore, stores.ConnectionLocks(), nil)
 	conns := checker.Connections("ops")
 	conn, err := conns.Connection(ctx, "work")
 	require.NoError(t, err)
