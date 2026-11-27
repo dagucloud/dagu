@@ -186,6 +186,46 @@ func TestDispatchHoldDeadlineFailsAttempt(t *testing.T) {
 	f.pollNone(t, "worker-cpu", map[string]string{"type": "cpu"})
 }
 
+// A dispatch that finds no worker, after the coordinator refused calls for
+// its peer token, says that workers were refused.
+func TestDispatchFailureNamesPeerTokenRefusal(t *testing.T) {
+	const note = "workers were refused for a missing or different peer token"
+	refuseCall := func(t *testing.T, h *Handler) {
+		t.Helper()
+		h.peerAuth = NewPeerTokenAuth("coordinator-token", false, true)
+		ctx := callContext(t, newPeerTokenCredentials("", ""))
+		require.Error(t, h.peerAuth.authorize(ctx, "/coordinator.v1.CoordinatorService/Poll"))
+	}
+
+	t.Run("held", func(t *testing.T) {
+		f := newHoldFixture(t, holdWait)
+		refuseCall(t, f.h)
+		_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: cpuTask("run-refused")})
+		require.NoError(t, err)
+
+		ExpireHeldDispatchesForTest(f.h, time.Now().Add(2*holdWait))
+		runStatus := f.status(t, "run-refused")
+		assert.Equal(t, ir.Failed, runStatus.Status)
+		assert.Contains(t, runStatus.Error, "no worker matched the selector {type: cpu} within 1m0s; "+note)
+	})
+
+	t.Run("refused at once", func(t *testing.T) {
+		f := newHoldFixture(t, 0)
+		refuseCall(t, f.h)
+		_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: cpuTask("run-refused")})
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+		assert.ErrorContains(t, err, note)
+	})
+
+	t.Run("no refusal", func(t *testing.T) {
+		f := newHoldFixture(t, 0)
+		f.h.peerAuth = NewPeerTokenAuth("coordinator-token", false, true)
+		_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: cpuTask("run-refused")})
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), note)
+	})
+}
+
 // The lease grace a starting coordinator gives running workers does not
 // postpone a held dispatch's own deadline.
 func TestDispatchHoldDeadlineEnforcedDuringLeaseGrace(t *testing.T) {

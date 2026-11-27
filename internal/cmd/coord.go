@@ -253,6 +253,7 @@ func newCoordinator(
 		WorkerWaitTimeout:         cfg.Coordinator.WorkerWaitTimeout,
 		EventService:              ctx.event,
 		EventSourceInstance:       ctx.EventSourceInstance,
+		PeerAuth:                  peerAuth,
 	})
 
 	// Create and return service with advertise address for service registry
@@ -290,7 +291,7 @@ func coordinatorPeerAuth(ctx *Context, cfg *config.Config) (*coordinator.PeerTok
 	token, err := coordinator.LoadOrCreatePeerToken(cfg.Core.Peer.TokenFile)
 	if err != nil {
 		if require {
-			return nil, fmt.Errorf("coordinator.require_token is set, but the peer token could not be prepared: %w", err)
+			return nil, fmt.Errorf("coordinator.require_token is true, but the peer token could not be prepared (set peer.token, or coordinator.require_token: false): %w", err)
 		}
 		logger.Warn(ctx, "Coordinator runs without a peer token", tag.Error(err))
 		return coordinator.NewPeerTokenAuth("", false, false), nil
