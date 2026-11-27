@@ -26,6 +26,8 @@ import (
 const (
 	tokensDir   = "connection-tokens"
 	catalogsDir = "connection-catalogs"
+	// barrierTimeout ends a test whose operation hangs before a barrier.
+	barrierTimeout = time.Minute
 )
 
 func TestRemove(t *testing.T) {
@@ -603,12 +605,15 @@ func goDone(fn func()) <-chan struct{} {
 }
 
 // await waits for signal, and fails the test if the operation behind done
-// ends first, as one that fails before it reaches the barrier does.
+// ends first, as one that fails before it reaches the barrier does, or if
+// it hangs. The deadline only ends a hung test; no outcome depends on it.
 func await(t *testing.T, signal, done <-chan struct{}) {
 	t.Helper()
 	select {
 	case <-signal:
 	case <-done:
 		t.Fatal("the operation ended before it reached the barrier")
+	case <-time.After(barrierTimeout):
+		t.Fatal("the operation did not reach the barrier")
 	}
 }
