@@ -1011,7 +1011,9 @@ func (s *Service) isSupportedEvent(eventType eventstore.EventType) bool {
 	case eventstore.TypeDAGRunQueued,
 		eventstore.TypeDAGRunRunning,
 		eventstore.TypeDAGRunUpdated,
-		eventstore.TypeLLMUsageRecorded:
+		eventstore.TypeLLMUsageRecorded,
+		eventstore.TypeConnectionNeedsAttention,
+		eventstore.TypeConnectionRestored:
 		return false
 	}
 	return false
@@ -1041,7 +1043,9 @@ func testStatus(dagName string, eventType eventstore.EventType) *ir.DAGRunStatus
 	case eventstore.TypeDAGRunQueued,
 		eventstore.TypeDAGRunRunning,
 		eventstore.TypeDAGRunUpdated,
-		eventstore.TypeLLMUsageRecorded:
+		eventstore.TypeLLMUsageRecorded,
+		eventstore.TypeConnectionNeedsAttention,
+		eventstore.TypeConnectionRestored:
 	}
 	return &ir.DAGRunStatus{
 		Name:       dagName,
