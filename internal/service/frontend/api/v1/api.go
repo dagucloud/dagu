@@ -123,6 +123,7 @@ type API struct {
 	apiKeyWriteMu        sync.Mutex // Serializes API key writes, so each checks the state it changes
 	workspaceStore       workspace.Store
 	projectAccess        *projectaccess.Checker
+	projectLifecycle     ProjectLifecycle
 	runLogDir            string // Logs of the runs that the API queues
 	runArtifactDir       string // Artifacts of the runs that the API queues
 	leaseStaleThreshold  time.Duration

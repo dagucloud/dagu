@@ -141,6 +141,7 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"ListWikiPageRevisions":           remoteNodeAccessRead,
 	"SearchWikiPages":                 remoteNodeAccessRead,
 	"ListWorkspaces":                  remoteNodeAccessRead,
+	"ListProjects":                    remoteNodeAccessRead,
 	"GetWorkspace":                    remoteNodeAccessRead,
 
 	// Run control, which needs execute permission.

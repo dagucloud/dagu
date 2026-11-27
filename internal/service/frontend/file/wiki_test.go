@@ -234,3 +234,24 @@ func TestWikiLinksResolveInPageProject(t *testing.T) {
 	assert.Empty(t, backlinkIDs(f.defaultWiki(t), "home"))
 	assert.Equal(t, []string{"home"}, backlinkIDs(f.defaultWiki(t), "runbook"))
 }
+
+// TestInPlacePages proves that a migrated project's in-place wiki folder
+// counts as holding pages until its last page goes, also once the project
+// has a wiki of its own, since the default wiki would then show them.
+func TestInPlacePages(t *testing.T) {
+	f := newWikiFixture(t)
+	ctx := t.Context()
+	holds := func() bool {
+		held, err := f.wikis.InPlacePages(ctx, f.ops)
+		require.NoError(t, err)
+		return held
+	}
+
+	assert.True(t, holds())
+	require.NoError(t, os.MkdirAll(filepath.Join(f.cfg.Paths.ProjectsDir, "ops", "wiki"), 0o750))
+	assert.True(t, holds())
+
+	inPlace := &wikiView{store: f.wikis.shared, root: "ops"}
+	require.NoError(t, inPlace.Delete(ctx, "runbook"))
+	assert.False(t, holds())
+}

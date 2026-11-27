@@ -5161,6 +5161,54 @@ export interface paths {
         patch: operations["updateWorkspace"];
         trace?: never;
     };
+    "/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List projects
+         * @description Lists the projects the caller has a role in, the default project first, then by name, each with the caller's role and its state. For an admin, it also lists the state directories that record a project the registry lacks. Not found while projects are off.
+         */
+        get: operations["listProjects"];
+        put?: never;
+        /**
+         * Create a project
+         * @description Registers a project. Its DAG directory is `<projects_dir>/<name>`, created when it does not exist. Every server, scheduler, and coordinator starts using the project without a restart. Admin only, and audited. Not found while projects are off.
+         */
+        post: operations["createProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a project
+         * @description Marks the project deleting, waits until every live server, scheduler, and coordinator has released it, and removes its DAG directory, its state directories, its grants, each API key left with no role, and its registry entry. A refused delete changes nothing, and `message` says why. Admin only, and audited. Not found while projects are off.
+         */
+        delete: operations["deleteProject"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a project's display name
+         * @description Changes the display name of the project, the default project included. Only the registry changes. Admin only, and audited. Not found while projects are off.
+         */
+        patch: operations["updateProject"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -10391,6 +10439,40 @@ export interface components {
         WorkspaceListResponse: {
             workspaces: components["schemas"]["WorkspaceResponse"][];
         };
+        CreateProjectRequest: {
+            /** @description 1 to 64 ASCII letters, digits, `_`, and `-`, starting with a letter or digit; not `default` or a Windows device name, in any case */
+            name: string;
+            /** @description Up to 200 characters. The name when omitted or empty */
+            displayName?: string;
+        };
+        UpdateProjectRequest: {
+            /** @description Up to 200 characters. Empty restores the name */
+            displayName: string;
+        };
+        /**
+         * @description `active`; `missing` when its DAG directory is gone and it runs no file in place that exists, so it is not scheduled; `deleting` while a delete is in progress
+         * @enum {string}
+         */
+        ProjectState: ProjectState;
+        Project: {
+            name: string;
+            displayName: string;
+            /** Format: date-time */
+            createdAt: string;
+            state: components["schemas"]["ProjectState"];
+            role: components["schemas"]["UserRole"];
+        };
+        /** @description A state directory that records a project the registry lacks. A create of that name is refused until an admin restores or deletes it */
+        UnattachedStateDir: {
+            path: string;
+            /** @description Name of the project the directory records */
+            name: string;
+        };
+        ProjectListResponse: {
+            projects: components["schemas"]["Project"][];
+            /** @description Listed for admins only */
+            unattachedStateDirs?: components["schemas"]["UnattachedStateDir"][];
+        };
         WorkspaceDeprecationResponse: {
             /** @description Workspace settings in use, ordered by kind and name */
             items: components["schemas"]["WorkspaceDeprecationItem"][];
@@ -10471,6 +10553,8 @@ export interface components {
         InventoryVersion: number;
         /** @description name of the remote node */
         RemoteNode: string;
+        /** @description Name of the project, matched without regard to case */
+        ProjectName: string;
         /** @description Filter entries after this time (ISO 8601 format) */
         LogStartTime: string;
         /** @description Filter entries before this time (ISO 8601 format) */
@@ -27943,6 +28027,245 @@ export interface operations {
             };
         };
     };
+    listProjects: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The projects the caller can see */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectListResponse"];
+                };
+            };
+            /** @description Projects are off */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createProject: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description The project as registered */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description The name or display name breaks the rules; nothing was stored */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Projects are off */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A project of that name exists in any case, a state directory of that name records another project, or the DAG directory would hold a protected path; nothing was stored */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteProject: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description Name of the project, matched without regard to case */
+                projectName: components["parameters"]["ProjectName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project was deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No project has this name, or projects are off */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The delete is refused: the project is the default project, has a run that is queued, running, or waiting, its DAG directory is in or holds a git checkout or holds a protected path, a file runs in place as its, its in-place wiki folder holds pages, or a live process did not release it in time */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateProject: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description Name of the project, matched without regard to case */
+                projectName: components["parameters"]["ProjectName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description The project as stored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description The display name breaks the rules; nothing was stored */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No project has this name, or projects are off */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
 }
 export enum PathsDagsGetParametersQuerySort {
     name = "name",
@@ -28680,6 +29003,11 @@ export enum InventoryHostKeyTrustOutcome {
     trusted = "trusted",
     replaced = "replaced",
     unchanged = "unchanged"
+}
+export enum ProjectState {
+    active = "active",
+    missing = "missing",
+    deleting = "deleting"
 }
 export enum WorkspaceDeprecationItemKind {
     baseConfig = "baseConfig",
