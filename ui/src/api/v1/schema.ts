@@ -2728,9 +2728,9 @@ export interface paths {
          * Update notification settings
          * @description Updates workspace-level notification settings. SMTP passwords are accepted
          *     in the request but are never returned. Omit password on updates to preserve
-         *     the existing password, or set clearPassword to remove it. A new host drops
-         *     the stored password unless the same request sets it again. Developer,
-         *     manager, or admin only.
+         *     the existing password, or set clearPassword to remove it. A new host or
+         *     port drops the stored password unless the same request sets it again.
+         *     Developer, manager, or admin only.
          *
          */
         put: operations["updateNotificationSettings"];
@@ -6587,7 +6587,7 @@ export interface components {
             port?: string;
             /** @description SMTP username */
             username?: string;
-            /** @description SMTP password. Omit on updates to preserve the existing password while the host stays the same. */
+            /** @description SMTP password. Omit on updates to preserve the existing password while the host and port stay the same. */
             password?: string;
             /** @description Clear the stored SMTP password. */
             clearPassword?: boolean;

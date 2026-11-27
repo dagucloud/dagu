@@ -413,18 +413,20 @@ func TestPreserveWorkspaceSecrets(t *testing.T) {
 		Username: "user",
 		From:     "dagu@example.com",
 	}}
-	existing := &WorkspaceSettings{SMTP: &SMTPConfig{Host: "SMTP.example.com", Password: "old-secret"}}
+	existing := &WorkspaceSettings{SMTP: &SMTPConfig{Host: "SMTP.example.com", Port: "587", Password: "old-secret"}}
 
 	PreserveWorkspaceSecrets(next, existing)
 	assert.Equal(t, "old-secret", next.SMTP.Password)
 
-	// The stored password goes only to the host it was entered for.
-	next.SMTP.Host = "smtp.attacker.example.com"
-	next.SMTP.Password = ""
-	PreserveWorkspaceSecrets(next, existing)
-	assert.Empty(t, next.SMTP.Password)
+	// The stored password goes only to the host and port it was entered for.
+	for _, server := range [][2]string{{"smtp.attacker.example.com", "587"}, {"smtp.example.com", "2525"}} {
+		next.SMTP.Host, next.SMTP.Port = server[0], server[1]
+		next.SMTP.Password = ""
+		PreserveWorkspaceSecrets(next, existing)
+		assert.Empty(t, next.SMTP.Password, server)
+	}
 
-	next.SMTP.Host = "smtp.example.com"
+	next.SMTP.Host, next.SMTP.Port = "smtp.example.com", "587"
 	next.SMTP.ClearPassword = true
 	next.SMTP.Password = ""
 	PreserveWorkspaceSecrets(next, existing)

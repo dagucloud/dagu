@@ -1155,10 +1155,12 @@ func PreserveWorkspaceSecrets(next, existing *WorkspaceSettings) {
 	if next == nil || existing == nil || next.SMTP == nil || existing.SMTP == nil {
 		return
 	}
-	// The stored password goes only to the host it was entered for. An OAuth
-	// provider fixes its own host, so its secrets follow the OAuth identity.
-	sameHost := strings.EqualFold(strings.TrimSpace(next.SMTP.Host), strings.TrimSpace(existing.SMTP.Host))
-	if sameHost && next.SMTP.OAuth == nil && existing.SMTP.OAuth == nil && next.SMTP.Password == "" && !next.SMTP.ClearPassword {
+	// The stored password goes only to the host and port it was entered for.
+	// An OAuth provider fixes its own host and port, so its secrets follow the
+	// OAuth identity.
+	sameServer := strings.EqualFold(strings.TrimSpace(next.SMTP.Host), strings.TrimSpace(existing.SMTP.Host)) &&
+		strings.TrimSpace(next.SMTP.Port) == strings.TrimSpace(existing.SMTP.Port)
+	if sameServer && next.SMTP.OAuth == nil && existing.SMTP.OAuth == nil && next.SMTP.Password == "" && !next.SMTP.ClearPassword {
 		next.SMTP.Password = existing.SMTP.Password
 	}
 	if !sameSMTPOAuthIdentity(next.SMTP, existing.SMTP) {

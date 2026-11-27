@@ -2606,8 +2606,8 @@ export const baseGerman = {
   'HMAC secret': 'HMAC-Geheimnis',
   'A new URL drops the saved headers and HMAC secret. Enter them again to keep them.':
     'Eine neue URL verwirft die gespeicherten Header und das HMAC-Geheimnis. Geben Sie sie erneut ein, um sie zu behalten.',
-  'A new host drops the saved password. Enter it again to keep it.':
-    'Ein neuer Server verwirft das gespeicherte Passwort. Geben Sie es erneut ein, um es zu behalten.',
+  'A new host or port drops the saved password. Enter it again to keep it.':
+    'Ein neuer Server oder Port verwirft das gespeicherte Passwort. Geben Sie es erneut ein, um es zu behalten.',
   'Webhook URL configured ({preview})': 'Webhook-URL eingerichtet ({preview})',
   'Slack webhook URL': 'Slack-Webhook-URL',
   'Bot token configured ({preview})': 'Bot-Token eingerichtet ({preview})',
