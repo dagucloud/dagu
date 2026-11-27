@@ -194,7 +194,8 @@ func (c stalledHealthClient) Check(ctx context.Context, _ *grpc_health_v1.Health
 }
 
 // The health check before a dispatch changes nothing, so it ends as soon as
-// the call's attempts stop, and the call returns without a dispatch.
+// the call's attempts stop, and the call returns without a dispatch. A check
+// cut off this way says nothing about the coordinator, so it is no failure.
 func TestDispatchHealthCheckEndsWhenAttemptsStop(t *testing.T) {
 	t.Parallel()
 
@@ -214,6 +215,7 @@ func TestDispatchHealthCheckEndsWhenAttemptsStop(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "health check failed")
 	require.NoError(t, ctx.Err(), "the call ends when its attempts stop, before its deadline")
+	require.Zero(t, cli.Metrics().FailCount)
 }
 
 // The upload of a dispatch's workspace admits nothing, so it ends as soon as

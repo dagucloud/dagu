@@ -516,13 +516,17 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []serviceregistr
 		err = cli.isHealthy(healthCtx, client)
 		cancelHealth()
 		if err != nil {
+			lastErr = err
+			// A check the stop cut off says nothing about the coordinator.
+			if attemptsStopped(ctx) {
+				continue
+			}
 			logger.Warn(ctx, "Failed to check coordinator health",
 				slog.String("coordinator-id", member.ID),
 				tag.Host(member.Host),
 				tag.Port(member.Port),
 				tag.Error(err))
 			cli.recordFailure(err)
-			lastErr = err
 			continue
 		}
 
