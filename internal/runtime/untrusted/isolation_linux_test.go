@@ -459,7 +459,7 @@ func TestIsolatedStepNewGit(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(workDir, "repo", "src", ".git"))
 }
 
-// A file with more than one link, such as one of a package store, fails the
+// A file with more than one link in the group of the restricted user fails the
 // step: a change of owner would also give its path outside the work directory.
 // The failed Begin gives back what it handed over and removes nothing, since
 // no process of the restricted user ran.
@@ -493,6 +493,38 @@ func TestIsolatedStepHardLink(t *testing.T) {
 		assert.Equal(t, os.Geteuid(), ownerUID(t, path), path)
 	}
 	assert.NoError(t, CheckWorkDir(workDir), "a failed Begin removes its marker")
+}
+
+// A file of the worker with more than one link, as uv, pnpm or bun link a
+// package of a cache of the worker into the work directory, stays with the
+// worker: the restricted user can read it, and cannot write it or link it.
+// Such a file that others can write fails the step.
+func TestIsolatedStepKeepsLinkedFilesOfTheWorker(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	cache := filepath.Join(workDir, "..", filepath.Base(workDir)+"-cache")
+	require.NoError(t, os.WriteFile(cache, []byte("pkg\n"), 0o644))
+	t.Cleanup(func() { _ = os.Remove(cache) })
+	pkg := filepath.Join(workDir, "pkg.py")
+	require.NoError(t, os.Link(cache, pkg))
+
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	out := runAs(t, WithStep(ctx, step), workDir, strings.Join([]string{
+		`cat pkg.py`,
+		`(echo x > pkg.py) 2>/dev/null && echo write:allowed || echo write:denied`,
+		`ln pkg.py pkg2.py 2>/dev/null && echo link:allowed || echo link:denied`,
+	}, "\n"))
+	assert.Equal(t, "pkg\nwrite:denied\nlink:denied\n", out)
+	require.NoError(t, step.End(ctx))
+	assert.Equal(t, os.Geteuid(), ownerUID(t, cache))
+	assert.Equal(t, os.Geteuid(), ownerUID(t, pkg))
+
+	require.NoError(t, os.Chmod(cache, 0o646))
+	_, err = beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "the file has more than one link")
 }
 
 // A file that the step links from its HOME, as uv links a package of its cache

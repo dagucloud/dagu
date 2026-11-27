@@ -20,9 +20,10 @@ import (
 
 // Spec 103, "Isolation", rules 3 and 8. The handoff gives the work directory to
 // the restricted user, except the folders that git opens as a repository (the
-// git folders), the entries named .git and the sockets. These stay with the worker, readable
-// and not writable by the restricted user, until the restore gives them their
-// modes back. The work directory and each folder on the way to a git folder or
+// git folders), the entries named .git, the sockets and the files with more
+// than one link that keepsLinkedFile keeps. These stay with the worker,
+// readable and not writable by the restricted user, until the restore gives
+// them their modes back. The work directory and each folder on the way to a git folder or
 // to a .git keep the owner of the worker with the mode 1777, so that the
 // restricted user cannot rename or replace them.
 //
@@ -254,6 +255,9 @@ func (iso *isolation) handoff() error {
 			// other paths of an entry with more than one link: a file, a link
 			// or a FIFO.
 			if !e.isDir() && e.st.Nlink > 1 {
+				if iso.keepsLinkedFile(e) {
+					return false, nil
+				}
 				return false, stepError(iso.step, "give", e.path, errors.New("the file has more than one link"))
 			}
 			if e.isLink() {
@@ -267,6 +271,16 @@ func (iso *isolation) handoff() error {
 			return false, nil
 		}
 	})
+}
+
+// keepsLinkedFile reports whether a file with more than one link stays with its
+// owner, as one that uv, pnpm or bun links from a package cache. The restricted
+// user cannot write it, change its mode or link it (fs.protected_hardlinks).
+// A file of the restricted group, which the restore takes as one of the
+// restricted user, one that others can write, and one with a set-ID bit do not
+// stay.
+func (iso *isolation) keepsLinkedFile(e *fsEntry) bool {
+	return e.isRegular() && e.uid() != int(iso.uid) && e.gid() != int(iso.gid) && e.perm()&0o6002 == 0
 }
 
 // recordLink keeps the link that the handoff gives, so that the restore checks
@@ -446,8 +460,8 @@ func (iso *isolation) restore(verifyGit bool) error {
 				return false, nil
 			}
 			// After a failed handoff, every entry is the worker's and the restore
-			// removes none. The handoff stops before a file with more than one
-			// link, so such a file was never given: only its group matched.
+			// removes none. The handoff gives no file with more than one link,
+			// so such a file was never given: only its group matched.
 			if !verifyGit && !e.isDir() && e.st.Nlink > 1 {
 				return false, nil
 			}
