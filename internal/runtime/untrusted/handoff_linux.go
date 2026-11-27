@@ -425,7 +425,8 @@ func (iso *isolation) protectGitTree(root *fsEntry) error {
 }
 
 // restore gives the work directory back to the user of the worker. It returns
-// an error that wraps ErrRunAborted when a git entry changed or is gone. With
+// an error that wraps ErrRunAborted when a git entry changed or is gone, or
+// when it could not read a part of the work directory or of a git folder. With
 // verifyGit false, it checks no git entry: a handoff that failed has a part of
 // the snapshot only, and no process of the restricted user ran, so each entry
 // that the snapshot lacks is an entry of the worker, not a new one.
@@ -436,11 +437,9 @@ func (iso *isolation) restore(verifyGit bool) error {
 		walkErr := walkFD(iso.workDir, func(e *fsEntry) (bool, error) {
 			switch {
 			case !verifyGit && (iso.gitDirs[e.path] || iso.gitEntries[e.path] || e.name == ".git"):
-				iso.restoreGitModes(e, fail)
-				return true, nil
+				return true, iso.restoreGitModes(e, fail)
 			case iso.gitDirs[e.path]:
-				iso.checkGitTree(e, fail)
-				return true, nil
+				return true, iso.checkGitTree(e, fail)
 			case iso.gitEntries[e.path]:
 				iso.checkGitEntry(e, fail)
 				return true, nil
@@ -636,24 +635,22 @@ func (iso *isolation) restoreGitMode(e *fsEntry, fail func(error)) {
 }
 
 // restoreGitModes gives each entry of the tree at root the mode that it had
-// before the handoff, without a check of the entries.
-func (iso *isolation) restoreGitModes(root *fsEntry, fail func(error)) {
+// before the handoff, without a check of the entries. It returns the error of
+// the walk.
+func (iso *isolation) restoreGitModes(root *fsEntry, fail func(error)) error {
 	if len(iso.gitModes) == 0 {
-		return
+		return nil
 	}
-	err := walkEntry(root, func(e *fsEntry) (bool, error) {
+	return walkEntry(root, func(e *fsEntry) (bool, error) {
 		iso.restoreGitMode(e, fail)
 		return false, nil
 	})
-	if err != nil {
-		fail(stepError(iso.step, "read the git folder", root.path, err))
-	}
 }
 
 // checkGitTree compares a git folder and its content with their state at the
-// handoff.
-func (iso *isolation) checkGitTree(root *fsEntry, fail func(error)) {
-	err := walkEntry(root, func(e *fsEntry) (bool, error) {
+// handoff. It returns the error of the walk.
+func (iso *isolation) checkGitTree(root *fsEntry, fail func(error)) error {
+	return walkEntry(root, func(e *fsEntry) (bool, error) {
 		if _, known := iso.gitSnapshot[e.path]; !known {
 			fail(iso.removeEntry(e, "the entry %s is new in a git folder"))
 			return true, nil
@@ -661,9 +658,6 @@ func (iso *isolation) checkGitTree(root *fsEntry, fail func(error)) {
 		iso.checkGitEntry(e, fail)
 		return false, nil
 	})
-	if err != nil {
-		fail(stepError(iso.step, "read the git folder", root.path, err))
-	}
 }
 
 // checkGitRemoved fails for an entry of a git folder that the restore did not

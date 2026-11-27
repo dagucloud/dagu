@@ -915,7 +915,9 @@ func TestHandoffRefusesADeepGitFolder(t *testing.T) {
 	err := iso.handoff()
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "deeper than")
-	_ = iso.unmarkUnlessAborted(iso.restore(false))
+	// The restore cannot read the git folder either, so the run stops.
+	require.ErrorIs(t, iso.unmarkUnlessAborted(iso.restore(false)), ErrRunAborted)
+	assert.ErrorIs(t, CheckWorkDir(iso.lexicalWork), ErrRunAborted, "the work directory stays marked")
 }
 
 func permOf(t *testing.T, path string) fs.FileMode {
