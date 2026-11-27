@@ -4,6 +4,8 @@
 package store_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -148,6 +150,46 @@ func TestWorkerCertificateStore_SetState(t *testing.T) {
 
 	_, err = s.SetState(ctx, "missing", persis.WorkerCertificateRevoked)
 	assert.ErrorIs(t, err, persis.ErrWorkerCertificateNotFound)
+}
+
+// A prune that read the removals before a removal began may delete the
+// certificate record. The removal still reaches revoked.
+func TestWorkerCertificateStore_SetStateAfterPrunedRecord(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, col := newWorkerCertificateStore(t)
+	cert := workerCertificate("cert-1")
+	createCertificate(t, s, cert)
+	setState(t, s, "cert-1", persis.WorkerCertificateRemoving)
+	require.NoError(t, col.Delete(ctx, "certs/cert-1"))
+
+	revoked := setState(t, s, "cert-1", persis.WorkerCertificateRevoked)
+
+	want := persis.WorkerCertificate{ID: "cert-1", KeyFingerprint: cert.KeyFingerprint, State: persis.WorkerCertificateRevoked}
+	assert.Equal(t, want, revoked)
+	assert.Equal(t, want, getCertificate(t, s, "cert-1"))
+}
+
+// A heartbeat replaces a certificate record that cannot be read, whether
+// its file is not JSON or its payload is not a certificate.
+func TestWorkerCertificateStore_RecordHeartbeatRepairsRecord(t *testing.T) {
+	t.Parallel()
+	for name, raw := range map[string]string{"not JSON": "{", "not a certificate": "{}"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dataDir := t.TempDir()
+			col := file.NewBackend(config.PathsConfig{DataDir: dataDir}).Collection(persis.CollectionWorkerCertificates)
+			s, err := store.NewWorkerCertificateStore(col)
+			require.NoError(t, err)
+			path := filepath.Join(dataDir, "worker-certificates", "certs", "cert-1.json")
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+			require.NoError(t, os.WriteFile(path, []byte(raw), 0o600))
+
+			beat := workerCertificate("cert-1")
+			require.NoError(t, s.RecordHeartbeat(t.Context(), beat))
+			assert.Equal(t, beat, getCertificate(t, s, "cert-1"))
+		})
+	}
 }
 
 func TestWorkerCertificateStore_RecordHeartbeat(t *testing.T) {

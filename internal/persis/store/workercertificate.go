@@ -100,18 +100,31 @@ func (s *WorkerCertificateStore) Create(ctx context.Context, cert persis.WorkerC
 }
 
 func (s *WorkerCertificateStore) Get(ctx context.Context, id string) (persis.WorkerCertificate, error) {
-	_, cert, err := s.getCertificate(ctx, id)
+	cert, _, err := s.load(ctx, id)
+	return cert, err
+}
+
+// load returns the certificate with id in its state, and its removal
+// record or nil. A prune that read the removals before a removal began may
+// delete the certificate record, so a removal record alone still names the
+// certificate and lets its removal finish.
+func (s *WorkerCertificateStore) load(ctx context.Context, id string) (persis.WorkerCertificate, *persis.Record, error) {
+	removalRec, removal, err := s.getRemoval(ctx, id)
 	if err != nil {
-		return persis.WorkerCertificate{}, err
+		return persis.WorkerCertificate{}, nil, err
 	}
-	_, removal, err := s.getRemoval(ctx, id)
-	if err != nil {
-		return persis.WorkerCertificate{}, err
+	_, cert, err := s.getCertificate(ctx, id)
+	switch {
+	case err == nil:
+	case errors.Is(err, persis.ErrWorkerCertificateNotFound) && removal != nil:
+		cert = persis.WorkerCertificate{ID: id, KeyFingerprint: removal.KeyFingerprint}
+	default:
+		return persis.WorkerCertificate{}, nil, err
 	}
 	if removal != nil {
 		cert.State = removal.State
 	}
-	return cert, nil
+	return cert, removalRec, nil
 }
 
 func (s *WorkerCertificateStore) List(ctx context.Context) ([]persis.WorkerCertificate, error) {
@@ -173,17 +186,28 @@ func (s *WorkerCertificateStore) removalStates(ctx context.Context) (map[string]
 func (s *WorkerCertificateStore) RecordHeartbeat(ctx context.Context, cert persis.WorkerCertificate) error {
 	err := retryConflict(ctx, func(ctx context.Context) error {
 		current, stored, err := s.getCertificate(ctx, cert.ID)
-		if err != nil && !errors.Is(err, persis.ErrWorkerCertificateNotFound) {
-			return err
-		}
-		if current != nil && !heartbeatWriteDue(stored, cert) {
-			return nil
-		}
 		next := cert
-		if current != nil {
+		switch {
+		case err == nil:
+			if !heartbeatWriteDue(stored, cert) {
+				return nil
+			}
 			next.InviteID = stored.InviteID
 			next.KeyFingerprint = stored.KeyFingerprint
 			next.CreatedAt = stored.CreatedAt
+		case errors.Is(err, persis.ErrWorkerCertificateNotFound):
+		case current != nil:
+			// The stored payload cannot be read, so the report replaces it.
+		case errors.Is(err, persis.ErrCorrupt):
+			// The stored file cannot be read at all, so no compare-and-swap
+			// can match it. The report replaces it.
+			rec, err := encodeWorkerCertificate(cert)
+			if err != nil {
+				return err
+			}
+			return s.col.Put(ctx, rec)
+		default:
+			return err
 		}
 		rec, err := encodeWorkerCertificate(next)
 		if err != nil {
@@ -213,16 +237,9 @@ func (s *WorkerCertificateStore) SetState(ctx context.Context, id string, state 
 	}
 	var result persis.WorkerCertificate
 	err := retryConflict(ctx, func(ctx context.Context) error {
-		_, cert, err := s.getCertificate(ctx, id)
+		cert, current, err := s.load(ctx, id)
 		if err != nil {
 			return err
-		}
-		current, removal, err := s.getRemoval(ctx, id)
-		if err != nil {
-			return err
-		}
-		if removal != nil {
-			cert.State = removal.State
 		}
 		switch currentRank := workerCertificateStateRank[cert.State]; {
 		case rank < currentRank:
@@ -290,7 +307,8 @@ func (s *WorkerCertificateStore) Prune(ctx context.Context, now time.Time) (int,
 }
 
 // getCertificate returns the certificate record with id, in state active,
-// or [persis.ErrWorkerCertificateNotFound].
+// or [persis.ErrWorkerCertificateNotFound]. When the record exists but its
+// payload cannot be read, it returns the record with the decoding error.
 func (s *WorkerCertificateStore) getCertificate(ctx context.Context, id string) (*persis.Record, persis.WorkerCertificate, error) {
 	rec, err := s.col.Get(ctx, workerCertificatePrefix+id)
 	if errors.Is(err, persis.ErrNotFound) {

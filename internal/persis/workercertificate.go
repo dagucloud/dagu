@@ -30,7 +30,10 @@ type WorkerCertificateStore interface {
 	// returns [ErrWorkerCertificateExists].
 	Create(ctx context.Context, cert WorkerCertificate) error
 
-	// Get returns the record with id, or [ErrWorkerCertificateNotFound].
+	// Get returns the record with id, or [ErrWorkerCertificateNotFound]. A
+	// certificate in state removing or revoked is found even when its
+	// record was pruned; then only its ID, key, and state are known, and
+	// SetState can still move it forward.
 	Get(ctx context.Context, id string) (WorkerCertificate, error)
 
 	// List returns every record, oldest first.
@@ -47,7 +50,8 @@ type WorkerCertificateStore interface {
 	// reported. A report not newer than the stored heartbeat writes nothing.
 	// Otherwise it writes when the stored heartbeat is more than a day
 	// older, or at least a minute older and a reported field changed. It
-	// keeps the stored state. A pruned record is recorded again from cert.
+	// keeps the stored state. A pruned or unreadable record is recorded
+	// again from cert.
 	RecordHeartbeat(ctx context.Context, cert WorkerCertificate) error
 
 	// SetState moves the certificate to state and returns the record as
