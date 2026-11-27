@@ -604,10 +604,14 @@ func (e *Engine) consent(ctx context.Context, conn *connection.Connection, st au
 	for i := range probes {
 		probes[i].Error = redact(probes[i].Error, secrets...)
 	}
+	// The probes may use up the calls' deadline, so the store reads of the
+	// duplicate check run on their own, as the writes after them do.
+	readCtx, cancel := writeContext(ctx)
+	defer cancel()
 	return consentTokens{
 		Tokens:       tokensOf(token, id, cfg.Scopes, exchangedAt),
 		vouchedEmail: id.VouchedEmail,
-	}, consentChecks{probes: probes, duplicates: e.duplicates(ctx, conn, app, id.AccountID)}, nil
+	}, consentChecks{probes: probes, duplicates: e.duplicates(readCtx, conn, app, id.AccountID)}, nil
 }
 
 // duplicates returns the names of the other connections in conn's
@@ -740,8 +744,9 @@ func (e *Engine) fail(ctx context.Context, conn *connection.Connection, sessionI
 	return fmt.Errorf("%w: %s", ErrConsentFailed, reason)
 }
 
-// writeContext returns the context of a write after the provider calls,
-// which keeps its own deadline when theirs or the request's has ended.
+// writeContext returns the context of a store call after the provider
+// calls, which keeps its own deadline when theirs or the request's has
+// ended.
 func writeContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
 }
