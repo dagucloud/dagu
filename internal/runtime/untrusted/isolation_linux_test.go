@@ -514,6 +514,40 @@ func TestIsolatedStepKeepsLinksFromHome(t *testing.T) {
 	assert.Equal(t, os.Geteuid(), ownerUID(t, pkg))
 }
 
+// A link or a FIFO of the restricted user with a second path outside the work
+// directory fails the step, and Dagu removes it. A change of owner would also
+// give the second path to the worker: a link of root in a folder of mode 1777
+// of root is one that fs.protected_symlinks lets root follow. The second path
+// keeps the restricted user as owner.
+func TestIsolatedStepLinkedEntry(t *testing.T) {
+	requireIsolation(t)
+	for name, mk := range map[string]string{
+		"link": `ln -s ../../x a/b/e`,
+		"FIFO": `mkfifo a/b/e`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			workDir := testWorkDir(t)
+			// A folder such as /var/tmp on the file system of the work directory.
+			shared, err := os.MkdirTemp("", "dagu-untrusted-shared-")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = os.RemoveAll(shared) })
+			require.NoError(t, os.Chmod(shared, 0o1777))
+			step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+			require.NoError(t, err)
+			runAs(t, WithStep(ctx, step), workDir, "mkdir -p a/b && "+mk+" && ln -P a/b/e "+shared+"/e")
+
+			entry := filepath.Join(workDir, "a", "b", "e")
+			err = step.End(ctx)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "made the file "+entry+" with more than one link")
+			_, err = os.Lstat(entry)
+			assert.ErrorIs(t, err, fs.ErrNotExist, "Dagu removes the entry")
+			assert.Equal(t, testUID, ownerUID(t, filepath.Join(shared, "e")))
+		})
+	}
+}
+
 // A handoff that fails part way leaves a snapshot of a part of the git folders.
 // No process of the restricted user ran, so the restore of the abort keeps each
 // git entry of the worker. It needs no root.

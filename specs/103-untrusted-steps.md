@@ -329,9 +329,10 @@ The rules, in order:
      such as a daemon that runs as root.
 
    A link that replaces a path while Dagu changes an owner or a mode cannot redirect the change. A
-   file with more than one link fails the step, because a change of owner would also give away its
-   other paths. In a git folder, such a file fails the step only when Dagu must change its owner or
-   its mode. A device node fails the step, because the restricted user could open the device.
+   file, a link or a FIFO with more than one link fails the step, because a change of owner would
+   also give away its other paths. In a git folder, such an entry fails the step only when Dagu must
+   change its owner or its mode. A device node fails the step, because the restricted user could
+   open the device.
 
    Before it changes the first owner, Dagu makes the file `<work directory>.untrusted-handoff` next
    to the work directory. The restore of rule 8 removes it once the work directory is safe again.
@@ -382,7 +383,8 @@ The rules, in order:
    - a link to a path outside the work directory or into a git folder, judged both by the text of
      its target and by the path it reaches through other links. An entry that does not exist yet
      counts as a folder.
-   - a file with more than one link
+   - an entry other than a folder with more than one link, such as a link with a second path in a
+     folder of mode `1777` of root, where root would follow it once it belongs to the worker user
 
    Dagu removes the HOME of the step before these checks, so a file that the step linked from its
    HOME, such as one of a package cache, has one link left and stays.

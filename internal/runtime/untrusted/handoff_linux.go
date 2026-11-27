@@ -250,9 +250,10 @@ func (iso *isolation) handoff() error {
 			if e.isSocket() {
 				return false, nil
 			}
-			// A change of owner acts on the file, so it would also give the
-			// other paths of a file with more than one link.
-			if e.isRegular() && e.st.Nlink > 1 {
+			// A change of owner acts on the inode, so it would also give the
+			// other paths of an entry with more than one link: a file, a link
+			// or a FIFO.
+			if !e.isDir() && e.st.Nlink > 1 {
 				return false, stepError(iso.step, "give", e.path, errors.New("the file has more than one link"))
 			}
 			if e.isLink() {
@@ -377,7 +378,7 @@ func (iso *isolation) protectGitEntry(e *fsEntry) error {
 	}
 	// A change acts on the file, so it would also reach the other paths of a
 	// file with more than one link, as git clone --local makes them.
-	if e.isRegular() && e.st.Nlink > 1 && (chown || perm != e.perm()) {
+	if !e.isDir() && e.st.Nlink > 1 && (chown || perm != e.perm()) {
 		return stepError(iso.step, "protect", e.path, errors.New("the file has more than one link"))
 	}
 	if chown {
@@ -447,7 +448,7 @@ func (iso *isolation) restore(verifyGit bool) error {
 			// After a failed handoff, every entry is the worker's and the restore
 			// removes none. The handoff stops before a file with more than one
 			// link, so such a file was never given: only its group matched.
-			if !verifyGit && e.isRegular() && e.st.Nlink > 1 {
+			if !verifyGit && !e.isDir() && e.st.Nlink > 1 {
 				return false, nil
 			}
 			if verifyGit && e.isLink() && !iso.isGivenLink(e) {
@@ -456,7 +457,9 @@ func (iso *isolation) restore(verifyGit bool) error {
 					return true, nil
 				}
 			}
-			if verifyGit && e.isRegular() && e.st.Nlink > 1 {
+			// A link of root at another path in a folder of mode 1777 of root
+			// is one that fs.protected_symlinks lets root follow.
+			if verifyGit && !e.isDir() && e.st.Nlink > 1 {
 				fail(iso.removeEntry(e, "the restricted user made the file %s with more than one link"))
 				return true, nil
 			}
