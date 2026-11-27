@@ -613,6 +613,21 @@ func TestAbortThatStopsTheRunPoisonsTheProcess(t *testing.T) {
 	assert.ErrorIs(t, CheckWorkDir(iso.lexicalWork), ErrRunAborted, "the work directory stays marked")
 }
 
+// A process that the worker starts during the step, such as a step of another
+// run, gets no descriptor of the work directory that the handoff keeps. It
+// needs no root.
+func TestHandoffKeepsNoDescriptorForChildren(t *testing.T) {
+	t.Parallel()
+	iso := selfIsolation(t, t.TempDir())
+	require.NoError(t, iso.handoff())
+	t.Cleanup(func() { _ = iso.unmarkUnlessAborted(iso.restore(true)) })
+
+	// The descriptor of the listing is gone once readlink runs.
+	out, err := exec.Command("/bin/sh", "-c", `for fd in /proc/$$/fd/*; do readlink "$fd" || true; done`).Output()
+	require.NoError(t, err)
+	assert.NotContains(t, string(out), iso.workDir)
+}
+
 // A FIFO named commondir fails the handoff instead of holding it until a writer
 // opens the FIFO. It needs no root.
 func TestHandoffRefusesAFIFOGitPointer(t *testing.T) {

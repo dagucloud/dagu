@@ -338,7 +338,8 @@ func (iso *isolation) protectDir(e *fsEntry) error {
 		}
 	}
 	if _, done := iso.protected[e.path]; !done {
-		fd, err := unix.Dup(e.fd)
+		// A process that the worker starts during the step does not inherit it.
+		fd, err := unix.FcntlInt(uintptr(e.fd), unix.F_DUPFD_CLOEXEC, 0)
 		if err != nil {
 			return stepError(iso.step, "keep the folder", e.path, err)
 		}
