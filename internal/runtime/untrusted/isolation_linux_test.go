@@ -46,16 +46,19 @@ func requireIsolation(t *testing.T) {
 	}
 }
 
-// testWorkDir makes a work directory below the system temp folder, which any
-// user can pass, with the folder repo. The restricted user can enter both and
-// cannot write them.
+// testWorkDir makes a work directory of the mode 0755 below the system temp
+// folder, which any user can pass, with a repository: repo/.git/hooks,
+// repo/.git/config and repo/src/main.txt.
 func testWorkDir(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "dagu-untrusted-test-")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	require.NoError(t, os.Chmod(dir, 0o755))
-	require.NoError(t, os.Mkdir(filepath.Join(dir, "repo"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "repo", ".git", "hooks"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "repo", ".git", "config"), []byte("[core]\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "repo", "src"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "repo", "src", "main.txt"), []byte("main\n"), 0o644))
 	return dir
 }
 
@@ -138,8 +141,8 @@ func TestChangeToUserDropsCaps(t *testing.T) {
 // Spec 103, "Isolation", rules 4, 5 and 7: the process runs as the restricted
 // user with no supplementary group, no capability, no descriptor of the worker
 // but 0, 1 and 2, in a session of its own, with a private HOME. It cannot read
-// a file of the worker or write the work directory. End stops each of its
-// processes, copies the output file and removes the HOME.
+// a file of the worker, and it can write the work directory. End stops each
+// of its processes, copies the output file and removes the HOME.
 func TestIsolatedStepRunsAsTheRestrictedUser(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
@@ -187,7 +190,7 @@ func TestIsolatedStepRunsAsTheRestrictedUser(t *testing.T) {
 	assert.Contains(t, out, "fds:\n0\n1\n2\nend\n")
 	assert.Contains(t, out, "home="+home+" tmp="+home+" 700 "+strconv.Itoa(testUID)+"\n")
 	assert.Contains(t, out, "read-worker:denied")
-	assert.Contains(t, out, "write-work:denied")
+	assert.Contains(t, out, "write-work:allowed")
 	assert.Contains(t, out, "secret=none")
 
 	require.NoError(t, step.End(ctx))
@@ -429,7 +432,7 @@ func TestIsolatedStep(t *testing.T) {
 	require.NoError(t, err)
 	info, err := os.Stat(workDir)
 	require.NoError(t, err)
-	assert.Equal(t, fs.FileMode(0o700), info.Mode().Perm(), "the mode of the work directory is restored")
+	assert.Equal(t, fs.FileMode(0o755), info.Mode().Perm(), "the mode of the work directory is restored")
 	data, err := os.ReadFile(filepath.Join(workDir, "repo", "src", "main.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "changed\n", string(data))
