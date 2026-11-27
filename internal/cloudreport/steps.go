@@ -45,13 +45,20 @@ type reportedStep struct {
 // how many there are in all. Each step names the steps it waits for by
 // their positions among those returned.
 func runSteps(status *ir.DAGRunStatus) ([]reportedStep, int) {
+	// Only regular steps are waited for, and a handler can share one's name.
+	regular := make(map[*ir.Node]bool, len(status.Nodes))
+	for _, node := range status.Nodes {
+		regular[node] = true
+	}
 	var nodes []*ir.Node
 	positions := map[string]int{}
 	for _, node := range status.NodesInRunOrder() {
 		if node.Step.Name == "" {
 			continue
 		}
-		positions[node.Step.Name] = len(nodes)
+		if regular[node] {
+			positions[node.Step.Name] = len(nodes)
+		}
 		nodes = append(nodes, node)
 	}
 	var steps []reportedStep

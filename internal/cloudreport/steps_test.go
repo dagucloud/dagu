@@ -93,3 +93,21 @@ func TestStepsNameTheirDependenciesByPosition(t *testing.T) {
 	require.Len(t, steps, maxRunSteps)
 	assert.Equal(t, []int{1}, steps[0].Depends, "a step past those reported is left out")
 }
+
+// A handler can share a regular step's name, but only regular steps are
+// waited for, so a dependency on that name points at the regular step.
+func TestADependencyNamesTheStepNotTheHandler(t *testing.T) {
+	t.Parallel()
+
+	status := run("etl", "run-1", ir.Succeeded)
+	status.Nodes = []*ir.Node{
+		{Step: ir.Step{Name: "onSuccess"}},
+		{Step: ir.Step{Name: "load", Depends: []string{"onSuccess"}}},
+	}
+	status.OnSuccess = &ir.Node{Step: ir.Step{Name: "onSuccess"}}
+
+	steps, _ := runSteps(status)
+
+	require.Len(t, steps, 3)
+	assert.Equal(t, []int{0}, steps[1].Depends)
+}
