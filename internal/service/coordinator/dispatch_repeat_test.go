@@ -525,3 +525,58 @@ func TestDispatchRepeatAfterConcurrentNewAttempt(t *testing.T) {
 	assert.Contains(t, err.Error(), "no longer the latest")
 	assert.Zero(t, f.claimAll(t))
 }
+
+// A repeat that a worker shortfall would refuse succeeds when the run it
+// repeats moved on during the lookup, for a root run and a sub-DAG run alike.
+func TestDispatchShortfallRepeatAfterConcurrentFailure(t *testing.T) {
+	tests := []struct {
+		name    string
+		task    func() *coordinatorv1.Task
+		attempt func(*holdFixture) *mockAttempt
+	}{
+		{
+			name:    "Root",
+			task:    func() *coordinatorv1.Task { return repeatTask("run-short") },
+			attempt: func(f *holdFixture) *mockAttempt { return f.attempt("run-short") },
+		},
+		{
+			name: "SubDAG",
+			task: func() *coordinatorv1.Task {
+				task := repeatTask("run-short-child")
+				task.RootDagRunName, task.RootDagRunId = "parent", "run-short-root"
+				task.ParentDagRunName, task.ParentDagRunId = "parent", "run-short-root"
+				return task
+			},
+			attempt: func(f *holdFixture) *mockAttempt { return f.subAttempt("run-short-root", "run-short-child") },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newHoldFixture(t, 0)
+			_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: tt.task()})
+			require.NoError(t, err)
+			admitted := tt.attempt(f)
+			require.NoError(t, f.dispatches.DeletePending(t.Context(), admitted.status.AttemptKey))
+			require.NoError(t, f.heartbeats.Upsert(t.Context(), dispatch.WorkerHeartbeatRecord{
+				WorkerID: "worker-gpu", LastHeartbeatAt: time.Now().Add(-time.Hour).UnixMilli(),
+			}))
+
+			racing := &racingOutstandingStore{DispatchTaskStore: f.dispatches}
+			racing.during = func() {
+				failed := *admitted.status
+				failed.Status = ir.Failed
+				require.NoError(t, admitted.Write(t.Context(), failed))
+			}
+			h := NewHandler(HandlerConfig{
+				DAGRunRepository:     f.runs.repository,
+				DispatchTaskStore:    racing,
+				WorkerHeartbeatStore: f.heartbeats,
+			})
+			t.Cleanup(func() { h.Close(context.Background()) })
+
+			_, err = h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: tt.task()})
+			require.NoError(t, err)
+			assert.Same(t, admitted, tt.attempt(f))
+		})
+	}
+}

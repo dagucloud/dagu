@@ -1363,7 +1363,14 @@ func (h *Handler) admittedRepeat(ctx context.Context, task *coordinatorv1.Task) 
 	if err != nil {
 		return false, fmt.Errorf("failed to parse DAG definition: %w", err)
 	}
-	probe := &coordinatorv1.Task{AttemptId: task.AttemptId}
+	probe := &coordinatorv1.Task{
+		AttemptId:        task.AttemptId,
+		DagRunId:         task.DagRunId,
+		RootDagRunName:   task.RootDagRunName,
+		RootDagRunId:     task.RootDagRunId,
+		ParentDagRunName: task.ParentDagRunName,
+		ParentDagRunId:   task.ParentDagRunId,
+	}
 	var attempt dagrun.Attempt
 	switch {
 	case task.ParentDagRunId != "":
