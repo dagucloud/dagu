@@ -533,13 +533,18 @@ func TestLostLockCommitsNothing(t *testing.T) {
 }
 
 // Two writers with the same hash: one wins and the other one gets a conflict.
-// Two stores on one directory stand for two instances.
+// Two stores on one directory stand for two instances. The first round starts
+// with the lock of a holder that died, which one writer only takes over.
 func TestTwoWritersRace(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "skills")
 	a, b := skill.NewStore(dir), skill.NewStore(dir)
-	created := create(t, a, "demo")
+	create(t, a, "demo")
+	locks := filepath.Join(dir, ".locks", "demo")
+	require.NoError(t, dirlock.New(locks, nil).TryLock())
+	old := time.Now().Add(-time.Minute)
+	require.NoError(t, os.Chtimes(filepath.Join(locks, dirlock.LockDirectoryName), old, old))
 
 	for round := range 20 {
 		cur, err := a.Read("demo")
@@ -563,51 +568,17 @@ func TestTwoWritersRace(t *testing.T) {
 		}
 		require.Equal(t, 1, wins, "round %d: %v", round, errs)
 	}
-	_ = created
 }
 
-// The lock of a holder that died is taken over by one writer only: of two
-// writers with the same hash, one wins and the other gets a conflict.
-func TestStaleLockIsTakenOverOnce(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	dir := filepath.Join(t.TempDir(), "skills")
-	a, b := skill.NewStore(dir), skill.NewStore(dir)
-	created := create(t, a, "demo")
-	locks := filepath.Join(dir, ".locks", "demo")
-	require.NoError(t, dirlock.New(locks, nil).TryLock())
-	old := time.Now().Add(-time.Minute)
-	require.NoError(t, os.Chtimes(filepath.Join(locks, dirlock.LockDirectoryName), old, old))
-
-	var wg sync.WaitGroup
-	errs := make([]error, 2)
-	for i, st := range []*skill.Store{a, b} {
-		wg.Go(func() {
-			_, errs[i] = st.WriteFile(ctx, "demo", "references/r.md", []byte{byte('a' + i)}, skill.Precondition{IfMatch: created.Hash})
-		})
-	}
-	wg.Wait()
-	var conflict *skill.ConflictError
-	if errs[0] == nil {
-		require.ErrorAs(t, errs[1], &conflict)
-	} else {
-		require.ErrorAs(t, errs[0], &conflict)
-		require.NoError(t, errs[1])
-	}
-}
-
-// A write stays in the skill folder that it opened. When the folder, or the
-// skills directory, becomes a link during the write, the link target does not
-// change.
+// A write never reaches the target of a link that replaces the skill folder or
+// the skills directory during the write. A write stays in the skill folder that
+// it opened. A moved skills directory moves the lock too, so that write stops.
 func TestWriteStaysInTheFolderThatItOpened(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows refuses to move a folder that a process holds open")
 	}
 	t.Parallel()
-	for name, swapped := range map[string]func(s *skill.Store) string{
-		"skill folder":     func(s *skill.Store) string { return s.Dir("demo") },
-		"skills directory": func(s *skill.Store) string { return skill.Root(s) },
-	} {
+	for name, inSkillsDir := range map[string]bool{"skill folder": false, "skills directory": true} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			s := newStore(t)
@@ -615,25 +586,32 @@ func TestWriteStaysInTheFolderThatItOpened(t *testing.T) {
 			outside := t.TempDir()
 			require.NoError(t, os.Mkdir(filepath.Join(outside, "demo"), 0o755))
 			require.NoError(t, os.WriteFile(filepath.Join(outside, "demo", "SKILL.md"), []byte("original"), 0o644))
-			path := swapped(s)
-			target := outside
-			if path == s.Dir("demo") {
-				target = filepath.Join(outside, "demo")
+			path, target := s.Dir("demo"), filepath.Join(outside, "demo")
+			if inSkillsDir {
+				path, target = skill.Root(s), outside
 			}
+			before, err := os.ReadFile(filepath.Join(s.Dir("demo"), "SKILL.md"))
+			require.NoError(t, err)
 			skill.SetBeforeHeldCheck(s, func() {
 				require.NoError(t, os.Rename(path, path+".moved"))
 				require.NoError(t, os.Symlink(target, path))
 			})
 
-			_, _ = s.WriteFile(context.Background(), "demo", "SKILL.md", []byte(good), skill.Precondition{IfMatch: created.Hash})
-			data, err := os.ReadFile(filepath.Join(outside, "demo", "SKILL.md"))
-			require.NoError(t, err)
-			require.Equal(t, "original", string(data), "the write went through the link")
+			_, writeErr := s.WriteFile(context.Background(), "demo", "SKILL.md", []byte(good), skill.Precondition{IfMatch: created.Hash})
 			entries, err := os.ReadDir(filepath.Join(outside, "demo"))
 			require.NoError(t, err)
 			require.Len(t, entries, 1, "a file was made in the link target")
-			_, err = os.Stat(path + ".moved")
-			require.NoError(t, err, "the folder moved during the write")
+			data, err := os.ReadFile(filepath.Join(outside, "demo", "SKILL.md"))
+			require.NoError(t, err)
+			require.Equal(t, "original", string(data), "the write went through the link")
+			moved, want := filepath.Join(s.Dir("demo")+".moved", "SKILL.md"), good
+			if inSkillsDir {
+				require.ErrorIs(t, writeErr, dirlock.ErrLockNotHeld)
+				moved, want = filepath.Join(skill.Root(s)+".moved", "demo", "SKILL.md"), string(before)
+			}
+			data, err = os.ReadFile(moved)
+			require.NoError(t, err)
+			require.Equal(t, want, string(data))
 		})
 	}
 }
