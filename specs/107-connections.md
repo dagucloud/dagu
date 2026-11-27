@@ -12,7 +12,13 @@ changes (Specs 044, 045, 069, 073, and 098).
 Implemented so far:
 
 - [Declared Connections](#declared-connections) for `mcp.call`'s
-  `connection` and `server`.
+  `connection` and `server`, and for `secrets` entries with
+  `provider: connection`.
+- The `connection` secret provider
+  ([Rules per Consumer](#rules-per-consumer)), on a local run and on a run
+  on a worker. Its `options.service` must name one of the connection's
+  services. A Microsoft connection, whose service selects its resource,
+  exports no token until the Microsoft presets land.
 - [Admission Checks](#admission-checks), except the literal `http.request`
   URL check, on a local run from the CLI or the embedded engine, and on a
   run on a worker, including the embedded engine's worker, through the
@@ -20,7 +26,8 @@ Implemented so far:
   runs, until its token is delivered.
 - [Workers](#workers): the coordinator answers token, check-only, and
   rejected-token requests, and dispatches a DAG that declares connections
-  only to workers that make them. No step on a worker asks for a token yet.
+  only to workers that make them. On a worker, only a `connection` secret
+  asks for a token so far.
 - The [Connect Flow](#connect-flow) for `google` inside the server: the
   authorization request, the server callback, confirmation, the
   [checks after consent](#checks-after-consent), and the
@@ -163,8 +170,8 @@ resource it calls, such as Graph and Outlook.
 
 A connection's bound hosts are the hosts that may receive its access
 tokens: its presets' hosts plus the hosts it adds. Its binding is its
-provider, services, bound hosts, and resource URL. A binding holds no
-secret.
+provider, services, bound hosts, resource URL, and whether it allows token
+export. A binding holds no secret.
 
 A session is a connect or reconnect in progress. Its starter is the user
 who started it.
@@ -882,6 +889,8 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
 - The notification connection never resolves for a worker.
 - The answer holds the access token, its lifetime in seconds, and the
   binding. A lifetime in seconds makes the worker's clock irrelevant.
+  A binding from a coordinator that does not send whether the connection
+  allows token export allows none.
 - A check-only request runs the same checks and returns the binding
   without a token. A worker uses it for admission.
 - A worker reports a rejected token through the coordinator, which applies
@@ -952,8 +961,9 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
 #### Admission Checks
 
 A run checks each declared connection before its first step, where secrets
-resolve. A local run reads the records. A run on a worker uses a
-check-only request. The editor's server-side validation runs the same
+resolve, and before its secrets resolve, so a failed check is reported
+before a `connection` secret fails. A local run reads the records. A run on
+a worker uses a check-only request. The editor's server-side validation runs the same
 checks.
 
 - The name resolves in the run's project.
@@ -1044,7 +1054,7 @@ The owning specs define each field. Every use follows these rules.
 | `mcp.call` | `connection` replaces `url` and `headers.Authorization`. With a `google` or `microsoft` connection, `server` names a preset. With an `mcp` connection, `server` is not allowed. A `url` must be on the bound hosts. `headers` may not set `Authorization`. An `auth` error carries the connection's name, and `reconnect_required` when it needs reconnecting |
 | `http.request` | The token is added only to an HTTPS request to a bound host. `connection` cannot be combined with `debug: true` or with `headers.Authorization` |
 | Mail accounts, a DAG's `smtp`, and the notification SMTP settings | `connection` replaces `oauth` and `password`, and takes a `google` or `microsoft` connection. A `provider` that differs from the connection's fails when the account is used. With `connection`, a mail account takes no `imap` or `smtp` block, and `smtp` takes no host or port. Gmail API actions need `gmail` with `write`. Google SMTP, Microsoft mail, and Microsoft SMTP need `mailbox` |
-| `connection` secret provider | Works only when `allow_token_export` is set. The token stays valid for at least 50 minutes, or half the provider's token lifetime when that is shorter. Its value is masked like any secret |
+| `connection` secret provider | Works only when `allow_token_export` is set. The token stays valid for at least 50 minutes, or half the provider's token lifetime when that is shorter. Its value is masked like any secret. `options.service`, when set, names one of the connection's services; for a Microsoft connection it selects the resource. No other option is allowed |
 
 - Every `mcp.call`, with or without a connection, fails on HTTP 429 with
   kind `rate_limited`, the provider's message, and any `Retry-After`.
@@ -1359,7 +1369,8 @@ Token issuance is not audited. No audit entry holds a secret.
   HTTPS fails the step before any request.
 - A redirect that [Binding](#binding) does not allow fails the request.
 - A `connection` secret on a connection without `allow_token_export` fails
-  the run at secret resolution, naming the connection.
+  the run at secret resolution, naming the connection. So does one whose
+  `options.service` is not one of the connection's services.
 
 ## Examples
 

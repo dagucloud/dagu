@@ -59,6 +59,25 @@ steps:
 
 - Use string-form `output: VAR_NAME` only for small stdout values. Large reports, JSON dumps, Markdown summaries, and logs belong in `stdout.artifact` / `stderr.artifact`.
 
+A script or CLI that takes a bearer token can get a connection's access token (an OAuth sign-in such as a Google Workspace account) from the `connection` secret provider:
+
+```yaml
+labels:
+  - workspace=ops
+secrets:
+  - name: GOOGLE_TOKEN
+    provider: connection
+    key: work-google
+steps:
+  - id: profile
+    run: curl -H "Authorization: Bearer $GOOGLE_TOKEN" https://gmail.googleapis.com/gmail/v1/users/me/profile
+```
+
+- It works only when an admin has set `allow_token_export` on the connection; otherwise the run fails before its first step, naming the connection. Prefer a connection-aware step such as `mcp.call`, which needs no export.
+- `key` is a literal connection name in the DAG's workspace, and the run checks it before its first step. `options.service`, the only option, must name one of the connection's services.
+- The token is fetched once, at run start, and stays valid for at least 50 minutes, or half the provider's token lifetime when that is shorter. A longer step should use a connection-aware step.
+- The value is masked in logs and run status like any secret, but the script can still send or print it, so pass it only to the provider's own hosts.
+
 ## docker.run / container.run
 
 Run commands in Docker containers.
