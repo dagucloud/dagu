@@ -382,8 +382,12 @@ A coordinator logs one line at start for what it serves:
 - A coordinator with a peer CA writes the certificate of the CA it uses,
   generated or from `peer.ca_cert_file`, to its data directory as the
   published CA certificate, at start when it is missing or differs, and
-  again whenever it refreshes its registry entry and finds it missing.
-  Publishing never changes the generated CA.
+  again whenever it refreshes its registry entry and finds it missing, or
+  until a write succeeds when the write at start failed. Publishing never
+  changes the generated CA.
+- A coordinator that fails to start after it wrote the file removes it
+  while it still holds its certificate. A running coordinator then writes
+  its own again on its next refresh.
 - A coordinator with own certificates removes the published CA certificate
   at start, so clients that share its data directory stay off built-in
   TLS. A coordinator that only failed to create or read its generated CA

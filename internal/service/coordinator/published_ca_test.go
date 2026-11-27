@@ -42,30 +42,27 @@ func TestPublishedCertificate(t *testing.T) {
 	assert.Equal(t, published, readPublished(t, path))
 }
 
-// A coordinator that does not start puts back the certificate it replaced,
-// but leaves one that another coordinator wrote since.
+// A coordinator that does not start removes the certificate it wrote, and
+// the running coordinator writes its own again on its next refresh. It
+// leaves a certificate that another coordinator wrote since.
 func TestUnpublishCertificate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "peer-ca.crt")
 	running, failed, later := newTestCA(t), newTestCA(t), newTestCA(t)
 	publish(t, running, path)
 	before := readPublished(t, path)
 
-	restore, err := failed.PublishCertificate(path)
+	unpublish, err := failed.PublishCertificate(path)
 	require.NoError(t, err)
-	restore()
+	unpublish()
+	assert.NoFileExists(t, path)
+	require.NoError(t, running.republishCertificate(path))
 	assert.Equal(t, before, readPublished(t, path))
 
-	restore, err = failed.PublishCertificate(path)
+	unpublish, err = failed.PublishCertificate(path)
 	require.NoError(t, err)
 	publish(t, later, path)
-	restore()
+	unpublish()
 	assert.Equal(t, readPublishedOf(t, later), readPublished(t, path))
-
-	missing := filepath.Join(t.TempDir(), "peer-ca.crt")
-	restore, err = failed.PublishCertificate(missing)
-	require.NoError(t, err)
-	restore()
-	assert.NoFileExists(t, missing)
 }
 
 // A coordinator whose publication failed at start replaces, on its next

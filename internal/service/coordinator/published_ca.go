@@ -20,13 +20,13 @@ import (
 const publishedCAFileMode = 0o644
 
 // PublishCertificate writes the CA certificate to path, the published CA
-// certificate, unless path already holds it. The returned function puts back
-// what path held before, while path still holds this certificate, for a
-// coordinator that does not start after all.
+// certificate, unless path already holds it. The returned function, for a
+// coordinator that does not start after all, removes the file while it
+// holds this certificate; each running coordinator with a peer CA writes its
+// own again on its next registry refresh.
 func (ca *PeerCA) PublishCertificate(path string) (func(), error) {
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.cert.Raw})
-	previous, readErr := fileutil.ReadFile(path)
-	if readErr == nil && bytes.Equal(previous, certPEM) {
+	if current, err := fileutil.ReadFile(path); err == nil && bytes.Equal(current, certPEM) {
 		return func() {}, nil
 	}
 	if err := fileutil.MkdirAll(filepath.Dir(path), peerDirMode); err != nil {
@@ -36,15 +36,9 @@ func (ca *PeerCA) PublishCertificate(path string) (func(), error) {
 		return nil, fmt.Errorf("write published CA certificate: %w", err)
 	}
 	return func() {
-		// Best effort: a coordinator that still publishes writes its own
-		// certificate again on its next registry refresh.
-		if current, err := fileutil.ReadFile(path); err != nil || !bytes.Equal(current, certPEM) {
-			return
-		}
-		switch {
-		case readErr == nil:
-			_ = fileutil.WriteFileAtomic(path, previous, publishedCAFileMode)
-		case errors.Is(readErr, fs.ErrNotExist):
+		// Removing, not writing back, lets a coordinator that published in
+		// between repair the file, since a refresh writes a missing one.
+		if current, err := fileutil.ReadFile(path); err == nil && bytes.Equal(current, certPEM) {
 			_ = fileutil.Remove(path)
 		}
 	}, nil

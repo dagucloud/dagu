@@ -297,6 +297,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	if coord != nil {
 		wg.Go(func() {
 			if err := coord.Start(serviceCtx.WithEventSource(eventstore.SourceServiceCoordinator)); err != nil {
+				peerCA.unpublish()
 				select {
 				case errCh <- fmt.Errorf("coordinator failed: %w", err):
 				default:
