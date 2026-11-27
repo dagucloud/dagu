@@ -105,6 +105,16 @@ func TestTrustedHomeNeedsASafeTempFolder(t *testing.T) {
 	assert.Empty(t, names, "the private HOME is removed")
 }
 
+// An access ACL can let the restricted user write a folder whatever its mode.
+// It needs no root.
+func TestTrustedHomeACL(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	require.NoError(t, os.Chmod(home, 0o755))
+	setUserACL(t, home, aclNames[0])
+	assert.NotNil(t, trustedHome(t, testUID, home, func(string) (string, bool) { return "", false }))
+}
+
 // A link of the restricted user in a sticky folder can be replaced by it,
 // although the sticky bit keeps it from replacing an entry of the worker. The
 // folder is writable by the group, not by all, so that fs.protected_symlinks

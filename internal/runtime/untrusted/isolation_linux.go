@@ -855,8 +855,8 @@ func ownerOf(info fs.FileInfo) (uid, gid int) {
 // folder or a link on the way. Both the path as given and the path that its
 // links lead to count. A sticky folder lets it make an entry and not rename one
 // of another owner. A folder or a link of the user counts as writable whatever
-// its mode: the owner can change the mode or replace the link. A folder that
-// cannot be read counts as writable.
+// its mode: the owner can change the mode or replace the link. A folder with
+// an access ACL, or one that cannot be read, counts as writable.
 func writableBy(path string, uid, gid uint32) bool {
 	path = filepath.Clean(path)
 	if writableOnTheWay(path, uid, gid) {
@@ -884,7 +884,7 @@ func writableOnTheWay(path string, uid, gid uint32) bool {
 		default:
 			owner, group := ownerOf(info)
 			mode := info.Mode()
-			canWrite := (group == int(gid) && mode&0o020 != 0) || mode&0o002 != 0
+			canWrite := (group == int(gid) && mode&0o020 != 0) || mode&0o002 != 0 || dirHasACL(dir)
 			if owner == int(uid) || (canWrite && (dir == path || missing || mode&fs.ModeSticky == 0)) {
 				return true
 			}
@@ -894,4 +894,12 @@ func writableOnTheWay(path string, uid, gid uint32) bool {
 			return false
 		}
 	}
+}
+
+// dirHasACL reports whether the folder at path has an access ACL, which can
+// let the restricted user write it whatever its mode. An error that does not
+// show the lack of one counts as one.
+func dirHasACL(path string) bool {
+	_, err := unix.Getxattr(path, aclNames[0], nil)
+	return !errors.Is(err, unix.ENODATA) && !errors.Is(err, unix.EOPNOTSUPP)
 }
