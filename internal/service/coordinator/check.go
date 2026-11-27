@@ -325,10 +325,10 @@ func callError(config *Config, err error) error {
 	if !ok {
 		return err
 	}
-	switch s.Code() {
-	case codes.Unauthenticated, codes.PermissionDenied:
+	switch code := s.Code(); {
+	case code == codes.Unauthenticated || code == codes.PermissionDenied:
 		return fmt.Errorf("refused the call, %s", s.Message())
-	case codes.DeadlineExceeded:
+	case code == codes.DeadlineExceeded:
 		return noAnswer(config)
 	default:
 		return errors.New(s.Message())

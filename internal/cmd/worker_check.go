@@ -161,7 +161,7 @@ func credentialText(credential coordinator.Credential) string {
 		token = "peer token from peer.token"
 	case coordinator.PeerTokenDataDir:
 		token = "peer token from the coordinator's data directory"
-	default:
+	case coordinator.PeerTokenNone:
 		token = "no peer token"
 	}
 	if credential.CertFile == "" {
