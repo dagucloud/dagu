@@ -2646,6 +2646,10 @@ export const baseFrench = {
   saved: 'valeur enregistrée',
   'HMAC secret configured': 'Secret HMAC configuré',
   'HMAC secret': 'Secret HMAC',
+  'A new URL drops the saved headers and HMAC secret. Enter them again to keep them.':
+    'Une nouvelle URL supprime les en-têtes et le secret HMAC enregistrés. Saisissez-les à nouveau pour les conserver.',
+  'A new host drops the saved password. Enter it again to keep it.':
+    'Un nouvel hôte supprime le mot de passe enregistré. Saisissez-le à nouveau pour le conserver.',
   'Webhook URL configured ({preview})': 'URL du webhook configurée ({preview})',
   'Slack webhook URL': 'URL du webhook Slack',
   'Bot token configured ({preview})': 'Jeton du bot configuré ({preview})',

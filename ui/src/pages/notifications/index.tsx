@@ -1559,6 +1559,12 @@ function NotificationChannelsContent({ remoteNode }: { remoteNode: string }) {
   const oauthDestination = smtpOAuthDestinations[smtpDraft.oauthProvider];
   const savedSMTP = settingsData?.smtp;
   const emailConfigured = !!(savedSMTP?.host || savedSMTP?.oauth);
+  const smtpDropsSavedPassword =
+    smtpDraft.passwordConfigured &&
+    !smtpDraft.password &&
+    !smtpDraft.clearPassword &&
+    smtpDraft.host.trim().toLowerCase() !==
+      (savedSMTP?.host || '').trim().toLowerCase();
   const loadError =
     apiErrorMessage(settingsLoadError, 'Failed to load email delivery') ??
     apiErrorMessage(channelsLoadError, 'Failed to load channels');
@@ -1977,6 +1983,15 @@ function NotificationChannelsContent({ remoteNode }: { remoteNode: string }) {
                             }
                           />
                         </I18nProps>
+                        {smtpDropsSavedPassword && (
+                          <p className="text-xs text-muted-foreground">
+                            <I18nText
+                              text={
+                                'A new host drops the saved password. Enter it again to keep it.'
+                              }
+                            />
+                          </p>
+                        )}
                       </label>
                     </I18nProps>
                   )}
