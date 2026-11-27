@@ -43,21 +43,8 @@ describe('serviceActivity', () => {
     expect(model.windowSeconds).toBe(86_400);
   });
 
-  it('gives 60 one-minute slots for a window of one hour', () => {
-    const model = serviceActivity([], 60, NOW, 3600);
-    expect(model.cells).toHaveLength(60);
-    expect(model.cells[59]!.start).toBe(Date.parse('2026-10-29T12:30:00Z'));
-    expect(model.windowSeconds).toBe(3600);
-  });
-
-  it('gives 7 daily slots for a window of 7 days', () => {
-    const model = serviceActivity([], 86_400, NOW, 7 * 86_400);
-    expect(model.cells).toHaveLength(7);
-    expect(model.cells[6]!.start).toBe(Date.parse('2026-10-29T00:00:00Z'));
-  });
-
   it('never gives more than 60 cells', () => {
-    const model = serviceActivity([], 60, NOW, 86_400);
+    const model = serviceActivity([], 60, NOW);
     expect(model.cells).toHaveLength(SERVICE_MAX_CELLS);
     // The cells cover 60 minutes only: the window says so.
     expect(model.windowSeconds).toBe(3600);

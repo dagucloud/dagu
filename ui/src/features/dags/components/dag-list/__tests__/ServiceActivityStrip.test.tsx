@@ -57,18 +57,14 @@ function bucket(start: number, count: number, failures = 0, upMs?: number) {
   };
 }
 
-function renderStrip(
-  activity: Activity | undefined,
-  fluid = false,
-  fileName?: string
-) {
+function renderStrip(activity: Activity, fluid = false) {
   return render(
     <UserPreferencesProvider>
       <I18nProvider>
         <ServiceActivityStrip
           activity={activity}
           fluid={fluid}
-          fileName={fileName}
+          fileName="svc.yaml"
         />
       </I18nProvider>
     </UserPreferencesProvider>
@@ -208,7 +204,7 @@ describe('ServiceActivityStrip', () => {
   });
 
   it('shows an empty strip and a dash for a service DAG with no history', () => {
-    renderStrip({ runs: [], truncated: false });
+    renderStrip({ runs: [], truncated: false, buckets: [] });
     const strip = screen.getByTestId('dag-activity');
     expect(strip.children).toHaveLength(60);
     expect(
@@ -226,11 +222,6 @@ describe('ServiceActivityStrip', () => {
     renderStrip(activity, true);
     expect(screen.getByTestId('dag-activity').style.width).toBe('');
     expect(screen.getByTestId('dag-activity').className).toContain('flex-1');
-  });
-
-  it('draws nothing but a placeholder while the activity is not there', () => {
-    renderStrip(undefined);
-    expect(screen.queryByTestId('dag-activity')).toBeNull();
   });
 });
 
@@ -258,13 +249,8 @@ describe('ServiceActivityStrip detail', () => {
         ask.init !== null
     );
 
-  it('is a plain strip without a file name', () => {
-    renderStrip(activity);
-    expect(screen.queryByRole('button')).toBeNull();
-  });
-
   it('asks for nothing while it is closed', () => {
-    renderStrip(activity, true, 'svc.yaml');
+    renderStrip(activity, true);
     expect(
       screen.getByRole('button', { name: /^Runs in the last 24 hours/ })
     ).toHaveAttribute('aria-expanded', 'false');
@@ -273,7 +259,7 @@ describe('ServiceActivityStrip detail', () => {
   });
 
   it('shows the figures after a click and asks once', () => {
-    renderStrip(activity, true, 'svc.yaml');
+    renderStrip(activity, true);
     fireEvent.click(
       screen.getByRole('button', { name: /^Runs in the last 24 hours/ })
     );
@@ -292,7 +278,7 @@ describe('ServiceActivityStrip detail', () => {
 
   it('shows the uptime of 7 days when the history has it', () => {
     h.uptime = 0.8765;
-    renderStrip(activity, true, 'svc.yaml');
+    renderStrip(activity, true);
     fireEvent.click(
       screen.getByRole('button', { name: /^Runs in the last 24 hours/ })
     );
@@ -302,7 +288,7 @@ describe('ServiceActivityStrip detail', () => {
   });
 
   it('closes with Escape and opens again', () => {
-    renderStrip(activity, true, 'svc.yaml');
+    renderStrip(activity, true);
     const button = screen.getByRole('button', {
       name: /^Runs in the last 24 hours/,
     });
@@ -317,7 +303,7 @@ describe('ServiceActivityStrip detail', () => {
   // A click toggles the detail. A key that clicks the button (detail 0)
   // keeps the detail that the focus opened.
   it('toggles on a click and stays open on a key', () => {
-    renderStrip(activity, true, 'svc.yaml');
+    renderStrip(activity, true);
     const button = screen.getByRole('button', {
       name: /^Runs in the last 24 hours/,
     });
