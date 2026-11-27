@@ -200,6 +200,36 @@ func TestDispatchInterruptedCancelsRun(t *testing.T) {
 	assert.Equal(t, []string{"dispatched run", "cancel deploy:run"}, client.calls)
 }
 
+// stalledDispatchClient is a coordinator that takes a call while the command
+// is interrupted and never answers it.
+type stalledDispatchClient struct {
+	coordinator.Client
+	interrupt context.CancelFunc
+	calls     int
+}
+
+func (c *stalledDispatchClient) Dispatch(ctx context.Context, _ dispatch.DispatchRequest) error {
+	c.calls++
+	c.interrupt()
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// An interrupted dispatch to a coordinator that stalls ends one timeout after
+// the interrupt, instead of waiting out the call's own timeout and retries.
+func TestDispatchThroughInterruptDeadline(t *testing.T) {
+	t.Parallel()
+
+	signalCtx, interrupt := context.WithCancel(context.Background())
+	defer interrupt()
+	client := &stalledDispatchClient{interrupt: interrupt}
+
+	err := dispatchThroughInterrupt(context.Background(), signalCtx, interrupt, client,
+		dispatch.DispatchRequest{Task: &dispatch.DispatchTask{}}, time.Millisecond)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 1, client.calls)
+}
+
 func TestRestoreDAGFromStatus_SMTP(t *testing.T) {
 	t.Parallel()
 

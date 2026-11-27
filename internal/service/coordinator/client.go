@@ -264,7 +264,7 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchReques
 
 	policy := backoff.WithJitter(basePolicy, backoff.FullJitter)
 
-	return backoff.Retry(ctx, func(ctx context.Context) error {
+	attempt := func(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -318,7 +318,71 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchReques
 
 			return nil
 		})
-	}, policy, nil)
+	}
+
+	// Once the call's attempts stop (WithAttemptStop), the attempt in flight
+	// runs on under ctx, and the call returns as soon as it ends.
+	retryCtx, cancelRetries := contextUntilAttemptStop(ctx)
+	defer cancelRetries()
+	var lastErr error
+	err = backoff.Retry(retryCtx, func(context.Context) error {
+		lastErr = attempt(ctx)
+		return lastErr
+	}, policy, func(err error) bool {
+		return !errors.Is(err, backoff.ErrPermanent) && !attemptsStopped(ctx)
+	})
+	if err != nil && ctx.Err() == nil && attemptsStopped(ctx) {
+		if lastErr != nil {
+			return lastErr
+		}
+		return errAttemptsStopped
+	}
+	return err
+}
+
+// errAttemptsStopped is the error of a call whose attempts stopped before
+// any attempt ended.
+var errAttemptsStopped = errors.New("the call stopped before it reached a coordinator")
+
+// attemptStopKey is the context key of the channel WithAttemptStop sets.
+type attemptStopKey struct{}
+
+// WithAttemptStop returns ctx for a call of the client that starts no new
+// attempt, retry, or fallback to another coordinator once stop is closed. An
+// attempt already in flight runs on until it ends or ctx is done.
+func WithAttemptStop(ctx context.Context, stop <-chan struct{}) context.Context {
+	return context.WithValue(ctx, attemptStopKey{}, stop)
+}
+
+// attemptsStopped reports whether the attempts of the call with ctx stopped.
+func attemptsStopped(ctx context.Context) bool {
+	stop, _ := ctx.Value(attemptStopKey{}).(<-chan struct{})
+	if stop == nil {
+		return false
+	}
+	select {
+	case <-stop:
+		return true
+	default:
+		return false
+	}
+}
+
+// contextUntilAttemptStop returns a child of ctx that is also done once the
+// attempts of the call with ctx stop.
+func contextUntilAttemptStop(ctx context.Context) (context.Context, context.CancelFunc) {
+	child, cancel := context.WithCancel(ctx)
+	stop, _ := ctx.Value(attemptStopKey{}).(<-chan struct{})
+	if stop != nil {
+		go func() {
+			select {
+			case <-stop:
+				cancel()
+			case <-child.Done():
+			}
+		}()
+	}
+	return child, cancel
 }
 
 func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.DispatchTask) error {
@@ -422,6 +486,12 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []serviceregistr
 	for _, member := range members {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if attemptsStopped(ctx) {
+			if lastErr == nil {
+				lastErr = errAttemptsStopped
+			}
+			return lastErr
 		}
 
 		// Get or create client for this coordinator

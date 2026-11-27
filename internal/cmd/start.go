@@ -958,15 +958,8 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 
 	err := ctx.checkProjectDispatch()
 	if err == nil {
-		// The coordinator can take a task after the caller gives up on the
-		// call, so an interrupt does not cut the call short: once it returns,
-		// a run the coordinator took exists there, and the cancellation below
-		// reaches it. A second interrupt exits at once.
-		go func() {
-			<-signalCtx.Done()
-			stop()
-		}()
-		err = coordinatorCli.Dispatch(context.WithoutCancel(signalAwareCtx), dispatch.DispatchRequest{Task: task})
+		err = dispatchThroughInterrupt(ctx, signalCtx, stop, coordinatorCli,
+			dispatch.DispatchRequest{Task: task}, coordinator.DefaultConfig().RequestTimeout)
 	}
 	if err != nil {
 		if opts.seed != nil {
@@ -984,6 +977,45 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	}
 
 	return err
+}
+
+// dispatchThroughInterrupt sends req to the coordinator. The coordinator can
+// take a task after its caller gives up on the call, so an interrupt
+// (signalCtx done) does not cut the call short: it stops further retries and
+// fallbacks, and the attempt in flight gets timeout to end. Once the call
+// returns, a run the coordinator took exists there, so a cancellation reaches
+// it. The interrupt calls stop, so a second interrupt exits at once.
+func dispatchThroughInterrupt(
+	ctx context.Context,
+	signalCtx context.Context,
+	stop context.CancelFunc,
+	cli coordinator.Client,
+	req dispatch.DispatchRequest,
+	timeout time.Duration,
+) error {
+	attemptsStop := make(chan struct{})
+	callCtx, cancelCall := context.WithCancel(coordinator.WithAttemptStop(context.WithoutCancel(signalCtx), attemptsStop))
+	defer cancelCall()
+	returned := make(chan struct{})
+	defer close(returned)
+	go func() {
+		select {
+		case <-returned:
+			return
+		case <-signalCtx.Done():
+		}
+		stop()
+		logger.Info(ctx, "Interrupted: waiting for the coordinator to admit the run so it can be cancelled (Ctrl+C again to exit now)")
+		close(attemptsStop)
+		deadline := time.NewTimer(timeout)
+		defer deadline.Stop()
+		select {
+		case <-returned:
+		case <-deadline.C:
+			cancelCall()
+		}
+	}()
+	return cli.Dispatch(callCtx, req)
 }
 
 // handleDistributedCancellation handles the cancellation of a distributed DAG run when a signal is received.

@@ -6,10 +6,12 @@ package coordinator
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/stretchr/testify/require"
 )
@@ -133,4 +135,37 @@ func TestClientCacheUsesAdvertisedEndpointAcrossCoordinatorProcesses(t *testing.
 	require.Same(t, first, second)
 	require.Len(t, cli.clients, 1)
 	require.NoError(t, cli.Cleanup(t.Context()))
+}
+
+// interruptingRegistry finds no coordinator, and stops the attempts of the
+// call during its first lookup, as an interrupt during the first attempt does.
+type interruptingRegistry struct {
+	stubServiceRegistry
+	stop    func()
+	lookups int
+}
+
+func (r *interruptingRegistry) GetServiceMembers(context.Context, serviceregistry.ServiceName) ([]serviceregistry.HostInfo, error) {
+	r.lookups++
+	r.stop()
+	return nil, nil
+}
+
+// A dispatch whose attempts stop makes no retry once its attempt in flight
+// ends, and returns that attempt's error at once. The retry interval is an
+// hour, so a retry would hold the call.
+func TestDispatchStopsRetryingWhenAttemptsStop(t *testing.T) {
+	t.Parallel()
+
+	stop := make(chan struct{})
+	registry := &interruptingRegistry{stop: sync.OnceFunc(func() { close(stop) })}
+	cfg := DefaultConfig()
+	cfg.RetryInterval = time.Hour
+	cli := New(registry, cfg)
+
+	err := cli.Dispatch(WithAttemptStop(context.Background(), stop), dispatch.DispatchRequest{
+		Task: &dispatch.DispatchTask{Operation: dispatch.DispatchOperationStart, Target: "deploy", DAGRunID: "run"},
+	})
+	require.ErrorContains(t, err, "no coordinators available")
+	require.Equal(t, 1, registry.lookups)
 }
