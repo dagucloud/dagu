@@ -4,7 +4,6 @@
 package spec
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 
@@ -26,7 +25,8 @@ var connectionStepTypes = []string{"mcp"}
 // with.connection, including foreach bodies and handlers. Each connection is
 // listed once, with the servers that steps name beside it. Names and servers
 // must be literals, so that a run checks them before any value is evaluated
-// and building a DAG reads no connection record.
+// and building a DAG reads no connection record. A value that is not a
+// string is left to the executor's config schema, which rejects it.
 func (s *dagBuildState) collectConnections() {
 	var refs []ir.ConnectionRef
 	walkSteps(s.result, func(step ir.Step, path string) {
@@ -34,14 +34,13 @@ func (s *dagBuildState) collectConnections() {
 			return
 		}
 		cfg := step.ExecutorConfig.Config
-		raw, ok := cfg[stepFieldConnection]
+		name, ok := cfg[stepFieldConnection].(string)
 		if !ok {
 			return
 		}
 		path += ".with."
-		name, err := literalName(raw)
-		if err != nil {
-			s.errs = append(s.errs, ir.NewValidationError(path+stepFieldConnection, raw, err))
+		if err := validateLiteralName(name); err != nil {
+			s.errs = append(s.errs, ir.NewValidationError(path+stepFieldConnection, name, err))
 			return
 		}
 		i := slices.IndexFunc(refs, func(ref ir.ConnectionRef) bool { return ref.Name == name })
@@ -49,13 +48,12 @@ func (s *dagBuildState) collectConnections() {
 			i = len(refs)
 			refs = append(refs, ir.ConnectionRef{Name: name})
 		}
-		rawServer, ok := cfg[stepFieldServer]
+		server, ok := cfg[stepFieldServer].(string)
 		if !ok {
 			return
 		}
-		server, err := literalName(rawServer)
-		if err != nil {
-			s.errs = append(s.errs, ir.NewValidationError(path+stepFieldServer, rawServer, err))
+		if err := validateLiteralName(server); err != nil {
+			s.errs = append(s.errs, ir.NewValidationError(path+stepFieldServer, server, err))
 			return
 		}
 		if !slices.Contains(refs[i].Servers, server) {
@@ -65,17 +63,14 @@ func (s *dagBuildState) collectConnections() {
 	s.result.Connections = refs
 }
 
-// literalName returns raw as a connection or service name.
-func literalName(raw any) (string, error) {
-	name, ok := raw.(string)
-	if !ok {
-		return "", errors.New("must be a name")
-	}
+// validateLiteralName reports whether name is a literal connection or
+// service name.
+func validateLiteralName(name string) error {
 	if value.HasAnyReference(name) {
-		return "", fmt.Errorf("%q must be a literal name, not a reference", name)
+		return fmt.Errorf("%q must be a literal name, not a reference", name)
 	}
 	if connection.ValidateName(name) != nil {
-		return "", fmt.Errorf("%q must be up to 63 lowercase letters, digits, and hyphens, starting with a letter or digit", name)
+		return fmt.Errorf("%q must be up to 63 lowercase letters, digits, and hyphens, starting with a letter or digit", name)
 	}
-	return name, nil
+	return nil
 }

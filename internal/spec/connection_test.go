@@ -65,7 +65,8 @@ func TestConnectionNameValidation(t *testing.T) {
 		{name: "Uppercase", with: "connection: Work-Google", wantErr: "must be up to 63 lowercase letters"},
 		{name: "LeadingHyphen", with: `connection: "-ops"`, wantErr: "must be up to 63 lowercase letters"},
 		{name: "TooLong", with: "connection: " + strings.Repeat("a", 64), wantErr: "must be up to 63 lowercase letters"},
-		{name: "NotAString", with: "connection: {name: x}", wantErr: "steps.call.with.connection"},
+		// The executor's config schema rejects a value that is not a string.
+		{name: "NotAString", with: "connection: {name: x}", wantErr: `/properties/connection: type: map[name:x] has type "object", want "string"`},
 		{name: "ServerReference", with: "connection: work-google\n      server: ${SERVER}", wantErr: "steps.call.with.server"},
 		{name: "ServerWithoutConnection", with: "url: https://mcp.example.com/mcp\n      server: gmail", wantErr: "with.server requires with.connection"},
 	}
