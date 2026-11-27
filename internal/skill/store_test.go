@@ -819,6 +819,33 @@ func TestWriteStaysInTheFolderThatItOpened(t *testing.T) {
 	}
 }
 
+// On Windows, a file that a reader holds open cannot be deleted. A delete
+// waits a little for the reader, as a write does.
+func TestDeleteFileWaitsForAReader(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows refuses to delete an open file")
+	}
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	reader, err := os.Open(filepath.Join(s.Dir("demo"), "references", "a.md"))
+	require.NoError(t, err)
+	closed := make(chan struct{})
+	go func() {
+		defer close(closed)
+		time.Sleep(20 * time.Millisecond)
+		_ = reader.Close()
+	}()
+	t.Cleanup(func() { <-closed })
+
+	after, err := s.DeleteFile(ctx, "demo", "references/a.md", skill.Precondition{IfMatch: cur.Hash})
+	require.NoError(t, err)
+	require.Equal(t, created.Hash, after.Hash)
+}
+
 // A delete never reaches the target of a link that replaces the skill folder
 // during the delete. It deletes in the folder that it opened, and then gives a
 // conflict: the path of the skill names another folder.

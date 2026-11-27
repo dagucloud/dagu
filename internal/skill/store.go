@@ -434,10 +434,16 @@ func writeInRoot(root *os.Root, rel string, data []byte, held func() error) erro
 // renameInRoot renames a file inside the root. It retries a transient error of
 // Windows, as fileutil.ReplaceFile does.
 func renameInRoot(root *os.Root, from, to string) error {
-	err := root.Rename(from, to)
+	return retryTransient(func() error { return root.Rename(from, to) })
+}
+
+// retryTransient runs op again after a transient error of Windows, such as a
+// file that another process holds open.
+func retryTransient(op func() error) error {
+	err := op()
 	for attempt := 0; attempt < 5 && err != nil && fileutil.IsTransientFileError(err); attempt++ {
 		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
-		err = root.Rename(from, to)
+		err = op()
 	}
 	return err
 }
@@ -519,11 +525,12 @@ func (s *Store) DeleteFile(ctx context.Context, name, rel string, pre Preconditi
 		if err := held(); err != nil {
 			return err
 		}
-		if info.IsDir() {
-			err = root.RemoveAll(rel)
-		} else {
-			err = root.Remove(rel)
-		}
+		err = retryTransient(func() error {
+			if info.IsDir() {
+				return root.RemoveAll(rel)
+			}
+			return root.Remove(rel)
+		})
 		if err != nil {
 			return fmt.Errorf("delete %s: %w", rel, err)
 		}
