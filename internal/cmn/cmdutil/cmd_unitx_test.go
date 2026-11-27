@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 func TestKillProcessGroup(t *testing.T) {
@@ -132,4 +133,34 @@ func TestSetupCommand_Unix(t *testing.T) {
 	require.NotNil(t, cmd.SysProcAttr)
 	assert.True(t, cmd.SysProcAttr.Setpgid)
 	assert.Equal(t, 0, cmd.SysProcAttr.Pgid)
+}
+
+// A command without Setsid starts in a process group of its own, in the
+// session of the caller. A command with Setsid starts as the leader of a new
+// session, which is also its process group. A stop of the group ends either.
+func TestSetupCommandSession(t *testing.T) {
+	callerSession, err := unix.Getsid(0)
+	require.NoError(t, err)
+	for _, setsid := range []bool{false, true} {
+		cmd := exec.Command("sleep", "10")
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: setsid}
+		process, err := StartManagedProcess(cmd)
+		require.NoError(t, err, "setsid=%v", setsid)
+		pid := process.PID()
+		pgid, err := unix.Getpgid(pid)
+		require.NoError(t, err)
+		assert.Equal(t, pid, pgid, "setsid=%v", setsid)
+		session, err := unix.Getsid(pid)
+		require.NoError(t, err)
+		if setsid {
+			assert.Equal(t, pid, session)
+		} else {
+			assert.Equal(t, callerSession, session)
+		}
+
+		_, err = process.Stop(StopRequest{Intent: ForceTermination()})
+		require.NoError(t, err)
+		assert.ErrorContains(t, process.Wait(), "killed", "setsid=%v", setsid)
+		require.NoError(t, process.Release())
+	}
 }

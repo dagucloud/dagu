@@ -6,6 +6,7 @@ package untrusted
 import (
 	"context"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -46,14 +47,25 @@ func TestBeginWithoutRestrictedUser(t *testing.T) {
 	assert.Equal(t, IsolationOffLine+"\n", log.String())
 }
 
-// This version of Dagu cannot run a step as the restricted user, so a
-// restricted user in the configuration fails each untrusted step.
+// A restricted user with the ID 0, or with the IDs of the worker user, fails
+// the step before Dagu stops any process of that user (Spec 103, "The
+// restricted user").
 func TestBeginWithRestrictedUserFails(t *testing.T) {
 	t.Parallel()
 
-	step, err := Begin(context.Background(), Request{StepName: "verify", Config: config.UntrustedConfig{Enabled: true}, Log: io.Discard})
-	assert.Nil(t, step)
-	assert.ErrorContains(t, err, `untrusted step "verify"`)
+	configs := []config.UntrustedConfig{
+		{Enabled: true},
+		{Enabled: true, UID: 64011},
+	}
+	// Windows has no user ID: Geteuid returns -1 there.
+	if euid := os.Geteuid(); euid >= 0 {
+		configs = append(configs, config.UntrustedConfig{Enabled: true, UID: uint32(euid), GID: 64011}) //nolint:gosec // A user ID fits in uint32.
+	}
+	for _, cfg := range configs {
+		step, err := Begin(context.Background(), Request{StepName: "verify", Config: cfg, Log: io.Discard})
+		assert.Nil(t, step)
+		assert.ErrorContains(t, err, `untrusted step "verify": untrusted.uid and untrusted.gid must not be 0 or the IDs of the worker user`)
+	}
 }
 
 // filterEnv drops the variables of Dagu, but DAGU_OUTPUT_FILE, and never

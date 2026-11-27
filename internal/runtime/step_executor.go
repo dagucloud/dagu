@@ -108,6 +108,15 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		node.SetExitCode(1)
 		return err
 	}
+	// Registered before End, so that End copies the output of an untrusted
+	// step into the file before the file is removed.
+	defer func() {
+		if cleanupErr := node.cleanupStepOutputFile(); cleanupErr != nil {
+			logger.Warn(ctx, "Failed to remove step output file",
+				tag.Step(node.Name()),
+				tag.Error(cleanupErr))
+		}
+	}()
 	untrustedEnded := false
 	if untrustedStep != nil {
 		// End runs once; this call covers an early return and a panic.
@@ -123,13 +132,6 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 	}
 
 	ctx, cmd, err := node.setupExecutor(ctx, e.override)
-	defer func() {
-		if cleanupErr := node.cleanupStepOutputFile(); cleanupErr != nil {
-			logger.Warn(ctx, "Failed to remove step output file",
-				tag.Step(node.Name()),
-				tag.Error(cleanupErr))
-		}
-	}()
 	if errors.Is(err, errStepNotListed) {
 		node.SetStatus(ir.NodeSkipped)
 		node.SetSkippedByNodeList(true)

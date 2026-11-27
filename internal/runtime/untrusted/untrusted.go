@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -45,6 +46,10 @@ var ErrIsolationRequired = errors.New(reasonIsolationRequired +
 	": the configuration sets no untrusted.uid and no untrusted.gid, and untrusted.isolation is on:" +
 	" set untrusted.uid and untrusted.gid, or set untrusted.isolation to off for development")
 
+// WaitingLine is the line of the step log while the step waits for the end of
+// another untrusted step.
+const WaitingLine = "untrusted: waiting for the restricted user"
+
 // WaitingRunLine is the line of the step log while an isolated untrusted step
 // waits for the end of the other running steps of its run.
 const WaitingRunLine = "untrusted: waiting for the end of the other steps of the run"
@@ -66,6 +71,15 @@ type Request struct {
 	StepName string
 	// Config is the block untrusted of the configuration.
 	Config config.UntrustedConfig
+	// WorkDir is the work directory of the run (DAG_RUN_WORK_DIR).
+	WorkDir string
+	// WorkingDir is the working directory of the step. It must be in WorkDir.
+	WorkingDir string
+	// OutputLimit is the size limit of the output file.
+	OutputLimit int64
+	// LockDir is the data directory of Dagu. Its folder untrusted holds the
+	// lock file of the host when /run/dagu is not available.
+	LockDir string
 	// Log is the step log for the lines of this package.
 	Log io.Writer
 }
@@ -122,7 +136,19 @@ func Begin(ctx context.Context, req Request) (*Step, error) {
 		// would never end.
 		return nil, fmt.Errorf("untrusted step %q cannot run inside the untrusted step %q", req.StepName, parent)
 	}
+	if !separateUser(req.Config) {
+		// Begin stops each process of the restricted user: with these IDs, it
+		// would stop the processes of the worker.
+		return nil, fmt.Errorf("untrusted step %q: untrusted.uid and untrusted.gid must not be 0 or the IDs of the worker user", req.StepName)
+	}
 	return isolate(ctx, req, step)
+}
+
+// separateUser reports whether the restricted user of cfg is neither the user
+// ID 0 nor the worker user, and its group neither 0 nor the group of the
+// worker.
+func separateUser(cfg config.UntrustedConfig) bool {
+	return cfg.UID != 0 && cfg.GID != 0 && int64(cfg.UID) != int64(os.Geteuid()) && int64(cfg.GID) != int64(os.Getegid())
 }
 
 // Isolated reports whether the step runs as the restricted user.
@@ -178,10 +204,12 @@ func StartManagedProcess(ctx context.Context, cmd *exec.Cmd) (*cmdutil.ManagedPr
 		}
 		return cmdutil.StartManagedProcess(cmd)
 	}
-	if err := step.prepare(cmd); err != nil {
+	release, err := step.prepare(cmd)
+	if err != nil {
 		return nil, err
 	}
 	process, err := cmdutil.StartManagedProcess(cmd)
+	release()
 	if err != nil {
 		if step.iso != nil {
 			step.iso.abandon()
@@ -194,12 +222,13 @@ func StartManagedProcess(ctx context.Context, cmd *exec.Cmd) (*cmdutil.ManagedPr
 	return process, nil
 }
 
-// prepare applies the rules of the step to cmd before it starts.
-func (s *Step) prepare(cmd *exec.Cmd) error {
+// prepare applies the rules of the step to cmd before it starts. The caller
+// calls release once the start returns.
+func (s *Step) prepare(cmd *exec.Cmd) (release func(), err error) {
 	env := filterEnv(cmd.Env)
 	if s.iso == nil {
 		cmd.Env = env
-		return nil
+		return func() {}, nil
 	}
 	return s.iso.prepare(cmd, env)
 }

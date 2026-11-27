@@ -30,7 +30,7 @@ func (*isolation) started(int) {}
 
 func (*isolation) abandon() {}
 
-func (*isolation) prepare(*exec.Cmd, []string) error { return errNeedsLinux }
+func (*isolation) prepare(*exec.Cmd, []string) (func(), error) { return nil, errNeedsLinux }
 
 func (*isolation) setOutputTarget(target string) string { return target }
 
