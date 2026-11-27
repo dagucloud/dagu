@@ -985,9 +985,10 @@ host value is the value of a variable that the run takes from it:
 When the value is JSON, each string and number in it is a host value too,
 since a JSON path or the listed keys of an assertion can take a part of it,
 also through a DAG `env` entry. A number counts in each text it takes, as
-written and as resolved, so `7.36491e5` also counts as `736491`. A part
-shorter than four characters, such as `us` or `482`, is a short part: it
-counts only where a value, or a string or number inside one, equals it, not
+written and as resolved, so `7.36491e5` also counts as `736491`. A host
+value or a part shorter than four characters, such as `us` or `482`, is a
+short part: it counts only where a value, or a string or number inside one,
+equals it, not
 in text that merely contains it, such as `us-east-1`, since text that short
 cannot be told apart from the text around it. A boolean holds one bit and
 is no host value. The variables that Dagu passes to every step whatever the
@@ -1246,9 +1247,11 @@ Rules:
   run's value holds, sorted and separated by `, `, and the line reads
   `the values of host variables` when there are more than one.
   `<variables>` lists the variables of the step's call that hold those
-  values, sorted and separated by `, `. `; set <variables> under env` is
-  left out when no variable of the call holds them, and always for
-  `notifications`.
+  values, sorted and separated by `, `. A variable that Dagu passes to
+  every step, such as `PATH`, is listed only when its own value is one of
+  those values, or when it is the kept variable itself. `; set <variables>
+  under env` is left out when no variable of the call holds them, and
+  always for `notifications`.
 - `<steps>` lists step labels in the order the DAG declares the steps, then
   handlers, separated by `, `. A step label is the step's `id`, or its
   `name` when it has no `id`, and a handler's label is
