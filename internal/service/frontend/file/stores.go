@@ -272,12 +272,13 @@ func initEncryptedStores(
 	}
 
 	connectEvents := &frontend.ConnectEvents{}
-	connections, connectEngine, err := newConnectEngine(cfg, server, encryptor, connectEvents)
+	connections, connectEngine, catalog, err := newConnectEngine(cfg, server, encryptor, connectEvents)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create connect engine", tag.Error(err))
 	} else {
 		stores.Connections = connections
 		stores.Connect = connectEngine
+		stores.ToolCatalog = catalog
 		stores.ConnectEvents = connectEvents
 	}
 
@@ -309,24 +310,24 @@ func initEncryptedStores(
 	}
 }
 
-// newConnectEngine returns the server's connection store and an engine
-// that runs connect sessions over it and reports to events. Providers
-// register as they are added.
+// newConnectEngine returns the server's connection store, an engine that
+// runs connect sessions over it and reports to events, and the process's
+// tool catalog reader. Providers register as they are added.
 func newConnectEngine(
 	cfg *config.Config,
 	server *persisfile.ServerStores,
 	encryptor *crypto.Encryptor,
 	events *frontend.ConnectEvents,
-) (connection.Store, *connect.Engine, error) {
+) (connection.Store, *connect.Engine, *toolcatalog.Reader, error) {
 	connections, err := server.ConnectionStore()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// The server runs long, so its broker caches no token: a reconnect or
 	// a status change reaches the next request.
 	tokens, err := broker.New(broker.Config{Store: connections, Locks: server.ConnectionLocks()})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	catalog, err := toolcatalog.New(toolcatalog.Config{
 		Store:  connections,
@@ -334,11 +335,11 @@ func newConnectEngine(
 		Lister: toolcatalog.NewMCPLister(tokens, nil),
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	googleProvider, err := google.New(google.Config{Catalog: catalog})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	engine, err := connect.New(connect.Config{
 		Store: connections,
@@ -347,13 +348,14 @@ func newConnectEngine(
 			connection.ProviderGoogle: googleProvider,
 		},
 		Encryptor:       encryptor,
+		Tokens:          tokens,
 		AnyUserConfirms: cfg.Server.Auth.Mode == config.AuthModeNone,
 		OnRevoke:        events.Revoked,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return connections, engine, nil
+	return connections, engine, catalog, nil
 }
 
 func newRemoteNodeStore(

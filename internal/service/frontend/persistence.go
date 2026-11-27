@@ -11,6 +11,7 @@ import (
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/connection"
 	"github.com/dagucloud/dagu/v2/internal/connection/connect"
+	"github.com/dagucloud/dagu/v2/internal/connection/toolcatalog"
 	"github.com/dagucloud/dagu/v2/internal/dagpin"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -63,10 +64,13 @@ type Stores struct {
 	// Projects is the project registry. It is nil while projects are off.
 	Projects project.Registry
 	// Connections keeps OAuth apps and connections. It is nil without
-	// encrypted storage, as Connect and ConnectEvents are.
+	// encrypted storage, as Connect, ToolCatalog, and ConnectEvents are.
 	Connections connection.Store
 	// Connect runs connect sessions.
 	Connect *connect.Engine
+	// ToolCatalog reads the tool catalogs of connections. It is the
+	// process's one reader, which Connect's probes also save through.
+	ToolCatalog *toolcatalog.Reader
 	// ConnectEvents receives what Connect reports.
 	ConnectEvents *ConnectEvents
 }

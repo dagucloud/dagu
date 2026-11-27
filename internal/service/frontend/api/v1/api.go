@@ -28,6 +28,7 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/connection"
 	"github.com/dagucloud/dagu/v2/internal/connection/connect"
+	"github.com/dagucloud/dagu/v2/internal/connection/toolcatalog"
 	"github.com/dagucloud/dagu/v2/internal/dagpin"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
@@ -114,6 +115,7 @@ type API struct {
 	secretStore          secretpkg.Store
 	connectionStore      connection.Store
 	connectEngine        *connect.Engine
+	toolCatalog          *toolcatalog.Reader
 	publicURL            func() string // The server's usable public URL, or empty
 	profileStore         profilepkg.Store
 	viewStore            view.Store
@@ -338,11 +340,13 @@ func WithSecretStore(store secretpkg.Store) APIOption {
 }
 
 // WithConnections returns an APIOption that sets the store of OAuth apps
-// and connections and the engine that connects and removes them.
-func WithConnections(store connection.Store, engine *connect.Engine) APIOption {
+// and connections, the engine that connects and removes them, and the
+// reader of their tool catalogs.
+func WithConnections(store connection.Store, engine *connect.Engine, catalog *toolcatalog.Reader) APIOption {
 	return func(a *API) {
 		a.connectionStore = store
 		a.connectEngine = engine
+		a.toolCatalog = catalog
 	}
 }
 
@@ -711,6 +715,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		middlewares := []api.StrictMiddlewareFunc{
 			validateDAGFileNameMiddleware,
 			resetSyncWriteDeadline(writeTimeout),
+			localhostOrigin(a.evaluateBasePath(ctx)),
 		}
 		options := api.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, _ error) {

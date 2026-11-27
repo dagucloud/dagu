@@ -66,7 +66,7 @@ func (a *API) CreateOAuthApp(ctx context.Context, request api.CreateOAuthAppRequ
 		}
 		// The provider checks that the client lists the redirect URI this
 		// server would register.
-		parsed, err := a.connectEngine.ParseClientFile(provider, []byte(file), connect.RedirectOptions{PublicURL: a.usablePublicURL()})
+		parsed, err := a.connectEngine.ParseClientFile(provider, []byte(file), connect.RedirectOptions{PublicURL: a.usablePublicURL(ctx)})
 		if err != nil {
 			return nil, badConnectionRequest(err.Error())
 		}
@@ -173,13 +173,6 @@ func (a *API) DeleteOAuthApp(ctx context.Context, request api.DeleteOAuthAppRequ
 	}
 	a.logAudit(ctx, audit.CategoryConnection, "oauth_app_delete", oauthAppAuditDetails(app, false))
 	return api.DeleteOAuthApp204Response{}, nil
-}
-
-func (a *API) usablePublicURL() string {
-	if a.publicURL == nil {
-		return ""
-	}
-	return a.publicURL()
 }
 
 // requireAppUnused refuses to act on app while a connection uses it, naming
