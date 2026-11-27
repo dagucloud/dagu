@@ -79,14 +79,14 @@ func TestMCPListerRejected(t *testing.T) {
 	}
 }
 
-// A 403 fails with the challenge's error and scope, without reporting the
-// token to the source.
+// A 403 fails with the challenge's error, scope, and description, and the
+// client's error as its cause, without reporting the token to the source.
 func TestMCPListerInsufficientScope(t *testing.T) {
 	t.Parallel()
 	const scope = "https://www.googleapis.com/auth/gmail.readonly"
 	srv := newMCPServer(t, serverOptions{refuse: func(w http.ResponseWriter, _ string) bool {
-		w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="`+scope+`"`)
-		w.WriteHeader(http.StatusForbidden)
+		w.Header().Set("WWW-Authenticate", `Bearer error=insufficient_scope, scope="`+scope+`", error_description="Missing scope"`)
+		http.Error(w, "Gmail MCP API has not been used in project 42", http.StatusForbidden)
 		return true
 	}})
 	source := &fakeSource{}
@@ -94,7 +94,12 @@ func TestMCPListerInsufficientScope(t *testing.T) {
 	_, err := srv.lister(source).ListTools(testCtx(t), srv.conn(), srv.url("/mcp"))
 	var rejected *toolcatalog.RejectedError
 	require.ErrorAs(t, err, &rejected)
-	assert.Equal(t, toolcatalog.RejectedError{Status: http.StatusForbidden, Code: "insufficient_scope", Scope: scope}, *rejected)
+	assert.Equal(t, http.StatusForbidden, rejected.Status)
+	assert.Equal(t, "insufficient_scope", rejected.Code)
+	assert.Equal(t, scope, rejected.Scope)
+	assert.Equal(t, "Missing scope", rejected.Description)
+	require.Error(t, rejected.Err)
+	assert.ErrorContains(t, err, "Missing scope")
 	assert.Empty(t, source.rejectedTokens())
 }
 

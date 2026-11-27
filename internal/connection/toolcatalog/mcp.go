@@ -53,6 +53,11 @@ type RejectedError struct {
 	// Scope is the scope the challenge names, such as a missing scope, or
 	// empty.
 	Scope string
+	// Description is the challenge's error_description, or empty.
+	Description string
+	// Err is the failure the MCP client reported, which carries the
+	// provider's message, with the token redacted.
+	Err error
 }
 
 func (e *RejectedError) Error() string {
@@ -63,11 +68,24 @@ func (e *RejectedError) Error() string {
 	if e.Scope != "" {
 		msg += ", scope " + e.Scope
 	}
-	return msg + ")"
+	msg += ")"
+	if e.Description != "" {
+		msg += ": " + e.Description
+	}
+	if e.Err != nil {
+		msg += ": " + e.Err.Error()
+	}
+	return msg
 }
 
-// challengeParam matches one auth-param of a WWW-Authenticate challenge.
-var challengeParam = regexp.MustCompile(`([A-Za-z_]+)="([^"]*)"`)
+func (e *RejectedError) Unwrap() error { return e.Err }
+
+// challengeParam matches one auth-param of a WWW-Authenticate challenge,
+// whose value is a quoted string or a token (RFC 7235).
+var challengeParam = regexp.MustCompile(`([A-Za-z_]+)=(?:"([^"]*)"|([^\s,"]+))`)
+
+// redactedText replaces a secret in an error's text.
+const redactedText = "[redacted]"
 
 var _ Lister = (*MCPLister)(nil)
 
@@ -237,21 +255,29 @@ func (t *bearerTransport) reject(resp *http.Response) {
 	}
 	t.rejected = &RejectedError{Status: resp.StatusCode}
 	for _, m := range challengeParam.FindAllStringSubmatch(resp.Header.Get("WWW-Authenticate"), -1) {
+		value := m[2] + m[3]
 		switch strings.ToLower(m[1]) {
 		case "error":
-			t.rejected.Code = m[2]
+			t.rejected.Code = value
 		case "scope":
-			t.rejected.Scope = m[2]
+			t.rejected.Scope = value
+		case "error_description":
+			t.rejected.Description = strings.ReplaceAll(value, t.token, redactedText)
 		}
 	}
 }
 
-// explain returns the remembered refusal in place of err.
+// explain returns the remembered refusal, caused by err, in place of err.
 func (t *bearerTransport) explain(err error) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.rejected != nil {
-		return t.rejected
+	if t.rejected == nil {
+		return err
 	}
-	return err
+	rejected := *t.rejected
+	rejected.Err = err
+	if strings.Contains(err.Error(), t.token) {
+		rejected.Err = errors.New(strings.ReplaceAll(err.Error(), t.token, redactedText))
+	}
+	return &rejected
 }
