@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/project"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -17,6 +19,9 @@ var errNoMatchingRunner = errors.New("no child workflow runner matched request")
 // Router selects the first child workflow runner that accepts a request.
 type Router struct {
 	runners []executor.SubWorkflowRunner
+	// workerRefusal, when set, refuses every child that would go to a
+	// worker.
+	workerRefusal error
 
 	mu       sync.Mutex
 	selected map[string]executor.SubWorkflowRunner
@@ -39,6 +44,13 @@ func NewRouter(runners ...executor.SubWorkflowRunner) *Router {
 	}
 }
 
+// RefuseWorkers makes r refuse, with err, every child that would go to a
+// worker. A nil err refuses none.
+func (r *Router) RefuseWorkers(err error) *Router {
+	r.workerRefusal = err
+	return r
+}
+
 // ShouldRun reports whether any runner accepts req.
 func (r *Router) ShouldRun(ctx context.Context, req executor.SubWorkflowRequest) bool {
 	return r.selectRunner(ctx, req) != nil
@@ -49,6 +61,9 @@ func (r *Router) Run(ctx context.Context, req executor.SubWorkflowRequest) (*ir.
 	runner := r.selectRunner(ctx, req)
 	if runner == nil {
 		return nil, errNoMatchingRunner
+	}
+	if err := r.checkRoute(ctx, runner); err != nil {
+		return nil, err
 	}
 	r.remember(req.RunID, runner)
 	defer r.forget(req.RunID)
@@ -61,6 +76,9 @@ func (r *Router) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest
 	if runner == nil {
 		return nil, errNoMatchingRunner
 	}
+	if err := r.checkRoute(ctx, runner); err != nil {
+		return nil, err
+	}
 	r.remember(req.RunID, runner)
 	defer r.forget(req.RunID)
 	return runner.Retry(ctx, req)
@@ -68,6 +86,9 @@ func (r *Router) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest
 
 // Enqueue admits req through the runner selected by the execution policy.
 func (r *Router) Enqueue(ctx context.Context, req executor.EnqueueRequest) (executor.EnqueueResult, error) {
+	if err := project.RefuseOtherProject(runProject(ctx), project.ErrQueuedRun); err != nil {
+		return executor.EnqueueResult{}, err
+	}
 	runner := r.selectRunner(ctx, executor.SubWorkflowRequest{
 		DAG:            req.DAG,
 		RootDAGRun:     req.RootDAGRun,
@@ -122,6 +143,27 @@ func (r *Router) Cleanup(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// checkRoute refuses to send a child to a worker when r refuses workers, or
+// when the child's run is of a project other than the default one, where
+// the coordinator would record it in the default project.
+func (r *Router) checkRoute(ctx context.Context, runner executor.SubWorkflowRunner) error {
+	if _, distributed := runner.(*Runner); !distributed {
+		return nil
+	}
+	if r.workerRefusal != nil {
+		return r.workerRefusal
+	}
+	return project.RefuseOtherProject(runProject(ctx), project.ErrWorkerRun)
+}
+
+// runProject returns the project of the run that ctx carries, or "".
+func runProject(ctx context.Context) string {
+	if rCtx, ok := runctx.LookupContext(ctx); ok {
+		return rCtx.Project
+	}
+	return ""
 }
 
 func (r *Router) selectRunner(ctx context.Context, req executor.SubWorkflowRequest) executor.SubWorkflowRunner {

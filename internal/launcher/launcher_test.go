@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -393,6 +394,50 @@ steps:
 	}, statusTimeout, 100*time.Millisecond)
 	requireProcessCompletion(t, started, statusTimeout)
 	require.Equal(t, masking.DefaultMaskString+"|", test.StatusOutputValue(t, &status, "RESULT"))
+}
+
+// TestSubCmdBuilderProject pins the arguments of every command. With
+// projects off, a builder builds exactly the commands it built before
+// projects. With them on, each command addresses a project with --project,
+// so a child never addresses one by its working directory.
+func TestSubCmdBuilderProject(t *testing.T) {
+	t.Parallel()
+	newBuilder := func(projects bool) *launcher.SubCmdBuilder {
+		return launcher.NewSubCmdBuilder(&config.Config{
+			ProjectsEnabled: projects,
+			Paths:           config.PathsConfig{Executable: "/usr/bin/dagu", ConfigFileUsed: "/etc/dagu/config.yaml"},
+		})
+	}
+	dag := &ir.DAG{Name: "etl", Location: "/dags/etl.yaml"}
+	tests := []struct {
+		name    string
+		builder *launcher.SubCmdBuilder
+		flags   []string
+	}{
+		{name: "ProjectsOff", builder: newBuilder(false)},
+		{name: "ProjectsOn", builder: newBuilder(true), flags: []string{"--project=default"}},
+		{name: "ForProject", builder: newBuilder(true).ForProject("weather"), flags: []string{"--project=weather"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := tt.builder
+			tail := append(slices.Clone(tt.flags), "--config", "/etc/dagu/config.yaml")
+			assert.Equal(t, [][]string{
+				append(append([]string{"start", "--run-id=run-1"}, tail...), "/dags/etl.yaml"),
+				append(append([]string{"enqueue", "--run-id=run-1"}, tail...), "/dags/etl.yaml"),
+				append([]string{"dequeue", "etl", "--dag-run=etl:run-1"}, tail...),
+				append(append([]string{"restart"}, tail...), "/dags/etl.yaml"),
+				append(append([]string{"retry", "--run-id=run-1", "-q"}, tail...), "etl"),
+			}, [][]string{
+				b.Start(dag, launcher.StartOptions{DAGRunID: "run-1"}).Args,
+				b.Enqueue(dag, launcher.EnqueueOptions{DAGRunID: "run-1"}).Args,
+				b.Dequeue(dag, ir.NewDAGRunRef("etl", "run-1")).Args,
+				b.Restart(dag, launcher.RestartOptions{}).Args,
+				b.Retry(dag, launcher.RetryOptions{DAGRunID: "run-1"}).Args,
+			})
+		})
+	}
 }
 
 func TestStart(t *testing.T) {

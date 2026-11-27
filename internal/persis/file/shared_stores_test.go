@@ -18,6 +18,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/v2/internal/connection"
 	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -166,6 +167,125 @@ func TestCollectionStoresPreserveCorruptFileHandling(t *testing.T) {
 	require.NoError(t, os.WriteFile(statePath, []byte("{"), 0o600))
 	_, err = incidentStore.ListOpenStates(ctx)
 	assert.Error(t, err)
+}
+
+// Every connection collection is owner-only, also one that existed with a
+// wider mode, and no secret reaches a file in plaintext.
+func TestNewConnectionStoreKeepsSecretsOwnerOnly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dataDir, "connection-tokens"), 0o755)) //nolint:gosec // The wider mode is what the test narrows.
+	backend := persisfile.NewBackend(config.PathsConfig{DataDir: dataDir})
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	s, err := persisfile.NewConnectionStore(
+		backend.Collection(persis.CollectionOAuthApps),
+		backend.Collection(persis.CollectionConnections),
+		backend.Collection(persis.CollectionConnectionTokens),
+		backend.Collection(persis.CollectionConnectionCatalogs),
+		backend.Lock(persis.CollectionConnections),
+		enc,
+	)
+	require.NoError(t, err)
+
+	_, err = s.CreateApp(ctx, &connection.App{
+		Name:         "Google",
+		Provider:     connection.ProviderGoogle,
+		Kind:         connection.AppKindBYO,
+		ClientID:     "client-id",
+		ClientSecret: "plain-client-secret",
+		ClientType:   connection.ClientTypeWeb,
+	})
+	require.NoError(t, err)
+	conn, err := s.Create(ctx, &connection.Connection{
+		Workspace: "payments",
+		Name:      "mail",
+		Provider:  connection.ProviderGoogle,
+		App:       "app-1",
+		Grant:     connection.GrantAuthorizationCode,
+	})
+	require.NoError(t, err)
+	_, err = s.UpdateTokenState(ctx, conn, func(state *connection.TokenState) error {
+		state.RefreshToken = "plain-refresh-token"
+		state.AccessTokens = map[string]connection.AccessToken{"gmail": {Token: "plain-access-token"}}
+		state.Session = &connection.Session{ID: "s1", Tokens: connection.Tokens{RefreshToken: "plain-session-token"}}
+		return nil
+	})
+	require.NoError(t, err)
+
+	for _, dir := range []string{"oauth-apps", "connections", "connection-tokens", "connection-catalogs"} {
+		info, err := os.Stat(filepath.Join(dataDir, dir))
+		require.NoError(t, err)
+		if runtime.GOOS != "windows" {
+			assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), dir)
+		}
+	}
+	require.NoError(t, filepath.WalkDir(dataDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(path) //nolint:gosec // Test reads files in its temporary directory.
+		require.NoError(t, err)
+		assert.False(t, bytes.Contains(data, []byte("plain-")), path)
+		return nil
+	}))
+}
+
+// Workspace names may differ only in case, and each workspace keeps its own
+// connections also on a file system that ignores case.
+func TestConnectionStoreSeparatesWorkspacesByCase(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	backend := persisfile.NewBackend(config.PathsConfig{DataDir: dataDir})
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	s, err := persisfile.NewConnectionStore(
+		backend.Collection(persis.CollectionOAuthApps),
+		backend.Collection(persis.CollectionConnections),
+		backend.Collection(persis.CollectionConnectionTokens),
+		backend.Collection(persis.CollectionConnectionCatalogs),
+		backend.Lock(persis.CollectionConnections),
+		enc,
+	)
+	require.NoError(t, err)
+
+	created := map[string]*connection.Connection{}
+	for _, ws := range []string{"payments", "Payments"} {
+		conn, err := s.Create(ctx, &connection.Connection{
+			Workspace: ws,
+			Name:      "mail",
+			Provider:  connection.ProviderGoogle,
+			App:       "app-1",
+			Grant:     connection.GrantAuthorizationCode,
+		})
+		require.NoError(t, err, ws)
+		created[ws] = conn
+	}
+	_, err = s.UpdateTokenState(ctx, created["payments"], func(state *connection.TokenState) error {
+		state.RefreshToken = "lower-refresh"
+		return nil
+	})
+	require.NoError(t, err)
+
+	got, err := s.Get(ctx, connection.Key{Workspace: "Payments", Name: "mail"})
+	require.NoError(t, err)
+	assert.Equal(t, created["Payments"].ID, got.ID)
+	state, err := s.TokenState(ctx, got)
+	require.NoError(t, err)
+	assert.Empty(t, state.RefreshToken)
+	list, err := s.List(ctx, "Payments")
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, created["Payments"].ID, list[0].ID)
+
+	require.NoError(t, s.Delete(ctx, got.Key()))
+	kept, err := s.Get(ctx, connection.Key{Workspace: "payments", Name: "mail"})
+	require.NoError(t, err)
+	state, err = s.TokenState(ctx, kept)
+	require.NoError(t, err)
+	assert.Equal(t, "lower-refresh", state.RefreshToken)
 }
 
 func hashedFileName(value string) string {

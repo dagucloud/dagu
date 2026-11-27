@@ -571,10 +571,11 @@ var (
 )
 
 // baseFlags are included in every command.
-var baseFlags = []commandLineFlag{configFlag, daguHomeFlag, quietFlag, cpuProfileFlag}
+var baseFlags = []commandLineFlag{configFlag, daguHomeFlag, quietFlag, cpuProfileFlag, projectFlag}
 
 // initFlags registers CLI flags on the provided Cobra command.
-// Base flags (config, dagu-home, quiet, cpu-profile) are always included.
+// Base flags (config, dagu-home, quiet, cpu-profile, project) are always
+// included.
 func initFlags(cmd *cobra.Command, additionalFlags ...commandLineFlag) {
 	allFlags := append(baseFlags, additionalFlags...)
 

@@ -279,8 +279,8 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 		NoReuse:          opts.noReuse,
 		ScheduleTime:     opts.scheduleTime,
 		ScheduleWindow:   opts.scheduleWindow,
-		LogBaseDir:       ctx.Config.Paths.LogDir,
-		ArtifactBaseDir:  ctx.Config.Paths.ArtifactDir,
+		LogBaseDir:       ctx.projectPaths().LogDir,
+		ArtifactBaseDir:  ctx.projectPaths().ArtifactDir,
 	}
 
 	coordinatorCli, err := ctx.NewCoordinatorClient()

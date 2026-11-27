@@ -36,10 +36,13 @@ type Context struct {
 	BypassPreconditions bool
 	AttemptID           string
 	WorkerID            string
-	TriggerType         ir.TriggerType
-	TriggerActor        string
-	RunStartedAt        string
-	ScheduleTime        string
+	// Project names the run's project while projects are on. It is empty
+	// for a run on a worker.
+	Project      string
+	TriggerType  ir.TriggerType
+	TriggerActor string
+	RunStartedAt string
+	ScheduleTime string
 	// IntervalStart, NextScheduledAt, and ScheduleTimezone describe the
 	// window the run's schedule slot owns, as resolved by context.run.*.
 	IntervalStart    string
@@ -303,6 +306,14 @@ func WithAttemptID(attemptID string) ContextOption {
 func WithWorkerID(workerID string) ContextOption {
 	return func(o *contextOptions) {
 		o.WorkerID = workerID
+	}
+}
+
+// WithProject sets the name of the run's project, which every step gets as
+// DAGU_PROJECT.
+func WithProject(name string) ContextOption {
+	return func(o *contextOptions) {
+		o.Project = name
 	}
 }
 

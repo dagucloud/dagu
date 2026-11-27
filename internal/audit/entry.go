@@ -56,6 +56,10 @@ type Entry struct {
 	ResourceID string `json:"resource_id,omitempty"`
 	// Workspace is the canonical workspace used for audit filtering.
 	Workspace string `json:"workspace,omitempty"`
+	// ProjectID is the ID of the project the action was in, if any.
+	ProjectID string `json:"project_id,omitempty"`
+	// Project is the name of that project when the action happened.
+	Project string `json:"project,omitempty"`
 	// CredentialID identifies the credential independently of the subject.
 	CredentialID string `json:"credential_id,omitempty"`
 	// CredentialType is api_key, jwt, basic, oidc, or none.

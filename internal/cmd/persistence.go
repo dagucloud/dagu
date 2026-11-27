@@ -43,16 +43,17 @@ type Persistence struct {
 	BackfillStore             backfill.Store
 }
 
-// openDefaultProject opens the default project's stores.
-func openDefaultProject(
+// openProject opens the stores of the project p.
+func openProject(
 	ctx context.Context,
 	cfg *config.Config,
 	server *file.ServerStores,
+	p project.Project,
 	opts file.ProjectStoreOptions,
 ) (*file.ProjectStores, error) {
-	stores, err := file.NewProjectStores(ctx, cfg, server, project.Project{Name: project.DefaultName}, opts)
+	stores, err := file.NewProjectStores(ctx, cfg, server, p, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open the stores of the default project: %w", err)
+		return nil, fmt.Errorf("failed to open the stores of the %s project: %w", p.Name, err)
 	}
 	if err := stores.ProcRepository.Validate(ctx); err != nil {
 		return nil, fmt.Errorf("failed to validate proc directory %s: %w", stores.Paths.ProcDir, err)

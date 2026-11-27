@@ -111,6 +111,38 @@ func TestManager(t *testing.T) {
 		require.Equal(t, ir.Waiting, current.Status)
 		require.Equal(t, "legacy", current.Error)
 	})
+	t.Run("GetCurrentStatusReachesOnlyItsProjectSocket", func(t *testing.T) {
+		// Runs of DAGs of one name in two projects, which share a slot seed
+		// and so a run ID, listen on two addresses.
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		weather := runtime.NewManager(th.DAGRunRepository, th.ProcRepository, th.Config,
+			runtime.WithManagerProject("weather"))
+		weatherStatus := testNewStatus(dag.DAG, dagRunID, ir.Waiting, ir.NodeWaiting)
+		weatherStatus.Error = "weather"
+		stopSocket := startStatusSocketServer(t, ctx,
+			procctrl.ProjectDAGSocketAddr("weather", ir.NewDAGRunRef(dag.Name, dagRunID)), weatherStatus)
+		defer stopSocket()
+
+		current, err := weather.GetCurrentStatus(ctx, dag.DAG, dagRunID)
+		require.NoError(t, err)
+		require.Equal(t, "weather", current.Error)
+
+		_, err = th.DAGRunMgr.GetCurrentStatus(ctx, dag.DAG, dagRunID)
+		require.Error(t, err, "the default project's Manager does not reach the run of another project")
+
+		// The address of an older version belongs to the default project.
+		stopSocket()
+		legacyStatus := testNewStatus(dag.DAG, dagRunID, ir.Waiting, ir.NodeWaiting)
+		stopLegacy := startStatusSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), legacyStatus)
+		defer stopLegacy()
+		_, err = weather.GetCurrentStatus(ctx, dag.DAG, dagRunID)
+		require.Error(t, err, "another project's Manager does not reach the default project's run")
+	})
 	t.Run("GetCurrentStatusSkipsStaleCanonicalSocket", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"

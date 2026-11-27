@@ -25,7 +25,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -227,7 +226,7 @@ func runRetry(ctx *Context, args []string) error {
 		}
 	}
 
-	dag, err = restoreDAGFromStatus(ctx.Context, dag, status, ctx.Persistence.DAGRunRepository)
+	dag, err = ctx.restoreRunDAG(dag, status)
 	if err != nil {
 		return fmt.Errorf("failed to restore DAG from status: %w", err)
 	}
@@ -445,14 +444,11 @@ func storedDAGHasNonDefaultWorkingDir(dag *ir.DAG) bool {
 // service: its current definition, which the scheduler follows, or the snapshot
 // once the definition is gone.
 func serviceDefinition(ctx *Context, snapshot *ir.DAG) *ir.DAG {
-	current, err := spec.Load(ctx, snapshot.Name,
-		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
-		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
+	current, err := spec.Load(ctx, snapshot.Name, append(ctx.projectLoadOptions(),
 		spec.OnlyMetadata(),
 		spec.WithoutEval(),
 		spec.SkipSchemaValidation(),
-	)
+	)...)
 	if err != nil {
 		return snapshot
 	}
@@ -553,6 +549,9 @@ func newQueueDispatchNotQueuedError(status *ir.DAGRunStatus) *queue.DAGRunNotQue
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
 func enqueueRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, triggerActor string) error {
+	if err := ctx.checkProjectEnqueue(); err != nil {
+		return err
+	}
 	if _, err := queue.EnqueueRetry(ctx.Context, ctx.Persistence.DAGRunRepository, ctx.Persistence.QueueStore, dag, status, queue.EnqueueRetryOptions{
 		TriggerActor: &triggerActor,
 		Processes:    ctx.Persistence.ProcRepository,
@@ -798,8 +797,8 @@ func withRetryAgent(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts run
 			TriggerActor:             opts.triggerActor,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
 			ArtifactDir:              artifactDir,
-			DAGRunLogDir:             ctx.Config.Paths.LogDir,
-			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
+			DAGRunLogDir:             ctx.projectPaths().LogDir,
+			DAGRunArtifactDir:        ctx.projectPaths().ArtifactDir,
 		}),
 	)
 

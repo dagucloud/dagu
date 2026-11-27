@@ -31,7 +31,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -270,7 +269,7 @@ func runStart(ctx *Context, args []string) error {
 		}
 
 		params = status.Params
-		dag, err = restoreDAGFromStatus(ctx.Context, snapshot, status, ctx.Persistence.DAGRunRepository)
+		dag, err = ctx.restoreRunDAG(snapshot, status)
 		if err != nil {
 			return fmt.Errorf("failed to restore DAG from status: %w", err)
 		}
@@ -505,11 +504,7 @@ func getDAGRunInfo(ctx *Context) (dagRunID, rootDAGRun, parentDAGRun string, isS
 func loadDAGWithParams(ctx *Context, args []string, isSubDAGRun bool) (*ir.DAG, string, error) {
 	dagPath := args[0]
 
-	loadOpts := []spec.LoadOption{
-		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
-		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
-	}
+	loadOpts := ctx.projectLoadOptions()
 	if definitionID := dagDefinitionIDFromEnv(); definitionID != "" {
 		loadOpts = append(loadOpts, spec.WithDefaultName(
 			fileutil.TrimYAMLFileExtension(filepath.Base(definitionID)),
@@ -816,8 +811,8 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 			Dates:                    opts.dates,
 			DefaultSlot:              opts.defaultSlot,
 			ArtifactDir:              artifactDir,
-			DAGRunLogDir:             ctx.Config.Paths.LogDir,
-			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
+			DAGRunLogDir:             ctx.projectPaths().LogDir,
+			DAGRunArtifactDir:        ctx.projectPaths().ArtifactDir,
 			ExpandSubRuns:            opts.recursiveOutput,
 		}),
 	)
@@ -949,7 +944,11 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 		taskOpts...,
 	)
 
-	if err := coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task}); err != nil {
+	err := ctx.checkProjectDispatch()
+	if err == nil {
+		err = coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task})
+	}
+	if err != nil {
 		if opts.seed != nil {
 			intake.MarkSeedFailed(ctx, ctx.Persistence.DAGRunRepository, opts.seed, err)
 		}
@@ -957,7 +956,7 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	}
 
 	logger.Info(ctx, "DAG dispatched to coordinator; awaiting completion")
-	err := waitForDAGCompletionWithProgress(signalAwareCtx, d, dagRunID, coordinatorCli, progress)
+	err = waitForDAGCompletionWithProgress(signalAwareCtx, d, dagRunID, coordinatorCli, progress)
 
 	// If context was cancelled (e.g., Ctrl+C), request cancellation on coordinator
 	if signalCtx.Err() != nil {

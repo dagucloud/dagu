@@ -1101,6 +1101,12 @@ func defaultName(file string) string {
 // resolveYamlFilePath resolves the YAML file path.
 // If the file name does not have an extension, it appends ".yaml".
 func resolveYamlFilePath(ctx buildContext, file string) (string, error) {
+	return ResolveDAGFile(file, ctx.opts.DAGsDir)
+}
+
+// ResolveDAGFile returns the absolute path of the file that Load reads for
+// file, a DAG file path or name, with dagsDir as its DAGs directory.
+func ResolveDAGFile(file, dagsDir string) (string, error) {
 	file = strings.TrimSpace(file)
 	if file == "" {
 		return "", errors.New("file path is required")
@@ -1119,8 +1125,8 @@ func resolveYamlFilePath(ctx buildContext, file string) (string, error) {
 		return absFile, nil
 	}
 
-	if ctx.opts.DAGsDir != "" {
-		file = filepath.Join(ctx.opts.DAGsDir, file)
+	if dagsDir != "" {
+		file = filepath.Join(dagsDir, file)
 	}
 
 	file = fileutil.EnsureYAMLExtension(file)

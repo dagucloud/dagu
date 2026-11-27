@@ -54,6 +54,8 @@ var (
 	WithAttemptID = runctx.WithAttemptID
 	// WithWorkerID sets the execution host identifier.
 	WithWorkerID = runctx.WithWorkerID
+	// WithProject sets the name of the run's project.
+	WithProject = runctx.WithProject
 	// WithTriggerType sets the DAG-run trigger type.
 	WithTriggerType = runctx.WithTriggerType
 	// WithTriggerActor sets the attributable trigger actor.

@@ -24,6 +24,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
+// EnqueueStores are the stores and directories that record a run that
+// dag.enqueue admits.
+type EnqueueStores = subflow.EnqueueStores
+
 // SubWorkflowRunnerConfig contains dependencies for child workflow execution.
 type SubWorkflowRunnerConfig struct {
 	// Dispatcher is caller-owned and remains live after a child runner is cleaned up.
@@ -53,6 +57,16 @@ type SubWorkflowRunnerConfig struct {
 	// Nodes, when set, gives each child run the nodes of its DAG in place of
 	// its parent's.
 	Nodes func(*ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys)
+	// StateStoreFor, when set, finds each child DAG's state store from the
+	// DAG's file, in place of StateStore.
+	StateStoreFor func(ctx context.Context, path string) (dagrun.StateStore, error)
+	// EnqueueStoresFor, when set, finds from a DAG's file the stores and
+	// directories that record a run of it that dag.enqueue admits, in place
+	// of DAGRunRepository, QueueStore, and the DAG-run directories.
+	EnqueueStoresFor func(ctx context.Context, path string) (EnqueueStores, error)
+	// WorkerRefusal, when set, refuses with it every child that would go to
+	// a worker.
+	WorkerRefusal error
 }
 
 // NewSubWorkflowRunnerFactory creates recursive child workflow runners.
@@ -79,6 +93,8 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 				subflow.WithLocalRunStateStore(cfg.RunStateStore),
 				subflow.WithLocalQueueStore(cfg.QueueStore),
 				subflow.WithLocalStateStore(cfg.StateStore),
+				subflow.WithLocalStateStoreFor(cfg.StateStoreFor),
+				subflow.WithLocalEnqueueStoresFor(cfg.EnqueueStoresFor),
 				subflow.WithLocalSecretStore(cfg.SecretStore),
 				subflow.WithLocalSecretResolver(cfg.SecretResolver),
 				subflow.WithLocalNodes(cfg.Nodes),
@@ -93,7 +109,7 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 				subflow.WithLocalWorkerID(cfg.WorkerID),
 				subflow.WithLocalDAGRunDirs(cfg.DAGRunLogDir, cfg.DAGRunArtifactDir),
 			),
-		), nil
+		).RefuseWorkers(cfg.WorkerRefusal), nil
 	}
 	return factory
 }

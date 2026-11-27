@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	schedulerfile "github.com/dagucloud/dagu/v2/internal/service/scheduler/file"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -65,7 +64,7 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Schedul
 		deps.EntryReader = filedag.NewFileEntryReader(
 			ctx.Config.Paths.DAGsDir, ctx.Persistence.DAGRepository,
 			ctx.Config.DAGDiscovery.Recursive, ctx.Config.Paths.BaseConfig,
-			workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir),
+			ctx.Config.WorkspaceBaseConfigDir(),
 			filedag.WithChangeMarker(ctx.settings.DAGChangeMarkerPath(), 0),
 			filedag.WatchCalendars(ctx.Config.Paths.CalendarsDir),
 			filedag.SkipDirectories(ctx.Config.DAGDiscovery.SkipDirs),
@@ -88,6 +87,7 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Schedul
 	deps.DispatchTaskStore = ctx.Persistence.DispatchTaskStore
 	deps.WorkerHeartbeatStore = ctx.Persistence.WorkerHeartbeatStore
 	deps.LicenseManager = ctx.LicenseManager
+	deps.LibraryDAGRunRepository, deps.LibraryProcRepository = ctx.projectStores.LibraryRuns()
 	addPublicWebhooks(ctx, &deps)
 	return scheduler.New(ctx.Config, deps)
 }

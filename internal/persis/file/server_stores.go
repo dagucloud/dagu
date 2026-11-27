@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/v2/internal/connection"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -181,4 +182,22 @@ func (s *ServerStores) AuditStore(retentionDays int, opts ...fileaudit.Option) (
 // directory.
 func (s *ServerStores) CalendarStore(opts ...filecalendar.Option) (*filecalendar.Store, error) {
 	return filecalendar.New(s.cfg.Paths.CalendarsDir, opts...)
+}
+
+// ConnectionStore opens the store of OAuth apps, connections, their token
+// state, and their tool catalogs, encrypted with the server's key. It
+// creates the store's directories.
+func (s *ServerStores) ConnectionStore() (connection.Store, error) {
+	enc, err := s.Encryptor()
+	if err != nil {
+		return nil, err
+	}
+	return NewConnectionStore(
+		s.backend.Collection(persis.CollectionOAuthApps),
+		s.backend.Collection(persis.CollectionConnections),
+		s.backend.Collection(persis.CollectionConnectionTokens),
+		s.backend.Collection(persis.CollectionConnectionCatalogs),
+		s.backend.Lock(persis.CollectionConnections),
+		enc,
+	)
 }

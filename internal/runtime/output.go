@@ -533,7 +533,7 @@ func (oc *OutputCoordinator) setupLocalWriters(_ context.Context, data NodeData)
 	// Wrap with MaskingWriter if masker is available
 	var stdoutWriter io.Writer = oc.stdoutFile
 	if oc.masker != nil {
-		stdoutWriter = masking.NewMaskingWriter(oc.stdoutFile, oc.masker)
+		stdoutWriter = masking.NewLogMaskingWriter(oc.stdoutFile, oc.masker)
 	}
 	oc.stdoutWriter = newSafeBufferedWriter(stdoutWriter)
 	oc.stdoutFileName = data.State.Stdout
@@ -553,7 +553,7 @@ func (oc *OutputCoordinator) setupLocalWriters(_ context.Context, data NodeData)
 		// Wrap with MaskingWriter if masker is available
 		var stderrWriter io.Writer = oc.stderrFile
 		if oc.masker != nil {
-			stderrWriter = masking.NewMaskingWriter(oc.stderrFile, oc.masker)
+			stderrWriter = masking.NewLogMaskingWriter(oc.stderrFile, oc.masker)
 		}
 		oc.stderrWriter = newSafeBufferedWriter(stderrWriter)
 		oc.stderrFileName = data.State.Stderr
