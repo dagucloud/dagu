@@ -34,7 +34,8 @@ does not exist, which their probes rely on.
 The tests against Google settle one provider fact this spec depends on
 (RFC 025, criterion 42): whether revoking one Google refresh token ends the
 account's whole grant to the client. Google documents that revoking a
-token ends the grant, so until they record otherwise,
+token ends the account's grant to every client of the project, so until
+they record otherwise,
 [Token Cleanup](#token-cleanup) leaves Google's unused tokens unrevoked, and
 [Remove](#remove) revokes a Google refresh token at
 `https://oauth2.googleapis.com/revoke`. A token that Google answers with
@@ -739,7 +740,11 @@ Each of these fails the session.
   provider supports revocation.
 - Remove does not revoke while another connection on this server, in any
   project or for notifications, holds the same `account_id` on the same
-  client: an app of the same provider with the same client ID. That
+  client: an app of the same provider with the same client ID. For
+  `google`, whose revocation ends the account's tokens for every client of
+  a Google Cloud project, the same client is any app in the same project,
+  read from the project number that starts its client ID. Apps whose
+  project cannot be read count as the same project. That
   connection keeps working. The check follows the delete, so of two
   connections of one grant removed at once, at least one revokes. When a
   record the check needs cannot be read, Remove does not revoke.
@@ -752,6 +757,8 @@ Each of these fails the session.
   races a remove drops its result, and the connection stays removed.
 - The confirmation says that connections on other servers that use the
   same client may lose access, and lists where the connection is used.
+  For `google`, it says the same Google Cloud project instead of the same
+  client.
 - After a remove, a DAG that names the connection fails at run start, or,
   for mail and SMTP, when it uses the account. The error names the
   connection.

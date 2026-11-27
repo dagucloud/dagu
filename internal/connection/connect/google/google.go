@@ -54,6 +54,8 @@ const (
 	// errInvalidToken is the revocation endpoint's answer for a token that
 	// is already revoked or expired.
 	errInvalidToken = "invalid_token"
+	// clientIDSuffix ends every Google OAuth client ID.
+	clientIDSuffix = ".apps.googleusercontent.com"
 	// emailScope is requested by every connection. Google reports it back
 	// as emailScopeAlias.
 	emailScope      = "email"
@@ -106,9 +108,10 @@ var restProbes = map[string]restProbe{
 }
 
 var (
-	_ connect.Provider = (*Provider)(nil)
-	_ connect.Advisor  = (*Provider)(nil)
-	_ connect.Revoker  = (*Provider)(nil)
+	_ connect.Provider    = (*Provider)(nil)
+	_ connect.Advisor     = (*Provider)(nil)
+	_ connect.Revoker     = (*Provider)(nil)
+	_ connect.GrantSharer = (*Provider)(nil)
 )
 
 // Config is what a Provider needs.
@@ -378,10 +381,35 @@ func (p *Provider) RefreshTokenFix(remaining time.Duration) string {
 }
 
 // RevokeScope reports that revoking a Google refresh token may end the
-// account's whole grant to the client, as Google documents for its
-// revocation endpoint.
+// account's whole grant, as Google documents for its revocation endpoint:
+// the tokens of every client in the client's project.
 func (p *Provider) RevokeScope() connect.RevokeScope {
 	return connect.RevokesGrant
+}
+
+// SameGrant reports whether a and b belong to one Google Cloud project:
+// Google's revocation ends an account's tokens for every client of the
+// project. A Google client ID starts with its project number. When either
+// ID does not, the apps count as one grant.
+func (p *Provider) SameGrant(a, b *connection.App) bool {
+	pa, okA := projectNumber(a.ClientID)
+	pb, okB := projectNumber(b.ClientID)
+	return !okA || !okB || pa == pb
+}
+
+// projectNumber returns the project number that starts a Google client ID,
+// <number>-<hash>.apps.googleusercontent.com.
+func projectNumber(clientID string) (string, bool) {
+	number, rest, ok := strings.Cut(clientID, "-")
+	if !ok || number == "" || !strings.HasSuffix(rest, clientIDSuffix) {
+		return "", false
+	}
+	for _, c := range number {
+		if c < '0' || c > '9' {
+			return "", false
+		}
+	}
+	return number, true
 }
 
 // Revoke revokes refreshToken at Google's revocation endpoint. A token

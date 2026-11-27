@@ -318,6 +318,57 @@ func TestRemoveRevokes(t *testing.T) {
 	}
 }
 
+// Google's revocation ends an account's tokens for every client of the
+// project, so Remove keeps the token while another connection holds the
+// account through a client of the same project, or one whose project is
+// unknown.
+func TestRemoveKeepsProjectGrant(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		otherClient string
+		wantRevoked []string
+	}{
+		{name: "SameProject", otherClient: "123-other.apps.googleusercontent.com"},
+		{name: "OtherProject", otherClient: "456-other.apps.googleusercontent.com", wantRevoked: []string{"rt-1"}},
+		{name: "UnknownProject", otherClient: "other-client"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := testCtx(t)
+			f := newFixture(t, false)
+			app, err := f.store.CreateApp(ctx, &connection.App{
+				Name:         "Agent",
+				Provider:     connection.ProviderGoogle,
+				Kind:         connection.AppKindBYO,
+				ClientID:     tt.otherClient,
+				ClientSecret: "other-secret",
+				ClientType:   connection.ClientTypeWeb,
+				Agent:        true,
+			})
+			require.NoError(t, err)
+			other, err := f.store.Create(ctx, &connection.Connection{
+				Workspace: "ops",
+				Name:      "work-agent",
+				Provider:  connection.ProviderGoogle,
+				App:       app.ID,
+				Grant:     connection.GrantAuthorizationCode,
+			})
+			require.NoError(t, err)
+			_, err = f.store.UpdateTokenState(ctx, other, func(st *connection.TokenState) error {
+				st.Status, st.AccountID, st.RefreshToken = connection.TokenStatusConnected, "sub-1", "rt-other"
+				return nil
+			})
+			require.NoError(t, err)
+			require.Equal(t, connect.PhaseConnected, f.consent(t, connect.StartOptions{ExpectedAccount: "user@example.com"}).Phase)
+
+			require.NoError(t, f.engine.Remove(ctx, f.conn))
+			assert.Equal(t, tt.wantRevoked, f.google.revokedTokens())
+		})
+	}
+}
+
 // Revoking one Google refresh token may end the account's whole grant, so
 // a confirmed reconnect leaves the token it replaced unrevoked.
 func TestReconnectRevokesNothing(t *testing.T) {

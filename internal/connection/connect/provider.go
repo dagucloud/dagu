@@ -62,6 +62,16 @@ type Revoker interface {
 	Revoke(ctx context.Context, app *connection.App, refreshToken string) error
 }
 
+// GrantSharer is a Revoker whose grant may span apps, so that revoking a
+// token issued through one app ends the account's tokens through another.
+// Without it, apps share a grant only when they hold one client.
+type GrantSharer interface {
+	// SameGrant reports whether one account's tokens through a and b, two
+	// apps of the provider, belong to one grant. It reports true when it
+	// cannot tell, so no revocation ends another connection's tokens.
+	SameGrant(a, b *connection.App) bool
+}
+
 // RevokeScope is what revoking one refresh token ends at a provider. A
 // removed connection's token is revoked under any scope. A token that a
 // reconnect replaced, or that a session held and never confirmed, is
