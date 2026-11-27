@@ -290,6 +290,26 @@ func TestIsolatedStepPassesTheRunFolders(t *testing.T) {
 	assertRunFolders(t, fs.FileMode(0o750), unix.ENODATA, root, dag)
 }
 
+// An ACL entry that End cannot remove lets the restricted user pass the run
+// folders after the step: End stops the run and keeps the marker, so that no
+// later step uses the work directory.
+func TestIsolatedStepAbortsWhenAnACLStays(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	root, _, run := runFolders(t)
+	req := testRequest(t, run, run)
+	req.ManagedRoot = root
+	step, err := beginStep(t, ctx, req)
+	require.NoError(t, err)
+	removexattr = func(string, string) error { return unix.EIO }
+	t.Cleanup(func() { removexattr = unix.Removexattr })
+
+	err = step.End(ctx)
+	require.ErrorIs(t, err, ErrRunAborted)
+	assert.ErrorContains(t, err, "remove the ACL of "+root)
+	assert.FileExists(t, run+handoffSuffix)
+}
+
 // assertRunFolders checks the mode of each folder, and the error of the read
 // of its access ACL: nil while it has one.
 func assertRunFolders(t *testing.T, mode fs.FileMode, aclErr error, dirs ...string) {

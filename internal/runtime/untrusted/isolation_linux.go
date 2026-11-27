@@ -39,6 +39,9 @@ const killTimeout = 30 * time.Second
 // pidfdOpen opens a descriptor that follows a process. A test replaces it.
 var pidfdOpen = unix.PidfdOpen
 
+// removexattr removes an extended attribute. A test replaces it.
+var removexattr = unix.Removexattr
+
 // gitConfig is the global git config of the restricted user. The folders that
 // hold an entry .git belong to the user of the worker, and git refuses a
 // repository of another owner without it.
@@ -495,13 +498,14 @@ func (iso *isolation) passDir(dir string, managed bool) error {
 }
 
 // restorePassDirs removes the access ACL that each folder above the work
-// directory got, and gives the folder its mode back.
+// directory got, and gives the folder its mode back. An ACL that stays lets
+// the restricted user pass the folder, so its error wraps ErrRunAborted.
 func (iso *isolation) restorePassDirs() error {
 	var errs []error
 	for path, dir := range iso.passDirs {
-		err := unix.Removexattr("/proc/self/fd/"+strconv.Itoa(dir.fd), aclNames[0])
+		err := removexattr("/proc/self/fd/"+strconv.Itoa(dir.fd), aclNames[0])
 		if err != nil && !errors.Is(err, unix.ENODATA) {
-			errs = append(errs, stepError(iso.step, "remove the ACL of", path, err))
+			errs = append(errs, fmt.Errorf("%w: %w", ErrRunAborted, stepError(iso.step, "remove the ACL of", path, err)))
 		}
 	}
 	return errors.Join(append(errs, iso.restoreDirModes(iso.passDirs))...)
