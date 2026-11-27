@@ -247,22 +247,24 @@ function StripFigures({
 }) {
   const { ts, locale } = useI18n();
   const source = useMemo(() => runHistorySource(fileName), [fileName]);
-  const { data } = useSampleAvailability(source, false);
+  const { data, error } = useSampleAvailability(source, false);
   const week = data?.windows.find((w) => w.window === '7d');
+  // A failed read reads apart from a read in flight.
+  const pending = error ? ts('Unavailable') : '…';
   return (
     <dl data-testid="dag-service-detail" className="space-y-1">
       <Figure label={ts('Uptime {window}', { window: '7d' })}>
-        {data ? formatAvailability(week?.uptime, locale) : '…'}
+        {data ? formatAvailability(week?.uptime, locale) : pending}
       </Figure>
       <Figure label={ts('Success rate {window}', { window: '7d' })}>
-        {data ? formatAvailability(week?.availability, locale) : '…'}
+        {data ? formatAvailability(week?.availability, locale) : pending}
       </Figure>
       <Figure label={ts('Runs in the last {window}', { window })}>
         <CompactCount value={model.count} />
       </Figure>
       <Figure label={ts('Last failure')}>
         {!data ? (
-          '…'
+          pending
         ) : data.lastFailureAt ? (
           <RelativeTime
             timestamp={data.lastFailureAt}

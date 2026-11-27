@@ -14,11 +14,15 @@ type Activity = components['schemas']['DAGListActivity'];
 const h = vi.hoisted(() => ({
   asked: [] as Array<{ path: string; init: unknown }>,
   uptime: undefined as number | undefined,
+  fail: false,
 }));
 vi.mock('@/hooks/api', () => ({
   useClient: () => ({ GET: vi.fn() }),
   useQuery: (path: string, init: unknown) => {
     h.asked.push({ path, init });
+    if (h.fail && init !== null) {
+      return { data: undefined, error: new Error('unavailable') };
+    }
     return {
       data:
         init === null
@@ -74,6 +78,7 @@ function renderStrip(activity: Activity, fluid = false) {
 beforeEach(() => {
   h.asked.length = 0;
   h.uptime = undefined;
+  h.fail = false;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(NOW);
 });
@@ -290,6 +295,21 @@ describe('ServiceActivityStrip detail', () => {
     const detail = details()[0]!;
     expect(detail).toHaveTextContent('Uptime 7d87.65 %');
     expect(detail).toHaveTextContent('Success rate 7d99.00 %');
+  });
+
+  // The figures of the window stay; those of the failed read say so.
+  it('marks the figures of a failed read as unavailable', () => {
+    h.fail = true;
+    renderStrip(activity, true);
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Runs in the last 24 hours/ })
+    );
+    const detail = details()[0]!;
+    expect(detail).toHaveTextContent('Uptime 7dUnavailable');
+    expect(detail).toHaveTextContent('Success rate 7dUnavailable');
+    expect(detail).toHaveTextContent('Last failureUnavailable');
+    expect(detail).toHaveTextContent('Runs in the last 24 hours2k');
+    expect(detail).toHaveTextContent('Longest gap5h');
   });
 
   it('closes with Escape and opens again', () => {
