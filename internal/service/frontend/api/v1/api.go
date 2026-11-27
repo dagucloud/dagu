@@ -675,6 +675,8 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		r.Use(humanTaskInputMiddleware(mountedAPIPath))
 		r.Use(inventoryBodyMiddleware(mountedAPIPath))
 		if a.config.Server.StrictValidation {
+			// The limit of a skills body applies before the validator reads it.
+			r.Use(closedBodyLimitMiddleware(swagger, mountedAPIPath))
 			r.Use(a.createValidatorMiddleware(swagger))
 		}
 		r.Use(logDownloadDeadline(mountedAPIPath))

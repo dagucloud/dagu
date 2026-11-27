@@ -69,4 +69,7 @@ func TestClosedBodyMiddleware(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, w.Code, "%s %s", req.method, req.path)
 	}
 	assert.Equal(t, []string{good, `{"anything":1}`, `{"a":1}`, `{"b":2}`}, reached, "the handler reads the whole body")
+
+	w := send(http.MethodPut, "/api/v1/skills/demo/unknown", "application/json", tooLarge)
+	assert.Equal(t, http.StatusNoContent, w.Code, "an unknown route gets no 413, whatever its body")
 }

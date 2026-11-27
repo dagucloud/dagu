@@ -184,6 +184,18 @@ func TestSkillsPutNeedsAPrecondition(t *testing.T) {
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
+// With strict validation on, the size limit still comes before any check of
+// the body: a body over the limit gives 413, also when its fields are wrong.
+func TestSkillsStrictBodyLimit(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Server.StrictValidation = true
+	}))
+	body := map[string]any{"content": 1, "pad": strings.Repeat("a", 8<<20)}
+	putSkill(server, "/api/v1/skills/refund-policy", body, map[string]string{"If-None-Match": "*"}).
+		ExpectStatus(http.StatusRequestEntityTooLarge).Send(t)
+}
+
 func TestSkillsPutChainAndConflict(t *testing.T) {
 	t.Parallel()
 	server := test.SetupServer(t)
