@@ -132,7 +132,9 @@ func runRestart(ctx *Context, args []string) error {
 	if slot.operatorChosen {
 		opts.triggerType = ir.TriggerTypeManual
 	}
-	if err := handleRestartProcess(ctx, dag, dagRunID, opts); err != nil {
+	// The run it read is stopped by its ID, which reaches a run on a worker
+	// too, where no local process holds it.
+	if err := handleRestartProcess(ctx, dag, dagStatus.DAGRunID, opts); err != nil {
 		return fmt.Errorf("restart process failed for DAG %s: %w", dag.Name, err)
 	}
 
@@ -156,6 +158,14 @@ func handleRestartProcess(
 	oldDagRunID string,
 	opts runOptions,
 ) error {
+	// A run bound to a worker node restarts on that worker. The worker is
+	// read before the run stops, so a restart that cannot reach it stops
+	// nothing.
+	worker, coordinatorCli, err := boundWorker(ctx, d, opts.targetNodes)
+	if err != nil {
+		return err
+	}
+	opts.boundWorker = worker
 	if err := stopDAGIfRunning(ctx, ctx.DAGRunMgr, d, oldDagRunID); err != nil {
 		return err
 	}
@@ -170,6 +180,9 @@ func handleRestartProcess(
 		return fmt.Errorf("failed to generate dag-run ID: %w", err)
 	}
 	opts.root = ir.NewDAGRunRef(d.Name, newDagRunID)
+	if opts.boundWorker != "" {
+		return dispatchToCoordinatorAndWait(ctx, d, newDagRunID, opts, coordinatorCli)
+	}
 
 	return withPreparedLocalExecution(
 		ctx,

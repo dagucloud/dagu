@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 )
 
 // flagNode narrows a run to the named nodes (RFC 013 §Narrowing a
@@ -72,4 +73,28 @@ func narrowRun(ctx *Context, dag *ir.DAG, names []string) ([]string, error) {
 		return nil, fmt.Errorf("invalid node list: %w", err)
 	}
 	return listed, nil
+}
+
+// boundWorker returns the worker that runs a run of dag with the node list
+// names (intake.BoundWorker), with a client of the coordinator that reaches
+// it, or "" and nil for a run not bound to a worker node. A worker node
+// exists only because a coordinator recorded it, and run commands do not
+// load the coordinator settings, so the client does not depend on them.
+func boundWorker(ctx *Context, dag *ir.DAG, names []string) (string, coordinator.Client, error) {
+	if !dag.NodeRequired || len(names) == 0 {
+		return "", nil, nil
+	}
+	nodes, err := ctx.inventoryStore()
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to open the node inventory: %w", err)
+	}
+	worker, err := intake.BoundWorker(ctx, dag, names, inventory.NewProjectNodes(nodes, ctx.runtimeWorkerNodeStore()), true)
+	if err != nil || worker == "" {
+		return "", nil, err
+	}
+	client, err := ctx.coordinatorClient()
+	if err != nil {
+		return "", nil, err
+	}
+	return worker, client, nil
 }
