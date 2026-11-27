@@ -122,7 +122,10 @@ return [d.getDate(), d.getHours(), d.getTimezoneOffset()]`, nil)
 		script := `
 const constructed = new Date(2026, 10, 13, 2, 14, 30, 500);
 const twoDigit = new Date(99, 0, 1);
+const largeMs = new Date(1970, 0, 1, 0, 0, 0, 1e13);
 const parsedLocal = new Date("2026-11-13T02:14:00");
+const parsedYearOnly = new Date("2026");
+const parsedYearMonth = new Date("2026-11");
 const parsedDateOnly = new Date("2026-11-13");
 const parsedZ = new Date("2026-11-12T17:14:00Z");
 const fnStr = Date(123);
@@ -132,7 +135,10 @@ const inv = new Date(NaN);
 return {
   constructedISO: constructed.toISOString(),
   twoDigitYear: twoDigit.getFullYear(),
+  largeMsISO: largeMs.toISOString(),
   parsedLocalISO: parsedLocal.toISOString(),
+  parsedYearOnlyISO: parsedYearOnly.toISOString(),
+  parsedYearMonthISO: parsedYearMonth.toISOString(),
   parsedDateOnlyISO: parsedDateOnly.toISOString(),
   parsedZHoursLocal: parsedZ.getHours(),
   fnHasJST: fnStr.includes("+0900"),
@@ -147,7 +153,10 @@ return {
 		assert.JSONEq(t, `{
   "constructedISO": "2026-11-12T17:14:30.500Z",
   "twoDigitYear": 1999,
+  "largeMsISO": "2286-11-20T08:46:40.000Z",
   "parsedLocalISO": "2026-11-12T17:14:00.000Z",
+  "parsedYearOnlyISO": "2026-01-01T00:00:00.000Z",
+  "parsedYearMonthISO": "2026-11-01T00:00:00.000Z",
   "parsedDateOnlyISO": "2026-11-13T00:00:00.000Z",
   "parsedZHoursLocal": 2,
   "fnHasJST": true,
@@ -157,6 +166,18 @@ return {
   "invStr": "Invalid Date",
   "invNaN": true
 }`, got.stdout)
+	})
+
+	t.Run("POSIXFixedOffsetSign", func(t *testing.T) {
+		t.Parallel()
+		// POSIX TZ=UTC+9 means 9h west of UTC (+540 JS offset); TZ=UTC-9 means 9h east (-540).
+		west := run(t, ctxWithTZ("UTC+9", nil), `return new Date(Date.UTC(2026, 10, 12, 12, 0, 0)).getTimezoneOffset()`, nil)
+		require.NoError(t, west.err)
+		assert.Equal(t, "540\n", west.stdout)
+
+		east := run(t, ctxWithTZ("UTC-9", nil), `return new Date(Date.UTC(2026, 10, 12, 12, 0, 0)).getTimezoneOffset()`, nil)
+		require.NoError(t, east.err)
+		assert.Equal(t, "-540\n", east.stdout)
 	})
 
 	t.Run("ConcurrentStepsStayIsolated", func(t *testing.T) {

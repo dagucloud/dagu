@@ -7,6 +7,7 @@ import (
 	"context"
 	"math"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dop251/goja"
 )
+
+var isoDateOnlyPattern = regexp.MustCompile(`^([+-]\d{6}|\d{4})(-\d{2}(-\d{2})?)?$`)
 
 const (
 	dateTimeLayout          = "Mon Jan 02 2006 15:04:05 GMT-0700 (MST)"
@@ -79,11 +82,13 @@ func parseFixedOffsetTZ(name string) (*time.Location, bool) {
 	if rest == "" {
 		return time.UTC, true
 	}
-	sign := 1
+	// POSIX TZ offsets specify hours added to local time to get UTC,
+	// so UTC+9 is 9 hours west of UTC (-9*3600) and UTC-9 is east (+9*3600).
+	sign := -1
 	switch rest[0] {
 	case '+':
 	case '-':
-		sign = -1
+		sign = 1
 	default:
 		return nil, false
 	}
@@ -357,10 +362,11 @@ func makeLocalTimeMillis(fields [7]int64, loc *time.Location) (int64, bool) {
 	if !ok {
 		return 0, false
 	}
-	sec, nsec, ok := normPair(fields[5], fields[6]*1e6, 1e9)
+	sec, msec, ok := normPair(fields[5], fields[6], 1000)
 	if !ok {
 		return 0, false
 	}
+	nsec := msec * 1e6
 	min, sec, ok := normPair(fields[4], sec, 60)
 	if !ok {
 		return 0, false
@@ -509,9 +515,9 @@ func hasExplicitTimezone(s string) bool {
 			return true
 		}
 	}
-	// ISO date-only ("2026-11-13") parses as UTC per ES spec.
+	// ISO date-only forms ("2026", "2026-11", "2026-11-13") parse as UTC per ES spec.
 	trimmed := strings.TrimSpace(s)
-	if len(trimmed) == 10 && trimmed[4] == '-' && trimmed[7] == '-' {
+	if isoDateOnlyPattern.MatchString(trimmed) {
 		return true
 	}
 	fields := strings.FieldsFunc(strings.ToLower(trimmed), func(r rune) bool {
