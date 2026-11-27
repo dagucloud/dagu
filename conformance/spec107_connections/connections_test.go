@@ -157,7 +157,9 @@ func TestDryRunReportsConnections(t *testing.T) {
 	env, _ := connections(t)
 	dagu := harness.NewRunner(t)
 	result := dagu.RunWithEnv(env, "dry", "missing.yaml")
-	require.Contains(t, result.Stdout()+result.Stderr(), missingConnection)
+	result.ExpectExitCode(0)
+	// The warning is a logfmt line, which escapes the quotes in the error.
+	result.ExpectStderrContains("Dry run: run may fail on this host", `connection not found: \"missing\" in workspace \"ops\"`)
 }
 
 // A sub-DAG that runs in the parent's process checks its own connections
