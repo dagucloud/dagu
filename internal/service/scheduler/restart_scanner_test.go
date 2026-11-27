@@ -142,9 +142,8 @@ func TestGenerateRestartRunID(t *testing.T) {
 	assert.Equal(t, len(restartPrefix)+hashLen, len(first), "no time part without a previous end")
 }
 
-// Two installations on one host that run a service DAG of the same name queue
-// runs with different IDs. A shared ID would give both runs one control
-// socket, and the second run would fail as already running.
+// Two installations that run a service DAG of the same name queue runs with
+// different IDs, so installations never share a run ID (Spec 085).
 func TestRestartRunIDOfInstallation(t *testing.T) {
 	t.Parallel()
 
