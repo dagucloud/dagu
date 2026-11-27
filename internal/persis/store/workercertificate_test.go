@@ -10,18 +10,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
-	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 )
 
 var enrolledAt = time.Date(2026, 11, 27, 9, 0, 0, 0, time.UTC)
 
 const retention = 90 * 24 * time.Hour
 
+// newWorkerCertificateStore opens the store on the file backend, whose
+// listing order and write times differ from the memory backend's.
 func newWorkerCertificateStore(t *testing.T) (*store.WorkerCertificateStore, persis.Collection) {
 	t.Helper()
-	col := testutil.NewMemoryBackend().Collection(persis.CollectionWorkerCertificates)
+	col := file.NewBackend(config.PathsConfig{DataDir: t.TempDir()}).Collection(persis.CollectionWorkerCertificates)
 	s, err := store.NewWorkerCertificateStore(col)
 	require.NoError(t, err)
 	return s, col
@@ -53,7 +56,28 @@ func getCertificate(t *testing.T, s *store.WorkerCertificateStore, id string) pe
 	return cert
 }
 
-func TestWorkerCertificateStore_CreateAndList(t *testing.T) {
+func setState(t *testing.T, s *store.WorkerCertificateStore, id string, state persis.WorkerCertificateState) persis.WorkerCertificate {
+	t.Helper()
+	cert, err := s.SetState(t.Context(), id, state)
+	require.NoError(t, err)
+	return cert
+}
+
+func TestWorkerCertificateStore_CreateAndGet(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, _ := newWorkerCertificateStore(t)
+	cert := workerCertificate("cert-1")
+	createCertificate(t, s, cert)
+
+	assert.Equal(t, cert, getCertificate(t, s, "cert-1"))
+	assert.ErrorIs(t, s.Create(ctx, cert), persis.ErrWorkerCertificateExists)
+	_, err := s.Get(ctx, "missing")
+	assert.ErrorIs(t, err, persis.ErrWorkerCertificateNotFound)
+}
+
+// List keeps enrollment order after a record is written again.
+func TestWorkerCertificateStore_ListOldestFirst(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	s, _ := newWorkerCertificateStore(t)
@@ -63,25 +87,44 @@ func TestWorkerCertificateStore_CreateAndList(t *testing.T) {
 	createCertificate(t, s, first)
 	createCertificate(t, s, second)
 
-	assert.ErrorIs(t, s.Create(ctx, first), persis.ErrWorkerCertificateExists)
-	assert.Equal(t, first, getCertificate(t, s, "cert-b"))
+	first.LastHeartbeatAt = enrolledAt.Add(48 * time.Hour)
+	require.NoError(t, s.RecordHeartbeat(ctx, first))
+	first = setState(t, s, "cert-b", persis.WorkerCertificateRemoving)
+
 	certs, err := s.List(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, []persis.WorkerCertificate{first, second}, certs)
-
-	_, err = s.Get(ctx, "missing")
-	assert.ErrorIs(t, err, persis.ErrWorkerCertificateNotFound)
 }
 
-// A record that cannot be read fails the listing, so a revoked certificate
-// is never taken for an unknown one.
-func TestWorkerCertificateStore_ListFailsOnUnreadableRecord(t *testing.T) {
+func TestWorkerCertificateStore_ListRemovals(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, _ := newWorkerCertificateStore(t)
+	for _, id := range []string{"active", "removing", "revoked"} {
+		createCertificate(t, s, workerCertificate(id))
+	}
+	setState(t, s, "removing", persis.WorkerCertificateRemoving)
+	setState(t, s, "revoked", persis.WorkerCertificateRevoked)
+
+	removals, err := s.ListRemovals(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []persis.WorkerCertificateRemoval{
+		{ID: "removing", KeyFingerprint: workerCertificate("removing").KeyFingerprint, State: persis.WorkerCertificateRemoving},
+		{ID: "revoked", KeyFingerprint: workerCertificate("revoked").KeyFingerprint, State: persis.WorkerCertificateRevoked},
+	}, removals)
+}
+
+// A removal that cannot be read fails the read, so a revoked certificate is
+// never taken for an active one.
+func TestWorkerCertificateStore_ListRemovalsFailsOnUnreadableRecord(t *testing.T) {
 	t.Parallel()
 	s, col := newWorkerCertificateStore(t)
 	createCertificate(t, s, workerCertificate("cert-1"))
-	require.NoError(t, col.Put(t.Context(), &persis.Record{ID: "cert-2", Data: []byte(`{"state":"unknown"}`)}))
+	require.NoError(t, col.Put(t.Context(), &persis.Record{ID: "removals/cert-1", Data: []byte(`{"state":"unknown"}`)}))
 
-	_, err := s.List(t.Context())
+	_, err := s.ListRemovals(t.Context())
+	assert.Error(t, err)
+	_, err = s.List(t.Context())
 	assert.Error(t, err)
 }
 
@@ -91,18 +134,14 @@ func TestWorkerCertificateStore_SetState(t *testing.T) {
 	s, _ := newWorkerCertificateStore(t)
 	createCertificate(t, s, workerCertificate("cert-1"))
 
-	removing, err := s.SetState(ctx, "cert-1", persis.WorkerCertificateRemoving)
-	require.NoError(t, err)
+	removing := setState(t, s, "cert-1", persis.WorkerCertificateRemoving)
 	assert.Equal(t, persis.WorkerCertificateRemoving, removing.State)
-	_, err = s.SetState(ctx, "cert-1", persis.WorkerCertificateActive)
+	_, err := s.SetState(ctx, "cert-1", persis.WorkerCertificateActive)
 	assert.ErrorIs(t, err, persis.ErrWorkerCertificateStateBackward)
 
-	revoked, err := s.SetState(ctx, "cert-1", persis.WorkerCertificateRevoked)
-	require.NoError(t, err)
+	revoked := setState(t, s, "cert-1", persis.WorkerCertificateRevoked)
 	assert.Equal(t, persis.WorkerCertificateRevoked, revoked.State)
-	again, err := s.SetState(ctx, "cert-1", persis.WorkerCertificateRevoked)
-	require.NoError(t, err)
-	assert.Equal(t, revoked, again)
+	assert.Equal(t, revoked, setState(t, s, "cert-1", persis.WorkerCertificateRevoked))
 	_, err = s.SetState(ctx, "cert-1", persis.WorkerCertificateRemoving)
 	assert.ErrorIs(t, err, persis.ErrWorkerCertificateStateBackward)
 	assert.Equal(t, revoked, getCertificate(t, s, "cert-1"))
@@ -128,12 +167,51 @@ func TestWorkerCertificateStore_RecordHeartbeat(t *testing.T) {
 	require.NoError(t, s.RecordHeartbeat(ctx, beat))
 	assert.Equal(t, beat, getCertificate(t, s, "cert-1"))
 
-	// A changed worker ID is written at once.
+	// A changed worker ID is written a minute after the last write.
 	renamed := beat
 	renamed.WorkerID = "worker-renamed"
 	renamed.LastHeartbeatAt = beat.LastHeartbeatAt.Add(time.Minute)
 	require.NoError(t, s.RecordHeartbeat(ctx, renamed))
 	assert.Equal(t, renamed, getCertificate(t, s, "cert-1"))
+
+	// A report older than the stored heartbeat writes nothing.
+	late := renamed
+	late.WorkerID = "worker-late"
+	late.LastHeartbeatAt = renamed.LastHeartbeatAt.Add(-time.Hour)
+	require.NoError(t, s.RecordHeartbeat(ctx, late))
+	assert.Equal(t, renamed, getCertificate(t, s, "cert-1"))
+}
+
+// Two workers that run on one copied certificate report different fields at
+// every heartbeat. They write the record at most once a minute.
+func TestWorkerCertificateStore_RecordHeartbeatBoundsChanges(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, _ := newWorkerCertificateStore(t)
+	cert := workerCertificate("cert-1")
+	createCertificate(t, s, cert)
+	clone := cert
+	clone.WorkerID = "worker-clone"
+	clone.Host = "host-clone"
+
+	const reports = 180
+	writes := 0
+	last := cert.LastHeartbeatAt
+	for i := 1; i <= reports; i++ {
+		beat := cert
+		if i%2 == 1 {
+			beat = clone
+		}
+		beat.LastHeartbeatAt = enrolledAt.Add(time.Duration(i) * time.Second)
+		require.NoError(t, s.RecordHeartbeat(ctx, beat))
+		if stored := getCertificate(t, s, "cert-1").LastHeartbeatAt; !stored.Equal(last) {
+			writes++
+			last = stored
+		}
+	}
+
+	assert.Positive(t, writes)
+	assert.LessOrEqual(t, writes, reports/60)
 }
 
 func TestWorkerCertificateStore_RecordHeartbeatKeepsState(t *testing.T) {
@@ -142,8 +220,7 @@ func TestWorkerCertificateStore_RecordHeartbeatKeepsState(t *testing.T) {
 	s, _ := newWorkerCertificateStore(t)
 	cert := workerCertificate("cert-1")
 	createCertificate(t, s, cert)
-	_, err := s.SetState(ctx, "cert-1", persis.WorkerCertificateRevoked)
-	require.NoError(t, err)
+	setState(t, s, "cert-1", persis.WorkerCertificateRevoked)
 
 	beat := cert
 	beat.LastHeartbeatAt = enrolledAt.Add(48 * time.Hour)
@@ -198,8 +275,7 @@ func TestWorkerCertificateStore_Prune(t *testing.T) {
 		cert.LastHeartbeatAt = c.lastHeartbeat
 		createCertificate(t, s, cert)
 		if c.state != persis.WorkerCertificateActive {
-			_, err := s.SetState(ctx, id, c.state)
-			require.NoError(t, err)
+			setState(t, s, id, c.state)
 		}
 	}
 

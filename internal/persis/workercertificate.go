@@ -33,15 +33,21 @@ type WorkerCertificateStore interface {
 	// Get returns the record with id, or [ErrWorkerCertificateNotFound].
 	Get(ctx context.Context, id string) (WorkerCertificate, error)
 
-	// List returns every record, oldest first. It fails when a record
-	// cannot be read, so no revoked certificate is left out.
+	// List returns every record, oldest first.
 	List(ctx context.Context) ([]WorkerCertificate, error)
+
+	// ListRemovals returns the certificates in state removing or revoked.
+	// Its cost grows with those certificates only, not with every record.
+	// It fails when one cannot be read, so no revoked certificate is left
+	// out.
+	ListRemovals(ctx context.Context) ([]WorkerCertificateRemoval, error)
 
 	// RecordHeartbeat records a heartbeat sent with the certificate at
 	// cert.LastHeartbeatAt, with the worker ID, host, and environment it
-	// reported. It writes only when the stored heartbeat is more than a day
-	// older or a reported field changed, and keeps the stored state. A
-	// pruned record is recorded again from cert, in state active.
+	// reported. A report not newer than the stored heartbeat writes nothing.
+	// Otherwise it writes when the stored heartbeat is more than a day
+	// older, or at least a minute older and a reported field changed. It
+	// keeps the stored state. A pruned record is recorded again from cert.
 	RecordHeartbeat(ctx context.Context, cert WorkerCertificate) error
 
 	// SetState moves the certificate to state and returns the record as
@@ -75,6 +81,14 @@ type WorkerCertificate struct {
 	CreatedAt time.Time
 	// LastHeartbeatAt is zero before the first recorded heartbeat.
 	LastHeartbeatAt time.Time
+}
+
+// WorkerCertificateRemoval is a certificate in state removing or revoked.
+type WorkerCertificateRemoval struct {
+	ID string
+	// KeyFingerprint is the certificate's [WorkerCertificate.KeyFingerprint].
+	KeyFingerprint []byte
+	State          WorkerCertificateState
 }
 
 // WorkerCertificateState is where a certificate is in its removal.
