@@ -91,6 +91,38 @@ func TestKillProcessTree_Integration(t *testing.T) {
 	}
 }
 
+// TestKillProcessTree_ExitedRoot kills the tree of a root that has already
+// exited while a handle still holds it, as when a step's shell exits and
+// leaves a background child behind. The child must still be reached.
+func TestKillProcessTree_ExitedRoot(t *testing.T) {
+	// "start /b" runs ping.exe without waiting for it, so cmd.exe exits first.
+	cmd := exec.Command("cmd", "/C", "start", "/b", "ping", "-n", "30", "127.0.0.1")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start test process: %v", err)
+	}
+
+	root := openTreeProcess(t, uint32(cmd.Process.Pid), "cmd.exe")
+	t.Cleanup(func() { _ = windows.CloseHandle(root.handle) })
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("test process %v failed: %v", root, err)
+	}
+
+	children := childProcesses(t, root)
+	t.Cleanup(func() { closeProcesses(children) })
+	if !hasImage(children, "ping.exe") {
+		t.Fatalf("exited test process %v left no ping.exe child, got %v", root, children)
+	}
+	t.Logf("Exited test process %v has children %v", root, children)
+
+	if err := killProcessTree(root.pid); err != nil {
+		t.Fatalf("killProcessTree returned error: %v", err)
+	}
+	for _, child := range children {
+		waitProcessExit(t, child, "child process")
+	}
+}
+
 // openTreeProcess opens a handle to the running process pid, labeled image.
 func openTreeProcess(t *testing.T, pid uint32, image string) treeProcess {
 	t.Helper()
@@ -104,7 +136,7 @@ func openTreeProcess(t *testing.T, pid uint32, image string) treeProcess {
 
 // childProcesses returns open handles to the children of parent. Windows keeps
 // a process's parent PID after that parent exits and may reuse the PID for
-// parent, so a process created before parent only shares the PID and is
+// parent, so a process created before parent, or of unknown creation time, is
 // skipped, as killProcessTree skips it.
 func childProcesses(t *testing.T, parent treeProcess) []treeProcess {
 	t.Helper()
@@ -134,10 +166,14 @@ func childProcesses(t *testing.T, parent treeProcess) []treeProcess {
 			if err == nil {
 				child := treeProcess{pid: entry.ProcessID, image: image, handle: h}
 				started, ok := procutil.HandleStartTime(h)
-				if ok && started < parentStart {
+				switch {
+				case !ok:
+					t.Logf("Not tracking %v: its start time cannot be read", child)
+					_ = windows.CloseHandle(h)
+				case started < parentStart:
 					t.Logf("Skipping %v: it started before %v and only shares a reused parent PID", child, parent)
 					_ = windows.CloseHandle(h)
-				} else {
+				default:
 					children = append(children, child)
 				}
 			} else {
