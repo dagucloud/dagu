@@ -4,7 +4,14 @@
 package distr_test
 
 import (
+	"encoding/hex"
+	"io/fs"
+	"os"
+	"path/filepath"
+	goruntime "runtime"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -73,9 +80,97 @@ func TestConnections_CheckedOnWorker(t *testing.T) {
 	}
 }
 
+// exportDAG puts work-google's token in the environment of a step on a
+// worker. The step prints the token in hex, which no mask hides, and as
+// it is.
+const exportDAG = `
+worker_selector:
+  test: "true"
+labels:
+  - workspace=ops
+secrets:
+  - name: GOOGLE_TOKEN
+    provider: connection
+    key: work-google
+steps:
+  - name: export
+    command: |
+      printf %s "$GOOGLE_TOKEN" | od -An -tx1 | tr -d ' \n'
+      echo
+      echo "token=$GOOGLE_TOKEN"
+`
+
+// A connection secret on a worker takes its token from the coordinator
+// when the connection allows export, and the step's log streamed to the
+// coordinator masks it. Without export the run fails at secret
+// resolution, naming the connection.
+func TestConnections_ExportOnWorker(t *testing.T) {
+	t.Parallel()
+	if goruntime.GOOS == "windows" {
+		t.Skip("uses POSIX shell steps")
+	}
+	const token = "worker-export-token"
+	tests := []struct {
+		name   string
+		export bool
+		want   ir.Status
+	}{
+		{name: "Allowed", export: true, want: ir.Succeeded},
+		{name: "NotAllowed", want: ir.Failed},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newTestFixture(t, exportDAG, withLogPersistence())
+			store, conn := createWorkGoogle(t, f)
+			ctx := f.coord.Context
+			_, err := store.Update(ctx, connection.Key{Workspace: "ops", Name: "work-google"}, func(c *connection.Connection) error {
+				c.AllowTokenExport = tt.export
+				return nil
+			})
+			require.NoError(t, err)
+			_, err = store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {
+				now := time.Now()
+				st.Status = connection.TokenStatusConnected
+				st.RefreshToken = "worker-refresh-token"
+				st.AccessTokens = map[string]connection.AccessToken{
+					"": {Token: token, IssuedAt: now, ExpiresAt: now.Add(time.Hour)},
+				}
+				return nil
+			})
+			require.NoError(t, err)
+
+			_, err = f.dispatchDirect()
+			require.NoError(t, err)
+			status := f.waitForStatus(tt.want, executionStatusTimeout())
+			if !tt.export {
+				require.Contains(t, status.Error, `connection "work-google" does not allow token export`)
+				require.Equal(t, ir.NodeNotStarted, status.Nodes[0].Status)
+				return
+			}
+			stdout := getLogContent(t, status.Nodes[0].Stdout)
+			require.Contains(t, stdout, hex.EncodeToString([]byte(token)))
+			require.Contains(t, stdout, "token=*******")
+			for _, dir := range []string{f.coord.Config.Paths.DataDir, f.coord.Config.Paths.LogDir} {
+				require.NoError(t, filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+					if err != nil || d.IsDir() {
+						return err
+					}
+					data, err := os.ReadFile(path)
+					if err == nil && strings.Contains(string(data), token) {
+						t.Errorf("%s holds the token", path)
+					}
+					return err
+				}))
+			}
+		})
+	}
+}
+
 // createWorkGoogle adds work-google to workspace ops on the coordinator,
-// with an app set up for Google's MCP servers.
-func createWorkGoogle(t *testing.T, f *testFixture) {
+// with an app set up for Google's MCP servers, and returns the
+// coordinator's store and the connection.
+func createWorkGoogle(t *testing.T, f *testFixture) (connection.Store, *connection.Connection) {
 	t.Helper()
 	ctx := f.coord.Context
 	store, err := persisfile.NewServerStores(f.coord.Config).ConnectionStore()
@@ -85,10 +180,11 @@ func createWorkGoogle(t *testing.T, f *testFixture) {
 		ClientID: "client", ClientSecret: "secret", ClientType: connection.ClientTypeWeb, Agent: true,
 	})
 	require.NoError(t, err)
-	_, err = store.Create(ctx, &connection.Connection{
+	conn, err := store.Create(ctx, &connection.Connection{
 		Workspace: "ops", Name: "work-google", Provider: connection.ProviderGoogle, App: app.ID,
 		Grant:    connection.GrantAuthorizationCode,
 		Services: []connection.Service{{Name: "gmail", Access: connection.AccessRead}},
 	})
 	require.NoError(t, err)
+	return store, conn
 }
