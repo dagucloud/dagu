@@ -143,6 +143,7 @@ type API struct {
 	openCodeHost         *opencodehost.Host
 	workspaceDeprecation deprecation.Sources
 	serviceDAGFailures   failureStreaks
+	serviceDAGReads      serviceDAGDirectoryReads
 	activities           activityCache
 	activityReads        singleflight.Group
 	runChanges           runChanges

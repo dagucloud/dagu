@@ -118,6 +118,11 @@ vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
 }));
 
 const usePaginatedDAGRunsMock = vi.hoisted(() => vi.fn());
+const useDAGListActivityMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/features/dags/hooks/useDAGListActivity', () => ({
+  useDAGListActivity: useDAGListActivityMock,
+}));
 
 vi.mock('@/features/dag-runs/hooks/dagRunPagination', () => ({
   usePaginatedDAGRuns: usePaginatedDAGRunsMock,
@@ -186,6 +191,7 @@ beforeEach(() => {
   sharedRunViewState.views = [];
   dagsListState.dags = [];
   serviceDAGsState.count = 0;
+  useDAGListActivityMock.mockReset();
   usePaginatedDAGRunsMock.mockReset();
   usePaginatedDAGRunsMock.mockReturnValue({
     dagRuns: [],
@@ -298,6 +304,25 @@ describe('DAGRuns page', () => {
     expect(within(serviceDAGs).getByText('dag-1')).toBeInTheDocument();
   });
 
+  // One read gives the run history of all the service cards, as in the
+  // Workflows list, not a read for each card.
+  it('reads the run history of all the service cards at once', () => {
+    serviceDAGsState.count = 2;
+    useDAGListActivityMock.mockReturnValue(new Map());
+
+    renderPage();
+
+    expect(useDAGListActivityMock).toHaveBeenLastCalledWith(
+      ['dag-0', 'dag-1'],
+      'local',
+      true
+    );
+    const serviceDAGs = screen.getByRole('region', { name: 'Service DAGs' });
+    expect(
+      within(serviceDAGs).getAllByTestId('dag-activity-pending')
+    ).toHaveLength(2);
+  });
+
   // A backfill links to its runs: the list asks for them from the backfill's
   // start on, without the page's filters and views, until the scope is
   // cleared.
@@ -352,6 +377,11 @@ describe('DAGRuns page', () => {
 
       expect(lastRunQuery()['excludeServiceDAGRuns']).toBeUndefined();
       expect(screen.queryByRole('region', { name: 'Service DAGs' })).toBeNull();
+      expect(useDAGListActivityMock).toHaveBeenLastCalledWith(
+        ['dag-0', 'dag-1'],
+        'local',
+        false
+      );
     }
   );
 

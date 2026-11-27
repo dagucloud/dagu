@@ -253,7 +253,7 @@ type Store struct {
 	project                *projectScope            // Project whose lookups the store resolves, or nil
 	baseConfigMu           sync.Mutex               // Protects base config state refresh and invalidation
 	indexMu                sync.Mutex               // Protects index load/rebuild/invalidate
-	serviceDAGs            serviceDAGNameCache      // Service DAG names of the last index read
+	savedIndex             savedIndexCache          // Catalog of the last saved index read
 }
 
 func (store *Store) Get(ctx context.Context, id string) (persis.DAGDefinition, error) {
@@ -307,20 +307,50 @@ func (store *Store) ServiceDAGNames(ctx context.Context) ([]string, error) {
 // SavedServiceDAGNames is ServiceDAGNames without building an index: it
 // reports false when no saved index can be read.
 func (store *Store) SavedServiceDAGNames() ([]string, bool) {
+	current, ok := store.savedCatalog()
+	if !ok {
+		return nil, false
+	}
+	return serviceDAGNamesOf(current), true
+}
+
+// SavedServiceDAGs is SavedServiceDAGNames with the listing item of each DAG.
+// It builds the items of the service DAGs alone, so its cost does not grow
+// with the other DAGs.
+func (store *Store) SavedServiceDAGs() ([]persis.DAGListItem, bool) {
+	current, ok := store.savedCatalog()
+	if !ok {
+		return nil, false
+	}
+	items := make([]persis.DAGListItem, 0)
+	for _, entry := range current.entries {
+		if entry.RestartPolicy == "" {
+			continue
+		}
+		if item := store.listItem(entry); item.RestartPolicy.Enabled() {
+			items = append(items, item)
+		}
+	}
+	return items, true
+}
+
+// savedCatalog returns the catalog of the saved index, read again only after
+// the index file changes. It reports false when no saved index can be read.
+func (store *Store) savedCatalog() (*catalog, bool) {
 	info, err := os.Stat(store.indexPath)
 	if err != nil {
 		return nil, false
 	}
-	if names, ok := store.serviceDAGs.get(info); ok {
-		return names, true
+	if current, ok := store.savedIndex.get(info); ok {
+		return current, true
 	}
 	entries, ok := dagindex.ReadEntries(store.indexPath)
 	if !ok {
 		return nil, false
 	}
-	names := serviceDAGNamesOf(newCatalog(entries, nil, store.recursive))
-	store.serviceDAGs.put(info, names)
-	return slices.Clone(names), true
+	current := newCatalog(entries, nil, store.recursive)
+	store.savedIndex.put(info, current)
+	return current, true
 }
 
 func serviceDAGNamesOf(current *catalog) []string {
@@ -333,29 +363,30 @@ func serviceDAGNamesOf(current *catalog) []string {
 	return names
 }
 
-// serviceDAGNameCache holds the service DAG names of the last index read.
-type serviceDAGNameCache struct {
-	mu    sync.Mutex
-	index os.FileInfo
-	names []string
+// savedIndexCache holds the catalog of the last saved index read. Readers
+// share the catalog and do not change it.
+type savedIndexCache struct {
+	mu      sync.Mutex
+	index   os.FileInfo
+	catalog *catalog
 }
 
-func (c *serviceDAGNameCache) get(info os.FileInfo) ([]string, bool) {
+func (c *savedIndexCache) get(info os.FileInfo) (*catalog, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.index == nil || !sameIndexFile(c.index, info) {
 		return nil, false
 	}
-	return slices.Clone(c.names), true
+	return c.catalog, true
 }
 
-func (c *serviceDAGNameCache) put(info os.FileInfo, names []string) {
+func (c *savedIndexCache) put(info os.FileInfo, current *catalog) {
 	// Windows reads the identity of a file at its first comparison, so read it
-	// now, while the path still names the file the names came from.
+	// now, while the path still names the file the catalog came from.
 	_ = os.SameFile(info, info)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.index, c.names = info, names
+	c.index, c.catalog = info, current
 }
 
 // sameIndexFile reports whether two stats describe one unchanged index file.
@@ -375,15 +406,20 @@ func (store *Store) catalog(ctx context.Context, includeSearchPaths bool) (persi
 		Issues: append([]string(nil), catalog.errors...),
 	}
 	for _, entry := range catalog.entries {
-		dag := dagindex.DAGFromEntry(entry, store.baseDir)
-		spec.BindScheduleCalendars(dag.Schedule, store.calendars)
-		result.Items = append(result.Items, persis.DAGListItem{
-			ID:        entryStem(entry),
-			DAG:       dag,
-			Suspended: entry.Suspended,
-		})
+		result.Items = append(result.Items, store.listItem(entry))
 	}
 	return result, nil
+}
+
+// listItem is the listing item of an index entry.
+func (store *Store) listItem(entry *indexv1.DAGIndexEntry) persis.DAGListItem {
+	dag := dagindex.DAGFromEntry(entry, store.baseDir)
+	spec.BindScheduleCalendars(dag.Schedule, store.calendars)
+	return persis.DAGListItem{
+		ID:        entryStem(entry),
+		DAG:       dag,
+		Suspended: entry.Suspended,
+	}
 }
 
 func (store *Store) defaultLoadOptions(opts ...spec.LoadOption) []spec.LoadOption {

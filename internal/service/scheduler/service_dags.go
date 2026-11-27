@@ -30,6 +30,10 @@ type ServiceDAGSources struct {
 	// operator paused it, or no scheduler runs.
 	Held   bool
 	Filter *workspace.WorkspaceFilter
+	// Saved takes the DAGs from the listing that the DAG store saved last,
+	// when it has one, and reads no DAG file. It can miss a definition changed
+	// outside the store since that listing, and it reports no file errors.
+	Saved bool
 }
 
 // ServiceDAGView is a service DAG with its latest run and state. ReadError
@@ -51,6 +55,7 @@ func ListServiceDAGs(ctx context.Context, src ServiceDAGSources) ([]ServiceDAGVi
 	result, errList, err := src.DAGs.List(ctx, persis.DAGListOptions{
 		Paginator:       &paginator,
 		OnlyServiceDAGs: true,
+		Saved:           src.Saved,
 		Sort:            "name",
 		Order:           "asc",
 		WorkspaceFilter: src.Filter,

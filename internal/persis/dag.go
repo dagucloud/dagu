@@ -89,6 +89,9 @@ type DAGDefinitionStore interface {
 	// SavedServiceDAGNames is ServiceDAGNames that never builds a listing: it
 	// reports false when no saved listing can be read.
 	SavedServiceDAGNames() ([]string, bool)
+	// SavedServiceDAGs is SavedServiceDAGNames with the listing item of each
+	// DAG instead of its name.
+	SavedServiceDAGs() ([]DAGListItem, bool)
 	MigrateSuspensionState(ctx context.Context) error
 	SetSuspended(ctx context.Context, id string, suspended bool) error
 	IsSuspended(ctx context.Context, id string) (bool, error)
@@ -118,7 +121,11 @@ type DAGListOptions struct {
 	Labels     []string
 	ActiveOnly bool
 	// OnlyServiceDAGs keeps the DAGs that set a restart policy.
-	OnlyServiceDAGs   bool
+	OnlyServiceDAGs bool
+	// Saved, with OnlyServiceDAGs, takes the DAGs from the listing that the
+	// store saved last, when it has one, and reads no DAG file. It can miss a
+	// definition changed outside the store since that listing.
+	Saved             bool
 	Sort              string
 	Order             string
 	Time              *time.Time
