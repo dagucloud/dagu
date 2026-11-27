@@ -31,6 +31,7 @@ const holdWait = time.Minute
 // worker, so a task whose selector that worker does not carry has nowhere to
 // go until another worker registers.
 type holdFixture struct {
+	baseDir    string
 	h          *Handler
 	runs       *mockDAGRunStore
 	heartbeats dispatch.WorkerHeartbeatStore
@@ -42,6 +43,7 @@ func newHoldFixture(t *testing.T, wait time.Duration) *holdFixture {
 	registerCommandExecutorCapsForCoordinatorTest()
 	baseDir := t.TempDir()
 	f := &holdFixture{
+		baseDir:    baseDir,
 		runs:       newMockDAGRunStore(),
 		heartbeats: newTestWorkerHeartbeatStore(baseDir),
 		dispatches: newTestDispatchTaskStore(baseDir),

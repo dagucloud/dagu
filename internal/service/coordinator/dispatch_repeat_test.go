@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,7 +24,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 )
 
 const (
@@ -253,27 +256,138 @@ func TestDispatchRepeatFinishesInterruptedAdmission(t *testing.T) {
 	assert.Equal(t, 1, f.claimAll(t))
 }
 
-// A repeat of a dispatch the coordinator rolled back reports that failure
-// rather than starting the run.
-func TestDispatchRepeatAfterRollbackIsRefused(t *testing.T) {
+// flakyEnqueueStore fails the first enqueue, as a transient write failure
+// does, and then queues as the shared store does.
+type flakyEnqueueStore struct {
+	dispatch.DispatchTaskStore
+	failed atomic.Bool
+}
+
+func (s *flakyEnqueueStore) Enqueue(ctx context.Context, task *dispatch.DispatchTask) error {
+	if s.failed.CompareAndSwap(false, true) {
+		return errors.New("transient write failure")
+	}
+	return s.DispatchTaskStore.Enqueue(ctx, task)
+}
+
+func newDispatchClient(t *testing.T, service coordinatorv1.CoordinatorServiceServer) Client {
+	t.Helper()
+	registry, err := NewStaticRegistry([]string{startCoordinatorServer(t, service)})
+	require.NoError(t, err)
+	config := DefaultConfig()
+	config.MaxRetries = 2
+	config.RetryInterval = time.Millisecond
+	client := New(registry, config)
+	t.Cleanup(func() { _ = client.Cleanup(context.Background()) })
+	return client
+}
+
+// The client's retry of a transient enqueue failure admits the attempt the
+// coordinator rolled back, instead of being refused for its ID.
+func TestDispatchRetryAfterRollbackAdmits(t *testing.T) {
 	registerCommandExecutorCapsForCoordinatorTest()
 	f := newHoldFixture(t, 0)
 	h := NewHandler(HandlerConfig{
 		DAGRunRepository:     f.runs.repository,
-		DispatchTaskStore:    &failingDispatchTaskStore{enqueueErr: errors.New("disk full")},
+		DispatchTaskStore:    &flakyEnqueueStore{DispatchTaskStore: f.dispatches},
 		WorkerHeartbeatStore: f.heartbeats,
 	})
 	t.Cleanup(func() { h.Close(context.Background()) })
+	var first *mockAttempt
+	client := newDispatchClient(t, &recordingDispatchServer{Handler: h, first: func() { first = f.attempt("run-flaky") }})
 
-	_, err := h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeatTask("run-rollback")})
-	require.Error(t, err)
-	admitted := f.attempt("run-rollback")
+	err := client.Dispatch(t.Context(), dispatch.DispatchRequest{Task: &dispatch.DispatchTask{
+		Operation:  dispatch.DispatchOperationStart,
+		DAGRunID:   "run-flaky",
+		Target:     "routed",
+		Definition: repeatDefinition,
+	}})
+	require.NoError(t, err)
 
-	_, err = h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeatTask("run-rollback")})
+	require.NotNil(t, first)
+	assert.Same(t, first, f.attempt("run-flaky"), "the retry must admit the rolled-back attempt")
+	runStatus := f.status(t, "run-flaky")
+	assert.Equal(t, ir.NotStarted, runStatus.Status)
+	assert.Empty(t, runStatus.Error)
+	assert.Equal(t, 1, f.claimAll(t))
+}
+
+// recordingDispatchServer calls first after the first dispatch returns.
+type recordingDispatchServer struct {
+	*Handler
+	calls atomic.Int32
+	first func()
+}
+
+func (s *recordingDispatchServer) Dispatch(ctx context.Context, req *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error) {
+	resp, err := s.Handler.Dispatch(ctx, req)
+	if s.calls.Add(1) == 1 {
+		s.first()
+	}
+	return resp, err
+}
+
+// A repeat that arrives after another attempt replaced the one it names is
+// refused, and no second attempt takes its ID.
+func TestDispatchRepeatOfSupersededAttemptIsRefused(t *testing.T) {
+	registerCommandExecutorCapsForCoordinatorTest()
+	baseDir := t.TempDir()
+	heartbeats := newTestWorkerHeartbeatStore(baseDir)
+	require.NoError(t, heartbeats.Upsert(t.Context(), dispatch.WorkerHeartbeatRecord{
+		WorkerID: "worker-gpu", Labels: map[string]string{"type": "gpu"}, LastHeartbeatAt: time.Now().UnixMilli(),
+	}))
+	runs := testutil.NewFileDAGRunRepository(filepath.Join(baseDir, "dag-runs"), persis.DAGRunRepositoryOptions{})
+	f := &holdFixture{heartbeats: heartbeats, dispatches: newTestDispatchTaskStore(baseDir)}
+	f.h = NewHandler(HandlerConfig{
+		DAGRunRepository:     runs,
+		DispatchTaskStore:    f.dispatches,
+		WorkerHeartbeatStore: heartbeats,
+	})
+	t.Cleanup(func() { f.h.Close(context.Background()) })
+	ref := ir.NewDAGRunRef("routed", "run-late")
+
+	_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeatTask(ref.ID)})
+	require.NoError(t, err)
+	retry := repeatTask(ref.ID)
+	retry.Operation = coordinatorv1.Operation_OPERATION_RETRY
+	retry.AttemptId = "f6e5d4c3b2a1"
+	_, err = f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: retry})
+	require.NoError(t, err)
+
+	_, err = f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeatTask(ref.ID)})
 	require.Error(t, err)
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-	assert.Contains(t, err.Error(), "disk full")
-	assert.Same(t, admitted, f.attempt("run-rollback"))
+	assert.Contains(t, err.Error(), "no longer the latest")
+
+	latest, err := runs.FindAttempt(t.Context(), ref)
+	require.NoError(t, err)
+	assert.Equal(t, retry.AttemptId, latest.ID())
+	assert.Equal(t, 2, f.claimAll(t))
+}
+
+// A repeat that reaches another coordinator sees the task the first one
+// queued in the shared store, before either reconciles its index.
+func TestDispatchRepeatAcrossCoordinators(t *testing.T) {
+	f := newHoldFixture(t, 0)
+	other := newTestDispatchTaskStore(f.baseDir)
+	h := NewHandler(HandlerConfig{
+		DAGRunRepository:     f.runs.repository,
+		DispatchTaskStore:    other,
+		WorkerHeartbeatStore: f.heartbeats,
+	})
+	t.Cleanup(func() { h.Close(context.Background()) })
+	// The second coordinator builds its index before the first call queues.
+	_, err := other.HasOutstandingAttempt(t.Context(), "unrelated", 0)
+	require.NoError(t, err)
+
+	_, err = f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeatTask("run-ha")})
+	require.NoError(t, err)
+	admitted := f.attempt("run-ha")
+	_, err = h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeatTask("run-ha")})
+	require.NoError(t, err)
+
+	assert.Same(t, admitted, f.attempt("run-ha"))
+	assert.Equal(t, 1, f.claimAll(t))
 }
 
 // A repeat of an admitted dispatch succeeds after its bound worker went
@@ -301,4 +415,33 @@ func TestDispatchRepeatSurvivesOfflineBoundWorker(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 	assert.Contains(t, err.Error(), "offline")
+}
+
+// A repeated queue dispatch to a bound worker that went offline succeeds for
+// the queued task instead of failing the run.
+func TestDispatchQueuedRepeatSurvivesOfflineBoundWorker(t *testing.T) {
+	f := newHoldFixture(t, 0)
+	f.heartbeat(t, "node-a", nil)
+	queued := &ir.DAGRunStatus{Name: "routed", DAGRunID: "run-qbound", AttemptID: "queued02", Status: ir.Queued}
+	f.runs.addAttempt(ir.NewDAGRunRef("routed", "run-qbound"), queued)
+	previous, err := convert.DAGRunStatusToProto(queued)
+	require.NoError(t, err)
+	task := func() *coordinatorv1.Task {
+		task := repeatTask("run-qbound")
+		task.Operation = coordinatorv1.Operation_OPERATION_RETRY
+		task.PreviousStatus = previous
+		task.TargetWorkerId, task.BoundNode = "node-a", "node-a"
+		return task
+	}
+	_, err = f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: task()})
+	require.NoError(t, err)
+	require.NoError(t, f.heartbeats.Upsert(t.Context(), dispatch.WorkerHeartbeatRecord{
+		WorkerID: "node-a", LastHeartbeatAt: time.Now().Add(-time.Hour).UnixMilli(),
+	}))
+
+	_, err = f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: task()})
+	require.NoError(t, err)
+	queuedTasks, err := f.dispatches.CountOutstandingByQueue(t.Context(), "routed", 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, queuedTasks)
 }

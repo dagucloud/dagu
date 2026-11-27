@@ -250,6 +250,9 @@ func (m *mockDAGRunStore) CreateAttempt(_ context.Context, req persis.DAGRunCrea
 			return nil, m.createSubAttemptErr
 		}
 		key := req.RootDAGRun.ID + ":" + req.DAGRunID
+		if err := uniqueMockAttemptID(req, m.subAttempts[key]); err != nil {
+			return nil, err
+		}
 		attempt := &mockAttempt{
 			dag:        req.DAG,
 			status:     &ir.DAGRunStatus{Name: req.DAG.Name, DAGRunID: req.DAGRunID, AttemptID: req.AttemptID},
@@ -261,6 +264,9 @@ func (m *mockDAGRunStore) CreateAttempt(_ context.Context, req persis.DAGRunCrea
 	if m.createAttemptErr != nil {
 		return nil, m.createAttemptErr
 	}
+	if err := uniqueMockAttemptID(req, m.attempts[req.DAGRunID]); err != nil {
+		return nil, err
+	}
 	attempt := &mockAttempt{
 		dag:        req.DAG,
 		status:     &ir.DAGRunStatus{Name: req.DAG.Name, DAGRunID: req.DAGRunID, AttemptID: req.AttemptID},
@@ -269,6 +275,16 @@ func (m *mockDAGRunStore) CreateAttempt(_ context.Context, req persis.DAGRunCrea
 	m.attempts[req.DAGRunID] = attempt
 	return attempt, nil
 }
+
+// uniqueMockAttemptID refuses a unique attempt ID that the run's latest
+// attempt, the only one the mock keeps, already holds.
+func uniqueMockAttemptID(req persis.DAGRunCreateAttemptRequest, latest *mockAttempt) error {
+	if req.UniqueAttemptID && req.AttemptID != "" && latest != nil && latest.status != nil && latest.status.AttemptID == req.AttemptID {
+		return dagrun.ErrAttemptIDExists
+	}
+	return nil
+}
+
 func (m *mockDAGRunStore) RecentStatuses(_ context.Context, _ string, _ int) ([]ir.DAGRunStatus, error) {
 	return nil, nil
 }

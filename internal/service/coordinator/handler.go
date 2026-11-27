@@ -102,7 +102,7 @@ const (
 
 var (
 	errDispatchConflict             = errors.New("dispatch conflicts with the attempt it names")
-	errDispatchRolledBack           = errors.New("dispatch of this attempt failed earlier")
+	errDispatchSuperseded           = errors.New("dispatch names an attempt that is no longer the latest of its run")
 	errNoAvailableWorkers           = errors.New("no available workers")
 	errNoMatchingWorkers            = errors.New("no workers match the required selector")
 	errNoConnectionWorkers          = fmt.Errorf("%w: the DAG declares connections, which no matching worker supports; upgrade the matching workers", errNoMatchingWorkers)
@@ -119,7 +119,8 @@ type preparedDispatchAttempt struct {
 }
 
 // handoffFailedPrefix starts the error of an attempt whose dispatch the
-// coordinator rolled back before any worker took it.
+// coordinator rolled back before any worker took it. A repeat of that
+// dispatch admits the attempt again.
 const handoffFailedPrefix = "failed to hand off distributed task to a worker"
 
 // dispatchAttemptIDPattern bounds a caller-assigned attempt ID to characters
@@ -1004,7 +1005,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 	if existingStatus != nil && existingStatus.Status == ir.Queued {
 		task.AttemptId = existingAttempt.ID()
 		task.AttemptKey = generateRootAttemptKey(task)
-		admitted, err := h.dispatchOutstanding(ctx, task.AttemptKey)
+		admitted, err := h.dispatchOutstanding(ctx, task.AttemptKey, false)
 		if err != nil {
 			return nil, err
 		}
@@ -1031,9 +1032,12 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 
 	// Create new attempt (either first attempt or retry)
 	isRetry := task.Operation == coordinatorv1.Operation_OPERATION_RETRY || findErr == nil
-	opts := persis.DAGRunCreateAttemptOptions{Retry: isRetry, AttemptID: task.AttemptId}
+	opts := persis.DAGRunCreateAttemptOptions{Retry: isRetry, AttemptID: task.AttemptId, UniqueAttemptID: true}
 
 	attempt, err := h.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), task.DagRunId, opts)
+	if errors.Is(err, dagrun.ErrAttemptIDExists) {
+		return nil, fmt.Errorf("%w: attempt %s", errDispatchSuperseded, task.AttemptId)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create attempt: %w", err)
 	}
@@ -1126,28 +1130,14 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 	labels := labelsForInitialStatus(task, dag)
 	task.Labels = strings.Join(labels, ",")
 
-	if task.AttemptId != "" {
-		existing, findErr := h.dagRunRepository.FindSubAttempt(ctx, rootRef, task.DagRunId)
-		if findErr != nil && !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) {
-			return nil, fmt.Errorf("failed to find existing sub-attempt: %w", findErr)
-		}
-		if findErr == nil && existing.ID() == task.AttemptId {
-			existingStatus, readErr := existing.ReadStatus(ctx)
-			if readErr != nil {
-				return nil, fmt.Errorf("failed to read existing sub-attempt: %w", readErr)
-			}
-			task.AttemptKey = ir.GenerateAttemptKey(
-				task.RootDagRunName, task.RootDagRunId,
-				task.Target, task.DagRunId, task.AttemptId,
-			)
-			return h.repeatedDispatchAttempt(ctx, task, existing, existingStatus, dag)
-		}
-	}
-
 	attempt, err := h.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), task.DagRunId, persis.DAGRunCreateAttemptOptions{
-		RootDAGRun: rootRef,
-		AttemptID:  task.AttemptId,
+		RootDAGRun:      rootRef,
+		AttemptID:       task.AttemptId,
+		UniqueAttemptID: true,
 	})
+	if errors.Is(err, dagrun.ErrAttemptIDExists) {
+		return h.repeatedSubDispatchAttempt(ctx, task, rootRef, dag)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sub-attempt: %w", err)
 	}
@@ -1214,6 +1204,12 @@ func (h *Handler) repeatedDispatchAttempt(
 		h.openAttempts[task.DagRunId] = attempt
 		h.attemptsMu.Unlock()
 	}
+	if rolledBack(runStatus) {
+		if err := resetRolledBackAttempt(ctx, attempt); err != nil {
+			h.releasePreparedDispatchAttempt(context.WithoutCancel(ctx), task.DagRunId, attempt)
+			return nil, err
+		}
+	}
 	logger.Info(ctx, "Finishing the admission of a repeated dispatch",
 		tag.RunID(task.DagRunId),
 		tag.AttemptKey(task.AttemptKey),
@@ -1221,9 +1217,57 @@ func (h *Handler) repeatedDispatchAttempt(
 	return &preparedDispatchAttempt{attempt: attempt, newlyCreated: true}, nil
 }
 
+// repeatedSubDispatchAttempt resolves a sub-DAG dispatch whose attempt ID an
+// attempt of the child run already holds.
+func (h *Handler) repeatedSubDispatchAttempt(
+	ctx context.Context,
+	task *coordinatorv1.Task,
+	rootRef ir.DAGRunRef,
+	dag *ir.DAG,
+) (*preparedDispatchAttempt, error) {
+	existing, err := h.dagRunRepository.FindSubAttempt(ctx, rootRef, task.DagRunId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find existing sub-attempt: %w", err)
+	}
+	if existing.ID() != task.AttemptId {
+		return nil, fmt.Errorf("%w: attempt %s", errDispatchSuperseded, task.AttemptId)
+	}
+	existingStatus, err := existing.ReadStatus(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read existing sub-attempt: %w", err)
+	}
+	task.AttemptKey = ir.GenerateAttemptKey(
+		task.RootDagRunName, task.RootDagRunId,
+		task.Target, task.DagRunId, task.AttemptId,
+	)
+	return h.repeatedDispatchAttempt(ctx, task, existing, existingStatus, dag)
+}
+
+// rolledBack reports whether the coordinator failed the attempt when it
+// could not hand its dispatch to the queue.
+func rolledBack(runStatus *ir.DAGRunStatus) bool {
+	return runStatus.Status == ir.Failed && strings.HasPrefix(runStatus.Error, handoffFailedPrefix)
+}
+
+// resetRolledBackAttempt returns a rolled-back attempt to NotStarted, so its
+// dispatch can be admitted again.
+func resetRolledBackAttempt(ctx context.Context, attempt dagrun.Attempt) error {
+	runStatus, err := attempt.ReadStatusUncached(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to read attempt %s: %w", attempt.ID(), err)
+	}
+	runStatus.Status = ir.NotStarted
+	runStatus.Error = ""
+	runStatus.FinishedAt = ""
+	if err := attempt.Write(ctx, *runStatus); err != nil {
+		return fmt.Errorf("failed to reset attempt %s: %w", attempt.ID(), err)
+	}
+	return nil
+}
+
 // repeatAdmitted reports whether the earlier dispatch of the attempt that
 // task repeats reached the queue or a worker. It fails when the repeat's
-// definition differs or the earlier dispatch was rolled back.
+// definition differs.
 func (h *Handler) repeatAdmitted(
 	ctx context.Context,
 	task *coordinatorv1.Task,
@@ -1241,19 +1285,20 @@ func (h *Handler) repeatAdmitted(
 	if runStatus == nil {
 		return false, fmt.Errorf("attempt %s has no status", task.AttemptId)
 	}
-	if runStatus.Status == ir.Failed && strings.HasPrefix(runStatus.Error, handoffFailedPrefix) {
-		return false, fmt.Errorf("%w: %s", errDispatchRolledBack, runStatus.Error)
-	}
-	if runStatus.Status != ir.NotStarted && runStatus.Status != ir.Queued {
+	if !rolledBack(runStatus) && runStatus.Status != ir.NotStarted && runStatus.Status != ir.Queued {
 		return true, nil
 	}
-	return h.dispatchOutstanding(ctx, task.AttemptKey)
+	return h.dispatchOutstanding(ctx, task.AttemptKey, true)
 }
 
 // admittedRepeat reports whether task repeats a dispatch that was admitted,
 // without preparing an attempt when it does not.
 func (h *Handler) admittedRepeat(ctx context.Context, task *coordinatorv1.Task) (bool, error) {
-	if task.AttemptId == "" {
+	queued, err := queueDispatchStatusForTask(task)
+	if err != nil {
+		return false, err
+	}
+	if task.AttemptId == "" && queued == nil {
 		return false, nil
 	}
 	held := h.runLocks.lock(task.DagRunId)
@@ -1280,8 +1325,12 @@ func (h *Handler) admittedRepeat(ctx context.Context, task *coordinatorv1.Task) 
 		attempt, err = h.dagRunRepository.FindSubAttempt(ctx, rootRef, task.DagRunId)
 		probe.AttemptKey = ir.GenerateAttemptKey(rootRef.Name, rootRef.ID, task.Target, task.DagRunId, task.AttemptId)
 	case task.RootDagRunId == "" || task.RootDagRunId == task.DagRunId:
+		// A queue dispatch runs the queued attempt, not the ID the client named.
+		if queued != nil {
+			probe.AttemptId = queued.AttemptID
+		}
 		attempt, err = h.dagRunRepository.FindAttempt(ctx, ir.DAGRunRef{Name: dag.Name, ID: task.DagRunId})
-		probe.AttemptKey = ir.GenerateAttemptKey(task.Target, task.DagRunId, task.Target, task.DagRunId, task.AttemptId)
+		probe.AttemptKey = ir.GenerateAttemptKey(task.Target, task.DagRunId, task.Target, task.DagRunId, probe.AttemptId)
 	default:
 		return false, nil
 	}
@@ -1291,23 +1340,43 @@ func (h *Handler) admittedRepeat(ctx context.Context, task *coordinatorv1.Task) 
 	if err != nil {
 		return false, fmt.Errorf("failed to find existing attempt: %w", err)
 	}
-	if attempt.ID() != task.AttemptId {
+	if probe.AttemptId == "" || attempt.ID() != probe.AttemptId {
 		return false, nil
 	}
 	runStatus, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to read existing attempt: %w", err)
 	}
+	if queued != nil && task.ParentDagRunId == "" {
+		// The queued attempt keeps the definition it was queued with.
+		if runStatus == nil || runStatus.Status != ir.Queued {
+			return false, nil
+		}
+		return h.dispatchOutstanding(ctx, probe.AttemptKey, true)
+	}
 	return h.repeatAdmitted(ctx, probe, attempt, runStatus, dag)
 }
 
+// uncachedOutstandingChecker is a dispatch store that can check the shared
+// records, which other coordinators write, rather than its cached index.
+type uncachedOutstandingChecker interface {
+	HasOutstandingAttemptUncached(ctx context.Context, attemptKey string) (bool, error)
+}
+
 // dispatchOutstanding reports whether the attempt's task waits in the queue,
-// is claimed, or runs under a lease.
-func (h *Handler) dispatchOutstanding(ctx context.Context, attemptKey string) (bool, error) {
+// is claimed, or runs under a lease. A fresh check also sees tasks that
+// other coordinators queued since this one last read the shared records.
+func (h *Handler) dispatchOutstanding(ctx context.Context, attemptKey string, fresh bool) (bool, error) {
 	if h.dispatchTaskStore == nil {
 		return false, nil
 	}
-	outstanding, err := h.dispatchTaskStore.HasOutstandingAttempt(ctx, attemptKey, 0)
+	var outstanding bool
+	var err error
+	if checker, ok := h.dispatchTaskStore.(uncachedOutstandingChecker); ok && fresh {
+		outstanding, err = checker.HasOutstandingAttemptUncached(ctx, attemptKey)
+	} else {
+		outstanding, err = h.dispatchTaskStore.HasOutstandingAttempt(ctx, attemptKey, 0)
+	}
 	if err != nil || outstanding || h.dagRunLeaseStore == nil {
 		return outstanding, err
 	}
@@ -1521,7 +1590,7 @@ func prepareAttemptErrorCode(err error) codes.Code {
 	if _, ok := errors.AsType[*queue.StaleQueueDispatchError](err); ok {
 		return codes.FailedPrecondition
 	}
-	if errors.Is(err, errDispatchConflict) || errors.Is(err, errDispatchRolledBack) {
+	if errors.Is(err, errDispatchConflict) || errors.Is(err, errDispatchSuperseded) {
 		return codes.FailedPrecondition
 	}
 	return codes.Internal
