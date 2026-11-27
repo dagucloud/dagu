@@ -15,6 +15,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -167,13 +168,13 @@ func checkHandshake(ctx context.Context, config *Config, conn net.Conn, host str
 			Certificate: describeServerCertificate(verifyErr.UnverifiedCertificates, nil),
 		}, certSent
 	}
-	if err == nil {
-		// A gRPC server sends its HTTP/2 settings as soon as it accepts.
-		if deadline, ok := ctx.Deadline(); ok {
-			_ = tlsConn.SetReadDeadline(deadline)
-		}
+	if err == nil && certRequested {
+		// A refusal arrives at once. A server that waits for the client's
+		// HTTP/2 preface sends nothing, so the read is bounded and leaves
+		// the rest of the time to the calls.
+		_ = tlsConn.SetReadDeadline(time.Now().Add(clientCertRefusalWait))
 		_, err = tlsConn.Read(make([]byte, 1))
-		if !certRequested || !isRemoteAlert(err) {
+		if !isRemoteAlert(err) {
 			err = nil
 		}
 	}
@@ -185,7 +186,7 @@ func checkHandshake(ctx context.Context, config *Config, conn net.Conn, host str
 	switch {
 	case err == nil:
 	case certRequested && isRemoteAlert(err):
-		handshake.Err = clientCertProblem(config)
+		handshake.Err = clientCertProblem(config, certSent)
 	case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded):
 		handshake.Err = noAnswer(config)
 	default:
@@ -198,14 +199,20 @@ func checkHandshake(ctx context.Context, config *Config, conn net.Conn, host str
 	return handshake, certSent
 }
 
-// clientCertProblem says why a coordinator refused the client.
-func clientCertProblem(config *Config) error {
-	if config.CertFile == "" || config.KeyFile == "" {
+// clientCertProblem says why a coordinator refused the client. certSent
+// reports whether the client sent its certificate.
+func clientCertProblem(config *Config, certSent bool) error {
+	switch {
+	case config.CertFile == "" || config.KeyFile == "":
 		return errors.New("the coordinator requires a client certificate, and the worker sends none: " +
 			"set peer.cert_file and peer.key_file to a certificate that the coordinator's peer.client_ca_file signed")
+	case !certSent:
+		return fmt.Errorf("the coordinator requires a client certificate that its peer.client_ca_file signed, "+
+			"and %s is not one, so the worker sends none", config.CertFile)
+	default:
+		return fmt.Errorf("the coordinator refused the client certificate %s: "+
+			"it accepts only a certificate that its peer.client_ca_file signed", config.CertFile)
 	}
-	return fmt.Errorf("the coordinator refused the client certificate %s: "+
-		"it accepts only a certificate that its peer.client_ca_file signed", config.CertFile)
 }
 
 // verificationProblem says why a server certificate did not verify against
@@ -224,6 +231,11 @@ func verificationProblem(err *tls.CertificateVerificationError, roots *x509.Cert
 			problems = append(problems, "the certificate does not cover "+host)
 		}
 	}
+	// The chain check stops at an untrusted CA before it checks usage.
+	usageReported := !allowsServerAuth(certs[0])
+	if usageReported {
+		problems = append(problems, errNoServerAuth)
+	}
 	intermediates := x509.NewCertPool()
 	for _, cert := range certs[1:] {
 		intermediates.AddCert(cert)
@@ -238,7 +250,9 @@ func verificationProblem(err *tls.CertificateVerificationError, roots *x509.Cert
 	case isInvalid && invalid.Reason == x509.Expired:
 		problems = append(problems, "the certificate has expired or is not valid yet")
 	case isInvalid && invalid.Reason == x509.IncompatibleUsage:
-		problems = append(problems, "the certificate does not allow server authentication")
+		if !usageReported {
+			problems = append(problems, errNoServerAuth)
+		}
 	default:
 		problems = append(problems, chainErr.Error())
 	}
@@ -246,6 +260,21 @@ func verificationProblem(err *tls.CertificateVerificationError, roots *x509.Cert
 		return err
 	}
 	return errors.New(strings.Join(problems, "; "))
+}
+
+// errNoServerAuth is the problem of a certificate that a server cannot
+// present.
+const errNoServerAuth = "the certificate does not allow server authentication"
+
+// allowsServerAuth reports whether cert's extended key usage, if it names
+// any, allows server authentication.
+func allowsServerAuth(cert *x509.Certificate) bool {
+	if len(cert.ExtKeyUsage) == 0 && len(cert.UnknownExtKeyUsage) == 0 {
+		return true
+	}
+	return slices.ContainsFunc(cert.ExtKeyUsage, func(usage x509.ExtKeyUsage) bool {
+		return usage == x509.ExtKeyUsageServerAuth || usage == x509.ExtKeyUsageAny
+	})
 }
 
 // describeServerCertificate describes the leaf of chain, which the server
@@ -303,7 +332,7 @@ func checkAnswer(ctx context.Context, config *Config, member serviceregistry.Hos
 			return errServesTLS
 		}
 		if status.Code(err) == codes.DeadlineExceeded {
-			return noAnswer(config)
+			return fmt.Errorf("the coordinator did not answer the health check within %s, %s", config.DialTimeout, credentialedCallSkipped)
 		}
 		return fmt.Errorf("the health check failed, %w, %s", callError(config, err), credentialedCallSkipped)
 	}
@@ -316,6 +345,10 @@ func checkAnswer(ctx context.Context, config *Config, member serviceregistry.Hos
 	}
 	return nil
 }
+
+// clientCertRefusalWait bounds the read after a handshake in which the
+// server asked for a client certificate.
+const clientCertRefusalWait = time.Second
 
 // credentialedCallSkipped ends the answer of a coordinator that failed the
 // health check, after which the check makes no call with the credential.

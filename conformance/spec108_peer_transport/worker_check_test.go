@@ -106,7 +106,8 @@ func TestWorkerCheckClientCertificate(t *testing.T) {
 	}{
 		{name: "None", want: "  Handshake: failed, the coordinator requires a client certificate, and the worker sends none"},
 		{name: "OtherCA", args: []string{"--peer.cert-file=" + otherCert, "--peer.key-file=" + otherKey},
-			want: "  Handshake: failed, the coordinator refused the client certificate " + otherCert},
+			want: "  Handshake: failed, the coordinator requires a client certificate that its peer.client_ca_file signed, and " +
+				otherCert + " is not one, so the worker sends none"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			result := dagu.Run(append([]string{"worker", "--check", "--worker.coordinators=" + addr,

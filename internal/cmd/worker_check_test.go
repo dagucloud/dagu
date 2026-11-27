@@ -113,7 +113,7 @@ func TestWorkerCheckWithoutCoordinators(t *testing.T) {
 		out, err := runWorkerCheck(t)
 
 		require.EqualError(t, err, "worker.coordinators is required")
-		assert.Empty(t, out)
+		assert.Equal(t, "Peer transport: h2c (from no TLS source)\n", out)
 	})
 }
 

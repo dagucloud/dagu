@@ -34,17 +34,17 @@ func runWorkerCheck(ctx *Context) error {
 	if err != nil {
 		return err
 	}
-	members, err := workerCheckMembers(ctx)
-	if err != nil {
-		return err
-	}
-
 	out := ctx.Command.OutOrStdout()
 	line, ignored := peerTransport(ctx.Config)
 	for _, setting := range ignored {
 		_, _ = fmt.Fprintln(out, ignoredSettingWarning(setting))
 	}
 	_, _ = fmt.Fprintln(out, line)
+
+	members, err := workerCheckMembers(ctx)
+	if err != nil {
+		return err
+	}
 
 	failed := 0
 	for _, member := range members {

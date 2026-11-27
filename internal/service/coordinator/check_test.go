@@ -174,6 +174,9 @@ func TestCheckTLS(t *testing.T) {
 			wantErr: "the certificate does not chain to a CA this client trusts", wantIPs: []string{"127.0.0.1"}, wantCA: "covering"},
 		{name: "NoServerAuth", certFile: clientOnly, keyFile: clientOnlyKey, caFile: clientOnly,
 			wantErr: "the certificate does not allow server authentication", wantIPs: []string{"127.0.0.1"}, wantCA: "client-only"},
+		{name: "NoServerAuthOtherCA", certFile: clientOnly, keyFile: clientOnlyKey, caFile: other,
+			wantErr: "the certificate does not allow server authentication; the certificate does not chain to a CA this client trusts",
+			wantIPs: []string{"127.0.0.1"}, wantCA: "client-only"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -229,7 +232,7 @@ func TestCheckClientCertificate(t *testing.T) {
 		{name: "None",
 			wantErr: "the coordinator requires a client certificate, and the worker sends none"},
 		{name: "OtherCA", certFile: otherCert, keyFile: otherKey,
-			wantErr: "the coordinator refused the client certificate " + otherCert},
+			wantErr: "the coordinator requires a client certificate that its peer.client_ca_file signed, and " + otherCert + " is not one"},
 		{name: "NoneTLS12", maxVersion: tls.VersionTLS12,
 			wantErr: "the coordinator requires a client certificate, and the worker sends none"},
 		{name: "OptionalOtherCA", clientAuth: tls.VerifyClientCertIfGiven, certFile: otherCert, keyFile: otherKey},
@@ -287,12 +290,12 @@ func TestCheckNoAnswer(t *testing.T) {
 			result := coordinator.Check(t.Context(), config, checkMember(t, addr))
 
 			assert.False(t, result.Passed())
-			want := "the coordinator did not answer within 300ms"
 			if tc.insecure {
-				assert.EqualError(t, result.AnswerErr, want)
+				assert.EqualError(t, result.AnswerErr,
+					"the coordinator did not answer the health check within 300ms, so the call with the credential was not tried")
 			} else {
 				require.NotNil(t, result.TLS)
-				assert.EqualError(t, result.TLS.Err, want)
+				assert.EqualError(t, result.TLS.Err, "the coordinator did not answer within 300ms")
 			}
 		})
 	}
@@ -371,16 +374,25 @@ func startSilentListener(t *testing.T) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = listener.Close() })
+	var conns []net.Conn
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
 				return
 			}
-			t.Cleanup(func() { _ = conn.Close() })
+			conns = append(conns, conn)
 		}
 	}()
+	t.Cleanup(func() {
+		_ = listener.Close()
+		<-done
+		for _, conn := range conns {
+			_ = conn.Close()
+		}
+	})
 	return listener.Addr().String()
 }
 
