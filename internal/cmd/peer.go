@@ -35,10 +35,10 @@ func peerInitCommand() *cobra.Command {
 		Long: `Write ca.crt, ca.key, and token into <dir>, each readable by its user
 only. <dir> is created when it is missing.
 
-ca.crt and ca.key are a CA as the coordinator generates one, and token is a
-peer token. Give the coordinator all three, as peer.ca_cert_file,
-peer.ca_key_file, and peer.token. Give other peer processes ca.crt and the
-token.
+ca.crt and ca.key are a CA as the coordinator generates one. token holds a
+peer token. Give the coordinator ca.crt as peer.ca_cert_file, ca.key as
+peer.ca_key_file, and the content of token as the value of peer.token or
+DAGU_PEER_TOKEN. Give other peer processes ca.crt and the content of token.
 
 The command reads no config file and needs no running Dagu. When any of the
 three files exists, it writes none and exits with code 1.`,
