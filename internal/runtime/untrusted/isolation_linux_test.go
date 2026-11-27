@@ -242,6 +242,26 @@ func TestIsolatedStepPlace(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(outside, "x"))
 }
 
+// A device node in the work directory, also in .git, fails the step: as its
+// owner, or with the bit r for others, the restricted user could open the
+// device. The node keeps its owner and its mode.
+func TestIsolatedStepDeviceNode(t *testing.T) {
+	requireIsolation(t)
+	for name, dir := range map[string]string{"folder": "src", "git folder": ".git"} {
+		t.Run(name, func(t *testing.T) {
+			workDir := testWorkDir(t)
+			node := filepath.Join(workDir, "repo", dir, "disk")
+			// The device of /dev/null stands in for a disk of the host.
+			require.NoError(t, unix.Mknod(node, unix.S_IFCHR|0o600, int(unix.Mkdev(1, 3)))) // #nosec G115 -- a small device number.
+			_, err := beginStep(t, context.Background(), testRequest(t, workDir, workDir))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), node+": the work directory cannot hold a device node")
+			assert.Equal(t, os.Geteuid(), ownerUID(t, node))
+			assert.Equal(t, fs.FileMode(0o600), permOf(t, node))
+		})
+	}
+}
+
 // Untrusted steps run one at a time. The second step waits with a line in its
 // log.
 func TestIsolatedStepsOneAtATime(t *testing.T) {

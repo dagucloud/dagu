@@ -40,6 +40,11 @@ func (e *fsEntry) isRegular() bool { return e.st.Mode&unix.S_IFMT == unix.S_IFRE
 func (e *fsEntry) uid() int        { return int(e.st.Uid) }
 func (e *fsEntry) gid() int        { return int(e.st.Gid) }
 
+// isDevice reports whether the entry is a character or a block device node.
+func (e *fsEntry) isDevice() bool {
+	return e.st.Mode&unix.S_IFMT == unix.S_IFCHR || e.st.Mode&unix.S_IFMT == unix.S_IFBLK
+}
+
 // perm returns the permission bits and the bits set-user-ID, set-group-ID and
 // sticky of the entry, in the format of chmod.
 func (e *fsEntry) perm() uint32 { return e.st.Mode & 0o7777 }

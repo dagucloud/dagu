@@ -213,6 +213,9 @@ func (iso *isolation) handoff() error {
 		case protected[e.path]:
 			return false, iso.protectDir(e)
 		default:
+			if err := iso.checkNoDevice(e); err != nil {
+				return false, err
+			}
 			// A change of owner acts on the file, so it would also give the
 			// other paths of a file with more than one link.
 			if e.isRegular() && e.st.Nlink > 1 {
@@ -284,9 +287,22 @@ func (iso *isolation) protectDir(e *fsEntry) error {
 	return nil
 }
 
+// checkNoDevice fails for a device node: as its owner, or with the bit r for
+// others, the restricted user could open the device, such as a disk of the
+// host.
+func (iso *isolation) checkNoDevice(e *fsEntry) error {
+	if e.isDevice() {
+		return stepError(iso.step, "give", e.path, errors.New("the work directory cannot hold a device node"))
+	}
+	return nil
+}
+
 // protectGitEntry keeps one entry for the user of the worker, readable and not
 // writable by the restricted user, and records its state.
 func (iso *isolation) protectGitEntry(e *fsEntry) error {
+	if err := iso.checkNoDevice(e); err != nil {
+		return err
+	}
 	if e.uid() != iso.workerUID || e.gid() == int(iso.gid) {
 		if err := chownFD(e, iso.workerUID, iso.workerGID); err != nil {
 			return stepError(iso.step, "change the owner of", e.path, err)
