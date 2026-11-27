@@ -8,6 +8,7 @@ package untrusted
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -620,6 +621,35 @@ func TestHandoffRefusesALinkedGitFile(t *testing.T) {
 	assert.ErrorContains(t, err, "the file has more than one link")
 	assert.Equal(t, fs.FileMode(0o600), permOf(t, outside))
 	require.NoError(t, iso.unmarkUnlessAborted(iso.restore(false)))
+}
+
+// An ACL that the restricted user set on its own folder, such as a default ACL
+// that would let it write a .git that a later trusted step makes there, does
+// not survive the restore. It needs no root.
+func TestRestoreRemovesACLs(t *testing.T) {
+	t.Parallel()
+	iso := selfIsolation(t, t.TempDir())
+	require.NoError(t, iso.handoff())
+	dir := filepath.Join(iso.workDir, "out")
+	require.NoError(t, os.Mkdir(dir, 0o755))
+	// The entries user::rwx, user:64011:rwx, group::r-x, mask::rwx, other::r-x.
+	acl := binary.LittleEndian.AppendUint32(nil, 2)
+	for _, entry := range [][3]uint32{{0x01, 7, ^uint32(0)}, {0x02, 7, testUID}, {0x04, 5, ^uint32(0)}, {0x10, 7, ^uint32(0)}, {0x20, 5, ^uint32(0)}} {
+		acl = binary.LittleEndian.AppendUint16(acl, uint16(entry[0])) // #nosec G115 -- small tags.
+		acl = binary.LittleEndian.AppendUint16(acl, uint16(entry[1])) // #nosec G115 -- small modes.
+		acl = binary.LittleEndian.AppendUint32(acl, entry[2])
+	}
+	for _, name := range aclNames {
+		if err := unix.Setxattr(dir, name, acl, 0); err != nil {
+			t.Skipf("the file system takes no ACL: %v", err)
+		}
+	}
+
+	require.NoError(t, iso.unmarkUnlessAborted(iso.restore(true)))
+	for _, name := range aclNames {
+		_, err := unix.Getxattr(dir, name, nil)
+		assert.ErrorIs(t, err, unix.ENODATA, name)
+	}
 }
 
 // A tree deeper than maxWalkDepth that the restricted user made, also in a new

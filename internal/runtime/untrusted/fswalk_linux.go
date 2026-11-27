@@ -175,6 +175,21 @@ func chmodFDPath(fd int, path string, mode uint32) error {
 	return nil
 }
 
+// aclNames are the extended attributes that hold the POSIX ACLs of an entry.
+var aclNames = []string{"system.posix_acl_access", "system.posix_acl_default"}
+
+// removeACLs removes the POSIX ACLs of the entry of the descriptor. The entry
+// is not a link. The change goes through /proc/self/fd, as chmodFD does.
+func removeACLs(entry *fsEntry) error {
+	for _, name := range aclNames {
+		err := unix.Removexattr("/proc/self/fd/"+strconv.Itoa(entry.fd), name)
+		if err != nil && !errors.Is(err, unix.ENODATA) && !errors.Is(err, unix.EOPNOTSUPP) {
+			return &fs.PathError{Op: "removexattr", Path: entry.path, Err: err}
+		}
+	}
+	return nil
+}
+
 // removeAt removes the entry name of the folder dirfd and its content. A link
 // is removed, not followed.
 func removeAt(dirfd int, dirPath, name string) error {

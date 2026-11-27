@@ -400,6 +400,14 @@ func (iso *isolation) restore(verifyGit bool) error {
 				fail(stepError(iso.step, "change the owner of", e.path, err))
 				return false, nil
 			}
+			// The owner of an entry can set its ACLs: one that names the
+			// restricted user would let it write the entry, and a default ACL
+			// would pass to a .git that a later trusted step makes there.
+			if verifyGit && !e.isLink() {
+				if err := removeACLs(e); err != nil {
+					fail(stepError(iso.step, "remove the ACLs of", e.path, err))
+				}
+			}
 			if e.isRegular() && e.perm()&0o6000 != 0 {
 				if err := chmodFD(e, e.perm()&0o777); err != nil {
 					fail(stepError(iso.step, "change the mode of", e.path, err))
