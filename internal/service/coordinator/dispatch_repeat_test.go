@@ -580,3 +580,49 @@ func TestDispatchShortfallRepeatAfterConcurrentFailure(t *testing.T) {
 		})
 	}
 }
+
+// blockingEnqueueStore holds the first enqueue until release closes and then
+// fails it, as a slow write that ends in an error does.
+type blockingEnqueueStore struct {
+	dispatch.DispatchTaskStore
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingEnqueueStore) Enqueue(context.Context, *dispatch.DispatchTask) error {
+	close(s.entered)
+	<-s.release
+	return errors.New("slow write failed")
+}
+
+// A coordinator whose enqueue fails after a repeat on another coordinator
+// admitted the attempt leaves the attempt to that admission.
+func TestDispatchRollbackSparesAnotherAdmission(t *testing.T) {
+	f := newHoldFixture(t, 0)
+	blocking := &blockingEnqueueStore{
+		DispatchTaskStore: f.dispatches,
+		entered:           make(chan struct{}),
+		release:           make(chan struct{}),
+	}
+	slow := NewHandler(HandlerConfig{
+		DAGRunRepository:     f.runs.repository,
+		DispatchTaskStore:    blocking,
+		WorkerHeartbeatStore: f.heartbeats,
+	})
+	t.Cleanup(func() { slow.Close(context.Background()) })
+
+	slowErr := make(chan error, 1)
+	go func() {
+		_, err := slow.Dispatch(context.Background(), &coordinatorv1.DispatchRequest{Task: repeatTask("run-slow")})
+		slowErr <- err
+	}()
+	<-blocking.entered
+
+	_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeatTask("run-slow")})
+	require.NoError(t, err)
+	close(blocking.release)
+	require.Error(t, <-slowErr)
+
+	assert.Equal(t, ir.NotStarted, f.status(t, "run-slow").Status)
+	assert.Equal(t, 1, f.claimAll(t))
+}

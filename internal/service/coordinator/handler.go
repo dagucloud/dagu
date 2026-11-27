@@ -1677,6 +1677,17 @@ func (h *Handler) markPreparedAttemptDispatchFailed(ctx context.Context, task *c
 	if runStatus.Status != ir.NotStarted && runStatus.Status != ir.Queued {
 		return
 	}
+	// A repeat on another coordinator may have queued the same attempt
+	// meanwhile; failing it then would fail a run that is admitted.
+	if outstanding, err := h.dispatchOutstanding(storeCtx, task.AttemptKey, true); err != nil || outstanding {
+		if err != nil {
+			logger.Warn(ctx, "Failed to check for another admission before failing the attempt",
+				tag.RunID(task.DagRunId),
+				tag.Error(err),
+			)
+		}
+		return
+	}
 
 	runStatus.Status = ir.Failed
 	runStatus.FinishedAt = stringutil.FormatTime(time.Now())
