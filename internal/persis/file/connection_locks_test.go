@@ -50,3 +50,32 @@ func TestConnectionLocks(t *testing.T) {
 	require.NoError(t, err)
 	lock.Unlock()
 }
+
+// A catalog's lock is shared across processes, and is neither its
+// connection's token lock nor another service's catalog lock.
+func TestConnectionCatalogLocks(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cfg := &config.Config{Paths: config.PathsConfig{DataDir: t.TempDir()}}
+	first := persisfile.NewServerStores(cfg)
+	second := persisfile.NewServerStores(cfg)
+	work := connection.Key{Workspace: "ops", Name: "work"}
+
+	lock, err := first.ConnectionCatalogLocks().TryLock(ctx, work, "gmail")
+	require.NoError(t, err)
+	_, err = second.ConnectionCatalogLocks().TryLock(ctx, work, "gmail")
+	require.ErrorIs(t, err, connection.ErrLocked)
+
+	token, err := second.ConnectionLocks().TryLock(ctx, work)
+	require.NoError(t, err)
+	token.Unlock()
+	calendar, err := second.ConnectionCatalogLocks().TryLock(ctx, work, "calendar")
+	require.NoError(t, err)
+	calendar.Unlock()
+
+	released := make(chan error, 1)
+	go func() { released <- second.ConnectionCatalogLocks().WaitUnlocked(ctx, work, "gmail") }()
+	lock.Unlock()
+	require.NoError(t, <-released)
+}

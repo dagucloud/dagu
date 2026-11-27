@@ -293,7 +293,17 @@ A worker has neither.
 - On one host, at most one listing of a catalog runs at a time. Readers that
   arrive during a listing wait for it and read its result.
 - A failed listing returns the provider's error to the reader and keeps the
-  previous catalog.
+  previous catalog. For 30 seconds, the error answers the readers of the
+  listing's process without a new listing. A reader in another process
+  that waited for the listing finds no new catalog and lists again, one
+  process at a time.
+- A listing fails, and keeps the previous catalog, when the service lists
+  more than 1,000 tools or 1,000 pages, or describes one tool in more than
+  64 KiB.
+- A listing follows [Binding](#binding): it sends the token only over
+  HTTPS to a bound host, and follows a redirect only to HTTPS on the same
+  host and port. A 401 and a 403 are handled as
+  [Rejected Tokens](#rejected-tokens) states.
 
 ### Names
 
@@ -947,9 +957,10 @@ The owning specs define each field. Every use follows these rules.
 
 #### Confirmation Requests
 
-- An MCP client that uses a connection, in `mcp.call` or Try it,
-  advertises form elicitation, and calls Google's `/mcp/v1` endpoints. An
-  `mcp.call` without a connection advertises no elicitation capability.
+- An MCP client that uses a connection, in `mcp.call`, Try it, or a tool
+  catalog listing, advertises form elicitation, and calls Google's
+  `/mcp/v1` endpoints. An `mcp.call` without a connection advertises no
+  elicitation capability.
 - Dagu never accepts a server's confirmation request on its own. Only a
   person accepts one.
 - `mcp.call` declines a confirmation request at once and fails with kind
@@ -1167,7 +1178,9 @@ Token issuance is not audited. No audit entry holds a secret.
 - The Cloud relay sends one request to Dagu Cloud every 3 seconds per
   waiting session, for at most 10 minutes.
 - A service is listed with `tools/list` at most once per connection per 10
-  minutes on a host, whatever the number of tabs or runs.
+  minutes on a host, whatever the number of tabs or runs, while its
+  listings succeed. While they fail, each process lists it at most once
+  per 30 seconds.
 - A Try it call waits for a confirmation answer for at most 10 minutes.
 - Listing connections reads two records per connection, and no run or DAG
   directory.

@@ -35,3 +35,15 @@ type Lock interface {
 	// Unlock releases the lock.
 	Unlock()
 }
+
+// CatalogLocks hands out one lock per tool catalog: a connection and one of
+// its MCP services. A catalog lock is never one of Locks, so a listing that
+// asks the broker for a token never waits on itself.
+type CatalogLocks interface {
+	// TryLock takes the lock of service's catalog of key without waiting.
+	// It returns ErrLocked when another holder has it.
+	TryLock(ctx context.Context, key Key, service string) (Lock, error)
+	// WaitUnlocked returns once no live holder has the lock of service's
+	// catalog of key. It returns ctx's error when ctx ends first.
+	WaitUnlocked(ctx context.Context, key Key, service string) error
+}
