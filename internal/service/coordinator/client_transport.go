@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,6 +39,9 @@ const (
 	// checks whether a new connection would use built-in TLS. It matches the
 	// registry refresh.
 	replanInterval = 10 * time.Second
+	// retireGrace is how long a replaced connection stays open after its
+	// last call, for a caller that took it before the replacement.
+	retireGrace = time.Minute
 	// tlsAlertRecord is the record type of a TLS alert.
 	tlsAlertRecord = 0x15
 	// connectionProtocol is the protocol connectionCredentials report. It is
@@ -134,6 +138,8 @@ type clientTransport struct {
 	current map[string]transportChoice
 	refused map[string]bool
 	pending []func(context.Context)
+	// retired holds replaced connections that are not closed yet.
+	retired []*connLink
 }
 
 func newClientTransport(config *Config) *clientTransport {
@@ -341,7 +347,9 @@ type connLink struct {
 	checked  time.Time
 	inflight int
 	retired  bool
-	closed   bool
+	// lastUsed is when the connection was retired, or when a call on it
+	// ended since.
+	lastUsed time.Time
 }
 
 // connected records the plan of a new transport connection.
@@ -403,32 +411,27 @@ func (l *connLink) stale() bool {
 	return l.redial
 }
 
-// retire closes the connection once its calls in flight end.
+// retire hands the connection to the transport, which closes it once no
+// call has used it for retireGrace. A caller that took the connection just
+// before its replacement can still finish its call on it.
 func (l *connLink) retire() {
+	now := l.transport.now()
 	l.mu.Lock()
 	l.retired = true
-	idle := l.inflight == 0
+	l.lastUsed = now
 	l.mu.Unlock()
-	if idle {
-		l.close()
-	}
+	l.transport.mu.Lock()
+	l.transport.retired = append(l.transport.retired, l)
+	l.transport.mu.Unlock()
+	l.transport.closeRetired(now)
 }
 
-// close closes the connection once.
-func (l *connLink) close() {
-	l.mu.Lock()
-	closed := l.closed
-	l.closed = true
-	l.mu.Unlock()
-	if !closed {
-		_ = l.conn.Close()
-	}
-}
-
-func (l *connLink) isClosed() bool {
+// idleSince reports whether no call has used the connection since before
+// cutoff.
+func (l *connLink) idleSince(cutoff time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.closed
+	return l.inflight == 0 && !l.lastUsed.After(cutoff)
 }
 
 func (l *connLink) begin() {
@@ -438,12 +441,40 @@ func (l *connLink) begin() {
 }
 
 func (l *connLink) end() {
+	now := l.transport.now()
 	l.mu.Lock()
 	l.inflight--
-	closeNow := l.retired && l.inflight == 0
+	l.lastUsed = now
 	l.mu.Unlock()
-	if closeNow {
-		l.close()
+	l.transport.closeRetired(now)
+}
+
+// closeRetired closes the retired connections that no call has used for
+// retireGrace at now.
+func (t *clientTransport) closeRetired(now time.Time) {
+	t.mu.Lock()
+	var idle []*connLink
+	t.retired = slices.DeleteFunc(t.retired, func(l *connLink) bool {
+		if l.idleSince(now.Add(-retireGrace)) {
+			idle = append(idle, l)
+			return true
+		}
+		return false
+	})
+	t.mu.Unlock()
+	for _, l := range idle {
+		_ = l.conn.Close()
+	}
+}
+
+// closeAllRetired closes every retired connection.
+func (t *clientTransport) closeAllRetired() {
+	t.mu.Lock()
+	retired := t.retired
+	t.retired = nil
+	t.mu.Unlock()
+	for _, l := range retired {
+		_ = l.conn.Close()
 	}
 }
 
