@@ -984,7 +984,9 @@ host value is the value of a variable that the run takes from it:
 
 When the value is JSON, each string and number in it of at least four
 characters is a host value too, since a JSON path or the listed keys of an
-assertion can take a part of it, also through a DAG `env` entry. A shorter
+assertion can take a part of it, also through a DAG `env` entry. A number
+counts in each text it takes, as written and as resolved, so `7.36491e5`
+also counts as `736491`. A shorter
 part, such as `us` or `443`, and a boolean are left out: they cannot be
 told apart from the text around them, hold no credential, and would keep
 and mask unrelated text. A four-digit PIN still counts. The variables that

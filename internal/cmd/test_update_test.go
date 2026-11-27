@@ -343,14 +343,16 @@ func TestTestUpdateHostValues(t *testing.T) {
 
 // A part of a host value stays out too: a string or a number that a JSON
 // path selects, directly or through a DAG env entry read from the host,
-// and the listed keys of a with object that hold one. Only those keys stay:
+// also a number whose JSON text differs from the text it resolves to, and
+// the listed keys of a with object that hold one. Only those keys stay:
 // another changed key of the same object is written, also one that holds a
 // part of the host value too short to tell apart, such as us. So do
 // notifications whose recipient a DAG env entry read from the host.
 // t.Setenv rules out t.Parallel.
 func TestTestUpdateHostParts(t *testing.T) {
 	const user = "svc-deploy-41"
-	const pin = "736491"
+	// The pin is written in exponent form and resolves to 736491.
+	const pin, resolvedPin = "7.36491e5", "736491"
 	t.Setenv("TEST_UPDATE_HOST_AUTH", `{"token":"`+updateHostToken+`","user":"`+user+`","pin":`+pin+`,"region":"us","debug":true}`)
 	t.Setenv("TEST_UPDATE_HOST_MAIL", "ops-7e21@example.com")
 
@@ -416,7 +418,7 @@ cases:
 		"  step notify called_with.env.PIN: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH, PIN under env\n",
 		"  notifications: kept, it holds the value of host variable TEST_UPDATE_HOST_MAIL\n",
 		"  expect updated\n")
-	for _, part := range []string{updateHostToken, user, pin} {
+	for _, part := range []string{updateHostToken, user, pin, resolvedPin} {
 		assert.NotContains(t, stdout, part)
 	}
 	assertFileContent(t, testPath, written("POST", "us-east-1"))

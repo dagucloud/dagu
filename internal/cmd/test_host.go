@@ -94,8 +94,10 @@ func appendHostValue(values []string, value string) []string {
 				add(x)
 			}
 		case json.Number:
-			if len(x) >= minHostPart {
-				add(x.String())
+			for _, text := range numberTexts(x) {
+				if len(text) >= minHostPart {
+					add(text)
+				}
 			}
 		case map[string]any:
 			for _, item := range x {
@@ -112,6 +114,16 @@ func appendHostValue(values []string, value string) []string {
 		parts(decoded)
 	}
 	return values
+}
+
+// numberTexts returns the texts a JSON number takes: as written, as a JSON
+// path resolves it, and as --update writes and compares it.
+func numberTexts(n json.Number) []string {
+	texts := []string{n.String(), cmnvalue.FormatScalar(cmnvalue.NormalizeJSONNumbers(n))}
+	if v, ok := yamlNumber(n); ok {
+		texts = append(texts, outputText(v))
+	}
+	return texts
 }
 
 // held returns, sorted, the names of the host variables whose values text
