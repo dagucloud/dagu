@@ -59,6 +59,8 @@ func TestCoordinatorClientSendsPeerToken(t *testing.T) {
 			go func() { _ = server.Serve(listener) }()
 			t.Cleanup(server.Stop)
 
+			// The config steps of New; New also needs the stores that the
+			// root package injects.
 			cfg, err := loadConfig(tc.opts)
 			require.NoError(t, err)
 			applyOptions(cfg, tc.opts)
