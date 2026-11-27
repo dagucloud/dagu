@@ -59,6 +59,8 @@ tags:
     description: "Remote node management operations (admin only)"
   - name: "secrets"
     description: "Workspace secret registry operations"
+  - name: "connections"
+    description: "OAuth apps and connections: accounts that steps use by name"
   - name: "profiles"
     description: "Runtime profile operations for managed environment variables and secrets"
   - name: "views"
@@ -14370,6 +14372,197 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /oauth-apps:
+    get:
+      summary: "List OAuth apps"
+      description: "Lists the OAuth apps that connections share, without secrets. Needs developer or above, or manager in a workspace."
+      operationId: "listOAuthApps"
+      tags:
+        - "connections"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "OAuth apps"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthAppListResponse"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+    post:
+      summary: "Create an OAuth app"
+      description: "Registers an OAuth client from its fields, or from the client file the provider issued, such as a Google client JSON. Needs admin."
+      operationId: "createOAuthApp"
+      tags:
+        - "connections"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOAuthAppRequest"
+      responses:
+        "201":
+          description: "OAuth app created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthApp"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+
+  /oauth-apps/{appId}:
+    parameters:
+      - $ref: "#/components/parameters/OAuthAppId"
+      - $ref: "#/components/parameters/RemoteNode"
+    get:
+      summary: "Get an OAuth app"
+      description: "Needs developer or above, or manager in a workspace."
+      operationId: "getOAuthApp"
+      tags:
+        - "connections"
+      responses:
+        "200":
+          description: "OAuth app"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthApp"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+    patch:
+      summary: "Change an OAuth app"
+      description: "Changes the fields given. A blank client secret keeps the stored one. A new client ID or secret sets the status back to ok. Needs admin."
+      operationId: "updateOAuthApp"
+      tags:
+        - "connections"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOAuthAppRequest"
+      responses:
+        "200":
+          description: "OAuth app changed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthApp"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+    delete:
+      summary: "Delete an OAuth app"
+      description: "Deletes an app that no connection uses. An app in use is refused with 409, naming its connections. Needs admin."
+      operationId: "deleteOAuthApp"
+      tags:
+        - "connections"
+      responses:
+        "204":
+          description: "OAuth app deleted"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+
+  /connections:
+    get:
+      summary: "List connections"
+      description: "Lists the connections of one workspace with their status, without secrets. Needs viewer or above in the workspace."
+      operationId: "listConnections"
+      tags:
+        - "connections"
+      parameters:
+        - $ref: "#/components/parameters/ConnectionWorkspace"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Connections"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionListResponse"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+    post:
+      summary: "Create a connection"
+      description: "Creates a connection in pending status, without tokens, for the authorization code grant. Needs manager or above in the workspace, and admin to allow token export."
+      operationId: "createConnection"
+      tags:
+        - "connections"
+      parameters:
+        - $ref: "#/components/parameters/ConnectionWorkspace"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConnectionRequest"
+      responses:
+        "201":
+          description: "Connection created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Connection"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+
+  /connections/{name}:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionName"
+      - $ref: "#/components/parameters/ConnectionWorkspace"
+      - $ref: "#/components/parameters/RemoteNode"
+    get:
+      summary: "Get a connection"
+      description: "Needs viewer or above in the workspace."
+      operationId: "getConnection"
+      tags:
+        - "connections"
+      responses:
+        "200":
+          description: "Connection"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Connection"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+    patch:
+      summary: "Change a connection's metadata"
+      description: "Changes the fields given and leaves the tokens as they are, so a service added later shows its missing scopes until a reconnect. The name, workspace, app, and resource never change. Needs manager or above in the workspace, and admin to change token export."
+      operationId: "updateConnection"
+      tags:
+        - "connections"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConnectionRequest"
+      responses:
+        "200":
+          description: "Connection changed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Connection"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+    delete:
+      summary: "Remove a connection"
+      description: "Deletes the connection with its tokens and tool catalogs, then revokes its refresh token unless another connection on this server holds the same account on the same client. Connections on other servers that use the same client may lose access. Needs manager or above in the workspace."
+      operationId: "deleteConnection"
+      tags:
+        - "connections"
+      responses:
+        "204":
+          description: "Connection removed"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+
   /workspaces:
     get:
       summary: "List all workspaces"
@@ -14547,6 +14740,14 @@ components:
       type: http
       scheme: bearer
       bearerFormat: opaque
+
+  responses:
+    ConnectionError:
+      description: "An error: 400 for an invalid request, 403 without the role, 404 for an unknown or hidden record, and 409 for a conflict."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
 
   parameters:
     Page:
@@ -14844,6 +15045,28 @@ components:
       schema:
         type: string
         default: "local"
+
+    ConnectionWorkspace:
+      name: workspace
+      in: query
+      description: "The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name."
+      required: false
+      schema:
+        type: string
+
+    ConnectionName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+
+    OAuthAppId:
+      name: appId
+      in: path
+      required: true
+      schema:
+        type: string
 
     LogStartTime:
       name: startTime
@@ -24202,6 +24425,304 @@ components:
             $ref: "#/components/schemas/SecretResponse"
         total:
           type: integer
+
+    ConnectionProviderName:
+      type: string
+      enum:
+        - google
+        - microsoft
+        - oauth2
+        - mcp
+
+    OAuthClientType:
+      type: string
+      description: "web for the server callback, desktop for loopback and paste, public for a client without a secret, and service_account for a service account key."
+      enum:
+        - web
+        - desktop
+        - public
+        - service_account
+
+    OAuthApp:
+      type: object
+      required:
+        - id
+        - name
+        - provider
+        - kind
+        - clientId
+        - clientType
+        - agent
+        - status
+        - clientSecretConfigured
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        provider:
+          $ref: "#/components/schemas/ConnectionProviderName"
+        kind:
+          type: string
+          enum:
+            - byo
+            - cimd
+            - dcr
+        clientId:
+          type: string
+        clientType:
+          $ref: "#/components/schemas/OAuthClientType"
+        agent:
+          type: boolean
+          description: "True when an admin attests that the client is set up for use by an AI-powered agent."
+        tenant:
+          type: string
+        status:
+          type: string
+          enum:
+            - ok
+            - invalid
+        statusReason:
+          type: string
+        clientSecretConfigured:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    OAuthAppListResponse:
+      type: object
+      required:
+        - apps
+      properties:
+        apps:
+          type: array
+          items:
+            $ref: "#/components/schemas/OAuthApp"
+
+    CreateOAuthAppRequest:
+      type: object
+      required:
+        - name
+        - provider
+      properties:
+        name:
+          type: string
+        provider:
+          $ref: "#/components/schemas/ConnectionProviderName"
+        clientFile:
+          type: string
+          writeOnly: true
+          description: "The client file the provider issued, as is. It replaces clientId, clientSecret, and clientType."
+        clientId:
+          type: string
+        clientSecret:
+          type: string
+          writeOnly: true
+        clientType:
+          $ref: "#/components/schemas/OAuthClientType"
+        agent:
+          type: boolean
+        tenant:
+          type: string
+
+    UpdateOAuthAppRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        clientId:
+          type: string
+        clientSecret:
+          type: string
+          writeOnly: true
+          description: "A blank value keeps the stored secret."
+        clientType:
+          $ref: "#/components/schemas/OAuthClientType"
+        agent:
+          type: boolean
+        tenant:
+          type: string
+
+    ConnectionAccess:
+      type: string
+      enum:
+        - read
+        - write
+
+    ConnectionServiceRequest:
+      type: object
+      required:
+        - name
+        - access
+      properties:
+        name:
+          type: string
+        access:
+          $ref: "#/components/schemas/ConnectionAccess"
+
+    ConnectionService:
+      type: object
+      required:
+        - name
+        - access
+        - missingScopes
+      properties:
+        name:
+          type: string
+        access:
+          $ref: "#/components/schemas/ConnectionAccess"
+        missingScopes:
+          type: array
+          description: "Scopes the service needs that the provider did not grant. A reconnect asks for them."
+          items:
+            type: string
+
+    Connection:
+      type: object
+      required:
+        - name
+        - workspace
+        - provider
+        - app
+        - grant
+        - services
+        - scopes
+        - boundHosts
+        - allowTokenExport
+        - status
+        - grantedScopes
+        - refreshTokenConfigured
+        - createdAt
+        - updatedAt
+      properties:
+        name:
+          type: string
+        workspace:
+          type: string
+          description: "global for the connections of DAGs without a workspace label, otherwise the workspace name."
+        provider:
+          $ref: "#/components/schemas/ConnectionProviderName"
+        app:
+          type: string
+          description: "The ID of the OAuth app."
+        grant:
+          type: string
+          enum:
+            - authorization_code
+            - device_code
+            - client_credentials
+            - service_account
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectionService"
+        scopes:
+          type: array
+          description: "Scopes asked for beyond those of the services."
+          items:
+            type: string
+        boundHosts:
+          type: array
+          description: "Hosts that may receive the token beyond those of the services."
+          items:
+            type: string
+        resource:
+          type: string
+        allowTokenExport:
+          type: boolean
+        status:
+          type: string
+          description: "broken when the connection's token state is missing or cannot be read. Remove the connection and add it again."
+          enum:
+            - pending
+            - connected
+            - needs_reconnect
+            - broken
+        statusReason:
+          type: string
+        account:
+          type: string
+        grantedScopes:
+          type: array
+          items:
+            type: string
+        refreshTokenConfigured:
+          type: boolean
+        refreshTokenExpiresAt:
+          type: string
+          format: date-time
+        refreshedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ConnectionListResponse:
+      type: object
+      required:
+        - connections
+      properties:
+        connections:
+          type: array
+          items:
+            $ref: "#/components/schemas/Connection"
+
+    CreateConnectionRequest:
+      type: object
+      required:
+        - name
+        - app
+        - services
+      properties:
+        name:
+          type: string
+          description: "Up to 63 lowercase letters, digits, and hyphens, starting with a letter or digit."
+        app:
+          type: string
+          description: "The ID of the OAuth app. The connection takes its provider."
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectionServiceRequest"
+        scopes:
+          type: array
+          items:
+            type: string
+        boundHosts:
+          type: array
+          description: "Hostnames or host:port entries, without a scheme, path, or wildcard."
+          items:
+            type: string
+        allowTokenExport:
+          type: boolean
+
+    UpdateConnectionRequest:
+      type: object
+      properties:
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectionServiceRequest"
+        scopes:
+          type: array
+          items:
+            type: string
+        boundHosts:
+          type: array
+          items:
+            type: string
+        allowTokenExport:
+          type: boolean
 
     ViewColumn:
       type: string

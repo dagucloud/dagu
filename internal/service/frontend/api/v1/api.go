@@ -26,6 +26,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/connection"
+	"github.com/dagucloud/dagu/v2/internal/connection/connect"
 	"github.com/dagucloud/dagu/v2/internal/dagpin"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
@@ -110,6 +112,8 @@ type API struct {
 	wikiStore            wiki.PageStore
 	workspaceWikiMu      sync.RWMutex
 	secretStore          secretpkg.Store
+	connectionStore      connection.Store
+	connectEngine        *connect.Engine
 	profileStore         profilepkg.Store
 	viewStore            view.Store
 	inventoryStore       inventory.Store
@@ -328,6 +332,15 @@ func WithWorkspaceBaseConfigProvider(provider dagsettings.BaseConfigProvider) AP
 func WithSecretStore(store secretpkg.Store) APIOption {
 	return func(a *API) {
 		a.secretStore = store
+	}
+}
+
+// WithConnections returns an APIOption that sets the store of OAuth apps
+// and connections and the engine that connects and removes them.
+func WithConnections(store connection.Store, engine *connect.Engine) APIOption {
+	return func(a *API) {
+		a.connectionStore = store
+		a.connectEngine = engine
 	}
 }
 

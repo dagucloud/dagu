@@ -29,6 +29,7 @@ const (
 	CategoryRemoteNode   Category = "remote_node"
 	CategoryWorkspace    Category = "workspace"
 	CategorySecret       Category = "secret"
+	CategoryConnection   Category = "connection"
 	CategoryMCP          Category = "mcp"
 )
 
