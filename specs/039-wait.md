@@ -90,7 +90,9 @@ request's headers and body. The action polls at `with.poll_interval`
 (default `10s`) to complete. A request that fails outright (connection
 refused, timeout, and similar) counts as a non-matching poll rather than an
 error and is retried on the next interval. The step succeeds once a
-response's status code equals `with.status` (default `200`).
+response's status code equals `with.status` (default `200`). A redirect
+response is not followed; its own status code is compared with `with.status`,
+so a step can wait for a `3xx`.
 
 A poll that does not match writes one line to the step's stderr: the
 request error, or the status code received and the one expected. The line
