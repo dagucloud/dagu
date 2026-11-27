@@ -395,7 +395,9 @@ The rules, in order:
    runs or starts, Dagu also sends `SIGKILL` to every process of the restricted user. So a process
    that the root process left cannot keep the output of the step open, and the step ends. This
    happens before the next root process of the step starts, as between the commands of a step
-   with several commands.
+   with several commands. A root process of the step starts only when Dagu can watch it, and,
+   when no other root process of the step runs, only once no process of the restricted user is
+   left. Otherwise its start fails.
 
 8. **Checks at the end.** Dagu checks the work directory before it gives it back. It fails the step
    and removes the entry for each of these entries of the restricted user:

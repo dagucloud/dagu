@@ -1321,15 +1321,19 @@ func ownerUID(t *testing.T, path string) int {
 // it yet, so it stays a zombie.
 func waitEnded(t *testing.T, pid int) {
 	t.Helper()
-	require.Eventually(t, func() bool {
-		data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-		if err != nil {
-			return false
-		}
-		// The state follows the command name, which is in parentheses.
-		i := bytes.LastIndexByte(data, ')')
-		return i >= 0 && i+2 < len(data) && data[i+2] == 'Z'
-	}, 10*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return isZombie(pid) }, 10*time.Second, 10*time.Millisecond)
+}
+
+// isZombie reports whether the process pid has ended and its parent has not
+// reaped it yet.
+func isZombie(pid int) bool {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return false
+	}
+	// The state follows the command name, which is in parentheses.
+	i := bytes.LastIndexByte(data, ')')
+	return i >= 0 && i+2 < len(data) && data[i+2] == 'Z'
 }
 
 // requireWaitReturns fails when Wait of the process does not return soon,
@@ -1347,16 +1351,14 @@ func requireWaitReturns(t *testing.T, process *cmdutil.ManagedProcess) {
 }
 
 // The end of a process of the step does not stop another process of the step
-// that runs, whichever of the two was prepared first, and also when no watcher
-// can follow the other process. Both are prepared before either starts, and
-// the process that ends starts first.
+// that runs, whichever of the two was prepared first. Both are prepared before
+// either starts, and the process that ends starts first.
 func TestIsolatedStepKeepsAnotherProcess(t *testing.T) {
-	t.Run("prepared first", func(t *testing.T) { testKeepsAnotherProcess(t, true, false) })
-	t.Run("prepared last", func(t *testing.T) { testKeepsAnotherProcess(t, false, false) })
-	t.Run("unwatched", func(t *testing.T) { testKeepsAnotherProcess(t, true, true) })
+	t.Run("prepared first", func(t *testing.T) { testKeepsAnotherProcess(t, true) })
+	t.Run("prepared last", func(t *testing.T) { testKeepsAnotherProcess(t, false) })
 }
 
-func testKeepsAnotherProcess(t *testing.T, endingPreparedFirst, stayingUnwatched bool) {
+func testKeepsAnotherProcess(t *testing.T, endingPreparedFirst bool) {
 	requireIsolation(t)
 	ctx := context.Background()
 	workDir := testWorkDir(t)
@@ -1389,14 +1391,10 @@ func testKeepsAnotherProcess(t *testing.T, endingPreparedFirst, stayingUnwatched
 		releases[cmd]()
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = process.Release() })
-		step.iso.started(process.PID())
+		require.NoError(t, step.iso.started(process.PID()))
 		return process
 	}
 	endingProcess := start(ending)
-	if stayingUnwatched {
-		pidfdOpen = func(int, int) (int, error) { return -1, unix.EMFILE }
-		t.Cleanup(func() { pidfdOpen = unix.PidfdOpen })
-	}
 	stayingProcess := start(staying)
 
 	require.NoError(t, endingProcess.Wait())
@@ -1410,6 +1408,59 @@ func testKeepsAnotherProcess(t *testing.T, endingPreparedFirst, stayingUnwatched
 		t.Fatal("the end of one process stopped the other one")
 	case <-time.After(time.Second):
 	}
+}
+
+// A process that no watcher can follow does not run: its start fails and the
+// process is stopped. Another process of the step that runs is kept.
+func TestIsolatedStepStopsAnUnwatchedProcess(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	stepCtx := WithStep(ctx, step)
+	sleeper := func() *exec.Cmd {
+		cmd := exec.Command("/bin/sleep", "1000")
+		cmd.Dir = workDir
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		return cmd
+	}
+	staying, err := StartManagedProcess(stepCtx, sleeper())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = staying.Stop(cmdutil.StopRequest{Intent: cmdutil.ForceTermination()})
+		_ = staying.Wait()
+		_ = staying.Release()
+	})
+
+	pidfdOpen = func(int, int) (int, error) { return -1, unix.EMFILE }
+	t.Cleanup(func() { pidfdOpen = unix.PidfdOpen })
+	unwatched := sleeper()
+	_, err = StartManagedProcess(stepCtx, unwatched)
+	require.ErrorIs(t, err, unix.EMFILE)
+	require.NotNil(t, unwatched.ProcessState, "the process was not reaped")
+	assert.False(t, unwatched.ProcessState.Success())
+	assert.False(t, isZombie(staying.PID()), "the process that runs was stopped")
+}
+
+// A start that cannot confirm that the processes which the step left are
+// gone, here because the scan of /proc fails, does not start.
+func TestIsolatedStepStartNeedsTheLeftoversGone(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	listProcesses = func(uint32) ([]int, error) { return nil, unix.EACCES }
+	t.Cleanup(func() { listProcesses = userProcesses })
+
+	cmd := exec.Command("/bin/true")
+	cmd.Dir = workDir
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	_, err = StartManagedProcess(WithStep(ctx, step), cmd)
+	require.ErrorIs(t, err, unix.EACCES)
+	assert.ErrorContains(t, err, "stop the processes that the step left")
+	assert.Nil(t, cmd.Process, "the process started")
 }
 
 // A process that a root process of the step left without a pipe of the step

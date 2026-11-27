@@ -224,7 +224,11 @@ func StartManagedProcess(ctx context.Context, cmd *exec.Cmd) (*cmdutil.ManagedPr
 		return nil, err
 	}
 	if step.iso != nil {
-		step.iso.started(process.PID())
+		if err := step.iso.started(process.PID()); err != nil {
+			_ = process.Wait()
+			_ = process.Release()
+			return nil, err
+		}
 	}
 	return process, nil
 }

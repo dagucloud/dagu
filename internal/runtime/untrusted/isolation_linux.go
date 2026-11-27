@@ -42,6 +42,10 @@ var pidfdOpen = unix.PidfdOpen
 // removexattr removes an extended attribute. A test replaces it.
 var removexattr = unix.Removexattr
 
+// listProcesses lists the processes of a user for the watcher. A test
+// replaces it.
+var listProcesses = userProcesses
+
 // gitConfig is the global git config of the restricted user. The folders that
 // hold an entry .git belong to the user of the worker, and git refuses a
 // repository of another owner without it.
@@ -740,21 +744,29 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) (release func(), err 
 	cmd.SysProcAttr.Noctty = false
 	cmd.SysProcAttr.Pgid = 0
 
+	release = func() {
+		_ = envFile.Close()
+		// The caller sees its own command after the start, not the helper's.
+		cmd.Path, cmd.Args, cmd.Dir, cmd.Env, cmd.ExtraFiles = path, args, cmdDir, env, nil
+	}
+
 	iso.endMu.Lock()
+	defer iso.endMu.Unlock()
 	// The root process before this one may have ended before its watcher saw
-	// it end.
-	if iso.settleEnded() {
-		iso.killLeftovers()
+	// it end. With no root process left, each process of the restricted user
+	// is one that an ended root process left, and it must be gone before the
+	// next start.
+	iso.settleEnded()
+	if running, starting := iso.otherProcesses(); !running && !starting {
+		if err := iso.killLeftovers(); err != nil {
+			release()
+			return nil, stepError(iso.step, "stop the processes that the step left", "", err)
+		}
 	}
 	iso.startMu.Lock()
 	iso.starting++
 	iso.startMu.Unlock()
-	iso.endMu.Unlock()
-	return func() {
-		_ = envFile.Close()
-		// The caller sees its own command after the start, not the helper's.
-		cmd.Path, cmd.Args, cmd.Dir, cmd.Env, cmd.ExtraFiles = path, args, cmdDir, env, nil
-	}, nil
+	return release, nil
 }
 
 // closeOnExec marks each descriptor of the process from 3 up close-on-exec.
@@ -786,30 +798,33 @@ func closeOnExec() error {
 // started watches the root process of the step. When it ends and no other
 // root process of the step runs, Dagu stops each process of the restricted
 // user, so that a process that it left cannot keep the pipes of the step open.
-// It does not stop the processes while another root process runs.
-func (iso *isolation) started(pid int) {
-	fd := -1
-	if pid > 0 {
-		// The process is not reaped yet: its caller has not called Wait.
-		if opened, err := pidfdOpen(pid, 0); err == nil {
-			fd = opened
-		}
+// It does not stop the processes while another root process runs. A process
+// that no watcher can follow is stopped, with what it left, and started
+// returns the error: the start fails.
+func (iso *isolation) started(pid int) error {
+	if pid <= 0 {
+		iso.abandon()
+		return nil
+	}
+	// The process is not reaped yet: its caller has not called Wait, so the
+	// PID is still its own.
+	fd, err := pidfdOpen(pid, 0)
+	if err != nil {
+		_ = unix.Kill(pid, unix.SIGKILL)
+		// A watcher that waits for this start under endMu goes on at once.
+		iso.abandon()
+		iso.endMu.Lock()
+		defer iso.endMu.Unlock()
+		_ = iso.killLeftovers()
+		return stepError(iso.step, "watch the process", "", err)
 	}
 	// One step moves the process from starting to running, so that no check
-	// in between sees neither. A process that no watcher can follow counts as
-	// running until the end of the step, so that no watcher stops it.
+	// in between sees neither.
 	iso.startMu.Lock()
 	iso.starting--
-	if pid > 0 {
-		iso.running++
-	}
-	if fd >= 0 {
-		iso.roots[fd] = true
-	}
+	iso.running++
+	iso.roots[fd] = true
 	iso.startMu.Unlock()
-	if fd < 0 {
-		return
-	}
 	iso.watchers.Go(func() {
 		defer func() { _ = unix.Close(fd) }()
 		ended := false
@@ -830,10 +845,13 @@ func (iso *isolation) started(pid int) {
 		}
 		iso.startMu.Unlock()
 		// A process whose end prepare settled had its leftovers stopped there.
+		// An error leaves them to the next start, which checks again, or to
+		// End.
 		if settled && ended {
-			iso.killLeftovers()
+			_ = iso.killLeftovers()
 		}
 	})
+	return nil
 }
 
 // pollEnded reports whether the process of the pidfd fd ended, waiting for at
@@ -844,20 +862,17 @@ func pollEnded(fd, timeout int) (bool, error) {
 	return n > 0, err
 }
 
-// settleEnded counts as ended each root process in roots that ended, and
-// reports whether there was one. The caller holds endMu.
-func (iso *isolation) settleEnded() bool {
+// settleEnded counts as ended each root process in roots that ended. The
+// caller holds endMu.
+func (iso *isolation) settleEnded() {
 	iso.startMu.Lock()
 	defer iso.startMu.Unlock()
-	settled := false
 	for fd := range iso.roots {
 		if ended, _ := pollEnded(fd, 0); ended {
 			delete(iso.roots, fd)
 			iso.running--
-			settled = true
 		}
 	}
-	return settled
 }
 
 // abandon settles a process that failed to start.
@@ -876,17 +891,25 @@ func (iso *isolation) otherProcesses() (running, starting bool) {
 }
 
 // killLeftovers stops the processes of the restricted user once no root
-// process of the step runs. It returns when one runs, whose watcher stops them
-// at its own end, and waits while one is starting. The check comes after the
-// pidfd of each scanned process is open: a root process that holds a scanned
-// PID was counted before the check, and one that gets such a PID later is not
-// the process of the pidfd.
-func (iso *isolation) killLeftovers() {
+// process of the step runs, and returns nil once none is left. It also returns
+// nil when a root process runs, whose watcher stops them at its own end, and
+// waits while one is starting. It returns an error when the scan of /proc
+// fails, when the step ends first, or when processes are left after
+// killTimeout. The check comes after the pidfd of each scanned process is
+// open: a root process that holds a scanned PID was counted before the check,
+// and one that gets such a PID later is not the process of the pidfd.
+func (iso *isolation) killLeftovers() error {
 	deadline := time.Now().Add(killTimeout)
-	for !iso.stopping.Load() && time.Now().Before(deadline) {
-		pids, err := userProcesses(iso.uid)
+	for {
+		pids, err := listProcesses(iso.uid)
 		if err != nil || len(pids) == 0 {
-			return
+			return err
+		}
+		if iso.stopping.Load() {
+			return errors.New("the step ended")
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("%d processes of the restricted user are left after SIGKILL", len(pids))
 		}
 		fds := make(map[int]int, len(pids))
 		for _, pid := range pids {
@@ -904,7 +927,7 @@ func (iso *isolation) killLeftovers() {
 			_ = unix.Close(fd)
 		}
 		if running {
-			return
+			return nil
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
