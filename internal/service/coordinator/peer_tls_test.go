@@ -39,8 +39,11 @@ import (
 const (
 	peerTLSToken        = "peer-tls-token"
 	coordinatorCertName = "coordinator.dagu.invalid"
-	requireTLSMessage   = "the coordinator requires TLS: upgrade this process, or remove peer.insecure: true"
 )
+
+// certHosts are the advertised host, the host name, and an unknown host name
+// that most tests give the coordinator certificate.
+var certHosts = []string{"127.0.0.1", "dagu.example.com", ""}
 
 // peerTLSServer is a coordinator that serves built-in TLS and h2c on addr.
 type peerTLSServer struct {
@@ -50,14 +53,15 @@ type peerTLSServer struct {
 }
 
 // startPeerTLSServer serves join readiness and the health service with the
-// peer transport credentials of a new peer CA, behind the peer token.
-func startPeerTLSServer(t *testing.T, opts ...grpc.ServerOption) peerTLSServer {
+// peer transport credentials of a new peer CA, behind the peer token. The
+// coordinator certificate names hosts.
+func startPeerTLSServer(t *testing.T, hosts []string, opts ...grpc.ServerOption) peerTLSServer {
 	t.Helper()
 	files, err := coordinator.WritePeerInit(filepath.Join(t.TempDir(), "peer"))
 	require.NoError(t, err)
 	ca, err := coordinator.LoadPeerCA(files[0], files[1])
 	require.NoError(t, err)
-	creds, err := coordinator.NewPeerTransportCredentials(ca, "127.0.0.1", "dagu.example.com", "")
+	creds, err := coordinator.NewPeerTransportCredentials(t.Context(), ca, hosts...)
 	require.NoError(t, err)
 	pair, err := tls.LoadX509KeyPair(files[0], files[1])
 	require.NoError(t, err)
@@ -119,7 +123,7 @@ func callContext(t *testing.T) context.Context {
 // one port (Spec 108 §One Port).
 func TestPeerTransportOnePort(t *testing.T) {
 	t.Parallel()
-	server := startPeerTLSServer(t)
+	server := startPeerTLSServer(t, certHosts)
 
 	reports, err := server.readinessClient(t).GetJoinReadiness(callContext(t))
 	require.NoError(t, err)
@@ -135,31 +139,48 @@ func TestPeerTransportOnePort(t *testing.T) {
 
 // The coordinator certificate never expires, names coordinatorCertName and
 // the given hosts, allows server authentication only, and comes with the CA
-// certificate (Spec 108 §Coordinator Certificate).
+// certificate. A non-ASCII host appears in its IDNA form, and one without
+// such a form is left out (Spec 108 §Coordinator Certificate).
 func TestPeerTransportCertificate(t *testing.T) {
 	t.Parallel()
-	server := startPeerTLSServer(t)
+	for _, tc := range []struct {
+		name    string
+		hosts   []string
+		wantDNS []string
+		wantIPs []string
+	}{
+		{name: "ASCII", hosts: certHosts, wantDNS: []string{coordinatorCertName, "dagu.example.com"}, wantIPs: []string{"127.0.0.1"}},
+		{name: "NonASCII", hosts: []string{"ホスト", "ホスト!"}, wantDNS: []string{coordinatorCertName, "xn--zck4a3c"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			server := startPeerTLSServer(t, tc.hosts)
 
-	conn, err := tls.Dial("tcp", server.addr, server.tlsConfig())
-	require.NoError(t, err)
-	defer func() { _ = conn.Close() }()
-	chain := conn.ConnectionState().PeerCertificates
-	require.Len(t, chain, 2)
-	assert.True(t, chain[1].Equal(server.caCert))
-	leaf := chain[0]
-	assert.Equal(t, time.Date(9999, time.December, 31, 23, 59, 59, 0, time.UTC), leaf.NotAfter)
-	assert.ElementsMatch(t, []string{coordinatorCertName, "dagu.example.com"}, leaf.DNSNames)
-	require.Len(t, leaf.IPAddresses, 1)
-	assert.Equal(t, "127.0.0.1", leaf.IPAddresses[0].String())
-	assert.Equal(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, leaf.ExtKeyUsage)
-	assert.False(t, leaf.IsCA)
+			conn, err := tls.Dial("tcp", server.addr, server.tlsConfig())
+			require.NoError(t, err)
+			defer func() { _ = conn.Close() }()
+			chain := conn.ConnectionState().PeerCertificates
+			require.Len(t, chain, 2)
+			assert.True(t, chain[1].Equal(server.caCert))
+			leaf := chain[0]
+			assert.Equal(t, time.Date(9999, time.December, 31, 23, 59, 59, 0, time.UTC), leaf.NotAfter)
+			assert.ElementsMatch(t, tc.wantDNS, leaf.DNSNames)
+			var ips []string
+			for _, ip := range leaf.IPAddresses {
+				ips = append(ips, ip.String())
+			}
+			assert.ElementsMatch(t, tc.wantIPs, ips)
+			assert.Equal(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, leaf.ExtKeyUsage)
+			assert.False(t, leaf.IsCA)
+		})
+	}
 }
 
 // TLS accepts a client certificate that chains to the peer CA and refuses
 // one from another CA (Spec 108 §One Port).
 func TestPeerTransportClientCertificate(t *testing.T) {
 	t.Parallel()
-	server := startPeerTLSServer(t)
+	server := startPeerTLSServer(t, certHosts)
 	dir := t.TempDir()
 	otherCert, otherKey := peercert.Write(t, dir, peercert.Options{
 		Name:        "other",
@@ -191,53 +212,12 @@ func TestPeerTransportClientCertificate(t *testing.T) {
 	}
 }
 
-// coordinator.require_tls refuses calls over h2c, keeps serving the health
-// service on the same connection, and leaves TLS calls alone (Spec 108
-// §Require TLS).
-func TestRequireTLS(t *testing.T) {
-	t.Parallel()
-	server := startPeerTLSServer(t,
-		grpc.ChainUnaryInterceptor(coordinator.RequireTLSUnaryInterceptor()),
-		grpc.ChainStreamInterceptor(coordinator.RequireTLSStreamInterceptor()),
-	)
-
-	reports, err := server.readinessClient(t).GetJoinReadiness(callContext(t))
-	require.NoError(t, err)
-	require.Len(t, reports, 1)
-	assertRequireTLS(t, reports[0].Err)
-
-	client, healthClient := server.dial(t, insecure.NewCredentials())
-	_, err = client.GetJoinReadiness(callContext(t), &coordinatorv1.GetJoinReadinessRequest{})
-	assertRequireTLS(t, err)
-	stream, err := client.GetWorkspaceBundle(callContext(t), &coordinatorv1.GetWorkspaceBundleRequest{})
-	require.NoError(t, err)
-	_, err = stream.Recv()
-	assertRequireTLS(t, err)
-	health, err := healthClient.Check(callContext(t), &grpc_health_v1.HealthCheckRequest{})
-	require.NoError(t, err)
-	assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING, health.Status)
-
-	tlsClient, _ := server.dial(t, credentials.NewTLS(server.tlsConfig()))
-	_, err = tlsClient.GetJoinReadiness(callContext(t), &coordinatorv1.GetJoinReadinessRequest{})
-	require.NoError(t, err)
-}
-
-func assertRequireTLS(t *testing.T, err error) {
-	t.Helper()
-	// A wrapped status keeps its own message only through GRPCStatus.
-	var grpcErr interface{ GRPCStatus() *status.Status }
-	require.ErrorAs(t, err, &grpcErr)
-	st := grpcErr.GRPCStatus()
-	assert.Equal(t, codes.Unauthenticated, st.Code(), "%v", err)
-	assert.Equal(t, requireTLSMessage, st.Message())
-}
-
 // A connection that sends no byte, or only the first byte of a TLS record,
 // holds no other connection, and the server closes it at its connection
 // timeout.
 func TestPeerTransportSilentClient(t *testing.T) {
 	t.Parallel()
-	server := startPeerTLSServer(t, grpc.ConnectionTimeout(200*time.Millisecond))
+	server := startPeerTLSServer(t, certHosts, grpc.ConnectionTimeout(200*time.Millisecond))
 
 	for _, tc := range []struct {
 		name string
@@ -260,8 +240,7 @@ func TestPeerTransportSilentClient(t *testing.T) {
 
 			require.NoError(t, conn.SetReadDeadline(time.Now().Add(10*time.Second)))
 			_, err = io.ReadAll(conn)
-			var netErr net.Error
-			if errors.As(err, &netErr) {
+			if netErr, ok := errors.AsType[net.Error](err); ok {
 				assert.False(t, netErr.Timeout(), "the server did not close the connection")
 			}
 		})

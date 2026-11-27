@@ -14,15 +14,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"strings"
 	"time"
+	"unicode/utf8"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
+	"golang.org/x/net/idna"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/peer"
-	"google.golang.org/grpc/status"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 )
 
 const (
@@ -32,9 +34,6 @@ const (
 	// tlsHandshakeRecord is the first byte of a TLS connection: the record
 	// type of the ClientHello.
 	tlsHandshakeRecord = 0x16
-	// requireTLSMessage is the refusal of a call over h2c under
-	// coordinator.require_tls.
-	requireTLSMessage = "the coordinator requires TLS: upgrade this process, or remove peer.insecure: true"
 )
 
 // NewPeerTransportCredentials returns the server credentials of a
@@ -42,11 +41,11 @@ const (
 // port: a connection that starts with a TLS handshake record gets TLS, and
 // any other connection is served as h2c. The TLS server certificate is
 // issued from ca and names coordinator.dagu.invalid and each non-empty host
-// in hosts. TLS asks
-// for a client certificate and accepts a connection without one; a client
+// in hosts that a certificate can carry. TLS needs version 1.3, asks for a
+// client certificate, and accepts a connection without one; a client
 // certificate that does not chain to ca fails the handshake.
-func NewPeerTransportCredentials(ca *PeerCA, hosts ...string) (credentials.TransportCredentials, error) {
-	cert, err := ca.issueCoordinatorCertificate(hosts)
+func NewPeerTransportCredentials(ctx context.Context, ca *PeerCA, hosts ...string) (credentials.TransportCredentials, error) {
+	cert, err := ca.issueCoordinatorCertificate(ctx, hosts)
 	if err != nil {
 		return nil, err
 	}
@@ -60,41 +59,6 @@ func NewPeerTransportCredentials(ca *PeerCA, hosts ...string) (credentials.Trans
 			MinVersion:   tls.VersionTLS13,
 		}),
 	}, nil
-}
-
-// RequireTLSUnaryInterceptor refuses unary calls over h2c, except those of
-// the gRPC health service, with Unauthenticated. The connection stays open.
-func RequireTLSUnaryInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if err := requireTLS(ctx, info.FullMethod); err != nil {
-			return nil, err
-		}
-		return handler(ctx, req)
-	}
-}
-
-// RequireTLSStreamInterceptor refuses streaming calls over h2c, except those
-// of the gRPC health service, with Unauthenticated. The connection stays
-// open.
-func RequireTLSStreamInterceptor() grpc.StreamServerInterceptor {
-	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		if err := requireTLS(ss.Context(), info.FullMethod); err != nil {
-			return err
-		}
-		return handler(srv, ss)
-	}
-}
-
-func requireTLS(ctx context.Context, method string) error {
-	if strings.HasPrefix(method, grpcHealthMethodPrefix) {
-		return nil
-	}
-	if p, ok := peer.FromContext(ctx); ok {
-		if _, ok := p.AuthInfo.(credentials.TLSInfo); ok {
-			return nil
-		}
-	}
-	return status.Error(codes.Unauthenticated, requireTLSMessage)
 }
 
 // peerTransportCredentials picks TLS or h2c from the first byte of each
@@ -155,7 +119,7 @@ func (c *peekedConn) Read(p []byte) (int, error) {
 // issueCoordinatorCertificate returns a server certificate signed by ca, with
 // no expiry date, naming coordinatorCertName and each of hosts as a DNS name
 // or an IP address. Its chain holds the CA certificate.
-func (ca *PeerCA) issueCoordinatorCertificate(hosts []string) (tls.Certificate, error) {
+func (ca *PeerCA) issueCoordinatorCertificate(ctx context.Context, hosts []string) (tls.Certificate, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("generate coordinator key: %w", err)
@@ -172,7 +136,7 @@ func (ca *PeerCA) issueCoordinatorCertificate(hosts []string) (tls.Certificate, 
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
-	addCertificateNames(template, append([]string{coordinatorCertName}, hosts...))
+	addCertificateNames(ctx, template, append([]string{coordinatorCertName}, hosts...))
 	der, err := x509.CreateCertificate(rand.Reader, template, ca.cert, key.Public(), ca.key)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("issue coordinator certificate: %w", err)
@@ -190,18 +154,38 @@ func (ca *PeerCA) issueCoordinatorCertificate(hosts []string) (tls.Certificate, 
 
 // addCertificateNames adds each non-empty host to template once, as an IP
 // address when it is one, possibly in brackets, and as a DNS name otherwise.
-func addCertificateNames(template *x509.Certificate, hosts []string) {
+// A name that is not ASCII is added in its IDNA form, and skipped when it has
+// none, since a certificate carries ASCII names only. Clients on built-in TLS
+// check coordinatorCertName alone, so a skipped name affects only tools that
+// check the dialed address.
+func addCertificateNames(ctx context.Context, template *x509.Certificate, hosts []string) {
 	seen := make(map[string]bool, len(hosts))
 	for _, host := range hosts {
-		host = strings.ToLower(host)
-		if host == "" || seen[host] {
+		name, err := certificateName(host)
+		if err != nil {
+			logger.Debug(ctx, "Coordinator certificate skips a host name it cannot carry",
+				slog.String("host", host), tag.Error(err))
 			continue
 		}
-		seen[host] = true
-		if ip := listenIP(host); ip != nil {
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		if ip := listenIP(name); ip != nil {
 			template.IPAddresses = append(template.IPAddresses, ip)
 		} else {
-			template.DNSNames = append(template.DNSNames, host)
+			template.DNSNames = append(template.DNSNames, name)
 		}
 	}
+}
+
+// certificateName returns host as a certificate names it: lowercase, and in
+// its IDNA form when it is not ASCII.
+func certificateName(host string) (string, error) {
+	for _, r := range host {
+		if r >= utf8.RuneSelf {
+			return idna.Lookup.ToASCII(host)
+		}
+	}
+	return strings.ToLower(host), nil
 }

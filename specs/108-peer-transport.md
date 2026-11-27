@@ -8,17 +8,16 @@ the [Start Line](#start-line) for rows 1, 2, and 5 of
 [Ignored Settings](#ignored-settings) for `peer.cert_file`, `peer.key_file`,
 `peer.client_ca_file`, and `peer.skip_tls_verify: true`,
 [Bring Your Own Certificates](#bring-your-own-certificates), the
-[Peer CA](#peer-ca) except the
-[Published CA Certificate](#published-ca-certificate), the rows of
+[Peer CA](#peer-ca) except the exit under `coordinator.require_tls: true`
+and the [Published CA Certificate](#published-ca-certificate), the rows of
 [Configuration Conflicts](#configuration-conflicts) for `peer.ca_cert_file`
 and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
-[Coordinator Line](#coordinator-line), the
+[Coordinator Line](#coordinator-line) except its
+`coordinator.require_tls` row, the
 [Coordinator Certificate](#coordinator-certificate),
-[One Port](#one-port) except worker certificates,
-[Require TLS](#require-tls), and the coordinator call of
-[Join Readiness](#join-readiness). The coordinator serves built-in TLS, but
-no client uses it yet: every client still calls over h2c, so
-`coordinator.require_tls: true` refuses them.
+[One Port](#one-port) except worker certificates, and the coordinator call
+of [Join Readiness](#join-readiness). The coordinator serves built-in TLS,
+but no client uses it yet.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -293,7 +292,7 @@ A coordinator logs one line at start for what it serves:
 | `peer.ca_cert_file` | `Coordinator transport: built-in TLS and h2c (from peer.ca_cert_file)` |
 | Either, with `coordinator.require_tls: true` | `Coordinator transport: built-in TLS only (from coordinator.require_tls)` |
 | Own certificates | `Coordinator transport: TLS (from peer.cert_file)` |
-| No peer CA, as [Peer CA](#peer-ca) states | `Coordinator transport: h2c (from no peer CA)` |
+| A generated CA that cannot be created or read | `Coordinator transport: h2c (from no peer CA)` |
 
 `start-all` logs both its coordinator line and its start line.
 
@@ -394,6 +393,8 @@ dagu peer init --out <dir>
   names are the DNS name `coordinator.dagu.invalid`, the advertised host as
   a DNS name or an IP address, and the host name. Its extended key usage is
   server authentication only.
+- A name that is not ASCII appears in its IDNA form. A name without one is
+  left out, and the coordinator still starts.
 - The coordinator's TLS handshake sends the server certificate followed by
   the CA certificate.
 - No worker certificate names `coordinator.dagu.invalid` or allows server
@@ -404,6 +405,7 @@ dagu peer init --out <dir>
 - A coordinator with a peer CA reads the first byte of each connection. A
   TLS handshake record (`0x16`) starts TLS. Anything else is served as h2c.
   One gRPC server serves both, on `coordinator.port`.
+- Built-in TLS needs TLS 1.3 or later.
 - TLS requests a client certificate and accepts a connection without one. A
   client certificate that does not chain to the peer CA fails the
   handshake.

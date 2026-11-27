@@ -832,8 +832,6 @@ type Coordinator struct {
 	// RequireToken rejects calls that do not carry the peer token. When
 	// false, such calls are accepted with a warning.
 	RequireToken bool
-	// RequireTLS refuses calls over h2c on a coordinator with a peer CA.
-	RequireTLS bool
 }
 
 // Worker represents the worker configuration.

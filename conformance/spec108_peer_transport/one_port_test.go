@@ -9,7 +9,6 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -33,7 +32,6 @@ import (
 const (
 	coordinatorCertName = "coordinator.dagu.invalid"
 	servingBuiltinTLS   = "Coordinator transport: built-in TLS and h2c (from peer.ca_cert_file)"
-	requireTLSMessage   = "the coordinator requires TLS: upgrade this process, or remove peer.insecure: true"
 )
 
 // peerFixture is a peer CA and token from dagu peer init, and the
@@ -94,23 +92,6 @@ func TestOnePort(t *testing.T) {
 		require.NoError(t, err, name)
 		assert.True(t, report.BuiltinTls, name)
 	}
-}
-
-// coordinator.require_tls refuses calls over h2c except health checks, and
-// serves TLS calls (Spec 108 §Require TLS).
-func TestRequireTLS(t *testing.T) {
-	dagu := harness.NewRunner(t)
-	peer := newPeerFixture(t, dagu)
-	env := slices.Concat(peer.env, []string{"DAGU_COORDINATOR_REQUIRE_TLS=true"})
-	addr := serveCoordinator(t, dagu, env, "Coordinator transport: built-in TLS only (from coordinator.require_tls)")
-
-	_, err := peer.joinReadiness(t, addr, insecure.NewCredentials())
-	assert.Equal(t, codes.Unauthenticated, status.Code(err), "%v", err)
-	assert.Equal(t, requireTLSMessage, status.Convert(err).Message())
-	expectServing(t, addr, insecure.NewCredentials())
-
-	_, err = peer.joinReadiness(t, addr, peer.builtinTLS())
-	require.NoError(t, err)
 }
 
 // A coordinator without CA settings serves built-in TLS from the CA it

@@ -152,8 +152,11 @@ func newCoordinator(
 	persistence := ctx.Persistence
 	// Generate instance ID
 	hostname, err := os.Hostname()
+	// The built-in TLS certificate names the host name only when it is known.
+	certHostname := hostname
 	if err != nil {
 		hostname = "unknown"
+		certHostname = ""
 	}
 	instanceID := fmt.Sprintf("%s@%d", hostname, cfg.Coordinator.Port)
 
@@ -199,17 +202,13 @@ func newCoordinator(
 	if err != nil {
 		return nil, nil, err
 	}
-	peerCA, err := coordinatorPeerCA(ctx, cfg.Core.Peer, cfg.Coordinator.RequireTLS)
+	peerCA, err := coordinatorPeerCA(ctx, cfg.Core.Peer)
 	if err != nil {
 		return nil, nil, err
 	}
 	workerNodes, err := ctx.workerNodeStore()
 	if err != nil {
 		return nil, nil, err
-	}
-	certHostname := hostname
-	if hostname == "unknown" {
-		certHostname = ""
 	}
 	transportOpts, err := coordinatorTransport(ctx, cfg, peerCA, advertiseAddr, certHostname)
 	if err != nil {
@@ -274,9 +273,8 @@ func newCoordinator(
 // coordinatorTransport returns the server options that set what the
 // coordinator serves, and logs it: TLS with own certificates, or built-in TLS
 // and h2c on one port with peerCA, the CA from coordinatorPeerCA, or h2c
-// without either. Under coordinator.require_tls, the options refuse calls
-// over h2c before any other check. The built-in TLS certificate names
-// advertise and hostname, when not empty.
+// without either. The built-in TLS certificate names advertise and hostname,
+// when not empty.
 func coordinatorTransport(ctx context.Context, cfg *config.Config, peerCA *coordinator.PeerCA, advertise, hostname string) ([]grpc.ServerOption, error) {
 	peer := cfg.Core.Peer
 	switch {
@@ -296,24 +294,16 @@ func coordinatorTransport(ctx context.Context, cfg *config.Config, peerCA *coord
 		logger.Info(ctx, fmt.Sprintf(coordinatorLineFormat, "h2c", "no peer CA"))
 		return nil, nil
 	}
-	creds, err := coordinator.NewPeerTransportCredentials(peerCA, advertise, hostname)
+	creds, err := coordinator.NewPeerTransportCredentials(ctx, peerCA, advertise, hostname)
 	if err != nil {
 		return nil, err
 	}
-	opts := []grpc.ServerOption{grpc.Creds(creds)}
-	switch {
-	case cfg.Coordinator.RequireTLS:
-		logger.Info(ctx, fmt.Sprintf(coordinatorLineFormat, "built-in TLS only", "coordinator.require_tls"))
-		opts = append(opts,
-			grpc.ChainUnaryInterceptor(coordinator.RequireTLSUnaryInterceptor()),
-			grpc.ChainStreamInterceptor(coordinator.RequireTLSStreamInterceptor()),
-		)
-	case peer.CACertFile != "":
-		logger.Info(ctx, fmt.Sprintf(coordinatorLineFormat, "built-in TLS and h2c", "peer.ca_cert_file"))
-	default:
-		logger.Info(ctx, fmt.Sprintf(coordinatorLineFormat, "built-in TLS and h2c", "the generated CA"))
+	source := "the generated CA"
+	if peer.CACertFile != "" {
+		source = "peer.ca_cert_file"
 	}
-	return opts, nil
+	logger.Info(ctx, fmt.Sprintf(coordinatorLineFormat, "built-in TLS and h2c", source))
+	return []grpc.ServerOption{grpc.Creds(creds)}, nil
 }
 
 // coordinatorJoinReadiness returns the settings the coordinator reports as
@@ -391,9 +381,8 @@ func coordinatorPeerAuth(ctx *Context, cfg *config.Config) (*coordinator.PeerTok
 // certificates: the one peer.ca_cert_file and peer.ca_key_file supply, or the
 // one generated in the data directory. A coordinator with own certificates
 // has none. When the generated CA cannot be prepared, it logs a warning and
-// returns no CA and no error, so the coordinator still starts on h2c, unless
-// requireTLS forbids h2c.
-func coordinatorPeerCA(ctx context.Context, peer config.Peer, requireTLS bool) (*coordinator.PeerCA, error) {
+// returns no CA and no error, so the coordinator still starts.
+func coordinatorPeerCA(ctx context.Context, peer config.Peer) (*coordinator.PeerCA, error) {
 	switch {
 	case peer.CertFile != "" && peer.KeyFile != "":
 		return nil, nil
@@ -409,9 +398,6 @@ func coordinatorPeerCA(ctx context.Context, peer config.Peer, requireTLS bool) (
 		return ca, nil
 	}
 	ca, err := coordinator.LoadOrCreatePeerCA(peer.GeneratedCAFile)
-	if err != nil && requireTLS {
-		return nil, fmt.Errorf("coordinator.require_tls is set, but the peer CA could not be prepared: %w", err)
-	}
 	if err != nil {
 		logger.Warn(ctx, "Coordinator runs without a peer CA", tag.Error(err))
 		return nil, nil
