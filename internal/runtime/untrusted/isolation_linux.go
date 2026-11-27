@@ -1031,11 +1031,12 @@ func ownerOf(info fs.FileInfo) (uid, gid int) {
 // folder path or put another folder in its place: it can write the folder, it
 // can make the folder or a missing folder on the way, or it can rename a
 // folder or a link on the way. Each link that the path leads through counts,
-// and so does the folder the last link leads to. A sticky folder lets it make
-// an entry and not rename one of another owner. A folder or a link of the user
-// counts as writable whatever its mode: the owner can change the mode or
-// replace the link. A folder with an access ACL, a folder that cannot be read,
-// and a path that resolveLinks cannot resolve count as writable.
+// and so do each entry that a ".." leaves and the folder that the last link
+// leads to. A sticky folder lets it make an entry and not rename one of
+// another owner. A folder or a link of the user counts as writable whatever
+// its mode: the owner can change the mode or replace the link. A folder with
+// an access ACL, a folder that cannot be read, and a path that resolveLinks
+// cannot resolve count as writable.
 func writableBy(path string, uid, gid uint32) bool {
 	// The path stays uncleaned: a ".." after a link leads where the link
 	// leads, not where the text leads.
@@ -1047,8 +1048,8 @@ func writableBy(path string, uid, gid uint32) bool {
 		path = wd + "/" + path
 	}
 	writable := false
-	real, err := followLinks(path, func(link string) {
-		writable = writable || writableOnTheWay(link, uid, gid)
+	real, err := followLinks(path, func(passed string) {
+		writable = writable || writableOnTheWay(passed, uid, gid)
 	})
 	return err != nil || writable || writableOnTheWay(real, uid, gid)
 }

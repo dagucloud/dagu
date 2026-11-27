@@ -546,9 +546,9 @@ func resolveLinks(path string) (string, error) {
 	return followLinks(path, func(string) {})
 }
 
-// followLinks is resolveLinks, and calls onLink with the path of each link
-// that it follows.
-func followLinks(path string, onLink func(link string)) (string, error) {
+// followLinks is resolveLinks, and calls visit with the path of each link
+// that it follows and of each entry that a ".." leaves.
+func followLinks(path string, visit func(path string)) (string, error) {
 	resolved := "/"
 	rest := path
 	for links := 0; ; {
@@ -560,6 +560,7 @@ func followLinks(path string, onLink func(link string)) (string, error) {
 		case ".":
 			continue
 		case "..":
+			visit(resolved)
 			resolved = filepath.Dir(resolved)
 			continue
 		}
@@ -579,7 +580,7 @@ func followLinks(path string, onLink func(link string)) (string, error) {
 		if links++; links > maxLinks {
 			return "", &fs.PathError{Op: "resolve", Path: path, Err: unix.ELOOP}
 		}
-		onLink(next)
+		visit(next)
 		target, err := os.Readlink(next)
 		if err != nil {
 			return "", err

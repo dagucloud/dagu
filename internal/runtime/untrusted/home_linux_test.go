@@ -63,6 +63,7 @@ func TestTrustedHome(t *testing.T) {
 	inSticky := filepath.Join(shared, "home")
 	require.NoError(t, os.Mkdir(inSticky, 0o700))
 	assert.Nil(t, trustedHome(t, testUID, inSticky, none), "a sticky folder keeps the restricted user from renaming the HOME")
+	assert.NotNil(t, trustedHome(t, testUID, shared+"/missing/../home", none), "the restricted user could make the folder that a .. leaves as a link")
 
 	open := t.TempDir()
 	require.NoError(t, os.Chmod(open, 0o777)) //nolint:gosec // a folder that any user can write, without the sticky bit
