@@ -62,6 +62,35 @@ func TestCheckUnreachable(t *testing.T) {
 	assert.Equal(t, addr, result.Address)
 }
 
+// A coordinator that fails the health check gets no call with the
+// credential, and the answer says so.
+func TestCheckNotServing(t *testing.T) {
+	t.Parallel()
+
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+	server, addr := startMockServerWithHealth(t, coordinator.NewHandler(coordinator.HandlerConfig{}), healthServer)
+	t.Cleanup(server.Stop)
+
+	result := coordinator.Check(t.Context(), coordinator.DefaultConfig(), checkMember(t, addr))
+
+	assert.False(t, result.Passed())
+	assert.EqualError(t, result.AnswerErr, "the coordinator is not serving (not_serving), so the call with the credential was not tried")
+}
+
+// A dial that runs out of time reads as no answer, as a dropped connection
+// attempt does.
+func TestCheckDialTimeout(t *testing.T) {
+	t.Parallel()
+
+	config := coordinator.DefaultConfig()
+	config.DialTimeout = time.Nanosecond
+
+	result := coordinator.Check(t.Context(), config, checkMember(t, startSilentListener(t)))
+
+	assert.EqualError(t, result.DialErr, "the coordinator did not answer within 1ns")
+}
+
 func TestCheckTokenRefused(t *testing.T) {
 	t.Parallel()
 
@@ -192,8 +221,9 @@ func TestCheckClientCertificate(t *testing.T) {
 		certFile   string
 		keyFile    string
 		wantErr    string
+		wantSent   bool
 	}{
-		{name: "Accepted", certFile: clientCert, keyFile: clientKey},
+		{name: "Accepted", certFile: clientCert, keyFile: clientKey, wantSent: true},
 		{name: "None",
 			wantErr: "the coordinator requires a client certificate, and the worker sends none"},
 		{name: "OtherCA", certFile: otherCert, keyFile: otherKey,
@@ -219,6 +249,8 @@ func TestCheckClientCertificate(t *testing.T) {
 			require.NotNil(t, result.TLS)
 			if tc.wantErr == "" {
 				assert.True(t, result.Passed(), "%+v", result)
+				assert.Equal(t, tc.certFile, result.Credential.CertFile)
+				assert.Equal(t, tc.wantSent, result.Credential.CertSent)
 				return
 			}
 			assert.False(t, result.Passed())

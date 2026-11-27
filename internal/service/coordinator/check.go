@@ -15,7 +15,6 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -71,8 +70,13 @@ type ServerCertificate struct {
 
 // Credential is what a client presents to a coordinator.
 type Credential struct {
-	// CertFile is the client certificate sent over TLS; empty when none.
+	// CertFile is the client certificate configured for TLS; empty when
+	// none.
 	CertFile string
+	// CertSent reports whether the client sent CertFile in the handshake. It
+	// is false when the coordinator did not ask for a certificate from the
+	// CA that signed it.
+	CertSent bool
 	// PeerToken is where the peer token comes from.
 	PeerToken PeerTokenSource
 }
@@ -109,12 +113,15 @@ func Check(ctx context.Context, config *Config, member serviceregistry.HostInfo)
 
 	conn, proxy, err := dialCoordinator(ctx, result.Address)
 	result.Proxy = proxy
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		err = noAnswer(config)
+	}
 	if err != nil {
 		result.DialErr = err
 		return result
 	}
 	if !config.Insecure {
-		result.TLS = checkHandshake(ctx, config, conn, member.Host)
+		result.TLS, result.Credential.CertSent = checkHandshake(ctx, config, conn, member.Host)
 	}
 	_ = conn.Close()
 	if result.TLS != nil && result.TLS.Err != nil {
@@ -126,17 +133,18 @@ func Check(ctx context.Context, config *Config, member serviceregistry.HostInfo)
 
 // checkHandshake runs the TLS handshake that gRPC runs on conn, then reads
 // once: TLS 1.3 refuses a client certificate only after the client side of
-// the handshake is done.
-func checkHandshake(ctx context.Context, config *Config, conn net.Conn, host string) *TLSHandshake {
+// the handshake is done. It also reports whether the client sent its
+// certificate.
+func checkHandshake(ctx context.Context, config *Config, conn net.Conn, host string) (*TLSHandshake, bool) {
 	tlsConfig, err := clientTLSConfig(config)
 	if err != nil {
-		return &TLSHandshake{Err: err}
+		return &TLSHandshake{Err: err}, false
 	}
 	// gRPC verifies the dialed host and offers HTTP/2.
 	tlsConfig.ServerName = host
 	tlsConfig.NextProtos = []string{"h2"}
 	// An alert after the server asked for a client certificate refuses it.
-	certRequested := false
+	certRequested, certSent := false, false
 	clientCert := &tls.Certificate{}
 	if len(tlsConfig.Certificates) > 0 {
 		clientCert = &tlsConfig.Certificates[0]
@@ -148,6 +156,7 @@ func checkHandshake(ctx context.Context, config *Config, conn net.Conn, host str
 		if request.SupportsCertificate(clientCert) != nil {
 			return &tls.Certificate{}, nil
 		}
+		certSent = len(clientCert.Certificate) > 0
 		return clientCert, nil
 	}
 	tlsConn := tls.Client(conn, tlsConfig)
@@ -156,7 +165,7 @@ func checkHandshake(ctx context.Context, config *Config, conn net.Conn, host str
 		return &TLSHandshake{
 			Err:         verificationProblem(verifyErr, tlsConfig.RootCAs, host),
 			Certificate: describeServerCertificate(verifyErr.UnverifiedCertificates, nil),
-		}
+		}, certSent
 	}
 	if err == nil {
 		// A gRPC server sends its HTTP/2 settings as soon as it accepts.
@@ -186,7 +195,7 @@ func checkHandshake(ctx context.Context, config *Config, conn net.Conn, host str
 			handshake.Err = err
 		}
 	}
-	return handshake
+	return handshake, certSent
 }
 
 // clientCertProblem says why a coordinator refused the client.
@@ -293,10 +302,13 @@ func checkAnswer(ctx context.Context, config *Config, member serviceregistry.Hos
 		if config.Insecure && status.Code(err) == codes.Unavailable && servesTLS(ctx, c.address) {
 			return errServesTLS
 		}
-		return callError(config, err)
+		if status.Code(err) == codes.DeadlineExceeded {
+			return noAnswer(config)
+		}
+		return fmt.Errorf("the health check failed, %w, %s", callError(config, err), credentialedCallSkipped)
 	}
 	if health.Status != grpc_health_v1.HealthCheckResponse_SERVING {
-		return fmt.Errorf("the coordinator is not serving: %s", strings.ToLower(health.Status.String()))
+		return fmt.Errorf("the coordinator is not serving (%s), %s", strings.ToLower(health.Status.String()), credentialedCallSkipped)
 	}
 	// The health service takes no credential; the worker list does.
 	if _, err := c.client.GetWorkers(ctx, &coordinatorv1.GetWorkersRequest{}); err != nil {
@@ -304,6 +316,10 @@ func checkAnswer(ctx context.Context, config *Config, member serviceregistry.Hos
 	}
 	return nil
 }
+
+// credentialedCallSkipped ends the answer of a coordinator that failed the
+// health check, after which the check makes no call with the credential.
+const credentialedCallSkipped = "so the call with the credential was not tried"
 
 // errServesTLS is the answer of a coordinator that serves only TLS to a
 // client on h2c.
@@ -348,7 +364,7 @@ func callError(config *Config, err error) error {
 
 // noAnswer is the error of a coordinator that did not answer in time.
 func noAnswer(config *Config) error {
-	return fmt.Errorf("the coordinator did not answer within %s", config.DialTimeout.Round(time.Millisecond))
+	return fmt.Errorf("the coordinator did not answer within %s", config.DialTimeout)
 }
 
 // clientCredential returns what a client with config presents.

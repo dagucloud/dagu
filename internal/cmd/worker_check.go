@@ -166,8 +166,12 @@ func credentialText(credential coordinator.Credential) string {
 	case coordinator.PeerTokenNone:
 		token = "no peer token"
 	}
-	if credential.CertFile == "" {
+	switch {
+	case credential.CertFile == "":
 		return token
+	case !credential.CertSent:
+		return fmt.Sprintf("%s; client certificate %s not sent, as the coordinator did not ask for one from its CA", token, credential.CertFile)
+	default:
+		return fmt.Sprintf("client certificate %s and %s", credential.CertFile, token)
 	}
-	return fmt.Sprintf("client certificate %s and %s", credential.CertFile, token)
 }
