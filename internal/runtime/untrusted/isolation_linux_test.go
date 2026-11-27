@@ -583,6 +583,27 @@ func TestHandoffMarksTheWorkDirectory(t *testing.T) {
 	require.NoError(t, next.unmarkUnlessAborted(next.restore(true)))
 }
 
+// A tree deeper than maxWalkDepth that the restricted user made, also in a new
+// .git that the restore must remove, stops the run instead of holding a
+// descriptor and a path for each level of the walk. It needs no root.
+func TestRestoreRefusesADeepTree(t *testing.T) {
+	t.Parallel()
+	for name, parent := range map[string]string{"folder": "deep", "new .git": ".git"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			iso := selfIsolation(t, t.TempDir())
+			require.NoError(t, iso.handoff())
+			deep := filepath.Join(iso.workDir, "a", parent, strings.Repeat("d/", maxWalkDepth))
+			require.NoError(t, os.MkdirAll(deep, 0o750))
+
+			err := iso.unmarkUnlessAborted(iso.restore(true))
+			require.ErrorIs(t, err, ErrRunAborted)
+			assert.ErrorContains(t, err, "deeper than")
+			assert.ErrorIs(t, CheckWorkDir(iso.lexicalWork), ErrRunAborted, "the work directory stays marked")
+		})
+	}
+}
+
 func permOf(t *testing.T, path string) fs.FileMode {
 	t.Helper()
 	info, err := os.Lstat(path)

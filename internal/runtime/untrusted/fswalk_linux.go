@@ -62,10 +62,26 @@ func walkFD(root string, visit visitFunc) error {
 	return walkEntry(entry, visit)
 }
 
+// maxWalkDepth bounds the folders that a walk or a removal enters below its
+// root. Each level holds a descriptor and a path, so a deeper tree that the
+// restricted user made could exhaust the descriptors or the memory of the
+// worker.
+const maxWalkDepth = 256
+
+// errTooDeep is the error of a folder deeper than maxWalkDepth.
+var errTooDeep = fmt.Errorf("the tree is deeper than %d folders", maxWalkDepth)
+
 func walkEntry(entry *fsEntry, visit visitFunc) error {
+	return walkDepth(entry, 0, visit)
+}
+
+func walkDepth(entry *fsEntry, depth int, visit visitFunc) error {
 	skip, err := visit(entry)
 	if err != nil || skip || !entry.isDir() {
 		return err
+	}
+	if depth >= maxWalkDepth {
+		return &fs.PathError{Op: "walk", Path: entry.path, Err: errTooDeep}
 	}
 	names, err := readNames(entry.fd, entry.path)
 	if err != nil {
@@ -79,7 +95,7 @@ func walkEntry(entry *fsEntry, visit visitFunc) error {
 		if err != nil {
 			return err
 		}
-		err = walkEntry(child, visit)
+		err = walkDepth(child, depth+1, visit)
 		_ = unix.Close(child.fd)
 		if err != nil {
 			return err
@@ -157,6 +173,10 @@ func chmodFDPath(fd int, path string, mode uint32) error {
 // removeAt removes the entry name of the folder dirfd and its content. A link
 // is removed, not followed.
 func removeAt(dirfd int, dirPath, name string) error {
+	return removeDepth(dirfd, dirPath, name, 0)
+}
+
+func removeDepth(dirfd int, dirPath, name string, depth int) error {
 	child, err := openChild(dirfd, dirPath, name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -171,12 +191,15 @@ func removeAt(dirfd int, dirPath, name string) error {
 		}
 		return nil
 	}
+	if depth >= maxWalkDepth {
+		return &fs.PathError{Op: "remove", Path: child.path, Err: errTooDeep}
+	}
 	names, err := readNames(child.fd, child.path)
 	if err != nil {
 		return err
 	}
 	for _, sub := range names {
-		if err := removeAt(child.fd, child.path, sub); err != nil {
+		if err := removeDepth(child.fd, child.path, sub, depth+1); err != nil {
 			return err
 		}
 	}
