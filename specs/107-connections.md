@@ -35,6 +35,14 @@ Implemented so far:
   [checks after consent](#checks-after-consent), and the
   [consent errors](#consent-errors). No route starts a session until the
   REST API lands.
+- [REST API](#rest-api): `/oauth-apps` and `/connections`, with their
+  [Permissions](#permissions) and [Audit](#audit), the audit of
+  revocations, and [Deleting a Project](#deleting-a-project) for a
+  workspace, which also cannot be renamed while it owns connections. A
+  connection is created only for the `authorization_code` grant, in a
+  workspace whose name is lowercase, since runs find it by their DAG's
+  workspace label. Its `resource` never changes. A connection whose token
+  state is missing or cannot be read shows the status `broken`.
 
 The tests against Google also settle whether Docs, Sheets, and Slides
 answer `NOT_FOUND` rather than `PERMISSION_DENIED` for a resource ID that
