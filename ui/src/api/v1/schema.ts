@@ -3838,6 +3838,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/skills-download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Download several skills as one ZIP
+         * @description Streams one ZIP that holds each named skill as a top-level folder with its files exactly as stored, sorted, without duplicates. A skill that is not valid can be downloaded; its hidden files, files with hard links and files above 4 MiB stay out. Every name is checked before the first byte: an unknown name gives 404 and no ZIP. At most 100 skills and 256 MiB of files. A file that changes during the stream aborts it, so the ZIP is incomplete.
+         */
+        post: operations["downloadSkills"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/skills/{name}": {
         parameters: {
             query?: never;
@@ -3866,6 +3886,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/skills/{name}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download one skill as a ZIP
+         * @description Streams a ZIP with the skill as the top-level folder <name>/ and its files exactly as stored. A skill that is not valid can be downloaded; its hidden files, files with hard links and files above 4 MiB stay out. A file that changes during the stream aborts it, so the ZIP is incomplete.
+         */
+        get: operations["downloadSkill"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/skills/{name}/files": {
         parameters: {
             query?: never;
@@ -3880,7 +3920,7 @@ export interface paths {
         get: operations["getSkillFile"];
         /**
          * Create or replace one file of a skill
-         * @description Writes one file under references/, assets/ or scripts/ atomically. The body holds the bytes of the file. A file of references/ or scripts/ MUST be valid UTF-8. Send If-Match with the hash that the client read. SKILL.md has its own route. Requires developer role or above.
+         * @description Writes one file under references/, assets/ or scripts/ atomically. The body holds the bytes of the file. A file of references/ or scripts/ MUST be valid UTF-8. Send If-Match with the hash that the client read. SKILL.md has its own route. An empty body writes an empty file, whatever its Content-Type. Requires developer role or above.
          */
         put: operations["putSkillFile"];
         post?: never;
@@ -22572,6 +22612,85 @@ export interface operations {
             };
         };
     };
+    downloadSkills: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Names of the skills */
+                    names: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description The ZIP */
+            200: {
+                headers: {
+                    /** @description Attachment file name: skills-<date>.zip, or <name>.zip for one skill */
+                    "Content-Disposition"?: string;
+                    /** @description no-store */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description Invalid request, too many skills, files above 256 MiB, or names that one ZIP cannot hold: a colon, or two names that differ only by case */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A skill does not exist */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A skill is being changed and could not be read as one version; try again */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getSkill: {
         parameters: {
             query?: {
@@ -22845,6 +22964,81 @@ export interface operations {
             };
         };
     };
+    downloadSkill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */
+                name: components["parameters"]["SkillName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ZIP */
+            200: {
+                headers: {
+                    /** @description Attachment file name: <name>.zip, or skill.zip with filename* for a name that is not ASCII */
+                    "Content-Disposition"?: string;
+                    /** @description no-store */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description Invalid skill name, a colon in the name, or files above 256 MiB */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Skill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The skill is being changed and could not be read as one version; try again */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getSkillFile: {
         parameters: {
             query: {
@@ -22951,7 +23145,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/octet-stream": string;
             };
