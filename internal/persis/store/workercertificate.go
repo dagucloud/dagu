@@ -85,6 +85,15 @@ func NewWorkerCertificateStore(col persis.Collection) (*WorkerCertificateStore, 
 }
 
 func (s *WorkerCertificateStore) Create(ctx context.Context, cert persis.WorkerCertificate) error {
+	// A removal record can outlive a pruned certificate record, and the ID
+	// stays taken so the certificate never reads as active again.
+	_, removal, err := s.getRemoval(ctx, cert.ID)
+	if err != nil {
+		return err
+	}
+	if removal != nil {
+		return persis.ErrWorkerCertificateExists
+	}
 	rec, err := encodeWorkerCertificate(cert)
 	if err != nil {
 		return err
