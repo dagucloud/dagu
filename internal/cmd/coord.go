@@ -210,6 +210,17 @@ func newCoordinator(
 	if err != nil {
 		return nil, nil, err
 	}
+	workerInvites, err := ctx.serverStores.WorkerInviteStore()
+	if err != nil {
+		return nil, nil, err
+	}
+	workerCertificates, err := ctx.serverStores.WorkerCertificateStore()
+	if err != nil {
+		return nil, nil, err
+	}
+	if peerCA != nil {
+		peerAuth.AcceptWorkerCertificates(peerCA)
+	}
 	transportOpts, err := coordinatorTransport(ctx, cfg, peerCA, advertiseAddr, certHostname)
 	if err != nil {
 		return nil, nil, err
@@ -261,6 +272,9 @@ func newCoordinator(
 		AgentSessionCleanupQueue:  persistence.AgentSessionCleanupQueue,
 		WorkerNodeStore:           workerNodes,
 		JoinReadiness:             coordinatorJoinReadiness(cfg, peerCA),
+		PeerCA:                    peerCA,
+		WorkerInvites:             workerInvites,
+		WorkerCertificates:        workerCertificates,
 		WorkerWaitTimeout:         cfg.Coordinator.WorkerWaitTimeout,
 		EventService:              ctx.event,
 		EventSourceInstance:       ctx.EventSourceInstance,
