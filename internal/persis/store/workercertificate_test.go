@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -155,23 +154,27 @@ func TestWorkerCertificateStore_SetState(t *testing.T) {
 	assert.ErrorIs(t, err, persis.ErrWorkerCertificateNotFound)
 }
 
-// A prune that read the removals before a removal began may delete the
-// certificate record. The ID stays taken, the removal still reaches
-// revoked, and the certificate stays listed.
-func TestWorkerCertificateStore_SetStateAfterPrunedRecord(t *testing.T) {
+// A removal lands after Prune reads the removals and before it deletes the
+// certificate record. The removed certificate keeps every field, and its
+// removal still moves forward.
+func TestWorkerCertificateStore_RemovalDuringPrune(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	s, col := newWorkerCertificateStore(t)
 	cert := workerCertificate("cert-1")
 	createCertificate(t, s, cert)
-	setState(t, s, "cert-1", persis.WorkerCertificateRemoving)
-	require.NoError(t, col.Delete(ctx, "certs/cert-1"))
+	pruner, err := store.NewWorkerCertificateStore(&beforeFirstDelete{Collection: col, hook: func() {
+		setState(t, s, "cert-1", persis.WorkerCertificateRemoving)
+	}})
+	require.NoError(t, err)
 
-	assert.ErrorIs(t, s.Create(ctx, cert), persis.ErrWorkerCertificateExists)
-	revoked := setState(t, s, "cert-1", persis.WorkerCertificateRevoked)
+	pruned, err := pruner.Prune(ctx, enrolledAt.Add(retention+time.Second))
+	require.NoError(t, err)
+	require.Equal(t, 1, pruned)
 
-	want := persis.WorkerCertificate{ID: "cert-1", KeyFingerprint: cert.KeyFingerprint, State: persis.WorkerCertificateRevoked}
-	assert.Equal(t, want, revoked)
+	want := cert
+	want.State = persis.WorkerCertificateRevoked
+	assert.Equal(t, want, setState(t, s, "cert-1", persis.WorkerCertificateRevoked))
 	assert.Equal(t, want, getCertificate(t, s, "cert-1"))
 	certs, err := s.List(ctx)
 	require.NoError(t, err)
@@ -200,36 +203,83 @@ func TestWorkerCertificateStore_RecordHeartbeatRepairsRecord(t *testing.T) {
 	}
 }
 
-// A removal and a prune both land after Get reads no removal record and
-// before it reads the certificate record. Get still finds the certificate.
-func TestWorkerCertificateStore_GetDuringRemovalAndPrune(t *testing.T) {
+// Another coordinator read the certificate record before a prune deleted
+// it. Between Get's two reads, that coordinator's removal lands and a
+// heartbeat writes the certificate record again. The certificate was never
+// active during the call, so Get does not report it active.
+func TestWorkerCertificateStore_GetDuringRemoval(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	s, col := newWorkerCertificateStore(t)
 	cert := workerCertificate("cert-1")
 	createCertificate(t, s, cert)
-	setState(t, s, "cert-1", persis.WorkerCertificateRemoving)
+	readBeforePrune, err := col.Get(ctx, "certs/cert-1")
+	require.NoError(t, err)
 	require.NoError(t, col.Delete(ctx, "certs/cert-1"))
-	reader, err := store.NewWorkerCertificateStore(&staleRemovalRead{Collection: col})
+	remover, err := store.NewWorkerCertificateStore(&staleFirstGet{Collection: col, rec: readBeforePrune})
+	require.NoError(t, err)
+	beat := cert
+	beat.LastHeartbeatAt = enrolledAt.Add(48 * time.Hour)
+	reader, err := store.NewWorkerCertificateStore(&afterFirstGet{Collection: col, hook: func() {
+		setState(t, remover, "cert-1", persis.WorkerCertificateRevoked)
+		require.NoError(t, s.RecordHeartbeat(ctx, beat))
+	}})
 	require.NoError(t, err)
 
 	got, err := reader.Get(ctx, "cert-1")
 
 	require.NoError(t, err)
-	assert.Equal(t, persis.WorkerCertificateRemoving, got.State)
+	assert.Equal(t, persis.WorkerCertificateRevoked, got.State)
+	assert.Equal(t, cert.InviteID, got.InviteID)
+	assert.True(t, got.CreatedAt.Equal(cert.CreatedAt))
 }
 
-// staleRemovalRead answers its first read of a removal record as it was
-// before the removal began.
-type staleRemovalRead struct {
+// The collections below land another client's writes at a chosen point of
+// a store call, so a test drives an interleaving without timing.
+
+// beforeFirstDelete runs hook right before its first CompareAndDelete.
+type beforeFirstDelete struct {
 	persis.Collection
-	served bool
+	hook func()
+	done bool
 }
 
-func (c *staleRemovalRead) Get(ctx context.Context, id string) (*persis.Record, error) {
-	if !c.served && strings.HasPrefix(id, "removals/") {
-		c.served = true
-		return nil, persis.ErrNotFound
+func (c *beforeFirstDelete) CompareAndDelete(ctx context.Context, rec *persis.Record) error {
+	if !c.done {
+		c.done = true
+		c.hook()
+	}
+	return c.Collection.CompareAndDelete(ctx, rec)
+}
+
+// afterFirstGet runs hook right after its first Get.
+type afterFirstGet struct {
+	persis.Collection
+	hook func()
+	done bool
+}
+
+func (c *afterFirstGet) Get(ctx context.Context, id string) (*persis.Record, error) {
+	rec, err := c.Collection.Get(ctx, id)
+	if !c.done {
+		c.done = true
+		c.hook()
+	}
+	return rec, err
+}
+
+// staleFirstGet answers its first Get of rec's ID with rec, as read before
+// later writes.
+type staleFirstGet struct {
+	persis.Collection
+	rec  *persis.Record
+	done bool
+}
+
+func (c *staleFirstGet) Get(ctx context.Context, id string) (*persis.Record, error) {
+	if !c.done && id == c.rec.ID {
+		c.done = true
+		return c.rec, nil
 	}
 	return c.Collection.Get(ctx, id)
 }

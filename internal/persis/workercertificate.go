@@ -30,10 +30,7 @@ type WorkerCertificateStore interface {
 	// returns [ErrWorkerCertificateExists].
 	Create(ctx context.Context, cert WorkerCertificate) error
 
-	// Get returns the record with id, or [ErrWorkerCertificateNotFound]. A
-	// certificate in state removing or revoked is found even when its
-	// record was pruned; then only its ID, key, and state are known, and
-	// SetState can still move it forward.
+	// Get returns the record with id, or [ErrWorkerCertificateNotFound].
 	Get(ctx context.Context, id string) (WorkerCertificate, error)
 
 	// List returns every record, oldest first.
