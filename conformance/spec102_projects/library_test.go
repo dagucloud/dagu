@@ -363,18 +363,3 @@ func TestLibraryLocalDAGState(t *testing.T) {
 	in.run(true, nil, "start", "sub").ExpectExitCode(0)
 	require.Empty(t, stateFound(t, out))
 }
-
-// TestLibraryChildWorkerRefused proves that a child of a library DAG's run
-// is not sent to a worker, where the coordinator would not find its root
-// run among the project's.
-func TestLibraryChildWorkerRefused(t *testing.T) {
-	t.Parallel()
-
-	in := newLibraryInstall(t)
-	in.write(t, "library/remote.yaml", "worker_selector:\n  gpu: \"true\"\nsteps:\n  - id: noop\n    run: \"true\"\n")
-	library := in.write(t, "library/etl.yaml", callerOf("remote"))
-
-	result := in.run(true, nil, "start", library)
-	result.ExpectNonZeroExitCode()
-	requireOutput(t, result, "library DAGs cannot run on workers")
-}

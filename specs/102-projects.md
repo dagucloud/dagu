@@ -821,6 +821,12 @@ Rules:
 
 - Dispatch tasks, leases, and status reports carry the project ID. A
   distributed run of a project DAG records its status in that project.
+- A dispatch task of a library DAG's run, or of a child of one, says so, and
+  the coordinator records the run among the project's library runs (Runs of
+  Library DAGs).
+- A migrated project shares the default project's run IDs, so the
+  coordinator tells two runs of the same DAG name and run ID apart by their
+  project.
 - Base config content, profile values, and secret values in a task come from
   the task's project.
 - Every coordinator call that reads or writes a project's state carries the

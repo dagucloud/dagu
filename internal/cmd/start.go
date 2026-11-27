@@ -944,10 +944,7 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 		taskOpts...,
 	)
 
-	err := ctx.checkProjectDispatch()
-	if err == nil {
-		err = coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task})
-	}
+	err := coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task})
 	if err != nil {
 		if opts.seed != nil {
 			intake.MarkSeedFailed(ctx, ctx.Persistence.DAGRunRepository, opts.seed, err)

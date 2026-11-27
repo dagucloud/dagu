@@ -115,13 +115,8 @@ func (c *Context) workerNodeStore() (*store.WorkerNodeStore, error) {
 }
 
 // runtimeWorkerNodeStore returns the worker nodes for runs, or nil when the
-// backend cannot hold them. A run that cannot go to workers, as one of a
-// project other than the default one or of a library DAG cannot, has no
-// worker nodes, so its steps never match a node they cannot run on.
+// backend cannot hold them.
 func (c *Context) runtimeWorkerNodeStore() inventory.WorkerNodeStore {
-	if c.checkProjectDispatch() != nil {
-		return nil
-	}
 	workers, err := c.workerNodeStore()
 	if err != nil {
 		logger.Warn(c, "Worker nodes are unavailable", tag.Error(err))

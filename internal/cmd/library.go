@@ -6,23 +6,20 @@ package cmd
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
-var (
-	// errLibraryEnqueue refuses to queue a library DAG's run: no scheduler
-	// reads a project's library queues, so the run would never start.
-	errLibraryEnqueue = errors.New("library DAGs cannot be queued; no scheduler reads a project's library queues")
-	// errLibraryDispatch refuses to send a library DAG's run to a worker: a
-	// dispatch task does not carry the library, so the coordinator would
-	// record the run among the project's own DAGs.
-	errLibraryDispatch = errors.New("library DAGs cannot run on workers; run it locally")
-)
+// errLibraryEnqueue refuses to queue a library DAG's run: no scheduler
+// reads a project's library queues, so the run would never start.
+var errLibraryEnqueue = errors.New("library DAGs cannot be queued; no scheduler reads a project's library queues")
 
 // inLibraryOf returns c, or a copy of c that records runs in its project's
 // library stores when the DAG file that args name is a library DAG. A
@@ -61,14 +58,18 @@ func (c *Context) inLibrary() bool {
 	return c.projectStores != nil && c.projectStores.InLibrary()
 }
 
-// subDAGWorkerRefusal returns the error that refuses to send a child of a
-// library DAG's run to a worker, where the coordinator finds no root run
-// among the project's, or nil.
-func (c *Context) subDAGWorkerRefusal() error {
-	if c.inLibrary() {
-		return errLibraryDispatch
+// dispatchProject returns the scope in which the coordinator records the
+// runs the command sends to workers: those of the addressed project's own
+// DAGs, or of its library DAGs. It is the zero scope while projects are off.
+func (c *Context) dispatchProject() dispatch.ProjectScope {
+	if !c.Config.ProjectsEnabled {
+		return dispatch.ProjectScope{}
 	}
-	return nil
+	scope := dispatch.ProjectScope{Library: c.inLibrary()}
+	if !strings.EqualFold(c.project.Name, project.DefaultName) {
+		scope.ID = c.project.ID
+	}
+	return scope
 }
 
 // subDAGStateStore returns how a child run finds its state store, or nil

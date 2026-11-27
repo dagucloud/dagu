@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/secret"
@@ -102,7 +103,8 @@ func runCoordinator(ctx *Context, _ []string) error {
 	defer stop()
 	coordCtx := ctx.WithContext(signalCtx).WithEventSource(eventstore.SourceServiceCoordinator)
 	stores := coordCtx.runtimeStores()
-	svc, _, err := newCoordinator(coordCtx, stores.SecretStore, stores.ProfileStore, coordCtx.serviceInventoryStore(), stores.HostKeys)
+	projects := coordCtx.followProjects(coordCtx)
+	svc, _, err := newCoordinator(coordCtx, stores.SecretStore, stores.ProfileStore, coordCtx.serviceInventoryStore(), stores.HostKeys, projects)
 	if err != nil {
 		return fmt.Errorf("failed to initialize coordinator: %w", err)
 	}
@@ -110,7 +112,6 @@ func runCoordinator(ctx *Context, _ []string) error {
 	if err := svc.Start(coordCtx); err != nil {
 		return fmt.Errorf("failed to start coordinator: %w", err)
 	}
-	coordCtx.followProjects(coordCtx)
 
 	// Wait for context cancellation
 	<-coordCtx.Done()
@@ -126,13 +127,16 @@ func runCoordinator(ctx *Context, _ []string) error {
 	return nil
 }
 
-// newCoordinator constructs the coordinator service and handler.
+// newCoordinator constructs the coordinator service and handler. The given
+// stores are the default project's; projects, nil while projects are off,
+// holds the others'.
 func newCoordinator(
 	ctx *Context,
 	secretStore secret.Store,
 	profileStore profile.Store,
 	nodeInventory inventory.Store,
 	hostKeys inventory.HostKeyStore,
+	projects *file.ProjectStoreCache,
 ) (*coordinator.Service, *coordinator.Handler, error) {
 	cfg := ctx.Config
 	persistence := ctx.Persistence
@@ -240,6 +244,7 @@ func newCoordinator(
 		DAGRepository:             persistence.DAGRepository,
 		SecretStore:               secretStore,
 		ProfileStore:              profileStore,
+		Projects:                  coordinatorProjectSource(projects),
 		ProjectsEnabled:           cfg.ProjectsEnabled,
 		NodeInventory:             nodeInventory,
 		TrustedHostKeys:           hostKeys,
