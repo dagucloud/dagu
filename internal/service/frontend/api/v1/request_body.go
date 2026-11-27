@@ -6,6 +6,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -67,9 +68,11 @@ func closedBodyMiddleware(swagger *openapi3.T, mountedAPIPath string) func(http.
 }
 
 // closedBodyLimitMiddleware refuses with 413 a body over the limit of the rule
-// above, and gives the next handler the body read into memory. It runs before
-// any other reader of the body, so no reader holds more than the limit. A
-// request that no operation of the document matches passes unchanged.
+// above, and with 400 a body of a JSON operation that holds more than one JSON
+// value, since each decoder of the body stops after the first. It gives the
+// next handler the body read into memory. It runs before any other reader of
+// the body, so no reader holds more than the limit. A request that no
+// operation of the document matches passes unchanged.
 func closedBodyLimitMiddleware(swagger *openapi3.T, mountedAPIPath string) func(http.Handler) http.Handler {
 	router, err := gorillamux.NewRouter(swagger)
 	if err != nil {
@@ -82,7 +85,8 @@ func closedBodyLimitMiddleware(swagger *openapi3.T, mountedAPIPath string) func(
 				next.ServeHTTP(w, r)
 				return
 			}
-			if _, _, err := router.FindRoute(r); err != nil {
+			route, _, err := router.FindRoute(r)
+			if err != nil {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -99,11 +103,33 @@ func closedBodyLimitMiddleware(swagger *openapi3.T, mountedAPIPath string) func(
 				WriteErrorResponse(w, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: "failed to read the request body"})
 				return
 			}
+			if takesJSON(route.Operation) && hasTrailingJSON(raw) {
+				WriteErrorResponse(w, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: "the request body holds more than one JSON value"})
+				return
+			}
 			r.Body = io.NopCloser(bytes.NewReader(raw))
 			r.ContentLength = int64(len(raw))
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// takesJSON reports whether the operation declares a JSON request body.
+func takesJSON(op *openapi3.Operation) bool {
+	return op.RequestBody != nil && op.RequestBody.Value != nil && op.RequestBody.Value.Content.Get("application/json") != nil
+}
+
+// hasTrailingJSON reports whether raw holds anything but space after its first
+// JSON value. A body that does not start with a JSON value is left to the
+// schema check.
+func hasTrailingJSON(raw []byte) bool {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	var first json.RawMessage
+	if err := dec.Decode(&first); err != nil {
+		return false
+	}
+	_, err := dec.Token()
+	return !errors.Is(err, io.EOF)
 }
 
 // closedBodyLimit returns the limit of the body of a request that can carry one
@@ -122,7 +148,7 @@ func closedBodyLimit(r *http.Request, mountedAPIPath string) (int64, bool) {
 	switch {
 	case strings.HasPrefix(relative, "ai/"):
 		return maxAIRequestBodyBytes, true
-	case relative == "skills" || strings.HasPrefix(relative, "skills/"):
+	case relative == "skills" || relative == "skills-download" || strings.HasPrefix(relative, "skills/"):
 		return maxSkillsRequestBodyBytes, true
 	}
 	return 0, false

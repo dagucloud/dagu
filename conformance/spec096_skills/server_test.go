@@ -254,7 +254,7 @@ func TestServerFilesAndZip(t *testing.T) {
 	}
 
 	several := func() response {
-		return s.json(http.MethodPost, "/skills/download", map[string]any{"names": []string{"beta", "broken", "alpha"}}, nil)
+		return s.json(http.MethodPost, "/skills-download", map[string]any{"names": []string{"beta", "broken", "alpha"}}, nil)
 	}
 	first := several()
 	require.Equal(t, http.StatusOK, first.status)
@@ -265,7 +265,7 @@ func TestServerFilesAndZip(t *testing.T) {
 	require.Contains(t, all, "beta/SKILL.md")
 	require.Contains(t, all, "alpha/assets/logo.bin")
 
-	missing := s.json(http.MethodPost, "/skills/download", map[string]any{"names": []string{"alpha", "nope"}}, nil)
+	missing := s.json(http.MethodPost, "/skills-download", map[string]any{"names": []string{"alpha", "nope"}}, nil)
 	require.Equal(t, http.StatusNotFound, missing.status)
 	require.Contains(t, string(missing.body), "nope")
 	require.Equal(t, "application/json", missing.header.Get("Content-Type"), "no partial ZIP")

@@ -6,8 +6,10 @@ package harness
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math/rand/v2"
 	"net"
 	"os"
@@ -106,7 +108,8 @@ func WaitTimeout(t *testing.T) time.Duration {
 	return commandTimeout(t)
 }
 
-// NewRunner creates an isolated project seeded with package-local testdata.
+// NewRunner creates an isolated project seeded with package-local testdata,
+// or an empty one for a package without testdata.
 func NewRunner(t *testing.T) *Runner {
 	t.Helper()
 
@@ -114,7 +117,7 @@ func NewRunner(t *testing.T) *Runner {
 		t:   t,
 		dir: t.TempDir(),
 	}
-	if err := os.CopyFS(r.dir, os.DirFS("testdata")); err != nil {
+	if err := os.CopyFS(r.dir, os.DirFS("testdata")); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		r.t.Fatalf("copying testdata: %v", err)
 	}
 	return r

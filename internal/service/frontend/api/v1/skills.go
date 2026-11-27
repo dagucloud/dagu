@@ -329,14 +329,11 @@ func (a *API) DownloadSkill(ctx context.Context, request api.DownloadSkillReques
 	if !skill.IsSafeFolderName(request.Name) {
 		return nil, errInvalidSkillName
 	}
-	body, name, err := a.skillZip(ctx, []string{request.Name})
+	response, err := a.skillZip(ctx, []string{request.Name})
 	if err != nil {
 		return nil, err
 	}
-	return api.DownloadSkill200ApplicationzipResponse{
-		Body:    body,
-		Headers: api.DownloadSkill200ResponseHeaders{ContentDisposition: zipDisposition(name, []string{request.Name})},
-	}, nil
+	return response, nil
 }
 
 // DownloadSkills streams several skills as one ZIP.
@@ -349,63 +346,73 @@ func (a *API) DownloadSkills(ctx context.Context, request api.DownloadSkillsRequ
 			return nil, errInvalidSkillName
 		}
 	}
-	body, name, err := a.skillZip(ctx, request.Body.Names)
+	response, err := a.skillZip(ctx, request.Body.Names)
 	if err != nil {
 		return nil, err
 	}
-	return api.DownloadSkills200ApplicationzipResponse{
-		Body:    body,
-		Headers: api.DownloadSkills200ResponseHeaders{ContentDisposition: zipDisposition(name, request.Body.Names)},
-	}, nil
+	return response, nil
 }
 
-// skillZip checks every name first, so that an unknown name gives an error and
-// no partial ZIP, then returns the reader of the stream.
-func (a *API) skillZip(ctx context.Context, names []string) (io.Reader, string, error) {
-	skills, err := a.skillStore().DownloadSkills(names)
-	if err != nil {
-		switch {
-		case errors.Is(err, skill.ErrNotFound):
-			return nil, "", &Error{Code: api.ErrorCodeNotFound, Message: "Skill not found: " + strings.TrimPrefix(err.Error(), skill.ErrNotFound.Error()+": "), HTTPStatus: http.StatusNotFound}
-		case errors.Is(err, skill.ErrDownloadTooLarge):
-			return nil, "", &Error{Code: api.ErrorCodeBadRequest, Message: err.Error(), HTTPStatus: http.StatusBadRequest}
-		}
+// skillZip reads and checks every skill before the first byte, so that an
+// unknown name or a broken limit gives an error and no partial ZIP.
+func (a *API) skillZip(ctx context.Context, names []string) (*skillZipResponse, error) {
+	skills, err := a.skillStore().DownloadSkills(ctx, names)
+	switch {
+	case errors.Is(err, skill.ErrNotFound):
+		return nil, &Error{Code: api.ErrorCodeNotFound, Message: err.Error(), HTTPStatus: http.StatusNotFound}
+	case errors.Is(err, skill.ErrDownloadRefused):
+		return nil, &Error{Code: api.ErrorCodeBadRequest, Message: err.Error(), HTTPStatus: http.StatusBadRequest}
+	case err != nil:
 		logger.Error(ctx, "Failed to read skills for a download", tag.Error(err))
-		return nil, "", errFailedToReadSkill
+		return nil, errFailedToReadSkill
 	}
-	unique := make([]string, len(skills))
+	downloaded := make([]string, len(skills))
+	hashes := make([]string, len(skills))
 	for i, sk := range skills {
-		unique[i] = sk.Name
+		if err := unsettledReadError(ctx, sk); err != nil {
+			return nil, err
+		}
+		downloaded[i], hashes[i] = sk.Name, sk.Hash
 	}
-	pr, pw := io.Pipe()
-	go func() {
-		pw.CloseWithError(skill.WriteZip(pw, skills))
-	}()
-	a.logAudit(ctx, audit.CategorySystem, "skill_download", map[string]string{"names": strings.Join(unique, ",")})
-	return pr, skill.ZipFileName(unique, time.Now()), nil
+	details := map[string]any{"resource_type": "skill", "names": downloaded, "hashes": hashes}
+	if len(downloaded) == 1 {
+		details["resource_id"] = downloaded[0]
+	}
+	a.logAudit(ctx, audit.CategorySystem, "skill_download", details)
+	return &skillZipResponse{ctx: ctx, skills: skills, disposition: zipDisposition(downloaded, time.Now())}, nil
 }
 
-// zipDisposition builds the header Content-Disposition. A name that is not
-// ASCII gets the extended form of RFC 6266.
-func zipDisposition(fileName string, names []string) *string {
-	value := fmt.Sprintf("attachment; filename=%q", fileName)
-	if len(names) == 1 && fileName == "skill.zip" {
-		value += "; filename*=UTF-8''" + percentEncode(names[0]+".zip")
+// zipDisposition gives the header Content-Disposition of a ZIP of skills. A
+// name that a quoted string cannot hold as it is gets the ASCII name skill.zip
+// and the form filename* of RFC 6266.
+func zipDisposition(names []string, now time.Time) string {
+	if len(names) > 1 {
+		return `attachment; filename="skills-` + now.UTC().Format(time.DateOnly) + `.zip"`
 	}
-	return &value
-}
-
-func percentEncode(s string) string {
+	name := names[0] + ".zip"
+	if !strings.ContainsFunc(name, func(r rune) bool { return r < 0x20 || r > 0x7e || r == '"' || r == '\\' }) {
+		return `attachment; filename="` + name + `"`
+	}
 	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		c := s[i]
+	for _, c := range []byte(name) {
 		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '.' || c == '_' {
 			b.WriteByte(c)
-			continue
+		} else {
+			fmt.Fprintf(&b, "%%%02X", c)
 		}
-		fmt.Fprintf(&b, "%%%02X", c)
 	}
-	return b.String()
+	return `attachment; filename="skill.zip"; filename*=UTF-8''` + b.String()
+}
+
+// isSkillDownload matches the ZIP downloads of skills.
+func isSkillDownload(r *http.Request, apiBasePath string) bool {
+	base := strings.TrimRight(apiBasePath, "/")
+	if r.Method == http.MethodPost {
+		return r.URL.Path == base+"/skills-download"
+	}
+	suffix, ok := strings.CutPrefix(r.URL.Path, base+"/skills/")
+	name, rest, _ := strings.Cut(suffix, "/")
+	return ok && r.Method == http.MethodGet && name != "" && rest == "download"
 }
 
 // skillPrecondition reads the headers If-Match and If-None-Match. Only the
@@ -487,6 +494,33 @@ func (r *skillFileResponse) VisitGetSkillFileResponse(w http.ResponseWriter) err
 	if _, err := io.Copy(w, r.body); err != nil {
 		logger.Warn(r.ctx, "Skill file stream ended early", tag.Error(err))
 		// Headers are committed; abort so no error body joins the partial file.
+		panic(http.ErrAbortHandler)
+	}
+	return nil
+}
+
+// skillZipResponse streams the ZIP of skills that a download read and checked.
+type skillZipResponse struct {
+	ctx         context.Context
+	skills      []*skill.Skill
+	disposition string
+}
+
+func (r *skillZipResponse) VisitDownloadSkillResponse(w http.ResponseWriter) error { return r.visit(w) }
+
+func (r *skillZipResponse) VisitDownloadSkillsResponse(w http.ResponseWriter) error {
+	return r.visit(w)
+}
+
+func (r *skillZipResponse) visit(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", r.disposition)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	if err := skill.WriteZip(r.ctx, w, r.skills); err != nil {
+		logger.Warn(r.ctx, "Skill ZIP stream ended early", tag.Error(err))
+		// Headers are committed; abort so no error body joins the partial ZIP,
+		// and the client sees a download that did not complete.
 		panic(http.ErrAbortHandler)
 	}
 	return nil

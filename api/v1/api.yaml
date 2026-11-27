@@ -9811,10 +9811,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /skills/download:
+  /skills-download:
     post:
       summary: "Download several skills as one ZIP"
-      description: "Streams one ZIP that holds each named skill as a top-level folder with its files exactly as stored. A skill that is not valid can be downloaded. An unknown name gives 404 and no ZIP. At most 100 skills."
+      description: "Streams one ZIP that holds each named skill as a top-level folder with its files exactly as stored, sorted, without duplicates. A skill that is not valid can be downloaded; its hidden files, files with hard links and files above 4 MiB stay out. Every name is checked before the first byte: an unknown name gives 404 and no ZIP. At most 100 skills and 256 MiB of files. A file that changes during the stream aborts it, so the ZIP is incomplete."
       operationId: "downloadSkills"
       tags:
         - "skills"
@@ -9846,13 +9846,17 @@ paths:
               schema:
                 type: "string"
               description: "Attachment file name: skills-<date>.zip, or <name>.zip for one skill"
+            Cache-Control:
+              schema:
+                type: "string"
+              description: "no-store"
           content:
             application/zip:
               schema:
                 type: string
                 format: binary
         "400":
-          description: "Invalid request, or too many skills, or the skills are too large"
+          description: "Invalid request, too many skills, files above 256 MiB, or names that one ZIP cannot hold: a colon, or two names that differ only by case"
           content:
             application/json:
               schema:
@@ -9865,6 +9869,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: "A skill does not exist"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "A skill is being changed and could not be read as one version; try again"
           content:
             application/json:
               schema:
@@ -10014,54 +10024,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /skills/{name}/download:
-    get:
-      summary: "Download one skill as a ZIP"
-      description: "Streams a ZIP with the skill as the top-level folder <name>/ and its files exactly as stored. A skill that is not valid can be downloaded."
-      operationId: "downloadSkill"
-      tags:
-        - "skills"
-      parameters:
-        - $ref: "#/components/parameters/RemoteNode"
-        - $ref: "#/components/parameters/SkillName"
-      responses:
-        "200":
-          description: "The ZIP"
-          headers:
-            Content-Disposition:
-              schema:
-                type: "string"
-              description: "Attachment file name: <name>.zip"
-          content:
-            application/zip:
-              schema:
-                type: string
-                format: binary
-        "400":
-          description: "Invalid skill name"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          description: "Not authenticated"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          description: "Skill not found"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        default:
-          description: "Unexpected error"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
     delete:
       summary: "Delete a skill"
       description: "Deletes the whole folder of a skill with every file. After 204 the skill is gone for every reader. A file that the server cannot remove stays in a hidden folder until a later skill delete removes it. Send If-Match with the hash that the client read. Requires developer role or above."
@@ -10118,6 +10080,64 @@ paths:
                 $ref: "#/components/schemas/SkillError"
         "428":
           description: "The request has no If-Match header"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /skills/{name}/download:
+    get:
+      summary: "Download one skill as a ZIP"
+      description: "Streams a ZIP with the skill as the top-level folder <name>/ and its files exactly as stored. A skill that is not valid can be downloaded; its hidden files, files with hard links and files above 4 MiB stay out. A file that changes during the stream aborts it, so the ZIP is incomplete."
+      operationId: "downloadSkill"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/SkillName"
+      responses:
+        "200":
+          description: "The ZIP"
+          headers:
+            Content-Disposition:
+              schema:
+                type: "string"
+              description: "Attachment file name: <name>.zip, or skill.zip with filename* for a name that is not ASCII"
+            Cache-Control:
+              schema:
+                type: "string"
+              description: "no-store"
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: "Invalid skill name, a colon in the name, or files above 256 MiB"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Skill not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The skill is being changed and could not be read as one version; try again"
           content:
             application/json:
               schema:
@@ -10196,7 +10216,7 @@ paths:
 
     put:
       summary: "Create or replace one file of a skill"
-      description: "Writes one file under references/, assets/ or scripts/ atomically. The body holds the bytes of the file. A file of references/ or scripts/ MUST be valid UTF-8. Send If-Match with the hash that the client read. SKILL.md has its own route. Requires developer role or above."
+      description: "Writes one file under references/, assets/ or scripts/ atomically. The body holds the bytes of the file. A file of references/ or scripts/ MUST be valid UTF-8. Send If-Match with the hash that the client read. SKILL.md has its own route. An empty body writes an empty file, whatever its Content-Type. Requires developer role or above."
       operationId: "putSkillFile"
       tags:
         - "skills"
@@ -10216,8 +10236,10 @@ paths:
           description: "Not allowed: only the creation of a skill takes If-None-Match. The header gives 400."
           schema:
             type: string
+      # Not required: the validator refuses a body of 0 bytes as missing, and
+      # an empty file is valid.
       requestBody:
-        required: true
+        required: false
         content:
           application/octet-stream:
             schema:
@@ -10350,7 +10372,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
 
   /calendars:
     get:

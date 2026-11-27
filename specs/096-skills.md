@@ -2,7 +2,7 @@
 
 ## Status
 
-Partially implemented.
+Partially implemented (the API and the download).
 
 DAG discovery skips the skills directory, as [Terms](#terms) states. `GET /skills` lists the skill
 folders with their hash and the errors and the warnings of the format and the folder rules.
@@ -11,7 +11,8 @@ the cache of [Source of truth](#source-of-truth). `PUT /skills/{name}` creates o
 `SKILL.md`, `DELETE /skills/{name}` deletes a skill, and `PUT` and `DELETE /skills/{name}/files`
 write and delete one file, under the preconditions of
 [Preconditions and conflicts](#preconditions-and-conflicts). Unit tests cover them, and a
-conformance test covers discovery. The ZIP download is specified but not built yet.
+conformance test covers discovery. `GET /skills/{name}/download` and `POST /skills-download`
+stream ZIP files. The use of a skill by a step, its transfer to a worker and the UI come later.
 
 ## Scope
 
@@ -350,11 +351,12 @@ The routes are under `/api/v1`. They use camelCase names. All routes accept the 
 parameter. A read needs a signed-in user when authentication is on. A write, a delete and a file
 write need the developer role or above, and the permission `write_dags`.
 
-A JSON body of a skill route has a closed schema. An unknown field gives the status 400. A JSON body
-above 8 MiB gives the status 413. The check applies to every `Content-Type`. The error never quotes
+A JSON body of a skill route has a closed schema. An unknown field gives the status 400, and so
+does a second JSON value after the first. A JSON body above 8 MiB gives the status 413. The check applies to every `Content-Type`. The error never quotes
 a value of the body. A request for a remote node gets the check of that node. The body of
 `PUT /skills/{name}/files` is the bytes of the file, with the type `application/octet-stream`.
-Another type, or none, gives 400.
+Another type, or none, gives 400. An empty body writes an empty file, such as a `.gitkeep`, whatever
+its type.
 
 | Route | Meaning |
 | --- | --- |
@@ -366,7 +368,7 @@ Another type, or none, gives 400.
 | `PUT /skills/{name}/files?path=` | Write one file of `references/`, `assets/` or `scripts/`. The body holds the bytes. |
 | `DELETE /skills/{name}/files?path=` | Delete one file, or an entry that breaks the layout. |
 | `GET /skills/{name}/download` | Download one skill as a ZIP file. |
-| `POST /skills/download` | Download several skills as one ZIP file. Body `{names}`. |
+| `POST /skills-download` | Download several skills as one ZIP file. Body `{names}`. |
 
 The listing contains every folder of the skills directory, also a folder with no `SKILL.md` and a
 folder that breaks the format. It does not contain a plain file, a link or a hidden folder. A read of a
@@ -398,7 +400,7 @@ when the file is gone or has another size than the read of the skill recorded, o
 did not settle while the server read it (`changing`). It gives 500 for a skill that the server
 cannot read (`unreadable`). A file whose content
 changes during the stream stops the stream before its last bytes, so a complete body always has
-the hash in `ETag`. The server then closes the connection and adds nothing to the body. It gives 413 for a file above 4 MiB; the ZIP download includes such a file. The
+the hash in `ETag`. The server then closes the connection and adds nothing to the body. It gives 413 for a file above 4 MiB, and the ZIP download leaves such a file out. The
 response has the type `application/octet-stream`, and the header `Content-Disposition` is an
 attachment.
 
@@ -428,23 +430,42 @@ name of the skill as its ID.
 
 ## Download as ZIP
 
-`GET /skills/{name}/download` downloads one skill. `POST /skills/download` downloads up to 100
+`GET /skills/{name}/download` downloads one skill. `POST /skills-download` downloads up to 100
 skills. The request is a POST with a JSON body, because a list of names can be long for a URL. The
-rules for roles are the same as for the read of a skill.
+route is not below `/skills/`, so that a skill named `download` keeps its routes. The rules for roles
+are the same as for the read of a skill.
 
-The response has the type `application/zip`. The header `Content-Disposition` is an attachment. The
-file name is `<name>.zip` for one skill with an ASCII name. For another name, it is `skill.zip` with a
-`filename*` value. For several skills, it is `skills-<date>.zip`, with the date in UTC.
+The response has the type `application/zip` and the header `Cache-Control: no-store`. The header
+`Content-Disposition` is an attachment. The file name is `<name>.zip` for one skill whose name is
+printable ASCII without `"`. For another name, it is `skill.zip` with a `filename*` value of RFC 6266.
+For several skills, it is `skills-<date>.zip`, with the date in UTC.
 
-The ZIP file has one top-level folder `<name>/` for each skill. The folder holds the files of the
-skill, exactly as stored, also a file `.gitkeep`. Dagu sorts the skills by name and the files by
-path in byte order. It removes a name that occurs twice. Every entry has the time 1980-01-01 00:00:00
-UTC, the mode 0644 and the method deflate. The same skills give the same bytes.
+The ZIP file has one top-level folder `<name>/` for each skill, and no entry outside it. The folder
+holds the files of the skill, exactly as stored, also a file `.gitkeep`. Dagu sorts the skills by
+name and the files by path in byte order. It removes a name that occurs twice. Every entry has the
+time 1980-01-01 00:00:00 UTC, the mode 0644 and the method deflate. A name that is not ASCII is
+marked as UTF-8. The same skills give the same bytes from the same Dagu binary.
 
 A skill with an error can be downloaded, so that the owner can repair it. The ZIP file marks
-nothing. An unknown name gives 404 and no ZIP file: Dagu checks every name before it sends the first
-byte. A request for more than 100 skills, or for files above 256 MiB in total, gives 400. Dagu
-streams the ZIP file. A file that changes during the stream stops the stream with an error.
+nothing. It leaves out a hidden file other than `.gitkeep`, a file with more than one hard link,
+which can be a file outside the folder, and a file above 4 MiB, which has no recorded SHA-256. A link
+and a special file have no content, so they are never in it.
+
+Dagu reads and checks every skill before it sends the first byte. An unknown name gives 404 and no
+ZIP file. A request for more than 100 skills, for files above 256 MiB in total, for a name with `:`,
+or for two names that differ only by case gives 400: a careless unzip on Windows reads `c:` as a
+drive, and a file system that ignores case merges the two folders. A skill that did not settle
+(`changing`) gives 409, and a skill that Dagu cannot read (`unreadable`) gives 500.
+
+Dagu streams the ZIP file and reads one file at a time, at most 4 MiB. It writes a file only when its
+content has the SHA-256 that the read of the skill recorded, so the ZIP never holds other bytes. A
+file that changes, grows, is deleted or becomes a link after the check stops the stream, and so does
+a client that goes away. The server then closes the connection before the end of the ZIP: the
+client gets an incomplete download, never an error body inside it. Like a log download, the stream
+has no total time limit, and a request for a remote node streams through the proxy.
+
+A download gives one audit event `skill_download` with the names and the hashes of the skills. Its
+resource ID is the name when it holds one skill.
 
 ## Use in chat.completion
 
@@ -560,6 +581,8 @@ A skill holds no secret. See [Secrets](#secrets).
 | A write or a delete has a stale hash | 409 with the current hash. |
 | A delete or a file write has `If-None-Match` | 400. |
 | A download names an unknown skill | 404, no ZIP file. |
+| A download breaks a limit or a rule of the names | 400, no ZIP file. |
+| A file changes during a download | The server closes the connection before the end of the ZIP. |
 
 ## Examples
 
@@ -683,24 +706,26 @@ unit tests are in `internal/skill/`, `internal/persis/file/dag/`, `internal/spec
 | `TestReadThatMeetsADeleteFindsNoSkill` (unit) | A read that meets the delete of its skill finds no skill, never a part of one. |
 | `TestDeleteRemovesTheLockFolder` (unit) | A delete removes the lock folder of the skill. |
 | `TestDeleteRemovesWhatEarlierDeletesLeft` (unit) | A delete removes the hidden folders that earlier deletes left. |
-| `TestClosedBodyMiddleware` (unit) | A skills body with an unknown field, a wrong type or more than 8 MiB is refused for every `Content-Type`, and the error quotes no value. A file body passes as `application/octet-stream` only. |
+| `TestClosedBodyMiddleware` (unit) | A skills body with an unknown field, a wrong type, a second JSON value or more than 8 MiB is refused for every `Content-Type`, and the error quotes no value. A file body passes as `application/octet-stream` only, and an empty body passes with any type. |
 | `TestSkillsPutNeedsAPrecondition` (unit) | `PUT /skills/{name}` gives 428 with no precondition and 400 for an `If-Match` that is not 64 hexadecimal characters. |
 | `TestSkillsPutChainAndConflict` (unit) | A create, an update with the hash, a stale hash and a change on disk give 200 or 409 with the current hash. An invalid `SKILL.md` gives 400 with its rules. |
-| `TestSkillsFiles` (unit) | The file routes chain the hashes, apply the rules of the folder, the 4 MiB limit and the preconditions, and delete an entry that breaks the layout. |
+| `TestSkillsFiles` (unit) | The file routes chain the hashes, write and read an empty file, apply the rules of the folder, the 4 MiB limit and the preconditions, and delete an entry that breaks the layout. |
 | `TestSkillsDelete` (unit) | `DELETE /skills/{name}` gives 428, 409, 400 for `If-None-Match`, 204 and then 404. |
 | `TestSkillsWriteRefusesSymbolicLinks` (unit) | A file write through a linked skill folder or a linked folder of a skill gives 400 and writes nothing outside. |
 | `TestSkillsTwoInstancesRaceOnOneDirectory` (unit) | Two API instances on one directory: one write wins, the other gets 409. |
-| `TestSkillsWriteNeedsDeveloper` (unit) | A viewer reads skills and cannot write or delete them or their files. |
+| `TestSkillsWriteNeedsDeveloper` (unit) | A viewer reads and downloads skills and cannot write or delete them or their files. |
 | `TestSkillsWritesFollowTheDAGWriteRules` (unit) | A write or a delete needs `write_dags`, and the read-only mode of Git Sync refuses it. |
 | `TestSkillsWritesAreAudited` (unit) | Each write and each delete gives an audit event with the resource `skill`, the name and the hash, and no content. |
 | `TestSkillsWriteFailureNamesNoServerPath` (unit) | A write that the disk refuses gives 500 and names no server path. |
-
-These rows have no binary-level test. Go tests of `internal/skill/` check them: the rule
-`folder-link`, the cache, the lock that a holder leaves after a crash, and the refusal of a write
-through a link. The roles of the API need a license, so a Go test of the handlers covers them. The
-UI contract has the tests of the UI.
-
-The ZIP download has no test yet.
+| `TestZip` (unit) | The ZIP holds the files as stored under `<name>/`, sorted and without a duplicate, with the fixed time and mode and UTF-8 names. Other times and modes on disk give the same bytes. An unknown name gives `ErrNotFound`. |
+| `TestZipLeavesOutWhatASkillMustNotHold` (unit) | A skill with errors downloads without its hidden files, its links, its hard links and its files above 4 MiB. |
+| `TestZipLimits` (unit) | More than 100 skills, files above 256 MiB, a name with `:` and two names that differ only by case are refused before the first byte. |
+| `TestZipStopsAtAChange` (unit) | A file that changes, grows, becomes a link or is deleted after the check, and a folder that becomes a link, stop the ZIP before any byte of that file, and the output is not a valid ZIP. |
+| `TestZipStopsWhenTheContextEnds` (unit) | The end of the request stops the ZIP. |
+| `TestSkillZipStreamAborts` (unit) | A file that changes during the stream aborts the response, and no error body joins the partial ZIP. |
+| `TestSkillsDownload` (unit) | Both routes send `application/zip` with `no-store` and the file name of RFC 6266, also for a name that is not ASCII and for a skill named `download`. The same skills give the same bytes. An unknown name gives 404 and JSON. A body with too many names, an unknown field or a wrong type, and names that the rules refuse give 400. |
+| `TestSkillsDownloadIsAudited` (unit) | Each download gives one audit event with the name and the hash, and no content. |
+| `TestRemoteSkillDownloadStreams` (unit) | A skill ZIP streams through a remote node with its headers, past the write deadline of the server. |
 
 ## Open items
 

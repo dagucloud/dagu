@@ -5,13 +5,11 @@ package skill
 
 import (
 	"archive/zip"
-	"crypto/sha256"
-	"encoding/hex"
+	"context"
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -20,43 +18,50 @@ import (
 // give the same bytes.
 var zipEpoch = time.Date(1980, time.January, 1, 0, 0, 0, 0, time.UTC)
 
-// ErrDownloadTooLarge is returned when the files of the skills of a ZIP are
-// above MaxDownloadBytes.
-var ErrDownloadTooLarge = errors.New("the skills are too large for one ZIP")
+// ErrDownloadRefused is returned when the skills cannot form one ZIP: too many
+// skills, too many bytes, or names that a ZIP cannot hold side by side.
+var ErrDownloadRefused = errors.New("the skills cannot be downloaded as one ZIP")
 
-// DownloadSkills reads the skills that the names give, without file content.
-// It fails with ErrNotFound for the first name that does not exist, so that the
-// caller sends no partial ZIP. The result is sorted by name, without duplicates.
-// It fails with ErrDownloadTooLarge when the files are too many or too large.
-func (s *Store) DownloadSkills(names []string) ([]*Skill, error) {
-	seen := make(map[string]struct{}, len(names))
-	unique := make([]string, 0, len(names))
-	for _, n := range names {
-		if _, dup := seen[n]; dup {
-			continue
-		}
-		seen[n] = struct{}{}
-		unique = append(unique, n)
-	}
-	sort.Strings(unique)
+// DownloadSkills reads the skills that the names give, sorted by name and
+// without duplicates, and checks the limits of one ZIP. It fails with
+// ErrNotFound for the first name that does not exist, and with
+// ErrDownloadRefused when the skills break a limit, so that the caller sends
+// no partial ZIP. The result holds no file content.
+func (s *Store) DownloadSkills(ctx context.Context, names []string) ([]*Skill, error) {
+	unique := slices.Compact(slices.Sorted(slices.Values(names)))
 	if len(unique) > MaxDownloadSkills {
-		return nil, fmt.Errorf("%w: %d skills asked, the limit is %d", ErrDownloadTooLarge, len(unique), MaxDownloadSkills)
+		return nil, fmt.Errorf("%w: %d skills asked, the limit is %d", ErrDownloadRefused, len(unique), MaxDownloadSkills)
+	}
+	for i, n := range unique {
+		// A careless unzip on Windows reads "c:" at the start of a path as a drive.
+		if strings.Contains(n, ":") {
+			return nil, fmt.Errorf("%w: the name %q has a colon", ErrDownloadRefused, n)
+		}
+		// On a file system that ignores case, the two folders of the ZIP are one.
+		for _, other := range unique[:i] {
+			if strings.EqualFold(n, other) {
+				return nil, fmt.Errorf("%w: the names %q and %q differ only by case", ErrDownloadRefused, other, n)
+			}
+		}
 	}
 	var total int64
 	out := make([]*Skill, 0, len(unique))
 	for _, n := range unique {
-		sk, err := s.Read(n)
-		if err != nil {
-			if errors.Is(err, ErrNotFound) {
-				return nil, fmt.Errorf("%w: %s", ErrNotFound, n)
-			}
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		for _, f := range sk.Files {
+		sk, err := s.Read(n)
+		if errors.Is(err, ErrNotFound) {
+			return nil, fmt.Errorf("%w: %s", ErrNotFound, n)
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range zipFiles(sk) {
 			total += f.Size
 		}
 		if total > MaxDownloadBytes {
-			return nil, fmt.Errorf("%w: more than %d bytes", ErrDownloadTooLarge, MaxDownloadBytes)
+			return nil, fmt.Errorf("%w: the files are above %d bytes", ErrDownloadRefused, MaxDownloadBytes)
 		}
 		out = append(out, sk)
 	}
@@ -64,114 +69,70 @@ func (s *Store) DownloadSkills(names []string) ([]*Skill, error) {
 }
 
 // WriteZip writes the skills as one ZIP. Each skill is a top-level folder
-// <name>/ that holds its files, exactly as stored. The order of the entries is
-// the order of the skills, then the order of the paths. Every entry has the
-// same time stamp and the mode 0644, so the same skills give the same bytes.
-// A skill that is not valid is written too, also a file above MaxFileBytes. A
-// file that changed since the read of the skill stops the write with an error.
-func WriteZip(w io.Writer, skills []*Skill) error {
+// <name>/ that holds its files, exactly as stored, in the order of the skills
+// and then of the paths. Every entry has the same time stamp and the mode
+// 0644, so the same skills give the same bytes. A skill that is not valid is
+// written too, without a hidden file, a file with hard links or a file above
+// MaxFileBytes.
+//
+// WriteZip reads one file at a time into memory, and writes it only when it
+// has the SHA-256 that the read of the skill recorded. A file that changed,
+// and the end of ctx, stop the write with an error before the end of the ZIP,
+// so the output is not a valid ZIP.
+func WriteZip(ctx context.Context, w io.Writer, skills []*Skill) error {
 	zw := zip.NewWriter(w)
+	var buf []byte
 	for _, sk := range skills {
-		if err := writeSkillEntries(zw, sk); err != nil {
-			return err
+		for _, f := range zipFiles(sk) {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			buf = slices.Grow(buf[:0], int(f.Size))[:f.Size]
+			if err := sk.readInto(f.Path, buf); err != nil {
+				return err
+			}
+			header := &zip.FileHeader{Name: sk.Name + "/" + f.Path, Method: zip.Deflate, Modified: zipEpoch}
+			header.SetMode(0o644)
+			fw, err := zw.CreateHeader(header)
+			if err != nil {
+				return err
+			}
+			if _, err := fw.Write(buf); err != nil {
+				return err
+			}
 		}
 	}
 	return zw.Close()
 }
 
-// writeSkillEntries reads the files of one skill from disk. The root keeps every
-// read inside the skill folder, also when a file becomes a link.
-func writeSkillEntries(zw *zip.Writer, sk *Skill) error {
-	if len(sk.Files) == 0 {
-		return nil
+// zipFiles lists the files of a skill that a ZIP holds. A hidden file other
+// than .gitkeep, a file with hard links, which can be a file outside the
+// folder, and a file above MaxFileBytes, which has no recorded SHA-256, stay
+// out.
+func zipFiles(sk *Skill) []File {
+	linked := map[string]bool{}
+	for _, issue := range sk.Issues {
+		if issue.Rule == RuleHardlink {
+			linked[issue.File] = true
+		}
 	}
-	root, err := openSkillDir(sk.Dir)
-	if err != nil {
-		return fmt.Errorf("skill %q: %w", sk.Name, err)
-	}
-	defer func() { _ = root.Close() }()
+	out := make([]File, 0, len(sk.Files))
 	for _, f := range sk.Files {
-		if err := writeEntry(zw, root, sk, f); err != nil {
-			return err
+		if f.Size <= MaxFileBytes && !linked[f.Path] && !isHiddenPath(f.Path) {
+			out = append(out, f)
 		}
 	}
-	return nil
+	return out
 }
 
-// writeEntry writes one file as one entry. A file up to MaxFileBytes must have
-// the recorded SHA-256 before its first byte is written. A larger file has no
-// content hash: it streams, and its size must match.
-func writeEntry(zw *zip.Writer, root *os.Root, sk *Skill, f File) error {
-	file, err := root.Open(f.Path)
-	if err != nil {
-		return fmt.Errorf("skill %q: %w", sk.Name, err)
-	}
-	defer func() { _ = file.Close() }()
-	changed := func() error {
-		return fmt.Errorf("skill %q: file %q changed after Dagu read the skill (hash %s)", sk.Name, f.Path, sk.Hash)
-	}
-	header := &zip.FileHeader{
-		Name:     sk.Name + "/" + f.Path,
-		Method:   zip.Deflate,
-		Modified: zipEpoch,
-	}
-	header.SetMode(0o644)
-	if f.Size <= MaxFileBytes {
-		data, err := io.ReadAll(io.LimitReader(file, f.Size+1))
-		if err != nil {
-			return fmt.Errorf("skill %q: %w", sk.Name, err)
-		}
-		if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != f.SHA256 {
-			return changed()
-		}
-		fw, err := zw.CreateHeader(header)
-		if err != nil {
-			return err
-		}
-		_, err = fw.Write(data)
-		return err
-	}
-	// A file above the limit has no recorded hash: the size and the times of the
-	// open file tell a change during the stream.
-	before, err := file.Stat()
-	if err != nil {
-		return fmt.Errorf("skill %q: %w", sk.Name, err)
-	}
-	fw, err := zw.CreateHeader(header)
-	if err != nil {
-		return err
-	}
-	n, err := io.Copy(fw, io.LimitReader(file, f.Size+1))
-	if err != nil {
-		return fmt.Errorf("skill %q: %w", sk.Name, err)
-	}
-	after, err := file.Stat()
-	if err != nil {
-		return fmt.Errorf("skill %q: %w", sk.Name, err)
-	}
-	if n != f.Size || after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
-		return changed()
-	}
-	return nil
-}
-
-// ZipFileName returns the file name of the ZIP of the skills: <name>.zip for
-// one skill and skills-<date>.zip for several.
-func ZipFileName(names []string, now time.Time) string {
-	if len(names) == 1 && IsSafeFolderName(names[0]) && isASCII(names[0]) && !strings.ContainsAny(names[0], `"; `) {
-		return names[0] + ".zip"
-	}
-	if len(names) == 1 {
-		return "skill.zip"
-	}
-	return "skills-" + now.UTC().Format("2006-01-02") + ".zip"
-}
-
-func isASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] >= 0x80 {
-			return false
+// isHiddenPath reports whether a part of the path starts with a dot, except
+// a last part .gitkeep.
+func isHiddenPath(rel string) bool {
+	parts := strings.Split(rel, "/")
+	for i, part := range parts {
+		if strings.HasPrefix(part, ".") && (i < len(parts)-1 || part != KeepFileName) {
+			return true
 		}
 	}
-	return true
+	return false
 }

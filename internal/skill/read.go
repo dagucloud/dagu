@@ -348,6 +348,9 @@ func walk(dir string) (entries []entry, issues []Issue, newest time.Time, err er
 				default:
 					add(RuleRootEntry, path, "%q is not allowed at the root of a skill folder; only SKILL.md, references/, assets/ and scripts/ are allowed", name)
 					if mode.IsRegular() {
+						if err := checkLinks(path, info); err != nil {
+							return err
+						}
 						entries = append(entries, entry{rel: path, kind: kindFile, size: info.Size(), mtime: info.ModTime().UnixNano(), ctime: ct.UnixNano(), mode: mode.Perm()})
 					} else if !mode.IsDir() {
 						entries = append(entries, entry{rel: path, kind: kindSpecial, mtime: info.ModTime().UnixNano(), ctime: ct.UnixNano(), mode: mode})

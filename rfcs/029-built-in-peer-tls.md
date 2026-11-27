@@ -273,8 +273,9 @@ The environment variables are `DAGU_WORKER_COORDINATORS` and
   so the container exits again and the pod shows `CrashLoopBackOff`. The
   worker writes the reason to its termination message, so
   `kubectl describe pod` shows it. For such a worker, the confirmation says
-  the pod keeps restarting until the Deployment is scaled down or the pod
-  is deleted.
+  the pod keeps restarting until the Deployment is scaled down. A deleted
+  pod comes back with an empty `emptyDir` and enrolls again while its
+  reusable invite exists, so the confirmation offers to delete the invite.
 - A worker on the peer token has no **Remove**, since it would reconnect at
   once. The page says to stop it on its host, or to change the peer token.
 - **Invites** lists each invite with its kind, creator, creation and expiry
@@ -382,8 +383,9 @@ transport in this order:
 | Configuration | Transport |
 | --- | --- |
 | `peer.insecure: true` | h2c, as today |
-| `peer.insecure: false` with `peer.cert_file`, `peer.client_ca_file`, or `peer.skip_tls_verify` | TLS with those files, as today |
-| A worker invite or certificate, `peer.ca_cert_file`, or a registry entry that reports built-in TLS | Built-in TLS |
+| `peer.insecure: false` with `peer.cert_file`, `peer.key_file`, `peer.client_ca_file`, or `peer.skip_tls_verify` | TLS with those files, as today |
+| A worker invite or certificate, `peer.ca_cert_file`, or the CA certificate a coordinator publishes in the client's data directory while the registry there lists a coordinator that reports built-in TLS | Built-in TLS |
+| `peer.insecure: false` without those files or a built-in TLS source | Fails at start with `TLS enabled but no certificates provided`, as today |
 | None of these | h2c, as today |
 
 - `peer.insecure: true` remains for networks that already encrypt traffic,
@@ -395,9 +397,22 @@ transport in this order:
   same. Whether v3.0 lets a TLS file select TLS is open question 1.
 - Each coordinator adds `tls: builtin` to the entry it registers, and
   writes the certificate of the CA it uses, generated or from
-  `peer.ca_cert_file`, to its data directory. A client that finds
-  coordinators in the registry reads that certificate. A client's own
-  `peer.ca_cert_file` takes precedence. Older processes ignore the field.
+  `peer.ca_cert_file`, to its data directory, without touching a generated
+  CA. A client that shares that data directory reads that certificate,
+  whether it finds coordinators in the registry or in
+  `worker.coordinators`. A client's own `peer.ca_cert_file` takes
+  precedence. Older processes ignore the field.
+- An address in `worker.coordinators` that the registry does not list may
+  belong to another Dagu, such as a team coordinator dialed from a laptop
+  that runs `start-all`. When its certificate does not chain to the
+  published certificate, the client has no TLS source for that address and
+  uses h2c, as today, with the reason `no TLS source`. Addresses the
+  registry lists never fall back on a certificate that does not verify.
+- A coordinator that leaves built-in TLS, with own certificates, removes
+  the published certificate. A certificate that a downgraded coordinator
+  leaves behind selects nothing, since its registry entry no longer reports
+  built-in TLS; a client on the peer token that dials before the entry
+  changes falls back on the failed handshake, as the next bullet states.
 - In v2.x, a client on the peer token or on no credential falls back to h2c
   when the TLS handshake fails at the transport level: the connection is
   reset, or the other side answers with something other than TLS. This is
@@ -405,10 +420,11 @@ transport in this order:
   sidecar on a port named `grpc`. The client keeps h2c for that address for
   10 minutes, then tries TLS again on its next connection, and sends the
   reason `tls failed on the network path`.
-- A certificate that does not verify never falls back. A worker on an
+- A certificate that does not verify never falls back, except on an
+  address the registry does not list, as above. A worker on an
   invite never falls back either: it has no other credential, so it needs
-  TLS end to end. `coordinator.require_tls` refuses the fallback's calls,
-  and v3.0 removes the fallback with open question 1.
+  TLS end to end. `coordinator.require_tls` refuses the fallback's calls.
+  Whether v3.0 removes the fallback is open question 1.
 
 ### Configuration conflicts
 
@@ -503,7 +519,9 @@ worker                                         coordinator
   by its user only, and reuses them across restarts. Run processes the
   worker starts use the same files. It also records which invite it
   enrolled with. A worker with a certificate ignores its invite, so
-  restarts do not use up a single-use invite.
+  restarts do not use up a single-use invite, unless the invite names a CA
+  other than the one that signed its certificate. Then it enrolls with the
+  invite, so a worker can join a coordinator set up again with a new CA.
 - The worker holds a lock on its certificate while it runs. A second worker
   that finds the lock held exits with `Another worker uses this data
   directory`, so two containers on one volume never share a certificate. A
@@ -535,9 +553,17 @@ worker                                         coordinator
 - Removing a worker with running runs first marks its certificate
   `removing`, a stored state that survives a coordinator restart. `Poll`
   gives the worker no new tasks, and calls for the runs it already holds
-  keep working. The certificate is revoked when the worker's heartbeat
-  lists no running tasks. Other coordinators see `removing` at their next
-  reread, so a task one hands out in that window is waited for too.
+  keep working. The certificate is revoked when the worker holds no task,
+  at least 30 seconds after it became `removing`, or when the worker stops
+  sending heartbeats. A task counts as held from
+  the moment a coordinator hands it out until the worker reports its end
+  or its lease expires, so a task another coordinator hands out before its
+  next reread is waited for too. A connected worker without runs goes
+  through `removing` the same way.
+- Other coordinators apply a revocation at their next reread, within 30
+  seconds. A task one of them hands out before then ends through the
+  stale-lease check, since the worker is refused at its next call to a
+  coordinator that knows.
 - **Stop its runs** sends the existing cancel request for each run. Runs
   that reach no final status within 2 minutes are left to the stale-lease
   check, and the certificate is revoked then.
@@ -630,8 +656,8 @@ The existing keys keep working, with three fixes:
   coordinator before inviting workers.
 - **Downgrade:** an older coordinator ignores the CA and the new
   collections and serves h2c only. Workers that joined with an invite fail
-  until they get `peer.token`. Processes that use the peer token keep
-  working.
+  until they get `peer.token` and `peer.insecure: true` and lose
+  `worker.invite`. Processes that use the peer token keep working.
 - **Bring your own certificates:** unchanged. A TLS file without
   `peer.insecure: false` is still ignored, now with a warning.
 

@@ -1625,7 +1625,7 @@ The skill routes of the REST API manage the folders. A skill has a hash. The has
 - `GET`, `PUT` and `DELETE /api/v1/skills/{name}/files?path=` read, write and delete one file under `references/`, `assets/` or `scripts/`.
 - Each write needs the header `If-Match: <hash>`, where the hash is the value that the client read. To create a skill, send `If-None-Match: *`. A request with neither header gets 428.
 - When the skill changed after the client read it, the answer is 409 with the code `conflict` and the current hash. Read the skill again, merge the change and retry.
-- `GET /api/v1/skills/{name}/download` returns one skill as a ZIP file. `POST /api/v1/skills/download` with `{"names": [...]}` returns several skills in one ZIP, each as a top-level folder. The files are exactly as stored, and an invalid skill can be downloaded. One download has at most 100 skills.
+- `GET /api/v1/skills/{name}/download` returns one skill as a ZIP file. `POST /api/v1/skills-download` with `{"names": [...]}` returns several skills in one ZIP, each as a top-level folder. The files are exactly as stored, and an invalid skill can be downloaded. One download has at most 100 skills.
 - A write needs the role developer or above.
 
 ## agent.run

@@ -224,6 +224,9 @@ func runStartAll(ctx *Context, _ []string) error {
 			return fmt.Errorf("failed to initialize coordinator: %w", withPortInUseHint(err, coordinatorPortInUseHint))
 		}
 		coord.DisableHealthServer()
+		// The server and the scheduler dial this coordinator with the same
+		// peer settings.
+		warnPeerClientAuth(serviceCtx, ctx.Config.Core.Peer)
 	} else {
 		logger.Info(serviceCtx, "Coordinator disabled via configuration")
 		logAIConfig(serviceCtx)

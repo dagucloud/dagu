@@ -205,9 +205,15 @@ func isStepLogDownload(r *http.Request, apiBasePath string) bool {
 }
 
 // streamsResponse matches requests whose response streams with no total
-// time limit: log downloads and node event streams.
+// time limit: downloads and node event streams.
 func streamsResponse(r *http.Request, apiBasePath string) bool {
-	return isLogDownload(r, apiBasePath) || isNodeEventStream(r, apiBasePath)
+	return isDownload(r, apiBasePath) || isNodeEventStream(r, apiBasePath)
+}
+
+// isDownload matches the downloads whose size has no small bound: log
+// downloads and skill ZIP downloads.
+func isDownload(r *http.Request, apiBasePath string) bool {
+	return isLogDownload(r, apiBasePath) || isSkillDownload(r, apiBasePath)
 }
 
 // isLogDownload matches scheduler, step, and all-step log downloads.

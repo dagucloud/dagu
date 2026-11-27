@@ -126,6 +126,8 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"ListSkills":                      remoteNodeAccessRead,
 	"GetSkill":                        remoteNodeAccessRead,
 	"GetSkillFile":                    remoteNodeAccessRead,
+	"DownloadSkill":                   remoteNodeAccessRead,
+	"DownloadSkills":                  remoteNodeAccessRead,
 	"GetSchedulerPauseState":          remoteNodeAccessRead,
 	"GetWorkspaceBaseConfig":          remoteNodeAccessRead,
 	"GetSyncConfig":                   remoteNodeAccessRead,

@@ -423,7 +423,7 @@ describe('list', () => {
     await waitFor(() => expect(mocks.saved).toHaveLength(1));
     expect(mocks.saved[0]!.name).toBe('skills-2026-11-05.zip');
     const [path, init] = mocks.client.POST.mock.calls[0]!;
-    expect(path).toBe('/skills/download');
+    expect(path).toBe('/skills-download');
     expect(init.body).toEqual({ names: ['refund', 'triage', 'short'] });
     expect(init.params.query).toEqual({ remoteNode: 'edge' });
 

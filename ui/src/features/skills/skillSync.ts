@@ -339,7 +339,7 @@ export async function downloadSkillZip(
   remoteNode: string,
   names: readonly string[]
 ): Promise<string> {
-  const { data, error, response } = await client.POST('/skills/download', {
+  const { data, error, response } = await client.POST('/skills-download', {
     params: { query: { remoteNode } },
     body: { names: [...names] },
     parseAs: 'blob',
