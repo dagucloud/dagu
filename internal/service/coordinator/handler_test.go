@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -54,6 +55,38 @@ func (s corruptLeaseStore) Get(ctx context.Context, attemptKey string) (*dispatc
 		return nil, persis.ErrCorrupt
 	}
 	return s.DAGRunLeaseStore.Get(ctx, attemptKey)
+}
+
+// hookedHeartbeatStore runs onGet before each worker heartbeat read.
+type hookedHeartbeatStore struct {
+	dispatch.WorkerHeartbeatStore
+	onGet func()
+}
+
+func (s hookedHeartbeatStore) Get(ctx context.Context, workerID string) (*dispatch.WorkerHeartbeatRecord, error) {
+	s.onGet()
+	return s.WorkerHeartbeatStore.Get(ctx, workerID)
+}
+
+// hookedLeaseStore runs onDelete before each lease delete.
+type hookedLeaseStore struct {
+	dispatch.DAGRunLeaseStore
+	onDelete func()
+}
+
+func (s hookedLeaseStore) Delete(ctx context.Context, attemptKey string) error {
+	s.onDelete()
+	return s.DAGRunLeaseStore.Delete(ctx, attemptKey)
+}
+
+// runLockWaiters reports how many callers hold or wait for the run's lock.
+func runLockWaiters(h *Handler, dagRunID string) int {
+	h.runLocks.mu.Lock()
+	defer h.runLocks.mu.Unlock()
+	if entry := h.runLocks.entries[dagRunID]; entry != nil {
+		return entry.refs
+	}
+	return 0
 }
 
 func TestDispatchBindErrorCode(t *testing.T) {
@@ -2314,21 +2347,114 @@ func TestHandler_Heartbeat(t *testing.T) {
 			LastHeartbeatAt: expired.UnixMilli(),
 		}))
 
-		resp, err := h.RunHeartbeat(ctx, &coordinatorv1.RunHeartbeatRequest{
-			WorkerId:           "worker-1",
-			OwnerCoordinatorId: "coord-a",
-			RunningTasks: []*coordinatorv1.RunningTask{
-				{AttemptKey: "attempt-key-1", DagRunId: "run-123", DagName: "test-dag"},
-			},
-		})
-		require.NoError(t, err)
-		require.Len(t, resp.CancelledRuns, 1)
-		assert.Equal(t, "attempt-key-1", resp.CancelledRuns[0].AttemptKey)
+		// A repeated heartbeat, and a task listed twice, must not see the
+		// expired lease as fresh.
+		task := &coordinatorv1.RunningTask{AttemptKey: "attempt-key-1", DagRunId: "run-123", DagName: "test-dag"}
+		for range 2 {
+			resp, err := h.RunHeartbeat(ctx, &coordinatorv1.RunHeartbeatRequest{
+				WorkerId:           "worker-1",
+				OwnerCoordinatorId: "coord-a",
+				RunningTasks:       []*coordinatorv1.RunningTask{task, task},
+			})
+			require.NoError(t, err)
+			require.Len(t, resp.CancelledRuns, 1)
+			assert.Equal(t, "attempt-key-1", resp.CancelledRuns[0].AttemptKey)
+		}
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, ir.Failed, status.Status)
 		assert.Equal(t, reason, status.Error)
+	})
+
+	// Two heartbeats land while the zombie detector fails a run: the first
+	// after the detector reads the expired lease, the second before it
+	// deletes the lease. Neither may leave the run running without a lease.
+	t.Run("RunHeartbeatDuringStaleCleanup", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		baseDir := filepath.Join(t.TempDir(), "distributed")
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		ctx := context.Background()
+
+		var h *Handler
+		var heartbeats sync.WaitGroup
+		var cancelled atomic.Int32
+		// startHeartbeat sends a run heartbeat and waits until it finishes or
+		// queues behind the run lock that the detector holds.
+		startHeartbeat := func() {
+			before := runLockWaiters(h, "run-123")
+			done := make(chan struct{})
+			heartbeats.Go(func() {
+				defer close(done)
+				resp, err := h.RunHeartbeat(ctx, &coordinatorv1.RunHeartbeatRequest{
+					WorkerId:           "worker-1",
+					OwnerCoordinatorId: "coord-a",
+					RunningTasks: []*coordinatorv1.RunningTask{
+						{AttemptKey: "attempt-key-1", DagRunId: "run-123", DagName: "test-dag"},
+					},
+				})
+				if err == nil && len(resp.CancelledRuns) > 0 {
+					cancelled.Add(1)
+				}
+			})
+			require.Eventually(t, func() bool {
+				select {
+				case <-done:
+					return true
+				default:
+					return runLockWaiters(h, "run-123") > before
+				}
+			}, coordinatorTestTimeout(5*time.Second), time.Millisecond)
+		}
+		var afterLeaseRead, beforeLeaseDelete sync.Once
+		h = NewHandler(HandlerConfig{
+			DAGRunRepository: store.repository,
+			DAGRunLeaseStore: hookedLeaseStore{
+				DAGRunLeaseStore: leaseStore,
+				onDelete:         func() { beforeLeaseDelete.Do(startHeartbeat) },
+			},
+			WorkerHeartbeatStore: hookedHeartbeatStore{
+				WorkerHeartbeatStore: newTestWorkerHeartbeatStore(baseDir),
+				onGet:                func() { afterLeaseRead.Do(startHeartbeat) },
+			},
+			StaleLeaseThreshold: time.Minute,
+			Owner:               dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+		})
+
+		ref := ir.NewDAGRunRef("test-dag", "run-123")
+		attempt := store.addAttempt(ref, &ir.DAGRunStatus{
+			Name:       "test-dag",
+			DAGRunID:   "run-123",
+			Root:       ref,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     ir.Running,
+			WorkerID:   "worker-1",
+		})
+		expired := time.Now().Add(-2 * time.Minute).UTC()
+		require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+			AttemptKey:      "attempt-key-1",
+			DAGRun:          ref,
+			Root:            ref,
+			AttemptID:       "attempt-1",
+			QueueName:       "test-dag",
+			WorkerID:        "worker-1",
+			Owner:           dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+			ClaimedAt:       expired.UnixMilli(),
+			LastHeartbeatAt: expired.UnixMilli(),
+		}))
+
+		h.reconcileLeases(ctx, time.Now().UTC())
+		heartbeats.Wait()
+
+		status, err := attempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, ir.Failed, status.Status)
+		assert.Equal(t, int32(2), cancelled.Load())
+		_, err = leaseStore.Get(ctx, "attempt-key-1")
+		assert.ErrorIs(t, err, dispatch.ErrDAGRunLeaseNotFound)
 	})
 
 	t.Run("RunHeartbeatStaleRepairSurvivesCallerCancellation", func(t *testing.T) {
