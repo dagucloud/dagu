@@ -580,6 +580,39 @@ func TestIsolatedStepLinkedEntry(t *testing.T) {
 	}
 }
 
+// A git object with more than one link, as git clone --local makes them, can
+// get a path outside the work directory or new times during the step, as at
+// the clone of another run or a refresh of the pack by git there. End finds no
+// change in git. A change of its owner still stops the run.
+func TestIsolatedStepLinkedGitObject(t *testing.T) {
+	requireIsolation(t)
+	resetPoison(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	mirror := filepath.Join(workDir, "..", filepath.Base(workDir)+"-mirror")
+	require.NoError(t, os.WriteFile(mirror, []byte("pack\n"), 0o444))
+	clone := mirror + "-clone"
+	t.Cleanup(func() { _ = os.Remove(mirror); _ = os.Remove(clone) })
+	object := filepath.Join(workDir, "repo", ".git", "objects", "pack")
+	require.NoError(t, os.MkdirAll(filepath.Dir(object), 0o755))
+	require.NoError(t, os.Link(mirror, object))
+
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	require.NoError(t, os.Link(mirror, clone))
+	hourAgo := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(clone, hourAgo, hourAgo))
+	require.NoError(t, step.End(ctx))
+	assert.NoError(t, Poisoned())
+
+	step, err = beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	require.NoError(t, os.Chown(clone, testUID, -1))
+	err = step.End(ctx)
+	require.ErrorIs(t, err, ErrRunAborted)
+	assert.ErrorContains(t, err, "the git entry "+object+" changed: its owner is")
+}
+
 // A file with more than one link whose ACL lets the restricted user write it
 // fails the step, in a folder and in a git folder: the handoff keeps such a
 // file with the worker only when the restricted user cannot write it.

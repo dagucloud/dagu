@@ -405,7 +405,9 @@ A failure of any action of this list fails the step. The error names the action 
 These failures also stop the run, because Dagu cannot give a safe work directory to a later step:
 
 - A task of the restricted user is still alive 30 seconds after `SIGKILL`.
-- An entry of a git folder, or a `.git` entry, changed or is gone.
+- An entry of a git folder, or a `.git` entry, changed or is gone. Another path of a file with
+  more than one link changes its link count and its times, as another clone of the repository
+  does, so these do not count for such a file.
 - Dagu cannot read a part of the work directory, cannot remove an entry of rule 8, or finds a tree
   more than 256 folders deep.
 

@@ -257,6 +257,8 @@ func removeDepth(dirfd int, dirPath, name string, depth int) error {
 type fileSig struct {
 	ino   uint64
 	mode  uint32
+	uid   uint32
+	gid   uint32
 	size  int64
 	mtime int64
 	ctime int64
@@ -267,11 +269,25 @@ func sigOf(st *unix.Stat_t) fileSig {
 	return fileSig{
 		ino:   st.Ino,
 		mode:  st.Mode,
+		uid:   st.Uid,
+		gid:   st.Gid,
 		size:  st.Size,
 		mtime: st.Mtim.Nano(),
 		ctime: st.Ctim.Nano(),
 		nlink: uint64(st.Nlink), // #nosec G115 -- a link count is not negative.
 	}
+}
+
+// sameSig reports whether an entry kept the state before. For a file that had
+// more than one link, as git clone --local makes them, it compares no link
+// count and no time: another path of the file, such as one of another clone,
+// changes them, as git does when it refreshes a pack. The restricted user
+// cannot write such a file (protectGitEntry).
+func sameSig(before, after fileSig) bool {
+	if before.mode&unix.S_IFMT != unix.S_IFDIR && before.nlink > 1 {
+		after.nlink, after.mtime, after.ctime = before.nlink, before.mtime, before.ctime
+	}
+	return before == after
 }
 
 // describeSig tells how two states differ, for an error.
@@ -281,6 +297,8 @@ func describeSig(before, after fileSig) string {
 		return "it is a new file"
 	case before.mode != after.mode:
 		return fmt.Sprintf("its mode is %o, not %o", after.mode, before.mode)
+	case before.uid != after.uid || before.gid != after.gid:
+		return fmt.Sprintf("its owner is %d:%d, not %d:%d", after.uid, after.gid, before.uid, before.gid)
 	default:
 		return "its content changed"
 	}

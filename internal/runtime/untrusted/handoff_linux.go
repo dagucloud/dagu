@@ -392,7 +392,8 @@ func (iso *isolation) protectGitEntry(e *fsEntry) error {
 	}
 	// A change acts on the file, so it would also reach the other paths of a
 	// file with more than one link, as git clone --local makes them. An ACL
-	// could let the restricted user write such a file.
+	// could let the restricted user write such a file, whose times the
+	// restore does not compare (sameSig).
 	if !e.isDir() && e.st.Nlink > 1 && (chown || perm != e.perm() || hasACL(e)) {
 		return stepError(iso.step, "protect", e.path, errors.New("the file has more than one link"))
 	}
@@ -615,7 +616,7 @@ func (iso *isolation) checkGitEntry(e *fsEntry, fail func(error)) {
 		return
 	}
 	iso.seenGit[e.path] = true
-	if after := sigOf(&e.st); after != before {
+	if after := sigOf(&e.st); !sameSig(before, after) {
 		fail(fmt.Errorf("untrusted step %q: the git entry %s changed: %s: %w",
 			iso.step, e.path, describeSig(before, after), errGitChanged))
 		return
