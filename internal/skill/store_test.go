@@ -937,6 +937,26 @@ func TestDeleteStaysInTheFolderThatItOpened(t *testing.T) {
 	require.ErrorIs(t, err, fs.ErrNotExist)
 }
 
+// A skill delete removes only the folder whose hash the client sent. A folder
+// that replaces it after the check stays, and the delete gives a conflict.
+func TestDeleteSkillKeepsAFolderThatReplacedIt(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	skill.SetBeforeHeldCheck(s, func() {
+		require.NoError(t, os.Rename(s.Dir("demo"), s.Dir("demo")+".moved"))
+		require.NoError(t, os.Mkdir(s.Dir("demo"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(s.Dir("demo"), "SKILL.md"), []byte("other"), 0o644))
+	})
+
+	err := s.DeleteSkill(context.Background(), "demo", skill.Precondition{IfMatch: created.Hash})
+	var conflict *skill.ConflictError
+	require.ErrorAs(t, err, &conflict)
+	data, err := os.ReadFile(filepath.Join(s.Dir("demo"), "SKILL.md"))
+	require.NoError(t, err)
+	require.Equal(t, "other", string(data))
+}
+
 // A read right after a write gets the written version, also when the cache
 // holds the version before the write, as the cache of another process on the
 // same directory does. The write returns the hash of the files on disk. The

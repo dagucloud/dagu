@@ -304,7 +304,9 @@ A read that did not settle (`changing`) holds no version, so its hash passes no 
 write gives 409 with no `hash`. A write to a skill that Dagu cannot read (`unreadable`) gives 500.
 
 A delete first renames the skill folder to a hidden folder `.deleted.<random>` of the skills
-directory, then removes the files. A reader sees the whole skill or no skill. A reader that holds a
+directory, then removes the files. It renames only the folder whose hash passed the precondition:
+a folder that replaced it after the check stays, and the delete gives 409. A reader sees the whole
+skill or no skill. A reader that holds a
 file open keeps the version that it opened. A file that cannot be removed stays in the hidden
 folder, and the server logs it. The next delete of a skill tries such folders again. On Windows, a
 file that a reader holds open blocks the delete for a few seconds at most; a delete that it still
@@ -519,6 +521,8 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | `TestWriteAndDeleteRefuseSymbolicLinks` (unit) | A write or a delete never goes through a link of the folder, of a folder below it or of the file. A delete of a linked skill or of a linked file removes the link only. |
 | `TestWriteStaysInTheFolderThatItOpened` (unit) | A skill folder or a skills directory that becomes a link during the write leaves the link target as it was; the write stays in the folder that it opened and gives a conflict, or stops when the lock moved with the skills directory. |
 | `TestDeleteStaysInTheFolderThatItOpened` (unit) | A skill folder that becomes a link during a file delete leaves the link target as it was, and the delete gives a conflict. |
+| `TestDeleteSkillKeepsAFolderThatReplacedIt` (unit) | A skill folder that another folder replaces after the precondition check stays, and the skill delete gives a conflict. |
+| `TestPathThroughAFileIsInvalid` (unit) | A write or a file delete of a path that goes through a file is an invalid path, not a server error. |
 | `TestDeleteOfANestedFileRemovesTheEmptyFolders` (unit) | A file delete removes the folders that become empty below the folder of the layout. |
 | `TestDeleteFileRefusesALayoutFolder` (unit) | A file delete refuses a folder of the layout and removes a folder that breaks the layout with its content. |
 | `TestDeleteFileNeedsTheStoredName` (unit) | Another spelling of `SKILL.md` or of a folder of the layout deletes nothing. |

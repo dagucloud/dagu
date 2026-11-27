@@ -616,6 +616,18 @@ func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) 
 		return ErrPreconditionRequired
 	}
 	return s.withLock(ctx, name, pre, func(held func() error) error {
+		// The delete applies only to the folder whose hash passed the precondition,
+		// not to one that replaced it after the check.
+		before, err := os.Lstat(s.Dir(name))
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return ErrNotFound
+			}
+			return err
+		}
+		// On Windows, SameFile reads the identity of an Lstat result from its path
+		// at the first comparison. Compare now, so it names this folder.
+		_ = os.SameFile(before, before)
 		current, err := s.checkPrecondition(name, pre)
 		if err != nil {
 			return err
@@ -625,6 +637,9 @@ func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) 
 		}
 		if err := held(); err != nil {
 			return err
+		}
+		if after, err := os.Lstat(s.Dir(name)); err != nil || !os.SameFile(before, after) {
+			return &ConflictError{Message: fmt.Sprintf("the skill folder %q was replaced during the delete; read it again", name)}
 		}
 		// One rename removes the skill for every reader; the files go after it. A
 		// reader that holds a file open keeps reading the version it opened.
