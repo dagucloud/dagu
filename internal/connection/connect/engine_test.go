@@ -146,6 +146,42 @@ func TestRefreshTokenExpiryFromExchange(t *testing.T) {
 	assert.Equal(t, exchangedAt.Add(time.Minute), status.RefreshTokenExpiresAt)
 }
 
+// A consent names the other connections of its workspace that hold the
+// same account through the same app. One in another workspace is not
+// named, and neither is one that holds another account.
+func TestConsentNamesDuplicates(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	for _, other := range []struct {
+		workspace, name, accountID string
+	}{
+		{"ops", "twin", "sub-1"},
+		{"ops", "colleague", "sub-2"},
+		{"dev", "elsewhere", "sub-1"},
+	} {
+		conn, err := f.store.Create(ctx, &connection.Connection{
+			Workspace: other.workspace,
+			Name:      other.name,
+			Provider:  f.conn.Provider,
+			App:       f.conn.App,
+			Grant:     connection.GrantAuthorizationCode,
+		})
+		require.NoError(t, err)
+		_, err = f.store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {
+			st.AccountID = other.accountID
+			return nil
+		})
+		require.NoError(t, err)
+	}
+	auth := f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
+
+	require.NoError(t, f.engine.Callback(ctx, f.provider.consent(t, auth)))
+	status, err := f.engine.Session(ctx, f.conn, auth.SessionID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"twin"}, status.Duplicates)
+}
+
 // A refresh token is required only for an access token that expires.
 func TestConsentWithoutRefreshToken(t *testing.T) {
 	t.Parallel()
@@ -930,7 +966,7 @@ func (p *fakeProvider) exchanges() int {
 	return p.calls
 }
 
-func (p *fakeProvider) ParseClientFile([]byte) (*connection.App, error) {
+func (p *fakeProvider) ParseClientFile([]byte, connect.RedirectOptions) (*connection.App, error) {
 	return nil, errors.New("not supported")
 }
 
@@ -983,7 +1019,7 @@ func (p *fakeProvider) Revoke(ctx context.Context, _ *connection.App, refreshTok
 	return nil
 }
 
-func (p *fakeProvider) Probe(ctx context.Context, conn *connection.Connection, _ *oauth2.Token) []connection.Probe {
+func (p *fakeProvider) Probe(ctx context.Context, _ *connection.App, conn *connection.Connection, _ *oauth2.Token) []connection.Probe {
 	if p.onProbe != nil {
 		p.onProbe()
 	}

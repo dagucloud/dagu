@@ -17,8 +17,10 @@ import (
 type Provider interface {
 	// ParseClientFile returns the app that a client file issued by the
 	// provider describes, such as Google's client JSON. The app has no ID
-	// and no status.
-	ParseClientFile(data []byte) (*connection.App, error)
+	// and no status. A file that lists redirect URIs fails with
+	// connection.ErrInvalid when it lacks the one that opts choose for the
+	// app's client type.
+	ParseClientFile(data []byte, opts RedirectOptions) (*connection.App, error)
 	// Endpoint returns the authorization and token URLs of app.
 	Endpoint(app *connection.App) (oauth2.Endpoint, error)
 	// AuthorizationParams returns the parameters that an authorization
@@ -31,10 +33,23 @@ type Provider interface {
 	Exchange(ctx context.Context, cfg *oauth2.Config, conn *connection.Connection, code string, opts ...oauth2.AuthCodeOption) (*oauth2.Token, error)
 	// Identity returns the account that token was issued for.
 	Identity(ctx context.Context, app *connection.App, token *oauth2.Token) (Identity, error)
-	// Probe checks each of conn's services with token, and returns one
-	// result per service. It returns once ctx ends, reporting each service
-	// it did not finish as failed.
-	Probe(ctx context.Context, conn *connection.Connection, token *oauth2.Token) []connection.Probe
+	// Probe checks each of conn's services with token, issued to app, and
+	// returns one result per service. It returns once ctx ends, reporting
+	// each service it did not finish as failed.
+	Probe(ctx context.Context, app *connection.App, conn *connection.Connection, token *oauth2.Token) []connection.Probe
+}
+
+// Advisor is a Provider that tells people how to fix what a consent runs
+// into. Its texts hold no secret.
+type Advisor interface {
+	// ConsentFix returns what to do about the consent error code, such as
+	// access_denied, of a session of app with redirectURI, or "" when the
+	// provider has no advice.
+	ConsentFix(code string, app *connection.App, redirectURI string) string
+	// RefreshTokenFix returns how to lift the limit on a refresh token's
+	// lifetime that the provider reports with refresh_token_expires_in, or
+	// "".
+	RefreshTokenFix() string
 }
 
 // Revoker is a Provider that can revoke refresh tokens. No token of a

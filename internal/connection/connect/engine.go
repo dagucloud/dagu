@@ -191,7 +191,13 @@ type SessionStatus struct {
 	AccountID             string
 	GrantedScopes         []string
 	RefreshTokenExpiresAt time.Time
-	Probes                []connection.Probe
+	// RefreshTokenFix says how to lift the limit that RefreshTokenExpiresAt
+	// shows, when the provider has advice.
+	RefreshTokenFix string
+	Probes          []connection.Probe
+	// Duplicates name the other connections of the workspace that hold
+	// the same account through the same app.
+	Duplicates []string
 	// Reason is set in PhaseFailed: the provider's error, ReasonExpired,
 	// ReasonCancelled, or ReasonReplaced.
 	Reason    string
@@ -227,13 +233,14 @@ func New(cfg Config) (*Engine, error) {
 }
 
 // ParseClientFile returns the app that a client file of provider
-// describes, without an ID or status.
-func (e *Engine) ParseClientFile(provider connection.Provider, data []byte) (*connection.App, error) {
+// describes, without an ID or status. A file that lists redirect URIs must
+// list the one that opts choose for the app.
+func (e *Engine) ParseClientFile(provider connection.Provider, data []byte, opts RedirectOptions) (*connection.App, error) {
 	p, ok := e.providers[provider]
 	if !ok {
 		return nil, fmt.Errorf("%w: provider %q", ErrUnsupported, provider)
 	}
-	return p.ParseClientFile(data)
+	return p.ParseClientFile(data, opts)
 }
 
 // Start starts a session of conn, which replaces and fails an earlier one.
@@ -349,9 +356,9 @@ func (e *Engine) complete(ctx context.Context, p CallbackParams, want *connectio
 		return err
 	}
 	if p.Error != "" {
-		return e.fail(ctx, conn, st.SessionID, claim, consentError(p.Error, p.ErrorDescription))
+		return e.fail(ctx, conn, st.SessionID, claim, e.consentFailure(ctx, conn, st.RedirectURI, p.Error, p.ErrorDescription))
 	}
-	tokens, probes, err := e.consent(callCtx, conn, st, p.Code)
+	tokens, checks, err := e.consent(callCtx, conn, st, p.Code)
 	if err != nil {
 		return e.fail(ctx, conn, st.SessionID, claim, err.Error())
 	}
@@ -376,7 +383,8 @@ func (e *Engine) complete(ctx context.Context, p CallbackParams, want *connectio
 		}
 		s.Session.Phase = connection.SessionPhaseConfirm
 		s.Session.Tokens = tokens.Tokens
-		s.Session.Probes = probes
+		s.Session.Probes = checks.probes
+		s.Session.Duplicates = checks.duplicates
 		return nil
 	})
 	// A session that ended, or a connection removed, during the provider
@@ -533,6 +541,10 @@ func (e *Engine) Session(ctx context.Context, conn *connection.Connection, sessi
 		status.GrantedScopes = s.Tokens.GrantedScopes
 		status.RefreshTokenExpiresAt = s.Tokens.RefreshTokenExpiresAt
 		status.Probes = s.Probes
+		status.Duplicates = s.Duplicates
+		if advisor, ok := e.providers[conn.Provider].(Advisor); ok && !status.RefreshTokenExpiresAt.IsZero() {
+			status.RefreshTokenFix = advisor.RefreshTokenFix()
+		}
 	}
 	return status, nil
 }
@@ -544,48 +556,85 @@ type consentTokens struct {
 	vouchedEmail string
 }
 
+// consentChecks are the results of the checks after a consent that a
+// session in confirm shows.
+type consentChecks struct {
+	probes     []connection.Probe
+	duplicates []string
+}
+
 // consent exchanges code and checks the result. Its error is shown to
 // people, so it carries no secret.
-func (e *Engine) consent(ctx context.Context, conn *connection.Connection, st authState, code string) (consentTokens, []connection.Probe, error) {
+func (e *Engine) consent(ctx context.Context, conn *connection.Connection, st authState, code string) (consentTokens, consentChecks, error) {
 	provider, app, err := e.client(ctx, conn)
 	if err != nil {
-		return consentTokens{}, nil, err
+		return consentTokens{}, consentChecks{}, err
 	}
 	cfg, err := oauthConfig(provider, app, conn, st.RedirectURI)
 	if err != nil {
-		return consentTokens{}, nil, err
+		return consentTokens{}, consentChecks{}, err
 	}
 	secrets := []string{code, st.Verifier, app.ClientSecret}
 	token, err := provider.Exchange(ctx, cfg, conn, code, oauth2.VerifierOption(st.Verifier))
 	if err != nil {
 		var re *oauth2.RetrieveError
 		if errors.As(err, &re) && re.ErrorCode != "" {
-			return consentTokens{}, nil, errors.New(redact(consentError(re.ErrorCode, re.ErrorDescription), secrets...))
+			reason := fixedConsentError(provider, app, st.RedirectURI, re.ErrorCode, re.ErrorDescription)
+			return consentTokens{}, consentChecks{}, errors.New(redact(reason, secrets...))
 		}
-		return consentTokens{}, nil, fmt.Errorf("exchange the code: %s", redact(err.Error(), secrets...))
+		return consentTokens{}, consentChecks{}, fmt.Errorf("exchange the code: %s", redact(err.Error(), secrets...))
 	}
 	exchangedAt := e.now()
 	// An access token that expires needs a refresh token to outlive its
 	// first hour; one that never expires serves on its own.
 	if token.RefreshToken == "" && !token.Expiry.IsZero() {
-		return consentTokens{}, nil, errors.New("the provider returned no refresh token for an access token that expires")
+		return consentTokens{}, consentChecks{}, errors.New("the provider returned no refresh token for an access token that expires")
 	}
 	secrets = append(secrets, token.AccessToken, token.RefreshToken)
 	id, err := provider.Identity(ctx, app, token)
 	if err != nil {
-		return consentTokens{}, nil, fmt.Errorf("read the account: %s", redact(err.Error(), secrets...))
+		return consentTokens{}, consentChecks{}, fmt.Errorf("read the account: %s", redact(err.Error(), secrets...))
 	}
 	if id.AccountID == "" {
-		return consentTokens{}, nil, errors.New("the provider returned no account ID")
+		return consentTokens{}, consentChecks{}, errors.New("the provider returned no account ID")
 	}
-	probes := provider.Probe(ctx, conn, token)
+	duplicates, err := e.duplicates(ctx, conn, id.AccountID)
+	if err != nil {
+		return consentTokens{}, consentChecks{}, fmt.Errorf("look for duplicate connections: %w", err)
+	}
+	probes := provider.Probe(ctx, app, conn, token)
 	for i := range probes {
 		probes[i].Error = redact(probes[i].Error, secrets...)
 	}
 	return consentTokens{
 		Tokens:       tokensOf(token, id, cfg.Scopes, exchangedAt),
 		vouchedEmail: id.VouchedEmail,
-	}, probes, nil
+	}, consentChecks{probes: probes, duplicates: duplicates}, nil
+}
+
+// duplicates returns the names of the other connections in conn's
+// workspace whose live tokens are of accountID through conn's app.
+// Connections of other workspaces never count, so the check reveals none
+// of them.
+func (e *Engine) duplicates(ctx context.Context, conn *connection.Connection, accountID string) ([]string, error) {
+	conns, err := e.store.List(ctx, conn.Workspace)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, other := range conns {
+		if other.ID == conn.ID || other.App != conn.App {
+			continue
+		}
+		state, err := e.store.TokenState(ctx, other)
+		if err != nil {
+			return nil, err
+		}
+		if state.AccountID == accountID {
+			names = append(names, other.Name)
+		}
+	}
+	return names, nil
 }
 
 // tokensOf returns the tokens of a consent whose exchange returned token
@@ -812,6 +861,7 @@ func failSession(s *connection.Session, reason string) {
 	s.Reason = reason
 	s.Tokens = connection.Tokens{}
 	s.Probes = nil
+	s.Duplicates = nil
 }
 
 func oauthConfig(provider Provider, app *connection.App, conn *connection.Connection, redirectURI string) (*oauth2.Config, error) {
@@ -840,6 +890,33 @@ func newSessionID() (string, error) {
 // lets its holder act on the session.
 func sameID(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+// consentFailure is the reason of a consent of conn that the provider
+// reported as failed, as consentError returns it, with the provider's fix.
+// Without the app, the reason has no fix.
+func (e *Engine) consentFailure(ctx context.Context, conn *connection.Connection, redirectURI, code, description string) string {
+	provider, app, err := e.client(ctx, conn)
+	if err != nil {
+		return consentError(code, description)
+	}
+	return fixedConsentError(provider, app, redirectURI, code, description)
+}
+
+// fixedConsentError is consentError with the fix that provider gives for
+// code, when it gives one.
+func fixedConsentError(provider Provider, app *connection.App, redirectURI, code, description string) string {
+	advisor, ok := provider.(Advisor)
+	if !ok {
+		return consentError(code, description)
+	}
+	fix := advisor.ConsentFix(code, app, redirectURI)
+	if fix == "" {
+		return consentError(code, description)
+	}
+	// The fix comes before the provider's description, so the bound on a
+	// reason cuts the description first.
+	return consentError(code, fix+" "+description)
 }
 
 // consentError is the reason of a consent that the provider reported as

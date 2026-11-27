@@ -96,6 +96,9 @@ type Session struct {
 	Tokens Tokens
 	// Probes hold the result of each service's check after consent.
 	Probes []Probe
+	// Duplicates name the other connections of the workspace that held
+	// the consent's account through the same app when consent completed.
+	Duplicates []string
 }
 
 // Probe is the result of one service's check after consent.
