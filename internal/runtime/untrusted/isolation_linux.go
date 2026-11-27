@@ -417,9 +417,9 @@ func checkTraversable(path string) error {
 }
 
 // openPath lets the restricted user pass each folder above path. A folder of
-// a run below managedRoot (paths.dag_run_work_dir) that belongs to the user of
-// the worker gets the bit x for others until the end of the step. Any other
-// folder that the restricted user cannot pass stops the step.
+// the user of the worker at managedRoot (paths.dag_run_work_dir) or below it
+// gets the bit x for others until the end of the step. Any other folder that
+// the restricted user cannot pass stops the step.
 func (iso *isolation) openPath(path, managedRoot string) error {
 	managed := ""
 	if managedRoot != "" {
@@ -428,18 +428,8 @@ func (iso *isolation) openPath(path, managedRoot string) error {
 		}
 	}
 	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
-		info, err := os.Stat(dir)
-		if err != nil {
+		if err := iso.passDir(dir, managed != "" && within(managed, dir)); err != nil {
 			return err
-		}
-		if info.Mode().Perm()&0o001 == 0 {
-			uid, _ := ownerOf(info)
-			if managed == "" || !within(managed, dir) || uid != iso.workerUID {
-				return fmt.Errorf("the folder %s has the mode %04o: the restricted user cannot pass it", dir, info.Mode().Perm())
-			}
-			if err := iso.passDir(dir); err != nil {
-				return err
-			}
 		}
 		if parent := filepath.Dir(dir); parent == dir {
 			return nil
@@ -447,12 +437,12 @@ func (iso *isolation) openPath(path, managedRoot string) error {
 	}
 }
 
-// passDir gives the bit x for others to the folder, through a descriptor that
-// the isolation keeps for the restore of its mode.
-func (iso *isolation) passDir(dir string) error {
-	if _, done := iso.passDirs[dir]; done {
-		return nil
-	}
+// passDir checks that the restricted user can pass the folder dir. A folder
+// that it cannot pass gets the bit x for others when managed is true and the
+// folder belongs to the user of the worker. The check and the change go
+// through one descriptor, which the isolation keeps for the restore of the
+// mode, so a folder that replaces dir cannot get the bit.
+func (iso *isolation) passDir(dir string, managed bool) error {
 	fd, err := unix.Open(dir, unix.O_PATH|unix.O_NOFOLLOW|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return &fs.PathError{Op: "open", Path: dir, Err: err}
@@ -463,6 +453,20 @@ func (iso *isolation) passDir(dir string) error {
 		return &fs.PathError{Op: "stat", Path: dir, Err: err}
 	}
 	mode := st.Mode & 0o7777
+	if mode&0o001 != 0 {
+		_ = unix.Close(fd)
+		return nil
+	}
+	if !managed || int(st.Uid) != iso.workerUID {
+		_ = unix.Close(fd)
+		return fmt.Errorf("the folder %s has the mode %04o: the restricted user cannot pass it", dir, mode&0o777)
+	}
+	// A link that replaced a folder on the way since the work directory was
+	// resolved would lead the descriptor to another folder.
+	if real, err := os.Readlink("/proc/self/fd/" + strconv.Itoa(fd)); err != nil || real != dir {
+		_ = unix.Close(fd)
+		return fmt.Errorf("the folder %s changed while Dagu opened it", dir)
+	}
 	iso.passDirs[dir] = protectedDir{fd: fd, mode: mode}
 	return chmodFDPath(fd, dir, mode|0o001)
 }
@@ -746,7 +750,9 @@ func (iso *isolation) end(_ context.Context) error {
 		err := stepError(iso.step, "stop the processes of the restricted user", "", killErr)
 		poison(err)
 		iso.closeProtected()
-		return fmt.Errorf("%w: %w", ErrRunAborted, err)
+		// Without the bit x, a process that survived cannot reach the work
+		// directory by its path.
+		return fmt.Errorf("%w: %w", ErrRunAborted, errors.Join(err, iso.restoreDirModes(iso.passDirs)))
 	}
 
 	// The HOME goes before the checks: a file that the step linked from it, such

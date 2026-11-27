@@ -245,6 +245,81 @@ func TestIsolatedStepPlace(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(outside, "x"))
 }
 
+// runFolders makes base/root/dag/run as Dagu makes the work directory of a run
+// below paths.dag_run_work_dir (base/root): each folder below base has the mode
+// 0750, which the restricted user cannot pass.
+func runFolders(t *testing.T) (base, root, dag, run string) {
+	t.Helper()
+	base, err := os.MkdirTemp("", "dagu-untrusted-pass-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	require.NoError(t, os.Chmod(base, 0o755))
+	root = filepath.Join(base, "root")
+	dag = filepath.Join(root, "dag")
+	run = filepath.Join(dag, "run")
+	require.NoError(t, os.MkdirAll(run, 0o750))
+	t.Cleanup(func() { _ = os.Remove(run + handoffSuffix) })
+	return base, root, dag, run
+}
+
+// Spec 103, "Isolation", rule 2: the folders of a run below
+// paths.dag_run_work_dir get the bit x for others during the step, and their
+// modes come back at End.
+func TestIsolatedStepPassesTheRunFolders(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	_, root, dag, run := runFolders(t)
+	req := testRequest(t, run, run)
+	req.ManagedRoot = root
+	step, err := beginStep(t, ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, fs.FileMode(0o751), permOf(t, root))
+	assert.Equal(t, fs.FileMode(0o751), permOf(t, dag))
+	assert.Equal(t, "reached\n", runAs(t, WithStep(ctx, step), run, `touch file && echo reached`))
+
+	require.NoError(t, step.End(ctx))
+	assert.Equal(t, fs.FileMode(0o750), permOf(t, root))
+	assert.Equal(t, fs.FileMode(0o750), permOf(t, dag))
+
+	// A Begin that fails in the handoff gives the modes back too.
+	require.NoError(t, unix.Mknod(filepath.Join(run, "disk"), unix.S_IFCHR|0o600, int(unix.Mkdev(1, 3)))) // #nosec G115 -- a small device number.
+	_, err = beginStep(t, ctx, req)
+	require.ErrorContains(t, err, "device node")
+	assert.Equal(t, fs.FileMode(0o750), permOf(t, root))
+	assert.Equal(t, fs.FileMode(0o750), permOf(t, dag))
+}
+
+// A folder that the restricted user cannot pass fails Begin when it is above
+// paths.dag_run_work_dir or belongs to another user. The folders that got the
+// bit x before it get their modes back.
+func TestIsolatedStepRefusesOtherFolders(t *testing.T) {
+	requireIsolation(t)
+	for name, tc := range map[string]struct {
+		blocked func(base, root string) string
+	}{
+		"above the root": {blocked: func(base, _ string) string {
+			require.NoError(t, os.Chmod(base, 0o750))
+			return base
+		}},
+		"of another user": {blocked: func(_, root string) string {
+			require.NoError(t, os.Chown(root, testUID+1, testGID+1))
+			return root
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			base, root, dag, run := runFolders(t)
+			blocked := tc.blocked(base, root)
+			req := testRequest(t, run, run)
+			req.ManagedRoot = root
+			_, err := beginStep(t, context.Background(), req)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "the folder "+blocked+" has the mode 0750: the restricted user cannot pass it")
+			assert.Equal(t, fs.FileMode(0o750), permOf(t, blocked))
+			assert.Equal(t, fs.FileMode(0o750), permOf(t, dag))
+		})
+	}
+}
+
 // A shared file, such as the script of a step, keeps the worker as owner and
 // gets the group of the restricted user with the mode 0440: the restricted
 // user reads it and cannot write it, and no other user can read it.

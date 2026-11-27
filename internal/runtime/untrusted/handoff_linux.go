@@ -672,15 +672,18 @@ func (iso *isolation) checkGitRemoved() error {
 // restoreModes gives each folder whose mode the isolation changed its mode
 // back, through the descriptor that the isolation kept.
 func (iso *isolation) restoreModes() error {
+	return errors.Join(iso.restoreDirModes(iso.protected), iso.restoreDirModes(iso.passDirs))
+}
+
+// restoreDirModes gives each folder of dirs its mode back and forgets it.
+func (iso *isolation) restoreDirModes(dirs map[string]protectedDir) error {
 	var errs []error
-	for _, dirs := range []map[string]protectedDir{iso.protected, iso.passDirs} {
-		for path, dir := range dirs {
-			if err := chmodFDPath(dir.fd, path, dir.mode); err != nil {
-				errs = append(errs, stepError(iso.step, "change the mode of", path, err))
-			}
-			_ = unix.Close(dir.fd)
-			delete(dirs, path)
+	for path, dir := range dirs {
+		if err := chmodFDPath(dir.fd, path, dir.mode); err != nil {
+			errs = append(errs, stepError(iso.step, "change the mode of", path, err))
 		}
+		_ = unix.Close(dir.fd)
+		delete(dirs, path)
 	}
 	return errors.Join(errs...)
 }
