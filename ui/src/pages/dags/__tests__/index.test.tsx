@@ -1454,8 +1454,8 @@ describe('DagsPage', () => {
       expect(runsOf('demo.yaml')).toBe('none');
     });
 
-    // A service workflow draws no strip, so its activity is not read.
-    it('leaves service workflows out', async () => {
+    // A service workflow draws its run history from the same activity read.
+    it('asks the activity of service workflows too', async () => {
       dagsPageResponse.dags = [
         dagFile('demo'),
         dagFile('keeper', RestartPolicy.always),
@@ -1464,7 +1464,7 @@ describe('DagsPage', () => {
       await renderSettled();
 
       expect(activityReads().map((query) => query.fileName)).toEqual([
-        ['demo.yaml'],
+        ['demo.yaml', 'keeper.yaml'],
       ]);
     });
 
