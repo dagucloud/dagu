@@ -782,6 +782,11 @@ func (h *remoteTaskHandler) executeDAGRun(
 			WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID,
 		})
 	}
+	connections := func(current *ir.DAG) rtagent.ConnectionChecker {
+		return h.connectionChecker(current, run.owner, coordinator.SecretReferenceRun{
+			WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID,
+		})
+	}
 	// Each run reads the nodes of its own DAG, so a child run gets its own.
 	nodes := func(current *ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys) {
 		nodeRun := coordinator.SecretReferenceRun{WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID}
@@ -834,6 +839,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		StateStore:         h.stateStore,
 		SecretStore:        runtimeStores.SecretStore,
 		SecretResolver:     secretResolver,
+		ConnectionChecker:  connections,
 		Nodes:              nodes,
 		ProfileStore:       runtimeStores.ProfileStore,
 		ProfileResolver:    profileResolver,
@@ -863,6 +869,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		StateStore:               h.stateStore,
 		SecretStore:              runtimeStores.SecretStore,
 		SecretReferenceResolver:  secretResolver(dag),
+		ConnectionChecker:        connections(dag),
 		NodeSelector:             nodeSelector,
 		HostKeys:                 hostKeys,
 		TargetNodes:              run.targetNodes(),
@@ -939,6 +946,19 @@ func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner servicere
 		}
 	}
 	return coordinator.NewSecretReferenceResolver(client, workspaceName, owner, run)
+}
+
+// connectionChecker returns the checker of the connections that dag
+// declares, or nil when the coordinator client cannot ask for them.
+func (h *remoteTaskHandler) connectionChecker(dag *ir.DAG, owner serviceregistry.HostInfo, run coordinator.SecretReferenceRun) rtagent.ConnectionChecker {
+	client, ok := h.coordinatorClient.(coordinator.ConnectionTokenClient)
+	if !ok {
+		return nil
+	}
+	if dag != nil {
+		run.DAGName = dag.Name
+	}
+	return newRemoteConnections(client, owner, run)
 }
 
 func (h *remoteTaskHandler) profileResolver(

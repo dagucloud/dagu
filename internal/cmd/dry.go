@@ -128,7 +128,7 @@ func runDry(ctx *Context, args []string) error {
 			ProfileResolver:          as.ProfileResolver,
 			ProfileName:              profileName,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
-			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
+			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory("local"),
 			RootDAGRun:               ir.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:               ctx.Config.Core.Peer,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,

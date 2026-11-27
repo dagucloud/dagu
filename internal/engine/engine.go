@@ -221,7 +221,7 @@ func (e *Engine) subWorkflowRunnerFactory(stores RuntimeStores) func(context.Con
 		StateStore:         e.stateStore,
 		SecretStore:        stores.SecretStore,
 		SecretResolver:     stores.subDAGSecretResolver(),
-		ConnectionChecker:  stores.connectionChecker,
+		ConnectionChecker:  stores.subDAGConnectionChecker(),
 		ProfileStore:       stores.ProfileStore,
 		ProfileResolver:    stores.subDAGProfileResolver(),
 		ServiceRegistry:    e.serviceRegistry,
