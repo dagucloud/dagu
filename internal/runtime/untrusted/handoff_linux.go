@@ -462,7 +462,10 @@ func (iso *isolation) restore(verifyGit bool) error {
 			}
 			// After a failed handoff, every entry is the worker's and the restore
 			// removes none. The handoff gives no file with more than one link,
-			// so such a file was never given: only its group matched.
+			// so such a file was never given: only its group matched. Another
+			// entry of the restricted group gets the group of the worker, also
+			// one that the handoff did not reach, so the restricted user cannot
+			// write it in a later step.
 			if !verifyGit && !e.isDir() && e.st.Nlink > 1 {
 				return false, nil
 			}
