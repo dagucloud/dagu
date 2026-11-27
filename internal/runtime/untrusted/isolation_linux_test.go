@@ -359,8 +359,9 @@ func TestIsolatedStepRefusesOtherFolders(t *testing.T) {
 
 // A shared file, such as the script of a step, keeps the worker as owner and
 // gets the group of the restricted user with the mode 0550: the restricted
-// user reads and runs it and cannot write it, and no other user can read it.
-// The nix-shell script form runs the script path itself.
+// user reads and runs it and cannot write it, and no other user can read it,
+// also one that an entry of an access ACL named, as a default ACL of the
+// folder gives. The nix-shell script form runs the script path itself.
 func TestIsolatedStepSharesAFileReadOnly(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
@@ -374,6 +375,8 @@ func TestIsolatedStepSharesAFileReadOnly(t *testing.T) {
 	require.NoError(t, os.Chmod(dir, 0o755))
 	script := filepath.Join(dir, "script.sh")
 	require.NoError(t, os.WriteFile(script, []byte("echo shared\n"), 0o750))
+	setACL(t, script, aclNames[0], [3]uint32{0x01, 7, ^uint32(0)}, [3]uint32{0x02, 4, testUID + 1},
+		[3]uint32{0x04, 0, ^uint32(0)}, [3]uint32{0x10, 0, ^uint32(0)}, [3]uint32{0x20, 0, ^uint32(0)})
 
 	require.NoError(t, step.ShareReadOnly(script))
 	info, err := os.Lstat(script)
@@ -383,6 +386,9 @@ func TestIsolatedStepSharesAFileReadOnly(t *testing.T) {
 	assert.Equal(t, []int{os.Geteuid(), testGID}, []int{uid, gid})
 	out := runAs(t, WithStep(ctx, step), workDir, script+`; (echo x >> `+script+`) 2>/dev/null && echo write:allowed || echo write:denied`)
 	assert.Equal(t, "shared\nwrite:denied\n", out)
+	other := exec.Command("/bin/cat", script)
+	other.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: testUID + 1, Gid: testGID + 1}}
+	assert.Error(t, other.Run(), "another user read the script")
 }
 
 // A device node in the work directory, also in .git, fails the step: as its
@@ -992,16 +998,24 @@ func TestHandoffRefusesALinkedGitFile(t *testing.T) {
 // file system that takes no ACL.
 func setUserACL(t *testing.T, path string, names ...string) {
 	t.Helper()
+	for _, name := range names {
+		setACL(t, path, name, [3]uint32{0x01, 7, ^uint32(0)}, [3]uint32{0x02, 7, testUID},
+			[3]uint32{0x04, 5, ^uint32(0)}, [3]uint32{0x10, 7, ^uint32(0)}, [3]uint32{0x20, 5, ^uint32(0)})
+	}
+}
+
+// setACL gives the entry the ACL name with the entries, each a tag, the
+// permissions and an ID. It skips the test on a file system that takes no ACL.
+func setACL(t *testing.T, path, name string, entries ...[3]uint32) {
+	t.Helper()
 	acl := binary.LittleEndian.AppendUint32(nil, 2)
-	for _, entry := range [][3]uint32{{0x01, 7, ^uint32(0)}, {0x02, 7, testUID}, {0x04, 5, ^uint32(0)}, {0x10, 7, ^uint32(0)}, {0x20, 5, ^uint32(0)}} {
+	for _, entry := range entries {
 		acl = binary.LittleEndian.AppendUint16(acl, uint16(entry[0])) // #nosec G115 -- small tags.
 		acl = binary.LittleEndian.AppendUint16(acl, uint16(entry[1])) // #nosec G115 -- small modes.
 		acl = binary.LittleEndian.AppendUint32(acl, entry[2])
 	}
-	for _, name := range names {
-		if err := unix.Setxattr(path, name, acl, 0); err != nil {
-			t.Skipf("the file system takes no ACL: %v", err)
-		}
+	if err := unix.Setxattr(path, name, acl, 0); err != nil {
+		t.Skipf("the file system takes no ACL: %v", err)
 	}
 }
 

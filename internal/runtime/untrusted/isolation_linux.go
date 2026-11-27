@@ -983,6 +983,11 @@ func (iso *isolation) shareReadOnly(path string) error {
 		if err := chownFD(e, iso.workerUID, int(iso.gid)); err != nil {
 			return true, err
 		}
+		// The mode sets the mask of an access ACL, which a default ACL of the
+		// folder can give the file: a named entry would let another user read it.
+		if err := removeACLs(e); err != nil {
+			return true, err
+		}
 		return true, chmodFD(e, 0o550)
 	})
 	if err != nil {
