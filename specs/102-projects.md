@@ -221,7 +221,9 @@ Rules:
 - The registry is `projects.json` in `<data_dir>`.
 - For each project, it holds the ID, the name, the display name, the
   creation time, the slot seed, the Dagu Cloud binding (RFC 002), and, for a
-  project that migration made, the v2 workspace name it came from. It also
+  project that migration made, the v2 workspace name it came from and the
+  names of the DAGs migration placed in it, which its v2 webhook URLs reach
+  (see [Webhooks](#webhooks)). It also
   records the files that run in place as the project's, and whether the
   project is marked deleting. Server-wide, it records the DAG files that
   migration found with an [unsettled label](#unsettled-labels).
@@ -1091,6 +1093,13 @@ Rules:
   name made from the workspace name. The project keeps the workspace name as
   its display name.
 - When that name is taken, a number is added to it.
+- The name is made by dropping the characters before the first ASCII
+  letter or digit and keeping the first 64 characters. A name is taken
+  when a project has it, in any case, or a state directory of that name
+  records a project. The number is added as `-2`, then `-3`, and so on.
+- Workspaces whose names keep the rules and are free keep them before any
+  other workspace gets a name, so `-ops` becomes `ops-2` while a workspace
+  `ops` exists.
 - No DAG name changes.
 
 #### `workspace` Labels After Migration
