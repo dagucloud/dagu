@@ -47,7 +47,8 @@ const (
 	// sessionTTL is how long a session waits for consent and confirmation.
 	sessionTTL = 10 * time.Minute
 	// consentTimeout bounds the provider calls of one callback: the code
-	// exchange, the identity, and the probes.
+	// exchange, the identity, and the probes, with the duplicate check's
+	// store reads between them.
 	consentTimeout = 45 * time.Second
 	// writeTimeout bounds each token state write after the provider calls,
 	// which runs on its own deadline once those calls have used theirs.
@@ -600,18 +601,17 @@ func (e *Engine) consent(ctx context.Context, conn *connection.Connection, st au
 	if id.AccountID == "" {
 		return consentTokens{}, consentChecks{}, errors.New("the provider returned no account ID")
 	}
+	// The duplicate check reads only the store, so it runs before the
+	// probes, which may use up the calls' deadline.
+	duplicates := e.duplicates(ctx, conn, app, id.AccountID)
 	probes := provider.Probe(ctx, app, conn, token)
 	for i := range probes {
 		probes[i].Error = redact(probes[i].Error, secrets...)
 	}
-	// The probes may use up the calls' deadline, so the store reads of the
-	// duplicate check run on their own, as the writes after them do.
-	readCtx, cancel := writeContext(ctx)
-	defer cancel()
 	return consentTokens{
 		Tokens:       tokensOf(token, id, cfg.Scopes, exchangedAt),
 		vouchedEmail: id.VouchedEmail,
-	}, consentChecks{probes: probes, duplicates: e.duplicates(readCtx, conn, app, id.AccountID)}, nil
+	}, consentChecks{probes: probes, duplicates: duplicates}, nil
 }
 
 // duplicates returns the names of the other connections in conn's
@@ -744,9 +744,8 @@ func (e *Engine) fail(ctx context.Context, conn *connection.Connection, sessionI
 	return fmt.Errorf("%w: %s", ErrConsentFailed, reason)
 }
 
-// writeContext returns the context of a store call after the provider
-// calls, which keeps its own deadline when theirs or the request's has
-// ended.
+// writeContext returns the context of a write after the provider calls,
+// which keeps its own deadline when theirs or the request's has ended.
 func writeContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
 }
