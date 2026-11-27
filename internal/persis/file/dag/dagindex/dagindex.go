@@ -46,33 +46,38 @@ func ReadEntries(indexPath string) ([]*indexv1.DAGIndexEntry, bool) {
 	if err != nil {
 		return nil, false
 	}
-	return Decode(data)
+	entries, _, ok := Decode(data)
+	return entries, ok
 }
 
-// Decode returns the entries of a marshaled index. It reports false if data
-// is not an index of this version.
-func Decode(data []byte) ([]*indexv1.DAGIndexEntry, bool) {
+// Decode returns the entries of a marshaled index and when the scan that
+// checked them against the DAG files began. It reports false if data is not
+// an index of this version.
+func Decode(data []byte) ([]*indexv1.DAGIndexEntry, time.Time, bool) {
 	var idx indexv1.DAGIndex
 	if err := proto.Unmarshal(data, &idx); err != nil {
-		return nil, false
+		return nil, time.Time{}, false
 	}
 	if idx.Version != IndexVersion {
-		return nil, false
+		return nil, time.Time{}, false
 	}
-	return idx.Entries, true
+	// An older Dagu recorded when it built the index, after its scan.
+	return idx.Entries, time.Unix(idx.BuiltAtUnix, 0), true
 }
 
 // Refresh returns an entry for each of yamlFiles, in order. It keeps the
 // entry of saved for a file whose size, modification time, and load path are
 // unchanged, with the suspension that flags record, and loads every other
-// file. A file whose saved entry records a load error is loaded again too,
-// since the error may come from an older parser. Refresh reports whether the
-// entries differ from saved. It returns the error of ctx when ctx ends before
-// every file that needs a load is loaded.
+// file. It also loads a file whose saved entry records a load error, since
+// the error may come from an older parser, or that was modified after
+// trustBefore, since a later write may have kept its size and modification
+// time. Refresh reports whether the entries differ from saved. It returns the
+// error of ctx when ctx ends before every file that needs a load is loaded.
 func Refresh(
 	ctx context.Context,
 	dagDir string,
 	saved []*indexv1.DAGIndexEntry,
+	trustBefore time.Time,
 	yamlFiles []YAMLFileMeta,
 	flags SuspendFlags,
 	loadOpts ...spec.LoadOption,
@@ -86,7 +91,7 @@ func Refresh(
 	changed := len(saved) != len(yamlFiles)
 	for _, file := range yamlFiles {
 		old := savedByPath[file.Name]
-		if old != nil && old.LoadError == "" && describes(old, file) {
+		if old != nil && old.LoadError == "" && !modifiedAfter(old, trustBefore) && describes(old, file) {
 			entry := withSuspension(old, flags)
 			changed = changed || entry != old
 			entries = append(entries, entry)
@@ -104,6 +109,11 @@ func Refresh(
 		entries = append(entries, entry)
 	}
 	return entries, changed, nil
+}
+
+// modifiedAfter reports whether the file of entry was modified after t.
+func modifiedAfter(entry *indexv1.DAGIndexEntry, t time.Time) bool {
+	return time.Unix(0, entry.ModTime).After(t)
 }
 
 // describes reports whether entry was made from file as it is now.
@@ -223,11 +233,12 @@ func yamlFilePath(dagDir string, file YAMLFileMeta) string {
 	return filepath.Join(dagDir, filepath.FromSlash(file.Name))
 }
 
-// Encode marshals an index of entries, ready to be written.
-func Encode(entries []*indexv1.DAGIndexEntry) ([]byte, error) {
+// Encode marshals an index of entries that a scan begun at scannedAt checked
+// against the DAG files, ready to be written.
+func Encode(entries []*indexv1.DAGIndexEntry, scannedAt time.Time) ([]byte, error) {
 	data, err := proto.Marshal(&indexv1.DAGIndex{
 		Version:     IndexVersion,
-		BuiltAtUnix: time.Now().Unix(),
+		BuiltAtUnix: scannedAt.Unix(),
 		Entries:     entries,
 	})
 	if err != nil {

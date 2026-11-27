@@ -2698,6 +2698,46 @@ func TestCatalogAfterAWriteReloadsARecentFile(t *testing.T) {
 	assert.Equal(t, []string{"v=2"}, catalogItem(t, store, "recent").Labels.Strings())
 }
 
+// A file modified close to a listing can be written again with the same size
+// and modification time while the index stays, so the next listing loads it.
+func TestCatalogReloadsARecentFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	path := filepath.Join(tmpDir, "recent.yaml")
+	// Modified after the scan begins, as by a write during the listing.
+	writeModifiedAt(t, path, labeledV1, time.Now().Add(time.Minute))
+	require.Equal(t, []string{"v=1"}, catalogItem(t, store, "recent").Labels.Strings())
+
+	rewriteKeepingStamp(t, path, labeledV2)
+	require.FileExists(t, store.indexPath)
+	assert.Equal(t, []string{"v=2"}, catalogItem(t, store, "recent").Labels.Strings())
+}
+
+// An index whose scan came soon after the last modification of a file does
+// not vouch for the file. The listing that loads the file again saves the
+// index with its own scan even when the entry is the same, so later listings
+// trust the file instead of loading it each time.
+func TestCatalogTrustsAFileOnceALaterScanChecksIt(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	path := filepath.Join(tmpDir, "dag.yaml")
+	modTime := time.Now().Add(-time.Hour)
+	writeModifiedAt(t, path, labeledV1, modTime)
+	require.Equal(t, []string{"v=1"}, catalogItem(t, store, "dag").Labels.Strings())
+
+	// The index as a scan right after the write would have saved it.
+	entries, ok := dagindex.ReadEntries(store.indexPath)
+	require.True(t, ok)
+	data, err := dagindex.Encode(entries, modTime)
+	require.NoError(t, err)
+	require.NoError(t, dagindex.Write(store.indexPath, data))
+	require.Equal(t, []string{"v=1"}, catalogItem(t, store, "dag").Labels.Strings())
+
+	rewriteKeepingStamp(t, path, labeledV2)
+	assert.Equal(t, []string{"v=1"}, catalogItem(t, store, "dag").Labels.Strings(),
+		"a listing after the scan that checked the file does not load it again")
+}
+
 // The base config applies to every DAG, so the listing after it changes loads
 // every DAG file again.
 func TestCatalogReloadsEveryDAGWhenBaseConfigChanges(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
@@ -32,9 +33,12 @@ func savedEntry(file dagindex.YAMLFileMeta, name string) *indexv1.DAGIndexEntry 
 	return &indexv1.DAGIndexEntry{FilePath: file.Name, FileSize: file.Size, ModTime: file.ModTime, LoadPath: file.LoadPath, Name: name}
 }
 
+// trustAll trusts every saved entry of a file written by a test.
+func trustAll() time.Time { return time.Now().Add(time.Hour) }
+
 func refresh(t *testing.T, dir string, saved []*indexv1.DAGIndexEntry, files []dagindex.YAMLFileMeta, flags dagindex.SuspendFlags) ([]*indexv1.DAGIndexEntry, bool) {
 	t.Helper()
-	entries, changed, err := dagindex.Refresh(t.Context(), dir, saved, files, flags)
+	entries, changed, err := dagindex.Refresh(t.Context(), dir, saved, trustAll(), files, flags)
 	require.NoError(t, err)
 	return entries, changed
 }
@@ -110,6 +114,30 @@ func TestRefresh_LoadsANewFileAndDropsARemovedOne(t *testing.T) {
 	assert.True(t, changed, "dropping an entry changes the index")
 }
 
+// A file modified after trustBefore may have been written again with the same
+// size and modification time, so its saved entry is not trusted.
+func TestRefresh_ReloadsARecentFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	file := writeDAG(t, dir, "a.yaml", "name: from-file\nsteps:\n  - run: echo a\n")
+	saved := []*indexv1.DAGIndexEntry{savedEntry(file, "saved")}
+	files := []dagindex.YAMLFileMeta{file}
+	modTime := time.Unix(0, file.ModTime)
+
+	entries, changed, err := dagindex.Refresh(t.Context(), dir, saved, modTime.Add(-time.Nanosecond), files, nil)
+	require.NoError(t, err)
+	assert.True(t, changed)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "from-file", entries[0].Name)
+
+	entries, changed, err = dagindex.Refresh(t.Context(), dir, saved, modTime, files, nil)
+	require.NoError(t, err)
+	assert.False(t, changed)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "saved", entries[0].Name, "a file modified at trustBefore is trusted")
+}
+
 // A suspend flag changes no DAG file, so it reaches the saved entry without a
 // load, and the saved entry itself stays as it was.
 func TestRefresh_AppliesSuspendFlags(t *testing.T) {
@@ -142,10 +170,10 @@ func TestRefresh_ContextEnd(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	_, _, err := dagindex.Refresh(ctx, dir, saved, []dagindex.YAMLFileMeta{unchanged, added}, nil)
+	_, _, err := dagindex.Refresh(ctx, dir, saved, trustAll(), []dagindex.YAMLFileMeta{unchanged, added}, nil)
 	require.ErrorIs(t, err, context.Canceled)
 
-	entries, changed, err := dagindex.Refresh(ctx, dir, saved, []dagindex.YAMLFileMeta{unchanged}, nil)
+	entries, changed, err := dagindex.Refresh(ctx, dir, saved, trustAll(), []dagindex.YAMLFileMeta{unchanged}, nil)
 	require.NoError(t, err)
 	assert.False(t, changed)
 	require.Len(t, entries, 1)

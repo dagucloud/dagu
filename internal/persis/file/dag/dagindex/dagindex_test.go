@@ -132,7 +132,7 @@ func TestWrite_Atomic(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, IndexFileName)
 
-	encoded, err := Encode([]*indexv1.DAGIndexEntry{{FilePath: "a.yaml", Name: "a"}})
+	encoded, err := Encode([]*indexv1.DAGIndexEntry{{FilePath: "a.yaml", Name: "a"}}, time.Now())
 	require.NoError(t, err)
 	require.NoError(t, Write(indexPath, encoded))
 
@@ -175,7 +175,7 @@ func TestRoundTrip(t *testing.T) {
 	// Build and write.
 	idx := Build(context.Background(), dir, files, nil)
 	indexPath := filepath.Join(dir, IndexFileName)
-	data, err := Encode(idx.Entries)
+	data, err := Encode(idx.Entries, time.Now())
 	require.NoError(t, err)
 	require.NoError(t, Write(indexPath, data))
 
@@ -357,7 +357,7 @@ func TestDAGFromEntry_NoSchedule(t *testing.T) {
 }
 
 func TestWrite_InvalidPath(t *testing.T) {
-	data, err := Encode([]*indexv1.DAGIndexEntry{{FilePath: "a.yaml", Name: "a"}})
+	data, err := Encode([]*indexv1.DAGIndexEntry{{FilePath: "a.yaml", Name: "a"}}, time.Now())
 	require.NoError(t, err)
 	// A regular file in place of the index directory cannot be created over,
 	// on every platform and for every user.
@@ -369,7 +369,7 @@ func TestWrite_InvalidPath(t *testing.T) {
 
 func TestWrite_CreatesDirectory(t *testing.T) {
 	indexPath := filepath.Join(t.TempDir(), "cache", "dag-index", "x.index")
-	data, err := Encode(nil)
+	data, err := Encode(nil, time.Now())
 	require.NoError(t, err)
 	require.NoError(t, Write(indexPath, data))
 	assert.FileExists(t, indexPath)
