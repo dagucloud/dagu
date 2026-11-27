@@ -985,9 +985,10 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 // dispatchThroughInterrupt sends req to the coordinator. The coordinator can
 // take a task after its caller gives up on the call, so an interrupt
 // (signalCtx done) does not cut the call short: it stops further retries and
-// fallbacks, calls notice, and gives the attempt in flight timeout to end.
-// Once the call returns, a run the coordinator took exists there, so a
-// cancellation reaches it. An interrupt before the call sends nothing.
+// fallbacks, gives the attempt in flight timeout to end, and calls notice. The
+// call returns only after notice does. Once the call returns, a run the
+// coordinator took exists there, so a cancellation reaches it. An interrupt
+// before the call sends nothing.
 func dispatchThroughInterrupt(
 	signalCtx context.Context,
 	cli coordinator.Client,
@@ -1002,24 +1003,27 @@ func dispatchThroughInterrupt(
 	callCtx, cancelCall := context.WithCancel(coordinator.WithAttemptStop(context.WithoutCancel(signalCtx), attemptsStop))
 	defer cancelCall()
 	returned := make(chan struct{})
-	defer close(returned)
+	watched := make(chan struct{})
 	go func() {
+		defer close(watched)
 		select {
 		case <-returned:
 			return
 		case <-signalCtx.Done():
 		}
-		notice()
+		// The cutoff comes first, since the notice writes to the terminal and
+		// can block.
 		close(attemptsStop)
-		deadline := time.NewTimer(timeout)
+		deadline := time.AfterFunc(timeout, cancelCall)
 		defer deadline.Stop()
-		select {
-		case <-returned:
-		case <-deadline.C:
-			cancelCall()
-		}
+		notice()
+		<-returned
 	}()
-	return cli.Dispatch(callCtx, req)
+	err := cli.Dispatch(callCtx, req)
+	close(returned)
+	// The notice comes before the caller reports how the call ended.
+	<-watched
+	return err
 }
 
 // interruptedNotice tells the user what an interrupted dispatch waits for.

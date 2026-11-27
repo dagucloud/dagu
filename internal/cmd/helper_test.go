@@ -250,6 +250,8 @@ type stalledDispatchClient struct {
 	coordinator.Client
 	interrupt context.CancelFunc
 	calls     int
+	// cutOff, when set, is closed once the call is cut off.
+	cutOff chan struct{}
 }
 
 func (c *stalledDispatchClient) Dispatch(ctx context.Context, _ dispatch.DispatchRequest) error {
@@ -257,6 +259,9 @@ func (c *stalledDispatchClient) Dispatch(ctx context.Context, _ dispatch.Dispatc
 	c.interrupt()
 	select {
 	case <-ctx.Done():
+		if c.cutOff != nil {
+			close(c.cutOff)
+		}
 		return ctx.Err()
 	case <-time.After(time.Minute):
 		// Fails the test instead of hanging it when the deadline is lost.
@@ -279,6 +284,20 @@ func TestDispatchThroughInterruptDeadline(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, 1, client.calls)
 	assert.Equal(t, 1, noticed, "the interrupt is shown once")
+}
+
+// The cutoff does not wait on the notice, whose write to a stalled terminal
+// can block. Here the notice blocks until the call is cut off.
+func TestDispatchThroughInterruptBlockedNotice(t *testing.T) {
+	t.Parallel()
+
+	signalCtx, interrupt := context.WithCancel(context.Background())
+	defer interrupt()
+	client := &stalledDispatchClient{interrupt: interrupt, cutOff: make(chan struct{})}
+
+	err := dispatchThroughInterrupt(signalCtx, client, dispatch.DispatchRequest{Task: &dispatch.DispatchTask{}},
+		time.Millisecond, func() { <-client.cutOff })
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 // An interrupt that arrives before the dispatch sends nothing, so no run
