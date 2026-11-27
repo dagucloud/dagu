@@ -540,8 +540,17 @@ func (s *Store) DeleteFile(ctx context.Context, name, rel string, pre Preconditi
 		if err := fileutil.SyncDir(filepath.Join(root.Name(), filepath.FromSlash(dir))); err != nil {
 			return fmt.Errorf("delete %s: %w", rel, err)
 		}
-		result, err = Read(s.Dir(name))
-		return err
+		read, err := Read(s.Dir(name))
+		if err != nil {
+			return err
+		}
+		// As for a write, the result describes the folder of the delete only while
+		// the path of the skill still names it.
+		if !namesRoot(s.Dir(name), root) || hasRule(read.Issues, RuleFolderLink) {
+			return &ConflictError{Message: fmt.Sprintf("the skill folder %q was replaced during the delete; read it again", name)}
+		}
+		result = read
+		return nil
 	})
 	return result, err
 }

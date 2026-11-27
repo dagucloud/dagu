@@ -819,6 +819,37 @@ func TestWriteStaysInTheFolderThatItOpened(t *testing.T) {
 	}
 }
 
+// A delete never reaches the target of a link that replaces the skill folder
+// during the delete. It deletes in the folder that it opened, and then gives a
+// conflict: the path of the skill names another folder.
+func TestDeleteStaysInTheFolderThatItOpened(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows refuses to move a folder that a process holds open")
+	}
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	outside := filepath.Join(t.TempDir(), "demo")
+	require.NoError(t, os.MkdirAll(filepath.Join(outside, "references"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "references", "a.md"), []byte("original"), 0o644))
+	skill.SetBeforeHeldCheck(s, func() {
+		require.NoError(t, os.Rename(s.Dir("demo"), s.Dir("demo")+".moved"))
+		require.NoError(t, os.Symlink(outside, s.Dir("demo")))
+	})
+
+	_, err = s.DeleteFile(ctx, "demo", "references/a.md", skill.Precondition{IfMatch: cur.Hash})
+	var conflict *skill.ConflictError
+	require.ErrorAs(t, err, &conflict, "the result would describe the link, not the folder of the delete")
+	data, err := os.ReadFile(filepath.Join(outside, "references", "a.md"))
+	require.NoError(t, err)
+	require.Equal(t, "original", string(data), "the delete went through the link")
+	_, err = os.Stat(filepath.Join(s.Dir("demo")+".moved", "references", "a.md"))
+	require.ErrorIs(t, err, fs.ErrNotExist)
+}
+
 // A read right after a write gets the written version, also when the cache
 // holds the version before the write, as the cache of another process on the
 // same directory does. The write returns the hash of the files on disk. The
