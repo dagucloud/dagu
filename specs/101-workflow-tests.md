@@ -982,12 +982,16 @@ host value is the value of a variable that the run takes from it:
 - a variable that Dagu passes to steps because `env_passthrough` or
   `env_passthrough_prefixes` in the configuration names it.
 
-When the value is JSON, each string in it is a host value too, since a JSON
-path or the listed keys of an assertion can take a part of it, also through
-a DAG `env` entry. The variables that Dagu passes to every step whatever
-the configuration have no host value: its fixed allowlist, such as `PATH`
-and `HOME`, and the names that start with `DAGU_`, `DAG_`, `LC_`, or
-`KUBERNETES_`. An empty string is no host value either.
+When the value is JSON, each string and number in it of at least four
+characters is a host value too, since a JSON path or the listed keys of an
+assertion can take a part of it, also through a DAG `env` entry. A shorter
+part, such as `us` or `443`, and a boolean are left out: they cannot be
+told apart from the text around them, hold no credential, and would keep
+and mask unrelated text. A four-digit PIN still counts. The variables that
+Dagu passes to every step whatever the configuration have no host value:
+its fixed allowlist, such as `PATH` and `HOME`, and the names that start
+with `DAGU_`, `DAG_`, `LC_`, or `KUBERNETES_`. An empty value is no host
+value either.
 
 Rules:
 
@@ -1475,7 +1479,9 @@ a step it adds in the same shape:
   when a recipient of the sent ones holds one. So does a `called_with`
   variable whose value the step takes from the host, which Dagu passes to
   steps with no DAG, step, or case `env` entry in its place, a variable of
-  the fixed allowlist such as `HOME` included. The case reports each as a
+  the fixed allowlist such as `HOME` included. For a value asserted with an
+  object, each listed key decides on its own, so the other changed keys of
+  that object are still written. The case reports each kept value as a
   failure, masked as [Host Values](#host-values) says, and a line names the
   host variables and the variables to set under the case's `env`, such as
   `step deploy called_with.env.TOKEN: kept, it holds the value of host variable HOST_TOKEN; set TOKEN under env`.
