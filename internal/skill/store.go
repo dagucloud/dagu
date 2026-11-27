@@ -40,8 +40,8 @@ var ErrPreconditionRequired = errors.New("a write needs a precondition: the hash
 // ConflictError is returned when the precondition of a write fails: the skill
 // changed after the client read it, or it exists when it must not.
 type ConflictError struct {
-	// Current is the hash of the skill now. It is empty when the skill does not
-	// exist.
+	// Current is the hash of the skill now. It is empty when no version is
+	// known: another writer holds the skill, or the skill is being changed.
 	Current string
 	// Message tells why the write is refused.
 	Message string
