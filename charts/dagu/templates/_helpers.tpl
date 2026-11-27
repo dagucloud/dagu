@@ -85,3 +85,18 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{ toYaml . }}
 {{- end }}
 {{- end }}
+
+{{- define "dagu.peerTokenSecretName" -}}
+{{- default (include "dagu.componentName" (dict "root" . "component" "peer-token")) .Values.peerToken.existingSecret -}}
+{{- end }}
+
+{{- /* Every pod of a distributed install sends and checks this token. */}}
+{{- define "dagu.peerTokenEnv" -}}
+{{- if eq .Values.deploymentMode "distributed" }}
+- name: DAGU_PEER_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "dagu.peerTokenSecretName" . | quote }}
+      key: {{ .Values.peerToken.secretKey | quote }}
+{{- end }}
+{{- end }}

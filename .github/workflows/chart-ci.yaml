@@ -146,6 +146,10 @@ jobs:
           grep -Fq 'serviceAccountName: dagu' /tmp/dagu-default-render.yaml
           test "$(grep -Fc 'httpGet:' /tmp/dagu-default-render.yaml)" -eq 2
           grep -Fq "command: ['wget']" /tmp/dagu-default-render.yaml
+          if grep -Fq 'DAGU_PEER_TOKEN' /tmp/dagu-default-render.yaml; then
+            echo "::error::Standalone mode must not configure a peer token"
+            exit 1
+          fi
 
       - name: Render IP allowlist
         run: |
@@ -178,6 +182,9 @@ jobs:
           grep -Fq 'name: dagu-worker-general' /tmp/dagu-distributed-render.yaml
           grep -Fq -- '- ReadWriteMany' /tmp/dagu-distributed-render.yaml
           test "$(grep -Fc 'serviceAccountName: dagu' /tmp/dagu-distributed-render.yaml)" -eq 4
+          # Every Dagu pod sends the coordinator the token of one Secret.
+          test "$(grep -Fc 'name: DAGU_PEER_TOKEN' /tmp/dagu-distributed-render.yaml)" -eq 4
+          grep -Fq 'name: dagu-peer-token' /tmp/dagu-distributed-render.yaml
           # Workers report <pod>@<pid> unless a pool sets a stable workerId.
           if grep -Fq 'name: DAGU_WORKER_ID' /tmp/dagu-distributed-render.yaml; then
             echo "::error::Workers without workerId must not set DAGU_WORKER_ID"
@@ -224,6 +231,20 @@ jobs:
             >/tmp/dagu-scheduler-standby-render.yaml
 
           grep -Fq 'replicas: 2' /tmp/dagu-scheduler-standby-render.yaml
+
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --kube-version 1.35.0 \
+            --set deploymentMode=distributed \
+            --set persistence.accessMode=ReadWriteMany \
+            --set-string peerToken.existingSecret=dagu-shared-peer-token \
+            >/tmp/dagu-peer-token-render.yaml
+
+          test "$(grep -Fc 'name: "dagu-shared-peer-token"' /tmp/dagu-peer-token-render.yaml)" -eq 4
+          if grep -Fq 'templates/peer-token-secret.yaml' /tmp/dagu-peer-token-render.yaml; then
+            echo "::error::An existing peer token Secret must not be created by the chart"
+            exit 1
+          fi
 
           helm template dagu ./charts/dagu \
             --namespace dagu \

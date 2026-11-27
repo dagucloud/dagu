@@ -59,6 +59,9 @@ spec:
               value: "0.0.0.0"
             - name: DAGU_COORDINATOR_ADVERTISE
               value: {{ include "dagu.componentName" (dict "root" . "component" "coordinator") | quote }}
+{{- with include "dagu.peerTokenEnv" . }}
+{{ . | nindent 12 }}
+{{- end }}
 {{- with include "dagu.extraEnv" . }}
 {{ . | nindent 12 }}
 {{- end }}

@@ -103,6 +103,16 @@ scheduler:
       memory: "512Mi"
       cpu: "500m"
 
+# Peer token for distributed mode. The coordinator refuses calls without it,
+# and workers do not share its data volume, so every Dagu pod reads the token
+# from one Secret. Leave existingSecret empty to have the chart create the
+# Secret with a random token and keep it across upgrades. Set existingSecret
+# when the chart is rendered without cluster access, such as by GitOps tools,
+# since each such render would generate a new token.
+peerToken:
+  existingSecret: ""
+  secretKey: token
+
 # Coordinator configuration for distributed mode.
 coordinator:
   replicas: 1

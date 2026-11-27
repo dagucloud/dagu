@@ -504,6 +504,25 @@
       },
       "required": ["enabled", "className", "annotations", "host", "tls"]
     },
+    "peerToken": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": {
+          "type": "string",
+          "description": "Secret holding the peer token in distributed mode. Empty creates one with a random token.",
+          "maxLength": 253,
+          "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+        },
+        "secretKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253,
+          "pattern": "^[-._a-zA-Z0-9]+$"
+        }
+      },
+      "required": ["existingSecret", "secretKey"]
+    },
     "license": {
       "type": "object",
       "additionalProperties": false,
