@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
@@ -108,11 +109,14 @@ func (a *API) UpdateProject(ctx context.Context, request api.UpdateProjectReques
 	if err != nil {
 		return nil, err
 	}
+	if request.Body.DisplayName == nil {
+		return nil, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: "displayName is required"}
+	}
 	access, err := a.projectAccess.Get(ctx, caller, request.ProjectName)
 	if err != nil {
 		return nil, projectError(err)
 	}
-	updated, err := a.projectLifecycle.SetDisplayName(ctx, access.Project.ID, request.Body.DisplayName)
+	updated, err := a.projectLifecycle.SetDisplayName(ctx, access.Project.ID, *request.Body.DisplayName)
 	if err != nil {
 		return nil, projectError(err)
 	}
@@ -189,6 +193,12 @@ func (a *API) toAPIProject(ctx context.Context, access projectaccess.Access) (ap
 		State:       state,
 		Role:        api.UserRole(access.Role),
 	}, nil
+}
+
+// isProjectDelete reports whether r deletes a project.
+func isProjectDelete(r *http.Request, apiBasePath string) bool {
+	name, ok := strings.CutPrefix(r.URL.Path, strings.TrimRight(apiBasePath, "/")+"/projects/")
+	return r.Method == http.MethodDelete && ok && name != "" && !strings.Contains(name, "/")
 }
 
 // projectError answers a refused project request with its status, and

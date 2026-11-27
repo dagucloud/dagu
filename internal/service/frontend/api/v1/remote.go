@@ -28,7 +28,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 )
 
-const remoteProxyTimeout = 30 * time.Second
+const (
+	remoteProxyTimeout = 30 * time.Second
+	// remoteProjectDeleteTimeout outlasts a project delete's wait for every
+	// process to release the project, and the removal after it.
+	remoteProjectDeleteTimeout = time.Minute
+)
 
 // WithRemoteNode is a middleware that checks if the request has a "remoteNode" query parameter.
 // If it does, it proxies the request to the specified remote node.
@@ -329,6 +334,9 @@ func (h *remoteNodeProxy) doRequest(body io.Reader, r *http.Request) (*http.Resp
 	client := &http.Client{
 		Transport: transport,
 		Timeout:   remoteProxyTimeout,
+	}
+	if isProjectDelete(r, h.apiBasePath) {
+		client.Timeout = remoteProjectDeleteTimeout
 	}
 
 	if isLogDownload(r, h.apiBasePath) {

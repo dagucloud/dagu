@@ -10446,11 +10446,11 @@ export interface components {
             displayName?: string;
         };
         UpdateProjectRequest: {
-            /** @description Up to 200 characters. Empty restores the name */
-            displayName: string;
+            /** @description Up to 200 characters. Empty restores the name. A request without it is refused with 400 */
+            displayName?: string;
         };
         /**
-         * @description `active`; `missing` when its DAG directory is gone and it runs no file in place that exists, so it is not scheduled; `deleting` while a delete is in progress
+         * @description `active`; `missing` when its DAG directory is gone and it runs no file in place that exists, so it is not scheduled; `deleting` while the project is marked deleting: a delete is in progress, or one failed after it began removing files, and deleting the project again finishes it
          * @enum {string}
          */
         ProjectState: ProjectState;

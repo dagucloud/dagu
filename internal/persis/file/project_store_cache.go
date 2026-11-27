@@ -18,9 +18,9 @@ import (
 // ProjectStoreCache holds the stores of every registered project, keyed by
 // project ID, and follows the registry as it changes:
 //
-//	registry gains P            -> open P's stores
 //	registry drops P, or marks  -> release P's stores, then record every
 //	  it deleting                  project marked deleting as released
+//	registry gains P            -> after that record, open P's stores
 //
 // File stores hold no file open between calls, so releasing a project's
 // stores frees its directories once the calls in flight end.
@@ -107,6 +107,10 @@ func (c *ProjectStoreCache) follow(ctx context.Context, projects []project.Proje
 		}
 	}
 	c.mu.Unlock()
+	// Recorded before any store opens, so that a project whose delete was
+	// refused is no longer recorded as released once its stores are open
+	// again, and a later delete waits for this process again.
+	c.recordReleased(ctx, deleting)
 
 	for _, p := range projects {
 		if !live[p.ID] {
@@ -128,8 +132,6 @@ func (c *ProjectStoreCache) follow(ctx context.Context, projects []project.Proje
 		c.stores[p.ID] = stores
 		c.mu.Unlock()
 	}
-
-	c.recordReleased(ctx, deleting)
 }
 
 // recordReleased records ids once the cache holds none of their stores,

@@ -775,6 +775,20 @@ func TestIsLogDownload(t *testing.T) {
 	}
 }
 
+// A proxied project delete gets a timeout that covers its wait for every
+// process to release the project.
+func TestIsProjectDelete(t *testing.T) {
+	assert.True(t, isProjectDelete(httptest.NewRequest(http.MethodDelete, "/api/v1/projects/ops", nil), "/api/v1"))
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodPatch, "/api/v1/projects/ops", nil),
+		httptest.NewRequest(http.MethodDelete, "/api/v1/projects/", nil),
+		httptest.NewRequest(http.MethodDelete, "/api/v1/projects/ops/other", nil),
+		httptest.NewRequest(http.MethodDelete, "/api/v1/workspaces/ops", nil),
+	} {
+		assert.False(t, isProjectDelete(request, "/api/v1"), request.Method+" "+request.URL.Path)
+	}
+}
+
 func TestRemoteStepLogForm(t *testing.T) {
 	for _, suffix := range []string{"/steps/log/download", "/sub-dag-runs/child/steps/log/download"} {
 		t.Run(suffix, func(t *testing.T) {

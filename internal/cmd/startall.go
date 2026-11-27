@@ -205,7 +205,10 @@ func runStartAll(ctx *Context, _ []string) error {
 	serverOpts = append(serverOpts, frontend.WithOnReady(printStartupBanner(serviceCtx, stores.AuthSetupRequired)))
 	webStopped, onWebStopped := closedOnce()
 	serverOpts = append(serverOpts, frontend.WithOnStopped(onWebStopped))
-	projectOpts, unregister := serviceCtx.followServedProjects(serviceCtx)
+	projectOpts, unregister, err := serviceCtx.followServedProjects(serviceCtx)
+	if err != nil {
+		return err
+	}
 	defer unregister()
 	serverOpts = append(serverOpts, projectOpts...)
 

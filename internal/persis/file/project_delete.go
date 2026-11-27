@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectrecord"
+	fileserviceregistry "github.com/dagucloud/dagu/v2/internal/persis/file/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
@@ -119,7 +120,8 @@ func DeleteProject(
 	if err := checkReleased(ctx, cfg, server, p); err != nil {
 		if marked {
 			if _, unmarkErr := registry.SetDeleting(ctx, p.ID, false); unmarkErr != nil {
-				err = errors.Join(err, unmarkErr)
+				// The project stays marked, so the delete did change it.
+				return p, fmt.Errorf("%v; the project stays marked deleting: %w", err, unmarkErr)
 			}
 		}
 		return p, err
@@ -179,18 +181,25 @@ func gitCheckout(dir string) (string, error) {
 	} else if err != nil {
 		return "", err
 	}
-	for d := filepath.Clean(dir); ; {
-		if _, err := os.Lstat(filepath.Join(d, gitDirName)); err == nil {
-			return d, nil
+	// A symbolic link above dir may place it in a checkout elsewhere.
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", err
+	}
+	for _, start := range []string{filepath.Clean(dir), resolved} {
+		for d := start; ; {
+			if _, err := os.Lstat(filepath.Join(d, gitDirName)); err == nil {
+				return d, nil
+			}
+			parent := filepath.Dir(d)
+			if parent == d {
+				break
+			}
+			d = parent
 		}
-		parent := filepath.Dir(d)
-		if parent == d {
-			break
-		}
-		d = parent
 	}
 	var found string
-	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+	err = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -207,7 +216,7 @@ func gitCheckout(dir string) (string, error) {
 // marked deleting, and then refuses the delete while p has a run that is
 // not finished. No run of p starts once every process has released it.
 func checkReleased(ctx context.Context, cfg *config.Config, server *ServerStores, p project.Project) error {
-	if err := waitReleased(ctx, server.ServiceRegistry, p.ID); err != nil {
+	if err := waitReleased(ctx, cfg.Paths.ServiceRegistryDir, p.ID); err != nil {
 		return err
 	}
 	stores, err := NewProjectStores(ctx, cfg, server, p, ProjectStoreOptions{})
@@ -227,11 +236,14 @@ func checkReleased(ctx context.Context, cfg *config.Config, server *ServerStores
 }
 
 // waitReleased waits until no live process of the services that open
-// project stores holds the project with the given ID.
-func waitReleased(ctx context.Context, registry serviceregistry.ServiceRegistry, id string) error {
+// project stores holds the project with the given ID, by the service
+// registry in dir.
+func waitReleased(ctx context.Context, dir string, id string) error {
 	deadline := time.Now().Add(releaseTimeout)
 	for {
-		holders, err := projectHolders(ctx, registry, id)
+		// A registry of its own on each read keeps out the members that an
+		// earlier read cached, which may predate the mark.
+		holders, err := projectHolders(ctx, fileserviceregistry.New(dir), id)
 		if err != nil {
 			return err
 		}
@@ -323,6 +335,15 @@ func removeProject(
 		if err := opts.Wiki.SettleHistory(ctx, p); err != nil {
 			return fmt.Errorf("move the wiki history of project %s: %w", p.Name, err)
 		}
+	}
+	// The DAG directory is found by name. Once another delete has removed
+	// the entry, the name may belong to a new project.
+	current, err := registry.GetByID(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	if !current.Deleting {
+		return fmt.Errorf("%w: it is no longer marked deleting", project.ErrDeleteRefused)
 	}
 	if err := fileutil.RemoveAll(paths.DAGsDir); err != nil {
 		return fmt.Errorf("remove the DAG directory %s: %w", paths.DAGsDir, err)

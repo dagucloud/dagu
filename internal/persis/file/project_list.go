@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectrecord"
@@ -55,10 +56,8 @@ func (s *ServerStores) ProjectState(ctx context.Context, p project.Project) (Pro
 		if err != nil {
 			return "", err
 		}
-		for _, file := range files {
-			if fileutil.FileExists(file) {
-				return ProjectStateActive, nil
-			}
+		if slices.ContainsFunc(files, fileutil.FileExists) {
+			return ProjectStateActive, nil
 		}
 	}
 	return ProjectStateMissing, nil

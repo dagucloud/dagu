@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectrecord"
 )
@@ -30,7 +31,7 @@ func TestProjectState(t *testing.T) {
 	}
 
 	assert.Equal(t, persisfile.ProjectStateActive, state())
-	require.NoError(t, os.RemoveAll(filepath.Join(f.cfg.Paths.ProjectsDir, "weather")))
+	require.NoError(t, fileutil.RemoveAll(filepath.Join(f.cfg.Paths.ProjectsDir, "weather")))
 	assert.Equal(t, persisfile.ProjectStateMissing, state())
 	_, err := f.registry.SetDeleting(ctx, f.weather.ID, true)
 	require.NoError(t, err)

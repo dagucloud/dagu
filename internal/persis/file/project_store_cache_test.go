@@ -33,10 +33,13 @@ var (
 func TestProjectStoreCacheFollowsRegistry(t *testing.T) {
 	defaults := &persisfile.ProjectStores{}
 	var opened []string
+	// recordsAtOpen counts the records made before each open.
+	var recordsAtOpen []int
 	registry, releases := newFakeRegistry(), &releaseLog{}
 	cache := persisfile.NewProjectStoreCache(registry, defaults,
 		func(_ context.Context, p project.Project) (*persisfile.ProjectStores, error) {
 			opened = append(opened, p.Name)
+			recordsAtOpen = append(recordsAtOpen, len(releases.recorded()))
 			return &persisfile.ProjectStores{}, nil
 		}, releases)
 	runCache(t, cache)
@@ -66,6 +69,8 @@ func TestProjectStoreCacheFollowsRegistry(t *testing.T) {
 	require.True(t, ok)
 	assert.NotSame(t, first, again)
 	assert.Equal(t, [][]string{{weatherProject.ID}, nil}, releases.recorded())
+	assert.Equal(t, []int{0, 2}, recordsAtOpen,
+		"the release is withdrawn before the stores open again, so a later delete waits")
 
 	registry.show(defaultProject)
 	_, ok = cache.Get(weatherProject.ID)
@@ -147,10 +152,15 @@ func TestProjectStoreCacheRecordsReleaseInServiceRegistry(t *testing.T) {
 	}, 5*time.Second, 20*time.Millisecond)
 	registered, err := registry.Get(ctx, project.DefaultName)
 	require.NoError(t, err)
-	got, ok := cache.Get(registered.ID)
-	require.True(t, ok)
+	// The release is recorded before the default project's stores open.
+	var got *persisfile.ProjectStores
+	require.Eventually(t, func() bool {
+		var ok bool
+		got, ok = cache.Get(registered.ID)
+		return ok
+	}, 5*time.Second, 20*time.Millisecond)
 	assert.Same(t, defaults, got)
-	_, ok = cache.Get(weather.ID)
+	_, ok := cache.Get(weather.ID)
 	assert.False(t, ok)
 }
 

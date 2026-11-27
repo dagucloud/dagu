@@ -68,7 +68,11 @@ func TestProjects(t *testing.T) {
 			Send(t)
 	}
 
-	resp = server.Client().Patch("/api/v1/projects/OPS", api.UpdateProjectRequest{DisplayName: "Ops team"}).
+	server.Client().Patch("/api/v1/projects/ops", api.UpdateProjectRequest{}).
+		WithBearerToken(adminToken).
+		ExpectStatus(http.StatusBadRequest).
+		Send(t)
+	resp = server.Client().Patch("/api/v1/projects/OPS", api.UpdateProjectRequest{DisplayName: new("Ops team")}).
 		WithBearerToken(adminToken).
 		ExpectStatus(http.StatusOK).
 		Send(t)
@@ -139,7 +143,7 @@ func TestProjectsOff(t *testing.T) {
 	for _, request := range []*test.Request{
 		server.Client().Get("/api/v1/projects"),
 		server.Client().Post("/api/v1/projects", api.CreateProjectRequest{Name: "ops"}),
-		server.Client().Patch("/api/v1/projects/ops", api.UpdateProjectRequest{DisplayName: "Ops"}),
+		server.Client().Patch("/api/v1/projects/ops", api.UpdateProjectRequest{DisplayName: new("Ops")}),
 		server.Client().Delete("/api/v1/projects/ops"),
 	} {
 		resp := request.WithBearerToken(adminToken).ExpectStatus(http.StatusNotFound).Send(t)
