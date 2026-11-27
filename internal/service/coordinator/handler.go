@@ -1827,14 +1827,19 @@ func (h *Handler) RunHeartbeat(ctx context.Context, req *coordinatorv1.RunHeartb
 			}
 			return nil, err
 		}
-		if err := h.refreshRunLease(ctx, task.AttemptKey, observedAt); err != nil {
+		leaseWasFresh, err := h.refreshRunLease(ctx, task.AttemptKey, observedAt)
+		if err != nil {
 			if errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) || errors.Is(err, persis.ErrCorrupt) {
 				cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
 				continue
 			}
 			return nil, status.Error(codes.Internal, "failed to refresh run lease: "+err.Error())
 		}
-		h.repairStaleLeaseFailureFromRunHeartbeat(ctx, req.WorkerId, task, observedAt)
+		// A lease that expired before this heartbeat justifies a stale-run
+		// failure, so the failure stands and the worker is told to stop.
+		if leaseWasFresh {
+			h.repairStaleLeaseFailureFromRunHeartbeat(ctx, req.WorkerId, task, observedAt)
+		}
 	}
 
 	cancelledRuns = appendCancelledRuns(cancelledRuns, h.getCancelledRunsForWorker(ctx, &coordinatorv1.WorkerStats{
@@ -1843,15 +1848,18 @@ func (h *Handler) RunHeartbeat(ctx context.Context, req *coordinatorv1.RunHeartb
 	return &coordinatorv1.RunHeartbeatResponse{CancelledRuns: cancelledRuns}, nil
 }
 
-func (h *Handler) refreshRunLease(ctx context.Context, attemptKey string, observedAt time.Time) error {
+// refreshRunLease records a run heartbeat on the lease and reports whether
+// the lease was still fresh when the heartbeat arrived.
+func (h *Handler) refreshRunLease(ctx context.Context, attemptKey string, observedAt time.Time) (bool, error) {
 	lease, err := h.dagRunLeaseStore.Get(ctx, attemptKey)
 	if err != nil {
-		return err
+		return false, err
 	}
+	fresh := lease != nil && lease.IsFresh(observedAt, h.staleLeaseThreshold)
 	if lease != nil && observedAt.Before(lease.LastHeartbeatTime().Add(h.leaseRefreshWriteInterval())) {
-		return nil
+		return fresh, nil
 	}
-	return h.dagRunLeaseStore.Touch(ctx, attemptKey, observedAt)
+	return fresh, h.dagRunLeaseStore.Touch(ctx, attemptKey, observedAt)
 }
 
 func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(

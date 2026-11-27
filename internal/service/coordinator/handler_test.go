@@ -2272,6 +2272,65 @@ func TestHandler_Heartbeat(t *testing.T) {
 		assert.Equal(t, ir.Running, record.Status)
 	})
 
+	// The zombie detector fails a run whose lease expired, then deletes the
+	// lease. A heartbeat from the stalled worker can land in between.
+	t.Run("RunHeartbeatKeepsFailureOfExpiredLease", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		h := NewHandler(HandlerConfig{
+			DAGRunRepository:    store.repository,
+			DAGRunLeaseStore:    leaseStore,
+			StaleLeaseThreshold: time.Minute,
+			Owner:               dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+		})
+		ctx := context.Background()
+
+		ref := ir.NewDAGRunRef("test-dag", "run-123")
+		reason := dispatch.DistributedLeaseExpiredReason("worker-1")
+		attempt := store.addAttempt(ref, &ir.DAGRunStatus{
+			Name:       "test-dag",
+			DAGRunID:   "run-123",
+			Root:       ref,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     ir.Failed,
+			WorkerID:   "worker-1",
+			FinishedAt: "2026-04-20T00:00:01Z",
+			Error:      reason,
+		})
+
+		expired := time.Now().Add(-2 * time.Minute).UTC()
+		require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+			AttemptKey:      "attempt-key-1",
+			DAGRun:          ref,
+			Root:            ref,
+			AttemptID:       "attempt-1",
+			QueueName:       "test-dag",
+			WorkerID:        "worker-1",
+			Owner:           dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+			ClaimedAt:       expired.UnixMilli(),
+			LastHeartbeatAt: expired.UnixMilli(),
+		}))
+
+		resp, err := h.RunHeartbeat(ctx, &coordinatorv1.RunHeartbeatRequest{
+			WorkerId:           "worker-1",
+			OwnerCoordinatorId: "coord-a",
+			RunningTasks: []*coordinatorv1.RunningTask{
+				{AttemptKey: "attempt-key-1", DagRunId: "run-123", DagName: "test-dag"},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, resp.CancelledRuns, 1)
+		assert.Equal(t, "attempt-key-1", resp.CancelledRuns[0].AttemptKey)
+
+		status, err := attempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, ir.Failed, status.Status)
+		assert.Equal(t, reason, status.Error)
+	})
+
 	t.Run("RunHeartbeatStaleRepairSurvivesCallerCancellation", func(t *testing.T) {
 		t.Parallel()
 
