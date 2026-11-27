@@ -307,6 +307,10 @@ func (iso *isolation) abort() error {
 	var restoreErr error
 	if iso.handedOff {
 		restoreErr = iso.restore(false)
+		if errors.Is(restoreErr, ErrRunAborted) {
+			// As in end: Dagu cannot make the work directory safe.
+			poison(restoreErr)
+		}
 	}
 	errs := []error{iso.unmarkUnlessAborted(restoreErr)}
 	if iso.privateDir != "" {

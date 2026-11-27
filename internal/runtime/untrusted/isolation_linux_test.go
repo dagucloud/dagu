@@ -600,6 +600,19 @@ func TestAbortBeforeTheHandoffChangesNothing(t *testing.T) {
 	assert.NoError(t, CheckWorkDir(iso.lexicalWork), "the abort removes the marker")
 }
 
+// An abort whose restore stops the run, as at a tree too deep to check, also
+// stops the isolation of the process, as End does. It needs no root.
+func TestAbortThatStopsTheRunPoisonsTheProcess(t *testing.T) {
+	resetPoison(t)
+	iso := selfIsolation(t, t.TempDir())
+	require.NoError(t, iso.handoff())
+	require.NoError(t, os.MkdirAll(filepath.Join(iso.workDir, "a", strings.Repeat("d/", maxWalkDepth)), 0o750))
+
+	require.ErrorIs(t, abortBegin(iso), ErrRunAborted)
+	assert.ErrorIs(t, Poisoned(), ErrRunAborted)
+	assert.ErrorIs(t, CheckWorkDir(iso.lexicalWork), ErrRunAborted, "the work directory stays marked")
+}
+
 // A FIFO named commondir fails the handoff instead of holding it until a writer
 // opens the FIFO. It needs no root.
 func TestHandoffRefusesAFIFOGitPointer(t *testing.T) {
