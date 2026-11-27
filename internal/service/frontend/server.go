@@ -415,6 +415,9 @@ type ServerConfig struct {
 	LicenseManager       *license.Manager
 	ResourceService      *resource.Service
 	Stores               Stores
+	// ProjectStores holds the stores of every project while projects are
+	// on. It is nil while they are off.
+	ProjectStores *persisfile.ProjectStoreCache
 }
 
 // NewServer constructs a Server from the provided configuration, stores, and services.
@@ -872,6 +875,29 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	}
 
 	allAPIOptions := append(apiOpts, srv.tunnelAPIOpts...)
+	if stores.Projects != nil {
+		if setup.ProjectStores == nil {
+			return nil, errors.New("project stores are not configured")
+		}
+		apis := &projectAPIs{
+			ctx:    ctx,
+			stores: setup.ProjectStores,
+			root:   func() *apiv1.API { return srv.apiV1 },
+			apis:   make(map[string]projectAPI),
+		}
+		snapshot := projectSnapshot{Registry: stores.Projects, stores: setup.ProjectStores}
+		allAPIOptions = append(allAPIOptions, apiv1.WithProjectAPIs(snapshot, apis.get, apis.dags))
+		base := allAPIOptions
+		apis.build = func(p project.Project, stores *persisfile.ProjectStores) (*apiv1.API, error) {
+			pcfg := projectConfig(cfg, stores)
+			opts, err := projectAPIOptions(ctx, pcfg, stores, base)
+			if err != nil {
+				return nil, err
+			}
+			return apiv1.New(stores.DAGRepository, stores.DAGRunRepository, stores.QueueStore, stores.ProcRepository,
+				projectRunManager(pcfg, p, stores), pcfg, cc, sr, mr, rs, opts...), nil
+		}
+	}
 
 	srv.apiV1 = apiv1.New(dr, dagRunRepository, qs, processes, drm, cfg, cc, sr, mr, rs, allAPIOptions...)
 

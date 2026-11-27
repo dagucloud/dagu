@@ -242,8 +242,14 @@ func runtimeWorkspaceName(dag *ir.DAG, labels string) string {
 	return dagWorkspaceName(dag)
 }
 
+// workspaceFilterForContext returns the workspaces whose DAGs and runs the
+// caller sees, or nil for all of them. In a project, the caller sees every
+// DAG and run of the project, whatever its workspace label.
 func (a *API) workspaceFilterForContext(ctx context.Context) *workspace.WorkspaceFilter {
 	if a.authService == nil {
+		return nil
+	}
+	if _, ok := projectScopeFrom(ctx); ok {
 		return nil
 	}
 	user, ok := auth.UserFromContext(ctx)
@@ -294,7 +300,13 @@ func (a *API) workspaceFilterForSelection(ctx context.Context, selection workspa
 	}
 }
 
+// workspaceFilterForParams returns the workspaces that workspaceParam
+// selects among those the caller sees. In a project, a workspace label is
+// an ordinary label, so the parameter selects every DAG and run.
 func (a *API) workspaceFilterForParams(ctx context.Context, workspaceParam *api.Workspace) (*workspace.WorkspaceFilter, error) {
+	if _, ok := projectScopeFrom(ctx); ok {
+		return nil, nil
+	}
 	selection, err := parseWorkspaceSelection(workspaceParam)
 	if err != nil {
 		return nil, err
@@ -302,9 +314,15 @@ func (a *API) workspaceFilterForParams(ctx context.Context, workspaceParam *api.
 	return a.workspaceFilterForSelection(ctx, selection)
 }
 
+// effectiveRoleForWorkspace returns the caller's role for the DAGs and runs
+// of the workspace, and false when the caller has none. In a project, the
+// caller's role in the project applies to every workspace.
 func (a *API) effectiveRoleForWorkspace(ctx context.Context, workspaceName string) (auth.Role, bool, error) {
 	if !a.rolesApply(ctx) {
 		return auth.RoleAdmin, true, nil
+	}
+	if scope, ok := projectScopeFrom(ctx); ok {
+		return scope.Role, true, nil
 	}
 	user, ok := auth.UserFromContext(ctx)
 	if !ok {

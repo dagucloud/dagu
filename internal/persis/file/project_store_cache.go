@@ -32,6 +32,10 @@ type ProjectStoreCache struct {
 
 	mu     sync.RWMutex
 	stores map[string]*ProjectStores
+	// projects is the registry's content as last read, and read reports
+	// that it has been read.
+	projects []project.Project
+	read     bool
 	// released is the last set of IDs recorded, and unrecorded reports that
 	// a later record failed. Only the goroutine that runs Run touches them.
 	released   []string
@@ -87,6 +91,16 @@ func (c *ProjectStoreCache) Get(id string) (*ProjectStores, bool) {
 	return stores, ok
 }
 
+// Projects returns every registered project, ordered by name, as the cache
+// last read the registry. It reports false until the cache has read the
+// registry. The list may lag a change to the registry by the time the
+// registry takes to report it.
+func (c *ProjectStoreCache) Projects() ([]project.Project, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return slices.Clone(c.projects), c.read
+}
+
 // follow opens and releases stores to match projects, the registry's
 // content.
 func (c *ProjectStoreCache) follow(ctx context.Context, projects []project.Project) {
@@ -128,6 +142,10 @@ func (c *ProjectStoreCache) follow(ctx context.Context, projects []project.Proje
 		c.stores[p.ID] = stores
 		c.mu.Unlock()
 	}
+
+	c.mu.Lock()
+	c.projects, c.read = slices.Clone(projects), true
+	c.mu.Unlock()
 
 	c.recordReleased(ctx, deleting)
 }

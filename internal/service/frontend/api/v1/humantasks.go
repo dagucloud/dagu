@@ -99,6 +99,10 @@ func (a *API) CompleteHumanTask(
 	if err := a.requireDAGRunStatusExecute(ctx, status); err != nil {
 		return nil, err
 	}
+	// A human task resumes its run through the queue.
+	if err := a.refuseQueuedRun(); err != nil {
+		return nil, err
+	}
 	if request.Body == nil {
 		return &api.CompleteHumanTask400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
@@ -152,6 +156,10 @@ func (a *API) PushBackHumanTask(
 	if err := a.requireDAGRunStatusExecute(ctx, status); err != nil {
 		return nil, err
 	}
+	// A human task resumes its run through the queue.
+	if err := a.refuseQueuedRun(); err != nil {
+		return nil, err
+	}
 	if request.Body == nil {
 		return &api.PushBackHumanTask400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
@@ -202,6 +210,10 @@ func (a *API) ResumeHumanTaskDAGRun(
 		return nil, err
 	}
 	if err := a.requireDAGRunStatusExecute(ctx, status); err != nil {
+		return nil, err
+	}
+	// A human task resumes its run through the queue.
+	if err := a.refuseQueuedRun(); err != nil {
 		return nil, err
 	}
 

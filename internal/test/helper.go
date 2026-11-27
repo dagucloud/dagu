@@ -318,6 +318,18 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	cfg.Paths.ConfigFileUsed = configFile
 	cfg.Core.BaseEnv = config.NewBaseEnv(buildHelperChildEnv(cfg.Core.BaseEnv.AsSlice(), tmpDir, configFile, executablePath, cfg.Core.DefaultShell))
 	writeHelperConfigFile(t, cfg, configFile)
+	// A child loads each path the file writes as set, which places the
+	// state of a project other than the default one; see
+	// config.Config.ProjectPaths.
+	cfg.Paths.Explicit = config.ExplicitPaths{
+		LogDir:          cfg.Paths.LogDir != "",
+		ArtifactDir:     cfg.Paths.ArtifactDir != "",
+		DAGRunsDir:      cfg.Paths.DAGRunsDir != "",
+		DAGRunWorkDir:   cfg.Paths.DAGRunWorkDir != "",
+		QueueDir:        cfg.Paths.QueueDir != "",
+		SuspendFlagsDir: cfg.Paths.SuspendFlagsDir != "",
+		ProcDir:         cfg.Paths.ProcDir != "",
+	}
 	if cfg.ProjectsEnabled {
 		// The config file that subprocesses read sets each of these paths,
 		// which places the default project's state under them.

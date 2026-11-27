@@ -10418,6 +10418,8 @@ export interface components {
         WikiPagesPerPage: number;
         /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
         Workspace: string;
+        /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+        ProjectSelector: string;
         /** @description Leave out every run of the service DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the service DAG list instead. The service DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
         ExcludeServiceDAGRuns: boolean;
         /** @description Optional Wiki page path prefix within the selected workspace */
@@ -11553,6 +11555,8 @@ export interface operations {
                 perPage?: components["parameters"]["PerPage"];
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
                 /** @description Filter DAGs by name */
@@ -11617,6 +11621,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path?: never;
@@ -11669,6 +11675,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path?: never;
@@ -11723,6 +11731,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -11775,6 +11785,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -11817,6 +11829,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -11936,6 +11950,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -12005,6 +12021,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -12102,6 +12120,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -12198,6 +12218,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -12264,6 +12286,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -12310,6 +12334,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -12361,6 +12387,8 @@ export interface operations {
             query: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description First slot, inclusive: a date, a time without an offset, or an RFC 3339 time */
                 from: string;
                 /** @description Last slot, inclusive. Defaults to now. */
@@ -12420,6 +12448,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description The slot as the start API takes it: latest, a date, a time without an offset, or an RFC 3339 time */
                 scheduledAt?: string;
                 /** @description Runtime profile whose schedules own the slot */
@@ -12477,6 +12507,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Name of the DAG whose backfills to list */
                 dag?: string;
             };
@@ -12513,6 +12545,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -12557,6 +12591,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description List only slots in this state */
                 state?: components["schemas"]["BackfillSlotState"];
                 offset?: number;
@@ -12609,6 +12645,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -12672,6 +12710,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -12740,6 +12780,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description If true, the first page also contains the ephemeral runs of this DAG that are not older than its oldest run, merged by start time. Each carries ephemeral true. Pages read with a cursor and other lists never return them. */
                 includeEphemeral?: boolean;
                 /** @description If true, include backfill runs. By default they are left out, so a long backfill does not push the live runs out of the page, unless the DAG has no other runs. */
@@ -12790,6 +12832,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -12829,6 +12873,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Start of the window (RFC 3339). Default: 24 hours before `to`. */
                 from?: string;
                 /** @description End of the window (RFC 3339). Default: now. */
@@ -12888,6 +12934,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Start of the window (RFC 3339), inclusive. Default: no bound. */
                 from?: string;
                 /** @description End of the window (RFC 3339), exclusive. Default: no bound. */
@@ -12949,6 +12997,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -12993,6 +13043,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -13040,6 +13092,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -13098,6 +13152,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -13147,6 +13203,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -13205,6 +13263,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -13252,6 +13312,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Clear only this step: its ID, or its name when the step has no ID. Omit to clear every step. */
                 step?: string;
             };
@@ -13573,6 +13635,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
                 /** @description start of the time range for filtering DAG-runs, as a Unix timestamp in seconds */
@@ -13628,6 +13692,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
             };
@@ -13662,6 +13728,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
             };
@@ -13696,6 +13764,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
                 /** @description Leave out every run of the service DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the service DAG list instead. The service DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
@@ -13751,6 +13821,8 @@ export interface operations {
             query: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description The fileName of a DAG in `GET /dags`. Repeat the parameter for each DAG, at most 100 times, so that the request line stays under 8 KiB. */
                 fileName: string[];
                 /** @description Length in seconds of the window that ends now */
@@ -13849,6 +13921,8 @@ export interface operations {
                 cursor?: components["parameters"]["DAGRunListCursor"];
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
                 /** @description Leave out every run of the service DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the service DAG list instead. The service DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
@@ -13907,6 +13981,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path?: never;
@@ -14019,6 +14095,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path?: never;
@@ -14091,6 +14169,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path?: never;
@@ -14190,6 +14270,8 @@ export interface operations {
                 cursor?: components["parameters"]["DAGRunListCursor"];
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
             };
@@ -14236,6 +14318,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -14284,6 +14368,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -14337,6 +14423,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -14386,6 +14474,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -14476,6 +14566,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -14549,6 +14641,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -14613,6 +14707,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Optional parent sub DAG run ID. When provided, returns sub-runs of this specific sub DAG run instead of the root DAG run. Used for multi-level nested DAGs. */
                 parentSubDAGRunId?: string;
             };
@@ -14663,6 +14759,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -14707,6 +14805,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Number of lines to return from the end of the file */
                 tail?: components["parameters"]["Tail"];
                 /** @description Number of lines to return from the beginning of the file */
@@ -14761,6 +14861,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -14809,6 +14911,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Whether to recursively expand nested artifact directories */
                 recursive?: components["parameters"]["ArtifactRecursive"];
             };
@@ -14857,6 +14961,8 @@ export interface operations {
             query: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Relative artifact file path within the DAG-run artifact directory. Must not start with '/' or '\' or contain '..'. */
                 path: components["parameters"]["ArtifactPath"];
             };
@@ -14905,6 +15011,8 @@ export interface operations {
             query: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Relative artifact file path within the DAG-run artifact directory. Must not start with '/' or '\' or contain '..'. */
                 path: components["parameters"]["ArtifactPath"];
             };
@@ -14955,6 +15063,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -15001,6 +15111,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -15058,6 +15170,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -15147,6 +15261,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Push-back iteration of the task the caller reviewed. When it differs from the task's current push-back iteration, the request fails with 409 and changes nothing. */
                 expectedIteration?: number;
             };
@@ -15238,6 +15354,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -15302,6 +15420,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -15337,6 +15457,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Number of lines to return from the end of the file */
                 tail?: components["parameters"]["Tail"];
                 /** @description Number of lines to return from the beginning of the file */
@@ -15395,6 +15517,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Start of the window (RFC 3339). Default: 24 hours before `to`. */
                 from?: string;
                 /** @description End of the window (RFC 3339). Default: now. */
@@ -15458,6 +15582,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Start of the window (RFC 3339), inclusive. Default: no bound. */
                 from?: string;
                 /** @description End of the window (RFC 3339), exclusive. Default: no bound. */
@@ -15523,6 +15649,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -15571,6 +15699,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -15619,6 +15749,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Whether to return stdout or stderr logs */
                 stream?: components["parameters"]["Stream"];
             };
@@ -15671,6 +15803,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Lists the items of a nested foreach instead of the step's own items.
                  *     The value is the foreachParent a body step reports, such as 2.inner.
                  *      */
@@ -15729,6 +15863,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -15782,6 +15918,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Number of lines to return from the end of the file */
                 tail?: components["parameters"]["Tail"];
                 /** @description Number of lines to return from the beginning of the file */
@@ -15847,6 +15985,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Whether to return stdout or stderr logs */
                 stream?: components["parameters"]["Stream"];
             };
@@ -15906,6 +16046,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -15954,6 +16096,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -16009,6 +16153,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -16057,6 +16203,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -16118,6 +16266,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -16186,6 +16336,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -16265,6 +16417,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -16326,6 +16480,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -16387,6 +16543,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -16458,6 +16616,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -16524,6 +16684,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -16574,6 +16736,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -16625,6 +16789,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Number of lines to return from the end of the file */
                 tail?: components["parameters"]["Tail"];
                 /** @description Number of lines to return from the beginning of the file */
@@ -16681,6 +16847,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -16731,6 +16899,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Whether to recursively expand nested artifact directories */
                 recursive?: components["parameters"]["ArtifactRecursive"];
             };
@@ -16781,6 +16951,8 @@ export interface operations {
             query: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Relative artifact file path within the DAG-run artifact directory. Must not start with '/' or '\' or contain '..'. */
                 path: components["parameters"]["ArtifactPath"];
             };
@@ -16831,6 +17003,8 @@ export interface operations {
             query: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Relative artifact file path within the DAG-run artifact directory. Must not start with '/' or '\' or contain '..'. */
                 path: components["parameters"]["ArtifactPath"];
             };
@@ -16883,6 +17057,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Number of lines to return from the end of the file */
                 tail?: components["parameters"]["Tail"];
                 /** @description Number of lines to return from the beginning of the file */
@@ -16943,6 +17119,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Whether to return stdout or stderr logs */
                 stream?: components["parameters"]["Stream"];
             };
@@ -16997,6 +17175,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Lists the items of a nested foreach instead of the step's own items.
                  *     The value is the foreachParent a body step reports, such as 2.inner.
                  *      */
@@ -17057,6 +17237,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description only list nodes with a failed, aborted, or rejected run */
                 failedOnly?: components["parameters"]["NodeRunsFailedOnly"];
                 /** @description page number of items to fetch (default is 1) */
@@ -17109,6 +17291,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description only list nodes with a failed, aborted, or rejected run */
                 failedOnly?: components["parameters"]["NodeRunsFailedOnly"];
                 /** @description page number of items to fetch (default is 1) */
@@ -17163,6 +17347,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -17218,6 +17404,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Number of lines to return from the end of the file */
                 tail?: components["parameters"]["Tail"];
                 /** @description Number of lines to return from the beginning of the file */
@@ -17285,6 +17473,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Whether to return stdout or stderr logs */
                 stream?: components["parameters"]["Stream"];
             };
@@ -17346,6 +17536,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -17396,6 +17588,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -17453,6 +17647,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -17503,6 +17699,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -17566,6 +17764,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -17629,6 +17829,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -17692,6 +17894,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -17755,6 +17959,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -17827,6 +18033,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
             };
             header?: never;
             path: {
@@ -17894,6 +18102,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the project the request addresses, matched without regard to case. Omitted means the default project. Read only while projects are on. A project the caller cannot see answers 404, as a missing one does. */
+                project?: components["parameters"]["ProjectSelector"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
             };

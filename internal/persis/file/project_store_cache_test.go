@@ -39,10 +39,15 @@ func TestProjectStoreCacheFollowsRegistry(t *testing.T) {
 			opened = append(opened, p.Name)
 			return &persisfile.ProjectStores{}, nil
 		}, releases)
+	_, read := cache.Projects()
+	assert.False(t, read, "before the registry is read")
 	runCache(t, cache)
 
 	registry.show(defaultProject, weatherProject)
 	assert.True(t, registry.ensured.Load())
+	listed, read := cache.Projects()
+	require.True(t, read)
+	assert.Equal(t, []project.Project{defaultProject, weatherProject}, listed)
 	assert.Same(t, defaults, cache.Default())
 	got, ok := cache.Get(defaultProject.ID)
 	require.True(t, ok)

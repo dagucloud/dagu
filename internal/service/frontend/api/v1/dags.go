@@ -285,9 +285,12 @@ func (a *API) DeleteDAG(ctx context.Context, request api.DeleteDAGRequestObject)
 		return nil, fmt.Errorf("error deleting DAG: %w", err)
 	}
 
-	if a.authService != nil && a.authService.HasWebhookStore() {
-		webhook, _ := a.authService.GetWebhookByDAGName(ctx, request.FileName)
-		if err := a.authService.DeleteWebhook(ctx, request.FileName); err != nil && !errors.Is(err, auth.ErrWebhookNotFound) {
+	webhooks, err := a.dagWebhooks(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Failed to delete webhook for deleted DAG", tag.Name(request.FileName), tag.Error(err))
+	} else if webhooks != nil {
+		webhook, _ := webhooks.GetByDAGName(ctx, request.FileName)
+		if err := webhooks.DeleteByDAGName(ctx, request.FileName); err != nil && !errors.Is(err, auth.ErrWebhookNotFound) {
 			logger.Warn(ctx, "Failed to delete webhook for deleted DAG",
 				tag.Name(request.FileName),
 				tag.Error(err),
@@ -719,7 +722,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 // env includes the env of the global base config, which only developers and
 // above may read.
 func (a *API) redactDAGEnvValues(ctx context.Context, details *api.DAGDetails) {
-	if details == nil || details.Env == nil || a.requireDeveloperOrAbove(ctx) == nil {
+	if details == nil || details.Env == nil || a.requireDeveloperInScope(ctx) == nil {
 		return
 	}
 	redacted := make([]string, len(*details.Env))
@@ -1939,6 +1942,9 @@ func (a *API) startPreparedDAGRunWithOptions(
 		if dag.Type == ir.TypeBuild {
 			return nil, buildRequiresLocalAPIError()
 		}
+		if err := a.refuseWorkerRun(); err != nil {
+			return nil, err
+		}
 		timeout := 10 * time.Second
 		if osrt.GOOS == "windows" {
 			timeout = 20 * time.Second
@@ -2198,6 +2204,9 @@ type enqueueRequest struct {
 }
 
 func (a *API) enqueueDAGRun(ctx context.Context, dag *ir.DAG, req enqueueRequest) error {
+	if err := a.refuseQueuedRun(); err != nil {
+		return err
+	}
 	params, dagRunID := req.params, req.dagRunID
 	if err := launchParamsError(params); err != nil {
 		return err

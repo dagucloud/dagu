@@ -382,6 +382,9 @@ func (a *API) respondAgentInteraction(ctx context.Context, root ir.DAGRunRef, su
 	if err := requireAgentRunStopped(status); err != nil {
 		return api.AgentInteractionResponse{}, err
 	}
+	if err := a.refuseResume(ctx, attempt, status, subDAGRunID == ""); err != nil {
+		return api.AgentInteractionResponse{}, err
+	}
 	if err := a.requireAgentOwnerAvailable(ctx, mutationRef, status, stepName); err != nil {
 		return api.AgentInteractionResponse{}, err
 	}
@@ -443,6 +446,9 @@ func (a *API) restartAgentSession(ctx context.Context, root ir.DAGRunRef, subDAG
 		return api.AgentSessionRestartResponse{}, err
 	}
 	if err := requireAgentRunStopped(status); err != nil {
+		return api.AgentSessionRestartResponse{}, err
+	}
+	if err := a.refuseResume(ctx, attempt, status, subDAGRunID == ""); err != nil {
 		return api.AgentSessionRestartResponse{}, err
 	}
 	original, err := cloneManualStatus(status)

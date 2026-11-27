@@ -36,6 +36,9 @@ func (a *API) SubmitBackfill(ctx context.Context, request api.SubmitBackfillRequ
 	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
 		return nil, err
 	}
+	if err := a.refuseQueuedRun(); err != nil {
+		return nil, err
+	}
 	store, err := a.requireBackfillStore()
 	if err != nil {
 		return nil, err
@@ -393,6 +396,9 @@ func (a *API) CancelBackfill(ctx context.Context, request api.CancelBackfillRequ
 
 func (a *API) ResumeBackfill(ctx context.Context, request api.ResumeBackfillRequestObject) (api.ResumeBackfillResponseObject, error) {
 	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
+		return nil, err
+	}
+	if err := a.refuseQueuedRun(); err != nil {
 		return nil, err
 	}
 	store, err := a.requireBackfillStore()

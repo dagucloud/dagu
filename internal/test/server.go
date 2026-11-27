@@ -4,6 +4,7 @@
 package test
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -79,7 +81,7 @@ func SetupServer(t *testing.T, opts ...HelperOption) Server {
 
 	srv := Server{Helper: helper}
 
-	server, err := srv.newFrontendServer(listener)
+	server, err := srv.newFrontendServer(t, listener)
 	if err != nil {
 		_ = listener.Close()
 		t.Fatalf("server failed to initialize: %v", err)
@@ -96,16 +98,25 @@ func SetupServer(t *testing.T, opts ...HelperOption) Server {
 }
 
 // newFrontendServer constructs the HTTP server with the provided listener.
-func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, error) {
+func (srv *Server) newFrontendServer(t *testing.T, listener net.Listener) (*frontend.Server, error) {
 	cc := coordinator.New(srv.ServiceRegistry, CoordinatorClientConfig(srv.Config.Paths.DataDir))
 
+	serverStores := file.NewServerStores(srv.Config)
+	projects, err := srv.followProjects(t, serverStores)
+	if err != nil {
+		return nil, err
+	}
 	// Pass the pre-bound listener to the server to avoid port race conditions
-	serverOpts := append([]frontend.ServerOption{
+	serverOpts := []frontend.ServerOption{
 		frontend.WithListener(listener),
 		frontend.WithAPIOption(apiv1.WithDAGRunLeaseStore(srv.DAGRunLeaseStore)),
 		frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(srv.WorkerHeartbeatStore)),
-	}, srv.ServerOptions...)
-	serverStores := file.NewServerStores(srv.Config)
+	}
+	if projects != nil {
+		webhooks := frontendfile.NewWebhookProjects(srv.Config, serverStores, projectregistry.New(srv.Config.Paths.DataDir), projects)
+		serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithWebhookProjects(webhooks)))
+	}
+	serverOpts = append(serverOpts, srv.ServerOptions...)
 	settings, err := file.NewProjectSettings(srv.Config, serverStores, project.DefaultName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the default project's settings: %w", err)
@@ -137,12 +148,41 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 		BackfillStore:        filebackfill.New(filebackfill.Dir(srv.Config.Paths.DataDir)),
 		PeriodStore:          periods,
 		Stores:               stores,
+		ProjectStores:        projects,
 	}, serverOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create server: %w", err)
 	}
 
 	return server, nil
+}
+
+// followProjects keeps the stores of every registered project open while
+// projects are on, and returns them. It returns nil while projects are off.
+// The cache stops before the test's directories are removed.
+func (srv *Server) followProjects(t *testing.T, server *file.ServerStores) (*file.ProjectStoreCache, error) {
+	if !srv.Config.ProjectsEnabled {
+		return nil, nil
+	}
+	open := func(ctx context.Context, p project.Project) (*file.ProjectStores, error) {
+		return file.NewProjectStores(ctx, srv.Config, server, p, file.ProjectStoreOptions{})
+	}
+	defaults, err := open(srv.Context, project.Project{Name: project.DefaultName})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open the default project's stores: %w", err)
+	}
+	cache := file.NewProjectStoreCache(projectregistry.New(srv.Config.Paths.DataDir), defaults, open, server.ProjectReleases)
+	ctx, cancel := context.WithCancel(srv.Context)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cache.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+	return cache, nil
 }
 
 func (srv *Server) healthURL() string {
