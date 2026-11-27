@@ -1471,7 +1471,7 @@ function DAGRuns() {
         {backfillId ? (
           <BackfillRunsScope backfillId={backfillId} onClear={clearBackfill} />
         ) : (
-          <div className="mb-4 space-y-2">
+          <div className="mb-2 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <I18nProps>
                 <AutocompleteInput
