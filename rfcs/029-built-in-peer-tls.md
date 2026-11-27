@@ -143,11 +143,20 @@ chosen:
   runs the container. It never fills in a hostname, a container ID, or the
   browser's host.
 - **Step 3:**
-  - A single-use invite expires after 24 hours unless used. A reusable
-    invite lasts until deleted. It suits containers without a persistent
-    volume and autoscaled workers, which enroll at each start.
+  - A single-use invite expires after 24 hours unless used, and enrolls one
+    worker that keeps its data directory. A reusable invite lasts until
+    deleted and enrolls any number of workers.
+  - The tab sets the kind:
+
+    | Tab | Invite | Why |
+    | --- | --- | --- |
+    | Linux | Single use by default | The host keeps its data directory |
+    | Docker | Single use by default | The command mounts a named volume (`-v dagu-worker:/var/lib/dagu`), so a restarted container keeps its certificate. For several containers, choose reusable |
+    | Kubernetes | Reusable only | Pods are replaced and scaled, and a new pod has no certificate, so a single-use invite would fail on the second pod |
+
   - The Docker tab passes the invite as `DAGU_WORKER_INVITE`. The
-    Kubernetes tab creates a Secret and maps it to that variable.
+    Kubernetes tab creates a Secret and maps it to that variable in a
+    Deployment.
   - Labels and the address go into the command, not the invite.
 - The dialog waits. When a worker enrolls with this invite and sends its
   first heartbeat, the dialog shows its ID and labels. Closing the dialog
@@ -228,16 +237,27 @@ The environment variables are `DAGU_WORKER_COORDINATORS` and
 
 - A `Connection` column: `Certificate`, `TLS`, or `Plaintext`. `Plaintext`
   links to the upgrade steps.
-- **Remove** on a certificate worker revokes its certificate. The worker is
-  refused within 30 seconds and stays out across restarts, on a single-use
-  or a reusable invite, until it is given a new invite.
+- **Remove** is on certificate workers. It revokes the certificate, and the
+  worker stays out across restarts, on a single-use or a reusable invite,
+  until it is given a new invite.
+- When the worker has running runs, the confirmation lists them and
+  offers:
+  - **Remove after its runs finish**, the default: the worker gets no new
+    runs from then on, and its certificate is revoked when its last run
+    ends. The page shows `Removing (2 runs left)` and keeps **Stop runs
+    now** available.
+  - **Stop its runs and remove**: the runs are stopped as with **Stop**,
+    and the certificate is revoked once they end.
+
+  A worker that is not connected is removed at once. Its runs end as they
+  do today when a worker stops sending heartbeats.
 - A reusable invite still lets new hosts join: a new container without a
   volume, or a host whose data directory was wiped, has no certificate and
   enrolls as a new worker. For a worker on a reusable invite, the
   confirmation says so and offers to delete the invite too, naming the
   other workers that use it.
-- On a worker that holds the peer token, the confirmation says it can
-  reconnect until the peer token changes.
+- A worker on the peer token has no **Remove**, since it would reconnect at
+  once. The page says to stop it on its host, or to change the peer token.
 - **Invites** lists each invite with its kind, creator, creation and expiry
   times, use count, and last use. **Delete** stops new enrollments with it;
   workers that already enrolled keep their certificates.
@@ -371,6 +391,21 @@ names the setting to change:
   `Peer transport: h2c (from peer.insecure: true)`.
 - `dagu worker --check` prints the same line, followed by what each
   coordinator answered.
+- A process on h2c sends the reason in call metadata: `peer.insecure` or
+  `no TLS source`. An older process sends none, which reads as an older
+  version.
+- The Workers page shows the reason in the `Connection` column, such as
+  `Plaintext · peer.insecure: true in its config` or
+  `Plaintext · older version`, with the change to make. A worker set to
+  `peer.insecure: true` on purpose, such as behind a service mesh, gets the
+  same neutral line and no alert.
+- Other processes on h2c, such as a scheduler, a UI/API server, or a CLI,
+  are not on the Workers page. System status lists those that called the
+  coordinator over h2c in the last 10 minutes, with host and reason. The
+  coordinator keeps at most 64 such entries in memory.
+- The configuration reference (`docs/server-admin/reference.md`) stops
+  listing `insecure: true`, since configs copied from it would keep h2c
+  after the upgrade.
 
 ### Invites
 
@@ -393,7 +428,7 @@ names the setting to change:
   | `POST /api/v1/workers/invites` | Body `{"reusable": false, "expiresIn": "24h"}`. Returns `{"id", "invite", "expiresAt"}`; only this response contains the invite |
   | `GET /api/v1/workers/invites` | Lists invites without their secrets |
   | `DELETE /api/v1/workers/invites/{id}` | Deletes an invite |
-  | `DELETE /api/v1/workers/{workerId}/certificate` | Revokes the worker's certificate |
+  | `DELETE /api/v1/workers/{workerId}/certificate` | Removes the worker. `?runs=finish`, the default, waits for its runs; `?runs=stop` stops them. Returns `removing` or `removed` |
 
 ### Join readiness
 
@@ -444,6 +479,17 @@ worker                                         coordinator
   connections are refused too.
 - The coordinator that handles the removal applies it at once. Other
   coordinators reread the revoked set every 30 seconds.
+- Removing a worker with running runs first marks its certificate
+  `removing`, a stored state that survives a coordinator restart. `Poll`
+  gives the worker no new tasks, and calls for the runs it already holds
+  keep working. The certificate is revoked when the worker's heartbeat
+  lists no running tasks. Other coordinators see `removing` at their next
+  reread, so a task one hands out in that window is waited for too.
+- **Stop its runs** sends the existing cancel request for each run. Runs
+  that reach no final status within 2 minutes are left to the stale-lease
+  check, and the certificate is revoked then.
+- A worker refused as revoked stops the runs it still holds before it
+  exits, since it can no longer report them.
 - A worker whose certificate is refused as revoked keeps it and exits with
   the message above. At later starts it holds a certificate, so it does
   not enroll with the invite it joined with, and it exits again with the
@@ -455,9 +501,10 @@ worker                                         coordinator
 
 ### Workers list
 
-- Each worker gains `connection` (`certificate`, `tls`, or `plaintext`) and,
-  for certificates, the certificate ID and the invite ID. The coordinator
-  takes them from the connection that carries the worker's heartbeat.
+- Each worker gains `connection` (`certificate`, `tls`, or `plaintext`);
+  for certificates, the certificate ID, the invite ID, and `removing` when
+  set; for plaintext, the reason. The coordinator takes them from the
+  connection that carries the worker's heartbeat.
 - `GET /workers` returns them. The **Add worker** dialog uses the page's
   existing `/workers` refresh and waits for a worker with its invite ID.
 - The Dagu Cloud report adds `connection` to `health.workers[]`, on paid
@@ -543,12 +590,17 @@ The existing keys keep working, with three fixes:
   grows by about 25 bytes per worker, for at most 256 workers.
 - **Join readiness:** one RPC per coordinator when the dialog opens or the
   server restarts while it is open. No file reads and no polling.
+- **Removal:** `Poll` checks an in-memory set of removing certificates,
+  refreshed with the revoked set.
+- **h2c reasons:** one short metadata value per call over h2c, and at most
+  64 in-memory entries for System status.
 - **Upgrade:** generating the CA takes milliseconds, once.
 
 ## Rollout
 
 1. Bring-your-own fixes: TLS selection, start checks, the chosen-transport
-   log, `dagu worker --check`.
+   log, `dagu worker --check`, and the configuration reference without
+   `insecure: true`.
 2. Built-in CA, `dagu peer init`, coordinator certificate, one-port TLS and
    h2c, client transport rule, registry flag.
 3. Invites, enrollment, revocation, configuration conflicts, join
