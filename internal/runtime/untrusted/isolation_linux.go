@@ -49,7 +49,8 @@ var (
 )
 
 // poison makes each later step of a run with an isolated untrusted step fail.
-// Dagu uses it when a process of the restricted user survives SIGKILL.
+// Dagu uses it when a process of the restricted user survives SIGKILL and when
+// a git entry changed during the step.
 func poison(err error) {
 	poisonMu.Lock()
 	defer poisonMu.Unlock()
@@ -307,10 +308,6 @@ func (iso *isolation) abort() error {
 	var restoreErr error
 	if iso.handedOff {
 		restoreErr = iso.restore(false)
-		if errors.Is(restoreErr, ErrRunAborted) {
-			// As in end: Dagu cannot make the work directory safe.
-			poison(restoreErr)
-		}
 	}
 	errs := []error{iso.unmarkUnlessAborted(restoreErr)}
 	if iso.privateDir != "" {
@@ -586,10 +583,10 @@ func (iso *isolation) end(_ context.Context) error {
 	if err := os.RemoveAll(iso.home); err != nil {
 		homeErr = stepError(iso.step, "remove the home folder", iso.home, err)
 	}
-	restoreErr := errors.Join(iso.restore(true), iso.checkGitRemoved())
-	if errors.Is(restoreErr, ErrRunAborted) {
-		// Spec 103, "Isolation": no later step of a run with an untrusted step
-		// runs in this process on a work directory that Dagu cannot make safe.
+	restoreErr := iso.restore(true)
+	if errors.Is(restoreErr, errGitChanged) {
+		// Spec 103, "Isolation". Another error that stops the run keeps the
+		// marker, which stops only the runs on this work directory.
 		poison(restoreErr)
 	}
 	errs := []error{homeErr, iso.unmarkUnlessAborted(restoreErr), iso.copyOutput()}

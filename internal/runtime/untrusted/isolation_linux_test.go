@@ -548,6 +548,25 @@ func TestIsolatedStepLinkedEntry(t *testing.T) {
 	}
 }
 
+// A tree too deep to check stops the run and keeps the work directory marked.
+// The restricted user can make one, so it leaves the other runs of the process
+// alone.
+func TestIsolatedStepDeepTree(t *testing.T) {
+	requireIsolation(t)
+	resetPoison(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	runAs(t, WithStep(ctx, step), workDir, "mkdir -p a/"+strings.Repeat("d/", maxWalkDepth))
+
+	err = step.End(ctx)
+	require.ErrorIs(t, err, ErrRunAborted)
+	assert.ErrorContains(t, err, "deeper than")
+	assert.NoError(t, Poisoned())
+	assert.ErrorIs(t, CheckWorkDir(workDir), ErrRunAborted, "the work directory stays marked")
+}
+
 // A handoff that fails part way leaves a snapshot of a part of the git folders.
 // No process of the restricted user ran, so the restore of the abort keeps each
 // git entry of the worker. It needs no root.
@@ -653,16 +672,17 @@ func TestAbortBeforeTheHandoffChangesNothing(t *testing.T) {
 	assert.NoError(t, CheckWorkDir(iso.lexicalWork), "the abort removes the marker")
 }
 
-// An abort whose restore stops the run, as at a tree too deep to check, also
-// stops the isolation of the process, as End does. It needs no root.
-func TestAbortThatStopsTheRunPoisonsTheProcess(t *testing.T) {
+// An abort whose restore stops the run, as at a tree too deep to check, keeps
+// the work directory marked and leaves the other runs of the process alone.
+// It needs no root.
+func TestAbortThatStopsTheRunKeepsTheProcess(t *testing.T) {
 	resetPoison(t)
 	iso := selfIsolation(t, t.TempDir())
 	require.NoError(t, iso.handoff())
 	require.NoError(t, os.MkdirAll(filepath.Join(iso.workDir, "a", strings.Repeat("d/", maxWalkDepth)), 0o750))
 
 	require.ErrorIs(t, abortBegin(iso), ErrRunAborted)
-	assert.ErrorIs(t, Poisoned(), ErrRunAborted)
+	assert.NoError(t, Poisoned())
 	assert.ErrorIs(t, CheckWorkDir(iso.lexicalWork), ErrRunAborted, "the work directory stays marked")
 }
 
@@ -1020,7 +1040,6 @@ func TestRestoreGivesGitModesBack(t *testing.T) {
 			assert.True(t, iso.gitDirs[dir])
 			assert.Equal(t, fs.FileMode(0o604), permOf(t, config), "the restricted user reads the config")
 			require.NoError(t, iso.restore(true))
-			require.NoError(t, iso.checkGitRemoved())
 			assert.Equal(t, fs.FileMode(0o600), permOf(t, config))
 			assert.Equal(t, fs.FileMode(0o700), permOf(t, filepath.Join(dir, "objects")))
 		})

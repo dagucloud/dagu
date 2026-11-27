@@ -406,7 +406,9 @@ These failures also stop the run, because Dagu cannot give a safe work directory
 - Dagu cannot read a part of the work directory, cannot remove an entry of rule 8, or finds a tree
   more than 256 folders deep.
 
-After such a failure, every later step of a run with an untrusted step fails in the same process.
+After a failure of the first two kinds, every later step of a run with an untrusted step fails in
+the same process. The restricted user can cause a failure of the last kind by itself, so it stops
+only the runs on that work directory, through the file of rule 3.
 
 ### The restricted user
 

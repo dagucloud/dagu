@@ -409,10 +409,10 @@ func (iso *isolation) protectGitTree(root *fsEntry) error {
 }
 
 // restore gives the work directory back to the user of the worker. It returns
-// an error that wraps ErrRunAborted when a git folder changed. With verifyGit
-// false, it checks no git entry: a handoff that failed has a part of the
-// snapshot only, and no process of the restricted user ran, so each entry that
-// the snapshot lacks is an entry of the worker, not a new one.
+// an error that wraps ErrRunAborted when a git entry changed or is gone. With
+// verifyGit false, it checks no git entry: a handoff that failed has a part of
+// the snapshot only, and no process of the restricted user ran, so each entry
+// that the snapshot lacks is an entry of the worker, not a new one.
 func (iso *isolation) restore(verifyGit bool) error {
 	var errs []error
 	fail := func(err error) { errs = append(errs, err) }
@@ -482,9 +482,13 @@ func (iso *isolation) restore(verifyGit bool) error {
 			}
 			return false, nil
 		})
-		if walkErr != nil {
+		switch {
+		case walkErr != nil:
 			// A part of the tree was not checked: no trusted step may run on it.
+			// A git entry in that part is not gone.
 			fail(fmt.Errorf("%w: %w", ErrRunAborted, stepError(iso.step, "read the work directory", iso.workDir, walkErr)))
+		case verifyGit:
+			fail(iso.checkGitRemoved())
 		}
 	}
 	fail(iso.restoreModes())
@@ -582,6 +586,11 @@ func (iso *isolation) removeEntry(e *fsEntry, format string, args ...any) error 
 	return errors.New(msg + "; Dagu removed it")
 }
 
+// errGitChanged stops the run as ErrRunAborted does and also poisons the
+// process: the restricted user cannot change a git entry, so a change shows a
+// write that the isolation did not keep out.
+var errGitChanged = fmt.Errorf("%w", ErrRunAborted)
+
 // checkGitEntry compares an entry .git or an entry of a git folder with its
 // state at the handoff.
 func (iso *isolation) checkGitEntry(e *fsEntry, fail func(error)) {
@@ -593,7 +602,7 @@ func (iso *isolation) checkGitEntry(e *fsEntry, fail func(error)) {
 	iso.seenGit[e.path] = true
 	if after := sigOf(&e.st); after != before {
 		fail(fmt.Errorf("untrusted step %q: the git entry %s changed: %s: %w",
-			iso.step, e.path, describeSig(before, after), ErrRunAborted))
+			iso.step, e.path, describeSig(before, after), errGitChanged))
 		return
 	}
 	iso.restoreGitMode(e, fail)
@@ -647,7 +656,7 @@ func (iso *isolation) checkGitRemoved() error {
 	var errs []error
 	for path := range iso.gitSnapshot {
 		if !iso.seenGit[path] {
-			errs = append(errs, fmt.Errorf("untrusted step %q: the git entry %s is gone: %w", iso.step, path, ErrRunAborted))
+			errs = append(errs, fmt.Errorf("untrusted step %q: the git entry %s is gone: %w", iso.step, path, errGitChanged))
 		}
 	}
 	return errors.Join(errs...)
