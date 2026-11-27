@@ -152,7 +152,7 @@ func applyOptions(cfg *config.Config, opts Options) {
 		cfg.Paths.QueueDir = filepath.Join(cfg.Paths.DataDir, "queue")
 		cfg.Paths.ServiceRegistryDir = filepath.Join(cfg.Paths.DataDir, "service-registry")
 		cfg.Paths.ContextsDir = filepath.Join(cfg.Paths.DataDir, "contexts")
-		cfg.Core.Peer.TokenFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-token")
+		cfg.Core.Peer.TokenFile = config.PeerTokenFile(cfg.Paths.DataDir)
 	}
 	if opts.LogDir != "" {
 		cfg.Paths.LogDir = resolvePath(opts.LogDir)

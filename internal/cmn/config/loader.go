@@ -1612,6 +1612,12 @@ func (l *ConfigLoader) loadQueuesConfig(cfg *Config, def Definition) {
 	}
 }
 
+// PeerTokenFile returns where a coordinator on dataDir keeps the peer token
+// it generates.
+func PeerTokenFile(dataDir string) string {
+	return filepath.Join(dataDir, "coordinator", "peer-token")
+}
+
 // defaultCoordinatorWorkerWaitTimeout outlasts one worker heartbeat staleness
 // window and one dispatch reservation, so a worker that is merely late is not
 // failed, while an unroutable run still fails within the same sitting.
@@ -2207,7 +2213,7 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) error {
 	if cfg.Paths.ToolsDir == "" {
 		cfg.Paths.ToolsDir = filepath.Join(cfg.Paths.DataDir, "tools")
 	}
-	cfg.Core.Peer.TokenFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-token")
+	cfg.Core.Peer.TokenFile = PeerTokenFile(cfg.Paths.DataDir)
 
 	// Suspend flags default under the shared data directory so every process
 	// observing the same data_dir sees identical suspension state. A legacy
