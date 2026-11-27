@@ -269,7 +269,9 @@ func (dr DAGRun) LatestAttempt(ctx context.Context, cache *fileutil.Cache[*ir.DA
 }
 
 // ensureAttemptIDFree refuses the request's attempt ID when it asks for a
-// unique one and an attempt of the run, hidden or not, already holds it.
+// unique one and an attempt of the run, hidden or not, already holds it. An
+// attempt whose status was never written does not hold its ID, so a retry
+// after that failure can create the attempt again.
 func (dr DAGRun) ensureAttemptIDFree(req persis.DAGRunCreateAttemptRequest) error {
 	if !req.UniqueAttemptID || req.AttemptID == "" {
 		return nil
@@ -279,7 +281,8 @@ func (dr DAGRun) ensureAttemptIDFree(req persis.DAGRunCreateAttemptRequest) erro
 		return fmt.Errorf("failed to list attempts: %w", err)
 	}
 	for _, attDir := range attDirs {
-		if id, ok := attemptIDFromDir(attDir); ok && id == req.AttemptID {
+		id, ok := attemptIDFromDir(attDir)
+		if ok && id == req.AttemptID && statusFileExists(filepath.Join(dr.baseDir, attDir, JSONLStatusFile)) {
 			return fmt.Errorf("%w: %s", dagrun.ErrAttemptIDExists, req.AttemptID)
 		}
 	}

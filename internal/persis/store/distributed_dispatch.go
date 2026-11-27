@@ -925,10 +925,19 @@ func (s *DispatchTaskStore) HasOutstandingAttemptUncached(ctx context.Context, a
 	if err := s.ensureDispatchIndex(ctx); err != nil {
 		return false, err
 	}
-	if _, err := s.reconcileDispatchIndexIDs(ctx, time.Now().UTC()); err != nil {
-		return false, err
+	// A record moves between pending and claims by writing the new record
+	// before deleting the old one. One pass lists pending before claims, so
+	// a second pass sees any record the first missed mid-move.
+	for range 2 {
+		if _, err := s.reconcileDispatchIndexIDs(ctx, time.Now().UTC()); err != nil {
+			return false, err
+		}
+		outstanding, err := s.indexedOutstandingAttempt(ctx, attemptKey)
+		if err != nil || outstanding {
+			return outstanding, err
+		}
 	}
-	return s.indexedOutstandingAttempt(ctx, attemptKey)
+	return false, nil
 }
 
 func (s *DispatchTaskStore) indexedOutstandingAttempt(ctx context.Context, attemptKey string) (bool, error) {
