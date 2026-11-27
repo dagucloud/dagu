@@ -154,7 +154,7 @@ func executeToolInputSchema() json.RawMessage {
 			"targetNodes": {
 				"type": "array",
 				"items": {"type": "string"},
-				"description": "Inventory nodes to narrow the run to, for start or enqueue: its steps with nodes, and those of its child runs, run only on listed nodes. A node: required DAG takes exactly one node and runs bound to it. Each name must be an inventory node."
+				"description": "Nodes to narrow the run to, for start or enqueue: its steps with nodes, and those of its child runs, run only on listed nodes. A node: required DAG takes exactly one node and runs bound to it, on that worker for a worker node. Each name must be a node, inventory or worker."
 			},
 			"stepName": {
 				"type": "string",

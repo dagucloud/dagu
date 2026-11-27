@@ -615,6 +615,21 @@ func (c *Context) NewCoordinatorClient() (coordinator.Client, error) {
 	if !c.Config.Coordinator.Enabled {
 		return nil, nil
 	}
+	return c.coordinatorClient()
+}
+
+// coordinatorEnabled reports the key coordinator.enabled, which run
+// commands read from the loader since they load no coordinator section.
+func (c *Context) coordinatorEnabled() bool {
+	if c.configLoader == nil {
+		return c.Config.Coordinator.Enabled
+	}
+	return c.configLoader.CoordinatorEnabled()
+}
+
+// coordinatorClient creates a coordinator client using the global peer
+// configuration, whether or not this host enables a coordinator.
+func (c *Context) coordinatorClient() (coordinator.Client, error) {
 	clientConfig := coordinator.ConfigFromPeer(c.Config.Core.Peer)
 	clientConfig.WorkspaceBundleDir = workspacebundle.StoreDir(c.Config.Paths.DataDir)
 	if err := clientConfig.Validate(); err != nil {

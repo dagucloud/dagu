@@ -1104,6 +1104,8 @@ func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt
 		ProfileName:      task.ProfileName,
 		TargetNodes:      task.TargetNodes,
 		NodeList:         nodeList,
+		// Only a run bound to a worker node names its node in the task.
+		BoundWorker: task.BoundNode,
 		// Every step's model usage is recorded from the start.
 		ModelUsageRecorded: true,
 	}
@@ -2358,6 +2360,11 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	if dagRunStatus.NodeList == nil && latestStatus.NodeList != nil {
 		record := *latestStatus.NodeList
 		dagRunStatus.NodeList = &record
+	}
+	// So must the worker node a run was started bound to, which keeps its
+	// retries on that worker.
+	if dagRunStatus.BoundWorker == "" {
+		dagRunStatus.BoundWorker = latestStatus.BoundWorker
 	}
 
 	attempt := latestAttempt

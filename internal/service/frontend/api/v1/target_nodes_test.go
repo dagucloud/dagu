@@ -153,7 +153,6 @@ steps:
 		{name: "unknown node", dag: "narrowed", body: api.ExecuteDAGJSONRequestBody{TargetNodes: nodes("web1")}, message: `node "web1" is not a node of the project`},
 		{name: "nothing to narrow", dag: "plain", body: api.ExecuteDAGJSONRequestBody{TargetNodes: nodes("web01")}, message: "a node list narrows nothing"},
 		{name: "node: required without a node", dag: "bound", message: "starts with exactly one node, not 0"},
-		{name: "node: required with a worker node", dag: "bound", body: api.ExecuteDAGJSONRequestBody{TargetNodes: nodes("tokyo-gw")}, message: `node "tokyo-gw" is a worker node`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, path := range []string{"/start", "/enqueue"} {
@@ -165,6 +164,16 @@ steps:
 			}
 		})
 	}
+
+	// A run bound to a worker node is queued as any run is, and the
+	// scheduler sends it to its worker.
+	t.Run("node: required with a worker node", func(t *testing.T) {
+		var enqueued api.EnqueueDAGDAGRun200JSONResponse
+		server.Client().Post("/api/v1/dags/bound/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{
+			TargetNodes: nodes("Tokyo-GW"),
+		}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &enqueued)
+		require.Equal(t, []string{"tokyo-gw"}, statusOf(t, "bound", enqueued.DagRunId).TargetNodes)
+	})
 
 	t.Run("selected steps take no list", func(t *testing.T) {
 		steps := []string{"restart"}

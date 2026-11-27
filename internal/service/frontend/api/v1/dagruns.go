@@ -3379,8 +3379,13 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		return retryDAGRunResult{queued: true}, nil
 	}
 
+	// A run bound to a worker node is retried on that worker.
+	worker, err := a.boundWorker(ctx, dag, prevStatus.TargetNodes, prevStatus.BoundWorker, false)
+	if err != nil {
+		return retryDAGRunResult{}, err
+	}
 	// Check if this DAG should be dispatched to the coordinator for distributed execution
-	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
+	if worker != "" || dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
 		if dag.Type == ir.TypeBuild {
 			return retryDAGRunResult{}, buildRequiresLocalAPIError()
 		}
@@ -3394,7 +3399,9 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 			executor.WithPreviousStatus(prevStatus),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig), dag.BaseConfigWorkspace),
 		}
-		if workerID := ir.RetryAgentOwnerWorkerID(prevStatus, stepName != ""); workerID != "" {
+		if worker != "" {
+			opts = append(opts, executor.WithTargetWorkerID(worker), executor.WithBoundNode(worker, ""))
+		} else if workerID := ir.RetryAgentOwnerWorkerID(prevStatus, stepName != ""); workerID != "" {
 			opts = append(opts, executor.WithTargetWorkerID(workerID))
 		}
 		if dag.SourceFile != "" {
@@ -3430,6 +3437,9 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		)
 
 		if err := a.coordinatorCli.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
+			if worker != "" {
+				err = workerDispatchError(err)
+			}
 			return retryDAGRunResult{}, fmt.Errorf("error dispatching retry to coordinator: %w", err)
 		}
 
@@ -4093,6 +4103,11 @@ func (a *API) enqueuePreparedDAGRunIn(
 		}
 	}
 
+	// The queued run keeps the worker node it is bound to.
+	worker, err := a.boundWorker(ctx, dag, targetNodes, "", true)
+	if err != nil {
+		return err
+	}
 	queuedDAG := dag.Clone()
 	queuedDAG.Location = ""
 
@@ -4109,6 +4124,7 @@ func (a *API) enqueuePreparedDAGRunIn(
 		ProfileName:             profileName,
 		NoReuse:                 noReuse,
 		TargetNodes:             targetNodes,
+		BoundWorker:             worker,
 		ScheduleTime:            slot.scheduleTimeOrEmpty(),
 		ScheduleWindow:          slot.windowOrZero(),
 	})
@@ -4622,8 +4638,15 @@ type retryAdmission interface {
 // plan.
 func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, runID string, admission retryAdmission, path dagrun.RetryPath) error {
 	step := path.RootStep()
-	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
-		var err error
+	// A root run bound to a worker node resumes on that worker.
+	var worker string
+	var err error
+	if status.Parent.Zero() {
+		if worker, err = a.boundWorker(ctx, dag, status.TargetNodes, status.BoundWorker, false); err != nil {
+			return err
+		}
+	}
+	if worker != "" || dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
 		dag, err = a.refreshBaseSMTP(ctx, dag, status)
 		if err != nil {
 			return err
@@ -4633,7 +4656,9 @@ func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.
 			executor.WithPreviousStatus(status),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig), dag.BaseConfigWorkspace),
 		}
-		if workerID := ir.RetryAgentOwnerWorkerID(status, step != ""); workerID != "" {
+		if worker != "" {
+			options = append(options, executor.WithTargetWorkerID(worker), executor.WithBoundNode(worker, ""))
+		} else if workerID := ir.RetryAgentOwnerWorkerID(status, step != ""); workerID != "" {
 			options = append(options, executor.WithTargetWorkerID(workerID))
 		}
 		if dag.SourceFile != "" {
@@ -4662,6 +4687,9 @@ func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.
 		}
 		task := executor.CreateTask(dag.Name, string(dag.YamlData), dispatch.DispatchOperationRetry, runID, options...)
 		if err := a.coordinatorCli.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
+			if worker != "" {
+				err = workerDispatchError(err)
+			}
 			return fmt.Errorf("dispatch managed-agent resume: %w", err)
 		}
 		return nil

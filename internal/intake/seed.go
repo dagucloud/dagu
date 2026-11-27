@@ -61,6 +61,9 @@ type SeedRequest struct {
 	// and NodeList continues the record of what they did with the list.
 	TargetNodes []string
 	NodeList    *ir.NodeListRecord
+	// BoundWorker is the worker node the run is bound to (BoundWorker), or
+	// empty.
+	BoundWorker string
 
 	LogBaseDir      string
 	ArtifactBaseDir string
@@ -125,6 +128,7 @@ func SeedRun(ctx context.Context, req SeedRequest) (dagrun.Attempt, *ir.DAGRunSt
 		ir.WithScheduleTime(req.ScheduleTime),
 		ir.WithScheduleWindow(req.ScheduleWindow),
 		ir.WithTargetNodes(req.TargetNodes),
+		ir.WithBoundWorker(req.BoundWorker),
 		ir.WithNodeListRecord(req.NodeList),
 	)
 	status.Params = req.Params

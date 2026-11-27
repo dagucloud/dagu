@@ -12,9 +12,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/noderuns"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -214,4 +217,222 @@ steps:
 	require.Equal(t, "sibling", status.Nodes[1].Step.Name)
 	require.Equal(t, ir.NodeSucceeded, status.Nodes[1].Status)
 	require.Equal(t, "worker-1", childStatus(t, f, root, children[1].DAGRunID).WorkerID, "an SSH node's child runs where its parent runs")
+}
+
+// boundDAG is a node: required DAG, so each run is bound to the node it
+// starts with.
+const boundDAG = `
+node: required
+steps:
+  - id: where
+    run: echo ${node.name}
+`
+
+// withCoordinatorEnabled sets coordinator.enabled, which the test
+// configuration turns off, so the commands a test runs may reach the
+// coordinator.
+func withCoordinatorEnabled() fixtureOption {
+	return withConfigMutator(func(c *config.Config) { c.Coordinator.Enabled = true })
+}
+
+// startBound runs dagu start on the fixture's DAG bound to node, and waits
+// for the run to end.
+func (f *testFixture) startBound(node string) error {
+	f.t.Helper()
+	spec := launcher.NewSubCmdBuilder(f.coord.Config).Start(f.dagWrapper.DAG, launcher.StartOptions{
+		Quiet: true, TargetNodes: []string{node},
+	})
+	return launcher.Run(f.coord.Context, spec)
+}
+
+// requireOnWorker requires that status ended as want on the worker gw-1,
+// bound to its worker node.
+func requireOnWorker(t *testing.T, status ir.DAGRunStatus, want ir.Status) {
+	t.Helper()
+	require.Equal(t, want, status.Status)
+	require.Equal(t, "gw-1", status.WorkerID, "the run runs on its worker node's worker")
+	require.Equal(t, "gw-1", status.BoundNode)
+	require.Equal(t, []string{"gw-1"}, status.TargetNodes)
+}
+
+// dagu start sends a node: required DAG bound to a worker node to that
+// worker in local mode, and not to the other worker (RFC 013 §Bound runs).
+func TestWorkerNodes_StartBoundToWorkerNode(t *testing.T) {
+	t.Parallel()
+
+	f := newTestFixture(t, boundDAG, withCoordinatorEnabled())
+	startWorkerNodes(t, f, nil, "gw-1")
+
+	require.NoError(t, f.startBound("GW-1"))
+	status, err := f.latestStoredStatus()
+	require.NoError(t, err)
+	requireOnWorker(t, status, ir.Succeeded)
+}
+
+// A queued run bound to a worker node goes to that worker when the scheduler
+// dispatches it.
+func TestWorkerNodes_EnqueueBoundToWorkerNode(t *testing.T) {
+	t.Parallel()
+
+	f := newTestFixture(t, boundDAG)
+	startWorkerNodes(t, f, nil, "gw-1")
+
+	spec := launcher.NewSubCmdBuilder(f.coord.Config).Enqueue(f.dagWrapper.DAG, launcher.EnqueueOptions{
+		Quiet: true, TargetNodes: []string{"gw-1"},
+	})
+	require.NoError(t, launcher.Run(f.coord.Context, spec))
+	f.waitForQueued()
+	f.startScheduler(30 * time.Second)
+
+	requireOnWorker(t, f.waitForStatus(ir.Succeeded, executionStatusTimeout()), ir.Succeeded)
+}
+
+// dagu retry reruns a run bound to a worker node on that worker, in a new
+// attempt. The step fails each time, so the test reads where each attempt
+// ran rather than what a shell printed.
+func TestWorkerNodes_RetryBoundToWorkerNode(t *testing.T) {
+	t.Parallel()
+
+	f := newTestFixture(t, `
+node: required
+steps:
+  - id: fail
+    run: exit 1
+`, withCoordinatorEnabled())
+	startWorkerNodes(t, f, nil, "gw-1")
+
+	require.Error(t, f.startBound("gw-1"))
+	first, err := f.latestStoredStatus()
+	require.NoError(t, err)
+	requireOnWorker(t, first, ir.Failed)
+	f.waitForRunReleasedFromWorkers(first.DAGRunID, 10*time.Second)
+
+	require.NoError(t, f.retry(first.DAGRunID))
+	var retried ir.DAGRunStatus
+	f.h.Wait.EventuallyEveryWithin("the retry fails in a new attempt", executionStatusTimeout(), 100*time.Millisecond, func() bool {
+		retried, err = f.latestStoredStatus()
+		return err == nil && retried.AttemptID != first.AttemptID && retried.Status == ir.Failed
+	})
+	require.Equal(t, first.DAGRunID, retried.DAGRunID)
+	requireOnWorker(t, retried, ir.Failed)
+}
+
+// dagu restart stops a running run bound to a worker node and starts the new
+// run on that worker.
+func TestWorkerNodes_RestartBoundToWorkerNode(t *testing.T) {
+	t.Parallel()
+
+	f := newTestFixture(t, fmt.Sprintf(`
+node: required
+steps:
+  - id: wait
+    run: %s
+`, test.ShellQuote(test.Sleep(60*time.Second))), withCoordinatorEnabled())
+	startWorkerNodes(t, f, nil, "gw-1")
+
+	builder := launcher.NewSubCmdBuilder(f.coord.Config)
+	require.NoError(t, launcher.Start(f.coord.Context, builder.Start(f.dagWrapper.DAG, launcher.StartOptions{
+		Quiet: true, TargetNodes: []string{"gw-1"},
+	})))
+	first := f.waitForStatus(ir.Running, executionStatusTimeout())
+	require.Equal(t, "gw-1", first.WorkerID)
+
+	require.NoError(t, launcher.Start(f.coord.Context, builder.Restart(f.dagWrapper.DAG, launcher.RestartOptions{Quiet: true})))
+	var restarted ir.DAGRunStatus
+	f.h.Wait.EventuallyEveryWithin("the new run runs", executionStatusTimeout(), 100*time.Millisecond, func() bool {
+		var err error
+		restarted, err = f.latestStoredStatus()
+		return err == nil && restarted.DAGRunID != first.DAGRunID && restarted.Status == ir.Running
+	})
+	requireOnWorker(t, restarted, ir.Running)
+	require.NoError(t, f.stop(restarted.DAGRunID))
+	f.waitForStatusIn([]ir.Status{ir.Aborted, ir.Failed}, executionStatusTimeout())
+}
+
+// A run bound to a worker node whose worker is offline fails at once, from
+// dagu start before any run exists and from the queue as a failed run,
+// rather than waiting for the worker or running elsewhere.
+func TestWorkerNodes_OfflineWorkerNodeRefusesBoundRun(t *testing.T) {
+	t.Parallel()
+
+	f := newTestFixture(t, boundDAG, withCoordinatorEnabled(), withWorkerWaitTimeout(time.Hour))
+	workers, err := persiststore.NewWorkerNodeStore(f.coord.Backend.Collection(persis.CollectionWorkerNodes), f.coord.WorkerHeartbeatStore)
+	require.NoError(t, err)
+	// The worker was recorded and has sent no heartbeat since.
+	require.NoError(t, workers.Record(f.coord.Context, inventory.WorkerNode{Name: "gone-gw", Host: "gw.example", Online: true}))
+
+	started := time.Now()
+	require.ErrorContains(t, f.startBound("gone-gw"), `worker node "gone-gw" is offline`)
+	require.Less(t, time.Since(started), distrTestTimeout(30*time.Second), "the start does not wait for the worker")
+	_, err = f.latestStoredStatus()
+	require.Error(t, err, "no run exists")
+
+	spec := launcher.NewSubCmdBuilder(f.coord.Config).Enqueue(f.dagWrapper.DAG, launcher.EnqueueOptions{
+		Quiet: true, TargetNodes: []string{"gone-gw"},
+	})
+	require.NoError(t, launcher.Run(f.coord.Context, spec))
+	f.waitForQueued()
+	f.startScheduler(30 * time.Second)
+
+	status := f.waitForStatus(ir.Failed, executionStatusTimeout())
+	require.Contains(t, status.Error, `worker node "gone-gw" is offline`)
+	require.Empty(t, status.WorkerID, "no worker ran the queued run")
+}
+
+// A run started bound to worker node gw-1 does not run bound to an inventory
+// node that takes the name later: a retry of it is refused, and a queued run
+// fails, rather than running on the Dagu host or on another worker.
+func TestWorkerNodes_InventoryNodeTakesWorkerName(t *testing.T) {
+	t.Parallel()
+
+	f := newTestFixture(t, `
+node: required
+steps:
+  - id: fail
+    run: exit 1
+`, withCoordinatorEnabled())
+	startWorkerNodes(t, f, nil, "gw-1")
+	require.Error(t, f.startBound("gw-1"))
+	first, err := f.latestStoredStatus()
+	require.NoError(t, err)
+	requireOnWorker(t, first, ir.Failed)
+	f.waitForRunReleasedFromWorkers(first.DAGRunID, 10*time.Second)
+	builder := launcher.NewSubCmdBuilder(f.coord.Config)
+	require.NoError(t, launcher.Run(f.coord.Context, builder.Enqueue(f.dagWrapper.DAG, launcher.EnqueueOptions{
+		Quiet: true, TargetNodes: []string{"gw-1"},
+	})))
+	f.waitForQueued()
+
+	inventories, err := persiststore.NewInventoryStore(f.coord.Backend.Collection(persis.CollectionInventories),
+		f.coord.Backend.Lock(persis.CollectionInventories), nil)
+	require.NoError(t, err)
+	_, err = inventories.Create(f.coord.Context, inventory.Inventory{Name: "fleet", Nodes: []inventory.Node{{
+		Name: "gw-1", Host: "127.0.0.1", Connection: inventory.Connection{User: "deploy"},
+	}}})
+	require.NoError(t, err)
+
+	retried := launcher.Run(f.coord.Context, builder.Retry(f.dagWrapper.DAG, launcher.RetryOptions{DAGRunID: first.DAGRunID}))
+	require.ErrorContains(t, retried, `node "gw-1": `+intake.ErrWorkerNodeChanged.Error())
+	f.startScheduler(30 * time.Second)
+	f.h.Wait.EventuallyEveryWithin("the queued run fails", executionStatusTimeout(), 100*time.Millisecond, func() bool {
+		latest, err := f.latestStoredStatus()
+		return err == nil && latest.DAGRunID != first.DAGRunID && latest.Status == ir.Failed
+	})
+	queued, err := f.latestStoredStatus()
+	require.NoError(t, err)
+	require.Contains(t, queued.Error, intake.ErrWorkerNodeChanged.Error())
+	require.Empty(t, queued.WorkerID, "nothing ran the queued run")
+}
+
+// With coordinator.enabled false, dagu start refuses a run bound to a worker
+// node at once, as the start request and the scheduler do.
+func TestWorkerNodes_StartWithoutCoordinator(t *testing.T) {
+	t.Parallel()
+
+	f := newTestFixture(t, boundDAG)
+	startWorkerNodes(t, f, nil, "gw-1")
+
+	require.ErrorContains(t, f.startBound("gw-1"), intake.ErrNoCoordinator.Error())
+	_, err := f.latestStoredStatus()
+	require.Error(t, err, "no run exists")
 }

@@ -59,6 +59,9 @@ type QueueRequest struct {
 	RetryDisabled  bool
 	// TargetNodes narrows the run's steps with nodes to the nodes it names.
 	TargetNodes []string
+	// BoundWorker is the worker node the run is bound to (BoundWorker), or
+	// empty.
+	BoundWorker string
 
 	AttemptOptions persis.DAGRunCreateAttemptOptions
 
@@ -214,6 +217,7 @@ func queuedStatus(req QueueRequest, dagRun ir.DAGRunRef, attemptID, logFile, arc
 		ir.WithTriggerSubject(req.TriggerSubject),
 		ir.WithRetryDisabled(req.RetryDisabled),
 		ir.WithTargetNodes(req.TargetNodes),
+		ir.WithBoundWorker(req.BoundWorker),
 	}
 	if req.ScheduleTime != "" {
 		opts = append(opts, ir.WithScheduleTime(req.ScheduleTime), ir.WithScheduleWindow(req.ScheduleWindow))

@@ -429,11 +429,19 @@ func tryExecuteDAG(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 	// Check for dispatch to coordinator for distributed execution.
 	// Skip if already running on a worker (workerID != "local").
 	if opts.workerID == "local" {
-		coordinatorCli, err := ctx.NewCoordinatorClient()
+		// A run bound to a worker node runs on that worker, whatever the
+		// default execution mode.
+		worker, coordinatorCli, err := boundWorker(ctx, dag, opts.targetNodes, "")
 		if err != nil {
 			return err
 		}
-		if dispatch.ShouldDispatchToCoordinator(dag, coordinatorCli != nil, ctx.Config.DefaultExecMode) {
+		opts.boundWorker = worker
+		if worker == "" {
+			if coordinatorCli, err = ctx.NewCoordinatorClient(); err != nil {
+				return err
+			}
+		}
+		if worker != "" || dispatch.ShouldDispatchToCoordinator(dag, coordinatorCli != nil, ctx.Config.DefaultExecMode) {
 			if dag.Type == ir.TypeBuild {
 				return dispatch.ErrBuildRequiresLocal
 			}
@@ -929,12 +937,26 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	if len(opts.targetNodes) > 0 {
 		taskOpts = append(taskOpts, executor.WithTargetNodes(opts.targetNodes))
 	}
+	if opts.boundWorker != "" {
+		taskOpts = append(taskOpts,
+			executor.WithTargetWorkerID(opts.boundWorker),
+			executor.WithBoundNode(opts.boundWorker, ""),
+		)
+	}
 	taskOpts = append(taskOpts, executor.WithTriggerType(opts.triggerType))
 
 	operation := dispatch.DispatchOperationStart
-	if opts.seed != nil {
+	switch {
+	case opts.seed != nil:
 		operation = dispatch.DispatchOperationRetry
 		taskOpts = append(taskOpts, executor.WithPreviousStatus(opts.seed))
+	case opts.retried != nil:
+		operation = dispatch.DispatchOperationRetry
+		taskOpts = append(taskOpts, retryTaskOptions(opts)...)
+	case len(d.Params) > 0:
+		// The worker loads the definition again, so a new run carries the
+		// params it was started with.
+		taskOpts = append(taskOpts, executor.WithTaskParams(strings.Join(spec.QuoteRuntimeParams(d.Params, d.ParamDefs), " ")))
 	}
 
 	task := executor.CreateTask(
