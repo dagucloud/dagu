@@ -438,6 +438,8 @@ type CoordinatorDef struct {
 	WorkerWaitTimeout string `mapstructure:"worker_wait_timeout"`
 	// RequireToken rejects calls that do not carry the peer token.
 	RequireToken bool `mapstructure:"require_token"`
+	// RequireTLS refuses calls over h2c on a coordinator with a peer CA.
+	RequireTLS bool `mapstructure:"require_tls"`
 }
 
 // WorkerDef configures the worker.

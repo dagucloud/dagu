@@ -694,6 +694,7 @@ func (l *ConfigLoader) loadPeerConfig(def PeerDef) Peer {
 		SkipTLSVerify: def.SkipTLSVerify,
 		// Unset peer.insecure selects h2c, as true does.
 		Insecure:      def.Insecure || !l.v.IsSet("peer.insecure"),
+		InsecureUnset: !l.v.IsSet("peer.insecure"),
 		MaxRetries:    def.MaxRetries,
 		RetryInterval: l.parseDuration("peer.retry_interval", def.RetryInterval),
 		Token:         strings.TrimSpace(def.Token),
@@ -1659,6 +1660,7 @@ func (l *ConfigLoader) loadCoordinatorConfig(cfg *Config, def Definition) {
 		cfg.Coordinator.Port = def.Coordinator.Port
 		cfg.Coordinator.HealthPort = def.Coordinator.HealthPort
 		cfg.Coordinator.RequireToken = def.Coordinator.RequireToken
+		cfg.Coordinator.RequireTLS = def.Coordinator.RequireTLS
 		if def.Coordinator.WorkerWaitTimeout != "" {
 			timeout, err := time.ParseDuration(def.Coordinator.WorkerWaitTimeout)
 			if err != nil {
@@ -2240,6 +2242,7 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) error {
 	}
 	cfg.Core.Peer.TokenFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-token")
 	cfg.Core.Peer.GeneratedCAFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-ca.pem")
+	cfg.Core.Peer.PublishedCAFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-ca.crt")
 
 	// Suspend flags default under the shared data directory so every process
 	// observing the same data_dir sees identical suspension state. A legacy
@@ -2794,6 +2797,7 @@ var envBindings = []envBinding{
 	{key: "coordinator.health_port", env: "COORDINATOR_HEALTH_PORT"},
 	{key: "coordinator.worker_wait_timeout", env: "COORDINATOR_WORKER_WAIT_TIMEOUT"},
 	{key: "coordinator.require_token", env: "COORDINATOR_REQUIRE_TOKEN"},
+	{key: "coordinator.require_tls", env: "COORDINATOR_REQUIRE_TLS"},
 
 	// Worker
 	{key: "worker.id", env: "WORKER_ID"},
