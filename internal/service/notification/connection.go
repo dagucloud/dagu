@@ -20,10 +20,11 @@ import (
 // connection's page is below it, with its workspace as a query parameter.
 const connectionsPagePath = "/connections"
 
-// connectionRoute is a route destination of a connection event, and the
-// workspaces whose routes reach the destination's channel.
+// connectionRoute is a route destination of a connection event, its
+// channel, and the workspaces whose routes reach that channel.
 type connectionRoute struct {
 	destination string
+	channelID   string
 	workspaces  []string
 }
 
@@ -47,7 +48,7 @@ func (s *Service) connectionRoutes(event chatbridge.NotificationEvent) []connect
 				continue
 			}
 			byChannel[route.ChannelID] = len(routes)
-			routes = append(routes, connectionRoute{destination: destination, workspaces: []string{workspaceName}})
+			routes = append(routes, connectionRoute{destination: destination, channelID: route.ChannelID, workspaces: []string{workspaceName}})
 		}
 	}
 	return routes
@@ -63,12 +64,14 @@ func (s *Service) connectionDestinations(event chatbridge.NotificationEvent) []s
 	return destinations
 }
 
-// connectionEventFor returns event as destination receives it, naming only
-// the connections of the workspaces whose routes reach its channel, so
-// that no channel learns another workspace's connections.
-func (s *Service) connectionEventFor(event chatbridge.NotificationEvent, destination string) (chatbridge.NotificationEvent, bool) {
+// connectionEventFor returns event as destination receives it on
+// channelID, naming only the connections of the workspaces whose routes
+// reach that channel, so that no channel learns another workspace's
+// connections. A destination whose route now names another channel
+// receives nothing.
+func (s *Service) connectionEventFor(event chatbridge.NotificationEvent, destination, channelID string) (chatbridge.NotificationEvent, bool) {
 	for _, route := range s.connectionRoutes(event) {
-		if route.destination != destination {
+		if route.destination != destination || route.channelID != channelID {
 			continue
 		}
 		change := *event.Connection
@@ -157,7 +160,7 @@ func connectionText(event chatbridge.NotificationEvent, publicURL string) string
 	var b strings.Builder
 	switch {
 	case change.AppID != "" && restored:
-		fmt.Fprintf(&b, "OAuth app %q works again. Its connections can get tokens: %s.", change.AppName, connectionNames(change.Connections))
+		fmt.Fprintf(&b, "OAuth app %q has a new client ID or secret. Its connections try it on their next token request: %s.", change.AppName, connectionNames(change.Connections))
 	case change.AppID != "":
 		fmt.Fprintf(&b, "OAuth app %q was refused by its provider. Until an admin changes its client ID or secret, its connections cannot get tokens: %s.", change.AppName, connectionNames(change.Connections))
 	case restored:

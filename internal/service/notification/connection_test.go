@@ -236,7 +236,7 @@ Reconnect it on the Connections page, or run: dagu connection reconnect shared`,
 		name:      "AppRestored",
 		eventType: eventstore.TypeConnectionRestored,
 		change:    eventstore.ConnectionChange{AppID: "app-1", AppName: "Google", Connections: ops, Status: "ok"},
-		want:      `OAuth app "Google" works again. Its connections can get tokens: work-google (ops).`,
+		want:      `OAuth app "Google" has a new client ID or secret. Its connections try it on their next token request: work-google (ops).`,
 	}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -1386,7 +1386,7 @@ func (s *Service) matchingRouteEvents(ctx context.Context, routeSet *notificatio
 	destination := routeDestinationID(routeSet.Scope, routeSet.Workspace, route.ID)
 	for _, event := range events {
 		if event.Connection != nil {
-			if scoped, ok := s.connectionEventFor(event, destination); ok {
+			if scoped, ok := s.connectionEventFor(event, destination, route.ChannelID); ok {
 				result = append(result, scoped)
 			}
 			continue
