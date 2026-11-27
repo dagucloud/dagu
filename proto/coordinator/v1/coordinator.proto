@@ -86,6 +86,12 @@ service CoordinatorService {
   // connect through, and the host keys trusted for them. Credentials appear
   // as secret refs, never as values.
   rpc ResolveNodes (ResolveNodesRequest) returns (ResolveNodesResponse);
+
+  // ResolveConnectionToken answers the access token of a connection that a
+  // run on a worker declares, with the connection's binding, or with
+  // check_only the binding alone. Used by workers that cannot read the
+  // coordinator's connection store.
+  rpc ResolveConnectionToken (ResolveConnectionTokenRequest) returns (ResolveConnectionTokenResponse);
 }
 
 // Request message for polling a task.
@@ -93,6 +99,9 @@ message PollRequest {
   string worker_id = 1;
   string poller_id = 2; // Unique ID for this poll request
   map<string, string> labels = 3; // Worker labels for task matching
+  // The worker asks for connection tokens through ResolveConnectionToken,
+  // so it may run a DAG that declares connections.
+  bool connection_tokens = 4;
 }
 
 // Response message for polling a task.
@@ -244,6 +253,7 @@ message HeartbeatRequest {
   string host = 4;            // Name of the machine the worker runs on
   MachineSample machine = 5;  // Unset until the worker samples its machine
   string version = 6;         // Dagu version the worker runs
+  bool connection_tokens = 7; // As PollRequest.connection_tokens
 }
 
 // A reading of the resources of the machine a worker runs on, or of its
@@ -634,6 +644,44 @@ message RuntimeProfileLayer {
 message ResolveRuntimeProfileResponse {
   RuntimeProfileLayer defaults = 1;
   RuntimeProfileLayer selected = 2;
+}
+
+// ResolveConnectionTokenRequest names a connection that the DAG of an
+// attempt the worker holds declares.
+message ResolveConnectionTokenRequest {
+  string worker_id = 1;   // Worker currently owning the dispatched attempt
+  string attempt_key = 2; // Active distributed attempt lease key
+  string attempt_id = 3;  // Attempt ID created by the coordinator
+  string dag_name = 4;    // Current DAG definition; empty selects the attempt's DAG
+  string connection = 5;  // Connection name, resolved in the DAG's workspace
+  // When true, run the admission checks and answer the binding without a
+  // token.
+  bool check_only = 6;
+  string resource = 7;         // Resource the token is for; empty selects the only one
+  int64 min_ttl_seconds = 8;   // Least lifetime the token keeps
+  // Token that the resource rejected. The coordinator refreshes only while
+  // it is still the stored token.
+  string rejected_token = 9;
+}
+
+message ResolveConnectionTokenResponse {
+  string access_token = 1;       // Empty for check_only
+  int64 expires_in_seconds = 2;  // Lifetime left; 0 when the token reports no expiry
+  ConnectionBinding binding = 3;
+}
+
+// ConnectionBinding is what a worker needs to use a connection's token: the
+// hosts that may receive it, and the services it serves.
+message ConnectionBinding {
+  string provider = 1;
+  repeated ConnectionService services = 2;
+  repeated string bound_hosts = 3; // Every host that may receive the token
+  string resource = 4;             // Canonical server URL of an MCP connection
+}
+
+message ConnectionService {
+  string name = 1;
+  string access = 2; // "read" or "write"
 }
 
 // ResolveNodesRequest names the nodes a run on a worker targets, by a
