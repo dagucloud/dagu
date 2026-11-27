@@ -4,6 +4,7 @@
 package untrusted
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -14,18 +15,28 @@ import (
 // the worker, for example HOME=/tmp, a trusted process of an isolated run gets
 // a private HOME. The restricted user cannot reach it.
 
-// homeVariables are the variables that name a folder below HOME that a trusted
-// process reads.
-var homeVariables = []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"}
+// homeFolders are the XDG variables that name a folder that a trusted process
+// reads, with the folder below HOME that it reads when the variable is not set.
+var homeFolders = []struct{ name, dir string }{
+	{"XDG_CONFIG_HOME", ".config"},
+	{"XDG_DATA_HOME", filepath.Join(".local", "share")},
+	{"XDG_STATE_HOME", filepath.Join(".local", "state")},
+	{"XDG_CACHE_HOME", ".cache"},
+}
 
 // TrustedHome returns the variables that give a trusted process a new private
 // HOME, and the function that removes that HOME, when the restricted user uid
-// or its group gid can write the folder home or one of the folders that lookup
-// gives for the XDG variables. It returns nil when the folders are safe.
+// or its group gid can write or replace the folder home, or a folder of the XDG
+// variables: the one that lookup gives, or its default below home. It returns
+// nil when the folders are safe.
 func TrustedHome(uid, gid uint32, home string, lookup func(string) (string, bool)) (map[string]string, func() error, error) {
 	unsafe := home == "" || writableBy(home, uid, gid)
-	for _, name := range homeVariables {
-		if dir, ok := lookup(name); ok && dir != "" && writableBy(dir, uid, gid) {
+	for _, folder := range homeFolders {
+		dir, ok := lookup(folder.name)
+		if !ok || dir == "" {
+			dir = filepath.Join(home, folder.dir)
+		}
+		if writableBy(dir, uid, gid) {
 			unsafe = true
 		}
 	}
@@ -37,11 +48,16 @@ func TrustedHome(uid, gid uint32, home string, lookup func(string) (string, bool
 	if err != nil {
 		return nil, nil, err
 	}
-	return map[string]string{
-		"HOME":            dir,
-		"XDG_CONFIG_HOME": filepath.Join(dir, ".config"),
-		"XDG_DATA_HOME":   filepath.Join(dir, ".local", "share"),
-		"XDG_STATE_HOME":  filepath.Join(dir, ".local", "state"),
-		"XDG_CACHE_HOME":  filepath.Join(dir, ".cache"),
-	}, func() error { return os.RemoveAll(dir) }, nil
+	remove := func() error { return os.RemoveAll(dir) }
+	// A temp folder that the restricted user can write lets it replace the
+	// private HOME.
+	if writableBy(dir, uid, gid) {
+		_ = remove()
+		return nil, nil, fmt.Errorf("the restricted user can replace the private HOME %s: its temp folder is not safe", dir)
+	}
+	entries := map[string]string{"HOME": dir}
+	for _, folder := range homeFolders {
+		entries[folder.name] = filepath.Join(dir, folder.dir)
+	}
+	return entries, remove, nil
 }

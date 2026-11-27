@@ -161,7 +161,7 @@ func TestTrustedStepGetsAPrivateHome(t *testing.T) {
 	}
 
 	shared := t.TempDir()
-	require.NoError(t, os.Chmod(shared, 0o1777)) //nolint:gosec // a folder that any user can write, as /tmp
+	require.NoError(t, os.Chmod(shared, os.ModeSticky|0o777)) //nolint:gosec // a folder that any user can write, as /tmp
 	cfg := config.UntrustedConfig{Enabled: true, UID: 64011, GID: 64011}
 	result := untrustedPlan(t, cfg, t.TempDir(),
 		newStep("check", withEnvVars("HOME="+shared), withScript(`touch "$HOME/planted"; echo "$HOME $XDG_CONFIG_HOME"`), withOutput("HOMES")),

@@ -850,15 +850,36 @@ func ownerOf(info fs.FileInfo) (uid, gid int) {
 }
 
 // writableBy reports whether the user uid or the group gid can write the
-// folder path. A folder that does not exist counts as writable: the user could
-// make it. So does a folder of the user, whatever its mode: the owner can
-// change the mode.
+// folder path or put another folder in its place: it can write the folder, it
+// can make the folder or a missing folder on the way, or it can rename a
+// folder on the way. A sticky folder lets it make an entry and not rename one
+// of another owner. A folder of the user counts as writable whatever its mode:
+// the owner can change the mode. A folder that cannot be read counts as
+// writable.
 func writableBy(path string, uid, gid uint32) bool {
-	info, err := os.Stat(path)
-	if err != nil {
-		return true
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
 	}
-	owner, group := ownerOf(info)
-	mode := info.Mode().Perm()
-	return owner == int(uid) || (group == int(gid) && mode&0o020 != 0) || mode&0o002 != 0
+	path = filepath.Clean(path)
+	missing := false
+	for dir := path; ; dir = filepath.Dir(dir) {
+		info, err := os.Stat(dir)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			missing = true
+		case err != nil:
+			return true
+		default:
+			owner, group := ownerOf(info)
+			mode := info.Mode()
+			canWrite := (group == int(gid) && mode&0o020 != 0) || mode&0o002 != 0
+			if owner == int(uid) || canWrite && (dir == path || missing || mode&fs.ModeSticky == 0) {
+				return true
+			}
+			missing = false
+		}
+		if parent := filepath.Dir(dir); parent == dir {
+			return false
+		}
+	}
 }

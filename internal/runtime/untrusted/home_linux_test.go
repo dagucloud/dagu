@@ -35,7 +35,7 @@ func TestTrustedHome(t *testing.T) {
 	none := func(string) (string, bool) { return "", false }
 
 	shared := t.TempDir()
-	require.NoError(t, os.Chmod(shared, 0o1777)) //nolint:gosec // a folder that any user can write, as /tmp
+	require.NoError(t, os.Chmod(shared, os.ModeSticky|0o777)) //nolint:gosec // a folder that any user can write, as /tmp
 	entries, remove, err := TrustedHome(testUID, testGID, shared, none)
 	require.NoError(t, err)
 	require.NotNil(t, entries)
@@ -57,11 +57,41 @@ func TestTrustedHome(t *testing.T) {
 	xdg := func(name string) (string, bool) { return shared, name == "XDG_CONFIG_HOME" }
 	assert.NotNil(t, trustedHome(t, testUID, safe, xdg), "a config folder that the restricted user can write is replaced")
 
-	assert.NotNil(t, trustedHome(t, testUID, filepath.Join(safe, "missing"), none), "a HOME that does not exist could be made by the restricted user")
+	assert.NotNil(t, trustedHome(t, testUID, filepath.Join(shared, "missing"), none), "a HOME that does not exist could be made by the restricted user")
+	assert.Nil(t, trustedHome(t, testUID, filepath.Join(safe, "missing"), none), "a HOME that only the worker could make stays")
+
+	inSticky := filepath.Join(shared, "home")
+	require.NoError(t, os.Mkdir(inSticky, 0o700))
+	assert.Nil(t, trustedHome(t, testUID, inSticky, none), "a sticky folder keeps the restricted user from renaming the HOME")
+
+	open := t.TempDir()
+	require.NoError(t, os.Chmod(open, 0o777)) //nolint:gosec // a folder that any user can write, without the sticky bit
+	inOpen := filepath.Join(open, "home")
+	require.NoError(t, os.Mkdir(inOpen, 0o700))
+	assert.NotNil(t, trustedHome(t, testUID, inOpen, none), "a HOME that the restricted user can rename is replaced")
+
+	config := filepath.Join(t.TempDir(), "home")
+	require.NoError(t, os.MkdirAll(filepath.Join(config, ".config"), 0o700))
+	require.NoError(t, os.Chmod(filepath.Join(config, ".config"), 0o777)) //nolint:gosec // a config folder that any user can write
+	assert.NotNil(t, trustedHome(t, testUID, config, none), "a default config folder that the restricted user can write is replaced")
 
 	// The owner of a folder can give itself write access. The test process
 	// stands in for the restricted user, so this needs no root either.
 	owned := t.TempDir()
 	require.NoError(t, os.Chmod(owned, 0o500))
-	assert.NotNil(t, trustedHome(t, uint32(os.Getuid()), owned, none), "a HOME of the restricted user is replaced whatever its mode") // #nosec G115 -- a user ID is not negative.
+	assert.True(t, writableBy(owned, uint32(os.Getuid()), testGID), "a folder of the restricted user counts as writable whatever its mode") // #nosec G115 -- a user ID is not negative.
+}
+
+// A private HOME in a temp folder that the restricted user could rename fails
+// the step instead.
+func TestTrustedHomeNeedsASafeTempFolder(t *testing.T) {
+	open := t.TempDir()
+	require.NoError(t, os.Chmod(open, 0o777)) //nolint:gosec // a folder that any user can write, without the sticky bit
+	t.Setenv("TMPDIR", open)
+	entries, _, err := TrustedHome(testUID, testGID, "", func(string) (string, bool) { return "", false })
+	require.ErrorContains(t, err, "the restricted user can replace the private HOME")
+	assert.Nil(t, entries)
+	names, err := os.ReadDir(open)
+	require.NoError(t, err)
+	assert.Empty(t, names, "the private HOME is removed")
 }
