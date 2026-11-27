@@ -243,6 +243,33 @@ func TestIsolatedStepPlace(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(outside, "x"))
 }
 
+// A shared file, such as the script of a step, keeps the worker as owner and
+// gets the group of the restricted user with the mode 0440: the restricted
+// user reads it and cannot write it, and no other user can read it.
+func TestIsolatedStepSharesAFileReadOnly(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	// The system temp folder holds the script of a step.
+	dir, err := os.MkdirTemp("", "dagu-untrusted-share-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	require.NoError(t, os.Chmod(dir, 0o755))
+	script := filepath.Join(dir, "script.sh")
+	require.NoError(t, os.WriteFile(script, []byte("echo shared\n"), 0o750))
+
+	require.NoError(t, step.ShareReadOnly(script))
+	info, err := os.Lstat(script)
+	require.NoError(t, err)
+	assert.Equal(t, fs.FileMode(0o440), info.Mode().Perm())
+	uid, gid := ownerOf(info)
+	assert.Equal(t, []int{os.Geteuid(), testGID}, []int{uid, gid})
+	out := runAs(t, WithStep(ctx, step), workDir, `sh `+script+`; (echo x >> `+script+`) 2>/dev/null && echo write:allowed || echo write:denied`)
+	assert.Equal(t, "shared\nwrite:denied\n", out)
+}
+
 // A device node in the work directory, also in .git, fails the step: as its
 // owner, or with the bit r for others, the restricted user could open the
 // device. The node keeps its owner and its mode.

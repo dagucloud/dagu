@@ -626,31 +626,26 @@ func (iso *isolation) copyOutput() error {
 	return nil
 }
 
-// shareReadOnly lets the restricted user read the tree at path and not write
-// it. Each folder gets the mode 0555 and each file the mode 0444; the owner
-// stays the user of the worker. A link keeps its mode. The walk acts on
-// descriptors, so a path that changes under it cannot redirect a change of mode.
-func shareReadOnly(step, path string) error {
-	var chmodErr error
-	err := walkFD(path, func(e *fsEntry) (bool, error) {
-		if e.isLink() {
-			return true, nil
-		}
-		mode := uint32(0o444)
-		if e.isDir() {
-			mode = 0o555
-		}
-		if err := chmodFD(e, mode); err != nil {
-			chmodErr = stepError(step, "change the mode of", e.path, err)
-			return false, chmodErr
-		}
-		return false, nil
-	})
-	if chmodErr != nil {
-		return chmodErr
+// shareReadOnly lets the restricted user read the regular file at path and not
+// write it. The file keeps the worker as owner and gets the group of the
+// restricted user with the mode 0440, so that no other user reads it. The
+// changes go through a descriptor, so a link that replaces the path cannot
+// redirect them.
+func (iso *isolation) shareReadOnly(path string) error {
+	if err := checkTraversable(path); err != nil {
+		return stepError(iso.step, "share", path, err)
 	}
+	err := walkFD(path, func(e *fsEntry) (bool, error) {
+		if !e.isRegular() || e.st.Nlink > 1 {
+			return true, errors.New("not a regular file with one link")
+		}
+		if err := chownFD(e, iso.workerUID, int(iso.gid)); err != nil {
+			return true, err
+		}
+		return true, chmodFD(e, 0o440)
+	})
 	if err != nil {
-		return stepError(step, "read", path, err)
+		return stepError(iso.step, "share", path, err)
 	}
 	return nil
 }
