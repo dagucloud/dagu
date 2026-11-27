@@ -660,6 +660,111 @@ func TestTwoWritersRace(t *testing.T) {
 	_ = created
 }
 
+// The lock of a holder that died is taken over by one writer only: of two
+// writers with the same hash, one wins and the other gets a conflict.
+func TestStaleLockIsTakenOverOnce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "skills")
+	a, b := skill.NewStore(dir), skill.NewStore(dir)
+	created := create(t, a, "demo")
+	locks := filepath.Join(dir, ".locks", "demo")
+	require.NoError(t, dirlock.New(locks, nil).TryLock())
+	old := time.Now().Add(-time.Minute)
+	require.NoError(t, os.Chtimes(filepath.Join(locks, dirlock.LockDirectoryName), old, old))
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i, st := range []*skill.Store{a, b} {
+		wg.Go(func() {
+			_, errs[i] = st.WriteFile(ctx, "demo", "references/r.md", []byte{byte('a' + i)}, skill.Precondition{IfMatch: created.Hash})
+		})
+	}
+	wg.Wait()
+	var conflict *skill.ConflictError
+	if errs[0] == nil {
+		require.ErrorAs(t, errs[1], &conflict)
+	} else {
+		require.ErrorAs(t, errs[0], &conflict)
+		require.NoError(t, errs[1])
+	}
+}
+
+// A write stays in the skill folder that it opened. When the folder, or the
+// skills directory, becomes a link during the write, the link target does not
+// change.
+func TestWriteStaysInTheFolderThatItOpened(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows refuses to move a folder that a process holds open")
+	}
+	t.Parallel()
+	for name, swapped := range map[string]func(s *skill.Store) string{
+		"skill folder":     func(s *skill.Store) string { return s.Dir("demo") },
+		"skills directory": func(s *skill.Store) string { return skill.Root(s) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := newStore(t)
+			created := create(t, s, "demo")
+			outside := t.TempDir()
+			require.NoError(t, os.Mkdir(filepath.Join(outside, "demo"), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(outside, "demo", "SKILL.md"), []byte("original"), 0o644))
+			path := swapped(s)
+			target := outside
+			if path == s.Dir("demo") {
+				target = filepath.Join(outside, "demo")
+			}
+			skill.SetBeforeHeldCheck(s, func() {
+				require.NoError(t, os.Rename(path, path+".moved"))
+				require.NoError(t, os.Symlink(target, path))
+			})
+
+			_, _ = s.WriteFile(context.Background(), "demo", "SKILL.md", []byte(good), skill.Precondition{IfMatch: created.Hash})
+			data, err := os.ReadFile(filepath.Join(outside, "demo", "SKILL.md"))
+			require.NoError(t, err)
+			require.Equal(t, "original", string(data), "the write went through the link")
+			entries, err := os.ReadDir(filepath.Join(outside, "demo"))
+			require.NoError(t, err)
+			require.Len(t, entries, 1, "a file was made in the link target")
+			_, err = os.Stat(path + ".moved")
+			require.NoError(t, err, "the folder moved during the write")
+		})
+	}
+}
+
+// A read right after a write gets the written version, also when the cache
+// holds the version before the write, as the cache of another process on the
+// same directory does. The write returns the hash of the files on disk. The
+// test moves the clock of the cache, so it is not parallel.
+func TestReadAfterAWriteSeesIt(t *testing.T) {
+	skill.SettleClock(t)
+	ctx := context.Background()
+	s := newStore(t)
+	other := skill.NewStore(skill.Root(s))
+	cur := create(t, s, "demo")
+	for i := range 3 {
+		_, err := other.Read("demo")
+		require.NoError(t, err)
+		// The same size, so only the time stamps and the content tell the versions.
+		content := strings.Replace(good, "Body text.", fmt.Sprintf("Body tex%d.", i), 1)
+		written, err := s.WriteFile(ctx, "demo", "SKILL.md", []byte(content), skill.Precondition{IfMatch: cur.Hash})
+		require.NoError(t, err)
+		data, err := os.ReadFile(filepath.Join(s.Dir("demo"), "SKILL.md"))
+		require.NoError(t, err)
+		sum := sha256.Sum256(data)
+		require.Equal(t, skill.HashFiles([]skill.File{{Path: "SKILL.md", SHA256: hex.EncodeToString(sum[:])}}), written.Hash)
+		for _, st := range []*skill.Store{s, other} {
+			got, err := st.Read("demo")
+			require.NoError(t, err)
+			require.Equal(t, written.Hash, got.Hash)
+			text, err := got.Text("SKILL.md")
+			require.NoError(t, err)
+			require.Equal(t, content, string(text))
+		}
+		cur = written
+	}
+}
+
 // A reader that meets a skill during a multi-file save sees a complete version.
 func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 	t.Parallel()
