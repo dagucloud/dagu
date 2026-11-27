@@ -11,7 +11,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/dagtest"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -527,6 +530,32 @@ func TestTestUpdateFileChanged(t *testing.T) {
 	assert.Contains(t, string(data), stale)
 	assert.Contains(t, string(data), "# edited")
 	assertFileContent(t, filepath.Join(dags, "b.test.yaml"), "cases:\n  - name: c\n    expect:\n      status: succeeded\n      steps:\n        note: succeeded\n")
+}
+
+// Notifications stay as written when one of several recipients equals a
+// short part of a host value.
+func TestUpdatedExpectShortRecipient(t *testing.T) {
+	t.Parallel()
+
+	tc := &testCase{
+		dag:           &ir.DAG{},
+		notifications: []agent.Notification{{Kind: agent.NotificationMailOnSuccess, To: []string{"a@b", "ops@example.com"}}},
+		host:          hostValuesOf(map[string][]string{"HOST_MAIL": {`{"to":"a@b"}`}}),
+	}
+	written := dagtest.Expect{Notifications: []dagtest.Notification{}}
+	merged, kept := tc.updatedExpect(written, &ir.DAGRunStatus{Status: ir.Succeeded})
+	assert.Equal(t, written.Notifications, merged.Notifications)
+	assert.Equal(t, []keptValue{{field: failureNotifications, vars: []string{"HOST_MAIL"}}}, kept)
+}
+
+// A reported object with a long and a short part of a host value masks
+// both, whichever is masked first.
+func TestHostValuesMask(t *testing.T) {
+	t.Parallel()
+
+	host := hostValuesOf(map[string][]string{"HOST_AUTH": {`{"pin":736491,"code":482}`}})
+	masked := host.mask(masking.NewValueMasker(host.values), map[string]any{"pin": int64(736491), "code": int64(482), "region": "us"})
+	assert.JSONEq(t, `{"pin":"*******","code":"*******","region":"us"}`, string(masked))
 }
 
 // An output assertion takes the published value as YAML writes it exactly,

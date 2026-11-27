@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/dagtest"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -107,11 +106,13 @@ func (c *testCase) updatedExpect(written dagtest.Expect, status *ir.DAGRunStatus
 		merged.Steps = append(merged.Steps, f)
 	}
 	if written.Notifications != nil && !pairNotifications(written.Notifications, c.notifications) {
-		var recipients []string
+		var recipients []any
 		for _, n := range facts.Notifications {
-			recipients = append(recipients, n.To...)
+			for _, to := range n.To {
+				recipients = append(recipients, to)
+			}
 		}
-		if vars := c.host.held(strings.Join(recipients, "\n")); len(vars) > 0 {
+		if vars := c.host.heldIn(recipients); len(vars) > 0 {
 			kept = append(kept, keptValue{field: failureNotifications, vars: vars})
 		} else {
 			merged.Notifications = facts.Notifications

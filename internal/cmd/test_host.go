@@ -57,6 +57,12 @@ func newHostValues(ctx context.Context, base config.BaseEnv) hostValues {
 			read[name] = append(read[name], value)
 		}
 	}
+	return hostValuesOf(read)
+}
+
+// hostValuesOf returns the host values of the host variables in read, by
+// name, each with the values the run took from it.
+func hostValuesOf(read map[string][]string) hostValues {
 	var h hostValues
 	for _, name := range slices.Sorted(maps.Keys(read)) {
 		if config.ForwardedByDefault(name) {
@@ -173,14 +179,23 @@ func (h *hostValues) heldIn(v any) []string {
 	return slices.Compact(names)
 }
 
-// mask returns v as compact JSON with masker's values masked, and with each
-// string or number in it that equals a short host part masked too.
+// mask returns v as compact JSON with its host members masked, and then
+// masker's values masked. The members go first, since masking a value in
+// JSON text can turn the text into one string.
 func (h *hostValues) mask(masker *masking.Masker, v any) json.RawMessage {
-	masked := maskedJSON(masker, v)
+	return maskedJSON(masker, h.maskMembers(v))
+}
+
+// maskMembers returns v as JSON with each string in it that equals a short
+// host part, and each number that equals a host value or a short part,
+// masked, or v itself when there is none.
+func (h *hostValues) maskMembers(v any) any {
+	data, err := jsonutil.MarshalUnescaped(v)
 	var decoded any
-	if len(h.short) == 0 || decodeJSON(string(masked), &decoded) != nil {
-		return masked
+	if len(h.values)+len(h.short) == 0 || err != nil || decodeJSON(string(data), &decoded) != nil {
+		return v
 	}
+	isHost := func(text string) bool { return slices.Contains(h.short, text) || slices.Contains(h.values, text) }
 	changed := false
 	var walk func(v any) any
 	walk = func(v any) any {
@@ -191,7 +206,7 @@ func (h *hostValues) mask(masker *masking.Masker, v any) json.RawMessage {
 				return masking.DefaultMaskString
 			}
 		case json.Number:
-			if slices.ContainsFunc(numberTexts(x), func(t string) bool { return slices.Contains(h.short, t) }) {
+			if slices.ContainsFunc(numberTexts(x), isHost) {
 				changed = true
 				return masking.DefaultMaskString
 			}
@@ -208,9 +223,9 @@ func (h *hostValues) mask(masker *masking.Masker, v any) json.RawMessage {
 	}
 	decoded = walk(decoded)
 	if !changed {
-		return masked
+		return v
 	}
-	data, _ := jsonutil.MarshalUnescaped(decoded)
+	data, _ = jsonutil.MarshalUnescaped(decoded)
 	return json.RawMessage(data)
 }
 
