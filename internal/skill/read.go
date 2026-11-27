@@ -62,7 +62,7 @@ const maxCacheEntries = 128
 // maxCacheBytes bounds the memory that the cache keeps for all folders: the
 // walk signatures, the front matter and the lists of files and issues. The
 // cache keeps no file content.
-const maxCacheBytes = 64 << 20
+const maxCacheBytes = 16 << 20
 
 // cacheItemOverhead estimates the memory of one file or issue of a cached read
 // beyond its strings.

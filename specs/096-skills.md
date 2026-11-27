@@ -204,7 +204,7 @@ each entry: the path, the kind, the mode, the size, the modification time and, o
 the status change time. A tool can set the modification time back, but not the status change time.
 The cache gives a result only when every key matches. It neither gives nor keeps a result when the newest change is younger than 2 seconds at the
 start of the walk.
-It keeps at most 128 folders and at most 64 MiB. It keeps no file content: a read of a file reads
+It keeps at most 128 folders and at most 16 MiB. It keeps no file content: a read of a file reads
 the disk and checks the SHA-256 that the read of the skill recorded. The cache is a function of the
 disk. It never decides alone.
 
@@ -323,7 +323,7 @@ error is a skill with the state ERROR.
 `GET /skills` returns `skills`, the `SkillSummary` of the first 1000 folders in name order, and
 `truncated`, which is true when the skills directory holds more folders. The server reads the
 folders one at a time, so a listing holds the text of two files of one skill, at most 8 MiB, beyond
-the read cache, which keeps at most 64 MiB.
+the read cache, which keeps at most 16 MiB.
 
 `SkillSummary` has `name`, `description`, `hash`, `valid`, `errors`, `warnings`, `fileCount`,
 `totalBytes`, `bodyLines` and `bodyTokens`. A description above 1024 characters is cut to 1024
