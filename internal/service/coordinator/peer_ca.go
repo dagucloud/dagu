@@ -4,6 +4,7 @@
 package coordinator
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -127,27 +128,31 @@ func WritePeerInit(dir string) ([]string, error) {
 	}
 	contents := [][]byte{certPEM, keyPEM, []byte(token + "\n")}
 	for i, path := range paths {
-		err := fileutil.WriteFileAtomicExclusive(path, contents[i], peerFileMode)
+		err := writePeerFile(path, contents[i], peerFileMode)
 		if err == nil {
 			continue
 		}
-		// Remove the files written here, so the directory holds no partial
-		// set from this run. A write can fail after it installs its file, so
-		// that file goes too, unless another writer created it first.
-		existing := errors.Is(err, fs.ErrExist)
-		written := paths[:i]
-		if !existing {
-			written = paths[:i+1]
+		// A write can fail before or after it installs its file, so remove
+		// every file that still holds what this run wrote. The contents are
+		// random, so a file another writer created stays.
+		for j := range i + 1 {
+			removeOwnPeerFile(paths[j], contents[j])
 		}
-		for _, file := range written {
-			_ = fileutil.Remove(file)
-		}
-		if existing {
+		if errors.Is(err, fs.ErrExist) {
 			return nil, existingPeerFile(path)
 		}
 		return nil, err
 	}
 	return paths, nil
+}
+
+// writePeerFile creates a peer init file. Tests replace it to fail a write.
+var writePeerFile = fileutil.WriteFileAtomicExclusive
+
+func removeOwnPeerFile(path string, content []byte) {
+	if data, err := fileutil.ReadFile(path); err == nil && bytes.Equal(data, content) {
+		_ = fileutil.Remove(path)
+	}
 }
 
 func existingPeerFile(path string) error {

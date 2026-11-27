@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"io/fs"
 	"math/big"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -146,6 +148,65 @@ func TestWritePeerInitExisting(t *testing.T) {
 			data, err := os.ReadFile(existing)
 			require.NoError(t, err)
 			assert.Equal(t, "keep", string(data))
+		})
+	}
+}
+
+// A failed write leaves none of the files this run wrote, whether it failed
+// before or after installing its file, and keeps a file another writer
+// created in the meantime.
+func TestWritePeerInitFailedWrite(t *testing.T) {
+	errWrite := errors.New("write failed")
+	tests := []struct {
+		name string
+		// write replaces the write of ca.key.
+		write     func(path string, data []byte, perm os.FileMode) error
+		wantFiles map[string]string
+	}{
+		{
+			name: "AfterInstall",
+			write: func(path string, data []byte, perm os.FileMode) error {
+				if err := fileutil.WriteFileAtomicExclusive(path, data, perm); err != nil {
+					return err
+				}
+				return errWrite
+			},
+			wantFiles: map[string]string{},
+		},
+		{
+			name: "BeforeInstallWhileAnotherWriterCreates",
+			write: func(path string, _ []byte, _ os.FileMode) error {
+				if err := os.WriteFile(path, []byte("other"), 0o600); err != nil {
+					return err
+				}
+				return errWrite
+			},
+			wantFiles: map[string]string{"ca.key": "other"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writePeerFile = func(path string, data []byte, perm os.FileMode) error {
+				if filepath.Base(path) == "ca.key" {
+					return tt.write(path, data, perm)
+				}
+				return fileutil.WriteFileAtomicExclusive(path, data, perm)
+			}
+			t.Cleanup(func() { writePeerFile = fileutil.WriteFileAtomicExclusive })
+
+			_, err := WritePeerInit(dir)
+			require.ErrorIs(t, err, errWrite)
+
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			files := make(map[string]string, len(entries))
+			for _, entry := range entries {
+				data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+				require.NoError(t, err)
+				files[entry.Name()] = string(data)
+			}
+			assert.Equal(t, tt.wantFiles, files)
 		})
 	}
 }
