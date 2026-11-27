@@ -170,9 +170,10 @@ steps:
 
 // A command step with nodes in a run on a worker runs once on each of an SSH
 // node and a worker node, and lists them in name order (RFC 013 acceptance
-// item 2). The worker node's child runs on that worker. The command's output
-// depends on the shell that runs it, so the test reads how often each node
-// was reached and how each child run ended instead.
+// item 2). The worker node's child runs that step alone, on that worker. The
+// shell decides how echo splits its arguments, so the test reads how often
+// each node was reached, how each child run ended, and that the worker
+// child's log names its node.
 func TestWorkerNodes_CommandStepOnSSHAndWorkerNodes(t *testing.T) {
 	t.Parallel()
 
@@ -183,7 +184,9 @@ steps:
   - id: check
     run: echo checked ${node.name}
     nodes: role=web
-`)
+  - id: sibling
+    run: echo sibling
+`, withLogPersistence())
 	startWorkerNodes(t, f, map[string]string{"role": "web"}, "gw-1")
 	servers, _ := startFleet(t, f, fleetNode{name: "web01", label: "role=web"})
 
@@ -207,5 +210,8 @@ steps:
 	require.Len(t, onWorker.Nodes, 1, "the child runs the step alone")
 	require.Equal(t, "check", onWorker.Nodes[0].Step.Name)
 	require.Equal(t, ir.NodeSucceeded, onWorker.Nodes[0].Status)
+	require.Contains(t, getLogContent(t, onWorker.Nodes[0].Stdout), "gw-1", "${node.name} resolves on the worker")
+	require.Equal(t, "sibling", status.Nodes[1].Step.Name)
+	require.Equal(t, ir.NodeSucceeded, status.Nodes[1].Status)
 	require.Equal(t, "worker-1", childStatus(t, f, root, children[1].DAGRunID).WorkerID, "an SSH node's child runs where its parent runs")
 }
