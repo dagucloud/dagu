@@ -735,6 +735,21 @@ func TestRestoreRefusesADeepTree(t *testing.T) {
 	}
 }
 
+// The depth of a walk of a git folder counts from the work directory, so a git
+// folder below the work directory cannot hold maxWalkDepth more folders. It
+// needs no root.
+func TestHandoffRefusesADeepGitFolder(t *testing.T) {
+	t.Parallel()
+	iso := selfIsolation(t, t.TempDir())
+	// repo and .git are 2 folders deep, so the last d is past maxWalkDepth.
+	require.NoError(t, os.MkdirAll(filepath.Join(iso.workDir, "repo", ".git", strings.Repeat("d/", maxWalkDepth-1)), 0o750))
+
+	err := iso.handoff()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "deeper than")
+	_ = iso.unmarkUnlessAborted(iso.restore(false))
+}
+
 func permOf(t *testing.T, path string) fs.FileMode {
 	t.Helper()
 	info, err := os.Lstat(path)

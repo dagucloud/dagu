@@ -31,7 +31,9 @@ type fsEntry struct {
 	parent int
 	// fd is a descriptor of the entry with O_PATH and O_NOFOLLOW.
 	fd int
-	st unix.Stat_t
+	// depth counts the folders between the root of the walk and the entry.
+	depth int
+	st    unix.Stat_t
 }
 
 func (e *fsEntry) isDir() bool     { return e.st.Mode&unix.S_IFMT == unix.S_IFDIR }
@@ -77,16 +79,14 @@ const maxWalkDepth = 256
 // errTooDeep is the error of a folder deeper than maxWalkDepth.
 var errTooDeep = fmt.Errorf("the tree is deeper than %d folders", maxWalkDepth)
 
+// walkEntry walks the tree of an entry of a walk. The depth of each entry
+// counts from the root of that walk.
 func walkEntry(entry *fsEntry, visit visitFunc) error {
-	return walkDepth(entry, 0, visit)
-}
-
-func walkDepth(entry *fsEntry, depth int, visit visitFunc) error {
 	skip, err := visit(entry)
 	if err != nil || skip || !entry.isDir() {
 		return err
 	}
-	if depth >= maxWalkDepth {
+	if entry.depth >= maxWalkDepth {
 		return &fs.PathError{Op: "walk", Path: entry.path, Err: errTooDeep}
 	}
 	names, err := readNames(entry.fd, entry.path)
@@ -101,7 +101,8 @@ func walkDepth(entry *fsEntry, depth int, visit visitFunc) error {
 		if err != nil {
 			return err
 		}
-		err = walkDepth(child, depth+1, visit)
+		child.depth = entry.depth + 1
+		err = walkEntry(child, visit)
 		_ = unix.Close(child.fd)
 		if err != nil {
 			return err
