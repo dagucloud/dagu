@@ -20,7 +20,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/connection"
+	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/connection/connect"
+	"github.com/dagucloud/dagu/v2/internal/connection/connect/google"
+	"github.com/dagucloud/dagu/v2/internal/connection/toolcatalog"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -313,9 +317,30 @@ func newConnectEngine(
 	if err != nil {
 		return nil, err
 	}
+	// The server runs long, so its broker caches no token: a reconnect or
+	// a status change reaches the next request.
+	tokens, err := broker.New(broker.Config{Store: connections, Locks: server.ConnectionLocks()})
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := toolcatalog.New(toolcatalog.Config{
+		Store:  connections,
+		Locks:  server.ConnectionCatalogLocks(),
+		Lister: toolcatalog.NewMCPLister(tokens, nil),
+	})
+	if err != nil {
+		return nil, err
+	}
+	googleProvider, err := google.New(google.Config{Catalog: catalog})
+	if err != nil {
+		return nil, err
+	}
 	return connect.New(connect.Config{
-		Store:           connections,
-		Locks:           server.ConnectionLocks(),
+		Store: connections,
+		Locks: server.ConnectionLocks(),
+		Providers: map[connection.Provider]connect.Provider{
+			connection.ProviderGoogle: googleProvider,
+		},
 		Encryptor:       encryptor,
 		AnyUserConfirms: cfg.Server.Auth.Mode == config.AuthModeNone,
 	})

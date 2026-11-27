@@ -4,10 +4,12 @@
 package toolcatalog
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -39,6 +41,9 @@ const (
 	// maxRedirects is the number of same-origin redirects a request
 	// follows, as net/http does by default.
 	maxRedirects = 10
+	// maxRejectedBody bounds the part of a refusal's body that a
+	// RejectedError keeps.
+	maxRejectedBody = 4 << 10
 )
 
 // RejectedError reports that the MCP server refused the connection's
@@ -58,6 +63,10 @@ type RejectedError struct {
 	// Err is the failure the MCP client reported, which carries the
 	// provider's message, with the token redacted.
 	Err error
+	// Body is the start of the response body, at most 4 KiB, with the
+	// token redacted. It holds the provider's error when that is no
+	// JSON-RPC error, such as a Google API's JSON error.
+	Body string
 }
 
 func (e *RejectedError) Error() string {
@@ -247,13 +256,21 @@ func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
+// reject remembers the refusal resp, with the start of its body, which it
+// leaves for the SDK to read whole.
 func (t *bearerTransport) reject(resp *http.Response) {
+	// A read error recurs when the SDK reads the rest of the body.
+	head, _ := io.ReadAll(io.LimitReader(resp.Body, maxRejectedBody))
+	resp.Body = readCloser{Reader: io.MultiReader(bytes.NewReader(head), resp.Body), Closer: resp.Body}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.rejected != nil {
 		return
 	}
-	t.rejected = &RejectedError{Status: resp.StatusCode}
+	t.rejected = &RejectedError{
+		Status: resp.StatusCode,
+		Body:   strings.ReplaceAll(string(head), t.token, redactedText),
+	}
 	for _, m := range challengeParam.FindAllStringSubmatch(resp.Header.Get("WWW-Authenticate"), -1) {
 		value := m[2] + m[3]
 		switch strings.ToLower(m[1]) {
@@ -265,6 +282,11 @@ func (t *bearerTransport) reject(resp *http.Response) {
 			t.rejected.Description = strings.ReplaceAll(value, t.token, redactedText)
 		}
 	}
+}
+
+type readCloser struct {
+	io.Reader
+	io.Closer
 }
 
 // explain returns the remembered refusal, caused by err, in place of err.
