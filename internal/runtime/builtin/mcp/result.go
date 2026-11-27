@@ -25,6 +25,11 @@ const (
 	kindAuth      = "auth"
 	kindTimeout   = "timeout"
 	kindCanceled  = "canceled"
+	// kindRateLimited is HTTP 429.
+	kindRateLimited = "rate_limited"
+	// kindConfirmationRequired is a confirmation request from the server
+	// of a call through a connection, which mcp.call declines.
+	kindConfirmationRequired = "confirmation_required"
 )
 
 type output struct {
@@ -42,15 +47,39 @@ type errorOutput struct {
 type errorBody struct {
 	Kind    string `json:"kind"`
 	Message string `json:"message"`
+	// Connection names the connection of an auth or confirmation_required
+	// error.
+	Connection string `json:"connection,omitempty"`
+	// Detail is reconnect_required or insufficient_scope for an auth
+	// error, and Scope the missing scope of insufficient_scope.
+	Detail string `json:"detail,omitempty"`
+	Scope  string `json:"scope,omitempty"`
+	// RetryAfter is the Retry-After of a rate_limited error, as sent.
+	RetryAfter string `json:"retry_after,omitempty"`
 }
 
 type callError struct {
-	kind    string
-	message string
+	kind       string
+	message    string
+	connection string
+	detail     string
+	scope      string
+	retryAfter string
 }
 
 func (e *callError) Error() string {
 	return "mcp.call: " + e.kind + " error: " + e.message
+}
+
+func (e *callError) body() errorBody {
+	return errorBody{
+		Kind:       e.kind,
+		Message:    e.message,
+		Connection: e.connection,
+		Detail:     e.detail,
+		Scope:      e.scope,
+		RetryAfter: e.retryAfter,
+	}
 }
 
 // newOutput builds the step output. A non-nil files store receives the data
@@ -156,10 +185,21 @@ func newRedactor(headers map[string]string, rawURL string) redactor {
 			}
 		}
 	}
-	slices.SortFunc(r, func(a, b string) int {
+	return r.with()
+}
+
+// with returns r with values added, each a secret masked at any length.
+func (r redactor) with(values ...string) redactor {
+	out := slices.Clone(r)
+	for _, v := range values {
+		if v != "" && !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	slices.SortFunc(out, func(a, b string) int {
 		return cmp.Or(cmp.Compare(len(b), len(a)), cmp.Compare(a, b))
 	})
-	return r
+	return out
 }
 
 func (r redactor) apply(s string) string {

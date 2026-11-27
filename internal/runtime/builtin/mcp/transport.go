@@ -4,16 +4,23 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 )
 
+// maxRateLimitBody bounds the part of an HTTP 429 body read for the
+// provider's message.
+const maxRateLimitBody = 4 << 10
+
 // observingTransport injects static headers and remembers the first
-// authentication rejection, unavailable status, or network failure, which the
-// SDK does not expose as typed errors.
+// authentication rejection, rate limit, unavailable status, or network
+// failure, which the SDK does not expose as typed errors.
 type observingTransport struct {
 	base    http.RoundTripper
 	headers map[string]string
@@ -22,6 +29,7 @@ type observingTransport struct {
 	authz   int
 	redir   int
 	unavail int
+	limited *rateLimit
 	netFail error
 }
 
@@ -41,6 +49,10 @@ func (t *observingTransport) RoundTrip(req *http.Request) (*http.Response, error
 	} else {
 		resp.Body = &cancelBody{ReadCloser: resp.Body, cancel: cancel, obs: t}
 	}
+	var limit *rateLimit
+	if err == nil && resp.StatusCode == http.StatusTooManyRequests {
+		limit = newRateLimit(resp)
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	switch {
@@ -51,6 +63,8 @@ func (t *observingTransport) RoundTrip(req *http.Request) (*http.Response, error
 	case err == nil && t.authz == 0 &&
 		(resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden):
 		t.authz = resp.StatusCode
+	case limit != nil && t.limited == nil:
+		t.limited = limit
 	case err == nil && t.unavail == 0 && isUnavailableStatus(resp.StatusCode):
 		t.unavail = resp.StatusCode
 	}
@@ -58,14 +72,66 @@ func (t *observingTransport) RoundTrip(req *http.Request) (*http.Response, error
 }
 
 // isUnavailableStatus reports the statuses the SDK treats as transient server
-// failures.
+// failures, apart from rate limiting.
 func isUnavailableStatus(code int) bool {
 	switch code {
 	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable,
-		http.StatusGatewayTimeout, http.StatusTooManyRequests:
+		http.StatusGatewayTimeout:
 		return true
 	}
 	return false
+}
+
+// rateLimit is an HTTP 429 answer: the provider's message and its
+// Retry-After, as sent.
+type rateLimit struct {
+	message    string
+	retryAfter string
+}
+
+// newRateLimit reads the start of resp's body for the provider's message,
+// and leaves the whole body for the SDK to read.
+func newRateLimit(resp *http.Response) *rateLimit {
+	// A read error recurs when the SDK reads the rest of the body.
+	head, _ := io.ReadAll(io.LimitReader(resp.Body, maxRateLimitBody))
+	resp.Body = readCloser{Reader: io.MultiReader(bytes.NewReader(head), resp.Body), Closer: resp.Body}
+	return &rateLimit{message: providerMessage(head), retryAfter: resp.Header.Get("Retry-After")}
+}
+
+// providerMessage returns the message of a JSON error body, as JSON-RPC and
+// Google APIs send one, or the body as text.
+func providerMessage(body []byte) string {
+	var payload struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &payload) == nil && payload.Error.Message != "" {
+		return payload.Error.Message
+	}
+	return strings.TrimSpace(string(body))
+}
+
+func (l *rateLimit) callError(redact redactor) *callError {
+	msg := "server responded with HTTP 429 " + http.StatusText(http.StatusTooManyRequests)
+	if l.message != "" {
+		msg += ": " + redact.apply(l.message)
+	}
+	if l.retryAfter != "" {
+		msg += "; retry after " + l.retryAfter
+	}
+	return &callError{kind: kindRateLimited, message: msg, retryAfter: l.retryAfter}
+}
+
+type readCloser struct {
+	io.Reader
+	io.Closer
+}
+
+func (t *observingTransport) rateLimit() *rateLimit {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.limited
 }
 
 func (t *observingTransport) authStatus() int {

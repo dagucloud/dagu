@@ -81,11 +81,11 @@ func TestForbiddenIsAuth(t *testing.T) {
 	assert.Contains(t, err.Error(), "403")
 }
 
-// An overloaded or unavailable server is a transport failure, not a protocol
-// mismatch, so it can be retried like a lost connection.
+// An unavailable server is a transport failure, not a protocol mismatch, so
+// it can be retried like a lost connection.
 func TestUnavailableIsTransport(t *testing.T) {
 	t.Parallel()
-	for name, code := range map[string]int{"503": http.StatusServiceUnavailable, "429": http.StatusTooManyRequests} {
+	for name, code := range map[string]int{"503": http.StatusServiceUnavailable, "502": http.StatusBadGateway} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -99,6 +99,27 @@ func TestUnavailableIsTransport(t *testing.T) {
 			assert.Contains(t, err.Error(), name)
 		})
 	}
+}
+
+// A rate limited call fails with the provider's message and Retry-After, so
+// a user who hits a quota sees a quota error.
+func TestRateLimited(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"code":429,"message":"Quota exceeded for quota metric 'Queries'"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	out, err := run(t.Context(), t, map[string]any{"url": srv.URL, "tool": "echo"})
+	require.Error(t, err)
+	assert.Equal(t, kindRateLimited, errKind(t, err))
+	assert.Equal(t, map[string]any{
+		"kind":        kindRateLimited,
+		"message":     "server responded with HTTP 429 Too Many Requests: Quota exceeded for quota metric 'Queries'; retry after 30",
+		"retry_after": "30",
+	}, decode(t, out)["error"])
 }
 
 func TestNoImplicitRetry(t *testing.T) {
