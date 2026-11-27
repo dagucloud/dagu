@@ -335,8 +335,9 @@ A coordinator logs one line at start for what it serves:
     coordinator runs for a time with `peer.ca_cert_file` or with own
     certificates.
 - `peer.ca_cert_file` with `peer.ca_key_file` supplies the CA instead. The
-  certificate must be a CA certificate, the key must match it, and the
-  coordinator generates nothing.
+  certificate must be a CA certificate whose key usage, when present,
+  allows certificate signing. The key must match it, and the coordinator
+  generates nothing.
 - A coordinator with own certificates has no peer CA.
 - A coordinator that cannot create or read its generated CA, such as one
   whose data directory it cannot write, logs a warning and starts without a
@@ -988,7 +989,7 @@ handshake error that caused the fallback.
 | Case | Result |
 | --- | --- |
 | A configuration conflict | The process exits with code 1 at start, with the message of [Configuration Conflicts](#configuration-conflicts) |
-| `peer.ca_cert_file` that is not a CA certificate, or a CA key that does not match it | The coordinator exits with code 1 at start, naming the files |
+| `peer.ca_cert_file` that is not a CA certificate, whose key usage does not allow certificate signing, or a CA key that does not match it | The coordinator exits with code 1 at start, naming the files |
 | Own certificates whose key does not match | The coordinator exits with code 1 at start, naming both files |
 | `dagu peer init` into a directory with one of its files | Exits with code 1, writing nothing |
 | A server certificate that does not verify, or lacks `coordinator.dagu.invalid` | The call fails. The client does not fall back. The only exception is a certificate on an [unlisted address](#unlisted-addresses) that does not chain to the published CA certificate. One that chains to it but lacks `coordinator.dagu.invalid` fails |
