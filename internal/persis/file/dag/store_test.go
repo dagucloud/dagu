@@ -2620,6 +2620,101 @@ steps:
 	assert.False(t, fileExists(indexPath), "index should be invalidated after Rename")
 }
 
+// catalogItem returns the item of the DAG id in a catalog of store.
+func catalogItem(t *testing.T, store *Store, id string) persis.DAGListItem {
+	t.Helper()
+	result, err := store.Catalog(context.Background())
+	require.NoError(t, err)
+	for _, item := range result.Items {
+		if item.ID == id {
+			return item
+		}
+	}
+	require.Failf(t, "DAG not listed", "%s", id)
+	return persis.DAGListItem{}
+}
+
+// rewriteKeepingStamp replaces a DAG file with content of the same size and
+// gives it back its modification time, as a file system with coarse
+// timestamps can record a second write.
+func rewriteKeepingStamp(t *testing.T, path, content string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Len(t, content, int(info.Size()), "the rewrite must keep the size")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	require.NoError(t, os.Chtimes(path, info.ModTime(), info.ModTime()))
+}
+
+// writeModifiedAt writes a file last modified at modTime.
+func writeModifiedAt(t *testing.T, path, content string, modTime time.Time) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	require.NoError(t, os.Chtimes(path, modTime, modTime))
+}
+
+const (
+	labeledV1 = "labels:\n  - v=1\nsteps:\n  - run: echo ok\n"
+	labeledV2 = "labels:\n  - v=2\nsteps:\n  - run: echo ok\n"
+)
+
+// A write through the store removes the index. The listing after it loads
+// only the files that changed, so a file rewritten without a change to its
+// size or modification time keeps its listing.
+func TestCatalogAfterAWriteLoadsOnlyChangedFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	ctx := context.Background()
+	path := filepath.Join(tmpDir, "old.yaml")
+	writeModifiedAt(t, path, labeledV1, time.Now().Add(-time.Hour))
+	require.Equal(t, []string{"v=1"}, catalogItem(t, store, "old").Labels.Strings())
+
+	rewriteKeepingStamp(t, path, labeledV2)
+	require.NoError(t, store.Create(ctx, "new", []byte("steps:\n  - run: echo ok\n")))
+	require.NoFileExists(t, store.indexPath)
+	assert.Equal(t, []string{"v=1"}, catalogItem(t, store, "old").Labels.Strings())
+	assert.Equal(t, "new", catalogItem(t, store, "new").Name)
+
+	require.NoError(t, store.SetSuspended(ctx, "old", true))
+	require.NoFileExists(t, store.indexPath)
+	item := catalogItem(t, store, "old")
+	assert.True(t, item.Suspended)
+	assert.Equal(t, []string{"v=1"}, item.Labels.Strings())
+}
+
+// Where timestamps are coarse, a file modified close to a listing can be
+// written again without a change to its size or modification time, so the
+// listing after a write loads it again.
+func TestCatalogAfterAWriteReloadsARecentFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	path := filepath.Join(tmpDir, "recent.yaml")
+	// Modified after the scan begins, as by a write during the listing.
+	writeModifiedAt(t, path, labeledV1, time.Now().Add(time.Minute))
+	require.Equal(t, []string{"v=1"}, catalogItem(t, store, "recent").Labels.Strings())
+
+	rewriteKeepingStamp(t, path, labeledV2)
+	require.NoError(t, store.Create(context.Background(), "new", []byte("steps:\n  - run: echo ok\n")))
+	assert.Equal(t, []string{"v=2"}, catalogItem(t, store, "recent").Labels.Strings())
+}
+
+// The base config applies to every DAG, so the listing after it changes loads
+// every DAG file again.
+func TestCatalogReloadsEveryDAGWhenBaseConfigChanges(t *testing.T) {
+	rootDir := t.TempDir()
+	dagDir := filepath.Join(rootDir, "dags")
+	require.NoError(t, os.MkdirAll(dagDir, 0750))
+	past := time.Now().Add(-time.Hour)
+	baseConfig := filepath.Join(rootDir, "base.yaml")
+	writeModifiedAt(t, baseConfig, "queue: q1\n", past)
+	store := NewStore(dagDir, WithBaseConfig(baseConfig), WithSkipExamples(true))
+	writeModifiedAt(t, filepath.Join(dagDir, "old.yaml"), "steps:\n  - run: echo ok\n", past)
+	require.Equal(t, "q1", catalogItem(t, store, "old").Queue)
+
+	require.NoError(t, os.WriteFile(baseConfig, []byte("queue: q2\n"), 0600))
+	assert.Equal(t, "q2", catalogItem(t, store, "old").Queue)
+}
+
 func TestListUsesIndex(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := newRepository(tmpDir, WithSkipExamples(true))

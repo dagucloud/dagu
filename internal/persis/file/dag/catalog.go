@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
@@ -28,12 +29,13 @@ type catalog struct {
 }
 
 func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*catalog, error) {
+	scannedAt := time.Now()
 	scan, err := Discover(store.baseDir, store.discoveryOptions(store.recursive))
 	if err != nil {
 		return nil, err
 	}
 
-	entries, err := store.loadIndex(ctx, store.withoutBaseConfig(scan.Files))
+	entries, err := store.loadIndex(ctx, store.withoutBaseConfig(scan.Files), scannedAt)
 	if err != nil {
 		return nil, err
 	}
