@@ -204,6 +204,9 @@ message Task {
   // Command step with nodes of the definition that the run runs alone, bound
   // to bound_node. Empty for a run of the whole definition.
   string node_step = 49;
+  // Set by the coordinator when the definition declares connections, so
+  // only a worker that sets PollRequest.connection_tokens claims the task.
+  bool needs_connection_tokens = 50;
 }
 
 enum Operation {

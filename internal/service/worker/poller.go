@@ -175,6 +175,8 @@ func (p *Poller) pollForTask(ctx context.Context, policy backoff.RetryPolicy) (*
 		WorkerId: p.workerID,
 		PollerId: pollerID,
 		Labels:   p.labels,
+		// The remote task handler asks the coordinator for connection tokens.
+		ConnectionTokens: true,
 	}
 
 	// Use coordinator client's Poll method which handles retries and failover

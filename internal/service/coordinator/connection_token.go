@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/connection"
@@ -14,13 +15,19 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-const connectionAccessDenied = "connection access denied"
+const (
+	connectionAccessDenied = "connection access denied"
+	// connectionField is the YAML key of every field that declares a
+	// connection.
+	connectionField = "connection"
+)
 
 // ConnectionTokenClient answers, for a run on a worker, the connections its
 // DAG declares.
@@ -111,6 +118,38 @@ func (h *Handler) ResolveConnectionToken(ctx context.Context, req *coordinatorv1
 	}
 	resp.ExpiresInSeconds = expiresInSeconds(expiresIn)
 	return resp, nil
+}
+
+// declaresConnections reports whether the definition of task, or one of
+// its local DAGs, declares connections. A definition that fails to load
+// declares none here; preparing its attempt reports the failure.
+func declaresConnections(ctx context.Context, task *coordinatorv1.Task) bool {
+	// Every field that declares a connection is named connection, so a
+	// definition without the word declares none and is not loaded.
+	if !strings.Contains(task.Definition, connectionField) && !strings.Contains(task.BaseConfig, connectionField) {
+		return false
+	}
+	loadOpts := []spec.LoadOption{spec.WithName(task.Target)}
+	if task.BaseConfig != "" {
+		loadOpts = append(loadOpts, spec.WithBaseConfigContent([]byte(task.BaseConfig)))
+	}
+	dag, err := spec.LoadYAML(ctx, []byte(task.Definition), loadOpts...)
+	if err != nil {
+		return false
+	}
+	return declaresAny(dag)
+}
+
+func declaresAny(dag *ir.DAG) bool {
+	if len(dag.Connections) > 0 {
+		return true
+	}
+	for _, child := range dag.LocalDAGs {
+		if declaresAny(child) {
+			return true
+		}
+	}
+	return false
 }
 
 // declaredConnection returns the connection named name that dag declares.

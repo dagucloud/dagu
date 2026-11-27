@@ -559,6 +559,7 @@ type Task struct {
 	xxx_hidden_TargetNodes                []string               `protobuf:"bytes,47,rep,name=target_nodes,json=targetNodes,proto3"`
 	xxx_hidden_BoundNode                  string                 `protobuf:"bytes,48,opt,name=bound_node,json=boundNode,proto3"`
 	xxx_hidden_NodeStep                   string                 `protobuf:"bytes,49,opt,name=node_step,json=nodeStep,proto3"`
+	xxx_hidden_NeedsConnectionTokens      bool                   `protobuf:"varint,50,opt,name=needs_connection_tokens,json=needsConnectionTokens,proto3"`
 	XXX_raceDetectHookData                protoimpl.RaceDetectHookData
 	XXX_presence                          [2]uint32
 	unknownFields                         protoimpl.UnknownFields
@@ -929,6 +930,13 @@ func (x *Task) GetNodeStep() string {
 	return ""
 }
 
+func (x *Task) GetNeedsConnectionTokens() bool {
+	if x != nil {
+		return x.xxx_hidden_NeedsConnectionTokens
+	}
+	return false
+}
+
 func (x *Task) SetOperation(v Operation) {
 	x.xxx_hidden_Operation = v
 }
@@ -1079,7 +1087,7 @@ func (x *Task) SetIncludeDownstream(v bool) {
 
 func (x *Task) SetBaseConfigWorkspace(v string) {
 	x.xxx_hidden_BaseConfigWorkspace = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[1]), 37, 48)
+	protoimpl.X.SetPresent(&(x.XXX_presence[1]), 37, 49)
 }
 
 func (x *Task) SetBypassPreconditions(v bool) {
@@ -1120,6 +1128,10 @@ func (x *Task) SetBoundNode(v string) {
 
 func (x *Task) SetNodeStep(v string) {
 	x.xxx_hidden_NodeStep = v
+}
+
+func (x *Task) SetNeedsConnectionTokens(v bool) {
+	x.xxx_hidden_NeedsConnectionTokens = v
 }
 
 func (x *Task) HasPreviousStatus() bool {
@@ -1230,6 +1242,9 @@ type Task_builder struct {
 	// Command step with nodes of the definition that the run runs alone, bound
 	// to bound_node. Empty for a run of the whole definition.
 	NodeStep string
+	// Set by the coordinator when the definition declares connections, so
+	// only a worker that sets PollRequest.connection_tokens claims the task.
+	NeedsConnectionTokens bool
 }
 
 func (b0 Task_builder) Build() *Task {
@@ -1274,7 +1289,7 @@ func (b0 Task_builder) Build() *Task {
 	x.xxx_hidden_TargetWorkerId = b.TargetWorkerId
 	x.xxx_hidden_IncludeDownstream = b.IncludeDownstream
 	if b.BaseConfigWorkspace != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[1]), 37, 48)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[1]), 37, 49)
 		x.xxx_hidden_BaseConfigWorkspace = b.BaseConfigWorkspace
 	}
 	x.xxx_hidden_BypassPreconditions = b.BypassPreconditions
@@ -1287,6 +1302,7 @@ func (b0 Task_builder) Build() *Task {
 	x.xxx_hidden_TargetNodes = b.TargetNodes
 	x.xxx_hidden_BoundNode = b.BoundNode
 	x.xxx_hidden_NodeStep = b.NodeStep
+	x.xxx_hidden_NeedsConnectionTokens = b.NeedsConnectionTokens
 	return m0
 }
 
@@ -7819,7 +7835,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\xb8\x10\n" +
+	"\x10DispatchResponse\"\xf0\x10\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -7882,7 +7898,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\ftarget_nodes\x18/ \x03(\tR\vtargetNodes\x12\x1d\n" +
 	"\n" +
 	"bound_node\x180 \x01(\tR\tboundNode\x12\x1b\n" +
-	"\tnode_step\x181 \x01(\tR\bnodeStep\x1aA\n" +
+	"\tnode_step\x181 \x01(\tR\bnodeStep\x126\n" +
+	"\x17needs_connection_tokens\x182 \x01(\bR\x15needsConnectionTokens\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x18\n" +

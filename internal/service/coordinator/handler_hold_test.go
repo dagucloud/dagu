@@ -18,6 +18,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
+	// The mcp.call steps of the definitions above declare connections.
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/mcp"
 )
 
 // holdWait outlasts any test, so a held task stays claimable until a test
@@ -303,6 +305,38 @@ func TestDispatchHoldDisabledRefuses(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, codes.FailedPrecondition, st.Code())
 	assert.Nil(t, f.runs.attempts["run-refused"], "nothing is created when refused")
+}
+
+// A DAG that declares connections goes only to a worker that asks for
+// connection tokens. A matching worker without them neither takes it nor
+// counts as one that could, so the run waits for an upgraded worker.
+func TestDispatchConnectionTaskWaitsForTokenWorker(t *testing.T) {
+	f := newHoldFixture(t, time.Hour)
+	ctx := t.Context()
+	gpu := map[string]string{"type": "gpu"}
+	connectionTask := func() *coordinatorv1.Task {
+		task := cpuTask("run-connection")
+		task.WorkerSelector = gpu
+		task.Definition = "steps:\n  - name: read\n    action: mcp.call\n    with: {connection: work, tool: search}\n"
+		return task
+	}
+
+	_, err := f.h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: connectionTask()})
+	require.NoError(t, err)
+	assert.Equal(t, ir.Queued, f.status(t, "run-connection").Status)
+	f.pollNone(t, "worker-gpu", gpu)
+
+	polled, err := f.h.Poll(ctx, &coordinatorv1.PollRequest{
+		WorkerId: "worker-new", PollerId: "p1", Labels: gpu, ConnectionTokens: true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, polled.Task)
+	assert.Equal(t, "run-connection", polled.Task.DagRunId)
+
+	refused := newHoldFixture(t, 0)
+	_, err = refused.h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: connectionTask()})
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+	assert.ErrorContains(t, err, "the DAG declares connections, which no matching worker supports")
 }
 
 // A run bound to a worker node fails at once while its worker is offline,

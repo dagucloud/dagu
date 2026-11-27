@@ -52,6 +52,8 @@ type workerInfo struct {
 	taskChan    chan *coordinatorv1.Task
 	labels      map[string]string
 	connectedAt time.Time
+
+	connectionTokens bool
 }
 
 type heartbeatInfo struct {
@@ -60,6 +62,8 @@ type heartbeatInfo struct {
 	stats           *coordinatorv1.WorkerStats
 	lastHeartbeatAt time.Time
 	version         string
+
+	connectionTokens bool
 }
 
 // defaultStaleHeartbeatThreshold is the default duration after which a worker's heartbeat is considered stale.
@@ -98,6 +102,7 @@ const (
 var (
 	errNoAvailableWorkers           = errors.New("no available workers")
 	errNoMatchingWorkers            = errors.New("no workers match the required selector")
+	errNoConnectionWorkers          = fmt.Errorf("%w: the DAG declares connections, which no matching worker supports; upgrade the workers", errNoMatchingWorkers)
 	errRunHeartbeatRepairSkipped    = errors.New("run heartbeat repair skipped")
 	errManualActionCheckpointChange = errors.New("completed manual action checkpoint changed")
 )
@@ -477,6 +482,8 @@ func (h *Handler) Poll(ctx context.Context, req *coordinatorv1.PollRequest) (*co
 			taskChan:    taskChan,
 			labels:      req.Labels,
 			connectedAt: time.Now(),
+
+			connectionTokens: req.ConnectionTokens,
 		}
 		h.mu.Unlock()
 
@@ -509,6 +516,8 @@ func (h *Handler) Poll(ctx context.Context, req *coordinatorv1.PollRequest) (*co
 			Labels:       req.Labels,
 			Owner:        h.owner,
 			ClaimTimeout: h.staleLeaseThreshold,
+
+			ConnectionTokens: req.ConnectionTokens,
 		})
 		if err != nil {
 			return nil, status.Error(codes.Internal, "failed to claim task: "+err.Error())
@@ -554,6 +563,7 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	if err := h.ensureWorkspaceBundle(ctx, req.Task); err != nil {
 		return nil, err
 	}
+	req.Task.NeedsConnectionTokens = declaresConnections(ctx, req.Task)
 
 	logger.Info(ctx, "Handler Dispatch called",
 		tag.RunID(req.Task.DagRunId),
@@ -1214,23 +1224,29 @@ func (h *Handler) ensureWaitingWorkerAvailability(ctx context.Context, selector 
 		return nil
 	}
 	h.mu.Unlock()
-	return h.waitingWorkerUnavailable(ctx, selector, targetWorkerID)
+	return h.waitingWorkerUnavailable(ctx, selector, targetWorkerID, false)
 }
 
 // Waiting pollers describe immediate capacity, not worker presence. Consult
 // fresh heartbeats before diagnosing a selector or target mismatch.
-func (h *Handler) waitingWorkerUnavailable(ctx context.Context, selector map[string]string, targetWorkerID string) error {
-	if len(selector) == 0 && targetWorkerID == "" {
+func (h *Handler) waitingWorkerUnavailable(ctx context.Context, selector map[string]string, targetWorkerID string, needsConnectionTokens bool) error {
+	if len(selector) == 0 && targetWorkerID == "" && !needsConnectionTokens {
 		return errNoAvailableWorkers
 	}
 	healthyWorkers, err := h.listHealthyWorkers(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list workers: %w", err)
 	}
-	if anyWorkerMatches(healthyWorkers, selector, targetWorkerID) {
-		return errNoAvailableWorkers
+	if !anyWorkerMatches(healthyWorkers, selector, targetWorkerID, false) {
+		if len(selector) == 0 && targetWorkerID == "" {
+			return errNoAvailableWorkers
+		}
+		return errNoMatchingWorkers
 	}
-	return errNoMatchingWorkers
+	if !anyWorkerMatches(healthyWorkers, selector, targetWorkerID, needsConnectionTokens) {
+		return errNoConnectionWorkers
+	}
+	return errNoAvailableWorkers
 }
 
 func (h *Handler) dispatchToWaitingPoller(ctx context.Context, task *coordinatorv1.Task) error {
@@ -1242,6 +1258,9 @@ func (h *Handler) dispatchToWaitingPoller(ctx context.Context, task *coordinator
 			continue
 		}
 		if !ir.MatchWorkerSelector(worker.labels, task.WorkerSelector) {
+			continue
+		}
+		if task.NeedsConnectionTokens && !worker.connectionTokens {
 			continue
 		}
 		matched = true
@@ -1258,7 +1277,7 @@ func (h *Handler) dispatchToWaitingPoller(ctx context.Context, task *coordinator
 	if matched {
 		return errNoAvailableWorkers
 	}
-	return h.waitingWorkerUnavailable(ctx, task.WorkerSelector, task.TargetWorkerId)
+	return h.waitingWorkerUnavailable(ctx, task.WorkerSelector, task.TargetWorkerId, task.NeedsConnectionTokens)
 }
 
 func dispatchErrorCode(err error) codes.Code {
@@ -1331,13 +1350,18 @@ func (h *Handler) markPreparedAttemptDispatchFailed(ctx context.Context, task *c
 
 // workerShortfall reports why no healthy worker can take the task now:
 // errNoAvailableWorkers when there is none at all, errNoMatchingWorkers when
-// none carries the task's selector or target, nil when one does.
+// none carries the task's selector or target, errNoConnectionWorkers when
+// none of those asks for the connection tokens the task needs, nil when one
+// does.
 func workerShortfall(healthyWorkers []dispatch.WorkerHeartbeatRecord, task *coordinatorv1.Task) error {
 	if len(healthyWorkers) == 0 {
 		return errNoAvailableWorkers
 	}
-	if !anyWorkerMatches(healthyWorkers, task.WorkerSelector, task.TargetWorkerId) {
+	if !anyWorkerMatches(healthyWorkers, task.WorkerSelector, task.TargetWorkerId, false) {
 		return errNoMatchingWorkers
+	}
+	if !anyWorkerMatches(healthyWorkers, task.WorkerSelector, task.TargetWorkerId, task.NeedsConnectionTokens) {
+		return errNoConnectionWorkers
 	}
 	return nil
 }
@@ -1650,6 +1674,8 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 		stats:           req.Stats,
 		lastHeartbeatAt: receivedAt,
 		version:         req.Version,
+
+		connectionTokens: req.ConnectionTokens,
 	}
 	h.mu.Unlock()
 
@@ -1662,6 +1688,8 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 			Host:            req.Host,
 			Machine:         convert.ProtoToMachineSample(req.Machine),
 			Version:         req.Version,
+
+			ConnectionTokens: req.ConnectionTokens,
 		}); err != nil {
 			return nil, status.Error(codes.Internal, "failed to persist worker heartbeat: "+err.Error())
 		}
@@ -2008,6 +2036,8 @@ func (h *Handler) listHealthyWorkers(ctx context.Context) ([]dispatch.WorkerHear
 				WorkerID:        hb.workerID,
 				Labels:          hb.labels,
 				LastHeartbeatAt: hb.lastHeartbeatAt.UnixMilli(),
+
+				ConnectionTokens: hb.connectionTokens,
 			})
 		}
 		h.mu.Unlock()
@@ -2137,8 +2167,14 @@ func (h *Handler) leaseRefreshWriteInterval() time.Duration {
 	return interval
 }
 
-func anyWorkerMatches(workers []dispatch.WorkerHeartbeatRecord, selector map[string]string, targetWorkerID string) bool {
+// anyWorkerMatches reports whether a worker matches selector and
+// targetWorkerID, and asks for connection tokens when
+// needsConnectionTokens is set.
+func anyWorkerMatches(workers []dispatch.WorkerHeartbeatRecord, selector map[string]string, targetWorkerID string, needsConnectionTokens bool) bool {
 	for _, worker := range workers {
+		if needsConnectionTokens && !worker.ConnectionTokens {
+			continue
+		}
 		if dispatch.WorkerHeartbeatMatches(worker, selector, targetWorkerID) {
 			return true
 		}
