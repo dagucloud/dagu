@@ -477,20 +477,14 @@ func TestIsolatedStepHardLink(t *testing.T) {
 // git entry of the worker. It needs no root.
 func TestRestoreAfterAFailedHandoffKeepsTheRepositories(t *testing.T) {
 	t.Parallel()
-	work := t.TempDir()
-	gitDir := filepath.Join(work, "repo", ".git")
+	iso := selfIsolation(t, t.TempDir())
+	gitDir := filepath.Join(iso.workDir, "repo", ".git")
 	for _, dir := range []string{"objects", "refs/heads", "hooks"} {
 		require.NoError(t, os.MkdirAll(filepath.Join(gitDir, dir), 0o750))
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "config"), []byte("[core]\n"), 0o600))
-	iso := &isolation{
-		step: "s", workDir: work, uid: testUID, gid: testGID,
-		workerUID: os.Geteuid(), workerGID: os.Getegid(),
-		protected:  map[string]protectedDir{},
-		gitEntries: map[string]bool{gitDir: true}, gitDirs: map[string]bool{gitDir: true},
-		gitSnapshot: map[string]fileSig{}, seenGit: map[string]bool{},
-	}
+	iso.gitEntries[gitDir], iso.gitDirs[gitDir] = true, true
 	require.NoError(t, iso.restore(false))
 	for _, name := range []string{"HEAD", "config", "objects", "refs/heads", "hooks"} {
 		_, err := os.Lstat(filepath.Join(gitDir, name))
@@ -506,18 +500,11 @@ func TestRestoreThatCannotRemoveAnEntryAbortsTheRun(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root removes an entry of a folder of mode 0555")
 	}
-	work := t.TempDir()
-	sub := filepath.Join(work, "sub")
+	iso := selfIsolation(t, t.TempDir())
+	sub := filepath.Join(iso.workDir, "sub")
 	require.NoError(t, os.MkdirAll(filepath.Join(sub, ".git"), 0o750))
 	require.NoError(t, os.Chmod(sub, 0o555))
 	t.Cleanup(func() { _ = os.Chmod(sub, 0o750) })
-	iso := &isolation{
-		step: "s", workDir: work, uid: testUID, gid: testGID,
-		workerUID: os.Geteuid(), workerGID: os.Getegid(),
-		protected:  map[string]protectedDir{},
-		gitEntries: map[string]bool{}, gitDirs: map[string]bool{},
-		gitSnapshot: map[string]fileSig{}, seenGit: map[string]bool{},
-	}
 	err := iso.restore(true)
 	require.ErrorIs(t, err, ErrRunAborted)
 }
