@@ -204,8 +204,9 @@ each entry: the path, the kind, the mode, the size, the modification time and, o
 the status change time. A tool can set the modification time back, but not the status change time.
 The cache gives a result only when every key matches. It neither gives nor keeps a result when the newest change is younger than 2 seconds at the
 start of the walk.
-It keeps at most 128 folders and at most 64 MiB of file content. The cache is a function of the disk.
-It never decides alone.
+It keeps at most 128 folders and at most 64 MiB. It keeps no file content: a read of a file reads
+the disk and checks the SHA-256 that the read of the skill recorded. The cache is a function of the
+disk. It never decides alone.
 
 ### Atomic writes
 
@@ -321,8 +322,8 @@ error is a skill with the state ERROR.
 
 `GET /skills` returns `skills`, the `SkillSummary` of the first 1000 folders in name order, and
 `truncated`, which is true when the skills directory holds more folders. The server reads the
-folders one at a time, so a listing holds the text of one skill, at most 16 MiB, beyond the read
-cache, which keeps at most 64 MiB.
+folders one at a time, so a listing holds the text of two files of one skill, at most 8 MiB, beyond
+the read cache, which keeps at most 64 MiB.
 
 `SkillSummary` has `name`, `description`, `hash`, `valid`, `errors`, `warnings`, `fileCount`,
 `totalBytes`, `bodyLines` and `bodyTokens`. A description above 1024 characters is cut to 1024
@@ -334,7 +335,8 @@ characters. `SkillDetail` has `name`, `content`, `hash`, `errors`,
 A write returns `SkillWriteResult`: the new `hash`, the `errors`, the `warnings` and the `files`.
 The client uses the new hash for its next write. `DELETE /skills/{name}` returns 204 with no body.
 `DELETE /skills/{name}/files` returns 200 with `SkillWriteResult`. `PUT /skills/{name}/files` refuses
-the path `SKILL.md` with 400, because `SKILL.md` has its own route. `GET /skills/{name}/files` gives 409
+the path `SKILL.md` with 400, because `SKILL.md` has its own route. `GET /skills/{name}` gives 409
+when `SKILL.md` changed after the server read the skill. `GET /skills/{name}/files` gives 409
 when the file is gone or has another size than the read of the skill recorded, or when the skill
 did not settle while the server read it (`changing`). It gives 500 for a skill that the server
 cannot read (`unreadable`). A file whose content
@@ -465,13 +467,14 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | `TestReadOfAFolderThatNeverSettles` (unit) | A folder that changes during every read attempt gives the rule `changing`. |
 | `TestHashCanonicalForm` (unit) | The hash is the SHA-256 of the `sha256sum` text of the files. The order, the times and the modes do not change it. |
 | `TestPartialSkillIsRefused` (unit) | A folder with no `SKILL.md` is refused, and the temporary file of a write is ignored. |
-| `TestReadBoundsTheTextItKeeps` (unit) | A folder above 16 MiB gives the rule `total-too-large`, a read keeps at most 16 MiB of text, and the text it does not keep still opens from disk. |
+| `TestReadOfATooLargeFolder` (unit) | A folder above 16 MiB gives the rule `total-too-large`, and each of its text files still reads from disk with its recorded hash. |
 | `TestReadCachesOnlyASettledFolder` (unit) | A second read of a folder with no change in the last 2 seconds reads no file. A folder with a newer change is read again. |
 | `TestSlowReadIsNotCached` (unit) | A read that began less than 2 seconds after a change is not cached, however long it takes. |
 | `TestReadSeesEveryChange` (unit) | A change of the size of a file shows in the next read, also when the time stamp stays. |
 | `TestReadSeesAnEditThatKeepsTheTimeStamp` (unit) | On Linux and macOS, an edit that keeps the size and sets the time stamp back shows in the next read of a cached folder. |
 | `TestReadSeesALayoutChange` (unit) | A new folder at the root, a hidden folder or a hard link shows in the next read of a cached folder. |
 | `TestOpenRefusesAChangedFile` (unit) | A file that changed after the read gives `ErrFileChanged`, at the open or at the end of the stream, and a link is never opened. |
+| `TestTextRefusesAChangedFile` (unit) | A text file that changed after the read gives `ErrFileChanged`, never the new content under the old hash. |
 | `TestCheckExistingPathRefusesEveryEscape` (unit) | A path that is absolute, has an empty, `.` or `..` part, a backslash or a control character is refused. |
 | `TestUnreadableFolderNamesNoServerPath` (unit) | A folder that Dagu cannot read gives the rule `unreadable`, and the message names no server path. |
 | `TestSkillsList` (unit) | `GET /skills` lists every folder sorted by name, also one with errors, and no plain file or hidden folder. |

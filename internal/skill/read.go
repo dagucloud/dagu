@@ -4,7 +4,6 @@
 package skill
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -61,7 +60,8 @@ var now = time.Now
 const maxCacheEntries = 128
 
 // maxCacheBytes bounds the memory that the cache keeps for all folders: the
-// text of the files and the lists of files and issues.
+// walk signatures, the front matter and the lists of files and issues. The
+// cache keeps no file content.
 const maxCacheBytes = 64 << 20
 
 // cacheItemOverhead estimates the memory of one file or issue of a cached read
@@ -223,12 +223,9 @@ func store(dir, signature string, s *Skill) {
 }
 
 // cacheCost estimates the memory of a cached read. A folder of many files
-// with long paths holds little text, so the text alone would not bound it.
+// with long paths has a large signature and large lists.
 func cacheCost(signature string, s *Skill) int64 {
-	n := len(signature) + len(s.Body) + maxFrontMatterBytes
-	for _, data := range s.text {
-		n += len(data)
-	}
+	n := len(signature) + maxFrontMatterBytes
 	for _, f := range s.Files {
 		n += len(f.Path) + len(f.SHA256) + cacheItemOverhead
 	}
@@ -419,10 +416,11 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	s := &Skill{Name: name, Dir: dir, text: map[string][]byte{}}
+	s := &Skill{Name: name, Dir: dir}
 	s.Issues = append(s.Issues, folderIssues...)
 
-	var total, kept int64
+	var total int64
+	var raw []byte // SKILL.md
 	lines := make([]hashLine, 0, len(entries))
 	for _, e := range entries {
 		if e.kind != kindFile {
@@ -451,11 +449,8 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 				s.Issues = append(s.Issues, Issue{Severity: SeverityError, Rule: RuleNotUTF8, File: e.rel,
 					Message: "the file is not valid UTF-8 text; SKILL.md, references/ and scripts/ hold text only"})
 				file.Text = false
-			} else if kept+file.Size <= MaxTotalBytes {
-				// A folder above the total limit leaves the rest of its text on disk,
-				// so one read never holds more than the limit.
-				s.text[e.rel] = data
-				kept += file.Size
+			} else if e.rel == FileName {
+				raw = data
 			}
 		default:
 			sum, n, err := hashFile(root, rel)
@@ -487,15 +482,14 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 			Message: fmt.Sprintf("the files of the skill are %d bytes in total; the limit is %d bytes", total, MaxTotalBytes)})
 	}
 
-	raw, ok := s.text[FileName]
-	if !ok {
-		if _, listed := s.File(FileName); !listed {
-			s.Issues = append(s.Issues, Issue{Severity: SeverityError, Rule: RuleSkillMissing, File: FileName,
-				Message: "the folder has no file SKILL.md"})
-		}
-	} else {
+	switch file, listed := s.File(FileName); {
+	case !listed:
+		s.Issues = append(s.Issues, Issue{Severity: SeverityError, Rule: RuleSkillMissing, File: FileName,
+			Message: "the folder has no file SKILL.md"})
+	case file.Text:
 		meta, body, issues := CheckSkillFile(name, raw)
-		s.Meta, s.Body = meta, body
+		s.Meta = meta
+		s.stats = Stats{BodyBytes: len(body), BodyLines: BodyLines(body), BodyTokens: EstimateTokens(len(body))}
 		s.Issues = append(s.Issues, issues...)
 	}
 	sort.SliceStable(s.Issues, func(i, j int) bool {
@@ -567,9 +561,6 @@ func (s *Skill) Open(rel string) (io.ReadCloser, error) {
 	file, ok := s.File(rel)
 	if !ok {
 		return nil, fmt.Errorf("skill %q has no file %q: %w", s.Name, rel, fs.ErrNotExist)
-	}
-	if data, ok := s.text[rel]; ok {
-		return io.NopCloser(bytes.NewReader(data)), nil
 	}
 	if file.Size > MaxFileBytes {
 		return nil, fmt.Errorf("skill %q: file %q: %w", s.Name, rel, ErrFileTooLarge)

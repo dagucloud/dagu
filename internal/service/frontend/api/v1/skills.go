@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"path"
 	"path/filepath"
@@ -66,8 +67,8 @@ func (a *API) ListSkills(ctx context.Context, _ api.ListSkillsRequestObject) (ap
 		logger.Error(ctx, "Failed to list skills", tag.Dir(a.skillsDir()), tag.Error(err))
 		return nil, errFailedToReadSkill
 	}
-	// One skill at a time is read, so the request holds the text of one skill
-	// at most beyond the bounded read cache.
+	// One skill at a time is read, so the request holds the text of two files of
+	// one skill at most beyond the bounded read cache.
 	out := make([]api.SkillSummary, 0, len(names))
 	for _, name := range names {
 		if err := ctx.Err(); err != nil {
@@ -95,9 +96,20 @@ func (a *API) GetSkill(ctx context.Context, request api.GetSkillRequestObject) (
 	if err != nil {
 		return nil, a.skillReadError(ctx, request.Name, err)
 	}
+	content, err := sk.Text(skill.FileName)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		// SKILL.md is missing or is not text. The content stays empty, and the
+		// errors of the skill say why.
+	case errors.Is(err, skill.ErrFileChanged):
+		return nil, errSkillChanged
+	case err != nil:
+		logger.Error(ctx, "Failed to read skill file", tag.Name(request.Name), tag.Error(err))
+		return nil, errFailedToReadSkill
+	}
 	detail := api.SkillDetail{
 		Name:     request.Name,
-		Content:  string(sk.Raw()),
+		Content:  string(content),
 		Hash:     sk.Hash,
 		Errors:   toSkillIssues(sk.Errors()),
 		Warnings: toSkillIssues(sk.Warnings()),

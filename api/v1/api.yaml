@@ -9745,6 +9745,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "409":
+          description: "SKILL.md changed after the server read the skill; read it again"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           description: "Unexpected error"
           content:

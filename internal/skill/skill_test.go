@@ -6,6 +6,7 @@ package skill_test
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -236,10 +237,9 @@ func TestReadOfAMissingFolder(t *testing.T) {
 	require.ErrorIs(t, err, skill.ErrNotFound)
 }
 
-// A folder above the total limit is refused, and its read keeps at most the
-// limit of text in memory. The text files it does not keep still read from
-// disk with their recorded hash.
-func TestReadBoundsTheTextItKeeps(t *testing.T) {
+// A folder above the total limit is refused, and each of its text files still
+// reads from disk with its recorded hash.
+func TestReadOfATooLargeFolder(t *testing.T) {
 	t.Parallel()
 	files := map[string]string{"SKILL.md": strings.Replace(good, "name: demo", "name: big", 1)}
 	for i := range 5 {
@@ -249,21 +249,12 @@ func TestReadBoundsTheTextItKeeps(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, ruleSet(s.Errors()), skill.RuleTotalTooLarge)
 
-	kept := 0
 	for _, f := range s.Files {
 		require.True(t, f.Text, f.Path)
-		if data, ok := s.Text(f.Path); ok {
-			kept += len(data)
-			continue
-		}
-		r, err := s.Open(f.Path)
-		require.NoError(t, err, f.Path)
-		data, err := io.ReadAll(r)
-		require.NoError(t, r.Close())
+		data, err := s.Text(f.Path)
 		require.NoError(t, err, f.Path)
 		require.Len(t, data, int(f.Size), f.Path)
 	}
-	require.LessOrEqual(t, kept, skill.MaxTotalBytes)
 }
 
 // A file that becomes a link to a file outside the folder while Read reads the
@@ -289,8 +280,8 @@ func TestReadNeverFollowsASwappedLink(t *testing.T) {
 	})
 	s, err := skill.Read(dir)
 	require.NoError(t, err)
-	data, ok := s.Text("references/a.md")
-	require.True(t, ok)
+	data, err := s.Text("references/a.md")
+	require.NoError(t, err)
 	require.Equal(t, "public\n", string(data))
 }
 
@@ -432,8 +423,8 @@ func TestFolderRules(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "references/link.md", ruleSet(s.Issues)[skill.RuleSymlink].File)
 		require.False(t, s.Valid())
-		_, ok := s.Text("references/link.md")
-		require.False(t, ok, "a symbolic link is never read")
+		_, err = s.Text("references/link.md")
+		require.ErrorIs(t, err, fs.ErrNotExist, "a symbolic link is never read")
 	})
 
 	t.Run("symlinked SKILL.md", func(t *testing.T) {
@@ -446,7 +437,8 @@ func TestFolderRules(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, ruleSet(s.Issues), skill.RuleSymlink)
 		require.False(t, s.Valid())
-		require.Empty(t, s.Raw())
+		_, err = s.Text(skill.FileName)
+		require.ErrorIs(t, err, fs.ErrNotExist)
 	})
 
 	t.Run("symlink to a directory that escapes", func(t *testing.T) {
@@ -561,4 +553,16 @@ func TestOpenRefusesAChangedFile(t *testing.T) {
 			require.Less(t, len(data), 4)
 		})
 	}
+}
+
+// Text reads from disk, so a text file edited after the read gives
+// ErrFileChanged, not the new content under the old hash.
+func TestTextRefusesAChangedFile(t *testing.T) {
+	t.Parallel()
+	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "abcd"})
+	s, err := skill.Read(dir)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "references", "a.md"), []byte("abce"), 0o600))
+	_, err = s.Text("references/a.md")
+	require.ErrorIs(t, err, skill.ErrFileChanged)
 }

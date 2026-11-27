@@ -90,8 +90,8 @@ func TestReadSeesEveryChange(t *testing.T) {
 	next, err := skill.Read(dir)
 	require.NoError(t, err)
 	require.NotEqual(t, first.Hash, next.Hash)
-	data, ok := next.Text("references/a.md")
-	require.True(t, ok)
+	data, err := next.Text("references/a.md")
+	require.NoError(t, err)
 	require.Equal(t, "three", string(data))
 }
 
@@ -148,8 +148,8 @@ func TestSlowReadIsNotCached(t *testing.T) {
 	require.Equal(t, 2, reads, "a read that began before the change settled is not cached")
 }
 
-// The cache counts the list of files of a read, not only its text, so a folder
-// of many small files with long names cannot grow the cache past its bound.
+// The cache counts the list of files of a read, so a folder of many small files
+// with long names cannot grow the cache past its bound.
 func TestCacheCountsTheFileList(t *testing.T) {
 	t.Parallel()
 	files := map[string]string{"SKILL.md": good}
@@ -161,7 +161,7 @@ func TestCacheCountsTheFileList(t *testing.T) {
 	}
 	s, err := skill.Read(writeSkill(t, "demo", files))
 	require.NoError(t, err)
-	require.Greater(t, skill.CacheCost(s), names+int64(len(good)))
+	require.Greater(t, skill.CacheCost(s), names)
 }
 
 // A change of the layout that leaves every file as it was shows in the next

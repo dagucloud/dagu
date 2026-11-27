@@ -42,7 +42,7 @@ func TestReadSeesAnEditThatKeepsTheTimeStamp(t *testing.T) {
 	next, err := skill.Read(dir)
 	require.NoError(t, err)
 	require.NotEqual(t, first.Hash, next.Hash)
-	data, ok := next.Text("references/a.md")
-	require.True(t, ok)
+	data, err := next.Text("references/a.md")
+	require.NoError(t, err)
 	require.Equal(t, "two", string(data))
 }

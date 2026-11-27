@@ -22219,6 +22219,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description SKILL.md changed after the server read the skill; read it again */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Unexpected error */
             default: {
                 headers: {
