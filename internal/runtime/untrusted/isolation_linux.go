@@ -1064,20 +1064,56 @@ func ownerOf(info fs.FileInfo) (uid, gid int) {
 // an access ACL, a folder that cannot be read, and a path that resolveLinks
 // cannot resolve count as writable.
 func writableBy(path string, uid, gid uint32) bool {
-	// The path stays uncleaned: a ".." after a link leads where the link
-	// leads, not where the text leads.
-	if !filepath.IsAbs(path) {
-		wd, err := os.Getwd()
-		if err != nil {
-			return true
-		}
-		path = wd + "/" + path
+	path, err := absolute(path)
+	if err != nil {
+		return true
 	}
 	writable := false
 	real, err := followLinks(path, func(passed string) {
 		writable = writable || writableOnTheWay(passed, uid, gid)
 	})
 	return err != nil || writable || writableOnTheWay(real, uid, gid)
+}
+
+// inWorkDir reports whether the path reaches the work directory workDir or an
+// entry below it, or leads through a link or an entry that a ".." leaves
+// there. The restricted user owns these entries during an untrusted step, and
+// the restore keeps what it wrote in them. A path that cannot be resolved
+// counts as in it. An empty workDir has no entry.
+func inWorkDir(path, workDir string) bool {
+	if workDir == "" {
+		return false
+	}
+	path, err := absolute(path)
+	if err != nil {
+		return true
+	}
+	if workDir, err = absolute(workDir); err != nil {
+		return true
+	}
+	work, err := resolveLinks(workDir)
+	if err != nil {
+		return true
+	}
+	in := false
+	real, err := followLinks(path, func(passed string) {
+		in = in || within(work, passed)
+	})
+	return err != nil || in || within(work, real)
+}
+
+// absolute returns path, below the working directory of the process when it is
+// relative. The path stays uncleaned: a ".." after a link leads where the link
+// leads, not where the text leads.
+func absolute(path string) (string, error) {
+	if filepath.IsAbs(path) {
+		return path, nil
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return wd + "/" + path, nil
 }
 
 // writableOnTheWay checks path and each folder above it for writableBy. Only

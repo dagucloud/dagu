@@ -41,3 +41,6 @@ func Poisoned() error { return nil }
 
 // writableBy reports no folder: a process outside Linux has no restricted user.
 func writableBy(string, uint32, uint32) bool { return false }
+
+// inWorkDir reports no path: a process outside Linux has no restricted user.
+func inWorkDir(string, string) bool { return false }

@@ -511,8 +511,10 @@ An untrusted step can leave files behind that a later trusted step reads. Dagu c
   of [Isolation](#isolation).
 - **`HOME` and `XDG_` folders.** With isolation, the restricted user may be able to write the `HOME`
   of the worker or an `XDG_` folder, its default below `HOME` included, or replace one through a
-  folder or a link on the way. A folder with an access ACL counts as one it can write. A relative
-  path counts from the working directory of the step. Then each trusted step of the run gets a new
+  folder or a link on the way. A folder with an access ACL counts as one it can write. So does a
+  folder in the work directory of the run, or one that a link in it leads to: the restricted user
+  owns it during an untrusted step, and the restore keeps what it wrote there. A relative path
+  counts from the working directory of the step. Then each trusted step of the run gets a new
   private `HOME`, with the mode `0700`, owned by the worker user, and `XDG_` variables that name
   folders below it. Dagu does not make these folders; a command makes them as it needs them.
   Dagu removes the private `HOME` when the step ends. A temp folder of the worker that would let
