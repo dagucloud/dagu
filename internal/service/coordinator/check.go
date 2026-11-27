@@ -157,11 +157,15 @@ func verificationProblem(err *tls.CertificateVerificationError, roots *x509.Cert
 		intermediates.AddCert(cert)
 	}
 	_, chainErr := certs[0].Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates})
-	if _, ok := errors.AsType[x509.UnknownAuthorityError](chainErr); ok {
+	_, unknownCA := errors.AsType[x509.UnknownAuthorityError](chainErr)
+	invalid, isInvalid := errors.AsType[x509.CertificateInvalidError](chainErr)
+	switch {
+	case chainErr == nil:
+	case unknownCA:
 		problems = append(problems, "the certificate does not chain to a CA this client trusts")
-	} else if invalid, ok := errors.AsType[x509.CertificateInvalidError](chainErr); ok && invalid.Reason == x509.Expired {
+	case isInvalid && invalid.Reason == x509.Expired:
 		problems = append(problems, "the certificate has expired or is not valid yet")
-	} else if chainErr != nil {
+	default:
 		problems = append(problems, chainErr.Error())
 	}
 	if len(problems) == 0 {
