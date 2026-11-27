@@ -178,9 +178,9 @@ serves only the child DAGs a run names as written, in its steps, `foreach`
 bodies, and handlers. A child dispatched to a worker, such as one bound to
 a worker node, reads both. For a child that runs with its parent, name the
 child DAG as written, or run the parent on the Dagu host. Each child run
-reads its own node again, so a run never reuses an answer another run read. A worker that cannot reach the coordinator, or
-whose coordinator answers no lookup, fails the step or the run as an
-unreadable inventory does.
+reads its own node again, so a run never reuses an answer another run read.
+A worker that cannot reach the coordinator, or whose coordinator answers no
+lookup, fails the step or the run as an unreadable inventory does.
 
 ### The `node` namespace
 
