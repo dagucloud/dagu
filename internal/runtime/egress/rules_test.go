@@ -133,3 +133,14 @@ func TestParseRuleRejectsWhatIsNotADestination(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, egress.Rule{Text: "*.Example.COM:8443", Host: "example.com", Wildcard: true, Port: 8443}, rule)
 }
+
+func TestRulesListKeepsTheText(t *testing.T) {
+	t.Parallel()
+
+	rules, err := egress.ParseRules([]string{"b.example.com:1", "a.example.com"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b.example.com:1", "a.example.com"}, rules.List())
+	assert.Equal(t, 2, rules.Len())
+	_, err = egress.ParseRules([]string{"ok.example.com", "bad host"})
+	require.Error(t, err)
+}
