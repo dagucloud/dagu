@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
@@ -198,6 +199,36 @@ func TestProjectSettingsOnKeepProjectState(t *testing.T) {
 	assert.Equal(t, filepath.Join(cfg.Paths.DataDir, "incidents", "monitor-state.json"), defaults.IncidentStateFile())
 }
 
+// With projects on, the default project and another project each hold a
+// webhook for a DAG of the same name. The default project's is the one the
+// v2 webhook store reads; the other project's lies in its own settings.
+func TestProjectSettingsOnKeepWebhooksApart(t *testing.T) {
+	ctx := context.Background()
+	cfg := projectStoresConfig(t, true)
+	server := persisfile.NewServerStores(cfg)
+
+	ids := map[string]string{}
+	for _, name := range []string{project.DefaultName, "weather"} {
+		settings, err := persisfile.NewProjectSettings(cfg, server, name)
+		require.NoError(t, err)
+		webhooks, err := settings.WebhookStore(nil)
+		require.NoError(t, err)
+		webhook, err := auth.NewWebhook(sampleDAG, "hash-"+name, "dagu_wh_", "test")
+		require.NoError(t, err)
+		require.NoError(t, webhooks.Create(ctx, webhook))
+		ids[name] = webhook.ID
+	}
+
+	v2 := persisfile.NewBackend(cfg.Paths)
+	v2Webhooks, err := store.NewWebhookStore(v2.Collection(persis.CollectionWebhooks), v2.Collection(persis.CollectionWebhookDAGClaims), nil)
+	require.NoError(t, err)
+	got, err := v2Webhooks.GetByDAGName(ctx, sampleDAG)
+	require.NoError(t, err)
+	assert.Equal(t, ids[project.DefaultName], got.ID)
+	assert.FileExists(t, filepath.Join(cfg.Paths.WebhooksDir, ids[project.DefaultName]+".json"))
+	assert.FileExists(t, filepath.Join(cfg.Paths.DataDir, "projects", "weather", "settings", "webhooks", ids["weather"]+".json"))
+}
+
 // projectStoresConfig sets apart every path that places a project store, as
 // an operator may, so a store that ignores the project's paths shows.
 func projectStoresConfig(t *testing.T, projectsOn bool) *config.Config {
@@ -220,6 +251,7 @@ func projectStoresConfig(t *testing.T, projectsOn bool) *config.Config {
 		ProcDir:            filepath.Join(root, "proc"),
 		SuspendFlagsDir:    filepath.Join(data, "suspend"),
 		ViewsDir:           filepath.Join(data, "views"),
+		WebhooksDir:        filepath.Join(root, "webhooks"),
 		ServiceRegistryDir: filepath.Join(data, "service-registry"),
 	}
 	return cfg

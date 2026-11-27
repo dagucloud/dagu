@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/google/uuid"
 	openapitypes "github.com/oapi-codegen/runtime/types"
@@ -644,15 +645,36 @@ func (a *API) DisableDAGWebhookHMAC(ctx context.Context, request api.DisableDAGW
 // TriggerWebhook triggers a DAG execution via webhook.
 // Authentication is performed according to the webhook's configured auth mode.
 func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequestObject) (api.TriggerWebhookResponseObject, error) {
-	// Ensure webhook triggering is configured on this server
+	if err := a.requireWebhookTriggering(); err != nil {
+		return nil, err
+	}
+	target, err := a.legacyWebhookProject(ctx, request.FileName)
+	if err != nil {
+		return nil, err
+	}
+	return a.triggerWebhook(ctx, target, request)
+}
+
+// requireWebhookTriggering refuses webhook requests on a server that keeps
+// no webhooks.
+func (a *API) requireWebhookTriggering() error {
 	if a.authService == nil || !a.authService.HasWebhookStore() {
-		return nil, &Error{
+		return &Error{
 			HTTPStatus: http.StatusNotFound,
 			Code:       api.ErrorCodeNotFound,
 			Message:    "webhook triggering is not configured on this server",
 		}
 	}
+	return nil
+}
 
+// triggerWebhook authorizes the request against the webhook of the target
+// project's DAG and queues a run of that DAG in the project.
+func (a *API) triggerWebhook(
+	ctx context.Context,
+	target *WebhookProject,
+	request api.TriggerWebhookRequestObject,
+) (api.TriggerWebhookResponseObject, error) {
 	token := extractWebhookToken(valueOf(request.Params.Authorization))
 	signature := valueOf(request.Params.XDaguSignature)
 	requestedProfile, profileErr := requestedWebhookProfile(ctx, request.Params.XDaguProfile)
@@ -677,6 +699,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	authz, err := a.authService.AuthorizeWebhookRequest(
 		ctx,
 		authservice.AuthorizeWebhookRequestInput{
+			Webhooks:    target.Webhooks,
 			DAGName:     request.FileName,
 			Token:       token,
 			Signature:   signature,
@@ -726,7 +749,10 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	}
 
 	// Load the DAG (we need it for enqueuing)
-	dag, err := a.dagRepository.GetDetails(ctx, string(request.FileName), persis.DAGLoadOptions{})
+	dag, err := target.DAGRepository.GetDetails(ctx, string(request.FileName), persis.DAGLoadOptions{})
+	if err == nil {
+		err = a.refuseLibraryDAG(ctx, dag)
+	}
 	if err != nil {
 		logger.Warn(ctx, "Webhook: DAG not found",
 			tag.Name(request.FileName),
@@ -739,7 +765,16 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		}
 	}
 
-	profileName, err := a.webhookRunProfile(ctx, authz, request.FileName, dagWorkspaceName(dag), requestedProfile)
+	if err := project.RefuseOtherProject(target.Name, project.ErrQueuedRun); err != nil {
+		logger.Warn(ctx, "Webhook: run cannot be queued", tag.Name(request.FileName), tag.Error(err))
+		return nil, &Error{
+			HTTPStatus: http.StatusServiceUnavailable,
+			Code:       api.ErrorCodeInternalError,
+			Message:    err.Error(),
+		}
+	}
+
+	profileName, err := a.webhookRunProfile(ctx, target, authz, request.FileName, dagWorkspaceName(dag), requestedProfile)
 	if err != nil {
 		return nil, err
 	}
@@ -757,7 +792,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 			return nil, err
 		}
 		// Check if a dag-run with this ID already exists
-		statuses, err := a.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{DAGRunID: dagRunID})
+		statuses, err := target.DAGRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{DAGRunID: dagRunID})
 		if err != nil {
 			return nil, &Error{
 				HTTPStatus: http.StatusInternalServerError,
@@ -781,7 +816,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		dagRunID = uuid.Must(uuid.NewV7()).String()
 	}
 
-	if err := a.dagRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
+	if err := target.DAGRunManager.CheckServiceRun(ctx, dag, dagRunID); err != nil {
 		return api.TriggerWebhook409JSONResponse{
 			Code:    api.ErrorCodeConflict,
 			Message: err.Error(),
@@ -790,7 +825,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 
 	// Enqueue directly from the API layer so accepted webhook payloads do not
 	// need to fit in a subprocess command line.
-	if err := a.enqueuePreparedDAGRun(ctx, dag, params, dagRunID, ir.TriggerTypeWebhook, profileName, false, nil, nil, nil); err != nil {
+	if err := a.enqueuePreparedDAGRunIn(ctx, target.runQueue(), dag, params, dagRunID, ir.TriggerTypeWebhook, profileName, false, nil, nil, nil); err != nil {
 		logger.Error(ctx, "Webhook: failed to enqueue DAG run",
 			tag.DAG(dag.Name),
 			tag.Error(err),
@@ -842,6 +877,7 @@ func invalidWebhookProfileHeader() *Error {
 
 func (a *API) webhookRunProfile(
 	ctx context.Context,
+	target *WebhookProject,
 	authz *authservice.WebhookAuthorization,
 	dagName string,
 	workspaceName string,
@@ -855,10 +891,10 @@ func (a *API) webhookRunProfile(
 				Message:    "runtime profile selection is not allowed for this webhook token",
 			}
 		}
-		return a.ensureRunnableRuntimeProfileAvailable(ctx, token.Profile)
+		return a.ensureRunnableProfileIn(ctx, target.ProfileStore, token.Profile, false)
 	}
 	if requestedProfile == "" {
-		return a.defaultRunProfileName(ctx, dagName, workspaceName)
+		return a.defaultRunProfileNameIn(ctx, target.DAGSettingsStore, target.ProfileStore, dagName, workspaceName)
 	}
 	if !slices.Contains(authz.Webhook.AllowedProfiles, requestedProfile) {
 		return "", &Error{
@@ -867,7 +903,7 @@ func (a *API) webhookRunProfile(
 			Message:    "runtime profile selection is not allowed for this webhook",
 		}
 	}
-	return a.ensureRunnableRuntimeProfileAvailable(ctx, requestedProfile)
+	return a.ensureRunnableProfileIn(ctx, target.ProfileStore, requestedProfile, false)
 }
 
 func webhookProfileTokenID(authz *authservice.WebhookAuthorization) string {

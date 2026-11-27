@@ -48,6 +48,7 @@ const (
 	projectProcDirName       = "proc"
 	projectSuspendDirName    = "suspend"
 	projectViewsDirName      = "views"
+	projectWebhooksDirName   = "webhooks"
 	projectLibraryDirName    = "library"
 	// setApartLibrarySuffix names a project's library directory under a
 	// path set apart. A project name has no ".", so no project takes it.
@@ -82,6 +83,8 @@ type ProjectPaths struct {
 	// It is empty while projects are on.
 	LegacySuspendFlagsDir string
 	ViewsDir              string
+	// WebhooksDir holds the project's DAG webhooks.
+	WebhooksDir string
 	// RecordDirs lists the state directories that record the project's ID
 	// and name: StateDir, then each directory above that a set path places
 	// outside it. It is empty while projects are off.
@@ -114,6 +117,7 @@ func (c *Config) ProjectPaths(name string) (ProjectPaths, error) {
 			SuspendFlagsDir:       c.Paths.SuspendFlagsDir,
 			LegacySuspendFlagsDir: c.Paths.SuspendFlagsDirLegacy,
 			ViewsDir:              c.Paths.ViewsDir,
+			WebhooksDir:           c.Paths.WebhooksDir,
 		}, nil
 	}
 
@@ -145,8 +149,9 @@ func (c *Config) ProjectPaths(name string) (ProjectPaths, error) {
 // LibraryPaths returns the directories where the project called name keeps
 // the runs, logs, artifacts, queues, and DAG state of the library DAGs it
 // runs: library/ in its state directory, and .projects/<name>.library/ under
-// each path set apart. DAGsDir, SettingsDir, and EventStoreDir are the
-// project's, and RecordDirs is empty. It fails while projects are off.
+// each path set apart. DAGsDir, SettingsDir, WebhooksDir, and EventStoreDir
+// are the project's, and RecordDirs is empty. It fails while projects are
+// off.
 func (c *Config) LibraryPaths(name string) (ProjectPaths, error) {
 	if !c.ProjectsEnabled {
 		return ProjectPaths{}, fmt.Errorf("project %q: projects are off", name)
@@ -159,6 +164,7 @@ func (c *Config) LibraryPaths(name string) (ProjectPaths, error) {
 	paths := c.statePaths(filepath.Join(project.StateDir, projectLibraryDirName), name+setApartLibrarySuffix)
 	paths.DAGsDir = project.DAGsDir
 	paths.SettingsDir = project.SettingsDir
+	paths.WebhooksDir = project.WebhooksDir
 	paths.EventStoreDir = project.EventStoreDir
 	return paths, nil
 }
@@ -180,6 +186,7 @@ func (c *Config) statePaths(stateDir, setApart string) ProjectPaths {
 		ProcDir:         filepath.Join(otherDir, projectProcDirName),
 		SuspendFlagsDir: filepath.Join(otherDir, projectSuspendDirName),
 		ViewsDir:        filepath.Join(otherDir, projectViewsDirName),
+		WebhooksDir:     filepath.Join(stateDir, projectSettingsDirName, projectWebhooksDirName),
 	}
 	place := func(explicit bool, root, inState string) string {
 		if !explicit {

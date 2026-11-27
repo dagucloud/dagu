@@ -115,14 +115,17 @@ func newMonitorLease(stateFile string) func() chatbridge.Lease {
 }
 
 // NewPublicWebhookStores creates the stores public webhook URLs need: the
-// webhook store, which decrypts their tokens and sender secrets, and the
-// store of the relay's status and each URL's deliveries.
-func NewPublicWebhookStores(server *persisfile.ServerStores) (*store.WebhookStore, *store.PublicWebhookStore, error) {
+// project's webhook store, which decrypts their tokens and sender secrets,
+// and the store of the relay's status and each URL's deliveries.
+func NewPublicWebhookStores(
+	server *persisfile.ServerStores,
+	project *persisfile.ProjectSettings,
+) (*store.WebhookStore, *store.PublicWebhookStore, error) {
 	encryptor, err := server.Encryptor()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to prepare encryption: %w", err)
 	}
-	webhooks, err := server.WebhookStore(encryptor)
+	webhooks, err := project.WebhookStore(encryptor)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create webhook store: %w", err)
 	}

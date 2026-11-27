@@ -134,16 +134,6 @@ func (s *ServerStores) APIKeyStore() (*store.APIKeyStore, error) {
 	return store.NewAPIKeyStore(s.backend.Collection(persis.CollectionAPIKeys))
 }
 
-// WebhookStore opens the DAG webhooks, whose tokens and sender secrets enc
-// encrypts. A nil enc leaves them unreadable.
-func (s *ServerStores) WebhookStore(enc *crypto.Encryptor) (*store.WebhookStore, error) {
-	return store.NewWebhookStore(
-		s.backend.Collection(persis.CollectionWebhooks),
-		s.backend.Collection(persis.CollectionWebhookDAGClaims),
-		enc,
-	)
-}
-
 // PublicWebhookStore opens the relay's status and each public webhook URL's
 // deliveries.
 func (s *ServerStores) PublicWebhookStore() *store.PublicWebhookStore {
