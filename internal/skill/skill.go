@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package skill reads, checks and hashes skill folders. A skill folder
+// Package skill reads, checks, hashes and writes skill folders. A skill folder
 // follows the Agent Skills format (https://agentskills.io/specification) with
 // the restrictions of Spec 096. The folder on disk is the only source of truth.
 package skill

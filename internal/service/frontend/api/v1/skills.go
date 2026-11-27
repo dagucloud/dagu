@@ -13,8 +13,10 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/skill"
@@ -39,6 +41,16 @@ var (
 		Code:       api.ErrorCodeInternalError,
 		Message:    "Failed to read skill",
 		HTTPStatus: http.StatusInternalServerError,
+	}
+	errFailedToSaveSkill = &Error{
+		Code:       api.ErrorCodeInternalError,
+		Message:    "Failed to save skill",
+		HTTPStatus: http.StatusInternalServerError,
+	}
+	errSkillPreconditionRequired = &Error{
+		Code:       api.ErrorCodeBadRequest,
+		Message:    "A write needs the header If-Match with the hash of the skill that the client read, or If-None-Match: * to create the skill",
+		HTTPStatus: http.StatusPreconditionRequired,
 	}
 	errSkillChanged = &Error{
 		Code:       api.ErrorCodeConflict,
@@ -126,6 +138,60 @@ func (a *API) GetSkill(ctx context.Context, request api.GetSkillRequestObject) (
 	return api.GetSkill200JSONResponse(detail), nil
 }
 
+// UpdateSkill validates and saves SKILL.md. Requires developer role or above.
+func (a *API) UpdateSkill(ctx context.Context, request api.UpdateSkillRequestObject) (api.UpdateSkillResponseObject, error) {
+	if err := a.requireDAGWrite(ctx); err != nil {
+		return nil, err
+	}
+	if !skill.IsSafeFolderName(request.Name) {
+		return nil, errInvalidSkillName
+	}
+	if request.Body == nil {
+		return nil, ErrInvalidRequestBody
+	}
+	pre, err := skillPrecondition(request.Params.IfMatch, request.Params.IfNoneMatch)
+	if err != nil {
+		return nil, err
+	}
+	sk, err := a.skillStore().WriteFile(ctx, request.Name, skill.FileName, []byte(request.Body.Content), pre)
+	if err != nil {
+		failure := a.classifySkillWrite(ctx, request.Name, err)
+		switch failure.status {
+		case http.StatusBadRequest:
+			return api.UpdateSkill400JSONResponse(failure.body), nil
+		case http.StatusConflict:
+			return api.UpdateSkill409JSONResponse(failure.body), nil
+		}
+		return nil, failure.err
+	}
+	a.logAudit(ctx, audit.CategorySystem, "skill_update", map[string]string{"name": request.Name, "hash": sk.Hash})
+	return api.UpdateSkill200JSONResponse(toSkillWriteResult(sk)), nil
+}
+
+// DeleteSkill deletes the folder of a skill with every file. Requires developer
+// role or above.
+func (a *API) DeleteSkill(ctx context.Context, request api.DeleteSkillRequestObject) (api.DeleteSkillResponseObject, error) {
+	if err := a.requireDAGWrite(ctx); err != nil {
+		return nil, err
+	}
+	if !skill.IsSafeFolderName(request.Name) {
+		return nil, errInvalidSkillName
+	}
+	pre, err := skillPrecondition(request.Params.IfMatch, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.skillStore().DeleteSkill(ctx, request.Name, pre); err != nil {
+		failure := a.classifySkillWrite(ctx, request.Name, err)
+		if failure.status == http.StatusConflict {
+			return api.DeleteSkill409JSONResponse(failure.body), nil
+		}
+		return nil, failure.err
+	}
+	a.logAudit(ctx, audit.CategorySystem, "skill_delete", map[string]string{"name": request.Name})
+	return api.DeleteSkill204Response{}, nil
+}
+
 // GetSkillFile streams one file of a skill, exactly as stored. A file that
 // changes during the stream ends the stream before its last bytes.
 func (a *API) GetSkillFile(ctx context.Context, request api.GetSkillFileRequestObject) (api.GetSkillFileResponseObject, error) {
@@ -164,6 +230,55 @@ func (a *API) GetSkillFile(ctx context.Context, request api.GetSkillFileRequestO
 		filename: sanitizeFilename(path.Base(rel)),
 		etag:     `"` + sk.Hash + `"`,
 	}, nil
+}
+
+// skillPrecondition reads the headers If-Match and If-None-Match.
+func skillPrecondition(ifMatch, ifNoneMatch *string) (skill.Precondition, error) {
+	if ifNoneMatch != nil && strings.TrimSpace(*ifNoneMatch) != "" {
+		if strings.TrimSpace(*ifNoneMatch) != "*" {
+			return skill.Precondition{}, &Error{Code: api.ErrorCodeBadRequest, Message: "If-None-Match must be *", HTTPStatus: http.StatusBadRequest}
+		}
+		return skill.Precondition{MustNotExist: true}, nil
+	}
+	if ifMatch == nil || strings.TrimSpace(*ifMatch) == "" {
+		return skill.Precondition{}, errSkillPreconditionRequired
+	}
+	hash := strings.Trim(strings.TrimPrefix(strings.TrimSpace(*ifMatch), "W/"), `"`)
+	if len(hash) != 64 {
+		return skill.Precondition{}, &Error{Code: api.ErrorCodeBadRequest, Message: "If-Match must be the hash of the skill (64 hexadecimal characters)", HTTPStatus: http.StatusBadRequest}
+	}
+	return skill.Precondition{IfMatch: hash}, nil
+}
+
+type skillFailure struct {
+	status int
+	body   api.SkillError
+	err    error
+}
+
+// classifySkillWrite maps an error of the store to a response: a typed body for
+// a refused content (400) and a conflict (409), an *Error for the rest.
+func (a *API) classifySkillWrite(ctx context.Context, name string, err error) skillFailure {
+	if conflict, ok := errors.AsType[*skill.ConflictError](err); ok {
+		hash := conflict.Current
+		return skillFailure{status: http.StatusConflict, body: api.SkillError{
+			Code: api.ErrorCodeConflict, Message: conflict.Message, Hash: &hash,
+		}}
+	}
+	if invalid, ok := errors.AsType[*skill.InvalidError](err); ok {
+		issues := toSkillIssues(invalid.Issues)
+		return skillFailure{status: http.StatusBadRequest, body: api.SkillError{
+			Code: api.ErrorCodeBadRequest, Message: invalid.Error(), Issues: &issues,
+		}}
+	}
+	if errors.Is(err, skill.ErrPreconditionRequired) {
+		return skillFailure{status: http.StatusPreconditionRequired, err: errSkillPreconditionRequired}
+	}
+	if errors.Is(err, skill.ErrNotFound) {
+		return skillFailure{status: http.StatusNotFound, err: errSkillNotFound}
+	}
+	logger.Error(ctx, "Failed to write skill", tag.Name(name), tag.Error(err))
+	return skillFailure{status: http.StatusInternalServerError, err: errFailedToSaveSkill}
 }
 
 // skillFileResponse streams one file of a skill as an attachment and closes it
@@ -256,6 +371,15 @@ func toSkillSummary(sk *skill.Skill) api.SkillSummary {
 		TotalBytes:  total,
 		BodyLines:   stats.BodyLines,
 		BodyTokens:  stats.BodyTokens,
+	}
+}
+
+func toSkillWriteResult(sk *skill.Skill) api.SkillWriteResult {
+	return api.SkillWriteResult{
+		Hash:     sk.Hash,
+		Errors:   toSkillIssues(sk.Errors()),
+		Warnings: toSkillIssues(sk.Warnings()),
+		Files:    toSkillFiles(sk.Files),
 	}
 }
 

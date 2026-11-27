@@ -9854,6 +9854,152 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+    put:
+      summary: "Create or update SKILL.md"
+      description: "Validates the SKILL.md content and writes it atomically as skills/{name}/SKILL.md of the DAGs directory. Send If-Match with the hash that the client read, or If-None-Match: * to create the skill. A skill that changed meanwhile gives 409 with its current hash. Requires developer role or above."
+      operationId: "updateSkill"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/SkillName"
+        - name: If-Match
+          in: header
+          required: false
+          description: "The hash of the skill that the client read (the field hash). The write applies only when the skill still has this hash. Every write needs this header, or If-None-Match: * to create."
+          schema:
+            type: string
+        - name: If-None-Match
+          in: header
+          required: false
+          description: "The value * makes the write apply only when the skill does not exist."
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                content:
+                  type: string
+                  maxLength: 4194304
+                  description: "The raw content of SKILL.md: a YAML front matter block with name and description, then the Markdown instructions"
+              required:
+                - content
+      responses:
+        "200":
+          description: "Skill saved"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillWriteResult"
+        "400":
+          description: "Invalid skill name or invalid SKILL.md"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillError"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires developer role or above"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "If-Match names a skill that does not exist"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The skill changed after the client read it, or it exists"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillError"
+        "428":
+          description: "The request has no If-Match or If-None-Match header"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      summary: "Delete a skill"
+      description: "Deletes the whole folder of a skill with every file. Send If-Match with the hash that the client read. Requires developer role or above."
+      operationId: "deleteSkill"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/SkillName"
+        - name: If-Match
+          in: header
+          required: false
+          description: "The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header."
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "Skill deleted"
+        "400":
+          description: "Invalid skill name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires developer role or above"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Skill not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The skill changed after the client read it"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillError"
+        "428":
+          description: "The request has no If-Match header"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /skills/{name}/files:
     get:
       summary: "Get one file of a skill"
@@ -15378,6 +15524,51 @@ components:
         - files
         - summary
 
+
+    SkillWriteResult:
+      type: object
+      description: "The skill after a write"
+      properties:
+        hash:
+          type: string
+          description: "The new hash of the skill"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillIssue"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillIssue"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillFile"
+      required:
+        - hash
+        - errors
+        - warnings
+        - files
+
+    SkillError:
+      type: object
+      description: "An error of a skill route: a content that breaks a rule, or a write that conflicts"
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        message:
+          type: string
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillIssue"
+          description: "The rules that the content breaks"
+        hash:
+          type: string
+          description: "For a conflict: the hash of the skill now. Empty when the skill does not exist."
+      required:
+        - code
+        - message
 
     ToolDefinition:
       type: object
