@@ -157,8 +157,8 @@ func (l *ConfigLoader) settingSource(key string) string {
 func valueSourceKeys() []string {
 	keys := []string{"coordinator.host"}
 	peer := reflect.TypeFor[PeerDef]()
-	for i := range peer.NumField() {
-		name, _, _ := strings.Cut(peer.Field(i).Tag.Get("mapstructure"), ",")
+	for field := range peer.Fields() {
+		name, _, _ := strings.Cut(field.Tag.Get("mapstructure"), ",")
 		keys = append(keys, "peer."+name)
 	}
 	return keys
