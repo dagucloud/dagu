@@ -70,7 +70,7 @@ func TestLoadOrCreatePeerCAUnreadable(t *testing.T) {
 	_, err := LoadOrCreatePeerCA(path)
 	require.ErrorContains(t, err, path)
 
-	data, err := os.ReadFile(path)
+	data, err := fileutil.ReadFile(path)
 	require.NoError(t, err)
 	assert.Equal(t, "not a CA", string(data))
 }
@@ -81,7 +81,12 @@ func TestLoadPeerCA(t *testing.T) {
 	require.NoError(t, err)
 	other, err := WritePeerInit(filepath.Join(dir, "b"))
 	require.NoError(t, err)
-	leafCert, leafKey := writeLeafCertificate(t, dir)
+	leafCert, leafKey := writeCertificate(t, dir, "leaf", &x509.Certificate{})
+	noCertSign, noCertSignKey := writeCertificate(t, dir, "no-cert-sign", &x509.Certificate{
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+	})
 
 	ca, err := LoadPeerCA(paths[0], paths[1])
 	require.NoError(t, err)
@@ -94,6 +99,7 @@ func TestLoadPeerCA(t *testing.T) {
 	}{
 		{name: "KeyOfAnotherCA", certFile: paths[0], keyFile: other[1]},
 		{name: "NotACA", certFile: leafCert, keyFile: leafKey},
+		{name: "KeyUsageWithoutCertSign", certFile: noCertSign, keyFile: noCertSignKey},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -121,7 +127,7 @@ func TestWritePeerInit(t *testing.T) {
 	ca, err := LoadPeerCA(paths[0], paths[1])
 	require.NoError(t, err)
 	requireGeneratedCA(t, ca)
-	token, err := os.ReadFile(paths[2])
+	token, err := fileutil.ReadFile(paths[2])
 	require.NoError(t, err)
 	assert.Regexp(t, regexp.MustCompile(`^[0-9a-f]{64}\n$`), string(token))
 	_, err = readPeerToken(paths[2])
@@ -145,7 +151,7 @@ func TestWritePeerInitExisting(t *testing.T) {
 			entries, err := os.ReadDir(dir)
 			require.NoError(t, err)
 			require.Len(t, entries, 1)
-			data, err := os.ReadFile(existing)
+			data, err := fileutil.ReadFile(existing)
 			require.NoError(t, err)
 			assert.Equal(t, "keep", string(data))
 		})
@@ -202,7 +208,7 @@ func TestWritePeerInitFailedWrite(t *testing.T) {
 			require.NoError(t, err)
 			files := make(map[string]string, len(entries))
 			for _, entry := range entries {
-				data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+				data, err := fileutil.ReadFile(filepath.Join(dir, entry.Name()))
 				require.NoError(t, err)
 				files[entry.Name()] = string(data)
 			}
@@ -232,25 +238,24 @@ func requireOwnerOnly(t *testing.T, path string) {
 	}
 }
 
-// writeLeafCertificate writes a self-signed certificate that is not a CA and
-// its key, and returns their paths.
-func writeLeafCertificate(t *testing.T, dir string) (certFile, keyFile string) {
+// writeCertificate writes a self-signed certificate from template, valid for
+// an hour around now, and its key as name.crt and name.key in dir, and returns
+// their paths.
+func writeCertificate(t *testing.T, dir, name string, template *x509.Certificate) (certFile, keyFile string) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
-	template := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "leaf"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(time.Hour),
-	}
+	template.SerialNumber = big.NewInt(1)
+	template.Subject = pkix.Name{CommonName: name}
+	template.NotBefore = time.Now().Add(-time.Hour)
+	template.NotAfter = time.Now().Add(time.Hour)
 	der, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
 	require.NoError(t, err)
 	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
 	require.NoError(t, err)
 
-	certFile = filepath.Join(dir, "leaf.crt")
-	keyFile = filepath.Join(dir, "leaf.key")
+	certFile = filepath.Join(dir, name+".crt")
+	keyFile = filepath.Join(dir, name+".key")
 	require.NoError(t, os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600))
 	require.NoError(t, os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0o600))
 	return certFile, keyFile

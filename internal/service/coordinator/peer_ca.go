@@ -188,6 +188,11 @@ func parsePeerCA(certPEM, keyPEM []byte) (*PeerCA, error) {
 	if !cert.BasicConstraintsValid || !cert.IsCA {
 		return nil, errors.New("the certificate is not a CA certificate")
 	}
+	// RFC 5280 lets a certificate without the key usage extension sign
+	// certificates, and one with it only when it names keyCertSign.
+	if cert.KeyUsage != 0 && cert.KeyUsage&x509.KeyUsageCertSign == 0 {
+		return nil, errors.New("the CA certificate's key usage does not allow signing certificates")
+	}
 	key, ok := pair.PrivateKey.(crypto.Signer)
 	if !ok {
 		return nil, errors.New("the key cannot sign certificates")
