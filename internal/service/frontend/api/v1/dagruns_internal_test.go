@@ -2190,8 +2190,9 @@ func TestBrowserSessionWaiting(t *testing.T) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	t.Cleanup(failing.Close)
-	closed := httptest.NewServer(http.NotFoundHandler())
-	closed.Close()
+	// Nothing can listen on port 0. A port freed by a closed server is not
+	// used, since a concurrent test may bind it again.
+	const unreachable = "http://127.0.0.1:0"
 
 	now := time.Now()
 	for _, test := range []struct {
@@ -2203,7 +2204,7 @@ func TestBrowserSessionWaiting(t *testing.T) {
 		{name: "open", record: &browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(time.Hour), CDPURL: devtools.URL}, want: true},
 		{name: "no record"},
 		{name: "expired", record: &browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(-time.Minute), CDPURL: devtools.URL}},
-		{name: "unreachable", record: &browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(time.Hour), CDPURL: closed.URL}},
+		{name: "unreachable", record: &browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(time.Hour), CDPURL: unreachable}},
 		{name: "running", record: &browserhost.Record{State: browserhost.StateRunning, Deadline: now.Add(time.Hour), CDPURL: devtools.URL}},
 		{name: "unknown", record: &browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(time.Hour), CDPURL: failing.URL}, wantErr: true},
 	} {
