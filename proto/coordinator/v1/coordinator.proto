@@ -762,16 +762,27 @@ message GetJoinReadinessResponse {
   int32 port = 2;          // coordinator.port
   // The config file the coordinator read, or the default path it would read.
   string config_file = 3;
-  // True when coordinator.host is localhost, an address in 127.0.0.0/8, or ::1.
+  // True when coordinator.host is localhost, an address in 127.0.0.0/8, or [::1].
   bool loopback_only = 4;
   ConfigSource host_source = 5;  // Where coordinator.host came from
   string advertise = 6;          // coordinator.advertise when set explicitly
   HostEnvironment environment = 7;
-  // Non-loopback, non-link-local interface addresses when environment is
-  // HOST_ENVIRONMENT_HOST; empty otherwise.
+  // Addresses a worker on another host may dial, when environment is
+  // HOST_ENVIRONMENT_HOST: the interface addresses other than loopback and
+  // link-local ones for a listener on all interfaces, or listen_host when it
+  // is another IP address that is not loopback. Empty otherwise.
   repeated string addresses = 8;
   bool builtin_tls = 9;  // True only when the coordinator has a usable peer CA
   bool ready = 10;       // True when loopback_only is false and builtin_tls is true
+  // Why builtin_tls is false; unspecified when it is true.
+  BuiltinTLSReason builtin_tls_reason = 11;
+}
+
+// Why a coordinator has no built-in TLS.
+enum BuiltinTLSReason {
+  BUILTIN_TLS_REASON_UNSPECIFIED = 0;
+  BUILTIN_TLS_REASON_OWN_CERTIFICATES = 1;  // peer.cert_file and peer.key_file are set
+  BUILTIN_TLS_REASON_CA_UNAVAILABLE = 2;    // The generated CA could not be created or read
 }
 
 // Where a configuration value came from.
