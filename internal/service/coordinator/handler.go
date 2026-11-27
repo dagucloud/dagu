@@ -1019,9 +1019,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 			return nil, fmt.Errorf("failed to open existing attempt: %w", err)
 		}
 
-		h.attemptsMu.Lock()
-		h.openAttempts[task.DagRunId] = existingAttempt
-		h.attemptsMu.Unlock()
+		h.cacheOpenAttempt(ctx, task.DagRunId, existingAttempt)
 
 		logger.Info(ctx, "Reusing existing queued attempt for dispatched task",
 			tag.RunID(task.DagRunId),
@@ -1069,9 +1067,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 		return nil, errors.Join(fmt.Errorf("failed to write initial status: %w", writeErr), closeErr)
 	}
 
-	h.attemptsMu.Lock()
-	h.openAttempts[task.DagRunId] = attempt
-	h.attemptsMu.Unlock()
+	h.cacheOpenAttempt(ctx, task.DagRunId, attempt)
 
 	logger.Info(ctx, "Created DAGRun attempt for dispatched task",
 		tag.RunID(task.DagRunId),
@@ -1081,6 +1077,26 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 	)
 
 	return &preparedDispatchAttempt{attempt: attempt, newlyCreated: true}, nil
+}
+
+// cacheOpenAttempt keeps attempt open for the run's status writes and closes
+// the handle it replaces, so an attempt a newer one replaced, or another
+// handle to the same attempt, does not stay open.
+func (h *Handler) cacheOpenAttempt(ctx context.Context, dagRunID string, attempt dagrun.Attempt) {
+	h.attemptsMu.Lock()
+	previous, ok := h.openAttempts[dagRunID]
+	h.openAttempts[dagRunID] = attempt
+	h.attemptsMu.Unlock()
+	if !ok || previous == attempt {
+		return
+	}
+	if err := previous.Close(context.WithoutCancel(ctx)); err != nil {
+		logger.Warn(ctx, "Failed to close a replaced cached attempt",
+			tag.RunID(dagRunID),
+			tag.AttemptID(previous.ID()),
+			tag.Error(err),
+		)
+	}
 }
 
 // generateRootAttemptKey creates an AttemptKey for root-level tasks (self-referential hierarchy).
@@ -1172,9 +1188,7 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 		return nil, errors.Join(fmt.Errorf("failed to write initial status: %w", writeErr), closeErr)
 	}
 
-	h.attemptsMu.Lock()
-	h.openAttempts[task.DagRunId] = attempt
-	h.attemptsMu.Unlock()
+	h.cacheOpenAttempt(ctx, task.DagRunId, attempt)
 
 	logger.Info(ctx, "Created sub-DAG attempt for distributed execution",
 		tag.RunID(task.DagRunId),
@@ -1225,9 +1239,7 @@ func (h *Handler) repeatedDispatchAttempt(
 		if err := attempt.Open(ctx); err != nil {
 			return nil, fmt.Errorf("failed to open attempt %s: %w", task.AttemptId, err)
 		}
-		h.attemptsMu.Lock()
-		h.openAttempts[task.DagRunId] = attempt
-		h.attemptsMu.Unlock()
+		h.cacheOpenAttempt(ctx, task.DagRunId, attempt)
 	}
 	logger.Info(ctx, "Finishing the admission of a repeated dispatch",
 		tag.RunID(task.DagRunId),

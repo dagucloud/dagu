@@ -750,3 +750,24 @@ func TestDispatchRepeatResetMisses(t *testing.T) {
 		})
 	}
 }
+
+// A dispatch that creates a newer attempt of a run closes the handle the
+// coordinator kept open for the attempt it replaced.
+func TestDispatchClosesReplacedAttempt(t *testing.T) {
+	f := newHoldFixture(t, 0)
+	_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeatTask("run-replaced")})
+	require.NoError(t, err)
+	replaced := f.attempt("run-replaced")
+
+	retry := repeatTask("run-replaced")
+	retry.Operation = coordinatorv1.Operation_OPERATION_RETRY
+	retry.AttemptId = "f6e5d4c3b2a1"
+	_, err = f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: retry})
+	require.NoError(t, err)
+
+	require.NotSame(t, replaced, f.attempt("run-replaced"))
+	replaced.mu.Lock()
+	defer replaced.mu.Unlock()
+	assert.True(t, replaced.closed, "the replaced attempt must be closed")
+	assert.False(t, replaced.isOpen)
+}
