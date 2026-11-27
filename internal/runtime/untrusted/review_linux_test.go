@@ -334,11 +334,12 @@ func TestReviewStopperBlocksNoStart(t *testing.T) {
 }
 
 // Property (Spec 103, "Protections for later trusted steps", .git): the
-// restricted user cannot write .git. The attack: a trusted step that runs at
-// the same time as the untrusted step (another branch of a graph) writes in the
-// work directory as root. The agent replaces a folder that it owns with a link
-// to .git/hooks, so the trusted write lands in .git. The restore finds the
-// change, removes the link and stops the run.
+// restricted user cannot write .git. The attack: a write of the worker in the
+// work directory during the step, such as a trusted step that the gate of the
+// run failed to hold back. The agent replaces a folder that it owns with a link
+// to .git/hooks, so the write lands in .git. The restore finds the change,
+// removes the link and stops the run, and no later isolated step of the
+// process runs.
 func TestReviewConcurrentTrustedWriteReachesGit(t *testing.T) {
 	requireIsolation(t)
 	resetPoison(t)
@@ -356,6 +357,7 @@ func TestReviewConcurrentTrustedWriteReachesGit(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(repo, ".git", "hooks", "pre-commit"), "a write of a trusted step made a hook in .git")
 	// The change of a git folder stops the run.
 	assert.ErrorIs(t, endErr, ErrRunAborted)
+	assert.ErrorIs(t, Poisoned(), ErrRunAborted, "the process runs no later isolated step")
 	assert.NoFileExists(t, filepath.Join(repo, "src"), "the link of the agent into .git is removed")
 }
 

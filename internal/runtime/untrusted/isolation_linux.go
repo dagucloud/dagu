@@ -568,10 +568,13 @@ func (iso *isolation) end(_ context.Context) error {
 		return fmt.Errorf("%w: %w", ErrRunAborted, err)
 	}
 
-	var errs []error
-	errs = append(errs, iso.restore(true))
-	errs = append(errs, iso.checkGitRemoved())
-	errs = append(errs, iso.copyOutput())
+	restoreErr := errors.Join(iso.restore(true), iso.checkGitRemoved())
+	if errors.Is(restoreErr, ErrRunAborted) {
+		// Spec 103, "Isolation": no later step of a run with an untrusted step
+		// runs in this process on a work directory that Dagu cannot make safe.
+		poison(restoreErr)
+	}
+	errs := []error{restoreErr, iso.copyOutput()}
 	if err := os.RemoveAll(iso.privateDir); err != nil {
 		errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, err))
 	}
