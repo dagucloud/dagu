@@ -286,7 +286,9 @@ func NewDAGRunEvent(source Source, eventType EventType, status *ir.DAGRunStatus,
 		occurredAt = recordedAt
 	}
 	data = cloneData(data)
-	if snapshot := newDAGRunStatusSnapshot(status, dagRunFileNameFromData(data)); snapshot != nil {
+	service, _ := data[ServiceDAGDataKey].(bool)
+	includeDependencies := eventType != TypeDAGRunUpdated && status.Status.IsTerminal() && status.Parent.Zero() && !service
+	if snapshot := newDAGRunStatusSnapshot(status, dagRunFileNameFromData(data), includeDependencies); snapshot != nil {
 		if data == nil {
 			data = make(map[string]any, 1)
 		}
