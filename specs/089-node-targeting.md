@@ -171,13 +171,22 @@ trusted when the run looked the node up. A run never trusts a key.
 
 The child runs of a step with `nodes` bound to SSH nodes run on the worker
 that runs their parent, and those bound to worker nodes run on those
-workers. A child DAG file whose name holds a reference, such as
-`dag: deploy-${params.app}`, reads no nodes on a worker: the coordinator
-serves only the child DAGs a run names as written, in its steps, `foreach`
-bodies, and handlers. Each child run reads its own node again, so a run never reuses an
-answer another run read. A worker that cannot reach the coordinator, or
-whose coordinator answers no lookup, fails the step or the run as an
-unreadable inventory does.
+workers. When a child DAG file whose name holds a reference, such as
+`dag: deploy-${params.app}`, runs on the worker that runs its parent, the
+coordinator serves it no nodes and no registry secret, neither a
+`secrets:` entry that uses `ref` nor an SSH `{secret: ...}` credential: it
+serves those only to a run's DAG and the child DAGs the run names as
+written, in its steps, `foreach` bodies, and handlers. Such a child that
+needs either fails. Its runtime profile is served for no workspace, or for
+the workspace of a DAG the run reaches by names as written that runs a
+child whose name holds a reference; a child that names another workspace
+fails. A `secrets:` entry that uses `provider` resolves on the worker.
+A child named as written, a child dispatched to a worker, such as one with
+`worker_selector` or bound to a worker node, and a child whose parent runs
+on the Dagu host read both. Each child run reads its own node again, so a
+run never reuses an answer another run read. A worker that cannot reach
+the coordinator, or whose coordinator answers no lookup, fails the step or
+the run as an unreadable inventory does.
 
 ### The `node` namespace
 
