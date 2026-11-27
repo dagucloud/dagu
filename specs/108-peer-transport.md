@@ -462,6 +462,7 @@ The `worker_invites` collection keeps one record per invite:
 | Field | Value |
 | --- | --- |
 | `id` | A random ID, assigned on create |
+| `secret_hash` | The SHA-256 of the invite's secret |
 | `kind` | `single_use` or `reusable` |
 | `expires_at` | The expiry, or none |
 | `address` | The `host:port` the invite was made for, or none |
@@ -560,18 +561,21 @@ The `worker_certificates` collection keeps one record per certificate:
 | --- | --- |
 | `id` | The certificate ID |
 | `invite_id` | The invite it enrolled with |
+| `key_fingerprint` | The SHA-256 of the certificate's public key in DER form |
 | `state` | `active`, `removing`, or `revoked` |
 | `worker_id` | The worker ID at its last heartbeat |
 | `host` | The host name the worker reported |
 | `environment` | `host`, `container`, or `kubernetes`, from the worker's heartbeat |
 | `created_at` | The enrollment time |
-| `last_heartbeat_at` | The time of its last recorded heartbeat |
+| `last_heartbeat_at` | The time of its last recorded heartbeat, or none before the first |
 
-- A heartbeat with a worker certificate writes `last_heartbeat_at` when the
-  stored value is more than 24 hours old, and writes the record again when
-  it was pruned.
+- A heartbeat with a worker certificate writes the record when the stored
+  `last_heartbeat_at` is more than 24 hours old, or none, or when the
+  worker ID, host, or environment it reports changed. It writes the record
+  again when it was pruned. It keeps the stored state.
 - Once a day, each coordinator deletes the records in state `active` whose
-  `last_heartbeat_at` is more than 90 days old.
+  `last_heartbeat_at`, or `created_at` when it is none, is more than 90
+  days old.
 - Records in state `revoked` stay.
 - A coordinator accepts a worker certificate when it chains to the peer CA
   and its ID is not in the revoked set. A certificate whose record was
@@ -968,7 +972,8 @@ and prints the message:
   back while it is open, and by `dagu worker invite`.
 - A client that fell back tries TLS again at most once per coordinator
   address per 10 minutes, on its next new connection.
-- A heartbeat writes a certificate record at most once a day.
+- A heartbeat writes a certificate record at most once a day, and when the
+  worker's ID, host, or environment changes.
 - Invites are read only at enrollment and when listed.
 - The h2c callers take at most 64 entries per coordinator.
 
