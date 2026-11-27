@@ -165,7 +165,11 @@ func (a *API) UpdateSkill(ctx context.Context, request api.UpdateSkillRequestObj
 		}
 		return nil, failure.err
 	}
-	a.logAudit(ctx, audit.CategorySystem, "skill_update", map[string]string{"name": request.Name, "hash": sk.Hash})
+	a.logAudit(ctx, audit.CategorySystem, "skill_update", map[string]any{
+		"resource_type": "skill",
+		"resource_id":   request.Name,
+		"hash":          sk.Hash,
+	})
 	return api.UpdateSkill200JSONResponse(toSkillWriteResult(sk)), nil
 }
 

@@ -373,7 +373,8 @@ reads or writes a file outside the folder of the skill. The name of a skill in a
 folder name: no separator, no leading dot, at most 255 bytes. A new skill MUST follow the name rule.
 
 The API writes an audit event for each change: `skill_update`, `skill_delete`, `skill_file_write`,
-`skill_file_delete` and `skill_download`.
+`skill_file_delete` and `skill_download`. The resource of the event has the type `skill` and the
+name of the skill as its ID.
 
 ## Download as ZIP
 
@@ -507,7 +508,7 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | `TestSkillsTwoInstancesRaceOnOneDirectory` (unit) | Two API instances on one directory: one write wins, the other gets 409. |
 | `TestSkillsWriteNeedsDeveloper` (unit) | A viewer reads skills and cannot write them. |
 | `TestSkillsWritesFollowTheDAGWriteRules` (unit) | A write needs `write_dags`, and the read-only mode of Git Sync refuses it. |
-| `TestSkillsWritesAreAudited` (unit) | Each write gives an audit event with the name and the hash, and no content. |
+| `TestSkillsWritesAreAudited` (unit) | Each write gives an audit event with the resource `skill`, the name and the hash, and no content. |
 | `TestSkillsWriteFailureNamesNoServerPath` (unit) | A write that the disk refuses gives 500 and names no server path. |
 
 The delete of a skill, the file writes and the ZIP download have no test yet.

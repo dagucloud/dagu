@@ -480,7 +480,8 @@ func TestSkillsWritesAreAudited(t *testing.T) {
 	for i, hash := range []string{h, updated.(api.UpdateSkill200JSONResponse).Hash} {
 		entry := auditStore.entries[i]
 		assert.Equal(t, "skill_update", entry.Action)
-		assert.Contains(t, entry.Details, "refund-policy")
+		assert.Equal(t, "skill", entry.ResourceType)
+		assert.Equal(t, "refund-policy", entry.ResourceID)
 		assert.Contains(t, entry.Details, hash)
 		assert.NotContains(t, entry.Details, "Refund", "an audit entry holds no content of the skill")
 	}
