@@ -79,6 +79,6 @@ steps:
 `)
 	checker := &missingConnections{}
 	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{ConnectionChecker: checker}))
-	dagAgent.RunCheckErr(t, `connection "work-google": the DAG's workspace label`)
+	dagAgent.RunCheckErr(t, `connection "work-google": the DAG's workspace labels name no single valid workspace`)
 	require.Empty(t, checker.checks)
 }

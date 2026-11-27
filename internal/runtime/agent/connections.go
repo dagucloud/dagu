@@ -59,7 +59,7 @@ func (a *Agent) checkConnections(ctx context.Context) error {
 		// A malformed or ambiguous label names no workspace, and only a DAG
 		// without the label may use the .global connections.
 		if state == workspace.WorkspaceLabelInvalid {
-			errs = append(errs, fmt.Errorf("connection %q: the DAG's workspace label %q is invalid", ref.Name, name))
+			errs = append(errs, fmt.Errorf("connection %q: the DAG's workspace labels name no single valid workspace", ref.Name))
 			continue
 		}
 		if err := a.connectionChecker.CheckConnection(ctx, name, ref); err != nil {
