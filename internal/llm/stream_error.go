@@ -11,6 +11,7 @@ import (
 // StreamError converts the "error" field of a stream chunk to an error. It
 // returns nil when the chunk carries no error. The field is an object with a
 // message and, for some servers, a numeric HTTP status code, or a bare string.
+// An error without a numeric status code is retryable.
 func StreamError(provider string, raw json.RawMessage) error {
 	switch string(raw) {
 	case "", "null", `""`:
@@ -33,5 +34,11 @@ func StreamError(provider string, raw json.RawMessage) error {
 	if message == "" {
 		message = string(raw)
 	}
-	return NewAPIError(provider, status, message)
+	apiErr := NewAPIError(provider, status, message)
+	if status == 0 {
+		// The provider failed after accepting the request, so a failure
+		// it does not classify is treated as transient.
+		apiErr.Retryable = true
+	}
+	return apiErr
 }

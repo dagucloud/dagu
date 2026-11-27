@@ -19,10 +19,17 @@ func TestStreamError(t *testing.T) {
 	}
 
 	// OpenAI sends string codes, and some local servers send a bare string.
-	assert.EqualError(t,
-		llm.StreamError("openai", json.RawMessage(`{"code":"server_error","message":"boom"}`)),
-		llm.NewAPIError("openai", 0, "boom").Error())
-	assert.EqualError(t,
-		llm.StreamError("local", json.RawMessage(`"boom"`)),
-		llm.NewAPIError("local", 0, "boom").Error())
+	// Without a numeric status, the error is retried.
+	for provider, raw := range map[string]string{
+		"openai": `{"code":"server_error","message":"boom"}`,
+		"local":  `"boom"`,
+	} {
+		err := llm.StreamError(provider, json.RawMessage(raw))
+		assert.EqualError(t, err, llm.NewAPIError(provider, 0, "boom").Error())
+		assert.True(t, llm.IsRetryable(err), "raw %s", raw)
+	}
+
+	// A numeric client error code is not retried.
+	assert.False(t, llm.IsRetryable(
+		llm.StreamError("gemini", json.RawMessage(`{"code":400,"message":"bad"}`))))
 }
