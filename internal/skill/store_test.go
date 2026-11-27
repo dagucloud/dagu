@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -493,6 +494,59 @@ func TestLockFailureIsNotAConflict(t *testing.T) {
 	require.Error(t, err)
 	var conflict *skill.ConflictError
 	require.False(t, errors.As(err, &conflict), "%v", err)
+}
+
+// A delete removes the skill at once: a file that cannot be removed stays in a
+// hidden folder, never as a part of a skill that readers see.
+func TestDeleteOfASkillIsAtomic(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs Unix permissions that bind the user")
+	}
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(filepath.Join(s.Dir("demo"), "references"), 0o500))
+	t.Cleanup(func() {
+		_ = filepath.WalkDir(skill.Root(s), func(p string, d fs.DirEntry, _ error) error {
+			if d != nil && d.IsDir() {
+				_ = os.Chmod(p, 0o755)
+			}
+			return nil
+		})
+	})
+
+	err = s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: cur.Hash})
+	require.ErrorIs(t, err, skill.ErrFilesLeft)
+	_, err = s.Read("demo")
+	require.ErrorIs(t, err, skill.ErrNotFound)
+	names, _, err := s.Names()
+	require.NoError(t, err)
+	require.Empty(t, names)
+}
+
+// A reader that opened a file before the delete of its skill gets the whole
+// file as it read it.
+func TestDeleteKeepsAnOpenFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows refuses to move a folder that holds an open file")
+	}
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("version one"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	r, err := cur.Open("references/a.md")
+	require.NoError(t, err)
+	defer func() { _ = r.Close() }()
+
+	require.NoError(t, s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: cur.Hash}))
+	data, err := io.ReadAll(r)
+	require.NoError(t, err)
+	require.Equal(t, "version one", string(data))
 }
 
 // loseLock hands the lock of the skill name to another owner, as the takeover

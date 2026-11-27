@@ -182,7 +182,12 @@ func (a *API) DeleteSkill(ctx context.Context, request api.DeleteSkillRequestObj
 	if err != nil {
 		return nil, err
 	}
-	if err := a.skillStore().DeleteSkill(ctx, request.Name, pre); err != nil {
+	err = a.skillStore().DeleteSkill(ctx, request.Name, pre)
+	if errors.Is(err, skill.ErrFilesLeft) {
+		logger.Warn(ctx, "Some files of a deleted skill remain", tag.Name(request.Name), tag.Error(err))
+		err = nil
+	}
+	if err != nil {
 		failure := a.classifySkillWrite(ctx, request.Name, err)
 		if failure.status == http.StatusConflict {
 			return api.DeleteSkill409JSONResponse(failure.body), nil

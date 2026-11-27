@@ -32,7 +32,15 @@ const (
 	// lockStaleThreshold is the age after which another writer takes a lock that
 	// its holder no longer refreshes.
 	lockStaleThreshold = 30 * time.Second
+	// deletedDirPrefix starts the name of the hidden folder that a delete moves
+	// a skill to before it removes the files.
+	deletedDirPrefix = ".deleted."
 )
+
+// ErrFilesLeft is returned by DeleteSkill when the skill is deleted but some of
+// its files could not be removed. They stay in a hidden folder of the skills
+// directory, which no read lists.
+var ErrFilesLeft = errors.New("the skill is deleted, but some of its files remain in a hidden folder")
 
 // ErrPreconditionRequired is returned for a write that has no precondition.
 var ErrPreconditionRequired = errors.New("a write needs a precondition: the hash that the client read, or the rule that the skill must not exist")
@@ -424,7 +432,9 @@ func checkQuota(current *Skill, rel string, size int64) error {
 	return nil
 }
 
-// DeleteSkill deletes the whole folder of a skill, with every file.
+// DeleteSkill deletes the whole folder of a skill, with every file. A reader
+// sees the whole skill or no skill. It returns ErrFilesLeft when the skill is
+// gone but some of its files could not be removed.
 func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) error {
 	if !IsSafeFolderName(name) {
 		return ErrNotFound
@@ -443,10 +453,20 @@ func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) 
 		if err := held(); err != nil {
 			return err
 		}
-		if err := os.RemoveAll(s.Dir(name)); err != nil {
+		// One rename removes the skill for every reader; the files go after it. A
+		// reader that holds a file open keeps reading the version it opened.
+		hidden := filepath.Join(s.root, fmt.Sprintf("%s%016x", deletedDirPrefix, rand.Uint64())) //nolint:gosec // the name of a hidden folder, not a secret
+		if err := fileutil.Rename(s.Dir(name), hidden); err != nil {
 			return fmt.Errorf("delete the skill folder: %w", err)
 		}
-		return fileutil.SyncDir(s.root)
+		left := fileutil.RemoveAll(hidden)
+		if err := fileutil.SyncDir(s.root); err != nil {
+			return fmt.Errorf("delete the skill folder: %w", err)
+		}
+		if left != nil {
+			return fmt.Errorf("%w: %s: %v", ErrFilesLeft, hidden, left)
+		}
+		return nil
 	})
 }
 
