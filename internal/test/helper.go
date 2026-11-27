@@ -38,6 +38,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file/migration"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
@@ -46,7 +47,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -214,6 +214,9 @@ func Main(m *testing.M) {
 	os.Exit(code)
 }
 
+// noLiveRuns stops no run: a test's data directory has no v2 run.
+func noLiveRuns(context.Context) ([]string, error) { return nil, nil }
+
 // Setup creates and returns a Helper preconfigured for tests.
 //
 // Setup prepares an isolated test environment: it creates a temporary DAGU_HOME, writes a minimal config file, initializes stores and a runtime manager, sets key environment variables (e.g. DEBUG, CI, TZ, DAGU_EXECUTABLE, DAGU_CONFIG, SHELL), installs a cancellable context, and registers cleanup to restore the working directory and remove the temp directory. Use the returned Helper to interact with the test runtime and stores.
@@ -316,10 +319,16 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	cfg.Core.BaseEnv = config.NewBaseEnv(buildHelperChildEnv(cfg.Core.BaseEnv.AsSlice(), tmpDir, configFile, executablePath, cfg.Core.DefaultShell))
 	writeHelperConfigFile(t, cfg, configFile)
 	if cfg.ProjectsEnabled {
+		// The config file that subprocesses read sets each of these paths,
+		// which places the default project's state under them.
+		cfg.Paths.Explicit = config.ExplicitPaths{
+			LogDir: true, ArtifactDir: true, DAGRunsDir: true, DAGRunWorkDir: true,
+			QueueDir: true, SuspendFlagsDir: true, ProcDir: true,
+		}
 		// A first start migrates the data directory before any service
 		// registers. Services that a test starts in-process skip that step,
 		// and a command would take them for v2 ones and wait.
-		require.NoError(t, migration.New(cfg.Paths.DataDir, file.NewServiceRegistry(cfg)).Run(ctx))
+		require.NoError(t, migration.New(cfg, file.NewServiceRegistry(cfg), noLiveRuns).Run(ctx))
 	}
 
 	ctx = config.WithConfig(ctx, cfg)
@@ -339,9 +348,20 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	artifactRepository := file.NewArtifactRepository(cfg)
 	procRepository := newProcRepository(cfg)
 	backend := file.NewBackend(cfg.Paths)
-	queueStore := store.NewQueueStore(backend.Collection(persis.CollectionQueue))
-	stateStore := store.NewDAGStateStore(backend.Collection(persis.CollectionDAGState))
+	var queueStore queue.QueueStore = store.NewQueueStore(backend.Collection(persis.CollectionQueue))
+	var stateStore dagrun.StateStore = store.NewDAGStateStore(backend.Collection(persis.CollectionDAGState))
 	serviceMonitor := file.NewServiceRegistry(cfg)
+	if cfg.ProjectsEnabled {
+		// The default project's stores open on its own paths, as in the
+		// subprocesses.
+		stores, err := file.NewProjectStores(ctx, cfg, file.NewServerStores(cfg),
+			project.Project{Name: project.DefaultName}, file.ProjectStoreOptions{})
+		require.NoError(t, err)
+		dagRepository, err = stores.OpenDAGRepository(file.WithDAGSkipExamples(true))
+		require.NoError(t, err)
+		dagRunRepository, artifactRepository = stores.DAGRunRepository, stores.ArtifactRepository
+		procRepository, queueStore, stateStore = stores.ProcRepository, stores.QueueStore, stores.StateStore
+	}
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(backend.Collection(persis.CollectionWorkerHeartbeats))
 	leaseCollection := backend.Collection(persis.CollectionDAGRunLeases)
 	activeRunCollection := backend.Collection(persis.CollectionActiveDistributedRuns)
@@ -418,6 +438,10 @@ func writeHelperConfigFile(t *testing.T, cfg *config.Config, configPath string) 
 	}
 	if cfg.Core.TZ != "" {
 		configData["tz"] = cfg.Core.TZ
+	}
+	if cfg.ProjectsEnabled {
+		// A subprocess must serve projects as its parent does.
+		configData["experimental_projects"] = true
 	}
 
 	paths := map[string]any{
@@ -639,7 +663,7 @@ func (h Helper) DAG(t *testing.T, yamlContent string) DAG {
 	if h.Config.Paths.BaseConfig != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(h.Config.Paths.BaseConfig))
 	}
-	loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(h.Config.Paths.DAGsDir)))
+	loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(h.Config.WorkspaceBaseConfigDir()))
 	dag, err := spec.Load(h.Context, testFile, loadOpts...)
 	require.NoError(t, err, "failed to load test DAG")
 

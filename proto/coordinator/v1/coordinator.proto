@@ -189,6 +189,12 @@ message Task {
   string dates_json = 46;
   // Node names the run is narrowed to (RFC 013). Empty when not narrowed.
   repeated string target_nodes = 47;
+  // Node the run is bound to (RFC 013): a worker node, whose run is
+  // dispatched to that worker by target_worker_id.
+  string bound_node = 48;
+  // Command step with nodes of the definition that the run runs alone, bound
+  // to bound_node. Empty for a run of the whole definition.
+  string node_step = 49;
 }
 
 enum Operation {
@@ -655,10 +661,12 @@ message ResolveNodesResponse {
 enum NodeKind {
   NODE_KIND_UNSPECIFIED = 0;
   NODE_KIND_SSH = 1; // A host of an inventory
+  NODE_KIND_WORKER = 2; // A worker that sets worker.id; it has a name, host, and labels only
 }
 
-// A node with its inventory's defaults applied. A credential is a key path
-// or a secret ref, never a secret value.
+// A node with its inventory's defaults applied, or a worker node, which sets
+// name, kind, host, and labels only. A credential is a key path or a secret
+// ref, never a secret value.
 message ResolvedNode {
   string name = 1;
   NodeKind kind = 2;

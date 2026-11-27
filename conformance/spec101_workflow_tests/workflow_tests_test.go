@@ -321,6 +321,56 @@ cases:
 	}
 }
 
+// The example "A Value From the Host": --update writes no value that the
+// run took from the host. The report masks it and names the env entry to
+// set, and a case that sets the entry is rewritten.
+func TestWorkflowTestUpdateHostValues(t *testing.T) {
+	t.Parallel()
+
+	const hostToken = "spec101-host-token"
+	const kept = `mocks:
+  sync: {}
+cases:
+  - name: the host token reaches the sync
+    expect:
+      steps:
+        sync:
+          called_with:
+            env:
+              TOKEN: test-token
+  - name: the case sets the token
+    env:
+      TOKEN: test-token
+    expect:
+      steps:
+        sync:
+          called_with:
+            env:
+              TOKEN: `
+	dagu := harness.NewRunner(t)
+	dagu.WriteFile("workflows/sync.yaml", "env:\n  - TOKEN: ${SYNC_TOKEN}\nsteps:\n  - id: sync\n    run: ./sync.sh\n")
+	dagu.WriteFile("workflows/sync.test.yaml", kept+"old-token\n")
+
+	result := dagu.RunWithEnv([]string{"SYNC_TOKEN=" + hostToken}, "test", "--update", "workflows/sync.test.yaml")
+	result.ExpectExitCode(1)
+	expectLines(t, result.Stdout(),
+		"FAIL workflows/sync.test.yaml: the host token reaches the sync (",
+		`  step sync called_with.env.TOKEN: expected "test-token", got "*******"`+"\n",
+		"  step sync called_with.env.TOKEN: kept, it holds the value of host variable SYNC_TOKEN; set TOKEN under env\n",
+		"  expect unchanged\n",
+		"PASS workflows/sync.test.yaml: the case sets the token (", "  expect updated\n")
+	require.NotContains(t, result.Stdout(), hostToken)
+	dagu.ExpectFileContent("workflows/sync.test.yaml", kept+"test-token\n")
+
+	result = dagu.RunWithEnv([]string{"SYNC_TOKEN=" + hostToken}, "test", "--update", "--format", "json", "workflows/sync.test.yaml")
+	result.ExpectExitCode(1)
+	require.NotContains(t, result.Stdout(), hostToken)
+	report := decodeReport(t, result.Stdout())
+	require.Len(t, report.Cases, 2)
+	require.Equal(t, []jsonKept{{Step: "sync", Field: "called_with.env.TOKEN", Variables: []string{"SYNC_TOKEN"}, Env: []string{"TOKEN"}}}, report.Cases[0].UpdateKept)
+	dagu.ExpectFileContent("workflows/sync.test.yaml", kept+"test-token\n")
+}
+
 // --init takes one DAG file, and neither --update nor a flag that selects or
 // reports cases. An invalid argument exits with status 2 and writes nothing.
 func TestWorkflowTestInitArguments(t *testing.T) {
@@ -414,6 +464,51 @@ func TestWorkflowTestSelection(t *testing.T) {
 	})
 }
 
+// A DAG file argument, or a DAG name resolved against the DAGs directory,
+// runs the test files beside the DAG file, and a test file selected twice
+// runs once. A DAG file without one exits with status 2 and names the
+// command that writes one.
+func TestWorkflowTestDAGArgument(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DAG file", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("test", "workflows/release.yaml", "workflows/release.test.yaml")
+		result.ExpectExitCode(0)
+		expectLines(t, result.Stdout(),
+			"PASS workflows/release.test.yaml: deploys the built image (",
+			"PASS workflows/release.test.yaml: a failed build stops the deploy (",
+			"2 cases: 2 passed, 0 failed\n",
+		)
+	})
+
+	t.Run("DAG name", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		env := []string{"DAGU_DAGS_DIR=" + dagu.ProjectPath("workflows")}
+		result := dagu.RunWithEnv(env, "test", "--run", "deploys", "release")
+		result.ExpectExitCode(0)
+		expectLines(t, result.Stdout(),
+			"PASS workflows/release.test.yaml: deploys the built image (",
+			"1 case: 1 passed, 0 failed\n",
+		)
+	})
+
+	t.Run("no test file", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		require.NoError(t, os.Remove(dagu.ProjectPath("workflows/release.test.yaml")))
+		result := dagu.Run("test", "workflows/release.yaml")
+		result.ExpectExitCode(2)
+		result.ExpectStdout("")
+		result.ExpectStderrContains("workflows/release.yaml has no test file; write one with: dagu test --init workflows/release.yaml")
+	})
+}
+
 func TestWorkflowTestTimeout(t *testing.T) {
 	t.Parallel()
 
@@ -462,18 +557,21 @@ func TestWorkflowTestArguments(t *testing.T) {
 	t.Parallel()
 
 	for name, args := range map[string][]string{
-		"missing path":    {"workflows/missing.test.yaml"},
-		"not a test file": {"workflows/release.yaml"},
-		"zero timeout":    {"--timeout", "0s", "workflows/release.test.yaml"},
-		"invalid timeout": {"--timeout", "soon", "workflows/release.test.yaml"},
-		"unknown flag":    {"--no-such-flag", "workflows/release.test.yaml"},
-		"invalid run":     {"--run", "(", "workflows/release.test.yaml"},
-		"unknown format":  {"--format", "yaml", "workflows/release.test.yaml"},
+		"missing path":     {"workflows/missing.test.yaml"},
+		"unknown DAG name": {"missing"},
+		"not a test file":  {"workflows/notes.txt"},
+		"zero timeout":     {"--timeout", "0s", "workflows/release.test.yaml"},
+		"invalid timeout":  {"--timeout", "soon", "workflows/release.test.yaml"},
+		"unknown flag":     {"--no-such-flag", "workflows/release.test.yaml"},
+		"invalid run":      {"--run", "(", "workflows/release.test.yaml"},
+		"unknown format":   {"--format", "yaml", "workflows/release.test.yaml"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			dagu := harness.NewRunner(t)
+			// notes.txt is neither a test file nor a DAG file.
+			dagu.WriteFile("workflows/notes.txt", "")
 			result := dagu.Run(append([]string{"test"}, args...)...)
 			result.ExpectExitCode(2)
 			result.ExpectStderrNotEmpty()

@@ -11,9 +11,11 @@ through `dagu validate`, runs through `dagu start` against SSH servers the
 test harness starts, node runs through the API, narrowed runs through `dagu
 start`, `dagu start --from-run-id`, and `dagu retry`, and retries of steps
 with nodes through `dagu retry`. Bound runs and steps with nodes on SSH
-nodes run on workers too, which Go integration tests cover, since the
-conformance harness starts no worker. Further sections are added as RFC 013
-lands.
+nodes run on workers too, worker nodes match as SSH nodes do, and a child
+bound to a worker node runs on that worker; Go integration tests cover
+these, since the conformance harness starts no worker. A `node: required`
+DAG started with a worker node is refused, since such a run is not yet
+dispatched to its worker. Further sections are added as RFC 013 lands.
 
 ## Scope
 
@@ -65,7 +67,12 @@ enqueued is refused, since the bound node decides where it runs.
 ### Running a step on its nodes
 
 When a step with `nodes` starts, after its dependencies and preconditions,
-its selector is resolved and matched against the project's nodes:
+its selector is resolved and matched against the project's nodes: the nodes
+of its inventories and its worker nodes
+([Spec 088](088-node-inventory.md#worker-nodes)), alike. Worker nodes are
+nodes only for runs that can go to workers: runs of the default project,
+other than of a library DAG. Other runs match, and their node lists name,
+inventory nodes only.
 
 - Each part of a term that holds a reference must resolve to one label key
   or value, so a value from the run cannot add a term, negate one, or widen
@@ -73,7 +80,7 @@ its selector is resolved and matched against the project's nodes:
   `prod,!canary`.
 - The matched nodes are taken in name order. A step matches at most 1,000.
 - A disabled node is not run. A step whose matched nodes are all disabled
-  fails.
+  fails. A worker node has no `disabled`.
 
 Each enabled node gets its own child run, bound to that node:
 
@@ -87,8 +94,13 @@ Each enabled node gets its own child run, bound to that node:
   to each node's run of the step. `depends`, `preconditions`, `continue_on`,
   and `output` apply to the step with `nodes`.
 
-A bound child runs on the host that runs its parent, even when the default
-execution mode is distributed.
+A child bound to an SSH node runs on the host that runs its parent, even
+when the default execution mode is distributed. A child bound to a worker
+node runs on that worker, dispatched by its ID. A matched worker that is
+offline when its child is dispatched, by the rule of
+[Spec 088](088-node-inventory.md#worker-nodes), fails its node at once
+rather than waiting for it, and a worker lost during the child run fails
+its node as a lost worker fails any run.
 
 Nodes start in name order, at most `max_concurrent` at a time.
 `defaults.max_concurrent` does not apply. With `keep_going: false`, no node
@@ -140,6 +152,11 @@ never connect resolves none. Each hop accepts only its own node's
 `host_key` or trusted key, unless the node sets `strict_host_key: false`. A
 refused key fails the step before any credential is sent.
 
+A run bound to a worker node runs every step on that worker, as any run
+dispatched to it does. The node has no SSH connection, so an `ssh.run` or
+`sftp.*` step that sets no `with.host` or `with.ip` fails the run before any
+step starts.
+
 ### Runs on workers
 
 A step with `nodes` and a bound run behave on a worker as on the Dagu host.
@@ -152,8 +169,9 @@ the enabled node that the run names, or of its bastion, uses the ref. Host
 keys are checked on the worker, against the node's `host_key` or the key
 trusted when the run looked the node up. A run never trusts a key.
 
-The child runs of a step with `nodes` run on the worker that runs their
-parent. A child DAG file whose name holds a reference, such as
+The child runs of a step with `nodes` bound to SSH nodes run on the worker
+that runs their parent, and those bound to worker nodes run on those
+workers. A child DAG file whose name holds a reference, such as
 `dag: deploy-${params.app}`, reads no nodes on a worker: the coordinator
 serves only the child DAGs a run names as written, in its steps, `foreach`
 bodies, and handlers. Each child run reads its own node again, so a run never reuses an
@@ -168,8 +186,8 @@ Every value-resolved field of a bound run reads its node:
 | Reference | Value |
 | --- | --- |
 | `${node.name}` | Node name |
-| `${node.host}`, `${node.port}`, `${node.user}` | Connection fields. `port` is `22` when the node sets none |
-| `${node.description}` | Description |
+| `${node.host}`, `${node.port}`, `${node.user}` | Connection fields. `port` is `22` when the node sets none. A worker node has only `host`, the host its worker reports; `port` and `user` are empty |
+| `${node.description}` | Description, empty for a worker node |
 | `${node.labels}` | Labels, sorted and comma-separated, as `key` or `key=value` |
 | `${node.labels.<key>}` | The value of the label with that key, empty for a label with no value |
 | `${node.labels."<key>"}` | The same, for a key with a dot, such as `gpu.type` |
@@ -197,10 +215,10 @@ and a mistake fails the request:
 
 - each name must be a node of the project, compared without case, so a
   mistyped name never starts a run;
-- a `node: required` DAG takes exactly one node, and the run is bound to it
-  as a child of a `dag.run` step with `nodes` is. The start and enqueue
-  requests refuse such a DAG without a node; `dagu start` and `dagu enqueue`
-  record a run that fails before any step;
+- a `node: required` DAG takes exactly one node, an inventory node, and
+  the run is bound to it as a child of a `dag.run` step with `nodes` is.
+  The start and enqueue requests refuse such a DAG without a node; `dagu
+  start` and `dagu enqueue` record a run that fails before any step;
 - any other DAG takes a list only when a step, a `foreach` body, or a
   handler sets `nodes` or runs a child DAG;
 - a start of selected steps takes no list.
@@ -339,7 +357,8 @@ this version has no rows and no counts.
 `dagu start`, `dagu enqueue`, and the start and enqueue requests fail
 before any run exists when a node list names a name that is not a node of
 the project (`node "web1" is not a node of the project`), is given for a DAG
-that has nothing to narrow, or starts selected steps. The
+that has nothing to narrow, or starts selected steps, or gives a
+`node: required` DAG a worker node (`node "tokyo-gw" is a worker node`). The
 start, enqueue, and reschedule requests also fail so for a `node: required`
 DAG without exactly one node, and a reschedule for a list that no longer
 passes these checks. `dagu start` refuses `--node` with `--from-run-id`.
@@ -365,10 +384,16 @@ A run fails before any step starts when:
 - it reads a `${node.<path>}` that the namespace does not define, such as
   `${node.nmae}`, naming the reference;
 - a credential of its node is a secret ref that does not resolve, naming the
-  field and the ref.
+  field and the ref;
+- it is bound to a worker node and does not run on that worker;
+- it is bound to a worker node and has an `ssh.run` or `sftp.*` step that
+  sets no `with.host` or `with.ip`.
 
 A step of a bound run fails, naming the hop, when its node's or bastion's
 host key is unknown or has changed.
+
+A node of a step with `nodes` fails, without its child run, when it is a
+worker node whose worker is offline (`worker node "tokyo-gw" is offline`).
 
 ## Examples
 

@@ -85,12 +85,12 @@ func runPruneArtifacts(ctx *Context, _ []string) error {
 
 	displayRoot := root
 	if displayRoot == "" {
-		displayRoot = ctx.Config.Paths.ArtifactDir
+		displayRoot = ctx.projectPaths().ArtifactDir
 	}
 
 	req := persis.ArtifactPruneRequest{
 		Root:          root,
-		ProtectedDirs: []string{ctx.Config.Paths.LogDir},
+		ProtectedDirs: []string{ctx.projectPaths().LogDir},
 		OlderThan:     persis.NewUTC(time.Now().UTC().Add(-dur)),
 		DryRun:        dryRun,
 	}

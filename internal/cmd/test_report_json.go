@@ -32,6 +32,18 @@ type jsonTestCase struct {
 	CaseDir       string             `json:"case_dir,omitempty"`
 	// Update is what --update did with the case's expect.
 	Update string `json:"update,omitempty"`
+	// UpdateKept lists the assertions --update kept because the run's value
+	// holds a host value.
+	UpdateKept []jsonKept `json:"update_kept,omitempty"`
+}
+
+// jsonKept is an assertion that --update kept as written because the
+// run's value holds a host value.
+type jsonKept struct {
+	Step      string   `json:"step,omitempty"`
+	Field     string   `json:"field"`
+	Variables []string `json:"variables"`
+	Env       []string `json:"env,omitempty"`
 }
 
 type jsonFailure struct {
@@ -74,6 +86,9 @@ func jsonCaseOf(c caseResult) jsonTestCase {
 	}
 	if c.update != nil {
 		out.Update = c.update.outcome
+		for _, k := range c.update.kept {
+			out.UpdateKept = append(out.UpdateKept, jsonKept{Step: k.step, Field: k.field, Variables: k.vars, Env: k.env})
+		}
 	}
 	for _, f := range c.failures {
 		failure := jsonFailure{Step: f.step, Field: f.field, Expected: f.expected, Actual: f.actual}

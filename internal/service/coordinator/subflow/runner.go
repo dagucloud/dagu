@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
 var (
@@ -126,11 +127,14 @@ func (r *Runner) ShouldRun(_ context.Context, req executor.SubWorkflowRequest) b
 	if req.RunID == "" || req.RootDAGRun.Zero() {
 		return false
 	}
+	// A run bound to a worker node runs on that worker (RFC 013 §Bound runs).
+	if req.TargetWorkerID != "" {
+		return true
+	}
 	if req.DAG.ForceLocal {
 		return false
 	}
-	// A run bound to a node runs on the host that runs its parent (RFC 013
-	// §Bound runs). A coordinator task would also drop the binding.
+	// A run bound to an SSH node runs on the host that runs its parent.
 	if req.Node != "" {
 		return false
 	}
@@ -320,7 +324,13 @@ func (r *Runner) dispatchRetryWithStatus(
 }
 
 func (r *Runner) buildStartTask(req executor.SubWorkflowRequest) (*dispatch.DispatchTask, error) {
-	opts, err := r.taskOptions(req, executor.WithTaskParams(req.Params), executor.WithTriggerType(ir.TriggerTypeSubDAG))
+	params := req.Params
+	// A command step's child loads the parent's definition, so it takes the
+	// parent run's param values.
+	if req.NodeStep != "" && req.ParentDAG != nil {
+		params = strings.Join(spec.QuoteRuntimeParams(req.ParentDAG.Params, req.ParentDAG.ParamDefs), " ")
+	}
+	opts, err := r.taskOptions(req, executor.WithTaskParams(params), executor.WithTriggerType(ir.TriggerTypeSubDAG))
 	if err != nil {
 		return nil, err
 	}
@@ -391,6 +401,12 @@ func (r *Runner) taskOptions(
 		executor.WithRootDagRun(req.RootDAGRun),
 		executor.WithParentDagRun(req.ParentDAGRun),
 		executor.WithWorkerSelector(cloneMap(req.WorkerSelector)),
+	}
+	if req.TargetWorkerID != "" {
+		options = append(options,
+			executor.WithTargetWorkerID(req.TargetWorkerID),
+			executor.WithBoundNode(req.Node, req.NodeStep),
+		)
 	}
 	if req.ParallelItem != "" {
 		options = append(options, executor.WithParallelItem(req.ParallelItem))

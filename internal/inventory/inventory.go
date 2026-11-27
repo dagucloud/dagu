@@ -65,9 +65,22 @@ type Node struct {
 	Disabled bool `json:"disabled,omitempty"`
 }
 
-// ResolvedNode is a node with its inventory's defaults applied.
+// NodeKind tells how a run reaches a node (RFC 012 §Workers).
+type NodeKind int
+
+const (
+	// NodeKindSSH is a node of an inventory, which a run reaches over SSH.
+	NodeKindSSH NodeKind = iota
+	// NodeKindWorker is a worker that sets worker.id. A run bound to it runs
+	// on that worker.
+	NodeKindWorker
+)
+
+// ResolvedNode is a node with its inventory's defaults applied, or a worker
+// node. A worker node has a name, a host, and labels only.
 type ResolvedNode struct {
 	Name          string
+	Kind          NodeKind
 	Host          string
 	InventoryID   string
 	InventoryName string

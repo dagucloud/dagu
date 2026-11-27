@@ -29,13 +29,17 @@ func (a *API) ListIncidentProviders(ctx context.Context, _ api.ListIncidentProvi
 	if err != nil {
 		return nil, err
 	}
-	return api.ListIncidentProviders200JSONResponse{
-		Providers: toAPIIncidentProviders(providers),
-	}, nil
+	out := toAPIIncidentProviders(providers)
+	if !a.deliveryDetailsVisible(ctx) {
+		for i := range out {
+			out[i] = incidentProviderSummary(out[i])
+		}
+	}
+	return api.ListIncidentProviders200JSONResponse{Providers: out}, nil
 }
 
 func (a *API) CreateIncidentProvider(ctx context.Context, request api.CreateIncidentProviderRequestObject) (api.CreateIncidentProviderResponseObject, error) {
-	if err := a.requireIncidentManagement(ctx); err != nil {
+	if err := a.requireProviderManagement(ctx); err != nil {
 		return nil, err
 	}
 	if request.Body == nil {
@@ -71,11 +75,15 @@ func (a *API) GetIncidentProvider(ctx context.Context, request api.GetIncidentPr
 		}
 		return nil, err
 	}
-	return api.GetIncidentProvider200JSONResponse(toAPIIncidentProvider(provider)), nil
+	out := toAPIIncidentProvider(provider)
+	if !a.deliveryDetailsVisible(ctx) {
+		out = incidentProviderSummary(out)
+	}
+	return api.GetIncidentProvider200JSONResponse(out), nil
 }
 
 func (a *API) UpdateIncidentProvider(ctx context.Context, request api.UpdateIncidentProviderRequestObject) (api.UpdateIncidentProviderResponseObject, error) {
-	if err := a.requireIncidentManagement(ctx); err != nil {
+	if err := a.requireProviderManagement(ctx); err != nil {
 		return nil, err
 	}
 	if request.Body == nil {
@@ -111,7 +119,7 @@ func (a *API) UpdateIncidentProvider(ctx context.Context, request api.UpdateInci
 }
 
 func (a *API) DeleteIncidentProvider(ctx context.Context, request api.DeleteIncidentProviderRequestObject) (api.DeleteIncidentProviderResponseObject, error) {
-	if err := a.requireIncidentManagement(ctx); err != nil {
+	if err := a.requireProviderManagement(ctx); err != nil {
 		return nil, err
 	}
 	if err := a.incidentService.DeleteProvider(ctx, request.ProviderId); err != nil {
@@ -135,7 +143,7 @@ func (a *API) DeleteIncidentProvider(ctx context.Context, request api.DeleteInci
 }
 
 func (a *API) TestIncidentProvider(ctx context.Context, request api.TestIncidentProviderRequestObject) (api.TestIncidentProviderResponseObject, error) {
-	if err := a.requireIncidentManagement(ctx); err != nil {
+	if err := a.requireProviderManagement(ctx); err != nil {
 		return nil, err
 	}
 	result, err := a.incidentService.SendProviderTest(ctx, request.ProviderId)
@@ -326,6 +334,18 @@ func (a *API) requireIncidentManagement(ctx context.Context) error {
 	return a.requireLicensedIncidentManagement()
 }
 
+// requireProviderManagement guards changing an incident provider. While
+// projects are on, providers are server-wide, and only admins change them.
+func (a *API) requireProviderManagement(ctx context.Context) error {
+	if err := a.requireIncidentManagement(ctx); err != nil {
+		return err
+	}
+	if a.config != nil && a.config.ProjectsEnabled {
+		return a.requireAdmin(ctx)
+	}
+	return nil
+}
+
 func incidentRequestError(err error) bool {
 	return errors.Is(err, incidentmodel.ErrInvalidProvider) ||
 		errors.Is(err, incidentmodel.ErrUnsupportedProvider) ||
@@ -429,6 +449,19 @@ func toAPIIncidentProviders(providers []*incidentmodel.Provider) []api.IncidentP
 		out = append(out, toAPIIncidentProvider(provider))
 	}
 	return out
+}
+
+// incidentProviderSummary keeps the fields of a provider that every user
+// whose policies name it may see, and none of its URL or credentials.
+func incidentProviderSummary(provider api.IncidentProvider) api.IncidentProvider {
+	return api.IncidentProvider{
+		Id:        provider.Id,
+		Name:      provider.Name,
+		Type:      provider.Type,
+		Enabled:   provider.Enabled,
+		CreatedAt: provider.CreatedAt,
+		UpdatedAt: provider.UpdatedAt,
+	}
 }
 
 func toAPIIncidentProvider(provider *incidentmodel.Provider) api.IncidentProvider {

@@ -49,6 +49,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/license"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/allproviders" // Register LLM providers
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
@@ -475,6 +476,11 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		oidcButtonLabel string
 		setupRequired   bool
 	)
+	defaultPaths, err := persisfile.ProjectStorePaths(cfg, project.DefaultName)
+	if err != nil {
+		return nil, err
+	}
+	apiOpts = append(apiOpts, apiv1.WithRunDirs(defaultPaths.LogDir, defaultPaths.ArtifactDir))
 	if stores.WorkspaceBaseConfig != nil {
 		apiOpts = append(apiOpts, apiv1.WithWorkspaceBaseConfigProvider(stores.WorkspaceBaseConfig))
 	}
@@ -706,6 +712,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	if stores.Notification != nil && eventSvc != nil && stores.NotificationState != nil {
 		notificationOpts := []notificationservice.Option{
 			notificationservice.WithPublicURL(cfg.Server.PublicURL),
+			notificationservice.WithProjectsEnabled(cfg.ProjectsEnabled),
 		}
 		// Command channels run shell commands, so they need the same server
 		// permissions as writing and running DAGs.
@@ -726,6 +733,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 				return license.HasActiveLicense(licenseChecker)
 			}),
 			incidentservice.WithPublicURL(cfg.Server.PublicURL),
+			incidentservice.WithProjectsEnabled(cfg.ProjectsEnabled),
 		)
 		apiOpts = append(apiOpts, apiv1.WithIncidentService(incidentSvc))
 	}
@@ -1549,10 +1557,17 @@ func (srv *Server) setupTerminalRoute(ctx context.Context, r *chi.Mux, apiV1Base
 	logger.Info(ctx, "Terminal WebSocket route configured", slog.String("path", wsPath))
 }
 
+// newAppStream watches the default project's state where its stores keep it.
+func newAppStream(cfg *config.Config) (*sse.AppStreamService, error) {
+	paths, err := persisfile.ProjectStorePaths(cfg, project.DefaultName)
+	if err != nil {
+		return nil, err
+	}
+	return sse.NewAppStreamService(sse.AppStreamConfig{Paths: cfg.Paths, Project: paths})
+}
+
 func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath string) {
-	appStream, err := sse.NewAppStreamService(sse.AppStreamConfig{
-		Paths: srv.config.Paths,
-	})
+	appStream, err := newAppStream(srv.config)
 	if err != nil {
 		logger.Warn(ctx, "Failed to start SSE invalidation stream", tag.Error(err))
 	} else {

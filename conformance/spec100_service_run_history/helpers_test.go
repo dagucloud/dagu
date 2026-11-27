@@ -38,6 +38,10 @@ type project struct {
 	home string
 	dags string
 	base string
+	// server and schedulers are the processes that the test started, whose
+	// output logState logs.
+	server     *harness.Process
+	schedulers []*harness.Process
 }
 
 // newProject copies the testdata, and uses the folder as the DAGs directory.
@@ -98,8 +102,10 @@ func (p *project) env() []string {
 func (p *project) startScheduler() *harness.Process {
 	p.t.Helper()
 	// Each scheduler has its own health port: the tests run in parallel.
-	env := append(p.env(), fmt.Sprintf("DAGU_SCHEDULER_PORT=%d", harness.FreePort(p.t)))
+	// Debug output tells why the scheduler starts no run; logState prints it.
+	env := append(p.env(), fmt.Sprintf("DAGU_SCHEDULER_PORT=%d", harness.FreePort(p.t)), "DAGU_DEBUG=true")
 	proc := p.dagu.StartWithEnv(env, "scheduler", "--dags="+p.dags)
+	p.schedulers = append(p.schedulers, proc)
 	select {
 	case <-proc.Done():
 		require.FailNowf(p.t, "the scheduler exited at start", "%s", proc.FailureOutput())
@@ -115,6 +121,7 @@ func (p *project) startServer() {
 	port := harness.FreePort(p.t)
 	proc := p.dagu.StartWithEnv(p.env(),
 		"server", "--host=127.0.0.1", fmt.Sprintf("--port=%d", port), "--dags="+p.dags)
+	p.server = proc
 	p.base = fmt.Sprintf("http://127.0.0.1:%d/api/v1", port)
 	// A server that accepts the connection and does not answer must not hold
 	// the poll past its deadline.
@@ -180,6 +187,33 @@ func (p *project) events(dag string, query url.Values) api.RunHistoryEvents {
 func (p *project) availability(dag string) api.SampleAvailability {
 	p.t.Helper()
 	return getJSON[api.SampleAvailability](p, http.StatusOK, "/dags/"+dag+"/run-history/availability", nil)
+}
+
+// logState logs the output of the server and of the schedulers, then the runs
+// and the samples of a DAG, so that a poll that times out shows why. The
+// output comes first: the reads fail the test when the server is gone.
+func (p *project) logState(dag string) {
+	p.t.Helper()
+	if p.server != nil {
+		p.t.Logf("server:\n%s", processState(p.server))
+	}
+	for i, scheduler := range p.schedulers {
+		p.t.Logf("scheduler %d:\n%s", i+1, processState(scheduler))
+	}
+	_, body := p.get("/dag-runs", url.Values{"name": {dag}, "limit": {"100"}})
+	p.t.Logf("runs of %s: %s", dag, body)
+	_, body = p.get("/dags/"+dag+"/run-history/samples", url.Values{"points": {"2000"}})
+	p.t.Logf("samples of %s: %s", dag, body)
+}
+
+// processState tells whether a process exited, and gives its output.
+func processState(proc *harness.Process) string {
+	select {
+	case <-proc.Done():
+		return proc.FailureOutput()
+	default:
+		return "still running\n" + proc.Output()
+	}
 }
 
 // runs returns the retained runs of a DAG.

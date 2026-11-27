@@ -256,6 +256,13 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 			continue
 		}
 
+		// A failure after the status was sent arrives as an error chunk
+		// that ends the stream.
+		if err := llm.StreamError(providerName, chunk.Error); err != nil {
+			events <- llm.StreamEvent{Error: err, Done: true}
+			return
+		}
+
 		// Capture usage if present
 		if chunk.Usage != nil {
 			chunkUsage := chunk.Usage.LLM()
@@ -379,10 +386,11 @@ type responseMessage struct {
 }
 
 type streamChunk struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	Created int64  `json:"created"`
-	Model   string `json:"model"`
+	Error   json.RawMessage `json:"error,omitempty"`
+	ID      string          `json:"id"`
+	Object  string          `json:"object"`
+	Created int64           `json:"created"`
+	Model   string          `json:"model"`
 	Choices []struct {
 		Index int `json:"index"`
 		Delta struct {

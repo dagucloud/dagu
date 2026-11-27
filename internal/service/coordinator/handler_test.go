@@ -780,6 +780,35 @@ func TestCreateAttemptForTaskAppliesWorkerSelector(t *testing.T) {
 	})
 }
 
+// The child of a command step with nodes is recorded as the step alone, in a
+// node: required DAG, as the worker runs it.
+func TestCreateSubAttemptForTaskNarrowsToNodeStep(t *testing.T) {
+	registerCommandExecutorCapsForCoordinatorTest()
+
+	h := NewHandler(HandlerConfig{DAGRunRepository: newMockDAGRunStore().repository})
+	task := &coordinatorv1.Task{
+		RootDagRunName:   "rollout",
+		RootDagRunId:     "run-parent",
+		ParentDagRunName: "rollout",
+		ParentDagRunId:   "run-parent",
+		DagRunId:         "run-child",
+		Target:           "rollout",
+		Definition:       "name: rollout\nsteps:\n  - name: prepare\n    run: echo prepare\n  - name: deploy\n    run: echo deploy\n    nodes: web\n",
+		TargetWorkerId:   "tokyo-gw",
+		BoundNode:        "tokyo-gw",
+		NodeStep:         "deploy",
+	}
+	prepared, err := h.createSubAttemptForTask(context.Background(), task)
+	require.NoError(t, err)
+
+	dag, err := prepared.attempt.ReadDAG(context.Background())
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+	assert.Equal(t, "deploy", dag.Steps[0].Name)
+	assert.Nil(t, dag.Steps[0].Nodes)
+	assert.True(t, dag.NodeRequired)
+}
+
 // Fresh starts have no previous status from which to copy the queue identity.
 // A run that is already queued keeps its queue, which may be an enqueue-time
 // override absent from the YAML.

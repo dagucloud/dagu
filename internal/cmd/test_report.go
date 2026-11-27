@@ -231,6 +231,9 @@ func (r *testReport) writeCase(c caseResult) {
 		r.printf("  case directory %s\n", c.caseDir)
 	}
 	if c.update != nil {
+		for _, k := range c.update.kept {
+			r.printf("  %s\n", k)
+		}
 		r.printf("  %s\n", c.update.line())
 	}
 }

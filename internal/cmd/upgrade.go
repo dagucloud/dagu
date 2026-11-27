@@ -10,8 +10,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/upgrade"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -101,10 +99,7 @@ func runUpgrade(ctx *Context, _ []string) error {
 		return fmt.Errorf("%s", reason)
 	}
 
-	upgradeStore, err := file.NewUpgradeCheckStore(
-		ctx.Config,
-		ctx.backend.Collection(persis.CollectionUpgradeCheck),
-	)
+	upgradeStore, err := ctx.serverStores.UpgradeCheckStore()
 	if err != nil {
 		return fmt.Errorf("failed to create upgrade check store: %w", err)
 	}

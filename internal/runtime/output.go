@@ -496,18 +496,27 @@ func (oc *OutputCoordinator) setupRemoteWriters(ctx context.Context, data NodeDa
 	stepName := data.Step.Name
 
 	// Create streaming writers for stdout and stderr
-	oc.stdoutWriter = factory.NewStepWriter(ctx, stepName, runctx.StreamTypeStdout)
+	oc.stdoutWriter = oc.newStreamWriter(factory.NewStepWriter(ctx, stepName, runctx.StreamTypeStdout))
 	oc.stdoutFileName = data.State.Stdout // Keep path for status reporting
 
 	// Check if stdout and stderr should be merged
 	if data.State.Stdout == data.State.Stderr {
 		oc.stderrWriter = oc.stdoutWriter
 	} else {
-		oc.stderrWriter = factory.NewStepWriter(ctx, stepName, runctx.StreamTypeStderr)
+		oc.stderrWriter = oc.newStreamWriter(factory.NewStepWriter(ctx, stepName, runctx.StreamTypeStderr))
 	}
 	oc.stderrFileName = data.State.Stderr
 
 	return nil
+}
+
+// newStreamWriter returns a writer for a remote log stream, masking secrets
+// when a masker is available.
+func (oc *OutputCoordinator) newStreamWriter(stream io.WriteCloser) io.Writer {
+	if oc.masker == nil {
+		return stream
+	}
+	return newMaskingStreamWriter(stream, oc.masker)
 }
 
 // setupLocalWriters creates file-based writers (original behavior)
@@ -524,7 +533,7 @@ func (oc *OutputCoordinator) setupLocalWriters(_ context.Context, data NodeData)
 	// Wrap with MaskingWriter if masker is available
 	var stdoutWriter io.Writer = oc.stdoutFile
 	if oc.masker != nil {
-		stdoutWriter = masking.NewMaskingWriter(oc.stdoutFile, oc.masker)
+		stdoutWriter = masking.NewLogMaskingWriter(oc.stdoutFile, oc.masker)
 	}
 	oc.stdoutWriter = newSafeBufferedWriter(stdoutWriter)
 	oc.stdoutFileName = data.State.Stdout
@@ -544,7 +553,7 @@ func (oc *OutputCoordinator) setupLocalWriters(_ context.Context, data NodeData)
 		// Wrap with MaskingWriter if masker is available
 		var stderrWriter io.Writer = oc.stderrFile
 		if oc.masker != nil {
-			stderrWriter = masking.NewMaskingWriter(oc.stderrFile, oc.masker)
+			stderrWriter = masking.NewLogMaskingWriter(oc.stderrFile, oc.masker)
 		}
 		oc.stderrWriter = newSafeBufferedWriter(stderrWriter)
 		oc.stderrFileName = data.State.Stderr

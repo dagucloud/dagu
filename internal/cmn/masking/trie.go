@@ -91,10 +91,11 @@ func (t *valueTrie) starts(b byte) bool {
 }
 
 // longestPrefix returns the length of the longest value that text starts
-// with, or 0 when it starts with none.
-func (t *valueTrie) longestPrefix(text string) int {
+// with, or 0 when it starts with none. open reports that text is the start
+// of a longer value, so text that follows could match more.
+func (t *valueTrie) longestPrefix(text string) (n int, open bool) {
 	if text == "" || !t.starts(text[0]) {
-		return 0
+		return 0, false
 	}
 	node, longest := &t.nodes[t.root[text[0]]], 0
 	for i := 1; ; i++ {
@@ -102,10 +103,10 @@ func (t *valueTrie) longestPrefix(text string) int {
 			longest = i
 		}
 		if i == len(text) {
-			return longest
+			return longest, node.count > 0
 		}
 		if node = t.child(node, text[i]); node == nil {
-			return longest
+			return longest, false
 		}
 	}
 }

@@ -52,6 +52,9 @@ type Service struct {
 	commandChannelsEnabled     bool
 	commandBaseEnv             []string
 	commandLogs                LogOpener
+	// projectsEnabled keeps a DAG's workspace label from choosing its
+	// route set.
+	projectsEnabled bool
 }
 
 type TestResult struct {
@@ -115,6 +118,15 @@ func WithPublicURL(publicURL string) Option {
 func WithPublicURLResolver(resolver func() string) Option {
 	return func(s *Service) {
 		s.SetPublicURLResolver(resolver)
+	}
+}
+
+// WithProjectsEnabled resolves a run's notification routes in its project
+// alone while enabled: the workspace its DAG's label names adds no route
+// set.
+func WithProjectsEnabled(enabled bool) Option {
+	return func(s *Service) {
+		s.projectsEnabled = enabled
 	}
 }
 
@@ -507,7 +519,9 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 	if event.Status.BackfillID != "" && event.Type != eventstore.TypeDAGRunWaiting {
 		return nil
 	}
-	if _, state := eventWorkspace(event); state == workspace.WorkspaceLabelInvalid {
+	// While projects are on, a workspace label is an ordinary label, so a
+	// malformed one stops nothing.
+	if _, state := eventWorkspace(event); state == workspace.WorkspaceLabelInvalid && !s.projectsEnabled {
 		return nil
 	}
 	ctx := context.Background()
@@ -759,12 +773,20 @@ var ErrCommandTestDenied = errors.New("test send would run a command channel")
 type TestOption func(*testOptions)
 
 type testOptions struct {
-	denyCommand bool
+	denyCommand       bool
+	hideChannelErrors bool
 }
 
 // DenyCommandChannels refuses a test send that would run a command channel.
 func DenyCommandChannels() TestOption {
 	return func(o *testOptions) { o.denyCommand = true }
+}
+
+// HideChannelErrors reports a failed delivery to a saved channel by the
+// channel's name and type alone and logs its error, which can name the
+// channel's URL. Errors of a DAG's own targets are reported as they are.
+func HideChannelErrors() TestOption {
+	return func(o *testOptions) { o.hideChannelErrors = true }
 }
 
 func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventType eventstore.EventType, opts ...TestOption) ([]TestResult, error) {
@@ -802,7 +824,29 @@ func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventT
 		return nil, ErrCommandTestDenied
 	}
 
-	return s.deliverTestTargets(ctx, targets, event), nil
+	results := s.deliverTestTargets(ctx, targets, event)
+	if options.hideChannelErrors {
+		s.hideChannelErrors(dagName, targets, results)
+	}
+	return results, nil
+}
+
+// hideChannelErrors replaces the error of each failed delivery to a saved
+// channel in results, which follow targets, with one that names the
+// channel, and logs the error it replaces.
+func (s *Service) hideChannelErrors(dagName string, targets []resolvedTarget, results []TestResult) {
+	for i, target := range targets {
+		// Only a saved channel's target carries the channel's provider.
+		if target.Provider == "" || results[i].Error == "" {
+			continue
+		}
+		s.logger.Warn("Notification test delivery failed",
+			slog.String("dag", dagName),
+			slog.String("channel", target.ResultName),
+			slog.String("error", results[i].Error),
+		)
+		results[i].Error = fmt.Sprintf("delivery to %s channel %q failed; see the server log", target.Provider, target.ResultName)
+	}
 }
 
 func (s *Service) testTargetsForDAGSettings(ctx context.Context, dagName, targetID string, eventType eventstore.EventType) ([]resolvedTarget, error) {
@@ -1245,10 +1289,10 @@ func (s *Service) routeSetDestinationsForEvent(
 
 func (s *Service) effectiveRouteSetForEvent(ctx context.Context, event chatbridge.NotificationEvent) *notificationmodel.RouteSet {
 	workspaceName, state := eventWorkspace(event)
-	if state == workspace.WorkspaceLabelInvalid {
+	if state == workspace.WorkspaceLabelInvalid && !s.projectsEnabled {
 		return nil
 	}
-	if workspaceName != "" {
+	if workspaceName != "" && !s.projectsEnabled {
 		workspaceRouteSet, err := s.loadRouteSet(ctx, notificationmodel.RouteScopeWorkspace, workspaceName)
 		if err == nil {
 			if !workspaceRouteSet.InheritGlobal {

@@ -128,8 +128,8 @@ func withPreparedLocalExecution(
 		ScheduleTime:    opts.scheduleTime,
 		ScheduleWindow:  opts.scheduleWindow,
 		ProfileName:     opts.profileName,
-		LogBaseDir:      ctx.Config.Paths.LogDir,
-		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,
+		LogBaseDir:      ctx.projectPaths().LogDir,
+		ArtifactBaseDir: ctx.projectPaths().ArtifactDir,
 		BuildAttempt:    buildAttempt,
 	})
 	if err != nil {

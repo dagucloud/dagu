@@ -17,7 +17,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/publicwebhook"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // newPublicWebhooks creates the service that holds the server's public
@@ -36,7 +35,7 @@ func newPublicWebhooks(cfg *config.Config, deps Dependencies, s *Scheduler) *pub
 			dagRunRepository:       s.dagRunRepository,
 			queueStore:             s.queueStore,
 			dagExecutor:            s.dagExecutor,
-			workspaceBaseConfigDir: workspace.BaseConfigDir(cfg.Paths.DAGsDir),
+			workspaceBaseConfigDir: cfg.WorkspaceBaseConfigDir(),
 		},
 		Hello:          cloudrelay.Hello{Name: serverName(cfg), Version: config.Version},
 		MaxPayloadSize: cfg.Webhooks.MaxPayloadSize,
@@ -79,12 +78,13 @@ func (r *webhookRuns) Enqueue(ctx context.Context, dagName string, dag *ir.DAG, 
 	case err != nil:
 		return fmt.Errorf("failed to resolve DAG profile: %w", err)
 	}
+	logDir, artifactDir := runDirs(r.config)
 	return EnqueueWebhookRun(
 		ctx,
 		r.dagRunRepository,
 		r.queueStore,
-		r.config.Paths.LogDir,
-		r.config.Paths.ArtifactDir,
+		logDir,
+		artifactDir,
 		r.config.Paths.BaseConfig,
 		r.workspaceBaseConfigDir,
 		dagName,

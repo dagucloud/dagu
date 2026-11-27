@@ -5,6 +5,7 @@ package ir
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -408,6 +409,18 @@ func (d *DAG) UnmarshalJSON(data []byte) error {
 		d.Labels = aux.DeprecatedTags
 	}
 	return nil
+}
+
+// ChildFile returns the file that child, a DAG that d calls, was written in.
+// A DAG defined in d's file runs from a temporary copy, so its file is d's.
+// A nil d calls only DAGs of other files.
+func (d *DAG) ChildFile(child *DAG) string {
+	if d != nil {
+		if _, local := d.LocalDAGs[child.Name]; local {
+			return cmp.Or(d.SourceFile, d.Location)
+		}
+	}
+	return cmp.Or(child.SourceFile, child.Location)
 }
 
 // HasLabel checks if the DAG has a label matching the given filter.

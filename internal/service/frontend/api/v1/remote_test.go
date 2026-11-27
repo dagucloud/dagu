@@ -149,6 +149,7 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 		{name: "unknown endpoints need an admin", method: http.MethodGet, path: "/api/v1/not-an-endpoint", user: developer},
 		{name: "scoped user cannot read", method: http.MethodGet, path: "/api/v1/dags", user: scoped},
 		{name: "webhooks are never forwarded", method: http.MethodPost, path: "/api/v1/webhooks/deploy", user: admin},
+		{name: "project webhooks are never forwarded", method: http.MethodPost, path: "/api/v1/webhooks/ops/deploy", user: admin},
 		{name: "password changes are never forwarded", method: http.MethodPost, path: "/api/v1/auth/change-password", user: admin},
 	}
 

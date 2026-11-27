@@ -27,9 +27,9 @@ func TestLegacySuspendFlagEvent(t *testing.T) {
 	flag := filepath.Join(legacy, "alpha.suspend")
 	require.NoError(t, os.WriteFile(flag, nil, 0o600))
 	service, err := NewAppStreamService(AppStreamConfig{
-		Paths: config.PathsConfig{
+		Project: config.ProjectPaths{
 			SuspendFlagsDir:       filepath.Join(root, "suspend"),
-			SuspendFlagsDirLegacy: legacy,
+			LegacySuspendFlagsDir: legacy,
 		},
 	})
 	require.NoError(t, err)
@@ -168,7 +168,8 @@ func TestNewAppStreamServiceDoesNotCreateDAGRunsDir(t *testing.T) {
 	dagRunsDir := filepath.Join(root, "dag-runs")
 
 	service, err := NewAppStreamService(AppStreamConfig{
-		Paths: config.PathsConfig{
+		Paths: config.PathsConfig{DAGRunsDir: dagRunsDir},
+		Project: config.ProjectPaths{
 			SuspendFlagsDir: filepath.Join(root, "suspend"),
 			DAGRunsDir:      dagRunsDir,
 			QueueDir:        filepath.Join(root, "queue"),

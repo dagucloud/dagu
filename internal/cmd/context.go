@@ -62,11 +62,12 @@ type Context struct {
 	EventSourceInstance string
 	Persistence         Persistence
 	DAGRunMgr           runtime.Manager
-	backend             persis.Backend
 	// serverStores are the stores every project shares.
 	serverStores *file.ServerStores
-	// projectStores are the default project's stores, and settings the
-	// stores of its settings. A worker opens only settings.
+	// project is the project the command addresses. projectStores are its
+	// stores, and settings the stores of its settings. A worker opens only
+	// the default project's settings.
+	project       project.Project
 	projectStores *file.ProjectStores
 	settings      *file.ProjectSettings
 	// storeOptions opens every project's stores with the process's caches.
@@ -163,44 +164,19 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	commandName := commandFamilyName(cmd)
 	scope := scopeForCommand(commandName)
 
-	v := viper.New()
-	bindFlags(v, cmd, flags...)
-
 	quiet, err := cmd.Flags().GetBool("quiet")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get quiet flag: %w", err)
 	}
-	daguHome, err := cmd.Flags().GetString("dagu-home")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get dagu-home flag: %w", err)
-	}
-
-	var configLoaderOpts []config.ConfigLoaderOption
-	if daguHome != "" {
-		if resolvedHome := fileutil.ResolvePathOrBlank(daguHome); resolvedHome != "" {
-			configLoaderOpts = append(configLoaderOpts, config.WithAppHomeDir(resolvedHome))
-		}
-	}
-
-	// Use a custom config file if provided via the command flag "config"
-	cfgPath, err := cmd.Flags().GetString("config")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get config flag: %w", err)
-	}
-	if cfgPath != "" {
-		configLoaderOpts = append(configLoaderOpts, config.WithConfigFile(cfgPath))
-	}
-
-	// Set service type based on command to load only necessary config sections
-	configLoaderOpts = append(configLoaderOpts, config.WithService(serviceForCommand(commandName)))
-
-	loader := config.NewConfigLoader(v, configLoaderOpts...)
-	cfg, err := loader.Load()
+	cfg, loader, err := loadCommandConfig(cmd, flags)
 	if err != nil {
 		return nil, err
 	}
 	// Refuse before any store creates a directory.
 	if err := cfg.CheckProjectPaths(); err != nil {
+		return nil, err
+	}
+	if err := checkProjectFlag(cmd, cfg); err != nil {
 		return nil, err
 	}
 	ctx = config.WithConfig(ctx, cfg)
@@ -276,6 +252,9 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	baseCtx := ctx
 	eventSourceInstance := eventstore.DefaultSourceInstance()
 	if scope == commandScopeContextAware && selectedContextName != localContextName {
+		if flag := cmd.Flags().Lookup(projectFlag.name); flag != nil && flag.Changed {
+			return nil, fmt.Errorf("--%s is only supported in the local context", projectFlag.name)
+		}
 		remote, err := newRemoteClient(selectedContext)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize remote context %q: %w", selectedContextName, err)
@@ -299,15 +278,18 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	if err := migrateState(ctx, cmd.Name(), scope, cfg); err != nil {
 		return nil, err
 	}
-	backend := file.NewBackend(cfg.Paths)
 	serverStores := file.NewServerStores(cfg)
+	settings, err := file.NewProjectSettings(cfg, serverStores, project.DefaultName)
+	if err != nil {
+		return nil, err
+	}
 
 	workerCommand := cmd.Name() == "worker"
 	var eventService *eventstore.Service
 	switch cmd.Name() {
 	case "server", "scheduler", "start-all", "worker":
 	default:
-		eventService = newEventService(ctx, cfg)
+		eventService = newEventService(ctx, cfg, settings.Paths.EventStoreDir)
 	}
 	if eventService != nil {
 		ctx = eventstore.WithContext(ctx, eventService, eventstore.Source{
@@ -322,10 +304,6 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		logger.Debug(ctx, "Worker mode: skipping file-based run stores",
 			slog.Any("coordinators", cfg.Worker.Coordinators),
 		)
-		settings, err := file.NewProjectSettings(cfg, serverStores, project.DefaultName)
-		if err != nil {
-			return nil, err
-		}
 		return &Context{
 			Context:             baseCtx,
 			Command:             cmd,
@@ -338,7 +316,6 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			CLIContext:          selectedContext,
 			ContextName:         selectedContextName,
 			Scope:               scope,
-			backend:             backend,
 			serverStores:        serverStores,
 			settings:            settings,
 			// Run stores are nil; worker execution reports runtime state to the coordinator.
@@ -374,12 +351,19 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		DAGRunStatusCache:   dagRunStatusCache,
 		ArtifactRecordCache: artifactRecordCache,
 	}
-	projectStores, err := openDefaultProject(ctx, cfg, serverStores, storeOptions)
+	addressed := defaultProject()
+	if cfg.ProjectsEnabled && !servesProjects(cmd.Name()) && !managesProjects(commandName) {
+		if addressed, err = addressedProject(ctx, cmd, cfg, serverStores.DAGOwners()); err != nil {
+			return nil, err
+		}
+	}
+	projectStores, err := openProject(ctx, cfg, serverStores, addressed, storeOptions)
 	if err != nil {
 		return nil, err
 	}
 	persistence := newPersistence(serverStores, projectStores)
-	drm := runtime.NewManager(persistence.DAGRunRepository, persistence.ProcRepository, cfg)
+	drm := runtime.NewManager(persistence.DAGRunRepository, persistence.ProcRepository, cfg,
+		projectManagerOptions(cfg, addressed)...)
 
 	// Initialize license manager for server commands
 	var licMgr *license.Manager
@@ -437,8 +421,8 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		EventSourceInstance: eventSourceInstance,
 		Persistence:         persistence,
 		DAGRunMgr:           drm,
-		backend:             backend,
 		serverStores:        serverStores,
+		project:             addressed,
 		projectStores:       projectStores,
 		settings:            projectStores.ProjectSettings,
 		storeOptions:        storeOptions,
@@ -452,6 +436,44 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		ContextName:         selectedContextName,
 		Scope:               scope,
 	}, nil
+}
+
+// loadCommandConfig loads the configuration that cmd runs with, from its
+// --dagu-home and --config flags and the flags bound to configuration keys.
+func loadCommandConfig(cmd *cobra.Command, flags []commandLineFlag) (*config.Config, *config.ConfigLoader, error) {
+	v := viper.New()
+	bindFlags(v, cmd, flags...)
+
+	daguHome, err := cmd.Flags().GetString("dagu-home")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get dagu-home flag: %w", err)
+	}
+
+	var configLoaderOpts []config.ConfigLoaderOption
+	if daguHome != "" {
+		if resolvedHome := fileutil.ResolvePathOrBlank(daguHome); resolvedHome != "" {
+			configLoaderOpts = append(configLoaderOpts, config.WithAppHomeDir(resolvedHome))
+		}
+	}
+
+	// Use a custom config file if provided via the command flag "config"
+	cfgPath, err := cmd.Flags().GetString("config")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get config flag: %w", err)
+	}
+	if cfgPath != "" {
+		configLoaderOpts = append(configLoaderOpts, config.WithConfigFile(cfgPath))
+	}
+
+	// Set service type based on command to load only necessary config sections
+	configLoaderOpts = append(configLoaderOpts, config.WithService(serviceForCommand(commandFamilyName(cmd))))
+
+	loader := config.NewConfigLoader(v, configLoaderOpts...)
+	cfg, err := loader.Load()
+	if err != nil {
+		return nil, nil, err
+	}
+	return cfg, loader, nil
 }
 
 func commandFamilyName(cmd *cobra.Command) string {
@@ -618,8 +640,11 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 		WorkspaceBundleDir: workspacebundle.StoreDir(c.Config.Paths.DataDir),
 		DefaultExecMode:    c.Config.DefaultExecMode,
 		WorkerID:           "local",
-		DAGRunLogDir:       c.Config.Paths.LogDir,
-		DAGRunArtifactDir:  c.Config.Paths.ArtifactDir,
+		DAGRunLogDir:       c.projectPaths().LogDir,
+		DAGRunArtifactDir:  c.projectPaths().ArtifactDir,
+		StateStoreFor:      c.subDAGStateStore(),
+		EnqueueStoresFor:   c.enqueueStores(),
+		WorkerRefusal:      c.subDAGWorkerRefusal(),
 	})
 }
 
@@ -681,7 +706,7 @@ func (c *Context) OpenLogFile(
 
 // GenLogFileName generates a log file name based on the DAG and dag-run ID.
 func (c *Context) GenLogFileName(dag *ir.DAG, dagRunID string) (string, error) {
-	return logpath.Generate(c, c.Config.Paths.LogDir, dag.LogDir, dag.Name, dagRunID)
+	return logpath.Generate(c, c.projectPaths().LogDir, dag.LogDir, dag.Name, dagRunID)
 }
 
 // GenArtifactDir generates an artifact directory path for the DAG run when artifacts are enabled.
@@ -695,7 +720,7 @@ func (c *Context) GenArtifactDir(dag *ir.DAG, dagRunID string) (string, error) {
 		dagArtifactDir = dag.Artifacts.Dir
 	}
 
-	return artifactpath.NewRunDir(c, c.Config.Paths.ArtifactDir, dagArtifactDir, dag.Name, dagRunID, time.Now())
+	return artifactpath.NewRunDir(c, c.projectPaths().ArtifactDir, dagArtifactDir, dag.Name, dagRunID, time.Now())
 }
 
 // NewCommand creates a new command instance with the given cobra command and run function.
@@ -728,9 +753,17 @@ func NewCommand(cmd *cobra.Command, flags []commandLineFlag, runFunc func(cmd *C
 		}
 
 		ctx, err := NewContext(cmd, flags)
-
+		if errors.Is(err, errProjectFlagUnknown) {
+			return cmd.FlagErrorFunc()(cmd, err)
+		}
 		if err != nil {
 			return fmt.Errorf("initialization error: %w", err)
+		}
+		if err := ctx.checkDAGFile(args); err != nil {
+			return err
+		}
+		if ctx, err = ctx.inLibraryOf(args); err != nil {
+			return err
 		}
 		return runFunc(ctx, args)
 	}

@@ -10,7 +10,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -78,11 +77,7 @@ func runStop(ctx *Context, args []string) error {
 		}
 		dag = d
 	} else {
-		d, err := spec.Load(ctx, args[0],
-			spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
-			spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
-			spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
-		)
+		d, err := spec.Load(ctx, args[0], ctx.projectLoadOptions()...)
 		if err != nil {
 			return fmt.Errorf("failed to load DAG from %s: %w", args[0], err)
 		}

@@ -517,7 +517,8 @@ response sends a new message, and the target starts a second run. This RFC
 changes Spec 099 so that a retry resends the same ID.
 
 - **The default ID is derived.** It is a UUIDv5 over the attempt ID, the
-  step name, the repeat index, and the message text.
+  step name, the repeat index, the message text, and, inside a `foreach`
+  body, the item, so iterations of one body stay apart.
 - **`message_id` sets it explicitly.** It is a new optional `with` field of
   `a2a.send`. A workflow that wants one ID across attempts can set, for
   example, `${DAG_RUN_ID}-delegate`.
@@ -530,8 +531,10 @@ changes Spec 099 so that a retry resends the same ID.
 | Another step with the same message | New | Starts a task |
 
 - A `retry_policy` fires only when the RPC fails. A remote state is data, and
-  the step succeeds whatever the state (Spec 099), so reusing the ID never
-  keeps a retry from running a failed remote task again.
+  the step succeeds whatever the state (Spec 099), so a retry never runs
+  because the remote task failed. If the agent accepted the first message,
+  the response was lost, and the task then failed, the retry resends the
+  same ID and a deduplicating agent returns that failed task.
 - Running a failed remote task again takes a Dagu retry, which is a new
   attempt and so a new message.
 - An agent that does not deduplicate can still run a retried message twice,

@@ -107,6 +107,15 @@ func WithTargetWorkerID(workerID string) TaskOption {
 	}
 }
 
+// WithBoundNode binds the run to a worker node, and narrows the definition
+// to its command step nodeStep when that is set.
+func WithBoundNode(node, nodeStep string) TaskOption {
+	return func(task *dispatch.DispatchTask) {
+		task.BoundNode = node
+		task.NodeStep = nodeStep
+	}
+}
+
 // WithStep sets the step name for retry operations.
 func WithStep(step string) TaskOption {
 	return func(task *dispatch.DispatchTask) {

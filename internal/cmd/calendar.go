@@ -16,7 +16,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/rundates"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -184,17 +183,11 @@ func runCalendarFires(ctx *Context, args []string) error {
 		return fmt.Errorf("--count must be a positive integer")
 	}
 
-	loadOpts := []spec.LoadOption{
+	dag, err := spec.Load(ctx, args[0], append(ctx.projectLoadOptions(),
 		spec.OnlyMetadata(),
 		spec.WithoutEval(),
-		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
 		spec.WithCalendarsDir(ctx.Config.Paths.CalendarsDir),
-	}
-	if ctx.Config.Paths.BaseConfig != "" {
-		loadOpts = append(loadOpts, spec.WithBaseConfig(ctx.Config.Paths.BaseConfig))
-	}
-	dag, err := spec.Load(ctx, args[0], loadOpts...)
+	)...)
 	if err != nil {
 		return err
 	}

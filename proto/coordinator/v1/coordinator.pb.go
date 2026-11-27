@@ -171,6 +171,7 @@ type NodeKind int32
 const (
 	NodeKind_NODE_KIND_UNSPECIFIED NodeKind = 0
 	NodeKind_NODE_KIND_SSH         NodeKind = 1 // A host of an inventory
+	NodeKind_NODE_KIND_WORKER      NodeKind = 2 // A worker that sets worker.id; it has a name, host, and labels only
 )
 
 // Enum value maps for NodeKind.
@@ -178,10 +179,12 @@ var (
 	NodeKind_name = map[int32]string{
 		0: "NODE_KIND_UNSPECIFIED",
 		1: "NODE_KIND_SSH",
+		2: "NODE_KIND_WORKER",
 	}
 	NodeKind_value = map[string]int32{
 		"NODE_KIND_UNSPECIFIED": 0,
 		"NODE_KIND_SSH":         1,
+		"NODE_KIND_WORKER":      2,
 	}
 )
 
@@ -567,7 +570,13 @@ type Task struct {
 	// the run resolves them as it starts.
 	DatesJson string `protobuf:"bytes,46,opt,name=dates_json,json=datesJson,proto3" json:"dates_json,omitempty"`
 	// Node names the run is narrowed to (RFC 013). Empty when not narrowed.
-	TargetNodes   []string `protobuf:"bytes,47,rep,name=target_nodes,json=targetNodes,proto3" json:"target_nodes,omitempty"`
+	TargetNodes []string `protobuf:"bytes,47,rep,name=target_nodes,json=targetNodes,proto3" json:"target_nodes,omitempty"`
+	// Node the run is bound to (RFC 013): a worker node, whose run is
+	// dispatched to that worker by target_worker_id.
+	BoundNode string `protobuf:"bytes,48,opt,name=bound_node,json=boundNode,proto3" json:"bound_node,omitempty"`
+	// Command step with nodes of the definition that the run runs alone, bound
+	// to bound_node. Empty for a run of the whole definition.
+	NodeStep      string `protobuf:"bytes,49,opt,name=node_step,json=nodeStep,proto3" json:"node_step,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -919,6 +928,20 @@ func (x *Task) GetTargetNodes() []string {
 	return nil
 }
 
+func (x *Task) GetBoundNode() string {
+	if x != nil {
+		return x.BoundNode
+	}
+	return ""
+}
+
+func (x *Task) GetNodeStep() string {
+	if x != nil {
+		return x.NodeStep
+	}
+	return ""
+}
+
 func (x *Task) SetOperation(v Operation) {
 	x.Operation = v
 }
@@ -1103,6 +1126,14 @@ func (x *Task) SetTargetNodes(v []string) {
 	x.TargetNodes = v
 }
 
+func (x *Task) SetBoundNode(v string) {
+	x.BoundNode = v
+}
+
+func (x *Task) SetNodeStep(v string) {
+	x.NodeStep = v
+}
+
 func (x *Task) HasPreviousStatus() bool {
 	if x == nil {
 		return false
@@ -1204,6 +1235,12 @@ type Task_builder struct {
 	DatesJson string
 	// Node names the run is narrowed to (RFC 013). Empty when not narrowed.
 	TargetNodes []string
+	// Node the run is bound to (RFC 013): a worker node, whose run is
+	// dispatched to that worker by target_worker_id.
+	BoundNode string
+	// Command step with nodes of the definition that the run runs alone, bound
+	// to bound_node. Empty for a run of the whole definition.
+	NodeStep string
 }
 
 func (b0 Task_builder) Build() *Task {
@@ -1256,6 +1293,8 @@ func (b0 Task_builder) Build() *Task {
 	x.ScheduleTimezone = b.ScheduleTimezone
 	x.DatesJson = b.DatesJson
 	x.TargetNodes = b.TargetNodes
+	x.BoundNode = b.BoundNode
+	x.NodeStep = b.NodeStep
 	return m0
 }
 
@@ -6888,8 +6927,9 @@ func (b0 ResolveNodesResponse_builder) Build() *ResolveNodesResponse {
 	return m0
 }
 
-// A node with its inventory's defaults applied. A credential is a key path
-// or a secret ref, never a secret value.
+// A node with its inventory's defaults applied, or a worker node, which sets
+// name, kind, host, and labels only. A credential is a key path or a secret
+// ref, never a secret value.
 type ResolvedNode struct {
 	state            protoimpl.MessageState `protogen:"hybrid.v1"`
 	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -7302,7 +7342,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\xfc\x0f\n" +
+	"\x10DispatchResponse\"\xb8\x10\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -7362,7 +7402,10 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x11schedule_timezone\x18- \x01(\tR\x10scheduleTimezone\x12\x1d\n" +
 	"\n" +
 	"dates_json\x18. \x01(\tR\tdatesJson\x12!\n" +
-	"\ftarget_nodes\x18/ \x03(\tR\vtargetNodes\x1aA\n" +
+	"\ftarget_nodes\x18/ \x03(\tR\vtargetNodes\x12\x1d\n" +
+	"\n" +
+	"bound_node\x180 \x01(\tR\tboundNode\x12\x1b\n" +
+	"\tnode_step\x181 \x01(\tR\bnodeStep\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x18\n" +
@@ -7718,10 +7761,11 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x1bLOG_STREAM_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16LOG_STREAM_TYPE_STDOUT\x10\x01\x12\x1a\n" +
 	"\x16LOG_STREAM_TYPE_STDERR\x10\x02\x12\x1d\n" +
-	"\x19LOG_STREAM_TYPE_SCHEDULER\x10\x03*8\n" +
+	"\x19LOG_STREAM_TYPE_SCHEDULER\x10\x03*N\n" +
 	"\bNodeKind\x12\x19\n" +
 	"\x15NODE_KIND_UNSPECIFIED\x10\x00\x12\x11\n" +
-	"\rNODE_KIND_SSH\x10\x012\xee\x11\n" +
+	"\rNODE_KIND_SSH\x10\x01\x12\x14\n" +
+	"\x10NODE_KIND_WORKER\x10\x022\xee\x11\n" +
 	"\x12CoordinatorService\x12A\n" +
 	"\x04Poll\x12\x1b.coordinator.v1.PollRequest\x1a\x1c.coordinator.v1.PollResponse\x12M\n" +
 	"\bDispatch\x12\x1f.coordinator.v1.DispatchRequest\x1a .coordinator.v1.DispatchResponse\x12S\n" +

@@ -14,7 +14,6 @@ import (
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // DAGRepositoryOption configures the file-backed DAG repository.
@@ -69,7 +68,7 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 	return newDAGRepository(cfg, dagSource{
 		paths:                  v2ProjectPaths(cfg.Paths),
 		baseConfig:             cfg.Paths.BaseConfig,
-		workspaceBaseConfigDir: workspace.BaseConfigDir(cfg.Paths.DAGsDir),
+		workspaceBaseConfigDir: cfg.WorkspaceBaseConfigDir(),
 		calendars:              spec.NewCalendarSource(cfg.Paths.CalendarsDir),
 		records:                dagRecords(cfg.Paths),
 	}, opts...)
@@ -154,13 +153,6 @@ func dagIndexDir(stateDir string) string {
 		return ""
 	}
 	return filepath.Join(stateDir, "cache", "dag-index")
-}
-
-// DAGChangeMarkerPath returns this host's file that signals DAG definition
-// changes to readers on other hosts, or "" when there is no data directory to
-// keep it in.
-func DAGChangeMarkerPath(cfg *config.Config) string {
-	return filedag.ChangeMarkerPath(dagIndexDir(cfg.Paths.DataDir), cfg.Paths.DAGsDir)
 }
 
 // v2ProjectPaths returns the directories where v2 keeps the stores of its one

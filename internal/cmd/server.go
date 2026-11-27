@@ -31,6 +31,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
@@ -105,6 +106,18 @@ func newServer(ctx *Context, rs *resource.Service, stores frontend.Stores, opts 
 	}, opts...)
 }
 
+// followServedProjects follows the registered projects, as followProjects
+// does, and returns the server options that let webhook requests reach
+// them. It returns none while projects are off.
+func (c *Context) followServedProjects(ctx context.Context) []frontend.ServerOption {
+	cache := c.followProjects(ctx)
+	if cache == nil {
+		return nil
+	}
+	projects := frontendfile.NewWebhookProjects(c.Config, c.serverStores, projectregistry.New(c.Config.Paths.DataDir), cache)
+	return []frontend.ServerOption{frontend.WithAPIOption(apiv1.WithWebhookProjects(projects))}
+}
+
 // runServer initializes and runs the web UI server and its resource monitoring service.
 // It logs startup info, starts the resource service (deferring its shutdown and logging any stop errors),
 // constructs the server with that resource service, and then begins serving.
@@ -153,7 +166,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	}()
 	serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithOpenCodeHost(openCodeHost)))
 
-	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config, serviceCtx.backend)
+	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config, serviceCtx.serverStores, serviceCtx.settings)
 	if err != nil {
 		return err
 	}
@@ -191,6 +204,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	serverOpts = append(serverOpts, frontend.WithOnReady(printStartupBanner(serviceCtx, stores.AuthSetupRequired)))
 	webStopped, onWebStopped := closedOnce()
 	serverOpts = append(serverOpts, frontend.WithOnStopped(onWebStopped))
+	serverOpts = append(serverOpts, serviceCtx.followServedProjects(serviceCtx)...)
 
 	// Initialize server (includes auth setup). Use serviceCtx so auth providers can
 	// respond to termination signals during potentially slow network operations.

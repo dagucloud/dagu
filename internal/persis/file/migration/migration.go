@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -47,8 +48,9 @@ const (
 	statusEvery = 100
 	// planVersion identifies the moves that this release plans. A release
 	// that plans moves an earlier one did not make raises it, so the
-	// migration runs again where the earlier one finished.
-	planVersion = 1
+	// migration runs again where the earlier one finished. Version 1 planned
+	// no moves; version 2 moves the default project's state.
+	planVersion = 2
 )
 
 // Phase is a stage of the migration.
@@ -60,6 +62,9 @@ const (
 	phaseStarting Phase = "starting"
 	// phaseWaitingForV2 waits while a v2 scheduler or coordinator is live.
 	phaseWaitingForV2 Phase = "waiting-for-v2"
+	// phaseStoppingRuns cancels the runs whose process is live and waits
+	// for those processes to exit.
+	phaseStoppingRuns Phase = "stopping-runs"
 	// phaseMoving moves state.
 	phaseMoving Phase = "moving"
 	// phaseWaitingForSpace waits for free space to copy state to another
@@ -72,7 +77,8 @@ const (
 // Progress reports how far the migration has come.
 type Progress struct {
 	Phase Phase `json:"phase"`
-	// WaitingFor names each live v2 scheduler and coordinator.
+	// WaitingFor names each live v2 scheduler and coordinator, or each run
+	// whose process has not exited yet.
 	WaitingFor []string `json:"waitingFor,omitempty"`
 	Moved      int      `json:"moved"`
 	Total      int      `json:"total"`
@@ -95,6 +101,9 @@ type Migrator struct {
 	lock     dirlock.DirLock
 	services serviceregistry.ServiceRegistry
 	mover    mover
+	// stopRuns cancels each run whose process is live, once per run, and
+	// returns the runs whose process has not exited yet.
+	stopRuns func(context.Context) ([]string, error)
 	// planMoves returns the moves of the v2 state. It runs once, under the
 	// lock, before the first move.
 	planMoves func(context.Context) ([]move, error)
@@ -121,11 +130,18 @@ type move struct {
 	To   string `json:"to"`
 }
 
-// New returns the Migrator of dataDir. services lists the live schedulers
-// and coordinators, each of which is a v2 process while the migration is
-// not done, since a v3.0 process registers only after it.
-func New(dataDir string, services serviceregistry.ServiceRegistry) *Migrator {
-	dir := filepath.Join(dataDir, dirName)
+// New returns the Migrator of cfg's paths.data_dir. services lists the live
+// schedulers and coordinators, each of which is a v2 process while the
+// migration is not done, since a v3.0 process registers only after it.
+// Before it moves anything, the Migrator calls stopRuns until it returns no
+// run: stopRuns cancels each run whose process is live, as dagu stop does,
+// and returns the runs whose process has not exited yet.
+func New(
+	cfg *config.Config,
+	services serviceregistry.ServiceRegistry,
+	stopRuns func(context.Context) ([]string, error),
+) *Migrator {
+	dir := filepath.Join(cfg.Paths.DataDir, dirName)
 	return &Migrator{
 		journal: journal{dir: dir},
 		lock: dirlock.New(dir, &dirlock.LockOptions{
@@ -134,16 +150,12 @@ func New(dataDir string, services serviceregistry.ServiceRegistry) *Migrator {
 		}),
 		services:  services,
 		mover:     newMover(),
-		planMoves: planNoMoves,
+		stopRuns:  stopRuns,
+		planMoves: stateMovePlanner(cfg),
 		pollTicks: newPollTicker,
 		now:       time.Now,
 		progress:  Progress{Phase: phaseStarting},
 	}
-}
-
-// planNoMoves moves nothing; the state stays where v2 keeps it.
-func planNoMoves(context.Context) ([]move, error) {
-	return nil, nil
 }
 
 func newPollTicker() (<-chan time.Time, func()) {
@@ -225,6 +237,9 @@ func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) er
 		return err
 	}
 	if err := m.waitForV2(ctx, ticks, held); err != nil {
+		return err
+	}
+	if err := m.waitForRuns(ctx, ticks, held); err != nil {
 		return err
 	}
 	for {
@@ -400,6 +415,35 @@ func (m *Migrator) waitForV2(ctx context.Context, ticks <-chan time.Time, held f
 			logger.Info(ctx, "Waiting for v2 processes to stop before migrating state to projects",
 				slog.Any("processes", live))
 			if err := m.publishHeld(Progress{Phase: phaseWaitingForV2, WaitingFor: live}, held); err != nil {
+				return err
+			}
+			reported = live
+		}
+		if err := waitTick(ctx, ticks); err != nil {
+			return err
+		}
+	}
+}
+
+// waitForRuns returns once no run's process is live, after it cancels each
+// such run, so no process writes the state while it moves.
+func (m *Migrator) waitForRuns(ctx context.Context, ticks <-chan time.Time, held func() error) error {
+	var reported []string
+	for {
+		if err := held(); err != nil {
+			return err
+		}
+		live, err := m.stopRuns(ctx)
+		if err != nil {
+			return fmt.Errorf("cancel the runs whose process is live: %w", err)
+		}
+		if len(live) == 0 {
+			return nil
+		}
+		if !slices.Equal(live, reported) {
+			logger.Info(ctx, "Waiting for cancelled runs to exit before migrating state to projects",
+				slog.Any("runs", live))
+			if err := m.publishHeld(Progress{Phase: phaseStoppingRuns, WaitingFor: live}, held); err != nil {
 				return err
 			}
 			reported = live

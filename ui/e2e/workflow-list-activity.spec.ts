@@ -14,8 +14,9 @@ import {
   writeLocalDAG,
 } from './helpers/e2e';
 
-// A workflow row shows the runs of the last 24 hours as thin bars, and a bar
-// opens the workflow on its run.
+// A workflow row shows the runs of the last 24 hours as thin bars, and its
+// chevron unfolds the latest runs under the row. A bar opens the workflow on
+// its run.
 test('shows the activity of a workflow in the Workflows list', async ({
   page,
   request,
@@ -55,6 +56,15 @@ steps:
   await expect(strip).toHaveAttribute('data-runs', '2');
   await expect(strip.locator(`[data-run-id="${first}"]`)).toHaveCount(1);
   await expect(strip.locator(`[data-run-id="${second}"]`)).toHaveCount(1);
+
+  const toggle = row.getByTestId('dag-activity-toggle');
+  await toggle.click();
+  const runs = page.getByTestId('dag-recent-runs');
+  await expect(runs.getByText(first)).toBeVisible();
+  await expect(runs.getByText(second)).toBeVisible();
+  expect(new URL(page.url()).pathname).toMatch(/^\/dags\/?$/);
+  await toggle.click();
+  await expect(runs).toHaveCount(0);
 
   await strip.locator(`[data-run-id="${first}"]`).click();
   await expect

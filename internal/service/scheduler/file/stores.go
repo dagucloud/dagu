@@ -11,12 +11,10 @@ import (
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
@@ -25,11 +23,18 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 )
 
-// NewDependencies creates the file-backed stores used by the scheduler service.
-func NewDependencies(ctx context.Context, cfg *config.Config, backend persis.Backend) (scheduler.Dependencies, error) {
+// NewDependencies creates the file-backed stores used by the scheduler
+// service from the stores every project shares and the stores of the
+// project it schedules.
+func NewDependencies(
+	ctx context.Context,
+	cfg *config.Config,
+	server *persisfile.ServerStores,
+	project *persisfile.ProjectSettings,
+) (scheduler.Dependencies, error) {
 	var deps scheduler.Dependencies
 	if cfg.EventStore.Enabled {
-		store, err := fileeventstore.New(cfg.Paths.EventStoreDir)
+		store, err := fileeventstore.New(project.Paths.EventStoreDir)
 		if err != nil {
 			logger.Warn(ctx, "Failed to initialize event store; continuing without event persistence", tag.Error(err))
 		} else {
@@ -38,7 +43,7 @@ func NewDependencies(ctx context.Context, cfg *config.Config, backend persis.Bac
 	}
 	if deps.EventService != nil {
 		collector, err := fileeventstore.NewCollector(
-			cfg.Paths.EventStoreDir,
+			project.Paths.EventStoreDir,
 			cfg.EventStore.RetentionDays,
 			fileeventstore.WithDedupeCacheBytes(cfg.Cache.Limits().EventStoreBytes),
 		)
@@ -49,61 +54,47 @@ func NewDependencies(ctx context.Context, cfg *config.Config, backend persis.Bac
 		}
 	}
 
-	dagSettingsStore, err := persisfile.NewDAGSettingsStore(
-		cfg,
-		backend.Collection(persis.CollectionDAGSettings),
-	)
+	dagSettingsStore, err := project.DAGSettingsStore()
 	if err != nil {
 		return scheduler.Dependencies{}, fmt.Errorf("failed to initialize DAG settings store: %w", err)
 	}
 	deps.DAGSettingsStore = dagSettingsStore
-	deps.ProfileStore = persisfile.NewProfileStore(ctx, cfg, backend.Collection(persis.CollectionProfiles))
+	deps.ProfileStore = project.ProfileStore(ctx)
 	if deps.EventService != nil {
-		initMonitorStores(ctx, cfg, backend, &deps)
+		initMonitorStores(ctx, server, project, &deps)
 	}
 	return deps, nil
 }
 
-func initMonitorStores(ctx context.Context, cfg *config.Config, backend persis.Backend, deps *scheduler.Dependencies) {
-	key, err := crypto.ResolveKey(cfg.Paths.DataDir)
-	if err != nil {
-		logger.Warn(ctx, "Failed to resolve encryption key for encrypted stores", tag.Error(err))
-		logger.Warn(ctx, "Notification settings store is disabled because encrypted storage is not available")
-		logger.Warn(ctx, "Incident settings store is disabled because encrypted storage is not available")
-		return
-	}
-	encryptor, err := crypto.NewEncryptor(key)
-	if err != nil {
-		logger.Warn(ctx, "Failed to create encryptor for encrypted stores", tag.Error(err))
+func initMonitorStores(
+	ctx context.Context,
+	server *persisfile.ServerStores,
+	project *persisfile.ProjectSettings,
+	deps *scheduler.Dependencies,
+) {
+	if _, err := server.Encryptor(); err != nil {
+		logger.Warn(ctx, "Failed to prepare encryption for encrypted stores", tag.Error(err))
 		logger.Warn(ctx, "Notification settings store is disabled because encrypted storage is not available")
 		logger.Warn(ctx, "Incident settings store is disabled because encrypted storage is not available")
 		return
 	}
 
-	notificationStore, err := persisfile.NewNotificationStore(
-		backend.Collection(persis.CollectionNotifications),
-		backend.Collection(persis.CollectionNotificationChannels),
-		encryptor,
-	)
+	notificationStore, err := project.NotificationStore()
 	if err != nil {
 		logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
 	} else {
 		deps.NotificationStore = notificationStore
-		stateFile := filepath.Join(cfg.Paths.DataDir, "notifications", "monitor-state.json")
+		stateFile := project.NotificationStateFile()
 		deps.NotificationState = filemonitor.NewStateStore(stateFile)
 		deps.NewNotificationLease = newMonitorLease(stateFile)
 	}
 
-	incidentStore, err := persisfile.NewIncidentStore(
-		backend.Collection(persis.CollectionIncidents),
-		backend.Collection(persis.CollectionIncidentProviders),
-		encryptor,
-	)
+	incidentStore, err := project.IncidentStore()
 	if err != nil {
 		logger.Warn(ctx, "Failed to create incident settings store", tag.Error(err))
 	} else {
 		deps.IncidentStore = incidentStore
-		stateFile := filepath.Join(cfg.Paths.DataDir, "incidents", "monitor-state.json")
+		stateFile := project.IncidentStateFile()
 		deps.IncidentState = filemonitor.NewStateStore(stateFile)
 		deps.NewIncidentLease = newMonitorLease(stateFile)
 	}
@@ -124,24 +115,19 @@ func newMonitorLease(stateFile string) func() chatbridge.Lease {
 }
 
 // NewPublicWebhookStores creates the stores public webhook URLs need: the
-// webhook store, which decrypts their tokens and sender secrets, and the
-// store of the relay's status and each URL's deliveries.
-func NewPublicWebhookStores(cfg *config.Config, backend persis.Backend) (*store.WebhookStore, *store.PublicWebhookStore, error) {
-	key, err := crypto.ResolveKey(cfg.Paths.DataDir)
+// project's webhook store, which decrypts their tokens and sender secrets,
+// and the store of the relay's status and each URL's deliveries.
+func NewPublicWebhookStores(
+	server *persisfile.ServerStores,
+	project *persisfile.ProjectSettings,
+) (*store.WebhookStore, *store.PublicWebhookStore, error) {
+	encryptor, err := server.Encryptor()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to resolve encryption key: %w", err)
+		return nil, nil, fmt.Errorf("failed to prepare encryption: %w", err)
 	}
-	encryptor, err := crypto.NewEncryptor(key)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
-	}
-	webhooks, err := store.NewWebhookStore(
-		backend.Collection(persis.CollectionWebhooks),
-		backend.Collection(persis.CollectionWebhookDAGClaims),
-		encryptor,
-	)
+	webhooks, err := project.WebhookStore(encryptor)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create webhook store: %w", err)
 	}
-	return webhooks, store.NewPublicWebhookStore(backend.Collection(persis.CollectionPublicWebhooks)), nil
+	return webhooks, server.PublicWebhookStore(), nil
 }

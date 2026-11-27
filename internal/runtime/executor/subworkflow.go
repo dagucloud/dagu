@@ -41,6 +41,8 @@ type EnqueueRequest struct {
 	ScheduleWindow ir.ScheduleWindow
 	// TargetNodes is the parent's node list, which the child keeps.
 	TargetNodes []string
+	// Location is the file the DAG was written in. DAG.Location is empty.
+	Location string
 }
 
 // EnqueueResult describes the persisted state after queue admission.
@@ -73,8 +75,11 @@ type SubWorkflowRequest struct {
 	// the child inherits.
 	ScheduleTime   string
 	ScheduleWindow ir.ScheduleWindow
-	// Node names the inventory node the child run is bound to (RFC 013).
+	// Node names the node the child run is bound to (RFC 013).
 	Node string
+	// TargetWorkerID names the worker the child run runs on: the worker node
+	// it is bound to. Only a dispatch to that worker runs it.
+	TargetWorkerID string
 	// NodeStep names the parent's command step that the child runs alone,
 	// for a command step with nodes. DAG then holds the parent's definition,
 	// which the runner narrows to that step (ir.DAG.NodeStepChild).

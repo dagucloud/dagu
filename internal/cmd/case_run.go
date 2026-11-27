@@ -99,6 +99,9 @@ type testCase struct {
 	// scripts scripts the steps of every attempt of the run and records
 	// what each execution was called with. It is set when the run starts.
 	scripts *stepmock.Set
+	// host holds the values the run took from the host, set when the run
+	// ends.
+	host hostValues
 }
 
 // openCase creates a case directory and the stores rooted in it. The case
@@ -128,7 +131,9 @@ func openCase(ctx *Context, opts caseOptions) (*testCase, error) {
 // the same run ID, and returns the last attempt's status. A settled step
 // that queues no resume leaves the next waiting step to settle. Once the
 // case's context is canceled, the case accepts no further retry, and an
-// attempt that starts after the cancellation is interrupted at once.
+// attempt that starts after the cancellation is interrupted at once. A run
+// that returns its status also records the values it took from the host,
+// as read through the case's context.
 //
 //	attempt --> status
 //	   ^          |-- waiting ------------> settle one step --+
@@ -209,6 +214,7 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 			c.waited = nil
 			err = c.acceptRetry(dag, status)
 		default:
+			c.host = newHostValues(ctx, ctx.Config.Core.BaseEnv)
 			return status, nil
 		}
 		if err != nil {
@@ -548,7 +554,7 @@ func (c *Context) inCaseDir(dir string) (*Context, error) {
 	cfg := *c.Config
 	cfg.Paths = casePaths(c.Config.Paths, dir)
 	server := file.NewServerStores(&cfg)
-	stores, err := openDefaultProject(c.Context, &cfg, server, file.ProjectStoreOptions{})
+	stores, err := openProject(c.Context, &cfg, server, c.project, file.ProjectStoreOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -560,8 +566,8 @@ func (c *Context) inCaseDir(dir string) (*Context, error) {
 	// The case's log file is its only log output.
 	clone.Quiet = true
 	clone.Persistence = persistence
-	clone.DAGRunMgr = runtime.NewManager(persistence.DAGRunRepository, persistence.ProcRepository, &cfg)
-	clone.backend = file.NewBackend(cfg.Paths)
+	clone.DAGRunMgr = runtime.NewManager(persistence.DAGRunRepository, persistence.ProcRepository, &cfg,
+		projectManagerOptions(&cfg, c.project)...)
 	clone.serverStores = server
 	clone.projectStores = stores
 	clone.settings = stores.ProjectSettings
@@ -572,7 +578,7 @@ func (c *Context) inCaseDir(dir string) (*Context, error) {
 	}
 	// A run emits events to the store its context carries, so the case's
 	// store takes the place of the configured one.
-	events := newEventService(clone.Context, &cfg)
+	events := newEventService(clone.Context, &cfg, stores.Paths.EventStoreDir)
 	if events == nil {
 		return nil, errors.New("failed to open the event store of the case")
 	}

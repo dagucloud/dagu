@@ -10,10 +10,11 @@ import (
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/intake"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-// flagNode narrows a run to the named inventory nodes (RFC 013 §Narrowing a
+// flagNode narrows a run to the named nodes (RFC 013 §Narrowing a
 // run), as repeatable names.
 const flagNode = "node"
 
@@ -23,7 +24,7 @@ var errNodeWithFromRunID = fmt.Errorf("--%s cannot be combined with --from-run-i
 
 var nodeFlag = commandLineFlag{
 	name:          flagNode,
-	usage:         "Inventory node the run is narrowed to: its steps with nodes run only on listed nodes, and a node: required DAG runs bound to the one node; repeatable",
+	usage:         "Node the run is narrowed to: its steps with nodes run only on listed nodes, and a node: required DAG runs bound to the one node; repeatable",
 	isStringArray: true,
 }
 
@@ -62,7 +63,7 @@ func narrowRun(ctx *Context, dag *ir.DAG, names []string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the node inventory: %w", err)
 	}
-	known, err := nodes.Nodes(ctx.Context)
+	known, err := inventory.NewProjectNodes(nodes, ctx.runtimeWorkerNodeStore()).Nodes(ctx.Context)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the node inventory: %w", err)
 	}

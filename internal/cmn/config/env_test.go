@@ -93,6 +93,23 @@ func TestLoadBaseEnvWithExtras_ExactNamesAndPrefixes(t *testing.T) {
 	require.False(t, found)
 }
 
+// The fixed allowlist and prefixes pass a variable by default. Any other
+// name needs env_passthrough.
+func TestForwardedByDefault(t *testing.T) {
+	t.Parallel()
+
+	for name, want := range map[string]bool{
+		"PATH":                    true,
+		"DAGU_HOME":               true,
+		"LC_TIME":                 true,
+		"KUBERNETES_SERVICE_HOST": true,
+		"AWS_SECRET_ACCESS_KEY":   false,
+		"HOST_TOKEN":              false,
+	} {
+		require.Equal(t, want, config.ForwardedByDefault(name), name)
+	}
+}
+
 func TestLoadBaseEnvWithExtras_NeverIncludesInternalTransport(t *testing.T) {
 	t.Setenv("_DAGU_INTERNAL_OPENCODE_PASSWORD", "secret")
 	baseEnv := config.LoadBaseEnvWithExtras(

@@ -1313,6 +1313,9 @@ func (s *Service) ValidateWebhookToken(ctx context.Context, dagName, token strin
 
 // AuthorizeWebhookRequestInput contains the credentials and signed content for a webhook request.
 type AuthorizeWebhookRequestInput struct {
+	// Webhooks holds the webhooks of the project the request reaches; nil
+	// means the service's own store.
+	Webhooks    auth.WebhookStore
 	DAGName     string
 	Token       string
 	Signature   string
@@ -1330,12 +1333,17 @@ type WebhookAuthorization struct {
 
 // AuthorizeWebhookRequest validates the request according to the webhook's auth mode.
 func (s *Service) AuthorizeWebhookRequest(ctx context.Context, input AuthorizeWebhookRequestInput) (*WebhookAuthorization, error) {
-	if s.webhookStore == nil {
+	store := input.Webhooks
+	if store == nil {
+		store = s.webhookStore
+	}
+	if store == nil {
 		return nil, ErrWebhookNotConfigured
 	}
 
-	webhook, err := s.GetWebhookByDAGName(ctx, input.DAGName)
+	webhook, err := store.GetByDAGName(ctx, input.DAGName)
 	if err != nil {
+		err = mapWebhookHMACCapabilityError(err)
 		if errors.Is(err, auth.ErrWebhookNotFound) {
 			return nil, ErrInvalidWebhookToken
 		}
@@ -1373,7 +1381,7 @@ func (s *Service) AuthorizeWebhookRequest(ctx context.Context, input AuthorizeWe
 		return nil, ErrInvalidWebhookAuthMode
 	}
 
-	if err := s.webhookStore.UpdateLastUsed(ctx, webhook.ID, webhookProfileTokenID(profileToken)); err != nil {
+	if err := store.UpdateLastUsed(ctx, webhook.ID, webhookProfileTokenID(profileToken)); err != nil {
 		slog.Error("failed to update webhook last used timestamp", "webhookID", webhook.ID, "error", err)
 	}
 

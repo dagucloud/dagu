@@ -16,7 +16,6 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
 	"github.com/spf13/cobra"
@@ -72,15 +71,10 @@ func runValidate(ctx *Context, args []string, showUnresolved bool) error {
 	}
 
 	// Try loading the DAG without evaluation, resolving relative names against DAGsDir
-	loadOpts := []spec.LoadOption{
+	loadOpts := append(ctx.projectLoadOptions(),
 		spec.WithoutEval(),
-		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
 		spec.WithCalendarsDir(ctx.Config.Paths.CalendarsDir),
-	}
-	if ctx.Config.Paths.BaseConfig != "" {
-		loadOpts = append(loadOpts, spec.WithBaseConfig(ctx.Config.Paths.BaseConfig))
-	}
+	)
 
 	loadResult, err := spec.LoadWithResult(ctx, args[0], loadOpts...)
 	if err != nil {

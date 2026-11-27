@@ -6,11 +6,16 @@ package inventory
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
+
+// daguHostWorkerID is the worker ID that runs on the Dagu host report.
+const daguHostWorkerID = "local"
 
 var (
 	// ErrWorkerNodeNotFound reports a name that names no worker node.
@@ -64,11 +69,101 @@ type WorkerConflict struct {
 	Node ResolvedNode
 }
 
-// IsNodeName reports whether name can name a node. A worker is a node only
-// when its ID can, which the ID of a worker without worker.id, generated
-// as hostname@pid, never does.
+// IsNodeName reports whether a worker ID can name a node. A worker is a
+// node only when its ID can, which the ID of a worker without worker.id,
+// generated as hostname@pid, never does, and neither does local, the worker
+// ID of runs on the Dagu host.
 func IsNodeName(name string) bool {
-	return nodeNameError(name) == nil
+	return nodeNameError(name) == nil && !strings.EqualFold(name, daguHostWorkerID)
+}
+
+// ProjectNodes reads a project's nodes: the nodes of its inventories and the
+// worker nodes, which every project shares (RFC 012 §Selecting nodes).
+type ProjectNodes struct {
+	inventories nodeLister
+	workers     WorkerNodeStore
+}
+
+// nodeLister lists the nodes of a project's inventories, as Store does.
+type nodeLister interface {
+	Nodes(ctx context.Context) ([]ResolvedNode, error)
+}
+
+// NewProjectNodes returns the nodes of inventories, which lists them as
+// Store.Nodes does, and of workers. A nil workers holds no worker nodes.
+func NewProjectNodes(inventories nodeLister, workers WorkerNodeStore) ProjectNodes {
+	return ProjectNodes{inventories: inventories, workers: workers}
+}
+
+// Nodes returns every node in name order. A worker whose ID names an
+// inventory node is not a node (SplitWorkers).
+func (p ProjectNodes) Nodes(ctx context.Context) ([]ResolvedNode, error) {
+	nodes, err := p.inventories.Nodes(ctx)
+	if err != nil || p.workers == nil {
+		return nodes, err
+	}
+	workers, err := p.workers.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the worker nodes: %w", err)
+	}
+	return withWorkers(nodes, workers), nil
+}
+
+// Select returns the nodes a selector matches, in name order.
+func (p ProjectNodes) Select(ctx context.Context, selector string) ([]ResolvedNode, error) {
+	filters, err := ParseSelector(selector)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := p.Nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return Select(nodes, filters), nil
+}
+
+// Named returns the nodes names names, compared without case, and each node
+// they connect through, in name order. A name of no node is left out. The
+// worker nodes are read only when a name is no inventory node's.
+func (p ProjectNodes) Named(ctx context.Context, names []string) ([]ResolvedNode, error) {
+	nodes, err := p.inventories.Nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	named := Named(nodes, names)
+	if p.workers == nil || namesAll(named, names) {
+		return named, nil
+	}
+	workers, err := p.workers.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the worker nodes: %w", err)
+	}
+	return Named(withWorkers(nodes, workers), names), nil
+}
+
+// namesAll reports whether nodes holds a node of each of names, compared
+// without case.
+func namesAll(nodes []ResolvedNode, names []string) bool {
+	return !slices.ContainsFunc(names, func(name string) bool {
+		return !slices.ContainsFunc(nodes, func(n ResolvedNode) bool { return strings.EqualFold(n.Name, name) })
+	})
+}
+
+// withWorkers returns nodes and the workers that are nodes, in name order.
+func withWorkers(nodes []ResolvedNode, workers []WorkerNode) []ResolvedNode {
+	kept, _ := SplitWorkers(workers, nodes)
+	all := slices.Grow(slices.Clone(nodes), len(kept))
+	for _, w := range kept {
+		all = append(all, w.node())
+	}
+	slices.SortFunc(all, func(a, b ResolvedNode) int { return strings.Compare(a.Name, b.Name) })
+	return all
+}
+
+// node returns the worker node as a node that selectors match and runs bind
+// to.
+func (w WorkerNode) node() ResolvedNode {
+	return ResolvedNode{Name: w.Name, Kind: NodeKindWorker, Host: w.Host, Labels: slices.Clone(w.Labels)}
 }
 
 // SplitWorkers returns the workers that are nodes, and the workers whose

@@ -32,11 +32,20 @@ type jsonReport struct {
 		Notifications []map[string]any `json:"notifications"`
 		CaseDir       string           `json:"case_dir"`
 		Update        string           `json:"update"`
+		UpdateKept    []jsonKept       `json:"update_kept"`
 	} `json:"cases"`
 	InvalidFiles []struct {
 		File   string           `json:"file"`
 		Errors []map[string]any `json:"errors"`
 	} `json:"invalid_files"`
+}
+
+// jsonKept is a kept object of the JSON report.
+type jsonKept struct {
+	Step      string   `json:"step"`
+	Field     string   `json:"field"`
+	Variables []string `json:"variables"`
+	Env       []string `json:"env"`
 }
 
 // decodeReport decodes stdout as exactly one JSON object.

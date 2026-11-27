@@ -58,15 +58,20 @@ func refusingRoot() *cobra.Command {
 	return rootOf(cmd.EgressProxyForTest(net.Listen, refuse))
 }
 
-// connect sends CONNECT for the target through the proxy and returns the status
-// line of the answer. The connection stays open until the test ends.
-func connect(t *testing.T, proxyAddr, target string) string {
+// connect sends CONNECT for the target through the proxy, with the given header
+// lines, and returns the status line of the answer. The connection stays open
+// until the test ends.
+func connect(t *testing.T, proxyAddr, target string, headers ...string) string {
 	t.Helper()
 	conn, err := net.Dial("tcp", proxyAddr)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(10*time.Second)))
-	_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target)
+	request := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n", target, target)
+	for _, header := range headers {
+		request += header + "\r\n"
+	}
+	_, err = io.WriteString(conn, request+"\r\n")
 	require.NoError(t, err)
 	status, err := bufio.NewReader(conn).ReadString('\n')
 	require.NoError(t, err)

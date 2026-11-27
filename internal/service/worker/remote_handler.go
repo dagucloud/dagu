@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -481,8 +482,44 @@ type loadedTaskDAG struct {
 	cleanup       func()
 }
 
-// loadDAG loads the DAG from task definition.
+// loadDAG loads the DAG a task runs. The child of a command step with nodes
+// runs that step alone.
 func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Task) (*loadedTaskDAG, error) {
+	loaded, err := h.loadTaskDAG(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+	if err := lostNodeStepError(task, loaded.dag); err != nil {
+		loaded.cleanup()
+		return nil, err
+	}
+	if task.NodeStep == "" {
+		return loaded, nil
+	}
+	child, err := loaded.dag.NodeStepChild(task.NodeStep)
+	if err != nil {
+		loaded.cleanup()
+		return nil, fmt.Errorf("failed to load DAG: %w", err)
+	}
+	loaded.dag = child
+	return loaded, nil
+}
+
+// lostNodeStepError refuses the child of a command step with nodes whose
+// task lost its node step, as a coordinator without the field drops it, so
+// the parent's whole definition never runs unbound on a worker. Such a task
+// names its parent's DAG as its target and a worker to run on.
+func lostNodeStepError(task *coordinatorv1.Task, dag *ir.DAG) error {
+	if task.NodeStep != "" || task.TargetWorkerId == "" || task.ParentDagRunName == "" || task.Target != task.ParentDagRunName {
+		return nil
+	}
+	if slices.ContainsFunc(dag.Steps, func(step ir.Step) bool { return step.Nodes != nil && step.SubDAG == nil }) {
+		return fmt.Errorf("the task runs DAG %q, its parent's, on worker %q without the step it runs on a node; the coordinator may predate worker nodes, so upgrade it", task.Target, task.TargetWorkerId)
+	}
+	return nil
+}
+
+func (h *remoteTaskHandler) loadTaskDAG(ctx context.Context, task *coordinatorv1.Task) (*loadedTaskDAG, error) {
 	if _, ok, err := taskWorkspaceDescriptor(task); err != nil {
 		return nil, err
 	} else if ok {
@@ -836,6 +873,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		TriggerActor:             task.TriggerActor,
 		TriggerType:              run.triggerType(),
 		ParallelItem:             task.ParallelItem,
+		BoundNode:                task.BoundNode,
 		ServiceRegistry:          h.serviceRegistry,
 		SubWorkflowRunnerFactory: subWorkflowRunnerFactory,
 		RemoteDAGLoader:          remoteDAGLoader,

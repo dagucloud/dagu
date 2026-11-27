@@ -110,7 +110,7 @@ func regexExpandEnv(ctx context.Context, input string, opts *options) string {
 	if opts.ExpandOS {
 		scope := GetEnvScope(ctx)
 		if scope == nil {
-			return expandWithLookup(input, lookupProcessEnv, opts.RecognizeEscapedDollar)
+			return expandWithLookup(input, hostReadsFrom(ctx).lookup, opts.RecognizeEscapedDollar)
 		}
 		return expandWithLookup(input, scopeLookup(ctx, scope), opts.RecognizeEscapedDollar)
 	}

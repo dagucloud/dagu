@@ -81,6 +81,11 @@ const (
 
 	// EnvKeyParallelItem carries parallel child-run identity into subprocesses.
 	EnvKeyParallelItem = "DAGU_PARALLEL_ITEM"
+
+	// EnvKeyProject names the project a dagu command addresses when it has
+	// no --project flag. Dagu sets it for each step of a run on the server
+	// while projects are on.
+	EnvKeyProject = "DAGU_PROJECT"
 )
 
 // EnvKeyPWD holds the resolved working directory of the executing step.

@@ -22,7 +22,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
 	filebaseconfig "github.com/dagucloud/dagu/v2/internal/persis/file/baseconfig"
@@ -39,50 +38,59 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
-// NewStores creates the file-backed stores used by the frontend service.
-func NewStores(ctx context.Context, cfg *config.Config, backend persis.Backend) (frontend.Stores, error) {
+// NewStores creates the file-backed stores used by the frontend service from
+// the stores every project shares and the stores of the project it serves.
+func NewStores(
+	ctx context.Context,
+	cfg *config.Config,
+	server *persisfile.ServerStores,
+	project *persisfile.ProjectSettings,
+) (frontend.Stores, error) {
 	stores := frontend.Stores{}
 
 	if cfg.EventStore.Enabled {
-		store, err := fileeventstore.New(cfg.Paths.EventStoreDir)
+		store, err := fileeventstore.New(project.Paths.EventStoreDir)
 		if err != nil {
 			return frontend.Stores{}, fmt.Errorf("failed to initialize event store: %w", err)
 		}
 		stores.Event = eventstore.New(store)
 	}
 
-	dagSettingsStore, err := persisfile.NewDAGSettingsStore(
-		cfg,
-		backend.Collection(persis.CollectionDAGSettings),
-	)
+	dagSettingsStore, err := project.DAGSettingsStore()
 	if err != nil {
 		logger.Warn(ctx, "Failed to create DAG settings store", tag.Error(err))
 	} else {
 		stores.DAGSettings = dagSettingsStore
 	}
-	stores.Profile = persisfile.NewProfileStore(ctx, cfg, backend.Collection(persis.CollectionProfiles))
+	stores.Profile = project.ProfileStore(ctx)
 
-	if err := initStores(ctx, cfg, backend, &stores); err != nil {
+	if err := initStores(ctx, cfg, server, project, &stores); err != nil {
 		return frontend.Stores{}, err
 	}
-	initEncryptedStores(ctx, cfg, backend, &stores)
+	initEncryptedStores(ctx, cfg, server, project, &stores)
 	return stores, nil
 }
 
-func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend, stores *frontend.Stores) error {
+func initStores(
+	ctx context.Context,
+	cfg *config.Config,
+	server *persisfile.ServerStores,
+	project *persisfile.ProjectSettings,
+	stores *frontend.Stores,
+) error {
 	// Base config edits change every DAG definition, so they signal the
 	// scheduler on other hosts the same way DAG edits do.
-	changeMarker := filedag.NewChangeMarker(persisfile.DAGChangeMarkerPath(cfg))
+	changeMarker := filedag.NewChangeMarker(project.DAGChangeMarkerPath())
 	stores.WorkspaceBaseConfig = func(workspaceName string) (dagsettings.BaseConfigStore, error) {
 		return filebaseconfig.New(
-			workspace.BaseConfigPath(cfg.Paths.DAGsDir, workspaceName),
+			workspace.BaseConfigPath(project.Paths.DAGsDir, workspaceName),
 			filebaseconfig.WithSkipDefault(true),
 			filebaseconfig.WithOnChange(changeMarker.Bump),
 		)
 	}
 	// Calendar edits change the business days of the DAGs that use them.
 	if cfg.Paths.CalendarsDir != "" {
-		calendarStore, err := filecalendar.New(cfg.Paths.CalendarsDir, filecalendar.WithOnChange(changeMarker.Bump))
+		calendarStore, err := server.CalendarStore(filecalendar.WithOnChange(changeMarker.Bump))
 		if err != nil {
 			return fmt.Errorf("failed to create calendar store: %w", err)
 		}
@@ -102,25 +110,29 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 	}
 
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
-		builtinAuth, err := newBuiltinAuth(ctx, cfg, backend)
+		builtinAuth, err := newBuiltinAuth(ctx, cfg, server, project)
 		if err != nil {
 			return fmt.Errorf("failed to initialize builtin auth service: %w", err)
 		}
 		stores.AuthService = builtinAuth.service
 		stores.UserStore = builtinAuth.userStore
 		stores.AuthSetupRequired = builtinAuth.setupRequired
-		stores.PublicWebhooks = store.NewPublicWebhookStore(backend.Collection(persis.CollectionPublicWebhooks))
+		stores.PublicWebhooks = server.PublicWebhookStore()
 	}
 
-	stores.Secret = persisfile.NewSecretStore(ctx, cfg, backend.Collection(persis.CollectionSecrets))
+	stores.Secret = project.SecretStore(ctx)
 
 	wikiStore, err := newWikiStore(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create Wiki store: %w", err)
 	}
 	stores.Wiki = wikiStore
+	if cfg.ProjectsEnabled && wikiStore != nil {
+		// The API addresses the default project's wiki.
+		stores.Wiki = newProjectWikis(cfg, stores.Projects, wikiStore).defaults
+	}
 
-	workspaceStore, err := newWorkspaceStore(cfg, backend.Collection(persis.CollectionWorkspaces))
+	workspaceStore, err := newWorkspaceStore(cfg, server)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create workspace store", tag.Error(err))
 	} else {
@@ -129,7 +141,7 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 
 	if cfg.Server.Audit.Enabled {
 		// Without a secret store, no entry is marked masked, so none is sent.
-		auditStore, err := fileaudit.New(fileaudit.Dir(cfg.Paths.AdminLogsDir), cfg.Server.Audit.RetentionDays,
+		auditStore, err := server.AuditStore(cfg.Server.Audit.RetentionDays,
 			fileaudit.WithMasker(audit.NewMasker(stores.Secret)))
 		if err != nil {
 			return fmt.Errorf("failed to initialize audit service: failed to create audit store: %w", err)
@@ -137,42 +149,32 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 		stores.Audit = auditStore
 	}
 
-	stores.View = store.NewViewStore(backend.Collection(persis.CollectionViews))
+	stores.View = project.ViewStore()
 
-	hostKeyStore, err := store.NewHostKeyStore(backend.Collection(persis.CollectionHostKeys))
+	hostKeyStore, err := project.HostKeyStore()
 	if err != nil {
 		return fmt.Errorf("failed to create host key store: %w", err)
 	}
 	stores.HostKeys = hostKeyStore
-	inventoryStore, err := store.NewCachedInventoryStore(
-		backend.Collection(persis.CollectionInventories),
-		backend.Lock(persis.CollectionInventories),
-		hostKeyStore,
-	)
+	inventoryStore, err := project.CachedInventoryStore()
 	if err != nil {
 		return fmt.Errorf("failed to create inventory store: %w", err)
 	}
 	stores.Inventory = inventoryStore
-	workerNodeStore, err := store.NewWorkerNodeStore(
-		backend.Collection(persis.CollectionWorkerNodes),
-		store.NewWorkerHeartbeatStore(backend.Collection(persis.CollectionWorkerHeartbeats)),
-	)
+	workerNodeStore, err := server.WorkerNodeStore()
 	if err != nil {
 		return fmt.Errorf("failed to create worker node store: %w", err)
 	}
 	stores.WorkerNodes = workerNodeStore
 
-	dagPinStore, err := store.NewDAGPinStore(backend.Collection(persis.CollectionDAGPins))
+	dagPinStore, err := project.DAGPinStore()
 	if err != nil {
 		return fmt.Errorf("failed to create DAG pin store: %w", err)
 	}
 	stores.DAGPins = dagPinStore
 
 	if cfg.Server.CheckUpdates {
-		upgradeStore, err := persisfile.NewUpgradeCheckStore(
-			cfg,
-			backend.Collection(persis.CollectionUpgradeCheck),
-		)
+		upgradeStore, err := server.UpgradeCheckStore()
 		if err != nil {
 			logger.Warn(ctx, "Failed to create upgrade check store", tag.Error(err))
 		} else {
@@ -238,7 +240,7 @@ func storePathExists(path string) (bool, error) {
 	return false, fmt.Errorf("inspect %s: %w", path, err)
 }
 
-func newWorkspaceStore(cfg *config.Config, col persis.Collection) (*store.WorkspaceStore, error) {
+func newWorkspaceStore(cfg *config.Config, server *persisfile.ServerStores) (*store.WorkspaceStore, error) {
 	dir := cfg.Paths.WorkspacesDir
 	if dir == "" {
 		return nil, fmt.Errorf("workspace store: WorkspacesDir cannot be empty")
@@ -246,60 +248,47 @@ func newWorkspaceStore(cfg *config.Config, col persis.Collection) (*store.Worksp
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("workspace store: create directory %s: %w", dir, err)
 	}
-	return store.NewWorkspaceStore(col)
+	return server.WorkspaceStore()
 }
 
-func initEncryptedStores(ctx context.Context, cfg *config.Config, backend persis.Backend, stores *frontend.Stores) {
-	encKey, err := crypto.ResolveKey(cfg.Paths.DataDir)
+func initEncryptedStores(
+	ctx context.Context,
+	cfg *config.Config,
+	server *persisfile.ServerStores,
+	project *persisfile.ProjectSettings,
+	stores *frontend.Stores,
+) {
+	encryptor, err := server.Encryptor()
 	if err != nil {
-		logger.Warn(ctx, "Failed to resolve encryption key for encrypted stores", tag.Error(err))
-		logger.Warn(ctx, "Notification settings store is disabled because encrypted storage is not available")
-		logger.Warn(ctx, "Incident settings store is disabled because encrypted storage is not available")
-		return
-	}
-	encryptor, err := crypto.NewEncryptor(encKey)
-	if err != nil {
-		logger.Warn(ctx, "Failed to create encryptor for encrypted stores", tag.Error(err))
+		logger.Warn(ctx, "Failed to prepare encryption for encrypted stores", tag.Error(err))
 		logger.Warn(ctx, "Notification settings store is disabled because encrypted storage is not available")
 		logger.Warn(ctx, "Incident settings store is disabled because encrypted storage is not available")
 		return
 	}
 
-	remoteNodeStore, err := newRemoteNodeStore(
-		cfg,
-		backend.Collection(persis.CollectionRemoteNodes),
-		encryptor,
-	)
+	remoteNodeStore, err := newRemoteNodeStore(cfg, server, encryptor)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create remote node store", tag.Error(err))
 	} else {
 		stores.RemoteNode = remoteNodeStore
 	}
 
-	notificationStore, err := persisfile.NewNotificationStore(
-		backend.Collection(persis.CollectionNotifications),
-		backend.Collection(persis.CollectionNotificationChannels),
-		encryptor,
-	)
+	notificationStore, err := project.NotificationStore()
 	if err != nil {
 		logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
 	} else {
 		stores.Notification = notificationStore
-		stateFile := filepath.Join(cfg.Paths.DataDir, "notifications", "monitor-state.json")
+		stateFile := project.NotificationStateFile()
 		stores.NotificationState = filemonitor.NewStateStore(stateFile)
 		stores.NewNotificationLease = newMonitorLease(stateFile)
 	}
 
-	incidentStore, err := persisfile.NewIncidentStore(
-		backend.Collection(persis.CollectionIncidents),
-		backend.Collection(persis.CollectionIncidentProviders),
-		encryptor,
-	)
+	incidentStore, err := project.IncidentStore()
 	if err != nil {
 		logger.Warn(ctx, "Failed to create incident settings store", tag.Error(err))
 	} else {
 		stores.Incident = incidentStore
-		stateFile := filepath.Join(cfg.Paths.DataDir, "incidents", "monitor-state.json")
+		stateFile := project.IncidentStateFile()
 		stores.IncidentState = filemonitor.NewStateStore(stateFile)
 		stores.NewIncidentLease = newMonitorLease(stateFile)
 	}
@@ -307,7 +296,7 @@ func initEncryptedStores(ctx context.Context, cfg *config.Config, backend persis
 
 func newRemoteNodeStore(
 	cfg *config.Config,
-	col persis.Collection,
+	server *persisfile.ServerStores,
 	encryptor *crypto.Encryptor,
 ) (*store.RemoteNodeStore, error) {
 	dir := cfg.Paths.RemoteNodesDir
@@ -317,7 +306,7 @@ func newRemoteNodeStore(
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("remote-node store: create directory %s: %w", dir, err)
 	}
-	return store.NewRemoteNodeStore(col, encryptor)
+	return server.RemoteNodeStore(encryptor)
 }
 
 func newMonitorLease(stateFile string) func() chatbridge.Lease {
@@ -341,37 +330,32 @@ type builtinAuth struct {
 	setupRequired bool
 }
 
-func newBuiltinAuth(ctx context.Context, cfg *config.Config, backend persis.Backend) (builtinAuth, error) {
+func newBuiltinAuth(
+	ctx context.Context,
+	cfg *config.Config,
+	server *persisfile.ServerStores,
+	project *persisfile.ProjectSettings,
+) (builtinAuth, error) {
 	tokenSecret, err := resolveTokenSecret(ctx, cfg)
 	if err != nil {
 		return builtinAuth{}, fmt.Errorf("failed to resolve token secret: %w", err)
 	}
 
-	userStore, err := store.NewUserStore(backend.Collection(persis.CollectionUsers))
+	userStore, err := server.UserStore()
 	if err != nil {
 		return builtinAuth{}, fmt.Errorf("failed to create user store: %w", err)
 	}
 
-	apiKeyStore, err := store.NewAPIKeyStore(backend.Collection(persis.CollectionAPIKeys))
+	apiKeyStore, err := server.APIKeyStore()
 	if err != nil {
 		return builtinAuth{}, fmt.Errorf("failed to create API key store: %w", err)
 	}
 
-	var webhookEncryptor *crypto.Encryptor
-	encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir)
+	webhookEncryptor, encErr := server.Encryptor()
 	if encErr != nil {
-		logger.Warn(ctx, "Failed to resolve encryption key for webhook store", tag.Error(encErr))
-	} else {
-		webhookEncryptor, encErr = crypto.NewEncryptor(encKey)
-		if encErr != nil {
-			logger.Warn(ctx, "Failed to create encryptor for webhook store", tag.Error(encErr))
-		}
+		logger.Warn(ctx, "Failed to prepare encryption for webhook store", tag.Error(encErr))
 	}
-	webhookStore, err := store.NewWebhookStore(
-		backend.Collection(persis.CollectionWebhooks),
-		backend.Collection(persis.CollectionWebhookDAGClaims),
-		webhookEncryptor,
-	)
+	webhookStore, err := project.WebhookStore(webhookEncryptor)
 	if err != nil {
 		return builtinAuth{}, fmt.Errorf("failed to create webhook store: %w", err)
 	}

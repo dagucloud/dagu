@@ -6,7 +6,7 @@ Map Rundeck nodes, node filters, and dispatch settings to Dagu. Nodes live in in
 
 Write the resource model's nodes as inventories: a JSON array that `dagu nodes import` reads.
 
-| Rundeck node | Dagu inventory node |
+| Rundeck node | Dagu node: an inventory (SSH) node, or a worker that sets `worker.id` |
 | --- | --- |
 | `nodename` | `name`: a letter or digit, then letters, digits, `-`, `_`, or `.`; unique across inventories |
 | `hostname`, `host:port` | `host`, `port` (default `22`) |
@@ -124,7 +124,7 @@ steps:
 ```
 
 - A step with `nodes` fails when any of its nodes failed. `continue_on` decides whether the steps after it run.
-- In a bound run, steps with no action, `ssh.run`, and `sftp.*` run on the node. Other actions, such as `http.request`, run on the Dagu host.
+- In a run bound to an SSH node, steps with no action, `ssh.run`, and `sftp.*` run on the node. Other actions, such as `http.request`, run where the run runs: the Dagu host, or the worker that runs its parent. In a run bound to a worker node, every step runs on that worker.
 - A disabled node (`"disabled": true`) is not run and does not fail the step. A step whose matched nodes are all disabled fails.
 
 ## Node References
@@ -158,8 +158,14 @@ steps:
 - Dagu inserts `${params.*}` and step outputs into `run:` as shell text, without escaping, so a value such as `$(...)` runs as a command. Pass only trusted values, or limit a param with `pattern`, as in `- name: version`, `type: string`, `pattern: '^[0-9A-Za-z.+~-]+$'`, which refuses any other value before the run starts.
 - A node list only removes nodes: a step runs on a node that its selector matches and the list names. A step none of whose nodes is listed is skipped without blocking later steps.
 - A `node: required` DAG started directly takes exactly one node: `--node`, or the Node field of the run dialog. The run dialog has no node list for other DAGs.
-- Each name must be an inventory node. Queued runs, retries, `dagu restart`, and `dagu start --from-run-id` keep the list.
+- Each name must be a node, inventory or worker. Queued runs, retries, `dagu restart`, and `dagu start --from-run-id` keep the list.
+
+## Workers
+
+- A run on a worker reaches SSH nodes as a run on the Dagu host does. The worker reads nodes, secret refs, and trusted host keys from the coordinator.
+- A worker that sets `worker.id` is a node of kind `worker`, with the worker's labels; `dagu nodes list` shows it. A step with `nodes` matches it as it matches an SSH node, and its child runs on that worker, every step there. `${node.host}` is the host the worker reports, and `ssh.run` or `sftp.*` without `with.host` or `with.ip` fails, since the worker has no SSH connection.
+- A matched worker that is offline fails its node at once, and a worker lost during the run fails its node.
 
 ## Not Available Yet
 
-- Workers as nodes. Bound runs and steps with `nodes` run on the Dagu host and reach SSH nodes. A run on a worker that is bound or has a step with `nodes` fails before any step. With `default_execution_mode: distributed`, set `worker_selector: local` on a DAG with such steps.
+- Starting a `node: required` DAG directly bound to a worker node, with `--node` or `targetNodes`, is refused. Such a DAG runs on a worker node only as the child of a step with `nodes`.

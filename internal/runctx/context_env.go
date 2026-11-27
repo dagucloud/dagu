@@ -39,6 +39,9 @@ func buildManagedDAGRunEnvs(
 	if options.artifactDir != "" {
 		envs[runenv.EnvKeyDAGRunArtifactsDir] = options.artifactDir
 	}
+	if options.Project != "" {
+		envs[runenv.EnvKeyProject] = options.Project
+	}
 	paramsJSON := dag.ParamsJSON
 	if options.paramsJSON != nil {
 		paramsJSON = *options.paramsJSON

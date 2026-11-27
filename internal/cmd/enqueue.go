@@ -136,6 +136,9 @@ func runEnqueue(ctx *Context, args []string) error {
 func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) error {
 	dag.Location = ""
 
+	if err := ctx.checkProjectEnqueue(); err != nil {
+		return fmt.Errorf("%w; run it with dagu start instead", err)
+	}
 	if !ctx.Config.Queues.Enabled {
 		return fmt.Errorf("queues are disabled in configuration")
 	}
@@ -155,8 +158,8 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		QueueStore:              ctx.Persistence.QueueStore,
 		DAG:                     dag,
 		DAGRunID:                dagRunID,
-		LogBaseDir:              ctx.Config.Paths.LogDir,
-		ArtifactBaseDir:         ctx.Config.Paths.ArtifactDir,
+		LogBaseDir:              ctx.projectPaths().LogDir,
+		ArtifactBaseDir:         ctx.projectPaths().ArtifactDir,
 		TriggerType:             opts.triggerType,
 		TriggerActor:            opts.triggerActor,
 		ScheduleTime:            opts.scheduleTime,
