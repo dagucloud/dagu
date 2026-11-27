@@ -1415,7 +1415,8 @@ func testKeepsAnotherProcess(t *testing.T, endingPreparedFirst bool) {
 }
 
 // A process that no watcher can follow does not run: its start fails and the
-// process is stopped. Another process of the step that runs is kept.
+// process is stopped, with the child that it started and that holds its
+// stdout. Another process of the step that runs is kept.
 func TestIsolatedStepStopsAnUnwatchedProcess(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
@@ -1437,10 +1438,27 @@ func TestIsolatedStepStopsAnUnwatchedProcess(t *testing.T) {
 		_ = staying.Release()
 	})
 
-	pidfdOpen = func(int, int) (int, error) { return -1, unix.EMFILE }
+	// The open fails once the process has started its child.
+	forked := filepath.Join(workDir, "forked")
+	pidfdOpen = func(int, int) (int, error) {
+		assert.Eventually(t, func() bool { _, err := os.Stat(forked); return err == nil }, 10*time.Second, 10*time.Millisecond)
+		return -1, unix.EMFILE
+	}
 	t.Cleanup(func() { pidfdOpen = unix.PidfdOpen })
-	unwatched := sleeper()
-	_, err = StartManagedProcess(stepCtx, unwatched)
+	unwatched := exec.Command("/bin/sh", "-c", `sleep 1000 & echo > "$1"; wait`, "sh", forked)
+	unwatched.Dir = workDir
+	unwatched.Env = []string{"PATH=/usr/bin:/bin"}
+	unwatched.Stdout = &bytes.Buffer{}
+	started := make(chan error, 1)
+	go func() {
+		_, err := StartManagedProcess(stepCtx, unwatched)
+		started <- err
+	}()
+	select {
+	case err = <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the failed start waits for the child that holds its stdout")
+	}
 	require.ErrorIs(t, err, unix.EMFILE)
 	require.NotNil(t, unwatched.ProcessState, "the process was not reaped")
 	assert.False(t, unwatched.ProcessState.Success())

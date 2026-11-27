@@ -810,7 +810,10 @@ func (iso *isolation) started(pid int) error {
 	// PID is still its own.
 	fd, err := pidfdOpen(pid, 0)
 	if err != nil {
-		_ = unix.Kill(pid, unix.SIGKILL)
+		// The process leads its own process group (Setsid), whose ID no other
+		// group takes while the process is not reaped: the signal reaches the
+		// process and what it started, so no child keeps its pipes open.
+		_ = unix.Kill(-pid, unix.SIGKILL)
 		// A watcher that waits for this start under endMu goes on at once.
 		iso.abandon()
 		iso.endMu.Lock()
