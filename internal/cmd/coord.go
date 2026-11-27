@@ -251,6 +251,7 @@ func newCoordinator(
 		TrustedHostKeys:           hostKeys,
 		AgentSessionCleanupQueue:  persistence.AgentSessionCleanupQueue,
 		WorkerNodeStore:           workerNodes,
+		JoinReadiness:             coordinatorJoinReadiness(cfg),
 		WorkerWaitTimeout:         cfg.Coordinator.WorkerWaitTimeout,
 		EventService:              ctx.event,
 		EventSourceInstance:       ctx.EventSourceInstance,
@@ -258,6 +259,23 @@ func newCoordinator(
 
 	// Create and return service with advertise address for service registry
 	return coordinator.NewService(grpcServer, handler, listener, healthServer, httpHealthServer, persistence.ServiceRegistry, cfg, instanceID, advertiseAddr), handler, nil
+}
+
+// coordinatorJoinReadiness returns the settings the coordinator reports as
+// its join readiness. BuiltinTLS stays false until the coordinator has a
+// peer CA.
+func coordinatorJoinReadiness(cfg *config.Config) coordinator.JoinReadinessConfig {
+	configFile := cfg.Paths.ConfigFileUsed
+	if configFile == "" {
+		configFile = cfg.Paths.DefaultConfigFile
+	}
+	return coordinator.JoinReadinessConfig{
+		ListenHost: cfg.Coordinator.Host,
+		Port:       cfg.Coordinator.Port,
+		ConfigFile: configFile,
+		HostSource: cfg.Sources["coordinator.host"],
+		Advertise:  cfg.Coordinator.Advertise,
+	}
 }
 
 // coordinatorConnections returns the connection store and the token broker
