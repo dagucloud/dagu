@@ -118,7 +118,9 @@ Worker pools use their existing ephemeral `/data` volumes for per-run work, so t
 
 The coordinator refuses calls that do not carry its peer token. Workers do not mount the shared volume, so they cannot read the token the coordinator generates there. In distributed mode the chart gives every Dagu pod the same token as `DAGU_PEER_TOKEN` from one Secret.
 
-By default the chart creates the Secret `<release>-dagu-peer-token` with a random token. An upgrade reads the stored token and keeps it, and the Secret is kept on uninstall. A render without cluster access, such as `helm template` in a GitOps tool, cannot read it and generates a new token each time, so create the Secret yourself and reference it:
+By default `helm install` and `helm upgrade` create the Secret `<release>-dagu-peer-token` with a random token. An upgrade reads the stored token and keeps it, and the Secret is kept on uninstall.
+
+**Argo CD and other tools that render with `helm template` must set `peerToken.existingSecret`.** Such a render cannot read the stored token, so each one writes a new token to the Secret. Running pods keep the old token until they restart, then the coordinator refuses them, or a restarted coordinator refuses every other pod. The chart cannot tell such a render from a first install, so it cannot refuse it. Create the Secret yourself and reference it:
 
 ```bash
 kubectl --namespace dagu create secret generic dagu-peer-token \

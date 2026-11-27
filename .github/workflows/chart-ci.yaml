@@ -246,6 +246,15 @@ jobs:
             exit 1
           fi
 
+          # helm upgrade --reuse-values from chart 2.0.9 has no peerToken.
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --set deploymentMode=distributed \
+            --set persistence.accessMode=ReadWriteMany \
+            --set peerToken=null \
+            >/tmp/dagu-reused-values-render.yaml
+          test "$(grep -Fc 'key: "token"' /tmp/dagu-reused-values-render.yaml)" -eq 4
+
           helm template dagu ./charts/dagu \
             --namespace dagu \
             --kube-version 1.35.0 \
