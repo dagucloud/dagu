@@ -7,6 +7,7 @@ package untrusted
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -92,8 +93,8 @@ type isolation struct {
 	outputLimit int64
 	// protected keeps each folder that got the mode 1777, with its mode.
 	protected map[string]protectedDir
-	// passDirs keeps each folder above the work directory that got the bit x
-	// for others, with its mode.
+	// passDirs keeps each folder above the work directory that got the ACL
+	// of passACL, with its mode.
 	passDirs map[string]protectedDir
 	// gitEntries holds each entry .git of the work directory at the handoff.
 	gitEntries map[string]bool
@@ -418,8 +419,9 @@ func checkTraversable(path string) error {
 
 // openPath lets the restricted user pass each folder above path. A folder of
 // the user of the worker at managedRoot (paths.dag_run_work_dir) or below it
-// gets the bit x for others until the end of the step. Any other folder that
-// the restricted user cannot pass stops the step.
+// gets an ACL entry that lets only the restricted user pass it, until the end
+// of the step. Any other folder that the restricted user cannot pass stops the
+// step.
 func (iso *isolation) openPath(path, managedRoot string) error {
 	managed := ""
 	if managedRoot != "" {
@@ -437,11 +439,14 @@ func (iso *isolation) openPath(path, managedRoot string) error {
 	}
 }
 
-// passDir checks that the restricted user can pass the folder dir. A folder
-// that it cannot pass gets the bit x for others when managed is true and the
-// folder belongs to the user of the worker. The check and the change go
-// through one descriptor, which the isolation keeps for the restore of the
-// mode, so a folder that replaces dir cannot get the bit.
+// passDir checks that the restricted user can pass the folder dir: by the bit
+// x for others, or by an ACL entry of the user. A folder that it cannot pass
+// gets the access ACL of passACL when managed is true, the folder belongs to
+// the user of the worker and it has no access ACL. The bit x for others would
+// let every user of the host reach the work directory, whose mode is 1777
+// during the step. The check and the change go through one descriptor, which
+// the isolation keeps for the restore, so a folder that replaces dir cannot
+// get the entry.
 func (iso *isolation) passDir(dir string, managed bool) error {
 	fd, err := unix.Open(dir, unix.O_PATH|unix.O_NOFOLLOW|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
@@ -452,8 +457,10 @@ func (iso *isolation) passDir(dir string, managed bool) error {
 		_ = unix.Close(fd)
 		return &fs.PathError{Op: "stat", Path: dir, Err: err}
 	}
+	fdPath := "/proc/self/fd/" + strconv.Itoa(fd)
 	mode := st.Mode & 0o7777
-	if mode&0o001 != 0 {
+	acl, aclErr := readAccessACL(fdPath)
+	if mode&0o001 != 0 || (aclErr == nil && aclLetsPass(acl, iso.uid)) {
 		_ = unix.Close(fd)
 		return nil
 	}
@@ -463,12 +470,103 @@ func (iso *isolation) passDir(dir string, managed bool) error {
 	}
 	// A link that replaced a folder on the way since the work directory was
 	// resolved would lead the descriptor to another folder.
-	if real, err := os.Readlink("/proc/self/fd/" + strconv.Itoa(fd)); err != nil || real != dir {
+	if real, err := os.Readlink(fdPath); err != nil || real != dir {
 		_ = unix.Close(fd)
 		return fmt.Errorf("the folder %s changed while Dagu opened it", dir)
 	}
+	if !errors.Is(aclErr, unix.ENODATA) && !errors.Is(aclErr, unix.EOPNOTSUPP) {
+		_ = unix.Close(fd)
+		return fmt.Errorf("the folder %s has an access ACL that does not let the restricted user pass it", dir)
+	}
+	if err := unix.Setxattr(fdPath, aclNames[0], passACL(mode, iso.uid), 0); err != nil {
+		_ = unix.Close(fd)
+		return fmt.Errorf("let the restricted user pass the folder %s: %w", dir, &fs.PathError{Op: "setxattr", Path: dir, Err: err})
+	}
 	iso.passDirs[dir] = protectedDir{fd: fd, mode: mode}
-	return chmodFDPath(fd, dir, mode|0o001)
+	return nil
+}
+
+// restorePassDirs removes the access ACL that each folder above the work
+// directory got, and gives the folder its mode back.
+func (iso *isolation) restorePassDirs() error {
+	var errs []error
+	for path, dir := range iso.passDirs {
+		err := unix.Removexattr("/proc/self/fd/"+strconv.Itoa(dir.fd), aclNames[0])
+		if err != nil && !errors.Is(err, unix.ENODATA) {
+			errs = append(errs, stepError(iso.step, "remove the ACL of", path, err))
+		}
+	}
+	return errors.Join(append(errs, iso.restoreDirModes(iso.passDirs))...)
+}
+
+// The tags and the version of the xattr format of a POSIX ACL.
+const (
+	aclVersion     = 2
+	aclUserObj     = 0x01
+	aclUser        = 0x02
+	aclGroupObj    = 0x04
+	aclMask        = 0x10
+	aclOther       = 0x20
+	aclUndefinedID = ^uint32(0)
+	// aclEntrySize is the size of an entry: tag, permissions and ID.
+	aclEntrySize = 8
+)
+
+// readAccessACL returns the access ACL of the entry at path, in the xattr
+// format. An entry without one gives ENODATA.
+func readAccessACL(path string) ([]byte, error) {
+	size, err := unix.Getxattr(path, aclNames[0], nil)
+	if err != nil {
+		return nil, err
+	}
+	buf := make([]byte, size)
+	n, err := unix.Getxattr(path, aclNames[0], buf)
+	if err != nil {
+		return nil, err
+	}
+	return buf[:n], nil
+}
+
+// aclLetsPass reports whether the ACL has an entry of the user uid with the
+// bit x and a mask with the bit x.
+func aclLetsPass(acl []byte, uid uint32) bool {
+	if len(acl) < 4 || binary.LittleEndian.Uint32(acl) != aclVersion {
+		return false
+	}
+	user, mask := false, false
+	for entry := acl[4:]; len(entry) >= aclEntrySize; entry = entry[aclEntrySize:] {
+		tag := binary.LittleEndian.Uint16(entry)
+		perm := binary.LittleEndian.Uint16(entry[2:])
+		id := binary.LittleEndian.Uint32(entry[4:])
+		switch {
+		case tag == aclUser && id == uid:
+			user = perm&1 != 0
+		case tag == aclMask:
+			mask = perm&1 != 0
+		}
+	}
+	return user && mask
+}
+
+// passACL returns the access ACL that keeps the permissions of the owner, the
+// group and others of mode, and lets the user uid pass the folder and nothing
+// more. The mask adds the bit x to the permissions of the group, which the
+// entry of the group keeps.
+func passACL(mode, uid uint32) []byte {
+	group := mode >> 3 & 7
+	acl := binary.LittleEndian.AppendUint32(nil, aclVersion)
+	for _, entry := range [][3]uint32{
+		{aclUserObj, mode >> 6 & 7, aclUndefinedID},
+		{aclUser, 1, uid},
+		{aclGroupObj, group, aclUndefinedID},
+		{aclMask, group | 1, aclUndefinedID},
+		{aclOther, mode & 7, aclUndefinedID},
+	} {
+		acl = binary.LittleEndian.AppendUint16(acl, uint16(entry[0])) // #nosec G115 -- small tags.
+		acl = binary.LittleEndian.AppendUint16(acl, uint16(entry[1])) // #nosec G115 -- small modes.
+		acl = binary.LittleEndian.AppendUint32(acl, entry[2])
+	}
+	return acl
 }
 
 // within reports whether path is root or a path below it.
@@ -750,9 +848,9 @@ func (iso *isolation) end(_ context.Context) error {
 		err := stepError(iso.step, "stop the processes of the restricted user", "", killErr)
 		poison(err)
 		iso.closeProtected()
-		// Without the bit x, a process that survived cannot reach the work
-		// directory by its path.
-		return fmt.Errorf("%w: %w", ErrRunAborted, errors.Join(err, iso.restoreDirModes(iso.passDirs)))
+		// Without the ACL entry, a process that survived cannot reach the
+		// work directory by its path.
+		return fmt.Errorf("%w: %w", ErrRunAborted, errors.Join(err, iso.restorePassDirs()))
 	}
 
 	// The HOME goes before the checks: a file that the step linked from it, such

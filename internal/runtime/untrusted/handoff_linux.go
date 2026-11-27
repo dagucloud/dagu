@@ -676,10 +676,11 @@ func (iso *isolation) checkGitRemoved() error {
 	return errors.Join(errs...)
 }
 
-// restoreModes gives each folder whose mode the isolation changed its mode
-// back, through the descriptor that the isolation kept.
+// restoreModes gives each folder whose mode or ACL the isolation changed its
+// mode back and removes the ACL, through the descriptor that the isolation
+// kept.
 func (iso *isolation) restoreModes() error {
-	return errors.Join(iso.restoreDirModes(iso.protected), iso.restoreDirModes(iso.passDirs))
+	return errors.Join(iso.restoreDirModes(iso.protected), iso.restorePassDirs())
 }
 
 // restoreDirModes gives each folder of dirs its mode back and forgets it.

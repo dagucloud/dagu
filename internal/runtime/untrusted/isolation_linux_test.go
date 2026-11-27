@@ -264,8 +264,8 @@ func runFolders(t *testing.T) (root, dag, run string) {
 }
 
 // Spec 103, "Isolation", rule 2: the folders of a run below
-// paths.dag_run_work_dir get the bit x for others during the step, and their
-// modes come back at End.
+// paths.dag_run_work_dir let the restricted user pass them during the step and
+// no other user, and they are as before after End.
 func TestIsolatedStepPassesTheRunFolders(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
@@ -274,25 +274,40 @@ func TestIsolatedStepPassesTheRunFolders(t *testing.T) {
 	req.ManagedRoot = root
 	step, err := beginStep(t, ctx, req)
 	require.NoError(t, err)
-	assert.Equal(t, fs.FileMode(0o751), permOf(t, root))
-	assert.Equal(t, fs.FileMode(0o751), permOf(t, dag))
 	assert.Equal(t, "reached\n", runAs(t, WithStep(ctx, step), run, `touch file && echo reached`))
+	other := exec.Command("/bin/sh", "-c", "cd "+run) //nolint:gosec
+	other.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: testUID + 1, Gid: testGID + 1}}
+	assert.Error(t, other.Run(), "another user passed the run folders")
+	assertRunFolders(t, fs.FileMode(0o750), nil, root, dag)
 
 	require.NoError(t, step.End(ctx))
-	assert.Equal(t, fs.FileMode(0o750), permOf(t, root))
-	assert.Equal(t, fs.FileMode(0o750), permOf(t, dag))
+	assertRunFolders(t, fs.FileMode(0o750), unix.ENODATA, root, dag)
 
-	// A Begin that fails in the handoff gives the modes back too.
+	// A Begin that fails in the handoff gives the folders back too.
 	require.NoError(t, unix.Mknod(filepath.Join(run, "disk"), unix.S_IFCHR|0o600, int(unix.Mkdev(1, 3)))) // #nosec G115 -- a small device number.
 	_, err = beginStep(t, ctx, req)
 	require.ErrorContains(t, err, "device node")
-	assert.Equal(t, fs.FileMode(0o750), permOf(t, root))
-	assert.Equal(t, fs.FileMode(0o750), permOf(t, dag))
+	assertRunFolders(t, fs.FileMode(0o750), unix.ENODATA, root, dag)
+}
+
+// assertRunFolders checks the mode of each folder, and the error of the read
+// of its access ACL: nil while it has one.
+func assertRunFolders(t *testing.T, mode fs.FileMode, aclErr error, dirs ...string) {
+	t.Helper()
+	for _, dir := range dirs {
+		assert.Equal(t, mode, permOf(t, dir), dir)
+		_, err := unix.Getxattr(dir, aclNames[0], nil)
+		if aclErr == nil {
+			assert.NoError(t, err, dir)
+		} else {
+			assert.ErrorIs(t, err, aclErr, dir)
+		}
+	}
 }
 
 // A folder that the restricted user cannot pass fails Begin when it is above
-// paths.dag_run_work_dir or belongs to another user. The folders that got the
-// bit x before it get their modes back.
+// paths.dag_run_work_dir or belongs to another user. The folders that got an
+// ACL before it get their modes back.
 func TestIsolatedStepRefusesOtherFolders(t *testing.T) {
 	requireIsolation(t)
 	for name, tc := range map[string]struct {
@@ -317,7 +332,7 @@ func TestIsolatedStepRefusesOtherFolders(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "the folder "+blocked+" has the mode 0750: the restricted user cannot pass it")
 			assert.Equal(t, fs.FileMode(0o750), permOf(t, blocked))
-			assert.Equal(t, fs.FileMode(0o750), permOf(t, dag))
+			assertRunFolders(t, fs.FileMode(0o750), unix.ENODATA, dag)
 		})
 	}
 }

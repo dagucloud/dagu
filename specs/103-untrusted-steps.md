@@ -317,10 +317,12 @@ The rules, in order:
    ```
 
    The restricted user MUST be able to pass each folder above the work directory (the bit x for
-   others). A folder of the worker user at `paths.dag_run_work_dir` or below it that it cannot
-   pass gets the bit x for others until the step ends, and then gets its mode back. Dagu makes
-   these folders with the mode `0750`. Any other folder that the restricted user cannot pass fails
-   the step:
+   others, or an ACL entry of the user). A folder of the worker user at `paths.dag_run_work_dir`
+   or below it that it cannot pass, and that has no access ACL, gets the access ACL entry
+   `user:<uid>:--x` until the step ends. Then the ACL is removed and the folder gets its mode back.
+   No other user can pass these folders during the step. Dagu makes them with the mode `0750`. A
+   file system without POSIX ACLs fails the step. Any other folder that the restricted user cannot
+   pass fails the step:
 
    ```text
    untrusted step "verify": reach the work directory /data/run: the folder /data has the mode 0700: the restricted user cannot pass it

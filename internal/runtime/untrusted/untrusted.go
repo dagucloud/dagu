@@ -77,8 +77,8 @@ type Request struct {
 	WorkDir string
 	// ManagedRoot is the root of the work directories that Dagu makes for
 	// its runs (paths.dag_run_work_dir). A folder of a run below it can get
-	// the bit x for others during the step, so that the restricted user can
-	// reach the work directory.
+	// an ACL entry during the step that lets only the restricted user pass
+	// it, so that the restricted user can reach the work directory.
 	ManagedRoot string
 	// WorkingDir is the working directory of the step. It must be in WorkDir.
 	WorkingDir string
