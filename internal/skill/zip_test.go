@@ -7,6 +7,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"os"
@@ -143,39 +144,47 @@ func TestZipLimits(t *testing.T) {
 }
 
 // A file that changes after the check stops the ZIP before any byte of it, and
-// the ZIP has no end, so a client cannot take it for a whole ZIP.
+// the ZIP has no end, so a client cannot take it for a whole ZIP. The file is
+// random and above the 4 KiB buffer of the ZIP writer, so a write of its
+// header or first bytes before the check would reach the output.
 func TestZipStopsAtAChange(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := newStore(t)
 	outside := t.TempDir()
+	const rel = "assets/data.bin"
+	data := make([]byte, 1<<20)
+	_, err := rand.Read(data)
+	require.NoError(t, err)
 	for name, change := range map[string]func(dir string){
 		"edited": func(dir string) {
-			writeFile(t, filepath.Join(dir, "references", "r.md"), []byte("new\n"))
+			edited := bytes.Clone(data)
+			edited[len(edited)-1]++
+			writeFile(t, filepath.Join(dir, rel), edited)
 		},
 		"grown": func(dir string) {
-			writeFile(t, filepath.Join(dir, "references", "r.md"), []byte("ref\nmore\n"))
+			writeFile(t, filepath.Join(dir, rel), append(bytes.Clone(data), 0))
 		},
 		"replaced-by-a-link": func(dir string) {
-			copied := filepath.Join(outside, "r.md")
-			writeFile(t, copied, []byte("ref\n"))
-			require.NoError(t, os.Remove(filepath.Join(dir, "references", "r.md")))
-			require.NoError(t, os.Symlink(copied, filepath.Join(dir, "references", "r.md")))
+			copied := filepath.Join(outside, "data.bin")
+			writeFile(t, copied, data)
+			require.NoError(t, os.Remove(filepath.Join(dir, rel)))
+			require.NoError(t, os.Symlink(copied, filepath.Join(dir, rel)))
 		},
 		"folder-replaced-by-a-link": func(dir string) {
 			copied := filepath.Join(outside, "copy")
 			writeFile(t, filepath.Join(copied, "SKILL.md"), []byte("x"))
-			writeFile(t, filepath.Join(copied, "references", "r.md"), []byte("ref\n"))
+			writeFile(t, filepath.Join(copied, rel), data)
 			require.NoError(t, os.Rename(dir, filepath.Join(outside, "gone")))
 			require.NoError(t, os.Symlink(copied, dir))
 		},
 		"deleted": func(dir string) {
-			require.NoError(t, os.RemoveAll(filepath.Join(dir, "references")))
+			require.NoError(t, os.RemoveAll(filepath.Join(dir, "assets")))
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			sk := create(t, s, name)
-			_, err := s.WriteFile(ctx, name, "references/r.md", []byte("ref\n"), skill.Precondition{IfMatch: sk.Hash})
+			_, err := s.WriteFile(ctx, name, rel, data, skill.Precondition{IfMatch: sk.Hash})
 			require.NoError(t, err)
 			skills, err := s.DownloadSkills(context.Background(), []string{name})
 			require.NoError(t, err)
@@ -183,7 +192,7 @@ func TestZipStopsAtAChange(t *testing.T) {
 
 			var out bytes.Buffer
 			require.Error(t, skill.WriteZip(ctx, &out, skills))
-			require.NotContains(t, out.String(), name+"/references/r.md", "no byte of the changed file")
+			require.False(t, bytes.Contains(out.Bytes(), []byte(name+"/"+rel)), "no byte of the changed file")
 			_, err = zip.NewReader(bytes.NewReader(out.Bytes()), int64(out.Len()))
 			require.Error(t, err)
 		})
