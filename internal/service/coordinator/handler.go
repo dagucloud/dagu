@@ -1036,7 +1036,17 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 
 	attempt, err := h.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), task.DagRunId, opts)
 	if errors.Is(err, dagrun.ErrAttemptIDExists) {
-		return nil, fmt.Errorf("%w: attempt %s", errDispatchSuperseded, task.AttemptId)
+		// Another coordinator may have admitted the same dispatch meanwhile.
+		latest, findErr := h.dagRunRepository.FindAttempt(ctx, ref)
+		if findErr != nil || latest.ID() != task.AttemptId {
+			return nil, fmt.Errorf("%w: attempt %s", errDispatchSuperseded, task.AttemptId)
+		}
+		latestStatus, readErr := latest.ReadStatus(ctx)
+		if readErr != nil {
+			return nil, fmt.Errorf("failed to read existing attempt: %w", readErr)
+		}
+		task.AttemptKey = generateRootAttemptKey(task)
+		return h.repeatedDispatchAttempt(ctx, task, latest, latestStatus, dag)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create attempt: %w", err)
@@ -1183,7 +1193,7 @@ func (h *Handler) repeatedDispatchAttempt(
 	runStatus *ir.DAGRunStatus,
 	dag *ir.DAG,
 ) (*preparedDispatchAttempt, error) {
-	admitted, err := h.repeatAdmitted(ctx, task, attempt, runStatus, dag)
+	admitted, runStatus, err := h.repeatAdmitted(ctx, task, attempt, runStatus, dag)
 	if err != nil {
 		return nil, err
 	}
@@ -1266,29 +1276,43 @@ func resetRolledBackAttempt(ctx context.Context, attempt dagrun.Attempt) error {
 }
 
 // repeatAdmitted reports whether the earlier dispatch of the attempt that
-// task repeats reached the queue or a worker. It fails when the repeat's
-// definition differs.
+// task repeats reached the queue or a worker, and returns the status it
+// decided on. It fails when the repeat's definition differs.
 func (h *Handler) repeatAdmitted(
 	ctx context.Context,
 	task *coordinatorv1.Task,
 	attempt dagrun.Attempt,
 	runStatus *ir.DAGRunStatus,
 	dag *ir.DAG,
-) (bool, error) {
+) (bool, *ir.DAGRunStatus, error) {
 	stored, err := attempt.ReadDAG(ctx)
 	if err != nil {
-		return false, fmt.Errorf("failed to read the DAG of attempt %s: %w", task.AttemptId, err)
+		return false, nil, fmt.Errorf("failed to read the DAG of attempt %s: %w", task.AttemptId, err)
 	}
 	if stored == nil || !bytes.Equal(stored.YamlData, dag.YamlData) {
-		return false, fmt.Errorf("%w: attempt %s holds a different definition", errDispatchConflict, task.AttemptId)
+		return false, nil, fmt.Errorf("%w: attempt %s holds a different definition", errDispatchConflict, task.AttemptId)
 	}
 	if runStatus == nil {
-		return false, fmt.Errorf("attempt %s has no status", task.AttemptId)
+		return false, nil, fmt.Errorf("attempt %s has no status", task.AttemptId)
 	}
-	if !rolledBack(runStatus) && runStatus.Status != ir.NotStarted && runStatus.Status != ir.Queued {
-		return true, nil
+	if awaitsAdmission(runStatus) {
+		outstanding, err := h.dispatchOutstanding(ctx, task.AttemptKey, true)
+		if err != nil || outstanding {
+			return outstanding, runStatus, err
+		}
+		// Another coordinator writes the run's status before it drops the
+		// task, so a status read after the lookup shows a run that moved on.
+		if runStatus, err = attempt.ReadStatusUncached(ctx); err != nil {
+			return false, nil, fmt.Errorf("failed to read attempt %s: %w", task.AttemptId, err)
+		}
 	}
-	return h.dispatchOutstanding(ctx, task.AttemptKey, true)
+	return !awaitsAdmission(runStatus), runStatus, nil
+}
+
+// awaitsAdmission reports whether no worker has taken the attempt and the
+// coordinator has not failed it for any reason but a rolled-back handoff.
+func awaitsAdmission(runStatus *ir.DAGRunStatus) bool {
+	return runStatus.Status == ir.NotStarted || runStatus.Status == ir.Queued || rolledBack(runStatus)
 }
 
 // admittedRepeat reports whether task repeats a dispatch that was admitted,
@@ -1354,7 +1378,8 @@ func (h *Handler) admittedRepeat(ctx context.Context, task *coordinatorv1.Task) 
 		}
 		return h.dispatchOutstanding(ctx, probe.AttemptKey, true)
 	}
-	return h.repeatAdmitted(ctx, probe, attempt, runStatus, dag)
+	admitted, _, err := h.repeatAdmitted(ctx, probe, attempt, runStatus, dag)
+	return admitted, err
 }
 
 // uncachedOutstandingChecker is a dispatch store that can check the shared

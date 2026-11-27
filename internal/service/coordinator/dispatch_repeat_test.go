@@ -65,11 +65,14 @@ func startCoordinatorServer(t *testing.T, service coordinatorv1.CoordinatorServi
 	return listener.Addr().String()
 }
 
-// claimAll claims every queued task and returns how many there were.
+// claimAll claims every queued task and returns how many there were. It
+// reads the shared records through a new store, so it also counts tasks
+// that another coordinator's store queued.
 func (f *holdFixture) claimAll(t *testing.T) int {
 	t.Helper()
+	tasks := newTestDispatchTaskStore(f.baseDir)
 	for n := 0; ; n++ {
-		claimed, err := f.dispatches.ClaimNext(t.Context(), dispatch.DispatchTaskClaim{
+		claimed, err := tasks.ClaimNext(t.Context(), dispatch.DispatchTaskClaim{
 			WorkerID:     "worker-gpu",
 			PollerID:     fmt.Sprintf("poller-%d", n),
 			Labels:       map[string]string{"type": "gpu"},
@@ -337,7 +340,7 @@ func TestDispatchRepeatOfSupersededAttemptIsRefused(t *testing.T) {
 		WorkerID: "worker-gpu", Labels: map[string]string{"type": "gpu"}, LastHeartbeatAt: time.Now().UnixMilli(),
 	}))
 	runs := testutil.NewFileDAGRunRepository(filepath.Join(baseDir, "dag-runs"), persis.DAGRunRepositoryOptions{})
-	f := &holdFixture{heartbeats: heartbeats, dispatches: newTestDispatchTaskStore(baseDir)}
+	f := &holdFixture{baseDir: baseDir, heartbeats: heartbeats, dispatches: newTestDispatchTaskStore(baseDir)}
 	f.h = NewHandler(HandlerConfig{
 		DAGRunRepository:     runs,
 		DispatchTaskStore:    f.dispatches,
@@ -444,4 +447,53 @@ func TestDispatchQueuedRepeatSurvivesOfflineBoundWorker(t *testing.T) {
 	queuedTasks, err := f.dispatches.CountOutstandingByQueue(t.Context(), "routed", 0)
 	require.NoError(t, err)
 	assert.Equal(t, 1, queuedTasks)
+}
+
+// racingOutstandingStore runs during inside the shared-store lookup and then
+// finds nothing, as when another coordinator drops the task meanwhile.
+type racingOutstandingStore struct {
+	dispatch.DispatchTaskStore
+	during func()
+}
+
+func (s *racingOutstandingStore) HasOutstandingAttemptUncached(context.Context, string) (bool, error) {
+	s.during()
+	return false, nil
+}
+
+// A repeat that finds no task because another coordinator failed the held
+// run meanwhile reports the admission and queues nothing.
+func TestDispatchRepeatAfterConcurrentHoldExpiry(t *testing.T) {
+	f := newHoldFixture(t, holdWait)
+	held := cpuTask("run-expired")
+	held.AttemptId = repeatAttemptID
+	_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: held})
+	require.NoError(t, err)
+	require.Equal(t, ir.Queued, f.status(t, "run-expired").Status)
+
+	racing := &racingOutstandingStore{DispatchTaskStore: f.dispatches}
+	racing.during = func() {
+		expired := *f.status(t, "run-expired")
+		expired.Status = ir.Failed
+		expired.Error = "no worker matched in time"
+		require.NoError(t, f.attempt("run-expired").Write(t.Context(), expired))
+		require.NoError(t, f.dispatches.DeletePending(t.Context(), expired.AttemptKey))
+	}
+	h := NewHandler(HandlerConfig{
+		DAGRunRepository:     f.runs.repository,
+		DispatchTaskStore:    racing,
+		WorkerHeartbeatStore: f.heartbeats,
+		WorkerWaitTimeout:    holdWait,
+	})
+	t.Cleanup(func() { h.Close(context.Background()) })
+
+	repeat := cpuTask("run-expired")
+	repeat.AttemptId = repeatAttemptID
+	_, err = h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeat})
+	require.NoError(t, err)
+
+	assert.Equal(t, ir.Failed, f.status(t, "run-expired").Status)
+	queuedTasks, err := f.dispatches.CountOutstandingByQueue(t.Context(), "routed", 0)
+	require.NoError(t, err)
+	assert.Zero(t, queuedTasks)
 }
