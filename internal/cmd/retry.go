@@ -195,8 +195,8 @@ func runRetry(ctx *Context, args []string) error {
 	if queueDispatchRetry && status.Status != ir.Queued {
 		return newQueueDispatchNotQueuedError(status)
 	}
+	var targetStatus *ir.DAGRunStatus
 	if subDAGRunID != "" {
-		var targetStatus *ir.DAGRunStatus
 		retryPath, targetStatus, err = ctx.Persistence.DAGRunRepository.ResolveRetryPath(ctx, ref, subDAGRunID, stepName)
 		if err != nil {
 			return err
@@ -306,6 +306,7 @@ func runRetry(ctx *Context, args []string) error {
 		if placement.dispatched() {
 			run.boundWorker = placement.worker
 			run.retried = status
+			run.retriedSubRun = targetStatus
 			// The retried status keeps the run's slot.
 			run.scheduleTime = ""
 			return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, run, placement.client)
@@ -837,7 +838,11 @@ func retryTaskOptions(opts runOptions) []executor.TaskOption {
 	// A retry that resumes agent sessions goes to the worker that holds them,
 	// as the API routes it.
 	if opts.boundWorker == "" {
-		if owner := ir.RetryAgentOwnerWorkerID(opts.retried, opts.step != ""); owner != "" {
+		owner := ir.RetryAgentOwnerWorkerID(opts.retried, opts.step, opts.includeDownstream)
+		if len(opts.retryPath.Hops) > 0 {
+			owner = ir.RetryPathAgentOwnerWorkerID(opts.retried, opts.step, opts.retriedSubRun, opts.retryPath.Step, opts.includeDownstream)
+		}
+		if owner != "" {
 			taskOpts = append(taskOpts, executor.WithTargetWorkerID(owner))
 		}
 	}

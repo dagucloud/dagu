@@ -195,6 +195,8 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"SyncPull":                 remoteNodeAccessWrite,
 	"UpdateSkill":              remoteNodeAccessWrite,
 	"DeleteSkill":              remoteNodeAccessWrite,
+	"PutSkillFile":             remoteNodeAccessWrite,
+	"DeleteSkillFile":          remoteNodeAccessWrite,
 	"CreateWikiPage":           remoteNodeAccessWrite,
 	"DeleteWikiPageBatch":      remoteNodeAccessWrite,
 	"DeleteWikiPage":           remoteNodeAccessWrite,

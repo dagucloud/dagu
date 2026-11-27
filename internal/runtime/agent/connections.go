@@ -23,22 +23,22 @@ import (
 var errNoConnectionTokens = errors.New("connection tokens are not available in this process")
 
 // ConnectionChecker checks a connection that a run's DAG declares, before
-// the run's first step, and hands the declared connections to its steps.
+// the run's first step, and hands the declared connections to the run.
 type ConnectionChecker interface {
 	// CheckConnection returns an error that names the connection when a run
 	// of a DAG in workspace cannot use ref. The workspace is empty for a DAG
 	// without a workspace label.
 	CheckConnection(ctx context.Context, workspace string, ref ir.ConnectionRef) error
-	// Connections returns where the steps of a run of a DAG in workspace
-	// get the connections it declares and their tokens.
+	// Connections returns where a run of a DAG in workspace gets the
+	// connections it declares and their tokens.
 	Connections(workspace string) runtime.Connections
 }
 
 // NewStoreConnectionChecker returns a checker that admits connections
 // against the store open returns. Its runs take tokens from one broker
-// over that store and locks, which keeps the tokens it hands out, so the
-// steps of a run and of its in-process sub-DAGs share them. It calls open
-// once, on first use.
+// over that store and locks, which keeps the tokens it hands out, so a
+// run and its in-process sub-DAGs share them. It calls open once, on
+// first use.
 func NewStoreConnectionChecker(open func() (connection.Store, error), locks connection.Locks) ConnectionChecker {
 	return &storeConnectionChecker{open: open, locks: locks}
 }
@@ -80,8 +80,8 @@ func (c *storeConnectionChecker) Connections(workspace string) runtime.Connectio
 }
 
 // storeConnections are the connections of one workspace. It keeps each
-// connection it reads, so a step reads the record once per run; the run's
-// steps name only the connections its DAG declares.
+// connection it reads, so it reads each record once; a run names only the
+// connections its DAG declares.
 type storeConnections struct {
 	checker   *storeConnectionChecker
 	workspace string
@@ -135,8 +135,8 @@ func (s *storeConnections) tokens() (*broker.Broker, error) {
 	return s.checker.tokens, nil
 }
 
-// runConnections returns where the run's steps get their connections, or
-// nil when the run checks none or is a workflow test case, which reads no
+// runConnections returns where the run gets its connections, or nil when
+// the run checks none or is a workflow test case, which reads no
 // connection record.
 func (a *Agent) runConnections() runtime.Connections {
 	if a.connectionChecker == nil || a.testSideEffects != nil || len(a.dag.Connections) == 0 {

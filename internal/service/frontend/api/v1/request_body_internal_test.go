@@ -56,6 +56,12 @@ func TestClosedBodyMiddleware(t *testing.T) {
 			assert.NotContains(t, w.Body.String(), value)
 		}
 	}
+	// A file route takes raw bytes as application/octet-stream only.
+	const filePath = "/api/v1/skills/demo/files?path=assets/a.bin"
+	for _, contentType := range []string{"application/json", "text/plain", ""} {
+		w := send(http.MethodPut, filePath, contentType, "\xff\x00")
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Content-Type %q", contentType)
+	}
 	require.Empty(t, reached, "a refused body never reaches the handler")
 
 	good := `{"content":"` + value + `"}`
@@ -73,6 +79,13 @@ func TestClosedBodyMiddleware(t *testing.T) {
 
 	w := send(http.MethodPut, "/api/v1/skills/demo/unknown", "application/json", tooLarge)
 	assert.Equal(t, http.StatusNoContent, w.Code, "an unknown route gets no 413, whatever its body")
+
+	reached = nil
+	w = send(http.MethodPut, filePath, "application/octet-stream", "\xff\x00")
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	assert.Equal(t, []string{"\xff\x00"}, reached, "a file reaches the handler as sent")
+	w = send(http.MethodPut, filePath, "application/octet-stream", tooLarge)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
 }
 
 const closedBodyTestKey = "sk-ant-api03-SECRET-VALUE-0123456789"

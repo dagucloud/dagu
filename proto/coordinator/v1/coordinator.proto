@@ -783,12 +783,14 @@ message ResolveConnectionTokenResponse {
 }
 
 // ConnectionBinding is what a worker needs to use a connection's token: the
-// hosts that may receive it, and the services it serves.
+// hosts that may receive it, the services it serves, and whether a step may
+// receive it in its environment.
 message ConnectionBinding {
   string provider = 1;
   repeated ConnectionService services = 2;
   repeated string bound_hosts = 3; // Every host that may receive the token
   string resource = 4;             // Canonical server URL of an MCP connection
+  bool allow_token_export = 5;     // A connection secret may export the token
 }
 
 message ConnectionService {

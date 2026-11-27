@@ -641,6 +641,7 @@ func TestServerAdvertisesSupportedCapabilities(t *testing.T) {
 	apps, ok := result.Capabilities.Extensions[mcpAppsExtensionURI].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, []any{mcpAppMIMEType}, apps["mimeTypes"])
+	require.Equal(t, map[string]any{}, result.Capabilities.Extensions[skillsExtensionID])
 }
 
 // Agents follow the reference topics the instructions name, so each one
@@ -1817,6 +1818,12 @@ func TestRunWatcherStopsAfterPersistentErrors(t *testing.T) {
 
 func connectTestClient(t *testing.T, ctx context.Context, server *mcpsdk.Server) *mcpsdk.ClientSession {
 	t.Helper()
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "dagu-mcp-test", Version: "v0.0.0"}, nil)
+	return connectClient(t, ctx, server, client)
+}
+
+func connectClient(t *testing.T, ctx context.Context, server *mcpsdk.Server, client *mcpsdk.Client) *mcpsdk.ClientSession {
+	t.Helper()
 
 	ctx, cancel := context.WithTimeout(ctx, testConnectTimeout)
 	t.Cleanup(cancel)
@@ -1826,7 +1833,6 @@ func connectTestClient(t *testing.T, ctx context.Context, server *mcpsdk.Server)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = serverSession.Close() })
 
-	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "dagu-mcp-test", Version: "v0.0.0"}, nil)
 	clientSession, err := client.Connect(ctx, clientTransport, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = clientSession.Close() })

@@ -52,7 +52,8 @@ var (
 )
 
 // poison makes each later step of a run with an isolated untrusted step fail.
-// Dagu uses it when a process of the restricted user survives SIGKILL.
+// Dagu uses it when a process of the restricted user survives SIGKILL and when
+// a git entry changed during the step.
 func poison(err error) {
 	poisonMu.Lock()
 	defer poisonMu.Unlock()
@@ -105,9 +106,15 @@ type isolation struct {
 	// gitModes holds the mode of each git entry whose mode the handoff
 	// changed, for the restore.
 	gitModes map[string]uint32
+	// givenLinks holds each link that the handoff gave, by its path.
+	givenLinks map[string]givenLink
 	// hostLock is the lock file of the restricted user on the host.
 	hostLock *os.File
-	// handedOff is true once the walk of the handoff started.
+	// marker is the marker of the work directory that this step made, until
+	// a restore makes the work directory safe.
+	marker string
+	// handedOff is true once the walk of the handoff that changes owners
+	// started.
 	handedOff bool
 
 	watchers sync.WaitGroup
@@ -167,6 +174,7 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 		gitSnapshot: make(map[string]fileSig),
 		seenGit:     make(map[string]bool),
 		gitModes:    make(map[string]uint32),
+		givenLinks:  make(map[string]givenLink),
 		hostLock:    hostLock,
 	}
 	defer func() {
@@ -198,7 +206,6 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 	if err := iso.makePrivateDir(); err != nil {
 		return iso, err
 	}
-	iso.handedOff = true
 	if err := iso.handoff(); err != nil {
 		return iso, err
 	}
@@ -320,12 +327,13 @@ func (iso *isolation) releaseSlot() {
 
 // abort undoes a Begin that failed. No process of the restricted user started.
 func (iso *isolation) abort() error {
-	var errs []error
+	var restoreErr error
 	if iso.handedOff {
-		errs = append(errs, iso.restore(false))
+		restoreErr = iso.restore(false)
 	} else {
-		errs = append(errs, iso.restoreModes())
+		restoreErr = iso.restoreModes()
 	}
+	errs := []error{iso.unmarkUnlessAborted(restoreErr)}
 	if iso.privateDir != "" {
 		if removeErr := os.RemoveAll(iso.privateDir); removeErr != nil {
 			errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, removeErr))
@@ -741,13 +749,23 @@ func (iso *isolation) end(_ context.Context) error {
 		// A live process of the restricted user could watch the later steps.
 		err := stepError(iso.step, "stop the processes of the restricted user", "", killErr)
 		poison(err)
+		iso.closeProtected()
 		return fmt.Errorf("%w: %w", ErrRunAborted, err)
 	}
 
-	var errs []error
-	errs = append(errs, iso.restore(true))
-	errs = append(errs, iso.checkGitRemoved())
-	errs = append(errs, iso.copyOutput())
+	// The HOME goes before the checks: a file that the step linked from it, such
+	// as one of a package cache, then has one link and stays.
+	var homeErr error
+	if err := os.RemoveAll(iso.home); err != nil {
+		homeErr = stepError(iso.step, "remove the home folder", iso.home, err)
+	}
+	restoreErr := iso.restore(true)
+	if errors.Is(restoreErr, errGitChanged) {
+		// Spec 103, "Isolation". Another error that stops the run keeps the
+		// marker, which stops only the runs on this work directory.
+		poison(restoreErr)
+	}
+	errs := []error{homeErr, iso.unmarkUnlessAborted(restoreErr), iso.copyOutput()}
 	if err := os.RemoveAll(iso.privateDir); err != nil {
 		errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, err))
 	}
@@ -797,31 +815,26 @@ func (iso *isolation) copyOutput() error {
 	return nil
 }
 
-// shareReadOnly lets the restricted user read the tree at path and not write
-// it. Each folder gets the mode 0555 and each file the mode 0444; the owner
-// stays the user of the worker. A link keeps its mode. The walk acts on
-// descriptors, so a path that changes under it cannot redirect a change of mode.
-func shareReadOnly(step, path string) error {
-	var chmodErr error
-	err := walkFD(path, func(e *fsEntry) (bool, error) {
-		if e.isLink() {
-			return true, nil
-		}
-		mode := uint32(0o444)
-		if e.isDir() {
-			mode = 0o555
-		}
-		if err := chmodFD(e, mode); err != nil {
-			chmodErr = stepError(step, "change the mode of", e.path, err)
-			return false, chmodErr
-		}
-		return false, nil
-	})
-	if chmodErr != nil {
-		return chmodErr
+// shareReadOnly lets the restricted user read the regular file at path and not
+// write it. The file keeps the worker as owner and gets the group of the
+// restricted user with the mode 0440, so that no other user reads it. The
+// changes go through a descriptor, so a link that replaces the path cannot
+// redirect them.
+func (iso *isolation) shareReadOnly(path string) error {
+	if err := checkTraversable(path); err != nil {
+		return stepError(iso.step, "share", path, err)
 	}
+	err := walkFD(path, func(e *fsEntry) (bool, error) {
+		if !e.isRegular() || e.st.Nlink > 1 {
+			return true, errors.New("not a regular file with one link")
+		}
+		if err := chownFD(e, iso.workerUID, int(iso.gid)); err != nil {
+			return true, err
+		}
+		return true, chmodFD(e, 0o440)
+	})
 	if err != nil {
-		return stepError(step, "read", path, err)
+		return stepError(iso.step, "share", path, err)
 	}
 	return nil
 }

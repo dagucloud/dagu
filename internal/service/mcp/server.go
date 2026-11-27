@@ -142,6 +142,7 @@ func newServer(api *frontendapi.API, remote *remoteCalls) *mcpsdk.Server {
 		Capabilities: &mcpsdk.ServerCapabilities{
 			Extensions: map[string]any{
 				mcpAppsExtensionURI: mcpAppsCapability(),
+				skillsExtensionID:   map[string]any{},
 			},
 			Prompts:   &mcpsdk.PromptCapabilities{},
 			Resources: &mcpsdk.ResourceCapabilities{Subscribe: true},
@@ -166,6 +167,9 @@ func newServer(api *frontendapi.API, remote *remoteCalls) *mcpsdk.Server {
 	registerTools(server, svc)
 	registerResources(server, svc)
 	registerPrompts(server)
+	if err := registerSkills(server, bundledSkills()); err != nil {
+		panic(err)
+	}
 
 	return server
 }

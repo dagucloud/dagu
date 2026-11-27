@@ -38,7 +38,7 @@ func (*isolation) writeOwnedFile(string, []byte) (string, error) { return "", er
 
 func (*isolation) setOutputTarget(target string) string { return target }
 
-func shareReadOnly(string, string) error { return errNeedsLinux }
+func (*isolation) shareReadOnly(string) error { return errNeedsLinux }
 
 func processPrivileges() (privileges, error) { return privileges{}, errNeedsLinux }
 

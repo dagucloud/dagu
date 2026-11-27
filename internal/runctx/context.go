@@ -17,7 +17,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/connection"
 	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -561,12 +560,7 @@ func WithHostKeys(keys TrustedHostKeys) ContextOption {
 
 // Connections hands out the connections that a run's DAG declares, and
 // their tokens.
-type Connections interface {
-	broker.Source
-	// Connection returns the connection named name in the run's project,
-	// with every host that may receive its token.
-	Connection(ctx context.Context, name string) (*connection.Connection, error)
-}
+type Connections = broker.Connections
 
 // WithConnections sets where the run's steps get their connections.
 func WithConnections(conns Connections) ContextOption {

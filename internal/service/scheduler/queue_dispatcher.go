@@ -1582,7 +1582,7 @@ func workerAvailableInSnapshot(
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
 ) (bool, []queuedConditionDef) {
-	targetWorkerID := ir.RetryAgentOwnerWorkerID(status, false)
+	targetWorkerID := ir.RetryAgentOwnerWorkerID(status, "", false)
 	// The task carries the selector with the implied labels (Spec 092), so the
 	// check of the available workers uses the same selector.
 	selector := dag.DispatchWorkerSelector()

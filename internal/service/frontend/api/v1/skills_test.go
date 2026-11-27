@@ -343,6 +343,12 @@ func TestSkillsFiles(t *testing.T) {
 			ExpectStatus(http.StatusPreconditionRequired).Send(t)
 		putSkill(server, "/api/v1/skills/missing/files?path=references/a.md", []byte("x"), skillIfMatch(h)).
 			ExpectStatus(http.StatusNotFound).Send(t)
+		// Only the creation of a skill takes If-None-Match.
+		both := map[string]string{"If-Match": h, "If-None-Match": "*"}
+		putSkill(server, "/api/v1/skills/refund-policy/files?path=references/a.md", []byte("x"), both).
+			ExpectStatus(http.StatusBadRequest).Send(t)
+		deleteSkillRequest(server, "/api/v1/skills/refund-policy/files?path=references/faq.md", both).
+			ExpectStatus(http.StatusBadRequest).Send(t)
 		assert.Equal(t, h, getSkill(t, server, "refund-policy").Hash, "a refused write changes nothing")
 	})
 
@@ -387,6 +393,7 @@ func TestSkillsDelete(t *testing.T) {
 
 	deleteSkillRequest(server, "/api/v1/skills/refund-policy", nil).ExpectStatus(http.StatusPreconditionRequired).Send(t)
 	deleteSkillRequest(server, "/api/v1/skills/refund-policy", skillIfMatch(strings.Repeat("0", 64))).ExpectStatus(http.StatusConflict).Send(t)
+	deleteSkillRequest(server, "/api/v1/skills/refund-policy", map[string]string{"If-Match": h, "If-None-Match": "*"}).ExpectStatus(http.StatusBadRequest).Send(t)
 	deleteSkillRequest(server, "/api/v1/skills/refund-policy", skillIfMatch(h)).ExpectStatus(http.StatusNoContent).Send(t)
 	_, err := os.Stat(filepath.Join(skillsDir(server), "refund-policy"))
 	assert.ErrorIs(t, err, os.ErrNotExist, "the whole folder goes")
@@ -561,11 +568,19 @@ func TestSkillsPathTraversal(t *testing.T) {
 	require.NoError(t, os.WriteFile(outside, []byte(validSkill), 0o600))
 
 	for _, name := range []string{"..", "..%2F..", "%2e%2e", "a%2Fb"} {
-		status := server.Client().Get("/api/v1/skills/" + name).Send(t).Response.StatusCode()
-		assert.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, status, "GET %s", name)
-		status = putSkill(server, "/api/v1/skills/"+name, api.UpdateSkillJSONRequestBody{Content: validSkill}, map[string]string{"If-None-Match": "*"}).
-			Send(t).Response.StatusCode()
-		assert.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, status, "PUT %s", name)
+		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+			var req *test.Request
+			switch method {
+			case http.MethodGet:
+				req = server.Client().Get("/api/v1/skills/" + name)
+			case http.MethodPut:
+				req = putSkill(server, "/api/v1/skills/"+name, api.UpdateSkillJSONRequestBody{Content: validSkill}, map[string]string{"If-None-Match": "*"})
+			default:
+				req = deleteSkillRequest(server, "/api/v1/skills/"+name, skillIfMatch(strings.Repeat("0", 64)))
+			}
+			status := req.Send(t).Response.StatusCode()
+			assert.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, status, "%s %s", method, name)
+		}
 	}
 
 	_, err := os.Stat(outside)
@@ -699,20 +714,30 @@ func TestSkillsWritesFollowTheDAGWriteRules(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			helper := test.Setup(t, test.WithConfigMutator(mutate))
-			none := "*"
-			_, err := newSkillsAPI(helper).UpdateSkill(context.Background(), api.UpdateSkillRequestObject{
+			apiImpl := newSkillsAPI(helper)
+			ctx := context.Background()
+			none, h := "*", strings.Repeat("0", 64)
+			_, err := apiImpl.UpdateSkill(ctx, api.UpdateSkillRequestObject{
 				Name: "refund-policy", Params: api.UpdateSkillParams{IfNoneMatch: &none},
 				Body: &api.UpdateSkillJSONRequestBody{Content: validSkill},
 			})
 			requireAPIErrorStatus(t, err, http.StatusForbidden)
 			_, err = os.Stat(filepath.Join(helper.Config.Paths.DAGsDir, "skills", "refund-policy"))
 			require.ErrorIs(t, err, os.ErrNotExist)
+			_, err = apiImpl.DeleteSkill(ctx, api.DeleteSkillRequestObject{Name: "refund-policy", Params: api.DeleteSkillParams{IfMatch: &h}})
+			requireAPIErrorStatus(t, err, http.StatusForbidden)
+			_, err = apiImpl.PutSkillFile(ctx, api.PutSkillFileRequestObject{
+				Name: "refund-policy", Params: api.PutSkillFileParams{Path: "references/a.md", IfMatch: &h}, Body: strings.NewReader("x"),
+			})
+			requireAPIErrorStatus(t, err, http.StatusForbidden)
+			_, err = apiImpl.DeleteSkillFile(ctx, api.DeleteSkillFileRequestObject{Name: "refund-policy", Params: api.DeleteSkillFileParams{Path: "references/a.md", IfMatch: &h}})
+			requireAPIErrorStatus(t, err, http.StatusForbidden)
 		})
 	}
 }
 
-// Each write leaves one audit entry with the name and the new hash of the
-// skill, and no content of the skill.
+// Each write and each delete leaves one audit entry with the resource skill,
+// the name and the new hash of the skill, and no content of the skill.
 func TestSkillsWritesAreAudited(t *testing.T) {
 	t.Parallel()
 	auditStore := &recordingAuditStore{}
@@ -724,14 +749,30 @@ func TestSkillsWritesAreAudited(t *testing.T) {
 		Body: &api.UpdateSkillJSONRequestBody{Content: validSkill + "Refund twice.\n"},
 	})
 	require.NoError(t, err)
+	hashes := []string{h, updated.(api.UpdateSkill200JSONResponse).Hash}
+	written, err := apiImpl.PutSkillFile(ctx, api.PutSkillFileRequestObject{
+		Name: "refund-policy", Params: api.PutSkillFileParams{Path: "references/a.md", IfMatch: &hashes[1]}, Body: strings.NewReader("Refund notes"),
+	})
+	require.NoError(t, err)
+	hashes = append(hashes, written.(api.PutSkillFile200JSONResponse).Hash)
+	deleted, err := apiImpl.DeleteSkillFile(ctx, api.DeleteSkillFileRequestObject{
+		Name: "refund-policy", Params: api.DeleteSkillFileParams{Path: "references/a.md", IfMatch: &hashes[2]},
+	})
+	require.NoError(t, err)
+	hashes = append(hashes, deleted.(api.DeleteSkillFile200JSONResponse).Hash)
+	_, err = apiImpl.DeleteSkill(ctx, api.DeleteSkillRequestObject{Name: "refund-policy", Params: api.DeleteSkillParams{IfMatch: &hashes[3]}})
+	require.NoError(t, err)
 
-	require.Len(t, auditStore.entries, 2)
-	for i, hash := range []string{h, updated.(api.UpdateSkill200JSONResponse).Hash} {
+	actions := []string{"skill_update", "skill_update", "skill_file_write", "skill_file_delete", "skill_delete"}
+	require.Len(t, auditStore.entries, len(actions))
+	for i, action := range actions {
 		entry := auditStore.entries[i]
-		assert.Equal(t, "skill_update", entry.Action)
-		assert.Equal(t, "skill", entry.ResourceType)
-		assert.Equal(t, "refund-policy", entry.ResourceID)
-		assert.Contains(t, entry.Details, hash)
+		assert.Equal(t, action, entry.Action)
+		assert.Equal(t, "skill", entry.ResourceType, action)
+		assert.Equal(t, "refund-policy", entry.ResourceID, action)
+		if i < len(hashes) {
+			assert.Contains(t, entry.Details, hashes[i], action)
+		}
 		assert.NotContains(t, entry.Details, "Refund", "an audit entry holds no content of the skill")
 	}
 }

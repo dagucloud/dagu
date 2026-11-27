@@ -151,7 +151,7 @@ func (a *API) UpdateSkill(ctx context.Context, request api.UpdateSkillRequestObj
 	if request.Body == nil {
 		return nil, ErrInvalidRequestBody
 	}
-	pre, err := skillPrecondition(request.Params.IfMatch, request.Params.IfNoneMatch)
+	pre, err := skillPrecondition(request.Params.IfMatch, request.Params.IfNoneMatch, true)
 	if err != nil {
 		return nil, err
 	}
@@ -183,10 +183,7 @@ func (a *API) DeleteSkill(ctx context.Context, request api.DeleteSkillRequestObj
 	if !skill.IsSafeFolderName(request.Name) {
 		return nil, errInvalidSkillName
 	}
-	if none := request.Params.IfNoneMatch; none != nil && strings.TrimSpace(*none) != "" {
-		return nil, &Error{Code: api.ErrorCodeBadRequest, Message: "If-None-Match applies only to the creation of a skill; send If-Match", HTTPStatus: http.StatusBadRequest}
-	}
-	pre, err := skillPrecondition(request.Params.IfMatch, nil)
+	pre, err := skillPrecondition(request.Params.IfMatch, request.Params.IfNoneMatch, false)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +199,10 @@ func (a *API) DeleteSkill(ctx context.Context, request api.DeleteSkillRequestObj
 		}
 		return nil, failure.err
 	}
-	a.logAudit(ctx, audit.CategorySystem, "skill_delete", map[string]string{"name": request.Name})
+	a.logAudit(ctx, audit.CategorySystem, "skill_delete", map[string]any{
+		"resource_type": "skill",
+		"resource_id":   request.Name,
+	})
 	return api.DeleteSkill204Response{}, nil
 }
 
@@ -258,7 +258,7 @@ func (a *API) PutSkillFile(ctx context.Context, request api.PutSkillFileRequestO
 	if rel == skill.FileName {
 		return nil, &Error{Code: api.ErrorCodeBadRequest, Message: "SKILL.md has its own route: PUT /skills/{name}", HTTPStatus: http.StatusBadRequest}
 	}
-	pre, err := skillPrecondition(request.Params.IfMatch, nil)
+	pre, err := skillPrecondition(request.Params.IfMatch, request.Params.IfNoneMatch, false)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +283,12 @@ func (a *API) PutSkillFile(ctx context.Context, request api.PutSkillFileRequestO
 		}
 		return nil, failure.err
 	}
-	a.logAudit(ctx, audit.CategorySystem, "skill_file_write", map[string]string{"name": request.Name, "path": rel, "hash": sk.Hash})
+	a.logAudit(ctx, audit.CategorySystem, "skill_file_write", map[string]any{
+		"resource_type": "skill",
+		"resource_id":   request.Name,
+		"path":          rel,
+		"hash":          sk.Hash,
+	})
 	return api.PutSkillFile200JSONResponse(toSkillWriteResult(sk)), nil
 }
 
@@ -295,7 +300,7 @@ func (a *API) DeleteSkillFile(ctx context.Context, request api.DeleteSkillFileRe
 	if !skill.IsSafeFolderName(request.Name) {
 		return nil, errInvalidSkillName
 	}
-	pre, err := skillPrecondition(request.Params.IfMatch, nil)
+	pre, err := skillPrecondition(request.Params.IfMatch, request.Params.IfNoneMatch, false)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +315,12 @@ func (a *API) DeleteSkillFile(ctx context.Context, request api.DeleteSkillFileRe
 		}
 		return nil, failure.err
 	}
-	a.logAudit(ctx, audit.CategorySystem, "skill_file_delete", map[string]string{"name": request.Name, "path": request.Params.Path, "hash": sk.Hash})
+	a.logAudit(ctx, audit.CategorySystem, "skill_file_delete", map[string]any{
+		"resource_type": "skill",
+		"resource_id":   request.Name,
+		"path":          request.Params.Path,
+		"hash":          sk.Hash,
+	})
 	return api.DeleteSkillFile200JSONResponse(toSkillWriteResult(sk)), nil
 }
 
@@ -398,10 +408,14 @@ func percentEncode(s string) string {
 	return b.String()
 }
 
-// skillPrecondition reads the headers If-Match and If-None-Match.
-func skillPrecondition(ifMatch, ifNoneMatch *string) (skill.Precondition, error) {
+// skillPrecondition reads the headers If-Match and If-None-Match. Only the
+// creation of a skill takes If-None-Match.
+func skillPrecondition(ifMatch, ifNoneMatch *string, create bool) (skill.Precondition, error) {
 	hasIfMatch := ifMatch != nil && strings.TrimSpace(*ifMatch) != ""
 	if ifNoneMatch != nil && strings.TrimSpace(*ifNoneMatch) != "" {
+		if !create {
+			return skill.Precondition{}, &Error{Code: api.ErrorCodeBadRequest, Message: "If-None-Match applies only to the creation of a skill; send If-Match", HTTPStatus: http.StatusBadRequest}
+		}
 		if hasIfMatch {
 			return skill.Precondition{}, &Error{Code: api.ErrorCodeBadRequest, Message: "send If-Match or If-None-Match, not both", HTTPStatus: http.StatusBadRequest}
 		}

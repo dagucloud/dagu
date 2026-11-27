@@ -3898,7 +3898,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a skill
-         * @description Deletes the whole folder of a skill with every file. Send If-Match with the hash that the client read. Requires developer role or above.
+         * @description Deletes the whole folder of a skill with every file. After 204 the skill is gone for every reader. A file that the server cannot remove stays in a hidden folder until a later skill delete removes it. Send If-Match with the hash that the client read. Requires developer role or above.
          */
         delete: operations["deleteSkill"];
         options?: never;
@@ -3926,7 +3926,7 @@ export interface paths {
         post?: never;
         /**
          * Delete one file of a skill
-         * @description Deletes one file under references/, assets/ or scripts/. Send If-Match with the hash that the client read. Requires developer role or above.
+         * @description Deletes one file under references/, assets/ or scripts/, or one entry that breaks the layout with its content, such as a stray file at the top of the skill or a hidden folder. A folder that the layout allows cannot be deleted; delete its files. Send If-Match with the hash that the client read. Requires developer role or above.
          */
         delete: operations["deleteSkillFile"];
         options?: never;
@@ -23432,6 +23432,8 @@ export interface operations {
             header?: {
                 /** @description The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header. */
                 "If-Match"?: string;
+                /** @description Not allowed: only the creation of a skill takes If-None-Match. The header gives 400. */
+                "If-None-Match"?: string;
             };
             path: {
                 /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */
@@ -23499,7 +23501,7 @@ export interface operations {
                     "application/json": components["schemas"]["SkillError"];
                 };
             };
-            /** @description The file is too large */
+            /** @description The file is above 4 MiB */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -23539,6 +23541,8 @@ export interface operations {
             header?: {
                 /** @description The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header. */
                 "If-Match"?: string;
+                /** @description Not allowed: only the creation of a skill takes If-None-Match. The header gives 400. */
+                "If-None-Match"?: string;
             };
             path: {
                 /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */

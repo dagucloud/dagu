@@ -49,6 +49,9 @@ type runOptions struct {
 	// retried is the status of a run that a retry dispatches to the
 	// coordinator.
 	retried *ir.DAGRunStatus
+	// retriedSubRun is the sub-run that a retry along a retry path reruns a
+	// step in.
+	retriedSubRun *ir.DAGRunStatus
 	// boundWorker is the worker that runs a run bound to a worker node.
 	boundWorker string
 	// secretValues, when non-nil, holds the value of each DAG secret in place

@@ -107,6 +107,55 @@ func TestExecutorRunWaitsForHTTPStatus(t *testing.T) {
 	require.GreaterOrEqual(t, calls.Load(), int32(3))
 }
 
+func TestExecutorRunWaitsForRedirectStatus(t *testing.T) {
+	t.Parallel()
+
+	var finalHits atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/final", http.StatusFound)
+	})
+	mux.HandleFunc("/final", func(w http.ResponseWriter, _ *http.Request) {
+		finalHits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	exec := newHTTPWait(t, map[string]any{
+		"url":    server.URL + "/ready",
+		"status": http.StatusFound,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	require.NoError(t, exec.Run(ctx))
+	require.Zero(t, finalHits.Load(), "redirect should not be followed")
+}
+
+func TestExecutorRunSendsHostHeader(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "virtual.example" {
+			w.WriteHeader(http.StatusMisdirectedRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	exec := newHTTPWait(t, map[string]any{
+		"url":     server.URL,
+		"status":  http.StatusNoContent,
+		"headers": map[string]string{"Host": "virtual.example"},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	require.NoError(t, exec.Run(ctx))
+}
+
 // Repeated identical results are logged once, so a short poll_interval does
 // not flood the step log.
 func TestHTTPStatusMismatchLoggedToStderr(t *testing.T) {

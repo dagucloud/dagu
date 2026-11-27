@@ -183,9 +183,10 @@ func TestRemoteConnectionsKeepBinding(t *testing.T) {
 	ctx := context.Background()
 	coord := &tokenCoordinator{respond: func(*coordinatorv1.ResolveConnectionTokenRequest) (*coordinatorv1.ResolveConnectionTokenResponse, error) {
 		return &coordinatorv1.ResolveConnectionTokenResponse{Binding: &coordinatorv1.ConnectionBinding{
-			Provider:   "google",
-			Services:   []*coordinatorv1.ConnectionService{{Name: "gmail", Access: "read"}},
-			BoundHosts: []string{"gmailmcp.googleapis.com"},
+			Provider:         "google",
+			Services:         []*coordinatorv1.ConnectionService{{Name: "gmail", Access: "read"}},
+			BoundHosts:       []string{"gmailmcp.googleapis.com"},
+			AllowTokenExport: true,
 		}}, nil
 	}}
 	conns, _ := newTestConnections(coord)
@@ -194,10 +195,11 @@ func TestRemoteConnectionsKeepBinding(t *testing.T) {
 	conn, err := conns.Connection(ctx, "work")
 	require.NoError(t, err)
 	assert.Equal(t, &connection.Connection{
-		Name:       "work",
-		Provider:   connection.ProviderGoogle,
-		Services:   []connection.Service{{Name: "gmail", Access: connection.AccessRead}},
-		BoundHosts: []string{"gmailmcp.googleapis.com"},
+		Name:             "work",
+		Provider:         connection.ProviderGoogle,
+		Services:         []connection.Service{{Name: "gmail", Access: connection.AccessRead}},
+		BoundHosts:       []string{"gmailmcp.googleapis.com"},
+		AllowTokenExport: true,
 	}, conn)
 	assert.Equal(t, 1, coord.calls())
 }

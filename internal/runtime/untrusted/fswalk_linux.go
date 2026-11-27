@@ -31,14 +31,22 @@ type fsEntry struct {
 	parent int
 	// fd is a descriptor of the entry with O_PATH and O_NOFOLLOW.
 	fd int
-	st unix.Stat_t
+	// depth counts the folders between the root of the walk and the entry.
+	depth int
+	st    unix.Stat_t
 }
 
 func (e *fsEntry) isDir() bool     { return e.st.Mode&unix.S_IFMT == unix.S_IFDIR }
 func (e *fsEntry) isLink() bool    { return e.st.Mode&unix.S_IFMT == unix.S_IFLNK }
 func (e *fsEntry) isRegular() bool { return e.st.Mode&unix.S_IFMT == unix.S_IFREG }
+func (e *fsEntry) isSocket() bool  { return e.st.Mode&unix.S_IFMT == unix.S_IFSOCK }
 func (e *fsEntry) uid() int        { return int(e.st.Uid) }
 func (e *fsEntry) gid() int        { return int(e.st.Gid) }
+
+// isDevice reports whether the entry is a character or a block device node.
+func (e *fsEntry) isDevice() bool {
+	return e.st.Mode&unix.S_IFMT == unix.S_IFCHR || e.st.Mode&unix.S_IFMT == unix.S_IFBLK
+}
 
 // perm returns the permission bits and the bits set-user-ID, set-group-ID and
 // sticky of the entry, in the format of chmod.
@@ -62,10 +70,24 @@ func walkFD(root string, visit visitFunc) error {
 	return walkEntry(entry, visit)
 }
 
+// maxWalkDepth bounds the folders that a walk or a removal enters below its
+// root. Each level holds a descriptor and a path, so a deeper tree that the
+// restricted user made could exhaust the descriptors or the memory of the
+// worker.
+const maxWalkDepth = 256
+
+// errTooDeep is the error of a folder deeper than maxWalkDepth.
+var errTooDeep = fmt.Errorf("the tree is deeper than %d folders", maxWalkDepth)
+
+// walkEntry walks the tree of an entry of a walk. The depth of each entry
+// counts from the root of that walk.
 func walkEntry(entry *fsEntry, visit visitFunc) error {
 	skip, err := visit(entry)
 	if err != nil || skip || !entry.isDir() {
 		return err
+	}
+	if entry.depth >= maxWalkDepth {
+		return &fs.PathError{Op: "walk", Path: entry.path, Err: errTooDeep}
 	}
 	names, err := readNames(entry.fd, entry.path)
 	if err != nil {
@@ -79,6 +101,7 @@ func walkEntry(entry *fsEntry, visit visitFunc) error {
 		if err != nil {
 			return err
 		}
+		child.depth = entry.depth + 1
 		err = walkEntry(child, visit)
 		_ = unix.Close(child.fd)
 		if err != nil {
@@ -154,9 +177,49 @@ func chmodFDPath(fd int, path string, mode uint32) error {
 	return nil
 }
 
+// readLinkFD returns the target of the link entry.
+func readLinkFD(entry *fsEntry) (string, error) {
+	buf := make([]byte, unix.PathMax)
+	n, err := unix.Readlinkat(entry.fd, "", buf)
+	if err != nil {
+		return "", err
+	}
+	return string(buf[:n]), nil
+}
+
+// aclNames are the extended attributes that hold the POSIX ACLs of an entry.
+var aclNames = []string{"system.posix_acl_access", "system.posix_acl_default"}
+
+// hasACL reports whether the entry has an access ACL, which can let the
+// restricted user write it whatever its mode. An error that does not show the
+// lack of one counts as one. A link has none.
+func hasACL(entry *fsEntry) bool {
+	if entry.isLink() {
+		return false
+	}
+	_, err := unix.Getxattr("/proc/self/fd/"+strconv.Itoa(entry.fd), aclNames[0], nil)
+	return !errors.Is(err, unix.ENODATA) && !errors.Is(err, unix.EOPNOTSUPP)
+}
+
+// removeACLs removes the POSIX ACLs of the entry of the descriptor. The entry
+// is not a link. The change goes through /proc/self/fd, as chmodFD does.
+func removeACLs(entry *fsEntry) error {
+	for _, name := range aclNames {
+		err := unix.Removexattr("/proc/self/fd/"+strconv.Itoa(entry.fd), name)
+		if err != nil && !errors.Is(err, unix.ENODATA) && !errors.Is(err, unix.EOPNOTSUPP) {
+			return &fs.PathError{Op: "removexattr", Path: entry.path, Err: err}
+		}
+	}
+	return nil
+}
+
 // removeAt removes the entry name of the folder dirfd and its content. A link
 // is removed, not followed.
 func removeAt(dirfd int, dirPath, name string) error {
+	return removeDepth(dirfd, dirPath, name, 0)
+}
+
+func removeDepth(dirfd int, dirPath, name string, depth int) error {
 	child, err := openChild(dirfd, dirPath, name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -171,12 +234,15 @@ func removeAt(dirfd int, dirPath, name string) error {
 		}
 		return nil
 	}
+	if depth >= maxWalkDepth {
+		return &fs.PathError{Op: "remove", Path: child.path, Err: errTooDeep}
+	}
 	names, err := readNames(child.fd, child.path)
 	if err != nil {
 		return err
 	}
 	for _, sub := range names {
-		if err := removeAt(child.fd, child.path, sub); err != nil {
+		if err := removeDepth(child.fd, child.path, sub, depth+1); err != nil {
 			return err
 		}
 	}
@@ -191,6 +257,8 @@ func removeAt(dirfd int, dirPath, name string) error {
 type fileSig struct {
 	ino   uint64
 	mode  uint32
+	uid   uint32
+	gid   uint32
 	size  int64
 	mtime int64
 	ctime int64
@@ -201,11 +269,25 @@ func sigOf(st *unix.Stat_t) fileSig {
 	return fileSig{
 		ino:   st.Ino,
 		mode:  st.Mode,
+		uid:   st.Uid,
+		gid:   st.Gid,
 		size:  st.Size,
 		mtime: st.Mtim.Nano(),
 		ctime: st.Ctim.Nano(),
 		nlink: uint64(st.Nlink), // #nosec G115 -- a link count is not negative.
 	}
+}
+
+// sameSig reports whether an entry kept the state before. For a file that had
+// more than one link, as git clone --local makes them, it compares no link
+// count and no time: another path of the file, such as one of another clone,
+// changes them, as git does when it refreshes a pack. The restricted user
+// cannot write such a file (protectGitEntry).
+func sameSig(before, after fileSig) bool {
+	if before.mode&unix.S_IFMT != unix.S_IFDIR && before.nlink > 1 {
+		after.nlink, after.mtime, after.ctime = before.nlink, before.mtime, before.ctime
+	}
+	return before == after
 }
 
 // describeSig tells how two states differ, for an error.
@@ -215,6 +297,8 @@ func describeSig(before, after fileSig) string {
 		return "it is a new file"
 	case before.mode != after.mode:
 		return fmt.Sprintf("its mode is %o, not %o", after.mode, before.mode)
+	case before.uid != after.uid || before.gid != after.gid:
+		return fmt.Sprintf("its owner is %d:%d, not %d:%d", after.uid, after.gid, before.uid, before.gid)
 	default:
 		return "its content changed"
 	}

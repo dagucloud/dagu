@@ -87,8 +87,9 @@ func newRemoteConnections(client coordinator.ConnectionTokenClient, owner servic
 
 // Connection returns the binding of the connection named name, as the
 // connection that Token takes: its name, provider, services, every host
-// that may receive its token, and its resource. A binding an earlier answer
-// carried is reused; otherwise a check-only request asks for it.
+// that may receive its token, its resource, and whether it allows token
+// export. A binding an earlier answer carried is reused; otherwise a
+// check-only request asks for it.
 func (c *remoteConnections) Connection(ctx context.Context, name string) (*connection.Connection, error) {
 	c.mu.Lock()
 	conn, ok := c.bindings[name]
@@ -209,10 +210,11 @@ func (c *remoteConnections) call(ctx context.Context, req *coordinatorv1.Resolve
 // in the run's workspace.
 func bindingConnection(name string, binding *coordinatorv1.ConnectionBinding) *connection.Connection {
 	conn := &connection.Connection{
-		Name:       name,
-		Provider:   connection.Provider(binding.GetProvider()),
-		BoundHosts: binding.GetBoundHosts(),
-		Resource:   binding.GetResource(),
+		Name:             name,
+		Provider:         connection.Provider(binding.GetProvider()),
+		BoundHosts:       binding.GetBoundHosts(),
+		Resource:         binding.GetResource(),
+		AllowTokenExport: binding.GetAllowTokenExport(),
 	}
 	for _, svc := range binding.GetServices() {
 		conn.Services = append(conn.Services, connection.Service{Name: svc.GetName(), Access: connection.Access(svc.GetAccess())})

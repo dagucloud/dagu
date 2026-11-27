@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -17,13 +18,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Spec 092, "Files". The handoff gives the work directory to the restricted
-// user, except the folders that git opens as a repository (the git folders)
-// and the entries named .git. These stay with the worker, readable and not
-// writable by the restricted user, until the restore gives them their modes
-// back. The work directory and each folder on the way to a git folder or to a
-// .git keep the owner of the worker with the mode 1777, so that the restricted
-// user cannot rename or replace them.
+// Spec 103, "Isolation", rules 3 and 8. The handoff gives the work directory to
+// the restricted user, except the folders that git opens as a repository (the
+// git folders), the entries named .git, the sockets and the files with more
+// than one link that keepsLinkedFile keeps. These stay with the worker,
+// readable and not writable by the restricted user, until the restore gives
+// them their modes back. The work directory and each folder on the way to a git folder or
+// to a .git keep the owner of the worker with the mode 1777, so that the
+// restricted user cannot rename or replace them.
 //
 // The restore gives the work directory back to the worker. It fails the step
 // for what an agent could leave for a later trusted step:
@@ -35,7 +37,8 @@ import (
 //   - a link of the restricted user to a path outside the work directory or
 //     into a git folder, by the text of its target or by the path that the
 //     kernel reaches through it, and a file of the restricted user with more
-//     than one link: Dagu removes it.
+//     than one link: Dagu removes it. A link that the handoff gave and that
+//     keeps its path and its target is one of the worker and stays.
 //
 // Each removal fails the step. So a step that succeeds kept each link as the
 // restore checked it.
@@ -45,6 +48,12 @@ import (
 type protectedDir struct {
 	fd   int
 	mode uint32
+}
+
+// givenLink is a link that the handoff gave, at its path.
+type givenLink struct {
+	ino    uint64
+	target string
 }
 
 // gitMarkers are the files that make a folder a git folder.
@@ -79,7 +88,7 @@ func (iso *isolation) insideGit(path string) bool {
 // resolveGitPointer returns the git folder that the file of path names with
 // the line "<key>: <path>" (a .git file) or with its whole text (commondir).
 func resolveGitPointer(path string, prefix string) (string, error) {
-	data, err := os.ReadFile(path) // #nosec G304 -- a file of the work directory, read as data.
+	data, err := readGitPointer(path)
 	if err != nil {
 		return "", err
 	}
@@ -95,9 +104,29 @@ func resolveGitPointer(path string, prefix string) (string, error) {
 		return "", errors.New("the file names no folder")
 	}
 	if !filepath.IsAbs(text) {
-		text = filepath.Join(filepath.Dir(path), text)
+		// Not filepath.Join, which would fold a ".." before EvalSymlinks
+		// follows the link in front of it, as git does.
+		text = filepath.Dir(path) + "/" + text
 	}
-	return filepath.EvalSymlinks(filepath.Clean(text))
+	return filepath.EvalSymlinks(text)
+}
+
+// readGitPointer reads the regular file of path. It does not wait at a FIFO,
+// which would hold Begin until a writer opens it.
+func readGitPointer(path string) ([]byte, error) {
+	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NONBLOCK, 0) // #nosec G304 -- a file of the work directory, read as data.
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
+	}
+	return io.ReadAll(file)
 }
 
 // discoverGit finds the entries .git and the git folders of the work
@@ -185,12 +214,19 @@ func (iso *isolation) protectedPaths() map[string]bool {
 	return protected
 }
 
-// handoff gives the work directory to the restricted user.
+// handoff gives the work directory to the restricted user. It first makes the
+// marker of the work directory, which stays until a restore makes the work
+// directory safe, so that no step of the run uses the work directory after a
+// stop of the process in between (CheckWorkDir).
 func (iso *isolation) handoff() error {
+	if err := iso.markHandoff(); err != nil {
+		return err
+	}
 	if err := iso.discoverGit(); err != nil {
 		return err
 	}
 	protected := iso.protectedPaths()
+	iso.handedOff = true
 	return walkFD(iso.workDir, func(e *fsEntry) (bool, error) {
 		switch {
 		case iso.gitDirs[e.path]:
@@ -200,10 +236,28 @@ func (iso *isolation) handoff() error {
 		case protected[e.path]:
 			return false, iso.protectDir(e)
 		default:
-			// A change of owner acts on the file, so it would also give the
-			// other paths of a file with more than one link.
-			if e.isRegular() && e.st.Nlink > 1 {
+			if err := iso.checkNoDevice(e); err != nil {
+				return false, err
+			}
+			// A connect needs only the bit w on a socket, which its owner can
+			// set: the restricted user could drive the program that listens,
+			// such as a daemon of root.
+			if e.isSocket() {
+				return false, nil
+			}
+			// A change of owner acts on the inode, so it would also give the
+			// other paths of an entry with more than one link: a file, a link
+			// or a FIFO.
+			if !e.isDir() && e.st.Nlink > 1 {
+				if iso.keepsLinkedFile(e) {
+					return false, nil
+				}
 				return false, stepError(iso.step, "give", e.path, errors.New("the file has more than one link"))
+			}
+			if e.isLink() {
+				if err := iso.recordLink(e); err != nil {
+					return false, err
+				}
 			}
 			if err := chownFD(e, int(iso.uid), int(iso.gid)); err != nil {
 				return false, stepError(iso.step, "change the owner of", e.path, err)
@@ -211,6 +265,75 @@ func (iso *isolation) handoff() error {
 			return false, nil
 		}
 	})
+}
+
+// keepsLinkedFile reports whether a file with more than one link stays with its
+// owner, as one that uv, pnpm or bun links from a package cache. The restricted
+// user cannot write it, change its mode or link it (fs.protected_hardlinks).
+// A file of the restricted group, which the restore takes as one of the
+// restricted user, one that others can write, one with an ACL and one with a
+// set-ID bit do not stay.
+func (iso *isolation) keepsLinkedFile(e *fsEntry) bool {
+	return e.isRegular() && e.uid() != int(iso.uid) && e.gid() != int(iso.gid) && e.perm()&0o6002 == 0 && !hasACL(e)
+}
+
+// recordLink keeps the link that the handoff gives, so that the restore checks
+// only the links that the restricted user made or moved.
+func (iso *isolation) recordLink(e *fsEntry) error {
+	target, err := readLinkFD(e)
+	if err != nil {
+		return stepError(iso.step, "read the link", e.path, err)
+	}
+	iso.givenLinks[e.path] = givenLink{ino: e.st.Ino, target: target}
+	return nil
+}
+
+// isGivenLink reports whether the link is the one that the handoff gave at its
+// path. The restricted user can remove or rename a link and cannot change its
+// target, so such a link is one of the worker, such as a link of a Python
+// virtual environment to the interpreter of the host.
+func (iso *isolation) isGivenLink(e *fsEntry) bool {
+	given, ok := iso.givenLinks[e.path]
+	if !ok || given.ino != e.st.Ino {
+		return false
+	}
+	target, err := readLinkFD(e)
+	return err == nil && target == given.target
+}
+
+// markHandoff makes the marker of the work directory. A marker that exists is
+// the mark of a work directory that no restore made safe: the step fails and
+// the run stops.
+func (iso *isolation) markHandoff() error {
+	marker, err := handoffMarker(iso.lexicalWork)
+	if err != nil {
+		return stepError(iso.step, "resolve the work directory", iso.lexicalWork, err)
+	}
+	file, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY|unix.O_NOFOLLOW, 0o600) // #nosec G304 -- a fixed name next to the work directory.
+	if errors.Is(err, fs.ErrExist) {
+		return fmt.Errorf("untrusted step %q: %w", iso.step, notGivenBack(iso.lexicalWork, marker))
+	}
+	if err != nil {
+		return stepError(iso.step, "make the file", marker, err)
+	}
+	iso.marker = marker
+	if err := file.Close(); err != nil {
+		return stepError(iso.step, "make the file", marker, err)
+	}
+	return nil
+}
+
+// unmarkUnlessAborted removes the marker of the work directory after a restore
+// whose error does not stop the run, and returns that error.
+func (iso *isolation) unmarkUnlessAborted(restoreErr error) error {
+	if iso.marker == "" || errors.Is(restoreErr, ErrRunAborted) {
+		return restoreErr
+	}
+	if err := os.Remove(iso.marker); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return errors.Join(restoreErr, stepError(iso.step, "remove the file", iso.marker, err))
+	}
+	iso.marker = ""
+	return restoreErr
 }
 
 // protectDir keeps the folder for the user of the worker with the mode 1777.
@@ -224,7 +347,8 @@ func (iso *isolation) protectDir(e *fsEntry) error {
 		}
 	}
 	if _, done := iso.protected[e.path]; !done {
-		fd, err := unix.Dup(e.fd)
+		// A process that the worker starts during the step does not inherit it.
+		fd, err := unix.FcntlInt(uintptr(e.fd), unix.F_DUPFD_CLOEXEC, 0)
 		if err != nil {
 			return stepError(iso.step, "keep the folder", e.path, err)
 		}
@@ -236,19 +360,43 @@ func (iso *isolation) protectDir(e *fsEntry) error {
 	return nil
 }
 
+// checkNoDevice fails for a device node: as its owner, or with the bit r for
+// others, the restricted user could open the device, such as a disk of the
+// host.
+func (iso *isolation) checkNoDevice(e *fsEntry) error {
+	if e.isDevice() {
+		return stepError(iso.step, "give", e.path, errors.New("the work directory cannot hold a device node"))
+	}
+	return nil
+}
+
 // protectGitEntry keeps one entry for the user of the worker, readable and not
 // writable by the restricted user, and records its state.
 func (iso *isolation) protectGitEntry(e *fsEntry) error {
-	if e.uid() != iso.workerUID || e.gid() == int(iso.gid) {
+	if err := iso.checkNoDevice(e); err != nil {
+		return err
+	}
+	chown := e.uid() != iso.workerUID || e.gid() == int(iso.gid)
+	perm := e.perm()
+	if !e.isLink() {
+		perm = perm&^0o002 | 0o004
+		if e.isDir() {
+			perm |= 0o001
+		}
+	}
+	// A change acts on the file, so it would also reach the other paths of a
+	// file with more than one link, as git clone --local makes them. An ACL
+	// could let the restricted user write such a file, whose times the
+	// restore does not compare (sameSig).
+	if !e.isDir() && e.st.Nlink > 1 && (chown || perm != e.perm() || hasACL(e)) {
+		return stepError(iso.step, "protect", e.path, errors.New("the file has more than one link"))
+	}
+	if chown {
 		if err := chownFD(e, iso.workerUID, iso.workerGID); err != nil {
 			return stepError(iso.step, "change the owner of", e.path, err)
 		}
 	}
 	if !e.isLink() {
-		perm := e.perm()&^0o002 | 0o004
-		if e.isDir() {
-			perm |= 0o001
-		}
 		if perm != e.perm() {
 			iso.gitModes[e.path] = e.perm()
 			if err := chmodFD(e, perm); err != nil {
@@ -271,10 +419,11 @@ func (iso *isolation) protectGitTree(root *fsEntry) error {
 }
 
 // restore gives the work directory back to the user of the worker. It returns
-// an error that wraps ErrRunAborted when a git folder changed. With verifyGit
-// false, it checks no git entry: a handoff that failed has a part of the
-// snapshot only, and no process of the restricted user ran, so each entry that
-// the snapshot lacks is an entry of the worker, not a new one.
+// an error that wraps ErrRunAborted when a git entry changed or is gone, or
+// when it could not read a part of the work directory or of a git folder. With
+// verifyGit false, it checks no git entry: a handoff that failed has a part of
+// the snapshot only, and no process of the restricted user ran, so each entry
+// that the snapshot lacks is an entry of the worker, not a new one.
 func (iso *isolation) restore(verifyGit bool) error {
 	var errs []error
 	fail := func(err error) { errs = append(errs, err) }
@@ -282,11 +431,9 @@ func (iso *isolation) restore(verifyGit bool) error {
 		walkErr := walkFD(iso.workDir, func(e *fsEntry) (bool, error) {
 			switch {
 			case !verifyGit && (iso.gitDirs[e.path] || iso.gitEntries[e.path] || e.name == ".git"):
-				iso.restoreGitModes(e, fail)
-				return true, nil
+				return true, iso.restoreGitModes(e, fail)
 			case iso.gitDirs[e.path]:
-				iso.checkGitTree(e, fail)
-				return true, nil
+				return true, iso.checkGitTree(e, fail)
 			case iso.gitEntries[e.path]:
 				iso.checkGitEntry(e, fail)
 				return true, nil
@@ -308,24 +455,37 @@ func (iso *isolation) restore(verifyGit bool) error {
 				return false, nil
 			}
 			// After a failed handoff, every entry is the worker's and the restore
-			// removes none. The handoff stops before a file with more than one
-			// link, so such a file was never given: only its group matched.
-			if !verifyGit && e.isRegular() && e.st.Nlink > 1 {
+			// removes none. The handoff gives no file with more than one link,
+			// so such a file was never given: only its group matched. Another
+			// entry of the restricted group gets the group of the worker, also
+			// one that the handoff did not reach, so the restricted user cannot
+			// write it in a later step.
+			if !verifyGit && !e.isDir() && e.st.Nlink > 1 {
 				return false, nil
 			}
-			if verifyGit && e.isLink() {
+			if verifyGit && e.isLink() && !iso.isGivenLink(e) {
 				if target, bad := iso.badLink(e); bad {
 					fail(iso.removeEntry(e, "the restricted user made the link %s to %q", target))
 					return true, nil
 				}
 			}
-			if verifyGit && e.isRegular() && e.st.Nlink > 1 {
+			// A link of root at another path in a folder of mode 1777 of root
+			// is one that fs.protected_symlinks lets root follow.
+			if verifyGit && !e.isDir() && e.st.Nlink > 1 {
 				fail(iso.removeEntry(e, "the restricted user made the file %s with more than one link"))
 				return true, nil
 			}
 			if err := chownFD(e, iso.workerUID, iso.workerGID); err != nil {
 				fail(stepError(iso.step, "change the owner of", e.path, err))
 				return false, nil
+			}
+			// The owner of an entry can set its ACLs: one that names the
+			// restricted user would let it write the entry, and a default ACL
+			// would pass to a .git that a later trusted step makes there.
+			if verifyGit && !e.isLink() {
+				if err := removeACLs(e); err != nil {
+					fail(stepError(iso.step, "remove the ACLs of", e.path, err))
+				}
 			}
 			if e.isRegular() && e.perm()&0o6000 != 0 {
 				if err := chmodFD(e, e.perm()&0o777); err != nil {
@@ -334,9 +494,13 @@ func (iso *isolation) restore(verifyGit bool) error {
 			}
 			return false, nil
 		})
-		if walkErr != nil {
+		switch {
+		case walkErr != nil:
 			// A part of the tree was not checked: no trusted step may run on it.
+			// A git entry in that part is not gone.
 			fail(fmt.Errorf("%w: %w", ErrRunAborted, stepError(iso.step, "read the work directory", iso.workDir, walkErr)))
+		case verifyGit:
+			fail(iso.checkGitRemoved())
 		}
 	}
 	fail(iso.restoreModes())
@@ -349,12 +513,10 @@ func (iso *isolation) restore(verifyGit bool) error {
 // leave the work directory while the text of each target stays in it. It
 // returns the target.
 func (iso *isolation) badLink(e *fsEntry) (string, bool) {
-	buf := make([]byte, unix.PathMax)
-	n, err := unix.Readlinkat(e.fd, "", buf)
+	target, err := readLinkFD(e)
 	if err != nil {
 		return "(unreadable)", true
 	}
-	target := string(buf[:n])
 	lexical := target
 	if !filepath.IsAbs(lexical) {
 		lexical = filepath.Join(filepath.Dir(e.path), lexical)
@@ -436,6 +598,11 @@ func (iso *isolation) removeEntry(e *fsEntry, format string, args ...any) error 
 	return errors.New(msg + "; Dagu removed it")
 }
 
+// errGitChanged stops the run as ErrRunAborted does and also poisons the
+// process: the restricted user cannot change a git entry, so a change shows a
+// write that the isolation did not keep out.
+var errGitChanged = fmt.Errorf("%w", ErrRunAborted)
+
 // checkGitEntry compares an entry .git or an entry of a git folder with its
 // state at the handoff.
 func (iso *isolation) checkGitEntry(e *fsEntry, fail func(error)) {
@@ -445,9 +612,9 @@ func (iso *isolation) checkGitEntry(e *fsEntry, fail func(error)) {
 		return
 	}
 	iso.seenGit[e.path] = true
-	if after := sigOf(&e.st); after != before {
+	if after := sigOf(&e.st); !sameSig(before, after) {
 		fail(fmt.Errorf("untrusted step %q: the git entry %s changed: %s: %w",
-			iso.step, e.path, describeSig(before, after), ErrRunAborted))
+			iso.step, e.path, describeSig(before, after), errGitChanged))
 		return
 	}
 	iso.restoreGitMode(e, fail)
@@ -465,24 +632,22 @@ func (iso *isolation) restoreGitMode(e *fsEntry, fail func(error)) {
 }
 
 // restoreGitModes gives each entry of the tree at root the mode that it had
-// before the handoff, without a check of the entries.
-func (iso *isolation) restoreGitModes(root *fsEntry, fail func(error)) {
+// before the handoff, without a check of the entries. It returns the error of
+// the walk.
+func (iso *isolation) restoreGitModes(root *fsEntry, fail func(error)) error {
 	if len(iso.gitModes) == 0 {
-		return
+		return nil
 	}
-	err := walkEntry(root, func(e *fsEntry) (bool, error) {
+	return walkEntry(root, func(e *fsEntry) (bool, error) {
 		iso.restoreGitMode(e, fail)
 		return false, nil
 	})
-	if err != nil {
-		fail(stepError(iso.step, "read the git folder", root.path, err))
-	}
 }
 
 // checkGitTree compares a git folder and its content with their state at the
-// handoff.
-func (iso *isolation) checkGitTree(root *fsEntry, fail func(error)) {
-	err := walkEntry(root, func(e *fsEntry) (bool, error) {
+// handoff. It returns the error of the walk.
+func (iso *isolation) checkGitTree(root *fsEntry, fail func(error)) error {
+	return walkEntry(root, func(e *fsEntry) (bool, error) {
 		if _, known := iso.gitSnapshot[e.path]; !known {
 			fail(iso.removeEntry(e, "the entry %s is new in a git folder"))
 			return true, nil
@@ -490,9 +655,6 @@ func (iso *isolation) checkGitTree(root *fsEntry, fail func(error)) {
 		iso.checkGitEntry(e, fail)
 		return false, nil
 	})
-	if err != nil {
-		fail(stepError(iso.step, "read the git folder", root.path, err))
-	}
 }
 
 // checkGitRemoved fails for an entry of a git folder that the restore did not
@@ -501,7 +663,7 @@ func (iso *isolation) checkGitRemoved() error {
 	var errs []error
 	for path := range iso.gitSnapshot {
 		if !iso.seenGit[path] {
-			errs = append(errs, fmt.Errorf("untrusted step %q: the git entry %s is gone: %w", iso.step, path, ErrRunAborted))
+			errs = append(errs, fmt.Errorf("untrusted step %q: the git entry %s is gone: %w", iso.step, path, errGitChanged))
 		}
 	}
 	return errors.Join(errs...)
@@ -521,4 +683,13 @@ func (iso *isolation) restoreModes() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// closeProtected closes the descriptors that the isolation kept for the
+// restore of the folder modes, and leaves the modes as they are.
+func (iso *isolation) closeProtected() {
+	for path, dir := range iso.protected {
+		_ = unix.Close(dir.fd)
+		delete(iso.protected, path)
+	}
 }

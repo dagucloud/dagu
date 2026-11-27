@@ -262,7 +262,11 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 
 	// If one of the conditions does not met, cancel the execution.
 	rCtx := MustDAGContext(ctx)
-	if len(rCtx.DAG.Preconditions) > 0 {
+	// The DAG preconditions run before any step gate, so they check the work
+	// directory here (Spec 103, "Isolation", rule 3).
+	if err := checkWorkDir(ctx); err != nil {
+		r.abortRun(ctx, plan, err)
+	} else if len(rCtx.DAG.Preconditions) > 0 {
 		r.setPreconditionResults(conditionResults(rCtx.DAG.Preconditions))
 		shell, err := ResolveDAGShell(ctx)
 		if err != nil {

@@ -433,22 +433,121 @@ func TestStatusBuilderRetainsHandlerAgentSessions(t *testing.T) {
 	assert.Equal(t, "diagnose", status.AgentSessions[0].StepName)
 }
 
-func TestRetryAgentOwnerWorkerIDIncludesCompletedSessionsForStepRetry(t *testing.T) {
+// A retry targets the worker that holds the sessions of the steps it reruns:
+// for a step retry, the step, its not-started dependants and, with
+// downstream, every dependant; for a run retry, the steps that did not
+// finish. Sessions of other steps do not count.
+func TestRetryAgentOwnerWorkerID(t *testing.T) {
 	t.Parallel()
 
+	session := func(owner string) *ir.AgentSession {
+		return &ir.AgentSession{Provider: "opencode", SessionID: "session-" + owner, OwnerWorkerID: owner, SessionOwned: true}
+	}
 	status := &ir.DAGRunStatus{Nodes: []*ir.Node{
-		{Step: ir.Step{Name: "prepare"}, Status: ir.NodeFailed},
+		{Step: ir.Step{Name: "a"}, Status: ir.NodeSucceeded, AgentSession: session("w1")},
+		{Step: ir.Step{Name: "b", Depends: []string{"a"}}, Status: ir.NodeSucceeded, AgentSession: session("w2")},
+		{Step: ir.Step{Name: "c", Depends: []string{"b"}}, Status: ir.NodeFailed},
 		{
-			Step:   ir.Step{Name: "implement"},
-			Status: ir.NodeSucceeded,
-			AgentSession: &ir.AgentSession{
-				Provider: "opencode", SessionID: "session-1", OwnerWorkerID: "worker-1", SessionOwned: true,
-			},
+			Step:   ir.Step{Name: "d", InferredDepends: []ir.InferredDependency{{Step: "c"}}},
+			Status: ir.NodeNotStarted, AgentSession: session("w3"),
 		},
+		{Step: ir.Step{Name: "e"}, Status: ir.NodeAborted},
 	}}
 
-	assert.Empty(t, ir.RetryAgentOwnerWorkerID(status, false))
-	assert.Equal(t, "worker-1", ir.RetryAgentOwnerWorkerID(status, true))
+	tests := []struct {
+		name       string
+		step       string
+		downstream bool
+		want       string
+	}{
+		{name: "Run", want: "w3"},
+		{name: "Step", step: "b", want: "w2"},
+		{name: "NotStartedDependant", step: "c", want: "w3"},
+		{name: "Downstream", step: "c", downstream: true, want: "w3"},
+		{name: "DownstreamMixedOwners", step: "b", downstream: true},
+		{name: "StepWithoutSession", step: "e"},
+		{name: "UnknownStep", step: "missing"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, ir.RetryAgentOwnerWorkerID(status, tt.step, tt.downstream))
+		})
+	}
+}
+
+// A step still recorded as running when the run stopped died with its worker,
+// so a retry of the run resumes its session there.
+func TestRetryAgentOwnerWorkerIDRunningStep(t *testing.T) {
+	t.Parallel()
+
+	status := &ir.DAGRunStatus{Nodes: []*ir.Node{{
+		Step: ir.Step{Name: "implement"}, Status: ir.NodeRunning,
+		AgentSession: &ir.AgentSession{Provider: "opencode", SessionID: "session-1", OwnerWorkerID: "w1", SessionOwned: true},
+	}}}
+
+	assert.Equal(t, "w1", ir.RetryAgentOwnerWorkerID(status, "", false))
+}
+
+// A retry along a retry path counts the sessions of the last sub-run only
+// when that sub-run reported under the root attempt's claim, as a sub-run in
+// the root's process does. A dispatched sub-run has its own claim, even on the
+// root's worker.
+func TestRetryPathAgentOwnerWorkerID(t *testing.T) {
+	t.Parallel()
+
+	// run is an attempt that reports under claim from worker w1.
+	run := func(claim string, nodes ...*ir.Node) *ir.DAGRunStatus {
+		return &ir.DAGRunStatus{WorkerID: "w1", ClaimKey: claim, Nodes: nodes}
+	}
+	call := func(owner string) *ir.Node {
+		node := &ir.Node{Step: ir.Step{Name: "call"}, Status: ir.NodeFailed}
+		if owner != "" {
+			node.AgentSession = &ir.AgentSession{Provider: "opencode", OwnerWorkerID: owner}
+		}
+		return node
+	}
+	agent := func(owner string) *ir.Node {
+		return &ir.Node{
+			Step: ir.Step{Name: "agent"}, Status: ir.NodeWaiting,
+			AgentSession: &ir.AgentSession{Provider: "opencode", OwnerWorkerID: owner},
+		}
+	}
+
+	// Each sibling is a not-started dependant that the retry runs too.
+	callSibling := func(owner string) *ir.Node {
+		return &ir.Node{
+			Step: ir.Step{Name: "after-call", Depends: []string{"call"}}, Status: ir.NodeNotStarted,
+			AgentSession: &ir.AgentSession{Provider: "opencode", OwnerWorkerID: owner},
+		}
+	}
+	agentSibling := func(owner string) *ir.Node {
+		return &ir.Node{
+			Step: ir.Step{Name: "after-agent", Depends: []string{"agent"}}, Status: ir.NodeNotStarted,
+			AgentSession: &ir.AgentSession{Provider: "opencode", OwnerWorkerID: owner},
+		}
+	}
+
+	tests := []struct {
+		name string
+		root *ir.DAGRunStatus
+		sub  *ir.DAGRunStatus
+		want string
+	}{
+		{name: "SubInRootProcess", root: run("root", call("")), sub: run("root", agent("w1")), want: "w1"},
+		{name: "SubDispatchedToRootWorker", root: run("root", call("")), sub: run("sub", agent("w1"))},
+		{name: "NoClaim", root: run("", call("")), sub: run("", agent("w1"))},
+		{name: "NoSub", root: run("root", call("w3")), want: "w3"},
+		{name: "MixedOwners", root: run("root", call("w3")), sub: run("root", agent("w1"))},
+		{name: "MixedRootOwners", root: run("root", call("w3"), callSibling("w4")), sub: run("root", agent("w1"))},
+		{name: "MixedSubOwners", root: run("root", call("w1")), sub: run("root", agent("w1"), agentSibling("w2"))},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, ir.RetryPathAgentOwnerWorkerID(tt.root, "call", tt.sub, "agent", false))
+		})
+	}
 }
 
 func TestDAGRunStatusErrorText(t *testing.T) {

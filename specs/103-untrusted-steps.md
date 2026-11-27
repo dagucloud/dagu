@@ -324,10 +324,26 @@ The rules, in order:
    - The work directory, and each folder on the way to a git folder or to a `.git` entry, keeps the
      worker user as owner and gets the mode `1777`. The restricted user can create and remove its
      own entries there, and cannot rename or remove an entry of another owner.
+   - Each Unix socket keeps its owner and its mode. A connect needs only write permission on the
+     socket, which its owner can set, so the restricted user could drive the program that listens,
+     such as a daemon that runs as root.
 
    A link that replaces a path while Dagu changes an owner or a mode cannot redirect the change. A
-   file with more than one link fails the step, because a change of owner would also give away its
-   other paths.
+   change of owner would also give away the other paths of an entry with more than one link. So a
+   file with more than one link, such as one that a package manager links from its cache, keeps its
+   owner when its group is not the group of the restricted user, others cannot write it, it has no
+   POSIX ACL, and it has no set-user-ID or set-group-ID bit. The restricted user cannot write it or
+   link it. Any other file, link or FIFO with more than one link fails the step. In a git folder,
+   such an entry fails the step only when Dagu must change its owner or its mode, or when it has a
+   POSIX ACL. A device node fails the step, because the restricted user could open the device.
+
+   Before it changes the first owner, Dagu makes the file `<work directory>.untrusted-handoff` next
+   to the work directory. The restore of rule 8 removes it once the work directory is safe again.
+   While the file exists, the next untrusted step fails before it gets the work directory, and every
+   step, precondition and repeat condition of a run with an untrusted step fails and stops the run,
+   in any process. So a process that stops during an untrusted step, or a restore that stops the
+   run, leaves no work directory that a later step uses. The operator removes the work directory
+   and the file.
 
    During the step, a work directory looks like this:
 
@@ -370,18 +386,34 @@ The rules, in order:
    - a link to a path outside the work directory or into a git folder, judged both by the text of
      its target and by the path it reaches through other links. An entry that does not exist yet
      counts as a folder.
-   - a file with more than one link
+   - an entry other than a folder with more than one link, such as a link with a second path in a
+     folder of mode `1777` of root, where root would follow it once it belongs to the worker user
 
-   A file of the restricted user loses its set-user-ID and set-group-ID bits.
+   Dagu removes the HOME of the step before these checks, so a file that the step linked from its
+   HOME, such as one of a package cache, has one link left and stays.
+
+   A link that the handoff gave and that keeps its path and its target is a link of the worker
+   user and stays, such as a link of a Python virtual environment to the interpreter of the host.
+   The restricted user can move such a link, and at its new path the link counts as its own.
+
+   A file of the restricted user loses its set-user-ID and set-group-ID bits. An entry of the
+   restricted user loses its POSIX ACLs, so that a default ACL does not pass to a `.git` that a
+   later trusted step makes.
 
 A failure of any action of this list fails the step. The error names the action and the path.
 
 These failures also stop the run, because Dagu cannot give a safe work directory to a later step:
 
 - A task of the restricted user is still alive 30 seconds after `SIGKILL`.
-- An entry of a git folder, or a `.git` entry, changed or is gone.
+- An entry of a git folder, or a `.git` entry, changed or is gone. Another path of a file with
+  more than one link changes its link count and its times, as another clone of the repository
+  does, so these do not count for such a file.
+- Dagu cannot read a part of the work directory, cannot remove an entry of rule 8, or finds a tree
+  more than 256 folders deep.
 
-After such a failure, every later step of a run with an untrusted step fails in the same process.
+After a failure of the first two kinds, every later step of a run with an untrusted step fails in
+the same process. The restricted user can cause a failure of the last kind by itself, so it stops
+only the runs on that work directory, through the file of rule 3.
 
 ### The restricted user
 
@@ -497,6 +529,7 @@ These cases fail a step or a run:
 | A failed action of [Isolation](#isolation), such as a change of owner | The step fails. The error names the action and the path. |
 | An untrusted step in a process with no restricted user and no `untrusted.isolation: off` | The step fails with the reason `isolation_required`. |
 | A task of the restricted user alive 30 seconds after `SIGKILL`, or a changed or missing git entry | The step fails and the run stops. Every later step of a run with an untrusted step fails in the same process. |
+| A step of a run with an untrusted step whose work directory has the file `<work directory>.untrusted-handoff` | The step fails and the run stops, in any process. |
 
 ## Limits
 

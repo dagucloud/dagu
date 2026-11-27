@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -39,7 +40,7 @@ const (
 
 // ErrFilesLeft is returned by DeleteSkill when the skill is deleted but some of
 // its files could not be removed. They stay in a hidden folder of the skills
-// directory, which no read lists.
+// directory, which no read lists, until the next delete of a skill.
 var ErrFilesLeft = errors.New("the skill is deleted, but some of its files remain in a hidden folder")
 
 // ErrPreconditionRequired is returned for a write that has no precondition.
@@ -355,7 +356,8 @@ func namesRoot(dir string, root *os.Root) bool {
 
 // checkNoLink returns an error when a component of rel, from the top folder to the
 // entry, is a symbolic link. The entry can be a link when leafMayBeLink is true. A
-// component that does not exist ends the check: nothing below it can be a link.
+// component above the entry that is not a folder is an invalid path. A component
+// that does not exist ends the check: nothing below it can be a link.
 func checkNoLink(root *os.Root, rel string, leafMayBeLink bool) error {
 	parts := strings.Split(rel, "/")
 	for i := range parts {
@@ -369,6 +371,9 @@ func checkNoLink(root *os.Root, rel string, leafMayBeLink bool) error {
 		}
 		if info.Mode()&fs.ModeSymlink != 0 && (!leafMayBeLink || i != len(parts)-1) {
 			return linkRefusal(RuleSymlink, rel, "the path goes through the symbolic link %q; Dagu never writes through a symbolic link", sub)
+		}
+		if i != len(parts)-1 && !info.IsDir() {
+			return &InvalidError{Issues: []Issue{pathIssue(rel, "the path goes through the file %q, which is not a folder", sub)}}
 		}
 	}
 	return nil
@@ -433,10 +438,16 @@ func writeInRoot(root *os.Root, rel string, data []byte, held func() error) erro
 // renameInRoot renames a file inside the root. It retries a transient error of
 // Windows, as fileutil.ReplaceFile does.
 func renameInRoot(root *os.Root, from, to string) error {
-	err := root.Rename(from, to)
+	return retryTransient(func() error { return root.Rename(from, to) })
+}
+
+// retryTransient runs op again after a transient error of Windows, such as a
+// file that another process holds open.
+func retryTransient(op func() error) error {
+	err := op()
 	for attempt := 0; attempt < 5 && err != nil && fileutil.IsTransientFileError(err); attempt++ {
 		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
-		err = root.Rename(from, to)
+		err = op()
 	}
 	return err
 }
@@ -502,6 +513,9 @@ func (s *Store) DeleteFile(ctx context.Context, name, rel string, pre Preconditi
 		if err := checkNoLink(root, rel, true); err != nil {
 			return err
 		}
+		if err := checkStoredName(root, rel); err != nil {
+			return err
+		}
 		info, err := root.Lstat(rel)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -515,11 +529,12 @@ func (s *Store) DeleteFile(ctx context.Context, name, rel string, pre Preconditi
 		if err := held(); err != nil {
 			return err
 		}
-		if info.IsDir() {
-			err = root.RemoveAll(rel)
-		} else {
-			err = root.Remove(rel)
-		}
+		err = retryTransient(func() error {
+			if info.IsDir() {
+				return root.RemoveAll(rel)
+			}
+			return root.Remove(rel)
+		})
 		if err != nil {
 			return fmt.Errorf("delete %s: %w", rel, err)
 		}
@@ -536,10 +551,43 @@ func (s *Store) DeleteFile(ctx context.Context, name, rel string, pre Preconditi
 		if err := fileutil.SyncDir(filepath.Join(root.Name(), filepath.FromSlash(dir))); err != nil {
 			return fmt.Errorf("delete %s: %w", rel, err)
 		}
-		result, err = Read(s.Dir(name))
-		return err
+		read, err := Read(s.Dir(name))
+		if err != nil {
+			return err
+		}
+		// As for a write, the result describes the folder of the delete only while
+		// the path of the skill still names it.
+		if !namesRoot(s.Dir(name), root) || hasRule(read.Issues, RuleFolderLink) {
+			return &ConflictError{Message: fmt.Sprintf("the skill folder %q was replaced during the delete; read it again", name)}
+		}
+		result = read
+		return nil
 	})
 	return result, err
+}
+
+// checkStoredName returns ErrNotFound when a part of rel is not the stored name
+// of an entry. A file system that ignores case or normalizes names finds an
+// entry under another spelling, such as skill.md for SKILL.md, and the rules of
+// a delete must apply to the stored name.
+func checkStoredName(root *os.Root, rel string) error {
+	dir := "."
+	for p := range strings.SplitSeq(rel, "/") {
+		f, err := root.Open(dir)
+		if err != nil {
+			return err
+		}
+		names, err := f.Readdirnames(-1)
+		_ = f.Close()
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(names, p) {
+			return fmt.Errorf("%w: no file %s", ErrNotFound, rel)
+		}
+		dir = path.Join(dir, p)
+	}
+	return nil
 }
 
 // layoutAllowsDir reports whether rel is a folder that the layout allows: a top
@@ -568,6 +616,18 @@ func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) 
 		return ErrPreconditionRequired
 	}
 	return s.withLock(ctx, name, pre, func(held func() error) error {
+		// The delete applies only to the folder whose hash passed the precondition,
+		// not to one that replaced it after the check.
+		before, err := os.Lstat(s.Dir(name))
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return ErrNotFound
+			}
+			return err
+		}
+		// On Windows, SameFile reads the identity of an Lstat result from its path
+		// at the first comparison. Compare now, so it names this folder.
+		_ = os.SameFile(before, before)
 		current, err := s.checkPrecondition(name, pre)
 		if err != nil {
 			return err
@@ -578,6 +638,9 @@ func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) 
 		if err := held(); err != nil {
 			return err
 		}
+		if after, err := os.Lstat(s.Dir(name)); err != nil || !os.SameFile(before, after) {
+			return &ConflictError{Message: fmt.Sprintf("the skill folder %q was replaced during the delete; read it again", name)}
+		}
 		// One rename removes the skill for every reader; the files go after it. A
 		// reader that holds a file open keeps reading the version it opened.
 		hidden := filepath.Join(s.root, fmt.Sprintf("%s%016x", deletedDirPrefix, rand.Uint64())) //nolint:gosec // the name of a hidden folder, not a secret
@@ -585,6 +648,7 @@ func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) 
 			return fmt.Errorf("delete the skill folder: %w", err)
 		}
 		left := fileutil.RemoveAll(hidden)
+		s.removeDeleted(hidden)
 		if err := fileutil.SyncDir(s.root); err != nil {
 			return fmt.Errorf("delete the skill folder: %w", err)
 		}
@@ -593,6 +657,22 @@ func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) 
 		}
 		return nil
 	})
+}
+
+// removeDeleted removes the hidden folders other than skip that earlier deletes
+// could not empty, so they do not pile up. A folder that still cannot be
+// removed stays for the next delete.
+func (s *Store) removeDeleted(skip string) {
+	entries, err := os.ReadDir(s.root)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		dir := filepath.Join(s.root, e.Name())
+		if e.IsDir() && strings.HasPrefix(e.Name(), deletedDirPrefix) && dir != skip {
+			_ = fileutil.RemoveAll(dir)
+		}
+	}
 }
 
 // checkPrecondition reads the skill and compares it with the precondition. It

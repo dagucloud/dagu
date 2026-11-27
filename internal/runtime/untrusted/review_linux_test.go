@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -226,184 +227,6 @@ func TestReviewForkHopIsKilled(t *testing.T) {
 	assert.Zero(t, escaped, "a process of the restricted user is alive after a successful End")
 }
 
-// Property (Spec 092, threat ".git"): the restricted user cannot write .git.
-// The attack: a trusted step that runs at the same time as the untrusted step
-// (another branch of a graph) writes in the work directory as root. The agent
-// replaces a folder that it owns with a link to .git/hooks, so the trusted
-// write lands in .git. The restore finds the change, removes the link and
-// stops the run.
-func TestReviewConcurrentTrustedWriteReachesGit(t *testing.T) {
-	requireIsolation(t)
-	resetPoison(t)
-	ctx := context.Background()
-	workDir := testWorkDir(t)
-	repo := filepath.Join(workDir, "repo")
-	step, err := Begin(ctx, testRequest(t, workDir, repo))
-	require.NoError(t, err)
-	runAs(t, WithStep(ctx, step), repo, `rm -rf src && ln -s .git/hooks src`)
-
-	// The trusted step of the other branch: it writes its file src/pre-commit.
-	_ = os.WriteFile(filepath.Join(repo, "src", "pre-commit"), []byte("#!/bin/sh\necho build\n"), 0o755) //nolint:gosec
-	endErr := step.End(ctx)
-	t.Logf("End: %v", endErr)
-	assert.NoFileExists(t, filepath.Join(repo, ".git", "hooks", "pre-commit"), "a write of a trusted step made a hook in .git")
-	// The change of a git folder stops the run.
-	assert.ErrorIs(t, endErr, ErrRunAborted)
-	assert.NoFileExists(t, filepath.Join(repo, "src"), "the link of the agent into .git is removed")
-}
-
-// Property (Spec 092, threat ".git"): the agent cannot make a later trusted step
-// run its code through git. The attack: a folder with HEAD, objects and refs is
-// a bare repository for git, and git finds it before the .git of a parent
-// folder. Once the folder belongs to the worker again, the owner check of git
-// (safe.directory) passes, and a trusted git command in a folder below it runs
-// core.fsmonitor as root. The restore treats such a folder as a new git folder.
-func TestReviewBareRepositoryRunsAsRoot(t *testing.T) {
-	requireIsolation(t)
-	gitBin, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("needs git")
-	}
-	ctx := context.Background()
-	workDir := testWorkDir(t)
-	repo := filepath.Join(workDir, "repo")
-	// A real repository, as the step git.checkout makes it.
-	require.NoError(t, os.RemoveAll(filepath.Join(repo, ".git")))
-	initCmd := exec.Command(gitBin, "init", "-q", repo)
-	initCmd.Env = []string{"HOME=" + t.TempDir(), "PATH=/usr/bin:/bin"}
-	out, err := initCmd.CombinedOutput()
-	require.NoError(t, err, string(out))
-	require.NoError(t, os.MkdirAll(filepath.Join(repo, "services", "api"), 0o755))
-
-	marker := filepath.Join(t.TempDir(), "fsmonitor-ran")
-	step, err := Begin(ctx, testRequest(t, workDir, repo))
-	require.NoError(t, err)
-	agent := strings.Join([]string{
-		`cd services`,
-		`mkdir objects refs`,
-		`echo 'ref: refs/heads/main' > HEAD`,
-		`printf '[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = %s\n\tfsmonitor = "id -u > ` + marker + `; false"\n' "$PWD/api" > config`,
-	}, "\n")
-	runAs(t, WithStep(ctx, step), repo, agent)
-	endErr := step.End(ctx)
-	require.Error(t, endErr, "the restore sees the bare repository")
-	assert.Contains(t, endErr.Error(), "made the git folder "+filepath.Join(repo, "services"))
-	assert.NoFileExists(t, filepath.Join(repo, "services", "HEAD"))
-
-	// A later trusted step: git status in a folder of the repository, as root.
-	status := exec.Command(gitBin, "status", "--porcelain")
-	status.Dir = filepath.Join(repo, "services", "api")
-	status.Env = []string{"HOME=" + t.TempDir(), "PATH=/usr/bin:/bin"}
-	statusOut, statusErr := status.CombinedOutput()
-	t.Logf("trusted git status: err=%v output=%q", statusErr, statusOut)
-	data, readErr := os.ReadFile(marker)
-	if readErr == nil {
-		t.Logf("core.fsmonitor of the agent ran as uid %s", strings.TrimSpace(string(data)))
-	}
-	assert.Error(t, readErr, "a trusted git command must not run a command of the agent")
-}
-
-// Property (Spec 092, threat ".git"): each .git entry and its content stay with
-// the worker. The attack: a .git file (git worktree, --separate-git-dir) names
-// a git folder that has another name, and the agent writes a hook in that
-// folder for a later trusted git commit.
-func TestReviewGitFileTargetIsNotProtected(t *testing.T) {
-	requireIsolation(t)
-	ctx := context.Background()
-	workDir := testWorkDir(t)
-	repo := filepath.Join(workDir, "repo")
-	require.NoError(t, os.RemoveAll(filepath.Join(repo, ".git")))
-	gitDir := filepath.Join(workDir, "repo.gitdir")
-	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "hooks"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "config"), []byte("[core]\n"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(repo, ".git"), []byte("gitdir: ../repo.gitdir\n"), 0o644))
-
-	step, err := Begin(ctx, testRequest(t, workDir, repo))
-	require.NoError(t, err)
-	out := runAs(t, WithStep(ctx, step), repo,
-		`(printf '#!/bin/sh\nid -u > /tmp/hook\n' > ../repo.gitdir/hooks/pre-commit && chmod 755 ../repo.gitdir/hooks/pre-commit) 2>/dev/null && echo hook:allowed || echo hook:denied`)
-	endErr := step.End(ctx)
-	t.Logf("agent: %s; End: %v", strings.TrimSpace(out), endErr)
-	assert.Contains(t, out, "hook:denied", "the agent cannot write the git folder of the repository")
-	if endErr == nil {
-		assert.NoFileExists(t, filepath.Join(gitDir, "hooks", "pre-commit"), "a hook of the agent is left for a trusted git commit")
-	}
-}
-
-// Property (Spec 092, threat model): the restricted user cannot read the files
-// of the worker. The attack: during the step, fs.protected_symlinks stops root
-// at a link of the agent in a folder with the mode 1777. If the restore gave
-// the link to the worker, a later trusted step that reads the file of the
-// agent as data would read the file of the worker, for example its key. The
-// restore removes the link and fails the step.
-func TestReviewSymlinkReadAsRootAfterRestore(t *testing.T) {
-	requireIsolation(t)
-	ctx := context.Background()
-	workDir := testWorkDir(t)
-	repo := filepath.Join(workDir, "repo")
-	key, err := os.CreateTemp("", "dagu-review-worker-key-")
-	require.NoError(t, err)
-	_, _ = key.WriteString("WORKER-PRIVATE-KEY")
-	require.NoError(t, key.Close())
-	require.NoError(t, os.Chmod(key.Name(), 0o400))
-	t.Cleanup(func() { _ = os.Remove(key.Name()) })
-
-	step, err := Begin(ctx, testRequest(t, workDir, repo))
-	require.NoError(t, err)
-	out := runAs(t, WithStep(ctx, step), repo,
-		`cat `+key.Name()+` >/dev/null 2>&1 && echo read:allowed || echo read:denied; ln -s `+key.Name()+` summary.txt && echo link:made`)
-	assert.Contains(t, out, "read:denied")
-	assert.Contains(t, out, "link:made")
-	_, duringErr := os.ReadFile(filepath.Join(repo, "summary.txt"))
-	t.Logf("root reads the link during the step: %v", duringErr)
-	endErr := step.End(ctx)
-	require.Error(t, endErr, "a link of the agent out of the work directory fails the step")
-	assert.Contains(t, endErr.Error(), "made the link "+filepath.Join(repo, "summary.txt"))
-
-	_, err = os.Lstat(filepath.Join(repo, "summary.txt"))
-	assert.ErrorIs(t, err, os.ErrNotExist, "Dagu removes the link")
-	// A later trusted step: cat summary.txt, as root.
-	data, err := os.ReadFile(filepath.Join(repo, "summary.txt"))
-	if err == nil {
-		t.Logf("the trusted read got %q", data)
-	}
-	assert.NotEqual(t, "WORKER-PRIVATE-KEY", string(data), "a trusted read of a file of the agent must not reach a file of the worker")
-}
-
-// Property (Spec 092, threat model): a later trusted step cannot write outside
-// the work directory through a link of the agent. The text of each link of a
-// chain stays in the work directory (l1 -> ., l2 -> <work>/l1/.., l3 -> l2/..,
-// up to the root), and the last link out -> lN/<outside> reaches a folder
-// outside it. The restore follows the links as the kernel does.
-func TestReviewLinkChainLeavesWorkDir(t *testing.T) {
-	requireIsolation(t)
-	ctx := context.Background()
-	workDir := testWorkDir(t)
-	outside, err := os.MkdirTemp("", "dagu-review-outside-")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(outside) })
-
-	step, err := Begin(ctx, testRequest(t, workDir, workDir))
-	require.NoError(t, err)
-	work := step.iso.workDir
-	script := []string{"ln -s . l1", "ln -s " + work + "/l1/.. l2"}
-	last := "l2"
-	for i := 3; i <= strings.Count(work, "/")+1; i++ {
-		name := "l" + strconv.Itoa(i)
-		script = append(script, "ln -s "+last+"/.. "+name)
-		last = name
-	}
-	script = append(script, "ln -s "+last+outside+" out")
-	runAs(t, WithStep(ctx, step), work, strings.Join(script, "\n"))
-	endErr := step.End(ctx)
-	t.Logf("End: %v", endErr)
-	require.Error(t, endErr, "a chain of links out of the work directory fails the step")
-
-	// A later trusted step writes its report through out, as root.
-	_ = os.WriteFile(filepath.Join(work, "out", "report"), []byte("report"), 0o600)
-	assert.NoFileExists(t, filepath.Join(outside, "report"), "a trusted write through a link of the agent left the work directory")
-}
-
 // stopperSource waits 500 ms, so that the shell that starts it can end, then
 // sends SIGSTOP to each process of its user from four threads for 45 s, and
 // makes the file of its argument once they run. kill(-1) spares the thread
@@ -510,6 +333,149 @@ func TestReviewStopperBlocksNoStart(t *testing.T) {
 		_ = process.Wait()
 		_ = process.Release()
 	}
+}
+
+// Property (Spec 103, "Protections for later trusted steps", .git): the
+// restricted user cannot write .git. The attack: a write of the worker in the
+// work directory during the step, such as a trusted step that the gate of the
+// run failed to hold back. The agent replaces a folder that it owns with a link
+// to .git/hooks, so the write lands in .git. The restore finds the change,
+// removes the link and stops the run, and no later isolated step of the
+// process runs.
+func TestReviewConcurrentTrustedWriteReachesGit(t *testing.T) {
+	requireIsolation(t)
+	resetPoison(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	repo := filepath.Join(workDir, "repo")
+	step, err := beginStep(t, ctx, testRequest(t, workDir, repo))
+	require.NoError(t, err)
+	runAs(t, WithStep(ctx, step), repo, `rm -rf src && ln -s .git/hooks src`)
+
+	// The trusted step of the other branch: it writes its file src/pre-commit.
+	_ = os.WriteFile(filepath.Join(repo, "src", "pre-commit"), []byte("#!/bin/sh\necho build\n"), 0o755) //nolint:gosec
+	endErr := step.End(ctx)
+	t.Logf("End: %v", endErr)
+	assert.NoFileExists(t, filepath.Join(repo, ".git", "hooks", "pre-commit"), "a write of a trusted step made a hook in .git")
+	// The change of a git folder stops the run.
+	assert.ErrorIs(t, endErr, ErrRunAborted)
+	assert.ErrorIs(t, Poisoned(), ErrRunAborted, "the process runs no later isolated step")
+	assert.ErrorIs(t, CheckWorkDir(workDir), ErrRunAborted, "no process runs a later step of the run")
+	assert.NoFileExists(t, filepath.Join(repo, "src"), "the link of the agent into .git is removed")
+}
+
+// Property (Spec 103, "Protections for later trusted steps", .git): the agent
+// cannot make a later trusted step run its code through git. The attack: a
+// folder with HEAD, objects and refs is a bare repository for git, and git
+// finds it before the .git of a parent folder. Once the folder belongs to the
+// worker again, the owner check of git (safe.directory) passes, and a trusted
+// git command in a folder below it runs core.fsmonitor as root. The restore
+// treats such a folder as a new git folder.
+func TestReviewBareRepositoryRunsAsRoot(t *testing.T) {
+	requireIsolation(t)
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("needs git")
+	}
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	repo := filepath.Join(workDir, "repo")
+	// A real repository, as the step git.checkout makes it.
+	require.NoError(t, os.RemoveAll(filepath.Join(repo, ".git")))
+	initCmd := exec.Command(gitBin, "init", "-q", repo)
+	initCmd.Env = []string{"HOME=" + t.TempDir(), "PATH=/usr/bin:/bin"}
+	out, err := initCmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, "services", "api"), 0o755))
+
+	marker := filepath.Join(t.TempDir(), "fsmonitor-ran")
+	step, err := beginStep(t, ctx, testRequest(t, workDir, repo))
+	require.NoError(t, err)
+	agent := strings.Join([]string{
+		`cd services`,
+		`mkdir objects refs`,
+		`echo 'ref: refs/heads/main' > HEAD`,
+		`printf '[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = %s\n\tfsmonitor = "id -u > ` + marker + `; false"\n' "$PWD/api" > config`,
+	}, "\n")
+	runAs(t, WithStep(ctx, step), repo, agent)
+	endErr := step.End(ctx)
+	require.Error(t, endErr, "the restore sees the bare repository")
+	assert.Contains(t, endErr.Error(), "made the git folder "+filepath.Join(repo, "services"))
+	assert.NoFileExists(t, filepath.Join(repo, "services", "HEAD"))
+
+	// A later trusted step: git status in a folder of the repository, as root.
+	status := exec.Command(gitBin, "status", "--porcelain")
+	status.Dir = filepath.Join(repo, "services", "api")
+	status.Env = []string{"HOME=" + t.TempDir(), "PATH=/usr/bin:/bin"}
+	statusOut, err := status.CombinedOutput()
+	require.NoError(t, err, "trusted git status: %s", statusOut)
+	_, err = os.Lstat(marker)
+	assert.ErrorIs(t, err, fs.ErrNotExist, "a trusted git command must not run a command of the agent")
+}
+
+// Property (Spec 103, "Protections for later trusted steps", .git): each .git
+// entry and its content stay with the worker. The attack: a .git file (git
+// worktree, --separate-git-dir) names a git folder that has another name, and
+// the agent writes a hook in that folder for a later trusted git commit.
+func TestReviewGitFileTargetIsNotProtected(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	repo := filepath.Join(workDir, "repo")
+	require.NoError(t, os.RemoveAll(filepath.Join(repo, ".git")))
+	gitDir := filepath.Join(workDir, "repo.gitdir")
+	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "hooks"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "config"), []byte("[core]\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".git"), []byte("gitdir: ../repo.gitdir\n"), 0o644))
+
+	step, err := beginStep(t, ctx, testRequest(t, workDir, repo))
+	require.NoError(t, err)
+	out := runAs(t, WithStep(ctx, step), repo,
+		`(printf '#!/bin/sh\nid -u > /tmp/hook\n' > ../repo.gitdir/hooks/pre-commit && chmod 755 ../repo.gitdir/hooks/pre-commit) 2>/dev/null && echo hook:allowed || echo hook:denied`)
+	endErr := step.End(ctx)
+	t.Logf("agent: %s; End: %v", strings.TrimSpace(out), endErr)
+	assert.Contains(t, out, "hook:denied", "the agent cannot write the git folder of the repository")
+	assert.NoFileExists(t, filepath.Join(gitDir, "hooks", "pre-commit"), "a hook of the agent is left for a trusted git commit")
+}
+
+// Property (Spec 103, "Isolation", rule 8): the restricted user cannot read the
+// files of the worker. The attack: during the step, fs.protected_symlinks stops
+// root at a link of the agent in a folder with the mode 1777. If the restore
+// gave the link to the worker, a later trusted step that reads the file of the
+// agent as data would read the file of the worker, for example its key. The
+// restore removes the link and fails the step.
+func TestReviewSymlinkReadAsRootAfterRestore(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	repo := filepath.Join(workDir, "repo")
+	key, err := os.CreateTemp("", "dagu-review-worker-key-")
+	require.NoError(t, err)
+	_, _ = key.WriteString("WORKER-PRIVATE-KEY")
+	require.NoError(t, key.Close())
+	require.NoError(t, os.Chmod(key.Name(), 0o400))
+	t.Cleanup(func() { _ = os.Remove(key.Name()) })
+
+	step, err := beginStep(t, ctx, testRequest(t, workDir, repo))
+	require.NoError(t, err)
+	out := runAs(t, WithStep(ctx, step), repo,
+		`cat `+key.Name()+` >/dev/null 2>&1 && echo read:allowed || echo read:denied; ln -s `+key.Name()+` summary.txt && echo link:made`)
+	assert.Contains(t, out, "read:denied")
+	assert.Contains(t, out, "link:made")
+	_, duringErr := os.ReadFile(filepath.Join(repo, "summary.txt"))
+	t.Logf("root reads the link during the step: %v", duringErr)
+	endErr := step.End(ctx)
+	require.Error(t, endErr, "a link of the agent out of the work directory fails the step")
+	assert.Contains(t, endErr.Error(), "made the link "+filepath.Join(repo, "summary.txt"))
+
+	_, err = os.Lstat(filepath.Join(repo, "summary.txt"))
+	assert.ErrorIs(t, err, os.ErrNotExist, "Dagu removes the link")
+	// A later trusted step: cat summary.txt, as root.
+	data, err := os.ReadFile(filepath.Join(repo, "summary.txt"))
+	if err == nil {
+		t.Logf("the trusted read got %q", data)
+	}
+	assert.NotEqual(t, "WORKER-PRIVATE-KEY", string(data), "a trusted read of a file of the agent must not reach a file of the worker")
 }
 
 // Property (Spec 092, "Process"): each process of the step runs. A step with

@@ -5,7 +5,8 @@ Status: Draft.
 ## Scope
 
 This spec defines the MCP endpoint, authentication contract, API-key surface
-acceptance, and `dagu://` resource reads exposed by Dagu.
+acceptance, `dagu://` resource reads, and the bundled skill that Dagu serves
+through the MCP Skills extension.
 
 This spec does not define the MCP tool specs (`dagu_read`, `dagu_change`, or
 `dagu_execute`), prompts, subscriptions, audit events, Web UI behavior, storage
@@ -77,11 +78,12 @@ Rules:
 
 ### Resource URI Model
 
-Dagu MCP resources use the `dagu` URI scheme.
+Dagu MCP resources use the `dagu` URI scheme, except the skill files that
+[Skills](#skills) defines.
 
 URI identity rules:
 
-- Resource URIs must use the `dagu` scheme.
+- Resource URIs outside [Skills](#skills) must use the `dagu` scheme.
 - The URI host identifies the resource family.
 - Path segments identify a resource inside that family.
 - DAG names, DAG-run IDs, and reference topic names that contain URI-reserved
@@ -153,6 +155,52 @@ Rules:
   collection, run detail, or run log resources.
 - Run log and step log resources may accept query parameters supported by the
   Dagu log reader.
+
+### Skills
+
+Dagu serves the skill embedded in its binary through the MCP Skills extension
+(`io.modelcontextprotocol/skills`, base protocol revision `2026-07-28`). The
+Agent Skills specification defines the skill format.
+
+Capability rules:
+
+- The server declares `"io.modelcontextprotocol/skills": {}` in the
+  `extensions` field of its capabilities.
+- The server does not declare `directoryRead` and does not implement
+  `resources/directory/read`.
+
+Skill rules:
+
+- The server serves one skill, `dagu`: the `SKILL.md` and `references/*.md`
+  files embedded in the Dagu binary.
+- The server does not serve the skills directory that Spec 096 defines.
+- Each file of the skill is a resource at `skill://dagu/{path}`, where `{path}`
+  is the file path relative to the skill directory with `/` separators.
+- Skill file resources have MIME type `text/markdown` and are read with
+  `resources/read`. They accept no query parameters.
+- The `skill://dagu/SKILL.md` resource takes its `name` and `description` from
+  the `SKILL.md` frontmatter.
+- The skill content changes only when the Dagu binary changes and is the same
+  for every caller.
+
+Method rules:
+
+- `skills/list` returns one `Skill` entry for `skill://dagu/SKILL.md`. The
+  listing is a single page and carries no `nextCursor`.
+- The entry's `frontmatter` is the `SKILL.md` YAML frontmatter as a JSON
+  object, with every field the file holds.
+- The entry's `resources` lists every file of the skill once, `SKILL.md`
+  included, with a `sha256:{hex}` digest of its bytes and its size in bytes.
+- `skills/get` with `uri` set to `skill://dagu/SKILL.md` returns the same entry
+  under `skill`.
+- `skills/list` and `skills/get` results carry `resultType: "complete"`,
+  `cacheScope: "public"`, and `ttlMs: 3600000`. Reads of skill files carry the
+  same `cacheScope` and `ttlMs`.
+- `skills/get` with any other `uri`, and `skills/list` with a `cursor`, fail
+  with JSON-RPC error `-32602` (Invalid params). These errors are JSON-RPC
+  errors, not Dagu MCP error objects.
+- The `dagu://reference` resources and `dagu_read target=reference` stay
+  available for clients that do not support the extension.
 
 ## Errors
 
@@ -256,6 +304,13 @@ Run log resource with a log-reader query:
 
 ```text
 dagu://runs/nightly-report/20260701T010000Z/logs?tail=100
+```
+
+Bundled skill files:
+
+```text
+skill://dagu/SKILL.md
+skill://dagu/references/cli.md
 ```
 
 An API key with only this accepted surface can be used at the MCP endpoint:
