@@ -161,27 +161,32 @@ func (c *smtpDispatchClient) Dispatch(_ context.Context, req dispatch.DispatchRe
 }
 
 // interruptedDispatchClient is a coordinator that takes a task while the
-// command is interrupted, and records the runs it is asked to cancel.
+// command is interrupted, and records the calls it receives in order.
 type interruptedDispatchClient struct {
 	coordinator.Client
 	interrupt context.CancelFunc
-	cancelled []string
+	calls     []string
 }
 
-func (c *interruptedDispatchClient) Dispatch(ctx context.Context, _ dispatch.DispatchRequest) error {
+func (c *interruptedDispatchClient) Dispatch(ctx context.Context, req dispatch.DispatchRequest) error {
 	c.interrupt()
-	<-ctx.Done()
-	return ctx.Err()
-}
-
-func (c *interruptedDispatchClient) RequestCancel(_ context.Context, dagName, dagRunID string, _ *ir.DAGRunRef) error {
-	c.cancelled = append(c.cancelled, dagName+":"+dagRunID)
+	if ctx.Err() != nil {
+		c.calls = append(c.calls, "dispatch cut short")
+		return ctx.Err()
+	}
+	c.calls = append(c.calls, "dispatched "+req.Task.DAGRunID)
 	return nil
 }
 
-// An interrupt during the dispatch cancels the run through the coordinator,
-// which may have taken the task before the interrupt, so no worker runs it
-// after the command exits.
+func (c *interruptedDispatchClient) RequestCancel(_ context.Context, dagName, dagRunID string, _ *ir.DAGRunRef) error {
+	c.calls = append(c.calls, "cancel "+dagName+":"+dagRunID)
+	return nil
+}
+
+// An interrupt during the dispatch does not cut the call short, since the
+// coordinator may take the task anyway. The run is cancelled once the
+// coordinator holds it, so the cancellation cannot arrive before the run
+// exists, or reach an earlier attempt of a retried run.
 func TestDispatchInterruptedCancelsRun(t *testing.T) {
 	t.Parallel()
 
@@ -192,7 +197,7 @@ func TestDispatchInterruptedCancelsRun(t *testing.T) {
 
 	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "deploy"}, "run", runOptions{}, client)
 	require.ErrorIs(t, err, context.Canceled)
-	assert.Equal(t, []string{"deploy:run"}, client.cancelled)
+	assert.Equal(t, []string{"dispatched run", "cancel deploy:run"}, client.calls)
 }
 
 func TestRestoreDAGFromStatus_SMTP(t *testing.T) {

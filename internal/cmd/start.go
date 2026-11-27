@@ -958,20 +958,21 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 
 	err := ctx.checkProjectDispatch()
 	if err == nil {
-		err = coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task})
+		// The coordinator can take a task after the caller gives up on the
+		// call, so an interrupt does not cut the call short: once it returns,
+		// a run the coordinator took exists there, and the cancellation below
+		// reaches it. A second interrupt exits at once.
+		go func() {
+			<-signalCtx.Done()
+			stop()
+		}()
+		err = coordinatorCli.Dispatch(context.WithoutCancel(signalAwareCtx), dispatch.DispatchRequest{Task: task})
 	}
 	if err != nil {
-		err = fmt.Errorf("failed to dispatch task: %w", err)
-		// A signal can interrupt a dispatch the coordinator already took, so
-		// the run is cancelled there, as after a dispatch, before the seed is
-		// marked failed. A seed the coordinator moved on from stays as it is.
-		if signalCtx.Err() != nil {
-			err = handleDistributedCancellation(ctx, d, dagRunID, coordinatorCli, progress, err)
-		}
 		if opts.seed != nil {
 			intake.MarkSeedFailed(ctx, ctx.Persistence.DAGRunRepository, opts.seed, err)
 		}
-		return err
+		return fmt.Errorf("failed to dispatch task: %w", err)
 	}
 
 	logger.Info(ctx, "DAG dispatched to coordinator; awaiting completion")
