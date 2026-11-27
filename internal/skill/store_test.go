@@ -317,6 +317,25 @@ func TestDeleteFileRefusesALayoutFolder(t *testing.T) {
 	require.Equal(t, cur.Hash, after.Hash)
 }
 
+// On a file system that ignores case, another spelling finds SKILL.md or a
+// folder of the layout. A delete applies its rules to the stored name, so such
+// a path deletes neither.
+func TestDeleteFileNeedsTheStoredName(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	for _, rel := range []string{"skill.md", "REFERENCES"} {
+		_, err := s.DeleteFile(ctx, "demo", rel, skill.Precondition{IfMatch: cur.Hash})
+		require.ErrorIs(t, err, skill.ErrNotFound, rel)
+		after, err := s.Read("demo")
+		require.NoError(t, err)
+		require.Equal(t, cur.Hash, after.Hash, rel)
+	}
+}
+
 func TestWritePreconditions(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

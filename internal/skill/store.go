@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -502,6 +503,9 @@ func (s *Store) DeleteFile(ctx context.Context, name, rel string, pre Preconditi
 		if err := checkNoLink(root, rel, true); err != nil {
 			return err
 		}
+		if err := checkStoredName(root, rel); err != nil {
+			return err
+		}
 		info, err := root.Lstat(rel)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -540,6 +544,30 @@ func (s *Store) DeleteFile(ctx context.Context, name, rel string, pre Preconditi
 		return err
 	})
 	return result, err
+}
+
+// checkStoredName returns ErrNotFound when a part of rel is not the stored name
+// of an entry. A file system that ignores case or normalizes names finds an
+// entry under another spelling, such as skill.md for SKILL.md, and the rules of
+// a delete must apply to the stored name.
+func checkStoredName(root *os.Root, rel string) error {
+	dir := "."
+	for p := range strings.SplitSeq(rel, "/") {
+		f, err := root.Open(dir)
+		if err != nil {
+			return err
+		}
+		names, err := f.Readdirnames(-1)
+		_ = f.Close()
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(names, p) {
+			return fmt.Errorf("%w: no file %s", ErrNotFound, rel)
+		}
+		dir = path.Join(dir, p)
+	}
+	return nil
 }
 
 // layoutAllowsDir reports whether rel is a folder that the layout allows: a top
