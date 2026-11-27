@@ -358,6 +358,24 @@ func TestSkillsReadFileUnreadable(t *testing.T) {
 	assert.NotContains(t, resp.Body, skillsDir(server))
 }
 
+// A write that the disk refuses gives 500, and the body names no server path.
+func TestSkillsWriteFailureNamesNoServerPath(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("needs Unix permissions that bind the user")
+	}
+	server := test.SetupServer(t)
+	writeSkillFile(t, server, "refund-policy", validSkill)
+	h := getSkill(t, server, "refund-policy").Hash
+	folder := filepath.Join(skillsDir(server), "refund-policy")
+	require.NoError(t, os.Chmod(folder, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(folder, 0o750) })
+
+	resp := putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: validSkill}, skillIfMatch(h)).
+		ExpectStatus(http.StatusInternalServerError).Send(t)
+	assert.NotContains(t, resp.Body, skillsDir(server))
+}
+
 func TestSkillsPathTraversal(t *testing.T) {
 	t.Parallel()
 	server := test.SetupServer(t)
