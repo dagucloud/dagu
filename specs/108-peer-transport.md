@@ -188,6 +188,10 @@ A client picks its transport from the first row that matches:
 - The client checks the published CA certificate and the registry when it
   opens a connection. Without both, it has no TLS source, and it uses h2c
   as before this spec.
+- Built-in TLS verifies the chain against the CA certificate, and requires
+  the server certificate to name `coordinator.dagu.invalid` and to allow
+  server authentication. It does not compare the dialed address with the
+  certificate.
 
 #### Unlisted Addresses
 
@@ -203,10 +207,6 @@ A client picks its transport from the first row that matches:
 - An address that a live registry entry lists, a worker certificate, an
   invite, and `peer.ca_cert_file` never fall back on a certificate that
   does not verify.
-- Built-in TLS verifies the chain against the CA certificate, and requires
-  the server certificate to name `coordinator.dagu.invalid` and to allow
-  server authentication. It does not compare the dialed address with the
-  certificate.
 
 #### Fallback to h2c
 
