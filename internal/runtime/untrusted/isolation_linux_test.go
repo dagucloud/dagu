@@ -522,6 +522,7 @@ func selfIsolation(t *testing.T, work string) *isolation {
 		protected:  map[string]protectedDir{},
 		gitEntries: map[string]bool{}, gitDirs: map[string]bool{},
 		gitSnapshot: map[string]fileSig{}, seenGit: map[string]bool{}, gitModes: map[string]uint32{},
+		givenLinks: map[string]givenLink{},
 	}
 }
 
@@ -666,6 +667,35 @@ func TestRestoreFollowsLinkChains(t *testing.T) {
 	assert.Contains(t, err.Error(), "made the link "+filepath.Join(work, "l2"))
 	_ = os.WriteFile(filepath.Join(out, "x"), []byte("x"), 0o600)
 	assert.NoFileExists(t, filepath.Join(outside, "x"), "a trusted write through out stays in the work directory")
+}
+
+// A link that a trusted step made before the handoff, such as one of a Python
+// virtual environment to the interpreter of the host, stays after the restore.
+// The restricted user can move such a link: at its new path, the restore
+// checks it as a link of the restricted user. It needs no root.
+func TestRestoreKeepsTheLinksOfTheWorker(t *testing.T) {
+	t.Parallel()
+	iso := selfIsolation(t, t.TempDir())
+	outside := t.TempDir()
+	bin := filepath.Join(iso.workDir, ".venv", "bin")
+	require.NoError(t, os.MkdirAll(bin, 0o755))
+	python := filepath.Join(bin, "python3")
+	require.NoError(t, os.Symlink(filepath.Join(outside, "python3"), python))
+	tool := filepath.Join(bin, "tool")
+	require.NoError(t, os.Symlink(filepath.Join(outside, "tool"), tool))
+	require.NoError(t, iso.handoff())
+
+	moved := filepath.Join(iso.workDir, "results.txt")
+	require.NoError(t, os.Rename(tool, moved))
+
+	err := iso.restore(true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "made the link "+moved)
+	assert.NotContains(t, err.Error(), python)
+	_, err = os.Lstat(python)
+	assert.NoError(t, err, "the link of the worker stays")
+	_, err = os.Lstat(moved)
+	assert.ErrorIs(t, err, fs.ErrNotExist, "the restore removes the moved link")
 }
 
 // An entry that does not exist in the path of a link can become a folder later.

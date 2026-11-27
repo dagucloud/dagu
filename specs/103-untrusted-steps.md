@@ -381,6 +381,10 @@ The rules, in order:
      counts as a folder.
    - a file with more than one link
 
+   A link that the handoff gave and that keeps its path and its target is a link of the worker
+   user and stays, such as a link of a Python virtual environment to the interpreter of the host.
+   The restricted user can move such a link, and at its new path the link counts as its own.
+
    A file of the restricted user loses its set-user-ID and set-group-ID bits. An entry of the
    restricted user loses its POSIX ACLs, so that a default ACL does not pass to a `.git` that a
    later trusted step makes.

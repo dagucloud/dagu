@@ -175,6 +175,16 @@ func chmodFDPath(fd int, path string, mode uint32) error {
 	return nil
 }
 
+// readLinkFD returns the target of the link entry.
+func readLinkFD(entry *fsEntry) (string, error) {
+	buf := make([]byte, unix.PathMax)
+	n, err := unix.Readlinkat(entry.fd, "", buf)
+	if err != nil {
+		return "", err
+	}
+	return string(buf[:n]), nil
+}
+
 // aclNames are the extended attributes that hold the POSIX ACLs of an entry.
 var aclNames = []string{"system.posix_acl_access", "system.posix_acl_default"}
 

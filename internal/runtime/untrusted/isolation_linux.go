@@ -99,6 +99,8 @@ type isolation struct {
 	// gitModes holds the mode of each git entry whose mode the handoff
 	// changed, for the restore.
 	gitModes map[string]uint32
+	// givenLinks holds each link that the handoff gave, by its path.
+	givenLinks map[string]givenLink
 	// hostLock is the lock file of the restricted user on the host.
 	hostLock *os.File
 	// marker is the marker of the work directory that this step made, until
@@ -148,6 +150,7 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 		gitSnapshot: make(map[string]fileSig),
 		seenGit:     make(map[string]bool),
 		gitModes:    make(map[string]uint32),
+		givenLinks:  make(map[string]givenLink),
 		hostLock:    hostLock,
 	}
 	defer func() {

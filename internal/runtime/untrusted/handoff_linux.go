@@ -35,7 +35,8 @@ import (
 //   - a link of the restricted user to a path outside the work directory or
 //     into a git folder, by the text of its target or by the path that the
 //     kernel reaches through it, and a file of the restricted user with more
-//     than one link: Dagu removes it.
+//     than one link: Dagu removes it. A link that the handoff gave and that
+//     keeps its path and its target is one of the worker and stays.
 //
 // Each removal fails the step. So a step that succeeds kept each link as the
 // restore checked it.
@@ -45,6 +46,12 @@ import (
 type protectedDir struct {
 	fd   int
 	mode uint32
+}
+
+// givenLink is a link that the handoff gave, at its path.
+type givenLink struct {
+	ino    uint64
+	target string
 }
 
 // gitMarkers are the files that make a folder a git folder.
@@ -221,12 +228,41 @@ func (iso *isolation) handoff() error {
 			if e.isRegular() && e.st.Nlink > 1 {
 				return false, stepError(iso.step, "give", e.path, errors.New("the file has more than one link"))
 			}
+			if e.isLink() {
+				if err := iso.recordLink(e); err != nil {
+					return false, err
+				}
+			}
 			if err := chownFD(e, int(iso.uid), int(iso.gid)); err != nil {
 				return false, stepError(iso.step, "change the owner of", e.path, err)
 			}
 			return false, nil
 		}
 	})
+}
+
+// recordLink keeps the link that the handoff gives, so that the restore checks
+// only the links that the restricted user made or moved.
+func (iso *isolation) recordLink(e *fsEntry) error {
+	target, err := readLinkFD(e)
+	if err != nil {
+		return stepError(iso.step, "read the link", e.path, err)
+	}
+	iso.givenLinks[e.path] = givenLink{ino: e.st.Ino, target: target}
+	return nil
+}
+
+// isGivenLink reports whether the link is the one that the handoff gave at its
+// path. The restricted user can remove or rename a link and cannot change its
+// target, so such a link is one of the worker, such as a link of a Python
+// virtual environment to the interpreter of the host.
+func (iso *isolation) isGivenLink(e *fsEntry) bool {
+	given, ok := iso.givenLinks[e.path]
+	if !ok || given.ino != e.st.Ino {
+		return false
+	}
+	target, err := readLinkFD(e)
+	return err == nil && target == given.target
 }
 
 // markHandoff makes the marker of the work directory. A marker that exists is
@@ -386,7 +422,7 @@ func (iso *isolation) restore(verifyGit bool) error {
 			if !verifyGit && e.isRegular() && e.st.Nlink > 1 {
 				return false, nil
 			}
-			if verifyGit && e.isLink() {
+			if verifyGit && e.isLink() && !iso.isGivenLink(e) {
 				if target, bad := iso.badLink(e); bad {
 					fail(iso.removeEntry(e, "the restricted user made the link %s to %q", target))
 					return true, nil
@@ -430,12 +466,10 @@ func (iso *isolation) restore(verifyGit bool) error {
 // leave the work directory while the text of each target stays in it. It
 // returns the target.
 func (iso *isolation) badLink(e *fsEntry) (string, bool) {
-	buf := make([]byte, unix.PathMax)
-	n, err := unix.Readlinkat(e.fd, "", buf)
+	target, err := readLinkFD(e)
 	if err != nil {
 		return "(unreadable)", true
 	}
-	target := string(buf[:n])
 	lexical := target
 	if !filepath.IsAbs(lexical) {
 		lexical = filepath.Join(filepath.Dir(e.path), lexical)
