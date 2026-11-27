@@ -188,6 +188,21 @@ A client picks its transport from the first row that matches:
 - The client checks the published CA certificate and the registry when it
   opens a connection. Without both, it has no TLS source, and it uses h2c
   as before this spec.
+
+#### Unlisted Addresses
+
+- An address that no live registry entry lists, dialed with the published
+  CA certificate as the only TLS source, may belong to a coordinator of
+  another Dagu, such as a team coordinator dialed from a laptop that runs
+  `start-all`.
+- When the server certificate on such an address does not chain to the
+  published CA certificate, the client has no TLS source for that address.
+  It uses h2c, as before this spec, and sends the reason `no TLS source`.
+- It keeps h2c for that address for 10 minutes, then tries built-in TLS
+  again on its next new connection.
+- An address that a live registry entry lists, a worker certificate, an
+  invite, and `peer.ca_cert_file` never fall back on a certificate that
+  does not verify.
 - Built-in TLS verifies the chain against the CA certificate, and requires
   the server certificate to name `coordinator.dagu.invalid` and to allow
   server authentication. It does not compare the dialed address with the
@@ -206,7 +221,8 @@ A client picks its transport from the first row that matches:
   - an invite worker, with or without a worker certificate
   - a client on TLS from row 2 of [Client Transport](#client-transport)
   - a handshake that fails for any reason other than a transport-level
-    failure, such as a certificate that does not verify
+    failure, such as a certificate that does not verify, except as
+    [Unlisted Addresses](#unlisted-addresses) states
 - A coordinator with `coordinator.require_tls: true` refuses the calls a
   client makes after a fallback, as [Require TLS](#require-tls) states.
 - The fallback also covers a coordinator that a downgrade left on h2c only
@@ -285,7 +301,7 @@ A coordinator logs one line at start for what it serves:
   | Value | When |
   | --- | --- |
   | `peer.insecure` | Row 1 |
-  | `no TLS source` | Row 5, a registry entry without `"tls": "builtin"`, or a published CA certificate the client cannot read |
+  | `no TLS source` | Row 5, a registry entry without `"tls": "builtin"`, a published CA certificate the client cannot read, or an [unlisted address](#unlisted-addresses) whose certificate does not chain to it |
   | `tls failed on the network path` | After a fallback |
 
 - A call over h2c without the key comes from a Dagu that predates this
@@ -317,10 +333,14 @@ A coordinator logs one line at start for what it serves:
 
 - A coordinator with a peer CA writes the certificate of the CA it uses,
   generated or from `peer.ca_cert_file`, to its data directory as the
-  published CA certificate, when it is missing or differs. Publishing never
-  changes the generated CA.
-- A coordinator without a peer CA removes the published CA certificate at
-  start, so clients that share its data directory stay off built-in TLS.
+  published CA certificate, at start when it is missing or differs, and
+  again whenever it refreshes its registry entry and finds it missing.
+  Publishing never changes the generated CA.
+- A coordinator with own certificates removes the published CA certificate
+  at start, so clients that share its data directory stay off built-in
+  TLS. A coordinator that only failed to create or read its generated CA
+  leaves it in place for the other coordinators that share the data
+  directory.
 - The coordinator adds `"tls": "builtin"` to the service registry entry it
   registers. A coordinator without a peer CA does not.
 - Older processes ignore the field and the file. A client uses the
@@ -439,11 +459,17 @@ report join readiness.
 - Each takes the peer token, whatever `coordinator.require_token` says. A
   call without it fails with `Unauthenticated`. A call with a worker
   certificate fails with `PermissionDenied`.
-- On a coordinator with own certificates, each fails with
-  `FailedPrecondition`:
+- On a coordinator without a peer CA, each fails with
+  `FailedPrecondition`. With own certificates:
 
   ```text
   invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file
+  ```
+
+  After a failure to create or read its generated CA:
+
+  ```text
+  invites need the built-in CA: this coordinator could not create or read its CA; see its start warning
   ```
 
   Join readiness still answers, and reports the reason.
@@ -536,9 +562,7 @@ The `worker_certificates` collection keeps one record per certificate:
 - Run processes the worker starts use the same key and certificate.
 - A worker that cannot write its data directory holds its key and
   certificate in memory only, takes no lock, and enrolls again at each
-  start. A run process it starts gets the key and certificate from the
-  worker over a channel that only that run process can read, never through
-  a file, an environment variable, or a command-line argument.
+  start. Run processes it starts use the same credentials.
 
 #### Worker Start
 
@@ -611,15 +635,14 @@ or `stop`:
   - Every coordinator sees `removing` within 30 seconds, at its next reread,
     and gives the worker no task after that. A task one hands out before its
     reread is held, so it is waited for like the others.
-- A coordinator that has not yet reread the revoked set can hand a task to
-  a revoked certificate for up to 30 seconds, such as after a revocation on
-  a stale heartbeat. The worker is refused at its next call to a
-  coordinator that knows, as [Removed Worker](#removed-worker) states, and
-  the task ends through the stale-lease check.
+- Other coordinators apply a revocation at their next reread, within 30
+  seconds. A task one of them hands out before then ends through the
+  stale-lease check, since the worker is refused at its next call to a
+  coordinator that knows, as [Removed Worker](#removed-worker) states.
 - With `stop`, each run gets the existing cancel request. The certificate is
   revoked when the runs end, but not before 30 seconds in `removing`, or 2
-  minutes after the cancel requests, whichever comes first. Runs without a final status by then are left to
-  the stale-lease check.
+  minutes after the cancel requests, whichever comes first. Runs without a
+  final status by then are left to the stale-lease check.
 - A removal with `stop` of a worker in `removing` cancels its runs as above.
 - A worker on the peer token cannot be removed. The removal fails and says
   to stop the worker on its host, or to change the peer token.
@@ -654,8 +677,8 @@ or `stop`:
 
 - A coordinator keeps, in memory, the hosts that called it over h2c in the
   last 10 minutes, other than workers' calls, keyed by remote host (without
-  the port) and reason, with the time of the last call. It keeps at most 64 entries and
-  drops the oldest first.
+  the port) and reason, with the time of the last call. It keeps at most 64
+  entries and drops the oldest first.
 - `GET /api/v1/services/coordinator` returns them for each coordinator, with
   host, reason, and last call time.
 
@@ -699,7 +722,7 @@ A coordinator reports, from its own host:
 
   | Case | Status |
   | --- | --- |
-  | A coordinator with own certificates (`FailedPrecondition`) | `409`, with the coordinator's message |
+  | A coordinator with own certificates, or one that could not create or read its CA (`FailedPrecondition`) | `409`, with the coordinator's message |
   | A worker on the peer token, for a removal | `409` |
   | No coordinator is running or reachable | `503` |
   | The server lacks the peer token (`Unauthenticated`) | `503`, saying the server needs `peer.token` or the coordinator's data directory |
@@ -907,6 +930,9 @@ and prints the message:
 - A client that uses the published CA certificate reads it and the registry
   when it opens a connection. Connections are long-lived, so this does not
   grow with runs.
+- A coordinator with a peer CA checks that the published CA certificate
+  exists each time it refreshes its registry entry, which it does already.
+  It adds no timer.
 - Join readiness is read only when the dialog opens, when the server comes
   back while it is open, and by `dagu worker invite`.
 - A client that fell back tries TLS again at most once per coordinator
@@ -942,7 +968,7 @@ handshake error that caused the fallback.
 | `peer.ca_cert_file` that is not a CA certificate, or a CA key that does not match it | The coordinator exits with code 1 at start, naming the files |
 | Own certificates whose key does not match | The coordinator exits with code 1 at start, naming both files |
 | `dagu peer init` into a directory with one of its files | Exits with code 1, writing nothing |
-| A server certificate that does not verify, or lacks `coordinator.dagu.invalid` | The call fails. The client does not fall back |
+| A server certificate that does not verify, or lacks `coordinator.dagu.invalid` | The call fails. The client does not fall back, except on an [unlisted address](#unlisted-addresses) |
 | A transport-level handshake failure of a worker certificate client or an invite worker | The call fails. The worker tries the next coordinator |
 | An invite worker and a coordinator without built-in TLS | The worker counts it as unavailable and tries the next |
 | A coordinator that cannot create or read its generated CA | A warning, and the coordinator serves h2c only, as [Peer CA](#peer-ca) states. With `coordinator.require_tls: true`, it exits with code 1 at start |
@@ -957,7 +983,7 @@ handshake error that caused the fallback.
 | A call over h2c with `coordinator.require_tls: true` | `Unauthenticated`, with the message of [Require TLS](#require-tls) |
 | An invite, removal, or join readiness call without the peer token | `Unauthenticated` |
 | An invite, removal, or join readiness call with a worker certificate | `PermissionDenied` |
-| An invite call on a coordinator with own certificates | `FailedPrecondition`, with the message of [Coordinator Calls](#coordinator-calls) |
+| An invite call on a coordinator without a peer CA | `FailedPrecondition`, with the message of [Coordinator Calls](#coordinator-calls) |
 | `POST /api/v1/workers/invites` with an invalid `expiresIn` or `address` | `400`, naming the field |
 | An invite or removal endpoint called by a non-admin | `403` |
 | `dagu worker invite` without the peer token | Exits with code 1, saying to set `peer.token` or to run on a host that reads the coordinator's data directory |
@@ -1044,8 +1070,9 @@ Worker `worker-a1` holds a certificate and runs two tasks.
    `{"state": "removing"}`. The Workers page shows `Removing (2 runs left)`.
 2. `Poll` gives `worker-a1` no task. Both runs finish and report their
    status.
-3. The first heartbeat that lists no running tasks, at least 30 seconds
-   after the removal, revokes the certificate. The worker's next call fails, and it exits with
+3. Once `worker-a1` holds no task, by the coordinator's count, and at
+   least 30 seconds have passed since the removal, the certificate is
+   revoked. The worker's next call fails, and it exits with
    `This worker was removed from the coordinator`.
 4. A restart of `worker-a1` with the same invite exits with the same
    message. A restart with a new invite enrolls with a new key.

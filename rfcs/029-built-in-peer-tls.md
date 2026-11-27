@@ -402,6 +402,12 @@ transport in this order:
   whether it finds coordinators in the registry or in
   `worker.coordinators`. A client's own `peer.ca_cert_file` takes
   precedence. Older processes ignore the field.
+- An address in `worker.coordinators` that the registry does not list may
+  belong to another Dagu, such as a team coordinator dialed from a laptop
+  that runs `start-all`. When its certificate does not chain to the
+  published certificate, the client has no TLS source for that address and
+  uses h2c, as today, with the reason `no TLS source`. Addresses the
+  registry lists never fall back on a certificate that does not verify.
 - A coordinator that leaves built-in TLS, with own certificates, removes
   the published certificate. A certificate that a downgraded coordinator
   leaves behind selects nothing, since its registry entry no longer reports
@@ -414,7 +420,8 @@ transport in this order:
   sidecar on a port named `grpc`. The client keeps h2c for that address for
   10 minutes, then tries TLS again on its next connection, and sends the
   reason `tls failed on the network path`.
-- A certificate that does not verify never falls back. A worker on an
+- A certificate that does not verify never falls back, except on an
+  address the registry does not list, as above. A worker on an
   invite never falls back either: it has no other credential, so it needs
   TLS end to end. `coordinator.require_tls` refuses the fallback's calls.
   Whether v3.0 removes the fallback is open question 1.
@@ -552,11 +559,10 @@ worker                                         coordinator
   or its lease expires, so a task another coordinator hands out before its
   next reread is waited for too. A connected worker without runs goes
   through `removing` the same way.
-- A coordinator that has not yet reread the revoked set can still hand a
-  task to a revoked certificate, for up to 30 seconds. The worker is
-  refused at its next call to a coordinator that knows, stops the task,
-  and the task ends through the stale-lease check, like the runs of a
-  worker that stops sending heartbeats.
+- Other coordinators apply a revocation at their next reread, within 30
+  seconds. A task one of them hands out before then ends through the
+  stale-lease check, since the worker is refused at its next call to a
+  coordinator that knows.
 - **Stop its runs** sends the existing cancel request for each run. Runs
   that reach no final status within 2 minutes are left to the stale-lease
   check, and the certificate is revoked then.
