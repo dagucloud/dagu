@@ -21,6 +21,8 @@ export default defineMessages({
     'Open run {id}': 'Open run {id}',
     'The runs before {time} are not kept.':
       'The runs before {time} are not kept.',
+    'Runs in the last {window}': 'Runs in the last {window}',
+    'Longest gap': 'Longest gap',
   },
   'zh-CN': {
     'Last year': '最近 1 年',
@@ -36,6 +38,8 @@ export default defineMessages({
     'Running since {time}': '自 {time} 起运行中',
     'Open run {id}': '打开运行 {id}',
     'The runs before {time} are not kept.': '{time} 之前的运行未保留。',
+    'Runs in the last {window}': '过去 {window}内的运行',
+    'Longest gap': '最长空档',
   },
   ja: {
     'Last year': '過去 1 年',
@@ -52,6 +56,8 @@ export default defineMessages({
     'Open run {id}': '実行 {id} を開く',
     'The runs before {time} are not kept.':
       '{time} より前の実行は保持されていません。',
+    'Runs in the last {window}': '過去 {window}の実行',
+    'Longest gap': '最長の空白',
   },
   de: {
     'Last year': 'Letztes Jahr',
@@ -69,6 +75,8 @@ export default defineMessages({
     'Open run {id}': 'Lauf {id} öffnen',
     'The runs before {time} are not kept.':
       'Die Läufe vor {time} werden nicht aufbewahrt.',
+    'Runs in the last {window}': 'Läufe der letzten {window}',
+    'Longest gap': 'Längste Lücke',
   },
   fr: {
     'Last year': '12 derniers mois',

@@ -42,6 +42,7 @@ import { CreateDAGButton, DAGPagination } from '../common';
 import DAGActions from '../common/DAGActions';
 import LiveSwitch from '../common/LiveSwitch';
 import ActivityBars from './ActivityBars';
+import ServiceActivityStrip from './ServiceActivityStrip';
 import { DAGRecentRuns } from './DAGRecentRuns';
 import { LastRunCell, ServiceStateChip } from './LastRunCell';
 import { ScheduleLine } from './ScheduleSummary';
@@ -374,10 +375,18 @@ function DAGCard({
         )}
       </div>
 
-      {/* A service DAG has no runs to draw as bars. */}
-      {showActivity && !isService && (
-        <ActivityBars activity={activity} className="mb-1.5" />
-      )}
+      {showActivity &&
+        (isService ? (
+          activity?.buckets && (
+            <ServiceActivityStrip
+              activity={activity}
+              fileName={fileName}
+              className="mb-1.5"
+            />
+          )
+        ) : (
+          <ActivityBars activity={activity} className="mb-1.5" />
+        ))}
 
       {/* Labels */}
       {labels.length > 0 && (
