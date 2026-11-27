@@ -33,6 +33,12 @@ const FALLBACK_INTERVAL_MS = 60_000;
 /** The wait after a first failed read; it doubles up to RETRY_MAX_MS. */
 const RETRY_MIN_MS = 5_000;
 const RETRY_MAX_MS = 60_000;
+/**
+ * The wait after the end of a bucket before a service DAG is read again. The
+ * server reuses the activity of a service DAG for up to 10 s, so a read at
+ * the very end of a bucket could miss the next one.
+ */
+const BUCKET_READ_DELAY_MS = 15_000;
 
 /** The change feed, with its times in ms. */
 interface Feed {
@@ -54,6 +60,12 @@ interface NodeActivity {
   currentAt: ReadonlyMap<string, number>;
   /** DAGs read that are to be read again. */
   stale: ReadonlySet<string>;
+  /**
+   * The client time, in ms, at which the newest bucket of each service DAG
+   * read ends. A run in progress writes no change to the feed, so the
+   * activity of a service DAG is read again once its newest bucket ends.
+   */
+  bucketEndsAt: ReadonlyMap<string, number>;
   /** DAGs whose read is in flight. */
   reading: ReadonlySet<string>;
   /** The last change feed applied. */
@@ -74,9 +86,10 @@ type ReadResult =
 /**
  * The activity of the DAGs that a list shows, by file name, over the window of
  * its strips. The list reads the activity of each DAG once, then again only
- * when the change feed names the DAG, or when the feed cannot tell what
- * changed since the read. Nothing is read while `enabled` is false or the tab
- * is hidden. Undefined for a node that gives no activity, such as an older
+ * when the change feed names the DAG, when the feed cannot tell what changed
+ * since the read, or, for a service DAG, when the newest bucket of its
+ * activity ends. Nothing is read while `enabled` is false or the tab is
+ * hidden. Undefined for a node that gives no activity, such as an older
  * remote node.
  */
 export function useDAGListActivity(
@@ -181,6 +194,19 @@ export function useDAGListActivity(
     return () => clearTimeout(timer);
   }, [remoteNode, state.retryAt]);
 
+  useEffect(() => {
+    if (!live || state.bucketEndsAt.size === 0) {
+      return;
+    }
+    const next = Math.min(...state.bucketEndsAt.values());
+    const timer = setTimeout(
+      () =>
+        setState(onNode(remoteNode, (s) => markEndedBuckets(s, Date.now()))),
+      Math.max(0, next + BUCKET_READ_DELAY_MS - Date.now())
+    );
+    return () => clearTimeout(timer);
+  }, [live, remoteNode, state.bucketEndsAt]);
+
   return useMemo(
     () => (state.missing ? undefined : shownActivity(state.activity)),
     [state.activity, state.missing]
@@ -193,6 +219,7 @@ function initialState(node: string): NodeActivity {
     activity: new Map(),
     currentAt: new Map(),
     stale: new Set(),
+    bucketEndsAt: new Map(),
     reading: new Set(),
     feed: null,
     failures: 0,
@@ -251,7 +278,30 @@ function keepListed(
     activity: new Map([...s.activity].filter(([name]) => listed.has(name))),
     currentAt: new Map([...s.currentAt].filter(([name]) => listed.has(name))),
     stale: new Set([...s.stale].filter((name) => listed.has(name))),
+    bucketEndsAt: new Map(
+      [...s.bucketEndsAt].filter(([name]) => listed.has(name))
+    ),
   };
+}
+
+/**
+ * Marks the service DAGs whose newest bucket ended by `now` to be read again.
+ * A DAG in flight gets its next end when its read finishes.
+ */
+function markEndedBuckets(s: NodeActivity, now: number): NodeActivity {
+  // A new map each time, so that the next end is waited for again.
+  const bucketEndsAt = new Map(s.bucketEndsAt);
+  const stale = new Set(s.stale);
+  for (const [name, end] of s.bucketEndsAt) {
+    if (end + BUCKET_READ_DELAY_MS > now) {
+      continue;
+    }
+    bucketEndsAt.delete(name);
+    if (!s.reading.has(name)) {
+      stale.add(name);
+    }
+  }
+  return { ...s, bucketEndsAt, stale };
 }
 
 /** The DAGs to read, in list order: those never read, then the stale ones. */
@@ -284,17 +334,47 @@ function finishReading(
   const activity = new Map(s.activity);
   const currentAt = new Map(s.currentAt);
   const stale = new Set(s.stale);
+  const bucketEndsAt = new Map(s.bucketEndsAt);
   const reading = new Set(s.reading);
   for (const name of names) {
     reading.delete(name);
-    activity.set(name, found.get(name)?.activity ?? null);
+    const read = found.get(name)?.activity;
+    activity.set(name, read ?? null);
     currentAt.set(name, readAt);
+    const left = read ? bucketTimeLeft(read, readAt) : undefined;
+    if (left === undefined) {
+      bucketEndsAt.delete(name);
+    } else {
+      // In client time, so that a skewed clock cannot make it pass already.
+      bucketEndsAt.set(name, Date.now() + left);
+    }
     // A feed that came during the read can name a change that it missed.
     if (s.feed && s.feed !== feedAtStart && isStale(readAt, s.feed, name)) {
       stale.add(name);
     }
   }
-  return { ...s, activity, currentAt, stale, reading, failures: 0 };
+  return {
+    ...s,
+    activity,
+    currentAt,
+    stale,
+    bucketEndsAt,
+    reading,
+    failures: 0,
+  };
+}
+
+/**
+ * The ms from `readAt` to the end of the bucket that holds it, for the
+ * activity of a service DAG; undefined for an activity without buckets.
+ */
+function bucketTimeLeft(read: Activity, readAt: number): number | undefined {
+  const resolution = read.resolutionSeconds ?? 0;
+  if (!read.buckets || resolution <= 0 || !Number.isFinite(readAt)) {
+    return undefined;
+  }
+  const width = resolution * 1000;
+  return width - (((readAt % width) + width) % width);
 }
 
 /** Ends the reads of names with no result: those read before are read again. */

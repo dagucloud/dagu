@@ -383,6 +383,45 @@ describe('useDAGListActivity', () => {
     expect(requested()).toHaveLength(3);
   });
 
+  // A service run in progress writes no change to the feed, so the list reads
+  // a service DAG again once the newest bucket of its activity ends, a little
+  // after the server stops reusing what it read before.
+  it('reads a service DAG again when its newest bucket ends', async () => {
+    const minute = 60_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(T0 + 30 * minute);
+    readAt = at(30 * minute);
+    getMock.mockImplementation(async (_path: string, init: GetInit) => {
+      const page = answer(init.params.query.fileName);
+      const dags = page.data.dags.map((entry) =>
+        entry.fileName === 'svc'
+          ? {
+              ...entry,
+              activity: {
+                ...entry.activity,
+                buckets: [],
+                resolutionSeconds: 3600,
+              },
+            }
+          : entry
+      );
+      return { ...page, data: { ...page.data, dags } };
+    });
+    renderActivity(['svc', 'plain']);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(requested()).toEqual([['svc', 'plain']]);
+
+    await act(() => vi.advanceTimersByTimeAsync(30 * minute + 14_999));
+    expect(requested()).toHaveLength(1);
+    readAt = at(60 * minute + 15_000);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(requested()).toEqual([['svc', 'plain'], ['svc']]);
+
+    // The next read waits for the end of the next bucket.
+    await act(() => vi.advanceTimersByTimeAsync(59 * minute));
+    expect(requested()).toHaveLength(2);
+  });
+
   it('aborts the reads in flight when it unmounts', async () => {
     getMock.mockImplementation(() => new Promise(() => {}));
     const { unmount } = renderActivity(['a']);
