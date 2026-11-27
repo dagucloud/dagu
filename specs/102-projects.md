@@ -837,7 +837,12 @@ Rules:
 
 - A project's wiki is `wiki/` in its DAG directory. The default project's
   wiki is the directory [The Default Project](#the-default-project) names.
-- A wiki link resolves in the page's project.
+- A page's attachments are kept with the pages. A project other than the
+  default project keeps its page revisions and page metadata in `wiki/` of
+  its `state/` directory, so its DAG directory holds only pages and
+  attachments. The default project keeps them where v2 did.
+- A wiki link resolves in the page's project. Backlinks of a page list only
+  pages of its project.
 - A user without a role in a project gets `404` for its wiki pages.
 - A project that migration made reads its wiki from its v2 directory until
   `<projects_dir>/<name>/wiki/` exists. See
@@ -845,8 +850,9 @@ Rules:
 
 ### Audit
 
-- An audit entry for an action in a project records the project's ID and its
-  name at the time.
+- An audit entry for an action in a project records the project's ID in
+  `project_id` and its name at the time in `project`.
+- An entry for a server-wide action records neither.
 - Entries written before v3.0 keep their `workspace`.
 
 ### Git Sync
@@ -1039,8 +1045,12 @@ Rules:
 #### Wiki of Migrated Projects
 
 - Project `X`'s wiki is `<wiki>/X/` until `<projects_dir>/X/wiki/` exists.
-  The default project's wiki leaves `<wiki>/X/` out.
-- Once `<projects_dir>/X/wiki/` exists, `X` uses it alone.
+  Its pages keep their attachments, revisions, and page metadata.
+- The default project's wiki leaves `<wiki>/X/` out, compared without regard
+  to case. Its lists, search, and reads show no page there, and a write
+  there, including a rename into or out of it, is refused as a conflict.
+- Once `<projects_dir>/X/wiki/` exists, `X` uses it alone. The default
+  project's wiki still leaves `<wiki>/X/` out.
 
 #### Access After Migration
 
