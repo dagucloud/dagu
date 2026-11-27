@@ -436,9 +436,7 @@ func TestReviewGitFileTargetIsNotProtected(t *testing.T) {
 	endErr := step.End(ctx)
 	t.Logf("agent: %s; End: %v", strings.TrimSpace(out), endErr)
 	assert.Contains(t, out, "hook:denied", "the agent cannot write the git folder of the repository")
-	if endErr == nil {
-		assert.NoFileExists(t, filepath.Join(gitDir, "hooks", "pre-commit"), "a hook of the agent is left for a trusted git commit")
-	}
+	assert.NoFileExists(t, filepath.Join(gitDir, "hooks", "pre-commit"), "a hook of the agent is left for a trusted git commit")
 }
 
 // Property (Spec 103, "Isolation", rule 8): the restricted user cannot read the
