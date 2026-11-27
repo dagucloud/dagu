@@ -43,21 +43,8 @@ describe('serviceActivity', () => {
     expect(model.windowSeconds).toBe(86_400);
   });
 
-  it('gives 60 one-minute slots for a window of one hour', () => {
-    const model = serviceActivity([], 60, NOW, 3600);
-    expect(model.cells).toHaveLength(60);
-    expect(model.cells[59]!.start).toBe(Date.parse('2026-10-29T12:30:00Z'));
-    expect(model.windowSeconds).toBe(3600);
-  });
-
-  it('gives 7 daily slots for a window of 7 days', () => {
-    const model = serviceActivity([], 86_400, NOW, 7 * 86_400);
-    expect(model.cells).toHaveLength(7);
-    expect(model.cells[6]!.start).toBe(Date.parse('2026-10-29T00:00:00Z'));
-  });
-
   it('never gives more than 60 cells', () => {
-    const model = serviceActivity([], 60, NOW, 86_400);
+    const model = serviceActivity([], 60, NOW);
     expect(model.cells).toHaveLength(SERVICE_MAX_CELLS);
     // The cells cover 60 minutes only: the window says so.
     expect(model.windowSeconds).toBe(3600);
@@ -116,10 +103,22 @@ describe('serviceActivity', () => {
     expect(serviceActivity([], 3600, NOW).availability).toBeUndefined();
   });
 
-  it('leaves a bucket before the window out of the cells but counts it', () => {
-    const model = serviceActivity([bucket(NOW - 3 * DAY, 5)], 3600, NOW);
-    expect(model.cells.every((cell) => cell.count === 0)).toBe(true);
-    expect(model.count).toBe(5);
+  // A 24-hour read starts at the hour before the window, so its oldest
+  // bucket holds runs that no cell shows.
+  it('leaves a bucket before the window out of the cells and the sums', () => {
+    const model = serviceActivity(
+      [
+        bucket(NOW - 3 * DAY, 5),
+        bucket(Date.parse('2026-10-28T12:00:00Z'), 600, 600),
+        bucket(NOW - HOUR, 10),
+      ],
+      3600,
+      NOW
+    );
+    expect(model.cells.filter((cell) => cell.count > 0)).toHaveLength(1);
+    expect(model.count).toBe(10);
+    expect(model.failures).toBe(0);
+    expect(model.availability).toBe(1);
   });
 
   it('puts a bucket after now in the last slot', () => {

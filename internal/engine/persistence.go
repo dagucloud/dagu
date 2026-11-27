@@ -57,6 +57,9 @@ type RuntimeStores struct {
 	// declared connections against. It is called once per run, on the
 	// first check. When nil, runs do not check their connections.
 	OpenConnectionStore func() (connection.Store, error)
+	// ConnectionLocks are the locks that a run's broker refreshes tokens
+	// under. When nil, a run's steps get no connection token.
+	ConnectionLocks connection.Locks
 
 	// connectionChecker checks a run's connections against the store that
 	// OpenConnectionStore opens, or is nil without it.
@@ -74,6 +77,15 @@ func (s RuntimeStores) subDAGSecretResolver() func(*ir.DAG) providers.ReferenceR
 		return nil
 	}
 	return func(*ir.DAG) providers.ReferenceResolver { return s.secretResolver }
+}
+
+// subDAGConnectionChecker returns the checker a sub-DAG run uses for its
+// connections, or nil when its connections are not checked.
+func (s RuntimeStores) subDAGConnectionChecker() func(*ir.DAG) rtagent.ConnectionChecker {
+	if s.connectionChecker == nil {
+		return nil
+	}
+	return func(*ir.DAG) rtagent.ConnectionChecker { return s.connectionChecker }
 }
 
 // subDAGProfileResolver returns the resolver a sub-DAG run uses for its

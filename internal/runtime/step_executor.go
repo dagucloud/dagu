@@ -325,6 +325,9 @@ func (e *StepExecutor) setupExecutorSideChannels(cmd executor.Executor, node *No
 	if agentHandler, ok := cmd.(executor.AgentSessionHandler); ok {
 		agentHandler.SetAgentSession(node.GetAgentSession())
 	}
+	if aware, ok := cmd.(executor.SecretMaskerAware); ok {
+		aware.SetSecretMasker(node.outputs.addSecrets)
+	}
 
 	// Executors turn feedback into the request they send, in place of or on top
 	// of the step's own prompt. Only a step that ran has work for it to revise; a

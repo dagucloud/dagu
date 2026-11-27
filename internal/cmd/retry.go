@@ -257,11 +257,6 @@ func runRetry(ctx *Context, args []string) error {
 	}
 	status.Root = rootRun
 
-	// Block retry via CLI for DAGs with workerSelector, UNLESS this is a distributed worker execution
-	// (indicated by --worker-id being set to something other than "local")
-	if len(dag.WorkerSelector) > 0 && workerID == "local" {
-		return fmt.Errorf("cannot retry DAG %q with workerSelector via CLI; use 'dagu enqueue' for distributed execution", dag.Name)
-	}
 	// A DAG that needs a CLI provider runs on an agent worker when the process
 	// has a coordinator (Spec 092, "Dispatch"), so a local retry would bypass it.
 	if providers := dag.AgentProviders(); len(providers) > 0 && workerID == "local" && ctx.Config.Coordinator.Enabled {
@@ -301,19 +296,19 @@ func runRetry(ctx *Context, args []string) error {
 		retryPath:           retryPath,
 	}
 
-	// A run bound to a worker node is retried on that worker. The queue
-	// sends such a run to its worker itself.
+	// A top-level run is retried where the rules place it. The queue places
+	// the runs it dispatches itself.
 	if workerID == "local" && !queueDispatchRetry && status.Parent.Zero() {
-		worker, coordinatorCli, err := boundWorker(ctx, dag, status.TargetNodes, status.BoundWorker)
+		placement, err := placeRun(ctx, dag, status.TargetNodes, status.BoundWorker)
 		if err != nil {
 			return err
 		}
-		if worker != "" {
-			run.boundWorker = worker
+		if placement.dispatched() {
+			run.boundWorker = placement.worker
 			run.retried = status
 			// The retried status keeps the run's slot.
 			run.scheduleTime = ""
-			return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, run, coordinatorCli)
+			return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, run, placement.client)
 		}
 	}
 
@@ -820,7 +815,7 @@ func withRetryAgent(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts run
 			ProfileName:              opts.profileName,
 			DAGDefinitionID:          opts.definitionID,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
-			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
+			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(as, opts.workerID),
 			RootDAGRun:               opts.root,
 			PeerConfig:               ctx.Config.Core.Peer,
 			TriggerType:              triggerType,
@@ -835,10 +830,17 @@ func withRetryAgent(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts run
 	return run(agentInstance, logFile)
 }
 
-// retryTaskOptions returns the options of a retry that a run bound to a
-// worker node sends to that worker.
+// retryTaskOptions returns the options of a retry that the command sends to
+// the coordinator.
 func retryTaskOptions(opts runOptions) []executor.TaskOption {
 	taskOpts := []executor.TaskOption{executor.WithPreviousStatus(opts.retried)}
+	// A retry that resumes agent sessions goes to the worker that holds them,
+	// as the API routes it.
+	if opts.boundWorker == "" {
+		if owner := ir.RetryAgentOwnerWorkerID(opts.retried, opts.step != ""); owner != "" {
+			taskOpts = append(taskOpts, executor.WithTargetWorkerID(owner))
+		}
+	}
 	if opts.step != "" {
 		taskOpts = append(taskOpts, executor.WithStep(opts.step))
 	}

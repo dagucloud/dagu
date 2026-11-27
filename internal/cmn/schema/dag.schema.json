@@ -8157,17 +8157,32 @@
     "mcpCallActionConfig": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["url", "tool"],
+      "required": ["tool"],
+      "anyOf": [
+        { "required": ["url"] },
+        { "required": ["connection"] }
+      ],
+      "dependencies": { "server": ["connection"] },
       "properties": {
         "url": {
           "type": "string",
           "minLength": 1,
-          "description": "Streamable HTTP MCP endpoint (http or https). Must not contain credentials."
+          "description": "Streamable HTTP MCP endpoint (http or https). Must not contain credentials. Required without connection; with one, it must be HTTPS on the connection's bound hosts."
         },
         "tool": {
           "type": "string",
           "minLength": 1,
           "description": "Name of the MCP tool to call."
+        },
+        "connection": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the connection whose token the call sends, in place of url and an Authorization header. A literal name."
+        },
+        "server": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The connection's service to call, such as gmail, whose MCP server the call uses unless url is set. A literal name. Requires connection."
         },
         "arguments": {
           "oneOf": [
@@ -8179,7 +8194,7 @@
         "headers": {
           "type": "object",
           "additionalProperties": { "type": "string" },
-          "description": "HTTP headers sent with every request, for example Authorization: Bearer ${SECRET}."
+          "description": "HTTP headers sent with every request, for example Authorization: Bearer ${SECRET}. With connection, Authorization is not allowed."
         },
         "include_raw": {
           "type": "boolean",

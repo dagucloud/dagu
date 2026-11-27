@@ -101,6 +101,9 @@ type dispatchTaskIndexEntry struct {
 	holdUntil int64
 	createdAt time.Time
 	updatedAt time.Time
+
+	// needsConnectionTokens is the task's NeedsConnectionTokens.
+	needsConnectionTokens bool
 }
 
 type dispatchTaskPayload struct {
@@ -280,20 +283,23 @@ func (idx *dispatchTaskIndex) invalidateDerivedState() {
 // candidatePendingIDs returns a copy of the matching pending IDs so callers
 // may mutate the index while iterating. The copy is allocated lazily so a
 // scan with no match costs nothing.
-func (idx *dispatchTaskIndex) candidatePendingIDs(workerID string, workerLabels map[string]string, capabilities []string) []string {
+func (idx *dispatchTaskIndex) candidatePendingIDs(claim dispatch.DispatchTaskClaim) []string {
 	var ids []string
 	for i, id := range idx.pendingIDs {
 		entry, ok := idx.pending[id]
 		if !ok {
 			continue
 		}
-		if entry.targetWorkerID != "" && entry.targetWorkerID != workerID {
+		if entry.targetWorkerID != "" && entry.targetWorkerID != claim.WorkerID {
 			continue
 		}
-		if !ir.MatchWorkerSelector(workerLabels, entry.workerSelector) {
+		if entry.needsConnectionTokens && !claim.ConnectionTokens {
 			continue
 		}
-		if !ir.WorkerHasCapabilities(capabilities, entry.requiredCapabilities) {
+		if !ir.MatchWorkerSelector(claim.Labels, entry.workerSelector) {
+			continue
+		}
+		if !ir.WorkerHasCapabilities(claim.Capabilities, entry.requiredCapabilities) {
 			continue
 		}
 		if ids == nil {
@@ -357,6 +363,7 @@ func dispatchTaskIndexEntryFromRecord(rec *persis.Record, payload dispatchTaskPa
 		entry.targetWorkerID = payload.Task.TargetWorkerID
 		entry.workerSelector = maps.Clone(payload.Task.WorkerSelector)
 		entry.requiredCapabilities = slices.Clone(payload.Task.RequiredCapabilities)
+		entry.needsConnectionTokens = payload.Task.NeedsConnectionTokens
 		if !payload.Task.HoldUntil.IsZero() {
 			entry.holdUntil = payload.Task.HoldUntil.UnixMilli()
 		}
@@ -371,10 +378,12 @@ func holdExpired(holdUntil time.Time, now time.Time) bool {
 	return !holdUntil.IsZero() && !now.Before(holdUntil)
 }
 
-// dispatchNoMatchKey identifies a worker and label set in the no-match
-// cache. Every field is length-prefixed so boundaries stay unambiguous
-// regardless of the bytes in the worker ID, keys, and values.
-func dispatchNoMatchKey(workerID string, labels map[string]string, capabilities []string) string {
+// dispatchNoMatchKey identifies a claim's worker, label set, capabilities,
+// and whether it takes connection tokens in the no-match cache. Every field
+// is length-prefixed so boundaries stay unambiguous regardless of the bytes
+// in the worker ID, keys, and values.
+func dispatchNoMatchKey(claim dispatch.DispatchTaskClaim) string {
+	workerID, labels, capabilities := claim.WorkerID, claim.Labels, claim.Capabilities
 	workerIDLength := strconv.Itoa(len(workerID))
 	keys := make([]string, 0, len(labels))
 	size := len(workerIDLength) + 1 + len(workerID)
@@ -384,7 +393,12 @@ func dispatchNoMatchKey(workerID string, labels map[string]string, capabilities 
 	}
 	sort.Strings(keys)
 	var b strings.Builder
-	b.Grow(size)
+	b.Grow(size + 1)
+	if claim.ConnectionTokens {
+		b.WriteByte('t')
+	} else {
+		b.WriteByte('f')
+	}
 	b.WriteString(workerIDLength)
 	b.WriteByte(':')
 	b.WriteString(workerID)
@@ -640,11 +654,11 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 	if len(s.index.pendingIDs) == 0 {
 		return nil, false, nil
 	}
-	noMatchKey := dispatchNoMatchKey(claim.WorkerID, claim.Labels, claim.Capabilities)
+	noMatchKey := dispatchNoMatchKey(claim)
 	if s.index.hasNoMatch(noMatchKey) {
 		return nil, false, nil
 	}
-	ids := s.index.candidatePendingIDs(claim.WorkerID, claim.Labels, claim.Capabilities)
+	ids := s.index.candidatePendingIDs(claim)
 	if len(ids) == 0 {
 		s.index.rememberNoMatch(noMatchKey)
 		return nil, false, nil
@@ -679,6 +693,10 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 		}
 		if !matchesDispatchSelector(claim.Labels, payload.Task.WorkerSelector) ||
 			!ir.WorkerHasCapabilities(claim.Capabilities, payload.Task.RequiredCapabilities) {
+			s.index.addPending(rec, payload)
+			continue
+		}
+		if payload.Task.NeedsConnectionTokens && !claim.ConnectionTokens {
 			s.index.addPending(rec, payload)
 			continue
 		}

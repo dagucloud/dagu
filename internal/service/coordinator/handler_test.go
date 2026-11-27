@@ -1096,7 +1096,7 @@ func TestDispatchPollerCapacity(t *testing.T) {
 	h.waitingPollers["gpu-poller"] = &workerInfo{
 		workerID: "gpu-worker", labels: map[string]string{"type": "gpu"}, taskChan: busy,
 	}
-	require.NoError(t, h.ensureWaitingWorkerAvailability(ctx, task.WorkerSelector, task.RequiredCapabilities, task.TargetWorkerId))
+	require.NoError(t, h.ensureWaitingWorkerAvailability(ctx, task.WorkerSelector, task.RequiredCapabilities, task.TargetWorkerId, false))
 	require.ErrorIs(t, h.dispatchToWaitingPoller(ctx, task), errNoAvailableWorkers)
 	require.Empty(t, other)
 }

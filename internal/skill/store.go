@@ -32,7 +32,15 @@ const (
 	// lockStaleThreshold is the age after which another writer takes a lock that
 	// its holder no longer refreshes.
 	lockStaleThreshold = 30 * time.Second
+	// deletedDirPrefix starts the name of the hidden folder that a delete moves
+	// a skill to before it removes the files.
+	deletedDirPrefix = ".deleted."
 )
+
+// ErrFilesLeft is returned by DeleteSkill when the skill is deleted but some of
+// its files could not be removed. They stay in a hidden folder of the skills
+// directory, which no read lists.
+var ErrFilesLeft = errors.New("the skill is deleted, but some of its files remain in a hidden folder")
 
 // ErrPreconditionRequired is returned for a write that has no precondition.
 var ErrPreconditionRequired = errors.New("a write needs a precondition: the hash that the client read, or the rule that the skill must not exist")
@@ -40,8 +48,8 @@ var ErrPreconditionRequired = errors.New("a write needs a precondition: the hash
 // ConflictError is returned when the precondition of a write fails: the skill
 // changed after the client read it, or it exists when it must not.
 type ConflictError struct {
-	// Current is the hash of the skill now. It is empty when the skill does not
-	// exist.
+	// Current is the hash of the skill now. It is empty when no version is
+	// known: another writer holds the skill, or the skill is being changed.
 	Current string
 	// Message tells why the write is refused.
 	Message string
@@ -227,6 +235,7 @@ func (s *Store) WriteFile(ctx context.Context, name, rel string, data []byte, pr
 	}
 
 	var result *Skill
+	committed := false
 	err = s.withLock(ctx, name, pre, func(held func() error) error {
 		current, err := s.checkPrecondition(name, pre)
 		if err != nil {
@@ -239,9 +248,23 @@ func (s *Store) WriteFile(ctx context.Context, name, rel string, data []byte, pr
 			return err
 		}
 		if current == nil {
-			if err := os.MkdirAll(s.Dir(name), dirPerm); err != nil {
+			if err := os.MkdirAll(s.root, dirPerm); err != nil {
+				return fmt.Errorf("create the skills directory: %w", err)
+			}
+			// The folder of a new skill is made by this write alone.
+			if err := os.Mkdir(s.Dir(name), dirPerm); err != nil {
+				if errors.Is(err, fs.ErrExist) {
+					return &ConflictError{Message: fmt.Sprintf("the skill %q already exists", name)}
+				}
 				return fmt.Errorf("create the skill folder: %w", err)
 			}
+			// A creation that commits nothing leaves no folder. Remove deletes an
+			// empty folder only, so a file of another writer stays.
+			defer func() {
+				if !committed {
+					_ = os.Remove(s.Dir(name))
+				}
+			}()
 		}
 		root, err := s.openSkillRoot(name)
 		if err != nil {
@@ -251,8 +274,19 @@ func (s *Store) WriteFile(ctx context.Context, name, rel string, data []byte, pr
 		if err := writeInRoot(root, rel, data, held); err != nil {
 			return err
 		}
-		result, err = Read(s.Dir(name))
-		return err
+		committed = true
+		read, err := Read(s.Dir(name))
+		if err != nil {
+			return err
+		}
+		// The result describes the saved file only while the path of the skill
+		// still names the folder that the write opened, and when the read did
+		// not meet a link there.
+		if !namesRoot(s.Dir(name), root) || hasRule(read.Issues, RuleFolderLink) {
+			return &ConflictError{Message: fmt.Sprintf("the skill folder %q was replaced during the write; read it again", name)}
+		}
+		result = read
+		return nil
 	})
 	return result, err
 }
@@ -296,6 +330,27 @@ func openSkillDir(dir string) (*os.Root, error) {
 		return nil, linkRefusal(RuleFolderLink, "", "the skill folder changed while Dagu opened it")
 	}
 	return root, nil
+}
+
+// hasRule reports whether issues hold the rule.
+func hasRule(issues []Issue, rule string) bool {
+	for _, i := range issues {
+		if i.Rule == rule {
+			return true
+		}
+	}
+	return false
+}
+
+// namesRoot reports whether dir is still the folder that root opened, not a
+// link or another folder.
+func namesRoot(dir string, root *os.Root) bool {
+	opened, err := root.Stat(".")
+	if err != nil {
+		return false
+	}
+	info, err := os.Lstat(dir)
+	return err == nil && os.SameFile(info, opened)
 }
 
 // checkNoLink returns an error when a component of rel, from the top folder to the
@@ -502,7 +557,9 @@ func layoutAllowsDir(rel string) bool {
 	return true
 }
 
-// DeleteSkill deletes the whole folder of a skill, with every file.
+// DeleteSkill deletes the whole folder of a skill, with every file. A reader
+// sees the whole skill or no skill. It returns ErrFilesLeft when the skill is
+// gone but some of its files could not be removed.
 func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) error {
 	if !IsSafeFolderName(name) {
 		return ErrNotFound
@@ -521,10 +578,20 @@ func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) 
 		if err := held(); err != nil {
 			return err
 		}
-		if err := os.RemoveAll(s.Dir(name)); err != nil {
+		// One rename removes the skill for every reader; the files go after it. A
+		// reader that holds a file open keeps reading the version it opened.
+		hidden := filepath.Join(s.root, fmt.Sprintf("%s%016x", deletedDirPrefix, rand.Uint64())) //nolint:gosec // the name of a hidden folder, not a secret
+		if err := fileutil.Rename(s.Dir(name), hidden); err != nil {
 			return fmt.Errorf("delete the skill folder: %w", err)
 		}
-		return fileutil.SyncDir(s.root)
+		left := fileutil.RemoveAll(hidden)
+		if err := fileutil.SyncDir(s.root); err != nil {
+			return fmt.Errorf("delete the skill folder: %w", err)
+		}
+		if left != nil {
+			return fmt.Errorf("%w: %s: %v", ErrFilesLeft, hidden, left)
+		}
+		return nil
 	})
 }
 
@@ -540,6 +607,18 @@ func (s *Store) checkPrecondition(name string, pre Precondition) (*Skill, error)
 	}
 	if errors.Is(err, ErrNotFound) {
 		current = nil
+	}
+	if current != nil {
+		// A read that did not settle holds no version of the skill, so its hash
+		// passes no precondition.
+		for _, issue := range current.Issues {
+			switch issue.Rule {
+			case RuleChanging:
+				return nil, &ConflictError{Message: fmt.Sprintf("the skill %q is being changed; read it again", name)}
+			case RuleUnreadable:
+				return nil, fmt.Errorf("the skill %q cannot be read", name)
+			}
+		}
 	}
 	if pre.MustNotExist {
 		if current != nil {
@@ -574,27 +653,47 @@ func (s *Store) withLock(ctx context.Context, name string, pre Precondition, fn 
 		}
 	}
 	lockDir := filepath.Join(s.root, lockDirName, name)
-	if err := os.MkdirAll(lockDir, dirPerm); err != nil {
-		return fmt.Errorf("create the lock folder: %w", err)
-	}
 	lock := dirlock.New(lockDir, &dirlock.LockOptions{StaleThreshold: lockStaleThreshold})
 	lctx, cancel := context.WithTimeout(ctx, lockTimeout)
 	defer cancel()
-	if err := lock.Lock(lctx); err != nil {
-		return &ConflictError{Message: fmt.Sprintf("another writer holds the skill %q", name)}
+	for {
+		if err := os.MkdirAll(lockDir, dirPerm); err != nil {
+			return fmt.Errorf("create the lock folder: %w", err)
+		}
+		err := lock.Lock(lctx)
+		if err == nil {
+			break
+		}
+		// The writer that deleted the skill can remove the lock folder while
+		// this one takes the lock.
+		if errors.Is(err, fs.ErrNotExist) && lctx.Err() == nil {
+			continue
+		}
+		// Only the end of the wait for another writer is a conflict.
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			return &ConflictError{Message: fmt.Sprintf("another writer holds the skill %q", name)}
+		}
+		return fmt.Errorf("lock the skill %q: %w", name, err)
 	}
+	// The lock folder of a skill that no longer exists goes after the unlock, so
+	// the lock folders stay one per skill. Remove deletes an empty folder only,
+	// never the lock of another writer.
+	defer func() {
+		if _, err := os.Lstat(s.Dir(name)); errors.Is(err, fs.ErrNotExist) {
+			_ = os.Remove(lockDir)
+		}
+	}()
 	defer func() { _ = lock.Unlock() }()
 	// A slow write on shared storage can last longer than the stale threshold. The
 	// heartbeat keeps the lock fresh, so another instance does not take it. held
 	// refuses a commit once the last renewal is three quarters of the stale
 	// threshold old, before another writer can judge the lock stale, or once
 	// another writer holds the lock.
+	// A renewal counts from its start: the lock's time stamp is set near the
+	// start of a heartbeat, and a slow heartbeat must not extend the lease.
 	var renewedAt atomic.Pointer[time.Time]
-	markRenewed := func() {
-		now := time.Now()
-		renewedAt.Store(&now)
-	}
-	markRenewed()
+	acquired := time.Now()
+	renewedAt.Store(&acquired)
 	renewCtx, stopRenewing := context.WithCancel(ctx)
 	renewed := make(chan struct{})
 	go func() {
@@ -606,8 +705,9 @@ func (s *Store) withLock(ctx context.Context, name string, pre Precondition, fn 
 			case <-renewCtx.Done():
 				return
 			case <-ticker.C:
+				start := time.Now()
 				if lock.Heartbeat(renewCtx) == nil {
-					markRenewed()
+					renewedAt.Store(&start)
 				}
 			}
 		}

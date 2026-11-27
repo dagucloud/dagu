@@ -23,6 +23,9 @@ const (
 	// ServiceDAGDataKey is true when the DAG of the run is a service DAG. A
 	// consumer can then limit how often these runs wake a stream.
 	ServiceDAGDataKey = "service_dag"
+	// MaxSnapshotDependencySteps caps the number of named regular steps whose
+	// dependency edges a terminal snapshot retains.
+	MaxSnapshotDependencySteps = 200
 )
 
 type DAGRunCursor struct {
@@ -57,6 +60,7 @@ type DAGRunNodeSnapshot struct {
 	Stderr            string                `json:"stderr,omitempty"`
 	StepID            string                `json:"step_id,omitempty"`
 	StepName          string                `json:"step_name,omitempty"`
+	StepDepends       []int                 `json:"step_depends,omitempty"` // Positions in the run snapshot's Nodes.
 	StartedAt         string                `json:"started_at,omitempty"`
 	FinishedAt        string                `json:"finished_at,omitempty"`
 	Status            ir.NodeStatus         `json:"status,omitempty"`
@@ -177,18 +181,37 @@ func (s *DAGRunStatusSnapshot) Validate() error {
 	return nil
 }
 
-func newDAGRunStatusSnapshot(status *ir.DAGRunStatus, dagFile string) *DAGRunStatusSnapshot {
+func newDAGRunStatusSnapshot(status *ir.DAGRunStatus, dagFile string, includeDependencies bool) *DAGRunStatusSnapshot {
 	if status == nil {
 		return nil
 	}
 
 	nodes := make([]DAGRunNodeSnapshot, 0, len(status.Nodes))
+	type dependencySource struct {
+		step  *ir.Step
+		index int
+	}
+	var sources []dependencySource
+	positions := map[string]int{}
 	for _, node := range status.Nodes {
 		snapshot := newDAGRunNodeSnapshot(node)
 		if snapshot == nil {
 			continue
 		}
+		if includeDependencies && snapshot.StepName != "" && len(sources) < MaxSnapshotDependencySteps {
+			positions[snapshot.StepName] = len(sources)
+			sources = append(sources, dependencySource{step: &node.Step, index: len(nodes)})
+		}
 		nodes = append(nodes, *snapshot)
+	}
+	for _, source := range sources {
+		var seen [MaxSnapshotDependencySteps]bool
+		for _, name := range source.step.AllDepends() {
+			if position, ok := positions[name]; ok && !seen[position] {
+				seen[position] = true
+				nodes[source.index].StepDepends = append(nodes[source.index].StepDepends, sources[position].index)
+			}
+		}
 	}
 
 	return &DAGRunStatusSnapshot{
@@ -227,8 +250,14 @@ func (s *DAGRunStatusSnapshot) DAGRunStatus() *ir.DAGRunStatus {
 	}
 
 	nodes := make([]*ir.Node, 0, len(s.Nodes))
-	for _, node := range s.Nodes {
-		nodes = append(nodes, node.Node())
+	for _, snapshot := range s.Nodes {
+		node := snapshot.Node()
+		for _, position := range snapshot.StepDepends {
+			if position >= 0 && position < len(s.Nodes) {
+				node.Step.Depends = append(node.Step.Depends, s.Nodes[position].StepName)
+			}
+		}
+		nodes = append(nodes, node)
 	}
 
 	return &ir.DAGRunStatus{

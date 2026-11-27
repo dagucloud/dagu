@@ -96,9 +96,10 @@ func (c config) validate(loadTime bool) error {
 		return errors.New("mcp.call: with.server requires with.connection")
 	}
 	// The DAG builder validates the connection's name and server, which it
-	// collects for the run's admission checks.
-	if c.Connection != "" && !loadTime {
-		return errors.New("mcp.call: with.connection is not supported yet")
+	// collects for the run's admission checks. The connection's token takes
+	// the place of an Authorization header.
+	if c.Connection != "" && setsAuthorization(c.Headers) {
+		return errors.New("mcp.call: with.headers must not set Authorization with with.connection")
 	}
 	if c.URL == "" {
 		if c.Connection != "" {
@@ -119,6 +120,15 @@ func (c config) validate(loadTime bool) error {
 	return nil
 }
 
+func setsAuthorization(headers map[string]string) bool {
+	for name := range headers {
+		if strings.EqualFold(name, "Authorization") {
+			return true
+		}
+	}
+	return false
+}
+
 func validateStep(step ir.Step) error {
 	if step.ExecutorConfig.Type != executorType {
 		return nil
@@ -132,15 +142,15 @@ var configSchema = &jsonschema.Schema{
 	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Required:             []string{"tool"},
 	Properties: map[string]*jsonschema.Schema{
-		"url":        {Type: "string", Description: "Streamable HTTP MCP endpoint (http or https). Must not contain credentials. Required without connection."},
+		"url":        {Type: "string", Description: "Streamable HTTP MCP endpoint (http or https). Must not contain credentials. Required without connection; with one, it must be on the connection's bound hosts."},
 		"tool":       {Type: "string", Description: "Name of the MCP tool to call."},
 		"connection": {Type: "string", Description: "Name of the connection whose token the call uses, in place of url and an Authorization header."},
-		"server":     {Type: "string", Description: "The connection's service to call, such as gmail. Requires connection."},
+		"server":     {Type: "string", Description: "The connection's service to call, such as gmail, whose MCP server the call uses unless url is set. Requires connection."},
 		"arguments": {AnyOf: []*jsonschema.Schema{
 			{Type: "object", AdditionalProperties: &jsonschema.Schema{}},
 			{Type: "string", Description: "Whole-value reference resolving to a JSON object."},
 		}, Description: "JSON arguments passed to the tool."},
-		"headers":     {Type: "object", Description: "HTTP headers sent with every request, for example Authorization: Bearer ${SECRET}.", AdditionalProperties: &jsonschema.Schema{Type: "string"}},
+		"headers":     {Type: "object", Description: "HTTP headers sent with every request, for example Authorization: Bearer ${SECRET}. With connection, Authorization is not allowed.", AdditionalProperties: &jsonschema.Schema{Type: "string"}},
 		"include_raw": {Type: "boolean", Description: "Also emit the unmodified MCP tool result under raw."},
 		"save_binary": {Type: "boolean", Description: "Save image, audio, and blob resource data as run artifacts and output each file's path instead of base64. Requires artifacts."},
 	},

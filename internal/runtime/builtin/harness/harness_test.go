@@ -478,9 +478,7 @@ func TestOpenCodeInterruptAwaitsIdle(t *testing.T) {
 
 	t.Run("unreachable host", func(t *testing.T) {
 		t.Parallel()
-		server := httptest.NewServer(http.NotFoundHandler())
-		server.Close()
-		client := &openCodeClient{host: opencodehost.Config{URL: server.URL}, http: newOpenCodeHTTPClient(time.Second)}
+		client := &openCodeClient{host: opencodehost.Config{URL: unreachableHostURL}, http: newOpenCodeHTTPClient(time.Second)}
 		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 		defer cancel()
 		require.ErrorIs(t, client.interruptAndAwaitIdle(ctx, "session-1"), errManagedHostUnavailable)
@@ -605,6 +603,10 @@ func TestManagedOpenCodeTransportLossWaitsForRestart(t *testing.T) {
 	assert.Equal(t, ir.NodeWaiting, status)
 }
 
+// unreachableHostURL is a host URL nothing can listen on. A port freed by a
+// closed server is not used, since a concurrent test may bind it again.
+const unreachableHostURL = "http://127.0.0.1:0"
+
 // A run that cannot reach the host before it has a session fails, so the step
 // can fall back to the CLI or retry instead of waiting on nothing.
 func TestManagedOpenCodeHostDownAtStart(t *testing.T) {
@@ -613,13 +615,10 @@ func TestManagedOpenCodeHostDownAtStart(t *testing.T) {
 	for _, version := range []string{"1.18.0", "2.1.4"} {
 		t.Run(version, func(t *testing.T) {
 			t.Parallel()
-			server := httptest.NewServer(http.NotFoundHandler())
-			server.Close()
-
 			exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
 			ctx := runtime.WithEnv(t.Context(), runtime.Env{})
 			stdout, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, opencodehost.Config{
-				URL: server.URL, Version: version,
+				URL: unreachableHostURL, Version: version,
 			})
 
 			require.ErrorIs(t, err, errManagedHostUnavailable)

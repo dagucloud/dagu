@@ -16,10 +16,12 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -385,21 +387,42 @@ func TestWritePreconditions(t *testing.T) {
 		_, err := s.WriteFile(ctx, "missing", "references/a.md", []byte("x"), skill.Precondition{IfMatch: strings.Repeat("0", 64)})
 		require.ErrorIs(t, err, skill.ErrNotFound)
 	})
-	t.Run("delete the skill", func(t *testing.T) {
-		cur, _ := s.Read("demo")
-		err := s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: strings.Repeat("0", 64)})
-		var conflict *skill.ConflictError
-		require.ErrorAs(t, err, &conflict)
-		require.NoError(t, s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: cur.Hash}))
-		_, err = s.Read("demo")
-		require.ErrorIs(t, err, skill.ErrNotFound)
-	})
 }
 
-// A write or a delete never goes through a symbolic link: not the folder of the skill,
+// A read that does not settle holds no version of the skill, so its hash
+// passes no precondition, also when the client got that hash from such a read.
+// The test changes a package variable, so it is not parallel.
+func TestWriteRefusesASkillThatDoesNotSettle(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	_, err := s.WriteFile(ctx, "demo", "references/x.md", []byte("x"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	before, err := os.ReadFile(filepath.Join(s.Dir("demo"), "SKILL.md"))
+	require.NoError(t, err)
+
+	n := 0
+	skill.AroundReadFiles(t, func() {}, func() {
+		n++
+		require.NoError(t, os.WriteFile(filepath.Join(s.Dir("demo"), "references", "x.md"), []byte(strings.Repeat("y", n)), 0o644))
+	})
+	unsettled, err := s.Read("demo")
+	require.NoError(t, err)
+	require.Contains(t, ruleSet(unsettled.Issues), skill.RuleChanging)
+
+	_, err = s.WriteFile(ctx, "demo", "SKILL.md", []byte(good), skill.Precondition{IfMatch: unsettled.Hash})
+	var conflict *skill.ConflictError
+	require.ErrorAs(t, err, &conflict)
+	require.Empty(t, conflict.Current, "a skill that does not settle has no current hash")
+	after, err := os.ReadFile(filepath.Join(s.Dir("demo"), "SKILL.md"))
+	require.NoError(t, err)
+	require.Equal(t, string(before), string(after))
+}
+
+// A write never goes through a symbolic link: not the folder of the skill,
 // not a folder below it, not the file itself. The files outside the skill stay as they
 // are, whatever hash the client sends (Spec 096, "Source of truth").
-func TestWriteAndDeleteRefuseSymbolicLinks(t *testing.T) {
+func TestWriteRefusesSymbolicLinks(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -450,13 +473,6 @@ func TestWriteAndDeleteRefuseSymbolicLinks(t *testing.T) {
 		entries, err := os.ReadDir(outside)
 		require.NoError(t, err)
 		require.Len(t, entries, 2, "the target of the link holds SKILL.md and victim only")
-
-		// The owner can still remove the link. The target stays.
-		require.NoError(t, s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: cur.Hash}))
-		_, err = os.Lstat(s.Dir("demo"))
-		require.True(t, os.IsNotExist(err))
-		_, err = os.Stat(filepath.Join(outside, "victim"))
-		require.NoError(t, err)
 	})
 
 	t.Run("symlinked folder below the skill", func(t *testing.T) {
@@ -526,6 +542,25 @@ func TestWriteAndDeleteRefuseSymbolicLinks(t *testing.T) {
 	})
 }
 
+// A lock that fails for another reason than a writer that holds it is an
+// error, not a conflict: a conflict tells the client to read and retry.
+func TestLockFailureIsNotAConflict(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs Unix permissions that bind the user")
+	}
+	t.Parallel()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	locks := filepath.Join(skill.Root(s), ".locks", "demo")
+	require.NoError(t, os.Chmod(locks, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(locks, 0o755) })
+
+	_, err := s.WriteFile(context.Background(), "demo", "SKILL.md", []byte(good), skill.Precondition{IfMatch: created.Hash})
+	require.Error(t, err)
+	var conflict *skill.ConflictError
+	require.False(t, errors.As(err, &conflict), "%v", err)
+}
+
 // loseLock hands the lock of the skill name to another owner, as the takeover
 // of a stale lock by another instance would.
 func loseLock(t *testing.T, s *skill.Store, name string) {
@@ -582,16 +617,31 @@ func TestLostLockCommitsNothing(t *testing.T) {
 		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
 		unchanged(t, s, hash)
 	})
+	t.Run("create", func(t *testing.T) {
+		t.Parallel()
+		s := newStore(t)
+		skill.SetBeforeHeldCheck(s, func() { loseLock(t, s, "fresh") })
+		content := strings.Replace(good, "name: demo", "name: fresh", 1)
+		_, err := s.WriteFile(ctx, "fresh", "SKILL.md", []byte(content), skill.Precondition{MustNotExist: true})
+		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
+		_, err = os.Lstat(s.Dir("fresh"))
+		require.ErrorIs(t, err, fs.ErrNotExist, "a creation that commits nothing leaves no folder")
+	})
 }
 
 // Two writers with the same hash: one wins and the other one gets a conflict.
-// Two stores on one directory stand for two instances.
+// Two stores on one directory stand for two instances. The first round starts
+// with the lock of a holder that died, which one writer only takes over.
 func TestTwoWritersRace(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "skills")
 	a, b := skill.NewStore(dir), skill.NewStore(dir)
-	created := create(t, a, "demo")
+	create(t, a, "demo")
+	locks := filepath.Join(dir, ".locks", "demo")
+	require.NoError(t, dirlock.New(locks, nil).TryLock())
+	old := time.Now().Add(-time.Minute)
+	require.NoError(t, os.Chtimes(filepath.Join(locks, dirlock.LockDirectoryName), old, old))
 
 	for round := range 20 {
 		cur, err := a.Read("demo")
@@ -615,7 +665,90 @@ func TestTwoWritersRace(t *testing.T) {
 		}
 		require.Equal(t, 1, wins, "round %d: %v", round, errs)
 	}
-	_ = created
+}
+
+// A write never reaches the target of a link that replaces the skill folder or
+// the skills directory during the write. A write stays in the skill folder that
+// it opened, and then gives a conflict: the path of the skill names another
+// folder. A moved skills directory moves the lock too, so that write stops.
+func TestWriteStaysInTheFolderThatItOpened(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows refuses to move a folder that a process holds open")
+	}
+	t.Parallel()
+	for name, inSkillsDir := range map[string]bool{"skill folder": false, "skills directory": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := newStore(t)
+			created := create(t, s, "demo")
+			outside := t.TempDir()
+			require.NoError(t, os.Mkdir(filepath.Join(outside, "demo"), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(outside, "demo", "SKILL.md"), []byte("original"), 0o644))
+			path, target := s.Dir("demo"), filepath.Join(outside, "demo")
+			if inSkillsDir {
+				path, target = skill.Root(s), outside
+			}
+			before, err := os.ReadFile(filepath.Join(s.Dir("demo"), "SKILL.md"))
+			require.NoError(t, err)
+			skill.SetBeforeHeldCheck(s, func() {
+				require.NoError(t, os.Rename(path, path+".moved"))
+				require.NoError(t, os.Symlink(target, path))
+			})
+
+			_, writeErr := s.WriteFile(context.Background(), "demo", "SKILL.md", []byte(good), skill.Precondition{IfMatch: created.Hash})
+			entries, err := os.ReadDir(filepath.Join(outside, "demo"))
+			require.NoError(t, err)
+			require.Len(t, entries, 1, "a file was made in the link target")
+			data, err := os.ReadFile(filepath.Join(outside, "demo", "SKILL.md"))
+			require.NoError(t, err)
+			require.Equal(t, "original", string(data), "the write went through the link")
+			moved, want := filepath.Join(s.Dir("demo")+".moved", "SKILL.md"), good
+			if !inSkillsDir {
+				var conflict *skill.ConflictError
+				require.ErrorAs(t, writeErr, &conflict, "the result would describe the link, not the saved file")
+			}
+			if inSkillsDir {
+				require.ErrorIs(t, writeErr, dirlock.ErrLockNotHeld)
+				moved, want = filepath.Join(skill.Root(s)+".moved", "demo", "SKILL.md"), string(before)
+			}
+			data, err = os.ReadFile(moved)
+			require.NoError(t, err)
+			require.Equal(t, want, string(data))
+		})
+	}
+}
+
+// A read right after a write gets the written version, also when the cache
+// holds the version before the write, as the cache of another process on the
+// same directory does. The write returns the hash of the files on disk. The
+// test moves the clock of the cache, so it is not parallel.
+func TestReadAfterAWriteSeesIt(t *testing.T) {
+	skill.SettleClock(t)
+	ctx := context.Background()
+	s := newStore(t)
+	other := skill.NewStore(skill.Root(s))
+	cur := create(t, s, "demo")
+	for i := range 3 {
+		_, err := other.Read("demo")
+		require.NoError(t, err)
+		// The same size, so only the time stamps and the content tell the versions.
+		content := strings.Replace(good, "Body text.", fmt.Sprintf("Body tex%d.", i), 1)
+		written, err := s.WriteFile(ctx, "demo", "SKILL.md", []byte(content), skill.Precondition{IfMatch: cur.Hash})
+		require.NoError(t, err)
+		data, err := os.ReadFile(filepath.Join(s.Dir("demo"), "SKILL.md"))
+		require.NoError(t, err)
+		sum := sha256.Sum256(data)
+		require.Equal(t, skill.HashFiles([]skill.File{{Path: "SKILL.md", SHA256: hex.EncodeToString(sum[:])}}), written.Hash)
+		for _, st := range []*skill.Store{s, other} {
+			got, err := st.Read("demo")
+			require.NoError(t, err)
+			require.Equal(t, written.Hash, got.Hash)
+			text, err := got.Text("SKILL.md")
+			require.NoError(t, err)
+			require.Equal(t, content, string(text))
+		}
+		cur = written
+	}
 }
 
 // A reader that meets a skill during a multi-file save sees a complete version.
@@ -632,7 +765,17 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	var writeErr error
+	var writes atomic.Int64
+	// The writer stops and ends before the folder is removed, also when the
+	// test fails.
+	stopWriter := sync.OnceFunc(func() {
+		close(stop)
+		wg.Wait()
+	})
+	t.Cleanup(stopWriter)
+	writerDone := make(chan struct{})
 	wg.Go(func() {
+		defer close(writerDone)
 		hash := cur.Hash
 		for i := 0; ; i++ {
 			select {
@@ -646,10 +789,23 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 				return
 			}
 			hash = next.Hash
+			writes.Add(1)
 		}
 	})
 	changing := 0
-	for range 200 {
+	// The reads go on until a write has completed while they ran, or until the
+	// writer failed.
+	before := writes.Load()
+	overlapped := func() bool {
+		select {
+		case <-writerDone:
+			return true
+		default:
+			return writes.Load() > before
+		}
+	}
+	reads := 0
+	for ; reads < 200 || !overlapped(); reads++ {
 		sk, err := s.Read("demo")
 		require.NoError(t, err)
 		if !sk.Valid() {
@@ -674,10 +830,42 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 		require.Equal(t, strings.ReplaceAll(big, "0", string(data[0])), string(data), "a reader saw a mix of two versions")
 		require.Equal(t, skill.HashFiles(sk.Files), sk.Hash)
 	}
-	close(stop)
-	wg.Wait()
+	stopWriter()
 	require.NoError(t, writeErr, "the writes stopped before the reads ended")
-	require.Less(t, changing, 200, "no read got one version of the skill")
+	require.Less(t, changing, reads, "no read got one version of the skill")
+}
+
+// A read whose folder is replaced between its walk and its read of the files
+// reads again and gets the new version. The write runs inside the read, so
+// the overlap does not depend on the scheduler. The test changes a package
+// variable, so it does not run in parallel.
+func TestReadThatMeetsAWriteGetsOneVersion(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	cur := create(t, s, "demo")
+	// The same size, so only the time stamps and the content tell the versions.
+	content, err := cur.Text("SKILL.md")
+	require.NoError(t, err)
+	next := strings.Replace(string(content), "Body.", "Bodx.", 1)
+	var written *skill.Skill
+	var writeErr error
+	wrote := false
+	skill.AroundReadFiles(t, func() {
+		// The write reads the skill too; only the first read of the test writes.
+		if !wrote {
+			wrote = true
+			written, writeErr = s.WriteFile(ctx, "demo", "SKILL.md", []byte(next), skill.Precondition{IfMatch: cur.Hash})
+		}
+	}, func() {})
+
+	got, err := s.Read("demo")
+	require.NoError(t, err)
+	require.True(t, wrote, "the read never reached its read of the files")
+	require.NoError(t, writeErr)
+	require.Equal(t, written.Hash, got.Hash)
+	text, err := got.Text("SKILL.md")
+	require.NoError(t, err)
+	require.Equal(t, next, string(text))
 }
 
 // A partial folder (a new file but no SKILL.md yet) is refused, not used.

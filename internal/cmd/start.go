@@ -428,26 +428,15 @@ func tryExecuteDAG(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 	if dag.Type == ir.TypeBuild && opts.workerID != "local" {
 		return dispatch.ErrBuildRequiresLocal
 	}
-	// Check for dispatch to coordinator for distributed execution.
-	// Skip if already running on a worker (workerID != "local").
+	// A run on a worker (workerID != "local") is already placed.
 	if opts.workerID == "local" {
-		// A run bound to a worker node runs on that worker, whatever the
-		// default execution mode.
-		worker, coordinatorCli, err := boundWorker(ctx, dag, opts.targetNodes, "")
+		placement, err := placeRun(ctx, dag, opts.targetNodes, "")
 		if err != nil {
 			return err
 		}
-		opts.boundWorker = worker
-		if worker == "" {
-			if coordinatorCli, err = ctx.NewCoordinatorClient(); err != nil {
-				return err
-			}
-		}
-		if worker != "" || dispatch.ShouldDispatchToCoordinator(dag, coordinatorCli != nil, ctx.Config.DefaultExecMode) {
-			if dag.Type == ir.TypeBuild {
-				return dispatch.ErrBuildRequiresLocal
-			}
-			return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, opts, coordinatorCli)
+		if placement.dispatched() {
+			opts.boundWorker = placement.worker
+			return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, opts, placement.client)
 		}
 	}
 
@@ -816,7 +805,7 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 			ProfileName:              opts.profileName,
 			DAGDefinitionID:          opts.definitionID,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
-			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
+			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(as, opts.workerID),
 			RootDAGRun:               opts.root,
 			PeerConfig:               ctx.Config.Core.Peer,
 			TriggerType:              opts.triggerType,
@@ -977,7 +966,15 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 
 	err := ctx.checkProjectDispatch()
 	if err == nil {
-		err = coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task})
+		// The coordinator can take a task after the caller gives up on the
+		// call, so an interrupt does not cut the call short: once it returns,
+		// a run the coordinator took exists there, and the cancellation below
+		// reaches it. A second interrupt exits at once.
+		go func() {
+			<-signalCtx.Done()
+			stop()
+		}()
+		err = coordinatorCli.Dispatch(context.WithoutCancel(signalAwareCtx), dispatch.DispatchRequest{Task: task})
 	}
 	if err != nil {
 		if opts.seed != nil {

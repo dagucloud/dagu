@@ -341,7 +341,9 @@ The `dagrunchanges:all` topic of the stream and `GET /dag-run-changes` give a ch
 once. The feed lists every change of the state of a root run of a DAG that the caller can see, by
 the workspace label of the run, after `since` and up to `readAt`. A list reads the activity again
 of the rows whose file has a `changedAt` at or after the `readAt` of their activity, and of the
-rows whose activity it read before `since`.
+rows whose activity it read before `since`. It also reads a service row again 15 seconds after the
+newest bucket of its last read ends, in one request with the other service rows that are due: a
+run in progress writes no change to the feed.
 
 - The topic reads the feed at most once a minute, and at least once a minute. It sends each read,
   since its `readAt` moves, so that a list learns once a minute that its rows are still current.
@@ -453,8 +455,9 @@ Rules:
 - When the activity of a service DAG has no `buckets`, the list draws no strip and no bar for it.
 - The list makes no request of its own for each DAG. The activity of its rows comes in
   `GET /dag-list-activity` requests that name the rows, at most 100 each. After the first read, the
-  list reads only the rows that the `dagrunchanges` feed names, or the rows that it read before the
-  `since` of the feed. While the stream is down, it polls `GET /dag-run-changes` once a minute.
+  list reads only the rows that the `dagrunchanges` feed names, the rows that it read before the
+  `since` of the feed, and the service rows whose newest bucket ended 15 seconds ago, batched
+  together. While the stream is down, it polls `GET /dag-run-changes` once a minute.
   The only exception is the detail of a strip that the user opens.
 - The list adds the topic in a topic change of its own, so that the list does not wait for the
   activity.

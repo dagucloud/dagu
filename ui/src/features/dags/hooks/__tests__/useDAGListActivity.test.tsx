@@ -383,6 +383,77 @@ describe('useDAGListActivity', () => {
     expect(requested()).toHaveLength(3);
   });
 
+  // A service run in progress writes no change to the feed, so the list reads
+  // a service DAG again once the newest bucket of its activity ends, a little
+  // after the server stops reusing what it read before.
+  it('reads a service DAG again when its newest bucket ends', async () => {
+    const minute = 60_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(T0 + 30 * minute);
+    readAt = at(30 * minute);
+    getMock.mockImplementation(async (_path: string, init: GetInit) => {
+      const page = answer(init.params.query.fileName);
+      const dags = page.data.dags.map((entry) =>
+        entry.fileName === 'svc'
+          ? {
+              ...entry,
+              activity: {
+                ...entry.activity,
+                buckets: [],
+                resolutionSeconds: 3600,
+              },
+            }
+          : entry
+      );
+      return { ...page, data: { ...page.data, dags } };
+    });
+    renderActivity(['svc', 'plain']);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(requested()).toEqual([['svc', 'plain']]);
+
+    await act(() => vi.advanceTimersByTimeAsync(30 * minute + 14_999));
+    expect(requested()).toHaveLength(1);
+    readAt = at(60 * minute + 15_000);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(requested()).toEqual([['svc', 'plain'], ['svc']]);
+
+    // The next read waits for the end of the next bucket.
+    await act(() => vi.advanceTimersByTimeAsync(59 * minute));
+    expect(requested()).toHaveLength(2);
+  });
+
+  // Two service DAGs read at different times get bucket ends that differ by
+  // the latency of each read; they are still read again in one request.
+  it('reads the service DAGs whose buckets end together at once', async () => {
+    const minute = 60_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(T0 + 30 * minute);
+    readAt = at(30 * minute);
+    getMock.mockImplementation(async (_path: string, init: GetInit) => {
+      const page = answer(init.params.query.fileName);
+      const dags = page.data.dags.map((entry) => ({
+        ...entry,
+        activity: { ...entry.activity, buckets: [], resolutionSeconds: 3600 },
+      }));
+      return { ...page, data: { ...page.data, dags } };
+    });
+    const { rerender } = renderActivity(['api', 'beat']);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    // The server answers the read of beat half a second behind the client.
+    await act(() => vi.advanceTimersByTimeAsync(29 * minute));
+    readAt = at(59 * minute - 500);
+    feed = feedOf(0, 59 * minute - 1000, ['beat', 58 * minute]);
+    rerender({ names: ['api', 'beat'], node: 'local' });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(requested()).toEqual([['api', 'beat'], ['beat']]);
+
+    readAt = at(60 * minute + 15_000);
+    await act(() => vi.advanceTimersByTimeAsync(minute + 15_000));
+    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    expect(requested()).toEqual([['api', 'beat'], ['beat'], ['api', 'beat']]);
+  });
+
   it('aborts the reads in flight when it unmounts', async () => {
     getMock.mockImplementation(() => new Promise(() => {}));
     const { unmount } = renderActivity(['a']);

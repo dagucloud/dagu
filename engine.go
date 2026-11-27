@@ -468,6 +468,7 @@ func filePersistenceFactory(ctx context.Context, cfg *config.Config) (iengine.Pe
 				OpenConnectionStore: func() (connection.Store, error) {
 					return file.NewServerStores(cfg).ConnectionStore()
 				},
+				ConnectionLocks: file.NewServerStores(cfg).ConnectionLocks(),
 			}
 		},
 	}, nil

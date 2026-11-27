@@ -25,11 +25,12 @@ func TestWorkerShortfallChecksCapabilities(t *testing.T) {
 	needs := &coordinatorv1.Task{RequiredCapabilities: []string{ir.CapabilityAIRelay}}
 	plain := &coordinatorv1.Task{}
 
-	assert.ErrorIs(t, workerShortfall([]dispatch.WorkerHeartbeatRecord{old}, needs), errNoMatchingWorkers)
-	assert.NoError(t, workerShortfall([]dispatch.WorkerHeartbeatRecord{old, current}, needs))
-	assert.NoError(t, workerShortfall([]dispatch.WorkerHeartbeatRecord{old}, plain))
-	assert.True(t, anyWorkerMatches([]dispatch.WorkerHeartbeatRecord{current}, nil, needs.RequiredCapabilities, ""))
-	assert.False(t, anyWorkerMatches([]dispatch.WorkerHeartbeatRecord{old}, nil, needs.RequiredCapabilities, ""))
+	noConnections := func() bool { return false }
+	assert.ErrorIs(t, workerShortfall([]dispatch.WorkerHeartbeatRecord{old}, needs, noConnections), errNoMatchingWorkers)
+	assert.NoError(t, workerShortfall([]dispatch.WorkerHeartbeatRecord{old, current}, needs, noConnections))
+	assert.NoError(t, workerShortfall([]dispatch.WorkerHeartbeatRecord{old}, plain, noConnections))
+	assert.True(t, anyWorkerMatches([]dispatch.WorkerHeartbeatRecord{current}, nil, needs.RequiredCapabilities, "", false))
+	assert.False(t, anyWorkerMatches([]dispatch.WorkerHeartbeatRecord{old}, nil, needs.RequiredCapabilities, "", false))
 }
 
 // A poller that waits holds the capabilities of its worker. The legacy in-memory
@@ -48,7 +49,7 @@ func TestDispatchToWaitingPollerChecksCapabilities(t *testing.T) {
 	assert.Empty(t, oldCh, "a poller with no capability gets no task that needs one")
 	require.Len(t, currentCh, 1)
 
-	require.ErrorIs(t, h.ensureWaitingWorkerAvailability(context.Background(), nil, task.RequiredCapabilities, ""), errNoMatchingWorkers,
+	require.ErrorIs(t, h.ensureWaitingWorkerAvailability(context.Background(), nil, task.RequiredCapabilities, "", false), errNoMatchingWorkers,
 		"no poller waits that announces the capability, and no heartbeat exists")
 }
 

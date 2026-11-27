@@ -14,7 +14,7 @@ export const SERVICE_MAX_CELLS = 60;
  * fewer failures than that, but at least one, reads as a warning, so that a
  * rare failure stays visible.
  */
-export const SERVICE_ERROR_SHARE = 0.25;
+const SERVICE_ERROR_SHARE = 0.25;
 
 /** One slot of the strip: the runs that the history counted in it. */
 export interface ServiceCell {
@@ -61,20 +61,20 @@ export function serviceTone(
 }
 
 /**
- * The cells of the strip of a service DAG for the window that ends at `now`.
- * The strip has one slot for each `resolutionSeconds` of the window, at most
- * SERVICE_MAX_CELLS. A bucket stands in the slot of its start; a slot that no
- * bucket names is empty. A bucket before the window is left out of the
+ * The cells of the strip of a service DAG for the list window that ends at
+ * `now`. The strip has one slot for each `resolutionSeconds` of the window,
+ * at most SERVICE_MAX_CELLS. A bucket stands in the slot of its start; a slot
+ * that no bucket names is empty. A bucket before the window is left out of the
  * cells, and a bucket after `now` (a clock that is late) stands in the last
- * slot. The sums count every bucket that the server gave. The up time colours
+ * slot. The sums count the buckets that the cells hold. The up time colours
  * a cell but never changes the count of runs, the availability or the gaps.
  */
 export function serviceActivity(
   buckets: readonly Bucket[],
   resolutionSeconds: number | undefined,
-  now: number,
-  windowSeconds: number = ACTIVITY_WINDOW_SECONDS
+  now: number
 ): ServiceActivity {
+  const windowSeconds = ACTIVITY_WINDOW_SECONDS;
   const resolution =
     resolutionSeconds && resolutionSeconds > 0
       ? resolutionSeconds
@@ -94,13 +94,13 @@ export function serviceActivity(
   let count = 0;
   let failures = 0;
   for (const bucket of buckets) {
-    count += bucket.count;
-    failures += bucket.failures;
     const start = Date.parse(bucket.time);
     if (!Number.isFinite(start)) continue;
     const cell =
       cells[Math.min(slots - 1, Math.floor((start - first) / slotMs))];
     if (!cell) continue;
+    count += bucket.count;
+    failures += bucket.failures;
     cell.count += bucket.count;
     cell.failures += bucket.failures;
     cell.upMs += bucket.upMs ?? 0;

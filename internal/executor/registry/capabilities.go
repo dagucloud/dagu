@@ -64,6 +64,10 @@ type ExecutorCapabilities struct {
 	// named outputs of its own, which the run collects. It is nil when no
 	// operation of the executor publishes any.
 	ActionPublishesOutputs func(step ir.Step) bool
+	// Connection returns the name of the connection whose token the step
+	// sends, or "" when it uses none. Dagu gets the token before the step's
+	// output is set up, so that the step's logs and outputs mask it.
+	Connection func(step ir.Step) string
 }
 
 // executorCapabilitiesRegistry is a typed registry of executor capabilities.

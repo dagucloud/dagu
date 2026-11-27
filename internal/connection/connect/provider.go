@@ -5,6 +5,7 @@ package connect
 
 import (
 	"context"
+	"time"
 
 	"golang.org/x/oauth2"
 
@@ -17,8 +18,9 @@ import (
 type Provider interface {
 	// ParseClientFile returns the app that a client file issued by the
 	// provider describes, such as Google's client JSON. The app has no ID
-	// and no status.
-	ParseClientFile(data []byte) (*connection.App, error)
+	// and no status. A provider may refuse, with connection.ErrInvalid, a
+	// file whose redirect URIs lack the one that opts choose for the app.
+	ParseClientFile(data []byte, opts RedirectOptions) (*connection.App, error)
 	// Endpoint returns the authorization and token URLs of app.
 	Endpoint(app *connection.App) (oauth2.Endpoint, error)
 	// AuthorizationParams returns the parameters that an authorization
@@ -31,11 +33,64 @@ type Provider interface {
 	Exchange(ctx context.Context, cfg *oauth2.Config, conn *connection.Connection, code string, opts ...oauth2.AuthCodeOption) (*oauth2.Token, error)
 	// Identity returns the account that token was issued for.
 	Identity(ctx context.Context, app *connection.App, token *oauth2.Token) (Identity, error)
-	// Probe checks each of conn's services with token, and returns one
-	// result per service. It returns once ctx ends, reporting each service
-	// it did not finish as failed.
-	Probe(ctx context.Context, conn *connection.Connection, token *oauth2.Token) []connection.Probe
+	// Probe checks each of conn's services with token, issued to app, and
+	// returns one result per service. It returns once ctx ends, reporting
+	// each service it did not finish as failed.
+	Probe(ctx context.Context, app *connection.App, conn *connection.Connection, token *oauth2.Token) []connection.Probe
 }
+
+// Advisor is a Provider that tells people how to fix what a consent runs
+// into. Its texts hold no secret.
+type Advisor interface {
+	// ConsentFix returns what to do about the consent error code, such as
+	// access_denied, of a session of app with redirectURI, or "" when the
+	// provider has no advice.
+	ConsentFix(code string, app *connection.App, redirectURI string) string
+	// RefreshTokenFix returns what to do about a refresh token whose end
+	// the provider reports with refresh_token_expires_in, given how long it
+	// stays valid, or "".
+	RefreshTokenFix(remaining time.Duration) string
+}
+
+// Revoker is a Provider that can revoke refresh tokens. No token of a
+// provider that does not implement it is revoked.
+type Revoker interface {
+	// RevokeScope states what revoking one refresh token ends at the
+	// provider.
+	RevokeScope() RevokeScope
+	// Revoke revokes refreshToken, which was issued to app's client.
+	Revoke(ctx context.Context, app *connection.App, refreshToken string) error
+}
+
+// GrantSharer is a Revoker whose grant may span apps, so that revoking a
+// token issued through one app ends the account's tokens through another.
+// Without it, apps share a grant only when they hold one client.
+type GrantSharer interface {
+	// SameGrant reports whether one account's tokens through a and b, two
+	// apps of the provider, belong to one grant. It reports true when it
+	// cannot tell, so no revocation ends another connection's tokens.
+	SameGrant(a, b *connection.App) bool
+}
+
+// RevokeScope is what revoking one refresh token ends at a provider. A
+// removed connection's token is revoked under any scope. A token that a
+// reconnect replaced, or that a session held and never confirmed, is
+// revoked only under RevokesToken, since the account's other tokens for
+// the client must keep working. Any other value counts as RevokesGrant.
+type RevokeScope string
+
+const (
+	// RevokesGrant means revoking a refresh token may end the account's
+	// whole grant to the client, with every token of it.
+	RevokesGrant RevokeScope = "grant"
+	// RevokesToken means revoking a refresh token ends that token alone.
+	// It also promises that no two connections hold one refresh token,
+	// since the engine compares a dropped token only with its own
+	// connection's live one. A provider that may return the same refresh
+	// token to each consent of an account and client declares
+	// RevokesGrant.
+	RevokesToken RevokeScope = "token"
+)
 
 // Identity is the account that a consent signed in.
 type Identity struct {

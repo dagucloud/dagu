@@ -58,17 +58,13 @@ interface ServiceActivityStripProps {
    * The buckets of the window, as the DAG list gives them, and the uptime of
    * the window when the history knows it.
    */
-  activity?: Pick<Activity, 'buckets' | 'resolutionSeconds' | 'uptime'>;
-  /** The length of the window in seconds. The default is the list window. */
-  windowSeconds?: number;
-  /** The end of the window in ms. The default is now. */
-  until?: number;
+  activity: Pick<Activity, 'buckets' | 'resolutionSeconds' | 'uptime'>;
   /**
-   * The file name of the DAG. With it, the strip opens a detail on hover,
-   * focus or click: the uptime and the success rate of 7 days, the runs of the window, the
-   * last failure and the longest gap.
+   * The file name of the DAG. The strip opens a detail on hover, focus or
+   * click: the uptime and the success rate of 7 days, the runs of the
+   * window, the last failure and the longest gap.
    */
-  fileName?: string;
+  fileName: string;
   /**
    * The strip fills the width of its cell, as the strip of ActivityBars does.
    * Without it, the strip has the fixed width ACTIVITY_WIDTH_PX.
@@ -80,46 +76,27 @@ interface ServiceActivityStripProps {
 /**
  * The run history of a service DAG in the list: one cell for each bucket of
  * the history, coloured by the share of failed runs, or green where the
- * service was up, then the count of the
- * runs of the window and its uptime, or its success rate when the history has
- * no uptime for the window. A cell is a plain element with a
- * native tooltip, and the strip draws nothing for a single run. It reads only
- * the buckets, so the status of the latest run does not change it.
+ * service was up, then the count of the runs of the window and its uptime,
+ * or its success rate when the history has no uptime for the window. A cell
+ * is a plain element with a native tooltip, and no element stands for a
+ * single run. It reads only the buckets, so the status of the latest run
+ * does not change it.
  */
 function ServiceActivityStrip({
   activity,
-  windowSeconds,
-  until,
   fileName,
   fluid = false,
   className,
 }: ServiceActivityStripProps) {
   const { ts, locale } = useI18n();
-  const minute = useClock(
-    activity && until === undefined ? REFRESH_MS : null,
-    (now) => Math.floor(now / REFRESH_MS)
-  );
-  const buckets = activity?.buckets;
-  const resolution = activity?.resolutionSeconds;
+  const minute = useClock(REFRESH_MS, (now) => Math.floor(now / REFRESH_MS));
+  const buckets = activity.buckets;
+  const resolution = activity.resolutionSeconds;
   const model = useMemo(
-    () =>
-      serviceActivity(
-        buckets ?? [],
-        resolution,
-        until ?? minute * REFRESH_MS,
-        windowSeconds
-      ),
-    [buckets, resolution, minute, until, windowSeconds]
+    () => serviceActivity(buckets ?? [], resolution, minute * REFRESH_MS),
+    [buckets, resolution, minute]
   );
   const stripClass = fluid ? 'min-w-0 flex-1' : 'shrink-0';
-  if (!activity) {
-    return (
-      <div
-        style={fluid ? undefined : { width: ACTIVITY_WIDTH_PX }}
-        className={cn(stripClass, className)}
-      />
-    );
-  }
   const uptime = activity.uptime;
   const figures = {
     window: windowText(model.windowSeconds, locale),
@@ -181,20 +158,13 @@ function ServiceActivityStrip({
     fluid ? 'min-w-0 flex-1' : 'shrink-0',
     className
   );
-  if (!fileName) {
-    return (
-      <div data-testid="dag-service-activity" className={rowClass}>
-        {body}
-      </div>
-    );
-  }
   return (
     <StripDetail
       className={rowClass}
       fileName={fileName}
       model={model}
       summary={summary}
-      window={windowText(model.windowSeconds, locale)}
+      window={figures.window}
     >
       {body}
     </StripDetail>
@@ -277,22 +247,24 @@ function StripFigures({
 }) {
   const { ts, locale } = useI18n();
   const source = useMemo(() => runHistorySource(fileName), [fileName]);
-  const { data } = useSampleAvailability(source, false);
+  const { data, error } = useSampleAvailability(source, false);
   const week = data?.windows.find((w) => w.window === '7d');
+  // A failed read reads apart from a read in flight.
+  const pending = error ? ts('Unavailable') : '…';
   return (
     <dl data-testid="dag-service-detail" className="space-y-1">
       <Figure label={ts('Uptime {window}', { window: '7d' })}>
-        {data ? formatAvailability(week?.uptime, locale) : '…'}
+        {data ? formatAvailability(week?.uptime, locale) : pending}
       </Figure>
       <Figure label={ts('Success rate {window}', { window: '7d' })}>
-        {data ? formatAvailability(week?.availability, locale) : '…'}
+        {data ? formatAvailability(week?.availability, locale) : pending}
       </Figure>
       <Figure label={ts('Runs in the last {window}', { window })}>
         <CompactCount value={model.count} />
       </Figure>
       <Figure label={ts('Last failure')}>
         {!data ? (
-          '…'
+          pending
         ) : data.lastFailureAt ? (
           <RelativeTime
             timestamp={data.lastFailureAt}
@@ -322,7 +294,7 @@ function Figure({ label, children }: { label: string; children: ReactNode }) {
 
 function cellTitle(cell: ServiceCell, ts: ReturnType<typeof useI18n>['ts']) {
   const time = formatAbsoluteTime(cell.start, { seconds: false }) ?? '';
-  if (cell.count === 0) {
+  if (cell.count === 0 && cell.failures === 0) {
     return `${time} · ${cell.upMs > 0 ? ts('Up') : ts('No runs')}`;
   }
   return `${time} · ${ts('Runs {count} · Failed {failures}', {

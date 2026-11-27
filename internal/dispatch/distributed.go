@@ -48,6 +48,9 @@ type DispatchTaskClaim struct {
 	WorkerPool   string
 	Owner        CoordinatorEndpoint
 	ClaimTimeout time.Duration
+	// ConnectionTokens is set when the worker asks for connection tokens,
+	// so it may claim a task that needs them.
+	ConnectionTokens bool
 }
 
 // ClaimedDispatchTask is a shared pending task that has been claimed by a
@@ -145,6 +148,8 @@ type WorkerHeartbeatRecord struct {
 	Machine *MachineSample `json:"machine,omitempty"`
 	// Version is the Dagu version the worker runs; empty when it reports none.
 	Version string `json:"version,omitempty"`
+	// ConnectionTokens is set when the worker asks for connection tokens.
+	ConnectionTokens bool `json:"connectionTokens,omitempty"`
 }
 
 // MachineSample is a reading of the resources of the machine a worker runs

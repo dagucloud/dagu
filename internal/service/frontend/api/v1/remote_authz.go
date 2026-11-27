@@ -173,8 +173,8 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"UpdateDAGSuspensionState":             remoteNodeAccessExecute,
 	"DismissDAGMissedSlots":                remoteNodeAccessExecute,
 
-	// Changes to DAGs, calendars, Wiki pages, and Git sync, which need write
-	// permission.
+	// Changes to DAGs, calendars, skills, Wiki pages, and Git sync, which need
+	// write permission.
 	"CreateCalendar":           remoteNodeAccessWrite,
 	"DeleteCalendar":           remoteNodeAccessWrite,
 	"UpdateCalendar":           remoteNodeAccessWrite,
@@ -193,6 +193,8 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"PublishSyncItem":          remoteNodeAccessWrite,
 	"SyncPublishAll":           remoteNodeAccessWrite,
 	"SyncPull":                 remoteNodeAccessWrite,
+	"UpdateSkill":              remoteNodeAccessWrite,
+	"DeleteSkill":              remoteNodeAccessWrite,
 	"CreateWikiPage":           remoteNodeAccessWrite,
 	"DeleteWikiPageBatch":      remoteNodeAccessWrite,
 	"DeleteWikiPage":           remoteNodeAccessWrite,

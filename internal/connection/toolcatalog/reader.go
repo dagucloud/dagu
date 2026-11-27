@@ -149,6 +149,42 @@ func (r *Reader) Catalog(ctx context.Context, conn *connection.Connection, servi
 	}
 }
 
+// Probe lists service for conn with lister, whatever the stored catalog's
+// age, and saves the result, as a check after consent does with tokens
+// that are not live yet. It waits while another listing holds the
+// catalog's lock. Readers receive the probed catalog while it is fresh,
+// even when an earlier failed listing's error is held. service is as for
+// Catalog.
+func (r *Reader) Probe(ctx context.Context, conn *connection.Connection, service string, lister Lister) (*connection.Catalog, error) {
+	if conn == nil {
+		return nil, connection.ErrNotFound
+	}
+	t, err := resolve(conn, service)
+	if err != nil {
+		return nil, err
+	}
+	lock, err := r.lock(ctx, conn, t.service)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Unlock()
+	return r.save(ctx, conn, t, lock, lister)
+}
+
+// lock takes the lock of service's catalog of conn, waiting while another
+// holder has it.
+func (r *Reader) lock(ctx context.Context, conn *connection.Connection, service string) (connection.Lock, error) {
+	for {
+		lock, err := r.locks.TryLock(ctx, conn.Key(), service)
+		if !errors.Is(err, connection.ErrLocked) {
+			return lock, err
+		}
+		if err := r.locks.WaitUnlocked(ctx, conn.Key(), service); err != nil {
+			return nil, err
+		}
+	}
+}
+
 // join returns the listing of t in flight, or its failure while held,
 // starting a listing when there is neither.
 func (r *Reader) join(ctx context.Context, conn *connection.Connection, t target) *listing {
@@ -212,7 +248,12 @@ func (r *Reader) listLocked(ctx context.Context, conn *connection.Connection, t 
 	if catalog, ok, err := r.fresh(ctx, conn, t.service); ok || err != nil {
 		return catalog, err
 	}
-	tools, err := r.lister.ListTools(ctx, conn, t.endpoint)
+	return r.save(ctx, conn, t, lock, r.lister)
+}
+
+// save lists t with lister while lock is held, and saves the catalog.
+func (r *Reader) save(ctx context.Context, conn *connection.Connection, t target, lock connection.Lock, lister Lister) (*connection.Catalog, error) {
+	tools, err := lister.ListTools(ctx, conn, t.endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("connection %q: list the tools of %s: %w", conn.Name, t.endpoint, err)
 	}

@@ -914,13 +914,30 @@ steps:
     run: echo "${PAGE.structured_content.pages}"
 ```
 
-stdout is `{"content": [...], "structured_content": ..., "json": ..., "is_error": false}`. Read it with `${PAGE.content}` and `${PAGE.structured_content.<field>}`. For a tool that returns JSON as its only text item and no structured content, `json` holds the parsed object or array, read with `${PAGE.json.<field>}`; otherwise it is `null`. A tool that reports `isError` fails the step. A failed call writes `{"error": {"kind": "...", "message": "..."}}`, where `kind` is `tool`, `auth`, `protocol`, `transport`, `timeout`, or `canceled`.
+stdout is `{"content": [...], "structured_content": ..., "json": ..., "is_error": false}`. Read it with `${PAGE.content}` and `${PAGE.structured_content.<field>}`. For a tool that returns JSON as its only text item and no structured content, `json` holds the parsed object or array, read with `${PAGE.json.<field>}`; otherwise it is `null`. A tool that reports `isError` fails the step. A failed call writes `{"error": {"kind": "...", "message": "..."}}`, where `kind` is `tool`, `auth`, `protocol`, `transport`, `rate_limited` (HTTP 429, with `retry_after` when the server sent `Retry-After`), `confirmation_required`, `timeout`, or `canceled`.
 
 Image, audio, and blob resource data is base64 in the output by default. With `save_binary: true`, each such item is saved to the run artifacts under `mcp/<step id>/`, and the item carries `path` (relative to `$DAG_RUN_ARTIFACTS_DIR`) instead of the data.
 
 Put credentials in `headers`, never in the URL. Values of headers and URL query parameters whose name contains `auth`, `key`, `token`, `secret`, `cookie`, or `password` are masked in the output. Redirects are not followed.
 
-`with` fields: `url`, `tool`, `arguments` (object, or a `${...}` reference to a JSON object), `headers`, `include_raw`, `save_binary`.
+A connection (an OAuth sign-in such as a Google Workspace account, set up by an admin or manager) takes the place of `url` and the `Authorization` header. `server` names the connection's service, such as `gmail`, whose MCP server the call uses; `url` is still allowed, but only on the connection's bound hosts over HTTPS. Both names are literals, and the run checks them before its first step. Dagu sends the token, refreshes it once when the server refuses it, and masks it in the step's logs and output. `headers` may not set `Authorization` beside `connection`.
+
+```yaml
+labels:
+  - workspace=ops
+steps:
+  - id: unread
+    action: mcp.call
+    with:
+      connection: work-google
+      server: gmail
+      tool: search_threads
+      arguments: { query: "is:unread newer_than:1d" }
+```
+
+Through a connection, an `auth` error carries `connection`, and `detail: reconnect_required` when the connection needs reconnecting or `detail: insufficient_scope` with the missing `scope`. A server that asks to confirm the action fails the call with `confirmation_required`; approve it once in Try it, ask the Workspace admin to change the confirmation rules, or use `http.request` with a standard connection.
+
+`with` fields: `url`, `tool`, `connection`, `server`, `arguments` (object, or a `${...}` reference to a JSON object), `headers`, `include_raw`, `save_binary`.
 
 ## a2a.send and a2a.get_task
 
@@ -2392,6 +2409,8 @@ Flags:
 
 A DAG with `restart_policy: always` or `unless-stopped` has one run at a time: while a run is active, `dagu start`, `dagu enqueue` and `dagu retry` are refused. With no active run they work, which is how a stopped service comes back.
 
+`dagu start` places a run as the start request and the scheduler do. A run of a DAG with `worker_selector`, a run with `--worker-label`, and every run under `default_execution_mode: distributed` goes to the coordinator, and a run bound to a worker node goes to that worker. `worker_selector: local` and `coordinator.enabled: false` keep any other run on the Dagu host. A run bound to a worker node always needs the coordinator: with `coordinator.enabled: false` it fails before it starts, and it never runs on the host. A dispatched run's command waits for the run to end, shows its progress as a local run's does, and exits as the run ended. Ctrl+C cancels the run on its worker; during the dispatch itself, the command first waits for the coordinator to answer, so a run the coordinator took is cancelled too. A second Ctrl+C exits at once. When no coordinator answers, the command fails (`no coordinators available`) and the run does not run on the host. With projects on, a run of a non-default project or of a library that the rules send to the coordinator fails before anything runs, since only the default project's runs are dispatched. `dagu exec`, `dagu retry` and `dagu restart` place runs the same way.
+
 ### dagu enqueue
 
 Enqueue a DAG run for later execution.
@@ -2447,6 +2466,8 @@ With `--run-id`, a root run waiting for an approval or a human task ends as abor
 
 Stop and restart a DAG run: `dagu restart <dag-name> [--run-id/-r <id>]`
 
+The command stops the run, on the host or on a worker, and starts the new run where `dagu start` would place it. When the new run goes to the coordinator, the command first checks that the coordinator answers, and the worker too for a run bound to a worker node, so a restart that cannot dispatch stops nothing.
+
 A DAG with `restart_policy: always` or `unless-stopped` is refused: the scheduler starts its runs, so stop the running run instead. With `unless-stopped`, the scheduler starts no run after a stop: start the DAG again with `dagu start`.
 
 ### dagu retry
@@ -2458,6 +2479,8 @@ dagu retry <dag> --run-id/-r <id> [--step <name>] [--downstream] [--bypass-preco
 ```
 
 `--step` retries only the selected step. Add `--downstream` to also reset every reachable descendant; unrelated branches keep their current status. `--downstream` requires `--step`. Add `--bypass-preconditions` to skip step precondition evaluation for this retry; it also requires `--step` and a local CLI context. DAG-level preconditions and lifecycle handlers still apply. With `--sub-run-id <child-id>`, the bypass also reaches the selected child retry, including children dispatched to workers.
+
+A retry goes where `dagu start` would place the run, so a retry of a run with a worker selector goes to the coordinator. A retry that resumes an agent session goes to the worker that holds it. A DAG that uses a global queue enqueues the retry instead, and the scheduler places it.
 
 A retried step with `nodes` runs again only on the nodes that did not succeed, keeping the nodes it last recorded, or matching its selector again when it has no readable records; see `nodes:` in the step types reference.
 

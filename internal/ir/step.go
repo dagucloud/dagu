@@ -84,7 +84,7 @@ type Step struct {
 	Dependencies []string `json:"dependencies,omitempty"`
 	// Depends contains the list of step names to depend on.
 	Depends []string `json:"depends,omitempty"`
-	// InferredDepends lists producers derived from step-output references.
+	// InferredDepends lists producers derived from step-output references or matching build paths.
 	// Entries order execution like Depends but are reported separately.
 	InferredDepends []InferredDependency `json:"inferredDepends,omitempty"`
 	// ExplicitlyNoDeps indicates the depends field was explicitly set to empty
@@ -243,8 +243,8 @@ func (s Step) ValueOutputs() []StepOutputDeclaration {
 	return outputs
 }
 
-// InferredDependency records a producer step that a step-output reference
-// made a dependency, and the field path holding that reference.
+// InferredDependency records a producer step and, when known, the field
+// that introduced the dependency.
 type InferredDependency struct {
 	Step  string `json:"step"`
 	Field string `json:"field,omitempty"`

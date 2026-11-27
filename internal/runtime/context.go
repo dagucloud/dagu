@@ -22,6 +22,8 @@ type (
 	NodeSelector = runctx.NodeSelector
 	// TrustedHostKeys finds the host keys trusted for nodes.
 	TrustedHostKeys = runctx.TrustedHostKeys
+	// Connections hands out the connections that a run's DAG declares.
+	Connections = runctx.Connections
 	// RedirectRoot is an alias for runctx.RedirectRoot.
 	RedirectRoot = runctx.RedirectRoot
 	// Dispatcher is an alias for execution.Dispatcher
@@ -108,6 +110,8 @@ var (
 	WithTargetNodes = runctx.WithTargetNodes
 	// WithHostKeys sets where connections to nodes find trusted host keys.
 	WithHostKeys = runctx.WithHostKeys
+	// WithConnections sets where the run's steps get their connections.
+	WithConnections = runctx.WithConnections
 	// WithNoReuse records that manifest hits are disabled for the run.
 	WithNoReuse = runctx.WithNoReuse
 	// WithRedirectRoot sets where the run writes step redirect files.

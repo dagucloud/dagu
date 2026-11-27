@@ -1363,6 +1363,9 @@ func (n *Node) SetupEnv(ctx context.Context) context.Context {
 }
 
 func (n *Node) Prepare(ctx context.Context, logDir string, dagRunID string) error {
+	// The token can take a refresh or a coordinator request, which a stop
+	// must not wait for, so it is taken before the node's lock.
+	outputCtx := withConnectionToken(ctx, n.Step())
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -1382,7 +1385,7 @@ func (n *Node) Prepare(ctx context.Context, logDir string, dagRunID string) erro
 	if err := n.Setup(ctx, logFile, startedAt); err != nil {
 		return fmt.Errorf("failed to setup node data: %w", err)
 	}
-	if err := n.outputs.setup(ctx, n.NodeData()); err != nil {
+	if err := n.outputs.setup(outputCtx, n.NodeData()); err != nil {
 		return fmt.Errorf("failed to setup outputs: %w", err)
 	}
 	if err := n.setupRetryPolicy(ctx); err != nil {

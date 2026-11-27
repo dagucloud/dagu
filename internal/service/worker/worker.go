@@ -999,6 +999,9 @@ func (w *Worker) sendHeartbeat(ctx context.Context) error {
 		Host:    w.host,
 		Machine: convert.MachineSampleToProto(w.machineSample()),
 		Version: config.Version,
+		// The remote task handler asks the coordinator for connection
+		// tokens, so the worker may run a DAG that declares connections.
+		ConnectionTokens: true,
 	}
 
 	resp, err := w.coordinatorCli.Heartbeat(ctx, req)

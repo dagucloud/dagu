@@ -14,11 +14,15 @@ type Activity = components['schemas']['DAGListActivity'];
 const h = vi.hoisted(() => ({
   asked: [] as Array<{ path: string; init: unknown }>,
   uptime: undefined as number | undefined,
+  fail: false,
 }));
 vi.mock('@/hooks/api', () => ({
   useClient: () => ({ GET: vi.fn() }),
   useQuery: (path: string, init: unknown) => {
     h.asked.push({ path, init });
+    if (h.fail && init !== null) {
+      return { data: undefined, error: new Error('unavailable') };
+    }
     return {
       data:
         init === null
@@ -57,18 +61,14 @@ function bucket(start: number, count: number, failures = 0, upMs?: number) {
   };
 }
 
-function renderStrip(
-  activity: Activity | undefined,
-  fluid = false,
-  fileName?: string
-) {
+function renderStrip(activity: Activity, fluid = false) {
   return render(
     <UserPreferencesProvider>
       <I18nProvider>
         <ServiceActivityStrip
           activity={activity}
           fluid={fluid}
-          fileName={fileName}
+          fileName="svc.yaml"
         />
       </I18nProvider>
     </UserPreferencesProvider>
@@ -78,6 +78,7 @@ function renderStrip(
 beforeEach(() => {
   h.asked.length = 0;
   h.uptime = undefined;
+  h.fail = false;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(NOW);
 });
@@ -160,6 +161,11 @@ describe('ServiceActivityStrip', () => {
     // The up time does not count as a run.
     expect(strip).toHaveAttribute('data-runs', '1');
     expect(cells[20]).toHaveAttribute('title', expect.stringMatching(/ · Up$/));
+    // A failure with no run start in the cell still shows in its tooltip.
+    expect(cells[22]).toHaveAttribute(
+      'title',
+      expect.stringContaining('Runs 0 · Failed 1')
+    );
     expect(cells[19]).toHaveAttribute(
       'title',
       expect.stringContaining('Runs 1 · Failed 0')
@@ -208,7 +214,7 @@ describe('ServiceActivityStrip', () => {
   });
 
   it('shows an empty strip and a dash for a service DAG with no history', () => {
-    renderStrip({ runs: [], truncated: false });
+    renderStrip({ runs: [], truncated: false, buckets: [] });
     const strip = screen.getByTestId('dag-activity');
     expect(strip.children).toHaveLength(60);
     expect(
@@ -226,11 +232,6 @@ describe('ServiceActivityStrip', () => {
     renderStrip(activity, true);
     expect(screen.getByTestId('dag-activity').style.width).toBe('');
     expect(screen.getByTestId('dag-activity').className).toContain('flex-1');
-  });
-
-  it('draws nothing but a placeholder while the activity is not there', () => {
-    renderStrip(undefined);
-    expect(screen.queryByTestId('dag-activity')).toBeNull();
   });
 });
 
@@ -258,13 +259,8 @@ describe('ServiceActivityStrip detail', () => {
         ask.init !== null
     );
 
-  it('is a plain strip without a file name', () => {
-    renderStrip(activity);
-    expect(screen.queryByRole('button')).toBeNull();
-  });
-
   it('asks for nothing while it is closed', () => {
-    renderStrip(activity, true, 'svc.yaml');
+    renderStrip(activity, true);
     expect(
       screen.getByRole('button', { name: /^Runs in the last 24 hours/ })
     ).toHaveAttribute('aria-expanded', 'false');
@@ -273,7 +269,7 @@ describe('ServiceActivityStrip detail', () => {
   });
 
   it('shows the figures after a click and asks once', () => {
-    renderStrip(activity, true, 'svc.yaml');
+    renderStrip(activity, true);
     fireEvent.click(
       screen.getByRole('button', { name: /^Runs in the last 24 hours/ })
     );
@@ -292,7 +288,7 @@ describe('ServiceActivityStrip detail', () => {
 
   it('shows the uptime of 7 days when the history has it', () => {
     h.uptime = 0.8765;
-    renderStrip(activity, true, 'svc.yaml');
+    renderStrip(activity, true);
     fireEvent.click(
       screen.getByRole('button', { name: /^Runs in the last 24 hours/ })
     );
@@ -301,8 +297,23 @@ describe('ServiceActivityStrip detail', () => {
     expect(detail).toHaveTextContent('Success rate 7d99.00 %');
   });
 
+  // The figures of the window stay; those of the failed read say so.
+  it('marks the figures of a failed read as unavailable', () => {
+    h.fail = true;
+    renderStrip(activity, true);
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Runs in the last 24 hours/ })
+    );
+    const detail = details()[0]!;
+    expect(detail).toHaveTextContent('Uptime 7dUnavailable');
+    expect(detail).toHaveTextContent('Success rate 7dUnavailable');
+    expect(detail).toHaveTextContent('Last failureUnavailable');
+    expect(detail).toHaveTextContent('Runs in the last 24 hours2k');
+    expect(detail).toHaveTextContent('Longest gap5h');
+  });
+
   it('closes with Escape and opens again', () => {
-    renderStrip(activity, true, 'svc.yaml');
+    renderStrip(activity, true);
     const button = screen.getByRole('button', {
       name: /^Runs in the last 24 hours/,
     });
@@ -317,7 +328,7 @@ describe('ServiceActivityStrip detail', () => {
   // A click toggles the detail. A key that clicks the button (detail 0)
   // keeps the detail that the focus opened.
   it('toggles on a click and stays open on a key', () => {
-    renderStrip(activity, true, 'svc.yaml');
+    renderStrip(activity, true);
     const button = screen.getByRole('button', {
       name: /^Runs in the last 24 hours/,
     });

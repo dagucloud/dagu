@@ -149,6 +149,10 @@ const (
 	projectFlagPrefix = "--project="
 )
 
+// runPlacedEnv keeps a launched run on this host, so a run its caller placed
+// is not dispatched again. An older binary ignores it.
+var runPlacedEnv = runenv.EnvKeyRunPlaced + "=1"
+
 // envEntry returns the last KEY=value entry of env for key, or "".
 func envEntry(env []string, key string) string {
 	prefix := key + "="
@@ -189,6 +193,7 @@ func filterExecutionEnv(env []string) []string {
 	filtered := env[:0]
 	for _, entry := range env {
 		if strings.HasPrefix(entry, runenv.EnvKeyQueueDispatchRetry+"=") ||
+			strings.HasPrefix(entry, runenv.EnvKeyRunPlaced+"=") ||
 			strings.HasPrefix(entry, runenv.EnvKeyDAGDefinitionID+"=") ||
 			strings.HasPrefix(entry, runenv.EnvKeyParallelItem+"=") {
 			continue
@@ -198,7 +203,9 @@ func filterExecutionEnv(env []string) []string {
 	return filtered
 }
 
-// Start creates a start command spec.
+// Start creates a start command spec. The command runs the run on this
+// host: the caller has already decided that it does not go to the
+// coordinator.
 func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 	args := []string{"start"}
 
@@ -255,7 +262,7 @@ func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 		Executable:      b.executable,
 		Args:            args,
 		Params:          opts.Params,
-		Env:             b.parentEnv(definitionIDEnv(opts.DefinitionID)...),
+		Env:             b.parentEnv(append(definitionIDEnv(opts.DefinitionID), runPlacedEnv)...),
 		BuildEnv:        append([]string{}, dag.Env...),
 		RuntimeResolved: dag.RuntimeResolved,
 	}
@@ -362,7 +369,8 @@ func (b *SubCmdBuilder) Restart(dag *ir.DAG, opts RestartOptions) CmdSpec {
 	}
 }
 
-// Retry creates a retry command spec.
+// Retry creates a retry command spec. The command runs the retry on this
+// host, as Start does.
 func (b *SubCmdBuilder) Retry(dag *ir.DAG, opts RetryOptions) CmdSpec {
 	args := []string{"retry", fmt.Sprintf("--run-id=%s", opts.DAGRunID), "-q"}
 
@@ -394,7 +402,7 @@ func (b *SubCmdBuilder) Retry(dag *ir.DAG, opts RetryOptions) CmdSpec {
 	spec := CmdSpec{
 		Executable:      b.executable,
 		Args:            args,
-		Env:             b.parentEnv(),
+		Env:             b.parentEnv(runPlacedEnv),
 		BuildEnv:        append([]string{}, dag.Env...),
 		RuntimeResolved: dag.RuntimeResolved,
 	}

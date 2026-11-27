@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -165,7 +166,11 @@ func (a *API) UpdateSkill(ctx context.Context, request api.UpdateSkillRequestObj
 		}
 		return nil, failure.err
 	}
-	a.logAudit(ctx, audit.CategorySystem, "skill_update", map[string]string{"name": request.Name, "hash": sk.Hash})
+	a.logAudit(ctx, audit.CategorySystem, "skill_update", map[string]any{
+		"resource_type": "skill",
+		"resource_id":   request.Name,
+		"hash":          sk.Hash,
+	})
 	return api.UpdateSkill200JSONResponse(toSkillWriteResult(sk)), nil
 }
 
@@ -178,11 +183,19 @@ func (a *API) DeleteSkill(ctx context.Context, request api.DeleteSkillRequestObj
 	if !skill.IsSafeFolderName(request.Name) {
 		return nil, errInvalidSkillName
 	}
+	if none := request.Params.IfNoneMatch; none != nil && strings.TrimSpace(*none) != "" {
+		return nil, &Error{Code: api.ErrorCodeBadRequest, Message: "If-None-Match applies only to the creation of a skill; send If-Match", HTTPStatus: http.StatusBadRequest}
+	}
 	pre, err := skillPrecondition(request.Params.IfMatch, nil)
 	if err != nil {
 		return nil, err
 	}
-	if err := a.skillStore().DeleteSkill(ctx, request.Name, pre); err != nil {
+	err = a.skillStore().DeleteSkill(ctx, request.Name, pre)
+	if errors.Is(err, skill.ErrFilesLeft) {
+		logger.Warn(ctx, "Some files of a deleted skill remain", tag.Name(request.Name), tag.Error(err))
+		err = nil
+	}
+	if err != nil {
 		failure := a.classifySkillWrite(ctx, request.Name, err)
 		if failure.status == http.StatusConflict {
 			return api.DeleteSkill409JSONResponse(failure.body), nil
@@ -387,17 +400,24 @@ func percentEncode(s string) string {
 
 // skillPrecondition reads the headers If-Match and If-None-Match.
 func skillPrecondition(ifMatch, ifNoneMatch *string) (skill.Precondition, error) {
+	hasIfMatch := ifMatch != nil && strings.TrimSpace(*ifMatch) != ""
 	if ifNoneMatch != nil && strings.TrimSpace(*ifNoneMatch) != "" {
+		if hasIfMatch {
+			return skill.Precondition{}, &Error{Code: api.ErrorCodeBadRequest, Message: "send If-Match or If-None-Match, not both", HTTPStatus: http.StatusBadRequest}
+		}
 		if strings.TrimSpace(*ifNoneMatch) != "*" {
 			return skill.Precondition{}, &Error{Code: api.ErrorCodeBadRequest, Message: "If-None-Match must be *", HTTPStatus: http.StatusBadRequest}
 		}
 		return skill.Precondition{MustNotExist: true}, nil
 	}
-	if ifMatch == nil || strings.TrimSpace(*ifMatch) == "" {
+	if !hasIfMatch {
 		return skill.Precondition{}, errSkillPreconditionRequired
 	}
-	hash := strings.Trim(strings.TrimPrefix(strings.TrimSpace(*ifMatch), "W/"), `"`)
-	if len(hash) != 64 {
+	hash := strings.TrimPrefix(strings.TrimSpace(*ifMatch), "W/")
+	if len(hash) >= 2 && hash[0] == '"' && hash[len(hash)-1] == '"' {
+		hash = hash[1 : len(hash)-1]
+	}
+	if _, err := hex.DecodeString(hash); err != nil || len(hash) != 64 {
 		return skill.Precondition{}, &Error{Code: api.ErrorCodeBadRequest, Message: "If-Match must be the hash of the skill (64 hexadecimal characters)", HTTPStatus: http.StatusBadRequest}
 	}
 	return skill.Precondition{IfMatch: hash}, nil
@@ -413,9 +433,8 @@ type skillFailure struct {
 // a refused content (400) and a conflict (409), an *Error for the rest.
 func (a *API) classifySkillWrite(ctx context.Context, name string, err error) skillFailure {
 	if conflict, ok := errors.AsType[*skill.ConflictError](err); ok {
-		hash := conflict.Current
 		return skillFailure{status: http.StatusConflict, body: api.SkillError{
-			Code: api.ErrorCodeConflict, Message: conflict.Message, Hash: &hash,
+			Code: api.ErrorCodeConflict, Message: conflict.Message, Hash: ptrIfNotEmpty(conflict.Current),
 		}}
 	}
 	if invalid, ok := errors.AsType[*skill.InvalidError](err); ok {

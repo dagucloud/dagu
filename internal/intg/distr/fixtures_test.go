@@ -19,6 +19,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/artifactpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -581,14 +582,24 @@ func (f *testFixture) startWithLabels(labels string) error {
 	f.t.Helper()
 	subCmdBuilder := launcher.NewSubCmdBuilder(f.coord.Config)
 	startSpec := subCmdBuilder.Start(f.dagWrapper.DAG, launcher.StartOptions{Quiet: true, Labels: labels})
-	return launcher.Start(f.coord.Context, startSpec)
+	return launcher.Start(f.coord.Context, asUser(startSpec))
 }
 
 func (f *testFixture) retry(dagRunID string) error {
 	f.t.Helper()
 	subCmdBuilder := launcher.NewSubCmdBuilder(f.coord.Config)
 	retrySpec := subCmdBuilder.Retry(f.dagWrapper.DAG, launcher.RetryOptions{DAGRunID: dagRunID})
-	return launcher.Start(f.coord.Context, retrySpec)
+	return launcher.Start(f.coord.Context, asUser(retrySpec))
+}
+
+// asUser returns spec as a user runs the command: without the placement
+// marker that the launcher adds for a run its caller already placed, so the
+// command places the run itself.
+func asUser(spec launcher.CmdSpec) launcher.CmdSpec {
+	spec.Env = slices.DeleteFunc(slices.Clone(spec.Env), func(entry string) bool {
+		return strings.HasPrefix(entry, runenv.EnvKeyRunPlaced+"=")
+	})
+	return spec
 }
 
 func (f *testFixture) waitForQueued() {

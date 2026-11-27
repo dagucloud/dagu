@@ -9953,8 +9953,7 @@ paths:
               properties:
                 content:
                   type: string
-                  maxLength: 4194304
-                  description: "The raw content of SKILL.md: a YAML front matter block with name and description, then the Markdown instructions"
+                  description: "The raw content of SKILL.md: a YAML front matter block with name and description, then the Markdown instructions. Content above 4 MiB gives 400 with the rule file-too-large."
               required:
                 - content
       responses:
@@ -10000,63 +9999,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        default:
-          description: "Unexpected error"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
-    delete:
-      summary: "Delete a skill"
-      description: "Deletes the whole folder of a skill with every file. Send If-Match with the hash that the client read. Requires developer role or above."
-      operationId: "deleteSkill"
-      tags:
-        - "skills"
-      parameters:
-        - $ref: "#/components/parameters/RemoteNode"
-        - $ref: "#/components/parameters/SkillName"
-        - name: If-Match
-          in: header
-          required: false
-          description: "The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header."
-          schema:
-            type: string
-      responses:
-        "204":
-          description: "Skill deleted"
-        "400":
-          description: "Invalid skill name"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          description: "Not authenticated"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "403":
-          description: "Requires developer role or above"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          description: "Skill not found"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "409":
-          description: "The skill changed after the client read it"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SkillError"
-        "428":
-          description: "The request has no If-Match header"
+        "413":
+          description: "The request body exceeds the 8 MiB limit"
           content:
             application/json:
               schema:
@@ -10105,6 +10049,73 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: "Skill not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      summary: "Delete a skill"
+      description: "Deletes the whole folder of a skill with every file. Send If-Match with the hash that the client read. Requires developer role or above."
+      operationId: "deleteSkill"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/SkillName"
+        - name: If-Match
+          in: header
+          required: false
+          description: "The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header."
+          schema:
+            type: string
+        - name: If-None-Match
+          in: header
+          required: false
+          description: "Not allowed: only the creation of a skill takes If-None-Match. The header gives 400."
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "Skill deleted"
+        "400":
+          description: "Invalid skill name or precondition header"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires developer role or above"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Skill not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The skill changed after the client read it"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillError"
+        "428":
+          description: "The request has no If-Match header"
           content:
             application/json:
               schema:
@@ -16668,7 +16679,7 @@ components:
           description: "The rules that the content breaks"
         hash:
           type: string
-          description: "For a conflict: the hash of the skill now. Empty when the skill does not exist."
+          description: "For a conflict: the hash of the skill now. Absent when the server knows no current version: another writer holds the skill, or the skill is being changed."
       required:
         - code
         - message
@@ -23881,7 +23892,7 @@ components:
           description: "When Dagu Console accepted the last report this server sent"
         lastReport:
           type: string
-          description: "JSON body of the last report, as sent, with heartbeat_secret replaced by \"[redacted]\""
+          description: Decompressed JSON body of the last accepted report
         runsPausedUntil:
           type: string
           format: date-time

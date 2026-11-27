@@ -49,7 +49,7 @@ func (c *Context) runtimeStores() executionStores {
 		stores.Nodes = inventory.NewProjectNodes(inventories, c.runtimeWorkerNodeStore())
 	}
 	if c.serverStores != nil {
-		stores.Connections = agent.NewStoreConnectionChecker(c.serverStores.ConnectionStore)
+		stores.Connections = agent.NewStoreConnectionChecker(c.serverStores.ConnectionStore, c.serverStores.ConnectionLocks())
 	}
 	if c.Config.ProjectsEnabled {
 		if stores.SecretStore != nil {
@@ -70,6 +70,16 @@ func (s executionStores) connectionsFor(workerID string) agent.ConnectionChecker
 		return nil
 	}
 	return s.Connections
+}
+
+// subDAGConnections returns the checker of the connections of the sub-DAGs
+// that a run of workerID runs in process, which check as their parent does.
+func (s executionStores) subDAGConnections(workerID string) func(*ir.DAG) agent.ConnectionChecker {
+	checker := s.connectionsFor(workerID)
+	if checker == nil {
+		return nil
+	}
+	return func(*ir.DAG) agent.ConnectionChecker { return checker }
 }
 
 // subDAGSecretResolver returns the resolver a sub-DAG run uses for its

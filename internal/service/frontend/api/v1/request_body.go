@@ -14,6 +14,7 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
+	"github.com/getkin/kin-openapi/routers/gorillamux"
 	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
@@ -40,8 +41,9 @@ func closedBodyMiddleware(swagger *openapi3.T, mountedAPIPath string) func(http.
 		AuthenticationFunc: func(context.Context, *openapi3filter.AuthenticationInput) error { return nil },
 	}
 	filterOptions.WithCustomSchemaErrorFunc(func(err *openapi3.SchemaError) string { return err.Reason })
+	limited := closedBodyLimitMiddleware(swagger, mountedAPIPath)
 	return func(next http.Handler) http.Handler {
-		validated := oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapimiddleware.Options{
+		validated := limited(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapimiddleware.Options{
 			SilenceServersWarning: true,
 			Options:               filterOptions,
 			ErrorHandlerWithOpts: func(_ context.Context, err error, w http.ResponseWriter, r *http.Request, opts oapimiddleware.ErrorHandlerOpts) {
@@ -53,10 +55,34 @@ func closedBodyMiddleware(swagger *openapi3.T, mountedAPIPath string) func(http.
 				message, _, _ := strings.Cut(err.Error(), "\n")
 				WriteErrorResponse(w, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: message})
 			},
-		})(next)
+		})(next))
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := closedBodyLimit(r, mountedAPIPath); !ok {
+				next.ServeHTTP(w, r)
+				return
+			}
+			validated.ServeHTTP(w, r)
+		})
+	}
+}
+
+// closedBodyLimitMiddleware refuses with 413 a body over the limit of the rule
+// above, and gives the next handler the body read into memory. It runs before
+// any other reader of the body, so no reader holds more than the limit. A
+// request that no operation of the document matches passes unchanged.
+func closedBodyLimitMiddleware(swagger *openapi3.T, mountedAPIPath string) func(http.Handler) http.Handler {
+	router, err := gorillamux.NewRouter(swagger)
+	if err != nil {
+		panic(err)
+	}
+	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			limit, ok := closedBodyLimit(r, mountedAPIPath)
 			if !ok {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if _, _, err := router.FindRoute(r); err != nil {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -75,7 +101,7 @@ func closedBodyMiddleware(swagger *openapi3.T, mountedAPIPath string) func(http.
 			}
 			r.Body = io.NopCloser(bytes.NewReader(raw))
 			r.ContentLength = int64(len(raw))
-			validated.ServeHTTP(w, r)
+			next.ServeHTTP(w, r)
 		})
 	}
 }
