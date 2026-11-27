@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,6 +198,40 @@ func TestWorkerCertificateStore_RecordHeartbeatRepairsRecord(t *testing.T) {
 			assert.Equal(t, beat, getCertificate(t, s, "cert-1"))
 		})
 	}
+}
+
+// A removal and a prune both land after Get reads no removal record and
+// before it reads the certificate record. Get still finds the certificate.
+func TestWorkerCertificateStore_GetDuringRemovalAndPrune(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, col := newWorkerCertificateStore(t)
+	cert := workerCertificate("cert-1")
+	createCertificate(t, s, cert)
+	setState(t, s, "cert-1", persis.WorkerCertificateRemoving)
+	require.NoError(t, col.Delete(ctx, "certs/cert-1"))
+	reader, err := store.NewWorkerCertificateStore(&staleRemovalRead{Collection: col})
+	require.NoError(t, err)
+
+	got, err := reader.Get(ctx, "cert-1")
+
+	require.NoError(t, err)
+	assert.Equal(t, persis.WorkerCertificateRemoving, got.State)
+}
+
+// staleRemovalRead answers its first read of a removal record as it was
+// before the removal began.
+type staleRemovalRead struct {
+	persis.Collection
+	served bool
+}
+
+func (c *staleRemovalRead) Get(ctx context.Context, id string) (*persis.Record, error) {
+	if !c.served && strings.HasPrefix(id, "removals/") {
+		c.served = true
+		return nil, persis.ErrNotFound
+	}
+	return c.Collection.Get(ctx, id)
 }
 
 // Two coordinators repair one unreadable record. The one with the older

@@ -123,6 +123,15 @@ func (s *WorkerCertificateStore) load(ctx context.Context, id string) (persis.Wo
 		return persis.WorkerCertificate{}, nil, err
 	}
 	_, cert, err := s.getCertificate(ctx, id)
+	if errors.Is(err, persis.ErrWorkerCertificateNotFound) && removal == nil {
+		// A removal and a prune can both land between the two reads. A
+		// removal record is never deleted, so a second read finds it.
+		removalRec, removal, err = s.getRemoval(ctx, id)
+		if err != nil {
+			return persis.WorkerCertificate{}, nil, err
+		}
+		err = persis.ErrWorkerCertificateNotFound
+	}
 	switch {
 	case err == nil:
 	case errors.Is(err, persis.ErrWorkerCertificateNotFound) && removal != nil:
