@@ -52,7 +52,8 @@ file, and the cluster issues and rotates node certificates.
    the CLI, or Dagu Cloud. Until the coordinator can accept it, the dialog
    shows what to change instead of a command.
 3. A worker that joined with an invite holds its own certificate, not the
-   peer token. Removing it keeps it out.
+   peer token. Removing it keeps it out across restarts, whichever kind of
+   invite it used.
 4. No certificate to create, copy, renew, or match to an address.
 5. Nothing that works today breaks on upgrade. Old and new workers,
    schedulers, and coordinators work together in either upgrade order.
@@ -227,13 +228,16 @@ The environment variables are `DAGU_WORKER_COORDINATORS` and
 
 - A `Connection` column: `Certificate`, `TLS`, or `Plaintext`. `Plaintext`
   links to the upgrade steps.
-- **Remove** on a certificate worker revokes its certificate, and the
-  worker is refused within 30 seconds. A worker on a single-use invite
-  cannot come back without a new invite. A worker on a reusable invite can
-  enroll again while that invite is valid, so the confirmation offers to
-  delete the invite too and names the other workers that use it. On a
-  worker that holds the peer token, the confirmation says it can reconnect
-  until the peer token changes.
+- **Remove** on a certificate worker revokes its certificate. The worker is
+  refused within 30 seconds and stays out across restarts, on a single-use
+  or a reusable invite, until it is given a new invite.
+- A reusable invite still lets new hosts join: a new container without a
+  volume, or a host whose data directory was wiped, has no certificate and
+  enrolls as a new worker. For a worker on a reusable invite, the
+  confirmation says so and offers to delete the invite too, naming the
+  other workers that use it.
+- On a worker that holds the peer token, the confirmation says it can
+  reconnect until the peer token changes.
 - **Invites** lists each invite with its kind, creator, creation and expiry
   times, use count, and last use. **Delete** stops new enrollments with it;
   workers that already enrolled keep their certificates.
@@ -423,8 +427,9 @@ worker                                         coordinator
   allows client authentication only.
 - The worker keeps the key and certificate in its data directory, readable
   by its user only, and reuses them across restarts. Run processes the
-  worker starts use the same files. A worker with a certificate ignores its
-  invite, so restarts do not use up a single-use invite.
+  worker starts use the same files. It also records which invite it
+  enrolled with. A worker with a certificate ignores its invite, so
+  restarts do not use up a single-use invite.
 - The certificate has no expiry date, so a worker that stays off for months
   reconnects when it starts. An expiry date would need renewal, and a
   copied key could renew just as the worker does; the date would only break
@@ -439,9 +444,13 @@ worker                                         coordinator
   connections are refused too.
 - The coordinator that handles the removal applies it at once. Other
   coordinators reread the revoked set every 30 seconds.
-- A worker whose certificate is refused as revoked deletes it and exits
-  with the message above. At its next start it enrolls again only with an
-  invite that is still valid.
+- A worker whose certificate is refused as revoked keeps it and exits with
+  the message above. At later starts it holds a certificate, so it does
+  not enroll with the invite it joined with, and it exits again with the
+  same message.
+- Given a different invite, a removed worker enrolls again with a new key.
+  This is how **Add worker** brings a removed worker back.
+- Enrollment refuses a request whose key belongs to a revoked certificate.
 - Revoked entries stay, one small record per removed worker.
 
 ### Workers list
