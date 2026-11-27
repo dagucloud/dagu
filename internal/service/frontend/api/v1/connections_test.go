@@ -371,6 +371,7 @@ type connectionsFixture struct {
 	store      connection.Store
 	workspaces workspace.Store
 	provider   *fakeGoogle
+	tokens     *failingTokens
 	audit      *recordingAuditStore
 	dataDir    string
 }
@@ -394,12 +395,15 @@ func newConnectionsFixture(t *testing.T, opts ...apiv1.APIOption) *connectionsFi
 	googleProvider, err := google.New(google.Config{Catalog: catalog})
 	require.NoError(t, err)
 
-	f := &connectionsFixture{store: store, workspaces: workspaces, provider: &fakeGoogle{Provider: googleProvider}, audit: &recordingAuditStore{}, dataDir: dataDir}
+	f := &connectionsFixture{
+		store: store, workspaces: workspaces, provider: &fakeGoogle{Provider: googleProvider},
+		tokens: &failingTokens{Source: tokens}, audit: &recordingAuditStore{}, dataDir: dataDir,
+	}
 	engine, err := connect.New(connect.Config{
 		Store:     store,
 		Locks:     stores.ConnectionLocks(),
 		Encryptor: enc,
-		Tokens:    tokens,
+		Tokens:    f.tokens,
 		Providers: map[connection.Provider]connect.Provider{connection.ProviderGoogle: f.provider},
 		OnRevoke:  func(ctx context.Context, r connect.Revocation) { f.api.AuditRevocation(ctx, r) },
 	})
@@ -497,6 +501,19 @@ func requireStatus(t *testing.T, status int, err error) {
 	var apiErr *apiv1.Error
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, status, apiErr.HTTPStatus)
+}
+
+// failingTokens is the broker, whose Token fails with err once it is set.
+type failingTokens struct {
+	broker.Source
+	err error
+}
+
+func (s *failingTokens) Token(ctx context.Context, conn *connection.Connection, resource string, minTTL time.Duration) (string, time.Duration, error) {
+	if s.err != nil {
+		return "", 0, s.err
+	}
+	return s.Source.Token(ctx, conn, resource, minTTL)
 }
 
 // fakeGoogle is the Google provider with a consent, an identity, probes,

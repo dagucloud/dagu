@@ -6,6 +6,7 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	apigen "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/connection"
+	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 )
 
@@ -210,6 +212,9 @@ func TestStartConnectionRedirect(t *testing.T) {
 	assert.Equal(t, apigen.ConnectionRedirectModeServerCallback, started.Mode)
 	assert.Equal(t, testPublicURL+"/oauth/callback", started.RedirectUri)
 	assert.Equal(t, "client-id", started.ClientId)
+	// An explicit empty mode is not an omitted one.
+	_, err = start(public, new(apigen.ConnectionRedirectMode("")))
+	requireStatus(t, http.StatusBadRequest, err)
 	// Paste needs a desktop client.
 	_, err = start(public, new(apigen.ConnectionRedirectModePaste))
 	requireStatus(t, http.StatusBadRequest, err)
@@ -277,6 +282,12 @@ func TestTestConnectionAndTools(t *testing.T) {
 	assert.Equal(t, []string{testAccessToken}, f.provider.probed, "the probe uses the live token")
 	_, err = test(viewer)
 	requireForbidden(t, err)
+	// A refresh that may pass later fails the test with the provider's error.
+	f.tokens.err = fmt.Errorf("refresh connection %q: Google answered HTTP 503: %w", "work", broker.ErrRefreshFailed)
+	_, err = test(developer)
+	requireStatus(t, http.StatusBadGateway, err)
+	assert.ErrorContains(t, err, "HTTP 503")
+	f.tokens.err = nil
 
 	conn, err := f.store.Get(t.Context(), connection.Key{Workspace: "ops", Name: "work"})
 	require.NoError(t, err)

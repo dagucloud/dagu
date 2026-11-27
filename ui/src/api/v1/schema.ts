@@ -10507,7 +10507,7 @@ export interface components {
             services: components["schemas"]["ConnectionPreset"][];
         };
         ConnectionProviderListResponse: {
-            /** @description The server's usable public URL, with its base path: server.public_url, else the tunnel URL, else the origin of this request when it came straight to localhost or a loopback address such as 127.0.0.1, without a proxy. Absent when it has none. A server behind a proxy needs server.public_url. */
+            /** @description The server's usable public URL, with its base path: server.public_url, else the tunnel URL, else the origin of this request when it reached localhost or a loopback address such as 127.0.0.1 without a proxy: it has no Forwarded, X-Forwarded-*, or X-Real-IP header, and its Origin or Referer, when present, has the same origin. Absent when it has none. A server behind a proxy needs server.public_url. */
             publicUrl?: string;
             /** @description The redirect modes the server offers, in the order the server picks the first that works for the app's client type when mode is omitted. loopback works only for a client that listens on 127.0.0.1, such as the CLI. */
             redirects: components["schemas"]["ConnectionRedirect"][];
@@ -10523,7 +10523,7 @@ export interface components {
         ConnectionAuthorizationStart: {
             /** @description The session handle, which reads, confirms, and cancels the session. It is not the OAuth state: complete takes the provider's redirect. */
             session: string;
-            /** @description Opens the provider's consent page. It may be given to the account's owner. */
+            /** @description Opens the provider's consent page. In server_callback mode it may be given to the account's owner, whose browser then reaches this server's callback. In loopback and paste modes the redirect lands on the browser's own machine, so the starter consents there. */
             authorizationUrl: string;
             mode: components["schemas"]["ConnectionRedirectMode"];
             /** @description The exact redirect URI the client must list. */
