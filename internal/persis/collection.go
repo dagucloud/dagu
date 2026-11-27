@@ -43,7 +43,9 @@ const (
 	CollectionWatchState            = "watch_state"
 	CollectionWebhooks              = "webhooks"
 	CollectionWebhookDAGClaims      = "webhook_dag_claims"
+	CollectionWorkerCertificates    = "worker_certificates"
 	CollectionWorkerHeartbeats      = "worker_heartbeats"
+	CollectionWorkerInvites         = "worker_invites"
 	CollectionWorkerNodes           = "worker_nodes"
 	CollectionWorkspaces            = "workspaces"
 )
