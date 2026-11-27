@@ -27,6 +27,7 @@ import (
 	appconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
 const (
@@ -45,6 +46,12 @@ const (
 	// without credentials.
 	grpcHealthMethodPrefix = "/grpc.health.v1.Health/"
 )
+
+// peerTokenOnlyMethods take the peer token whatever coordinator.require_token
+// says, since they serve administration rather than workers.
+var peerTokenOnlyMethods = map[string]bool{
+	coordinatorv1.CoordinatorService_GetJoinReadiness_FullMethodName: true,
+}
 
 // LoadOrCreatePeerToken returns the peer token stored in path, generating and
 // storing one first when the file does not exist. Coordinators that share the
@@ -148,7 +155,8 @@ func (c *peerTokenCredentials) current() string {
 // when the token was configured or required, since only a generated token can
 // differ between coordinators that do not share a data directory. A call
 // without a token fails only when the token is required; otherwise it passes
-// and the coordinator logs a warning.
+// and the coordinator logs a warning. Administration calls, such as
+// GetJoinReadiness, always require the token.
 type PeerTokenAuth struct {
 	token      string
 	configured bool
@@ -197,10 +205,11 @@ func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
 	if got != "" && a.token != "" && subtle.ConstantTimeCompare([]byte(got), []byte(a.token)) == 1 {
 		return nil
 	}
+	require := a.require || peerTokenOnlyMethods[method]
 	switch {
-	case got != "" && (a.configured || a.require):
+	case got != "" && (a.configured || require):
 		return status.Error(codes.Unauthenticated, "the peer token does not match the coordinator's peer token")
-	case got == "" && a.require:
+	case got == "" && require:
 		return status.Error(codes.Unauthenticated,
 			"the coordinator requires a peer token: set peer.token, or let this process read the coordinator's data directory")
 	}

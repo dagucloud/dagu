@@ -43,7 +43,10 @@ func callContext(t *testing.T, creds *peerTokenCredentials) context.Context {
 }
 
 func TestPeerTokenAuth(t *testing.T) {
-	const method = "/coordinator.v1.CoordinatorService/Poll"
+	const (
+		method              = "/coordinator.v1.CoordinatorService/Poll"
+		joinReadinessMethod = "/coordinator.v1.CoordinatorService/GetJoinReadiness"
+	)
 	dir := t.TempDir()
 	tokenFile := filepath.Join(dir, "coordinator", "peer-token")
 	token, err := LoadOrCreatePeerToken(tokenFile)
@@ -68,6 +71,9 @@ func TestPeerTokenAuth(t *testing.T) {
 		{name: "another generated token is rejected when required", auth: NewPeerTokenAuth(token, false, true), client: newPeerTokenCredentials("", otherFile), wantDenied: true},
 		{name: "a token other than the configured one is rejected", auth: NewPeerTokenAuth("shared", true, false), client: newPeerTokenCredentials("other", ""), wantDenied: true},
 		{name: "health checks need no token", auth: NewPeerTokenAuth(token, false, true), client: newPeerTokenCredentials("", missingFile), method: "/grpc.health.v1.Health/Check"},
+		{name: "join readiness with the token", auth: NewPeerTokenAuth(token, false, false), client: newPeerTokenCredentials("", tokenFile), method: joinReadinessMethod},
+		{name: "join readiness needs a token when none is required", auth: NewPeerTokenAuth(token, false, false), client: newPeerTokenCredentials("", missingFile), method: joinReadinessMethod, wantDenied: true},
+		{name: "join readiness rejects another generated token", auth: NewPeerTokenAuth(token, false, false), client: newPeerTokenCredentials("", otherFile), method: joinReadinessMethod, wantDenied: true},
 	}
 
 	for _, test := range tests {
