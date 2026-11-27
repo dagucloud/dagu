@@ -532,6 +532,7 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | `TestReadAfterAFileDeleteSeesIt` (unit) | A read right after a file write or a file delete gets the new version, also from the cache of another store on the same directory. |
 | `TestDeleteOfASkillIsAtomic` (unit) | A file that a delete cannot remove never leaves a part of the skill. |
 | `TestDeleteKeepsAnOpenFile` (unit) | A reader that opened a file before a delete reads the whole file. |
+| `TestReadThatMeetsADeleteFindsNoSkill` (unit) | A read that meets the delete of its skill finds no skill, never a part of one. |
 | `TestDeleteRemovesTheLockFolder` (unit) | A delete removes the lock folder of the skill. |
 | `TestDeleteRemovesWhatEarlierDeletesLeft` (unit) | A delete removes the hidden folders that earlier deletes left. |
 | `TestClosedBodyMiddleware` (unit) | A skills body with an unknown field, a wrong type or more than 8 MiB is refused for every `Content-Type`, and the error quotes no value. A file body passes as `application/octet-stream` only. |

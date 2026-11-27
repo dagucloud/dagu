@@ -640,6 +640,32 @@ func TestDeleteOfASkillIsAtomic(t *testing.T) {
 	require.Empty(t, names)
 }
 
+// A read that meets the delete of its skill between its walk and its read of
+// the files finds no skill, never a part of one. The delete runs inside the
+// read, so the overlap does not depend on the scheduler. The test changes a
+// package variable, so it does not run in parallel.
+func TestReadThatMeetsADeleteFindsNoSkill(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	var deleteErr error
+	deleted := false
+	skill.AroundReadFiles(t, func() {
+		// The delete reads the skill too; only the first read of the test deletes.
+		if !deleted {
+			deleted = true
+			deleteErr = s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: cur.Hash})
+		}
+	}, func() {})
+
+	_, err = s.Read("demo")
+	require.True(t, deleted, "the read never reached its read of the files")
+	require.NoError(t, deleteErr)
+	require.ErrorIs(t, err, skill.ErrNotFound)
+}
+
 // A hidden folder that an earlier delete could not empty goes with the next
 // delete of a skill, so such folders do not pile up.
 func TestDeleteRemovesWhatEarlierDeletesLeft(t *testing.T) {
