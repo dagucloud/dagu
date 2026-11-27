@@ -92,6 +92,10 @@ service CoordinatorService {
   // check_only the binding alone. Used by workers that cannot read the
   // coordinator's connection store.
   rpc ResolveConnectionToken (ResolveConnectionTokenRequest) returns (ResolveConnectionTokenResponse);
+
+  // GetJoinReadiness reports, from the coordinator's own host, whether a
+  // worker on another host can join it. It takes the peer token.
+  rpc GetJoinReadiness (GetJoinReadinessRequest) returns (GetJoinReadinessResponse);
 }
 
 // Request message for polling a task.
@@ -747,4 +751,49 @@ message TrustedHostKey {
   string node = 1;
   string key = 2;         // Public key in authorized_keys form
   string fingerprint = 3; // SHA256 fingerprint
+}
+
+message GetJoinReadinessRequest {
+}
+
+// The join readiness of one coordinator, as Spec 108 defines it.
+message GetJoinReadinessResponse {
+  string listen_host = 1;  // coordinator.host
+  int32 port = 2;          // coordinator.port
+  // The config file the coordinator read, or the default path it would read.
+  string config_file = 3;
+  // True when coordinator.host is localhost, an address in 127.0.0.0/8, or ::1.
+  bool loopback_only = 4;
+  ConfigSource host_source = 5;  // Where coordinator.host came from
+  string advertise = 6;          // coordinator.advertise when set explicitly
+  HostEnvironment environment = 7;
+  // Non-loopback, non-link-local interface addresses when environment is
+  // HOST_ENVIRONMENT_HOST; empty otherwise.
+  repeated string addresses = 8;
+  bool builtin_tls = 9;  // True only when the coordinator has a usable peer CA
+  bool ready = 10;       // True when loopback_only is false and builtin_tls is true
+}
+
+// Where a configuration value came from.
+message ConfigSource {
+  ConfigSourceKind kind = 1;
+  // The config file path, the environment variable, or the flag, such as
+  // "--coordinator.host". Empty for a default.
+  string name = 2;
+}
+
+enum ConfigSourceKind {
+  CONFIG_SOURCE_KIND_UNSPECIFIED = 0;
+  CONFIG_SOURCE_KIND_DEFAULT = 1;
+  CONFIG_SOURCE_KIND_FILE = 2;
+  CONFIG_SOURCE_KIND_ENV = 3;
+  CONFIG_SOURCE_KIND_FLAG = 4;
+}
+
+// Where a Dagu process runs.
+enum HostEnvironment {
+  HOST_ENVIRONMENT_UNSPECIFIED = 0;
+  HOST_ENVIRONMENT_HOST = 1;        // Neither of the below
+  HOST_ENVIRONMENT_CONTAINER = 2;   // /.dockerenv or /run/.containerenv exists
+  HOST_ENVIRONMENT_KUBERNETES = 3;  // KUBERNETES_SERVICE_HOST is set
 }

@@ -47,6 +47,7 @@ const (
 	CoordinatorService_ResolveRuntimeProfile_FullMethodName       = "/coordinator.v1.CoordinatorService/ResolveRuntimeProfile"
 	CoordinatorService_ResolveNodes_FullMethodName                = "/coordinator.v1.CoordinatorService/ResolveNodes"
 	CoordinatorService_ResolveConnectionToken_FullMethodName      = "/coordinator.v1.CoordinatorService/ResolveConnectionToken"
+	CoordinatorService_GetJoinReadiness_FullMethodName            = "/coordinator.v1.CoordinatorService/GetJoinReadiness"
 )
 
 // CoordinatorServiceClient is the client API for CoordinatorService service.
@@ -119,6 +120,9 @@ type CoordinatorServiceClient interface {
 	// check_only the binding alone. Used by workers that cannot read the
 	// coordinator's connection store.
 	ResolveConnectionToken(ctx context.Context, in *ResolveConnectionTokenRequest, opts ...grpc.CallOption) (*ResolveConnectionTokenResponse, error)
+	// GetJoinReadiness reports, from the coordinator's own host, whether a
+	// worker on another host can join it. It takes the peer token.
+	GetJoinReadiness(ctx context.Context, in *GetJoinReadinessRequest, opts ...grpc.CallOption) (*GetJoinReadinessResponse, error)
 }
 
 type coordinatorServiceClient struct {
@@ -397,6 +401,16 @@ func (c *coordinatorServiceClient) ResolveConnectionToken(ctx context.Context, i
 	return out, nil
 }
 
+func (c *coordinatorServiceClient) GetJoinReadiness(ctx context.Context, in *GetJoinReadinessRequest, opts ...grpc.CallOption) (*GetJoinReadinessResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetJoinReadinessResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_GetJoinReadiness_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoordinatorServiceServer is the server API for CoordinatorService service.
 // All implementations must embed UnimplementedCoordinatorServiceServer
 // for forward compatibility.
@@ -467,6 +481,9 @@ type CoordinatorServiceServer interface {
 	// check_only the binding alone. Used by workers that cannot read the
 	// coordinator's connection store.
 	ResolveConnectionToken(context.Context, *ResolveConnectionTokenRequest) (*ResolveConnectionTokenResponse, error)
+	// GetJoinReadiness reports, from the coordinator's own host, whether a
+	// worker on another host can join it. It takes the peer token.
+	GetJoinReadiness(context.Context, *GetJoinReadinessRequest) (*GetJoinReadinessResponse, error)
 	mustEmbedUnimplementedCoordinatorServiceServer()
 }
 
@@ -551,6 +568,9 @@ func (UnimplementedCoordinatorServiceServer) ResolveNodes(context.Context, *Reso
 }
 func (UnimplementedCoordinatorServiceServer) ResolveConnectionToken(context.Context, *ResolveConnectionTokenRequest) (*ResolveConnectionTokenResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResolveConnectionToken not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) GetJoinReadiness(context.Context, *GetJoinReadinessRequest) (*GetJoinReadinessResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetJoinReadiness not implemented")
 }
 func (UnimplementedCoordinatorServiceServer) mustEmbedUnimplementedCoordinatorServiceServer() {}
 func (UnimplementedCoordinatorServiceServer) testEmbeddedByValue()                            {}
@@ -983,6 +1003,24 @@ func _CoordinatorService_ResolveConnectionToken_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoordinatorService_GetJoinReadiness_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetJoinReadinessRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).GetJoinReadiness(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_GetJoinReadiness_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).GetJoinReadiness(ctx, req.(*GetJoinReadinessRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CoordinatorService_ServiceDesc is the grpc.ServiceDesc for CoordinatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1073,6 +1111,10 @@ var CoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResolveConnectionToken",
 			Handler:    _CoordinatorService_ResolveConnectionToken_Handler,
+		},
+		{
+			MethodName: "GetJoinReadiness",
+			Handler:    _CoordinatorService_GetJoinReadiness_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
