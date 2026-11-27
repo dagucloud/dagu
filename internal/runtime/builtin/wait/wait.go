@@ -319,10 +319,7 @@ func (e *executorImpl) waitHTTP(ctx context.Context) error {
 		defer func() { _ = resp.Body.Close() }()
 		_, _ = io.Copy(io.Discard, resp.Body)
 		if resp.StatusCode != e.cfg.expectedStatus {
-			// resp.Request is the final hop after redirects, so this names the
-			// proxy for the host that answered, not one left behind by a redirect
-			// to a NO_PROXY target.
-			e.logPollResult(&last, fmt.Sprintf("wait: http %s%s got status %d, want %d", method, e.viaProxy(resp.Request), resp.StatusCode, e.cfg.expectedStatus))
+			e.logPollResult(&last, fmt.Sprintf("wait: http %s%s got status %d, want %d", method, e.viaProxy(req), resp.StatusCode, e.cfg.expectedStatus))
 			return false, nil
 		}
 		return true, nil
