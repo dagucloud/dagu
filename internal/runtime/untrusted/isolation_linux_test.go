@@ -588,6 +588,28 @@ func TestHandoffRefusesAFIFOGitPointer(t *testing.T) {
 	require.NoError(t, iso.unmarkUnlessAborted(iso.restore(false)))
 }
 
+// git follows the link in a .git file before a ".." after it: with link ->
+// <outside>/a/b, the text link/../x names <outside>/a/x, not the folder x next
+// to link. The handoff resolves the text in the same order, so it fails for
+// the git folder outside the work directory. It needs no root.
+func TestHandoffResolvesTheGitFileAsGit(t *testing.T) {
+	t.Parallel()
+	outside, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(outside, "a", "b"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(outside, "a", "x"), 0o755))
+	iso := selfIsolation(t, t.TempDir())
+	repo := filepath.Join(iso.workDir, "repo")
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, "x"), 0o755))
+	require.NoError(t, os.Symlink(filepath.Join(outside, "a", "b"), filepath.Join(repo, "link")))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".git"), []byte("gitdir: link/../x\n"), 0o644))
+
+	err = iso.handoff()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "names the git folder "+filepath.Join(outside, "a", "x")+", which is not in the work directory")
+	require.NoError(t, iso.unmarkUnlessAborted(iso.restore(false)))
+}
+
 // A file of a git folder with more than one link fails the step when the
 // handoff must change its mode: the change would also open its path outside
 // the work directory to the restricted user. It needs no root.

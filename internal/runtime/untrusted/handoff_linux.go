@@ -109,9 +109,11 @@ func resolveGitPointer(path string, prefix string) (string, error) {
 		return "", errors.New("the file names no folder")
 	}
 	if !filepath.IsAbs(text) {
-		text = filepath.Join(filepath.Dir(path), text)
+		// Not filepath.Join, which would fold a ".." before EvalSymlinks
+		// follows the link in front of it, as git does.
+		text = filepath.Dir(path) + "/" + text
 	}
-	return filepath.EvalSymlinks(filepath.Clean(text))
+	return filepath.EvalSymlinks(text)
 }
 
 // readGitPointer reads the regular file of path. It does not wait at a FIFO,
