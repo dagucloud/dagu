@@ -41,7 +41,8 @@ var errCoordinatorUpgrade = errors.New("the coordinator must be upgraded to hand
 // worker through the coordinator (Spec 107 §Workers). It keeps each token
 // it receives, as a run process does, until the token falls below the
 // lifetime a caller asks for or is rejected, and then asks again. It never
-// refreshes a token itself.
+// refreshes a token itself. It keeps the latest binding of each connection
+// that an answer carried.
 type remoteConnections struct {
 	client coordinator.ConnectionTokenClient
 	owner  serviceregistry.HostInfo
@@ -50,6 +51,9 @@ type remoteConnections struct {
 
 	mu    sync.Mutex
 	gates map[tokenKey]*oauthrefresh.Gate
+	// bindings holds a connection per name; the coordinator answers only
+	// the connections the run's DAG declares.
+	bindings map[string]*connection.Connection
 }
 
 // tokenKey names the token of one connection at one resource.
@@ -65,12 +69,32 @@ var (
 
 func newRemoteConnections(client coordinator.ConnectionTokenClient, owner serviceregistry.HostInfo, run coordinator.SecretReferenceRun) *remoteConnections {
 	return &remoteConnections{
-		client: client,
-		owner:  owner,
-		run:    run,
-		now:    time.Now,
-		gates:  make(map[tokenKey]*oauthrefresh.Gate),
+		client:   client,
+		owner:    owner,
+		run:      run,
+		now:      time.Now,
+		gates:    make(map[tokenKey]*oauthrefresh.Gate),
+		bindings: make(map[string]*connection.Connection),
 	}
+}
+
+// Connection returns the binding of the connection named name, as the
+// connection that Token takes: its name, provider, services, every host
+// that may receive its token, and its resource. A binding an earlier answer
+// carried is reused; otherwise a check-only request asks for it.
+func (c *remoteConnections) Connection(ctx context.Context, name string) (*connection.Connection, error) {
+	c.mu.Lock()
+	conn, ok := c.bindings[name]
+	c.mu.Unlock()
+	if ok {
+		return conn, nil
+	}
+	if _, err := c.call(ctx, &coordinatorv1.ResolveConnectionTokenRequest{Connection: name, CheckOnly: true}); err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.bindings[name], nil
 }
 
 // CheckConnection asks the coordinator to check ref. The coordinator reads
@@ -155,18 +179,40 @@ func (c *remoteConnections) call(ctx context.Context, req *coordinatorv1.Resolve
 	if err != nil {
 		return nil, connectionTokenError(req.GetConnection(), err)
 	}
+	if binding := resp.GetBinding(); binding != nil {
+		c.mu.Lock()
+		c.bindings[req.GetConnection()] = bindingConnection(req.GetConnection(), binding)
+		c.mu.Unlock()
+	}
 	return resp, nil
+}
+
+// bindingConnection returns the connection named name that binding
+// describes. Its workspace is left empty: the coordinator resolves the name
+// in the run's workspace.
+func bindingConnection(name string, binding *coordinatorv1.ConnectionBinding) *connection.Connection {
+	conn := &connection.Connection{
+		Name:       name,
+		Provider:   connection.Provider(binding.GetProvider()),
+		BoundHosts: binding.GetBoundHosts(),
+		Resource:   binding.GetResource(),
+	}
+	for _, svc := range binding.GetServices() {
+		conn.Services = append(conn.Services, connection.Service{Name: svc.GetName(), Access: connection.Access(svc.GetAccess())})
+	}
+	return conn
 }
 
 // connectionTokenError restores the kind of a coordinator's error, so a
 // caller tells a missing connection or one that needs reconnecting from
-// other failures.
+// other failures. The coordinator answers FailedPrecondition only for a
+// connection that needs reconnecting.
 func connectionTokenError(name string, err error) error {
 	st, ok := status.FromError(err)
 	if !ok {
 		return fmt.Errorf("connection %q: %w", name, err)
 	}
-	switch st.Code() {
+	switch st.Code() { //nolint:exhaustive // Only codes that carry a connection error kind are translated.
 	case codes.Unimplemented:
 		return fmt.Errorf("connection %q: %w", name, errCoordinatorUpgrade)
 	case codes.NotFound:

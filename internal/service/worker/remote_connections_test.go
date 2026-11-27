@@ -125,8 +125,9 @@ func TestRemoteConnectionsKeepToken(t *testing.T) {
 	assert.True(t, proto.Equal(want, coord.requests[0]), coord.requests[0])
 }
 
-// A rejected token is reported and replaced; a token rejected after another
-// caller replaced it is reported all the same, and the coordinator decides.
+// A rejected token is reported and replaced. A token rejected after another
+// caller replaced it is not reported: the newer kept token is returned
+// without a request.
 func TestRemoteConnectionsRejected(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -143,7 +144,37 @@ func TestRemoteConnectionsRejected(t *testing.T) {
 	token, _, err = conns.Token(ctx, workConnection, "", tokenMinTTL)
 	require.NoError(t, err)
 	assert.Equal(t, "tok-2", token)
+
+	token, _, err = conns.Rejected(ctx, workConnection, "", "tok-1", tokenMinTTL)
+	require.NoError(t, err)
+	assert.Equal(t, "tok-2", token)
 	assert.Equal(t, 2, coord.calls())
+}
+
+// The binding an answer carries is kept, so the connection is built without
+// another request.
+func TestRemoteConnectionsKeepBinding(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	coord := &tokenCoordinator{respond: func(*coordinatorv1.ResolveConnectionTokenRequest) (*coordinatorv1.ResolveConnectionTokenResponse, error) {
+		return &coordinatorv1.ResolveConnectionTokenResponse{Binding: &coordinatorv1.ConnectionBinding{
+			Provider:   "google",
+			Services:   []*coordinatorv1.ConnectionService{{Name: "gmail", Access: "read"}},
+			BoundHosts: []string{"gmailmcp.googleapis.com"},
+		}}, nil
+	}}
+	conns, _ := newTestConnections(coord)
+	require.NoError(t, conns.CheckConnection(ctx, "ops", ir.ConnectionRef{Name: "work"}))
+
+	conn, err := conns.Connection(ctx, "work")
+	require.NoError(t, err)
+	assert.Equal(t, &connection.Connection{
+		Name:       "work",
+		Provider:   connection.ProviderGoogle,
+		Services:   []connection.Service{{Name: "gmail", Access: connection.AccessRead}},
+		BoundHosts: []string{"gmailmcp.googleapis.com"},
+	}, conn)
+	assert.Equal(t, 1, coord.calls())
 }
 
 // The check runs on the coordinator, and its failure names the connection.
