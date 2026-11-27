@@ -283,7 +283,15 @@ func (e *executorImpl) waitHTTP(ctx context.Context) error {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = e.proxy
 	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: e.cfg.requestTimeout}
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   e.cfg.requestTimeout,
+		// A 3xx is a status the step may wait for, so compare the redirect
+		// response itself instead of following it to the target.
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	method := strings.ToUpper(e.cfg.Method)
 	var last string
 	return poll(ctx, e.cfg.pollInterval, func() (bool, error) {
@@ -292,6 +300,12 @@ func (e *executorImpl) waitHTTP(ctx context.Context) error {
 			return false, err
 		}
 		for key, value := range e.cfg.Headers {
+			// Host is not an ordinary header: net/http sends req.Host and
+			// ignores a Host entry in req.Header.
+			if strings.EqualFold(key, "Host") {
+				req.Host = value
+				continue
+			}
 			req.Header.Set(key, value)
 		}
 
