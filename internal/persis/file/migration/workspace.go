@@ -31,31 +31,36 @@ const maxNameLength = 64
 // digit to start a project name with.
 const fallbackName = "workspace"
 
-// workspaceDAG is a DAG file in paths.dags_dir whose first document carries
-// the workspace label of a v2 workspace.
-type workspaceDAG struct {
-	// name is the DAG's name, which keys its state.
+// scannedDAG is a DAG file in paths.dags_dir, read as v2 read it.
+type scannedDAG struct {
+	// name is the DAG's name, which keys its runs and most of its state.
 	name string
-	// fileName is the file's name without its extension, which v2's
-	// webhook URL of the DAG names.
+	// fileName is the file's name without its extension, which keys the
+	// rest of its state and which v2's webhook URL of the DAG names.
 	fileName string
 	// path is the file, absolute with its symbolic links resolved.
 	path string
+	// queue is the queue the DAG's runs wait in, "" for the DAG's own.
+	queue string
+	// workspace is the v2 workspace whose label the file's first document
+	// carries, or "" when the file is the default project's.
+	workspace string
 }
 
 // workspaceMovePlanner returns the planner that makes each v2 workspace a
 // project and moves the state of the workspace's DAGs from the default
 // project into it. It registers each project, with the workspace's DAG files
 // as files that run in place, before it plans the moves. A project
-// registered by an earlier attempt is kept, so a resumed plan places the
-// same state in the same projects.
+// registered by an earlier attempt keeps its ID and name and gets the
+// records of the current files, so a resumed plan places state in the same
+// projects.
 func workspaceMovePlanner(cfg *config.Config) func(context.Context) ([]move, error) {
 	return func(ctx context.Context) ([]move, error) {
 		workspaces, err := v2Workspaces(ctx, cfg)
 		if err != nil || len(workspaces) == 0 {
 			return nil, err
 		}
-		dags, err := workspaceDAGs(ctx, cfg, workspaces)
+		dags, err := scanDAGs(ctx, cfg, workspaces)
 		if err != nil {
 			return nil, err
 		}
@@ -63,27 +68,7 @@ func workspaceMovePlanner(cfg *config.Config) func(context.Context) ([]move, err
 		if err != nil {
 			return nil, err
 		}
-		from, err := cfg.ProjectPaths(project.DefaultName)
-		if err != nil {
-			return nil, err
-		}
-		var moves []move
-		for _, ws := range workspaces {
-			to, err := cfg.ProjectPaths(names[ws])
-			if err != nil {
-				return nil, err
-			}
-			for _, dag := range dags[ws] {
-				paths, err := persisfile.DAGStatePaths(ctx, from, to, dag.name, dag.fileName)
-				if err != nil {
-					return nil, err
-				}
-				for _, path := range paths {
-					moves = append(moves, move{From: path.From, To: path.To})
-				}
-			}
-		}
-		return moves, nil
+		return planWorkspaceMoves(ctx, cfg, names, dags)
 	}
 }
 
@@ -108,10 +93,10 @@ func v2Workspaces(ctx context.Context, cfg *config.Config) ([]string, error) {
 	return slices.Compact(names), nil
 }
 
-// workspaceDAGs returns, by workspace, the DAG files in paths.dags_dir whose
-// first document carries the label of one of workspaces. A file that fails
+// scanDAGs returns the DAG files in paths.dags_dir, each with the workspace
+// of workspaces whose label its first document carries. A file that fails
 // to load carries no label, and stays the default project's.
-func workspaceDAGs(ctx context.Context, cfg *config.Config, workspaces []string) (map[string][]workspaceDAG, error) {
+func scanDAGs(ctx context.Context, cfg *config.Config, workspaces []string) ([]scannedDAG, error) {
 	if cfg.Paths.DAGsDir == "" {
 		return nil, nil
 	}
@@ -128,15 +113,11 @@ func workspaceDAGs(ctx context.Context, cfg *config.Config, workspaces []string)
 	if err != nil {
 		return nil, fmt.Errorf("find the DAGs of the workspaces: %w", err)
 	}
-	dags := make(map[string][]workspaceDAG)
+	var dags []scannedDAG
 	for _, file := range scan.Files {
 		dag, err := spec.Load(ctx, file.ResolvedPath,
 			spec.OnlyMetadata(), spec.WithoutEval(), spec.SkipSchemaValidation())
 		if err != nil {
-			continue
-		}
-		ws, ok := workspace.WorkspaceNameFromLabels(dag.Labels)
-		if !ok || !slices.Contains(workspaces, ws) {
 			continue
 		}
 		path, err := filepath.Abs(file.ResolvedPath)
@@ -146,20 +127,26 @@ func workspaceDAGs(ctx context.Context, cfg *config.Config, workspaces []string)
 		if real, err := filepath.EvalSymlinks(path); err == nil {
 			path = real
 		}
-		dags[ws] = append(dags[ws], workspaceDAG{
+		scanned := scannedDAG{
 			name:     dag.Name,
 			fileName: fileutil.TrimYAMLFileExtension(filepath.Base(filepath.FromSlash(file.RelPath))),
 			path:     path,
-		})
+			queue:    dag.Queue,
+		}
+		if ws, ok := workspace.WorkspaceNameFromLabels(dag.Labels); ok && slices.Contains(workspaces, ws) {
+			scanned.workspace = ws
+		}
+		dags = append(dags, scanned)
 	}
+	slices.SortFunc(dags, func(a, b scannedDAG) int { return strings.Compare(a.path, b.path) })
 	return dags, nil
 }
 
-// registerWorkspaces registers a project for each workspace that no earlier
-// attempt registered, records it in each of its state directories, and
-// returns the name of each workspace's project.
+// registerWorkspaces registers a project for each workspace, with the
+// records of its DAGs and files, records it in each of its state
+// directories, and returns the name of each workspace's project.
 func registerWorkspaces(
-	ctx context.Context, cfg *config.Config, workspaces []string, dags map[string][]workspaceDAG,
+	ctx context.Context, cfg *config.Config, workspaces []string, dags []scannedDAG,
 ) (map[string]string, error) {
 	registry := projectregistry.New(cfg.Paths.DataDir)
 	registered, err := registry.List(ctx)
@@ -171,16 +158,16 @@ func registerWorkspaces(
 		return nil, err
 	}
 	for _, ws := range workspaces {
-		p, found := registeredFrom(registered, ws)
-		if !found {
-			in := project.CreateInput{Name: names[ws], DisplayName: ws, MigratedFrom: ws}
-			for _, dag := range dags[ws] {
+		in := project.CreateInput{Name: names[ws], DisplayName: ws, MigratedFrom: ws}
+		for _, dag := range dags {
+			if dag.workspace == ws {
 				in.MigratedDAGs = append(in.MigratedDAGs, dag.fileName)
 				in.InPlaceFiles = append(in.InPlaceFiles, dag.path)
 			}
-			if p, err = registry.Create(ctx, in); err != nil {
-				return nil, fmt.Errorf("register workspace %s as project %s: %w", ws, in.Name, err)
-			}
+		}
+		p, err := registry.RegisterMigrated(ctx, in)
+		if err != nil {
+			return nil, fmt.Errorf("register workspace %s as project %s: %w", ws, in.Name, err)
 		}
 		paths, err := cfg.ProjectPaths(p.Name)
 		if err != nil {
@@ -284,14 +271,4 @@ func nameFrom(ws string) string {
 
 func isASCIIAlnum(r rune) bool {
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9'
-}
-
-// registeredFrom returns the project that an earlier attempt registered for
-// the workspace ws.
-func registeredFrom(registered []project.Project, ws string) (project.Project, bool) {
-	i := slices.IndexFunc(registered, func(p project.Project) bool { return p.MigratedFrom == ws })
-	if i < 0 {
-		return project.Project{}, false
-	}
-	return registered[i], true
 }

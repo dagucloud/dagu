@@ -997,6 +997,13 @@ Rules:
   settings, and the rest of its state move from v2's directories in
   `<data_dir>`, and its logs from the default log directory, into its state
   directories.
+- v2 keeps a DAG's runs and state by the DAG's name. When DAGs of more than
+  one project have the same name, each run of that name moves to the
+  project of the workspace that the run's labels name, or stays in the
+  default project when they name none, as v2 showed the run to that
+  workspace's users. The rest of the name's state, such as its suspend
+  flag, DAG settings, and DAG state, stays in the default project, and the
+  report lists the name.
 - State moves by rename. A directory on another file system, such as one
   that `paths.queue_dir` placed, is copied.
 - A v2 directory that is a symbolic link or a junction moves as a link.
@@ -1179,6 +1186,8 @@ attention:
   first document's
 - each workspace DAG whose name a DAG in `<projects_dir>/X/` already has,
   so the file in `<projects_dir>/X/` runs in its place
+- each DAG name that DAGs of more than one project share, whose state
+  other than its runs stays in the default project
 
 The text of the report is not part of this contract. For example:
 
