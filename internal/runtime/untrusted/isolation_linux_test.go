@@ -572,6 +572,22 @@ func TestHandoffMarksTheWorkDirectory(t *testing.T) {
 	require.NoError(t, next.unmarkUnlessAborted(next.restore(true)))
 }
 
+// A FIFO named commondir fails the handoff instead of holding it until a writer
+// opens the FIFO. It needs no root.
+func TestHandoffRefusesAFIFOGitPointer(t *testing.T) {
+	t.Parallel()
+	iso := selfIsolation(t, t.TempDir())
+	dir := filepath.Join(iso.workDir, "sub")
+	require.NoError(t, os.Mkdir(dir, 0o755))
+	common := filepath.Join(dir, "commondir")
+	require.NoError(t, unix.Mkfifo(common, 0o600))
+
+	err := iso.handoff()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, common+": not a regular file")
+	require.NoError(t, iso.unmarkUnlessAborted(iso.restore(false)))
+}
+
 // A file of a git folder with more than one link fails the step when the
 // handoff must change its mode: the change would also open its path outside
 // the work directory to the restricted user. It needs no root.

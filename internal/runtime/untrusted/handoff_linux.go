@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -92,7 +93,7 @@ func (iso *isolation) insideGit(path string) bool {
 // resolveGitPointer returns the git folder that the file of path names with
 // the line "<key>: <path>" (a .git file) or with its whole text (commondir).
 func resolveGitPointer(path string, prefix string) (string, error) {
-	data, err := os.ReadFile(path) // #nosec G304 -- a file of the work directory, read as data.
+	data, err := readGitPointer(path)
 	if err != nil {
 		return "", err
 	}
@@ -111,6 +112,24 @@ func resolveGitPointer(path string, prefix string) (string, error) {
 		text = filepath.Join(filepath.Dir(path), text)
 	}
 	return filepath.EvalSymlinks(filepath.Clean(text))
+}
+
+// readGitPointer reads the regular file of path. It does not wait at a FIFO,
+// which would hold Begin until a writer opens it.
+func readGitPointer(path string) ([]byte, error) {
+	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NONBLOCK, 0) // #nosec G304 -- a file of the work directory, read as data.
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
+	}
+	return io.ReadAll(file)
 }
 
 // discoverGit finds the entries .git and the git folders of the work
