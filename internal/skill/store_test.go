@@ -925,6 +925,38 @@ func TestReadAfterAWriteSeesIt(t *testing.T) {
 	}
 }
 
+// A read right after a file write or a file delete gets the new version, also
+// from a cache that held the version before, as the cache of another process on
+// the same directory does. The test moves the clock of the cache, so it is not
+// parallel.
+func TestReadAfterAFileDeleteSeesIt(t *testing.T) {
+	skill.SettleClock(t)
+	ctx := context.Background()
+	s := newStore(t)
+	other := skill.NewStore(skill.Root(s))
+	created := create(t, s, "demo")
+	_, err := other.Read("demo")
+	require.NoError(t, err)
+	written, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	for _, st := range []*skill.Store{s, other} {
+		got, err := st.Read("demo")
+		require.NoError(t, err)
+		require.Equal(t, written.Hash, got.Hash)
+	}
+
+	deleted, err := s.DeleteFile(ctx, "demo", "references/a.md", skill.Precondition{IfMatch: written.Hash})
+	require.NoError(t, err)
+	require.Equal(t, created.Hash, deleted.Hash)
+	for _, st := range []*skill.Store{s, other} {
+		got, err := st.Read("demo")
+		require.NoError(t, err)
+		require.Equal(t, deleted.Hash, got.Hash)
+		_, ok := got.File("references/a.md")
+		require.False(t, ok, "a read after the delete lists the deleted file")
+	}
+}
+
 // A reader that meets a skill during a multi-file save sees a complete version.
 func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 	t.Parallel()
