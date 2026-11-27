@@ -125,7 +125,7 @@ func (s *DAGRunLeaseStore) Delete(ctx context.Context, attemptKey string) error 
 }
 
 func mergeDAGRunLease(current, incoming dispatch.DAGRunLease) (dispatch.DAGRunLease, error) {
-	if current.AttemptKey != incoming.AttemptKey ||
+	if current.AttemptKey != incoming.AttemptKey || current.Project != incoming.Project ||
 		(current.DAGRun != (ir.DAGRunRef{}) && incoming.DAGRun != (ir.DAGRunRef{}) && current.DAGRun != incoming.DAGRun) ||
 		(!current.Root.Zero() && !incoming.Root.Zero() && current.Root != incoming.Root) ||
 		(current.AttemptID != "" && incoming.AttemptID != "" && current.AttemptID != incoming.AttemptID) ||

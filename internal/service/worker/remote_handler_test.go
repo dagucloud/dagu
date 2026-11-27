@@ -1523,6 +1523,37 @@ func TestHandleRetryLoadErrorRecordsTrigger(t *testing.T) {
 	}
 }
 
+// A task of a project other than the default one reports its status to that
+// project, even when its run fails before it starts.
+func TestHandleProjectTaskReportsInProject(t *testing.T) {
+	t.Parallel()
+
+	var reported *coordinatorv1.ProjectScope
+	client := newMockRemoteCoordinatorClient()
+	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+		reported = req.GetProject()
+		return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+	}
+	handler := NewRemoteTaskHandler(RemoteTaskHandlerConfig{
+		WorkerID:          "test-worker",
+		CoordinatorClient: client,
+		Config:            &config.Config{Paths: config.PathsConfig{DAGsDir: t.TempDir()}},
+	})
+
+	project := &coordinatorv1.ProjectScope{ProjectId: "weather-id", Library: true}
+	err := handler.Handle(context.Background(), &coordinatorv1.Task{
+		Operation:  coordinatorv1.Operation_OPERATION_START,
+		Target:     "forecast",
+		DagRunId:   "run-1",
+		Definition: `invalid: yaml: content: [[[`,
+		Project:    project,
+	})
+	require.ErrorContains(t, err, "failed to load DAG")
+	require.NotNil(t, reported)
+	assert.Equal(t, "weather-id", reported.GetProjectId())
+	assert.True(t, reported.GetLibrary())
+}
+
 func TestRemoteHandler_UniqueLogDirs(t *testing.T) {
 	t.Parallel()
 

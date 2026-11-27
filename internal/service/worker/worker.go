@@ -374,7 +374,7 @@ func (w *Worker) cleanupAgentSessions(ctx context.Context) {
 		}
 		completeCtx, completeCancel := context.WithTimeout(ctx, 15*time.Second)
 		_, completeErr := client.CompleteAgentSessionCleanupTo(completeCtx, owner, &coordinatorv1.CompleteAgentSessionCleanupRequest{
-			WorkerId: w.id, JobId: resp.JobId, ClaimToken: resp.ClaimToken, Error: message,
+			WorkerId: w.id, JobId: resp.JobId, ClaimToken: resp.ClaimToken, Error: message, Project: resp.Project,
 		})
 		completeCancel()
 		if completeErr != nil {
