@@ -172,6 +172,39 @@ func (b *Bearer) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	resp, err := b.send(req, token)
+	if err == nil && req.Method == http.MethodGet && resp.StatusCode == http.StatusUnauthorized {
+		return b.resume(req, resp)
+	}
+	return resp, err
+}
+
+// resume reports the token that the GET resuming a stream had refused,
+// which go-sdk never passes to Authorize, and sends the GET again, with its
+// Last-Event-ID, carrying the token the source returns. After the one
+// report, it leaves the refusal to the session.
+func (b *Bearer) resume(req *http.Request, resp *http.Response) (*http.Response, error) {
+	b.mu.Lock()
+	if b.reported {
+		b.mu.Unlock()
+		return resp, nil
+	}
+	_ = resp.Body.Close()
+	b.reported = true
+	token, expiresIn, err := b.source.Rejected(req.Context(), b.conn, "", b.refusedToken, broker.StepMinTTL)
+	if err == nil {
+		b.rejected, b.refusedToken = nil, ""
+		b.keep(token, expiresIn)
+	}
+	b.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return b.send(req, token)
+}
+
+// send sends req with token, remembering a refusal.
+func (b *Bearer) send(req *http.Request, token string) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := b.base.RoundTrip(req)
