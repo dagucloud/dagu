@@ -4,11 +4,14 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -106,6 +109,9 @@ func (s *WorkerInviteStore) List(ctx context.Context) ([]persis.WorkerInvite, er
 		}
 		invites = append(invites, invite)
 	}
+	slices.SortFunc(invites, func(a, b persis.WorkerInvite) int {
+		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), strings.Compare(a.ID, b.ID))
+	})
 	return invites, nil
 }
 

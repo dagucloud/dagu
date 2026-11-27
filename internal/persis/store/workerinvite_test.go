@@ -89,6 +89,24 @@ func TestWorkerInviteStore_CreateAndFind(t *testing.T) {
 	assert.ErrorIs(t, err, persis.ErrWorkerInviteNotFound)
 }
 
+// List keeps creation order on the file backend after an invite is used.
+func TestWorkerInviteStore_ListOldestFirst(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s := newWorkerInviteStore(t, file.NewBackend(config.PathsConfig{DataDir: t.TempDir()}).Collection(persis.CollectionWorkerInvites))
+	first := createInvite(t, s, workerInvite("secret-a", persis.WorkerInviteReusable))
+	later := workerInvite("secret-b", persis.WorkerInviteReusable)
+	later.CreatedAt = inviteCreatedAt.Add(time.Minute)
+	second := createInvite(t, s, later)
+
+	first, err := s.Use(ctx, first.ID, inviteCreatedAt.Add(time.Hour))
+	require.NoError(t, err)
+
+	invites, err := s.List(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []persis.WorkerInvite{first, second}, invites)
+}
+
 func TestWorkerInviteStore_RecordHoldsNoSecret(t *testing.T) {
 	t.Parallel()
 	dataDir := t.TempDir()
