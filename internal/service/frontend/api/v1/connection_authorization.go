@@ -45,6 +45,11 @@ func (a *API) StartConnectionAuthorization(ctx context.Context, request api.Star
 		return nil, err
 	}
 	body := valueOf(request.Body)
+	// An empty mode would choose like an omitted one, also when request
+	// validation is off.
+	if body.Mode != nil && *body.Mode == "" {
+		return nil, badConnectionRequest("mode must be omitted or name a redirect mode")
+	}
 	state, err := storedTokenState(ctx, a.connectionStore, conn)
 	if err != nil {
 		return nil, fmt.Errorf("connection %q: failed to read token state: %w", conn.Name, err)
@@ -177,8 +182,8 @@ func (a *API) usablePublicURL(ctx context.Context) string {
 }
 
 // localhostOrigin records the origin, with basePath, of a request that
-// reached the server directly at localhost or a loopback address. A browser
-// on the host that sent it reaches the server's callback there.
+// reached the server at localhost or a loopback address without a proxy. A
+// browser on the host that sent it reaches the server's callback there.
 func localhostOrigin(basePath string) api.StrictMiddlewareFunc {
 	basePath = strings.Trim(strings.TrimSpace(basePath), "/")
 	return func(next api.StrictHandlerFunc, _ string) api.StrictHandlerFunc {
@@ -194,13 +199,14 @@ func localhostOrigin(basePath string) api.StrictMiddlewareFunc {
 	}
 }
 
-// localOrigin returns the origin at which r reached the server when it
-// came from a loopback peer to a localhost or loopback host, or "". A proxy
-// on the same host may rewrite Host to a loopback address, so a request
-// with a forwarding header, or from a browser page of another origin, does
-// not count.
+// localOrigin returns the origin at which r reached the server when its
+// host is localhost or a loopback address, or "". The peer is not checked,
+// since a published container port delivers the browser's request from a
+// bridge gateway. A proxy may rewrite Host to a loopback address, so a
+// request with a forwarding header, or from a browser page of another
+// origin, does not count.
 func localOrigin(r *http.Request) string {
-	if !isLocalhost((&url.URL{Host: r.Host}).Hostname()) || !isLocalhost(peerHost(r.RemoteAddr)) {
+	if !isLocalhost((&url.URL{Host: r.Host}).Hostname()) {
 		return ""
 	}
 	for _, header := range forwardingHeaders {
@@ -222,14 +228,6 @@ func localOrigin(r *http.Request) string {
 		}
 	}
 	return origin
-}
-
-func peerHost(remoteAddr string) string {
-	host, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		return remoteAddr
-	}
-	return host
 }
 
 // isLocalhost reports whether host is localhost or a loopback address,

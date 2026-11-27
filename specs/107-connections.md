@@ -623,9 +623,10 @@ starter (UI or CLI)          Dagu server                       provider
 - The usable public URL is `server.public_url`, else the tunnel URL, else
   the UI's origin when the browser reaches Dagu at `localhost` or a
   loopback address, which Google accepts over HTTP. The server reads that
-  origin from a request that comes straight from a loopback peer, so a CLI
-  that reaches Dagu at `localhost` gets the same URL. A request that a
-  proxy forwarded does not count, so a server behind a proxy needs
+  origin from the request's host, so a CLI that reaches Dagu at
+  `localhost`, and a browser at a published container port, get the same
+  URL. A request with a forwarding header, or whose `Origin` or `Referer`
+  names another origin, does not count, so a server behind a proxy needs
   `server.public_url`.
 - Unless the caller names a mode, the UI and the CLI pick the first of
   server callback, Cloud relay, loopback, and paste that works for the
