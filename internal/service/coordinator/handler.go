@@ -589,6 +589,11 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		return nil, status.Error(codes.Internal, "failed to list workers: "+err.Error())
 	}
 	shortfall := workerShortfall(healthyWorkers, req.Task)
+	// A run bound to a worker node fails at once while its worker is offline,
+	// rather than waiting for it (RFC 013 §Matching).
+	if shortfall != nil && req.Task.BoundNode != "" {
+		return nil, status.Errorf(codes.FailedPrecondition, "worker node %q is offline", req.Task.BoundNode)
+	}
 	if shortfall != nil && !h.holdsDispatch(req.Task) {
 		return nil, status.Error(dispatchErrorCode(shortfall), shortfall.Error())
 	}
@@ -1022,6 +1027,10 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 		loadOpts = append(loadOpts, spec.WithBaseConfigContent([]byte(task.BaseConfig)))
 	}
 	dag, err := spec.LoadYAML(ctx, []byte(task.Definition), loadOpts...)
+	// The child of a command step with nodes runs that step alone.
+	if err == nil && task.NodeStep != "" {
+		dag, err = dag.NodeStepChild(task.NodeStep)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse DAG definition: %w", err)
 	}

@@ -250,7 +250,7 @@ func (r *Local) ShouldRun(_ context.Context, req executor.SubWorkflowRequest) bo
 	if r == nil || req.DAG == nil {
 		return false
 	}
-	if req.RunID == "" || req.RootDAGRun.Zero() {
+	if req.RunID == "" || req.RootDAGRun.Zero() || req.TargetWorkerID != "" {
 		return false
 	}
 	if req.DAG.ForceLocal {

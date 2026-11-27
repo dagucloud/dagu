@@ -709,7 +709,7 @@ A completed `parallel` step publishes a JSON array of each successful child run'
 
 ## nodes: Run On Inventory Nodes
 
-`nodes:` runs a step once per inventory node a selector matches. The selector is the label filter that `dagu history --labels` takes: terms separated by commas, all of which must match, such as `web,env=prod,!canary`. Quote a selector that starts with `!`.
+`nodes:` runs a step once per node a selector matches: inventory (SSH) nodes and worker nodes, the workers that set `worker.id`, alike. Worker nodes are nodes only for runs that can go to workers: runs of the default project, other than of a library DAG. Other runs match their inventory nodes only. The selector is the label filter that `dagu history --labels` takes: terms separated by commas, all of which must match, such as `web,env=prod,!canary`. Quote a selector that starts with `!`.
 
 ```yaml
 steps:
@@ -735,17 +735,18 @@ steps:
 ```
 
 - `nodes` works on `dag.run` and on command steps (`run`, `command`, `script` without an action, `ssh.run`, `sftp.*`), and not with `parallel`, `foreach`, `worker_selector`, `container`, or `repeat_policy`.
-- Each enabled matched node gets its own child run bound to it, in name order. A `dag.run` child must declare `node: required`. A command step runs alone in each child, reading the run's params, env, and earlier steps' outputs, with `timeout_sec` and `retry_policy` per node.
+- Each enabled matched node gets its own child run bound to it, in name order. A worker whose ID names an inventory node is not a node. A `dag.run` child must declare `node: required`. A command step runs alone in each child, reading the run's params, env, and earlier steps' outputs, with `timeout_sec` and `retry_policy` per node.
 - A reference in the selector must resolve to one label key or value, so `env=${params.env}` cannot be widened by a value such as `prod,!canary`.
-- The step fails before any node starts when the selector matches no nodes (`selector matched no nodes`) or only disabled ones. Disabled nodes do not run.
+- The step fails before any node starts when the selector matches no nodes (`selector matched no nodes`) or only disabled ones. Disabled nodes do not run. A worker node has no `disabled`.
+- A child bound to a worker node runs on that worker, dispatched by its ID, and every step of it runs there. A matched worker that is offline fails its node at once, and a worker lost during the run fails its node. In such a run `${node.host}` is the host the worker reports, `${node.port}`, `${node.user}`, and `${node.description}` are empty, and an `ssh.run` or `sftp.*` step without `with.host` or `with.ip` fails the run before any step, since the node has no SSH connection.
 - With `keep_going: false`, no node starts after one fails. The step writes `parallel`'s aggregate with `node` on each entry, including `not_started`, `disabled`, and `removed` ones.
 - `dagu retry`, or **Retry failed nodes** in the UI, runs a step with `nodes` again only on the nodes that did not succeed, also after the run's process was killed. It keeps the nodes the step last recorded, which are the first attempt's unless a retry had to match the selector again; a node added to the inventory since is not added. Nodes whose child run succeeded or partially succeeded keep their results and do not rerun, even if they left the inventory. Any other node that left it is `removed`, does not run, and does not fail the step. A node disabled now does not run and keeps its child run for a later retry. The remaining nodes rerun their child run or start, with the connection settings the inventory holds now. The step fails before any node starts when every node it keeps is removed or disabled and none kept a result. A step whose previous attempt left no readable node records, or that the run reused from another run, matches its selector again, and later retries keep the nodes it then records.
 - A DAG with a `workspace` label cannot use `nodes` or `node: required`.
 - A bound child reaches its SSH node as DAG-level `ssh` reaches a host: steps with no action, `ssh.run`, and `sftp.*` run on the node, through its bastion, and other actions run where the run runs: the Dagu host, or the worker that runs it. `with` fields override the node's; `with.host` connects elsewhere; `with.strict_host_key`, `with.known_host_file`, and `with.bastion` are errors. The node's secret refs resolve once per run and are masked. With `strict_host_key` on, the default, only the node's `host_key` or a trusted key is accepted; a node with `strict_host_key: false` accepts any key. A key is trusted from the server: `POST /api/v1/node-connection-tests` reports the fingerprint of an unknown key without sending a credential, and `POST /api/v1/node-host-keys` with that node and fingerprint trusts it.
 - In a bound run, `${node.name}`, `${node.host}`, `${node.port}`, `${node.user}`, `${node.description}`, `${node.labels}` (sorted, comma-separated), `${node.labels.<key>}`, and `${node.labels."gpu.type"}` read the node. A label the node lacks, or a `${node.<path>}` not listed here, fails its run before any step. Quote them in shell commands: `"${node.labels.role}"`.
 - To see which nodes failed, `GET /api/v1/dag-runs/{name}/{id}/node-runs` lists one row per node with its run for each step with `nodes`, failed first (`failedOnly=true` keeps those). Each run names its child (`dagName`, `dagRunId`) and, once finished, how many of its steps succeeded (`steps.done` of `steps.total`) and the step that failed last (`failedStep`). Run details carry each such step's counts as `nodeRuns`, and a bound child's node as `boundNode`.
-- `dagu start --node web03` (API and MCP `targetNodes`) narrows a run: its steps with `nodes` run only on listed nodes, a step none of whose nodes is listed is skipped without blocking later steps, and the run fails with `no listed node was selected` if every such step is left without a node. A `node: required` DAG started with one `--node` runs bound to it. Names must be inventory nodes; retries, restarts, and queued runs keep the list.
-- On a worker, steps with `nodes` and bound children work the same. The worker reads nodes, their secret refs, and trusted host keys from the coordinator, checks host keys itself, and never trusts a new key. Bound children run on the worker that runs their parent. A child DAG file whose `dag` holds a reference, such as `deploy-${params.app}`, cannot read nodes on a worker. A narrowed run can select workers and keeps its list there; a `dag.run` child of a narrowed run cannot select workers.
+- `dagu start --node web03` (API and MCP `targetNodes`) narrows a run: its steps with `nodes` run only on listed nodes, a step none of whose nodes is listed is skipped without blocking later steps, and the run fails with `no listed node was selected` if every such step is left without a node. A `node: required` DAG started with one `--node` runs bound to it; that node must be an inventory node. Names must be nodes, inventory or worker; retries, restarts, and queued runs keep the list.
+- On a worker, steps with `nodes` and bound children work the same. The worker reads nodes, their secret refs, and trusted host keys from the coordinator, checks host keys itself, and never trusts a new key. Children bound to SSH nodes run on the worker that runs their parent; children bound to worker nodes run on those workers. A child DAG file whose `dag` holds a reference, such as `deploy-${params.app}`, cannot read nodes on a worker. A narrowed run can select workers and keeps its list there; a `dag.run` child of a narrowed run cannot select workers.
 - Coming from Rundeck or Ansible: `coming-from-rundeck.md` and `coming-from-ansible.md` map node filters, dispatch settings, plays, and `--limit` to `nodes`.
 
 ## ssh.run / sftp.upload / sftp.download
@@ -2075,7 +2076,7 @@ Flags:
 - `--recursive-output` — Expand sub-DAG runs in the final summary tree, showing each child's steps and output inline. Failed sub-runs are expanded first; when a run has more sub-runs than the limits allow, the rest keep their reference line and a notice counts them. Not supported with a remote context
 - `--worker-id` — Worker ID executing this DAG run; auto-set in distributed mode and defaults to `local`
 - `--worker-label` — Worker label (`key=value`) this run requires, replacing the DAG's `worker_selector` for this run and kept with the run for retries; repeatable. Not with `--worker-id`
-- `--node` — Inventory node to narrow the run to; repeatable. Steps with `nodes`, in the run and its child runs, run only on listed nodes; a step none of whose nodes is listed is skipped without blocking later steps, and the run fails with `no listed node was selected` when every such step is left without a node. A `node: required` DAG takes exactly one `--node` and runs bound to it. Each name must be an inventory node; retries, `dagu restart`, and `--from-run-id` keep the list. Not with `--only` or `--from-run-id`
+- `--node` — Node to narrow the run to, inventory or worker; repeatable. Steps with `nodes`, in the run and its child runs, run only on listed nodes; a step none of whose nodes is listed is skipped without blocking later steps, and the run fails with `no listed node was selected` when every such step is left without a node. A `node: required` DAG takes exactly one `--node`, an inventory node, and runs bound to it. Each name must be a node; retries, `dagu restart`, and `--from-run-id` keep the list. Not with `--only` or `--from-run-id`
 - `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`, `restart`); defaults to `manual`
 
 A DAG with `restart_policy: always` or `unless-stopped` has one run at a time: while a run is active, `dagu start`, `dagu enqueue` and `dagu retry` are refused. With no active run they work, which is how a stopped service comes back.
@@ -2095,7 +2096,7 @@ Flags:
 - `--run-id/-r` — Custom run ID
 - `--queue/-u` — Override the DAG-level queue definition
 - `--worker-label` — Worker label (`key=value`) this run requires, replacing the DAG's `worker_selector` for this run and kept with the run so queued dispatch and retries route the same way; repeatable
-- `--node` — Inventory node to narrow the run to, as for `dagu start`; repeatable, and the queued run keeps the list
+- `--node` — Node to narrow the run to, as for `dagu start`; repeatable, and the queued run keeps the list
 - `--labels` — Additional labels (comma-separated key=value or key-only)
 - `--tags` — Deprecated alias for `--labels`
 - `--default-working-dir` — Default working directory for DAGs without explicit workingDir
@@ -2564,7 +2565,7 @@ Use scoped references when Dagu should resolve a named value before execution.
 | --- | --- |
 | `${consts.NAME}` | Top-level `consts:` value |
 | `${dates.NAME}` | Top-level `dates:` entry, resolved from the run's schedule slot |
-| `${node.name}`, `${node.labels.KEY}` | The inventory node a bound run runs on (`node: required`); also `host`, `port`, `user`, `description`, `labels` |
+| `${node.name}`, `${node.labels.KEY}` | The node a bound run runs on (`node: required`); also `host`, `port`, `user`, `description`, `labels`. A worker node has an empty `port`, `user`, and `description` |
 | `${params.NAME}` | Runtime parameter value |
 | `${env.NAME}` | Value in Dagu's runtime environment scope for the current step |
 | `${steps.<step_id>.outputs.<name>}` | Declared value output, human-task form value, or committed build path output |
@@ -3434,7 +3435,7 @@ Map Rundeck nodes, node filters, and dispatch settings to Dagu. Nodes live in in
 
 Write the resource model's nodes as inventories: a JSON array that `dagu nodes import` reads.
 
-| Rundeck node | Dagu inventory node |
+| Rundeck node | Dagu node: an inventory (SSH) node, or a worker that sets `worker.id` |
 | --- | --- |
 | `nodename` | `name`: a letter or digit, then letters, digits, `-`, `_`, or `.`; unique across inventories |
 | `hostname`, `host:port` | `host`, `port` (default `22`) |
@@ -3552,7 +3553,7 @@ steps:
 ```
 
 - A step with `nodes` fails when any of its nodes failed. `continue_on` decides whether the steps after it run.
-- In a bound run, steps with no action, `ssh.run`, and `sftp.*` run on the node. Other actions, such as `http.request`, run on the Dagu host.
+- In a run bound to an SSH node, steps with no action, `ssh.run`, and `sftp.*` run on the node. Other actions, such as `http.request`, run where the run runs: the Dagu host, or the worker that runs its parent. In a run bound to a worker node, every step runs on that worker.
 - A disabled node (`"disabled": true`) is not run and does not fail the step. A step whose matched nodes are all disabled fails.
 
 ## Node References
@@ -3586,11 +3587,17 @@ steps:
 - Dagu inserts `${params.*}` and step outputs into `run:` as shell text, without escaping, so a value such as `$(...)` runs as a command. Pass only trusted values, or limit a param with `pattern`, as in `- name: version`, `type: string`, `pattern: '^[0-9A-Za-z.+~-]+$'`, which refuses any other value before the run starts.
 - A node list only removes nodes: a step runs on a node that its selector matches and the list names. A step none of whose nodes is listed is skipped without blocking later steps.
 - A `node: required` DAG started directly takes exactly one node: `--node`, or the Node field of the run dialog. The run dialog has no node list for other DAGs.
-- Each name must be an inventory node. Queued runs, retries, `dagu restart`, and `dagu start --from-run-id` keep the list.
+- Each name must be a node, inventory or worker. Queued runs, retries, `dagu restart`, and `dagu start --from-run-id` keep the list.
+
+## Workers
+
+- A run on a worker reaches SSH nodes as a run on the Dagu host does. The worker reads nodes, secret refs, and trusted host keys from the coordinator.
+- A worker that sets `worker.id` is a node of kind `worker`, with the worker's labels; `dagu nodes list` shows it. A step with `nodes` matches it as it matches an SSH node, and its child runs on that worker, every step there. `${node.host}` is the host the worker reports, and `ssh.run` or `sftp.*` without `with.host` or `with.ip` fails, since the worker has no SSH connection.
+- A matched worker that is offline fails its node at once, and a worker lost during the run fails its node.
 
 ## Not Available Yet
 
-- Workers as nodes. Bound runs and steps with `nodes` run on the Dagu host and reach SSH nodes. A run on a worker that is bound or has a step with `nodes` fails before any step. With `default_execution_mode: distributed`, set `worker_selector: local` on a DAG with such steps.
+- Starting a `node: required` DAG directly bound to a worker node, with `--node` or `targetNodes`, is refused. Such a DAG runs on a worker node only as the child of a step with `nodes`.
 
 ---
 
@@ -3677,14 +3684,14 @@ dagu nodes list --labels web                   # like `ansible-inventory --list`
 | `any_errors_fatal: true` | `keep_going: false`, the default: no node starts after one fails, and running nodes finish |
 | A play that goes on with the other hosts after one fails | `keep_going: true`: every node runs, and the step fails if any node failed |
 | A play on `localhost`, or `run_once` with `delegate_to: localhost` in a linear play without `serial` | A step outside the bound DAG |
-| `delegate_to: localhost` on each host, such as a load balancer call, or `run_once` with it under `serial: 1` | A step with an action such as `http.request` in the bound DAG: it runs on the Dagu host, once per node |
+| `delegate_to: localhost` on each host, such as a load balancer call, or `run_once` with it under `serial: 1` | A step with an action such as `http.request` in the bound DAG: for an SSH node it runs where the run runs, not on the node, once per node; for a worker node it runs on that worker |
 | `serial` as a percentage or a list, `max_fail_percentage`, `order` | Not supported. Nodes start in name order |
 | `strategy: free` | A `node: required` DAG started by `dag.run` with `nodes`: each node runs its steps without waiting for the others, `max_concurrent` nodes at a time |
 | `run_once` under `strategy: free`, or under `serial` above 1, which runs once per batch | Not supported |
 
 - A comma means AND in a Dagu selector. Quote a selector that starts with `!`, since YAML reads a leading `!` as a tag.
 - Keys and values take globs, `*` and `?`, as in `role=front*`, not regular expressions.
-- In a bound run, steps with no action, `ssh.run`, and `sftp.*` run on the node. Other actions run on the Dagu host.
+- In a run bound to an SSH node, steps with no action, `ssh.run`, and `sftp.*` run on the node. Other actions run where the run runs: the Dagu host, or the worker that runs its parent. In a run bound to a worker node, every step runs on that worker.
 - In a linear play without `serial`, a `run_once` task delegated to localhost runs after the tasks before it finish on every host, and before the tasks after it start. A step outside one bound DAG runs before or after all of that DAG's steps, so split the play at the task: a step with `nodes`, a command step or a `dag.run` of a bound DAG, for the tasks before it, the `run_once` task as a step without `nodes`, then a step with `nodes` for the tasks after it, each depending on the one before. A `run_once` task without `delegate_to` runs on one host instead: select that host with a label only it carries. A run narrowed with `--node` to other hosts skips that step, and the steps after it still run ([Limits](#limits)), where Ansible runs `run_once` on a host that `--limit` selects.
 - The linear strategy runs each task on every host before the next task. For that order, put `nodes` on each command step instead. A step with `nodes` fails when any of its nodes failed, and the steps after it then run on every matched node, or not at all, as `continue_on` decides.
 
@@ -3761,11 +3768,17 @@ steps:
 | `--limit web01,web03` | `dagu start --node web01 --node web03 site`; `targetNodes` in the API and MCP `dagu_execute` |
 | `--limit @site.retry` | `dagu retry site --run-id <id>`, or Retry failed nodes in the UI: a step with `nodes` runs again only on the nodes that did not succeed, and the others keep their results |
 
-- `--node` takes node names, not groups or patterns. Each must be an inventory node.
+- `--node` takes node names, not groups or patterns. Each must be a node, inventory or worker.
 - A node list only removes nodes: a step runs on a node that its selector matches and the list names. A step none of whose nodes is listed is skipped without blocking later steps.
 - A `node: required` DAG started directly takes exactly one node: `--node`, or the Node field of the run dialog. The run dialog has no node list for other DAGs.
 - Queued runs, retries, `dagu restart`, and `dagu start --from-run-id` keep the list.
 
+## Workers
+
+- A run on a worker reaches SSH nodes as a run on the Dagu host does. The worker reads nodes, secret refs, and trusted host keys from the coordinator.
+- A worker that sets `worker.id` is a node of kind `worker`, with the worker's labels; `dagu nodes list` shows it. A step with `nodes` matches it as it matches an SSH node, and its child runs on that worker, every step there. `${node.host}` is the host the worker reports, and `ssh.run` or `sftp.*` without `with.host` or `with.ip` fails, since the worker has no SSH connection.
+- A matched worker that is offline fails its node at once, and a worker lost during the run fails its node.
+
 ## Not Available Yet
 
-- Workers as nodes. Bound runs and steps with `nodes` run on the Dagu host and reach SSH nodes. A run on a worker that is bound or has a step with `nodes` fails before any step. With `default_execution_mode: distributed`, set `worker_selector: local` on a DAG with such steps.
+- Starting a `node: required` DAG directly bound to a worker node, with `--node` or `targetNodes`, is refused. Such a DAG runs on a worker node only as the child of a step with `nodes`.

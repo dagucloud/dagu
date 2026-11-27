@@ -252,9 +252,12 @@ warning when it starts.
   whatever the filters, `worker "<id>" is not a node: inventory
   "<inventory>" has a node of that name`.
 - Worker nodes are listed in name order among the inventory nodes, and a
-  selector matches their labels as it matches an inventory node's.
-  `disabled` does not apply to a worker; a worker is kept out of a selector
-  by changing its labels.
+  selector matches their labels as it matches an inventory node's, in
+  `list`, `GET /nodes`, and a step with `nodes`
+  ([Spec 089](089-node-targeting.md)). `disabled` does not apply to a
+  worker; a worker is kept out of a selector by changing its labels. A run
+  bound to a worker node runs on that worker, and fails at once while the
+  worker is offline.
 - `show` of a worker node prints its `Name`, `Kind`, `Host`, `Labels`, and
   `Status`, and while it is offline `Last seen`, in RFC 3339.
 - **`dagu nodes forget <name>`** forgets an offline worker node, compared

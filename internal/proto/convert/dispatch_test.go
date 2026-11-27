@@ -92,14 +92,16 @@ func TestRetryBypassRoundTrips(t *testing.T) {
 func TestDispatchTaskTargetWorkerRoundTrips(t *testing.T) {
 	t.Parallel()
 
-	task := &dispatch.DispatchTask{TargetWorkerID: "worker-a"}
+	task := &dispatch.DispatchTask{TargetWorkerID: "worker-a", BoundNode: "worker-a", NodeStep: "deploy"}
 	protoTask, err := convert.DispatchTaskToProto(task)
 	require.NoError(t, err)
 	assert.Equal(t, "worker-a", protoTask.TargetWorkerId)
+	assert.Equal(t, "worker-a", protoTask.BoundNode)
+	assert.Equal(t, "deploy", protoTask.NodeStep)
 
 	got, err := convert.ProtoToDispatchTask(protoTask)
 	require.NoError(t, err)
-	assert.Equal(t, "worker-a", got.TargetWorkerID)
+	assert.Equal(t, task, got)
 }
 
 func TestDispatchTaskToProtoValidatesOwnerPort(t *testing.T) {

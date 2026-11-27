@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 )
@@ -26,17 +27,24 @@ type executionStores struct {
 	ProfileResolver      profile.RuntimeResolver
 	MaterializationStore build.MaterializationStore
 	Inventory            inventory.Store
-	HostKeys             inventory.HostKeyStore
+	// Nodes finds the nodes of steps with nodes: the inventory nodes and
+	// the worker nodes. It is nil without inventories.
+	Nodes    runtime.NodeSelector
+	HostKeys inventory.HostKeyStore
 }
 
 // runtimeStores creates the runtime store bundle for this command context.
 func (c *Context) runtimeStores() executionStores {
+	inventories := c.runtimeInventoryStore()
 	stores := executionStores{
 		SecretStore:          c.settings.SecretStore(c),
 		ProfileStore:         c.settings.ProfileStore(c),
 		MaterializationStore: c.projectStores.MaterializationStore,
-		Inventory:            c.runtimeInventoryStore(),
+		Inventory:            inventories,
 		HostKeys:             c.runtimeHostKeyStore(),
+	}
+	if inventories != nil {
+		stores.Nodes = inventory.NewProjectNodes(inventories, c.runtimeWorkerNodeStore())
 	}
 	if c.Config.ProjectsEnabled {
 		if stores.SecretStore != nil {
@@ -104,6 +112,22 @@ func (c *Context) hostKeyStore() (*store.HostKeyStore, error) {
 // workerNodeStore opens the worker nodes of this installation.
 func (c *Context) workerNodeStore() (*store.WorkerNodeStore, error) {
 	return c.serverStores.WorkerNodeStore()
+}
+
+// runtimeWorkerNodeStore returns the worker nodes for runs, or nil when the
+// backend cannot hold them. A run that cannot go to workers, as one of a
+// project other than the default one or of a library DAG cannot, has no
+// worker nodes, so its steps never match a node they cannot run on.
+func (c *Context) runtimeWorkerNodeStore() inventory.WorkerNodeStore {
+	if c.checkProjectDispatch() != nil {
+		return nil
+	}
+	workers, err := c.workerNodeStore()
+	if err != nil {
+		logger.Warn(c, "Worker nodes are unavailable", tag.Error(err))
+		return nil
+	}
+	return workers
 }
 
 // runtimeHostKeyStore returns the host keys trusted for nodes, or nil when

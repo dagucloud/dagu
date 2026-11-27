@@ -116,6 +116,19 @@ func TestRunnerShouldRun(t *testing.T) {
 			want: false,
 		},
 		{
+			name:   "child bound to a worker node goes to that worker in local mode",
+			runner: subflow.New(dispatcher, config.ExecutionModeLocal),
+			req: runtimeexec.SubWorkflowRequest{
+				DAG:            &ir.DAG{Name: "child", NodeRequired: true},
+				RootDAGRun:     ir.NewDAGRunRef("parent", "root-1"),
+				RunID:          "child-1",
+				Node:           "tokyo-gw",
+				TargetWorkerID: "tokyo-gw",
+				TargetNodes:    []string{"tokyo-gw"},
+			},
+			want: true,
+		},
+		{
 			name:   "local default mode stays local without selector",
 			runner: subflow.New(dispatcher, config.ExecutionModeLocal),
 			req:    validReq,
@@ -232,6 +245,38 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 	assert.Equal(t, ir.Succeeded, result.Status)
 	assert.Equal(t, "ok", result.Outputs["RESULT"])
 	assert.Equal(t, true, result.OutputValues["typed"])
+}
+
+// A child bound to a worker node is dispatched to that worker with its node,
+// and a command step's child carries the step and the parent's params.
+func TestRunnerRunDispatchesBoundWorkerChild(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &mockDispatcher{statuses: []*dispatch.DAGRunStatusResult{
+		{Found: false},
+		{Found: true, Status: &ir.DAGRunStatus{Name: "parent", DAGRunID: "child-1", Status: ir.Succeeded}},
+	}}
+	runner := newFastRunner(dispatcher)
+	parent := &ir.DAG{Name: "parent", YamlData: []byte("name: parent"), Params: []string{"version=1.2"}}
+
+	_, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
+		DAG:            parent,
+		ParentDAG:      parent,
+		RootDAGRun:     ir.NewDAGRunRef("parent", "root-1"),
+		ParentDAGRun:   ir.NewDAGRunRef("parent", "root-1"),
+		RunID:          "child-1",
+		Node:           "tokyo-gw",
+		TargetWorkerID: "tokyo-gw",
+		NodeStep:       "deploy",
+	})
+	require.NoError(t, err)
+
+	require.Len(t, dispatcher.dispatches, 1)
+	task := dispatcher.dispatches[0]
+	assert.Equal(t, "tokyo-gw", task.TargetWorkerID)
+	assert.Equal(t, "tokyo-gw", task.BoundNode)
+	assert.Equal(t, "deploy", task.NodeStep)
+	assert.Equal(t, `version="1.2"`, task.Params)
 }
 
 func TestRunnerRunReportsUnmetRootPrecondition(t *testing.T) {

@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -26,6 +29,11 @@ func TestTargetNodes(t *testing.T) {
 			{"name": "db01", "host": "10.0.1.21", "labels": []string{"db"}},
 		},
 	}}).ExpectStatus(http.StatusOK).Send(t)
+	workers, err := store.NewWorkerNodeStore(server.Backend.Collection(persis.CollectionWorkerNodes), nil)
+	require.NoError(t, err)
+	require.NoError(t, workers.Record(server.Context, inventory.WorkerNode{
+		Name: "tokyo-gw", Host: "gw.tokyo", Labels: ir.NewLabels([]string{"web"}), Online: true,
+	}))
 
 	createDAG := func(name, spec string) {
 		server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{Name: name, Spec: &spec}).
@@ -119,6 +127,14 @@ steps:
 		}
 	})
 
+	t.Run("a worker node is a node of the project", func(t *testing.T) {
+		var enqueued api.EnqueueDAGDAGRun200JSONResponse
+		server.Client().Post("/api/v1/dags/narrowed/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{
+			TargetNodes: nodes("Tokyo-GW", "web01"),
+		}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &enqueued)
+		require.Equal(t, []string{"tokyo-gw", "web01"}, statusOf(t, "narrowed", enqueued.DagRunId).TargetNodes)
+	})
+
 	t.Run("details tell a node: required DAG", func(t *testing.T) {
 		for dag, want := range map[string]bool{"bound": true, "plain": false} {
 			var details api.GetDAGDetails200JSONResponse
@@ -137,6 +153,7 @@ steps:
 		{name: "unknown node", dag: "narrowed", body: api.ExecuteDAGJSONRequestBody{TargetNodes: nodes("web1")}, message: `node "web1" is not a node of the project`},
 		{name: "nothing to narrow", dag: "plain", body: api.ExecuteDAGJSONRequestBody{TargetNodes: nodes("web01")}, message: "a node list narrows nothing"},
 		{name: "node: required without a node", dag: "bound", message: "starts with exactly one node, not 0"},
+		{name: "node: required with a worker node", dag: "bound", body: api.ExecuteDAGJSONRequestBody{TargetNodes: nodes("tokyo-gw")}, message: `node "tokyo-gw" is a worker node`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, path := range []string{"/start", "/enqueue"} {

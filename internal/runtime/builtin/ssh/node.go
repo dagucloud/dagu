@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/go-viper/mapstructure/v2"
 
@@ -44,13 +45,22 @@ func nodeConnectionFor(ctx context.Context, with map[string]any) *nodeConnection
 	if node == nil {
 		return nil
 	}
-	if _, ok := with["host"]; ok {
-		return nil
-	}
-	if _, ok := with["ip"]; ok {
+	if namesHost(with, "host") || namesHost(with, "ip") {
 		return nil
 	}
 	return node
+}
+
+// namesHost reports whether with sets key to a host. An empty value names
+// none, so the step connects to the node rather than to whatever host an
+// empty address dials. The agent applies the same rule before a bound run
+// starts.
+func namesHost(with map[string]any, key string) bool {
+	value, ok := with[key]
+	if text, isText := value.(string); isText {
+		return strings.TrimSpace(text) != ""
+	}
+	return ok
 }
 
 // clientWith returns a client for the node with the fields set under with in

@@ -251,7 +251,7 @@ func executeDAGWithRunID(
 			SecretReferenceResolver:  as.SecretResolver,
 			ProfileStore:             as.ProfileStore,
 			ProfileResolver:          as.ProfileResolver,
-			NodeSelector:             as.Inventory,
+			NodeSelector:             as.Nodes,
 			HostKeys:                 as.HostKeys,
 			TargetNodes:              opts.targetNodes,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,

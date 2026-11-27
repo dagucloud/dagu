@@ -33,7 +33,7 @@ Flags:
 - `--recursive-output` — Expand sub-DAG runs in the final summary tree, showing each child's steps and output inline. Failed sub-runs are expanded first; when a run has more sub-runs than the limits allow, the rest keep their reference line and a notice counts them. Not supported with a remote context
 - `--worker-id` — Worker ID executing this DAG run; auto-set in distributed mode and defaults to `local`
 - `--worker-label` — Worker label (`key=value`) this run requires, replacing the DAG's `worker_selector` for this run and kept with the run for retries; repeatable. Not with `--worker-id`
-- `--node` — Inventory node to narrow the run to; repeatable. Steps with `nodes`, in the run and its child runs, run only on listed nodes; a step none of whose nodes is listed is skipped without blocking later steps, and the run fails with `no listed node was selected` when every such step is left without a node. A `node: required` DAG takes exactly one `--node` and runs bound to it. Each name must be an inventory node; retries, `dagu restart`, and `--from-run-id` keep the list. Not with `--only` or `--from-run-id`
+- `--node` — Node to narrow the run to, inventory or worker; repeatable. Steps with `nodes`, in the run and its child runs, run only on listed nodes; a step none of whose nodes is listed is skipped without blocking later steps, and the run fails with `no listed node was selected` when every such step is left without a node. A `node: required` DAG takes exactly one `--node`, an inventory node, and runs bound to it. Each name must be a node; retries, `dagu restart`, and `--from-run-id` keep the list. Not with `--only` or `--from-run-id`
 - `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`, `restart`); defaults to `manual`
 
 A DAG with `restart_policy: always` or `unless-stopped` has one run at a time: while a run is active, `dagu start`, `dagu enqueue` and `dagu retry` are refused. With no active run they work, which is how a stopped service comes back.
@@ -53,7 +53,7 @@ Flags:
 - `--run-id/-r` — Custom run ID
 - `--queue/-u` — Override the DAG-level queue definition
 - `--worker-label` — Worker label (`key=value`) this run requires, replacing the DAG's `worker_selector` for this run and kept with the run so queued dispatch and retries route the same way; repeatable
-- `--node` — Inventory node to narrow the run to, as for `dagu start`; repeatable, and the queued run keeps the list
+- `--node` — Node to narrow the run to, as for `dagu start`; repeatable, and the queued run keeps the list
 - `--labels` — Additional labels (comma-separated key=value or key-only)
 - `--tags` — Deprecated alias for `--labels`
 - `--default-working-dir` — Default working directory for DAGs without explicit workingDir
