@@ -375,9 +375,11 @@ function DAGCard({
         )}
       </div>
 
+      {/* Until its activity arrives, a service card keeps the room of the
+          bars too. */}
       {showActivity &&
-        (isService ? (
-          activity?.buckets && (
+        (isService && activity ? (
+          activity.buckets && (
             <ServiceActivityStrip
               activity={activity}
               fileName={fileName}
@@ -1050,7 +1052,11 @@ const defaultColumns = [
       // A service DAG draws the buckets of its run history, not its runs as
       // bars, and has no recent runs to unfold.
       if (isServiceDAG(data.dag.dag)) {
-        return activity?.buckets ? (
+        if (!activity) {
+          // The room of the strip until the activity arrives.
+          return <ActivityBars activity={undefined} fluid />;
+        }
+        return activity.buckets ? (
           <div className="flex items-center">
             <ServiceActivityStrip
               activity={activity}

@@ -1816,6 +1816,23 @@ describe('DAGTable', () => {
         expect(document.querySelector('[data-run-id]')).toBeNull();
       });
 
+      // The row and the card keep the room of the strip until the activity
+      // of the service arrives, so that they do not grow when it does.
+      it('keeps the room of the strip until its activity arrives', () => {
+        const loading = { ...(service() as object), activity: undefined };
+        const table = renderTable('', { dags: [loading as never] });
+        expect(
+          within(screen.getByRole('table')).getByTestId('dag-activity-pending')
+        ).toBeInTheDocument();
+
+        table.unmount();
+        renderTable('', { dags: [loading as never], panelWidth: 600 });
+        const cards = screen.getByTestId('workflow-card-view');
+        expect(
+          within(cards).getByTestId('dag-activity-pending').style.height
+        ).not.toBe('');
+      });
+
       it('keeps the strip when the latest run is queued', () => {
         const queued = service() as { latestDAGRun: object };
         queued.latestDAGRun = { status: Status.Queued, statusLabel: 'Queued' };
