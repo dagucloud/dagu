@@ -6,6 +6,7 @@ package cloudreport
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -34,38 +35,60 @@ type reportedStep struct {
 	StartedAt  string `json:"started_at,omitempty"`
 	FinishedAt string `json:"finished_at,omitempty"`
 	Retries    int    `json:"retries"`
+	// Depends are the positions, among the run's reported steps, of the
+	// steps this one waits for.
+	Depends []int `json:"depends,omitempty"`
 }
 
 // runSteps returns the named steps of status in run order, handlers
 // included: the first maxRunSteps that fit in maxStepsBytes encoded, and
-// how many there are in all.
+// how many there are in all. Each step names the steps it waits for by
+// their positions among those returned.
 func runSteps(status *ir.DAGRunStatus) ([]reportedStep, int) {
-	var steps []reportedStep
-	total, size, full := 0, len("[]"), false
+	var nodes []*ir.Node
+	positions := map[string]int{}
 	for _, node := range status.NodesInRunOrder() {
 		if node.Step.Name == "" {
 			continue
 		}
-		total++
-		if full {
-			continue
-		}
+		positions[node.Step.Name] = len(nodes)
+		nodes = append(nodes, node)
+	}
+	var steps []reportedStep
+	size := len("[]")
+	for _, node := range nodes {
 		step := reportedStep{
 			Name:       truncateBytes(node.Step.Name, maxStepNameBytes),
 			Status:     node.Status.String(),
 			StartedAt:  snapshotTime(node.StartedAt),
 			FinishedAt: snapshotTime(node.FinishedAt),
 			Retries:    node.RetryCount,
+			Depends:    dependPositions(&node.Step, positions),
 		}
 		n := encodedStepSize(step)
 		if len(steps) == maxRunSteps || size+n > maxStepsBytes {
-			full = true
-			continue
+			break
 		}
 		steps = append(steps, step)
 		size += n
 	}
-	return steps, total
+	// A step can wait for one past those returned, which no position names.
+	for i := range steps {
+		steps[i].Depends = slices.DeleteFunc(steps[i].Depends, func(p int) bool { return p >= len(steps) })
+	}
+	return steps, len(nodes)
+}
+
+// dependPositions are the positions of the steps step waits for, explicit
+// and inferred alike, given the position of each step by name.
+func dependPositions(step *ir.Step, positions map[string]int) []int {
+	var out []int
+	for _, name := range step.AllDepends() {
+		if p, ok := positions[name]; ok {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // encodedStepSize is how many bytes step adds to a run's encoded steps.

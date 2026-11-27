@@ -52,3 +52,44 @@ func TestRunsInProgressShareTheirStepsBudget(t *testing.T) {
 	assert.Empty(t, entries[len(entries)-1].Steps, "the runs past the budget carry none")
 	assert.Less(t, carried, len(entries))
 }
+
+// Each step names the steps it waits for by their positions among the
+// reported steps, explicit and inferred dependencies alike. A step without
+// a name takes no position, and a step past those reported is left out of
+// the dependencies that name it.
+func TestStepsNameTheirDependenciesByPosition(t *testing.T) {
+	t.Parallel()
+
+	status := run("etl", "run-1", ir.Succeeded)
+	status.Nodes = []*ir.Node{
+		{Step: ir.Step{}},
+		{Step: ir.Step{Name: "extract"}},
+		{Step: ir.Step{Name: "transform", Depends: []string{"extract"}}},
+		{Step: ir.Step{
+			Name:            "load",
+			Depends:         []string{"transform"},
+			InferredDepends: []ir.InferredDependency{{Step: "extract", Field: "rows"}},
+		}},
+	}
+	status.OnSuccess = &ir.Node{Step: ir.Step{Name: "onSuccess"}}
+
+	steps, total := runSteps(status)
+
+	assert.Equal(t, 4, total)
+	depends := map[string][]int{}
+	for _, step := range steps {
+		depends[step.Name] = step.Depends
+	}
+	assert.Equal(t, map[string][]int{"extract": nil, "transform": {0}, "load": {1, 0}, "onSuccess": nil}, depends)
+
+	many := run("etl", "run-2", ir.Succeeded)
+	for i := range maxRunSteps + 50 {
+		many.Nodes = append(many.Nodes, &ir.Node{Step: ir.Step{Name: fmt.Sprint("step-", i)}})
+	}
+	many.Nodes[0].Step.Depends = []string{"step-1", fmt.Sprint("step-", maxRunSteps)}
+
+	steps, _ = runSteps(many)
+
+	require.Len(t, steps, maxRunSteps)
+	assert.Equal(t, []int{1}, steps[0].Depends, "a step past those reported is left out")
+}

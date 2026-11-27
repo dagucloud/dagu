@@ -628,7 +628,7 @@ func TestReportRunsInProgressCarryTheirSteps(t *testing.T) {
 	running := etlRun(ir.Running)
 	running.Nodes = []*ir.Node{
 		{Step: ir.Step{Name: "extract"}, Status: ir.NodeSucceeded, StartedAt: "2026-10-10T09:00:00Z", FinishedAt: "2026-10-10T09:01:00Z"},
-		{Step: ir.Step{Name: "load"}, Status: ir.NodeRunning, StartedAt: "2026-10-10T09:01:00Z", RetryCount: 1},
+		{Step: ir.Step{Name: "load", Depends: []string{"extract"}}, Status: ir.NodeRunning, StartedAt: "2026-10-10T09:01:00Z", RetryCount: 1},
 	}
 	retried := run("report", "run-3", ir.Running)
 	retried.StartedAt = "2026-10-10T09:10:00Z"
@@ -655,7 +655,7 @@ func TestReportRunsInProgressCarryTheirSteps(t *testing.T) {
 				"trigger_type": "", "queued_at": "2026-10-10T08:59:00Z", "started_at": "2026-10-10T09:00:00Z",
 				"steps": [
 					{"name": "extract", "status": "succeeded", "started_at": "2026-10-10T09:00:00Z", "finished_at": "2026-10-10T09:01:00Z", "retries": 0},
-					{"name": "load", "status": "running", "started_at": "2026-10-10T09:01:00Z", "retries": 1}
+					{"name": "load", "status": "running", "started_at": "2026-10-10T09:01:00Z", "retries": 1, "depends": [0]}
 				],
 				"steps_total": 2
 			}
