@@ -16,11 +16,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -147,6 +149,34 @@ func TestClientTransportRetiredConnectionGrace(t *testing.T) {
 	require.NoError(t, cli.isHealthy(t.Context(), taken), "the taken connection still serves")
 	clock.Add(int64(retireGrace))
 	require.NoError(t, cli.isHealthy(t.Context(), replacement))
+	assert.Equal(t, connectivity.Shutdown, taken.conn.GetState())
+}
+
+// A stream in flight on a replaced connection finishes on it, and Cleanup
+// closes that connection with the current ones.
+func TestClientTransportCleanupClosesRetired(t *testing.T) {
+	ca := newTestCA(t)
+	coord := serveTestCoordinator(t, builtinCredentials(t, ca))
+	member := coord.member(serviceregistry.TLSBuiltin)
+	config := unset(*DefaultConfig())
+	config.PublishedCAFile = publishedCA(t, ca)
+	cli := newTestClient(t, &config)
+	clock := fakeClock(cli)
+
+	taken, err := cli.getOrCreateDiscoveredClient(member)
+	require.NoError(t, err)
+	stream, err := taken.client.StreamLogs(t.Context())
+	require.NoError(t, err)
+	cli.config.LocalRegistry.(*mutableRegistry).set(member)
+	clock.Add(int64(replanInterval))
+	replacement, err := cli.getOrCreateDiscoveredClient(member)
+	require.NoError(t, err)
+	require.NotSame(t, taken, replacement)
+
+	_, err = stream.CloseAndRecv()
+	assert.Equal(t, codes.Unimplemented, status.Code(err), "the stream finished on its connection")
+	assert.NotEqual(t, connectivity.Shutdown, taken.conn.GetState())
+	require.NoError(t, cli.Cleanup(t.Context()))
 	assert.Equal(t, connectivity.Shutdown, taken.conn.GetState())
 }
 

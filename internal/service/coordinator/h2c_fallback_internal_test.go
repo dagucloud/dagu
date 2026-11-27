@@ -76,6 +76,13 @@ func TestH2CWindowsKeepEndedWindowsEnded(t *testing.T) {
 	_, open := later.active("x:1", now)
 	assert.False(t, open, "ended window")
 	assertOpen(t, later, now, "y:1", "z:1")
+
+	// The process that opened a window does not write it back after another
+	// process ended it.
+	first.end("y:1", now)
+	require.True(t, second.open("w:1", windowUntil(now), now))
+	_, open = newH2CWindows(file, "host-a").active("y:1", now)
+	assert.False(t, open, "ended window of the other process")
 }
 
 // On a data directory that hosts share, a host uses only its own windows,

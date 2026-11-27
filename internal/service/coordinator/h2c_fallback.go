@@ -39,8 +39,9 @@ type h2cWindows struct {
 	// records are the host's open windows: those of the record as last read,
 	// and those this process opened.
 	records map[string]h2cWindow
-	// own are the windows this process opened and has not ended. A save
-	// writes them over the record, which keeps every other change.
+	// own are the windows this process opened that no write has saved yet.
+	// A save writes them over the record, which keeps every other change, so
+	// a window another process ended after it was saved stays ended.
 	own map[string]h2cWindow
 }
 
@@ -174,8 +175,11 @@ func (w *h2cWindows) saveLocked(address string, now time.Time) {
 	}
 	// The record only saves later processes a failed handshake, so a
 	// failed write changes no transport.
-	if err := fileutil.MkdirAll(filepath.Dir(w.file), peerDirMode); err == nil {
-		_ = fileutil.WriteJSONAtomic(w.file, record, h2cRecordFileMode)
+	if err := fileutil.MkdirAll(filepath.Dir(w.file), peerDirMode); err != nil {
+		return
+	}
+	if fileutil.WriteJSONAtomic(w.file, record, h2cRecordFileMode) == nil {
+		clear(w.own)
 	}
 }
 

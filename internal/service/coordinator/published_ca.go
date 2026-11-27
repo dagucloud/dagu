@@ -25,7 +25,7 @@ const publishedCAFileMode = 0o644
 // holds this certificate; each running coordinator with a peer CA writes its
 // own again on its next registry refresh.
 func (ca *PeerCA) PublishCertificate(path string) (func(), error) {
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.cert.Raw})
+	certPEM := ca.certificatePEM()
 	if current, err := fileutil.ReadFile(path); err == nil && bytes.Equal(current, certPEM) {
 		return func() {}, nil
 	}
@@ -45,13 +45,21 @@ func (ca *PeerCA) PublishCertificate(path string) (func(), error) {
 }
 
 // republishCertificate writes the CA certificate to path when the file is
-// missing.
+// missing. It only creates the file, so it never replaces a certificate
+// that another coordinator published since the file went missing.
 func (ca *PeerCA) republishCertificate(path string) error {
-	if _, err := fileutil.Stat(path); !errors.Is(err, fs.ErrNotExist) {
-		return nil
+	if err := fileutil.MkdirAll(filepath.Dir(path), peerDirMode); err != nil {
+		return fmt.Errorf("create published CA certificate directory: %w", err)
 	}
-	_, err := ca.PublishCertificate(path)
-	return err
+	err := fileutil.WriteFileAtomicExclusive(path, ca.certificatePEM(), publishedCAFileMode)
+	if err != nil && !errors.Is(err, fs.ErrExist) {
+		return fmt.Errorf("write published CA certificate: %w", err)
+	}
+	return nil
+}
+
+func (ca *PeerCA) certificatePEM() []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.cert.Raw})
 }
 
 // RemovePublishedCertificate removes the published CA certificate at path,
