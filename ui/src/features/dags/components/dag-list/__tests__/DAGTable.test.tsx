@@ -1643,7 +1643,8 @@ describe('DAGTable', () => {
       expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
     });
 
-    // A service DAG has no runs to draw: its row and its card hold no strip.
+    // A service DAG draws its run history in place of bars, and has no
+    // recent runs to unfold.
     it('draws no bars and no chevron for a service DAG', () => {
       const dags = [
         withActivity([run('r1', HOUR)]),
