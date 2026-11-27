@@ -681,6 +681,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	if stores.Secret != nil {
 		apiOpts = append(apiOpts, apiv1.WithSecretStore(stores.Secret))
 	}
+	if stores.Connections != nil && stores.Connect != nil {
+		apiOpts = append(apiOpts, apiv1.WithConnections(stores.Connections, stores.Connect))
+	}
 	if stores.Profile != nil {
 		apiOpts = append(apiOpts, apiv1.WithProfileStore(stores.Profile))
 	}
@@ -804,28 +807,22 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	for _, opt := range opts {
 		opt(srv)
 	}
+	resolvePublicURL := func() string {
+		if srv.config.Server.PublicURL != "" {
+			return srv.config.Server.PublicURL
+		}
+		if srv.tunnelService != nil {
+			return publicURLWithBasePath(srv.tunnelService.PublicURL(), evaluatedBasePath)
+		}
+		return ""
+	}
 	if srv.notificationService != nil {
-		srv.notificationService.SetPublicURLResolver(func() string {
-			if srv.config.Server.PublicURL != "" {
-				return srv.config.Server.PublicURL
-			}
-			if srv.tunnelService != nil {
-				return publicURLWithBasePath(srv.tunnelService.PublicURL(), evaluatedBasePath)
-			}
-			return ""
-		})
+		srv.notificationService.SetPublicURLResolver(resolvePublicURL)
 	}
 	if srv.incidentService != nil {
-		srv.incidentService.SetPublicURLResolver(func() string {
-			if srv.config.Server.PublicURL != "" {
-				return srv.config.Server.PublicURL
-			}
-			if srv.tunnelService != nil {
-				return publicURLWithBasePath(srv.tunnelService.PublicURL(), evaluatedBasePath)
-			}
-			return ""
-		})
+		srv.incidentService.SetPublicURLResolver(resolvePublicURL)
 	}
+	apiOpts = append(apiOpts, apiv1.WithPublicURLResolver(resolvePublicURL))
 
 	srv.funcsConfig.APIBasePath = srv.config.Server.APIBasePath
 
@@ -877,6 +874,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	allAPIOptions := append(apiOpts, srv.tunnelAPIOpts...)
 
 	srv.apiV1 = apiv1.New(dr, dagRunRepository, qs, processes, drm, cfg, cc, sr, mr, rs, allAPIOptions...)
+	if stores.ConnectEvents != nil {
+		stores.ConnectEvents.HandleRevoked(srv.apiV1.AuditRevocation)
+	}
 
 	return srv, nil
 }
