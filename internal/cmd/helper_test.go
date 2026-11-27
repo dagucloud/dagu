@@ -596,22 +596,36 @@ func polledStatus(status ir.Status, steps ...ir.NodeStatus) *ir.DAGRunStatus {
 }
 
 // Polls slow down while the run shows no change, stay at the cap, and
-// return to the minimum after a change or a failed poll. A terminal status
-// ends the wait without scheduling another poll.
+// return to the minimum after a change or a failed poll. A change of run
+// status, worker, or step state each counts. A terminal status ends the
+// wait without scheduling another poll.
 func TestWaitStatusPollBackoff(t *testing.T) {
 	t.Parallel()
 
-	idle := func() *ir.DAGRunStatus { return polledStatus(ir.Running, ir.NodeNotStarted) }
+	queued := polledStatus(ir.Queued, ir.NodeNotStarted)
+	started := polledStatus(ir.Running, ir.NodeNotStarted)
+	assigned := func() *ir.DAGRunStatus {
+		s := polledStatus(ir.Running, ir.NodeNotStarted)
+		s.WorkerID = "worker-1"
+		return s
+	}
+	running := polledStatus(ir.Running, ir.NodeRunning)
+	running.WorkerID = "worker-1"
+	done := polledStatus(ir.Succeeded, ir.NodeSucceeded)
+	done.WorkerID = "worker-1"
 	client := &statusSequenceClient{polls: []statusPoll{
-		{status: idle()},
-		{status: idle()},
-		{status: idle()},
-		{status: idle()},
-		{status: idle()},
+		{status: queued},
+		{status: queued},
+		{status: started},
+		{status: assigned()},
+		{status: assigned()},
+		{status: assigned()},
+		{status: assigned()},
+		{status: assigned()},
 		{err: errors.New("unavailable")},
-		{status: idle()},
-		{status: polledStatus(ir.Running, ir.NodeRunning)},
-		{status: polledStatus(ir.Succeeded, ir.NodeSucceeded)},
+		{status: assigned()},
+		{status: running},
+		{status: done},
 	}}
 	clock := &readyAfter{}
 	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
@@ -623,6 +637,9 @@ func TestWaitStatusPollBackoff(t *testing.T) {
 	assert.Equal(t, []time.Duration{
 		1 * s,               // first poll
 		1 * s,               // first status seen
+		2 * s,               // unchanged
+		1 * s,               // run status changed
+		1 * s,               // worker assigned
 		2 * s, 4 * s, 5 * s, // unchanged, doubling up to the cap
 		5 * s, // cap holds
 		1 * s, // failed poll
