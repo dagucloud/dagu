@@ -45,8 +45,12 @@ const (
 	// peerTokenRefusalWindow is how long a refused worker call explains a
 	// dispatch that found no worker.
 	peerTokenRefusalWindow = 10 * time.Minute
-	// peerTokenMissingHint names the fixes for a call without a peer token.
+	// peerTokenMissingHint names the fixes for a call without a peer token
+	// while the coordinator uses its generated token.
 	peerTokenMissingHint = "set the same peer.token on the coordinator and every peer, let the peer read the coordinator's data directory, or set coordinator.require_token: false" //nolint:gosec // A log hint, not a credential.
+	// configuredTokenMissingHint names the fixes for a call without a peer
+	// token while the coordinator has peer.token set and uses no token file.
+	configuredTokenMissingHint = "set the coordinator's peer.token on every peer, or set coordinator.require_token: false" //nolint:gosec // A log hint, not a credential.
 	// peerTokenMismatchHint names the fix for a call with another token.
 	peerTokenMismatchHint = "set the same peer.token on the coordinator and every peer" //nolint:gosec // A log hint, not a credential.
 	// grpcHealthMethodPrefix names the health service, which probes call
@@ -216,8 +220,11 @@ func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
 			"the peer token does not match the coordinator's peer token: "+peerTokenMismatchHint)
 	case got == "" && a.require:
 		a.refuse(ctx, method, false)
-		return status.Error(codes.Unauthenticated,
-			"the coordinator requires its peer token: set the same peer.token on the coordinator and this process, or let this process read the coordinator's data directory")
+		fix := "set the same peer.token on the coordinator and this process, or let this process read the coordinator's data directory"
+		if a.configured {
+			fix = "set the coordinator's peer.token on this process"
+		}
+		return status.Error(codes.Unauthenticated, "the coordinator requires its peer token: "+fix)
 	}
 	a.warn(ctx, method, got != "")
 	return nil
@@ -254,6 +261,9 @@ func (a *PeerTokenAuth) refuse(ctx context.Context, method string, mismatched bo
 	}
 
 	message, hint := "Coordinator refused a call without a peer token", peerTokenMissingHint
+	if a.configured {
+		hint = configuredTokenMissingHint
+	}
 	if mismatched {
 		message, hint = "Coordinator refused a call with another peer token", peerTokenMismatchHint
 	}

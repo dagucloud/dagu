@@ -127,6 +127,45 @@ func TestPeerTokenAuthLogsRefusal(t *testing.T) {
 	assert.False(t, other.refusedWorkerRecently())
 }
 
+// A refused call without a token is told the fixes that apply: the token file
+// only while the coordinator uses its generated token.
+func TestPeerTokenAuthRefusalNamesFixes(t *testing.T) {
+	const method = coordinatorv1.CoordinatorService_Poll_FullMethodName
+	tests := []struct {
+		name       string
+		configured bool
+		wantError  string
+		wantHint   string
+	}{
+		{
+			name:      "generated token",
+			wantError: "let this process read the coordinator's data directory",
+			wantHint:  peerTokenMissingHint,
+		},
+		{
+			name:       "configured token",
+			configured: true,
+			wantError:  "set the coordinator's peer.token on this process",
+			wantHint:   configuredTokenMissingHint,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			auth := NewPeerTokenAuth("coordinator-token", tc.configured, true)
+			ctx, logs := logCapture(callContext(t, newPeerTokenCredentials("", "")))
+
+			err := auth.authorize(ctx, method)
+			assert.Equal(t, codes.Unauthenticated, status.Code(err))
+			assert.Contains(t, status.Convert(err).Message(), tc.wantError)
+			assert.Contains(t, logs.String(), tc.wantHint)
+			if tc.configured {
+				assert.NotContains(t, status.Convert(err).Message(), "data directory")
+				assert.NotContains(t, logs.String(), "data directory")
+			}
+		})
+	}
+}
+
 // With coordinator.require_token false, a call without a token passes and the
 // coordinator warns.
 func TestPeerTokenAuthOptOutWarns(t *testing.T) {
