@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -88,6 +89,9 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Schedul
 	deps.WorkerHeartbeatStore = ctx.Persistence.WorkerHeartbeatStore
 	deps.LicenseManager = ctx.LicenseManager
 	deps.LibraryDAGRunRepository, deps.LibraryProcRepository = ctx.projectStores.LibraryRuns()
+	if inventories := ctx.serviceInventoryStore(); inventories != nil {
+		deps.Nodes = inventory.NewProjectNodes(inventories, ctx.runtimeWorkerNodeStore())
+	}
 	addPublicWebhooks(ctx, &deps)
 	return scheduler.New(ctx.Config, deps)
 }

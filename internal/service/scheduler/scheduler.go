@@ -177,6 +177,9 @@ type Dependencies struct {
 	// dead runs too. Nil checks none.
 	LibraryDAGRunRepository *persis.DAGRunRepository
 	LibraryProcRepository   *persis.ProcRepository
+	// Nodes reads the node a queued run is bound to, so a run bound to a
+	// worker node goes to that worker. Nil binds no queued run to a worker.
+	Nodes runtime.NodeSelector
 }
 
 type startupState struct {
@@ -233,6 +236,7 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	scheduler.publicWebhooks = newPublicWebhooks(cfg, deps, scheduler)
 	scheduler.folderWatcher.cfg.Store = deps.WatchStore
 	scheduler.libraryRuns = libraryRuns{dagRunRepository: deps.LibraryDAGRunRepository, procRepository: deps.LibraryProcRepository}
+	scheduler.dagExecutor.nodes = deps.Nodes
 	scheduler.queueProcessor.dagRunLeaseStore = deps.DAGRunLeaseStore
 	scheduler.queueProcessor.dispatchTaskStore = deps.DispatchTaskStore
 	scheduler.queueProcessor.dispatchAdmissionStore = dispatchAdmissionStoreFromTaskStore(deps.DispatchTaskStore)
