@@ -59,6 +59,11 @@ const StepMinTTL = 5 * time.Minute
 // reconnect, or its app is invalid.
 var ErrReconnectRequired = errors.New("reconnect required")
 
+// ErrRefreshFailed reports a refresh that failed for a reason that may
+// pass, such as a provider error or a network failure. The error's text
+// holds the provider's error, without secrets, and the status stays.
+var ErrRefreshFailed = errors.New("token refresh failed")
+
 var (
 	// errStartOver drops a refresh result that a concurrent change made
 	// stale, so the call reads the token state again.
@@ -723,5 +728,13 @@ func appInvalid(conn *connection.Connection, app, reason string) error {
 }
 
 func refreshFailed(conn *connection.Connection, reason string) error {
-	return fmt.Errorf("refresh connection %q: %s", conn.Name, reason)
+	return &refreshError{text: fmt.Sprintf("refresh connection %q: %s", conn.Name, reason)}
 }
+
+// refreshError is an ErrRefreshFailed whose text names the connection and
+// the provider's error alone.
+type refreshError struct{ text string }
+
+func (e *refreshError) Error() string { return e.text }
+
+func (e *refreshError) Is(target error) bool { return target == ErrRefreshFailed }

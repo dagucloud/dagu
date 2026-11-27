@@ -321,7 +321,8 @@ func (e *Engine) Start(ctx context.Context, conn *connection.Connection, opts St
 // Callback completes a server callback session from the provider's
 // redirect to the public callback route. See Complete for the rules.
 func (e *Engine) Callback(ctx context.Context, p CallbackParams) error {
-	return e.complete(ctx, p, nil, RedirectServerCallback)
+	_, err := e.complete(ctx, p, nil, RedirectServerCallback)
+	return err
 }
 
 // Complete completes a loopback or paste session of conn from the redirect
@@ -329,33 +330,34 @@ func (e *Engine) Callback(ctx context.Context, p CallbackParams) error {
 // consent. Complete exchanges the code, reads the account, and probes the
 // services, then moves the session to confirm. An expected account that
 // the provider vouches for, with the account ID the connection already
-// has, if any, is confirmed at once.
-func (e *Engine) Complete(ctx context.Context, conn *connection.Connection, p CallbackParams) error {
+// has, if any, is confirmed at once, and Complete then reports true.
+func (e *Engine) Complete(ctx context.Context, conn *connection.Connection, p CallbackParams) (bool, error) {
 	return e.complete(ctx, p, conn, RedirectLoopback, RedirectPaste)
 }
 
 // complete completes the session that p.State names, when its redirect is
-// one of modes and, with want set, it is a session of want.
-func (e *Engine) complete(ctx context.Context, p CallbackParams, want *connection.Connection, modes ...RedirectMode) error {
+// one of modes and, with want set, it is a session of want. It reports
+// whether it confirmed the session at once.
+func (e *Engine) complete(ctx context.Context, p CallbackParams, want *connection.Connection, modes ...RedirectMode) (bool, error) {
 	st, err := openState(e.enc, p.State)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrCallbackRefused, err)
+		return false, fmt.Errorf("%w: %w", ErrCallbackRefused, err)
 	}
 	if !slices.Contains(modes, st.Mode) {
-		return fmt.Errorf("%w: the session uses the %s redirect", ErrCallbackRefused, st.Mode)
+		return false, fmt.Errorf("%w: the session uses the %s redirect", ErrCallbackRefused, st.Mode)
 	}
 	if !e.now().Before(st.ExpiresAt) {
-		return fmt.Errorf("%w: the session has expired", ErrCallbackRefused)
+		return false, fmt.Errorf("%w: the session has expired", ErrCallbackRefused)
 	}
 	conn, err := e.store.Get(ctx, st.key())
 	if errors.Is(err, connection.ErrNotFound) || (err == nil && conn.ID != st.ConnectionID) {
-		return fmt.Errorf("%w: the connection was removed", ErrCallbackRefused)
+		return false, fmt.Errorf("%w: the connection was removed", ErrCallbackRefused)
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if want != nil && want.ID != conn.ID {
-		return fmt.Errorf("%w: the state names another connection", ErrCallbackRefused)
+		return false, fmt.Errorf("%w: the state names another connection", ErrCallbackRefused)
 	}
 
 	// A code that the provider accepted is spent, so the provider calls run
@@ -365,14 +367,14 @@ func (e *Engine) complete(ctx context.Context, p CallbackParams, want *connectio
 	defer cancel()
 	claim, err := e.claim(ctx, conn, st.SessionID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if p.Error != "" {
-		return e.fail(ctx, conn, st.SessionID, claim, e.consentFailure(ctx, conn, st.RedirectURI, p.Error, p.ErrorDescription))
+		return false, e.fail(ctx, conn, st.SessionID, claim, e.consentFailure(ctx, conn, st.RedirectURI, p.Error, p.ErrorDescription))
 	}
 	tokens, checks, err := e.consent(callCtx, conn, st, p.Code)
 	if err != nil {
-		return e.fail(ctx, conn, st.SessionID, claim, err.Error())
+		return false, e.fail(ctx, conn, st.SessionID, claim, err.Error())
 	}
 
 	writeCtx, cancelWrite := writeContext(ctx)
@@ -405,10 +407,10 @@ func (e *Engine) complete(ctx context.Context, p CallbackParams, want *connectio
 		if tokens.RefreshToken != live {
 			e.revoke(ctx, conn, tokens.RefreshToken, RevokedUnconfirmed)
 		}
-		return err
+		return false, err
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if confirmed {
 		e.reportConnected(ctx, conn, from)
@@ -416,7 +418,7 @@ func (e *Engine) complete(ctx context.Context, p CallbackParams, want *connectio
 			e.revoke(ctx, conn, live, RevokedReplaced)
 		}
 	}
-	return nil
+	return confirmed, nil
 }
 
 // Confirm makes the tokens of a session in confirm live, in one write that

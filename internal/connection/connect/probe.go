@@ -29,13 +29,16 @@ func (e *Engine) Test(ctx context.Context, conn *connection.Connection) ([]conne
 	if err != nil {
 		return nil, err
 	}
-	state, err := e.store.TokenState(ctx, conn)
-	if err != nil {
-		return nil, fmt.Errorf("connection %q: %w", conn.Name, err)
-	}
 	access, expiresIn, err := e.tokens.Token(ctx, conn, "", broker.StepMinTTL)
 	if err != nil {
 		return nil, err
+	}
+	// Read after the token, so a reconnect between the two leaves granted
+	// scopes that are at least as new as the token, and the probe's call
+	// reports what the token lacks.
+	state, err := e.store.TokenState(ctx, conn)
+	if err != nil {
+		return nil, fmt.Errorf("connection %q: %w", conn.Name, err)
 	}
 	token := &oauth2.Token{AccessToken: access}
 	if expiresIn > 0 {
