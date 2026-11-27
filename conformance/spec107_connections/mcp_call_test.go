@@ -33,9 +33,8 @@ const (
 
 // apiConnection stores work-api in ops: an oauth2 connection bound to host,
 // on an app that refreshes at tokenURL. A connected one holds firstToken,
-// valid for an hour; any other is pending. It returns dagu's home, the
-// environment that points dagu at it, the store, and the connection.
-func apiConnection(t *testing.T, host, tokenURL string, connected bool) (string, []string, connection.Store, *connection.Connection) {
+// valid for an hour; any other is pending.
+func apiConnection(t *testing.T, host, tokenURL string, connected bool) apiHome {
 	t.Helper()
 
 	ctx := context.Background()
@@ -64,7 +63,16 @@ func apiConnection(t *testing.T, host, tokenURL string, connected bool) (string,
 		})
 		require.NoError(t, err)
 	}
-	return home, env, store, conn
+	return apiHome{dir: home, env: env, store: store, conn: conn}
+}
+
+// apiHome is a dagu home that holds work-api.
+type apiHome struct {
+	dir string
+	// env points dagu at the home.
+	env   []string
+	store connection.Store
+	conn  *connection.Connection
 }
 
 // newMCPServer serves MCP over TLS. It refuses firstToken, as a server does
@@ -118,19 +126,19 @@ func TestMCPCallWithConnection(t *testing.T) {
 	tokens, refreshes := newTokenEndpoint(t)
 	u, err := url.Parse(mcp.URL)
 	require.NoError(t, err)
-	home, env, store, conn := apiConnection(t, u.Host, tokens.URL, true)
+	home := apiConnection(t, u.Host, tokens.URL, true)
 
 	dagu := harness.NewRunner(t)
-	result := dagu.RunWithEnv(append(env, mcpEnv...), "start", "mcp_call.yaml")
+	result := dagu.RunWithEnv(append(home.env, mcpEnv...), "start", "mcp_call.yaml")
 	result.ExpectExitCode(0)
 	dagu.ExpectFileContains("whoami.out", `"is_error":false`, "tokens *** ***")
 	require.EqualValues(t, 1, refreshes.Load())
 
-	state, err := store.TokenState(context.Background(), conn)
+	state, err := home.store.TokenState(context.Background(), home.conn)
 	require.NoError(t, err)
 	require.Equal(t, secondToken, state.AccessTokens[""].Token)
 
-	for _, dir := range []string{home, dagu.ProjectPath(".")} {
+	for _, dir := range []string{home.dir, dagu.ProjectPath(".")} {
 		expectNoToken(t, dir, firstToken, secondToken)
 	}
 }
@@ -140,9 +148,9 @@ func TestMCPCallWithConnection(t *testing.T) {
 func TestMCPCallReconnectRequired(t *testing.T) {
 	t.Parallel()
 
-	_, env, _, _ := apiConnection(t, "127.0.0.1:9", "https://auth.example.com/token", false)
+	home := apiConnection(t, "127.0.0.1:9", "https://auth.example.com/token", false)
 	dagu := harness.NewRunner(t)
-	result := dagu.RunWithEnv(env, "start", "mcp_call_pending.yaml")
+	result := dagu.RunWithEnv(home.env, "start", "mcp_call_pending.yaml")
 	result.ExpectNonZeroExitCode()
 	dagu.ExpectFileContains("unread.out", `"kind":"auth"`, `"connection":"work-api"`, `"detail":"reconnect_required"`, "never connected")
 	dagu.ExpectFileContains("executed.txt", "executed")
