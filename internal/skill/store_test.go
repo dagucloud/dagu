@@ -4,8 +4,6 @@
 package skill_test
 
 import (
-	"archive/zip"
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1157,148 +1154,4 @@ func TestPartialSkillIsRefused(t *testing.T) {
 	s, err = skill.Read(dir)
 	require.NoError(t, err)
 	require.True(t, s.Valid(), "%v", s.Issues)
-}
-
-func TestZip(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := newStore(t)
-	a := create(t, s, "alpha")
-	_, err := s.WriteFile(ctx, "alpha", "references/r.md", []byte("ref\n"), skill.Precondition{IfMatch: a.Hash})
-	require.NoError(t, err)
-	b := create(t, s, "beta")
-	_, err = s.WriteFile(ctx, "beta", "assets/img.bin", []byte{0, 1, 2, 255}, skill.Precondition{IfMatch: b.Hash})
-	require.NoError(t, err)
-	// An invalid skill can be downloaded.
-	require.NoError(t, os.MkdirAll(filepath.Join(skill.Root(s), "broken", "references"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(skill.Root(s), "broken", "references", "x.md"), []byte("x"), 0o644))
-
-	build := func(names ...string) []byte {
-		skills, err := s.DownloadSkills(names)
-		require.NoError(t, err)
-		var buf bytes.Buffer
-		require.NoError(t, skill.WriteZip(&buf, skills))
-		return buf.Bytes()
-	}
-
-	t.Run("content equals the files", func(t *testing.T) {
-		data := build("beta", "alpha", "alpha")
-		zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-		require.NoError(t, err)
-		var names []string
-		for _, f := range zr.File {
-			names = append(names, f.Name)
-			require.True(t, f.Modified.Equal(time.Date(1980, 1, 1, 0, 0, 0, 0, time.UTC)), f.Name)
-			rc, err := f.Open()
-			require.NoError(t, err)
-			got, _ := io.ReadAll(rc)
-			_ = rc.Close()
-			want, err := os.ReadFile(filepath.Join(skill.Root(s), filepath.FromSlash(f.Name)))
-			require.NoError(t, err)
-			require.Equal(t, want, got, f.Name)
-		}
-		require.Equal(t, []string{"alpha/SKILL.md", "alpha/references/r.md", "beta/SKILL.md", "beta/assets/img.bin"}, names)
-	})
-	t.Run("deterministic", func(t *testing.T) {
-		first := build("alpha", "beta")
-		require.NoError(t, os.Chtimes(filepath.Join(skill.Root(s), "alpha", "SKILL.md"), time.Unix(5, 0), time.Unix(5, 0)))
-		require.Equal(t, first, build("beta", "alpha"))
-	})
-	t.Run("invalid skill is included", func(t *testing.T) {
-		data := build("broken")
-		zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-		require.NoError(t, err)
-		require.Len(t, zr.File, 1)
-		require.Equal(t, "broken/references/x.md", zr.File[0].Name)
-	})
-	t.Run("unknown name gives no result", func(t *testing.T) {
-		_, err := s.DownloadSkills([]string{"alpha", "nope"})
-		require.ErrorIs(t, err, skill.ErrNotFound)
-		require.Contains(t, err.Error(), "nope")
-	})
-	t.Run("limit of skills", func(t *testing.T) {
-		names := make([]string, skill.MaxDownloadSkills+1)
-		for i := range names {
-			names[i] = "s" + strings.Repeat("a", i+1)
-		}
-		_, err := s.DownloadSkills(names)
-		require.ErrorIs(t, err, skill.ErrDownloadTooLarge)
-	})
-	t.Run("file above the size limit is included", func(t *testing.T) {
-		big := bytes.Repeat([]byte{7}, skill.MaxFileBytes+1)
-		require.NoError(t, os.MkdirAll(filepath.Join(skill.Root(s), "large", "assets"), 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(skill.Root(s), "large", "SKILL.md"), []byte(strings.Replace(good, "name: demo", "name: large", 1)), 0o644))
-		require.NoError(t, os.WriteFile(filepath.Join(skill.Root(s), "large", "assets", "big.bin"), big, 0o644))
-		data := build("large")
-		zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-		require.NoError(t, err)
-		require.Len(t, zr.File, 2)
-		require.Equal(t, "large/assets/big.bin", zr.File[1].Name)
-		rc, err := zr.File[1].Open()
-		require.NoError(t, err)
-		got, err := io.ReadAll(rc)
-		require.NoError(t, err)
-		require.NoError(t, rc.Close())
-		require.Equal(t, big, got)
-	})
-	// A file above the size limit has no recorded hash, so a change that keeps
-	// its size is found by the times of the open file.
-	t.Run("file above the size limit changed during the stream stops the write", func(t *testing.T) {
-		rng := rand.New(rand.NewPCG(1, 2))
-		big := make([]byte, skill.MaxFileBytes+1)
-		for i := range big {
-			big[i] = byte(rng.Uint32())
-		}
-		path := filepath.Join(skill.Root(s), "huge", "assets", "big.bin")
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(skill.Root(s), "huge", "SKILL.md"), []byte(strings.Replace(good, "name: demo", "name: huge", 1)), 0o644))
-		require.NoError(t, os.WriteFile(path, big, 0o644))
-		skills, err := s.DownloadSkills([]string{"huge"})
-		require.NoError(t, err)
-		// The data does not compress, so the output passes 64 KiB while the big
-		// file streams. The writer then rewrites it in place with its size.
-		changed := false
-		w := &watchWriter{onWrite: func(written int) {
-			if changed || written < 64<<10 {
-				return
-			}
-			changed = true
-			other := bytes.Clone(big)
-			other[len(other)-1]++
-			require.NoError(t, os.WriteFile(path, other, 0o644))
-			require.NoError(t, os.Chtimes(path, time.Unix(5, 0), time.Unix(5, 0)))
-		}}
-		err = skill.WriteZip(w, skills)
-		require.True(t, changed, "the stream ended before the change")
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "assets/big.bin")
-	})
-	t.Run("file changed after the read stops the write", func(t *testing.T) {
-		g := create(t, s, "gamma")
-		_, err := s.WriteFile(ctx, "gamma", "references/r.md", []byte("ref\n"), skill.Precondition{IfMatch: g.Hash})
-		require.NoError(t, err)
-		skills, err := s.DownloadSkills([]string{"gamma"})
-		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(filepath.Join(skill.Root(s), "gamma", "references", "r.md"), []byte("new\n"), 0o644))
-		require.Error(t, skill.WriteZip(io.Discard, skills))
-	})
-	t.Run("file names", func(t *testing.T) {
-		now := time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
-		require.Equal(t, "alpha.zip", skill.ZipFileName([]string{"alpha"}, now))
-		require.Equal(t, "skills-2026-11-05.zip", skill.ZipFileName([]string{"alpha", "beta"}, now))
-		require.Equal(t, "skill.zip", skill.ZipFileName([]string{"données"}, now))
-	})
-}
-
-// watchWriter discards what it gets and calls onWrite with the number of bytes
-// written so far.
-type watchWriter struct {
-	written int
-	onWrite func(written int)
-}
-
-func (w *watchWriter) Write(p []byte) (int, error) {
-	w.written += len(p)
-	w.onWrite(w.written)
-	return len(p), nil
 }

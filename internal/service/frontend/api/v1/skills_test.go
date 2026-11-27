@@ -396,6 +396,7 @@ func TestSkillsDelete(t *testing.T) {
 	deleteSkillRequest(server, "/api/v1/skills/.x", skillIfMatch(h)).ExpectStatus(http.StatusBadRequest).Send(t)
 }
 
+// unzip reads every entry of a ZIP, by name.
 func unzip(t *testing.T, data []byte) map[string]string {
 	t.Helper()
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
@@ -415,59 +416,104 @@ func unzip(t *testing.T, data []byte) map[string]string {
 func TestSkillsDownload(t *testing.T) {
 	t.Parallel()
 	server := test.SetupServer(t)
-	writeSkillFile(t, server, "alpha", "---\nname: alpha\ndescription: Alpha rules. Use when asked.\n---\nA\n")
+	alpha := "---\nname: alpha\ndescription: Alpha rules. Use when asked.\n---\nA\n"
+	writeSkillFile(t, server, "alpha", alpha)
 	writeSkillFile(t, server, "beta", "---\nname: beta\ndescription: Beta rules. Use when asked.\n---\nB\n")
 	writeSkillFile(t, server, "broken", "nope\n")
+	writeSkillFile(t, server, "download", "x")
+	writeSkillFile(t, server, "données", "x")
 	require.NoError(t, os.MkdirAll(filepath.Join(skillsDir(server), "alpha", "assets"), 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(skillsDir(server), "alpha", "assets", "x.bin"), []byte{0, 255}, 0o600))
+	post := func(body any, status int) *test.Response {
+		return server.Client().Post("/api/v1/skills/download", body).ExpectStatus(status).Send(t)
+	}
 
 	t.Run("OneSkill", func(t *testing.T) {
 		resp := server.Client().Get("/api/v1/skills/alpha/download").ExpectStatus(http.StatusOK).Send(t)
 		assert.Equal(t, "application/zip", resp.Response.Header().Get("Content-Type"))
 		assert.Equal(t, `attachment; filename="alpha.zip"`, resp.Response.Header().Get("Content-Disposition"))
-		files := unzip(t, resp.Response.Body())
-		assert.Equal(t, map[string]string{
-			"alpha/SKILL.md":     "---\nname: alpha\ndescription: Alpha rules. Use when asked.\n---\nA\n",
-			"alpha/assets/x.bin": "\x00\xff",
-		}, files)
+		assert.Equal(t, "no-store", resp.Response.Header().Get("Cache-Control"))
+		assert.Equal(t, map[string]string{"alpha/SKILL.md": alpha, "alpha/assets/x.bin": "\x00\xff"}, unzip(t, resp.Response.Body()))
+	})
+
+	t.Run("NameThatIsNotASCII", func(t *testing.T) {
+		resp := server.Client().Get("/api/v1/skills/donn%C3%A9es/download").ExpectStatus(http.StatusOK).Send(t)
+		assert.Equal(t, `attachment; filename="skill.zip"; filename*=UTF-8''donn%C3%A9es.zip`, resp.Response.Header().Get("Content-Disposition"))
+		assert.Equal(t, map[string]string{"données/SKILL.md": "x"}, unzip(t, resp.Response.Body()))
+	})
+
+	// The route of the download of several skills does not hide a skill named
+	// download.
+	t.Run("ASkillNamedDownload", func(t *testing.T) {
+		assert.Equal(t, "x", getSkill(t, server, "download").Content)
+		resp := server.Client().Get("/api/v1/skills/download/download").ExpectStatus(http.StatusOK).Send(t)
+		assert.Equal(t, map[string]string{"download/SKILL.md": "x"}, unzip(t, resp.Response.Body()))
 	})
 
 	t.Run("SeveralSkillsAreDeterministic", func(t *testing.T) {
-		post := func(names ...string) []byte {
-			resp := server.Client().Post("/api/v1/skills/download", map[string]any{"names": names}).ExpectStatus(http.StatusOK).Send(t)
-			assert.Equal(t, "application/zip", resp.Response.Header().Get("Content-Type"))
-			assert.Regexp(t, `^attachment; filename="skills-\d{4}-\d{2}-\d{2}\.zip"$`, resp.Response.Header().Get("Content-Disposition"))
-			return resp.Response.Body()
-		}
-		first := post("beta", "alpha", "broken")
-		second := post("alpha", "broken", "beta", "alpha")
-		assert.Equal(t, first, second)
-		files := unzip(t, first)
+		first := post(map[string]any{"names": []string{"beta", "alpha", "broken"}}, http.StatusOK)
+		assert.Equal(t, "application/zip", first.Response.Header().Get("Content-Type"))
+		assert.Regexp(t, `^attachment; filename="skills-\d{4}-\d{2}-\d{2}\.zip"$`, first.Response.Header().Get("Content-Disposition"))
+		second := post(map[string]any{"names": []string{"alpha", "broken", "beta", "alpha"}}, http.StatusOK)
+		assert.Equal(t, first.Response.Body(), second.Response.Body())
+		files := unzip(t, first.Response.Body())
 		assert.Len(t, files, 4)
 		assert.Equal(t, "nope\n", files["broken/SKILL.md"], "an invalid skill can be downloaded, marked nowhere")
-		assert.Equal(t, "---\nname: beta\ndescription: Beta rules. Use when asked.\n---\nB\n", files["beta/SKILL.md"])
 	})
 
 	t.Run("UnknownNameGivesNoZip", func(t *testing.T) {
 		var out api.Error
-		resp := server.Client().Post("/api/v1/skills/download", map[string]any{"names": []string{"alpha", "nope"}}).
-			ExpectStatus(http.StatusNotFound).Send(t)
+		resp := post(map[string]any{"names": []string{"alpha", "nope"}}, http.StatusNotFound)
 		resp.Unmarshal(t, &out)
 		assert.Contains(t, out.Message, "nope")
+		assert.NotContains(t, out.Message, skillsDir(server), "no server path")
 		assert.Equal(t, "application/json", resp.Response.Header().Get("Content-Type"))
 		server.Client().Get("/api/v1/skills/nope/download").ExpectStatus(http.StatusNotFound).Send(t)
 	})
 
-	t.Run("Limits", func(t *testing.T) {
-		names := make([]string, 101)
-		for i := range names {
-			names[i] = "s" + strings.Repeat("a", i+1)
+	t.Run("RefusedRequests", func(t *testing.T) {
+		many := make([]string, skill.MaxDownloadSkills+1)
+		for i := range many {
+			many[i] = fmt.Sprintf("s%03d", i)
 		}
-		server.Client().Post("/api/v1/skills/download", map[string]any{"names": names}).ExpectStatus(http.StatusBadRequest).Send(t)
-		server.Client().Post("/api/v1/skills/download", map[string]any{"names": []string{}}).ExpectStatus(http.StatusBadRequest).Send(t)
+		for name, body := range map[string]any{
+			"too many names":            map[string]any{"names": many},
+			"no name":                   map[string]any{"names": []string{}},
+			"unknown field":             map[string]any{"names": []string{"alpha"}, "name": "beta"},
+			"wrong type":                map[string]any{"names": "alpha"},
+			"names that differ by case": map[string]any{"names": []string{"alpha", "Alpha"}},
+			"hidden folder":             map[string]any{"names": []string{".locks"}},
+			"path":                      map[string]any{"names": []string{"../alpha"}},
+		} {
+			resp := post(body, http.StatusBadRequest)
+			assert.Equal(t, "application/json", resp.Response.Header().Get("Content-Type"), name)
+		}
 	})
 }
 
+// A download gives one audit event with the names and the hashes of the
+// skills, and no content.
+func TestSkillsDownloadIsAudited(t *testing.T) {
+	t.Parallel()
+	auditStore := &recordingAuditStore{}
+	apiImpl := newSkillsAPI(test.Setup(t), localapi.WithAuditService(audit.New(auditStore)))
+	ctx := context.Background()
+	h := createSkill(t, ctx, apiImpl)
+	auditStore.entries = nil
+
+	_, err := apiImpl.DownloadSkill(ctx, api.DownloadSkillRequestObject{Name: "refund-policy"})
+	require.NoError(t, err)
+	_, err = apiImpl.DownloadSkills(ctx, api.DownloadSkillsRequestObject{Body: &api.DownloadSkillsJSONRequestBody{Names: []string{"refund-policy", "refund-policy"}}})
+	require.NoError(t, err)
+	require.Len(t, auditStore.entries, 2)
+	for _, entry := range auditStore.entries {
+		assert.Equal(t, "skill_download", entry.Action)
+		assert.Equal(t, "skill", entry.ResourceType)
+		assert.Equal(t, "refund-policy", entry.ResourceID)
+		assert.Contains(t, entry.Details, h)
+		assert.NotContains(t, entry.Details, "Refund", "an audit entry holds no content of the skill")
+	}
+}
 
 // A file is sent as stored, as an attachment of type application/octet-stream,
 // with the hash of the skill in ETag. A link in the folder is never followed.

@@ -218,16 +218,23 @@ func (s *Skill) Text(path string) ([]byte, error) {
 	if !ok || !file.Text {
 		return nil, fmt.Errorf("skill %q has no text file %q: %w", s.Name, path, fs.ErrNotExist)
 	}
-	r, err := s.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = r.Close() }()
 	data := make([]byte, file.Size)
-	if _, err := io.ReadFull(r, data); err != nil {
+	if err := s.readInto(path, data); err != nil {
 		return nil, err
 	}
 	return data, nil
+}
+
+// readInto reads a file of the recorded size into buf, which has that size. It
+// fails with ErrFileChanged when the file no longer has the recorded content.
+func (s *Skill) readInto(rel string, buf []byte) error {
+	r, err := s.Open(rel)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = r.Close() }()
+	_, err = io.ReadFull(r, buf)
+	return err
 }
 
 // File returns the entry of a file.

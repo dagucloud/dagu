@@ -3849,7 +3849,7 @@ export interface paths {
         put?: never;
         /**
          * Download several skills as one ZIP
-         * @description Streams one ZIP that holds each named skill as a top-level folder with its files exactly as stored. A skill that is not valid can be downloaded. An unknown name gives 404 and no ZIP. At most 100 skills.
+         * @description Streams one ZIP that holds each named skill as a top-level folder with its files exactly as stored, sorted, without duplicates. A skill that is not valid can be downloaded; its hidden files, files with hard links and files above 4 MiB stay out. Every name is checked before the first byte: an unknown name gives 404 and no ZIP. At most 100 skills and 256 MiB of files. A file that changes during the stream aborts it, so the ZIP is incomplete.
          */
         post: operations["downloadSkills"];
         delete?: never;
@@ -3895,7 +3895,7 @@ export interface paths {
         };
         /**
          * Download one skill as a ZIP
-         * @description Streams a ZIP with the skill as the top-level folder <name>/ and its files exactly as stored. A skill that is not valid can be downloaded.
+         * @description Streams a ZIP with the skill as the top-level folder <name>/ and its files exactly as stored. A skill that is not valid can be downloaded; its hidden files, files with hard links and files above 4 MiB stay out. A file that changes during the stream aborts it, so the ZIP is incomplete.
          */
         get: operations["downloadSkill"];
         put?: never;
@@ -22386,13 +22386,15 @@ export interface operations {
                 headers: {
                     /** @description Attachment file name: skills-<date>.zip, or <name>.zip for one skill */
                     "Content-Disposition"?: string;
+                    /** @description no-store */
+                    "Cache-Control"?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/zip": string;
                 };
             };
-            /** @description Invalid request, or too many skills, or the skills are too large */
+            /** @description Invalid request, too many skills, files above 256 MiB, or names that one ZIP cannot hold: a colon, or two names that differ only by case */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -22412,6 +22414,15 @@ export interface operations {
             };
             /** @description A skill does not exist */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A skill is being changed and could not be read as one version; try again */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -22721,15 +22732,17 @@ export interface operations {
             /** @description The ZIP */
             200: {
                 headers: {
-                    /** @description Attachment file name: <name>.zip */
+                    /** @description Attachment file name: <name>.zip, or skill.zip with filename* for a name that is not ASCII */
                     "Content-Disposition"?: string;
+                    /** @description no-store */
+                    "Cache-Control"?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/zip": string;
                 };
             };
-            /** @description Invalid skill name */
+            /** @description Invalid skill name, a colon in the name, or files above 256 MiB */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -22749,6 +22762,15 @@ export interface operations {
             };
             /** @description Skill not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The skill is being changed and could not be read as one version; try again */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
