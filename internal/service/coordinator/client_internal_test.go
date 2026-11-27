@@ -5,7 +5,10 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -203,4 +206,35 @@ func TestDispatchHealthCheckEndsWhenAttemptsStop(t *testing.T) {
 		Task: &dispatch.DispatchTask{Operation: dispatch.DispatchOperationStart, Target: "deploy", DAGRunID: "run"},
 	})
 	require.ErrorContains(t, err, "health check failed")
+}
+
+// The upload of a dispatch's workspace admits nothing, so it ends as soon as
+// the call's attempts stop, here during the upload's health check, and the
+// call returns without a dispatch.
+func TestDispatchWorkspaceUploadEndsWhenAttemptsStop(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "input.txt"), []byte("input"), 0o600))
+	stop := make(chan struct{})
+	member := serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 1}
+	cfg := DefaultConfig()
+	cfg.WorkspaceBundleDir = t.TempDir()
+	cli := New(staticStateRegistry{members: []serviceregistry.HostInfo{member}}, cfg).(*clientImpl)
+	cli.clients[coordinatorMemberKey(member)] = &client{
+		address:      coordinatorAddress(member),
+		healthClient: stalledHealthClient{stop: sync.OnceFunc(func() { close(stop) })},
+	}
+
+	err := cli.Dispatch(WithAttemptStop(context.Background(), stop), dispatch.DispatchRequest{
+		Task: &dispatch.DispatchTask{
+			Operation:     dispatch.DispatchOperationStart,
+			Target:        "deploy",
+			DAGRunID:      "run",
+			SourceWorkDir: workDir,
+			Definition: fmt.Sprintf("name: deploy\nworking_dir: %q\nsteps:\n  - name: consume\n    run: cat input.txt\n    dependencies: input.txt\n",
+				filepath.ToSlash(workDir)),
+		},
+	})
+	require.ErrorContains(t, err, "upload DAG file dependencies")
 }
