@@ -5,6 +5,8 @@ package coordinator
 
 import (
 	"context"
+	"net/http"
+	"net/url"
 	"testing"
 	"time"
 
@@ -47,4 +49,13 @@ func ExpireHeldDispatchesForTest(h *Handler, now time.Time) {
 // now, whose runs no longer await them.
 func DropOrphanedDispatchesForTest(h *Handler, now time.Time) {
 	h.dropOrphanedDispatches(context.Background(), now)
+}
+
+// SetCheckProxyForTest makes Check dial through proxy, as gRPC does when
+// the environment names one.
+func SetCheckProxyForTest(t testing.TB, proxy *url.URL) {
+	t.Helper()
+	previous := proxyFromEnvironment
+	proxyFromEnvironment = func(*http.Request) (*url.URL, error) { return proxy, nil }
+	t.Cleanup(func() { proxyFromEnvironment = previous })
 }

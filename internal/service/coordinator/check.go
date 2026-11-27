@@ -12,7 +12,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"slices"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -26,6 +29,9 @@ import (
 type CheckResult struct {
 	// Address is the address dialed, as host:port.
 	Address string
+	// Proxy is the host of the HTTPS proxy the client dials through; empty
+	// when it dials directly.
+	Proxy string
 	// DialErr is why the address did not accept a connection; nil when it
 	// did.
 	DialErr error
@@ -43,6 +49,9 @@ type CheckResult struct {
 type TLSHandshake struct {
 	// Err says why the handshake failed; nil when it succeeded.
 	Err error
+	// Verified reports whether the client verified the server certificate.
+	// It is false on a handshake that peer.skip_tls_verify let pass.
+	Verified bool
 	// Certificate describes the server certificate; nil when the server sent
 	// none.
 	Certificate *ServerCertificate
@@ -50,8 +59,10 @@ type TLSHandshake struct {
 
 // ServerCertificate describes a server certificate.
 type ServerCertificate struct {
-	// Names are the DNS names and IP addresses the certificate covers.
-	Names []string
+	// DNSNames are the DNS names the certificate covers.
+	DNSNames []string
+	// IPAddresses are the IP addresses the certificate covers.
+	IPAddresses []string
 	// CA names the CA the certificate chains to.
 	CA string
 	// SelfSigned reports whether the certificate names itself as its CA.
@@ -96,8 +107,8 @@ func Check(ctx context.Context, config *Config, member serviceregistry.HostInfo)
 	ctx, cancel := context.WithTimeout(ctx, config.DialTimeout)
 	defer cancel()
 
-	var dialer net.Dialer
-	conn, err := dialer.DialContext(ctx, "tcp", result.Address)
+	conn, proxy, err := dialCoordinator(ctx, result.Address)
+	result.Proxy = proxy
 	if err != nil {
 		result.DialErr = err
 		return result
@@ -113,7 +124,9 @@ func Check(ctx context.Context, config *Config, member serviceregistry.HostInfo)
 	return result
 }
 
-// checkHandshake runs the TLS handshake that gRPC runs on conn.
+// checkHandshake runs the TLS handshake that gRPC runs on conn, then reads
+// once: TLS 1.3 refuses a client certificate only after the client side of
+// the handshake is done.
 func checkHandshake(ctx context.Context, config *Config, conn net.Conn, host string) *TLSHandshake {
 	tlsConfig, err := clientTLSConfig(config)
 	if err != nil {
@@ -122,22 +135,63 @@ func checkHandshake(ctx context.Context, config *Config, conn net.Conn, host str
 	// gRPC verifies the dialed host and offers HTTP/2.
 	tlsConfig.ServerName = host
 	tlsConfig.NextProtos = []string{"h2"}
+	// An alert after the server asked for a client certificate refuses it.
+	certRequested := false
+	clientCert := &tls.Certificate{}
+	if len(tlsConfig.Certificates) > 0 {
+		clientCert = &tlsConfig.Certificates[0]
+	}
+	tlsConfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+		certRequested = true
+		return clientCert, nil
+	}
 	tlsConn := tls.Client(conn, tlsConfig)
 	err = tlsConn.HandshakeContext(ctx)
-	if err == nil {
-		state := tlsConn.ConnectionState()
-		return &TLSHandshake{Certificate: describeServerCertificate(state.PeerCertificates, state.VerifiedChains)}
-	}
 	if verifyErr, ok := errors.AsType[*tls.CertificateVerificationError](err); ok {
 		return &TLSHandshake{
 			Err:         verificationProblem(verifyErr, tlsConfig.RootCAs, host),
 			Certificate: describeServerCertificate(verifyErr.UnverifiedCertificates, nil),
 		}
 	}
-	if _, ok := errors.AsType[tls.RecordHeaderError](err); ok {
-		return &TLSHandshake{Err: errors.New("the coordinator answered without TLS on this port")}
+	if err == nil {
+		// A gRPC server sends its HTTP/2 settings as soon as it accepts.
+		if deadline, ok := ctx.Deadline(); ok {
+			_ = tlsConn.SetReadDeadline(deadline)
+		}
+		_, err = tlsConn.Read(make([]byte, 1))
+		if !certRequested || !isRemoteAlert(err) {
+			err = nil
+		}
 	}
-	return &TLSHandshake{Err: err}
+	state := tlsConn.ConnectionState()
+	handshake := &TLSHandshake{
+		Verified:    len(state.VerifiedChains) > 0,
+		Certificate: describeServerCertificate(state.PeerCertificates, state.VerifiedChains),
+	}
+	switch {
+	case err == nil:
+	case certRequested && isRemoteAlert(err):
+		handshake.Err = clientCertProblem(config)
+	case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded):
+		handshake.Err = noAnswer(config)
+	default:
+		if _, ok := errors.AsType[tls.RecordHeaderError](err); ok {
+			handshake.Err = errors.New("the coordinator answered without TLS on this port")
+		} else {
+			handshake.Err = err
+		}
+	}
+	return handshake
+}
+
+// clientCertProblem says why a coordinator refused the client.
+func clientCertProblem(config *Config) error {
+	if config.CertFile == "" || config.KeyFile == "" {
+		return errors.New("the coordinator requires a client certificate, and the worker sends none: " +
+			"set peer.cert_file and peer.key_file to a certificate that the coordinator's peer.client_ca_file signed")
+	}
+	return fmt.Errorf("the coordinator refused the client certificate %s: "+
+		"it accepts only a certificate that its peer.client_ca_file signed", config.CertFile)
 }
 
 // verificationProblem says why a server certificate did not verify against
@@ -150,7 +204,11 @@ func verificationProblem(err *tls.CertificateVerificationError, roots *x509.Cert
 	}
 	var problems []string
 	if certs[0].VerifyHostname(host) != nil {
-		problems = append(problems, "the certificate does not cover "+host)
+		if net.ParseIP(host) != nil && slices.Contains(certs[0].DNSNames, host) {
+			problems = append(problems, fmt.Sprintf("the certificate lists %s as a DNS name, not as an IP address", host))
+		} else {
+			problems = append(problems, "the certificate does not cover "+host)
+		}
 	}
 	intermediates := x509.NewCertPool()
 	for _, cert := range certs[1:] {
@@ -165,6 +223,8 @@ func verificationProblem(err *tls.CertificateVerificationError, roots *x509.Cert
 		problems = append(problems, "the certificate does not chain to a CA this client trusts")
 	case isInvalid && invalid.Reason == x509.Expired:
 		problems = append(problems, "the certificate has expired or is not valid yet")
+	case isInvalid && invalid.Reason == x509.IncompatibleUsage:
+		problems = append(problems, "the certificate does not allow server authentication")
 	default:
 		problems = append(problems, chainErr.Error())
 	}
@@ -181,18 +241,19 @@ func describeServerCertificate(chain []*x509.Certificate, verified [][]*x509.Cer
 		return nil
 	}
 	leaf := chain[0]
-	names := append([]string{}, leaf.DNSNames...)
+	ips := make([]string, 0, len(leaf.IPAddresses))
 	for _, ip := range leaf.IPAddresses {
-		names = append(names, ip.String())
+		ips = append(ips, ip.String())
 	}
 	ca := chain[len(chain)-1].Issuer
 	if len(verified) > 0 && len(verified[0]) > 0 {
 		ca = verified[0][len(verified[0])-1].Subject
 	}
 	return &ServerCertificate{
-		Names:      names,
-		CA:         distinguishedName(ca),
-		SelfSigned: len(chain) == 1 && bytes.Equal(leaf.RawIssuer, leaf.RawSubject),
+		DNSNames:    leaf.DNSNames,
+		IPAddresses: ips,
+		CA:          distinguishedName(ca),
+		SelfSigned:  len(chain) == 1 && bytes.Equal(leaf.RawIssuer, leaf.RawSubject),
 	}
 }
 
@@ -220,14 +281,14 @@ func checkAnswer(ctx context.Context, config *Config, member serviceregistry.Hos
 		if config.Insecure && status.Code(err) == codes.Unavailable && servesTLS(ctx, c.address) {
 			return errServesTLS
 		}
-		return callError(err)
+		return callError(config, err)
 	}
 	if health.Status != grpc_health_v1.HealthCheckResponse_SERVING {
 		return fmt.Errorf("the coordinator is not serving: %s", strings.ToLower(health.Status.String()))
 	}
 	// The health service takes no credential; the worker list does.
 	if _, err := c.client.GetWorkers(ctx, &coordinatorv1.GetWorkersRequest{}); err != nil {
-		return callError(err)
+		return callError(config, err)
 	}
 	return nil
 }
@@ -238,8 +299,7 @@ var errServesTLS = errors.New("it serves only TLS on this port: set peer.insecur
 
 // servesTLS reports whether address answers a TLS handshake.
 func servesTLS(ctx context.Context, address string) bool {
-	var dialer net.Dialer
-	conn, err := dialer.DialContext(ctx, "tcp", address)
+	conn, _, err := dialCoordinator(ctx, address)
 	if err != nil {
 		return false
 	}
@@ -249,12 +309,18 @@ func servesTLS(ctx context.Context, address string) bool {
 		MinVersion:         tls.VersionTLS12,
 	}
 	err = tls.Client(conn, probe).HandshakeContext(ctx)
-	_, alert := errors.AsType[tls.AlertError](err)
-	return err == nil || alert
+	return err == nil || isRemoteAlert(err)
+}
+
+// isRemoteAlert reports whether err is a TLS alert the server sent. Over
+// TCP, crypto/tls reports one as a "remote error", not as tls.AlertError.
+func isRemoteAlert(err error) bool {
+	opErr, ok := errors.AsType[*net.OpError](err)
+	return ok && opErr.Op == "remote error"
 }
 
 // callError returns the message of a gRPC call error without its code.
-func callError(err error) error {
+func callError(config *Config, err error) error {
 	s, ok := status.FromError(err)
 	if !ok {
 		return err
@@ -262,9 +328,16 @@ func callError(err error) error {
 	switch s.Code() {
 	case codes.Unauthenticated, codes.PermissionDenied:
 		return fmt.Errorf("refused the call, %s", s.Message())
+	case codes.DeadlineExceeded:
+		return noAnswer(config)
 	default:
 		return errors.New(s.Message())
 	}
+}
+
+// noAnswer is the error of a coordinator that did not answer in time.
+func noAnswer(config *Config) error {
+	return fmt.Errorf("the coordinator did not answer within %s", config.DialTimeout.Round(time.Millisecond))
 }
 
 // clientCredential returns what a client with config presents.
