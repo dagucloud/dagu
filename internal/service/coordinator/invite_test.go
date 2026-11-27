@@ -138,6 +138,7 @@ func TestInviteCallsAuth(t *testing.T) {
 		},
 		"DeleteInvite": func(ctx context.Context, c coordinatorv1.CoordinatorServiceClient) error {
 			_, err := c.DeleteInvite(ctx, &coordinatorv1.DeleteInviteRequest{Id: "missing"})
+			// NotFound means the call passed the credential check.
 			if status.Code(err) == codes.NotFound {
 				return nil
 			}
@@ -474,8 +475,8 @@ func TestEnrollRefusesCSR(t *testing.T) {
 	assert.Zero(t, server.inviteUses(t, created.Record.Id))
 }
 
-// Enrollment over h2c is refused, so an invite never crosses the network in
-// plaintext to a coordinator that answers it (Spec 108 §Errors).
+// Enrollment over h2c is refused and consumes nothing, since the worker can
+// check the coordinator against its pin only over TLS (Spec 108 §Errors).
 func TestEnrollOverH2C(t *testing.T) {
 	t.Parallel()
 	server := startPeerTLSServer(t, certHosts)
