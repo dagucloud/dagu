@@ -496,6 +496,22 @@ func TestLockFailureIsNotAConflict(t *testing.T) {
 	require.False(t, errors.As(err, &conflict), "%v", err)
 }
 
+// The lock folder of a skill goes with the skill, so the lock folders stay one
+// per skill and do not grow with each name ever written.
+func TestDeleteRemovesTheLockFolder(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	locks := filepath.Join(skill.Root(s), ".locks", "demo")
+	_, err := os.Stat(locks)
+	require.NoError(t, err)
+
+	require.NoError(t, s.DeleteSkill(context.Background(), "demo", skill.Precondition{IfMatch: created.Hash}))
+	_, err = os.Stat(locks)
+	require.ErrorIs(t, err, fs.ErrNotExist)
+	create(t, s, "demo")
+}
+
 // A delete removes the skill at once: a file that cannot be removed stays in a
 // hidden folder, never as a part of a skill that readers see.
 func TestDeleteOfASkillIsAtomic(t *testing.T) {

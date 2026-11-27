@@ -528,19 +528,36 @@ func (s *Store) withLock(ctx context.Context, name string, pre Precondition, fn 
 		}
 	}
 	lockDir := filepath.Join(s.root, lockDirName, name)
-	if err := os.MkdirAll(lockDir, dirPerm); err != nil {
-		return fmt.Errorf("create the lock folder: %w", err)
-	}
 	lock := dirlock.New(lockDir, &dirlock.LockOptions{StaleThreshold: lockStaleThreshold})
 	lctx, cancel := context.WithTimeout(ctx, lockTimeout)
 	defer cancel()
-	if err := lock.Lock(lctx); err != nil {
+	for {
+		if err := os.MkdirAll(lockDir, dirPerm); err != nil {
+			return fmt.Errorf("create the lock folder: %w", err)
+		}
+		err := lock.Lock(lctx)
+		if err == nil {
+			break
+		}
+		// The writer that deleted the skill can remove the lock folder while
+		// this one takes the lock.
+		if errors.Is(err, fs.ErrNotExist) && lctx.Err() == nil {
+			continue
+		}
 		// Only the end of the wait for another writer is a conflict.
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 			return &ConflictError{Message: fmt.Sprintf("another writer holds the skill %q", name)}
 		}
 		return fmt.Errorf("lock the skill %q: %w", name, err)
 	}
+	// The lock folder of a skill that no longer exists goes after the unlock, so
+	// the lock folders stay one per skill. Remove deletes an empty folder only,
+	// never the lock of another writer.
+	defer func() {
+		if _, err := os.Lstat(s.Dir(name)); errors.Is(err, fs.ErrNotExist) {
+			_ = os.Remove(lockDir)
+		}
+	}()
 	defer func() { _ = lock.Unlock() }()
 	// A slow write on shared storage can last longer than the stale threshold. The
 	// heartbeat keeps the lock fresh, so another instance does not take it. held
