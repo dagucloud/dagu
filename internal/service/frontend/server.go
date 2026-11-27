@@ -42,6 +42,7 @@ import (
 	cmnschema "github.com/dagucloud/dagu/v2/internal/cmn/schema"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/connection/connect"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/gitsync"
@@ -149,6 +150,7 @@ type Server struct {
 	funcsConfig          funcsConfig
 	builtinOIDCCfg       *auth.BuiltinOIDCConfig
 	trustedProxyCfg      *auth.TrustedProxyLoginConfig
+	connectEngine        *connect.Engine
 	authService          *authservice.Service
 	auditService         *audit.Service
 	auditStore           io.Closer
@@ -751,6 +753,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		config:               cfg,
 		builtinOIDCCfg:       builtinOIDCCfg,
 		trustedProxyCfg:      trustedProxyCfg,
+		connectEngine:        stores.Connect,
 		authService:          authSvc,
 		auditService:         auditSvc,
 		auditStore:           auditStore,
@@ -992,7 +995,7 @@ func sanitizedRequestLogger(httpLogger *httplog.Logger) func(next http.Handler) 
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			logReq := redactTokenFromRequest(r)
+			logReq := redactSecretsFromRequest(r)
 
 			// Pass original request to next handler, but redacted request to logger
 			passthrough := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -1004,20 +1007,30 @@ func sanitizedRequestLogger(httpLogger *httplog.Logger) func(next http.Handler) 
 	}
 }
 
-// redactTokenFromRequest returns a request with the token query parameter redacted.
-// If no token is present, the original request is returned unchanged.
-func redactTokenFromRequest(r *http.Request) *http.Request {
-	if r.URL.RawQuery == "" || !strings.Contains(r.URL.RawQuery, "token=") {
+// secretQueryParams carry secrets in a URL: an API token, and an OAuth
+// callback's authorization code and state.
+var secretQueryParams = []string{"token", "code", "state"}
+
+// redactSecretsFromRequest returns a request with the secretQueryParams
+// redacted. If none is present, the original request is returned unchanged.
+func redactSecretsFromRequest(r *http.Request) *http.Request {
+	if r.URL.RawQuery == "" {
 		return r
 	}
 
 	q := r.URL.Query()
-	if !q.Has("token") {
+	found := false
+	for _, name := range secretQueryParams {
+		if q.Has(name) {
+			q.Set(name, "[REDACTED]")
+			found = true
+		}
+	}
+	if !found {
 		return r
 	}
 
 	redacted := r.Clone(r.Context())
-	q.Set("token", "[REDACTED]")
 	redacted.URL.RawQuery = q.Encode()
 	redacted.RequestURI = redacted.URL.RequestURI()
 
@@ -1357,6 +1370,8 @@ func ensureLeadingSlash(p string) string {
 func (srv *Server) setupRoutes(ctx context.Context, r *chi.Mux) error {
 	basePath := srv.funcsConfig.BasePath
 	srv.setupTrustedProxyRoute(r, basePath)
+	// Connecting runs through the API, which a headless server keeps.
+	srv.setupOAuthCallbackRoute(r, basePath)
 	if srv.config.Server.Headless {
 		logger.Info(ctx, "Headless mode enabled: UI is disabled, but API remains active")
 		return nil
@@ -1509,6 +1524,15 @@ func (srv *Server) setupTrustedProxyRoute(r *chi.Mux, basePath string) {
 		pathutil.BuildPublicEndpointPath(basePath, "proxy-login"),
 		auth.TrustedProxyLoginHandler(srv.trustedProxyCfg),
 	)
+}
+
+// setupOAuthCallbackRoute serves the public callback of connect sessions,
+// which needs no Dagu login.
+func (srv *Server) setupOAuthCallbackRoute(r *chi.Mux, basePath string) {
+	if srv.connectEngine == nil {
+		return
+	}
+	r.Get(pathutil.BuildPublicEndpointPath(basePath, connect.CallbackPath), oauthCallbackHandler(srv.connectEngine))
 }
 
 func (srv *Server) setupOIDCRoutes(r *chi.Mux, basePath string) {
