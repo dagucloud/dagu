@@ -198,6 +198,8 @@ func (e *Engine) coordinatorClient(opts DistributedOptions) (coordinator.Client,
 	cfg.KeyFile = opts.TLS.KeyFile
 	cfg.SkipTLSVerify = opts.TLS.SkipTLSVerify
 	cfg.Insecure = opts.TLS.Insecure
+	cfg.Token = e.cfg.Core.Peer.Token
+	cfg.TokenFile = e.cfg.Core.Peer.TokenFile
 	noTLSMaterial := cfg.CAFile == "" && cfg.CertFile == "" && cfg.KeyFile == ""
 	if !cfg.Insecure && !cfg.SkipTLSVerify && noTLSMaterial {
 		return nil, fmt.Errorf("coordinator TLS is not configured; provide TLS files or set TLS.Insecure=true for plaintext coordinator connections")
