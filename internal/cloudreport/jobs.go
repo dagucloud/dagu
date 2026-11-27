@@ -4,7 +4,6 @@
 package cloudreport
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -477,15 +476,20 @@ func (res jobResponse) ok() bool {
 // post sends req and returns how Dagu Console answered, or an error when
 // it did not. An answer whose body cannot be read keeps its status.
 func (r *jobReporter) post(ctx context.Context, req *jobRequest) (jobResponse, error) {
-	body, err := encodeJob(req)
+	encoded, err := encodeJob(req)
 	if err != nil {
 		return jobResponse{}, err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, r.url, bytes.NewReader(body))
+	body, err := gzipped(encoded)
+	if err != nil {
+		return jobResponse{}, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, r.url, body)
 	if err != nil {
 		return jobResponse{}, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Content-Encoding", "gzip")
 	httpReq.Header.Set("Authorization", "Bearer "+r.reports.RunKey)
 	httpReq.Header.Set("User-Agent", r.agent)
 	resp, err := r.client.Do(httpReq)

@@ -14,10 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 )
 
-// redacted replaces the heartbeat secret in the last report shown to
-// administrators.
-const redacted = "[redacted]"
-
 var (
 	// ErrLevelConfigured is returned when configuration fixes the level.
 	ErrLevelConfigured = errors.New("cloud.report is set in configuration")
@@ -57,8 +53,7 @@ type Status struct {
 	// LastReportAt is when Dagu Console accepted the last report this
 	// process sent, or zero before the first.
 	LastReportAt time.Time
-	// LastReport is the JSON body of that report, with the heartbeat secret
-	// redacted.
+	// LastReport is the decompressed JSON body of that report.
 	LastReport []byte
 	// RunsPausedUntil is when Dagu Console stores this server's finished runs
 	// again, as the last accepted report was told, or zero when it was not
@@ -185,7 +180,6 @@ func (m *Monitoring) watch(fn func(config.ReportLevel)) {
 
 // recordSent keeps report as the last one Dagu Console accepted.
 func (m *Monitoring) recordSent(at time.Time, report reportRequest) {
-	report.HeartbeatSecret = redacted
 	m.sentMu.Lock()
 	defer m.sentMu.Unlock()
 	m.sent = &sentReport{at: at, report: report}
