@@ -17,13 +17,13 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Spec 092, "Files". The handoff gives the work directory to the restricted
-// user, except the folders that git opens as a repository (the git folders)
-// and the entries named .git. These stay with the worker, readable and not
-// writable by the restricted user, until the restore gives them their modes
-// back. The work directory and each folder on the way to a git folder or to a
-// .git keep the owner of the worker with the mode 1777, so that the restricted
-// user cannot rename or replace them.
+// Spec 103, "Isolation", rules 3 and 8. The handoff gives the work directory to
+// the restricted user, except the folders that git opens as a repository (the
+// git folders) and the entries named .git. These stay with the worker, readable
+// and not writable by the restricted user, until the restore gives them their
+// modes back. The work directory and each folder on the way to a git folder or
+// to a .git keep the owner of the worker with the mode 1777, so that the
+// restricted user cannot rename or replace them.
 //
 // The restore gives the work directory back to the worker. It fails the step
 // for what an agent could leave for a later trusted step:

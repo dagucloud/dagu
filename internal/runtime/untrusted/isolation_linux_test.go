@@ -361,7 +361,7 @@ func TestProcHidePID(t *testing.T) {
 	assert.True(t, hidden)
 }
 
-// Spec 092, "Isolation": the restricted user cannot read a file of the
+// Spec 103, "Isolation", rule 3: the restricted user cannot read a file of the
 // worker, cannot write .git or rename it, can write the other files, has a
 // private HOME, gets no DAGU_ variable but DAGU_OUTPUT_FILE, and leaves no
 // process. At the end, the work directory belongs to the worker again.

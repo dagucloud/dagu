@@ -333,12 +333,12 @@ func TestReviewStopperBlocksNoStart(t *testing.T) {
 	}
 }
 
-// Property (Spec 092, threat ".git"): the restricted user cannot write .git.
-// The attack: a trusted step that runs at the same time as the untrusted step
-// (another branch of a graph) writes in the work directory as root. The agent
-// replaces a folder that it owns with a link to .git/hooks, so the trusted
-// write lands in .git. The restore finds the change, removes the link and
-// stops the run.
+// Property (Spec 103, "Protections for later trusted steps", .git): the
+// restricted user cannot write .git. The attack: a trusted step that runs at
+// the same time as the untrusted step (another branch of a graph) writes in the
+// work directory as root. The agent replaces a folder that it owns with a link
+// to .git/hooks, so the trusted write lands in .git. The restore finds the
+// change, removes the link and stops the run.
 func TestReviewConcurrentTrustedWriteReachesGit(t *testing.T) {
 	requireIsolation(t)
 	resetPoison(t)
@@ -359,12 +359,13 @@ func TestReviewConcurrentTrustedWriteReachesGit(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(repo, "src"), "the link of the agent into .git is removed")
 }
 
-// Property (Spec 092, threat ".git"): the agent cannot make a later trusted step
-// run its code through git. The attack: a folder with HEAD, objects and refs is
-// a bare repository for git, and git finds it before the .git of a parent
-// folder. Once the folder belongs to the worker again, the owner check of git
-// (safe.directory) passes, and a trusted git command in a folder below it runs
-// core.fsmonitor as root. The restore treats such a folder as a new git folder.
+// Property (Spec 103, "Protections for later trusted steps", .git): the agent
+// cannot make a later trusted step run its code through git. The attack: a
+// folder with HEAD, objects and refs is a bare repository for git, and git
+// finds it before the .git of a parent folder. Once the folder belongs to the
+// worker again, the owner check of git (safe.directory) passes, and a trusted
+// git command in a folder below it runs core.fsmonitor as root. The restore
+// treats such a folder as a new git folder.
 func TestReviewBareRepositoryRunsAsRoot(t *testing.T) {
 	requireIsolation(t)
 	gitBin, err := exec.LookPath("git")
@@ -410,10 +411,10 @@ func TestReviewBareRepositoryRunsAsRoot(t *testing.T) {
 	assert.Error(t, readErr, "a trusted git command must not run a command of the agent")
 }
 
-// Property (Spec 092, threat ".git"): each .git entry and its content stay with
-// the worker. The attack: a .git file (git worktree, --separate-git-dir) names
-// a git folder that has another name, and the agent writes a hook in that
-// folder for a later trusted git commit.
+// Property (Spec 103, "Protections for later trusted steps", .git): each .git
+// entry and its content stay with the worker. The attack: a .git file (git
+// worktree, --separate-git-dir) names a git folder that has another name, and
+// the agent writes a hook in that folder for a later trusted git commit.
 func TestReviewGitFileTargetIsNotProtected(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
@@ -437,10 +438,10 @@ func TestReviewGitFileTargetIsNotProtected(t *testing.T) {
 	}
 }
 
-// Property (Spec 092, threat model): the restricted user cannot read the files
-// of the worker. The attack: during the step, fs.protected_symlinks stops root
-// at a link of the agent in a folder with the mode 1777. If the restore gave
-// the link to the worker, a later trusted step that reads the file of the
+// Property (Spec 103, "Isolation", rule 8): the restricted user cannot read the
+// files of the worker. The attack: during the step, fs.protected_symlinks stops
+// root at a link of the agent in a folder with the mode 1777. If the restore
+// gave the link to the worker, a later trusted step that reads the file of the
 // agent as data would read the file of the worker, for example its key. The
 // restore removes the link and fails the step.
 func TestReviewSymlinkReadAsRootAfterRestore(t *testing.T) {
@@ -477,11 +478,11 @@ func TestReviewSymlinkReadAsRootAfterRestore(t *testing.T) {
 	assert.NotEqual(t, "WORKER-PRIVATE-KEY", string(data), "a trusted read of a file of the agent must not reach a file of the worker")
 }
 
-// Property (Spec 092, threat model): a later trusted step cannot write outside
-// the work directory through a link of the agent. The text of each link of a
-// chain stays in the work directory (l1 -> ., l2 -> <work>/l1/.., l3 -> l2/..,
-// up to the root), and the last link out -> lN/<outside> reaches a folder
-// outside it. The restore follows the links as the kernel does.
+// Property (Spec 103, "Isolation", rule 8): a later trusted step cannot write
+// outside the work directory through a link of the agent. The text of each link
+// of a chain stays in the work directory (l1 -> ., l2 -> <work>/l1/.., l3 ->
+// l2/.., up to the root), and the last link out -> lN/<outside> reaches a
+// folder outside it. The restore follows the links as the kernel does.
 func TestReviewLinkChainLeavesWorkDir(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
