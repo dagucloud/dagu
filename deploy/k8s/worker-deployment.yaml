@@ -41,6 +41,12 @@ spec:
         envFrom:
         - configMapRef:
             name: dagu-config
+        env:
+        - name: DAGU_PEER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: dagu-peer-token
+              key: token
         volumeMounts:
         - name: dagu-data
           mountPath: /var/lib/dagu

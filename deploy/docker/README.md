@@ -36,6 +36,8 @@ client.crt
 client.key
 ```
 
+The stack also requires `DAGU_PEER_TOKEN`, a shared random token that every Dagu service sends to the coordinator. The coordinator refuses calls without it, and the worker has no `dagu-data` mount to read the token the coordinator would generate. Set it in the shell or in a `.env` file next to `compose.prod.yaml`, for example `DAGU_PEER_TOKEN=$(openssl rand -hex 32)`; Compose refuses to start without it. Give the same value to external workers.
+
 The coordinator certificate must cover the `dagu-coordinator` DNS name. Missing or invalid files prevent Dagu from starting or connecting. Keep private keys readable only by the container user. See the [transport security guide](https://docs.dagu.sh/server-admin/distributed/transport-security) for certificate requirements.
 
 Coordinator port `50055` remains inside `dagu-net`. Before connecting external workers, set `DAGU_COORDINATOR_ADVERTISE` to an address covered by the coordinator certificate and reachable by those workers. Publish port `50055` only to the restricted worker network.

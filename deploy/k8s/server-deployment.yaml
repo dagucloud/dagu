@@ -43,6 +43,13 @@ spec:
           value: "0.0.0.0"
         - name: DAGU_COORDINATOR_ADVERTISE
           value: "dagu-server"
+        # Workers do not mount dagu-data, so the coordinator and workers
+        # share the peer token through a Secret (see README.md).
+        - name: DAGU_PEER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: dagu-peer-token
+              key: token
         volumeMounts:
         - name: dagu-data
           mountPath: /var/lib/dagu
