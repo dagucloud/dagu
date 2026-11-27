@@ -511,12 +511,14 @@ An untrusted step can leave files behind that a later trusted step reads. Dagu c
   of [Isolation](#isolation).
 - **`HOME` and `XDG_` folders.** With isolation, the restricted user may be able to write the `HOME`
   of the worker or an `XDG_` folder, its default below `HOME` included, or replace one through a
-  folder or a link on the way. A folder with an access ACL counts as one it can write. Then each trusted step of the run gets a new private `HOME` and private `XDG_`
-  folders, with the mode `0700`, owned by the worker user. Dagu removes them when the step ends. A
-  temp folder of the worker that would let the restricted user replace the private `HOME` fails
-  the step. The steps of a child run
-  that an untrusted step started get them too, and the git setting below. The agent cannot plant a
-  file that a later trusted step reads, such as `.gitconfig`.
+  folder or a link on the way. A folder with an access ACL counts as one it can write. A relative
+  path counts from the working directory of the step. Then each trusted step of the run gets a new
+  private `HOME`, with the mode `0700`, owned by the worker user, and `XDG_` variables that name
+  folders below it. Dagu does not make these folders; a command makes them as it needs them.
+  Dagu removes the private `HOME` when the step ends. A temp folder of the worker that would let
+  the restricted user replace the private `HOME` fails the step. The steps of a child run that an
+  untrusted step started get them too, and the git setting below. The agent cannot plant a file
+  that a later trusted step reads, such as `.gitconfig`.
 - **Bare repositories.** In a run with an untrusted step, every process gets the git setting
   `safe.bareRepository=explicit`. Dagu adds it through `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and
   `GIT_CONFIG_VALUE_<n>`, after the entries these variables already have. Git reads
