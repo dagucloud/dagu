@@ -61,7 +61,7 @@ func TestResumeManagedAttemptTargetsOwningWorker(t *testing.T) {
 		defaultExecMode: config.ExecutionModeLocal,
 	}
 
-	require.NoError(t, api.resumeManagedAttempt(t.Context(), dag, status, status.DAGRunID, nil, dagrun.RetryPath{}))
+	require.NoError(t, api.resumeManagedAttempt(t.Context(), dag, status, status.DAGRunID, nil, dagrun.RetryPath{}, ""))
 	require.Len(t, recorder.dispatched, 1)
 	task := recorder.dispatched[0]
 	require.Equal(t, dispatch.DispatchOperationRetry, task.Operation)
@@ -231,6 +231,48 @@ func TestResumeResolvedSubDAGRunDispatchesRootPath(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ir.Queued, child.Status)
 	assert.True(t, child.Resume)
+}
+
+// A resume along a retry path goes to the worker that holds the session of
+// the sub-run it continues, when that sub-run ran in the root's process. A
+// sub-run that ran on another worker was dispatched on its own, so its session
+// does not pin the root.
+func TestResumeResolvedSubDAGRunTargetsSessionOwner(t *testing.T) {
+	tests := []struct {
+		name        string
+		childWorker string
+		want        string
+	}{
+		{name: "InRootProcess", childWorker: "worker-1", want: "worker-1"},
+		{name: "Dispatched", childWorker: "worker-2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newStoredWaitingCallFixture(t)
+			child, err := fixture.childAttempt.ReadStatusUncached(t.Context())
+			require.NoError(t, err)
+			child.WorkerID = tt.childWorker
+			child.Nodes = append(child.Nodes, &ir.Node{
+				Step: ir.Step{Name: "agent", Depends: []string{"gate"}}, Status: ir.NodeWaiting,
+				AgentSession: &ir.AgentSession{Provider: "opencode", State: ir.AgentSessionWaiting, OwnerWorkerID: tt.childWorker},
+			})
+			require.NoError(t, fixture.childAttempt.Open(t.Context()))
+			require.NoError(t, fixture.childAttempt.Write(t.Context(), *child))
+			require.NoError(t, fixture.childAttempt.Close(t.Context()))
+			recorder := &retryCoordinatorRecorder{}
+			a := &API{
+				dagRunRepository: fixture.repository,
+				config:           &config.Config{},
+				coordinatorCli:   recorder,
+				defaultExecMode:  config.ExecutionModeLocal,
+			}
+
+			require.NoError(t, a.resumeResolvedSubDAGRun(t.Context(), fixture.root, fixture.root, fixture.childID, "gate"))
+			require.Len(t, recorder.dispatched, 1)
+			assert.Equal(t, "call-child", recorder.dispatched[0].Step)
+			assert.Equal(t, tt.want, recorder.dispatched[0].TargetWorkerID)
+		})
+	}
 }
 
 func TestResumeResolvedSubDAGRunDispatchFailureRollsBackPath(t *testing.T) {

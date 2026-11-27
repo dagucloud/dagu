@@ -489,6 +489,48 @@ func TestRetryAgentOwnerWorkerIDRunningStep(t *testing.T) {
 	assert.Equal(t, "w1", ir.RetryAgentOwnerWorkerID(status, "", false))
 }
 
+// A retry along a retry path counts the sessions of the last sub-run only
+// when that sub-run ran on the root's worker, since a sub-run runs in its
+// root's process unless it is dispatched on its own.
+func TestRetryPathAgentOwnerWorkerID(t *testing.T) {
+	t.Parallel()
+
+	run := func(worker string, nodes ...*ir.Node) *ir.DAGRunStatus {
+		return &ir.DAGRunStatus{WorkerID: worker, Nodes: nodes}
+	}
+	call := func(owner string) *ir.Node {
+		node := &ir.Node{Step: ir.Step{Name: "call"}, Status: ir.NodeFailed}
+		if owner != "" {
+			node.AgentSession = &ir.AgentSession{Provider: "opencode", OwnerWorkerID: owner}
+		}
+		return node
+	}
+	agent := func(owner string) *ir.Node {
+		return &ir.Node{
+			Step: ir.Step{Name: "agent"}, Status: ir.NodeWaiting,
+			AgentSession: &ir.AgentSession{Provider: "opencode", OwnerWorkerID: owner},
+		}
+	}
+
+	tests := []struct {
+		name string
+		root *ir.DAGRunStatus
+		sub  *ir.DAGRunStatus
+		want string
+	}{
+		{name: "SubOnRootWorker", root: run("w1", call("")), sub: run("w1", agent("w1")), want: "w1"},
+		{name: "SubDispatched", root: run("w1", call("")), sub: run("w2", agent("w2"))},
+		{name: "NoSub", root: run("w1", call("w3")), want: "w3"},
+		{name: "MixedOwners", root: run("w1", call("w3")), sub: run("w1", agent("w1"))},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, ir.RetryPathAgentOwnerWorkerID(tt.root, "call", tt.sub, "agent", false))
+		})
+	}
+}
+
 func TestDAGRunStatusErrorText(t *testing.T) {
 	t.Parallel()
 

@@ -150,7 +150,7 @@ func TestResumeManagedAttemptBoundToWorkerNode(t *testing.T) {
 	a.coordinatorCli = recorder
 	status := &ir.DAGRunStatus{Name: dag.Name, DAGRunID: "run-1", Status: ir.Waiting, TargetNodes: []string{"gw-1"}}
 
-	require.NoError(t, a.resumeManagedAttempt(t.Context(), dag, status, status.DAGRunID, nil, dagrun.RetryPath{}))
+	require.NoError(t, a.resumeManagedAttempt(t.Context(), dag, status, status.DAGRunID, nil, dagrun.RetryPath{}, ""))
 	require.Len(t, recorder.dispatched, 1)
 	task := recorder.dispatched[0]
 	assert.Equal(t, dispatch.DispatchOperationRetry, task.Operation)

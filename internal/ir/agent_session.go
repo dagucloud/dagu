@@ -361,3 +361,25 @@ func stepRetrySelection(nodes []*Node, step string, includeDownstream bool) map[
 	}
 	return selected
 }
+
+// RetryPathAgentOwnerWorkerID returns the worker that holds the agent sessions
+// a retry along a retry path resumes. The root run, status, reruns rootStep;
+// the last sub-run on the path, sub, reruns step, as RetryAgentOwnerWorkerID
+// selects for each. A sub-run runs in its root's process unless it is
+// dispatched on its own, so sub counts only when it ran on the worker that ran
+// status. A nil sub counts no sessions.
+func RetryPathAgentOwnerWorkerID(status *DAGRunStatus, rootStep string, sub *DAGRunStatus, step string, includeDownstream bool) string {
+	owner := RetryAgentOwnerWorkerID(status, rootStep, false)
+	if status == nil || sub == nil || sub.WorkerID != status.WorkerID {
+		return owner
+	}
+	subOwner := RetryAgentOwnerWorkerID(sub, step, includeDownstream)
+	switch {
+	case subOwner == "":
+		return owner
+	case owner == "" || owner == subOwner:
+		return subOwner
+	default:
+		return ""
+	}
+}
