@@ -755,7 +755,7 @@ For self-hosted production deployments, treat network exposure and execution bou
 - Bind Dagu to loopback or a private interface when possible. If you must use `0.0.0.0`, place it behind a trusted reverse proxy, TLS, and network-level access controls.
 - Leave `terminal.enabled: false` unless the instance is admin-only and tightly scoped.
 - In distributed deployments, set `peer.insecure=false` and configure peer TLS when coordinator and workers communicate across host or network boundaries.
-- Keep `coordinator.require_token` at its default, `true`. The coordinator then refuses calls without its peer token. Processes that share its data directory read the token it generates; give remote workers the same `peer.token`.
+- Keep `coordinator.require_token` at its default, `true`. The coordinator then refuses calls without its peer token. Processes that use its data directory as the same OS user read the token it generates. Once `peer.token` is set on the coordinator, set it on every process that calls the coordinator, local ones included.
 - Treat Docker socket mounts, root containers, and host-level executors as privileged access to the underlying machine.
 
 See [Server Configuration](https://docs.dagu.sh/server-admin/configuration), [Docker deployment](https://docs.dagu.sh/server-admin/deployment/docker), and [Distributed execution](https://docs.dagu.sh/server-admin/distributed/) for operator-focused guidance.
@@ -852,7 +852,7 @@ DAGU_PEER_TOKEN='replace-with-shared-token' \
   DAGU_WORKER_LABELS=gpu=true,memory=64G dagu worker
 ```
 
-The coordinator refuses calls without its peer token. Processes that share its data directory, such as `dagu start-all` and workers on the same host, read the token it generates and need no setting. Give the coordinator and every remote worker, server, and scheduler the same `peer.token` (`DAGU_PEER_TOKEN`). A refused worker logs `Unauthenticated`, the coordinator logs the refusal, and a run that finds no worker names the missing token. `coordinator.require_token: false` accepts such calls with a warning.
+The coordinator refuses calls without its peer token. Without `peer.token`, it generates the token in `<data_dir>/coordinator/peer-token`, a file only its OS user can read. Processes that use the same `paths.data_dir` as the same OS user, such as `dagu start-all`, read it and need no setting; a process on the same host with another data directory or user does not. Once `peer.token` (`DAGU_PEER_TOKEN`) is set on the coordinator, the generated file is no longer used, so set the same value on every process that calls the coordinator: workers, servers, and schedulers, local ones included. A refused worker logs `Unauthenticated`, the coordinator logs the refusal, and a run that finds no worker names the missing token. `coordinator.require_token: false` accepts such calls with a warning.
 
 See the [distributed execution documentation](https://docs.dagu.sh/server-admin/distributed/) for setup details.
 
@@ -1059,7 +1059,7 @@ The auth, remote node, Git sync and Vault secrets can also be read from files, s
 | `DAGU_PEER_CLIENT_CA_FILE` | - | CA for client verification |
 | `DAGU_PEER_INSECURE` | `true` | Use h2c instead of TLS |
 | `DAGU_PEER_SKIP_TLS_VERIFY` | - | Skip TLS certificate verification |
-| `DAGU_PEER_TOKEN` | generated | Peer token sent to and checked by the coordinator. Without it, the coordinator generates one in its data directory, which only processes sharing that directory read |
+| `DAGU_PEER_TOKEN` | generated | Peer token sent to and checked by the coordinator. Without it, the coordinator generates one in its data directory, which only processes on that data directory as the same OS user read. Once set on the coordinator, every process that calls it needs the same value |
 
 ### Git Sync
 

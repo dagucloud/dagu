@@ -55,8 +55,10 @@ supports authentication via signing keys and TLS encryption.
 
 Calls must carry the peer token (coordinator.require_token, default true).
 Without peer.token, the coordinator generates one in its data directory,
-which processes sharing that directory read. Give remote peers the same
-peer.token, for example through DAGU_PEER_TOKEN.
+which processes on the same data directory as the same OS user read. Give
+every other peer the same peer.token, for example through DAGU_PEER_TOKEN.
+Once peer.token is set here, every process that calls the coordinator needs
+it, local ones included.
 
 Flags:
   --coordinator.host string         Host address to bind the gRPC server to (default: 127.0.0.1)
