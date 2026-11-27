@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -144,6 +145,66 @@ func TestRefreshTokenExpiryFromExchange(t *testing.T) {
 	status, err := f.engine.Session(context.Background(), f.conn, auth.SessionID)
 	require.NoError(t, err)
 	assert.Equal(t, exchangedAt.Add(time.Minute), status.RefreshTokenExpiresAt)
+}
+
+// A consent names the other connections of its workspace that hold the
+// same account through the same client, whichever app record holds it.
+// One in another workspace, of another client, or of another account is
+// not named. A connection whose token state cannot be read is skipped,
+// since the check only warns.
+func TestConsentNamesDuplicates(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	appWith := func(clientID string) string {
+		app, err := f.store.CreateApp(ctx, &connection.App{
+			Name:         clientID,
+			Provider:     f.conn.Provider,
+			Kind:         connection.AppKindBYO,
+			ClientID:     clientID,
+			ClientSecret: "secret",
+			ClientType:   connection.ClientTypeWeb,
+		})
+		require.NoError(t, err)
+		return app.ID
+	}
+	sameClient, otherClient := appWith("client"), appWith("other-client")
+	var broken *connection.Connection
+	for _, other := range []struct {
+		workspace, name, app, accountID string
+	}{
+		{"ops", "twin", f.conn.App, "sub-1"},
+		{"ops", "copy", sameClient, "sub-1"},
+		{"ops", "broken", f.conn.App, "sub-1"},
+		{"ops", "colleague", f.conn.App, "sub-2"},
+		{"ops", "stranger", otherClient, "sub-1"},
+		{"dev", "elsewhere", f.conn.App, "sub-1"},
+	} {
+		conn, err := f.store.Create(ctx, &connection.Connection{
+			Workspace: other.workspace,
+			Name:      other.name,
+			Provider:  f.conn.Provider,
+			App:       other.app,
+			Grant:     connection.GrantAuthorizationCode,
+		})
+		require.NoError(t, err)
+		_, err = f.store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {
+			st.AccountID = other.accountID
+			return nil
+		})
+		require.NoError(t, err)
+		if other.name == "broken" {
+			broken = conn
+		}
+	}
+	require.NoError(t, os.WriteFile(f.tokenFile(t, broken), []byte("{"), 0o600))
+	auth := f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
+
+	require.NoError(t, f.engine.Callback(ctx, f.provider.consent(t, auth)))
+	status, err := f.engine.Session(ctx, f.conn, auth.SessionID)
+	require.NoError(t, err)
+	assert.Equal(t, connect.PhaseConfirm, status.Phase)
+	assert.ElementsMatch(t, []string{"twin", "copy"}, status.Duplicates)
 }
 
 // A refresh token is required only for an access token that expires.
@@ -757,6 +818,20 @@ func (f *fixture) state(t *testing.T) *connection.TokenState {
 	return st
 }
 
+// tokenFile returns the path of conn's token state record.
+func (f *fixture) tokenFile(t *testing.T, conn *connection.Connection) string {
+	t.Helper()
+	for _, path := range f.files(t, tokensDir) {
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		if strings.Contains(string(data), conn.ID) {
+			return path
+		}
+	}
+	require.FailNow(t, "no token state record", conn.Name)
+	return ""
+}
+
 // fakeProvider consents in place of a browser and serves a token endpoint
 // that checks the PKCE verifier and the redirect URI. Each code it issues
 // grants its own refresh token: rt-1 for the first, rt-2 for the next. Its
@@ -930,7 +1005,7 @@ func (p *fakeProvider) exchanges() int {
 	return p.calls
 }
 
-func (p *fakeProvider) ParseClientFile([]byte) (*connection.App, error) {
+func (p *fakeProvider) ParseClientFile([]byte, connect.RedirectOptions) (*connection.App, error) {
 	return nil, errors.New("not supported")
 }
 
@@ -983,7 +1058,7 @@ func (p *fakeProvider) Revoke(ctx context.Context, _ *connection.App, refreshTok
 	return nil
 }
 
-func (p *fakeProvider) Probe(ctx context.Context, conn *connection.Connection, _ *oauth2.Token) []connection.Probe {
+func (p *fakeProvider) Probe(ctx context.Context, _ *connection.App, conn *connection.Connection, _ *oauth2.Token) []connection.Probe {
 	if p.onProbe != nil {
 		p.onProbe()
 	}

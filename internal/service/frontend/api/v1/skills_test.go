@@ -5,15 +5,21 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
+	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/skill"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -39,6 +45,46 @@ func getSkill(t *testing.T, server test.Server, name string) api.SkillDetail {
 	var out api.GetSkill200JSONResponse
 	server.Client().Get("/api/v1/skills/"+name).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &out)
 	return api.SkillDetail(out)
+}
+
+func skillIfMatch(hash string) map[string]string { return map[string]string{"If-Match": hash} }
+
+func putSkill(server test.Server, path string, body any, headers map[string]string) *test.Request {
+	r := server.Client().Put(path, body)
+	for k, v := range headers {
+		r = r.WithHeader(k, v)
+	}
+	return r
+}
+
+func deleteSkillRequest(server test.Server, path string, headers map[string]string) *test.Request {
+	r := server.Client().Delete(path)
+	for k, v := range headers {
+		r = r.WithHeader(k, v)
+	}
+	return r
+}
+
+// newSkillsAPI builds an API on the DAGs directory of helper. Two of them on one
+// helper stand for two servers that share the directory.
+func newSkillsAPI(helper test.Helper, opts ...localapi.APIOption) *localapi.API {
+	return localapi.New(
+		helper.DAGRepository, helper.DAGRunRepository, helper.QueueStore, helper.ProcRepository,
+		helper.DAGRunMgr, helper.Config, nil, helper.ServiceRegistry, nil, nil, opts...,
+	)
+}
+
+// createSkill creates the skill refund-policy through apiImpl and returns its
+// hash.
+func createSkill(t *testing.T, ctx context.Context, apiImpl *localapi.API) string {
+	t.Helper()
+	none := "*"
+	created, err := apiImpl.UpdateSkill(ctx, api.UpdateSkillRequestObject{
+		Name: "refund-policy", Params: api.UpdateSkillParams{IfNoneMatch: &none},
+		Body: &api.UpdateSkillJSONRequestBody{Content: validSkill},
+	})
+	require.NoError(t, err)
+	return created.(api.UpdateSkill200JSONResponse).Hash
 }
 
 func issueRules(issues []api.SkillIssue) []string {
@@ -133,6 +179,210 @@ func TestSkillsGet(t *testing.T) {
 	})
 }
 
+func TestSkillsPutNeedsAPrecondition(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	body := api.UpdateSkillJSONRequestBody{Content: validSkill}
+
+	putSkill(server, "/api/v1/skills/refund-policy", body, nil).ExpectStatus(http.StatusPreconditionRequired).Send(t)
+	for _, value := range []string{"nope", strings.Repeat("z", 64), `"` + strings.Repeat("a", 64)} {
+		putSkill(server, "/api/v1/skills/refund-policy", body, skillIfMatch(value)).ExpectStatus(http.StatusBadRequest).Send(t)
+	}
+	both := map[string]string{"If-None-Match": "*", "If-Match": "nope"}
+	putSkill(server, "/api/v1/skills/refund-policy", body, both).ExpectStatus(http.StatusBadRequest).Send(t)
+	_, err := os.Stat(filepath.Join(skillsDir(server), "refund-policy"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// With strict validation on, the size limit still comes before any check of
+// the body: a body over the limit gives 413, also when its fields are wrong.
+func TestSkillsStrictBodyLimit(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Server.StrictValidation = true
+	}))
+	body := map[string]any{"content": 1, "pad": strings.Repeat("a", 8<<20)}
+	putSkill(server, "/api/v1/skills/refund-policy", body, map[string]string{"If-None-Match": "*"}).
+		ExpectStatus(http.StatusRequestEntityTooLarge).Send(t)
+}
+
+func TestSkillsPutChainAndConflict(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	create := map[string]string{"If-None-Match": "*"}
+	file := filepath.Join(skillsDir(server), "refund-policy", "SKILL.md")
+
+	var created api.UpdateSkill200JSONResponse
+	putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: validSkill}, create).
+		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &created)
+	assert.Len(t, created.Hash, 64)
+	assert.Empty(t, created.Errors)
+	data, err := os.ReadFile(file)
+	require.NoError(t, err)
+	assert.Equal(t, validSkill, string(data))
+	assert.Equal(t, created.Hash, getSkill(t, server, "refund-policy").Hash)
+
+	t.Run("CreateOfAnExistingSkillConflicts", func(t *testing.T) {
+		var out api.SkillError
+		putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: validSkill}, create).
+			ExpectStatus(http.StatusConflict).Send(t).Unmarshal(t, &out)
+		assert.Equal(t, api.ErrorCodeConflict, out.Code)
+		require.NotNil(t, out.Hash)
+		assert.Equal(t, created.Hash, *out.Hash)
+	})
+
+	next := "---\nname: refund-policy\ndescription: Changed rules to refund an order.\n---\nNew body\n"
+	var updated api.UpdateSkill200JSONResponse
+	t.Run("OverwriteWithTheHash", func(t *testing.T) {
+		putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: next}, skillIfMatch(created.Hash)).
+			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &updated)
+		assert.NotEqual(t, created.Hash, updated.Hash)
+		data, err := os.ReadFile(file)
+		require.NoError(t, err)
+		assert.Equal(t, next, string(data))
+	})
+
+	t.Run("StaleHashConflictsAndKeepsTheFile", func(t *testing.T) {
+		var out api.SkillError
+		putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: validSkill}, skillIfMatch(created.Hash)).
+			ExpectStatus(http.StatusConflict).Send(t).Unmarshal(t, &out)
+		require.NotNil(t, out.Hash)
+		assert.Equal(t, updated.Hash, *out.Hash, "the conflict gives the current hash")
+		data, err := os.ReadFile(file)
+		require.NoError(t, err)
+		assert.Equal(t, next, string(data))
+	})
+
+	t.Run("AChangeOnDiskIsAConflict", func(t *testing.T) {
+		require.NoError(t, os.WriteFile(file, []byte(strings.Replace(next, "New body", "Edited by hand", 1)), 0o600))
+		putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: next}, skillIfMatch(updated.Hash)).
+			ExpectStatus(http.StatusConflict).Send(t)
+	})
+
+	t.Run("InvalidContentGivesTheIssues", func(t *testing.T) {
+		cur := getSkill(t, server, "refund-policy").Hash
+		for content, rule := range map[string]string{
+			"---\nname: other\ndescription: Some description of the skill.\n---\nBody\n":      "name-folder",
+			"---\nname: refund-policy\ndescription: Some description.\nmodel: x\n---\nBody\n": "front-matter-key",
+			"just text": "front-matter-start",
+			strings.Repeat("x", skill.MaxFileBytes+1): "file-too-large",
+		} {
+			var out api.SkillError
+			putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: content}, skillIfMatch(cur)).
+				ExpectStatus(http.StatusBadRequest).Send(t).Unmarshal(t, &out)
+			assert.Equal(t, api.ErrorCodeBadRequest, out.Code)
+			require.NotNil(t, out.Issues)
+			assert.Contains(t, issueRules(*out.Issues), rule)
+		}
+		assert.Equal(t, cur, getSkill(t, server, "refund-policy").Hash)
+	})
+
+	t.Run("InvalidName", func(t *testing.T) {
+		for _, name := range []string{"Bad", "9-"} {
+			body := api.UpdateSkillJSONRequestBody{Content: strings.ReplaceAll(validSkill, "refund-policy", name)}
+			putSkill(server, "/api/v1/skills/"+name, body, create).ExpectStatus(http.StatusBadRequest).Send(t)
+		}
+	})
+}
+
+func TestSkillsFiles(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	var cur api.UpdateSkill200JSONResponse
+	putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: validSkill}, map[string]string{"If-None-Match": "*"}).
+		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &cur)
+
+	putFile := func(path string, data []byte, hash string, status int) api.SkillWriteResult {
+		var out api.SkillWriteResult
+		resp := putSkill(server, "/api/v1/skills/refund-policy/files?path="+path, data, skillIfMatch(hash)).ExpectStatus(status).Send(t)
+		if status == http.StatusOK {
+			resp.Unmarshal(t, &out)
+		}
+		return out
+	}
+
+	t.Run("WriteReadDeleteChain", func(t *testing.T) {
+		a := putFile("references/faq.md", []byte("# FAQ\n"), cur.Hash, http.StatusOK)
+		assert.NotEqual(t, cur.Hash, a.Hash)
+		require.Len(t, a.Files, 2)
+		b := putFile("assets/logo.bin", []byte{0, 1, 2, 255}, a.Hash, http.StatusOK)
+		require.Len(t, b.Files, 3)
+		assert.False(t, b.Files[1].Text)
+
+		resp := server.Client().Get("/api/v1/skills/refund-policy/files?path=assets/logo.bin").ExpectStatus(http.StatusOK).Send(t)
+		assert.Equal(t, []byte{0, 1, 2, 255}, resp.Response.Body())
+		assert.Equal(t, `"`+b.Hash+`"`, resp.Response.Header().Get("ETag"))
+		resp = server.Client().Get("/api/v1/skills/refund-policy/files?path=references/faq.md").ExpectStatus(http.StatusOK).Send(t)
+		assert.Equal(t, "# FAQ\n", resp.Body)
+
+		// The old hash conflicts.
+		putFile("references/other.md", []byte("x"), a.Hash, http.StatusConflict)
+
+		var removed api.SkillWriteResult
+		deleteSkillRequest(server, "/api/v1/skills/refund-policy/files?path=assets/logo.bin", skillIfMatch(b.Hash)).
+			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &removed)
+		assert.Equal(t, a.Hash, removed.Hash)
+		_, err := os.Stat(filepath.Join(skillsDir(server), "refund-policy", "assets", "logo.bin"))
+		assert.ErrorIs(t, err, os.ErrNotExist)
+		cur.Hash = removed.Hash
+	})
+
+	t.Run("RulesOfTheFolderApply", func(t *testing.T) {
+		h := getSkill(t, server, "refund-policy").Hash
+		putFile("README.md", []byte("x"), h, http.StatusBadRequest)
+		putFile("docs/a.md", []byte("x"), h, http.StatusBadRequest)
+		putFile("references/.env", []byte("x"), h, http.StatusBadRequest)
+		putFile("references/bad.md", []byte{0xff, 0xfe}, h, http.StatusBadRequest)
+		putFile("SKILL.md", []byte(validSkill), h, http.StatusBadRequest)
+		putFile("references/..%2F..%2Fevil.md", []byte("x"), h, http.StatusBadRequest)
+		putFile("%2Fetc%2Fevil", []byte("x"), h, http.StatusBadRequest)
+		putFile("references/big.md", bytes.Repeat([]byte("x"), 4<<20+1), h, http.StatusRequestEntityTooLarge)
+		putSkill(server, "/api/v1/skills/refund-policy/files?path=references/a.md", []byte("x"), nil).
+			ExpectStatus(http.StatusPreconditionRequired).Send(t)
+		putSkill(server, "/api/v1/skills/missing/files?path=references/a.md", []byte("x"), skillIfMatch(h)).
+			ExpectStatus(http.StatusNotFound).Send(t)
+		// Only the creation of a skill takes If-None-Match.
+		both := map[string]string{"If-Match": h, "If-None-Match": "*"}
+		putSkill(server, "/api/v1/skills/refund-policy/files?path=references/a.md", []byte("x"), both).
+			ExpectStatus(http.StatusBadRequest).Send(t)
+		deleteSkillRequest(server, "/api/v1/skills/refund-policy/files?path=references/faq.md", both).
+			ExpectStatus(http.StatusBadRequest).Send(t)
+		assert.Equal(t, h, getSkill(t, server, "refund-policy").Hash, "a refused write changes nothing")
+	})
+
+	t.Run("AnInvalidFileCanBeDeleted", func(t *testing.T) {
+		h := getSkill(t, server, "refund-policy").Hash
+		stray := filepath.Join(skillsDir(server), "refund-policy", "notes.txt")
+		require.NoError(t, os.WriteFile(stray, []byte("x"), 0o600))
+		detail := getSkill(t, server, "refund-policy")
+		assert.Contains(t, issueRules(detail.Errors), "root-entry")
+		var out api.SkillWriteResult
+		deleteSkillRequest(server, "/api/v1/skills/refund-policy/files?path=notes.txt", skillIfMatch(detail.Hash)).
+			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &out)
+		assert.Empty(t, out.Errors)
+		assert.Equal(t, h, out.Hash)
+	})
+}
+
+func TestSkillsDelete(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	writeSkillFile(t, server, "refund-policy", validSkill)
+	extra := filepath.Join(skillsDir(server), "refund-policy", "references")
+	require.NoError(t, os.MkdirAll(extra, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(extra, "a.md"), []byte("x"), 0o600))
+	h := getSkill(t, server, "refund-policy").Hash
+
+	deleteSkillRequest(server, "/api/v1/skills/refund-policy", nil).ExpectStatus(http.StatusPreconditionRequired).Send(t)
+	deleteSkillRequest(server, "/api/v1/skills/refund-policy", skillIfMatch(strings.Repeat("0", 64))).ExpectStatus(http.StatusConflict).Send(t)
+	deleteSkillRequest(server, "/api/v1/skills/refund-policy", map[string]string{"If-Match": h, "If-None-Match": "*"}).ExpectStatus(http.StatusBadRequest).Send(t)
+	deleteSkillRequest(server, "/api/v1/skills/refund-policy", skillIfMatch(h)).ExpectStatus(http.StatusNoContent).Send(t)
+	_, err := os.Stat(filepath.Join(skillsDir(server), "refund-policy"))
+	assert.ErrorIs(t, err, os.ErrNotExist, "the whole folder goes")
+	deleteSkillRequest(server, "/api/v1/skills/refund-policy", skillIfMatch(h)).ExpectStatus(http.StatusNotFound).Send(t)
+	deleteSkillRequest(server, "/api/v1/skills/.x", skillIfMatch(h)).ExpectStatus(http.StatusBadRequest).Send(t)
+}
+
 // A file is sent as stored, as an attachment of type application/octet-stream,
 // with the hash of the skill in ETag. A link in the folder is never followed.
 func TestSkillsReadFile(t *testing.T) {
@@ -201,6 +451,26 @@ func TestSkillsReadFileUnreadable(t *testing.T) {
 	assert.NotContains(t, resp.Body, skillsDir(server))
 }
 
+// A write that the disk refuses gives 500, and the body names no server path.
+func TestSkillsWriteFailureNamesNoServerPath(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("needs Unix permissions that bind the user")
+	}
+	server := test.SetupServer(t)
+	writeSkillFile(t, server, "refund-policy", validSkill)
+	h := getSkill(t, server, "refund-policy").Hash
+	folder := filepath.Join(skillsDir(server), "refund-policy")
+	require.NoError(t, os.Chmod(folder, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(folder, 0o750) })
+
+	resp := putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: validSkill}, skillIfMatch(h)).
+		ExpectStatus(http.StatusInternalServerError).Send(t)
+	assert.NotContains(t, resp.Body, skillsDir(server))
+}
+
+// A skill name that is a traversal never reaches a file outside the skills
+// directory.
 func TestSkillsPathTraversal(t *testing.T) {
 	t.Parallel()
 	server := test.SetupServer(t)
@@ -208,8 +478,210 @@ func TestSkillsPathTraversal(t *testing.T) {
 	require.NoError(t, os.WriteFile(outside, []byte(validSkill), 0o600))
 
 	for _, name := range []string{"..", "..%2F..", "%2e%2e", "a%2Fb"} {
-		status := server.Client().Get("/api/v1/skills/" + name).Send(t).Response.StatusCode()
-		assert.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, status, "GET %s", name)
+		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+			var req *test.Request
+			switch method {
+			case http.MethodGet:
+				req = server.Client().Get("/api/v1/skills/" + name)
+			case http.MethodPut:
+				req = putSkill(server, "/api/v1/skills/"+name, api.UpdateSkillJSONRequestBody{Content: validSkill}, map[string]string{"If-None-Match": "*"})
+			default:
+				req = deleteSkillRequest(server, "/api/v1/skills/"+name, skillIfMatch(strings.Repeat("0", 64)))
+			}
+			status := req.Send(t).Response.StatusCode()
+			assert.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, status, "%s %s", method, name)
+		}
+	}
+
+	_, err := os.Stat(outside)
+	require.NoError(t, err, "file outside the skills directory must stay")
+}
+
+// A skill whose folder is a link, and a folder of a skill that is a link, are read with
+// errors. A write through them is refused with 400 and the rule of the link, also with
+// the hash that the client read. The folder outside the skills directory does not change.
+func TestSkillsWriteRefusesSymbolicLinks(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	outside := t.TempDir()
+	require.NoError(t, os.MkdirAll(skillsDir(server), 0o750))
+
+	// The folder of the skill is a link.
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "SKILL.md"), []byte(validSkill), 0o600))
+	require.NoError(t, os.Symlink(outside, filepath.Join(skillsDir(server), "linked")))
+	linked := getSkill(t, server, "linked")
+	assert.Contains(t, issueRules(linked.Errors), "folder-link")
+	putSkill(server, "/api/v1/skills/linked/files?path=references/a.md", []byte("x"), skillIfMatch(linked.Hash)).
+		ExpectStatus(http.StatusBadRequest).Send(t)
+
+	// A folder inside the skill is a link.
+	writeSkillFile(t, server, "refund-policy", validSkill)
+	require.NoError(t, os.Symlink(outside, filepath.Join(skillsDir(server), "refund-policy", "references")))
+	detail := getSkill(t, server, "refund-policy")
+	putSkill(server, "/api/v1/skills/refund-policy/files?path=references/a.md", []byte("x"), skillIfMatch(detail.Hash)).
+		ExpectStatus(http.StatusBadRequest).Send(t)
+
+	entries, err := os.ReadDir(outside)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "nothing is written outside the skills directory")
+}
+
+// Two API instances on one directory stand for two servers of one HA group.
+// Both write with the hash that they read: one wins, the other gets a conflict.
+func TestSkillsTwoInstancesRaceOnOneDirectory(t *testing.T) {
+	t.Parallel()
+	helper := test.Setup(t)
+	ctx := context.Background()
+	hash := createSkill(t, ctx, newSkillsAPI(helper))
+
+	for round := range 10 {
+		instances := []*localapi.API{newSkillsAPI(helper), newSkillsAPI(helper)}
+		contents := []string{
+			strings.Replace(validSkill, "Refund in 30 days.", "Round "+strings.Repeat("a", round+1), 1),
+			strings.Replace(validSkill, "Refund in 30 days.", "Round "+strings.Repeat("b", round+1), 1),
+		}
+		results := make([]api.UpdateSkillResponseObject, 2)
+		var wg sync.WaitGroup
+		for i := range instances {
+			wg.Go(func() {
+				h := hash
+				results[i], _ = instances[i].UpdateSkill(ctx, api.UpdateSkillRequestObject{
+					Name: "refund-policy", Params: api.UpdateSkillParams{IfMatch: &h},
+					Body: &api.UpdateSkillJSONRequestBody{Content: contents[i]},
+				})
+			})
+		}
+		wg.Wait()
+		wins, conflicts := 0, 0
+		for _, r := range results {
+			switch v := r.(type) {
+			case api.UpdateSkill200JSONResponse:
+				wins++
+				hash = v.Hash
+			case api.UpdateSkill409JSONResponse:
+				conflicts++
+				require.NotNil(t, v.Hash)
+			}
+		}
+		require.Equal(t, 1, wins, "round %d", round)
+		require.Equal(t, 1, conflicts, "round %d", round)
+	}
+}
+
+// A viewer reads skills but cannot change them. Each change is a request that
+// a developer could make, with the current hash, so only the role refuses it.
+func TestSkillsWriteNeedsDeveloper(t *testing.T) {
+	t.Parallel()
+	apiImpl := newSkillsAPI(test.Setup(t))
+	asRole := func(role auth.Role) context.Context {
+		return auth.WithUser(context.Background(), &auth.User{
+			ID: "cloud:" + string(role), Role: role, AuthProvider: auth.AuthProviderCloud,
+		})
+	}
+	viewer, developer := asRole(auth.RoleViewer), asRole(auth.RoleDeveloper)
+	h := createSkill(t, developer, apiImpl)
+	written, err := apiImpl.PutSkillFile(developer, api.PutSkillFileRequestObject{
+		Name: "refund-policy", Params: api.PutSkillFileParams{Path: "references/a.md", IfMatch: &h}, Body: strings.NewReader("x"),
+	})
+	require.NoError(t, err)
+	h = written.(api.PutSkillFile200JSONResponse).Hash
+
+	_, err = apiImpl.ListSkills(viewer, api.ListSkillsRequestObject{})
+	require.NoError(t, err)
+
+	_, err = apiImpl.UpdateSkill(viewer, api.UpdateSkillRequestObject{
+		Name: "refund-policy", Params: api.UpdateSkillParams{IfMatch: &h},
+		Body: &api.UpdateSkillJSONRequestBody{Content: validSkill + "More.\n"},
+	})
+	requireAPIErrorStatus(t, err, http.StatusForbidden)
+	_, err = apiImpl.DeleteSkill(viewer, api.DeleteSkillRequestObject{Name: "refund-policy", Params: api.DeleteSkillParams{IfMatch: &h}})
+	requireAPIErrorStatus(t, err, http.StatusForbidden)
+	_, err = apiImpl.PutSkillFile(viewer, api.PutSkillFileRequestObject{
+		Name: "refund-policy", Params: api.PutSkillFileParams{Path: "references/b.md", IfMatch: &h}, Body: strings.NewReader("x"),
+	})
+	requireAPIErrorStatus(t, err, http.StatusForbidden)
+	_, err = apiImpl.DeleteSkillFile(viewer, api.DeleteSkillFileRequestObject{Name: "refund-policy", Params: api.DeleteSkillFileParams{Path: "references/a.md", IfMatch: &h}})
+	requireAPIErrorStatus(t, err, http.StatusForbidden)
+
+	got, err := apiImpl.GetSkill(viewer, api.GetSkillRequestObject{Name: "refund-policy"})
+	require.NoError(t, err)
+	require.Equal(t, h, got.(api.GetSkill200JSONResponse).Hash, "the refused changes left the skill as it was")
+}
+
+// A skill write follows the rules of a DAG write: it needs the permission
+// write_dags, and the read-only mode of Git Sync refuses it.
+func TestSkillsWritesFollowTheDAGWriteRules(t *testing.T) {
+	t.Parallel()
+	for name, mutate := range map[string]func(*config.Config){
+		"no write_dags permission": func(cfg *config.Config) { cfg.Server.Permissions[config.PermissionWriteDAGs] = false },
+		"Git Sync read-only mode": func(cfg *config.Config) {
+			cfg.GitSync.Enabled = true
+			cfg.GitSync.PushEnabled = false
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			helper := test.Setup(t, test.WithConfigMutator(mutate))
+			apiImpl := newSkillsAPI(helper)
+			ctx := context.Background()
+			none, h := "*", strings.Repeat("0", 64)
+			_, err := apiImpl.UpdateSkill(ctx, api.UpdateSkillRequestObject{
+				Name: "refund-policy", Params: api.UpdateSkillParams{IfNoneMatch: &none},
+				Body: &api.UpdateSkillJSONRequestBody{Content: validSkill},
+			})
+			requireAPIErrorStatus(t, err, http.StatusForbidden)
+			_, err = os.Stat(filepath.Join(helper.Config.Paths.DAGsDir, "skills", "refund-policy"))
+			require.ErrorIs(t, err, os.ErrNotExist)
+			_, err = apiImpl.DeleteSkill(ctx, api.DeleteSkillRequestObject{Name: "refund-policy", Params: api.DeleteSkillParams{IfMatch: &h}})
+			requireAPIErrorStatus(t, err, http.StatusForbidden)
+			_, err = apiImpl.PutSkillFile(ctx, api.PutSkillFileRequestObject{
+				Name: "refund-policy", Params: api.PutSkillFileParams{Path: "references/a.md", IfMatch: &h}, Body: strings.NewReader("x"),
+			})
+			requireAPIErrorStatus(t, err, http.StatusForbidden)
+			_, err = apiImpl.DeleteSkillFile(ctx, api.DeleteSkillFileRequestObject{Name: "refund-policy", Params: api.DeleteSkillFileParams{Path: "references/a.md", IfMatch: &h}})
+			requireAPIErrorStatus(t, err, http.StatusForbidden)
+		})
+	}
+}
+
+// Each write and each delete leaves one audit entry with the resource skill,
+// the name and the new hash of the skill, and no content of the skill.
+func TestSkillsWritesAreAudited(t *testing.T) {
+	t.Parallel()
+	auditStore := &recordingAuditStore{}
+	apiImpl := newSkillsAPI(test.Setup(t), localapi.WithAuditService(audit.New(auditStore)))
+	ctx := context.Background()
+	h := createSkill(t, ctx, apiImpl)
+	updated, err := apiImpl.UpdateSkill(ctx, api.UpdateSkillRequestObject{
+		Name: "refund-policy", Params: api.UpdateSkillParams{IfMatch: &h},
+		Body: &api.UpdateSkillJSONRequestBody{Content: validSkill + "Refund twice.\n"},
+	})
+	require.NoError(t, err)
+	hashes := []string{h, updated.(api.UpdateSkill200JSONResponse).Hash}
+	written, err := apiImpl.PutSkillFile(ctx, api.PutSkillFileRequestObject{
+		Name: "refund-policy", Params: api.PutSkillFileParams{Path: "references/a.md", IfMatch: &hashes[1]}, Body: strings.NewReader("Refund notes"),
+	})
+	require.NoError(t, err)
+	hashes = append(hashes, written.(api.PutSkillFile200JSONResponse).Hash)
+	deleted, err := apiImpl.DeleteSkillFile(ctx, api.DeleteSkillFileRequestObject{
+		Name: "refund-policy", Params: api.DeleteSkillFileParams{Path: "references/a.md", IfMatch: &hashes[2]},
+	})
+	require.NoError(t, err)
+	hashes = append(hashes, deleted.(api.DeleteSkillFile200JSONResponse).Hash)
+	_, err = apiImpl.DeleteSkill(ctx, api.DeleteSkillRequestObject{Name: "refund-policy", Params: api.DeleteSkillParams{IfMatch: &hashes[3]}})
+	require.NoError(t, err)
+
+	actions := []string{"skill_update", "skill_update", "skill_file_write", "skill_file_delete", "skill_delete"}
+	require.Len(t, auditStore.entries, len(actions))
+	for i, action := range actions {
+		entry := auditStore.entries[i]
+		assert.Equal(t, action, entry.Action)
+		assert.Equal(t, "skill", entry.ResourceType, action)
+		assert.Equal(t, "refund-policy", entry.ResourceID, action)
+		if i < len(hashes) {
+			assert.Contains(t, entry.Details, hashes[i], action)
+		}
+		assert.NotContains(t, entry.Details, "Refund", "an audit entry holds no content of the skill")
 	}
 }
 

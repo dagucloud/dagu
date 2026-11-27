@@ -1582,7 +1582,7 @@ func workerAvailableInSnapshot(
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
 ) (bool, []queuedConditionDef) {
-	targetWorkerID := ir.RetryAgentOwnerWorkerID(status, false)
+	targetWorkerID := ir.RetryAgentOwnerWorkerID(status, "", false)
 	healthyWorkers := 0
 	tooOld := false
 	for _, record := range records {

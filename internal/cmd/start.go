@@ -797,7 +797,7 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 			ProfileName:              opts.profileName,
 			DAGDefinitionID:          opts.definitionID,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
-			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(opts.workerID),
+			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(as, opts.workerID),
 			RootDAGRun:               opts.root,
 			PeerConfig:               ctx.Config.Core.Peer,
 			TriggerType:              opts.triggerType,
@@ -972,7 +972,7 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	}
 
 	logger.Info(ctx, "DAG dispatched to coordinator; awaiting completion")
-	err = waitForDAGCompletionWithProgress(signalAwareCtx, d, dagRunID, coordinatorCli, progress)
+	err = waitForDAGCompletionWithProgress(signalAwareCtx, d, dagRunID, coordinatorCli, progress, time.After)
 
 	// If context was cancelled (e.g., Ctrl+C), request cancellation on coordinator
 	if signalCtx.Err() != nil {
@@ -1070,11 +1070,52 @@ func handleDistributedCancellation(ctx context.Context, dag *ir.DAG, dagRunID st
 	}
 }
 
+// Status polls of a dispatched run start at statusPollMinInterval and slow
+// down to statusPollMaxInterval while the run shows no change.
+const (
+	statusPollMinInterval = time.Second
+	statusPollMaxInterval = 5 * time.Second
+)
+
+// statusPollBackoff spaces status polls. The interval doubles after each
+// poll that shows no change, up to statusPollMaxInterval, and returns to
+// statusPollMinInterval after a change.
+type statusPollBackoff struct {
+	interval time.Duration
+}
+
+func (b *statusPollBackoff) next(changed bool) time.Duration {
+	if changed || b.interval == 0 {
+		b.interval = statusPollMinInterval
+	} else {
+		b.interval = min(2*b.interval, statusPollMaxInterval)
+	}
+	return b.interval
+}
+
+// sameRunProgress reports whether two polled statuses show the same run
+// status, worker, and step states, which is all the progress display shows.
+func sameRunProgress(a, b *ir.DAGRunStatus) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.Status != b.Status || a.WorkerID != b.WorkerID || len(a.Nodes) != len(b.Nodes) {
+		return false
+	}
+	for i := range a.Nodes {
+		if a.Nodes[i].Status != b.Nodes[i].Status {
+			return false
+		}
+	}
+	return true
+}
+
 // waitForDAGCompletionWithProgress polls the coordinator until the DAG run completes.
-// Progress display is managed by the caller.
-func waitForDAGCompletionWithProgress(ctx *Context, d *ir.DAG, dagRunID string, coordinatorCli coordinator.Client, progress *RemoteProgressDisplay) error {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
+// Progress display is managed by the caller. after paces the polls.
+func waitForDAGCompletionWithProgress(ctx *Context, d *ir.DAG, dagRunID string, coordinatorCli coordinator.Client, progress *RemoteProgressDisplay, after func(time.Duration) <-chan time.Time) error {
+	var backoff statusPollBackoff
+	var last *ir.DAGRunStatus
+	wait := after(backoff.next(true))
 
 	logTicker := time.NewTicker(15 * time.Second)
 	defer logTicker.Stop()
@@ -1093,7 +1134,7 @@ func waitForDAGCompletionWithProgress(ctx *Context, d *ir.DAG, dagRunID string, 
 				logger.Info(ctx, "Waiting for DAG completion...", tag.RunID(dagRunID))
 			}
 
-		case <-ticker.C:
+		case <-wait:
 			resp, err := coordinatorCli.GetDAGRunStatus(ctx, d.Name, dagRunID, nil)
 			if err != nil {
 				consecutiveErrors++
@@ -1103,11 +1144,21 @@ func waitForDAGCompletionWithProgress(ctx *Context, d *ir.DAG, dagRunID string, 
 				if consecutiveErrors >= maxConsecutiveErrors {
 					return fmt.Errorf("lost connection to coordinator after %d attempts: %w", consecutiveErrors, err)
 				}
+				// Errors keep the minimum interval so the limit above still
+				// spans about ten seconds.
+				wait = after(backoff.next(true))
 				continue
 			}
 			consecutiveErrors = 0 // Reset on success
 
-			if resp == nil || resp.Status == nil {
+			var current *ir.DAGRunStatus
+			if resp != nil {
+				current = resp.Status
+			}
+			changed := !sameRunProgress(last, current)
+			last = current
+			if current == nil {
+				wait = after(backoff.next(changed))
 				continue
 			}
 
@@ -1127,6 +1178,7 @@ func waitForDAGCompletionWithProgress(ctx *Context, d *ir.DAG, dagRunID string, 
 				}
 				return fmt.Errorf("DAG run failed with status: %s", dagStatus.Status)
 			}
+			wait = after(backoff.next(changed))
 		}
 	}
 }

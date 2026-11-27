@@ -7031,15 +7031,17 @@ func (b0 ResolveConnectionTokenResponse_builder) Build() *ResolveConnectionToken
 }
 
 // ConnectionBinding is what a worker needs to use a connection's token: the
-// hosts that may receive it, and the services it serves.
+// hosts that may receive it, the services it serves, and whether a step may
+// receive it in its environment.
 type ConnectionBinding struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Provider      string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
-	Services      []*ConnectionService   `protobuf:"bytes,2,rep,name=services,proto3" json:"services,omitempty"`
-	BoundHosts    []string               `protobuf:"bytes,3,rep,name=bound_hosts,json=boundHosts,proto3" json:"bound_hosts,omitempty"` // Every host that may receive the token
-	Resource      string                 `protobuf:"bytes,4,opt,name=resource,proto3" json:"resource,omitempty"`                       // Canonical server URL of an MCP connection
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"hybrid.v1"`
+	Provider         string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	Services         []*ConnectionService   `protobuf:"bytes,2,rep,name=services,proto3" json:"services,omitempty"`
+	BoundHosts       []string               `protobuf:"bytes,3,rep,name=bound_hosts,json=boundHosts,proto3" json:"bound_hosts,omitempty"`                      // Every host that may receive the token
+	Resource         string                 `protobuf:"bytes,4,opt,name=resource,proto3" json:"resource,omitempty"`                                            // Canonical server URL of an MCP connection
+	AllowTokenExport bool                   `protobuf:"varint,5,opt,name=allow_token_export,json=allowTokenExport,proto3" json:"allow_token_export,omitempty"` // A connection secret may export the token
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ConnectionBinding) Reset() {
@@ -7095,6 +7097,13 @@ func (x *ConnectionBinding) GetResource() string {
 	return ""
 }
 
+func (x *ConnectionBinding) GetAllowTokenExport() bool {
+	if x != nil {
+		return x.AllowTokenExport
+	}
+	return false
+}
+
 func (x *ConnectionBinding) SetProvider(v string) {
 	x.Provider = v
 }
@@ -7111,13 +7120,18 @@ func (x *ConnectionBinding) SetResource(v string) {
 	x.Resource = v
 }
 
+func (x *ConnectionBinding) SetAllowTokenExport(v bool) {
+	x.AllowTokenExport = v
+}
+
 type ConnectionBinding_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Provider   string
-	Services   []*ConnectionService
-	BoundHosts []string
-	Resource   string
+	Provider         string
+	Services         []*ConnectionService
+	BoundHosts       []string
+	Resource         string
+	AllowTokenExport bool
 }
 
 func (b0 ConnectionBinding_builder) Build() *ConnectionBinding {
@@ -7128,6 +7142,7 @@ func (b0 ConnectionBinding_builder) Build() *ConnectionBinding {
 	x.Services = b.Services
 	x.BoundHosts = b.BoundHosts
 	x.Resource = b.Resource
+	x.AllowTokenExport = b.AllowTokenExport
 	return m0
 }
 
@@ -8227,13 +8242,14 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x1eResolveConnectionTokenResponse\x12!\n" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x12,\n" +
 	"\x12expires_in_seconds\x18\x02 \x01(\x03R\x10expiresInSeconds\x12;\n" +
-	"\abinding\x18\x03 \x01(\v2!.coordinator.v1.ConnectionBindingR\abinding\"\xab\x01\n" +
+	"\abinding\x18\x03 \x01(\v2!.coordinator.v1.ConnectionBindingR\abinding\"\xd9\x01\n" +
 	"\x11ConnectionBinding\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12=\n" +
 	"\bservices\x18\x02 \x03(\v2!.coordinator.v1.ConnectionServiceR\bservices\x12\x1f\n" +
 	"\vbound_hosts\x18\x03 \x03(\tR\n" +
 	"boundHosts\x12\x1a\n" +
-	"\bresource\x18\x04 \x01(\tR\bresource\"?\n" +
+	"\bresource\x18\x04 \x01(\tR\bresource\x12,\n" +
+	"\x12allow_token_export\x18\x05 \x01(\bR\x10allowTokenExport\"?\n" +
 	"\x11ConnectionService\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06access\x18\x02 \x01(\tR\x06access\"\xbf\x01\n" +

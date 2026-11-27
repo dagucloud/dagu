@@ -98,6 +98,7 @@ func TestMCPListerInsufficientScope(t *testing.T) {
 	assert.Equal(t, "insufficient_scope", rejected.Code)
 	assert.Equal(t, scope, rejected.Scope)
 	assert.Equal(t, "Missing scope", rejected.Description)
+	assert.Equal(t, "Gmail MCP API has not been used in project 42\n", rejected.Body)
 	require.Error(t, rejected.Err)
 	assert.ErrorContains(t, err, "Missing scope")
 	assert.Empty(t, source.rejectedTokens())

@@ -258,6 +258,7 @@ func TestPrepareBuildPlanInfersFileDependency(t *testing.T) {
 	require.NotNil(t, producerNode)
 	require.NotNil(t, consumerNode)
 	assert.True(t, plan.IsInferredDependency(producerNode.ID(), consumerNode.ID()))
+	assert.Equal(t, []string{"producer"}, plan.NodeData()[1].Step.AllDepends())
 	expectedOutput, err := build.ResolvePath(filepath.Join(workingDir, "artifact.txt"), "", true)
 	require.NoError(t, err)
 	assert.Equal(t, expectedOutput, producerNode.Step().Outputs[0].Path)

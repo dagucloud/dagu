@@ -11,6 +11,10 @@ import "strings"
 // ref.
 const ReservedPrefix = "ai/"
 
+// ProviderConnection is the provider that exports a connection's access
+// token. Its key is the connection's name.
+const ProviderConnection = "connection"
+
 // IsReserved reports whether a registry ref starts with ReservedPrefix.
 func IsReserved(ref string) bool {
 	return strings.HasPrefix(ref, ReservedPrefix)

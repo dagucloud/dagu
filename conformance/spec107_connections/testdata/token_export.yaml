@@ -1,0 +1,13 @@
+labels: [workspace=ops]
+working_dir: .
+secrets:
+  - name: API_TOKEN
+    provider: connection
+    key: work-api
+steps:
+  - id: export
+    # The hex form shows the value the step received without writing the
+    # token itself; the echo shows that its log masks the token.
+    run: |
+      printf %s "$API_TOKEN" | od -An -tx1 | tr -d ' \n' > token.hex
+      echo "token=$API_TOKEN"

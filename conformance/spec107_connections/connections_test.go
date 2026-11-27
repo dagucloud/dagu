@@ -29,11 +29,7 @@ func connections(t *testing.T) ([]string, connection.Store) {
 	t.Helper()
 
 	ctx := context.Background()
-	home := t.TempDir()
-	cfg := &config.Config{Paths: config.PathsConfig{DataDir: filepath.Join(home, "data")}}
-	store, err := file.NewServerStores(cfg).ConnectionStore()
-	require.NoError(t, err)
-
+	_, env, store := newHome(t)
 	newApp := func(name string, agent bool) string {
 		app, err := store.CreateApp(ctx, &connection.App{
 			Name:       name,
@@ -61,7 +57,19 @@ func connections(t *testing.T) ([]string, connection.Store) {
 		_, err := store.Create(ctx, &conn)
 		require.NoError(t, err)
 	}
-	return []string{"DAGU_HOME=" + home, "DAGU_DATA_DIR=" + cfg.Paths.DataDir}, store
+	return env, store
+}
+
+// newHome returns a new dagu home, the environment that points dagu at it,
+// and its connection store.
+func newHome(t *testing.T) (string, []string, connection.Store) {
+	t.Helper()
+
+	home := t.TempDir()
+	cfg := &config.Config{Paths: config.PathsConfig{DataDir: filepath.Join(home, "data")}}
+	store, err := file.NewServerStores(cfg).ConnectionStore()
+	require.NoError(t, err)
+	return home, []string{"DAGU_HOME=" + home, "DAGU_DATA_DIR=" + cfg.Paths.DataDir}, store
 }
 
 // A run whose connection check fails stops before its first step, and the

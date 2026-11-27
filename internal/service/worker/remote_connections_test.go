@@ -120,11 +120,34 @@ func TestRemoteConnectionsKeepToken(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "tok-3", token)
 
+	// TestRemoteConnectionsKeepExactLifetime covers the asked lifetime.
+	got := proto.Clone(coord.requests[0]).(*coordinatorv1.ResolveConnectionTokenRequest)
+	got.MinTtlSeconds = 0
 	want := &coordinatorv1.ResolveConnectionTokenRequest{
 		WorkerId: "worker-1", AttemptKey: "key-1", AttemptId: "attempt-1", DagName: "child",
-		Connection: "work", MinTtlSeconds: 300,
+		Connection: "work",
 	}
-	assert.True(t, proto.Equal(want, coord.requests[0]), coord.requests[0])
+	assert.True(t, proto.Equal(want, got), got)
+}
+
+// A token granted for exactly the lifetime the worker asked for is kept
+// for the next call. The kept lifetime counts from the request, less a
+// second, so a worker that asked for the caller's minTTL alone would ask
+// again at once for the same token.
+func TestRemoteConnectionsKeepExactLifetime(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	coord := &tokenCoordinator{respond: func(req *coordinatorv1.ResolveConnectionTokenRequest) (*coordinatorv1.ResolveConnectionTokenResponse, error) {
+		return &coordinatorv1.ResolveConnectionTokenResponse{AccessToken: "tok-1", ExpiresInSeconds: req.GetMinTtlSeconds()}, nil
+	}}
+	conns, _ := newTestConnections(coord)
+
+	for range 2 {
+		token, _, err := conns.Token(ctx, workConnection, "", tokenMinTTL)
+		require.NoError(t, err)
+		assert.Equal(t, "tok-1", token)
+	}
+	assert.Equal(t, 1, coord.calls())
 }
 
 // A rejected token is reported and replaced. A token rejected after another
@@ -160,9 +183,10 @@ func TestRemoteConnectionsKeepBinding(t *testing.T) {
 	ctx := context.Background()
 	coord := &tokenCoordinator{respond: func(*coordinatorv1.ResolveConnectionTokenRequest) (*coordinatorv1.ResolveConnectionTokenResponse, error) {
 		return &coordinatorv1.ResolveConnectionTokenResponse{Binding: &coordinatorv1.ConnectionBinding{
-			Provider:   "google",
-			Services:   []*coordinatorv1.ConnectionService{{Name: "gmail", Access: "read"}},
-			BoundHosts: []string{"gmailmcp.googleapis.com"},
+			Provider:         "google",
+			Services:         []*coordinatorv1.ConnectionService{{Name: "gmail", Access: "read"}},
+			BoundHosts:       []string{"gmailmcp.googleapis.com"},
+			AllowTokenExport: true,
 		}}, nil
 	}}
 	conns, _ := newTestConnections(coord)
@@ -171,10 +195,11 @@ func TestRemoteConnectionsKeepBinding(t *testing.T) {
 	conn, err := conns.Connection(ctx, "work")
 	require.NoError(t, err)
 	assert.Equal(t, &connection.Connection{
-		Name:       "work",
-		Provider:   connection.ProviderGoogle,
-		Services:   []connection.Service{{Name: "gmail", Access: connection.AccessRead}},
-		BoundHosts: []string{"gmailmcp.googleapis.com"},
+		Name:             "work",
+		Provider:         connection.ProviderGoogle,
+		Services:         []connection.Service{{Name: "gmail", Access: connection.AccessRead}},
+		BoundHosts:       []string{"gmailmcp.googleapis.com"},
+		AllowTokenExport: true,
 	}, conn)
 	assert.Equal(t, 1, coord.calls())
 }

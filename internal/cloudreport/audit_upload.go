@@ -4,8 +4,6 @@
 package cloudreport
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -169,16 +167,12 @@ func (u *auditSender) do(ctx context.Context, creds license.CloudCredentials, up
 	if err != nil {
 		return nil, fmt.Errorf("encode audit request: %w", err)
 	}
-	var body bytes.Buffer
-	zw := gzip.NewWriter(&body)
-	if _, err := zw.Write(data); err != nil {
-		return nil, fmt.Errorf("compress audit request: %w", err)
-	}
-	if err := zw.Close(); err != nil {
+	body, err := gzipped(data)
+	if err != nil {
 		return nil, fmt.Errorf("compress audit request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, creds.CloudURL+auditPath, &body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, creds.CloudURL+auditPath, body)
 	if err != nil {
 		return nil, fmt.Errorf("build audit request: %w", err)
 	}

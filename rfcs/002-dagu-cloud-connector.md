@@ -194,11 +194,10 @@ values of declared secrets. An administrator who would not send them chooses
 - **Config wins.** Set in configuration, `cloud.report` fixes the level for
   servers managed as code, and the UI shows it read-only.
 - **Inspectable and reversible.** The license settings page shows the level,
-  when the last report was sent, and the exact last report, with its
-  heartbeat secret redacted. Turning it off takes effect at once and stops a
-  report in flight; one last report then says that reporting is off, so that
-  Dagu Cloud does not take the silence for an outage. Dagu Cloud can delete
-  what a server reported.
+  when the last report was sent, and its decompressed JSON body. Turning
+  reporting off takes effect at once and stops a report in flight. One last
+  report then says that reporting is off, so Dagu Cloud can distinguish the
+  silence from an outage. Dagu Cloud can delete what a server reported.
 - **No catching up.** When the level drops below `runs` while the server
   runs, the reporter moves its cursor to the newest event, so choosing `runs`
   again never sends the runs that finished in between. It lists the runs in
@@ -254,15 +253,15 @@ disabled, reports carry health only.
 
 ### Wire contract
 
-`POST {license.cloud_url}/api/v1/servers/report`, authenticated with the
-activation's credentials, as the heartbeat is.
+`POST {license.cloud_url}/api/v1/servers/report` sends JSON with
+`Content-Type: application/json` and `Content-Encoding: gzip`. The
+activation's heartbeat secret goes in `Authorization: Bearer <heartbeat_secret>`.
 
 ```json
 {
   "protocol": 2,
   "license_id": "…",
   "server_id": "…",
-  "heartbeat_secret": "…",
   "level": "runs",
   "health": { "version": "3.0.0", "os": "linux", "arch": "amd64",
               "started_at": "2026-10-09T12:00:00Z",
@@ -419,8 +418,7 @@ says nothing about the runs in progress.
 next start, the next report due is the last one:
 
 ```json
-{ "protocol": 2, "license_id": "…", "server_id": "…",
-  "heartbeat_secret": "…", "level": "off" }
+{ "protocol": 2, "license_id": "…", "server_id": "…", "level": "off" }
 ```
 
 It carries no `health` and no runs. It is retried like any report on `429`,
@@ -587,7 +585,7 @@ the existing relay where they apply.
 | Server → relay | binary response body chunks for `id`, then `end{id}` |
 | Relay → server | `cancel{id}` |
 | Server → relay | `"ping"` every 15 seconds; the relay answers `"pong"` |
-| Both | `hooks`, `hooked`, `delivery`, `delivered` for public triggers (RFC 004), on the scheduler's connection |
+| Both | `hooks`, `hooked`, `delivery`, `delivered` for public webhook URLs (RFC 028), on the scheduler's connection |
 
 A binary chunk is a version byte (`1`), the 16 bytes of the call's UUID, and
 up to 64 KiB of the body. The relay sends request bodies of at most 512 KiB,
@@ -668,7 +666,7 @@ projects:
 | --- | --- |
 | v2.19 | Browser approval; reporting; the `cloud` config section. Dagu Cloud's report endpoint must be live first. |
 | v2.19.2 | The free plan, and `version` on the connect URL. |
-| v2.20 | The `dagucloud` tunnel provider, carrying webhook deliveries for public triggers only (RFC 004). |
+| v2.20 | The `dagucloud` tunnel provider, carrying webhook deliveries for public webhook URLs only (RFC 028). |
 | v2.22 | Remote access for MCP calls over each server process's own connection: assertions, the Remote access section, remote approvals, the license audience check, and the remote access level in health reports. |
 | Later | A browser UI over the same connection, with `use = session` assertions and the UI bar. |
 | v3.0 | Protocol 3, which names each run's project (RFC 003). |

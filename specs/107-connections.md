@@ -12,21 +12,43 @@ changes (Specs 044, 045, 069, 073, and 098).
 Implemented so far:
 
 - [Declared Connections](#declared-connections) for `mcp.call`'s
-  `connection` and `server`.
+  `connection` and `server`, and for `secrets` entries with
+  `provider: connection`.
+- The `connection` secret provider
+  ([Rules per Consumer](#rules-per-consumer)), on a local run and on a run
+  on a worker. Its `options.service` must name one of the connection's
+  services. A Microsoft connection, whose service selects its resource,
+  exports no token until the Microsoft presets land.
 - [Admission Checks](#admission-checks), except the literal `http.request`
   URL check, on a local run from the CLI or the embedded engine, and on a
   run on a worker, including the embedded engine's worker, through the
-  check-only request. An `mcp.call` step that passes them fails when it
-  runs, until its token is delivered.
+  check-only request.
 - [Workers](#workers): the coordinator answers token, check-only, and
   rejected-token requests, and dispatches a DAG that declares connections
-  only to workers that make them. No step on a worker asks for a token yet.
+  only to workers that make them.
+- [Using a Connection](#using-a-connection),
+  [Confirmation Requests](#confirmation-requests), and [Masking](#masking)
+  for `mcp.call`, in a local run and on a worker. Its
+  [Run Records](#run-records) are not written yet.
+- The [Connect Flow](#connect-flow) for `google` inside the server: the
+  authorization request, the server callback, confirmation, the
+  [checks after consent](#checks-after-consent), and the
+  [consent errors](#consent-errors). No route starts a session until the
+  REST API lands.
+
+The tests against Google also settle whether Docs, Sheets, and Slides
+answer `NOT_FOUND` rather than `PERMISSION_DENIED` for a resource ID that
+does not exist, which their probes rely on.
 
 The tests against Google settle one provider fact this spec depends on
 (RFC 025, criterion 42): whether revoking one Google refresh token ends the
-account's whole grant to the client. Until they record it here,
-[Token Cleanup](#token-cleanup) applies to Google as a provider whose answer
-is unknown.
+account's whole grant to the client. Google documents that revoking a
+token ends the account's grant to every client of the project, so until
+they record otherwise,
+[Token Cleanup](#token-cleanup) leaves Google's unused tokens unrevoked, and
+[Remove](#remove) revokes a Google refresh token at
+`https://oauth2.googleapis.com/revoke`. A token that Google answers with
+`invalid_token` is already unusable and counts as revoked.
 
 [Service Presets](#service-presets) lists the scope sets of the Google
 presets only. The parts that compile the Microsoft presets (C20 and C21)
@@ -150,8 +172,8 @@ resource it calls, such as Graph and Outlook.
 
 A connection's bound hosts are the hosts that may receive its access
 tokens: its presets' hosts plus the hosts it adds. Its binding is its
-provider, services, bound hosts, and resource URL. A binding holds no
-secret.
+provider, services, bound hosts, resource URL, and whether it allows token
+export. A binding holds no secret.
 
 A session is a connect or reconnect in progress. Its starter is the user
 who started it.
@@ -503,7 +525,10 @@ starter (UI or CLI)          Dagu server                       provider
   `confirm`, or `failed`. In `confirm` it also holds the account,
   `account_id`, and the new tokens, encrypted.
 - In `confirm` a session also holds `probes`, each service's result of the
-  [checks after consent](#checks-after-consent). While `waiting`, it holds
+  [checks after consent](#checks-after-consent), and `duplicates`, the
+  names of the connections that the duplicates check found. Its status
+  also carries the provider's advice on the refresh token's expiry, when
+  the provider reports one. While `waiting`, it holds
   `claimed_at`, the time a callback began to complete it. Other callbacks
   are refused until that claim ends, so one code is exchanged per session.
 - A session lives in the connection's token state, so any frontend replica
@@ -558,7 +583,8 @@ starter (UI or CLI)          Dagu server                       provider
   session whose vouched email matches is confirmed without asking.
   Otherwise the starter confirms as usual. The comparison folds the case
   of ASCII letters only.
-- A session confirmed without asking shows no checks of its own. Its
+- A session confirmed without asking shows no checks of its own, and its
+  duplicates warning is not shown. Its
   services' results come from `POST .../test`, and its granted scopes from
   the connection.
 - The confirmation shows the account, and for Microsoft its tenant.
@@ -629,15 +655,32 @@ starter (UI or CLI)          Dagu server                       provider
   serves without one.
 - **Service probes.** Each service gets one probe: `tools/list` on an MCP
   service, and a profile read on a REST service. Each service reports its
-  own result. A rejected Google MCP probe says that the client may lack the
-  agent flag, with a link to the client's page in the Google Cloud console.
+  own result. A service with a missing scope reports the scope without a
+  probe call.
+  - The app's `agent` flag picks a Google probe. With `agent`, each service
+    with an MCP server runs `tools/list` and saves the listing as its tool
+    catalog. Without it, each service reads its REST API, and a service
+    with no REST API, such as `search`, fails its probe, saying it needs an
+    app with `agent`.
+  - Docs, Sheets, and Slides have no profile read. Their probe reads a
+    resource ID that does not exist, and passes only when the API answers
+    with its JSON error whose `status` is `NOT_FOUND`.
+  - A rejected Google MCP probe says that the client may lack the agent
+    flag, with a link to the client's page in the Google Cloud console.
+  - A Google probe refused with the `SERVICE_DISABLED` reason instead names
+    the API to enable in the client's project, with a link to enable it.
 - **Refresh token expiry.** When the provider reports
-  `refresh_token_expires_in`, Dagu stores and shows the date, and says that
-  publishing the app to Production, or making it Internal, removes Google's
-  seven-day limit.
+  `refresh_token_expires_in`, Dagu stores and shows the date. Google reports
+  it for time-based access, which the account chose at consent, and Dagu
+  says to reconnect before the date. When the date is within seven days,
+  Dagu also says that publishing an app in Testing status to Production,
+  or making it Internal, removes Google's seven-day limit.
 - **Duplicates.** A second connection in the same project for the same
-  `account_id` and app is created with a warning. A connection in another
-  project for the same account produces no warning.
+  `account_id` and client is created with a warning. Apps with the same
+  provider and `client_id` count as one client. A connection in another
+  project for the same account produces no warning. A connection whose
+  token state cannot be read is skipped, so this check never fails a
+  consent.
 
 #### Consent Errors
 
@@ -706,7 +749,11 @@ Each of these fails the session.
   provider supports revocation.
 - Remove does not revoke while another connection on this server, in any
   project or for notifications, holds the same `account_id` on the same
-  client: an app of the same provider with the same client ID. That
+  client: an app of the same provider with the same client ID. For
+  `google`, whose revocation ends the account's tokens for every client of
+  a Google Cloud project, the same client is any app in the same project,
+  read from the project number that starts its client ID. Apps whose
+  project cannot be read count as the same project. That
   connection keeps working. The check follows the delete, so of two
   connections of one grant removed at once, at least one revokes. When a
   record the check needs cannot be read, Remove does not revoke.
@@ -719,6 +766,8 @@ Each of these fails the session.
   races a remove drops its result, and the connection stays removed.
 - The confirmation says that connections on other servers that use the
   same client may lose access, and lists where the connection is used.
+  For `google`, it says the same Google Cloud project instead of the same
+  client.
 - After a remove, a DAG that names the connection fails at run start, or,
   for mail and SMTP, when it uses the account. The error names the
   connection.
@@ -842,6 +891,8 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
 - The notification connection never resolves for a worker.
 - The answer holds the access token, its lifetime in seconds, and the
   binding. A lifetime in seconds makes the worker's clock irrelevant.
+  A binding from a coordinator that does not send whether the connection
+  allows token export allows none.
 - A check-only request runs the same checks and returns the binding
   without a token. A worker uses it for admission.
 - A worker reports a rejected token through the coordinator, which applies
@@ -911,10 +962,10 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
 
 #### Admission Checks
 
-A run checks each declared connection before its first step, where secrets
-resolve. A local run reads the records. A run on a worker uses a
-check-only request. The editor's server-side validation runs the same
-checks.
+A run checks each declared connection before its secrets resolve, so a
+failed check is reported before a `connection` secret fails. A local run
+reads the records. A run on a worker uses a check-only request. The
+editor's server-side validation runs the same checks.
 
 - The name resolves in the run's project.
 - A step's `server` names one of the connection's services. For a provider
@@ -950,7 +1001,8 @@ the coordinator must be upgraded, and the run's other steps run.
 - A connection in `pending` or `needs_reconnect`, or whose app is
   `invalid`, passes admission. Each step that uses it fails with
   `reconnect_required` and the connection's name. The run's other steps run
-  as before.
+  as before. A `connection` secret is the exception: secrets resolve once,
+  before the first step, so such a connection fails the whole run there.
 - A step's `http.request` URL that comes from a reference is checked
   against the binding when the step sends it.
 
@@ -1004,7 +1056,7 @@ The owning specs define each field. Every use follows these rules.
 | `mcp.call` | `connection` replaces `url` and `headers.Authorization`. With a `google` or `microsoft` connection, `server` names a preset. With an `mcp` connection, `server` is not allowed. A `url` must be on the bound hosts. `headers` may not set `Authorization`. An `auth` error carries the connection's name, and `reconnect_required` when it needs reconnecting |
 | `http.request` | The token is added only to an HTTPS request to a bound host. `connection` cannot be combined with `debug: true` or with `headers.Authorization` |
 | Mail accounts, a DAG's `smtp`, and the notification SMTP settings | `connection` replaces `oauth` and `password`, and takes a `google` or `microsoft` connection. A `provider` that differs from the connection's fails when the account is used. With `connection`, a mail account takes no `imap` or `smtp` block, and `smtp` takes no host or port. Gmail API actions need `gmail` with `write`. Google SMTP, Microsoft mail, and Microsoft SMTP need `mailbox` |
-| `connection` secret provider | Works only when `allow_token_export` is set. The token stays valid for at least 50 minutes, or half the provider's token lifetime when that is shorter. Its value is masked like any secret |
+| `connection` secret provider | Works only when `allow_token_export` is set. The token stays valid for at least 50 minutes, or half the provider's token lifetime when that is shorter. Its value is masked like any secret. `options.service`, when set, names one of the connection's services; for a Microsoft connection it selects the resource. No other option is allowed |
 
 - Every `mcp.call`, with or without a connection, fails on HTTP 429 with
   kind `rate_limited`, the provider's message, and any `Retry-After`.
@@ -1072,7 +1124,7 @@ an event, so a first connect from `pending` sends none.
 | Method and path | Purpose |
 | --- | --- |
 | `GET /connection-providers` | Providers, presets, scope sets, setup links, and this server's redirect URIs and modes |
-| `GET`, `POST /oauth-apps` | List apps, or create one. A Google client JSON file is accepted as is |
+| `GET`, `POST /oauth-apps` | List apps, or create one. A Google client JSON file is accepted as downloaded. When the server has a public URL, a web client's file is refused unless its redirect URIs list the server callback, and the error names that URI. A desktop client's file is not checked, since Google accepts any loopback port |
 | `GET`, `PATCH`, `DELETE /oauth-apps/{id}` | Read, change, or delete an app that no connection uses |
 | `GET`, `POST /connections` | List connections with their status, or create one in `pending` |
 | `GET`, `PATCH`, `DELETE /connections/{name}` | Read, change metadata, or remove |
@@ -1319,7 +1371,10 @@ Token issuance is not audited. No audit entry holds a secret.
   HTTPS fails the step before any request.
 - A redirect that [Binding](#binding) does not allow fails the request.
 - A `connection` secret on a connection without `allow_token_export` fails
-  the run at secret resolution, naming the connection.
+  the run at secret resolution, naming the connection. So does one whose
+  `options.service` is not one of the connection's services, and one on a
+  connection in `pending` or `needs_reconnect` or whose app is `invalid`,
+  with `reconnect_required`. No step of such a run starts.
 
 ## Examples
 
@@ -1434,7 +1489,8 @@ secrets:
     key: work-google
 steps:
   - id: list
-    run: curl -H "Authorization: Bearer $GOOGLE_TOKEN" https://gmail.googleapis.com/gmail/v1/users/me/profile
+    run: |
+      curl -H "Authorization: Bearer $GOOGLE_TOKEN" https://gmail.googleapis.com/gmail/v1/users/me/profile
 ```
 
 Without `allow_token_export` on `work-google`, the run fails at secret

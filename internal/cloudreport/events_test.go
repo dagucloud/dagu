@@ -60,9 +60,10 @@ func TestReportRuns(t *testing.T) {
 	failed.Params = "token=secret"
 	failed.Nodes = []*ir.Node{
 		{Step: ir.Step{Name: "extract"}, Status: ir.NodeSucceeded, StartedAt: "2026-10-10T09:00:00Z", FinishedAt: "2026-10-10T09:01:00Z"},
-		{Step: ir.Step{Name: "load"}, Status: ir.NodeFailed, Error: "db.internal: connection refused",
+		{Step: ir.Step{Name: "load", Depends: []string{"extract", "extract"}}, Status: ir.NodeFailed, Error: "db.internal: connection refused",
 			StartedAt: "2026-10-10T09:01:00Z", FinishedAt: "2026-10-10T09:04:00Z", RetryCount: 2},
-		{Step: ir.Step{Name: "notify"}, Status: ir.NodeFailed, StartedAt: "-", FinishedAt: "-"},
+		{Step: ir.Step{Name: "notify", InferredDepends: []ir.InferredDependency{{Step: "load", Field: "rows"}}},
+			Status: ir.NodeFailed, StartedAt: "-", FinishedAt: "-"},
 	}
 	failed.OnFailure = &ir.Node{Step: ir.Step{Name: "on_failure"}, Status: ir.NodeFailed}
 	dir.emit(eventstore.TypeDAGRunFailed, failed)
@@ -95,12 +96,12 @@ func TestReportRuns(t *testing.T) {
 			"trigger_type": "webhook", "queued_at": "2026-10-10T08:59:00Z", "started_at": "2026-10-10T09:00:00Z",
 			"finished_at": "2026-10-10T09:05:00Z", "failed_steps": ["load", "notify", "on_failure"],
 			"steps": [
-				{"name": "extract", "status": "succeeded", "started_at": "2026-10-10T09:00:00Z", "finished_at": "2026-10-10T09:01:00Z", "retries": 0},
-				{"name": "load", "status": "failed", "started_at": "2026-10-10T09:01:00Z", "finished_at": "2026-10-10T09:04:00Z", "retries": 2},
-				{"name": "notify", "status": "failed", "retries": 0},
-				{"name": "on_failure", "status": "failed", "retries": 0}
+				{"name": "extract", "status": "succeeded", "start": 0, "took": 60},
+				{"name": "load", "status": "failed", "start": 60, "took": 180, "retries": 2, "depends": [0]},
+				{"name": "notify", "status": "failed", "depends": [1]}
 			],
-			"steps_total": 4
+			"handlers": {"onFailure": {"status": "failed"}},
+			"steps_total": 3
 		}
 	]`, string(finished.Finished))
 	assert.NotEmpty(t, finished.Cursor)
@@ -628,7 +629,7 @@ func TestReportRunsInProgressCarryTheirSteps(t *testing.T) {
 	running := etlRun(ir.Running)
 	running.Nodes = []*ir.Node{
 		{Step: ir.Step{Name: "extract"}, Status: ir.NodeSucceeded, StartedAt: "2026-10-10T09:00:00Z", FinishedAt: "2026-10-10T09:01:00Z"},
-		{Step: ir.Step{Name: "load"}, Status: ir.NodeRunning, StartedAt: "2026-10-10T09:01:00Z", RetryCount: 1},
+		{Step: ir.Step{Name: "load", Depends: []string{"extract"}}, Status: ir.NodeRunning, StartedAt: "2026-10-10T09:01:00Z", RetryCount: 1},
 	}
 	retried := run("report", "run-3", ir.Running)
 	retried.StartedAt = "2026-10-10T09:10:00Z"
@@ -654,8 +655,8 @@ func TestReportRunsInProgressCarryTheirSteps(t *testing.T) {
 				"workflow": "etl", "dag_run_id": "run-1", "attempt_id": "attempt-1", "status": "running",
 				"trigger_type": "", "queued_at": "2026-10-10T08:59:00Z", "started_at": "2026-10-10T09:00:00Z",
 				"steps": [
-					{"name": "extract", "status": "succeeded", "started_at": "2026-10-10T09:00:00Z", "finished_at": "2026-10-10T09:01:00Z", "retries": 0},
-					{"name": "load", "status": "running", "started_at": "2026-10-10T09:01:00Z", "retries": 1}
+					{"name": "extract", "status": "succeeded", "start": 0, "took": 60},
+					{"name": "load", "status": "running", "start": 60, "retries": 1, "depends": [0]}
 				],
 				"steps_total": 2
 			}

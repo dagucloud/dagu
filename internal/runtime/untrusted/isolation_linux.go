@@ -49,7 +49,8 @@ var (
 )
 
 // poison makes each later step of a run with an isolated untrusted step fail.
-// Dagu uses it when a process of the restricted user survives SIGKILL.
+// Dagu uses it when a process of the restricted user survives SIGKILL and when
+// a git entry changed during the step.
 func poison(err error) {
 	poisonMu.Lock()
 	defer poisonMu.Unlock()
@@ -77,6 +78,8 @@ func Poisoned() error {
 type isolation struct {
 	step        string
 	uid, gid    uint32
+	workerUID   int
+	workerGID   int
 	workDir     string
 	lexicalWork string
 	privateDir  string
@@ -84,8 +87,29 @@ type isolation struct {
 	outputCopy  string
 	nodeOutput  string
 	outputLimit int64
+	// protected keeps each folder that got the mode 1777, with its mode.
+	protected map[string]protectedDir
+	// gitEntries holds each entry .git of the work directory at the handoff.
+	gitEntries map[string]bool
+	// gitDirs holds each folder that git opens as a repository at the handoff.
+	gitDirs map[string]bool
+	// gitSnapshot holds the state of each entry of gitDirs and gitEntries
+	// after the handoff; seenGit marks the entries that the restore saw.
+	gitSnapshot map[string]fileSig
+	seenGit     map[string]bool
+	// gitModes holds the mode of each git entry whose mode the handoff
+	// changed, for the restore.
+	gitModes map[string]uint32
+	// givenLinks holds each link that the handoff gave, by its path.
+	givenLinks map[string]givenLink
 	// hostLock is the lock file of the restricted user on the host.
 	hostLock *os.File
+	// marker is the marker of the work directory that this step made, until
+	// a restore makes the work directory safe.
+	marker string
+	// handedOff is true once the walk of the handoff that changes owners
+	// started.
+	handedOff bool
 
 	ended atomic.Bool
 	// outputMu guards nodeOutput.
@@ -119,7 +143,16 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 		step:        req.StepName,
 		uid:         req.Config.UID,
 		gid:         req.Config.GID,
+		workerUID:   os.Geteuid(),
+		workerGID:   os.Getegid(),
 		outputLimit: req.OutputLimit,
+		protected:   make(map[string]protectedDir),
+		gitEntries:  make(map[string]bool),
+		gitDirs:     make(map[string]bool),
+		gitSnapshot: make(map[string]fileSig),
+		seenGit:     make(map[string]bool),
+		gitModes:    make(map[string]uint32),
+		givenLinks:  make(map[string]givenLink),
 		hostLock:    hostLock,
 	}
 	defer func() {
@@ -149,6 +182,9 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 		return iso, err
 	}
 	if err := iso.makePrivateDir(); err != nil {
+		return iso, err
+	}
+	if err := iso.handoff(); err != nil {
 		return iso, err
 	}
 	return iso, nil
@@ -269,14 +305,18 @@ func (iso *isolation) releaseSlot() {
 
 // abort undoes a Begin that failed. No process of the restricted user started.
 func (iso *isolation) abort() error {
-	var err error
+	var restoreErr error
+	if iso.handedOff {
+		restoreErr = iso.restore(false)
+	}
+	errs := []error{iso.unmarkUnlessAborted(restoreErr)}
 	if iso.privateDir != "" {
 		if removeErr := os.RemoveAll(iso.privateDir); removeErr != nil {
-			err = stepError(iso.step, "remove the folder", iso.privateDir, removeErr)
+			errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, removeErr))
 		}
 	}
 	iso.releaseSlot()
-	return err
+	return errors.Join(errs...)
 }
 
 // place checks that the working directory of the step is in the work
@@ -533,10 +573,23 @@ func (iso *isolation) end(_ context.Context) error {
 		// A live process of the restricted user could watch the later steps.
 		err := stepError(iso.step, "stop the processes of the restricted user", "", killErr)
 		poison(err)
+		iso.closeProtected()
 		return fmt.Errorf("%w: %w", ErrRunAborted, err)
 	}
 
-	errs := []error{iso.copyOutput()}
+	// The HOME goes before the checks: a file that the step linked from it, such
+	// as one of a package cache, then has one link and stays.
+	var homeErr error
+	if err := os.RemoveAll(iso.home); err != nil {
+		homeErr = stepError(iso.step, "remove the home folder", iso.home, err)
+	}
+	restoreErr := iso.restore(true)
+	if errors.Is(restoreErr, errGitChanged) {
+		// Spec 103, "Isolation". Another error that stops the run keeps the
+		// marker, which stops only the runs on this work directory.
+		poison(restoreErr)
+	}
+	errs := []error{homeErr, iso.unmarkUnlessAborted(restoreErr), iso.copyOutput()}
 	if err := os.RemoveAll(iso.privateDir); err != nil {
 		errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, err))
 	}

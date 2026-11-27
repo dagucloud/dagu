@@ -166,9 +166,9 @@ func (e *Engine) endForRemove(ctx context.Context, conn *connection.Connection) 
 }
 
 // grantShared reports whether a connection other than conn, in any
-// workspace or for notifications, holds accountID on conn's client, live
-// or in a session. When any record it needs cannot be read, the grant
-// counts as shared.
+// workspace or for notifications, holds accountID in the grant of conn's
+// app, live or in a session. When any record it needs cannot be read, the
+// grant counts as shared.
 func (e *Engine) grantShared(ctx context.Context, conn *connection.Connection, accountID string) bool {
 	shared, err := e.holdsGrant(ctx, conn, accountID)
 	if err != nil {
@@ -177,6 +177,16 @@ func (e *Engine) grantShared(ctx context.Context, conn *connection.Connection, a
 		return true
 	}
 	return shared
+}
+
+// sameGrant reports whether one account's tokens through apps a and b of
+// one provider belong to one grant: as the provider tells, or else when
+// the apps hold one client.
+func (e *Engine) sameGrant(a, b *connection.App) bool {
+	if s, ok := e.providers[a.Provider].(GrantSharer); ok {
+		return s.SameGrant(a, b)
+	}
+	return a.ClientID == b.ClientID
 }
 
 func (e *Engine) holdsGrant(ctx context.Context, conn *connection.Connection, accountID string) (bool, error) {
@@ -188,13 +198,14 @@ func (e *Engine) holdsGrant(ctx context.Context, conn *connection.Connection, ac
 	if err != nil {
 		return false, err
 	}
-	// Apps are compared by client, since two apps may hold one client.
-	sameClient := map[string]bool{app.ID: true}
+	// Apps are compared by grant, since two apps may hold one client, and
+	// a provider's grant may span clients.
+	inGrant := map[string]bool{app.ID: true}
 	for _, other := range conns {
 		if other.ID == conn.ID {
 			continue
 		}
-		same, seen := sameClient[other.App]
+		same, seen := inGrant[other.App]
 		if !seen {
 			a, err := e.store.GetApp(ctx, other.App)
 			switch {
@@ -202,9 +213,9 @@ func (e *Engine) holdsGrant(ctx context.Context, conn *connection.Connection, ac
 			case err != nil:
 				return false, fmt.Errorf("connection %q: %w", other.Name, err)
 			default:
-				same = a.Provider == app.Provider && a.ClientID == app.ClientID
+				same = a.Provider == app.Provider && e.sameGrant(app, a)
 			}
-			sameClient[other.App] = same
+			inGrant[other.App] = same
 		}
 		if !same {
 			continue

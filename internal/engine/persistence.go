@@ -57,6 +57,9 @@ type RuntimeStores struct {
 	// declared connections against. It is called once per run, on the
 	// first check. When nil, runs do not check their connections.
 	OpenConnectionStore func() (connection.Store, error)
+	// ConnectionLocks are the locks that a run's broker refreshes tokens
+	// under. When nil, a run gets no connection token.
+	ConnectionLocks connection.Locks
 
 	// connectionChecker checks a run's connections against the store that
 	// OpenConnectionStore opens, or is nil without it.

@@ -305,9 +305,9 @@ func TestConfigValidation(t *testing.T) {
 		"bad scheme":   {"url": "stdio://x", "tool": "t"},
 		"userinfo":     {"url": "https://u:p@host/mcp", "tool": "t"},
 		"unknown key":  {"url": "http://x", "tool": "t", "retries": 3},
-		// A call never runs without the connection's token.
-		"connection":                {"connection": "work-google", "server": "gmail", "tool": "t"},
-		"server without connection": {"url": "http://x", "tool": "t", "server": "gmail"},
+		// The connection's token takes the place of an Authorization header.
+		"authorization with connection": {"connection": "work-google", "server": "gmail", "tool": "t", "headers": map[string]any{"authorization": "Bearer x"}},
+		"server without connection":     {"url": "http://x", "tool": "t", "server": "gmail"},
 		// Artifacts disabled explicitly leave no directory for the files.
 		"save_binary without artifacts": {"url": "http://x", "tool": "t", "save_binary": true},
 	} {

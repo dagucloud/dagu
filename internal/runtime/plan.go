@@ -425,6 +425,14 @@ func (p *Plan) AddInferredDependency(producerName, consumerName string) error {
 		p.DependencyMap[consumer.id] = removeNodeID(p.DependencyMap[consumer.id], producer.id)
 		return ErrCyclicPlan
 	}
+	// Keep dependencies discovered during planning in run status snapshots.
+	step := consumer.Step()
+	if !slices.ContainsFunc(step.InferredDepends, func(dep ir.InferredDependency) bool {
+		return dep.Step == producerName
+	}) {
+		step.InferredDepends = append(slices.Clip(step.InferredDepends), ir.InferredDependency{Step: producerName})
+		consumer.SetStep(step)
+	}
 	return nil
 }
 

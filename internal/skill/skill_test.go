@@ -508,6 +508,18 @@ func TestCheckExistingPathRefusesEveryEscape(t *testing.T) {
 	}
 }
 
+func TestCheckPath(t *testing.T) {
+	t.Parallel()
+	for _, ok := range []string{"SKILL.md", "references/a.md", "assets/x/y.png", "scripts/run.sh", "references/.gitkeep", "assets/x/.gitkeep"} {
+		_, err := skill.CheckPath(ok)
+		require.NoError(t, err, ok)
+	}
+	for _, bad := range []string{"", "/etc/passwd", "../x", "references/../../x", "references/./a.md", "a.md", "docs/a.md", "references\\a.md", "references/.env", "references//a.md", "references/a\x00b", ".gitkeep", "references/", "SKILL.md/x", "references/.gitkeep/.gitkeep", "assets/.gitkeep/a.png"} {
+		_, err := skill.CheckPath(bad)
+		require.Error(t, err, bad)
+	}
+}
+
 // A file that changed after the read of its skill is refused with
 // ErrFileChanged, and a reader never gets its new content in full.
 func TestOpenRefusesAChangedFile(t *testing.T) {

@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/connection/oauthrefresh"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -62,8 +63,14 @@ type tokenKey struct {
 	resource   string
 }
 
+// coordinatorTTLMargin is asked for beyond a caller's minTTL. A kept
+// token's lifetime counts from the request, less a second, so a token asked
+// for at minTTL alone falls below it at once, and each later call would ask
+// again for the same token.
+const coordinatorTTLMargin = 2 * time.Second
+
 var (
-	_ broker.Source             = (*remoteConnections)(nil)
+	_ runtime.Connections       = (*remoteConnections)(nil)
 	_ rtagent.ConnectionChecker = (*remoteConnections)(nil)
 )
 
@@ -80,8 +87,9 @@ func newRemoteConnections(client coordinator.ConnectionTokenClient, owner servic
 
 // Connection returns the binding of the connection named name, as the
 // connection that Token takes: its name, provider, services, every host
-// that may receive its token, and its resource. A binding an earlier answer
-// carried is reused; otherwise a check-only request asks for it.
+// that may receive its token, its resource, and whether it allows token
+// export. A binding an earlier answer carried is reused; otherwise a
+// check-only request asks for it.
 func (c *remoteConnections) Connection(ctx context.Context, name string) (*connection.Connection, error) {
 	c.mu.Lock()
 	conn, ok := c.bindings[name]
@@ -108,6 +116,12 @@ func (c *remoteConnections) CheckConnection(ctx context.Context, _ string, ref i
 		return nil
 	}
 	return err
+}
+
+// Connections returns c: the coordinator resolves each name in the run's
+// workspace.
+func (c *remoteConnections) Connections(string) runtime.Connections {
+	return c
 }
 
 func (c *remoteConnections) Token(ctx context.Context, conn *connection.Connection, resource string, minTTL time.Duration) (string, time.Duration, error) {
@@ -137,7 +151,7 @@ func (c *remoteConnections) token(ctx context.Context, conn *connection.Connecti
 		resp, err := c.call(ctx, &coordinatorv1.ResolveConnectionTokenRequest{
 			Connection:    conn.Name,
 			Resource:      resource,
-			MinTtlSeconds: int64((minTTL + time.Second - 1) / time.Second),
+			MinTtlSeconds: int64((minTTL + coordinatorTTLMargin + time.Second - 1) / time.Second),
 			RejectedToken: rejected,
 		})
 		if err != nil {
@@ -196,10 +210,11 @@ func (c *remoteConnections) call(ctx context.Context, req *coordinatorv1.Resolve
 // in the run's workspace.
 func bindingConnection(name string, binding *coordinatorv1.ConnectionBinding) *connection.Connection {
 	conn := &connection.Connection{
-		Name:       name,
-		Provider:   connection.Provider(binding.GetProvider()),
-		BoundHosts: binding.GetBoundHosts(),
-		Resource:   binding.GetResource(),
+		Name:             name,
+		Provider:         connection.Provider(binding.GetProvider()),
+		BoundHosts:       binding.GetBoundHosts(),
+		Resource:         binding.GetResource(),
+		AllowTokenExport: binding.GetAllowTokenExport(),
 	}
 	for _, svc := range binding.GetServices() {
 		conn.Services = append(conn.Services, connection.Service{Name: svc.GetName(), Access: connection.Access(svc.GetAccess())})

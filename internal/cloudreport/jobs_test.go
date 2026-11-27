@@ -30,8 +30,8 @@ const testRunKey = "drk_0123456789abcdef0123456789abcdef0123456789abcdef01234567
 
 // jobCall is a job report Dagu Console received.
 type jobCall struct {
-	auth, agent string
-	body        map[string]any
+	auth, agent, encoding string
+	body                  map[string]any
 }
 
 // jobReply is how the fake Console answers one report: after hold closes
@@ -58,12 +58,13 @@ func newFakeJobConsole(t *testing.T) *fakeJobConsole {
 	c := &fakeJobConsole{calls: make(chan jobCall, 64)}
 	c.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, jobReportPath, r.URL.Path)
-		data, _ := io.ReadAll(r.Body)
+		data := readBody(r)
 		var body map[string]any
 		assert.NoError(t, json.Unmarshal(data, &body))
 		assert.LessOrEqual(t, len(data), maxJobReportBytes)
 		reply := c.reply()
-		c.calls <- jobCall{auth: r.Header.Get("Authorization"), agent: r.Header.Get("User-Agent"), body: body}
+		c.calls <- jobCall{auth: r.Header.Get("Authorization"), agent: r.Header.Get("User-Agent"),
+			encoding: r.Header.Get("Content-Encoding"), body: body}
 		if reply.hold != nil {
 			<-reply.hold
 		}
@@ -241,6 +242,7 @@ func TestJobRunReportsAsItGoes(t *testing.T) {
 	start := console.next(t)
 	assert.Equal(t, "Bearer "+testRunKey, start.auth)
 	assert.Equal(t, "dagu-oss/1.2.3", start.agent)
+	assert.Equal(t, "gzip", start.encoding)
 	assert.EqualValues(t, jobProtocol, start.body["protocol"])
 	active := start.entry(t, "active")
 	assert.Equal(t, "running", active["status"])

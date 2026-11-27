@@ -183,9 +183,10 @@ func declaredConnection(dag *ir.DAG, name string) (ir.ConnectionRef, bool) {
 
 func connectionBinding(conn *connection.Connection) *coordinatorv1.ConnectionBinding {
 	binding := &coordinatorv1.ConnectionBinding{
-		Provider:   string(conn.Provider),
-		BoundHosts: conn.AllBoundHosts(),
-		Resource:   conn.Resource,
+		Provider:         string(conn.Provider),
+		BoundHosts:       conn.AllBoundHosts(),
+		Resource:         conn.Resource,
+		AllowTokenExport: conn.AllowTokenExport,
 	}
 	for _, svc := range conn.Services {
 		binding.Services = append(binding.Services, &coordinatorv1.ConnectionService{Name: svc.Name, Access: string(svc.Access)})

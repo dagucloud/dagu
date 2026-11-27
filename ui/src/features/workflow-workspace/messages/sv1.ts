@@ -21,6 +21,16 @@ export default defineMessages({
     'Open run {id}': 'Open run {id}',
     'The runs before {time} are not kept.':
       'The runs before {time} are not kept.',
+    'Runs in the last {window}': 'Runs in the last {window}',
+    'Longest gap': 'Longest gap',
+    'Runs in the last {window}: {count}, failed {failures}, success rate {availability}':
+      'Runs in the last {window}: {count}, failed {failures}, success rate {availability}',
+    'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}':
+      'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}',
+    'Uptime {value}': 'Uptime {value}',
+    'Success rate {value}': 'Success rate {value}',
+    'Runs {count} · Failed {failures}': 'Runs {count} · Failed {failures}',
+    Up: 'Up',
   },
   'zh-CN': {
     'Last year': '最近 1 年',
@@ -36,6 +46,16 @@ export default defineMessages({
     'Running since {time}': '自 {time} 起运行中',
     'Open run {id}': '打开运行 {id}',
     'The runs before {time} are not kept.': '{time} 之前的运行未保留。',
+    'Runs in the last {window}': '过去 {window}内的运行',
+    'Longest gap': '最长空档',
+    'Runs in the last {window}: {count}, failed {failures}, success rate {availability}':
+      '过去 {window}内的运行：{count}，失败 {failures}，成功率 {availability}',
+    'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}':
+      '过去 {window}内的运行：{count}，失败 {failures}，成功率 {availability}，在线率 {uptime}',
+    'Uptime {value}': '在线率 {value}',
+    'Success rate {value}': '成功率 {value}',
+    'Runs {count} · Failed {failures}': '运行 {count} · 失败 {failures}',
+    Up: '在线',
   },
   ja: {
     'Last year': '過去 1 年',
@@ -52,6 +72,16 @@ export default defineMessages({
     'Open run {id}': '実行 {id} を開く',
     'The runs before {time} are not kept.':
       '{time} より前の実行は保持されていません。',
+    'Runs in the last {window}': '過去 {window}の実行',
+    'Longest gap': '最長の空白',
+    'Runs in the last {window}: {count}, failed {failures}, success rate {availability}':
+      '過去 {window}の実行：{count}、失敗 {failures}、成功率 {availability}',
+    'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}':
+      '過去 {window}の実行：{count}、失敗 {failures}、成功率 {availability}、稼働時間率 {uptime}',
+    'Uptime {value}': '稼働時間率 {value}',
+    'Success rate {value}': '成功率 {value}',
+    'Runs {count} · Failed {failures}': '実行 {count} · 失敗 {failures}',
+    Up: '稼働中',
   },
   de: {
     'Last year': 'Letztes Jahr',
@@ -69,6 +99,17 @@ export default defineMessages({
     'Open run {id}': 'Lauf {id} öffnen',
     'The runs before {time} are not kept.':
       'Die Läufe vor {time} werden nicht aufbewahrt.',
+    'Runs in the last {window}': 'Läufe der letzten {window}',
+    'Longest gap': 'Längste Lücke',
+    'Runs in the last {window}: {count}, failed {failures}, success rate {availability}':
+      'Läufe in den letzten {window}: {count}, fehlgeschlagen {failures}, Erfolgsquote {availability}',
+    'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}':
+      'Läufe in den letzten {window}: {count}, fehlgeschlagen {failures}, Erfolgsquote {availability}, Verfügbarkeit {uptime}',
+    'Uptime {value}': 'Verfügbarkeit {value}',
+    'Success rate {value}': 'Erfolgsquote {value}',
+    'Runs {count} · Failed {failures}':
+      'Läufe {count} · Fehlgeschlagen {failures}',
+    Up: 'Aktiv',
   },
   fr: {
     'Last year': '12 derniers mois',
@@ -87,5 +128,16 @@ export default defineMessages({
     'Open run {id}': 'Ouvrir l’exécution {id}',
     'The runs before {time} are not kept.':
       'Avant le {time}, les exécutions ne sont pas conservées.',
+    'Runs in the last {window}': 'Exécutions sur les dernières {window}',
+    'Longest gap': 'Lacune la plus longue',
+    'Runs in the last {window}: {count}, failed {failures}, success rate {availability}':
+      'Exécutions sur les dernières {window} : {count}, échecs {failures}, taux de réussite {availability}',
+    'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}':
+      'Exécutions sur les dernières {window} : {count}, échecs {failures}, taux de réussite {availability}, disponibilité {uptime}',
+    'Uptime {value}': 'Disponibilité {value}',
+    'Success rate {value}': 'Taux de réussite {value}',
+    'Runs {count} · Failed {failures}':
+      'Exécutions {count} · Échecs {failures}',
+    Up: 'En service',
   },
 });

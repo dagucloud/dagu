@@ -37,6 +37,10 @@ import (
 //nolint:gosec // A fixed provider endpoint, not a credential.
 const googleTokenURL = "https://oauth2.googleapis.com/token"
 
+// ExportMinTTL is the minTTL that a token exported to a step's environment
+// asks for, since the step cannot ask again when the token runs low.
+const ExportMinTTL = 50 * time.Minute
+
 // OAuth error codes that the broker handles apart from transient failures.
 const (
 	codeInvalidGrant       = "invalid_grant"
@@ -46,6 +50,9 @@ const (
 
 // redacted replaces a secret in a provider's error text.
 const redacted = "[redacted]"
+
+// StepMinTTL is the minTTL that a step using a token in process asks for.
+const StepMinTTL = 5 * time.Minute
 
 // ErrReconnectRequired reports a connection that cannot hand out tokens
 // until it is reconnected or its app is fixed: it is pending or needs a
@@ -75,6 +82,15 @@ type Source interface {
 	// Token does. It refreshes only while token is still the stored token;
 	// otherwise it returns the stored token.
 	Rejected(ctx context.Context, conn *connection.Connection, resource, token string, minTTL time.Duration) (string, time.Duration, error)
+}
+
+// Connections hands out the connections that a run's DAG declares, and
+// their tokens.
+type Connections interface {
+	Source
+	// Connection returns the connection named name in the run's project,
+	// with every host that may receive its token.
+	Connection(ctx context.Context, name string) (*connection.Connection, error)
 }
 
 // StatusChange is a status change that a broker's write made. Of the
