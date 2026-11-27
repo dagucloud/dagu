@@ -249,6 +249,7 @@ func executeDAGWithRunID(
 			ParallelItem:             parallelItemFromEnv(dag.Env),
 			SecretStore:              as.SecretStore,
 			SecretReferenceResolver:  as.SecretResolver,
+			ConnectionChecker:        as.Connections,
 			ProfileStore:             as.ProfileStore,
 			ProfileResolver:          as.ProfileResolver,
 			NodeSelector:             as.Nodes,

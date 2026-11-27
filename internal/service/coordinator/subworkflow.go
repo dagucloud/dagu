@@ -40,6 +40,7 @@ type SubWorkflowRunnerConfig struct {
 	StateStore         dagrun.StateStore
 	SecretStore        secret.Store
 	SecretResolver     func(*ir.DAG) providers.ReferenceResolver
+	ConnectionChecker  rtagent.ConnectionChecker
 	ProfileStore       profile.Store
 	ProfileResolver    func(*ir.DAG) profile.RuntimeResolver
 	ServiceRegistry    serviceregistry.ServiceRegistry
@@ -97,6 +98,7 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 				subflow.WithLocalEnqueueStoresFor(cfg.EnqueueStoresFor),
 				subflow.WithLocalSecretStore(cfg.SecretStore),
 				subflow.WithLocalSecretResolver(cfg.SecretResolver),
+				subflow.WithLocalConnectionChecker(cfg.ConnectionChecker),
 				subflow.WithLocalNodes(cfg.Nodes),
 				subflow.WithLocalProfileStore(cfg.ProfileStore),
 				subflow.WithLocalProfileResolver(cfg.ProfileResolver),

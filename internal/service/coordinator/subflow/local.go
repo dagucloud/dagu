@@ -49,6 +49,7 @@ type Local struct {
 	enqueueStoresFor         func(ctx context.Context, path string) (EnqueueStores, error)
 	secretStore              secretpkg.Store
 	secretResolver           func(*ir.DAG) providers.ReferenceResolver
+	connectionChecker        rtagent.ConnectionChecker
 	nodes                    func(*ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys)
 	profileStore             profilepkg.Store
 	profileResolver          func(*ir.DAG) profilepkg.RuntimeResolver
@@ -146,6 +147,15 @@ func WithLocalSecretStore(store secretpkg.Store) LocalOption {
 func WithLocalSecretResolver(factory func(*ir.DAG) providers.ReferenceResolver) LocalOption {
 	return func(r *Local) {
 		r.secretResolver = factory
+	}
+}
+
+// WithLocalConnectionChecker sets what checks the connections that each
+// child DAG declares. Without it, a child's connections are not checked
+// before it starts.
+func WithLocalConnectionChecker(checker rtagent.ConnectionChecker) LocalOption {
+	return func(r *Local) {
+		r.connectionChecker = checker
 	}
 }
 
@@ -588,6 +598,7 @@ func (r *Local) newAgent(
 	if r.secretResolver != nil {
 		opts.SecretReferenceResolver = r.secretResolver(dag)
 	}
+	opts.ConnectionChecker = r.connectionChecker
 	// A child of a test case run stays in the case. Only the parent's steps
 	// can be real, so the child keeps no redirect at its configured path.
 	opts.SecretValues = rCtx.SecretValues

@@ -316,6 +316,7 @@ type Agent struct {
 	profileEntries []ir.RuntimeProfileEntry
 	// secretReferenceResolver resolves registry refs without requiring local store access.
 	secretReferenceResolver providers.ReferenceResolver
+	connectionChecker       ConnectionChecker
 	// secretMasker redacts resolved secret values from status/history snapshots.
 	secretMasker *masking.Masker
 	// secretValues, when non-nil, replaces the providers of DAG secrets.
@@ -448,6 +449,11 @@ type Options struct {
 	// SecretReferenceResolver resolves DAG-level registry refs.
 	// When nil, SecretStore supplies the local resolver.
 	SecretReferenceResolver providers.ReferenceResolver
+	// ConnectionChecker checks the connections the DAG declares before its
+	// first step. When nil, they are not checked before the run starts: a
+	// worker has no connection store and passes nil until it can ask the
+	// coordinator.
+	ConnectionChecker ConnectionChecker
 	// SecretValues, when non-nil, holds the value of each DAG secrets entry
 	// by name and of each SSH credential secret ref by ref, and no secret
 	// provider, store, or resolver is called. A secret without a value fails
@@ -585,6 +591,7 @@ func New(
 		materializationStore:     opts.MaterializationStore,
 		secretStore:              opts.SecretStore,
 		secretReferenceResolver:  secretReferenceResolverForDAG(dag, opts),
+		connectionChecker:        opts.ConnectionChecker,
 		secretValues:             opts.SecretValues,
 		redirectRoot:             opts.RedirectRoot,
 		profileStore:             opts.ProfileStore,
@@ -1059,6 +1066,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		a.noteDryRunStartup(ctx, "secrets", secretErr)
 		a.noteDryRunStartup(ctx, "nodes", nodeTargetingError(a.dag, a.boundNode))
 		a.noteDryRunStartup(ctx, "node", startup.nodeErr)
+		a.noteDryRunStartup(ctx, "connections", startup.connectionErr)
 		a.lock.Lock()
 		a.startupCancel = nil
 		stopRequested = a.stopRequest != nil || startupCtx.Err() != nil
@@ -1166,6 +1174,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	if startup.nodeErr != nil {
 		initErr = startup.nodeErr
+		return initErr
+	}
+	if startup.connectionErr != nil {
+		initErr = startup.connectionErr
 		return initErr
 	}
 

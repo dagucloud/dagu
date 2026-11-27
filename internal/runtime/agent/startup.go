@@ -23,6 +23,7 @@ type startupResolution struct {
 	secretErr         error
 	binding           *nodeBinding
 	nodeErr           error
+	connectionErr     error
 	profileValues     resolvedProfileValues
 	profileErr        error
 	profileName       string
@@ -44,6 +45,7 @@ func (a *Agent) resolveStartup(ctx context.Context) (startupResolution, error) {
 		profileStore:            a.profileStore,
 		secretStore:             a.secretStore,
 		secretReferenceResolver: a.secretReferenceResolver,
+		connectionChecker:       a.connectionChecker,
 		boundNode:               a.boundNode,
 		workerID:                a.workerID,
 		nodeSelector:            a.nodeSelector,
@@ -85,6 +87,10 @@ func (a *Agent) resolveStartup(ctx context.Context) (startupResolution, error) {
 			return
 		}
 		result.credentials, result.secretErr = snapshot.resolveCredentialRefs(ctx, result.binding)
+		if result.secretErr != nil || ctx.Err() != nil {
+			return
+		}
+		result.connectionErr = snapshot.checkConnections(ctx)
 	}()
 	select {
 	case result := <-resolved:

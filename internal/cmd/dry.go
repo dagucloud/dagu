@@ -123,6 +123,7 @@ func runDry(ctx *Context, args []string) error {
 			NoReuse:                  noReuse,
 			SecretStore:              as.SecretStore,
 			SecretReferenceResolver:  as.SecretResolver,
+			ConnectionChecker:        as.Connections,
 			ProfileStore:             as.ProfileStore,
 			ProfileResolver:          as.ProfileResolver,
 			ProfileName:              profileName,
