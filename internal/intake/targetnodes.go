@@ -4,13 +4,20 @@
 package intake
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
+
+// ErrNoCoordinator reports a run bound to a worker node where no
+// coordinator is configured, so the run cannot reach its worker.
+var ErrNoCoordinator = errors.New("a run bound to a worker node reaches its worker through a coordinator, and none is configured")
 
 // CheckTargetNodes checks the node list a run is started or enqueued with
 // (RFC 013 §Narrowing a run) against the project's nodes, and returns it as
@@ -45,10 +52,32 @@ func CheckTargetNodes(dag *ir.DAG, names []string, known []inventory.ResolvedNod
 	if dag.NodeRequired && len(listed) != 1 {
 		return nil, fmt.Errorf("DAG %q declares node: required, so it starts with exactly one node, not %d", dag.Name, len(listed))
 	}
-	if dag.NodeRequired && slices.ContainsFunc(known, func(node inventory.ResolvedNode) bool {
-		return node.Name == listed[0] && node.Kind == inventory.NodeKindWorker
-	}) {
-		return nil, fmt.Errorf("node %q is a worker node, which runs a node: required DAG only as the child of a step with nodes", listed[0])
-	}
 	return listed, nil
+}
+
+// BoundWorker returns the worker that runs a run of dag narrowed to names:
+// the worker node a node: required DAG is bound to, as nodes holds it when
+// the run is dispatched. It returns "" for a run bound to an SSH node, to no
+// node, or to a name that is no longer a node, which runs where any other
+// run does and fails before any step. A run bound to a worker node reaches
+// it only through a coordinator, so without one it fails with
+// ErrNoCoordinator.
+func BoundWorker(ctx context.Context, dag *ir.DAG, names []string, nodes runtime.NodeSelector, hasCoordinator bool) (string, error) {
+	if !dag.NodeRequired || len(names) != 1 || nodes == nil {
+		return "", nil
+	}
+	found, err := nodes.Named(ctx, names)
+	if err != nil {
+		return "", fmt.Errorf("failed to read node %q: %w", names[0], err)
+	}
+	i := slices.IndexFunc(found, func(node inventory.ResolvedNode) bool {
+		return strings.EqualFold(node.Name, names[0])
+	})
+	if i < 0 || found[i].Kind != inventory.NodeKindWorker {
+		return "", nil
+	}
+	if !hasCoordinator {
+		return "", fmt.Errorf("node %q is a worker node: %w", found[i].Name, ErrNoCoordinator)
+	}
+	return found[i].Name, nil
 }
