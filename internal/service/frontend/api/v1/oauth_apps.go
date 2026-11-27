@@ -49,6 +49,9 @@ func (a *API) CreateOAuthApp(ctx context.Context, request api.CreateOAuthAppRequ
 		return nil, badConnectionRequest("Request body is required")
 	}
 	provider := connection.Provider(body.Provider)
+	if !providerAccepted(provider) {
+		return nil, unacceptedProvider(provider)
+	}
 	app := &connection.App{
 		Provider:     provider,
 		Kind:         connection.AppKindBYO,
@@ -73,7 +76,7 @@ func (a *API) CreateOAuthApp(ctx context.Context, request api.CreateOAuthAppRequ
 	if err != nil {
 		return nil, connectionWriteError("create OAuth app", err)
 	}
-	a.logAudit(ctx, audit.CategoryConnection, "oauth_app_create", oauthAppAuditDetails(created))
+	a.logAudit(ctx, audit.CategoryConnection, "oauth_app_create", oauthAppAuditDetails(created, false))
 	return api.CreateOAuthApp201JSONResponse(toOAuthAppResponse(created)), nil
 }
 
@@ -102,7 +105,16 @@ func (a *API) UpdateOAuthApp(ctx context.Context, request api.UpdateOAuthAppRequ
 	if body == nil {
 		return nil, badConnectionRequest("Request body is required")
 	}
+	var secretChanged bool
 	updated, err := a.connectionStore.UpdateApp(ctx, request.AppId, func(app *connection.App) error {
+		// The authorization code connections on an app need its client
+		// type, which they were created for.
+		if body.ClientType != nil && connection.ClientType(*body.ClientType) != app.ClientType {
+			if err := a.requireAppUnused(ctx, app, "change its client type"); err != nil {
+				return err
+			}
+		}
+		secretChanged = false
 		if body.Name != nil {
 			app.Name = *body.Name
 		}
@@ -110,6 +122,7 @@ func (a *API) UpdateOAuthApp(ctx context.Context, request api.UpdateOAuthAppRequ
 			app.ClientID = *body.ClientId
 		}
 		if secret := valueOf(body.ClientSecret); strings.TrimSpace(secret) != "" {
+			secretChanged = secret != app.ClientSecret
 			app.ClientSecret = secret
 		}
 		if body.ClientType != nil {
@@ -129,7 +142,7 @@ func (a *API) UpdateOAuthApp(ctx context.Context, request api.UpdateOAuthAppRequ
 	if err != nil {
 		return nil, connectionWriteError("update OAuth app", err)
 	}
-	a.logAudit(ctx, audit.CategoryConnection, "oauth_app_update", oauthAppAuditDetails(updated))
+	a.logAudit(ctx, audit.CategoryConnection, "oauth_app_update", oauthAppAuditDetails(updated, secretChanged))
 	return api.UpdateOAuthApp200JSONResponse(toOAuthAppResponse(updated)), nil
 }
 
@@ -145,24 +158,8 @@ func (a *API) DeleteOAuthApp(ctx context.Context, request api.DeleteOAuthAppRequ
 	if err != nil {
 		return nil, fmt.Errorf("failed to read OAuth app: %w", err)
 	}
-	// Every connection is read, so one that cannot be read refuses the
-	// delete rather than being left on a missing app.
-	conns, err := a.connectionStore.ListAll(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list the connections of OAuth app %q: %w", app.Name, err)
-	}
-	var users []string
-	for _, conn := range conns {
-		if conn.App == app.ID {
-			users = append(users, connectionLabel(conn))
-		}
-	}
-	if len(users) > 0 {
-		return nil, &Error{
-			HTTPStatus: http.StatusConflict,
-			Code:       api.ErrorCodeConflict,
-			Message:    fmt.Sprintf("OAuth app %q is used by connections %s. Remove them first", app.Name, strings.Join(users, ", ")),
-		}
+	if err := a.requireAppUnused(ctx, app, "delete it"); err != nil {
+		return nil, err
 	}
 	err = a.connectionStore.DeleteApp(ctx, app.ID)
 	if errors.Is(err, connection.ErrAppNotFound) {
@@ -171,8 +168,32 @@ func (a *API) DeleteOAuthApp(ctx context.Context, request api.DeleteOAuthAppRequ
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete OAuth app: %w", err)
 	}
-	a.logAudit(ctx, audit.CategoryConnection, "oauth_app_delete", oauthAppAuditDetails(app))
+	a.logAudit(ctx, audit.CategoryConnection, "oauth_app_delete", oauthAppAuditDetails(app, false))
 	return api.DeleteOAuthApp204Response{}, nil
+}
+
+// requireAppUnused refuses to act on app while a connection uses it, naming
+// the connections. Every connection is read, so one that cannot be read
+// refuses the action rather than being left on a changed or missing app.
+func (a *API) requireAppUnused(ctx context.Context, app *connection.App, action string) error {
+	conns, err := a.connectionStore.ListAll(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list the connections of OAuth app %q: %w", app.Name, err)
+	}
+	var users []string
+	for _, conn := range conns {
+		if conn.App == app.ID {
+			users = append(users, connectionLabel(conn))
+		}
+	}
+	if len(users) == 0 {
+		return nil
+	}
+	return &Error{
+		HTTPStatus: http.StatusConflict,
+		Code:       api.ErrorCodeConflict,
+		Message:    fmt.Sprintf("OAuth app %q is used by connections %s. Remove them first to %s", app.Name, strings.Join(users, ", "), action),
+	}
 }
 
 // requireOAuthAppRead allows those who may change the notification
@@ -228,13 +249,14 @@ func connectionLabel(conn *connection.Connection) string {
 	return connectionWorkspaceToAPI(conn.Workspace) + "/" + conn.Name
 }
 
-func oauthAppAuditDetails(app *connection.App) map[string]any {
+func oauthAppAuditDetails(app *connection.App, secretChanged bool) map[string]any {
 	return map[string]any{
-		"id":          app.ID,
-		"name":        app.Name,
-		"provider":    string(app.Provider),
-		"client_id":   app.ClientID,
-		"client_type": string(app.ClientType),
-		"agent":       app.Agent,
+		"id":                    app.ID,
+		"name":                  app.Name,
+		"provider":              string(app.Provider),
+		"client_id":             app.ClientID,
+		"client_type":           string(app.ClientType),
+		"agent":                 app.Agent,
+		"client_secret_changed": secretChanged,
 	}
 }

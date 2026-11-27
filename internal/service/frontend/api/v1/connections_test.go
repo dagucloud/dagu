@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -86,7 +85,7 @@ func TestConnectionsHideSecrets(t *testing.T) {
 	}, patched.Services[0].MissingScopes, "a service changed later lacks its new scopes until a reconnect")
 	assert.True(t, appGet.(apigen.GetOAuthApp200JSONResponse).ClientSecretConfigured)
 
-	for _, resp := range []any{app, conn, appResp, appList, appGet, connList, connGet, connPatch, f.audit.entries()} {
+	for _, resp := range []any{app, conn, appResp, appList, appGet, connList, connGet, connPatch, f.audit.entries} {
 		payload := mustJSON(t, resp)
 		for _, secret := range []string{testClientSecret, testRefreshToken, testAccessToken} {
 			assert.NotContains(t, payload, secret)
@@ -102,6 +101,7 @@ func TestConnectionsRoles(t *testing.T) {
 	admin := f.admin()
 	app := f.createApp(t, admin)
 	f.createConnection(t, admin, "ops", "work", app.Id)
+	f.createConnection(t, admin, "global", "work", app.Id)
 	opsRole := func(role auth.Role) context.Context {
 		return asConnectionUser(auth.RoleViewer, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{{Workspace: "ops", Role: role}}})
 	}
@@ -118,8 +118,8 @@ func TestConnectionsRoles(t *testing.T) {
 		})
 		return expectResponse[apigen.CreateConnection201JSONResponse](resp, err)
 	}
-	get := func(ctx context.Context) error {
-		resp, err := f.api.GetConnection(ctx, apigen.GetConnectionRequestObject{Name: "work", Params: apigen.GetConnectionParams{Workspace: new("ops")}})
+	get := func(ctx context.Context, ws string) error {
+		resp, err := f.api.GetConnection(ctx, apigen.GetConnectionRequestObject{Name: "work", Params: apigen.GetConnectionParams{Workspace: &ws}})
 		return expectResponse[apigen.GetConnection200JSONResponse](resp, err)
 	}
 	listApps := func(ctx context.Context) error {
@@ -131,14 +131,19 @@ func TestConnectionsRoles(t *testing.T) {
 		return expectResponse[apigen.CreateOAuthApp201JSONResponse](resp, err)
 	}
 
-	require.NoError(t, get(viewer))
+	require.NoError(t, get(viewer, "ops"))
 	requireForbidden(t, create(viewer, "ops", "viewer", false))
 	requireForbidden(t, create(developer, "ops", "developer", false))
 	require.NoError(t, create(manager, "ops", "manager", false))
 	requireForbidden(t, create(manager, "ops", "export", true), "token export needs admin")
 	require.NoError(t, create(admin, "ops", "export", true))
 	requireStatus(t, http.StatusNotFound, create(manager, "billing", "other", false))
-	requireStatus(t, http.StatusNotFound, get(viewerIn("billing")))
+	requireStatus(t, http.StatusNotFound, get(viewerIn("billing"), "ops"))
+	// No grant names the global workspace, so a user scoped to workspaces
+	// never reaches its connections.
+	requireStatus(t, http.StatusNotFound, get(manager, "global"))
+	requireStatus(t, http.StatusNotFound, create(manager, "global", "scoped", false))
+	require.NoError(t, get(globalDeveloper, "global"))
 
 	requireForbidden(t, createApp(manager))
 	require.NoError(t, createApp(admin))
@@ -203,30 +208,54 @@ func TestDeleteConnectionRevokes(t *testing.T) {
 
 	_, err = f.store.Get(t.Context(), connection.Key{Workspace: "ops", Name: "work"})
 	require.ErrorIs(t, err, connection.ErrNotFound)
-	assert.Equal(t, []string{testRefreshToken}, f.provider.revokedTokens())
-	actions := f.audit.actions()
+	assert.Equal(t, []string{testRefreshToken}, f.provider.revoked)
+	actions := auditActions(f.audit)
 	assert.Contains(t, actions, "connection_delete")
 	assert.Contains(t, actions, "connection_token_revoke")
-	assert.NotContains(t, mustJSON(t, f.audit.entries()), testRefreshToken)
+	assert.NotContains(t, mustJSON(t, f.audit.entries), testRefreshToken)
 }
 
-// An app that a connection uses cannot be deleted. The refusal names the
-// connection with its workspace.
-func TestDeleteOAuthAppInUse(t *testing.T) {
+// An app that a connection uses cannot be deleted, nor change the client
+// type its connections were created for. The refusal names the connection
+// with its workspace.
+func TestOAuthAppInUse(t *testing.T) {
 	f := newConnectionsFixture(t)
 	admin := f.admin()
 	app := f.createApp(t, admin)
 	f.createConnection(t, admin, "ops", "work", app.Id)
+	changeType := func() error {
+		resp, err := f.api.UpdateOAuthApp(admin, apigen.UpdateOAuthAppRequestObject{
+			AppId: app.Id,
+			Body:  &apigen.UpdateOAuthAppRequest{ClientType: new(apigen.OAuthClientTypeDesktop)},
+		})
+		return expectResponse[apigen.UpdateOAuthApp200JSONResponse](resp, err)
+	}
+	deleteApp := func() error {
+		resp, err := f.api.DeleteOAuthApp(admin, apigen.DeleteOAuthAppRequestObject{AppId: app.Id})
+		return expectResponse[apigen.DeleteOAuthApp204Response](resp, err)
+	}
 
-	resp, err := f.api.DeleteOAuthApp(admin, apigen.DeleteOAuthAppRequestObject{AppId: app.Id})
-	err = expectResponse[apigen.DeleteOAuthApp204Response](resp, err)
-	requireStatus(t, http.StatusConflict, err)
-	assert.ErrorContains(t, err, "ops/work")
+	for _, err := range []error{changeType(), deleteApp()} {
+		requireStatus(t, http.StatusConflict, err)
+		assert.ErrorContains(t, err, "ops/work")
+	}
 
 	delResp, err := f.api.DeleteConnection(admin, apigen.DeleteConnectionRequestObject{Name: "work", Params: apigen.DeleteConnectionParams{Workspace: new("ops")}})
 	require.NoError(t, expectResponse[apigen.DeleteConnection204Response](delResp, err))
-	resp, err = f.api.DeleteOAuthApp(admin, apigen.DeleteOAuthAppRequestObject{AppId: app.Id})
-	require.NoError(t, expectResponse[apigen.DeleteOAuthApp204Response](resp, err))
+	require.NoError(t, changeType())
+	require.NoError(t, deleteApp())
+}
+
+// Apps of oauth2 and mcp are refused, since no request sets the endpoints
+// they need, nor the resource URL of an mcp connection.
+func TestCreateOAuthAppProviders(t *testing.T) {
+	f := newConnectionsFixture(t)
+	for _, provider := range []apigen.ConnectionProviderName{apigen.ConnectionProviderNameOauth2, apigen.ConnectionProviderNameMcp} {
+		body := googleAppRequest()
+		body.Provider = provider
+		resp, err := f.api.CreateOAuthApp(f.admin(), apigen.CreateOAuthAppRequestObject{Body: body})
+		requireStatus(t, http.StatusBadRequest, expectResponse[apigen.CreateOAuthApp201JSONResponse](resp, err))
+	}
 }
 
 // A workspace that owns connections cannot be deleted or renamed, since a
@@ -234,8 +263,8 @@ func TestDeleteOAuthAppInUse(t *testing.T) {
 func TestWorkspaceWithConnections(t *testing.T) {
 	f := newConnectionsFixture(t)
 	admin := f.admin()
-	ws := workspace.NewWorkspace("ops", "")
-	require.NoError(t, f.workspaces.Create(t.Context(), ws))
+	ws, err := f.workspaces.GetByName(t.Context(), "ops")
+	require.NoError(t, err)
 	app := f.createApp(t, admin)
 	f.createConnection(t, admin, "ops", "work", app.Id)
 
@@ -258,7 +287,8 @@ func TestWorkspaceWithConnections(t *testing.T) {
 
 // A connection request is refused when no run could use the connection or
 // the store would hold a host it must not: a workspace name with uppercase
-// letters, a service the provider lacks, or a bound host with a scheme.
+// letters, a workspace that does not exist and whose later namesake would
+// inherit it, a service the provider lacks, or a bound host with a scheme.
 // Omitting the workspace selects the connections of DAGs without a label.
 func TestCreateConnectionValidation(t *testing.T) {
 	f := newConnectionsFixture(t)
@@ -277,6 +307,7 @@ func TestCreateConnectionValidation(t *testing.T) {
 
 	requireStatus(t, http.StatusBadRequest, create(new("Ops"), "gmail", nil))
 	requireStatus(t, http.StatusBadRequest, create(new("default"), "gmail", nil))
+	requireStatus(t, http.StatusNotFound, create(new("gone"), "gmail", nil))
 	requireStatus(t, http.StatusBadRequest, create(nil, "tasks", nil))
 	requireStatus(t, http.StatusBadRequest, create(nil, "gmail", []string{"https://api.example.com"}))
 	requireStatus(t, http.StatusBadRequest, create(nil, "gmail", []string{"*.example.com"}))
@@ -293,7 +324,7 @@ type connectionsFixture struct {
 	store      connection.Store
 	workspaces workspace.Store
 	provider   *revokingProvider
-	audit      *memoryAuditStore
+	audit      *recordingAuditStore
 	dataDir    string
 }
 
@@ -309,7 +340,7 @@ func newConnectionsFixture(t *testing.T, opts ...apiv1.APIOption) *connectionsFi
 	enc, err := stores.Encryptor()
 	require.NoError(t, err)
 
-	f := &connectionsFixture{store: store, workspaces: workspaces, provider: &revokingProvider{}, audit: &memoryAuditStore{}, dataDir: dataDir}
+	f := &connectionsFixture{store: store, workspaces: workspaces, provider: &revokingProvider{}, audit: &recordingAuditStore{}, dataDir: dataDir}
 	engine, err := connect.New(connect.Config{
 		Store:     store,
 		Locks:     stores.ConnectionLocks(),
@@ -324,6 +355,7 @@ func newConnectionsFixture(t *testing.T, opts ...apiv1.APIOption) *connectionsFi
 		apiv1.WithAuditService(audit.New(f.audit)),
 	}, opts...)
 	f.api = apiv1.New(nil, nil, nil, nil, runtime.Manager{}, cfg, nil, nil, prometheus.NewRegistry(), nil, opts...)
+	require.NoError(t, workspaces.Create(t.Context(), workspace.NewWorkspace("ops", "")))
 	return f
 }
 
@@ -416,51 +448,19 @@ func requireStatus(t *testing.T, status int, err error) {
 // that Remove asks of one. It records each refresh token it revokes.
 type revokingProvider struct {
 	connect.Provider
-	mu      sync.Mutex
 	revoked []string
 }
 
 func (p *revokingProvider) RevokeScope() connect.RevokeScope { return connect.RevokesToken }
 
 func (p *revokingProvider) Revoke(_ context.Context, _ *connection.App, refreshToken string) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.revoked = append(p.revoked, refreshToken)
 	return nil
 }
 
-func (p *revokingProvider) revokedTokens() []string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return append([]string(nil), p.revoked...)
-}
-
-type memoryAuditStore struct {
-	mu   sync.Mutex
-	list []*audit.Entry
-}
-
-func (s *memoryAuditStore) Append(_ context.Context, entry *audit.Entry) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.list = append(s.list, entry)
-	return nil
-}
-
-func (s *memoryAuditStore) Query(_ context.Context, _ audit.QueryFilter) (*audit.QueryResult, error) {
-	entries := s.entries()
-	return &audit.QueryResult{Entries: entries, Total: len(entries)}, nil
-}
-
-func (s *memoryAuditStore) entries() []*audit.Entry {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]*audit.Entry(nil), s.list...)
-}
-
-func (s *memoryAuditStore) actions() []string {
+func auditActions(store *recordingAuditStore) []string {
 	var actions []string
-	for _, entry := range s.entries() {
+	for _, entry := range store.entries {
 		actions = append(actions, entry.Action)
 	}
 	return actions

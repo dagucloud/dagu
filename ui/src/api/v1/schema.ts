@@ -5135,7 +5135,7 @@ export interface paths {
         put?: never;
         /**
          * Create an OAuth app
-         * @description Registers an OAuth client from its fields, or from the client file the provider issued, such as a Google client JSON. Needs admin.
+         * @description Registers an OAuth client from its fields, or from the client file the provider issued, such as a Google client JSON. oauth2 and mcp apps are refused until requests take their endpoints. Needs admin.
          */
         post: operations["createOAuthApp"];
         delete?: never;
@@ -5172,7 +5172,7 @@ export interface paths {
         head?: never;
         /**
          * Change an OAuth app
-         * @description Changes the fields given. A blank client secret keeps the stored one. A new client ID or secret sets the status back to ok. Needs admin.
+         * @description Changes the fields given. A blank client secret keeps the stored one. A new client ID or secret sets the status back to ok. The client type of an app in use cannot change. Needs admin.
          */
         patch: operations["updateOAuthApp"];
         trace?: never;
@@ -5192,7 +5192,7 @@ export interface paths {
         put?: never;
         /**
          * Create a connection
-         * @description Creates a connection in pending status, without tokens, for the authorization code grant. Needs manager or above in the workspace, and admin to allow token export.
+         * @description Creates a connection in pending status, without tokens, for the authorization code grant. The workspace must exist. Needs manager or above in the workspace, and admin to allow token export.
          */
         post: operations["createConnection"];
         delete?: never;

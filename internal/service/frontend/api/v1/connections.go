@@ -83,6 +83,9 @@ func (a *API) CreateConnection(ctx context.Context, request api.CreateConnection
 			return nil, err
 		}
 	}
+	if err := a.requireWorkspaceExists(ctx, ws); err != nil {
+		return nil, err
+	}
 	app, err := a.connectionStore.GetApp(ctx, body.App)
 	if errors.Is(err, connection.ErrAppNotFound) {
 		return nil, badConnectionRequest(fmt.Sprintf("OAuth app %q not found", body.App))
@@ -149,12 +152,18 @@ func (a *API) UpdateConnection(ctx context.Context, request api.UpdateConnection
 	if body == nil {
 		return nil, badConnectionRequest("Request body is required")
 	}
-	if body.AllowTokenExport != nil && *body.AllowTokenExport != conn.AllowTokenExport {
-		if err := a.requireAdmin(ctx); err != nil {
-			return nil, err
-		}
-	}
+	// Both checks run against the record the update replaces, so a change
+	// that lands first, or a connection created again under the name, is
+	// not judged by a stale copy.
 	updated, err := a.connectionStore.Update(ctx, conn.Key(), func(c *connection.Connection) error {
+		if c.ID != conn.ID {
+			return connection.ErrNotFound
+		}
+		if body.AllowTokenExport != nil && *body.AllowTokenExport != c.AllowTokenExport {
+			if err := a.requireAdmin(ctx); err != nil {
+				return err
+			}
+		}
 		if body.Services != nil {
 			c.Services = connectionServices(*body.Services)
 		}
@@ -241,6 +250,26 @@ func (a *API) requireNoConnections(ctx context.Context, workspaceName string) er
 		Code:       api.ErrorCodeConflict,
 		Message:    fmt.Sprintf("Workspace %q owns connections %s. Remove them first", workspaceName, strings.Join(names, ", ")),
 	}
+}
+
+// requireWorkspaceExists refuses a connection in a workspace that does not
+// exist, which a workspace created later under that name would inherit.
+func (a *API) requireWorkspaceExists(ctx context.Context, workspaceName string) error {
+	if workspaceName == secretpkg.GlobalWorkspace || a.workspaceStore == nil {
+		return nil
+	}
+	_, err := a.workspaceStore.GetByName(ctx, workspaceName)
+	if errors.Is(err, workspace.ErrWorkspaceNotFound) {
+		return &Error{
+			HTTPStatus: http.StatusNotFound,
+			Code:       api.ErrorCodeNotFound,
+			Message:    fmt.Sprintf("Workspace %q not found", workspaceName),
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("failed to read workspace: %w", err)
+	}
+	return nil
 }
 
 // connectionWorkspace returns the workspace that raw names, once the caller
@@ -384,6 +413,8 @@ func connectionWorkspaceToAPI(name string) string {
 // cannot use.
 func connectableApp(app *connection.App) error {
 	switch {
+	case !providerAccepted(app.Provider):
+		return unacceptedProvider(app.Provider)
 	case app.Kind == connection.AppKindDCR:
 		return badConnectionRequest(fmt.Sprintf("OAuth app %q belongs to the connection that registered it", app.Name))
 	case app.ClientType != connection.ClientTypeWeb && app.ClientType != connection.ClientTypeDesktop:
@@ -392,25 +423,30 @@ func connectableApp(app *connection.App) error {
 	return nil
 }
 
+// providerAccepted reports whether the API takes apps and connections of
+// provider. An oauth2 or mcp app needs endpoints, and an mcp connection a
+// resource, which no request sets yet.
+func providerAccepted(provider connection.Provider) bool {
+	return provider == connection.ProviderGoogle || provider == connection.ProviderMicrosoft
+}
+
+func unacceptedProvider(provider connection.Provider) *Error {
+	return badConnectionRequest(fmt.Sprintf("%s apps and connections need endpoints or a resource URL, which the API does not take yet", provider))
+}
+
 // validateConnectionFields checks the fields a request sets beyond what the
-// store validates: each service is a preset of a provider that has them,
-// and each bound host is a hostname or host:port, which an oauth2
-// connection must name.
+// store validates: each service is a preset of the provider, and each bound
+// host is a hostname or host:port.
 func validateConnectionFields(conn *connection.Connection) error {
-	if conn.Provider == connection.ProviderGoogle || conn.Provider == connection.ProviderMicrosoft {
-		for _, svc := range conn.Services {
-			if _, ok := connection.LookupPreset(conn.Provider, svc.Name); !ok {
-				return badConnectionRequest(fmt.Sprintf("service %q is not a %s service", svc.Name, conn.Provider))
-			}
+	for _, svc := range conn.Services {
+		if _, ok := connection.LookupPreset(conn.Provider, svc.Name); !ok {
+			return badConnectionRequest(fmt.Sprintf("service %q is not a %s service", svc.Name, conn.Provider))
 		}
 	}
 	for _, host := range conn.BoundHosts {
 		if !validBoundHost(host) {
 			return badConnectionRequest(fmt.Sprintf("bound host %q must be a hostname or host:port, without a scheme, path, or wildcard", host))
 		}
-	}
-	if conn.Provider == connection.ProviderOAuth2 && len(conn.BoundHosts) == 0 {
-		return badConnectionRequest("an oauth2 connection needs bound hosts")
 	}
 	return nil
 }
@@ -432,8 +468,12 @@ func connectionServices(services []api.ConnectionServiceRequest) []connection.Se
 }
 
 // connectionWriteError maps a store error of a write to a bad request when
-// the record is invalid or reserved.
+// the record is invalid or reserved, and passes on an API error that the
+// update function returned.
 func connectionWriteError(action string, err error) error {
+	if apiErr, ok := errors.AsType[*Error](err); ok {
+		return apiErr
+	}
 	if errors.Is(err, connection.ErrInvalid) || errors.Is(err, connection.ErrReserved) {
 		return badConnectionRequest(err.Error())
 	}
@@ -452,6 +492,8 @@ func connectionAuditDetails(conn *connection.Connection) map[string]any {
 		"provider":           string(conn.Provider),
 		"app":                conn.App,
 		"services":           services,
+		"scopes":             nonNil(conn.Scopes),
+		"bound_hosts":        nonNil(conn.BoundHosts),
 		"allow_token_export": conn.AllowTokenExport,
 	}
 }
