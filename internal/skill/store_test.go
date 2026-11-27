@@ -640,6 +640,21 @@ func TestDeleteOfASkillIsAtomic(t *testing.T) {
 	require.Empty(t, names)
 }
 
+// A hidden folder that an earlier delete could not empty goes with the next
+// delete of a skill, so such folders do not pile up.
+func TestDeleteRemovesWhatEarlierDeletesLeft(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	left := filepath.Join(skill.Root(s), ".deleted.0123456789abcdef")
+	require.NoError(t, os.MkdirAll(filepath.Join(left, "references"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(left, "references", "a.md"), []byte("a"), 0o644))
+
+	require.NoError(t, s.DeleteSkill(context.Background(), "demo", skill.Precondition{IfMatch: created.Hash}))
+	_, err := os.Lstat(left)
+	require.ErrorIs(t, err, fs.ErrNotExist)
+}
+
 // A reader that opened a file before the delete of its skill gets the whole
 // file as it read it.
 func TestDeleteKeepsAnOpenFile(t *testing.T) {

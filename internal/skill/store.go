@@ -40,7 +40,7 @@ const (
 
 // ErrFilesLeft is returned by DeleteSkill when the skill is deleted but some of
 // its files could not be removed. They stay in a hidden folder of the skills
-// directory, which no read lists.
+// directory, which no read lists, until the next delete of a skill.
 var ErrFilesLeft = errors.New("the skill is deleted, but some of its files remain in a hidden folder")
 
 // ErrPreconditionRequired is returned for a write that has no precondition.
@@ -629,6 +629,7 @@ func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) 
 			return fmt.Errorf("delete the skill folder: %w", err)
 		}
 		left := fileutil.RemoveAll(hidden)
+		s.removeDeleted(hidden)
 		if err := fileutil.SyncDir(s.root); err != nil {
 			return fmt.Errorf("delete the skill folder: %w", err)
 		}
@@ -637,6 +638,22 @@ func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) 
 		}
 		return nil
 	})
+}
+
+// removeDeleted removes the hidden folders other than skip that earlier deletes
+// could not empty, so they do not pile up. A folder that still cannot be
+// removed stays for the next delete.
+func (s *Store) removeDeleted(skip string) {
+	entries, err := os.ReadDir(s.root)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		dir := filepath.Join(s.root, e.Name())
+		if e.IsDir() && strings.HasPrefix(e.Name(), deletedDirPrefix) && dir != skip {
+			_ = fileutil.RemoveAll(dir)
+		}
+	}
 }
 
 // checkPrecondition reads the skill and compares it with the precondition. It
