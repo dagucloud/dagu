@@ -28,8 +28,9 @@ default, file, or env:<NAME>. Values are shown as read from the file, the
 environment or the defaults, before Dagu's own resolution, so a setting Dagu
 fills in later can show as empty. A setting given by a deprecated key, such
 as dags for paths.dags_dir, shows that key's value and source. auth.mode
-shows the mode Dagu runs in. Secret values are masked. Use --format json
-for a list a script can read.
+shows the mode Dagu runs in, and an unset peer.insecure shows the value
+Dagu runs with. Secret values are masked. Use --format json for a list a
+script can read.
 
 Example:
   dagu config

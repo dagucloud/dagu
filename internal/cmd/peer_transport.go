@@ -11,8 +11,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 )
 
-// peerInsecureKey is the setting that selects h2c or the TLS settings.
-const peerInsecureKey = "peer.insecure"
+const (
+	// peerInsecureKey is the setting that selects h2c or the TLS settings.
+	peerInsecureKey = "peer.insecure"
+	// startLineFormat is the start line, from the transport and what
+	// selected it.
+	startLineFormat = "Peer transport: %s (from %s)"
+)
 
 // peerSetting is a TLS setting of the peer client and its value.
 type peerSetting struct {
@@ -20,9 +25,9 @@ type peerSetting struct {
 	value string
 }
 
-// logPeerTransport logs, at start, each TLS setting that the transport
-// command uses to call the coordinator ignores, then that transport.
-// Services that call the coordinator log a warning per setting and the
+// logPeerTransport logs, at start, the transport that command uses to call
+// the coordinator, after one warning per TLS setting that transport ignores.
+// Services that call the coordinator log the warnings at level warn and the
 // transport at level info. Other commands log both at level debug, so their
 // terminal output does not change.
 func logPeerTransport(ctx context.Context, command string, cfg *config.Config) {
@@ -62,12 +67,12 @@ func peerTransport(cfg *config.Config) (string, []peerSetting) {
 		if len(settings) == 0 {
 			return "", nil
 		}
-		return "Peer transport: TLS (from " + peerInsecureKey + ": false)", nil
+		return fmt.Sprintf(startLineFormat, "TLS", peerInsecureKey+": false"), nil
 	}
 	if cfg.Sources[peerInsecureKey].Kind == config.SourceKindDefault {
-		return "Peer transport: h2c (from no TLS source)", settings
+		return fmt.Sprintf(startLineFormat, "h2c", "no TLS source"), settings
 	}
-	return "Peer transport: h2c (from " + peerInsecureKey + ": true)", settings
+	return fmt.Sprintf(startLineFormat, "h2c", peerInsecureKey+": true"), settings
 }
 
 // peerTLSSettings returns the TLS settings that peer sets, in config order.
