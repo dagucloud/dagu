@@ -56,12 +56,14 @@ func GenerateOneOffRunID(dagName, fingerprint string, scheduledTime time.Time) s
 // for example around a failover, names the same run. previousRunID is empty for
 // the first run of a DAG. previousEnd is when the previous run ended; it is zero
 // when there is no previous run or its end is unknown, and the ID then has no
-// time part.
-func GenerateRestartRunID(dagName, previousRunID string, previousEnd time.Time) string {
+// time part. seed is the seed of GenerateSlotRunID: it keeps installations on
+// one host from sharing an ID, and with it a control socket.
+func GenerateRestartRunID(seed, dagName, previousRunID string, previousEnd time.Time) string {
+	hashSource := seed + ":" + dagName + ":" + previousRunID
 	if previousEnd.IsZero() {
-		return restartPrefix + scheduledRunIDHash(dagName+":"+previousRunID, hashLen)
+		return restartPrefix + scheduledRunIDHash(hashSource, hashLen)
 	}
-	return generateScheduledRunID(restartPrefix, dagName+":"+previousRunID, previousEnd)
+	return generateScheduledRunID(restartPrefix, hashSource, previousEnd)
 }
 
 func generateScheduledRunID(prefix, hashSource string, scheduledTime time.Time) string {

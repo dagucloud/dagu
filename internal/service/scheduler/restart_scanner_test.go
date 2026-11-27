@@ -126,18 +126,37 @@ func TestGenerateRestartRunID(t *testing.T) {
 
 	ended := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
 
-	id := GenerateRestartRunID("svc", "run-1", ended)
-	assert.Equal(t, id, GenerateRestartRunID("svc", "run-1", ended), "same previous run, same ID")
-	assert.NotEqual(t, id, GenerateRestartRunID("svc", "run-2", ended), "another previous run, another ID")
-	assert.NotEqual(t, id, GenerateRestartRunID("other", "run-1", ended), "another DAG, another ID")
+	id := GenerateRestartRunID("/data", "svc", "run-1", ended)
+	assert.Equal(t, id, GenerateRestartRunID("/data", "svc", "run-1", ended), "same previous run, same ID")
+	assert.NotEqual(t, id, GenerateRestartRunID("/data", "svc", "run-2", ended), "another previous run, another ID")
+	assert.NotEqual(t, id, GenerateRestartRunID("/data", "other", "run-1", ended), "another DAG, another ID")
+	assert.NotEqual(t, id, GenerateRestartRunID("/other-data", "svc", "run-1", ended), "another installation, another ID")
 	assert.True(t, strings.HasPrefix(id, restartPrefix))
 	assert.True(t, strings.HasSuffix(id, "20261013T120000"))
 	assert.LessOrEqual(t, len(id), maxRunIDLen)
 
-	first := GenerateRestartRunID("svc", "", time.Time{})
-	assert.Equal(t, first, GenerateRestartRunID("svc", "", time.Time{}), "the first run has a stable ID")
-	assert.NotEqual(t, first, GenerateRestartRunID("other", "", time.Time{}))
+	first := GenerateRestartRunID("/data", "svc", "", time.Time{})
+	assert.Equal(t, first, GenerateRestartRunID("/data", "svc", "", time.Time{}), "the first run has a stable ID")
+	assert.NotEqual(t, first, GenerateRestartRunID("/data", "other", "", time.Time{}))
+	assert.NotEqual(t, first, GenerateRestartRunID("/other-data", "svc", "", time.Time{}), "another installation, another ID")
 	assert.Equal(t, len(restartPrefix)+hashLen, len(first), "no time part without a previous end")
+}
+
+// Two installations on one host that run a service DAG of the same name queue
+// runs with different IDs. A shared ID would give both runs one control
+// socket, and the second run would fail as already running.
+func TestRestartRunIDOfInstallation(t *testing.T) {
+	t.Parallel()
+
+	firstRunID := func(seed string) string {
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+		h.scanner.cfg.runIDSeed = seed
+		h.scan()
+		require.Len(t, h.enqueued, 1)
+		return h.enqueued[0].runID
+	}
+	assert.Equal(t, firstRunID("/data"), firstRunID("/data"))
+	assert.NotEqual(t, firstRunID("/data"), firstRunID("/other-data"))
 }
 
 // restartHarness drives a RestartScanner with in-memory fakes.
@@ -357,7 +376,7 @@ func TestRestartScanner(t *testing.T) {
 		require.Len(t, h.enqueued, 1)
 		assert.Equal(t, enqueuedRun{
 			dag:         "svc",
-			runID:       GenerateRestartRunID("svc", "", time.Time{}),
+			runID:       GenerateRestartRunID("", "svc", "", time.Time{}),
 			triggerType: ir.TriggerTypeRestart,
 		}, h.enqueued[0])
 	})
@@ -373,7 +392,7 @@ func TestRestartScanner(t *testing.T) {
 		h.now = h.now.Add(7 * time.Second)
 		h.scan()
 		require.Len(t, h.enqueued, 1)
-		assert.Equal(t, GenerateRestartRunID("svc", "run-1", h.now.Add(-11*time.Second)), h.enqueued[0].runID)
+		assert.Equal(t, GenerateRestartRunID("", "svc", "run-1", h.now.Add(-11*time.Second)), h.enqueued[0].runID)
 	})
 
 	t.Run("Succeeded", func(t *testing.T) {
@@ -573,7 +592,7 @@ func TestRestartScanner(t *testing.T) {
 		h.now = h.now.Add(11 * time.Second)
 		h.scan()
 		require.Len(t, h.enqueued, 1)
-		assert.Equal(t, GenerateRestartRunID("svc", "run-1", failedAt), h.enqueued[0].runID)
+		assert.Equal(t, GenerateRestartRunID("", "svc", "run-1", failedAt), h.enqueued[0].runID)
 	})
 
 	// A run that has not started yet is left alone while anything can still
@@ -740,7 +759,7 @@ func TestRestartScanner(t *testing.T) {
 			overlap(h, time.Hour, time.Minute)
 			h.scan()
 			require.Len(t, h.enqueued, 1)
-			assert.Equal(t, GenerateRestartRunID("svc", older, h.now.Add(-time.Minute)), h.enqueued[0].runID)
+			assert.Equal(t, GenerateRestartRunID("", "svc", older, h.now.Add(-time.Minute)), h.enqueued[0].runID)
 		})
 
 		t.Run("StoppedRunEndedLast", func(t *testing.T) {
@@ -757,7 +776,7 @@ func TestRestartScanner(t *testing.T) {
 			overlap(h, time.Minute, time.Minute)
 			h.scan()
 			require.Len(t, h.enqueued, 1)
-			assert.Equal(t, GenerateRestartRunID("svc", older, h.now.Add(-time.Minute)), h.enqueued[0].runID)
+			assert.Equal(t, GenerateRestartRunID("", "svc", older, h.now.Add(-time.Minute)), h.enqueued[0].runID)
 		})
 
 		t.Run("WaitFollowsIt", func(t *testing.T) {
@@ -779,7 +798,7 @@ func TestRestartScanner(t *testing.T) {
 			h.recent[1].Status = ir.Running
 			h.scan()
 			require.Len(t, h.enqueued, 1)
-			assert.Equal(t, GenerateRestartRunID("svc", newer, h.now.Add(-time.Hour)), h.enqueued[0].runID)
+			assert.Equal(t, GenerateRestartRunID("", "svc", newer, h.now.Add(-time.Hour)), h.enqueued[0].runID)
 		})
 
 		t.Run("ReadFails", func(t *testing.T) {

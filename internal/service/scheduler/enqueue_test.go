@@ -121,7 +121,7 @@ restart_wait_sec: 1
 steps:
   - run: echo ok
 `)
-			runID := scheduler.GenerateRestartRunID(dag.Name, "", time.Time{})
+			runID := scheduler.GenerateRestartRunID(th.Config.Paths.DataDir, dag.Name, "", time.Time{})
 			incomplete, err := th.DAGRunRepository.CreateAttempt(th.Context, dag.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 			require.NoError(t, err)
 			cutShort(t, incomplete, th.Config.Paths.DAGRunsDir)

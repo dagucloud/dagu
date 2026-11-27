@@ -67,6 +67,12 @@ reading logs, which instance is active and how long a failover takes.
   and a catch-up of the same slot share it, so a slot has at most one run,
   including around a failover. Installations with different data directories
   never share an ID.
+- Each run that a restart policy starts ([Spec 080](080-restart-policy.md))
+  has one run ID, derived from the same seed, the DAG name, and the run it
+  follows, in the form `restart-<hash>-<UTC time>`. The first run of a DAG,
+  and a run after one whose end is unknown, has the form `restart-<hash>`.
+  Two schedulers that decide the same restart name the same run, and
+  installations with different data directories never share an ID.
 - When existing runs cannot be read, a run is not created.
 
 ### Runs in progress
@@ -124,7 +130,8 @@ reading logs, which instance is active and how long a failover takes.
 
 All schedulers must use the same `DAGU_HOME`, or the same data and DAG
 directories, on storage that every host can reach. The data directory must have
-the same path on every host, because it is part of each slot's run ID.
+the same path on every host, because it is part of each slot's and each
+restart's run ID.
 
 ## Not provided
 

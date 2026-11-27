@@ -451,7 +451,8 @@ func newScheduler(
 			NewestEnd: samples.NewestEnd,
 			Clock:     defaultClock,
 		}),
-		Clock: defaultClock,
+		Clock:     defaultClock,
+		runIDSeed: cfg.Paths.DataDir,
 	})
 
 	retryScanner, err := NewRetryScanner(
