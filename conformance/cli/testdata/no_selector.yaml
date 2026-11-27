@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: write
+    action: file.write
+    with:
+      path: placed.out
+      content: placed
