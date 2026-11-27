@@ -20,8 +20,9 @@ import (
 // InPlace returns the registry's records of the files that run in place.
 // projectsDir is paths.projects_dir, which holds the DAG directory of each
 // project other than the default one. A record ends, and is removed from
-// the registry, once that directory holds at its top a DAG file of the
-// recorded file's name, since the DAG is then addressed there.
+// the registry, once the project's DAG directory gets a DAG of the same
+// name. These records see only part of that: a DAG file of the recorded
+// file's name at the top of the directory.
 func (r *Registry) InPlace(projectsDir string) project.InPlaceRecords {
 	return &inPlaceRecords{registry: r, projectsDir: projectsDir}
 }

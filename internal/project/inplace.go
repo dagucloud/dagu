@@ -8,7 +8,7 @@ import "context"
 // InPlaceRecords reads the registry's records of the files that run in
 // place: DAG files outside a project's DAG directory that the registry
 // records as that project's. A record stays while its file is absent, and
-// ends once the project's DAG directory holds a DAG file of the same name;
+// ends once the project's DAG directory gets a DAG of the same name;
 // neither method returns an ended record. Implementations are safe for
 // concurrent use.
 type InPlaceRecords interface {
