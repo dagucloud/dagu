@@ -81,6 +81,10 @@ type ConfigLoader struct {
 	flags map[string]string
 	// sources holds what Config.Sources reports.
 	sources map[string]ValueSource
+	// configFileUsed and adminConfig are the config files valueSource
+	// names. adminConfig is nil without a legacy admin.yaml.
+	configFileUsed string
+	adminConfig    *viper.Viper
 }
 
 // ConfigLoaderOption defines a functional option for configuring a ConfigLoader.
@@ -430,7 +434,8 @@ func (l *ConfigLoader) Load() (*Config, error) {
 			}
 		}
 	}
-	l.sources = l.valueSources(configFileUsed, fileutil.ResolvePathOrBlank(adminFileUsed))
+	l.setSourceFiles(configFileUsed, fileutil.ResolvePathOrBlank(adminFileUsed))
+	l.sources = l.valueSources()
 	if err := l.loadOIDCWorkspaceMappingsEnv(); err != nil {
 		return nil, err
 	}
@@ -685,7 +690,7 @@ func (l *ConfigLoader) loadPeerConfig(def PeerDef) Peer {
 		ClientCaFile:  def.ClientCaFile,
 		SkipTLSVerify: def.SkipTLSVerify,
 		// Unset peer.insecure selects h2c, as true does.
-		Insecure:      def.Insecure || l.sources["peer.insecure"].Kind == SourceKindDefault,
+		Insecure:      def.Insecure || !l.v.IsSet("peer.insecure"),
 		MaxRetries:    def.MaxRetries,
 		RetryInterval: l.parseDuration("peer.retry_interval", def.RetryInterval),
 		Token:         strings.TrimSpace(def.Token),
@@ -2193,9 +2198,10 @@ func (l *ConfigLoader) explicitPaths(paths PathsConfig, def Definition) Explicit
 	}
 }
 
-// setBySource reports whether the config file or the environment sets key.
+// setBySource reports whether a flag, the environment, or a config file sets
+// key.
 func (l *ConfigLoader) setBySource(key string) bool {
-	return l.settingSource(key, envNames(key)) != SourceDefault
+	return l.valueSource(key).Kind != SourceKindDefault
 }
 
 func (l *ConfigLoader) finalizePaths(cfg *Config) error {

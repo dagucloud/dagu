@@ -6,6 +6,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -230,6 +231,22 @@ func TestSettingsAuthMode(t *testing.T) {
 	})
 }
 
+// An unset peer.insecure reports the value Load resolved, as it did when the
+// key had a default of true.
+func TestSettingsPeerInsecure(t *testing.T) {
+	t.Setenv("DAGU_PEER_INSECURE", "")
+
+	t.Run("Unset", func(t *testing.T) {
+		settings := loadSettings(t, "")
+		assert.Equal(t, Setting{Key: "peer.insecure", Value: "true", Source: SourceDefault}, settings["peer.insecure"])
+	})
+
+	t.Run("File", func(t *testing.T) {
+		settings := loadSettings(t, "peer:\n  insecure: false\n  skip_tls_verify: true\n")
+		assert.Equal(t, Setting{Key: "peer.insecure", Value: "false", Source: SourceFile}, settings["peer.insecure"])
+	})
+}
+
 func TestSettingsMasksSecrets(t *testing.T) {
 	t.Setenv("DAGU_AUTH_TOKEN_SECRET", "")
 	t.Setenv("DAGU_AUTH_BASIC_PASSWORD", "")
@@ -269,8 +286,18 @@ func TestLoadSources(t *testing.T) {
 
 	t.Run("Default", func(t *testing.T) {
 		cfg := testLoad(t)
-		for _, key := range []string{"coordinator.host", "peer.insecure", "peer.cert_file", "peer.token"} {
+		for _, key := range []string{"coordinator.host", "peer.insecure", "peer.cert_file", "peer.retry_interval"} {
 			assert.Equal(t, ValueSource{Kind: SourceKindDefault}, cfg.Sources[key], key)
+		}
+	})
+
+	// A peer.* key added to the config is reported without a change here.
+	t.Run("EveryPeerKey", func(t *testing.T) {
+		cfg := testLoad(t)
+		for _, b := range envBindings {
+			if strings.HasPrefix(b.key, "peer.") {
+				assert.Contains(t, cfg.Sources, b.key)
+			}
 		}
 	})
 
@@ -342,6 +369,17 @@ func TestLoadPeerInsecure(t *testing.T) {
 			assert.Equal(t, tc.kind, cfg.Sources["peer.insecure"].Kind)
 		})
 	}
+
+	// A false set on the Viper instance, as an embedding caller may, selects
+	// TLS without the flags named to the loader.
+	t.Run("SetWithoutFlags", func(t *testing.T) {
+		v := viper.New()
+		v.Set("peer.insecure", false)
+		v.Set("peer.skip_tls_verify", true)
+		cfg, err := NewConfigLoader(v, WithAppHomeDir(t.TempDir())).Load()
+		require.NoError(t, err)
+		assert.False(t, cfg.Core.Peer.Insecure)
+	})
 }
 
 // writeHomeConfig writes a config file named name into home, the app home
