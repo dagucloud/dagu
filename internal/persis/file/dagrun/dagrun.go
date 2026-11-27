@@ -268,6 +268,24 @@ func (dr DAGRun) LatestAttempt(ctx context.Context, cache *fileutil.Cache[*ir.DA
 	return nil, dagrun.ErrNoStatusData
 }
 
+// ensureAttemptIDFree refuses the request's attempt ID when it asks for a
+// unique one and an attempt of the run, hidden or not, already holds it.
+func (dr DAGRun) ensureAttemptIDFree(req persis.DAGRunCreateAttemptRequest) error {
+	if !req.UniqueAttemptID || req.AttemptID == "" {
+		return nil
+	}
+	attDirs, err := dr.listAttemptDirs()
+	if err != nil {
+		return fmt.Errorf("failed to list attempts: %w", err)
+	}
+	for _, attDir := range attDirs {
+		if id, ok := attemptIDFromDir(attDir); ok && id == req.AttemptID {
+			return fmt.Errorf("%w: %s", dagrun.ErrAttemptIDExists, req.AttemptID)
+		}
+	}
+	return nil
+}
+
 // newestAttemptID returns the ID of the newest visible attempt, including an
 // attempt that has no status file yet.
 func (dr DAGRun) newestAttemptID() (string, error) {

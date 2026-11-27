@@ -505,7 +505,12 @@ func (s *DispatchTaskStore) reconcileDispatchIndexIDsIfDue(ctx context.Context, 
 	if !s.index.reconcileDue(now) {
 		return false, nil
 	}
+	return s.reconcileDispatchIndexIDs(ctx, now)
+}
 
+// reconcileDispatchIndexIDs rebuilds the index when the stored record IDs
+// differ from the indexed ones, as after another coordinator's writes.
+func (s *DispatchTaskStore) reconcileDispatchIndexIDs(ctx context.Context, now time.Time) (bool, error) {
 	pendingIDs, err := s.listDispatchRecordIDs(ctx, dispatchPendingPrefix)
 	if err != nil {
 		return false, err
@@ -904,6 +909,29 @@ func (s *DispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attemptKe
 	if _, err := s.reconcileDispatchIndexIDsIfDue(ctx, time.Now().UTC()); err != nil {
 		return false, err
 	}
+	return s.indexedOutstandingAttempt(ctx, attemptKey)
+}
+
+// HasOutstandingAttemptUncached reports whether any pending or claimed record
+// matches attemptKey, including records other coordinators wrote since the
+// last periodic reconcile.
+func (s *DispatchTaskStore) HasOutstandingAttemptUncached(ctx context.Context, attemptKey string) (bool, error) {
+	if attemptKey == "" {
+		return false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.ensureDispatchIndex(ctx); err != nil {
+		return false, err
+	}
+	if _, err := s.reconcileDispatchIndexIDs(ctx, time.Now().UTC()); err != nil {
+		return false, err
+	}
+	return s.indexedOutstandingAttempt(ctx, attemptKey)
+}
+
+func (s *DispatchTaskStore) indexedOutstandingAttempt(ctx context.Context, attemptKey string) (bool, error) {
 	if err := s.recycleExpiredReservations(ctx); err != nil {
 		return false, err
 	}

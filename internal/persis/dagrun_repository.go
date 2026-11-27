@@ -91,6 +91,8 @@ func (r *DAGRunRepository) CreateAttempt(
 		DAGRunID:   dagRunID,
 		AttemptID:  options.AttemptID,
 		Retry:      options.Retry,
+
+		UniqueAttemptID: options.UniqueAttemptID,
 	})
 	if err != nil {
 		return nil, err

@@ -83,6 +83,10 @@ type DAGRunCreateAttemptRequest struct {
 	DAGRunID   string
 	AttemptID  string
 	Retry      bool
+
+	// UniqueAttemptID refuses an AttemptID that an attempt of the run already
+	// holds, with dagrun.ErrAttemptIDExists.
+	UniqueAttemptID bool
 }
 
 // DAGRunLatestAttemptQuery selects the newest visible attempt for a DAG.
@@ -190,6 +194,9 @@ type DAGRunCreateAttemptOptions struct {
 	Retry bool
 	// AttemptID uses a caller-assigned attempt identifier when non-empty.
 	AttemptID string
+	// UniqueAttemptID refuses an AttemptID that an attempt of the run already
+	// holds, with dagrun.ErrAttemptIDExists.
+	UniqueAttemptID bool
 	// Ephemeral creates the run in the ephemeral store, where no listing,
 	// retention pass or event reaches it. It applies only to a new root run.
 	Ephemeral bool
