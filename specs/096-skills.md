@@ -324,8 +324,8 @@ The routes are under `/api/v1`. They use camelCase names. All routes accept the 
 parameter. A read needs a signed-in user when authentication is on. A write, a delete and a file
 write need the developer role or above, and the permission `write_dags`.
 
-A JSON body of a skill route has a closed schema. An unknown field gives the status 400. A JSON body
-above 8 MiB gives the status 413. The check applies to every `Content-Type`. The error never quotes
+A JSON body of a skill route has a closed schema. An unknown field gives the status 400, and so
+does a second JSON value after the first. A JSON body above 8 MiB gives the status 413. The check applies to every `Content-Type`. The error never quotes
 a value of the body. A request for a remote node gets the check of that node. The body of
 `PUT /skills/{name}/files` is the bytes of the file, with the type `application/octet-stream`.
 Another type, or none, gives 400. An empty body writes an empty file, such as a `.gitkeep`, whatever
@@ -562,7 +562,7 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | `TestReadThatMeetsADeleteFindsNoSkill` (unit) | A read that meets the delete of its skill finds no skill, never a part of one. |
 | `TestDeleteRemovesTheLockFolder` (unit) | A delete removes the lock folder of the skill. |
 | `TestDeleteRemovesWhatEarlierDeletesLeft` (unit) | A delete removes the hidden folders that earlier deletes left. |
-| `TestClosedBodyMiddleware` (unit) | A skills body with an unknown field, a wrong type or more than 8 MiB is refused for every `Content-Type`, and the error quotes no value. A file body passes as `application/octet-stream` only, and an empty body passes with any type. |
+| `TestClosedBodyMiddleware` (unit) | A skills body with an unknown field, a wrong type, a second JSON value or more than 8 MiB is refused for every `Content-Type`, and the error quotes no value. A file body passes as `application/octet-stream` only, and an empty body passes with any type. |
 | `TestSkillsPutNeedsAPrecondition` (unit) | `PUT /skills/{name}` gives 428 with no precondition and 400 for an `If-Match` that is not 64 hexadecimal characters. |
 | `TestSkillsPutChainAndConflict` (unit) | A create, an update with the hash, a stale hash and a change on disk give 200 or 409 with the current hash. An invalid `SKILL.md` gives 400 with its rules. |
 | `TestSkillsFiles` (unit) | The file routes chain the hashes, write and read an empty file, apply the rules of the folder, the 4 MiB limit and the preconditions, and delete an entry that breaks the layout. |
