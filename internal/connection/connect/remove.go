@@ -56,6 +56,8 @@ type Revocation struct {
 // was removed or replaced by a connection with the same key.
 func (e *Engine) Remove(ctx context.Context, conn *connection.Connection) error {
 	tokens, err := e.removeLocked(ctx, conn)
+	// What follows the lock runs to its end, like the delete.
+	ctx = context.WithoutCancel(ctx)
 	// The write that ended the session dropped its token, also when the
 	// delete failed after it.
 	e.revoke(ctx, conn, tokens.staged, RevokedUnconfirmed)
