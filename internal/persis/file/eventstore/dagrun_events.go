@@ -20,9 +20,31 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 )
 
-var _ eventstore.DAGRunReader = (*Store)(nil)
+var (
+	_ eventstore.DAGRunReader       = (*Store)(nil)
+	_ eventstore.NotificationReader = (*Store)(nil)
+)
+
+// keepEvent selects the events of kind and type that a reader returns.
+type keepEvent func(eventstore.EventKind, eventstore.EventType) bool
 
 func (s *Store) DAGRunHeadCursor(_ context.Context) (eventstore.DAGRunCursor, error) {
+	return s.headCursor(eventstore.IsDAGRunEventType)
+}
+
+func (s *Store) NotificationHeadCursor(_ context.Context) (eventstore.DAGRunCursor, error) {
+	return s.headCursor(eventstore.IsNotificationEventType)
+}
+
+func (s *Store) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
+	return s.readEvents(cursor, eventstore.IsDAGRunEventType)
+}
+
+func (s *Store) ReadNotificationEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
+	return s.readEvents(cursor, eventstore.IsNotificationEventType)
+}
+
+func (s *Store) headCursor(keep keepEvent) (eventstore.DAGRunCursor, error) {
 	cursor := eventstore.DAGRunCursor{
 		CommittedOffsets: make(map[string]int64),
 		InboxEventIDs:    make(map[string]string),
@@ -34,7 +56,7 @@ func (s *Store) DAGRunHeadCursor(_ context.Context) (eventstore.DAGRunCursor, er
 	}
 	for _, name := range inboxFiles {
 		cursor.LastInboxFile = name
-		event, err := s.readInboxDAGRunEvent(name)
+		event, err := s.readInboxEvent(name, keep)
 		if err != nil || event == nil {
 			continue
 		}
@@ -58,7 +80,7 @@ func (s *Store) DAGRunHeadCursor(_ context.Context) (eventstore.DAGRunCursor, er
 	return cursor.Normalize(), nil
 }
 
-func (s *Store) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
+func (s *Store) readEvents(cursor eventstore.DAGRunCursor, keep keepEvent) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
 	cursor = cursor.Normalize()
 	nextCursor := eventstore.DAGRunCursor{
 		LastInboxFile:    cursor.LastInboxFile,
@@ -89,7 +111,7 @@ func (s *Store) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCurs
 	}
 	for _, name := range files {
 		offset := cursor.CommittedOffsets[name]
-		events, size, err := s.readCommittedEventsFromOffset(name, offset)
+		events, size, err := s.readCommittedEventsFromOffset(name, offset, keep)
 		if err != nil {
 			return nil, nextCursor, err
 		}
@@ -106,7 +128,7 @@ func (s *Store) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCurs
 		if cursor.LastInboxFile != "" && name <= cursor.LastInboxFile {
 			continue
 		}
-		event, err := s.readInboxDAGRunEvent(name)
+		event, err := s.readInboxEvent(name, keep)
 		if err != nil {
 			path := filepath.Join(s.inboxDir, name)
 			slog.Warn("fileeventstore: quarantining unreadable inbox dag-run event file",
@@ -184,7 +206,7 @@ func (s *Store) listInboxFilenames() ([]string, error) {
 	return names, nil
 }
 
-func (s *Store) readCommittedEventsFromOffset(name string, offset int64) ([]*eventstore.Event, int64, error) {
+func (s *Store) readCommittedEventsFromOffset(name string, offset int64, keep keepEvent) ([]*eventstore.Event, int64, error) {
 	path := filepath.Join(s.baseDir, name)
 	file, err := os.Open(path) //nolint:gosec // controlled path
 	if err != nil {
@@ -211,14 +233,14 @@ func (s *Store) readCommittedEventsFromOffset(name string, offset int64) ([]*eve
 	}
 
 	reader := io.LimitReader(file, size-offset)
-	events, err := readDAGRunEventsFromReader(path, reader)
+	events, err := readEventsFromReader(path, reader, keep)
 	if err != nil {
 		return nil, 0, err
 	}
 	return events, size, nil
 }
 
-func (s *Store) readInboxDAGRunEvent(name string) (*eventstore.Event, error) {
+func (s *Store) readInboxEvent(name string, keep keepEvent) (*eventstore.Event, error) {
 	path := filepath.Join(s.inboxDir, name)
 	data, err := fileutil.ReadFile(path)
 	if err != nil {
@@ -236,7 +258,7 @@ func (s *Store) readInboxDAGRunEvent(name string) (*eventstore.Event, error) {
 	if err := event.Validate(); err != nil {
 		return nil, fmt.Errorf("fileeventstore: validate inbox file %s: %w", path, err)
 	}
-	if !eventstore.IsDAGRunEventType(event.Kind, event.Type) {
+	if !keep(event.Kind, event.Type) {
 		return nil, nil
 	}
 	return event, nil
@@ -256,7 +278,7 @@ func (s *Store) quarantineInboxFile(path, name string, parseErr error) error {
 	return nil
 }
 
-func readDAGRunEventsFromReader(path string, reader io.Reader) ([]*eventstore.Event, error) {
+func readEventsFromReader(path string, reader io.Reader, keep keepEvent) ([]*eventstore.Event, error) {
 	scanner := bufio.NewScanner(reader)
 	fileutil.ConfigureScanner(scanner)
 
@@ -280,7 +302,7 @@ func readDAGRunEventsFromReader(path string, reader io.Reader) ([]*eventstore.Ev
 				slog.String("error", err.Error()))
 			continue
 		}
-		if !eventstore.IsDAGRunEventType(event.Kind, event.Type) {
+		if !keep(event.Kind, event.Type) {
 			continue
 		}
 		events = append(events, event)

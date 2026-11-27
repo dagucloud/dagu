@@ -304,7 +304,7 @@ func IsDAGRunEventType(kind EventKind, eventType EventType) bool {
 		TypeDAGRunAborted,
 		TypeDAGRunRejected:
 		return true
-	case TypeLLMUsageRecorded:
+	case TypeLLMUsageRecorded, TypeConnectionNeedsAttention, TypeConnectionRestored:
 		return false
 	default:
 		return false
