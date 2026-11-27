@@ -367,17 +367,32 @@ func (h *Handler) reachableDAG(ctx context.Context, dag *ir.DAG, name string, vi
 // DAGs.
 func externalSubDAGNames(dag *ir.DAG) []string {
 	var names []string
-	eachSubDAG(dag, func(child *ir.SubDAG) {
-		if localDAGByName(dag, child.Name) == nil {
-			names = append(names, child.Name)
-		}
+	eachLocalDAG(dag, func(current *ir.DAG) {
+		eachOwnSubDAG(current, func(child *ir.SubDAG) {
+			if localDAGByName(dag, child.Name) == nil {
+				names = append(names, child.Name)
+			}
+		})
 	})
 	return names
 }
 
-// eachSubDAG calls fn with the child DAG of each step of dag and of its
-// local DAGs that runs one, foreach bodies and handlers included.
-func eachSubDAG(dag *ir.DAG, fn func(*ir.SubDAG)) {
+// eachLocalDAG calls fn with dag and each of its local DAGs, nested ones
+// included.
+func eachLocalDAG(dag *ir.DAG, fn func(*ir.DAG)) {
+	if dag == nil {
+		return
+	}
+	fn(dag)
+	for _, child := range dag.LocalDAGs {
+		eachLocalDAG(child, fn)
+	}
+}
+
+// eachOwnSubDAG calls fn with the child DAG of each step of dag that runs
+// one, foreach bodies and handlers included, but not with those of its local
+// DAGs.
+func eachOwnSubDAG(dag *ir.DAG, fn func(*ir.SubDAG)) {
 	var visit func(steps []ir.Step)
 	visit = func(steps []ir.Step) {
 		for _, step := range steps {
@@ -389,22 +404,12 @@ func eachSubDAG(dag *ir.DAG, fn func(*ir.SubDAG)) {
 			}
 		}
 	}
-	var collect func(*ir.DAG)
-	collect = func(current *ir.DAG) {
-		if current == nil {
-			return
-		}
-		visit(current.Steps)
-		for _, handler := range []*ir.Step{current.HandlerOn.Init, current.HandlerOn.Failure, current.HandlerOn.Success, current.HandlerOn.Abort, current.HandlerOn.Exit, current.HandlerOn.Wait} {
-			if handler != nil {
-				visit([]ir.Step{*handler})
-			}
-		}
-		for _, child := range current.LocalDAGs {
-			collect(child)
+	visit(dag.Steps)
+	for _, handler := range []*ir.Step{dag.HandlerOn.Init, dag.HandlerOn.Failure, dag.HandlerOn.Success, dag.HandlerOn.Abort, dag.HandlerOn.Exit, dag.HandlerOn.Wait} {
+		if handler != nil {
+			visit([]ir.Step{*handler})
 		}
 	}
-	collect(dag)
 }
 
 func dagWorkspace(dag *ir.DAG) string {

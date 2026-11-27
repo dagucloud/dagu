@@ -923,39 +923,95 @@ steps:
 }
 
 // A child whose name holds a reference runs in its parent's process on the
-// worker, as a child named as written does.
+// worker, as a child named as written does, also below a child named as
+// written.
 func TestSubDAG_ReferenceNamedChildOnWorker(t *testing.T) {
 	t.Parallel()
 
-	f := newTestFixture(t, `
+	const leaf = `
+name: ref-leaf-prod
+steps:
+  - id: note
+    action: log.write
+    with:
+      message: leaf ran
+`
+	tests := []struct {
+		name string
+		root string
+		// files are the DAG files the run reads, by name.
+		files map[string]string
+		// path holds the IDs of the steps that run each child down to the
+		// leaf.
+		path []string
+	}{
+		{
+			name: "child",
+			root: `
 params:
   - env: prod
 worker_selector:
   test: "true"
 steps:
-  - id: call_child
+  - id: call_leaf
     action: dag.run
     with:
-      dag: ref-child-${params.env}
-`)
-	f.coord.CreateDAGFile(t, f.coord.Config.Paths.DAGsDir, "ref-child-prod", []byte(`
-name: ref-child-prod
+      dag: ref-leaf-${params.env}
+`,
+			files: map[string]string{"ref-leaf-prod": leaf},
+			path:  []string{"call_leaf"},
+		},
+		{
+			name: "grandchild",
+			root: `
+worker_selector:
+  test: "true"
 steps:
-  - id: note
-    action: log.write
+  - id: call_mid
+    action: dag.run
     with:
-      message: child ran
-`))
+      dag: ref-mid
+`,
+			files: map[string]string{
+				"ref-mid": `
+name: ref-mid
+params:
+  - env: prod
+steps:
+  - id: call_leaf
+    action: dag.run
+    with:
+      dag: ref-leaf-${params.env}
+`,
+				"ref-leaf-prod": leaf,
+			},
+			path: []string{"call_mid", "call_leaf"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, err := f.dispatchDirect()
-	require.NoError(t, err)
-	status := f.waitForStatusIn([]ir.Status{ir.Succeeded, ir.Failed}, executionStatusTimeout())
-	require.Equal(t, ir.Succeeded, status.Status, status.Error)
-	f.assertWorkerID(status, "worker-1")
+			f := newTestFixture(t, tt.root)
+			for name, yaml := range tt.files {
+				f.coord.CreateDAGFile(t, f.coord.Config.Paths.DAGsDir, name, []byte(yaml))
+			}
 
-	call := requireNodeByID(t, status, "call_child")
-	require.Len(t, call.SubRuns, 1)
-	child := readDistributedSubAttemptStatus(t, f, ir.NewDAGRunRef(status.Name, status.DAGRunID), call.SubRuns[0].DAGRunID)
-	require.Equal(t, "ref-child-prod", child.Name)
-	require.Equal(t, ir.Succeeded, child.Status)
+			_, err := f.dispatchDirect()
+			require.NoError(t, err)
+			status := f.waitForStatusIn([]ir.Status{ir.Succeeded, ir.Failed}, executionStatusTimeout())
+			require.Equal(t, ir.Succeeded, status.Status, status.Error)
+			f.assertWorkerID(status, "worker-1")
+
+			rootRef := ir.NewDAGRunRef(status.Name, status.DAGRunID)
+			current := &status
+			for _, stepID := range tt.path {
+				call := requireNodeByID(t, *current, stepID)
+				require.Len(t, call.SubRuns, 1)
+				current = readDistributedSubAttemptStatus(t, f, rootRef, call.SubRuns[0].DAGRunID)
+				require.Equal(t, ir.Succeeded, current.Status)
+			}
+			require.Equal(t, "ref-leaf-prod", current.Name)
+		})
+	}
 }

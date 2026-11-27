@@ -222,31 +222,43 @@ steps:
 		assert.Equal(t, codes.PermissionDenied, status.Code(err))
 	}
 
+	// leased returns a request for a child named childName of a running
+	// attempt of runDAG, under a lease on that attempt.
+	leased := func(runDAG *ir.DAG, runID, childName string) *coordinatorv1.ResolveRuntimeProfileRequest {
+		runAttempt, err := repository.CreateAttempt(ctx, runDAG, now, runID, persis.DAGRunCreateAttemptOptions{AttemptID: runID + "-attempt"})
+		require.NoError(t, err)
+		require.NoError(t, runAttempt.Open(ctx))
+		t.Cleanup(func() { require.NoError(t, runAttempt.Close(context.Background())) })
+		key := ir.GenerateAttemptKey(runDAG.Name, runID, runDAG.Name, runID, runAttempt.ID())
+		require.NoError(t, runAttempt.Write(ctx, ir.DAGRunStatus{
+			Name: runDAG.Name, DAGRunID: runID, AttemptID: runAttempt.ID(), AttemptKey: key,
+			Status: ir.Running, ProfileName: "prod", Labels: runDAG.Labels.Strings(),
+		}))
+		require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+			AttemptKey: key, DAGRun: ir.NewDAGRunRef(runDAG.Name, runID),
+			Root: ir.NewDAGRunRef(runDAG.Name, runID), AttemptID: runAttempt.ID(),
+			WorkerID: "worker-1", ClaimedAt: now.UnixMilli(), LastHeartbeatAt: now.UnixMilli(),
+		}))
+		return &coordinatorv1.ResolveRuntimeProfileRequest{
+			WorkerId: "worker-1", AttemptKey: key, AttemptId: runAttempt.ID(),
+			ProfileName: "prod", DagName: childName,
+		}
+	}
+	requireProfileDenied := func(req *coordinatorv1.ResolveRuntimeProfileRequest) {
+		t.Helper()
+		_, err := handler.ResolveRuntimeProfile(ctx, req)
+		require.Error(t, err, "workspace %q", req.Workspace)
+		assert.Equal(t, codes.PermissionDenied, status.Code(err))
+	}
+
 	// A DAG that runs a child named by a reference may run a child of any
 	// name, labeled with its workspace or with none.
-	refDAG := &ir.DAG{
+	refChild := leased(&ir.DAG{
 		Name:   "ref-profile-dag",
 		Labels: dag.Labels,
 		Steps:  []ir.Step{{Foreach: &ir.ForeachConfig{Steps: []ir.Step{{SubDAG: &ir.SubDAG{Name: "deploy-${params.app}"}}}}}},
-	}
-	refAttempt, err := repository.CreateAttempt(ctx, refDAG, now, "run-3", persis.DAGRunCreateAttemptOptions{AttemptID: "attempt-3"})
-	require.NoError(t, err)
-	require.NoError(t, refAttempt.Open(ctx))
-	t.Cleanup(func() { require.NoError(t, refAttempt.Close(context.Background())) })
-	refKey := ir.GenerateAttemptKey(refDAG.Name, "run-3", refDAG.Name, "run-3", refAttempt.ID())
-	require.NoError(t, refAttempt.Write(ctx, ir.DAGRunStatus{
-		Name: refDAG.Name, DAGRunID: "run-3", AttemptID: refAttempt.ID(), AttemptKey: refKey,
-		Status: ir.Running, ProfileName: "prod", Labels: refDAG.Labels.Strings(),
-	}))
-	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
-		AttemptKey: refKey, DAGRun: ir.NewDAGRunRef(refDAG.Name, "run-3"),
-		Root: ir.NewDAGRunRef(refDAG.Name, "run-3"), AttemptID: refAttempt.ID(),
-		WorkerID: "worker-1", ClaimedAt: now.UnixMilli(), LastHeartbeatAt: now.UnixMilli(),
-	}))
-	refChild := &coordinatorv1.ResolveRuntimeProfileRequest{
-		WorkerId: "worker-1", AttemptKey: refKey, AttemptId: refAttempt.ID(),
-		ProfileName: "prod", Workspace: "payments", DagName: "deploy-web",
-	}
+	}, "run-3", "deploy-web")
+	refChild.Workspace = "payments"
 	refResp, err := handler.ResolveRuntimeProfile(ctx, refChild)
 	require.NoError(t, err)
 	assert.Equal(t, "workspace", runtimeProfileEntryValue(refResp.GetDefaults(), "TIER"))
@@ -256,9 +268,32 @@ steps:
 	require.NoError(t, err)
 	assert.Equal(t, "project", runtimeProfileEntryValue(refResp.GetDefaults(), "TIER"))
 	refChild.Workspace = "other"
-	_, err = handler.ResolveRuntimeProfile(ctx, refChild)
-	require.Error(t, err)
-	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+	requireProfileDenied(refChild)
+
+	// So may a DAG the run reaches through a child named as written, with its
+	// own workspace.
+	require.NoError(t, dagRepository.Create(ctx, "ref-mid-profile", []byte(`
+name: ref-mid-profile
+labels:
+  - workspace=ledger
+steps:
+  - name: leaf
+    action: dag.run
+    with:
+      dag: leaf-${ENV}
+`)))
+	grandchild := leased(&ir.DAG{
+		Name:   "mid-profile-dag",
+		Labels: dag.Labels,
+		Steps:  []ir.Step{{SubDAG: &ir.SubDAG{Name: "ref-mid-profile"}}},
+	}, "run-4", "leaf-prod")
+	for _, workspaceName := range []string{"ledger", ""} {
+		grandchild.Workspace = workspaceName
+		_, err = handler.ResolveRuntimeProfile(ctx, grandchild)
+		require.NoError(t, err, "workspace %q", workspaceName)
+	}
+	grandchild.Workspace = "payments"
+	requireProfileDenied(grandchild)
 
 	tests := []struct {
 		name   string
