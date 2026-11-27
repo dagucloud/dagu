@@ -661,8 +661,9 @@ Each of these fails the session.
 
 - Each connect gets a new refresh token from the provider.
 - These refresh tokens are unused: the one that a confirmed reconnect
-  replaces, and the one that a session holds in `confirm` when it expires,
-  is cancelled, or is replaced.
+  replaces, the one that a session holds in `confirm` when it expires, is
+  cancelled, is replaced, or its connection is removed, and the one that a
+  callback receives after its session ended or its connection was removed.
 - Dagu revokes an unused token when revoking one token leaves the rest of
   the grant. When revoking would end the account's whole grant to the
   client, or when that is unknown for the provider, the token is left
@@ -700,8 +701,14 @@ Each of these fails the session.
 - Remove revokes the refresh token where the provider supports revocation,
   then deletes the metadata and token state records and the connection's
   tool catalogs.
-- Remove does not revoke while another connection on this server holds the
-  same `account_id` and app. That connection keeps working.
+- Remove does not revoke while another connection on this server, in any
+  project or for notifications, holds the same `account_id` on the same
+  client: an app of the same provider with the same client ID. That
+  connection keeps working.
+- Remove deletes a connection whose token state is missing or cannot be
+  read, without revoking.
+- Revocation is best-effort. A failure is logged and audited without the
+  token, and never fails the remove, confirm, cancel, or new session.
 - Remove is exclusive with a refresh of the same connection. A refresh that
   races a remove drops its result, and the connection stays removed.
 - The confirmation says that connections on other servers that use the

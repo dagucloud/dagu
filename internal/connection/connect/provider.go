@@ -37,6 +37,31 @@ type Provider interface {
 	Probe(ctx context.Context, conn *connection.Connection, token *oauth2.Token) []connection.Probe
 }
 
+// Revoker is a Provider that can revoke refresh tokens. No token of a
+// provider that does not implement it is revoked.
+type Revoker interface {
+	// RevokeScope states what revoking one refresh token ends at the
+	// provider.
+	RevokeScope() RevokeScope
+	// Revoke revokes refreshToken, which was issued to app's client.
+	Revoke(ctx context.Context, app *connection.App, refreshToken string) error
+}
+
+// RevokeScope is what revoking one refresh token ends at a provider. A
+// removed connection's token is revoked under any scope. A token that a
+// reconnect replaced, or that a session held and never confirmed, is
+// revoked only under RevokesToken, since the account's other tokens for
+// the client must keep working. Any other value counts as RevokesGrant.
+type RevokeScope string
+
+const (
+	// RevokesGrant means revoking a refresh token may end the account's
+	// whole grant to the client, with every token of it.
+	RevokesGrant RevokeScope = "grant"
+	// RevokesToken means revoking a refresh token ends that token alone.
+	RevokesToken RevokeScope = "token"
+)
+
 // Identity is the account that a consent signed in.
 type Identity struct {
 	// Account is shown to people, such as an email address.
