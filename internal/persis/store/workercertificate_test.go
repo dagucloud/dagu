@@ -364,7 +364,10 @@ func TestWorkerCertificateStore_RecordHeartbeat(t *testing.T) {
 func TestWorkerCertificateStore_RecordHeartbeatBoundsChanges(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	s, _ := newWorkerCertificateStore(t)
+	_, base := newWorkerCertificateStore(t)
+	col := &countingWrites{Collection: base}
+	s, err := store.NewWorkerCertificateStore(col)
+	require.NoError(t, err)
 	cert := workerCertificate("cert-1")
 	createCertificate(t, s, cert)
 	clone := cert
@@ -372,23 +375,51 @@ func TestWorkerCertificateStore_RecordHeartbeatBoundsChanges(t *testing.T) {
 	clone.Host = "host-clone"
 
 	const reports = 180
-	writes := 0
-	last := cert.LastHeartbeatAt
+	var writtenAt []time.Time
 	for i := 1; i <= reports; i++ {
 		beat := cert
 		if i%2 == 1 {
 			beat = clone
 		}
 		beat.LastHeartbeatAt = enrolledAt.Add(time.Duration(i) * time.Second)
+		before := col.writes
 		require.NoError(t, s.RecordHeartbeat(ctx, beat))
-		if stored := getCertificate(t, s, "cert-1").LastHeartbeatAt; !stored.Equal(last) {
-			writes++
-			last = stored
+		if col.writes > before {
+			writtenAt = append(writtenAt, beat.LastHeartbeatAt)
 		}
 	}
 
-	assert.Positive(t, writes)
-	assert.LessOrEqual(t, writes, reports/60)
+	require.NotEmpty(t, writtenAt)
+	last := cert.LastHeartbeatAt
+	for _, at := range writtenAt {
+		assert.GreaterOrEqual(t, at.Sub(last), time.Minute)
+		last = at
+	}
+}
+
+// countingWrites counts the writes that change a record.
+type countingWrites struct {
+	persis.Collection
+	writes int
+}
+
+func (c *countingWrites) Put(ctx context.Context, rec *persis.Record) error {
+	return c.count(c.Collection.Put(ctx, rec))
+}
+
+func (c *countingWrites) Create(ctx context.Context, rec *persis.Record) error {
+	return c.count(c.Collection.Create(ctx, rec))
+}
+
+func (c *countingWrites) CompareAndSwap(ctx context.Context, id string, expected, next []byte) error {
+	return c.count(c.Collection.CompareAndSwap(ctx, id, expected, next))
+}
+
+func (c *countingWrites) count(err error) error {
+	if err == nil {
+		c.writes++
+	}
+	return err
 }
 
 func TestWorkerCertificateStore_RecordHeartbeatKeepsState(t *testing.T) {

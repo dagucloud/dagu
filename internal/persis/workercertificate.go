@@ -26,8 +26,10 @@ var (
 // WorkerCertificateStore keeps a record of each worker certificate a
 // coordinator issued.
 type WorkerCertificateStore interface {
-	// Create records a newly issued certificate in state active, or
-	// returns [ErrWorkerCertificateExists].
+	// Create records a newly issued certificate, or returns
+	// [ErrWorkerCertificateExists] when a record with its ID exists. The
+	// certificate is active unless its ID was removed before; certificate
+	// IDs are random, so a new one never was.
 	Create(ctx context.Context, cert WorkerCertificate) error
 
 	// Get returns the record with id, or [ErrWorkerCertificateNotFound].
