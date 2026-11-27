@@ -537,8 +537,8 @@ The `worker_certificates` collection keeps one record per certificate:
 - A worker that cannot write its data directory holds its key and
   certificate in memory only, takes no lock, and enrolls again at each
   start. A run process it starts gets the key and certificate from the
-  worker, never through an environment variable or a command-line
-  argument.
+  worker over a channel that only that run process can read, never through
+  a file, an environment variable, or a command-line argument.
 
 #### Worker Start
 
