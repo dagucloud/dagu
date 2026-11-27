@@ -126,12 +126,13 @@ function BoundNodeField({
         }
       : null
   );
-  // A disabled node fails a bound run, so it is not suggested. A worker
-  // node is, and the run runs on that worker.
+  // A disabled node and an offline worker node fail a bound run, so they
+  // are not suggested. An online worker node is, and the run runs on that
+  // worker. Only worker nodes set online.
   const suggestions = React.useMemo(
     () =>
       (data?.nodes ?? [])
-        .filter((node) => !node.disabled)
+        .filter((node) => !node.disabled && node.online !== false)
         .map((node) => node.name),
     [data]
   );
