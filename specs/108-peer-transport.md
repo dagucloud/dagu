@@ -7,10 +7,14 @@ the [Start Line](#start-line) for rows 1, 2, and 5 of
 [Client Transport](#client-transport), the warnings of
 [Ignored Settings](#ignored-settings) for `peer.cert_file`, `peer.key_file`,
 `peer.client_ca_file`, and `peer.skip_tls_verify: true`,
-[Bring Your Own Certificates](#bring-your-own-certificates), and the
+[Bring Your Own Certificates](#bring-your-own-certificates), the
+[Peer CA](#peer-ca) except the exit under `coordinator.require_tls: true`
+and the [Published CA Certificate](#published-ca-certificate), the rows of
+[Configuration Conflicts](#configuration-conflicts) for `peer.ca_cert_file`
+and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), and the
 coordinator call of [Join Readiness](#join-readiness), which reports
-`builtinTLS` as false until the coordinator has a peer CA, and
-`builtinTLSReason` only for own certificates.
+`builtinTLS` as false until the coordinator serves built-in TLS. Nothing
+uses the peer CA for TLS yet.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -1117,12 +1121,12 @@ use the built-in CA (peer.ca_cert_file, peer.ca_key_file) or your own certificat
 
 ```text
 $ dagu peer init --out ./peer
-./peer/ca.crt
-./peer/ca.key
-./peer/token
+peer/ca.crt
+peer/ca.key
+peer/token
 
 $ dagu peer init --out ./peer
-./peer/ca.crt exists; dagu peer init writes no file over an existing one
+peer/ca.crt exists; dagu peer init writes no file over an existing one
 ```
 
 The second run exits with code 1.

@@ -1,0 +1,5 @@
+peer:
+  ca_cert_file: peer/ca.crt
+  ca_key_file: peer/ca.key
+  cert_file: server.crt
+  key_file: server.key
