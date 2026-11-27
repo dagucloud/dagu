@@ -3850,7 +3850,11 @@ export interface paths {
          * @description Returns the raw SKILL.md of a skill, its hash, its files, and its errors and warnings.
          */
         get: operations["getSkill"];
-        put?: never;
+        /**
+         * Create or update SKILL.md
+         * @description Validates the SKILL.md content and writes it atomically as skills/{name}/SKILL.md of the DAGs directory. Send If-Match with the hash that the client read, or If-None-Match: * to create the skill. A skill that changed meanwhile gives 409 with its current hash. Requires developer role or above.
+         */
+        put: operations["updateSkill"];
         post?: never;
         delete?: never;
         options?: never;
@@ -5499,6 +5503,23 @@ export interface components {
                 [key: string]: string;
             };
             summary: components["schemas"]["SkillSummary"];
+        };
+        /** @description The skill after a write */
+        SkillWriteResult: {
+            /** @description The new hash of the skill */
+            hash: string;
+            errors: components["schemas"]["SkillIssue"][];
+            warnings: components["schemas"]["SkillIssue"][];
+            files: components["schemas"]["SkillFile"][];
+        };
+        /** @description An error of a skill route: a content that breaks a rule, or a write that conflicts */
+        SkillError: {
+            code: components["schemas"]["ErrorCode"];
+            message: string;
+            /** @description The rules that the content breaks */
+            issues?: components["schemas"]["SkillIssue"][];
+            /** @description For a conflict: the hash of the skill now. Absent when the server knows no current version: another writer holds the skill, or the skill is being changed. */
+            hash?: string;
         };
         /** @description A tool definition that was available to the LLM */
         ToolDefinition: {
@@ -22342,6 +22363,116 @@ export interface operations {
             };
             /** @description SKILL.md changed after the server read the skill; read it again */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateSkill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: {
+                /** @description The hash of the skill that the client read (the field hash). The write applies only when the skill still has this hash. Every write needs this header, or If-None-Match: * to create. */
+                "If-Match"?: string;
+                /** @description The value * makes the write apply only when the skill does not exist. */
+                "If-None-Match"?: string;
+            };
+            path: {
+                /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */
+                name: components["parameters"]["SkillName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The raw content of SKILL.md: a YAML front matter block with name and description, then the Markdown instructions. Content above 4 MiB gives 400 with the rule file-too-large. */
+                    content: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Skill saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillWriteResult"];
+                };
+            };
+            /** @description Invalid skill name or invalid SKILL.md */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillError"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires developer role or above */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description If-Match names a skill that does not exist */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The skill changed after the client read it, or it exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillError"];
+                };
+            };
+            /** @description The request body exceeds the 8 MiB limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The request has no If-Match or If-None-Match header */
+            428: {
                 headers: {
                     [name: string]: unknown;
                 };

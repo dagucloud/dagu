@@ -7,8 +7,10 @@ Partially implemented.
 DAG discovery skips the skills directory, as [Terms](#terms) states. `GET /skills` lists the skill
 folders with their hash and the errors and the warnings of the format and the folder rules.
 `GET /skills/{name}` reads one skill, and `GET /skills/{name}/files` streams one file. The reads use
-the cache of [Source of truth](#source-of-truth). Unit tests cover them, and a conformance test
-covers discovery. The writes, the file writes and the ZIP download are specified but not built yet.
+the cache of [Source of truth](#source-of-truth). `PUT /skills/{name}` creates or replaces
+`SKILL.md` under the preconditions of [Preconditions and conflicts](#preconditions-and-conflicts).
+Unit tests cover them, and a conformance test covers discovery. The delete of a skill, the file
+writes and the ZIP download are specified but not built yet.
 
 ## Scope
 
@@ -267,11 +269,13 @@ The text has no other line.
 Every write of the API carries the precondition of the client. Here a write is every route that
 changes a skill: both `PUT` routes and both `DELETE` routes.
 
-- `If-Match: <hash>` applies the write only when the skill still has this hash. The value can be in quotes,
-  and a prefix `W/` is ignored. A value that is not 64 hexadecimal characters gives 400.
+- `If-Match: <hash>` applies the write only when the skill still has this hash. The value can be in a
+  pair of quotes, and a prefix `W/` is ignored. A value that is not 64 hexadecimal characters gives 400.
 - `If-None-Match: *` applies the write only when the skill folder does not exist. This creates a skill.
   Of the writes, only `PUT /skills/{name}` accepts this header. Another value, or the header on
   another write, gives 400. So a delete and a file write need `If-Match`.
+
+A write with both headers gives 400.
 
 A write with neither header is refused with the HTTP status 428. A write with a stale hash, or a
 create on an existing skill, gives 409 with the code `conflict` and the current hash (`hash`). The
@@ -285,9 +289,17 @@ writes one. A write of another file keeps it as it is. A delete or a replacement
 of the skill, removes it, which is what the client asked for.
 
 The lock is a directory lock (`dirlock`) at `skills/.locks/<name>/`. It is held for the time of one
-write. A holder that crashes gives the lock free after 30 seconds. A writer waits at most 15 seconds
-and then gets 409. The directory `.locks` is hidden: the listing ignores it. A repository that syncs
-the DAGs directory SHOULD ignore `.locks/`.
+write. A holder that crashes gives the lock free after 30 seconds, and one writer takes it over. A
+writer that has lost its lock commits nothing. A writer waits at most 15 seconds and then gets 409.
+Another error of the lock gives 500. The directory `.locks` is hidden: the listing ignores it. A
+repository that syncs the DAGs directory SHOULD ignore `.locks/`.
+
+A writer commits only within 22.5 seconds of its last renewal of the lock, and another writer judges
+the lock free 30 seconds after that renewal, by its own clock. The instances that share a DAGs
+directory MUST have clocks that agree within 7.5 seconds.
+
+A read that did not settle (`changing`) holds no version, so its hash passes no precondition: the
+write gives 409 with no `hash`. A write to a skill that Dagu cannot read (`unreadable`) gives 500.
 
 ### Secrets
 
@@ -301,7 +313,8 @@ parameter. A read needs a signed-in user when authentication is on. A write, a d
 write need the developer role or above, and the permission `write_dags`.
 
 A JSON body of a skill route has a closed schema. An unknown field gives the status 400. A JSON body
-above 8 MiB gives the status 413. The error never quotes a value of the body.
+above 8 MiB gives the status 413. The check applies to every `Content-Type`. The error never quotes
+a value of the body. A request for a remote node gets the check of that node.
 
 | Route | Meaning |
 | --- | --- |
@@ -366,7 +379,8 @@ reads or writes a file outside the folder of the skill. The name of a skill in a
 folder name: no separator, no leading dot, at most 255 bytes. A new skill MUST follow the name rule.
 
 The API writes an audit event for each change: `skill_update`, `skill_delete`, `skill_file_write`,
-`skill_file_delete` and `skill_download`.
+`skill_file_delete` and `skill_download`. The resource of the event has the type `skill` and the
+name of the skill as its ID.
 
 ## Download as ZIP
 
@@ -483,9 +497,28 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | `TestSkillsReadFile` (unit) | `GET /skills/{name}/files` sends a text file and a binary file as stored, as an attachment of type `application/octet-stream` with the hash in `ETag`. A file above 4 MiB gives 413, a link 404 and a path that leaves the folder 400. |
 | `TestSkillFileStreamAborts` (unit) | A file that changes during the stream aborts the response, and no error body joins the partial file. |
 | `TestSkillsReadFileUnreadable` (unit) | `GET /skills/{name}/files` gives 500, not 404, for a skill that the server cannot read, and the body names no server path. |
-| `TestSkillsPathTraversal` (unit) | A skill name that leaves the skills directory gives 400 or 404. |
+| `TestSkillsPathTraversal` (unit) | A skill name that leaves the skills directory gives 400 or 404 for a read and a write, and no file outside it changes. |
+| `TestCheckPath` (unit) | A write accepts `SKILL.md` and a path of the layout, and refuses an escape, a hidden name and a path outside the layout. |
+| `TestWritePreconditions` (unit) | A create of an existing skill and a stale hash give a conflict with the current hash and change nothing. A write needs a precondition. The hashes chain. A bad `SKILL.md` is refused. |
+| `TestWriteRefusesASkillThatDoesNotSettle` (unit) | The hash of a read that did not settle passes no precondition. |
+| `TestWriteRefusesSymbolicLinks` (unit) | A write never goes through a link of the folder, of a folder below it or of the file. |
+| `TestWriteStaysInTheFolderThatItOpened` (unit) | A skill folder or a skills directory that becomes a link during the write leaves the link target as it was; the write stays in the folder that it opened and gives a conflict, or stops when the lock moved with the skills directory. |
+| `TestLostLockCommitsNothing` (unit) | A writer that lost its lock writes and creates nothing, and leaves no folder. |
+| `TestLockFailureIsNotAConflict` (unit) | A lock error other than a held lock is not a conflict. |
+| `TestReadThatMeetsAWriteGetsOneVersion` (unit) | A read whose folder a write replaces between its walk and its read of the files reads again and gets the new version. |
+| `TestTwoWritersRace` (unit) | Of two writers with the same hash, one wins and the other gets a conflict, also when a holder that died left the lock. |
+| `TestReaderNeverSeesAHalfWrittenFile` (unit) | A reader during a stream of writes sees one complete version or `changing`, never a mix. |
+| `TestReadAfterAWriteSeesIt` (unit) | A read right after a write gets the written version, also from a cache that held the version before, and the write returns the hash on disk. |
+| `TestClosedBodyMiddleware` (unit) | A skills body with an unknown field, a wrong type or more than 8 MiB is refused for every `Content-Type`, and the error quotes no value. |
+| `TestSkillsPutNeedsAPrecondition` (unit) | `PUT /skills/{name}` gives 428 with no precondition and 400 for an `If-Match` that is not 64 hexadecimal characters. |
+| `TestSkillsPutChainAndConflict` (unit) | A create, an update with the hash, a stale hash and a change on disk give 200 or 409 with the current hash. An invalid `SKILL.md` gives 400 with its rules. |
+| `TestSkillsTwoInstancesRaceOnOneDirectory` (unit) | Two API instances on one directory: one write wins, the other gets 409. |
+| `TestSkillsWriteNeedsDeveloper` (unit) | A viewer reads skills and cannot write them. |
+| `TestSkillsWritesFollowTheDAGWriteRules` (unit) | A write needs `write_dags`, and the read-only mode of Git Sync refuses it. |
+| `TestSkillsWritesAreAudited` (unit) | Each write gives an audit event with the resource `skill`, the name and the hash, and no content. |
+| `TestSkillsWriteFailureNamesNoServerPath` (unit) | A write that the disk refuses gives 500 and names no server path. |
 
-The writes, the file writes and the ZIP download have no test yet.
+The delete of a skill, the file writes and the ZIP download have no test yet.
 
 ## Open items
 
