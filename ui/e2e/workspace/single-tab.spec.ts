@@ -785,7 +785,7 @@ steps:
     // The run used another definition: its flat icon puts the old text in
     // the editor, which stays on the same page.
     const copy = page
-      .getByTestId('ww-run-actions')
+      .getByTestId('ww-run-copy-slot')
       .getByRole('button', { name: "Revert to this run's YAML" });
     await expect(copy).toBeEnabled({ timeout: 30_000 });
     await copy.click();

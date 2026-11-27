@@ -213,7 +213,7 @@ steps:
         // Restoring the definition of a run writes the editor: it needs write access, and the
         // stale run gives it.
         await expectPresent(
-          page.getByTestId('ww-run-actions').getByRole('button', {
+          page.getByTestId('ww-run-copy-slot').getByRole('button', {
             name: "Revert to this run's YAML",
           }),
           gates.canWrite

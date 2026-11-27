@@ -19,7 +19,7 @@ import { useDockCommands } from '../dock/DockContext';
 import { BarMoreMenu } from './BarMoreMenu';
 import { DAGIdentity } from './DAGIdentity';
 import { LabelChips } from './LabelChips';
-import { RunActionsCluster } from './RunActionsCluster';
+import { RunActionsCluster, RunRevertButton } from './RunActionsCluster';
 import { RunChip } from './RunChip';
 import { RunDetailsButton } from './RunDetailsPopover';
 import { RunSplitButton } from './RunSplitButton';
@@ -142,10 +142,11 @@ function CompactRunIdentity({
 
 /**
  * One row of 40px: identity (with the Rename button next to the name) and
- * chips, the run chip with the run icons right after it, then Start, Refresh
- * and Delete. The tab is one for the definition and its runs: the run chip
- * shows whenever the workflow has a run, and a bar under 1024px shows the
- * compact run identity in its place.
+ * chips, the run chip with the revert to the YAML of the run right after it,
+ * then the run icons, Start, Refresh and Delete. Start keeps its place in
+ * every state of the run. The tab is one for the definition and its runs: the
+ * run chip shows whenever the workflow has a run, and a bar under 1024px shows
+ * the compact run identity in its place.
  */
 export function WorkflowBar({
   fileName,
@@ -195,16 +196,19 @@ export function WorkflowBar({
           </div>
         )}
         <CompactRunIdentity fileName={fileName} dag={dag} />
+        <RunRevertButton {...slot} />
+      </div>
+      <div className="ml-auto flex shrink-0 items-center gap-1">
         {/* The run icons never shrink: a long name or label gives way first,
-            so that no icon is cut by a pixel. */}
+            so that no icon is cut by a pixel. They sit before Start, which
+            stays at the same place whatever the run shows, and a rule parts
+            them from it: Stop never sits right next to Start. */}
         <div
           data-testid="ww-bar-run-actions"
-          className="flex shrink-0 items-center"
+          className="flex shrink-0 items-center gap-2 empty:hidden after:mr-1 after:h-5 after:w-px after:bg-border"
         >
           <RunActionsCluster {...slot} />
         </div>
-      </div>
-      <div className="ml-auto flex shrink-0 items-center gap-1">
         {!standalone && <RunSplitButton {...slot} />}
         <div data-testid="ww-bar-refresh" className={SECONDARY}>
           <RefreshButton

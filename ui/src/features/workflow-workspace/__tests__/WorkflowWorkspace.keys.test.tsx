@@ -92,6 +92,7 @@ vi.mock('../bar/TriggerChip', () => ({ TriggerChip: slotStub('trigger') }));
 vi.mock('../bar/RunChip', () => ({ RunChip: slotStub('run-chip') }));
 vi.mock('../bar/RunActionsCluster', () => ({
   RunActionsCluster: slotStub('run-actions'),
+  RunRevertButton: slotStub('run-revert'),
 }));
 vi.mock('../bar/RunSplitButton', () => ({
   RunSplitButton: slotStub('run-split'),

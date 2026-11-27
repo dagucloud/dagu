@@ -68,6 +68,7 @@ vi.mock('../TriggerChip', () => ({ TriggerChip: slotStub('trigger') }));
 vi.mock('../RunChip', () => ({ RunChip: slotStub('run-chip') }));
 vi.mock('../RunActionsCluster', () => ({
   RunActionsCluster: slotStub('run-actions'),
+  RunRevertButton: slotStub('run-revert'),
 }));
 vi.mock('../RunSplitButton', () => ({ RunSplitButton: slotStub('run-split') }));
 vi.mock('../BarMoreMenu', () => ({ BarMoreMenu: slotStub('more') }));
@@ -148,6 +149,7 @@ describe('WorkflowBar', () => {
       'labels',
       'trigger',
       'run-chip',
+      'run-revert',
       'run-actions',
       'run-split',
       'edit',
@@ -187,8 +189,9 @@ describe('WorkflowBar', () => {
     );
   });
 
-  // The chip and the run icons follow the trigger chip; the compact identity
-  // takes the place of the chip below a bar of 1024px.
+  // The chip and the revert to the YAML of the run follow the trigger chip;
+  // the compact identity takes the place of the chip below a bar of 1024px.
+  // The run icons sit right before Start, which keeps its place.
   it('keeps the left-to-right order of the bar', () => {
     withRun();
     renderBar('/dags/etl');
@@ -198,6 +201,7 @@ describe('WorkflowBar', () => {
       screen.getByTestId('trigger'),
       screen.getByTestId('run-chip'),
       screen.getByTestId('ww-bar-status-dot'),
+      screen.getByTestId('run-revert'),
       screen.getByTestId('run-actions'),
       screen.getByTestId('run-split'),
       screen.getByRole('button', { name: 'Refresh' }),
@@ -475,14 +479,14 @@ describe('WorkflowBar run identity', () => {
       expect(compact).not.toHaveClass('flex-wrap');
     });
 
-    it('keeps the dot next to the run icons', () => {
+    it('keeps the dot next to the revert to the YAML of the run', () => {
       withRun();
       renderBar('/dags/etl');
       const group = screen.getByTestId('ww-bar-run');
       expect(
         within(group).getByTestId('ww-bar-status-dot')
       ).toBeInTheDocument();
-      expect(within(group).getByTestId('run-actions')).toBeInTheDocument();
+      expect(within(group).getByTestId('run-revert')).toBeInTheDocument();
     });
   });
 });

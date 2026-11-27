@@ -19,7 +19,7 @@ import type {
   DAGPageData,
   WorkspaceRunValue,
 } from '../../data/types';
-import { RunActionsCluster } from '../RunActionsCluster';
+import { RunActionsCluster, RunRevertButton } from '../RunActionsCluster';
 
 const h = vi.hoisted(() => ({
   runDags: true,
@@ -204,11 +204,13 @@ function Where() {
   return <output data-testid="where">{pathname + search}</output>;
 }
 
-function tree(run: WorkspaceRunValue, url: string) {
+type Slot = typeof RunActionsCluster;
+
+function tree(run: WorkspaceRunValue, url: string, Slot: Slot) {
   const cluster = (
     <DataProvider run={run}>
       <Where />
-      <RunActionsCluster fileName={FILE} dag={dag} workspaceName={null} />
+      <Slot fileName={FILE} dag={dag} workspaceName={null} />
     </DataProvider>
   );
   return (
@@ -222,10 +224,11 @@ function tree(run: WorkspaceRunValue, url: string) {
 
 function setup(
   selected: ApiDAGRunDetails | null,
-  url = '/dags/etl.yaml?run=run-1'
+  url = '/dags/etl.yaml?run=run-1',
+  Slot: Slot = RunActionsCluster
 ) {
   const run = runValue(selected);
-  render(tree(run, url));
+  render(tree(run, url, Slot));
   return run;
 }
 
@@ -330,6 +333,15 @@ describe('RunActionsCluster', () => {
   it('is absent for a workflow that never ran', () => {
     setup(null);
     expect(screen.queryByTestId('ww-run-actions')).toBeNull();
+  });
+
+  // The actions act on the shown run, not on the workflow that Start runs.
+  it('names the run that its actions act on', () => {
+    setup(details('failed'));
+    const group = screen.getByRole('group', { name: 'This run' });
+    expect(
+      within(group).getByRole('button', { name: 'Retry' })
+    ).toBeInTheDocument();
   });
 
   // parity:actions-stop
@@ -542,95 +554,96 @@ describe('RunActionsCluster', () => {
     ).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+});
 
-  describe("Revert to this run's YAML", () => {
-    beforeEach(() => {
-      h.runSpec = 'name: etl\nsteps: [a]\n';
-    });
+describe('RunRevertButton', () => {
+  beforeEach(() => {
+    h.runSpec = 'name: etl\nsteps: [a]\n';
+  });
 
-    // The icon follows the run actions.
-    // parity:test-run-header-meta
-    it('shows after the run actions while the run is stale', () => {
-      setup(details('failed'));
-      expect(buttonNames()).toEqual(['Retry', COPY]);
-    });
+  const setupRevert = (url?: string) =>
+    setup(details('failed'), url, RunRevertButton);
 
-    it('is absent while the run used the saved definition', () => {
-      h.runSpec = h.savedSpec;
-      setup(details('failed'));
-      expect(screen.queryByRole('button', { name: COPY })).toBeNull();
-    });
+  // parity:test-run-header-meta
+  it('shows while the run is stale', () => {
+    setupRevert();
+    expect(buttonNames()).toEqual([COPY]);
+  });
 
-    it('is absent without write access', () => {
-      h.canWrite = false;
-      setup(details('failed'));
-      expect(screen.queryByRole('button', { name: COPY })).toBeNull();
-      expect(screen.getByRole('button', { name: 'Retry' })).toBeVisible();
-    });
+  it('is absent while the run used the saved definition', () => {
+    h.runSpec = h.savedSpec;
+    setupRevert();
+    expect(screen.queryByRole('button', { name: COPY })).toBeNull();
+  });
 
-    it('is the only icon of a writer without runDags', () => {
-      h.runDags = false;
-      setup(details('failed'));
-      expect(buttonNames()).toEqual([COPY]);
-    });
+  it('is absent without write access', () => {
+    h.canWrite = false;
+    setupRevert();
+    expect(screen.queryByRole('button', { name: COPY })).toBeNull();
+  });
 
-    it('puts the run definition in a clean editor and stays on the run', () => {
-      setup(details('failed'));
-      fireEvent.click(screen.getByRole('button', { name: COPY }));
-      expect(screen.queryByRole('dialog')).toBeNull();
-      expect(h.editor.handle!.replaceBuffer).toHaveBeenCalledWith(
-        'name: etl\nsteps: [a]\n'
-      );
-      expect(screen.getByTestId('where')).toHaveTextContent(
-        '/dags/etl.yaml?run=run-1'
-      );
-    });
+  it('shows for a writer without runDags', () => {
+    h.runDags = false;
+    setupRevert();
+    expect(buttonNames()).toEqual([COPY]);
+  });
 
-    it('ends the run definition view after the copy', () => {
-      setup(details('failed'), '/dags/etl.yaml?run=run-1&def=run');
-      fireEvent.click(screen.getByRole('button', { name: COPY }));
-      expect(screen.getByTestId('where')).toHaveTextContent(
-        '/dags/etl.yaml?run=run-1'
-      );
-      expect(screen.getByTestId('where')).not.toHaveTextContent('def=run');
-    });
+  it('puts the run definition in a clean editor and stays on the run', () => {
+    setupRevert();
+    fireEvent.click(screen.getByRole('button', { name: COPY }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(h.editor.handle!.replaceBuffer).toHaveBeenCalledWith(
+      'name: etl\nsteps: [a]\n'
+    );
+    expect(screen.getByTestId('where')).toHaveTextContent(
+      '/dags/etl.yaml?run=run-1'
+    );
+  });
 
-    it('asks before it replaces unsaved changes', async () => {
-      h.editor.state = { dirty: true, editable: true, loaded: true };
-      setup(details('failed'));
-      fireEvent.click(screen.getByRole('button', { name: COPY }));
-      const dialog = await screen.findByRole('dialog');
-      expect(dialog).toHaveTextContent(
-        'The editor has unsaved changes. The definition of this run replaces them.'
-      );
-      expect(h.editor.handle!.replaceBuffer).not.toHaveBeenCalled();
-      fireEvent.click(within(dialog).getByRole('button', { name: 'Replace' }));
-      expect(h.editor.handle!.replaceBuffer).toHaveBeenCalledTimes(1);
-    });
+  it('ends the run definition view after the copy', () => {
+    setupRevert('/dags/etl.yaml?run=run-1&def=run');
+    fireEvent.click(screen.getByRole('button', { name: COPY }));
+    expect(screen.getByTestId('where')).toHaveTextContent(
+      '/dags/etl.yaml?run=run-1'
+    );
+    expect(screen.getByTestId('where')).not.toHaveTextContent('def=run');
+  });
 
-    // The parser can freeze the editor while the question is open.
-    it('replaces nothing when the editor froze during the question', async () => {
-      h.editor.state = { dirty: true, editable: true, loaded: true };
-      const run = runValue(details('failed'));
-      const url = '/dags/etl.yaml?run=run-1';
-      const view = render(tree(run, url));
-      fireEvent.click(screen.getByRole('button', { name: COPY }));
-      const dialog = await screen.findByRole('dialog');
+  it('asks before it replaces unsaved changes', async () => {
+    h.editor.state = { dirty: true, editable: true, loaded: true };
+    setupRevert();
+    fireEvent.click(screen.getByRole('button', { name: COPY }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(
+      'The editor has unsaved changes. The definition of this run replaces them.'
+    );
+    expect(h.editor.handle!.replaceBuffer).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Replace' }));
+    expect(h.editor.handle!.replaceBuffer).toHaveBeenCalledTimes(1);
+  });
 
-      h.editor = { ...h.editor, state: { ...h.editor.state, frozen: true } };
-      view.rerender(tree(run, url));
-      fireEvent.click(within(dialog).getByRole('button', { name: 'Replace' }));
+  // The parser can freeze the editor while the question is open.
+  it('replaces nothing when the editor froze during the question', async () => {
+    h.editor.state = { dirty: true, editable: true, loaded: true };
+    const run = runValue(details('failed'));
+    const url = '/dags/etl.yaml?run=run-1';
+    const view = render(tree(run, url, RunRevertButton));
+    fireEvent.click(screen.getByRole('button', { name: COPY }));
+    const dialog = await screen.findByRole('dialog');
 
-      expect(h.editor.handle!.replaceBuffer).not.toHaveBeenCalled();
-    });
+    h.editor = { ...h.editor, state: { ...h.editor.state, frozen: true } };
+    view.rerender(tree(run, url, RunRevertButton));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Replace' }));
 
-    it.each([
-      ['cannot be edited', { editable: false }],
-      ['is frozen', { frozen: true }],
-    ])('is disabled while the editor %s', (_label, patch) => {
-      h.editor.state = { dirty: false, editable: true, ...patch };
-      setup(details('failed'));
-      expect(screen.getByRole('button', { name: COPY })).toBeDisabled();
-    });
+    expect(h.editor.handle!.replaceBuffer).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['cannot be edited', { editable: false }],
+    ['is frozen', { frozen: true }],
+  ])('is disabled while the editor %s', (_label, patch) => {
+    h.editor.state = { dirty: false, editable: true, ...patch };
+    setupRevert();
+    expect(screen.getByRole('button', { name: COPY })).toBeDisabled();
   });
 });
