@@ -37,6 +37,8 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/connection"
 	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 )
@@ -45,7 +47,8 @@ const (
 	// sessionTTL is how long a session waits for consent and confirmation.
 	sessionTTL = 10 * time.Minute
 	// consentTimeout bounds the provider calls of one callback: the code
-	// exchange, the identity, and the probes.
+	// exchange, the identity, and the probes, with the duplicate check's
+	// store reads between them.
 	consentTimeout = 45 * time.Second
 	// writeTimeout bounds each token state write after the provider calls,
 	// which runs on its own deadline once those calls have used theirs.
@@ -69,6 +72,9 @@ const (
 	ReasonCancelled = "cancelled"
 	ReasonReplaced  = "replaced"
 )
+
+// errUnchanged skips a token state write that would change nothing.
+var errUnchanged = errors.New("token state already changed")
 
 var (
 	// ErrUnsupported reports a provider or grant the engine cannot connect.
@@ -95,6 +101,9 @@ var (
 // Config is what an Engine needs.
 type Config struct {
 	Store connection.Store
+	// Locks are the connection locks that the token broker refreshes
+	// under, which Remove takes.
+	Locks connection.Locks
 	// Providers are keyed by the provider each connects.
 	Providers map[connection.Provider]Provider
 	// Encryptor holds the server's key, which seals the state parameter.
@@ -106,19 +115,32 @@ type Config struct {
 	// to connected that the engine's own writes make. A first connect, from
 	// pending, is not reported.
 	OnStatusChange func(context.Context, broker.StatusChange)
+	// OnRevoke, when set, receives the outcome of each revocation the
+	// engine attempts, once, from the process whose write dropped the
+	// token. It runs on the path of the call that dropped the token,
+	// never under a connection's lock, so it must return promptly.
+	OnRevoke func(context.Context, Revocation)
 
 	// now and callContext replace the defaults in tests.
 	now         func() time.Time
 	callContext func(context.Context) (context.Context, context.CancelFunc)
 }
 
-// Engine runs connect sessions.
+// Engine runs connect sessions and removes connections. A refresh token
+// that leaves use is revoked when its provider is a Revoker: a removed
+// connection's token, unless another connection on this server holds the
+// same account on the same client, and a token that a reconnect replaced
+// or that a session held unconfirmed, under RevokesToken only. Revocation
+// is best-effort: a failure is logged and reported to OnRevoke, and never
+// fails the call that dropped the token.
 type Engine struct {
 	store           connection.Store
+	locks           connection.Locks
 	providers       map[connection.Provider]Provider
 	enc             *crypto.Encryptor
 	anyUserConfirms bool
 	onStatusChange  func(context.Context, broker.StatusChange)
+	onRevoke        func(context.Context, Revocation)
 	now             func() time.Time
 	// callContext bounds the provider calls of one callback.
 	callContext func(context.Context) (context.Context, context.CancelFunc)
@@ -172,7 +194,13 @@ type SessionStatus struct {
 	AccountID             string
 	GrantedScopes         []string
 	RefreshTokenExpiresAt time.Time
-	Probes                []connection.Probe
+	// RefreshTokenFix says what to do about the end that
+	// RefreshTokenExpiresAt shows, when the provider has advice.
+	RefreshTokenFix string
+	Probes          []connection.Probe
+	// Duplicates name the other connections of the workspace that hold
+	// the same account through the same app.
+	Duplicates []string
 	// Reason is set in PhaseFailed: the provider's error, ReasonExpired,
 	// ReasonCancelled, or ReasonReplaced.
 	Reason    string
@@ -181,8 +209,8 @@ type SessionStatus struct {
 
 // New returns an engine over cfg.
 func New(cfg Config) (*Engine, error) {
-	if cfg.Store == nil || cfg.Encryptor == nil {
-		return nil, errors.New("connect engine: store and encryptor are required")
+	if cfg.Store == nil || cfg.Locks == nil || cfg.Encryptor == nil {
+		return nil, errors.New("connect engine: store, locks, and encryptor are required")
 	}
 	now := cfg.now
 	if now == nil {
@@ -196,27 +224,31 @@ func New(cfg Config) (*Engine, error) {
 	}
 	return &Engine{
 		store:           cfg.Store,
+		locks:           cfg.Locks,
 		providers:       cfg.Providers,
 		enc:             cfg.Encryptor,
 		anyUserConfirms: cfg.AnyUserConfirms,
 		onStatusChange:  cfg.OnStatusChange,
+		onRevoke:        cfg.OnRevoke,
 		now:             now,
 		callContext:     callContext,
 	}, nil
 }
 
 // ParseClientFile returns the app that a client file of provider
-// describes, without an ID or status.
-func (e *Engine) ParseClientFile(provider connection.Provider, data []byte) (*connection.App, error) {
+// describes, without an ID or status. The provider may refuse a file whose
+// redirect URIs lack the one that opts choose for the app.
+func (e *Engine) ParseClientFile(provider connection.Provider, data []byte, opts RedirectOptions) (*connection.App, error) {
 	p, ok := e.providers[provider]
 	if !ok {
 		return nil, fmt.Errorf("%w: provider %q", ErrUnsupported, provider)
 	}
-	return p.ParseClientFile(data)
+	return p.ParseClientFile(data, opts)
 }
 
 // Start starts a session of conn, which replaces and fails an earlier one.
-// The live tokens stay as they are until the session is confirmed.
+// The live tokens stay as they are until the session is confirmed. The
+// earlier session's tokens are dropped, and revoked as Engine states.
 func (e *Engine) Start(ctx context.Context, conn *connection.Connection, opts StartOptions) (*Authorization, error) {
 	if conn.Grant != connection.GrantAuthorizationCode {
 		return nil, fmt.Errorf("%w: the %s grant", ErrUnsupported, conn.Grant)
@@ -253,7 +285,9 @@ func (e *Engine) Start(ctx context.Context, conn *connection.Connection, opts St
 	if err != nil {
 		return nil, fmt.Errorf("connection %q: seal the state parameter: %w", conn.Name, err)
 	}
+	var dropped string
 	_, err = e.store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {
+		dropped = stagedToken(st)
 		st.Session = &connection.Session{
 			ID:        sessionID,
 			User:      opts.User,
@@ -265,6 +299,7 @@ func (e *Engine) Start(ctx context.Context, conn *connection.Connection, opts St
 	if err != nil {
 		return nil, fmt.Errorf("connection %q: start the session: %w", conn.Name, err)
 	}
+	e.revoke(ctx, conn, dropped, RevokedUnconfirmed)
 	authOpts := append([]oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier)}, provider.AuthorizationParams(conn)...)
 	return &Authorization{
 		SessionID: sessionID,
@@ -324,9 +359,9 @@ func (e *Engine) complete(ctx context.Context, p CallbackParams, want *connectio
 		return err
 	}
 	if p.Error != "" {
-		return e.fail(ctx, conn, st.SessionID, claim, consentError(p.Error, p.ErrorDescription))
+		return e.fail(ctx, conn, st.SessionID, claim, e.consentFailure(ctx, conn, st.RedirectURI, p.Error, p.ErrorDescription))
 	}
-	tokens, probes, err := e.consent(callCtx, conn, st, p.Code)
+	tokens, checks, err := e.consent(callCtx, conn, st, p.Code)
 	if err != nil {
 		return e.fail(ctx, conn, st.SessionID, claim, err.Error())
 	}
@@ -335,7 +370,11 @@ func (e *Engine) complete(ctx context.Context, p CallbackParams, want *connectio
 	defer cancelWrite()
 	var from connection.TokenStatus
 	confirmed := false
+	// live is the refresh token as this write reads it: the one that a
+	// confirm at once replaces.
+	live := ""
 	_, err = e.store.UpdateTokenState(writeCtx, conn, func(s *connection.TokenState) error {
+		live = s.RefreshToken
 		if err := e.claimed(s.Session, st.SessionID, claim); err != nil {
 			return err
 		}
@@ -347,28 +386,39 @@ func (e *Engine) complete(ctx context.Context, p CallbackParams, want *connectio
 		}
 		s.Session.Phase = connection.SessionPhaseConfirm
 		s.Session.Tokens = tokens.Tokens
-		s.Session.Probes = probes
+		s.Session.Probes = checks.probes
+		s.Session.Duplicates = checks.duplicates
 		return nil
 	})
+	// A session that ended, or a connection removed, during the provider
+	// calls leaves the consent's tokens unused.
+	if errors.Is(err, ErrCallbackRefused) || errors.Is(err, connection.ErrNotFound) {
+		if tokens.RefreshToken != live {
+			e.revoke(ctx, conn, tokens.RefreshToken, RevokedUnconfirmed)
+		}
+		return err
+	}
 	if err != nil {
 		return err
 	}
 	if confirmed {
 		e.reportConnected(ctx, conn, from)
+		if live != tokens.RefreshToken {
+			e.revoke(ctx, conn, live, RevokedReplaced)
+		}
 	}
 	return nil
 }
 
 // Confirm makes the tokens of a session in confirm live, in one write that
 // also sets the account, increases the generation, sets connected, and
-// clears the session. Only the starter confirms, unless any user may.
+// clears the session. Only the starter confirms, unless any user may. The
+// refresh token it replaces is revoked as Engine states.
 func (e *Engine) Confirm(ctx context.Context, conn *connection.Connection, sessionID, user string) error {
 	var from connection.TokenStatus
-	_, err := e.store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {
+	var replaced string
+	err := e.updateSession(ctx, conn, sessionID, func(st *connection.TokenState) error {
 		s := st.Session
-		if err := e.current(s, sessionID); err != nil {
-			return err
-		}
 		if s.Phase == connection.SessionPhaseWaiting {
 			return ErrAwaitingConsent
 		}
@@ -376,6 +426,12 @@ func (e *Engine) Confirm(ctx context.Context, conn *connection.Connection, sessi
 			return ErrNotStarter
 		}
 		from = st.Status
+		// The token is read in this write, so one that a refresh rotated
+		// just before is the one replaced.
+		replaced = ""
+		if st.RefreshToken != s.Tokens.RefreshToken {
+			replaced = st.RefreshToken
+		}
 		goLive(st, s.Tokens)
 		return nil
 	})
@@ -383,30 +439,84 @@ func (e *Engine) Confirm(ctx context.Context, conn *connection.Connection, sessi
 		return fmt.Errorf("connection %q: confirm: %w", conn.Name, err)
 	}
 	e.reportConnected(ctx, conn, from)
+	e.revoke(ctx, conn, replaced, RevokedReplaced)
 	return nil
 }
 
-// Cancel fails a session that has not ended. The live tokens stay.
+// Cancel fails a session that has not ended. The live tokens stay. The
+// session's tokens are dropped, and revoked as Engine states.
 func (e *Engine) Cancel(ctx context.Context, conn *connection.Connection, sessionID string) error {
-	_, err := e.store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {
-		if err := e.current(st.Session, sessionID); err != nil {
-			return err
-		}
+	var dropped string
+	err := e.updateSession(ctx, conn, sessionID, func(st *connection.TokenState) error {
+		dropped = stagedToken(st)
 		failSession(st.Session, ReasonCancelled)
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("connection %q: cancel: %w", conn.Name, err)
 	}
+	e.revoke(ctx, conn, dropped, RevokedUnconfirmed)
 	return nil
+}
+
+// updateSession applies fn to conn's token state in one write while its
+// session is sessionID and has not ended. Otherwise it returns the reason,
+// and when the stored session expired holding a consent's tokens, the
+// write fails that session instead, which drops and revokes the tokens.
+func (e *Engine) updateSession(ctx context.Context, conn *connection.Connection, sessionID string, fn func(*connection.TokenState) error) error {
+	var ended error
+	var dropped string
+	_, err := e.store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {
+		ended, dropped = e.current(st.Session, sessionID), ""
+		if ended == nil {
+			return fn(st)
+		}
+		if !e.expiredHolding(st.Session) {
+			return ended
+		}
+		dropped = stagedToken(st)
+		failSession(st.Session, ReasonExpired)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	e.revoke(ctx, conn, dropped, RevokedUnconfirmed)
+	return ended
+}
+
+// expireSession fails conn's session when it expired holding a consent's
+// tokens, which it drops and revokes, and returns the token state.
+func (e *Engine) expireSession(ctx context.Context, conn *connection.Connection) (*connection.TokenState, error) {
+	var dropped string
+	st, err := e.store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {
+		if !e.expiredHolding(st.Session) {
+			return errUnchanged
+		}
+		dropped = stagedToken(st)
+		failSession(st.Session, ReasonExpired)
+		return nil
+	})
+	if errors.Is(err, errUnchanged) {
+		return e.store.TokenState(ctx, conn)
+	}
+	if err != nil {
+		return nil, err
+	}
+	e.revoke(ctx, conn, dropped, RevokedUnconfirmed)
+	return st, nil
 }
 
 // Session returns the status of the session that sessionID names. The
 // last confirmed session reads as connected, and any other session that is
 // no longer stored as replaced. Without a session, stored or confirmed, it
-// returns ErrSessionNotFound.
+// returns ErrSessionNotFound. The first read of a session that expired
+// holding a consent's tokens drops them, and revokes them as Engine states.
 func (e *Engine) Session(ctx context.Context, conn *connection.Connection, sessionID string) (SessionStatus, error) {
 	state, err := e.store.TokenState(ctx, conn)
+	if err == nil && e.expiredHolding(state.Session) {
+		state, err = e.expireSession(ctx, conn)
+	}
 	if err != nil {
 		return SessionStatus{}, err
 	}
@@ -434,6 +544,10 @@ func (e *Engine) Session(ctx context.Context, conn *connection.Connection, sessi
 		status.GrantedScopes = s.Tokens.GrantedScopes
 		status.RefreshTokenExpiresAt = s.Tokens.RefreshTokenExpiresAt
 		status.Probes = s.Probes
+		status.Duplicates = s.Duplicates
+		if advisor, ok := e.providers[conn.Provider].(Advisor); ok && !status.RefreshTokenExpiresAt.IsZero() {
+			status.RefreshTokenFix = advisor.RefreshTokenFix(status.RefreshTokenExpiresAt.Sub(e.now()))
+		}
 	}
 	return status, nil
 }
@@ -445,48 +559,101 @@ type consentTokens struct {
 	vouchedEmail string
 }
 
+// consentChecks are the results of the checks after a consent that a
+// session in confirm shows.
+type consentChecks struct {
+	probes     []connection.Probe
+	duplicates []string
+}
+
 // consent exchanges code and checks the result. Its error is shown to
 // people, so it carries no secret.
-func (e *Engine) consent(ctx context.Context, conn *connection.Connection, st authState, code string) (consentTokens, []connection.Probe, error) {
+func (e *Engine) consent(ctx context.Context, conn *connection.Connection, st authState, code string) (consentTokens, consentChecks, error) {
 	provider, app, err := e.client(ctx, conn)
 	if err != nil {
-		return consentTokens{}, nil, err
+		return consentTokens{}, consentChecks{}, err
 	}
 	cfg, err := oauthConfig(provider, app, conn, st.RedirectURI)
 	if err != nil {
-		return consentTokens{}, nil, err
+		return consentTokens{}, consentChecks{}, err
 	}
 	secrets := []string{code, st.Verifier, app.ClientSecret}
 	token, err := provider.Exchange(ctx, cfg, conn, code, oauth2.VerifierOption(st.Verifier))
 	if err != nil {
 		var re *oauth2.RetrieveError
 		if errors.As(err, &re) && re.ErrorCode != "" {
-			return consentTokens{}, nil, errors.New(redact(consentError(re.ErrorCode, re.ErrorDescription), secrets...))
+			reason := fixedConsentError(provider, app, st.RedirectURI, re.ErrorCode, re.ErrorDescription)
+			return consentTokens{}, consentChecks{}, errors.New(redact(reason, secrets...))
 		}
-		return consentTokens{}, nil, fmt.Errorf("exchange the code: %s", redact(err.Error(), secrets...))
+		return consentTokens{}, consentChecks{}, fmt.Errorf("exchange the code: %s", redact(err.Error(), secrets...))
 	}
 	exchangedAt := e.now()
 	// An access token that expires needs a refresh token to outlive its
 	// first hour; one that never expires serves on its own.
 	if token.RefreshToken == "" && !token.Expiry.IsZero() {
-		return consentTokens{}, nil, errors.New("the provider returned no refresh token for an access token that expires")
+		return consentTokens{}, consentChecks{}, errors.New("the provider returned no refresh token for an access token that expires")
 	}
 	secrets = append(secrets, token.AccessToken, token.RefreshToken)
 	id, err := provider.Identity(ctx, app, token)
 	if err != nil {
-		return consentTokens{}, nil, fmt.Errorf("read the account: %s", redact(err.Error(), secrets...))
+		return consentTokens{}, consentChecks{}, fmt.Errorf("read the account: %s", redact(err.Error(), secrets...))
 	}
 	if id.AccountID == "" {
-		return consentTokens{}, nil, errors.New("the provider returned no account ID")
+		return consentTokens{}, consentChecks{}, errors.New("the provider returned no account ID")
 	}
-	probes := provider.Probe(ctx, conn, token)
+	// The duplicate check reads only the store, so it runs before the
+	// probes, which may use up the calls' deadline.
+	duplicates := e.duplicates(ctx, conn, app, id.AccountID)
+	probes := provider.Probe(ctx, app, conn, token)
 	for i := range probes {
 		probes[i].Error = redact(probes[i].Error, secrets...)
 	}
 	return consentTokens{
 		Tokens:       tokensOf(token, id, cfg.Scopes, exchangedAt),
 		vouchedEmail: id.VouchedEmail,
-	}, probes, nil
+	}, consentChecks{probes: probes, duplicates: duplicates}, nil
+}
+
+// duplicates returns the names of the other connections in conn's
+// workspace whose live tokens are of accountID through the client of app,
+// which may be held by another app record. Connections of other
+// workspaces never count, so the check reveals none of them. The check
+// only warns, so a record it cannot read is skipped and logged.
+func (e *Engine) duplicates(ctx context.Context, conn *connection.Connection, app *connection.App, accountID string) []string {
+	conns, err := e.store.List(ctx, conn.Workspace)
+	if err != nil {
+		logger.Warn(ctx, "Duplicate connection check skipped", tag.Name(conn.Name), tag.Error(err))
+		return nil
+	}
+	sameClient := map[string]bool{app.ID: true}
+	var names []string
+	for _, other := range conns {
+		if other.ID == conn.ID || other.Provider != app.Provider {
+			continue
+		}
+		same, seen := sameClient[other.App]
+		if !seen {
+			otherApp, err := e.store.GetApp(ctx, other.App)
+			if err != nil {
+				logger.Warn(ctx, "Duplicate connection check skipped a connection", tag.Name(other.Name), tag.Error(err))
+				continue
+			}
+			same = otherApp.ClientID == app.ClientID
+			sameClient[other.App] = same
+		}
+		if !same {
+			continue
+		}
+		state, err := e.store.TokenState(ctx, other)
+		if err != nil {
+			logger.Warn(ctx, "Duplicate connection check skipped a connection", tag.Name(other.Name), tag.Error(err))
+			continue
+		}
+		if state.AccountID == accountID {
+			names = append(names, other.Name)
+		}
+	}
+	return names
 }
 
 // tokensOf returns the tokens of a consent whose exchange returned token
@@ -624,6 +791,22 @@ func (e *Engine) expired(s *connection.Session) bool {
 	return !e.now().Before(s.ExpiresAt)
 }
 
+// expiredHolding reports whether s expired in confirm, so that it still
+// holds a consent's tokens.
+func (e *Engine) expiredHolding(s *connection.Session) bool {
+	return s != nil && s.Phase == connection.SessionPhaseConfirm && e.expired(s)
+}
+
+// stagedToken returns the refresh token that st's session holds, unless
+// it is the live one, as when a provider returns the same refresh token on
+// each consent.
+func stagedToken(st *connection.TokenState) string {
+	if st.Session == nil || st.Session.Tokens.RefreshToken == st.RefreshToken {
+		return ""
+	}
+	return st.Session.Tokens.RefreshToken
+}
+
 // reportConnected reports a confirm that restored a connection from
 // needs_reconnect. A first connect records no event.
 func (e *Engine) reportConnected(ctx context.Context, conn *connection.Connection, from connection.TokenStatus) {
@@ -697,6 +880,7 @@ func failSession(s *connection.Session, reason string) {
 	s.Reason = reason
 	s.Tokens = connection.Tokens{}
 	s.Probes = nil
+	s.Duplicates = nil
 }
 
 func oauthConfig(provider Provider, app *connection.App, conn *connection.Connection, redirectURI string) (*oauth2.Config, error) {
@@ -725,6 +909,33 @@ func newSessionID() (string, error) {
 // lets its holder act on the session.
 func sameID(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+// consentFailure is the reason of a consent of conn that the provider
+// reported as failed, as consentError returns it, with the provider's fix.
+// Without the app, the reason has no fix.
+func (e *Engine) consentFailure(ctx context.Context, conn *connection.Connection, redirectURI, code, description string) string {
+	provider, app, err := e.client(ctx, conn)
+	if err != nil {
+		return consentError(code, description)
+	}
+	return fixedConsentError(provider, app, redirectURI, code, description)
+}
+
+// fixedConsentError is consentError with the fix that provider gives for
+// code, when it gives one.
+func fixedConsentError(provider Provider, app *connection.App, redirectURI, code, description string) string {
+	advisor, ok := provider.(Advisor)
+	if !ok {
+		return consentError(code, description)
+	}
+	fix := advisor.ConsentFix(code, app, redirectURI)
+	if fix == "" {
+		return consentError(code, description)
+	}
+	// The fix comes before the provider's description, so the bound on a
+	// reason cuts the description first.
+	return consentError(code, fix+" "+description)
 }
 
 // consentError is the reason of a consent that the provider reported as

@@ -89,6 +89,9 @@ type DispatchTask struct {
 	// matching it. Until then the task waits for one to register; after it
 	// the coordinator fails the run instead.
 	HoldUntil time.Time
+	// NeedsConnectionTokens is set when the run's DAG declares connections,
+	// so only a worker that asks for connection tokens may claim the task.
+	NeedsConnectionTokens bool `json:",omitempty"`
 
 	ExternalStepRetry   bool
 	IncludeDownstream   bool

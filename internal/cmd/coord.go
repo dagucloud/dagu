@@ -15,6 +15,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/connection"
+	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
@@ -225,6 +227,7 @@ func newCoordinator(
 		return nil, nil, fmt.Errorf("failed to create listener on %s: %w", addr, err)
 	}
 
+	connections, tokens := coordinatorConnections(ctx)
 	// Create the handler with DAG-run status persistence and streamed log storage.
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
 		DAGRunRepository:          persistence.DAGRunRepository,
@@ -240,6 +243,8 @@ func newCoordinator(
 		DAGRepository:             persistence.DAGRepository,
 		SecretStore:               secretStore,
 		ProfileStore:              profileStore,
+		ConnectionStore:           connections,
+		ConnectionTokens:          tokens,
 		ProjectsEnabled:           cfg.ProjectsEnabled,
 		NodeInventory:             nodeInventory,
 		TrustedHostKeys:           hostKeys,
@@ -252,6 +257,25 @@ func newCoordinator(
 
 	// Create and return service with advertise address for service registry
 	return coordinator.NewService(grpcServer, handler, listener, healthServer, httpHealthServer, persistence.ServiceRegistry, cfg, instanceID, advertiseAddr), handler, nil
+}
+
+// coordinatorConnections returns the connection store and the token broker
+// that answer runs on workers, or nils when the store cannot be opened. The
+// coordinator runs for long, so its broker caches no token and reads the
+// token state on each request.
+func coordinatorConnections(ctx *Context) (connection.Store, broker.Source) {
+	if ctx.serverStores == nil {
+		return nil, nil
+	}
+	store, err := ctx.serverStores.ConnectionStore()
+	if err == nil {
+		var tokens *broker.Broker
+		if tokens, err = broker.New(broker.Config{Store: store, Locks: ctx.serverStores.ConnectionLocks()}); err == nil {
+			return store, tokens
+		}
+	}
+	logger.Warn(ctx, "Connections are unavailable to runs on workers", tag.Error(err))
+	return nil, nil
 }
 
 // coordinatorPeerAuth checks the peer token on coordinator calls: the

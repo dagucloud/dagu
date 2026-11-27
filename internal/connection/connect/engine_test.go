@@ -9,9 +9,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,6 +38,7 @@ const (
 	starter    = "alice"
 	publicURL  = "https://dagu.example.com/base"
 	authURL    = "https://provider.example/authorize"
+	revokePath = "/revoke"
 	sessionTTL = 10 * time.Minute
 )
 
@@ -140,6 +145,66 @@ func TestRefreshTokenExpiryFromExchange(t *testing.T) {
 	status, err := f.engine.Session(context.Background(), f.conn, auth.SessionID)
 	require.NoError(t, err)
 	assert.Equal(t, exchangedAt.Add(time.Minute), status.RefreshTokenExpiresAt)
+}
+
+// A consent names the other connections of its workspace that hold the
+// same account through the same client, whichever app record holds it.
+// One in another workspace, of another client, or of another account is
+// not named. A connection whose token state cannot be read is skipped,
+// since the check only warns.
+func TestConsentNamesDuplicates(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	appWith := func(clientID string) string {
+		app, err := f.store.CreateApp(ctx, &connection.App{
+			Name:         clientID,
+			Provider:     f.conn.Provider,
+			Kind:         connection.AppKindBYO,
+			ClientID:     clientID,
+			ClientSecret: "secret",
+			ClientType:   connection.ClientTypeWeb,
+		})
+		require.NoError(t, err)
+		return app.ID
+	}
+	sameClient, otherClient := appWith("client"), appWith("other-client")
+	var broken *connection.Connection
+	for _, other := range []struct {
+		workspace, name, app, accountID string
+	}{
+		{"ops", "twin", f.conn.App, "sub-1"},
+		{"ops", "copy", sameClient, "sub-1"},
+		{"ops", "broken", f.conn.App, "sub-1"},
+		{"ops", "colleague", f.conn.App, "sub-2"},
+		{"ops", "stranger", otherClient, "sub-1"},
+		{"dev", "elsewhere", f.conn.App, "sub-1"},
+	} {
+		conn, err := f.store.Create(ctx, &connection.Connection{
+			Workspace: other.workspace,
+			Name:      other.name,
+			Provider:  f.conn.Provider,
+			App:       other.app,
+			Grant:     connection.GrantAuthorizationCode,
+		})
+		require.NoError(t, err)
+		_, err = f.store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {
+			st.AccountID = other.accountID
+			return nil
+		})
+		require.NoError(t, err)
+		if other.name == "broken" {
+			broken = conn
+		}
+	}
+	require.NoError(t, os.WriteFile(f.tokenFile(t, broken), []byte("{"), 0o600))
+	auth := f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
+
+	require.NoError(t, f.engine.Callback(ctx, f.provider.consent(t, auth)))
+	status, err := f.engine.Session(ctx, f.conn, auth.SessionID)
+	require.NoError(t, err)
+	assert.Equal(t, connect.PhaseConfirm, status.Phase)
+	assert.ElementsMatch(t, []string{"twin", "copy"}, status.Duplicates)
 }
 
 // A refresh token is required only for an access token that expires.
@@ -636,6 +701,9 @@ func TestStartRefusesUnavailableRedirect(t *testing.T) {
 }
 
 type fixture struct {
+	dataDir  string
+	stores   *file.ServerStores
+	locks    *contendedLocks
 	store    connection.Store
 	writes   *failingStore
 	conn     *connection.Connection
@@ -643,23 +711,29 @@ type fixture struct {
 	provider *fakeProvider
 	clock    *clock
 	changes  *changes
+	revoked  *revocations
 }
 
 func newFixture(t *testing.T, opts ...func(*connect.Config)) *fixture {
 	t.Helper()
 	ctx := context.Background()
-	stores := file.NewServerStores(&config.Config{Paths: config.PathsConfig{DataDir: t.TempDir()}})
+	dataDir := t.TempDir()
+	stores := file.NewServerStores(&config.Config{Paths: config.PathsConfig{DataDir: dataDir}})
 	s, err := stores.ConnectionStore()
 	require.NoError(t, err)
 	enc, err := stores.Encryptor()
 	require.NoError(t, err)
 
 	f := &fixture{
+		dataDir:  dataDir,
+		stores:   stores,
+		locks:    &contendedLocks{Locks: stores.ConnectionLocks(), contended: make(chan struct{}, 1)},
 		store:    s,
 		writes:   &failingStore{Store: s},
 		provider: newFakeProvider(t),
 		clock:    &clock{now: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)},
 		changes:  &changes{},
+		revoked:  &revocations{},
 	}
 	app, err := s.CreateApp(ctx, &connection.App{
 		Name:         "Example",
@@ -668,6 +742,8 @@ func newFixture(t *testing.T, opts ...func(*connect.Config)) *fixture {
 		ClientID:     "client",
 		ClientSecret: "secret",
 		ClientType:   connection.ClientTypeWeb,
+		// The token broker refreshes at this endpoint.
+		Endpoints: &connection.Endpoints{Token: f.provider.server.URL},
 	})
 	require.NoError(t, err)
 	f.conn, err = s.Create(ctx, &connection.Connection{
@@ -683,9 +759,11 @@ func newFixture(t *testing.T, opts ...func(*connect.Config)) *fixture {
 
 	cfg := connect.Config{
 		Store:          f.writes,
+		Locks:          f.locks,
 		Providers:      map[connection.Provider]connect.Provider{connection.ProviderOAuth2: f.provider},
 		Encryptor:      enc,
 		OnStatusChange: f.changes.add,
+		OnRevoke:       f.revoked.add,
 	}
 	connect.SetClock(&cfg, f.clock.Now)
 	for _, opt := range opts {
@@ -740,8 +818,24 @@ func (f *fixture) state(t *testing.T) *connection.TokenState {
 	return st
 }
 
+// tokenFile returns the path of conn's token state record.
+func (f *fixture) tokenFile(t *testing.T, conn *connection.Connection) string {
+	t.Helper()
+	for _, path := range f.files(t, tokensDir) {
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		if strings.Contains(string(data), conn.ID) {
+			return path
+		}
+	}
+	require.FailNow(t, "no token state record", conn.Name)
+	return ""
+}
+
 // fakeProvider consents in place of a browser and serves a token endpoint
-// that checks the PKCE verifier and the redirect URI.
+// that checks the PKCE verifier and the redirect URI. Each code it issues
+// grants its own refresh token: rt-1 for the first, rt-2 for the next. Its
+// revocation endpoint records the tokens it revokes.
 type fakeProvider struct {
 	server *httptest.Server
 	// Tests set these before the first callback.
@@ -760,23 +854,46 @@ type fakeProvider struct {
 	blockProbe    atomic.Bool
 	blocked       chan struct{}
 
+	failRevoke atomic.Bool
+
 	mu       sync.Mutex
 	grants   map[string]grant
 	nextCode int
 	calls    int
+	// scope is what revoking a token ends. Empty counts as RevokesGrant.
+	scope connect.RevokeScope
+	// rotateTo is the refresh token that a refresh returns, or empty to
+	// keep the one refreshed.
+	rotateTo string
+	// onRefresh and onRevoke run in the handler before it answers.
+	onRefresh func()
+	onRevoke  func()
+	refreshes int
+	revoked   []string
 }
 
 // grant is what the token endpoint expects with a code.
 type grant struct {
 	challenge   string
 	redirectURI string
+	// refreshToken is what the code grants.
+	refreshToken string
 }
 
 func newFakeProvider(t *testing.T) *fakeProvider {
 	p := &fakeProvider{grants: make(map[string]grant), blocked: make(chan struct{}, 1)}
-	p.server = httptest.NewServer(http.HandlerFunc(p.token))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", p.token)
+	mux.HandleFunc(revokePath, p.revokeEndpoint)
+	p.server = httptest.NewServer(mux)
 	t.Cleanup(p.server.Close)
 	return p
+}
+
+func (p *fakeProvider) set(fn func(*fakeProvider)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	fn(p)
 }
 
 // consent returns the callback that the provider redirects to after a
@@ -790,11 +907,19 @@ func (p *fakeProvider) consent(t *testing.T, auth *connect.Authorization) connec
 	defer p.mu.Unlock()
 	p.nextCode++
 	code := "code-" + strconv.Itoa(p.nextCode)
-	p.grants[code] = grant{challenge: q.Get("code_challenge"), redirectURI: q.Get("redirect_uri")}
+	p.grants[code] = grant{
+		challenge:    q.Get("code_challenge"),
+		redirectURI:  q.Get("redirect_uri"),
+		refreshToken: "rt-" + strconv.Itoa(p.nextCode),
+	}
 	return connect.CallbackParams{State: q.Get("state"), Code: code}
 }
 
 func (p *fakeProvider) token(w http.ResponseWriter, r *http.Request) {
+	if r.FormValue("grant_type") == "refresh_token" {
+		p.refresh(w, r)
+		return
+	}
 	p.mu.Lock()
 	p.calls++
 	g, ok := p.grants[r.FormValue("code")]
@@ -814,7 +939,7 @@ func (p *fakeProvider) token(w http.ResponseWriter, r *http.Request) {
 	default:
 		body := map[string]any{"access_token": "at-1", "token_type": "Bearer", "scope": "scope-a"}
 		if !p.noRefreshToken {
-			body["refresh_token"] = "rt-1"
+			body["refresh_token"] = g.refreshToken
 		}
 		if !p.noExpiry {
 			body["expires_in"] = 3600
@@ -826,13 +951,61 @@ func (p *fakeProvider) token(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (p *fakeProvider) refresh(w http.ResponseWriter, _ *http.Request) {
+	p.mu.Lock()
+	p.refreshes++
+	hook, rotateTo := p.onRefresh, p.rotateTo
+	p.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	body := map[string]any{"access_token": "at-refreshed", "token_type": "Bearer", "expires_in": 3600}
+	if rotateTo != "" {
+		body["refresh_token"] = rotateTo
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+// revokeEndpoint answers as RFC 7009 says. A failure names the token, so
+// tests see that the engine keeps it out of what it reports.
+func (p *fakeProvider) revokeEndpoint(w http.ResponseWriter, r *http.Request) {
+	token := r.FormValue("token")
+	p.mu.Lock()
+	hook := p.onRevoke
+	p.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	if p.failRevoke.Load() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("cannot revoke " + token))
+		return
+	}
+	p.mu.Lock()
+	p.revoked = append(p.revoked, token)
+	p.mu.Unlock()
+}
+
+func (p *fakeProvider) revokedTokens() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.revoked)
+}
+
+func (p *fakeProvider) refreshCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.refreshes
+}
+
 func (p *fakeProvider) exchanges() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.calls
 }
 
-func (p *fakeProvider) ParseClientFile([]byte) (*connection.App, error) {
+func (p *fakeProvider) ParseClientFile([]byte, connect.RedirectOptions) (*connection.App, error) {
 	return nil, errors.New("not supported")
 }
 
@@ -860,7 +1033,32 @@ func (p *fakeProvider) Identity(context.Context, *connection.App, *oauth2.Token)
 	return connect.Identity{Account: "user@example.com", AccountID: "sub-1", VouchedEmail: p.vouched}, nil
 }
 
-func (p *fakeProvider) Probe(ctx context.Context, conn *connection.Connection, _ *oauth2.Token) []connection.Probe {
+func (p *fakeProvider) RevokeScope() connect.RevokeScope {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.scope
+}
+
+func (p *fakeProvider) Revoke(ctx context.Context, _ *connection.App, refreshToken string) error {
+	form := url.Values{"token": {refreshToken}, "token_type_hint": {"refresh_token"}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.server.URL+revokePath, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := p.server.Client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("revoke: %s: %s", resp.Status, body)
+	}
+	return nil
+}
+
+func (p *fakeProvider) Probe(ctx context.Context, _ *connection.App, conn *connection.Connection, _ *oauth2.Token) []connection.Probe {
 	if p.onProbe != nil {
 		p.onProbe()
 	}
@@ -882,6 +1080,9 @@ type failingStore struct {
 
 	mu  sync.Mutex
 	err error
+	// onDelete runs before each Delete. An error it returns fails the
+	// Delete without calling the store.
+	onDelete func() error
 }
 
 func (s *failingStore) fail(err error) {
@@ -915,6 +1116,23 @@ func (c *clock) advance(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.now = c.now.Add(d)
+}
+
+type revocations struct {
+	mu   sync.Mutex
+	seen []connect.Revocation
+}
+
+func (r *revocations) add(_ context.Context, rev connect.Revocation) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seen = append(r.seen, rev)
+}
+
+func (r *revocations) list() []connect.Revocation {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.seen)
 }
 
 type changes struct {

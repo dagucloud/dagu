@@ -46,6 +46,7 @@ const (
 	CoordinatorService_ResolveSecretReference_FullMethodName      = "/coordinator.v1.CoordinatorService/ResolveSecretReference"
 	CoordinatorService_ResolveRuntimeProfile_FullMethodName       = "/coordinator.v1.CoordinatorService/ResolveRuntimeProfile"
 	CoordinatorService_ResolveNodes_FullMethodName                = "/coordinator.v1.CoordinatorService/ResolveNodes"
+	CoordinatorService_ResolveConnectionToken_FullMethodName      = "/coordinator.v1.CoordinatorService/ResolveConnectionToken"
 )
 
 // CoordinatorServiceClient is the client API for CoordinatorService service.
@@ -113,6 +114,11 @@ type CoordinatorServiceClient interface {
 	// connect through, and the host keys trusted for them. Credentials appear
 	// as secret refs, never as values.
 	ResolveNodes(ctx context.Context, in *ResolveNodesRequest, opts ...grpc.CallOption) (*ResolveNodesResponse, error)
+	// ResolveConnectionToken answers the access token of a connection that a
+	// run on a worker declares, with the connection's binding, or with
+	// check_only the binding alone. Used by workers that cannot read the
+	// coordinator's connection store.
+	ResolveConnectionToken(ctx context.Context, in *ResolveConnectionTokenRequest, opts ...grpc.CallOption) (*ResolveConnectionTokenResponse, error)
 }
 
 type coordinatorServiceClient struct {
@@ -381,6 +387,16 @@ func (c *coordinatorServiceClient) ResolveNodes(ctx context.Context, in *Resolve
 	return out, nil
 }
 
+func (c *coordinatorServiceClient) ResolveConnectionToken(ctx context.Context, in *ResolveConnectionTokenRequest, opts ...grpc.CallOption) (*ResolveConnectionTokenResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolveConnectionTokenResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_ResolveConnectionToken_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoordinatorServiceServer is the server API for CoordinatorService service.
 // All implementations must embed UnimplementedCoordinatorServiceServer
 // for forward compatibility.
@@ -446,6 +462,11 @@ type CoordinatorServiceServer interface {
 	// connect through, and the host keys trusted for them. Credentials appear
 	// as secret refs, never as values.
 	ResolveNodes(context.Context, *ResolveNodesRequest) (*ResolveNodesResponse, error)
+	// ResolveConnectionToken answers the access token of a connection that a
+	// run on a worker declares, with the connection's binding, or with
+	// check_only the binding alone. Used by workers that cannot read the
+	// coordinator's connection store.
+	ResolveConnectionToken(context.Context, *ResolveConnectionTokenRequest) (*ResolveConnectionTokenResponse, error)
 	mustEmbedUnimplementedCoordinatorServiceServer()
 }
 
@@ -527,6 +548,9 @@ func (UnimplementedCoordinatorServiceServer) ResolveRuntimeProfile(context.Conte
 }
 func (UnimplementedCoordinatorServiceServer) ResolveNodes(context.Context, *ResolveNodesRequest) (*ResolveNodesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResolveNodes not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) ResolveConnectionToken(context.Context, *ResolveConnectionTokenRequest) (*ResolveConnectionTokenResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResolveConnectionToken not implemented")
 }
 func (UnimplementedCoordinatorServiceServer) mustEmbedUnimplementedCoordinatorServiceServer() {}
 func (UnimplementedCoordinatorServiceServer) testEmbeddedByValue()                            {}
@@ -941,6 +965,24 @@ func _CoordinatorService_ResolveNodes_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoordinatorService_ResolveConnectionToken_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveConnectionTokenRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).ResolveConnectionToken(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_ResolveConnectionToken_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).ResolveConnectionToken(ctx, req.(*ResolveConnectionTokenRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CoordinatorService_ServiceDesc is the grpc.ServiceDesc for CoordinatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1027,6 +1069,10 @@ var CoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResolveNodes",
 			Handler:    _CoordinatorService_ResolveNodes_Handler,
+		},
+		{
+			MethodName: "ResolveConnectionToken",
+			Handler:    _CoordinatorService_ResolveConnectionToken_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

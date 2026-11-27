@@ -4,6 +4,7 @@
 package cmd_test
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -1003,8 +1004,18 @@ func newJobConsole(t *testing.T) *jobConsole {
 	t.Helper()
 	c := &jobConsole{}
 	c.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Console reads a body sent with Content-Encoding: gzip decompressed.
+		body := io.Reader(r.Body)
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			zr, err := gzip.NewReader(r.Body)
+			if err != nil {
+				http.Error(w, "invalid gzip body", http.StatusBadRequest)
+				return
+			}
+			body = zr
+		}
 		var report jobReport
-		if err := json.NewDecoder(r.Body).Decode(&report); err == nil {
+		if err := json.NewDecoder(body).Decode(&report); err == nil {
 			c.mu.Lock()
 			c.runs = append(c.runs, report)
 			c.mu.Unlock()

@@ -40,7 +40,7 @@ type SubWorkflowRunnerConfig struct {
 	StateStore         dagrun.StateStore
 	SecretStore        secret.Store
 	SecretResolver     func(*ir.DAG) providers.ReferenceResolver
-	ConnectionChecker  rtagent.ConnectionChecker
+	ConnectionChecker  func(*ir.DAG) rtagent.ConnectionChecker
 	ProfileStore       profile.Store
 	ProfileResolver    func(*ir.DAG) profile.RuntimeResolver
 	ServiceRegistry    serviceregistry.ServiceRegistry

@@ -113,6 +113,8 @@ type sessionRecord struct {
 	Tokens    tokensRecord            `json:"tokens,omitzero"`
 	// Probes hold provider errors, which carry no secret.
 	Probes []probeRecord `json:"probes,omitempty"`
+	// Duplicates are connection names, which are no secret.
+	Duplicates []string `json:"duplicates,omitempty"`
 }
 
 type probeRecord struct {
@@ -270,6 +272,7 @@ func (c connectionCodec) tokenStateToRecord(state *connection.TokenState) (*toke
 		for _, p := range s.Probes {
 			rec.Session.Probes = append(rec.Session.Probes, probeRecord(p))
 		}
+		rec.Session.Duplicates = s.Duplicates
 	}
 	return rec, nil
 }
@@ -311,6 +314,7 @@ func (c connectionCodec) tokenStateFromRecord(rec *tokenStateRecord) (*connectio
 		for _, p := range s.Probes {
 			state.Session.Probes = append(state.Session.Probes, connection.Probe(p))
 		}
+		state.Session.Duplicates = s.Duplicates
 	}
 	return state, nil
 }

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -96,6 +97,12 @@ func SetupCoordinator(t *testing.T, opts ...HelperOption) *Coordinator {
 	inventories, err := store.NewInventoryStore(helper.Backend.Collection(persis.CollectionInventories), helper.Backend.Lock(persis.CollectionInventories), hostKeys)
 	require.NoError(t, err)
 	cfg.NodeInventory, cfg.TrustedHostKeys = inventories, hostKeys
+	serverStores := file.NewServerStores(helper.Config)
+	cfg.ConnectionStore, err = serverStores.ConnectionStore()
+	require.NoError(t, err)
+	tokens, err := broker.New(broker.Config{Store: cfg.ConnectionStore, Locks: serverStores.ConnectionLocks()})
+	require.NoError(t, err)
+	cfg.ConnectionTokens = tokens
 	cfg.WorkerNodeStore, err = store.NewWorkerNodeStore(helper.Backend.Collection(persis.CollectionWorkerNodes), helper.WorkerHeartbeatStore)
 	require.NoError(t, err)
 	cfg.DispatchTaskStore = helper.DispatchTaskStore

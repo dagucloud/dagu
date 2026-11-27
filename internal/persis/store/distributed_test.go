@@ -589,6 +589,28 @@ func TestDispatchTaskStore_ClaimsTaskOnlyOnTargetWorker(t *testing.T) {
 	assert.Equal(t, "run-a", claimed.Task.DAGRunID)
 }
 
+// A task that needs connection tokens waits for a worker that asks for
+// them, even after the same worker polled without them.
+func TestDispatchTaskStore_ClaimsConnectionTaskOnlyWithTokens(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
+		DAGRunID: "run-a", Target: "dag-a", AttemptID: "attempt-a", AttemptKey: "key-a",
+		NeedsConnectionTokens: true,
+	}))
+
+	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-a", PollerID: "poller-a"})
+	require.NoError(t, err)
+	assert.Nil(t, claimed)
+
+	claimed, err = s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-a", PollerID: "poller-b", ConnectionTokens: true})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	assert.Equal(t, "run-a", claimed.Task.DAGRunID)
+}
+
 func TestDispatchTaskStore_ClaimsLegacyProtoJSONTaskRecord(t *testing.T) {
 	t.Parallel()
 

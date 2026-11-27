@@ -253,6 +253,20 @@ var (
 			message:       "No healthy worker matches the required worker selector.",
 		},
 	}
+	noConnectionWorkerConditionDefs = []queuedConditionDef{
+		{
+			conditionType: dagRunConditionRunnable,
+			status:        dagRunConditionStatusFalse,
+			reason:        queuedConditionReasonNoMatchingWorker,
+			message:       ir.NoConnectionWorkerRunnableMessage,
+		},
+		{
+			conditionType: dagRunConditionWorkerReady,
+			status:        dagRunConditionStatusFalse,
+			reason:        queuedConditionReasonNoMatchingWorker,
+			message:       ir.NoConnectionWorkerReadyMessage,
+		},
+	}
 	noAvailableWorkerConditionDefs = []queuedConditionDef{
 		{
 			conditionType: dagRunConditionRunnable,
@@ -1570,16 +1584,26 @@ func workerAvailableInSnapshot(
 ) (bool, []queuedConditionDef) {
 	targetWorkerID := ir.RetryAgentOwnerWorkerID(status, false)
 	healthyWorkers := 0
+	tooOld := false
 	for _, record := range records {
 		if !dispatch.WorkerHeartbeatFresh(record, now, staleThreshold) {
 			continue
 		}
 		healthyWorkers++
-		if dispatch.WorkerHeartbeatMatches(record, dag.WorkerSelector, targetWorkerID) {
+		if !dispatch.WorkerHeartbeatMatches(record, dag.WorkerSelector, targetWorkerID) {
+			continue
+		}
+		// Only a worker that hands out connection tokens runs a DAG that
+		// declares connections.
+		if record.ConnectionTokens || !dag.DeclaresConnections() {
 			return true, nil
 		}
+		tooOld = true
 	}
-	if healthyWorkers == 0 && len(dag.WorkerSelector) == 0 && targetWorkerID == "" {
+	switch {
+	case tooOld:
+		return false, noConnectionWorkerConditionDefs
+	case healthyWorkers == 0 && len(dag.WorkerSelector) == 0 && targetWorkerID == "":
 		return false, noAvailableWorkerConditionDefs
 	}
 	return false, noMatchingWorkerConditionDefs
@@ -1600,6 +1624,9 @@ func dispatchAdmissionWaitingCondition(decision *dispatch.DispatchAdmissionDecis
 }
 
 func queuedDispatchCondition(err error) []queuedConditionDef {
+	if isNoConnectionWorker(err) {
+		return noConnectionWorkerConditionDefs
+	}
 	if isNoMatchingWorker(err) {
 		return noMatchingWorkerConditionDefs
 	}
@@ -1615,6 +1642,12 @@ func isNoMatchingWorker(err error) bool {
 		return true
 	}
 	return strings.Contains(strings.ToLower(errorMessage(err)), "no workers match the required selector")
+}
+
+// isNoConnectionWorker reports the coordinator's refusal of a DAG that
+// declares connections when no matching worker supports them.
+func isNoConnectionWorker(err error) bool {
+	return strings.Contains(errorMessage(err), "the DAG declares connections, which no matching worker supports")
 }
 
 func isNoAvailableWorker(err error) bool {

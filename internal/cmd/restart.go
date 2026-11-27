@@ -156,8 +156,9 @@ func errRestartServiceDAG(name string, policy ir.RestartPolicy) error {
 	)
 }
 
-// handleRestartProcess stops the run oldDagRunID and starts a new one. A run
-// started bound to the worker node admitted restarts on that worker.
+// handleRestartProcess stops the run oldDagRunID and starts a new one where
+// the rules place it. A run started bound to the worker node admitted
+// restarts on that worker.
 func handleRestartProcess(
 	ctx *Context,
 	d *ir.DAG,
@@ -165,18 +166,18 @@ func handleRestartProcess(
 	admitted string,
 	opts runOptions,
 ) error {
-	// The worker is checked before the run stops, so a restart that cannot
-	// reach it stops nothing.
-	worker, coordinatorCli, err := boundWorker(ctx, d, opts.targetNodes, admitted)
+	placement, err := placeRun(ctx, d, opts.targetNodes, admitted)
 	if err != nil {
 		return err
 	}
-	if worker != "" {
-		if err := requireWorkerOnline(ctx, coordinatorCli, worker); err != nil {
+	// The coordinator, and the worker of a bound run, are checked before the
+	// run stops, so a restart that cannot dispatch stops nothing.
+	if placement.dispatched() {
+		if err := requireWorkerOnline(ctx, placement.client, placement.worker); err != nil {
 			return err
 		}
 	}
-	opts.boundWorker = worker
+	opts.boundWorker = placement.worker
 	if err := stopDAGIfRunning(ctx, ctx.DAGRunMgr, d, oldDagRunID); err != nil {
 		return err
 	}
@@ -191,8 +192,8 @@ func handleRestartProcess(
 		return fmt.Errorf("failed to generate dag-run ID: %w", err)
 	}
 	opts.root = ir.NewDAGRunRef(d.Name, newDagRunID)
-	if opts.boundWorker != "" {
-		return dispatchToCoordinatorAndWait(ctx, d, newDagRunID, opts, coordinatorCli)
+	if placement.dispatched() {
+		return dispatchToCoordinatorAndWait(ctx, d, newDagRunID, opts, placement.client)
 	}
 
 	return withPreparedLocalExecution(
@@ -280,7 +281,7 @@ func executeDAGWithRunID(
 			HostKeys:                 as.HostKeys,
 			TargetNodes:              opts.targetNodes,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
-			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
+			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory("local"),
 			RootDAGRun:               ir.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:               ctx.Config.Core.Peer,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
@@ -340,13 +341,19 @@ func stopRunningDAG(ctx context.Context, cli runtime.Manager, dag *ir.DAG, dagRu
 }
 
 // requireWorkerOnline fails unless the coordinator answers and the worker
-// sent a heartbeat recently enough for a dispatch to reach it. The worker
-// can still be lost while the run stops and during restart_wait_sec; the
-// dispatch then fails as offline.
+// sent a heartbeat recently enough for a dispatch to reach it. An empty
+// worker requires only the coordinator. The worker can still be lost while
+// the run stops and during restart_wait_sec; the dispatch then fails as
+// offline.
 func requireWorkerOnline(ctx context.Context, cli coordinator.Client, worker string) error {
 	workers, err := cli.GetWorkers(ctx)
-	if err != nil {
+	switch {
+	case err != nil && worker == "":
+		return fmt.Errorf("failed to reach the coordinator: %w", err)
+	case err != nil:
 		return fmt.Errorf("failed to reach the coordinator of worker node %q: %w", worker, err)
+	case worker == "":
+		return nil
 	}
 	now := time.Now()
 	if !slices.ContainsFunc(workers, func(w *coordinatorv1.WorkerInfo) bool {

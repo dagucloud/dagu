@@ -73,6 +73,9 @@ type Context struct {
 	// storeOptions opens every project's stores with the process's caches.
 	storeOptions file.ProjectStoreOptions
 	event        *eventstore.Service
+	// runPlaced is set for a run that a Dagu process launched after it
+	// placed the run on this host (runenv.EnvKeyRunPlaced).
+	runPlaced bool
 
 	Caches         []fileutil.CacheMetrics
 	Proc           proc.ProcHandle
@@ -638,7 +641,9 @@ func (c *Context) coordinatorClient() (coordinator.Client, error) {
 	return coordinator.New(c.Persistence.ServiceRegistry, clientConfig), nil
 }
 
-func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
+// SubWorkflowRunnerFactory returns the runners of the sub-DAGs of a run that
+// workerID executes.
+func (c *Context) SubWorkflowRunnerFactory(workerID string) func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 	stores := c.runtimeStores()
 	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 		DAGRunMgr:          c.DAGRunMgr,
@@ -648,7 +653,7 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 		StateStore:         c.Persistence.StateStore,
 		SecretStore:        stores.SecretStore,
 		SecretResolver:     stores.subDAGSecretResolver(),
-		ConnectionChecker:  stores.Connections,
+		ConnectionChecker:  stores.subDAGConnections(workerID),
 		ProfileStore:       stores.ProfileStore,
 		ProfileResolver:    stores.subDAGProfileResolver(),
 		ServiceRegistry:    c.Persistence.ServiceRegistry,
@@ -768,6 +773,9 @@ func NewCommand(cmd *cobra.Command, flags []commandLineFlag, runFunc func(cmd *C
 			}()
 		}
 
+		// The marker leaves the environment before the configuration copies
+		// it, so no step of the run inherits it.
+		runPlaced := claimRunPlaced()
 		ctx, err := NewContext(cmd, flags)
 		if errors.Is(err, errProjectFlagUnknown) {
 			return cmd.FlagErrorFunc()(cmd, err)
@@ -781,6 +789,7 @@ func NewCommand(cmd *cobra.Command, flags []commandLineFlag, runFunc func(cmd *C
 		if ctx, err = ctx.inLibraryOf(args); err != nil {
 			return err
 		}
+		ctx.runPlaced = runPlaced
 		return runFunc(ctx, args)
 	}
 

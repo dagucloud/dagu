@@ -306,6 +306,20 @@ type DAG struct {
 	Tools *ToolConfig `json:"tools,omitempty"`
 }
 
+// DeclaresConnections reports whether d or one of its local DAGs declares
+// a connection.
+func (d *DAG) DeclaresConnections() bool {
+	if len(d.Connections) > 0 {
+		return true
+	}
+	for _, child := range d.LocalDAGs {
+		if child != nil && child.DeclaresConnections() {
+			return true
+		}
+	}
+	return false
+}
+
 // ConnectionRef is a connection that a DAG names.
 type ConnectionRef struct {
 	Name string `json:"name"`

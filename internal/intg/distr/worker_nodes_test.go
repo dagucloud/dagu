@@ -242,7 +242,7 @@ func (f *testFixture) startBound(node string) error {
 	spec := launcher.NewSubCmdBuilder(f.coord.Config).Start(f.dagWrapper.DAG, launcher.StartOptions{
 		Quiet: true, TargetNodes: []string{node},
 	})
-	return launcher.Run(f.coord.Context, spec)
+	return launcher.Run(f.coord.Context, asUser(spec))
 }
 
 // requireOnWorker requires that status ended as want on the worker gw-1,
@@ -331,9 +331,9 @@ steps:
 	startWorkerNodes(t, f, nil, "gw-1")
 
 	builder := launcher.NewSubCmdBuilder(f.coord.Config)
-	require.NoError(t, launcher.Start(f.coord.Context, builder.Start(f.dagWrapper.DAG, launcher.StartOptions{
+	require.NoError(t, launcher.Start(f.coord.Context, asUser(builder.Start(f.dagWrapper.DAG, launcher.StartOptions{
 		Quiet: true, TargetNodes: []string{"gw-1"},
-	})))
+	}))))
 	first := f.waitForStatus(ir.Running, executionStatusTimeout())
 	require.Equal(t, "gw-1", first.WorkerID)
 
@@ -411,7 +411,7 @@ steps:
 	}}})
 	require.NoError(t, err)
 
-	retried := launcher.Run(f.coord.Context, builder.Retry(f.dagWrapper.DAG, launcher.RetryOptions{DAGRunID: first.DAGRunID}))
+	retried := launcher.Run(f.coord.Context, asUser(builder.Retry(f.dagWrapper.DAG, launcher.RetryOptions{DAGRunID: first.DAGRunID})))
 	require.ErrorContains(t, retried, `node "gw-1": `+intake.ErrWorkerNodeChanged.Error())
 	f.startScheduler(30 * time.Second)
 	f.h.Wait.EventuallyEveryWithin("the queued run fails", executionStatusTimeout(), 100*time.Millisecond, func() bool {

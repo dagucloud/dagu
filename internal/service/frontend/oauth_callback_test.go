@@ -25,7 +25,7 @@ func TestOAuthCallbackRefusesUnknownState(t *testing.T) {
 	require.NoError(t, err)
 	enc, err := stores.Encryptor()
 	require.NoError(t, err)
-	engine, err := connect.New(connect.Config{Store: connections, Encryptor: enc})
+	engine, err := connect.New(connect.Config{Store: connections, Locks: stores.ConnectionLocks(), Encryptor: enc})
 	require.NoError(t, err)
 
 	rec := httptest.NewRecorder()
