@@ -42,6 +42,7 @@ import { CreateDAGButton, DAGPagination } from '../common';
 import DAGActions from '../common/DAGActions';
 import LiveSwitch from '../common/LiveSwitch';
 import ActivityBars from './ActivityBars';
+import ServiceActivityStrip from './ServiceActivityStrip';
 import { DAGRecentRuns } from './DAGRecentRuns';
 import { LastRunCell, ServiceStateChip } from './LastRunCell';
 import { ScheduleLine } from './ScheduleSummary';
@@ -374,10 +375,20 @@ function DAGCard({
         )}
       </div>
 
-      {/* A service DAG has no runs to draw as bars. */}
-      {showActivity && !isService && (
-        <ActivityBars activity={activity} className="mb-1.5" />
-      )}
+      {/* Until its activity arrives, a service card keeps the room of the
+          bars too. */}
+      {showActivity &&
+        (isService && activity ? (
+          activity.buckets && (
+            <ServiceActivityStrip
+              activity={activity}
+              fileName={fileName}
+              className="mb-1.5"
+            />
+          )
+        ) : (
+          <ActivityBars activity={activity} className="mb-1.5" />
+        ))}
 
       {/* Labels */}
       {labels.length > 0 && (
@@ -1032,16 +1043,33 @@ const defaultColumns = [
     ),
     cell: ({ row, table }) => {
       const data = row.original!;
-      // A service DAG has no runs to draw as bars.
-      if (data.kind !== ItemKind.DAG || isServiceDAG(data.dag.dag)) {
+      if (data.kind !== ItemKind.DAG) {
         return null;
       }
       const meta = table.options.meta;
       const fileName = data.dag.fileName;
+      const activity = meta?.activity?.get(fileName);
+      // A service DAG draws the buckets of its run history, not its runs as
+      // bars, and has no recent runs to unfold.
+      if (isServiceDAG(data.dag.dag)) {
+        if (!activity) {
+          // The room of the strip until the activity arrives.
+          return <ActivityBars activity={undefined} fluid />;
+        }
+        return activity.buckets ? (
+          <div className="flex items-center">
+            <ServiceActivityStrip
+              activity={activity}
+              fileName={fileName}
+              fluid
+            />
+          </div>
+        ) : null;
+      }
       return (
         <ActivityCell
           fileName={fileName}
-          activity={meta?.activity?.get(fileName)}
+          activity={activity}
           onOpenRun={meta?.onOpenRun}
           hasRun={!!data.dag.latestDAGRun?.dagRunId}
           expanded={meta?.isActivityExpanded?.(fileName) ?? false}
