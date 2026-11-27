@@ -509,8 +509,7 @@ func parseLocalISODateTime(s string, loc *time.Location) (ms int64, handled bool
 }
 
 func hasExplicitTimezone(s string) bool {
-	if idx := strings.IndexByte(s, 'T'); idx != -1 {
-		tail := s[idx+1:]
+	if _, tail, ok := strings.Cut(s, "T"); ok {
 		if strings.HasSuffix(tail, "Z") || strings.ContainsAny(tail, "+-") {
 			return true
 		}
