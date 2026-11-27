@@ -16,11 +16,14 @@ import (
 )
 
 // testConnections serves the connections it holds by name, and answers
-// every token request with token, recording the minTTL asked for.
+// every token request with token, recording the minTTL asked for. The
+// token answer for withdrawn disallows its export, as a binding a worker
+// receives with a token does after an admin turned export off.
 type testConnections struct {
-	conns  map[string]*connection.Connection
-	token  string
-	minTTL time.Duration
+	conns     map[string]*connection.Connection
+	token     string
+	withdrawn string
+	minTTL    time.Duration
 }
 
 func (c *testConnections) Connection(_ context.Context, name string) (*connection.Connection, error) {
@@ -31,8 +34,11 @@ func (c *testConnections) Connection(_ context.Context, name string) (*connectio
 	return conn, nil
 }
 
-func (c *testConnections) Token(_ context.Context, _ *connection.Connection, _ string, minTTL time.Duration) (string, time.Duration, error) {
+func (c *testConnections) Token(_ context.Context, conn *connection.Connection, _ string, minTTL time.Duration) (string, time.Duration, error) {
 	c.minTTL = minTTL
+	if conn.Name == c.withdrawn {
+		c.conns[conn.Name] = &connection.Connection{Name: conn.Name, Services: conn.Services}
+	}
 	return c.token, time.Hour, nil
 }
 
@@ -58,13 +64,17 @@ func TestConnectionResolver(t *testing.T) {
 		{name: "Missing", key: "missing", wantErr: "connection not found"},
 		{name: "InvalidKey", key: "Work", wantErr: `invalid secret reference for "TOKEN": key:`},
 		{name: "UnknownOption", key: "work-google", options: map[string]string{"scope": "x"}, wantErr: `unknown option "scope"`},
+		{name: "Microsoft", key: "work-microsoft", wantErr: `connection "work-microsoft": a Microsoft connection cannot export a token yet`},
+		{name: "Withdrawn", key: "withdrawn", wantErr: `connection "withdrawn" does not allow token export`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			conns := &testConnections{token: "access-token", conns: map[string]*connection.Connection{
-				"work-google": {Name: "work-google", Services: gmail, AllowTokenExport: true},
-				"ops-mail":    {Name: "ops-mail", Services: gmail},
+			conns := &testConnections{token: "access-token", withdrawn: "withdrawn", conns: map[string]*connection.Connection{
+				"work-google":    {Name: "work-google", Services: gmail, AllowTokenExport: true},
+				"ops-mail":       {Name: "ops-mail", Services: gmail},
+				"work-microsoft": {Name: "work-microsoft", Provider: connection.ProviderMicrosoft, AllowTokenExport: true},
+				"withdrawn":      {Name: "withdrawn", Services: gmail, AllowTokenExport: true},
 			}}
 			ctx := WithConnections(context.Background(), conns)
 			got, err := NewRegistry().Resolve(ctx, secretref.Ref{
@@ -72,6 +82,7 @@ func TestConnectionResolver(t *testing.T) {
 			})
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
+				assert.Empty(t, got)
 				return
 			}
 			require.NoError(t, err)

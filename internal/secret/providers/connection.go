@@ -82,7 +82,15 @@ func (r *connectionResolver) Resolve(ctx context.Context, ref secretref.Ref) (st
 	// Every provider but Microsoft serves one resource, so a service only
 	// has to be one of the connection's services.
 	token, _, err := connectionsFrom(ctx).Token(ctx, conn, "", broker.ExportMinTTL)
-	return token, err
+	if err != nil {
+		return "", err
+	}
+	// On a worker, the token's answer carries the connection's current
+	// binding, so an export disallowed since the check returns no token.
+	if _, err := exportedConnection(ctx, ref); err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 // exportedConnection returns the connection ref names when it allows
@@ -98,6 +106,11 @@ func exportedConnection(ctx context.Context, ref secretref.Ref) (*connection.Con
 	}
 	if !conn.AllowTokenExport {
 		return nil, fmt.Errorf("connection %q does not allow token export; an admin can set allow_token_export on it", ref.Key)
+	}
+	// A Microsoft service selects one of several resources, which its
+	// presets do not name yet.
+	if conn.Provider == connection.ProviderMicrosoft {
+		return nil, fmt.Errorf("connection %q: a Microsoft connection cannot export a token yet", ref.Key)
 	}
 	if service, ok := ref.Options[serviceOption]; ok {
 		if !slices.ContainsFunc(conn.Services, func(svc connection.Service) bool { return svc.Name == service }) {
