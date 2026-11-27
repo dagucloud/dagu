@@ -59,6 +59,11 @@ const (
 	// whole grant to the client, with every token of it.
 	RevokesGrant RevokeScope = "grant"
 	// RevokesToken means revoking a refresh token ends that token alone.
+	// It also promises that no two connections hold one refresh token,
+	// since the engine compares a dropped token only with its own
+	// connection's live one. A provider that may return the same refresh
+	// token to each consent of an account and client declares
+	// RevokesGrant.
 	RevokesToken RevokeScope = "token"
 )
 

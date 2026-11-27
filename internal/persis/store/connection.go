@@ -240,23 +240,7 @@ func (s *ConnectionStore) Get(ctx context.Context, key connection.Key) (*connect
 }
 
 func (s *ConnectionStore) List(ctx context.Context, workspace string) ([]*connection.Connection, error) {
-	conns, err := s.list(ctx, workspaceSegment(workspace)+"/")
-	if err != nil {
-		return nil, err
-	}
-	conns = slices.DeleteFunc(conns, func(c *connection.Connection) bool { return c.Workspace != workspace })
-	slices.SortFunc(conns, func(a, b *connection.Connection) int { return cmp.Compare(a.Name, b.Name) })
-	return conns, nil
-}
-
-func (s *ConnectionStore) ListAll(ctx context.Context) ([]*connection.Connection, error) {
-	return s.list(ctx, "")
-}
-
-// list returns the connections whose records start with prefix, skipping
-// records that cannot be read.
-func (s *ConnectionStore) list(ctx context.Context, prefix string) ([]*connection.Connection, error) {
-	recs, err := s.conns.listTolerant(ctx, prefix, "connection")
+	recs, err := s.conns.listTolerant(ctx, workspaceSegment(workspace)+"/", "connection")
 	if err != nil {
 		return nil, fmt.Errorf("connection store: list connections: %w", err)
 	}
@@ -266,6 +250,26 @@ func (s *ConnectionStore) list(ctx context.Context, prefix string) ([]*connectio
 		if err != nil {
 			logger.Warn(ctx, "connection store: failed to load connection", slog.String("record", rec.ID), tag.Error(err))
 			continue
+		}
+		if conn.Workspace != workspace {
+			continue
+		}
+		conns = append(conns, conn)
+	}
+	slices.SortFunc(conns, func(a, b *connection.Connection) int { return cmp.Compare(a.Name, b.Name) })
+	return conns, nil
+}
+
+func (s *ConnectionStore) ListAll(ctx context.Context) ([]*connection.Connection, error) {
+	recs, err := listAllStrict(ctx, s.conns.col, persis.ListQuery{})
+	if err != nil {
+		return nil, fmt.Errorf("connection store: list connections: %w", err)
+	}
+	conns := make([]*connection.Connection, 0, len(recs))
+	for _, rec := range recs {
+		conn, err := decodeConnection(rec)
+		if err != nil {
+			return nil, fmt.Errorf("connection store: record %q: %w", rec.ID, err)
 		}
 		conns = append(conns, conn)
 	}
@@ -329,12 +333,14 @@ func (s *ConnectionStore) Delete(ctx context.Context, key connection.Key) error 
 		if err != nil {
 			return fmt.Errorf("connection store: delete token state: %w", err)
 		}
-		catalogs, err := listAll(ctx, s.catalogs.col, persis.ListQuery{Prefix: id + "/"})
+		// Catalogs are found by record ID, so one that cannot be read is
+		// removed too.
+		catalogs, err := recordIDs(ctx, s.catalogs.col, id+"/")
 		if err != nil {
 			return fmt.Errorf("connection store: list catalogs: %w", err)
 		}
-		for _, rec := range catalogs {
-			err := deleteConnectionRecord(ctx, s.catalogs.col, rec.ID, conn.ID, held, func(rec *persis.Record) (string, error) {
+		for _, catalogID := range catalogs {
+			err := deleteConnectionRecord(ctx, s.catalogs.col, catalogID, conn.ID, held, func(rec *persis.Record) (string, error) {
 				var stored catalogRecord
 				err := persis.Decode(rec, &stored)
 				return stored.ConnectionID, err
@@ -373,21 +379,21 @@ func deleteConnectionRecord(
 		if errors.Is(err, persis.ErrNotFound) {
 			return nil
 		}
-		unreadable := errors.Is(err, persis.ErrCorrupt)
-		if err != nil && !unreadable {
+		corrupt := errors.Is(err, persis.ErrCorrupt)
+		if err != nil && !corrupt {
 			return err
 		}
-		if !unreadable {
+		if !corrupt {
 			got, err := owner(rec)
-			unreadable = err != nil
-			if !unreadable && got != connectionID {
+			if err == nil && got != connectionID {
 				return nil
 			}
 		}
 		if err := held(); err != nil {
 			return err
 		}
-		if unreadable {
+		// A corrupt record gives nothing to compare with.
+		if corrupt {
 			return col.Delete(ctx, id)
 		}
 		err = col.CompareAndDelete(ctx, rec)
@@ -407,7 +413,7 @@ func (s *ConnectionStore) TokenState(ctx context.Context, conn *connection.Conne
 		return pendingTokenState(conn), nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, tokenStateError(err)
 	}
 	state, err := s.decodeTokenState(rec)
 	if err != nil {
@@ -437,7 +443,7 @@ func (s *ConnectionStore) UpdateTokenState(
 			return connection.ErrNotFound
 		}
 		if err != nil {
-			return err
+			return tokenStateError(err)
 		}
 		state, err := s.decodeTokenState(current)
 		if err != nil {
@@ -565,9 +571,22 @@ func (s *ConnectionStore) encodeTokenState(state *connection.TokenState) ([]byte
 func (s *ConnectionStore) decodeTokenState(rec *persis.Record) (*connection.TokenState, error) {
 	var stored tokenStateRecord
 	if err := persis.Decode(rec, &stored); err != nil {
-		return nil, fmt.Errorf("connection store: decode token state: %w", err)
+		return nil, fmt.Errorf("connection store: decode token state: %w: %w", connection.ErrCorrupt, err)
 	}
-	return s.codec.tokenStateFromRecord(&stored)
+	state, err := s.codec.tokenStateFromRecord(&stored)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", connection.ErrCorrupt, err)
+	}
+	return state, nil
+}
+
+// tokenStateError marks a token state record that the backend found
+// corrupt.
+func tokenStateError(err error) error {
+	if errors.Is(err, persis.ErrCorrupt) {
+		return fmt.Errorf("%w: %w", connection.ErrCorrupt, err)
+	}
+	return err
 }
 
 func pendingTokenState(conn *connection.Connection) *connection.TokenState {
@@ -610,6 +629,23 @@ func connectionRecordID(key connection.Key) string {
 
 func catalogRecordID(key connection.Key, service string) string {
 	return connectionRecordID(key) + "/" + service
+}
+
+// recordIDs returns the IDs of col's records under prefix, also of records
+// that cannot be read, where the collection lists IDs apart from records.
+func recordIDs(ctx context.Context, col persis.Collection, prefix string) ([]string, error) {
+	if idCol, ok := col.(recordIDsCollection); ok {
+		return idCol.RecordIDs(ctx, prefix)
+	}
+	recs, err := listAll(ctx, col, persis.ListQuery{Prefix: prefix})
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(recs))
+	for i, rec := range recs {
+		ids[i] = rec.ID
+	}
+	return ids, nil
 }
 
 // workspaceSegment writes each uppercase letter as upperCaseEscape and its

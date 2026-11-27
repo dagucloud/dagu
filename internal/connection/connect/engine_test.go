@@ -642,6 +642,7 @@ func TestStartRefusesUnavailableRedirect(t *testing.T) {
 type fixture struct {
 	dataDir  string
 	stores   *file.ServerStores
+	locks    *contendedLocks
 	store    connection.Store
 	writes   *failingStore
 	conn     *connection.Connection
@@ -665,6 +666,7 @@ func newFixture(t *testing.T, opts ...func(*connect.Config)) *fixture {
 	f := &fixture{
 		dataDir:  dataDir,
 		stores:   stores,
+		locks:    &contendedLocks{Locks: stores.ConnectionLocks(), contended: make(chan struct{}, 1)},
 		store:    s,
 		writes:   &failingStore{Store: s},
 		provider: newFakeProvider(t),
@@ -696,7 +698,7 @@ func newFixture(t *testing.T, opts ...func(*connect.Config)) *fixture {
 
 	cfg := connect.Config{
 		Store:          f.writes,
-		Locks:          stores.ConnectionLocks(),
+		Locks:          f.locks,
 		Providers:      map[connection.Provider]connect.Provider{connection.ProviderOAuth2: f.provider},
 		Encryptor:      enc,
 		OnStatusChange: f.changes.add,
@@ -874,7 +876,7 @@ func (p *fakeProvider) token(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (p *fakeProvider) refresh(w http.ResponseWriter, r *http.Request) {
+func (p *fakeProvider) refresh(w http.ResponseWriter, _ *http.Request) {
 	p.mu.Lock()
 	p.refreshes++
 	hook, rotateTo := p.onRefresh, p.rotateTo
@@ -1003,6 +1005,8 @@ type failingStore struct {
 
 	mu  sync.Mutex
 	err error
+	// onDelete runs before each Delete.
+	onDelete func()
 }
 
 func (s *failingStore) fail(err error) {

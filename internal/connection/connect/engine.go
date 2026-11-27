@@ -114,7 +114,8 @@ type Config struct {
 	OnStatusChange func(context.Context, broker.StatusChange)
 	// OnRevoke, when set, receives the outcome of each revocation the
 	// engine attempts, once, from the process whose write dropped the
-	// token.
+	// token. It runs on the path of the call that dropped the token,
+	// never under a connection's lock, so it must return promptly.
 	OnRevoke func(context.Context, Revocation)
 
 	// now and callContext replace the defaults in tests.
