@@ -25,11 +25,11 @@ import (
 
 const (
 	peerCACommonName = "Dagu peer CA"
-	// peerCABackdate moves the CA's notBefore into the past, so a peer whose
-	// clock runs behind the coordinator's still accepts the CA.
-	peerCABackdate = time.Hour
-	// peerCASerialBits is the size of the CA's random serial number.
-	peerCASerialBits = 128
+	// certBackdate moves a certificate's notBefore into the past, so a peer
+	// whose clock runs behind the coordinator's still accepts it.
+	certBackdate = time.Hour
+	// certSerialBits is the size of a certificate's random serial number.
+	certSerialBits = 128
 	// peerFileMode and peerDirMode keep CA files, peer tokens, and their
 	// directories readable by their user only.
 	peerFileMode = 0o600
@@ -207,14 +207,14 @@ func newPeerCAPEM() (certPEM, keyPEM []byte, err error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("generate peer CA key: %w", err)
 	}
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), peerCASerialBits))
+	serial, err := newCertSerial()
 	if err != nil {
 		return nil, nil, fmt.Errorf("generate peer CA serial number: %w", err)
 	}
 	template := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: peerCACommonName},
-		NotBefore:             time.Now().Add(-peerCABackdate),
+		NotBefore:             time.Now().Add(-certBackdate),
 		NotAfter:              peerCANoExpiry,
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
@@ -233,4 +233,9 @@ func newPeerCAPEM() (certPEM, keyPEM []byte, err error) {
 	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 	return certPEM, keyPEM, nil
+}
+
+// newCertSerial returns a random serial number for a certificate.
+func newCertSerial() (*big.Int, error) {
+	return rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), certSerialBits))
 }

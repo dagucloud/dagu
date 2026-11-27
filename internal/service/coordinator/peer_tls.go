@@ -1,0 +1,207 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package coordinator
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"strings"
+	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
+)
+
+const (
+	// coordinatorCertName is the name every coordinator certificate carries.
+	// Clients on built-in TLS check it instead of the dialed address.
+	coordinatorCertName = "coordinator.dagu.invalid"
+	// tlsHandshakeRecord is the first byte of a TLS connection: the record
+	// type of the ClientHello.
+	tlsHandshakeRecord = 0x16
+	// requireTLSMessage is the refusal of a call over h2c under
+	// coordinator.require_tls.
+	requireTLSMessage = "the coordinator requires TLS: upgrade this process, or remove peer.insecure: true"
+)
+
+// NewPeerTransportCredentials returns the server credentials of a
+// coordinator with the peer CA ca. They serve built-in TLS and h2c on one
+// port: a connection that starts with a TLS handshake record gets TLS, and
+// any other connection is served as h2c. The TLS server certificate is
+// issued from ca and names coordinator.dagu.invalid and each non-empty host
+// in hosts. TLS asks
+// for a client certificate and accepts a connection without one; a client
+// certificate that does not chain to ca fails the handshake.
+func NewPeerTransportCredentials(ca *PeerCA, hosts ...string) (credentials.TransportCredentials, error) {
+	cert, err := ca.issueCoordinatorCertificate(hosts)
+	if err != nil {
+		return nil, err
+	}
+	clientCAs := x509.NewCertPool()
+	clientCAs.AddCert(ca.cert)
+	return &peerTransportCredentials{
+		tls: credentials.NewTLS(&tls.Config{
+			Certificates: []tls.Certificate{cert},
+			ClientAuth:   tls.VerifyClientCertIfGiven,
+			ClientCAs:    clientCAs,
+			MinVersion:   tls.VersionTLS13,
+		}),
+	}, nil
+}
+
+// RequireTLSUnaryInterceptor refuses unary calls over h2c, except those of
+// the gRPC health service, with Unauthenticated. The connection stays open.
+func RequireTLSUnaryInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if err := requireTLS(ctx, info.FullMethod); err != nil {
+			return nil, err
+		}
+		return handler(ctx, req)
+	}
+}
+
+// RequireTLSStreamInterceptor refuses streaming calls over h2c, except those
+// of the gRPC health service, with Unauthenticated. The connection stays
+// open.
+func RequireTLSStreamInterceptor() grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if err := requireTLS(ss.Context(), info.FullMethod); err != nil {
+			return err
+		}
+		return handler(srv, ss)
+	}
+}
+
+func requireTLS(ctx context.Context, method string) error {
+	if strings.HasPrefix(method, grpcHealthMethodPrefix) {
+		return nil
+	}
+	if p, ok := peer.FromContext(ctx); ok {
+		if _, ok := p.AuthInfo.(credentials.TLSInfo); ok {
+			return nil
+		}
+	}
+	return status.Error(codes.Unauthenticated, requireTLSMessage)
+}
+
+// peerTransportCredentials picks TLS or h2c from the first byte of each
+// connection. gRPC runs ServerHandshake on the connection's own goroutine
+// under its connection timeout, so a client that sends nothing holds only
+// its own connection, and only until that timeout closes it.
+type peerTransportCredentials struct {
+	tls credentials.TransportCredentials
+}
+
+func (c *peerTransportCredentials) ServerHandshake(conn net.Conn) (net.Conn, credentials.AuthInfo, error) {
+	first := make([]byte, 1)
+	// A connection closed before its first byte returns io.EOF as is, which
+	// gRPC drops without a log line.
+	if _, err := io.ReadFull(conn, first); err != nil {
+		return nil, nil, err
+	}
+	conn = &peekedConn{Conn: conn, first: first}
+	if first[0] != tlsHandshakeRecord {
+		// h2c carries no AuthInfo, as on a server without credentials.
+		return conn, nil, nil
+	}
+	return c.tls.ServerHandshake(conn)
+}
+
+func (c *peerTransportCredentials) ClientHandshake(context.Context, string, net.Conn) (net.Conn, credentials.AuthInfo, error) {
+	return nil, nil, errors.New("peer transport credentials serve only")
+}
+
+func (c *peerTransportCredentials) Info() credentials.ProtocolInfo {
+	return c.tls.Info()
+}
+
+func (c *peerTransportCredentials) Clone() credentials.TransportCredentials {
+	return &peerTransportCredentials{tls: c.tls.Clone()}
+}
+
+func (c *peerTransportCredentials) OverrideServerName(string) error {
+	return nil
+}
+
+// peekedConn returns the bytes read to pick the transport before the rest
+// of the connection.
+type peekedConn struct {
+	net.Conn
+	first []byte
+}
+
+func (c *peekedConn) Read(p []byte) (int, error) {
+	if len(c.first) == 0 {
+		return c.Conn.Read(p)
+	}
+	n := copy(p, c.first)
+	c.first = c.first[n:]
+	return n, nil
+}
+
+// issueCoordinatorCertificate returns a server certificate signed by ca, with
+// no expiry date, naming coordinatorCertName and each of hosts as a DNS name
+// or an IP address. Its chain holds the CA certificate.
+func (ca *PeerCA) issueCoordinatorCertificate(hosts []string) (tls.Certificate, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("generate coordinator key: %w", err)
+	}
+	serial, err := newCertSerial()
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("generate coordinator certificate serial number: %w", err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: coordinatorCertName},
+		NotBefore:    time.Now().Add(-certBackdate),
+		NotAfter:     peerCANoExpiry,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	addCertificateNames(template, append([]string{coordinatorCertName}, hosts...))
+	der, err := x509.CreateCertificate(rand.Reader, template, ca.cert, key.Public(), ca.key)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("issue coordinator certificate: %w", err)
+	}
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("parse coordinator certificate: %w", err)
+	}
+	return tls.Certificate{
+		Certificate: [][]byte{der, ca.cert.Raw},
+		PrivateKey:  key,
+		Leaf:        leaf,
+	}, nil
+}
+
+// addCertificateNames adds each non-empty host to template once, as an IP
+// address when it is one, possibly in brackets, and as a DNS name otherwise.
+func addCertificateNames(template *x509.Certificate, hosts []string) {
+	seen := make(map[string]bool, len(hosts))
+	for _, host := range hosts {
+		host = strings.ToLower(host)
+		if host == "" || seen[host] {
+			continue
+		}
+		seen[host] = true
+		if ip := listenIP(host); ip != nil {
+			template.IPAddresses = append(template.IPAddresses, ip)
+		} else {
+			template.DNSNames = append(template.DNSNames, host)
+		}
+	}
+}
