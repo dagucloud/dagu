@@ -75,7 +75,10 @@ type tokenStateRecord struct {
 	StatusReason string                 `json:"status_reason,omitempty"`
 	Generation   int64                  `json:"generation"`
 	Session      *sessionRecord         `json:"session,omitempty"`
-	RefreshedAt  time.Time              `json:"refreshed_at,omitzero"`
+	// ConfirmedSession is a session ID, which is no secret once the
+	// session is confirmed.
+	ConfirmedSession string    `json:"confirmed_session,omitempty"`
+	RefreshedAt      time.Time `json:"refreshed_at,omitzero"`
 	// RefreshErrors hold provider errors, which carry no secret.
 	RefreshErrors map[string]refreshErrorRecord `json:"refresh_errors,omitempty"`
 }
@@ -105,8 +108,16 @@ type sessionRecord struct {
 	User      string                  `json:"user,omitempty"`
 	Phase     connection.SessionPhase `json:"phase"`
 	ExpiresAt time.Time               `json:"expires_at"`
+	ClaimedAt time.Time               `json:"claimed_at,omitzero"`
 	Reason    string                  `json:"reason,omitempty"`
 	Tokens    tokensRecord            `json:"tokens,omitzero"`
+	// Probes hold provider errors, which carry no secret.
+	Probes []probeRecord `json:"probes,omitempty"`
+}
+
+type probeRecord struct {
+	Service string `json:"service"`
+	Error   string `json:"error,omitempty"`
 }
 
 type catalogRecord struct {
@@ -228,12 +239,13 @@ func (c connectionCodec) tokenStateToRecord(state *connection.TokenState) (*toke
 		return nil, err
 	}
 	rec := &tokenStateRecord{
-		ConnectionID: state.ConnectionID,
-		tokensRecord: tokens,
-		Status:       state.Status,
-		StatusReason: state.StatusReason,
-		Generation:   state.Generation,
-		RefreshedAt:  state.RefreshedAt,
+		ConnectionID:     state.ConnectionID,
+		tokensRecord:     tokens,
+		Status:           state.Status,
+		StatusReason:     state.StatusReason,
+		Generation:       state.Generation,
+		RefreshedAt:      state.RefreshedAt,
+		ConfirmedSession: state.ConfirmedSession,
 	}
 	for resource, e := range state.RefreshErrors {
 		if rec.RefreshErrors == nil {
@@ -251,8 +263,12 @@ func (c connectionCodec) tokenStateToRecord(state *connection.TokenState) (*toke
 			User:      s.User,
 			Phase:     s.Phase,
 			ExpiresAt: s.ExpiresAt,
+			ClaimedAt: s.ClaimedAt,
 			Reason:    s.Reason,
 			Tokens:    sessionTokens,
+		}
+		for _, p := range s.Probes {
+			rec.Session.Probes = append(rec.Session.Probes, probeRecord(p))
 		}
 	}
 	return rec, nil
@@ -264,12 +280,13 @@ func (c connectionCodec) tokenStateFromRecord(rec *tokenStateRecord) (*connectio
 		return nil, err
 	}
 	state := &connection.TokenState{
-		ConnectionID: rec.ConnectionID,
-		Tokens:       tokens,
-		Status:       rec.Status,
-		StatusReason: rec.StatusReason,
-		Generation:   rec.Generation,
-		RefreshedAt:  rec.RefreshedAt,
+		ConnectionID:     rec.ConnectionID,
+		Tokens:           tokens,
+		Status:           rec.Status,
+		StatusReason:     rec.StatusReason,
+		Generation:       rec.Generation,
+		RefreshedAt:      rec.RefreshedAt,
+		ConfirmedSession: rec.ConfirmedSession,
 	}
 	for resource, e := range rec.RefreshErrors {
 		if state.RefreshErrors == nil {
@@ -287,8 +304,12 @@ func (c connectionCodec) tokenStateFromRecord(rec *tokenStateRecord) (*connectio
 			User:      s.User,
 			Phase:     s.Phase,
 			ExpiresAt: s.ExpiresAt,
+			ClaimedAt: s.ClaimedAt,
 			Reason:    s.Reason,
 			Tokens:    sessionTokens,
+		}
+		for _, p := range s.Probes {
+			state.Session.Probes = append(state.Session.Probes, connection.Probe(p))
 		}
 	}
 	return state, nil

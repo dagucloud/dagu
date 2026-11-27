@@ -410,10 +410,12 @@ func TestTokenStateRoundTrip(t *testing.T) {
 			GrantedScopes: []string{"openid"},
 		}
 		state.RefreshErrors = map[string]connection.RefreshError{"outlook": {Reason: "status 503", Failures: 2}}
+		state.ConfirmedSession = "session-0"
 		state.Session = &connection.Session{
 			ID:     "session-1",
 			Phase:  connection.SessionPhaseConfirm,
 			Tokens: connection.Tokens{RefreshToken: "session-refresh"},
+			Probes: []connection.Probe{{Service: "gmail"}, {Service: "drive", Error: "status 403"}},
 		}
 		return nil
 	})

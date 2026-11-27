@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/connection/connect"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -266,6 +267,13 @@ func initEncryptedStores(
 		return
 	}
 
+	connectEngine, err := newConnectEngine(cfg, server, encryptor)
+	if err != nil {
+		logger.Warn(ctx, "Failed to create connect engine", tag.Error(err))
+	} else {
+		stores.Connect = connectEngine
+	}
+
 	remoteNodeStore, err := newRemoteNodeStore(cfg, server, encryptor)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create remote node store", tag.Error(err))
@@ -292,6 +300,24 @@ func initEncryptedStores(
 		stores.IncidentState = filemonitor.NewStateStore(stateFile)
 		stores.NewIncidentLease = newMonitorLease(stateFile)
 	}
+}
+
+// newConnectEngine runs connect sessions over the server's connection
+// store. Providers register as they are added.
+func newConnectEngine(
+	cfg *config.Config,
+	server *persisfile.ServerStores,
+	encryptor *crypto.Encryptor,
+) (*connect.Engine, error) {
+	connections, err := server.ConnectionStore()
+	if err != nil {
+		return nil, err
+	}
+	return connect.New(connect.Config{
+		Store:           connections,
+		Encryptor:       encryptor,
+		AnyUserConfirms: cfg.Server.Auth.Mode == config.AuthModeNone,
+	})
 }
 
 func newRemoteNodeStore(

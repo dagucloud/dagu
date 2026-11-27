@@ -230,6 +230,7 @@ A worker has neither.
 | `status_reason` | The provider's error code and text, without secrets |
 | `generation` | Starts at 0. Increases by 1 on each confirm, on an import, and on each successful token fetch without a session: at a create, a reconnect, or a change of `subject` |
 | `session` | The session in progress, if any. See [Sessions](#sessions) |
+| `confirmed_session` | The ID of the last confirmed session, so that its handle reads `connected` after the confirm clears the session |
 | `refreshed_at` | Time of the last successful refresh |
 | `import_hash` | Only for an imported connection: a hash of the refresh token the import was given. See [Import](#import) |
 
@@ -488,6 +489,10 @@ starter (UI or CLI)          Dagu server                       provider
 - A session has an ID, its starter, and a stored phase: `waiting`,
   `confirm`, or `failed`. In `confirm` it also holds the account,
   `account_id`, and the new tokens, encrypted.
+- In `confirm` a session also holds `probes`, each service's result of the
+  [checks after consent](#checks-after-consent). While `waiting`, it holds
+  `claimed_at`, the time a callback began to complete it. Other callbacks
+  are refused until that claim ends, so one code is exchanged per session.
 - A session lives in the connection's token state, so any frontend replica
   serves any request of it.
 - Starting a session replaces an earlier one. The earlier session fails.
@@ -518,6 +523,9 @@ starter (UI or CLI)          Dagu server                       provider
   that names a session other than the current one is refused, and changes
   nothing.
 - The callback page shows no token, and closes the popup that opened it.
+- `GET /oauth/callback` completes only a server callback session. A
+  loopback or paste session completes only through
+  `POST .../authorization/complete` for its own connection.
 
 #### Confirmation
 
@@ -535,7 +543,11 @@ starter (UI or CLI)          Dagu server                       provider
   provider vouches for: a Google email that Google reports as verified, or
   the email of a Microsoft account in the tenant ID that the app names. A
   session whose vouched email matches is confirmed without asking.
-  Otherwise the starter confirms as usual.
+  Otherwise the starter confirms as usual. The comparison folds the case
+  of ASCII letters only.
+- A session confirmed without asking shows no checks of its own. Its
+  services' results come from `POST .../test`, and its granted scopes from
+  the connection.
 - The confirmation shows the account, and for Microsoft its tenant.
 
 #### Sign-In by Someone Else
@@ -599,6 +611,9 @@ starter (UI or CLI)          Dagu server                       provider
   created.
 - **Identity.** Dagu reads `account` and `account_id` and shows them for
   confirmation.
+- **Refresh token.** A consent whose access token expires needs a refresh
+  token. Without one, the session fails. An access token without an expiry
+  serves without one.
 - **Service probes.** Each service gets one probe: `tools/list` on an MCP
   service, and a profile read on a REST service. Each service reports its
   own result. A rejected Google MCP probe says that the client may lack the

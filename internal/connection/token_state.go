@@ -16,8 +16,11 @@ type TokenState struct {
 	// Generation increases each time a connect or reconnect is confirmed.
 	Generation int64
 	// Session is the connect session in progress, or nil.
-	Session     *Session
-	RefreshedAt time.Time
+	Session *Session
+	// ConfirmedSession is the ID of the last session that was confirmed,
+	// which its starter reads as connected after the session is cleared.
+	ConfirmedSession string
+	RefreshedAt      time.Time
 	// RefreshErrors are keyed by resource and hold the outcome of failed
 	// refreshes of each.
 	RefreshErrors map[string]RefreshError
@@ -82,11 +85,25 @@ type Session struct {
 	User      string
 	Phase     SessionPhase
 	ExpiresAt time.Time
+	// ClaimedAt is when a callback began to complete the waiting session,
+	// or zero. While the claim holds, other callbacks are refused, so a
+	// code is exchanged once.
+	ClaimedAt time.Time
 	// Reason is the error of a failed session.
 	Reason string
 	// Tokens are those consent produced, with the account read after it,
 	// before they are confirmed.
 	Tokens Tokens
+	// Probes hold the result of each service's check after consent.
+	Probes []Probe
+}
+
+// Probe is the result of one service's check after consent.
+type Probe struct {
+	Service string
+	// Error is the provider's error, without secrets, or empty when the
+	// service answered.
+	Error string
 }
 
 // TokenStatus is the state of a connection's authorization.

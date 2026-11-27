@@ -48,6 +48,39 @@ func TestRequestLoggerRedactsTrustedProxyHeaders(t *testing.T) {
 	assert.NotContains(t, output.String(), "group-secret")
 }
 
+func TestRequestLoggerRedactsCallbackParams(t *testing.T) {
+	var output bytes.Buffer
+	httpLogger := httplog.NewLogger("test", httplog.Options{JSON: true, Concise: true, Writer: &output})
+	handler := sanitizedRequestLogger(httpLogger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "auth-code", r.URL.Query().Get("code"))
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/oauth/callback?code=auth-code&state=sealed-state&scope=email", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	assert.Contains(t, output.String(), "scope=email")
+	assert.NotContains(t, output.String(), "auth-code")
+	assert.NotContains(t, output.String(), "sealed-state")
+}
+
+// A pair that the query parser drops, here one joined by a semicolon, is
+// left out of the log, so it cannot carry a secret past the redaction.
+func TestRequestLoggerDropsMalformedQueryPairs(t *testing.T) {
+	var output bytes.Buffer
+	httpLogger := httplog.NewLogger("test", httplog.Options{JSON: true, Concise: true, Writer: &output})
+	handler := sanitizedRequestLogger(httpLogger)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/oauth/callback?code=auth-code;state=sealed-state&scope=email", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	assert.Contains(t, output.String(), "scope=email")
+	assert.NotContains(t, output.String(), "auth-code")
+	assert.NotContains(t, output.String(), "sealed-state")
+}
+
 func TestDisabledTrustedProxyRoutePrecedesSPAFallback(t *testing.T) {
 	router := chi.NewRouter()
 	srv := &Server{trustedProxyCfg: &frontendauth.TrustedProxyLoginConfig{}}
