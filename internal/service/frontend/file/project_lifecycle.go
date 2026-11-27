@@ -6,6 +6,8 @@ package file
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
@@ -77,8 +79,10 @@ func (l *projectLifecycle) SetDisplayName(ctx context.Context, id, displayName s
 	return l.registry.SetDisplayName(ctx, id, displayName)
 }
 
-func (l *projectLifecycle) Delete(ctx context.Context, name string) (project.Project, error) {
-	return persisfile.DeleteProject(ctx, l.cfg, l.server, l.registry, name, l.delete)
+func (l *projectLifecycle) Delete(ctx context.Context, name string, grantsLock sync.Locker) (project.Project, error) {
+	opts := l.delete
+	opts.GrantsLock = grantsLock
+	return persisfile.DeleteProject(ctx, l.cfg, l.server, l.registry, name, opts)
 }
 
 func (l *projectLifecycle) State(ctx context.Context, p project.Project) (api.ProjectState, error) {
@@ -102,17 +106,44 @@ var _ persisfile.ProjectWiki = (*projectWikis)(nil)
 
 // InPlacePages reports whether <wiki>/X/, the folder that p, a migrated
 // project, reads in place, holds pages. The default wiki shows them once
-// p is no longer registered.
+// p is no longer registered. Every folder that may be p's counts.
 func (w *projectWikis) InPlacePages(ctx context.Context, p project.Project) (bool, error) {
 	if _, err := w.migratedRoots(ctx); err != nil {
 		return false, err
 	}
-	view := &wikiView{store: w.shared, root: w.inPlaceRoot(p.MigratedFrom)}
-	pages, err := view.ListFlat(ctx, wiki.ListPagesOptions{Page: 1, PerPage: 1})
-	if err != nil {
-		return false, fmt.Errorf("list the wiki pages in %s: %w", p.MigratedFrom, err)
+	for _, root := range w.inPlaceRoots(p.MigratedFrom) {
+		view := &wikiView{store: w.shared, root: root}
+		pages, err := view.ListFlat(ctx, wiki.ListPagesOptions{Page: 1, PerPage: 1})
+		if err != nil {
+			return false, fmt.Errorf("list the wiki pages in %s: %w", root, err)
+		}
+		if len(pages.Items) > 0 {
+			return true, nil
+		}
 	}
-	return len(pages.Items) > 0, nil
+	return false, nil
+}
+
+// inPlaceRoots returns the folders under the default wiki directory that
+// may hold the pages of the migrated project from workspace name: the one
+// spelled name when another migrated project's workspace differs from name
+// only in case, else each folder that matches name in any case, which the
+// default wiki leaves out. Call it after migratedRoots.
+func (w *projectWikis) inPlaceRoots(name string) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for other := range w.onDisk {
+		if other != name && strings.EqualFold(other, name) {
+			return []string{name}
+		}
+	}
+	roots := []string{name}
+	for _, root := range w.migrated {
+		if root != name && strings.EqualFold(root, name) {
+			roots = append(roots, root)
+		}
+	}
+	return roots
 }
 
 // SettleHistory does nothing yet: the wiki store cannot move a migrated

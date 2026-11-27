@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
@@ -24,16 +25,17 @@ import (
 type ProjectLifecycle interface {
 	// Create registers a project. It refuses with an error wrapping
 	// project.ErrInvalidName, project.ErrInvalidDisplayName,
-	// project.ErrNameTaken, project.ErrStateDirTaken, or
-	// project.ErrProtectedPath.
+	// project.ErrNameTaken, project.ErrStateDirTaken,
+	// project.ErrProtectedPath, or project.ErrLifecycleBusy.
 	Create(ctx context.Context, in project.CreateInput) (project.Project, error)
 	// SetDisplayName changes the display name of the project with the
 	// given ID, as project.Registry does.
 	SetDisplayName(ctx context.Context, id, displayName string) (project.Project, error)
-	// Delete deletes the project called name. It refuses with an error
-	// wrapping project.ErrNotFound, project.ErrDefaultProject, or
-	// project.ErrDeleteRefused.
-	Delete(ctx context.Context, name string) (project.Project, error)
+	// Delete deletes the project called name, holding grantsLock, when set,
+	// while it changes grants and API keys. It refuses with an error
+	// wrapping project.ErrNotFound, project.ErrDefaultProject,
+	// project.ErrLifecycleBusy, or project.ErrDeleteRefused.
+	Delete(ctx context.Context, name string, grantsLock sync.Locker) (project.Project, error)
 	// State returns the state of p, a registered project.
 	State(ctx context.Context, p project.Project) (api.ProjectState, error)
 	// Unattached returns the state directories that record a project the
@@ -139,9 +141,7 @@ func (a *API) DeleteProject(ctx context.Context, request api.DeleteProjectReques
 	}
 	// The delete removes grants from API keys, which other key writes must
 	// not overwrite.
-	a.apiKeyWriteMu.Lock()
-	deleted, err := a.projectLifecycle.Delete(ctx, request.ProjectName)
-	a.apiKeyWriteMu.Unlock()
+	deleted, err := a.projectLifecycle.Delete(ctx, request.ProjectName, &a.apiKeyWriteMu)
 	if err != nil {
 		return nil, projectError(err)
 	}
@@ -195,6 +195,22 @@ func (a *API) toAPIProject(ctx context.Context, access projectaccess.Access) (ap
 	}, nil
 }
 
+// projectsOffMiddleware answers every /projects request while projects are
+// off as the router answers a path that does not exist, before the body is
+// read.
+func (a *API) projectsOffMiddleware(mountedAPIPath string) func(http.Handler) http.Handler {
+	base := strings.TrimRight(mountedAPIPath, "/") + "/projects"
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !a.config.ProjectsEnabled && (r.URL.Path == base || strings.HasPrefix(r.URL.Path, base+"/")) {
+				http.NotFound(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // isProjectDelete reports whether r deletes a project.
 func isProjectDelete(r *http.Request, apiBasePath string) bool {
 	name, ok := strings.CutPrefix(r.URL.Path, strings.TrimRight(apiBasePath, "/")+"/projects/")
@@ -213,7 +229,8 @@ func projectError(err error) error {
 	case errors.Is(err, project.ErrNameTaken):
 		status, code = http.StatusConflict, api.ErrorCodeAlreadyExists
 	case errors.Is(err, project.ErrStateDirTaken), errors.Is(err, project.ErrProtectedPath),
-		errors.Is(err, project.ErrDeleteRefused), errors.Is(err, project.ErrDefaultProject):
+		errors.Is(err, project.ErrDeleteRefused), errors.Is(err, project.ErrDefaultProject),
+		errors.Is(err, project.ErrLifecycleBusy):
 		status = http.StatusConflict
 	default:
 		return err

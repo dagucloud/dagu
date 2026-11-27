@@ -78,16 +78,17 @@ type HostInfo struct {
 	Status ServiceStatus
 	// StartedAt is when the service instance was started
 	StartedAt time.Time
-	// ReleasedProjects lists the IDs of the projects whose stores the
-	// instance has released.
+	// ReleasedProjects lists the delete marks (project.Project.DeleteMark)
+	// of the projects whose stores the instance has released.
 	ReleasedProjects []string
 }
 
 // ProjectReleaseRecorder records which projects' stores a process has
 // released.
 type ProjectReleaseRecorder interface {
-	// SetReleasedProjects records projectIDs, the projects whose stores this
-	// process has released, in the entry of each service it registers, now
-	// or later. Each call replaces the IDs the last one recorded.
-	SetReleasedProjects(ctx context.Context, projectIDs []string) error
+	// SetReleasedProjects records marks, the delete marks of the projects
+	// whose stores this process has released, in the entry of each service
+	// it registers, now or later. Each call replaces the marks the last one
+	// recorded.
+	SetReleasedProjects(ctx context.Context, marks []string) error
 }

@@ -29,6 +29,9 @@ var (
 	// ErrDeleteRefused reports that a project cannot be deleted in its
 	// current state.
 	ErrDeleteRefused = errors.New("project cannot be deleted")
+	// ErrLifecycleBusy reports that another create or delete of a project
+	// is in progress.
+	ErrLifecycleBusy = errors.New("another project is being created or deleted; try again")
 )
 
 // Registry is the server-wide list of projects, and the only one: a project
@@ -62,7 +65,8 @@ type Registry interface {
 	SetDisplayName(ctx context.Context, id, displayName string) (Project, error)
 
 	// SetDeleting marks or unmarks a project as being deleted and returns
-	// the project. It returns ErrDefaultProject when asked to mark the
+	// the project. Each mark gets a new DeleteMark, also on a project that
+	// is marked already. It returns ErrDefaultProject when asked to mark the
 	// default project.
 	SetDeleting(ctx context.Context, id string, deleting bool) (Project, error)
 

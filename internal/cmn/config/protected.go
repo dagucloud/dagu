@@ -12,11 +12,11 @@ import (
 
 // CheckProjectDAGsDir returns an error wrapping project.ErrProtectedPath
 // that names each protected path that dir, the DAG directory of a project
-// other than the default one, would be or contain. The protected paths are the paths that a paths setting other
-// than paths.projects_dir names, whether set or defaulted, the default
-// project's wiki directory, paths.base_config, and config.yaml, so removing
-// the directory never removes the files of the server, the library, or
-// another project.
+// other than the default one, would be or contain. The protected paths are
+// the paths that a paths setting other than paths.projects_dir names,
+// whether set or defaulted, the default project's wiki directory,
+// paths.base_config, and config.yaml, so removing the directory never
+// removes the files of the server, the library, or another project.
 func (c *Config) CheckProjectDAGsDir(dir string) error {
 	fs := newLookups()
 	located := locateDir(dir, fs)

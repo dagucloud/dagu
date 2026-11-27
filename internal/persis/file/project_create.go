@@ -24,8 +24,21 @@ const projectDirPermission = 0o750
 // with an error wrapping project.ErrProtectedPath when the DAG directory
 // would be or contain a protected path, and with one wrapping
 // project.ErrStateDirTaken while a state directory of the name records
-// another project.
+// another project, and with project.ErrLifecycleBusy while another create
+// or delete runs.
 func CreateProject(ctx context.Context, cfg *config.Config, registry project.Registry, in project.CreateInput) (project.Project, error) {
+	var created project.Project
+	err := withLifecycleLock(ctx, cfg, func() error {
+		var err error
+		created, err = createProject(ctx, cfg, registry, in)
+		return err
+	})
+	return created, err
+}
+
+// createProject is CreateProject under the lifecycle lock, so that no
+// delete of a project of the same name is removing its directories.
+func createProject(ctx context.Context, cfg *config.Config, registry project.Registry, in project.CreateInput) (project.Project, error) {
 	if err := project.ValidateName(in.Name); err != nil {
 		return project.Project{}, err
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -99,6 +100,10 @@ func TestDeleteProject(t *testing.T) {
 	onlyWeather := newKey("only-weather", noServerRole, onWeather)
 	both := newKey("both", noServerRole, onWeather, onIntraday)
 	serverWide := newKey("server-wide", auth.AllWorkspaceAccess(), onWeather)
+	// A key limited to workspaces has no server-wide role, as the access
+	// checker reads it.
+	workspaceOnly := newKey("workspace-only",
+		&auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{{Workspace: "ops", Role: auth.RoleViewer}}}, onWeather)
 
 	deleted, err := f.delete("Weather", persisfile.DeleteProjectOptions{})
 	require.NoError(t, err)
@@ -113,8 +118,10 @@ func TestDeleteProject(t *testing.T) {
 	stored, err := users.GetByID(ctx, user.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []auth.ProjectGrant{onIntraday}, stored.ProjectGrants)
-	_, err = keys.GetByID(ctx, onlyWeather.ID)
-	require.ErrorIs(t, err, auth.ErrAPIKeyNotFound, "a key whose only role was on weather is removed")
+	for _, key := range []*auth.APIKey{onlyWeather, workspaceOnly} {
+		_, err = keys.GetByID(ctx, key.ID)
+		require.ErrorIs(t, err, auth.ErrAPIKeyNotFound, "%s: a key whose only role was on weather is removed", key.Name)
+	}
 	kept, err := keys.GetByID(ctx, both.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []auth.ProjectGrant{onIntraday}, kept.ProjectGrants)
@@ -168,11 +175,28 @@ func TestDeleteProjectRefusals(t *testing.T) {
 			runs, _ := f.stores(t).LibraryRuns()
 			writeRunWithStatus(t, runs, ir.Running)
 		}},
-		"GitCheckoutInside": {reason: "vendor", setup: func(t *testing.T, f *deleteFixture) {
-			require.NoError(t, os.MkdirAll(filepath.Join(f.cfg.Paths.ProjectsDir, "weather", "vendor", ".git"), 0o750))
+		"RepositoryTracksDAG": {reason: "tracks files", setup: func(t *testing.T, f *deleteFixture) {
+			gitTrack(t, f.cfg.Paths.ProjectsDir, "weather/forecast.yaml")
 		}},
-		"GitCheckoutAround": {reason: "git checkout", setup: func(t *testing.T, f *deleteFixture) {
+		"RepositoryInside": {reason: "vendor", setup: func(t *testing.T, f *deleteFixture) {
+			writeFile(t, filepath.Join(f.cfg.Paths.ProjectsDir, "weather", "vendor", "lib.yaml"))
+			gitTrack(t, filepath.Join(f.cfg.Paths.ProjectsDir, "weather", "vendor"), "lib.yaml")
+		}},
+		// A worktree's .git is a file, which names no index to read.
+		"WorktreeAround": {reason: "tracks files", setup: func(t *testing.T, f *deleteFixture) {
 			require.NoError(t, os.WriteFile(filepath.Join(f.cfg.Paths.ProjectsDir, ".git"), []byte("gitdir: elsewhere\n"), 0o600))
+		}},
+		// projects_dir links into a checkout that tracks the DAG.
+		"RepositoryThroughLink": {reason: "tracks files", setup: func(t *testing.T, f *deleteFixture) {
+			checkout := filepath.Join(t.TempDir(), "checkout")
+			require.NoError(t, os.MkdirAll(checkout, 0o750))
+			require.NoError(t, os.Rename(f.cfg.Paths.ProjectsDir, filepath.Join(checkout, "projects")))
+			require.NoError(t, os.Symlink(filepath.Join(checkout, "projects"), f.cfg.Paths.ProjectsDir))
+			gitTrack(t, checkout, "projects/weather/forecast.yaml")
+		}},
+		"CorruptIndex": {reason: "tracks files", setup: func(t *testing.T, f *deleteFixture) {
+			gitTrack(t, f.cfg.Paths.ProjectsDir)
+			require.NoError(t, os.WriteFile(filepath.Join(f.cfg.Paths.ProjectsDir, ".git", "index"), []byte("not an index"), 0o600))
 		}},
 		"ProtectedPath": {reason: "paths.calendars_dir", setup: func(_ *testing.T, f *deleteFixture) {
 			f.cfg.Paths.CalendarsDir = filepath.Join(f.cfg.Paths.ProjectsDir, "weather", "calendars")
@@ -188,6 +212,22 @@ func TestDeleteProjectRefusals(t *testing.T) {
 			f.requireKept(t)
 		})
 	}
+
+	// A refused delete of a missing project leaves it missing.
+	t.Run("MissingProject", func(t *testing.T) {
+		f := newDeleteFixture(t)
+		writeRunWithStatus(t, f.stores(t).DAGRunRepository, ir.Waiting)
+		dagsDir := filepath.Join(f.cfg.Paths.ProjectsDir, "weather")
+		require.NoError(t, os.RemoveAll(dagsDir))
+		_, err := f.delete("weather", persisfile.DeleteProjectOptions{})
+		require.ErrorIs(t, err, project.ErrDeleteRefused)
+		assert.NoDirExists(t, dagsDir)
+		p, err := f.registry.Get(ctx, "weather")
+		require.NoError(t, err)
+		state, err := f.server.ProjectState(ctx, p)
+		require.NoError(t, err)
+		assert.Equal(t, persisfile.ProjectStateMissing, state)
+	})
 
 	t.Run("InPlaceWikiPages", func(t *testing.T) {
 		f := newDeleteFixture(t)
@@ -205,6 +245,41 @@ func TestDeleteProjectRefusals(t *testing.T) {
 		_, err = f.delete("weather", persisfile.DeleteProjectOptions{Wiki: wiki})
 		require.NoError(t, err, "only a migrated project reads a wiki folder in place")
 	})
+}
+
+// gitTrack makes dir a git checkout that tracks the files at paths,
+// slash-separated and relative to dir.
+func gitTrack(t *testing.T, dir string, paths ...string) {
+	t.Helper()
+	repo, err := git.PlainInit(dir, false)
+	require.NoError(t, err)
+	worktree, err := repo.Worktree()
+	require.NoError(t, err)
+	for _, path := range paths {
+		_, err := worktree.Add(path)
+		require.NoError(t, err)
+	}
+}
+
+func writeFile(t *testing.T, path string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("steps:\n  - run: echo ok\n"), 0o600))
+}
+
+// TestDeleteProjectAllowsUntrackingRepository proves that a git checkout
+// that tracks nothing in the project's DAG directory, such as a dotfiles
+// repository in the home directory, does not refuse the delete.
+func TestDeleteProjectAllowsUntrackingRepository(t *testing.T) {
+	f := newDeleteFixture(t)
+	home := filepath.Dir(f.cfg.Paths.ProjectsDir)
+	writeFile(t, filepath.Join(home, ".bashrc"))
+	gitTrack(t, home, ".bashrc")
+
+	_, err := f.delete("weather", persisfile.DeleteProjectOptions{})
+	require.NoError(t, err)
+	assert.NoDirExists(t, filepath.Join(f.cfg.Paths.ProjectsDir, "weather"))
+	assert.FileExists(t, filepath.Join(home, ".bashrc"))
 }
 
 func writeRunWithStatus(t *testing.T, runs *persis.DAGRunRepository, status ir.Status) {
@@ -234,10 +309,7 @@ func TestDeleteProjectWaitsForRelease(t *testing.T) {
 		_, err := f.delete("weather", persisfile.DeleteProjectOptions{})
 		done <- err
 	}()
-	require.Eventually(t, func() bool {
-		p, err := f.registry.Get(ctx, "weather")
-		return err == nil && p.Deleting
-	}, 5*time.Second, 10*time.Millisecond)
+	marked := waitMarked(t, f)
 	select {
 	case err := <-done:
 		t.Fatalf("the delete ended before the scheduler released the project: %v", err)
@@ -245,7 +317,7 @@ func TestDeleteProjectWaitsForRelease(t *testing.T) {
 	}
 	assert.DirExists(t, filepath.Join(f.cfg.Paths.ProjectsDir, "weather"))
 
-	require.NoError(t, scheduler.SetReleasedProjects(ctx, []string{f.weather.ID}))
+	require.NoError(t, scheduler.SetReleasedProjects(ctx, []string{marked.DeleteMark}))
 	select {
 	case err := <-done:
 		require.NoError(t, err)
@@ -266,4 +338,74 @@ func TestDeleteProjectWaitsForRelease(t *testing.T) {
 		require.ErrorContains(t, err, "server server-1")
 		f.requireKept(t)
 	})
+
+	// A release recorded for an earlier mark does not count for a new one.
+	t.Run("ReleaseOfEarlierMark", func(t *testing.T) {
+		persisfile.SetReleaseWait(t, 300*time.Millisecond, 10*time.Millisecond)
+		f := newDeleteFixture(t)
+		earlier, err := f.registry.SetDeleting(ctx, f.weather.ID, true)
+		require.NoError(t, err)
+		_, err = f.registry.SetDeleting(ctx, f.weather.ID, false)
+		require.NoError(t, err)
+		holder := fileserviceregistry.New(f.cfg.Paths.ServiceRegistryDir)
+		require.NoError(t, holder.Register(ctx, serviceregistry.ServiceNameScheduler, serviceregistry.HostInfo{ID: "scheduler-1"}))
+		t.Cleanup(func() { holder.Unregister(ctx) })
+		require.NoError(t, holder.SetReleasedProjects(ctx, []string{earlier.DeleteMark}))
+
+		_, err = f.delete("weather", persisfile.DeleteProjectOptions{})
+		require.ErrorIs(t, err, project.ErrDeleteRefused)
+		require.ErrorContains(t, err, "scheduler scheduler-1")
+		f.requireKept(t)
+	})
+
+	// What changed on disk during the wait refuses the delete.
+	t.Run("CheckedAgainAfterRelease", func(t *testing.T) {
+		f := newDeleteFixture(t)
+		holder := fileserviceregistry.New(f.cfg.Paths.ServiceRegistryDir)
+		require.NoError(t, holder.Register(ctx, serviceregistry.ServiceNameScheduler, serviceregistry.HostInfo{ID: "scheduler-1"}))
+		t.Cleanup(func() { holder.Unregister(ctx) })
+		done := make(chan error, 1)
+		go func() {
+			_, err := f.delete("weather", persisfile.DeleteProjectOptions{})
+			done <- err
+		}()
+		marked := waitMarked(t, f)
+		gitTrack(t, f.cfg.Paths.ProjectsDir, "weather/forecast.yaml")
+		require.NoError(t, holder.SetReleasedProjects(ctx, []string{marked.DeleteMark}))
+		require.ErrorIs(t, <-done, project.ErrDeleteRefused)
+		f.requireKept(t)
+	})
+
+	// One create or delete runs at a time across processes.
+	t.Run("Busy", func(t *testing.T) {
+		persisfile.SetLifecycleLockWait(t, 100*time.Millisecond)
+		f := newDeleteFixture(t)
+		holder := fileserviceregistry.New(f.cfg.Paths.ServiceRegistryDir)
+		require.NoError(t, holder.Register(ctx, serviceregistry.ServiceNameScheduler, serviceregistry.HostInfo{ID: "scheduler-1"}))
+		t.Cleanup(func() { holder.Unregister(ctx) })
+		done := make(chan error, 1)
+		go func() {
+			_, err := f.delete("weather", persisfile.DeleteProjectOptions{})
+			done <- err
+		}()
+		marked := waitMarked(t, f)
+		_, err := persisfile.CreateProject(ctx, f.cfg, f.registry, project.CreateInput{Name: "intraday"})
+		require.ErrorIs(t, err, project.ErrLifecycleBusy)
+		_, err = f.delete("weather", persisfile.DeleteProjectOptions{})
+		require.ErrorIs(t, err, project.ErrLifecycleBusy)
+		require.NoError(t, holder.SetReleasedProjects(ctx, []string{marked.DeleteMark}))
+		require.NoError(t, <-done)
+	})
+}
+
+// waitMarked waits until weather is marked deleting and returns it.
+func waitMarked(t *testing.T, f *deleteFixture) project.Project {
+	t.Helper()
+	var marked project.Project
+	require.Eventually(t, func() bool {
+		p, err := f.registry.Get(context.Background(), "weather")
+		marked = p
+		return err == nil && p.Deleting
+	}, 5*time.Second, 10*time.Millisecond)
+	return marked
 }

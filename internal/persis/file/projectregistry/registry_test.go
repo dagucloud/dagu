@@ -159,13 +159,21 @@ func TestSetDeleting(t *testing.T) {
 	marked, err := reg.SetDeleting(ctx, created.ID, true)
 	require.NoError(t, err)
 	require.True(t, marked.Deleting)
+	require.NotEmpty(t, marked.DeleteMark)
 	got, err := other.Get(ctx, "weather")
 	require.NoError(t, err)
 	require.True(t, got.Deleting)
+	require.Equal(t, marked.DeleteMark, got.DeleteMark)
+
+	// A release recorded for one mark must not count for the next.
+	again, err := other.SetDeleting(ctx, created.ID, true)
+	require.NoError(t, err)
+	require.NotEqual(t, marked.DeleteMark, again.DeleteMark)
 
 	unmarked, err := other.SetDeleting(ctx, created.ID, false)
 	require.NoError(t, err)
 	require.False(t, unmarked.Deleting)
+	require.Empty(t, unmarked.DeleteMark)
 	got, err = reg.Get(ctx, "weather")
 	require.NoError(t, err)
 	require.False(t, got.Deleting)

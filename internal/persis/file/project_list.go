@@ -63,21 +63,22 @@ func (s *ServerStores) ProjectState(ctx context.Context, p project.Project) (Pro
 	return ProjectStateMissing, nil
 }
 
-// UnattachedStateDirs returns the state directories in paths.data_dir that
-// record a project registry lacks, ordered by name. A state directory is
-// never attached to a project by its name.
+// UnattachedStateDirs returns the state directories that record a project
+// registry lacks: those in <data_dir>/projects/ and in each .projects/
+// folder of a path set apart. A state directory is never attached to a
+// project by its name.
 func (s *ServerStores) UnattachedStateDirs(ctx context.Context, registry project.Registry) ([]UnattachedStateDir, error) {
+	// The default project's record directories lie in every root that
+	// holds state directories.
 	defaults, err := s.cfg.ProjectPaths(project.DefaultName)
 	if err != nil {
 		return nil, err
 	}
-	root := filepath.Dir(defaults.StateDir)
-	entries, err := os.ReadDir(root)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read the state directories in %s: %w", root, err)
+	var roots []string
+	for _, dir := range defaults.RecordDirs {
+		if root := filepath.Dir(dir); !slices.Contains(roots, root) {
+			roots = append(roots, root)
+		}
 	}
 	projects, err := registry.List(ctx)
 	if err != nil {
@@ -89,20 +90,29 @@ func (s *ServerStores) UnattachedStateDirs(ctx context.Context, registry project
 	}
 
 	var unattached []UnattachedStateDir
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		dir := filepath.Join(root, entry.Name())
-		record, err := projectrecord.Read(dir)
+	for _, root := range roots {
+		entries, err := os.ReadDir(root)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read the state directories in %s: %w", root, err)
 		}
-		if !registered[record.ID] {
-			unattached = append(unattached, UnattachedStateDir{Path: dir, Name: record.Name, ID: record.ID})
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			dir := filepath.Join(root, entry.Name())
+			record, err := projectrecord.Read(dir)
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			if !registered[record.ID] {
+				unattached = append(unattached, UnattachedStateDir{Path: dir, Name: record.Name, ID: record.ID})
+			}
 		}
 	}
 	return unattached, nil

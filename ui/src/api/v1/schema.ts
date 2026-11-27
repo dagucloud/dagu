@@ -5170,7 +5170,7 @@ export interface paths {
         };
         /**
          * List projects
-         * @description Lists the projects the caller has a role in, the default project first, then by name, each with the caller's role and its state. For an admin, it also lists the state directories that record a project the registry lacks. Not found while projects are off.
+         * @description Lists the projects the caller has a role in, the default project first, then by name, each with the caller's role and its state. For an admin, it also lists the state directories that record a project the registry lacks. On a remote node, it needs a local admin, since the node answers with its stored credential. Not found while projects are off.
          */
         get: operations["listProjects"];
         put?: never;
@@ -28120,7 +28120,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description A project of that name exists in any case, a state directory of that name records another project, or the DAG directory would hold a protected path; nothing was stored */
+            /** @description A project of that name exists in any case, a state directory of that name records another project, the DAG directory would hold a protected path, or another create or delete of a project is running; nothing was stored */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -28180,7 +28180,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The delete is refused: the project is the default project, has a run that is queued, running, or waiting, its DAG directory is in or holds a git checkout or holds a protected path, a file runs in place as its, its in-place wiki folder holds pages, or a live process did not release it in time */
+            /** @description The delete is refused: the project is the default project, has a run that is queued, running, or waiting, a git checkout tracks files in its DAG directory, its DAG directory holds a protected path, a file runs in place as its, its in-place wiki folder holds pages, a live process did not release it in time, or another create or delete of a project is running */
             409: {
                 headers: {
                     [name: string]: unknown;

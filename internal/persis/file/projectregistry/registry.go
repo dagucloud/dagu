@@ -76,6 +76,7 @@ type storedProject struct {
 	SlotSeed     string        `json:"slot_seed"`
 	Binding      storedBinding `json:"binding,omitzero"`
 	Deleting     bool          `json:"deleting,omitempty"`
+	DeleteMark   string        `json:"delete_mark,omitempty"`
 }
 
 type storedBinding struct {
@@ -210,8 +211,11 @@ func (r *Registry) SetDeleting(ctx context.Context, id string, deleting bool) (p
 		if deleting && projects[i].Name == project.DefaultName {
 			return nil, false, project.ErrDefaultProject
 		}
-		changed := projects[i].Deleting != deleting
-		projects[i].Deleting = deleting
+		changed := deleting || projects[i].Deleting
+		projects[i].Deleting, projects[i].DeleteMark = deleting, ""
+		if deleting {
+			projects[i].DeleteMark = uuid.NewString()
+		}
 		result = projects[i]
 		return projects, changed, nil
 	})
@@ -377,6 +381,7 @@ func toStored(p project.Project) storedProject {
 		SlotSeed:     p.SlotSeed,
 		Binding:      storedBinding{CloudProjectID: p.Binding.CloudProjectID},
 		Deleting:     p.Deleting,
+		DeleteMark:   p.DeleteMark,
 	}
 }
 
@@ -390,5 +395,6 @@ func (s storedProject) toProject() project.Project {
 		SlotSeed:     s.SlotSeed,
 		Binding:      project.Binding{CloudProjectID: s.Binding.CloudProjectID},
 		Deleting:     s.Deleting,
+		DeleteMark:   s.DeleteMark,
 	}
 }

@@ -56,11 +56,11 @@ func TestProjectStoreCacheFollowsRegistry(t *testing.T) {
 	assert.Empty(t, releases.recorded())
 
 	deleting := weatherProject
-	deleting.Deleting = true
+	deleting.Deleting, deleting.DeleteMark = true, "mark-1"
 	registry.show(defaultProject, deleting)
 	_, ok = cache.Get(weatherProject.ID)
 	assert.False(t, ok)
-	assert.Equal(t, [][]string{{weatherProject.ID}}, releases.recorded())
+	assert.Equal(t, [][]string{{"mark-1"}}, releases.recorded())
 
 	// A refused delete removes the mark, so the stores open again and the
 	// release is withdrawn.
@@ -68,7 +68,7 @@ func TestProjectStoreCacheFollowsRegistry(t *testing.T) {
 	again, ok := cache.Get(weatherProject.ID)
 	require.True(t, ok)
 	assert.NotSame(t, first, again)
-	assert.Equal(t, [][]string{{weatherProject.ID}, nil}, releases.recorded())
+	assert.Equal(t, [][]string{{"mark-1"}, nil}, releases.recorded())
 	assert.Equal(t, []int{0, 2}, recordsAtOpen,
 		"the release is withdrawn before the stores open again, so a later delete waits")
 
@@ -114,12 +114,12 @@ func TestProjectStoreCacheRetriesFailedRecord(t *testing.T) {
 	runCache(t, cache)
 
 	deleting := weatherProject
-	deleting.Deleting = true
+	deleting.Deleting, deleting.DeleteMark = true, "mark-1"
 	releases.setFailing(true)
 	registry.show(defaultProject, deleting)
 	releases.setFailing(false)
 	registry.show(defaultProject, weatherProject)
-	assert.Equal(t, [][]string{{weatherProject.ID}, nil}, releases.recorded())
+	assert.Equal(t, [][]string{{"mark-1"}, nil}, releases.recorded())
 }
 
 // A process that starts while a project is marked deleting registers the
@@ -132,7 +132,7 @@ func TestProjectStoreCacheRecordsReleaseInServiceRegistry(t *testing.T) {
 	registry := projectregistry.New(cfg.Paths.DataDir)
 	weather, err := registry.Create(ctx, project.CreateInput{Name: "weather"})
 	require.NoError(t, err)
-	_, err = registry.SetDeleting(ctx, weather.ID, true)
+	marked, err := registry.SetDeleting(ctx, weather.ID, true)
 	require.NoError(t, err)
 	require.NoError(t, server.ServiceRegistry.Register(ctx, serviceregistry.ServiceNameScheduler,
 		serviceregistry.HostInfo{ID: "scheduler-1", Host: "localhost"}))
@@ -148,7 +148,7 @@ func TestProjectStoreCacheRecordsReleaseInServiceRegistry(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		members, err := persisfile.NewServiceRegistry(cfg).GetServiceMembers(ctx, serviceregistry.ServiceNameScheduler)
-		return err == nil && len(members) == 1 && slices.Equal(members[0].ReleasedProjects, []string{weather.ID})
+		return err == nil && len(members) == 1 && slices.Equal(members[0].ReleasedProjects, []string{marked.DeleteMark})
 	}, 5*time.Second, 20*time.Millisecond)
 	registered, err := registry.Get(ctx, project.DefaultName)
 	require.NoError(t, err)

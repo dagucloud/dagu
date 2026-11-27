@@ -30,6 +30,10 @@ type Project struct {
 	Binding Binding
 	// Deleting reports that a delete of the project is in progress.
 	Deleting bool
+	// DeleteMark identifies the mark while Deleting. Each mark gets a new
+	// one, so that a release a process recorded for an earlier mark does
+	// not count for a later one.
+	DeleteMark string
 }
 
 // Binding links a project to a Dagu Cloud project. The zero value is

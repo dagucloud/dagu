@@ -133,23 +133,26 @@ func TestProjects(t *testing.T) {
 	assert.NotContains(t, listAPIKeyNames(t, server, adminToken), "payments-viewer")
 }
 
-// TestProjectsOff proves that /projects is not found while projects are
-// off.
+// TestProjectsOff proves that /projects answers as a path that does not
+// exist while projects are off, a body that does not decode included.
 func TestProjectsOff(t *testing.T) {
 	t.Parallel()
 	server := setupBuiltinAuthServer(t)
 	adminToken := getAdminToken(t, server)
+	absent := server.Client().Get("/api/v1/no-such-path").WithBearerToken(adminToken).Send(t)
+	require.Equal(t, http.StatusNotFound, absent.Response.StatusCode())
 
 	for _, request := range []*test.Request{
 		server.Client().Get("/api/v1/projects"),
 		server.Client().Post("/api/v1/projects", api.CreateProjectRequest{Name: "ops"}),
+		server.Client().Post("/api/v1/projects", "not an object"),
 		server.Client().Patch("/api/v1/projects/ops", api.UpdateProjectRequest{DisplayName: new("Ops")}),
 		server.Client().Delete("/api/v1/projects/ops"),
 	} {
-		resp := request.WithBearerToken(adminToken).ExpectStatus(http.StatusNotFound).Send(t)
-		var body api.Error
-		resp.Unmarshal(t, &body)
-		assert.Equal(t, api.Error{Code: api.ErrorCodeNotFound, Message: "not found"}, body)
+		resp := request.WithBearerToken(adminToken).Send(t)
+		assert.Equal(t, absent.Response.StatusCode(), resp.Response.StatusCode())
+		assert.Equal(t, absent.Body, resp.Body)
+		assert.Equal(t, absent.Response.Header().Get("Content-Type"), resp.Response.Header().Get("Content-Type"))
 	}
 	assert.NoDirExists(t, filepath.Join(server.Config.Paths.ProjectsDir, "ops"))
 }

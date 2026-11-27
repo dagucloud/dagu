@@ -105,8 +105,8 @@ func projectDeleteCommand() *cobra.Command {
 		Long: `Delete a project once every server, scheduler, and coordinator has released
 it. Its DAG directory, state directories, grants, and each API key left with
 no role are removed. The delete is refused, and changes nothing, while the
-project has a run that is queued, running, or waiting, while its DAG
-directory is in or holds a git checkout, while a file runs in place as the
+project has a run that is queued, running, or waiting, while a git
+checkout tracks files in its DAG directory, while a file runs in place as the
 project's, while its in-place wiki folder holds pages, and for the default
 project.`,
 	}, cobra.ExactArgs(1), func(ctx *Context, args []string) error {
@@ -114,7 +114,7 @@ project.`,
 		if err != nil {
 			return err
 		}
-		deleted, err := lifecycle.Delete(ctx, args[0])
+		deleted, err := lifecycle.Delete(ctx, args[0], nil)
 		if err != nil {
 			return fmt.Errorf("delete project %s: %w", args[0], err)
 		}

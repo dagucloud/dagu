@@ -22,8 +22,8 @@ type instanceInfo struct {
 	PID       int                           `json:"pid"`
 	Status    serviceregistry.ServiceStatus `json:"status"`
 	StartedAt time.Time                     `json:"startedAt"`
-	// ReleasedProjects lists the projects whose stores the instance has
-	// released.
+	// ReleasedProjects lists the delete marks of the projects whose stores
+	// the instance has released.
 	ReleasedProjects []string `json:"releasedProjects,omitempty"`
 }
 

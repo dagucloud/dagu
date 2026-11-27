@@ -18,8 +18,9 @@ import (
 // ProjectStoreCache holds the stores of every registered project, keyed by
 // project ID, and follows the registry as it changes:
 //
-//	registry drops P, or marks  -> release P's stores, then record every
-//	  it deleting                  project marked deleting as released
+//	registry drops P, or marks  -> release P's stores, then record the
+//	  it deleting                  delete mark of every project marked
+//	                               deleting as released
 //	registry gains P            -> after that record, open P's stores
 //
 // File stores hold no file open between calls, so releasing a project's
@@ -32,8 +33,9 @@ type ProjectStoreCache struct {
 
 	mu     sync.RWMutex
 	stores map[string]*ProjectStores
-	// released is the last set of IDs recorded, and unrecorded reports that
-	// a later record failed. Only the goroutine that runs Run touches them.
+	// released is the last set of marks recorded, and unrecorded reports
+	// that a later record failed. Only the goroutine that runs Run touches
+	// them.
 	released   []string
 	unrecorded bool
 }
@@ -94,7 +96,7 @@ func (c *ProjectStoreCache) follow(ctx context.Context, projects []project.Proje
 	var deleting []string
 	for _, p := range projects {
 		if p.Deleting {
-			deleting = append(deleting, p.ID)
+			deleting = append(deleting, p.DeleteMark)
 		} else {
 			live[p.ID] = true
 		}
@@ -134,18 +136,18 @@ func (c *ProjectStoreCache) follow(ctx context.Context, projects []project.Proje
 	}
 }
 
-// recordReleased records ids once the cache holds none of their stores,
-// unless they are the IDs recorded last. After a failed record, the next
-// change records its IDs whatever they are.
-func (c *ProjectStoreCache) recordReleased(ctx context.Context, ids []string) {
-	slices.Sort(ids)
-	if !c.unrecorded && slices.Equal(ids, c.released) {
+// recordReleased records marks, the delete marks of projects whose stores
+// the cache holds none of, unless they are the marks recorded last. After a
+// failed record, the next change records its marks whatever they are.
+func (c *ProjectStoreCache) recordReleased(ctx context.Context, marks []string) {
+	slices.Sort(marks)
+	if !c.unrecorded && slices.Equal(marks, c.released) {
 		return
 	}
-	if err := c.releases.SetReleasedProjects(ctx, ids); err != nil {
+	if err := c.releases.SetReleasedProjects(ctx, marks); err != nil {
 		c.unrecorded = true
 		logger.Warn(ctx, "Failed to record released projects", tag.Error(err))
 		return
 	}
-	c.released, c.unrecorded = ids, false
+	c.released, c.unrecorded = marks, false
 }

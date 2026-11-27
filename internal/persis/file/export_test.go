@@ -16,3 +16,12 @@ func SetReleaseWait(t *testing.T, timeout, poll time.Duration) {
 	releaseTimeout, releasePollInterval = timeout, poll
 	t.Cleanup(func() { releaseTimeout, releasePollInterval = prevTimeout, prevPoll })
 }
+
+// SetLifecycleLockWait sets how long a create or delete waits for another
+// one, until t ends.
+func SetLifecycleLockWait(t *testing.T, wait time.Duration) {
+	t.Helper()
+	prev := lifecycleLockWait
+	lifecycleLockWait = wait
+	t.Cleanup(func() { lifecycleLockWait = prev })
+}

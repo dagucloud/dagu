@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectrecord"
+	"github.com/dagucloud/dagu/v2/internal/project"
 )
 
 // TestProjectState proves Spec 102 "Changed on Disk": a project whose DAG
@@ -51,4 +52,15 @@ func TestUnattachedStateDirs(t *testing.T) {
 	dirs, err := f.server.UnattachedStateDirs(ctx, f.registry)
 	require.NoError(t, err)
 	assert.Equal(t, []persisfile.UnattachedStateDir{{Path: old, Name: "intraday", ID: "an-older-id"}}, dirs)
+
+	// Create refuses on a state directory in a path set apart, so the
+	// listing names it too.
+	f.cfg.Paths.Explicit.LogDir = true
+	setApart := filepath.Join(f.cfg.Paths.LogDir, ".projects", "billing")
+	require.NoError(t, projectrecord.Write(setApart, projectrecord.Record{ID: "a-billing-id", Name: "billing"}))
+	_, err = persisfile.CreateProject(ctx, f.cfg, f.registry, project.CreateInput{Name: "billing"})
+	require.ErrorIs(t, err, project.ErrStateDirTaken)
+	dirs, err = f.server.UnattachedStateDirs(ctx, f.registry)
+	require.NoError(t, err)
+	assert.Contains(t, dirs, persisfile.UnattachedStateDir{Path: setApart, Name: "billing", ID: "a-billing-id"})
 }
