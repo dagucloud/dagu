@@ -103,6 +103,7 @@ func TestZipLeavesOutWhatASkillMustNotHold(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "secret")
 	writeFile(t, outside, []byte("secret"))
 	require.NoError(t, os.Link(outside, filepath.Join(dir, "assets", "hard.bin")))
+	require.NoError(t, os.Link(outside, filepath.Join(dir, "notes.md")))
 	require.NoError(t, os.Symlink(outside, filepath.Join(dir, "assets", "soft.bin")))
 
 	zr := openZip(t, buildZip(t, s, "broken"))
