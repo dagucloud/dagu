@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 // The isolation tests need the user ID 0, the six capabilities and the flag
@@ -30,6 +32,8 @@ import (
 const testUID, testGID = 64011, 64011
 
 const requireIsolationEnv = "DAGU_TEST_REQUIRE_ISOLATION"
+
+const changeUserHelperEnv = "DAGU_TEST_CHANGE_USER_HELPER"
 
 func requireIsolation(t *testing.T) {
 	t.Helper()
@@ -96,6 +100,38 @@ func runAs(t *testing.T, ctx context.Context, dir, script string, env ...string)
 	assert.Equal(t, []string{"/bin/sh", "-c", script}, cmd.Args)
 	require.NoError(t, process.Wait(), "stderr: %s", stderr.String())
 	return stdout.String()
+}
+
+// The helpers must lose their capabilities even when the worker preserves
+// them across setuid. Signal 0 checks permission without stopping the parent.
+func TestChangeToUserDropsCaps(t *testing.T) {
+	if os.Getenv(changeUserHelperEnv) == "1" {
+		require.NoError(t, changeToUser(testUID, testGID))
+		for range 10 {
+			runtime.Gosched()
+			header := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
+			var caps [2]unix.CapUserData
+			require.NoError(t, unix.Capget(&header, &caps[0]))
+			require.Equal(t, [2]unix.CapUserData{}, caps)
+			ambient, err := unix.PrctlRetInt(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_IS_SET, unix.CAP_KILL, 0, 0)
+			require.NoError(t, err)
+			require.Zero(t, ambient)
+			require.ErrorIs(t, syscall.Kill(os.Getppid(), 0), syscall.EPERM)
+		}
+		return
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("needs root to change user IDs and securebits")
+	}
+	setpriv, err := exec.LookPath("setpriv")
+	require.NoError(t, err)
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	cmd := exec.Command(setpriv, "--no-new-privs", "--securebits=+no_setuid_fixup", //nolint:gosec // The test re-executes its own binary through setpriv.
+		"--inh-caps=+kill", "--ambient-caps=+kill", executable, "-test.run=^TestChangeToUserDropsCaps$")
+	cmd.Env = append(os.Environ(), changeUserHelperEnv+"=1")
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "%s", output)
 }
 
 // Spec 103, "Isolation", rules 4, 5 and 7: the process runs as the restricted

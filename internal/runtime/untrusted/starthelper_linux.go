@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -75,9 +76,12 @@ func runStartHelper(args []string) int {
 	return code
 }
 
-// changeToUser changes the process to the user and the group, with no
-// supplementary group, and checks the IDs after the change.
+// changeToUser changes the caller to the user and group, with no supplementary
+// group or capability. The caller stays on its OS thread until the helper
+// exits or replaces itself.
 func changeToUser(uid, gid int) error {
+	// Capabilities are per-thread; another runtime thread may retain them.
+	runtime.LockOSThread()
 	if err := syscall.Setgroups([]int{}); err != nil {
 		return err
 	}
@@ -89,6 +93,12 @@ func changeToUser(uid, gid int) error {
 	}
 	if os.Getuid() != uid || os.Geteuid() != uid || os.Getgid() != gid || os.Getegid() != gid {
 		return errors.New("the IDs did not change")
+	}
+	// Securebits can preserve capabilities across setuid, including CAP_KILL.
+	header := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
+	var caps [2]unix.CapUserData
+	if err := unix.Capset(&header, &caps[0]); err != nil {
+		return fmt.Errorf("clear the capabilities: %w", err)
 	}
 	return nil
 }
