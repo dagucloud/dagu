@@ -9,13 +9,13 @@ API that reads them, narrowing a run to listed nodes, and retrying only the
 nodes that did not succeed are implemented. Conformance covers validation
 through `dagu validate`, runs through `dagu start` against SSH servers the
 test harness starts, node runs through the API, narrowed runs through `dagu
-start`, `dagu start --from-run-id`, and `dagu retry`, and retries of steps
-with nodes through `dagu retry`. Bound runs and steps with nodes on SSH
-nodes run on workers too, worker nodes match as SSH nodes do, and a child
-bound to a worker node runs on that worker; Go integration tests cover
-these, since the conformance harness starts no worker. A `node: required`
-DAG started with a worker node is refused, since such a run is not yet
-dispatched to its worker. Further sections are added as RFC 013 lands.
+start`, `dagu start --from-run-id`, and `dagu retry`, retries of steps
+with nodes through `dagu retry`, and a run started bound to a worker node
+through `dagu start-all` and a worker. Bound runs and steps with nodes on
+SSH nodes run on workers too, worker nodes match as SSH nodes do, and a
+run bound to a worker node runs on that worker, whether it is a child or
+was started bound to the node; Go integration tests cover these. Further
+sections are added as RFC 013 lands.
 
 ## Scope
 
@@ -157,6 +157,32 @@ dispatched to it does. The node has no SSH connection, so an `ssh.run` or
 `sftp.*` step that sets no `with.host` or `with.ip` fails the run before any
 step starts.
 
+A run started bound to a worker node ([Narrowing a run](#narrowing-a-run))
+is dispatched to that worker by its ID each time it starts: by `dagu start`,
+including `--from-run-id`, `dagu restart`, and `dagu retry`, by the start,
+start-sync, retry, and edit-and-retry requests, by the resume of a waiting
+run, and by the scheduler when a queued run leaves the queue, as an enqueued
+or rescheduled run does. It never runs on the Dagu host or on another
+worker:
+
+- It goes to its worker whatever the default execution mode, through a
+  coordinator. A start request or a queued run where no coordinator is
+  configured fails (`node "tokyo-gw" is a worker node: a run bound to a
+  worker node reaches its worker through a coordinator, and none is
+  configured`).
+- The node is read again when the run is dispatched, not kept from when it
+  was admitted. A worker that is offline then, by the rule of
+  [Spec 088](088-node-inventory.md#worker-nodes), fails the run at once,
+  with `worker node "tokyo-gw" is offline`, rather than waiting for it: a
+  start and a retry fail before any attempt exists, and a queued run fails.
+- A worker node forgotten since is no longer a node. A start refuses it, as
+  any name that is no node, and a retry or a queued run of a run bound to
+  it fails before any step, as a run bound to a node that left the
+  inventories does.
+- A `node: required` DAG sets no `worker_selector`, and a worker selector
+  given when it is started or enqueued is refused, so the node alone
+  decides where the run runs.
+
 ### Runs on workers
 
 A step with `nodes` and a bound run behave on a worker as on the Dagu host.
@@ -215,8 +241,9 @@ and a mistake fails the request:
 
 - each name must be a node of the project, compared without case, so a
   mistyped name never starts a run;
-- a `node: required` DAG takes exactly one node, an inventory node, and
-  the run is bound to it as a child of a `dag.run` step with `nodes` is.
+- a `node: required` DAG takes exactly one node, an inventory node or a
+  worker node, and the run is bound to it as a child of a `dag.run` step
+  with `nodes` is ([Bound runs](#bound-runs));
   The start and enqueue requests refuse such a DAG without a node; `dagu
   start` and `dagu enqueue` record a run that fails before any step;
 - any other DAG takes a list only when a step, a `foreach` body, or a
@@ -224,7 +251,9 @@ and a mistake fails the request:
 - a start of selected steps takes no list.
 
 A narrowed run is dispatched as any run is, and a run dispatched to a
-worker carries its list there.
+worker carries its list there. Worker nodes are nodes only for runs that
+can go to workers, so a run of another project or of a library DAG names
+no worker node (`node "tokyo-gw" is not a node of the project`).
 
 The run keeps the list, spelled as the inventory spells the names, in its
 status. Queued runs, retries, edit-and-retry runs, and `dagu restart` keep
@@ -249,7 +278,7 @@ with no items, does not count. A retry counts what the attempts before it
 did, so the steps it keeps still count.
 
 A child run of a narrowed run, started by `dag.run` or `dag.enqueue`, keeps
-the list. A `dag.run` child run runs where its parent runs, so a child DAG
+the list, on a worker too. A `dag.run` child run runs where its parent runs, so a child DAG
 that selects workers fails the step that starts it, and it does not fail
 for the list: its steps count toward the run it is part of. A `dag.enqueue`
 child run is a run of its own, may select workers, and fails for the list
@@ -357,11 +386,16 @@ this version has no rows and no counts.
 `dagu start`, `dagu enqueue`, and the start and enqueue requests fail
 before any run exists when a node list names a name that is not a node of
 the project (`node "web1" is not a node of the project`), is given for a DAG
-that has nothing to narrow, or starts selected steps, or gives a
-`node: required` DAG a worker node (`node "tokyo-gw" is a worker node`). The
+that has nothing to narrow, or starts selected steps. The
 start, enqueue, and reschedule requests also fail so for a `node: required`
 DAG without exactly one node, and a reschedule for a list that no longer
 passes these checks. `dagu start` refuses `--node` with `--from-run-id`.
+
+`dagu start`, `dagu retry`, `dagu restart`, and the start and retry
+requests fail before any attempt exists when they bind a run to a worker
+node whose worker is offline (`worker node "tokyo-gw" is offline`), and the
+start requests also when no coordinator is configured. A queued run bound
+to a worker node fails before it starts for the same reasons.
 
 A step with `nodes` fails before any node starts, with the error, when:
 
