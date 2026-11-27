@@ -59,13 +59,13 @@ func (e *Engine) Remove(ctx context.Context, conn *connection.Connection) error 
 	// The write that ended the session dropped its token, also when the
 	// delete failed after it.
 	e.revoke(ctx, conn, tokens.staged, RevokedUnconfirmed)
-	if err != nil {
-		return fmt.Errorf("connection %q: remove: %w", conn.Name, err)
-	}
 	// The check follows the delete, so of two removes that share a grant,
 	// the later one finds no other holder and revokes.
-	if tokens.live != "" && e.revoker(conn, RevokedLive) != nil && !e.grantShared(ctx, conn, tokens.accountID) {
+	if tokens.deleted && tokens.live != "" && e.revoker(conn, RevokedLive) != nil && !e.grantShared(ctx, conn, tokens.accountID) {
 		e.revoke(ctx, conn, tokens.live, RevokedLive)
+	}
+	if err != nil {
+		return fmt.Errorf("connection %q: remove: %w", conn.Name, err)
 	}
 	return nil
 }
@@ -76,6 +76,9 @@ type removedTokens struct {
 	live      string
 	staged    string
 	accountID string
+	// deleted reports that the token state is gone, also when a later
+	// step of the delete failed, so no retry can read the live token.
+	deleted bool
 }
 
 // removeLocked ends conn's session and deletes conn while holding its
@@ -111,8 +114,17 @@ func (e *Engine) removeLocked(ctx context.Context, conn *connection.Connection) 
 	}
 	if err == nil {
 		err = e.store.Delete(ctx, conn.Key())
+		tokens.deleted = err == nil || e.tokenStateGone(ctx, conn)
 	}
 	return tokens, err
+}
+
+// tokenStateGone reports whether conn's token state no longer holds a
+// refresh token, as after a delete that removed it and then failed on a
+// catalog.
+func (e *Engine) tokenStateGone(ctx context.Context, conn *connection.Connection) bool {
+	st, err := e.store.TokenState(ctx, conn)
+	return err == nil && st.RefreshToken == ""
 }
 
 // lock takes the lock of key, waiting while another holder, such as a

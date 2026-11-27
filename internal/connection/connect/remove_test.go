@@ -158,6 +158,41 @@ func TestRemoveFailsOnStoreError(t *testing.T) {
 	assert.Equal(t, []string{"rt-0"}, f.provider.revokedTokens())
 }
 
+// A delete that removed the token state and then failed leaves no live
+// token to read on a retry, so Remove still revokes it. A delete that
+// failed before that leaves the connection working, and nothing is
+// revoked.
+func TestRemovePartialDelete(t *testing.T) {
+	t.Parallel()
+	errCatalog := errors.New("catalog delete failed")
+	tests := []struct {
+		name       string
+		tokensGone bool
+		want       []string
+	}{
+		{name: "AfterTokenState", tokensGone: true, want: []string{"rt-0"}},
+		{name: "BeforeTokenState"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			f.connect(t, "sub-1")
+			f.writes.beforeDelete(func() error {
+				if tt.tokensGone {
+					files := f.files(t, tokensDir)
+					require.Len(t, files, 1)
+					require.NoError(t, os.Remove(files[0]))
+				}
+				return errCatalog
+			})
+
+			assert.ErrorIs(t, f.engine.Remove(context.Background(), f.conn), errCatalog)
+			assert.Equal(t, tt.want, f.provider.revokedTokens())
+		})
+	}
+}
+
 // A connection whose token state is missing, as a crash inside create
 // leaves it, or whose token state or catalog cannot be read is still
 // removed, with every file of it. Nothing is revoked without readable
@@ -237,9 +272,10 @@ func TestRemoveRacesRefresh(t *testing.T) {
 		f.connect(t, "sub-1")
 		deleting := make(chan struct{})
 		release := newGate(t)
-		f.writes.beforeDelete(func() {
+		f.writes.beforeDelete(func() error {
 			close(deleting)
 			release.wait()
+			return nil
 		})
 
 		b := f.broker(t)
@@ -543,7 +579,7 @@ func (f *fixture) files(t *testing.T, dir string) []string {
 	return files
 }
 
-func (s *failingStore) beforeDelete(fn func()) {
+func (s *failingStore) beforeDelete(fn func() error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onDelete = fn
@@ -554,7 +590,9 @@ func (s *failingStore) Delete(ctx context.Context, key connection.Key) error {
 	hook := s.onDelete
 	s.mu.Unlock()
 	if hook != nil {
-		hook()
+		if err := hook(); err != nil {
+			return err
+		}
 	}
 	return s.Store.Delete(ctx, key)
 }

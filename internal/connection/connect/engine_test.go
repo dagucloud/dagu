@@ -1005,8 +1005,9 @@ type failingStore struct {
 
 	mu  sync.Mutex
 	err error
-	// onDelete runs before each Delete.
-	onDelete func()
+	// onDelete runs before each Delete. An error it returns fails the
+	// Delete without calling the store.
+	onDelete func() error
 }
 
 func (s *failingStore) fail(err error) {
