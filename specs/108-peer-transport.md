@@ -600,15 +600,22 @@ or `stop`:
 - In state `removing`:
   - `Poll` gives the worker no new tasks.
   - Calls for the runs the worker already holds keep working.
-  - The certificate is revoked at the first heartbeat that lists no running
-    tasks and arrives at least 30 seconds after the certificate became
-    `removing`, or when the worker's heartbeat goes stale.
+  - A task counts as held by the worker from the moment a coordinator hands
+    it out until the worker reports its end or its lease expires. A task
+    whose `Poll` response the worker never received counts until its lease
+    expires.
+  - The certificate is revoked when the worker holds no task, at least 30
+    seconds after the certificate became `removing`, or when the worker's
+    heartbeat goes stale.
   - The state survives a coordinator restart.
-  - Every coordinator sees `removing` within 30 seconds, at its next
-    reread, and gives the worker no task after that. A task one hands out
-    before its reread shows in the worker's heartbeat and is waited for
-    like the others, so no coordinator hands out a task after the
-    certificate is revoked.
+  - Every coordinator sees `removing` within 30 seconds, at its next reread,
+    and gives the worker no task after that. A task one hands out before its
+    reread is held, so it is waited for like the others.
+- A coordinator that has not yet reread the revoked set can hand a task to
+  a revoked certificate for up to 30 seconds, such as after a revocation on
+  a stale heartbeat. The worker is refused at its next call to a
+  coordinator that knows, as [Removed Worker](#removed-worker) states, and
+  the task ends through the stale-lease check.
 - With `stop`, each run gets the existing cancel request. The certificate is
   revoked when the runs end, but not before 30 seconds in `removing`, or 2
   minutes after the cancel requests, whichever comes first. Runs without a final status by then are left to

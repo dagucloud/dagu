@@ -405,8 +405,8 @@ transport in this order:
 - A coordinator that leaves built-in TLS, with own certificates, removes
   the published certificate. A certificate that a downgraded coordinator
   leaves behind selects nothing, since its registry entry no longer reports
-  built-in TLS; a client that dials before the entry changes falls back on
-  the failed handshake.
+  built-in TLS; a client on the peer token that dials before the entry
+  changes falls back on the failed handshake, as the next bullet states.
 - In v2.x, a client on the peer token or on no credential falls back to h2c
   when the TLS handshake fails at the transport level: the connection is
   reset, or the other side answers with something other than TLS. This is
@@ -546,12 +546,17 @@ worker                                         coordinator
 - Removing a worker with running runs first marks its certificate
   `removing`, a stored state that survives a coordinator restart. `Poll`
   gives the worker no new tasks, and calls for the runs it already holds
-  keep working. The certificate is revoked when the worker's heartbeat
-  lists no running tasks, at least 30 seconds after it became `removing`.
-  Other coordinators see `removing` at their next reread, so a task one
-  hands out in that window shows in the heartbeat and is waited for too,
-  and no task is handed out after the certificate is revoked. A connected
-  worker without runs goes through `removing` the same way.
+  keep working. The certificate is revoked when the worker holds no task,
+  at least 30 seconds after it became `removing`. A task counts as held from
+  the moment a coordinator hands it out until the worker reports its end
+  or its lease expires, so a task another coordinator hands out before its
+  next reread is waited for too. A connected worker without runs goes
+  through `removing` the same way.
+- A coordinator that has not yet reread the revoked set can still hand a
+  task to a revoked certificate, for up to 30 seconds. The worker is
+  refused at its next call to a coordinator that knows, stops the task,
+  and the task ends through the stale-lease check, like the runs of a
+  worker that stops sending heartbeats.
 - **Stop its runs** sends the existing cancel request for each run. Runs
   that reach no final status within 2 minutes are left to the stale-lease
   check, and the certificate is revoked then.
