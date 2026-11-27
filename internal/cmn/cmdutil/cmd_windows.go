@@ -32,8 +32,9 @@ func setupCommand(cmd *exec.Cmd) {
 // killProcessTree terminates pid and its descendant processes on Windows,
 // children before parents. A process that cannot be terminated does not stop the
 // rest of the tree from being killed; all such failures are returned together.
-// A process counts as a child only when it is known to have started after its
-// parent, so when the start of pid cannot be determined, only pid is terminated.
+// A process counts as a child only when it is known to have started no earlier
+// than its parent, so when the start of pid cannot be determined, only pid is
+// terminated.
 func killProcessTree(pid uint32) error {
 	// Process ID 0 is the System Idle Process, which is its own parent.
 	if pid == 0 {
