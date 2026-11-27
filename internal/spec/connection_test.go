@@ -80,3 +80,42 @@ func TestConnectionNameValidation(t *testing.T) {
 		})
 	}
 }
+
+// A connection secret declares its connection, once beside the steps that
+// name it, and its key must be a literal name.
+func TestConnectionSecrets(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
+secrets:
+  - name: GOOGLE_TOKEN
+    provider: connection
+    key: work-google
+  - name: API_TOKEN
+    provider: connection
+    key: work-api
+  - name: OTHER
+    provider: env
+    key: work-env
+steps:
+  - id: unread
+    action: mcp.call
+    with: {connection: work-google, server: gmail, tool: search_threads}
+`))
+	require.NoError(t, err)
+	assert.Equal(t, []ir.ConnectionRef{
+		{Name: "work-google", Servers: []string{"gmail"}},
+		{Name: "work-api"},
+	}, dag.Connections)
+
+	_, err = spec.LoadYAML(context.Background(), []byte(`
+secrets:
+  - name: TOKEN
+    provider: connection
+    key: ${CONN}
+steps:
+  - run: "true"
+`))
+	require.ErrorContains(t, err, "secrets[0].key")
+	require.ErrorContains(t, err, "must be a literal name, not a reference")
+}
