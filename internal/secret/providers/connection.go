@@ -25,19 +25,11 @@ func init() {
 	})
 }
 
-// Connections finds the connections that a run's DAG declares and hands
-// out their tokens.
-type Connections interface {
-	broker.Source
-	// Connection returns the connection named name in the run's project.
-	Connection(ctx context.Context, name string) (*connection.Connection, error)
-}
-
 type connectionsKey struct{}
 
 // WithConnections returns ctx carrying conns, from which connection secrets
 // take their tokens.
-func WithConnections(ctx context.Context, conns Connections) context.Context {
+func WithConnections(ctx context.Context, conns broker.Connections) context.Context {
 	return context.WithValue(ctx, connectionsKey{}, conns)
 }
 
@@ -120,7 +112,7 @@ func exportedConnection(ctx context.Context, ref secretref.Ref) (*connection.Con
 	return conn, nil
 }
 
-func connectionsFrom(ctx context.Context) Connections {
-	conns, _ := ctx.Value(connectionsKey{}).(Connections)
+func connectionsFrom(ctx context.Context) broker.Connections {
+	conns, _ := ctx.Value(connectionsKey{}).(broker.Connections)
 	return conns
 }

@@ -84,6 +84,15 @@ type Source interface {
 	Rejected(ctx context.Context, conn *connection.Connection, resource, token string, minTTL time.Duration) (string, time.Duration, error)
 }
 
+// Connections hands out the connections that a run's DAG declares, and
+// their tokens.
+type Connections interface {
+	Source
+	// Connection returns the connection named name in the run's project,
+	// with every host that may receive its token.
+	Connection(ctx context.Context, name string) (*connection.Connection, error)
+}
+
 // StatusChange is a status change that a broker's write made. Of the
 // processes that see the same failure, only the one whose write changed the
 // status reports it. It holds no secret.
