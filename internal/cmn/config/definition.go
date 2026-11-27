@@ -399,6 +399,12 @@ type PeerDef struct {
 	// empty, peers use the token the coordinator generates in the data
 	// directory.
 	Token string `mapstructure:"token"`
+	// CACertFile is the peer CA certificate. On a coordinator it is the CA
+	// that signs peer certificates, with CAKeyFile. On other processes it is
+	// the CA that signs coordinator certificates.
+	CACertFile string `mapstructure:"ca_cert_file"`
+	// CAKeyFile is the private key of CACertFile. Only a coordinator reads it.
+	CAKeyFile string `mapstructure:"ca_key_file"`
 }
 
 // RemoteNodeDef configures a remote node connection.

@@ -360,6 +360,20 @@ var (
 		bindViper: true,
 		viperKey:  "peer.skip_tls_verify",
 	}
+
+	peerCACertFileFlag = commandLineFlag{
+		name:      "peer.ca-cert-file",
+		usage:     "Path to the CA certificate that signs peer certificates",
+		bindViper: true,
+		viperKey:  "peer.ca_cert_file",
+	}
+
+	peerCAKeyFileFlag = commandLineFlag{
+		name:      "peer.ca-key-file",
+		usage:     "Path to the private key of --peer.ca-cert-file",
+		bindViper: true,
+		viperKey:  "peer.ca_key_file",
+	}
 )
 
 // Cleanup and utility flags

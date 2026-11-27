@@ -910,6 +910,15 @@ type Peer struct {
 	// TokenFile is where the coordinator keeps the token it generates, under
 	// the data directory. Processes that share the data directory read it.
 	TokenFile string
+	// CACertFile is the peer CA certificate. On a coordinator it is the CA
+	// that signs peer certificates, with CAKeyFile. On other processes it is
+	// the CA that signs coordinator certificates.
+	CACertFile string
+	// CAKeyFile is the private key of CACertFile. Only a coordinator reads it.
+	CAKeyFile string
+	// GeneratedCAFile is where the coordinator keeps the CA it generates,
+	// under the data directory, when neither a CA nor own certificates are set.
+	GeneratedCAFile string
 }
 
 // Validate performs basic validation on the configuration to ensure required fields are set
@@ -977,6 +986,20 @@ func (c *Config) Validate() error {
 	}
 	if err := ValidatePeerToken(c.Core.Peer.Token); err != nil {
 		return fmt.Errorf("peer.token %w", err)
+	}
+	return c.validatePeerCA()
+}
+
+// validatePeerCA rejects peer CA settings that contradict other peer
+// settings. Each check involves a CA key, so no setup without one fails.
+func (c *Config) validatePeerCA() error {
+	peer := c.Core.Peer
+	if (peer.CACertFile != "" || peer.CAKeyFile != "") &&
+		(peer.CertFile != "" || peer.KeyFile != "" || peer.ClientCaFile != "") {
+		return errors.New("use the built-in CA (peer.ca_cert_file, peer.ca_key_file) or your own certificates (peer.cert_file, peer.key_file, peer.client_ca_file), not both")
+	}
+	if peer.CACertFile != "" && peer.SkipTLSVerify {
+		return errors.New("peer.skip_tls_verify turns off the check that peer.ca_cert_file makes: remove one")
 	}
 	return nil
 }

@@ -61,6 +61,8 @@ Flags:
   --peer.client-ca-file string      Path to CA certificate file for client verification (mTLS)
   --peer.insecure                   Use insecure connection (h2c) instead of TLS
   --peer.skip-tls-verify            Skip TLS certificate verification (insecure)
+  --peer.ca-cert-file string        Path to the CA certificate that signs peer certificates
+  --peer.ca-key-file string         Path to the private key of --peer.ca-cert-file
 
 Example:
   # Default mode (coordinator enabled)
@@ -95,6 +97,8 @@ var startAllFlags = []commandLineFlag{
 	peerKeyFileFlag,
 	peerClientCAFileFlag,
 	peerSkipTLSVerifyFlag,
+	peerCACertFileFlag,
+	peerCAKeyFileFlag,
 }
 
 // runStartAll starts the scheduler, web server, resource monitoring service, and optionally
