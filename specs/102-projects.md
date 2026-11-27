@@ -1091,9 +1091,9 @@ Rules:
     systems or mounts.
   - The revisions `X`'s wiki already has for a page stay, and the newest
     moved ones fill the rest of its 20; the others are dropped. A creation
-    time `X`'s wiki already has for a page
-    stays. An attachment of the same name with other content stays where
-    it is, and the server logs a warning that names it.
+    time `X`'s wiki already has for a page stays. An attachment of the same
+    name with other content stays where it is, and the server logs a
+    warning that names it.
   - When the move fails, `X`'s wiki request fails with the reason, and the
     next one tries again. An interrupted move finishes then.
 - Pages left in `<wiki>/X/` once `<projects_dir>/X/wiki/` exists show in

@@ -30,9 +30,10 @@ var renameAttachment = fileutil.Rename
 // whether or not the pages are still there.
 //
 // A page's revisions in dst stay, and the newest moved ones fill the rest of
-// the per-page limit; the others are dropped. A creation time dst already has for a page stays. An attachment whose name
-// dst already has for the page with other content stays where it is, and a
-// warning names it. Calling it again after an interruption finishes the move.
+// the per-page limit; the others are dropped. A creation time dst already
+// has for a page stays. An attachment whose name dst already has for the
+// page with other content stays where it is, and a warning names it.
+// Calling it again after an interruption finishes the move.
 func (s *Store) MoveHistory(ctx context.Context, inRoot func(dir string) bool, dst *Store) error {
 	s.mutationMu.Lock()
 	defer s.mutationMu.Unlock()
