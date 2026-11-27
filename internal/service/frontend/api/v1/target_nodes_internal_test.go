@@ -6,6 +6,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -20,6 +21,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const boundDAGSpec = `name: deploy-one
@@ -63,6 +66,63 @@ func TestStartBoundToWorkerNodeDispatchesToWorker(t *testing.T) {
 	assert.Equal(t, "gw-1", task.TargetWorkerID)
 	assert.Equal(t, "gw-1", task.BoundNode)
 	assert.Equal(t, []string{"gw-1"}, task.TargetNodes)
+}
+
+// The coordinator's refusal of a run bound to an offline worker node reaches
+// the caller as a conflict with its reason, from a start and a retry.
+func TestBoundToOfflineWorkerNodeIsConflict(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	a, dag := setupEditRetryAPI(t, t.TempDir(), boundDAGSpec)
+	withWorkerNode(t, a)
+	// The coordinator client wraps the refusal it received.
+	offline := fmt.Errorf("permanent error: %w", status.Error(codes.FailedPrecondition, `worker node "gw-1" is offline`))
+	a.coordinatorCli = &retryCoordinatorRecorder{dispatchErr: offline}
+	writeFailedBoundRun(t, a, dag, "gw-1")
+
+	_, startErr := a.startDAGRun(ctx, dag, manualStart{dagRunID: "run-2", targetNodes: []string{"gw-1"}})
+	_, retryErr := a.retryDAGRun(ctx, dag.Name, "run-1", "", "", "", false, false)
+	for _, err := range []error{startErr, retryErr} {
+		apiErr, ok := errors.AsType[*Error](err)
+		require.True(t, ok, "%v", err)
+		assert.Equal(t, http.StatusConflict, apiErr.HTTPStatus)
+		assert.Equal(t, `worker node "gw-1" is offline`, apiErr.Message)
+	}
+}
+
+// A retry of a run started bound to worker node gw-1 is refused once an
+// inventory node takes the name, rather than running bound to that SSH node.
+func TestRetryBoundToChangedWorkerNodeIsConflict(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	a, dag := setupEditRetryAPI(t, t.TempDir(), boundDAGSpec)
+	withWorkerNode(t, a)
+	recorder := &retryCoordinatorRecorder{}
+	a.coordinatorCli = recorder
+	writeFailedBoundRun(t, a, dag, "osaka-gw")
+
+	_, err := a.retryDAGRun(ctx, dag.Name, "run-1", "", "", "", false, false)
+	apiErr, ok := errors.AsType[*Error](err)
+	require.True(t, ok, "%v", err)
+	assert.Equal(t, http.StatusConflict, apiErr.HTTPStatus)
+	assert.Contains(t, apiErr.Message, `node "osaka-gw"`)
+	assert.Empty(t, recorder.dispatched)
+}
+
+// writeFailedBoundRun stores run-1 of dag as a failed run started bound to the
+// worker node worker.
+func writeFailedBoundRun(t *testing.T, a *API, dag *ir.DAG, worker string) {
+	t.Helper()
+	ctx := context.Background()
+	attempt, err := a.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	failed := ir.NewStatusBuilder(dag).Create("run-1", ir.Failed, 0, time.Now(),
+		ir.WithAttemptID(attempt.ID()), ir.WithTargetNodes([]string{worker}), ir.WithBoundNode(worker), ir.WithBoundWorker(worker))
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Write(ctx, failed))
+	require.NoError(t, attempt.Close(ctx))
 }
 
 // Without a coordinator, a start of a run bound to a worker node fails
@@ -109,15 +169,9 @@ func TestRetryBoundToWorkerNodeDispatchesToWorker(t *testing.T) {
 	recorder := &retryCoordinatorRecorder{}
 	a.coordinatorCli = recorder
 
-	attempt, err := a.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
-	require.NoError(t, err)
-	failed := ir.NewStatusBuilder(dag).Create("run-1", ir.Failed, 0, time.Now(),
-		ir.WithAttemptID(attempt.ID()), ir.WithTargetNodes([]string{"gw-1"}), ir.WithBoundNode("gw-1"))
-	require.NoError(t, attempt.Open(ctx))
-	require.NoError(t, attempt.Write(ctx, failed))
-	require.NoError(t, attempt.Close(ctx))
+	writeFailedBoundRun(t, a, dag, "gw-1")
 
-	_, err = a.retryDAGRun(ctx, dag.Name, "run-1", "", "", "", false, false)
+	_, err := a.retryDAGRun(ctx, dag.Name, "run-1", "", "", "", false, false)
 	require.NoError(t, err)
 	require.Len(t, recorder.dispatched, 1)
 	task := recorder.dispatched[0]

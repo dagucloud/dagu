@@ -1883,6 +1883,9 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *ir.DAG, opts 
 	)
 
 	if err := a.coordinatorCli.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
+		if opts.boundWorker != "" {
+			err = workerDispatchError(err)
+		}
 		return fmt.Errorf("error dispatching to coordinator: %w", err)
 	}
 
@@ -1945,7 +1948,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 	// A run bound to a worker node runs on that worker, whatever the default
 	// execution mode.
 	var err error
-	if opts.boundWorker, err = a.boundWorker(ctx, dag, opts.targetNodes); err != nil {
+	if opts.boundWorker, err = a.boundWorker(ctx, dag, opts.targetNodes, "", false); err != nil {
 		return nil, err
 	}
 	// Check if this DAG should be dispatched to the coordinator for distributed execution
