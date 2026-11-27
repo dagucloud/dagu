@@ -739,6 +739,39 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 	require.Less(t, changing, reads, "no read got one version of the skill")
 }
 
+// A read whose folder is replaced between its walk and its read of the files
+// reads again and gets the new version. The write runs inside the read, so
+// the overlap does not depend on the scheduler. The test changes a package
+// variable, so it does not run in parallel.
+func TestReadThatMeetsAWriteGetsOneVersion(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	cur := create(t, s, "demo")
+	// The same size, so only the time stamps and the content tell the versions.
+	content, err := cur.Text("SKILL.md")
+	require.NoError(t, err)
+	next := strings.Replace(string(content), "Body.", "Bodx.", 1)
+	var written *skill.Skill
+	var writeErr error
+	wrote := false
+	skill.AroundReadFiles(t, func() {
+		// The write reads the skill too; only the first read of the test writes.
+		if !wrote {
+			wrote = true
+			written, writeErr = s.WriteFile(ctx, "demo", "SKILL.md", []byte(next), skill.Precondition{IfMatch: cur.Hash})
+		}
+	}, func() {})
+
+	got, err := s.Read("demo")
+	require.NoError(t, err)
+	require.True(t, wrote, "the read never reached its read of the files")
+	require.NoError(t, writeErr)
+	require.Equal(t, written.Hash, got.Hash)
+	text, err := got.Text("SKILL.md")
+	require.NoError(t, err)
+	require.Equal(t, next, string(text))
+}
+
 // A partial folder (a new file but no SKILL.md yet) is refused, not used.
 func TestPartialSkillIsRefused(t *testing.T) {
 	t.Parallel()

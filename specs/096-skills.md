@@ -505,6 +505,7 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | `TestWriteStaysInTheFolderThatItOpened` (unit) | A skill folder or a skills directory that becomes a link during the write leaves the link target as it was; the write stays in the folder that it opened and gives a conflict, or stops when the lock moved with the skills directory. |
 | `TestLostLockCommitsNothing` (unit) | A writer that lost its lock writes and creates nothing, and leaves no folder. |
 | `TestLockFailureIsNotAConflict` (unit) | A lock error other than a held lock is not a conflict. |
+| `TestReadThatMeetsAWriteGetsOneVersion` (unit) | A read whose folder a write replaces between its walk and its read of the files reads again and gets the new version. |
 | `TestTwoWritersRace` (unit) | Of two writers with the same hash, one wins and the other gets a conflict, also when a holder that died left the lock. |
 | `TestReaderNeverSeesAHalfWrittenFile` (unit) | A reader during a stream of writes sees one complete version or `changing`, never a mix. |
 | `TestReadAfterAWriteSeesIt` (unit) | A read right after a write gets the written version, also from a cache that held the version before, and the write returns the hash on disk. |
