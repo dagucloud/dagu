@@ -44,8 +44,9 @@ Implemented so far:
   workspace, which also cannot be renamed while it owns connections. The
   API takes only `google` and `microsoft` apps, since no request sets an
   app's `endpoints` or a connection's `resource` yet, and creates a
-  connection only for the `authorization_code` grant. A connect confirmed
-  at once, without a confirm request, is audited only at its start.
+  connection only for the `authorization_code` grant. A server callback
+  connect confirmed at once is audited only at its start, since the
+  callback has no Dagu user.
 
 The tests against Google also settle whether Docs, Sheets, and Slides
 answer `NOT_FOUND` rather than `PERMISSION_DENIED` for a resource ID that
@@ -622,8 +623,10 @@ starter (UI or CLI)          Dagu server                       provider
 - The usable public URL is `server.public_url`, else the tunnel URL, else
   the UI's origin when the browser reaches Dagu at `localhost` or a
   loopback address, which Google accepts over HTTP. The server reads that
-  origin from the request's host, so a CLI that reaches Dagu at
-  `localhost` gets the same URL.
+  origin from a request that comes straight from a loopback peer, so a CLI
+  that reaches Dagu at `localhost` gets the same URL. A request that a
+  proxy forwarded does not count, so a server behind a proxy needs
+  `server.public_url`.
 - Unless the caller names a mode, the UI and the CLI pick the first of
   server callback, Cloud relay, loopback, and paste that works for the
   server's public URL, its license, and the app's client type.

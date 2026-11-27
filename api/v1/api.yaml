@@ -14745,7 +14745,7 @@ paths:
           $ref: "#/components/responses/ConnectionError"
     get:
       summary: "Read a connect session"
-      description: "Returns waiting, or confirm with the account, while the session is in progress. After it ends, connected when it was confirmed, and otherwise failed with a reason. Needs viewer or above in the workspace."
+      description: "Returns waiting, or confirm with the account, while the session is in progress. After it ends, connected when it is the connection's last confirmed session, and otherwise failed with a reason. An earlier confirmed session reads failed with reason replaced once a later one is confirmed, so the status is not a history of confirms. Needs viewer or above in the workspace."
       operationId: "getConnectionAuthorization"
       tags:
         - "connections"
@@ -14781,7 +14781,7 @@ paths:
       - $ref: "#/components/parameters/RemoteNode"
     post:
       summary: "Complete a loopback or paste session"
-      description: "Completes a loopback or paste session from the provider's redirect: the URL the browser landed on, or its code and state. The session moves to confirm, or to connected when the expected account signed in. A consent that the provider refused fails the session and returns 400 with the provider's error. A redirect for a session that no longer waits is refused with 409. Needs manager or above in the workspace."
+      description: "Completes a loopback or paste session from the provider's redirect: the URL the browser landed on, or its code and state. The session moves to confirm, or to connected when the expected account signed in with the account ID the connection already has, if any. Read the session afterwards to learn which. A consent that the provider refused fails the session and returns 400 with the provider's error. A redirect for a session that no longer waits is refused with 409. Needs manager or above in the workspace."
       operationId: "completeConnectionAuthorization"
       tags:
         - "connections"
@@ -14831,7 +14831,7 @@ paths:
       - $ref: "#/components/parameters/RemoteNode"
     post:
       summary: "Test a connection"
-      description: "Probes each service with the connection's live token: tools/list on an MCP service, which refreshes its tool catalog, and a profile read on a REST service. A connection that needs a reconnect is refused with 409. Needs developer or above in the workspace."
+      description: "Probes each service with the connection's live token. With an app that has the agent flag, a service with an MCP server runs tools/list, which refreshes its tool catalog. Any other service reads its REST profile, which checks neither MCP access nor the catalog. A connection that needs a reconnect is refused with 409, and a refresh that fails for a reason that may pass returns 502 with the provider's error. Needs developer or above in the workspace."
       operationId: "testConnection"
       tags:
         - "connections"
@@ -14852,7 +14852,7 @@ paths:
       - $ref: "#/components/parameters/RemoteNode"
     get:
       summary: "List a connection's MCP tools"
-      description: "Reads the tool catalog of each MCP service, or of the one that server names. A catalog older than 10 minutes is listed again, once per host however many callers ask. A server that is not one of the connection's MCP services is refused with 400. Needs developer or above in the workspace."
+      description: "Reads the tool catalog of each MCP service, or of the one that server names. A catalog older than 10 minutes is listed again. At most one listing of a catalog runs at a time on a host, however many callers ask. A server that is not one of the connection's MCP services is refused with 400. Needs developer or above in the workspace."
       operationId: "listConnectionTools"
       tags:
         - "connections"
@@ -25098,7 +25098,7 @@ components:
 
     ConnectionRedirectMode:
       type: string
-      description: "server_callback redirects to this server's public callback, loopback to the CLI's listener on 127.0.0.1, and paste to a loopback URL that fails to load, which the user pastes."
+      description: "server_callback redirects to this server's public callback, loopback to the CLI's listener on 127.0.0.1, and paste to a loopback URL that fails to load, which the user pastes. loopback needs loopbackRedirectUri, so a client without a listener, such as a browser, omits mode or skips loopback."
       enum:
         - server_callback
         - loopback
@@ -25196,10 +25196,10 @@ components:
       properties:
         publicUrl:
           type: string
-          description: "The server's usable public URL: server.public_url, else the tunnel URL, else the origin of a request that reached the server at localhost. Absent when it has none."
+          description: "The server's usable public URL, with its base path: server.public_url, else the tunnel URL, else the origin of this request when it came straight to localhost or a loopback address such as 127.0.0.1, without a proxy. Absent when it has none. A server behind a proxy needs server.public_url."
         redirects:
           type: array
-          description: "The redirect modes the server offers, in the order a client picks the first that works for the app's client type."
+          description: "The redirect modes the server offers, in the order the server picks the first that works for the app's client type when mode is omitted. loopback works only for a client that listens on 127.0.0.1, such as the CLI."
           items:
             $ref: "#/components/schemas/ConnectionRedirect"
         providers:
@@ -25218,7 +25218,7 @@ components:
           description: "The http://127.0.0.1 URL with a port that the CLI listens on, for loopback mode."
         expectedAccount:
           type: string
-          description: "The email address expected to sign in. A session whose account the provider vouches for with this address is confirmed without asking."
+          description: "The email address expected to sign in. A session whose account the provider vouches for with this address, and whose account ID matches the connection's, if it has one, is confirmed without asking. Otherwise it waits in confirm."
 
     ConnectionAuthorizationStart:
       type: object
@@ -25232,7 +25232,7 @@ components:
       properties:
         session:
           type: string
-          description: "The session handle, which reads, completes, confirms, and cancels the session."
+          description: "The session handle, which reads, confirms, and cancels the session. It is not the OAuth state: complete takes the provider's redirect."
         authorizationUrl:
           type: string
           description: "Opens the provider's consent page. It may be given to the account's owner."
