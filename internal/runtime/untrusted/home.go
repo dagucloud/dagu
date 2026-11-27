@@ -9,11 +9,12 @@ import (
 	"path/filepath"
 )
 
-// Spec 092, "Trusted steps after an untrusted step". A trusted process reads
+// Spec 103, "Protections for later trusted steps". A trusted process reads
 // files of its HOME: the git config and its hooks, the start files of Python
-// (.pth), of jq or of a shell. When the restricted user can write the HOME of
-// the worker, for example HOME=/tmp, a trusted process of an isolated run gets
-// a private HOME. The restricted user cannot reach it.
+// (.pth), of jq or of a shell. When the restricted user can write or replace
+// the HOME of the worker or an XDG folder, for example HOME=/tmp, a trusted
+// step of an isolated run gets a new private HOME. The restricted user cannot
+// reach it.
 
 // homeFolders are the XDG variables that name a folder that a trusted process
 // reads, with the folder below HOME that it reads when the variable is not set.

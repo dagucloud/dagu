@@ -478,7 +478,7 @@ func TestReviewSymlinkReadAsRootAfterRestore(t *testing.T) {
 	assert.NotEqual(t, "WORKER-PRIVATE-KEY", string(data), "a trusted read of a file of the agent must not reach a file of the worker")
 }
 
-// Property (Spec 092, "Process"): each process of the step runs. A step with
+// Property (Spec 103, "Isolation", rule 7): each process of the step runs. A step with
 // two processes (run with a list of commands, or a harness attempt after
 // another) starts the second process when the first ends. The first process
 // leaves a child, and the watcher that stops that child must not also stop

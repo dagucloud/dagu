@@ -316,6 +316,16 @@ The rules, in order:
    untrusted step "verify": the working directory /srv is not in the work directory of the run
    ```
 
+   The restricted user MUST be able to pass each folder above the work directory (the bit x for
+   others). A folder of the worker user at `paths.dag_run_work_dir` or below it that it cannot
+   pass gets the bit x for others until the step ends, and then gets its mode back. Dagu makes
+   these folders with the mode `0750`. Any other folder that the restricted user cannot pass fails
+   the step:
+
+   ```text
+   untrusted step "verify": reach the work directory /data/run: the folder /data has the mode 0700: the restricted user cannot pass it
+   ```
+
 3. **Files.** Before the process starts, Dagu makes the restricted user the owner of every file and
    folder of the work directory, with these exceptions:
    - Each entry named `.git`, and everything in it, keeps the worker user as owner. The restricted
@@ -378,6 +388,10 @@ The rules, in order:
    step. The host MUST set `kernel.yama.ptrace_scope` to 1 or more, so that no process of the
    restricted user can trace the process that sends this `SIGKILL`. Otherwise an untrusted step
    with isolation fails before it starts.
+
+   Before the end, when a root process of the step ends while no other root process of the step
+   runs or starts, Dagu also sends `SIGKILL` to every process of the restricted user. So a process
+   that the root process left cannot keep the output of the step open, and the step ends.
 
 8. **Checks at the end.** Dagu checks the work directory before it gives it back. It fails the step
    and removes the entry for each of these entries of the restricted user:
@@ -490,8 +504,11 @@ An untrusted step can leave files behind that a later trusted step reads. Dagu c
 - **`.git`.** The restricted user cannot write, rename or replace `.git` or a git folder. See rule 3
   of [Isolation](#isolation).
 - **`HOME` and `XDG_` folders.** With isolation, the restricted user may be able to write the `HOME`
-  of the worker or an `XDG_` folder. So each trusted step of the run gets a private `HOME` and
-  private `XDG_` folders, with the mode `0700`, owned by the worker user. The steps of a child run
+  of the worker or an `XDG_` folder, its default below `HOME` included, or replace one through a
+  folder on the way. Then each trusted step of the run gets a new private `HOME` and private `XDG_`
+  folders, with the mode `0700`, owned by the worker user. Dagu removes them when the step ends. A
+  temp folder of the worker that would let the restricted user replace the private `HOME` fails
+  the step. The steps of a child run
   that an untrusted step started get them too, and the git setting below. The agent cannot plant a
   file that a later trusted step reads, such as `.gitconfig`.
 - **Bare repositories.** In a run with an untrusted step, every process gets the git setting

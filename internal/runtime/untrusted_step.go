@@ -52,8 +52,8 @@ func beginUntrustedStep(ctx context.Context, node *Node) (context.Context, *untr
 }
 
 // withTrustedHome gives a trusted step of an isolated run a private HOME when
-// the restricted user can write the HOME of the worker (Spec 092, "Trusted
-// steps after an untrusted step"). Then a file that an untrusted step planted
+// the restricted user can write or replace the HOME of the worker or an XDG
+// folder (Spec 103, "Protections for later trusted steps"). Then a file that an untrusted step planted
 // there, such as a git config with hooks, does not reach the trusted step. The
 // caller calls the returned function at the end of the step, which removes the
 // private HOME.
