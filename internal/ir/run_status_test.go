@@ -490,13 +490,15 @@ func TestRetryAgentOwnerWorkerIDRunningStep(t *testing.T) {
 }
 
 // A retry along a retry path counts the sessions of the last sub-run only
-// when that sub-run ran on the root's worker, since a sub-run runs in its
-// root's process unless it is dispatched on its own.
+// when that sub-run reported under the root attempt's claim, as a sub-run in
+// the root's process does. A dispatched sub-run has its own claim, even on the
+// root's worker.
 func TestRetryPathAgentOwnerWorkerID(t *testing.T) {
 	t.Parallel()
 
-	run := func(worker string, nodes ...*ir.Node) *ir.DAGRunStatus {
-		return &ir.DAGRunStatus{WorkerID: worker, Nodes: nodes}
+	// run is an attempt that reports under claim from worker w1.
+	run := func(claim string, nodes ...*ir.Node) *ir.DAGRunStatus {
+		return &ir.DAGRunStatus{WorkerID: "w1", ClaimKey: claim, Nodes: nodes}
 	}
 	call := func(owner string) *ir.Node {
 		node := &ir.Node{Step: ir.Step{Name: "call"}, Status: ir.NodeFailed}
@@ -532,12 +534,13 @@ func TestRetryPathAgentOwnerWorkerID(t *testing.T) {
 		sub  *ir.DAGRunStatus
 		want string
 	}{
-		{name: "SubOnRootWorker", root: run("w1", call("")), sub: run("w1", agent("w1")), want: "w1"},
-		{name: "SubDispatched", root: run("w1", call("")), sub: run("w2", agent("w2"))},
-		{name: "NoSub", root: run("w1", call("w3")), want: "w3"},
-		{name: "MixedOwners", root: run("w1", call("w3")), sub: run("w1", agent("w1"))},
-		{name: "MixedRootOwners", root: run("w1", call("w3"), callSibling("w4")), sub: run("w1", agent("w1"))},
-		{name: "MixedSubOwners", root: run("w1", call("w1")), sub: run("w1", agent("w1"), agentSibling("w2"))},
+		{name: "SubInRootProcess", root: run("root", call("")), sub: run("root", agent("w1")), want: "w1"},
+		{name: "SubDispatchedToRootWorker", root: run("root", call("")), sub: run("sub", agent("w1"))},
+		{name: "NoClaim", root: run("", call("")), sub: run("", agent("w1"))},
+		{name: "NoSub", root: run("root", call("w3")), want: "w3"},
+		{name: "MixedOwners", root: run("root", call("w3")), sub: run("root", agent("w1"))},
+		{name: "MixedRootOwners", root: run("root", call("w3"), callSibling("w4")), sub: run("root", agent("w1"))},
+		{name: "MixedSubOwners", root: run("root", call("w1")), sub: run("root", agent("w1"), agentSibling("w2"))},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

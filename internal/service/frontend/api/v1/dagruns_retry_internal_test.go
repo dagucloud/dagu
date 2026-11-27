@@ -234,31 +234,32 @@ func TestResumeResolvedSubDAGRunDispatchesRootPath(t *testing.T) {
 }
 
 // A resume along a retry path goes to the worker that holds the session of
-// the sub-run it continues, when that sub-run ran in the root's process. A
-// sub-run that ran on another worker was dispatched on its own, so its session
-// does not pin the root.
+// the sub-run it continues, when that sub-run reported under the root
+// attempt's claim, as a sub-run in the root's process does. A sub-run
+// dispatched on its own has its own claim, even on the root's worker, so its
+// session does not pin the root.
 func TestResumeResolvedSubDAGRunTargetsSessionOwner(t *testing.T) {
 	tests := []struct {
-		name        string
-		childWorker string
-		want        string
+		name       string
+		childClaim string
+		want       string
 	}{
-		{name: "InRootProcess", childWorker: "worker-1", want: "worker-1"},
-		{name: "Dispatched", childWorker: "worker-2"},
+		{name: "InRootProcess", childClaim: "root-claim", want: "worker-1"},
+		{name: "Dispatched", childClaim: "child-claim"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fixture := newStoredWaitingCallFixture(t)
-			child, err := fixture.childAttempt.ReadStatusUncached(t.Context())
-			require.NoError(t, err)
-			child.WorkerID = tt.childWorker
-			child.Nodes = append(child.Nodes, &ir.Node{
-				Step: ir.Step{Name: "agent", Depends: []string{"gate"}}, Status: ir.NodeWaiting,
-				AgentSession: &ir.AgentSession{Provider: "opencode", State: ir.AgentSessionWaiting, OwnerWorkerID: tt.childWorker},
+			rewriteStatus(t, fixture.rootAttempt, func(status *ir.DAGRunStatus) {
+				status.ClaimKey = "root-claim"
 			})
-			require.NoError(t, fixture.childAttempt.Open(t.Context()))
-			require.NoError(t, fixture.childAttempt.Write(t.Context(), *child))
-			require.NoError(t, fixture.childAttempt.Close(t.Context()))
+			rewriteStatus(t, fixture.childAttempt, func(status *ir.DAGRunStatus) {
+				status.WorkerID, status.ClaimKey = "worker-1", tt.childClaim
+				status.Nodes = append(status.Nodes, &ir.Node{
+					Step: ir.Step{Name: "agent", Depends: []string{"gate"}}, Status: ir.NodeWaiting,
+					AgentSession: &ir.AgentSession{Provider: "opencode", State: ir.AgentSessionWaiting, OwnerWorkerID: "worker-1"},
+				})
+			})
 			recorder := &retryCoordinatorRecorder{}
 			a := &API{
 				dagRunRepository: fixture.repository,
@@ -273,6 +274,17 @@ func TestResumeResolvedSubDAGRunTargetsSessionOwner(t *testing.T) {
 			assert.Equal(t, tt.want, recorder.dispatched[0].TargetWorkerID)
 		})
 	}
+}
+
+// rewriteStatus stores attempt's latest status after edit changes it.
+func rewriteStatus(t *testing.T, attempt dagrun.Attempt, edit func(*ir.DAGRunStatus)) {
+	t.Helper()
+	status, err := attempt.ReadStatusUncached(t.Context())
+	require.NoError(t, err)
+	edit(status)
+	require.NoError(t, attempt.Open(t.Context()))
+	require.NoError(t, attempt.Write(t.Context(), *status))
+	require.NoError(t, attempt.Close(t.Context()))
 }
 
 func TestResumeResolvedSubDAGRunDispatchFailureRollsBackPath(t *testing.T) {

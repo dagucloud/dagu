@@ -169,16 +169,16 @@ func TestDispatchStepRetryToSessionOwner(t *testing.T) {
 	assert.Equal(t, "worker-2", client.task.TargetWorkerID)
 }
 
-// A step retry in a sub-run that ran in the root's process goes to the worker
-// that holds the sub-run step's session.
+// A step retry in a sub-run that ran in the root's process, so under the root
+// attempt's claim, goes to the worker that holds the sub-run step's session.
 func TestDispatchSubRunStepRetryToSessionOwner(t *testing.T) {
 	t.Parallel()
 
 	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
-	retried := &ir.DAGRunStatus{Name: "parent", DAGRunID: "run", Status: ir.Failed, WorkerID: "worker-2", Nodes: []*ir.Node{
+	retried := &ir.DAGRunStatus{Name: "parent", DAGRunID: "run", Status: ir.Failed, WorkerID: "worker-2", ClaimKey: "claim", Nodes: []*ir.Node{
 		{Step: ir.Step{Name: "call"}, Status: ir.NodeFailed},
 	}}
-	sub := &ir.DAGRunStatus{Name: "child", DAGRunID: "child-run", Status: ir.Failed, WorkerID: "worker-2", Nodes: []*ir.Node{
+	sub := &ir.DAGRunStatus{Name: "child", DAGRunID: "child-run", Status: ir.Failed, WorkerID: "worker-2", ClaimKey: "claim", Nodes: []*ir.Node{
 		{Step: ir.Step{Name: "agent"}, Status: ir.NodeFailed, AgentSession: &ir.AgentSession{OwnerWorkerID: "worker-2"}},
 	}}
 	path := dagrun.RetryPath{Hops: []dagrun.RetryHop{{Step: "call", RunID: "child-run"}}, Step: "agent"}

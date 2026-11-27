@@ -279,14 +279,14 @@ func agentSessionResourceKey(resource AgentSessionResource) string {
 // RetryAgentOwnerWorkerID returns the worker that holds the agent sessions a
 // retry resumes. An empty step names a retry of the run, which resumes the
 // steps that did not finish. Otherwise the retry resumes step, every
-// not-started step that depends on it, and, with includeDownstream, every
-// step that depends on it. It returns "" when no worker or more than one
-// worker holds those sessions; the retry then has no target, and a session
-// the chosen worker does not hold cannot resume there.
+// not-started step it reaches through not-started steps, and, with
+// includeDownstream, every step that depends on it. It returns "" when no
+// worker or more than one worker holds those sessions; the retry then has no
+// target, and a session the chosen worker does not hold cannot resume there.
 //
-// A step retry also runs not-started steps unrelated to step whose upstream
-// already finished, and it does not run a dependant that a failed step outside
-// the retry blocks. The first are not counted and the second are.
+// A step retry also runs other not-started steps whose upstream already
+// finished, and it does not run a dependant that a failed step outside the
+// retry blocks. The first are not counted and the second are.
 func RetryAgentOwnerWorkerID(status *DAGRunStatus, step string, includeDownstream bool) string {
 	return soleOwner(addRetryOwners(nil, status, step, includeDownstream))
 }
@@ -346,9 +346,10 @@ func resumedByRunRetry(node *Node) bool {
 }
 
 // stepRetrySelection returns the names of the steps a retry of step runs:
-// step, the not-started steps reachable from it, which the runner starts
-// once their upstream finishes, and, with includeDownstream, every step
-// reachable from it. Reachability follows explicit and inferred dependencies.
+// step, the not-started steps it reaches through not-started steps, which the
+// runner starts once their upstream finishes, and, with includeDownstream,
+// every step reachable from it. Reachability follows explicit and inferred
+// dependencies.
 func stepRetrySelection(nodes []*Node, step string, includeDownstream bool) map[string]struct{} {
 	dependants := make(map[string][]*Node, len(nodes))
 	for _, node := range nodes {
@@ -383,11 +384,12 @@ func stepRetrySelection(nodes []*Node, step string, includeDownstream bool) map[
 // a retry along a retry path resumes. The root run, status, reruns rootStep;
 // the last sub-run on the path, sub, reruns step, as RetryAgentOwnerWorkerID
 // selects for each. A sub-run runs in its root's process unless it is
-// dispatched on its own, so sub counts only when it ran on the worker that ran
-// status. A nil sub counts no sessions.
+// dispatched on its own, so sub counts only when its status carries the claim
+// of the root's attempt, which a sub-run in that process reports under. A nil
+// sub counts no sessions.
 func RetryPathAgentOwnerWorkerID(status *DAGRunStatus, rootStep string, sub *DAGRunStatus, step string, includeDownstream bool) string {
 	owners := addRetryOwners(nil, status, rootStep, false)
-	if status != nil && sub != nil && sub.WorkerID == status.WorkerID {
+	if status != nil && sub != nil && sub.ClaimKey != "" && sub.ClaimKey == status.ClaimKey {
 		owners = addRetryOwners(owners, sub, step, includeDownstream)
 	}
 	return soleOwner(owners)
