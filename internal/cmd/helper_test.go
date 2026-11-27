@@ -305,7 +305,7 @@ func TestNoticeInterruptedOnTerminal(t *testing.T) {
 
 	var out bytes.Buffer
 	progress := NewRemoteProgressDisplay(&ir.DAG{Name: "deploy"}, "run")
-	progress.out = &out
+	progress.out, progress.isTTY = &out, true
 	quiet := logger.WithLogger(context.Background(), logger.NewLogger(logger.WithQuiet()))
 
 	noticeInterrupted(quiet, progress)
