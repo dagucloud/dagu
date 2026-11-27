@@ -6,6 +6,7 @@ package engine
 import (
 	"context"
 	"net"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,13 +33,14 @@ func TestCoordinatorClientSendsPeerToken(t *testing.T) {
 	coordinatorHome := t.TempDir()
 	tests := []struct {
 		name        string
-		home        string
+		opts        Options
 		token       string
 		wantRefused bool
 	}{
-		{name: "shared data directory", home: coordinatorHome},
-		{name: "configured peer.token", home: t.TempDir(), token: "shared-token"},
-		{name: "no token", home: t.TempDir(), wantRefused: true},
+		{name: "shared home", opts: Options{HomeDir: coordinatorHome}},
+		{name: "shared data directory", opts: Options{HomeDir: t.TempDir(), DataDir: filepath.Join(coordinatorHome, "data")}},
+		{name: "configured peer.token", opts: Options{HomeDir: t.TempDir()}, token: "shared-token"},
+		{name: "no token", opts: Options{HomeDir: t.TempDir()}, wantRefused: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -57,8 +59,9 @@ func TestCoordinatorClientSendsPeerToken(t *testing.T) {
 			go func() { _ = server.Serve(listener) }()
 			t.Cleanup(server.Stop)
 
-			cfg, err := loadConfig(Options{HomeDir: tc.home})
+			cfg, err := loadConfig(tc.opts)
 			require.NoError(t, err)
+			applyOptions(cfg, tc.opts)
 			cfg.Core.Peer.Token = tc.token
 			e := &Engine{cfg: cfg}
 			client, err := e.coordinatorClient(DistributedOptions{
