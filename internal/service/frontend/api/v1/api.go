@@ -185,7 +185,7 @@ type IncidentService interface {
 	ListPolicySets(ctx context.Context) ([]*incidentmodel.PolicySet, error)
 	SavePolicySet(ctx context.Context, policySet *incidentmodel.PolicySet, updatedBy string) (*incidentmodel.PolicySet, error)
 	DeletePolicySet(ctx context.Context, scope incidentmodel.PolicyScope, workspaceName, dagName string) error
-	SendProviderTest(ctx context.Context, providerID string) (*incidentservice.TestResult, error)
+	SendProviderTest(ctx context.Context, providerID string, opts ...incidentservice.TestOption) (*incidentservice.TestResult, error)
 }
 
 // CloudReportService lets administrators see and choose what the server

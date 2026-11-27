@@ -122,8 +122,8 @@ func TestIncidentManagement_ProjectsAdminOnlyProviders(t *testing.T) {
 
 // A developer's test send to a provider reports a failed delivery by the
 // provider's name and type, since the transport error names the provider's
-// webhook URL. An admin still gets the error itself. With projects on, only
-// admins test a provider.
+// webhook URL. The report keeps the cause with a URL preview. An admin still
+// gets the error itself. With projects on, only admins test a provider.
 func TestIncidentManagement_HideProviderTestErrors(t *testing.T) {
 	t.Parallel()
 
@@ -155,7 +155,8 @@ func TestIncidentManagement_HideProviderTestErrors(t *testing.T) {
 		message := *resp.Result.Error
 		assert.Equal(t, !hidden, strings.Contains(message, "secret-token"), message)
 		if hidden {
-			assert.Equal(t, `delivery to solarwinds_incident_response provider "On-call" failed; see the server log`, message)
+			assert.True(t, strings.HasPrefix(message, `delivery to solarwinds_incident_response provider "On-call" failed: Post "http...oken": dial tcp 127.0.0.1:1: `), message)
+			assert.True(t, strings.HasSuffix(message, "; see the server log"), message)
 		}
 	}
 }

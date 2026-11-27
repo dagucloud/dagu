@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -1229,6 +1230,85 @@ func TestService_SendTestTelegramUsesCustomMessageTemplate(t *testing.T) {
 	assert.Contains(t, body, `"chat_id":"12345"`)
 	assert.Contains(t, body, `"message_thread_id":67890`)
 	assert.Contains(t, body, `"text":"DAG daily-report failed"`)
+}
+
+// A hidden test error of a DAG's own target keeps only the parts of the cause
+// that hold no secret: Telegram puts its bot token in the request path, and a
+// failed response can echo it in the body. While projects are on, no part of
+// the cause is kept.
+func TestService_SendTestHideChannelErrors(t *testing.T) {
+	t.Parallel()
+
+	const token = "123456:telegram-secret-token"
+	tests := []struct {
+		name       string
+		projectsOn bool
+		respond    func(*http.Request) (*http.Response, error)
+		want       string
+	}{
+		{
+			name: "RequestFailed",
+			respond: func(*http.Request) (*http.Response, error) {
+				return nil, errors.New("connection refused")
+			},
+			want: `delivery to telegram target "Ops Telegram" failed: Post "http...sage": connection refused; see the server log`,
+		},
+		{
+			name: "HTTPStatus",
+			respond: func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusUnauthorized,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("bad token " + token)),
+					Request:    req,
+				}, nil
+			},
+			want: `delivery to telegram target "Ops Telegram" failed: notification endpoint returned HTTP 401; see the server log`,
+		},
+		{
+			name:       "ProjectsOn",
+			projectsOn: true,
+			respond: func(*http.Request) (*http.Response, error) {
+				return nil, errors.New("connection refused")
+			},
+			want: `delivery to telegram target "Ops Telegram" failed; see the server log`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			svc := New(
+				newMemoryStore(mustNormalizeSettings(t, &notificationmodel.Settings{
+					DAGName: "daily-report",
+					Enabled: true,
+					Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+					Targets: []notificationmodel.Target{{
+						ID:       "telegram-1",
+						Name:     "Ops Telegram",
+						Type:     notificationmodel.ProviderTelegram,
+						Enabled:  true,
+						Telegram: &notificationmodel.TelegramTarget{BotToken: token, ChatID: "12345"},
+					}},
+				})),
+				nil,
+				WithProjectsEnabled(tt.projectsOn),
+				WithDeliveryRetry(DeliveryRetryConfig{MaxAttempts: 1}),
+				WithHTTPClient(&http.Client{Transport: roundTripFunc(tt.respond)}),
+			)
+
+			results, err := svc.SendTest(context.Background(), "daily-report", "", eventstore.TypeDAGRunFailed)
+			require.NoError(t, err)
+			require.Len(t, results, 1)
+			assert.Contains(t, results[0].Error, token)
+
+			results, err = svc.SendTest(context.Background(), "daily-report", "", eventstore.TypeDAGRunFailed, HideChannelErrors())
+			require.NoError(t, err)
+			require.Len(t, results, 1)
+			assert.False(t, results[0].Delivered)
+			assert.Equal(t, tt.want, results[0].Error)
+		})
+	}
 }
 
 func TestService_SendTestEmailRequiresWorkspaceSMTP(t *testing.T) {

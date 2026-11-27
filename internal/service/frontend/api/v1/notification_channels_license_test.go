@@ -186,8 +186,9 @@ func TestNotificationChannels_ProjectsAdminOnly(t *testing.T) {
 
 // A developer's test send to a saved channel, through a DAG or to the
 // channel itself, reports a failed delivery by the channel's name and type,
-// since the transport error names the channel's URL. An admin still gets
-// the error itself. With projects on, only admins test a channel itself.
+// since the transport error names the channel's URL. With projects off, the
+// report keeps the cause with a URL preview. An admin still gets the error
+// itself. With projects on, only admins test a channel itself.
 func TestDAGNotifications_HideChannelErrors(t *testing.T) {
 	t.Parallel()
 
@@ -230,8 +231,12 @@ func TestDAGNotifications_HideChannelErrors(t *testing.T) {
 					require.NotNil(t, resp.Results[0].Error, path)
 					message := *resp.Results[0].Error
 					assert.Equal(t, !hidden, strings.Contains(message, "secret-token"), "%s: %s", path, message)
-					if hidden {
+					switch {
+					case hidden && projectsOn:
 						assert.Equal(t, `delivery to webhook channel "Ops" failed; see the server log`, message, path)
+					case hidden:
+						assert.True(t, strings.HasPrefix(message, `delivery to webhook channel "Ops" failed: Post "http...oken": dial tcp 127.0.0.1:1: `), "%s: %s", path, message)
+						assert.True(t, strings.HasSuffix(message, "; see the server log"), "%s: %s", path, message)
 					}
 				}
 			}

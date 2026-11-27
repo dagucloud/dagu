@@ -769,11 +769,7 @@ func (s *Service) SendChannelTest(ctx context.Context, channelID string, opts ..
 		Provider:   channel.Type,
 		Target:     channel.ToTarget(),
 	}}
-	results := s.deliverTestTargets(ctx, targets, event)
-	if options.hideChannelErrors {
-		s.hideChannelErrors("", targets, results)
-	}
-	return results, nil
+	return s.deliverTestTargets(ctx, "", targets, event, options), nil
 }
 
 // ErrCommandTestDenied is returned by SendTest, before anything is sent, when
@@ -793,9 +789,11 @@ func DenyCommandChannels() TestOption {
 	return func(o *testOptions) { o.denyCommand = true }
 }
 
-// HideChannelErrors reports a failed delivery to a saved channel by the
-// channel's name and type alone and logs its error, which can name the
-// channel's URL. Errors of a DAG's own targets are reported as they are.
+// HideChannelErrors logs the error of each failed delivery, which can name
+// the destination's URL or the SMTP host, and reports the delivery by the
+// channel's or target's type and name instead. The report keeps the HTTP
+// status of a failed response, and the operation, a URL preview, and the
+// cause of a failed request, except while projects are on.
 func HideChannelErrors() TestOption {
 	return func(o *testOptions) { o.hideChannelErrors = true }
 }
@@ -835,30 +833,47 @@ func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventT
 		return nil, ErrCommandTestDenied
 	}
 
-	results := s.deliverTestTargets(ctx, targets, event)
-	if options.hideChannelErrors {
-		s.hideChannelErrors(dagName, targets, results)
-	}
-	return results, nil
+	return s.deliverTestTargets(ctx, dagName, targets, event, options), nil
 }
 
-// hideChannelErrors replaces the error of each failed delivery to a saved
-// channel in results, which follow targets, with one that names the
-// channel, and logs the error it replaces. dagName is empty for a test of
-// the channel itself.
-func (s *Service) hideChannelErrors(dagName string, targets []resolvedTarget, results []TestResult) {
-	for i, target := range targets {
-		// Only a saved channel's target carries the channel's provider.
-		if target.Provider == "" || results[i].Error == "" {
-			continue
-		}
-		s.logger.Warn("Notification test delivery failed",
-			slog.String("dag", dagName),
-			slog.String("channel", target.ResultName),
-			slog.String("error", results[i].Error),
-		)
-		results[i].Error = fmt.Sprintf("delivery to %s channel %q failed; see the server log", target.Provider, target.ResultName)
+// hiddenTestError logs err, the failed test delivery to target, and returns
+// the error reported in its place. dagName is empty for a test of a channel
+// itself.
+func (s *Service) hiddenTestError(dagName string, target resolvedTarget, provider notificationmodel.ProviderType, err error) string {
+	s.logger.Warn("Notification test delivery failed",
+		slog.String("dag", dagName),
+		slog.String("target", target.ResultName),
+		slog.String("error", err.Error()),
+	)
+	// Only a saved channel's target carries the channel's provider.
+	kind := "target"
+	if target.Provider != "" {
+		kind = "channel"
 	}
+	cause := ""
+	// While projects are on, users see no channel's URL or the SMTP host,
+	// so no part of the cause is kept.
+	if !s.projectsEnabled {
+		if c := safeDeliveryCause(err); c != "" {
+			cause = ": " + c
+		}
+	}
+	return fmt.Sprintf("delivery to %s %s %q failed%s; see the server log", provider, kind, target.ResultName, cause)
+}
+
+// safeDeliveryCause describes err by its parts that hold no secret of the
+// destination: the status of a failed response, or the operation, a URL
+// preview, and the cause of a failed request. It returns "" for other errors.
+func safeDeliveryCause(err error) string {
+	var status httpStatusError
+	if errors.As(err, &status) {
+		return fmt.Sprintf("notification endpoint returned HTTP %d", status.code)
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return fmt.Sprintf("%s %q: %v", urlErr.Op, notificationmodel.PreviewSecret(urlErr.URL), urlErr.Err)
+	}
+	return ""
 }
 
 func (s *Service) testTargetsForDAGSettings(ctx context.Context, dagName, targetID string, eventType eventstore.EventType) ([]resolvedTarget, error) {
@@ -958,7 +973,7 @@ func (s *Service) testTargetsForRoutes(ctx context.Context, event chatbridge.Not
 	return targets, nil
 }
 
-func (s *Service) deliverTestTargets(ctx context.Context, targets []resolvedTarget, event chatbridge.NotificationEvent) []TestResult {
+func (s *Service) deliverTestTargets(ctx context.Context, dagName string, targets []resolvedTarget, event chatbridge.NotificationEvent, options testOptions) []TestResult {
 	results := make([]TestResult, 0, len(targets))
 	for _, target := range targets {
 		err := s.deliverTarget(ctx, target.Target, []chatbridge.NotificationEvent{event})
@@ -972,7 +987,10 @@ func (s *Service) deliverTestTargets(ctx context.Context, targets []resolvedTarg
 			Provider:   provider,
 			Delivered:  err == nil,
 		}
-		if err != nil {
+		switch {
+		case err != nil && options.hideChannelErrors:
+			result.Error = s.hiddenTestError(dagName, target, provider, err)
+		case err != nil:
 			result.Error = err.Error()
 		}
 		results = append(results, result)
@@ -1665,8 +1683,7 @@ func (s *Service) deliverRequest(req *http.Request, checkBody func(body string) 
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body := limitedResponseBody(resp.Body)
-		err := fmt.Errorf("notification endpoint returned HTTP %d%s", resp.StatusCode, body)
+		err := httpStatusError{code: resp.StatusCode, body: limitedResponseBody(resp.Body)}
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			return temporaryDeliveryError{err: err}
 		}
@@ -1676,6 +1693,17 @@ func (s *Service) deliverRequest(req *http.Request, checkBody func(body string) 
 		return checkBody(readLimitedBody(resp.Body))
 	}
 	return nil
+}
+
+// httpStatusError reports a response outside 2xx. Its body can echo the
+// request, so safeDeliveryCause keeps only the status.
+type httpStatusError struct {
+	code int
+	body string
+}
+
+func (e httpStatusError) Error() string {
+	return fmt.Sprintf("notification endpoint returned HTTP %d%s", e.code, e.body)
 }
 
 type temporaryDeliveryError struct {

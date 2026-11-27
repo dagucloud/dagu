@@ -320,7 +320,27 @@ func (s *Service) validatePolicies(ctx context.Context, policySet *incidentmodel
 	return nil
 }
 
-func (s *Service) SendProviderTest(ctx context.Context, providerID string) (*TestResult, error) {
+// TestOption configures SendProviderTest.
+type TestOption func(*testOptions)
+
+type testOptions struct {
+	hideErrors bool
+}
+
+// HideProviderErrors logs the error of a failed test delivery, which can
+// name the provider's webhook URL, and reports the delivery by the
+// provider's type and name instead. The report keeps the HTTP status of a
+// failed response, and the operation, a URL preview, and the cause of a
+// failed request.
+func HideProviderErrors() TestOption {
+	return func(o *testOptions) { o.hideErrors = true }
+}
+
+func (s *Service) SendProviderTest(ctx context.Context, providerID string, opts ...TestOption) (*TestResult, error) {
+	var options testOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	provider, err := s.GetProvider(ctx, providerID)
 	if err != nil {
 		return nil, err
@@ -343,7 +363,7 @@ func (s *Service) SendProviderTest(ctx context.Context, providerID string) (*Tes
 		ProviderType: provider.Type,
 	}
 	if _, err := s.sendProviderEvent(ctx, provider, providerActionTrigger, dedupKey, policy, event); err != nil {
-		result.Error = err.Error()
+		result.Error = s.testError(result, err, options)
 		return result, nil
 	}
 	resolveEvent := event
@@ -351,11 +371,43 @@ func (s *Service) SendProviderTest(ctx context.Context, providerID string) (*Tes
 	resolveEvent.Status.Status = ir.Succeeded
 	resolveEvent.Status.Error = ""
 	if _, err := s.sendProviderEvent(ctx, provider, providerActionResolve, dedupKey, policy, resolveEvent); err != nil {
-		result.Error = err.Error()
+		result.Error = s.testError(result, err, options)
 		return result, nil
 	}
 	result.Delivered = true
 	return result, nil
+}
+
+// testError returns the error reported for err, a failed test delivery of
+// result's provider, and logs err when options hide it.
+func (s *Service) testError(result *TestResult, err error, options testOptions) string {
+	if !options.hideErrors {
+		return err.Error()
+	}
+	s.logger.Warn("Incident provider test delivery failed",
+		slog.String("provider", result.ProviderName),
+		slog.String("error", err.Error()),
+	)
+	cause := ""
+	if c := safeDeliveryCause(err); c != "" {
+		cause = ": " + c
+	}
+	return fmt.Sprintf("delivery to %s provider %q failed%s; see the server log", result.ProviderType, result.ProviderName, cause)
+}
+
+// safeDeliveryCause describes err by its parts that hold no secret of the
+// provider: the status of a failed response, or the operation, a URL
+// preview, and the cause of a failed request. It returns "" for other errors.
+func safeDeliveryCause(err error) string {
+	var status httpStatusError
+	if errors.As(err, &status) {
+		return fmt.Sprintf("incident provider returned HTTP %d", status.code)
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return fmt.Sprintf("%s %q: %v", urlErr.Op, incidentmodel.PreviewSecret(urlErr.URL), urlErr.Err)
+	}
+	return ""
 }
 
 func (s *Service) NotificationDestinations() []string {
@@ -1012,7 +1064,7 @@ func (s *Service) doJSONRequest(req *http.Request) (*providerDeliveryResult, err
 	}()
 	body := limitedResponseBody(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		err := fmt.Errorf("incident provider returned HTTP %d%s", resp.StatusCode, responseBodySuffix(body))
+		err := httpStatusError{code: resp.StatusCode, body: responseBodySuffix(body)}
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			return nil, temporaryDeliveryError{err: err}
 		}
@@ -1064,6 +1116,17 @@ func responseBodySuffix(body []byte) string {
 		return ""
 	}
 	return ": " + string(body)
+}
+
+// httpStatusError reports a response outside 2xx. Its body can echo the
+// request, so safeDeliveryCause keeps only the status.
+type httpStatusError struct {
+	code int
+	body string
+}
+
+func (e httpStatusError) Error() string {
+	return fmt.Sprintf("incident provider returned HTTP %d%s", e.code, e.body)
 }
 
 type temporaryDeliveryError struct {
