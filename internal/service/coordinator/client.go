@@ -350,9 +350,9 @@ var errAttemptsStopped = errors.New("the call stopped before it reached a coordi
 // attemptStopKey is the context key of the channel WithAttemptStop sets.
 type attemptStopKey struct{}
 
-// WithAttemptStop returns ctx for a call of the client that starts no new
-// attempt, retry, or fallback to another coordinator once stop is closed. An
-// attempt already in flight runs on until it ends or ctx is done.
+// WithAttemptStop returns ctx for a Dispatch call that starts no new attempt,
+// retry, or fallback to another coordinator once stop is closed. An attempt
+// already in flight runs on until it ends or ctx is done.
 func WithAttemptStop(ctx context.Context, stop <-chan struct{}) context.Context {
 	return context.WithValue(ctx, attemptStopKey{}, stop)
 }
