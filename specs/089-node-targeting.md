@@ -69,9 +69,10 @@ enqueued is refused, since the bound node decides where it runs.
 When a step with `nodes` starts, after its dependencies and preconditions,
 its selector is resolved and matched against the project's nodes: the nodes
 of its inventories and its worker nodes
-([Spec 088](088-node-inventory.md#worker-nodes)), alike. Only the default
-project's runs go to workers, so another project has no worker nodes: its
-steps match, and its node lists name, its inventory nodes only.
+([Spec 088](088-node-inventory.md#worker-nodes)), alike. Worker nodes are
+nodes only for runs that can go to workers: runs of the default project,
+other than of a library DAG. Other runs match, and their node lists name,
+inventory nodes only.
 
 - Each part of a term that holds a reference must resolve to one label key
   or value, so a value from the run cannot add a term, negate one, or widen

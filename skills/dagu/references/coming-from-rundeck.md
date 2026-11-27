@@ -124,7 +124,7 @@ steps:
 ```
 
 - A step with `nodes` fails when any of its nodes failed. `continue_on` decides whether the steps after it run.
-- In a bound run, steps with no action, `ssh.run`, and `sftp.*` run on the node. Other actions, such as `http.request`, run on the Dagu host.
+- In a run bound to an SSH node, steps with no action, `ssh.run`, and `sftp.*` run on the node. Other actions, such as `http.request`, run where the run runs: the Dagu host, or the worker that runs its parent. In a run bound to a worker node, every step runs on that worker.
 - A disabled node (`"disabled": true`) is not run and does not fail the step. A step whose matched nodes are all disabled fails.
 
 ## Node References
@@ -163,7 +163,7 @@ steps:
 ## Workers
 
 - A run on a worker reaches SSH nodes as a run on the Dagu host does. The worker reads nodes, secret refs, and trusted host keys from the coordinator.
-- A worker that sets `worker.id` is a node of kind `worker`, with the worker's labels; `dagu nodes list` shows it. A step with `nodes` matches it as it matches an SSH node, and its child runs on that worker, every step there. `${node.host}` is the host the worker reports, and `ssh.run` or `sftp.*` without `with.host` fails, since the worker has no SSH connection.
+- A worker that sets `worker.id` is a node of kind `worker`, with the worker's labels; `dagu nodes list` shows it. A step with `nodes` matches it as it matches an SSH node, and its child runs on that worker, every step there. `${node.host}` is the host the worker reports, and `ssh.run` or `sftp.*` without `with.host` or `with.ip` fails, since the worker has no SSH connection.
 - A matched worker that is offline fails its node at once, and a worker lost during the run fails its node.
 
 ## Not Available Yet
