@@ -852,30 +852,30 @@ func ownerOf(info fs.FileInfo) (uid, gid int) {
 // writableBy reports whether the user uid or the group gid can write the
 // folder path or put another folder in its place: it can write the folder, it
 // can make the folder or a missing folder on the way, or it can rename a
-// folder or a link on the way. Both the path as given and the path that its
-// links lead to count. A sticky folder lets it make an entry and not rename one
-// of another owner. A folder or a link of the user counts as writable whatever
-// its mode: the owner can change the mode or replace the link. A folder with
-// an access ACL, or one that cannot be read, counts as writable.
+// folder or a link on the way. Each link that the path leads through counts,
+// and so does the folder the last link leads to. A sticky folder lets it make
+// an entry and not rename one of another owner. A folder or a link of the user
+// counts as writable whatever its mode: the owner can change the mode or
+// replace the link. A folder with an access ACL, a folder that cannot be read,
+// and a path that resolveLinks cannot resolve count as writable.
 func writableBy(path string, uid, gid uint32) bool {
-	path = filepath.Clean(path)
-	if writableOnTheWay(path, uid, gid) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
 		return true
 	}
-	real, err := filepath.EvalSymlinks(path)
-	return err == nil && real != path && writableOnTheWay(real, uid, gid)
+	writable := false
+	real, err := followLinks(abs, func(link string) {
+		writable = writable || writableOnTheWay(link, uid, gid)
+	})
+	return err != nil || writable || writableOnTheWay(real, uid, gid)
 }
 
-// writableOnTheWay checks path and each folder above it for writableBy.
+// writableOnTheWay checks path and each folder above it for writableBy. Only
+// path itself can be a link.
 func writableOnTheWay(path string, uid, gid uint32) bool {
 	missing := false
 	for dir := path; ; dir = filepath.Dir(dir) {
-		if link, err := os.Lstat(dir); err == nil && link.Mode()&fs.ModeSymlink != 0 {
-			if owner, _ := ownerOf(link); owner == int(uid) {
-				return true
-			}
-		}
-		info, err := os.Stat(dir)
+		info, err := os.Lstat(dir)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 			missing = true
@@ -884,7 +884,8 @@ func writableOnTheWay(path string, uid, gid uint32) bool {
 		default:
 			owner, group := ownerOf(info)
 			mode := info.Mode()
-			canWrite := (group == int(gid) && mode&0o020 != 0) || mode&0o002 != 0 || dirHasACL(dir)
+			canWrite := mode&fs.ModeSymlink == 0 &&
+				((group == int(gid) && mode&0o020 != 0) || mode&0o002 != 0 || dirHasACL(dir))
 			if owner == int(uid) || (canWrite && (dir == path || missing || mode&fs.ModeSticky == 0)) {
 				return true
 			}

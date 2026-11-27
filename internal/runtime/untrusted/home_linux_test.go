@@ -78,6 +78,9 @@ func TestTrustedHome(t *testing.T) {
 	link := filepath.Join(open, "link")
 	require.NoError(t, os.Symlink(target, link))
 	assert.NotNil(t, trustedHome(t, testUID, link, none), "a link to a safe HOME that the restricted user can replace is replaced")
+	start := filepath.Join(safe, "start")
+	require.NoError(t, os.Symlink(link, start))
+	assert.NotNil(t, trustedHome(t, testUID, start, none), "a safe link that leads through a link that the restricted user can replace is replaced")
 
 	xdgHome := filepath.Join(t.TempDir(), "home")
 	require.NoError(t, os.MkdirAll(filepath.Join(xdgHome, ".config"), 0o700))
