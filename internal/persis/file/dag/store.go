@@ -833,7 +833,8 @@ func (store *Store) ensureDirExist() error {
 	return nil
 }
 
-// loadIndex returns validated index entries, rebuilding the index when needed.
+// loadIndex returns the index entries of the DAG files, and saves them when
+// they differ from the saved index.
 func (store *Store) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*indexv1.DAGIndexEntry, error) {
 	store.refreshBaseConfigState()
 	store.refreshCalendarsState()
@@ -857,31 +858,27 @@ func (store *Store) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*i
 		return nil, err
 	}
 
-	indexPath := store.indexPath
-
-	// Try loading existing index. A cached load error is re-checked against the
-	// current parser before it is served, so upgrading Dagu clears errors that
-	// only an older build produced.
-	if cached := dagindex.Load(indexPath, yamlFiles, flags); cached != nil {
-		if dagindex.RefreshFailures(ctx, store.baseDir, yamlFiles, cached, flags, store.defaultLoadOptions()...) {
-			if err := dagindex.Write(indexPath, dagindex.NewIndex(cached)); err != nil {
-				logger.Warn(ctx, "Failed to write DAG definition index", tag.Error(err))
-			}
-		}
-		return cached, nil
+	saved, ok := dagindex.ReadEntries(store.indexPath)
+	if !ok {
+		logger.Info(ctx, "Rebuilding DAG definition index", tag.Dir(store.baseDir))
 	}
-
-	// Rebuild.
-	logger.Info(ctx, "Rebuilding DAG definition index", tag.Dir(store.baseDir))
-	idx := dagindex.Build(ctx, store.baseDir, yamlFiles, flags, store.defaultLoadOptions()...)
-	// A cancel stops the build part way, and a partial index would hide DAGs.
-	if err := ctx.Err(); err != nil {
+	// A cached load error is checked again against the current parser, so
+	// upgrading Dagu clears errors that only an older build produced.
+	entries, changed, err := dagindex.Refresh(ctx, store.baseDir, saved, yamlFiles, flags, store.defaultLoadOptions()...)
+	if err != nil {
+		// A cancel stops the load part way, and a partial index would hide DAGs.
 		return nil, err
 	}
-	if err := dagindex.Write(indexPath, idx); err != nil {
-		logger.Warn(ctx, "Failed to write DAG definition index", tag.Error(err))
+	if changed || !ok {
+		data, err := dagindex.Encode(entries)
+		if err == nil {
+			err = dagindex.Write(store.indexPath, data)
+		}
+		if err != nil {
+			logger.Warn(ctx, "Failed to write DAG definition index", tag.Error(err))
+		}
 	}
-	return idx.Entries, nil
+	return entries, nil
 }
 
 // invalidateIndex removes the index file so the next read triggers a rebuild.
