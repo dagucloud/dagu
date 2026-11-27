@@ -306,8 +306,8 @@ A worker has neither.
 
 - No other transition exists. Remove deletes the records and tool catalogs
   in any status.
-- A connection whose token state is missing or cannot be read has no
-  status of its own. The API shows it as `broken`, as
+- A connection whose token state is missing or cannot be decoded or
+  decrypted has no status of its own. The API shows it as `broken`, as
   [REST API](#rest-api) states.
 - A `service_account` or `client_credentials` connection fetches a token
   when it is created, with no session. When the fetch fails, the
@@ -1162,10 +1162,11 @@ an event, so a first connect from `pending` sends none.
   `refreshTokenConfigured`, and similar flags. A `PATCH` with a blank secret
   keeps the stored one.
 - A request whose `remoteNode` names another server is refused.
-- A connection whose token state is missing or cannot be read, as a create
-  that stopped halfway leaves it, is shown with status `broken` and a
-  reason that says to remove it and add it again. It is still listed and
-  can be removed.
+- A connection whose token state is missing or cannot be decoded or
+  decrypted, as a create that stopped halfway leaves it, is shown with
+  status `broken` and a reason that says to remove it and add it again. It
+  is still listed and can be removed. Any other failure to read the token
+  state fails the request.
 - `GET .../authorization` with a session handle returns `waiting`, or
   `confirm` with the account, while that session is in progress. After it
   ends, it returns `connected` when the session was confirmed, and

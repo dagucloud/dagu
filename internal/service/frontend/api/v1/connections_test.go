@@ -168,7 +168,7 @@ func TestConnectionsRoles(t *testing.T) {
 }
 
 // A connection whose token state is missing, as a create that stopped
-// halfway leaves it, or cannot be read is shown as broken, not hidden, so
+// halfway leaves it, or cannot be decoded is shown as broken, not hidden, so
 // it can be removed and added again.
 func TestConnectionsShowBrokenTokenState(t *testing.T) {
 	for name, damage := range map[string]func(path string) error{

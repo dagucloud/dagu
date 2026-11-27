@@ -25,7 +25,7 @@ const (
 	// secretpkg.GlobalWorkspace, which holds the connections of DAGs
 	// without a workspace label.
 	globalConnectionWorkspace = "global"
-	brokenConnectionReason    = "The connection's token state is missing or cannot be read. Remove the connection and add it again."
+	brokenConnectionReason    = "The connection's token state is missing or cannot be decoded or decrypted. Remove the connection and add it again."
 )
 
 var (
@@ -326,10 +326,11 @@ func (a *API) connectionResponse(ctx context.Context, conn *connection.Connectio
 }
 
 // storedTokenState returns conn's own token state, or nil when it has none:
-// the state is missing, cannot be read, or belongs to an earlier connection
-// with the same key, as after a create that stopped halfway. The store's
-// TokenState reads such a state as pending, so this reads it through
-// UpdateTokenState, whose function copies it and writes nothing.
+// the state is missing, cannot be decoded or decrypted, or belongs to an
+// earlier connection with the same key, as after a create that stopped
+// halfway. Any other read failure is returned. The store's TokenState reads
+// such a state as pending, so this reads it through UpdateTokenState, whose
+// function copies it and writes nothing.
 func storedTokenState(ctx context.Context, store connection.Store, conn *connection.Connection) (*connection.TokenState, error) {
 	var state connection.TokenState
 	_, err := store.UpdateTokenState(ctx, conn, func(st *connection.TokenState) error {

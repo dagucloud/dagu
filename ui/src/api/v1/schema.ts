@@ -10194,7 +10194,7 @@ export interface components {
             resource?: string;
             allowTokenExport: boolean;
             /**
-             * @description broken when the connection's token state is missing or cannot be read. Remove the connection and add it again.
+             * @description broken when the connection's token state is missing or cannot be decoded or decrypted. Remove the connection and add it again.
              * @enum {string}
              */
             status: ConnectionStatus;
