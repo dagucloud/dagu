@@ -100,7 +100,8 @@ func (a *API) GetOAuthApp(ctx context.Context, request api.GetOAuthAppRequestObj
 }
 
 // UpdateOAuthApp changes the fields a request sets. A blank secret keeps
-// the stored one. A new client ID or secret returns an invalid app to ok.
+// the stored one. The store returns an invalid app to ok when its client
+// ID or secret changes, and that return is reported.
 func (a *API) UpdateOAuthApp(ctx context.Context, request api.UpdateOAuthAppRequestObject) (api.UpdateOAuthAppResponseObject, error) {
 	if err := a.requireOAuthAppWrite(ctx); err != nil {
 		return nil, err
@@ -111,7 +112,7 @@ func (a *API) UpdateOAuthApp(ctx context.Context, request api.UpdateOAuthAppRequ
 	}
 	var (
 		secretChanged bool
-		restored      bool
+		wasInvalid    bool
 	)
 	updated, err := a.connectionStore.UpdateApp(ctx, request.AppId, func(app *connection.App) error {
 		// The authorization code connections on an app need its client
@@ -121,8 +122,8 @@ func (a *API) UpdateOAuthApp(ctx context.Context, request api.UpdateOAuthAppRequ
 				return err
 			}
 		}
-		secretChanged, restored = false, false
-		clientID := app.ClientID
+		secretChanged = false
+		wasInvalid = app.Status == connection.AppStatusInvalid
 		if body.Name != nil {
 			app.Name = *body.Name
 		}
@@ -142,12 +143,6 @@ func (a *API) UpdateOAuthApp(ctx context.Context, request api.UpdateOAuthAppRequ
 		if body.Tenant != nil {
 			app.Tenant = *body.Tenant
 		}
-		// Only an admin's change to the client that the provider refused
-		// clears invalid.
-		if app.Status == connection.AppStatusInvalid && (secretChanged || app.ClientID != clientID) {
-			app.Status, app.StatusReason = connection.AppStatusOK, ""
-			restored = true
-		}
 		return nil
 	})
 	if errors.Is(err, connection.ErrAppNotFound) {
@@ -157,7 +152,7 @@ func (a *API) UpdateOAuthApp(ctx context.Context, request api.UpdateOAuthAppRequ
 		return nil, connectionWriteError("update OAuth app", err)
 	}
 	a.logAudit(ctx, audit.CategoryConnection, "oauth_app_update", oauthAppAuditDetails(updated, secretChanged))
-	if restored && a.connectionStatus != nil {
+	if wasInvalid && updated.Status == connection.AppStatusOK && a.connectionStatus != nil {
 		a.connectionStatus(context.WithoutCancel(ctx), broker.StatusChange{
 			App:     updated.ID,
 			AppFrom: connection.AppStatusInvalid,

@@ -14,6 +14,8 @@ import (
 
 const connectionChangeDataKey = "connection_change"
 
+var errNoNotificationReader = errors.New("eventstore: notification reader is not configured")
+
 // ConnectionChange is what a connection event reports. It holds no secret.
 type ConnectionChange struct {
 	// AppID and AppName are set when the OAuth app's status changed.
@@ -43,9 +45,9 @@ type NotificationReader interface {
 	ReadNotificationEvents(ctx context.Context, cursor DAGRunCursor) ([]*Event, DAGRunCursor, error)
 }
 
-// IsConnectionEventType reports whether kind and eventType are those of a
+// isConnectionEventType reports whether kind and eventType are those of a
 // connection event.
-func IsConnectionEventType(kind EventKind, eventType EventType) bool {
+func isConnectionEventType(kind EventKind, eventType EventType) bool {
 	return kind == KindConnection &&
 		(eventType == TypeConnectionNeedsAttention || eventType == TypeConnectionRestored)
 }
@@ -53,7 +55,7 @@ func IsConnectionEventType(kind EventKind, eventType EventType) bool {
 // IsNotificationEventType reports whether a NotificationReader returns
 // events of kind and eventType.
 func IsNotificationEventType(kind EventKind, eventType EventType) bool {
-	return IsDAGRunEventType(kind, eventType) || IsConnectionEventType(kind, eventType)
+	return IsDAGRunEventType(kind, eventType) || isConnectionEventType(kind, eventType)
 }
 
 // NewConnectionEvent returns the event of one status change. Each call
@@ -87,7 +89,7 @@ func ConnectionChangeFromEvent(event *Event) (*ConnectionChange, error) {
 	if event == nil {
 		return nil, errors.New("eventstore: event is nil")
 	}
-	if !IsConnectionEventType(event.Kind, event.Type) {
+	if !isConnectionEventType(event.Kind, event.Type) {
 		return nil, fmt.Errorf("eventstore: event %q is not a connection event", event.Type)
 	}
 	raw, ok := event.Data[connectionChangeDataKey]
@@ -109,15 +111,14 @@ func ConnectionChangeFromEvent(event *Event) (*ConnectionChange, error) {
 }
 
 // NotificationHeadCursor returns the cursor after the last event that
-// ReadNotificationEvents would return. A store without a
-// NotificationReader reads DAG-run events only.
+// ReadNotificationEvents would return.
 func (s *Service) NotificationHeadCursor(ctx context.Context) (DAGRunCursor, error) {
 	if s == nil || s.store == nil {
 		return DAGRunCursor{}, errors.New("eventstore: store is not configured")
 	}
 	reader, ok := s.store.(NotificationReader)
 	if !ok {
-		return s.DAGRunHeadCursor(ctx)
+		return DAGRunCursor{}, errNoNotificationReader
 	}
 	cursor, err := reader.NotificationHeadCursor(ctx)
 	if err != nil {
@@ -134,7 +135,7 @@ func (s *Service) ReadNotificationEvents(ctx context.Context, cursor DAGRunCurso
 	}
 	reader, ok := s.store.(NotificationReader)
 	if !ok {
-		return s.ReadDAGRunEvents(ctx, cursor)
+		return nil, DAGRunCursor{}, errNoNotificationReader
 	}
 	events, nextCursor, err := reader.ReadNotificationEvents(ctx, cursor.Normalize())
 	if err != nil {

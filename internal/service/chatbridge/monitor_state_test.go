@@ -49,13 +49,13 @@ type blockingHeadStore struct {
 	release chan struct{}
 }
 
-func (s *blockingHeadStore) DAGRunHeadCursor(ctx context.Context) (eventstore.DAGRunCursor, error) {
+func (s *blockingHeadStore) NotificationHeadCursor(ctx context.Context) (eventstore.DAGRunCursor, error) {
 	close(s.started)
 	select {
 	case <-ctx.Done():
 		return eventstore.DAGRunCursor{}, ctx.Err()
 	case <-s.release:
-		return s.stubNotificationStore.DAGRunHeadCursor(ctx)
+		return s.stubNotificationStore.NotificationHeadCursor(ctx)
 	}
 }
 
