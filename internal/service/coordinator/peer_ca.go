@@ -126,17 +126,23 @@ func WritePeerInit(dir string) ([]string, error) {
 	if err := fileutil.MkdirAll(dir, peerDirMode); err != nil {
 		return nil, fmt.Errorf("create %s: %w", dir, err)
 	}
-	contents := [][]byte{certPEM, keyPEM, []byte(token + "\n")}
-	for i, path := range paths {
-		err := writePeerFile(path, contents[i], peerFileMode)
+	contents := map[string][]byte{
+		paths[0]: certPEM,
+		paths[1]: keyPEM,
+		paths[2]: []byte(token + "\n"),
+	}
+	var attempted []string
+	for _, path := range paths {
+		attempted = append(attempted, path)
+		err := writePeerFile(path, contents[path], peerFileMode)
 		if err == nil {
 			continue
 		}
 		// A write can fail before or after it installs its file, so remove
 		// every file that still holds what this run wrote. The contents are
 		// random, so a file another writer created stays.
-		for j := range i + 1 {
-			removeOwnPeerFile(paths[j], contents[j])
+		for _, written := range attempted {
+			removeOwnPeerFile(written, contents[written])
 		}
 		if errors.Is(err, fs.ErrExist) {
 			return nil, existingPeerFile(path)
