@@ -7,11 +7,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -73,6 +75,33 @@ func TestLogPeerTransport(t *testing.T) {
 			cfg:     peerConfig(config.SourceKindFlag, config.Peer{}),
 		},
 		{
+			name:    "CACertFile",
+			command: "worker",
+			cfg:     peerConfig(config.SourceKindDefault, config.Peer{Insecure: true, CACertFile: "/etc/dagu/ca.crt"}),
+			want:    []logRecord{{"INFO", "Peer transport: built-in TLS (from peer.ca_cert_file)"}},
+		},
+		{
+			name:    "InsecureFalseCACertFile",
+			command: "worker",
+			cfg:     peerConfig(config.SourceKindFile, config.Peer{CACertFile: "/etc/dagu/ca.crt"}),
+			want:    []logRecord{{"INFO", "Peer transport: built-in TLS (from peer.ca_cert_file)"}},
+		},
+		{
+			name:    "InsecureTrueIgnoresCACertFile",
+			command: "worker",
+			cfg:     peerConfig(config.SourceKindEnv, config.Peer{Insecure: true, CACertFile: "/etc/dagu/ca.crt"}),
+			want: []logRecord{
+				{"WARN", "Peer TLS setting ignored: peer.ca_cert_file (/etc/dagu/ca.crt) has no effect while peer.insecure is true; remove peer.insecure: true to use it"},
+				{"INFO", "Peer transport: h2c (from peer.insecure: true)"},
+			},
+		},
+		{
+			name:    "PublishedCA",
+			command: "scheduler",
+			cfg:     peerConfig(config.SourceKindDefault, config.Peer{Insecure: true, PublishedCAFile: publishedCAFile(t)}),
+			want:    []logRecord{{"INFO", "Peer transport: built-in TLS (from the coordinator's data directory)"}},
+		},
+		{
 			name:    "CoordinatorOnlyServes",
 			command: "coordinator",
 			cfg:     peerConfig(config.SourceKindDefault, config.Peer{Insecure: true, CertFile: "/etc/dagu/client.crt"}),
@@ -102,11 +131,24 @@ func TestLogPeerTransport(t *testing.T) {
 // peerConfig returns a config with peer whose peer.insecure came from a
 // source of kind.
 func peerConfig(kind config.SourceKind, peer config.Peer) *config.Config {
+	peer.InsecureUnset = kind == config.SourceKindDefault
 	return &config.Config{
 		Core:        config.Core{Peer: peer},
 		Coordinator: config.Coordinator{Enabled: true},
 		Sources:     map[string]config.ValueSource{"peer.insecure": {Kind: kind}},
 	}
+}
+
+// publishedCAFile returns the CA certificate a coordinator publishes in a new
+// data directory.
+func publishedCAFile(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	ca, err := coordinator.LoadOrCreatePeerCA(filepath.Join(dir, "peer-ca.pem"))
+	require.NoError(t, err)
+	path := filepath.Join(dir, "peer-ca.crt")
+	require.NoError(t, ca.PublishCertificate(path))
+	return path
 }
 
 // logRecords returns what logPeerTransport logs for command and cfg.

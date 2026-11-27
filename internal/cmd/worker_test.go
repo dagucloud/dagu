@@ -119,7 +119,7 @@ func TestWorkerShutdownTimeout(t *testing.T) {
 func TestWorkerCoordinatorClientRequiresAddress(t *testing.T) {
 	t.Parallel()
 
-	client, err := worker.NewCoordinatorClient(t.Context(), &config.Config{})
+	client, err := worker.NewCoordinatorClient(t.Context(), &config.Config{}, nil)
 
 	require.ErrorContains(t, err, "worker.coordinators is required")
 	assert.Nil(t, client)

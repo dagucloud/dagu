@@ -193,5 +193,5 @@ func workerStopContext(parent context.Context, timeout time.Duration) (context.C
 
 // createCoordinatorClient creates the worker coordinator client.
 func createCoordinatorClient(ctx *Context) (coordinator.Client, error) {
-	return worker.NewCoordinatorClient(ctx.Context, ctx.Config)
+	return worker.NewCoordinatorClient(ctx.Context, ctx.Config, ctx.serverStores.ServiceRegistry)
 }

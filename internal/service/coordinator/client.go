@@ -140,8 +140,9 @@ const (
 
 // clientImpl is the concrete implementation
 type clientImpl struct {
-	config   *Config
-	registry serviceregistry.ServiceRegistry
+	config    *Config
+	registry  serviceregistry.ServiceRegistry
+	transport *clientTransport
 
 	clientsMu sync.RWMutex
 	clients   map[string]*client // Cache of gRPC clients by coordinator ID
@@ -224,6 +225,7 @@ func New(registry serviceregistry.ServiceRegistry, config *Config) Client {
 	return &clientImpl{
 		config:            config,
 		registry:          registry,
+		transport:         newClientTransport(config),
 		clients:           make(map[string]*client),
 		ownerRoutes:       make(map[string]serviceregistry.HostInfo),
 		ownerFailures:     make(map[string]string),
@@ -947,6 +949,7 @@ func (cli *clientImpl) createClient(member serviceregistry.HostInfo) (*client, e
 
 	// Construct address from host and port
 	address := coordinatorAddress(member)
+	dialOpts = append(dialOpts, cli.transport.dialOptions(address)...)
 
 	// Create gRPC connection
 	conn, err := grpc.NewClient(address, dialOpts...)
@@ -1731,7 +1734,9 @@ func getWorkspaceBundleFromMember(ctx context.Context, client *client, digest st
 	return data, nil
 }
 
-// getDialOptions returns the appropriate gRPC dial options based on TLS configuration
+// getDialOptions returns the appropriate gRPC dial options based on TLS
+// configuration. A client that picks its transport per connection gets its
+// credentials from its clientTransport instead.
 func getDialOptions(config *Config) ([]grpc.DialOption, error) {
 	var opts []grpc.DialOption
 
@@ -1743,6 +1748,9 @@ func getDialOptions(config *Config) ([]grpc.DialOption, error) {
 		opts = append(opts, grpc.WithPerRPCCredentials(newPeerTokenCredentials(config.Token, config.TokenFile)))
 	}
 
+	if config.picksTransportPerConnection() {
+		return opts, nil
+	}
 	if config.Insecure {
 		// Use insecure connection (h2c)
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))

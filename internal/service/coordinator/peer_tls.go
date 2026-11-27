@@ -21,7 +21,11 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/net/idna"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -34,6 +38,9 @@ const (
 	// tlsHandshakeRecord is the first byte of a TLS connection: the record
 	// type of the ClientHello.
 	tlsHandshakeRecord = 0x16
+	// requireTLSMessage is the refusal of a call over h2c under
+	// coordinator.require_tls.
+	requireTLSMessage = "the coordinator requires TLS: upgrade this process, or remove peer.insecure: true"
 )
 
 // NewPeerTransportCredentials returns the server credentials of a
@@ -59,6 +66,41 @@ func NewPeerTransportCredentials(ctx context.Context, ca *PeerCA, hosts ...strin
 			MinVersion:   tls.VersionTLS13,
 		}),
 	}, nil
+}
+
+// RequireTLSUnaryInterceptor refuses unary calls over h2c, except those of
+// the gRPC health service, with Unauthenticated. The connection stays open.
+func RequireTLSUnaryInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if err := requireTLS(ctx, info.FullMethod); err != nil {
+			return nil, err
+		}
+		return handler(ctx, req)
+	}
+}
+
+// RequireTLSStreamInterceptor refuses streaming calls over h2c, except those
+// of the gRPC health service, with Unauthenticated. The connection stays
+// open.
+func RequireTLSStreamInterceptor() grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if err := requireTLS(ss.Context(), info.FullMethod); err != nil {
+			return err
+		}
+		return handler(srv, ss)
+	}
+}
+
+func requireTLS(ctx context.Context, method string) error {
+	if strings.HasPrefix(method, grpcHealthMethodPrefix) {
+		return nil
+	}
+	if p, ok := peer.FromContext(ctx); ok {
+		if _, ok := p.AuthInfo.(credentials.TLSInfo); ok {
+			return nil
+		}
+	}
+	return status.Error(codes.Unauthenticated, requireTLSMessage)
 }
 
 // peerTransportCredentials picks TLS or h2c from the first byte of each

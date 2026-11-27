@@ -12,16 +12,20 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
-// NewCoordinatorClient creates a client using the worker's configured coordinators.
-func NewCoordinatorClient(ctx context.Context, cfg *config.Config) (coordinator.Client, error) {
+// NewCoordinatorClient creates a client using the worker's configured
+// coordinators. localRegistry is the service registry in the worker's data
+// directory, which tells whether those coordinators serve built-in TLS.
+func NewCoordinatorClient(ctx context.Context, cfg *config.Config, localRegistry serviceregistry.ServiceRegistry) (coordinator.Client, error) {
 	if len(cfg.Worker.Coordinators) == 0 {
 		return nil, fmt.Errorf("worker.coordinators is required")
 	}
 
 	clientConfig := coordinator.ConfigFromPeer(cfg.Core.Peer)
 	clientConfig.WorkspaceBundleDir = workspacebundle.StoreDir(cfg.Paths.DataDir)
+	clientConfig.LocalRegistry = localRegistry
 	if err := clientConfig.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid coordinator client configuration: %w", err)
 	}

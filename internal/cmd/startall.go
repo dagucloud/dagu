@@ -180,6 +180,27 @@ func runStartAll(ctx *Context, _ []string) error {
 
 	warnTestNamedDAGs(serviceCtx)
 
+	// Initialize coordinator if enabled. It comes first, so the CA
+	// certificate it publishes selects the transport of the scheduler and
+	// the server.
+	var coord *coordinator.Service
+	if ctx.Config.Coordinator.Enabled {
+		var err error
+		// The coordinator shares the server's inventory, so a change through
+		// the server reaches it at once.
+		coord, _, err = newCoordinator(serviceCtx, stores.Secret, stores.Profile, stores.Inventory, stores.HostKeys)
+		if err != nil {
+			return fmt.Errorf("failed to initialize coordinator: %w", withPortInUseHint(err, coordinatorPortInUseHint))
+		}
+		coord.DisableHealthServer()
+		// The server and the scheduler dial this coordinator with the same
+		// peer settings.
+		warnPeerClientAuth(serviceCtx, ctx.Config.Core.Peer)
+	} else {
+		logger.Info(serviceCtx, "Coordinator disabled via configuration")
+	}
+	logPeerTransport(serviceCtx, "start-all", ctx.Config)
+
 	// Initialize all services using the signal-aware context
 	scheduler, err := newScheduler(serviceCtx, schedulerDeps)
 	if err != nil {
@@ -215,24 +236,6 @@ func runStartAll(ctx *Context, _ []string) error {
 	server, err := newServer(serviceCtx, resourceService, stores, serverOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
-	}
-
-	// Initialize coordinator if enabled
-	var coord *coordinator.Service
-	if ctx.Config.Coordinator.Enabled {
-		var err error
-		// The coordinator shares the server's inventory, so a change through
-		// the server reaches it at once.
-		coord, _, err = newCoordinator(serviceCtx, stores.Secret, stores.Profile, stores.Inventory, stores.HostKeys)
-		if err != nil {
-			return fmt.Errorf("failed to initialize coordinator: %w", withPortInUseHint(err, coordinatorPortInUseHint))
-		}
-		coord.DisableHealthServer()
-		// The server and the scheduler dial this coordinator with the same
-		// peer settings.
-		warnPeerClientAuth(serviceCtx, ctx.Config.Core.Peer)
-	} else {
-		logger.Info(serviceCtx, "Coordinator disabled via configuration")
 	}
 
 	// Persist monitor boundaries before any bundled service can emit DAG-run events.
