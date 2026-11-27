@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -668,7 +669,17 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	var writeErr error
+	var writes atomic.Int64
+	// The writer stops and ends before the folder is removed, also when the
+	// test fails.
+	stopWriter := sync.OnceFunc(func() {
+		close(stop)
+		wg.Wait()
+	})
+	t.Cleanup(stopWriter)
+	writerDone := make(chan struct{})
 	wg.Go(func() {
+		defer close(writerDone)
 		hash := cur.Hash
 		for i := 0; ; i++ {
 			select {
@@ -682,10 +693,23 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 				return
 			}
 			hash = next.Hash
+			writes.Add(1)
 		}
 	})
 	changing := 0
-	for range 200 {
+	// The reads go on until a write has completed while they ran, or until the
+	// writer failed.
+	before := writes.Load()
+	overlapped := func() bool {
+		select {
+		case <-writerDone:
+			return true
+		default:
+			return writes.Load() > before
+		}
+	}
+	reads := 0
+	for ; reads < 200 || !overlapped(); reads++ {
 		sk, err := s.Read("demo")
 		require.NoError(t, err)
 		if !sk.Valid() {
@@ -710,10 +734,9 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 		require.Equal(t, strings.ReplaceAll(big, "0", string(data[0])), string(data), "a reader saw a mix of two versions")
 		require.Equal(t, skill.HashFiles(sk.Files), sk.Hash)
 	}
-	close(stop)
-	wg.Wait()
+	stopWriter()
 	require.NoError(t, writeErr, "the writes stopped before the reads ended")
-	require.Less(t, changing, 200, "no read got one version of the skill")
+	require.Less(t, changing, reads, "no read got one version of the skill")
 }
 
 // A partial folder (a new file but no SKILL.md yet) is refused, not used.
