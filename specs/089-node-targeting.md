@@ -177,8 +177,10 @@ coordinator serves it no nodes and no registry secret, neither a
 `secrets:` entry that uses `ref` nor an SSH `{secret: ...}` credential: it
 serves those only to a run's DAG and the child DAGs the run names as
 written, in its steps, `foreach` bodies, and handlers. Such a child that
-needs either fails, and so does one that names a workspace other than its
-parent's. A `secrets:` entry that uses `provider` resolves on the worker.
+needs either fails. Its runtime profile is served for no workspace, or for
+the workspace of a DAG the run reaches by names as written that runs a
+child whose name holds a reference; a child that names another workspace
+fails. A `secrets:` entry that uses `provider` resolves on the worker.
 A child named as written, a child dispatched to a worker, such as one with
 `worker_selector` or bound to a worker node, and a child whose parent runs
 on the Dagu host read both. Each child run reads its own node again, so a
