@@ -62,6 +62,16 @@ func (c *Context) runtimeStores() executionStores {
 	return stores
 }
 
+// connectionsFor returns the checker of the connections of a run that
+// workerID executes. A run on a worker is not checked against this host's
+// connection store, as a worker's in-process runs are not.
+func (s executionStores) connectionsFor(workerID string) agent.ConnectionChecker {
+	if workerID != "local" {
+		return nil
+	}
+	return s.Connections
+}
+
 // subDAGSecretResolver returns the resolver a sub-DAG run uses for its
 // secrets, or nil when the run builds its own.
 func (s executionStores) subDAGSecretResolver() func(*ir.DAG) providers.ReferenceResolver {
