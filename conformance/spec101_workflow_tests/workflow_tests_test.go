@@ -321,6 +321,56 @@ cases:
 	}
 }
 
+// The example "A Value From the Host": --update writes no value that the
+// run took from the host. The report masks it and names the env entry to
+// set, and a case that sets the entry is rewritten.
+func TestWorkflowTestUpdateHostValues(t *testing.T) {
+	t.Parallel()
+
+	const hostToken = "spec101-host-token"
+	const kept = `mocks:
+  sync: {}
+cases:
+  - name: the host token reaches the sync
+    expect:
+      steps:
+        sync:
+          called_with:
+            env:
+              TOKEN: test-token
+  - name: the case sets the token
+    env:
+      TOKEN: test-token
+    expect:
+      steps:
+        sync:
+          called_with:
+            env:
+              TOKEN: `
+	dagu := harness.NewRunner(t)
+	dagu.WriteFile("workflows/sync.yaml", "env:\n  - TOKEN: ${SYNC_TOKEN}\nsteps:\n  - id: sync\n    run: ./sync.sh\n")
+	dagu.WriteFile("workflows/sync.test.yaml", kept+"old-token\n")
+
+	result := dagu.RunWithEnv([]string{"SYNC_TOKEN=" + hostToken}, "test", "--update", "workflows/sync.test.yaml")
+	result.ExpectExitCode(1)
+	expectLines(t, result.Stdout(),
+		"FAIL workflows/sync.test.yaml: the host token reaches the sync (",
+		`  step sync called_with.env.TOKEN: expected "test-token", got "*******"`+"\n",
+		"  step sync called_with.env.TOKEN: kept, it holds the value of host variable SYNC_TOKEN; set TOKEN under env\n",
+		"  expect unchanged\n",
+		"PASS workflows/sync.test.yaml: the case sets the token (", "  expect updated\n")
+	require.NotContains(t, result.Stdout(), hostToken)
+	dagu.ExpectFileContent("workflows/sync.test.yaml", kept+"test-token\n")
+
+	result = dagu.RunWithEnv([]string{"SYNC_TOKEN=" + hostToken}, "test", "--update", "--format", "json", "workflows/sync.test.yaml")
+	result.ExpectExitCode(1)
+	require.NotContains(t, result.Stdout(), hostToken)
+	report := decodeReport(t, result.Stdout())
+	require.Len(t, report.Cases, 2)
+	require.Equal(t, []jsonKept{{Step: "sync", Field: "called_with.env.TOKEN", Variables: []string{"SYNC_TOKEN"}, Env: []string{"TOKEN"}}}, report.Cases[0].UpdateKept)
+	dagu.ExpectFileContent("workflows/sync.test.yaml", kept+"test-token\n")
+}
+
 // --init takes one DAG file, and neither --update nor a flag that selects or
 // reports cases. An invalid argument exits with status 2 and writes nothing.
 func TestWorkflowTestInitArguments(t *testing.T) {

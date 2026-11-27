@@ -710,6 +710,7 @@ func bindingEnvValue(ctx context.Context, name string, scope *EnvScope, requireV
 	}
 	if entry, ok := scope.GetEntry(name); ok {
 		maskedReadsFrom(ctx).noteEntry(entry)
+		hostReadsFrom(ctx).noteEntry(entry)
 		return entry.Value, nil
 	}
 	if !requireValue {
