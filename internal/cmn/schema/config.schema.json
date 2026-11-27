@@ -1198,7 +1198,7 @@
         },
         "require_token": {
           "type": "boolean",
-          "description": "Reject calls that do not carry the peer token. When false, such calls are accepted with a warning. Default: false."
+          "description": "Reject calls that do not carry the peer token. Health checks need none. When unset, the token is required unless the call carries a client certificate that the coordinator verifies (peer.client_ca_file). true requires the token on every call, also over mutual TLS. false accepts calls without it with a warning."
         }
       }
     },

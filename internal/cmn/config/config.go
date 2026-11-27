@@ -823,9 +823,11 @@ type Coordinator struct {
 	// is held for one to register before the run fails. Default: 2m; 0 refuses
 	// such a dispatch at once.
 	WorkerWaitTimeout time.Duration
-	// RequireToken rejects calls that do not carry the peer token. When
-	// false, such calls are accepted with a warning.
-	RequireToken bool
+	// RequireToken controls the peer token check. Unset, a call needs the
+	// peer token unless it carries a client certificate the coordinator
+	// verified. True always requires the token. False accepts calls without
+	// it with a warning.
+	RequireToken *bool
 }
 
 // Worker represents the worker configuration.

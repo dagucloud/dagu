@@ -21,6 +21,12 @@ Deployment mode: {{ .Values.deploymentMode }}
 {{- if eq .Values.deploymentMode "distributed" }}
 IMPORTANT: Dagu requires a shared filesystem (ReadWriteMany) for state persistence.
 Make sure your storage class supports RWX access mode (e.g., NFS, EFS, CephFS).
+{{- if empty (default (dict) .Values.peerToken).existingSecret }}
+
+The chart generated the peer token Secret {{ include "dagu.peerTokenSecretName" . }}.
+If Argo CD or another tool renders this chart with `helm template`, set
+peerToken.existingSecret instead: such renders rotate the generated token.
+{{- end }}
 {{- end }}
 {{- if .Values.persistence.existingClaim }}
 

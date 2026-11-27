@@ -4,7 +4,10 @@
 package coordinator
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,8 +15,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
 func TestLoadOrCreatePeerToken(t *testing.T) {
@@ -60,14 +68,14 @@ func TestPeerTokenAuth(t *testing.T) {
 		method     string
 		wantDenied bool
 	}{
-		{name: "client reads the generated token", auth: NewPeerTokenAuth(token, false, true), client: newPeerTokenCredentials("", tokenFile)},
-		{name: "configured token", auth: NewPeerTokenAuth("shared", true, true), client: newPeerTokenCredentials("shared", "")},
-		{name: "no token is accepted when not required", auth: NewPeerTokenAuth(token, false, false), client: newPeerTokenCredentials("", missingFile)},
-		{name: "no token is rejected when required", auth: NewPeerTokenAuth(token, false, true), client: newPeerTokenCredentials("", missingFile), wantDenied: true},
-		{name: "another coordinator's generated token is accepted when not required", auth: NewPeerTokenAuth(token, false, false), client: newPeerTokenCredentials("", otherFile)},
-		{name: "another generated token is rejected when required", auth: NewPeerTokenAuth(token, false, true), client: newPeerTokenCredentials("", otherFile), wantDenied: true},
-		{name: "a token other than the configured one is rejected", auth: NewPeerTokenAuth("shared", true, false), client: newPeerTokenCredentials("other", ""), wantDenied: true},
-		{name: "health checks need no token", auth: NewPeerTokenAuth(token, false, true), client: newPeerTokenCredentials("", missingFile), method: "/grpc.health.v1.Health/Check"},
+		{name: "client reads the generated token", auth: NewPeerTokenAuth(token, false, true, false), client: newPeerTokenCredentials("", tokenFile)},
+		{name: "configured token", auth: NewPeerTokenAuth("shared", true, true, false), client: newPeerTokenCredentials("shared", "")},
+		{name: "no token is accepted when not required", auth: NewPeerTokenAuth(token, false, false, false), client: newPeerTokenCredentials("", missingFile)},
+		{name: "no token is rejected when required", auth: NewPeerTokenAuth(token, false, true, false), client: newPeerTokenCredentials("", missingFile), wantDenied: true},
+		{name: "another coordinator's generated token is accepted when not required", auth: NewPeerTokenAuth(token, false, false, false), client: newPeerTokenCredentials("", otherFile)},
+		{name: "another generated token is rejected when required", auth: NewPeerTokenAuth(token, false, true, false), client: newPeerTokenCredentials("", otherFile), wantDenied: true},
+		{name: "a token other than the configured one is rejected", auth: NewPeerTokenAuth("shared", true, false, false), client: newPeerTokenCredentials("other", ""), wantDenied: true},
+		{name: "health checks need no token", auth: NewPeerTokenAuth(token, false, true, false), client: newPeerTokenCredentials("", missingFile), method: "/grpc.health.v1.Health/Check"},
 	}
 
 	for _, test := range tests {
@@ -84,6 +92,111 @@ func TestPeerTokenAuth(t *testing.T) {
 			}
 		})
 	}
+}
+
+// logCapture returns a context whose logs go to the returned buffer.
+func logCapture(ctx context.Context) (context.Context, *bytes.Buffer) {
+	var logs bytes.Buffer
+	return logger.WithLogger(ctx, logger.NewLogger(logger.WithWriter(&logs), logger.WithQuiet())), &logs
+}
+
+// A refused call is logged with its method and the fixes, at most once per
+// warn interval. A refused worker call is remembered so a dispatch failure
+// can name it.
+func TestPeerTokenAuthLogsRefusal(t *testing.T) {
+	const method = coordinatorv1.CoordinatorService_Poll_FullMethodName
+	auth := NewPeerTokenAuth("coordinator-token", false, true, false)
+	assert.False(t, auth.refusedWorkerRecently())
+
+	ctx, logs := logCapture(callContext(t, newPeerTokenCredentials("", "")))
+	require.Error(t, auth.authorize(ctx, method))
+	assert.Contains(t, logs.String(), "Coordinator refused a call without a peer token")
+	assert.Contains(t, logs.String(), method)
+	assert.Contains(t, logs.String(), "coordinator.require_token: false")
+	assert.True(t, auth.refusedWorkerRecently())
+
+	logs.Reset()
+	require.Error(t, auth.authorize(ctx, method))
+	assert.Empty(t, logs.String())
+
+	auth.lastWorkerRefusal = auth.lastWorkerRefusal.Add(-peerTokenRefusalWindow)
+	assert.False(t, auth.refusedWorkerRecently())
+
+	// A refused call that workers do not need to register is logged but not
+	// remembered.
+	other := NewPeerTokenAuth("coordinator-token", false, true, false)
+	ctx, logs = logCapture(callContext(t, newPeerTokenCredentials("", "")))
+	require.Error(t, other.authorize(ctx, coordinatorv1.CoordinatorService_GetWorkers_FullMethodName))
+	assert.Contains(t, logs.String(), "Coordinator refused a call without a peer token")
+	assert.False(t, other.refusedWorkerRecently())
+}
+
+// A refused call without a token is told the fixes that apply: the token file
+// only while the coordinator uses its generated token.
+func TestPeerTokenAuthRefusalNamesFixes(t *testing.T) {
+	const method = coordinatorv1.CoordinatorService_Poll_FullMethodName
+	tests := []struct {
+		name       string
+		configured bool
+		wantError  string
+		wantHint   string
+	}{
+		{
+			name:      "generated token",
+			wantError: "let this process read the coordinator's data directory",
+			wantHint:  peerTokenMissingHint,
+		},
+		{
+			name:       "configured token",
+			configured: true,
+			wantError:  "set the coordinator's peer.token on this process",
+			wantHint:   configuredTokenMissingHint,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			auth := NewPeerTokenAuth("coordinator-token", tc.configured, true, false)
+			ctx, logs := logCapture(callContext(t, newPeerTokenCredentials("", "")))
+
+			err := auth.authorize(ctx, method)
+			assert.Equal(t, codes.Unauthenticated, status.Code(err))
+			assert.Contains(t, status.Convert(err).Message(), tc.wantError)
+			assert.Contains(t, logs.String(), tc.wantHint)
+			if tc.configured {
+				assert.NotContains(t, status.Convert(err).Message(), "data directory")
+				assert.NotContains(t, logs.String(), "data directory")
+			}
+		})
+	}
+}
+
+// With coordinator.require_token false, a call without a token passes and the
+// coordinator warns.
+func TestPeerTokenAuthOptOutWarns(t *testing.T) {
+	auth := NewPeerTokenAuth("coordinator-token", false, false, false)
+	ctx, logs := logCapture(callContext(t, newPeerTokenCredentials("", "")))
+
+	require.NoError(t, auth.authorize(ctx, "/coordinator.v1.CoordinatorService/Poll"))
+	assert.Contains(t, logs.String(), "Coordinator accepted a call without a peer token")
+	assert.False(t, auth.refusedWorkerRecently())
+}
+
+// A client certificate the coordinator verified stands in for the token only
+// when certificates are trusted; TLS without a verified certificate does not.
+func TestPeerTokenAuthVerifiedClientCert(t *testing.T) {
+	const method = coordinatorv1.CoordinatorService_Poll_FullMethodName
+	overTLS := func(verified bool) context.Context {
+		state := tls.ConnectionState{}
+		if verified {
+			state.VerifiedChains = [][]*x509.Certificate{{{}}}
+		}
+		ctx := peer.NewContext(context.Background(), &peer.Peer{AuthInfo: credentials.TLSInfo{State: state}})
+		return metadata.NewIncomingContext(ctx, metadata.MD{})
+	}
+
+	assert.NoError(t, NewPeerTokenAuth("coordinator-token", false, true, true).authorize(overTLS(true), method))
+	assert.Equal(t, codes.Unauthenticated, status.Code(NewPeerTokenAuth("coordinator-token", false, true, false).authorize(overTLS(true), method)))
+	assert.Equal(t, codes.Unauthenticated, status.Code(NewPeerTokenAuth("coordinator-token", false, true, true).authorize(overTLS(false), method)))
 }
 
 // A coordinator that regenerates its token, after its token file is removed,

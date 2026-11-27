@@ -20,6 +20,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
@@ -27,6 +28,7 @@ import (
 	appconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
 const (
@@ -39,8 +41,19 @@ const (
 	// the file again, such as one that dialed before the coordinator wrote it.
 	peerTokenRetryInterval = time.Second
 	// peerTokenWarnInterval bounds how often the coordinator logs that it
-	// accepted a call without a valid peer token.
+	// accepted or refused a call without a valid peer token.
 	peerTokenWarnInterval = 10 * time.Minute
+	// peerTokenRefusalWindow is how long a refused worker call explains a
+	// dispatch that found no worker.
+	peerTokenRefusalWindow = 10 * time.Minute
+	// peerTokenMissingHint names the fixes for a call without a peer token
+	// while the coordinator uses its generated token.
+	peerTokenMissingHint = "set the same peer.token on the coordinator and every peer, let the peer read the coordinator's data directory, or set coordinator.require_token: false" //nolint:gosec // A log hint, not a credential.
+	// configuredTokenMissingHint names the fixes for a call without a peer
+	// token while the coordinator has peer.token set and uses no token file.
+	configuredTokenMissingHint = "set the coordinator's peer.token on every peer, or set coordinator.require_token: false" //nolint:gosec // A log hint, not a credential.
+	// peerTokenMismatchHint names the fix for a call with another token.
+	peerTokenMismatchHint = "set the same peer.token on the coordinator and every peer" //nolint:gosec // A log hint, not a credential.
 	// grpcHealthMethodPrefix names the health service, which probes call
 	// without credentials.
 	grpcHealthMethodPrefix = "/grpc.health.v1.Health/"
@@ -144,24 +157,32 @@ func (c *peerTokenCredentials) current() string {
 
 // PeerTokenAuth checks the peer token on coordinator calls.
 //
-// A call with the coordinator's token passes. A call with another token fails
-// when the token was configured or required, since only a generated token can
-// differ between coordinators that do not share a data directory. A call
-// without a token fails only when the token is required; otherwise it passes
-// and the coordinator logs a warning.
+// A call with the coordinator's token passes, and so does a call over a
+// client certificate the coordinator verified when certificates are trusted.
+// A call with another token fails when the token was configured or required,
+// since only a generated token can differ between coordinators that do not
+// share a data directory. A call without a token fails when the token is
+// required; otherwise it passes and the coordinator logs a warning. The
+// coordinator also logs refused calls.
 type PeerTokenAuth struct {
 	token      string
 	configured bool
 	require    bool
+	trustCerts bool
 
-	warnMu   sync.Mutex
-	lastWarn time.Time
+	mu             sync.Mutex
+	lastWarn       time.Time
+	lastRefusalLog time.Time
+	// lastWorkerRefusal is the last refusal of a call a worker needs to
+	// register.
+	lastWorkerRefusal time.Time
 }
 
 // NewPeerTokenAuth returns a check for token. configured reports whether the
-// token came from peer.token, and require whether calls must carry it.
-func NewPeerTokenAuth(token string, configured, require bool) *PeerTokenAuth {
-	return &PeerTokenAuth{token: token, configured: configured, require: require}
+// token came from peer.token, require whether calls must carry it, and
+// trustCerts whether a verified client certificate stands in for it.
+func NewPeerTokenAuth(token string, configured, require, trustCerts bool) *PeerTokenAuth {
+	return &PeerTokenAuth{token: token, configured: configured, require: require, trustCerts: trustCerts}
 }
 
 // UnaryInterceptor checks the peer token on unary calls.
@@ -188,6 +209,9 @@ func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
 	if strings.HasPrefix(method, grpcHealthMethodPrefix) {
 		return nil
 	}
+	if a.trustCerts && verifiedClientCert(ctx) {
+		return nil
+	}
 	var got string
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
 		if values := md.Get(peerTokenMetadataKey); len(values) > 0 {
@@ -199,35 +223,108 @@ func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
 	}
 	switch {
 	case got != "" && (a.configured || a.require):
-		return status.Error(codes.Unauthenticated, "the peer token does not match the coordinator's peer token")
-	case got == "" && a.require:
+		a.refuse(ctx, method, true)
 		return status.Error(codes.Unauthenticated,
-			"the coordinator requires a peer token: set peer.token, or let this process read the coordinator's data directory")
+			"the peer token does not match the coordinator's peer token: "+peerTokenMismatchHint)
+	case got == "" && a.require:
+		a.refuse(ctx, method, false)
+		fix := "set the same peer.token on the coordinator and this process, or let this process read the coordinator's data directory"
+		if a.configured {
+			fix = "set the coordinator's peer.token on this process"
+		}
+		return status.Error(codes.Unauthenticated, "the coordinator requires its peer token: "+fix)
 	}
 	a.warn(ctx, method, got != "")
 	return nil
 }
 
-func (a *PeerTokenAuth) warn(ctx context.Context, method string, mismatched bool) {
-	a.warnMu.Lock()
-	if !a.lastWarn.IsZero() && time.Since(a.lastWarn) < peerTokenWarnInterval {
-		a.warnMu.Unlock()
+// refusedWorkerRecently reports whether the coordinator refused a call a
+// worker needs to register within peerTokenRefusalWindow.
+func (a *PeerTokenAuth) refusedWorkerRecently() bool {
+	if a == nil {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return !a.lastWorkerRefusal.IsZero() && time.Since(a.lastWorkerRefusal) < peerTokenRefusalWindow
+}
+
+// registersWorker reports whether method is a call a worker must make to
+// register: a refusal of any other call does not keep a worker away.
+func registersWorker(method string) bool {
+	return method == coordinatorv1.CoordinatorService_Poll_FullMethodName ||
+		method == coordinatorv1.CoordinatorService_Heartbeat_FullMethodName
+}
+
+func (a *PeerTokenAuth) refuse(ctx context.Context, method string, mismatched bool) {
+	now := time.Now()
+	a.mu.Lock()
+	if registersWorker(method) {
+		a.lastWorkerRefusal = now
+	}
+	due := logDue(&a.lastRefusalLog, now)
+	a.mu.Unlock()
+	if !due {
 		return
 	}
-	a.lastWarn = time.Now()
-	a.warnMu.Unlock()
 
-	remote := "unknown"
-	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
-		remote = p.Addr.String()
+	message, hint := "Coordinator refused a call without a peer token", peerTokenMissingHint
+	if a.configured {
+		hint = configuredTokenMissingHint
 	}
+	if mismatched {
+		message, hint = "Coordinator refused a call with another peer token", peerTokenMismatchHint
+	}
+	logger.Warn(ctx, message,
+		slog.String("method", method),
+		slog.String("peer", peerAddr(ctx)),
+		slog.String("hint", hint),
+	)
+}
+
+func (a *PeerTokenAuth) warn(ctx context.Context, method string, mismatched bool) {
+	a.mu.Lock()
+	due := logDue(&a.lastWarn, time.Now())
+	a.mu.Unlock()
+	if !due {
+		return
+	}
+
 	message := "Coordinator accepted a call without a peer token"
 	if mismatched {
 		message = "Coordinator accepted a call with another coordinator's peer token"
 	}
 	logger.Warn(ctx, message,
 		slog.String("method", method),
-		slog.String("peer", remote),
+		slog.String("peer", peerAddr(ctx)),
 		slog.String("hint", "set coordinator.require_token: true once every worker sends the peer token"),
 	)
+}
+
+// logDue reports whether a rate-limited log is due at now, and records now as
+// the last log when it is.
+func logDue(last *time.Time, now time.Time) bool {
+	if !last.IsZero() && now.Sub(*last) < peerTokenWarnInterval {
+		return false
+	}
+	*last = now
+	return true
+}
+
+// verifiedClientCert reports whether the call arrived over TLS with a client
+// certificate that the coordinator verified against its client CA.
+func verifiedClientCert(ctx context.Context) bool {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return false
+	}
+	info, ok := p.AuthInfo.(credentials.TLSInfo)
+	return ok && len(info.State.VerifiedChains) > 0
+}
+
+func peerAddr(ctx context.Context) string {
+	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
+		return p.Addr.String()
+	}
+	return "unknown"
 }

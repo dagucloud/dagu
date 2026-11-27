@@ -43,14 +43,21 @@ k3d cluster create dagu-test --agents 2
 
 ### 1. Deploy to Kubernetes
 
-The manifests use the official `ghcr.io/dagucloud/dagu:latest` image by default, so you can deploy directly:
+The coordinator refuses calls without its peer token. The workers do not mount the server's data volume, so they cannot read the token the coordinator generates there. Create a Secret with a shared token first; both Deployments read it as `DAGU_PEER_TOKEN`:
+
+```bash
+kubectl apply -f deploy/k8s/namespace.yaml
+kubectl create secret generic dagu-peer-token -n dagu-dev \
+  --from-literal=token="$(openssl rand -hex 32)"
+```
+
+The manifests use the official `ghcr.io/dagucloud/dagu:latest` image by default, so you can then deploy directly:
 
 ```bash
 # Apply all manifests
 kubectl apply -f deploy/k8s/
 
 # Or apply individually in order:
-kubectl apply -f deploy/k8s/namespace.yaml
 kubectl apply -f deploy/k8s/configmap.yaml
 kubectl apply -f deploy/k8s/pvc.yaml
 kubectl apply -f deploy/k8s/server-deployment.yaml
@@ -197,6 +204,7 @@ Modify `configmap.yaml` to adjust configuration:
 - `DAGU_COORDINATOR_PORT`: Coordinator gRPC port (default: 50055)
 - Worker deployments pass `--worker.coordinators=dagu-server:50055` so workers connect to the coordinator service directly
 - `DAGU_PEER_INSECURE`: Use insecure gRPC (true for local)
+- `DAGU_PEER_TOKEN`: Read from the `dagu-peer-token` Secret by the server and worker Deployments. The coordinator refuses workers without it
 - `DAGU_TZ`: Timezone
 
 **Important**: For distributed execution to work:
@@ -238,6 +246,8 @@ k3d image import dagu:local --cluster dagu-test
 ```
 
 ### Workers Not Connecting
+
+A worker log with `Unauthenticated` and `peer token` means the worker and the server do not have the same `DAGU_PEER_TOKEN`. Check the `dagu-peer-token` Secret, then restart both Deployments.
 
 ```bash
 # Check worker logs for connection errors

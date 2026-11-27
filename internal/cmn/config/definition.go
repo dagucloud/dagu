@@ -430,8 +430,9 @@ type CoordinatorDef struct {
 	// WorkerWaitTimeout is a duration string such as "2m". Default: 2m; "0"
 	// refuses a dispatch with no healthy matching worker at once.
 	WorkerWaitTimeout string `mapstructure:"worker_wait_timeout"`
-	// RequireToken rejects calls that do not carry the peer token.
-	RequireToken bool `mapstructure:"require_token"`
+	// RequireToken rejects calls that do not carry the peer token. Unset, a
+	// verified client certificate stands in for the token.
+	RequireToken *bool `mapstructure:"require_token"`
 }
 
 // WorkerDef configures the worker.

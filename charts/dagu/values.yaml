@@ -103,6 +103,17 @@ scheduler:
       memory: "512Mi"
       cpu: "500m"
 
+# Peer token for distributed mode. The coordinator refuses calls without it,
+# and workers do not share its data volume, so every Dagu pod reads the token
+# from one Secret. Leave existingSecret empty to have `helm install` and
+# `helm upgrade` create the Secret with a random token and keep it across
+# upgrades. Argo CD and other tools that render with `helm template` cannot
+# read the stored token, so each render would rotate it and pods would be
+# refused as they restart: create the Secret yourself and set existingSecret.
+peerToken:
+  existingSecret: ""
+  secretKey: token
+
 # Coordinator configuration for distributed mode.
 coordinator:
   replicas: 1

@@ -53,6 +53,14 @@ The coordinator server provides a central point for distributed workers to:
 This server uses gRPC for efficient communication with remote workers and
 supports authentication via signing keys and TLS encryption.
 
+Calls must carry the peer token, unless the coordinator verifies client
+certificates (--peer.client-ca-file) and the call has a verified one; set
+coordinator.require_token: true to require both. Without peer.token, the coordinator generates one in its data directory,
+which processes on the same data directory as the same OS user read. Give
+every other peer the same peer.token, for example through DAGU_PEER_TOKEN.
+Once peer.token is set here, every process that calls the coordinator needs
+it, local ones included.
+
 Flags:
   --coordinator.host string         Host address to bind the gRPC server to (default: 127.0.0.1)
   --coordinator.advertise string    Address to advertise in service registry (default: auto-detected hostname)
@@ -253,6 +261,7 @@ func newCoordinator(
 		WorkerWaitTimeout:         cfg.Coordinator.WorkerWaitTimeout,
 		EventService:              ctx.event,
 		EventSourceInstance:       ctx.EventSourceInstance,
+		PeerAuth:                  peerAuth,
 	})
 
 	// Create and return service with advertise address for service registry
@@ -279,27 +288,36 @@ func coordinatorConnections(ctx *Context) (connection.Store, broker.Source) {
 }
 
 // coordinatorPeerAuth checks the peer token on coordinator calls: the
-// configured peer.token, or the token generated in the data directory. When the
-// generated token cannot be prepared and no token is required, the coordinator
-// still starts and accepts calls with a warning, as it did before peer tokens.
+// configured peer.token, or the token generated in the data directory.
+//
+// A coordinator that verifies client certificates already authenticates its
+// peers, so a verified certificate stands in for the token unless the
+// operator sets coordinator.require_token: true to require both. When the
+// generated token cannot be prepared and no call can need it, the coordinator
+// still starts.
 func coordinatorPeerAuth(ctx *Context, cfg *config.Config) (*coordinator.PeerTokenAuth, error) {
-	require := cfg.Coordinator.RequireToken
-	if token := cfg.Core.Peer.Token; token != "" {
-		return coordinator.NewPeerTokenAuth(token, true, require), nil
+	peer := cfg.Core.Peer
+	verifiesCerts := peer.CertFile != "" && peer.KeyFile != "" && peer.ClientCaFile != ""
+	explicit := cfg.Coordinator.RequireToken
+	require := explicit == nil || *explicit
+	trustCerts := verifiesCerts && (explicit == nil || !*explicit)
+	if peer.Token != "" {
+		return coordinator.NewPeerTokenAuth(peer.Token, true, require, trustCerts), nil
 	}
-	token, err := coordinator.LoadOrCreatePeerToken(cfg.Core.Peer.TokenFile)
+	token, err := coordinator.LoadOrCreatePeerToken(peer.TokenFile)
 	if err != nil {
-		if require {
-			return nil, fmt.Errorf("coordinator.require_token is set, but the peer token could not be prepared: %w", err)
+		if require && !trustCerts {
+			return nil, fmt.Errorf("the coordinator requires a peer token, but it could not be prepared (set peer.token, or coordinator.require_token: false): %w", err)
 		}
 		logger.Warn(ctx, "Coordinator runs without a peer token", tag.Error(err))
-		return coordinator.NewPeerTokenAuth("", false, false), nil
+		return coordinator.NewPeerTokenAuth("", false, require, trustCerts), nil
 	}
 	logger.Info(ctx, "Coordinator peer token",
-		slog.String("file", cfg.Core.Peer.TokenFile),
+		slog.String("file", peer.TokenFile),
 		slog.Bool("required", require),
+		slog.Bool("client-certificates", trustCerts),
 	)
-	return coordinator.NewPeerTokenAuth(token, false, require), nil
+	return coordinator.NewPeerTokenAuth(token, false, require, trustCerts), nil
 }
 
 // loadCoordinatorTLSCredentials loads TLS credentials for the coordinator server.

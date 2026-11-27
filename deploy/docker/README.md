@@ -36,6 +36,8 @@ client.crt
 client.key
 ```
 
+The coordinator verifies the client certificates against `ca.crt`, so a verified certificate authenticates each service and no `DAGU_PEER_TOKEN` is needed. A coordinator without `DAGU_PEER_CLIENT_CA_FILE` requires the same `DAGU_PEER_TOKEN` on every service instead.
+
 The coordinator certificate must cover the `dagu-coordinator` DNS name. Missing or invalid files prevent Dagu from starting or connecting. Keep private keys readable only by the container user. See the [transport security guide](https://docs.dagu.sh/server-admin/distributed/transport-security) for certificate requirements.
 
 Coordinator port `50055` remains inside `dagu-net`. Before connecting external workers, set `DAGU_COORDINATOR_ADVERTISE` to an address covered by the coordinator certificate and reachable by those workers. Publish port `50055` only to the restricted worker network.

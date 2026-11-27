@@ -1080,6 +1080,11 @@ env_passthrough:
 dagu worker --config /etc/dagu/config.yaml --agent claude=/usr/local/bin/claude
 ```
 
+The coordinator verifies the worker's client certificate, so the worker needs no peer token. A
+coordinator that sets `coordinator.require_token: true` also requires the token over mutual TLS;
+the deployment then gives the worker the coordinator's `peer.token` as `DAGU_PEER_TOKEN`, and
+`env_passthrough` does not list it.
+
 ### Errors at start
 
 ```text

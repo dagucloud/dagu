@@ -85,3 +85,25 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{ toYaml . }}
 {{- end }}
 {{- end }}
+
+{{- /* peerToken is absent when an upgrade reuses values from chart 2.0.9 or earlier. */}}
+{{- define "dagu.peerTokenSecretName" -}}
+{{- $peerToken := default (dict) .Values.peerToken -}}
+{{- default (include "dagu.componentName" (dict "root" . "component" "peer-token")) $peerToken.existingSecret -}}
+{{- end }}
+
+{{- define "dagu.peerTokenSecretKey" -}}
+{{- $peerToken := default (dict) .Values.peerToken -}}
+{{- default "token" $peerToken.secretKey -}}
+{{- end }}
+
+{{- /* Every pod of a distributed install sends and checks this token. */}}
+{{- define "dagu.peerTokenEnv" -}}
+{{- if eq .Values.deploymentMode "distributed" }}
+- name: DAGU_PEER_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "dagu.peerTokenSecretName" . | quote }}
+      key: {{ include "dagu.peerTokenSecretKey" . | quote }}
+{{- end }}
+{{- end }}

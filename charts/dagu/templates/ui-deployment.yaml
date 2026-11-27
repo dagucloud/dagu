@@ -88,6 +88,9 @@ spec:
             - name: DAGU_SIGNAL_DRAIN_TIMEOUT
               value: {{ printf "%ds" (int .) | quote }}
 {{- end }}
+{{- with include "dagu.peerTokenEnv" . }}
+{{ . | nindent 12 }}
+{{- end }}
 {{- with include "dagu.extraEnv" . }}
 {{ . | nindent 12 }}
 {{- end }}

@@ -209,6 +209,7 @@ type Handler struct {
 
 	// How long a dispatch waits for a matching worker; 0 refuses at once.
 	workerWaitTimeout time.Duration
+	peerAuth          *PeerTokenAuth
 
 	// Zombie detector shutdown synchronization
 	zombieDetectorMu      sync.Mutex
@@ -314,6 +315,10 @@ type HandlerConfig struct {
 
 	// EventSourceInstance identifies this coordinator instance in event envelopes.
 	EventSourceInstance string
+
+	// PeerAuth is the peer token check of the coordinator's calls. A dispatch
+	// that finds no worker names the refused calls it saw. Optional.
+	PeerAuth *PeerTokenAuth
 }
 
 // applyDefaults sets default values for optional fields.
@@ -373,6 +378,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		workerWaitTimeout:         cfg.WorkerWaitTimeout,
 		eventService:              cfg.EventService,
 		eventSourceInstance:       cfg.EventSourceInstance,
+		peerAuth:                  cfg.PeerAuth,
 	}
 }
 
@@ -619,10 +625,15 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		if errors.Is(shortfall, errNoConnectionWorkers) {
 			return nil, status.Errorf(codes.FailedPrecondition, "worker node %q: %v", req.Task.BoundNode, shortfall)
 		}
-		return nil, status.Errorf(codes.FailedPrecondition, "worker node %q is offline", req.Task.BoundNode)
+		return nil, status.Error(codes.FailedPrecondition,
+			h.withPeerRefusal(fmt.Sprintf("worker node %q is offline", req.Task.BoundNode)))
 	}
 	if shortfall != nil && !h.holdsDispatch(req.Task) {
-		return nil, status.Error(dispatchErrorCode(shortfall), shortfall.Error())
+		reason := shortfall.Error()
+		if !errors.Is(shortfall, errNoConnectionWorkers) {
+			reason = h.withPeerRefusal(reason)
+		}
+		return nil, status.Error(dispatchErrorCode(shortfall), reason)
 	}
 	req.Task.NeedsConnectionTokens = declares()
 	if err := h.prepareDispatchTaskWorkspace(ctx, req.Task); err != nil {
@@ -1482,7 +1493,7 @@ func (h *Handler) failHeldDispatch(ctx context.Context, task *dispatch.DispatchT
 		failed := *runStatus
 		failed.Status = ir.Failed
 		failed.FinishedAt = stringutil.FormatTime(now)
-		failed.Error = heldDispatchFailure(task, h.workerWaitTimeout)
+		failed.Error = h.withPeerRefusal(heldDispatchFailure(task, h.workerWaitTimeout))
 		if writeErr := h.writeHeldAttemptStatus(storeCtx, task.DAGRunID, attempt, failed); writeErr != nil {
 			logger.Warn(ctx, "Failed to fail the run of a held dispatch past its wait",
 				tag.RunID(task.DAGRunID), tag.Error(writeErr))
@@ -1588,6 +1599,22 @@ func heldDispatchFailure(task *dispatch.DispatchTask, wait time.Duration) string
 		reason += "; the DAG declares connections, so the matching workers must support them: upgrade older ones"
 	}
 	return reason
+}
+
+// withPeerRefusal adds to the reason a dispatch found no worker that the
+// coordinator recently refused worker calls for its peer token. Run errors
+// are visible to run readers, so the text names only the fixes that keep the
+// check on. The data directory carries the token only while the coordinator
+// uses a generated one.
+func (h *Handler) withPeerRefusal(reason string) string {
+	if !h.peerAuth.refusedWorkerRecently() {
+		return reason
+	}
+	fix := "set the same peer.token on the coordinator and every worker"
+	if !h.peerAuth.configured {
+		fix += ", or run the workers on the coordinator's data directory as its OS user"
+	}
+	return reason + "; workers were refused for a missing or different peer token: " + fix
 }
 
 func (h *Handler) releasePreparedDispatchAttempt(ctx context.Context, dagRunID string, attempt dagrun.Attempt) {

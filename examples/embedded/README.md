@@ -38,10 +38,18 @@ code and wants DAG steps to call that code without shelling out.
 Run against an existing Dagu coordinator:
 
 ```sh
-DAGU_COORDINATORS=127.0.0.1:50055 go run ./examples/embedded/distributed
+DAGU_COORDINATORS=127.0.0.1:50055 DAGU_PEER_TOKEN='replace-with-shared-token' \
+  go run ./examples/embedded/distributed
 ```
 
 The example starts an embedded worker and dispatches a DAG through the
 coordinator. Set `DAGU_COORDINATORS` to a comma-separated list when using more
 than one coordinator. The sample opts into plaintext coordinator transport for
 local development; production embedders should provide TLS files instead.
+
+The coordinator refuses calls without its peer token. The example uses its own
+temporary data directory, so it cannot read the token the coordinator
+generates. Set the same `peer.token` on the coordinator, for example with
+`DAGU_PEER_TOKEN`, and pass it to the example through `DAGU_PEER_TOKEN` or the
+`peer.token` key of `Options.ConfigFile`. Replace the quoted value above with
+that token.

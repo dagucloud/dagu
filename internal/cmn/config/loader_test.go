@@ -497,6 +497,29 @@ func TestLoad_WorkerWaitTimeout(t *testing.T) {
 	}
 }
 
+// require_token is unset unless the operator sets it, so the coordinator can
+// tell the default from an explicit value.
+func TestLoad_RequireToken(t *testing.T) {
+	for name, tc := range map[string]struct {
+		yaml string
+		env  map[string]string
+		want *bool
+	}{
+		"default":      {yaml: "# minimal config"},
+		"other fields": {yaml: "coordinator:\n  port: 50099\n"},
+		"explicit":     {yaml: "coordinator:\n  require_token: true\n", want: new(true)},
+		"opt-out":      {yaml: "coordinator:\n  require_token: false\n", want: new(false)},
+		"opt-out env":  {yaml: "# minimal config", env: map[string]string{"DAGU_COORDINATOR_REQUIRE_TOKEN": "false"}, want: new(false)},
+		"explicit env": {yaml: "# minimal config", env: map[string]string{"DAGU_COORDINATOR_REQUIRE_TOKEN": "true"}, want: new(true)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := loadWithEnv(t, tc.yaml, tc.env)
+
+			assert.Equal(t, tc.want, cfg.Coordinator.RequireToken)
+		})
+	}
+}
+
 func TestLoad_WorkerShutdownTimeout(t *testing.T) {
 	t.Run("Default", func(t *testing.T) {
 		cfg := loadFromYAML(t, "# empty")
