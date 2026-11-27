@@ -249,6 +249,11 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchReques
 	if err != nil {
 		return err
 	}
+	if protoTask.AttemptId == "" {
+		// The coordinator recognizes a retry of this call by its attempt ID,
+		// so a retry after a lost reply does not admit the run twice.
+		protoTask.AttemptId = newDispatchAttemptID()
+	}
 
 	logger.Info(ctx, "Client dispatching task",
 		slog.String("operation", task.Operation.String()),
@@ -319,6 +324,12 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchReques
 			return nil
 		})
 	}, policy, nil)
+}
+
+// newDispatchAttemptID returns a random 48-bit attempt ID, so a new attempt
+// does not take the ID of an earlier attempt of the run.
+func newDispatchAttemptID() string {
+	return fmt.Sprintf("%012x", rand.Uint64()>>16)
 }
 
 func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.DispatchTask) error {
