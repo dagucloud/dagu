@@ -517,7 +517,7 @@ These cases fail a step or a run:
 | A failed action of [Isolation](#isolation), such as a change of owner | The step fails. The error names the action and the path. |
 | An untrusted step in a process with no restricted user and no `untrusted.isolation: off` | The step fails with the reason `isolation_required`. |
 | A task of the restricted user alive 30 seconds after `SIGKILL`, or a changed or missing git entry | The step fails and the run stops. Every later step of a run with an untrusted step fails in the same process. |
-| A step of a run whose work directory has the file `<work directory>.untrusted-handoff` | The step fails and the run stops, in any process. |
+| A step of a run with an untrusted step whose work directory has the file `<work directory>.untrusted-handoff` | The step fails and the run stops, in any process. |
 
 ## Limits
 
