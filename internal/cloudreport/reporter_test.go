@@ -742,6 +742,13 @@ func startReporterSpawning(
 ) *fakeClock {
 	t.Helper()
 	clock := &fakeClock{t: t, waits: make(chan time.Duration, 16), fire: make(chan time.Time), at: start}
+	// Each reporter keeps its connections to itself. The shared default
+	// pool can hold a connection to a fake console that an earlier test
+	// closed, and a later fake console on the same port would make a report
+	// fail on it.
+	transport := &http.Transport{}
+	t.Cleanup(transport.CloseIdleConnections)
+	r.client.Transport = transport
 	r.after = clock.after
 	r.random = random
 	r.now = clock.now
