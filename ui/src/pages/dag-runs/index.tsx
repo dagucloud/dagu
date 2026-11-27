@@ -10,6 +10,7 @@ import {
   RunBackfillFilter,
   Status,
   ViewSpecType,
+  type components,
 } from '../../api/v1/schema';
 import { AutocompleteInput } from '@/components/ui/autocomplete-input';
 import { Button } from '@/components/ui/button';
@@ -33,6 +34,10 @@ import DAGRunBatchActions from '../../features/dag-runs/components/common/DAGRun
 import DAGRunGroupedView from '../../features/dag-runs/components/dag-run-list/DAGRunGroupedView';
 import DAGRunTable from '../../features/dag-runs/components/dag-run-list/DAGRunTable';
 import { ServiceDAGStrip } from '../../features/service-dags/components/ServiceDAGStrip';
+import { useServiceDAGs } from '../../features/service-dags/hooks/useServiceDAGs';
+import ActivityBars from '../../features/dags/components/dag-list/ActivityBars';
+import ServiceActivityStrip from '../../features/dags/components/dag-list/ServiceActivityStrip';
+import { useDAGListActivity } from '../../features/dags/hooks/useDAGListActivity';
 import { usePaginatedDAGRuns } from '../../features/dag-runs/hooks/dagRunPagination';
 import {
   asBackfillFilter,
@@ -69,6 +74,29 @@ import { I18nProps } from '@/i18n/I18nProps';
 import { statusLabelText } from '@/lib/status-utils';
 
 type DAGRunsFilters = DAGRunsFilterSet;
+type ServiceDAG = components['schemas']['ServiceDAG'];
+type DAGListActivity = components['schemas']['DAGListActivity'];
+
+/**
+ * The strip of the run history of a service DAG, as in the Workflows list: a
+ * placeholder until its activity arrives, and none on a node that gives no
+ * activity or for an activity without buckets.
+ */
+function serviceDAGActivity(
+  activity: ReadonlyMap<string, DAGListActivity> | undefined,
+  fileName: string
+): React.ReactNode {
+  if (!activity) {
+    return null;
+  }
+  const read = activity.get(fileName);
+  if (!read) {
+    return <ActivityBars activity={undefined} fluid />;
+  }
+  return read.buckets ? (
+    <ServiceActivityStrip activity={read} fileName={fileName} fluid />
+  ) : null;
+}
 
 const ALL_RUNS_VIEW_PARAM = 'all';
 
@@ -821,6 +849,22 @@ function DAGRuns() {
     apiStatus === 'all' &&
     apiLabels.length === 0 &&
     !backfillId;
+  // Each service DAG has a card instead. One read gives the run history of
+  // all the cards, as in the Workflows list: no request for each card.
+  const { serviceDAGs } = useServiceDAGs({ enabled: hideServiceDAGRuns });
+  const serviceFileNames = React.useMemo(
+    () => serviceDAGs.map((dag) => dag.fileName),
+    [serviceDAGs]
+  );
+  const serviceActivity = useDAGListActivity(
+    serviceFileNames,
+    remoteKey,
+    hideServiceDAGRuns && serviceFileNames.length > 0
+  );
+  const renderServiceActivity = React.useCallback(
+    (dag: ServiceDAG) => serviceDAGActivity(serviceActivity, dag.fileName),
+    [serviceActivity]
+  );
   const dagRunQuery = React.useMemo(
     () =>
       // A backfill's runs are a list of their own: the filters and views of
@@ -1705,7 +1749,11 @@ function DAGRuns() {
         {/* A service DAG restarts without end, so its runs are not in this list.
             Each dag has a card that opens its latest runs instead. */}
         {hideServiceDAGRuns && (
-          <ServiceDAGStrip expandable className="px-0 pb-4" />
+          <ServiceDAGStrip
+            expandable
+            renderActivity={renderServiceActivity}
+            className="px-0 pb-4"
+          />
         )}
         {dagRunsError && dagRuns.length === 0 && !isInitialLoading ? (
           <LoadErrorState
