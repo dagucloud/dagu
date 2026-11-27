@@ -20,8 +20,9 @@ import (
 // hostValues holds the values that a case's run took from the host
 // environment (Spec 101, Host Values): those of the variables that
 // resolving the DAG and its steps read from the host, and of those that
-// Dagu forwards to steps, except the variables it forwards by default.
-// --update writes none of them, and the report masks them.
+// Dagu forwards to steps, except the variables it forwards by default, with
+// each string in a value that is JSON. --update writes none of them, and
+// the report masks them.
 type hostValues struct {
 	// vars holds each host variable, sorted by name.
 	vars []hostVar
@@ -49,14 +50,49 @@ func newHostValues(ctx context.Context, base config.BaseEnv) hostValues {
 	}
 	var h hostValues
 	for _, name := range slices.Sorted(maps.Keys(read)) {
-		values := slices.DeleteFunc(read[name], func(v string) bool { return v == "" })
-		if len(values) == 0 || config.ForwardedByDefault(name) {
+		if config.ForwardedByDefault(name) {
+			continue
+		}
+		var values []string
+		for _, value := range read[name] {
+			values = appendHostValue(values, value)
+		}
+		if len(values) == 0 {
 			continue
 		}
 		h.vars = append(h.vars, hostVar{name: name, masker: masking.NewValueMasker(values)})
 		h.values = append(h.values, values...)
 	}
 	return h
+}
+
+// appendHostValue appends a host variable's value to values, and each
+// string in it when it is JSON, since a JSON path or the listed keys of an
+// assertion take a part of it. An empty string is no host value.
+func appendHostValue(values []string, value string) []string {
+	var parts func(v any)
+	parts = func(v any) {
+		switch x := v.(type) {
+		case string:
+			if x != "" && !slices.Contains(values, x) {
+				values = append(values, x)
+			}
+		case map[string]any:
+			for _, item := range x {
+				parts(item)
+			}
+		case []any:
+			for _, item := range x {
+				parts(item)
+			}
+		}
+	}
+	parts(value)
+	var decoded any
+	if decodeJSON(value, &decoded) == nil {
+		parts(decoded)
+	}
+	return values
 }
 
 // held returns, sorted, the names of the host variables whose values text
@@ -132,7 +168,8 @@ func (g *hostGuard) keep(field string, vars []string) {
 // keptValue is an assertion that --update keeps as written because the
 // run's value holds a host value.
 type keptValue struct {
-	// step and field name the assertion as its failure does.
+	// step and field name the assertion as its failure does. step is empty
+	// for notifications.
 	step  string
 	field string
 	// vars names, sorted, the host variables whose values the run's value
@@ -148,7 +185,10 @@ func (k keptValue) String() string {
 	if name, ok := strings.CutPrefix(k.field, failureOutputPrefix); ok {
 		label = "output " + name
 	}
-	line := fmt.Sprintf("step %s %s: kept, it holds the %s of %s %s", k.step, label,
+	if k.step != "" {
+		label = "step " + k.step + " " + label
+	}
+	line := fmt.Sprintf("%s: kept, it holds the %s of %s %s", label,
 		plural(len(k.vars), "value", "values"), plural(len(k.vars), "host variable", "host variables"), strings.Join(k.vars, ", "))
 	if len(k.env) > 0 {
 		line += "; set " + strings.Join(k.env, ", ") + " under env"

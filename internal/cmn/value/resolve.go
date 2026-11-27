@@ -211,39 +211,36 @@ func (r *resolver) resolveReference(ctx context.Context, varName, path string) (
 			return value, true
 		}
 	}
-	jsonStr, host, ok := r.resolveJSONSource(varName)
+	jsonStr, ok := r.resolveJSONSource(varName)
 	if !ok {
 		return "", false
 	}
 	// Any path into a masked variable counts, whatever part it selects.
 	r.maskedReads.noteEntry(r.scopeEntry(varName, jsonStr))
-	value, ok := resolveJSONPath(ctx, varName, jsonStr, path)
-	if ok && host {
-		r.hostReads.note(varName, value)
-	}
-	return value, ok
+	return resolveJSONPath(ctx, varName, jsonStr, path)
 }
 
 // resolveJSONSource looks up a variable's raw value for JSON path resolution.
 // Unlike resolve, this includes OS-sourced scope entries when expandOS is true,
 // because JSON path resolution needs the actual value regardless of source.
-// It records no read: the path decides what the reference reads. host reports
-// a value taken from the process environment.
-func (r *resolver) resolveJSONSource(name string) (value string, host, ok bool) {
+// It records no masked read: the path decides what the reference reads. A
+// value from the process environment is a host read, whatever the path
+// selects.
+func (r *resolver) resolveJSONSource(name string) (string, bool) {
 	if val, ok := r.peekVariable(name); ok {
-		return val, false, true
+		return val, true
 	}
 	if r.expandOS {
 		if r.scope != nil {
 			if entry, ok := r.scope.GetEntry(name); ok {
-				return entry.Value, entry.Source == EnvSourceOS, true
+				r.hostReads.noteEntry(entry)
+				return entry.Value, true
 			}
 		}
-		val, ok := lookupProcessEnv(name)
-		return val, ok, ok
+		return r.hostReads.lookup(name)
 	}
 	entry, ok := r.peekScopeNonOSEntry(name)
-	return entry.Value, false, ok
+	return entry.Value, ok
 }
 
 // replaceVars substitutes $VAR and ${VAR} patterns using all resolver sources.

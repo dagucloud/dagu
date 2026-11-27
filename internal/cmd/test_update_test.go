@@ -341,6 +341,73 @@ func TestTestUpdateHostValues(t *testing.T) {
 	assertFileContent(t, testPath, updated)
 }
 
+// A part of a host value stays out too: a member that a JSON path selects
+// through a DAG env entry read from the host, and the listed keys of a with
+// object that holds a host value. So do notifications whose recipient a
+// DAG env entry read from the host. A changed value that holds none is
+// still written. t.Setenv rules out t.Parallel.
+func TestTestUpdateHostParts(t *testing.T) {
+	const user = "svc-deploy-41"
+	t.Setenv("TEST_UPDATE_HOST_AUTH", `{"token":"`+updateHostToken+`","user":"`+user+`"}`)
+	t.Setenv("TEST_UPDATE_HOST_MAIL", "ops-7e21@example.com")
+
+	home := writeInitDAG(t, "report.yaml", `mail_on:
+  success: true
+info_mail:
+  from: dagu@example.com
+  to: ${MAIL_TO}
+env:
+  - AUTH: ${TEST_UPDATE_HOST_AUTH}
+  - MAIL_TO: ${TEST_UPDATE_HOST_MAIL}
+steps:
+  - id: notify
+    action: http.request
+    with:
+      method: POST
+      url: https://hooks.example.invalid/reports
+      headers:
+        Authorization: ${AUTH.token}
+      body: ${AUTH}
+`)
+	testPath := filepath.Join(home, "dags", "report.test.yaml")
+	written := func(method string) string {
+		return `mocks:
+  notify: {}
+cases:
+  - name: parts stay out
+    expect:
+      steps:
+        notify:
+          called_with:
+            with:
+              method: ` + method + `
+              headers:
+                Authorization: old
+              body:
+                user: old
+      notifications: []
+`
+	}
+	require.NoError(t, os.WriteFile(testPath, []byte(written("GET")), 0o600))
+
+	stdout, err := runTestCommand(t, home, "--update", testPath)
+	var exit *exitStatusError
+	require.ErrorAs(t, err, &exit)
+	assert.Equal(t, testExitFailed, exit.code)
+	assertInOrder(t, stdout,
+		"FAIL "+testReportPath(testPath)+": parts stay out (",
+		`  step notify called_with.with.headers: expected {"Authorization":"old"}, got {"Authorization":"*******"}`+"\n",
+		"  step notify called_with.with.body: expected {\"user\":\"old\"}, got ",
+		"  notifications: expected none, got mail_on.success to ops-7e21@example.com\n",
+		"  step notify called_with.with.headers: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH under env\n",
+		"  step notify called_with.with.body: kept, it holds the value of host variable TEST_UPDATE_HOST_AUTH; set AUTH under env\n",
+		"  notifications: kept, it holds the value of host variable TEST_UPDATE_HOST_MAIL\n",
+		"  expect updated\n")
+	assert.NotContains(t, stdout, updateHostToken)
+	assert.NotContains(t, stdout, user)
+	assertFileContent(t, testPath, written("POST"))
+}
+
 // --update rewrites only the cases --run selects, and keeps the expect of
 // an invalid case and of a run that does not finish. The JSON report names
 // each outcome, and a second update finds the rewritten case unchanged.

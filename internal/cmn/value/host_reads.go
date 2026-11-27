@@ -27,9 +27,8 @@ func TrackHostReads(ctx context.Context) context.Context {
 }
 
 // HostReads returns the process environment variables read through ctx, by
-// name, each with the distinct values read: the variable's value, or the
-// part of it that a JSON path selects. It returns nil when ctx tracks no
-// reads.
+// name, each with the distinct values read. A JSON path into a variable
+// reads its whole value. It returns nil when ctx tracks no reads.
 func HostReads(ctx context.Context) map[string][]string {
 	reads := hostReadsFrom(ctx)
 	if reads == nil {

@@ -40,7 +40,7 @@ type jsonTestCase struct {
 // jsonKept is an assertion that --update kept as written because the
 // run's value holds a host value.
 type jsonKept struct {
-	Step      string   `json:"step"`
+	Step      string   `json:"step,omitempty"`
 	Field     string   `json:"field"`
 	Variables []string `json:"variables"`
 	Env       []string `json:"env,omitempty"`

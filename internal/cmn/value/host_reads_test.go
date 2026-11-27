@@ -12,8 +12,8 @@ import (
 )
 
 // Resolving a value records each process environment variable it reads, as
-// a DAG env entry reads one while the DAG loads: the value of a variable, or
-// the part a JSON path selects. An entry that does not come from the process
+// a DAG env entry reads one while the DAG loads, with its whole value, also
+// through a JSON path. An entry that does not come from the process
 // environment is no host read. t.Setenv rules out t.Parallel.
 func TestHostReads(t *testing.T) {
 	t.Setenv("DAGU_TEST_HOST_READ", "host-value")
@@ -35,7 +35,7 @@ func TestHostReads(t *testing.T) {
 		{name: "env namespace", raw: "${env.DAGU_TEST_HOST_READ}", field: DAGEnvField("env.A"), scope: loading,
 			want: map[string][]string{"DAGU_TEST_HOST_READ": {"host-value"}}},
 		{name: "JSON path", raw: "${DAGU_TEST_HOST_JSON.token}", field: DAGEnvField("env.A"), scope: loading,
-			want: map[string][]string{"DAGU_TEST_HOST_JSON": {"json-token"}}},
+			want: map[string][]string{"DAGU_TEST_HOST_JSON": {`{"token":"json-token","region":"us"}`}}},
 		{name: "forwarded entry", raw: "${env.DAGU_TEST_HOST_READ}", field: WorkflowField("with.a"), scope: forwarded,
 			want: map[string][]string{"DAGU_TEST_HOST_READ": {"forwarded-value"}}},
 		{name: "DAG env entry", raw: "${LOCAL}", field: DAGEnvField("env.A"), scope: loading, want: map[string][]string{}},
