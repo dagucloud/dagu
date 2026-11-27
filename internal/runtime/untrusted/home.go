@@ -35,7 +35,8 @@ func TrustedHome(uid, gid uint32, home string, lookup func(string) (string, bool
 	for _, folder := range homeFolders {
 		dir, ok := lookup(folder.name)
 		if !ok || dir == "" {
-			dir = filepath.Join(home, folder.dir)
+			// Not filepath.Join: a cleaned path drops a ".." after a link.
+			dir = home + string(filepath.Separator) + folder.dir
 		}
 		if writableBy(dir, uid, gid) {
 			unsafe = true

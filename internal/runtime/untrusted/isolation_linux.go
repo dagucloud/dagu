@@ -859,12 +859,17 @@ func ownerOf(info fs.FileInfo) (uid, gid int) {
 // replace the link. A folder with an access ACL, a folder that cannot be read,
 // and a path that resolveLinks cannot resolve count as writable.
 func writableBy(path string, uid, gid uint32) bool {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return true
+	// The path stays uncleaned: a ".." after a link leads where the link
+	// leads, not where the text leads.
+	if !filepath.IsAbs(path) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return true
+		}
+		path = wd + "/" + path
 	}
 	writable := false
-	real, err := followLinks(abs, func(link string) {
+	real, err := followLinks(path, func(link string) {
 		writable = writable || writableOnTheWay(link, uid, gid)
 	})
 	return err != nil || writable || writableOnTheWay(real, uid, gid)
