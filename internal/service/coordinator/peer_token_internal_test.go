@@ -4,6 +4,7 @@
 package coordinator
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 )
 
 func TestLoadOrCreatePeerToken(t *testing.T) {
@@ -84,6 +87,45 @@ func TestPeerTokenAuth(t *testing.T) {
 			}
 		})
 	}
+}
+
+// logCapture returns a context whose logs go to the returned buffer.
+func logCapture(ctx context.Context) (context.Context, *bytes.Buffer) {
+	var logs bytes.Buffer
+	return logger.WithLogger(ctx, logger.NewLogger(logger.WithWriter(&logs), logger.WithQuiet())), &logs
+}
+
+// A refused call is logged with its method and the fixes, at most once per
+// warn interval, and is remembered so a dispatch failure can name it.
+func TestPeerTokenAuthLogsRefusal(t *testing.T) {
+	const method = "/coordinator.v1.CoordinatorService/Poll"
+	auth := NewPeerTokenAuth("coordinator-token", false, true)
+	assert.False(t, auth.refusedRecently())
+
+	ctx, logs := logCapture(callContext(t, newPeerTokenCredentials("", "")))
+	require.Error(t, auth.authorize(ctx, method))
+	assert.Contains(t, logs.String(), "Coordinator refused a call without a peer token")
+	assert.Contains(t, logs.String(), method)
+	assert.Contains(t, logs.String(), "coordinator.require_token: false")
+	assert.True(t, auth.refusedRecently())
+
+	logs.Reset()
+	require.Error(t, auth.authorize(ctx, method))
+	assert.Empty(t, logs.String())
+
+	auth.lastRefusal = auth.lastRefusal.Add(-peerTokenRefusalWindow)
+	assert.False(t, auth.refusedRecently())
+}
+
+// With coordinator.require_token false, a call without a token passes and the
+// coordinator warns.
+func TestPeerTokenAuthOptOutWarns(t *testing.T) {
+	auth := NewPeerTokenAuth("coordinator-token", false, false)
+	ctx, logs := logCapture(callContext(t, newPeerTokenCredentials("", "")))
+
+	require.NoError(t, auth.authorize(ctx, "/coordinator.v1.CoordinatorService/Poll"))
+	assert.Contains(t, logs.String(), "Coordinator accepted a call without a peer token")
+	assert.False(t, auth.refusedRecently())
 }
 
 // A coordinator that regenerates its token, after its token file is removed,

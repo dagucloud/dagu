@@ -39,8 +39,15 @@ const (
 	// the file again, such as one that dialed before the coordinator wrote it.
 	peerTokenRetryInterval = time.Second
 	// peerTokenWarnInterval bounds how often the coordinator logs that it
-	// accepted a call without a valid peer token.
+	// accepted or refused a call without a valid peer token.
 	peerTokenWarnInterval = 10 * time.Minute
+	// peerTokenRefusalWindow is how long a refused call explains a dispatch
+	// that found no worker.
+	peerTokenRefusalWindow = 10 * time.Minute
+	// peerTokenMissingHint names the fixes for a call without a peer token.
+	peerTokenMissingHint = "set the same peer.token on the coordinator and every peer, let the peer read the coordinator's data directory, or set coordinator.require_token: false"
+	// peerTokenMismatchHint names the fix for a call with another token.
+	peerTokenMismatchHint = "set the same peer.token on the coordinator and every peer"
 	// grpcHealthMethodPrefix names the health service, which probes call
 	// without credentials.
 	grpcHealthMethodPrefix = "/grpc.health.v1.Health/"
@@ -147,15 +154,17 @@ func (c *peerTokenCredentials) current() string {
 // A call with the coordinator's token passes. A call with another token fails
 // when the token was configured or required, since only a generated token can
 // differ between coordinators that do not share a data directory. A call
-// without a token fails only when the token is required; otherwise it passes
-// and the coordinator logs a warning.
+// without a token fails when the token is required; otherwise it passes and
+// the coordinator logs a warning. The coordinator also logs refused calls.
 type PeerTokenAuth struct {
 	token      string
 	configured bool
 	require    bool
 
-	warnMu   sync.Mutex
-	lastWarn time.Time
+	mu             sync.Mutex
+	lastWarn       time.Time
+	lastRefusalLog time.Time
+	lastRefusal    time.Time
 }
 
 // NewPeerTokenAuth returns a check for token. configured reports whether the
@@ -199,35 +208,82 @@ func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
 	}
 	switch {
 	case got != "" && (a.configured || a.require):
-		return status.Error(codes.Unauthenticated, "the peer token does not match the coordinator's peer token")
-	case got == "" && a.require:
+		a.refuse(ctx, method, true)
 		return status.Error(codes.Unauthenticated,
-			"the coordinator requires a peer token: set peer.token, or let this process read the coordinator's data directory")
+			"the peer token does not match the coordinator's peer token: "+peerTokenMismatchHint)
+	case got == "" && a.require:
+		a.refuse(ctx, method, false)
+		return status.Error(codes.Unauthenticated,
+			"the coordinator requires its peer token: set the same peer.token on the coordinator and this process, or let this process read the coordinator's data directory")
 	}
 	a.warn(ctx, method, got != "")
 	return nil
 }
 
-func (a *PeerTokenAuth) warn(ctx context.Context, method string, mismatched bool) {
-	a.warnMu.Lock()
-	if !a.lastWarn.IsZero() && time.Since(a.lastWarn) < peerTokenWarnInterval {
-		a.warnMu.Unlock()
+// refusedRecently reports whether the coordinator refused a call for its
+// peer token within peerTokenRefusalWindow.
+func (a *PeerTokenAuth) refusedRecently() bool {
+	if a == nil {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return !a.lastRefusal.IsZero() && time.Since(a.lastRefusal) < peerTokenRefusalWindow
+}
+
+func (a *PeerTokenAuth) refuse(ctx context.Context, method string, mismatched bool) {
+	now := time.Now()
+	a.mu.Lock()
+	a.lastRefusal = now
+	due := logDue(&a.lastRefusalLog, now)
+	a.mu.Unlock()
+	if !due {
 		return
 	}
-	a.lastWarn = time.Now()
-	a.warnMu.Unlock()
 
-	remote := "unknown"
-	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
-		remote = p.Addr.String()
+	message, hint := "Coordinator refused a call without a peer token", peerTokenMissingHint
+	if mismatched {
+		message, hint = "Coordinator refused a call with another peer token", peerTokenMismatchHint
 	}
+	logger.Warn(ctx, message,
+		slog.String("method", method),
+		slog.String("peer", peerAddr(ctx)),
+		slog.String("hint", hint),
+	)
+}
+
+func (a *PeerTokenAuth) warn(ctx context.Context, method string, mismatched bool) {
+	a.mu.Lock()
+	due := logDue(&a.lastWarn, time.Now())
+	a.mu.Unlock()
+	if !due {
+		return
+	}
+
 	message := "Coordinator accepted a call without a peer token"
 	if mismatched {
 		message = "Coordinator accepted a call with another coordinator's peer token"
 	}
 	logger.Warn(ctx, message,
 		slog.String("method", method),
-		slog.String("peer", remote),
+		slog.String("peer", peerAddr(ctx)),
 		slog.String("hint", "set coordinator.require_token: true once every worker sends the peer token"),
 	)
+}
+
+// logDue reports whether a rate-limited log is due at now, and records now as
+// the last log when it is.
+func logDue(last *time.Time, now time.Time) bool {
+	if !last.IsZero() && now.Sub(*last) < peerTokenWarnInterval {
+		return false
+	}
+	*last = now
+	return true
+}
+
+func peerAddr(ctx context.Context) string {
+	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
+		return p.Addr.String()
+	}
+	return "unknown"
 }
