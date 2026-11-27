@@ -1,0 +1,6 @@
+params:
+  - CONN: work-google
+steps:
+  - name: unread
+    action: mcp.call
+    with: {connection: "${CONN}", server: gmail, tool: search_threads}

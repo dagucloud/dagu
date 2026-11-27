@@ -1,0 +1,6 @@
+steps:
+  - name: first
+    run: echo executed > executed.txt
+  - name: unread
+    action: mcp.call
+    with: {connection: shared-google, server: gmail, tool: search_threads}

@@ -1,0 +1,7 @@
+labels: [workspace=ops]
+steps:
+  - name: first
+    run: echo executed > executed.txt
+  - name: files
+    action: mcp.call
+    with: {connection: work-google, server: drive, tool: search_files}
