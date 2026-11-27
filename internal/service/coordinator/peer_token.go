@@ -62,11 +62,10 @@ func LoadOrCreatePeerToken(path string) (string, error) {
 		return token, err
 	}
 
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("generate peer token: %w", err)
+	token, err = newPeerToken()
+	if err != nil {
+		return "", err
 	}
-	token = hex.EncodeToString(raw)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", fmt.Errorf("create peer token directory: %w", err)
 	}
@@ -78,6 +77,15 @@ func LoadOrCreatePeerToken(path string) (string, error) {
 		return "", fmt.Errorf("write peer token: %w", err)
 	}
 	return token, nil
+}
+
+// newPeerToken returns a random token of 64 lowercase hex characters.
+func newPeerToken() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate peer token: %w", err)
+	}
+	return hex.EncodeToString(raw), nil
 }
 
 func readPeerToken(path string) (string, error) {
