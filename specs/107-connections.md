@@ -2,12 +2,22 @@
 
 ## Status
 
-Not implemented.
+Partly implemented.
 
 Behavior lands in parts, tracked in #4217. Each part that implements a
 section of this spec updates this status, adds conformance tests for what
 the binary shows, and updates the spec that owns the step or setting it
 changes (Specs 044, 045, 069, 073, and 098).
+
+Implemented so far:
+
+- [Declared Connections](#declared-connections) for `mcp.call`'s
+  `connection` and `server`.
+- [Admission Checks](#admission-checks) on a local run, from the CLI or the
+  embedded engine, except the literal `http.request` URL check. A run on a
+  worker, including the embedded engine's worker, skips them until the
+  check-only request lands. An `mcp.call` step that passes them fails when
+  it runs, until its token is delivered.
 
 The tests against Google settle one provider fact this spec depends on
 (RFC 025, criterion 42): whether revoking one Google refresh token ends the
@@ -871,7 +881,10 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
   `smtp.connection` in the DAG or its base config, and `secrets` entries
   with `provider: connection`. RFC 026 adds sources.
 - A connection name in these fields is a literal. A name taken from a
-  parameter, variable, or other reference fails validation.
+  parameter, variable, or other reference fails validation. So does a
+  step's `server` beside it, which admission checks too.
+- A DAG declares each connection once, with every `server` its steps name
+  beside it.
 - Validation stays offline. Building a DAG reads no connection record.
 - A run receives tokens only for connections its DAG declares.
 
@@ -883,7 +896,8 @@ check-only request. The editor's server-side validation runs the same
 checks.
 
 - The name resolves in the run's project.
-- A step's `server` names one of the connection's services.
+- A step's `server` names one of the connection's services. For a provider
+  with presets, that service's preset has an MCP URL.
 - A literal `http.request` URL is HTTPS and on the bound hosts.
 - A Google MCP preset used by a user connection, not a service account,
   uses an app with `agent` set.
@@ -891,6 +905,17 @@ checks.
 A failed check fails the run before its first step, and the error names the
 connection. Mail accounts and `smtp` are not checked here; see
 [Checks at Use](#checks-at-use).
+
+- A run checks every declared connection and reports every failed check
+  together.
+- Admission reads a connection's metadata, and its app only for the agent
+  check. It reads no token state, so a `pending` or `needs_reconnect`
+  connection passes, as [Checks at Use](#checks-at-use) states.
+- A DAG that declares no connection reads no connection record.
+- A DAG whose `workspace` labels are malformed or name two workspaces fails
+  each check, since it names no project. It never resolves in `.global`.
+- A workflow test case (Spec 101) runs no admission check and reads no
+  connection record, as no secret resolves through its provider under test.
 
 Under a coordinator that does not support token requests, a worker skips
 the check-only request. Each step that uses a connection then fails, saying

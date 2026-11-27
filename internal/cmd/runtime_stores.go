@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 )
@@ -25,6 +26,7 @@ type executionStores struct {
 	// workspace its DAG's label names.
 	SecretResolver       providers.ReferenceResolver
 	ProfileResolver      profile.RuntimeResolver
+	Connections          agent.ConnectionChecker
 	MaterializationStore build.MaterializationStore
 	Inventory            inventory.Store
 	// Nodes finds the nodes of steps with nodes: the inventory nodes and
@@ -46,6 +48,9 @@ func (c *Context) runtimeStores() executionStores {
 	if inventories != nil {
 		stores.Nodes = inventory.NewProjectNodes(inventories, c.runtimeWorkerNodeStore())
 	}
+	if c.serverStores != nil {
+		stores.Connections = agent.NewStoreConnectionChecker(c.serverStores.ConnectionStore)
+	}
 	if c.Config.ProjectsEnabled {
 		if stores.SecretStore != nil {
 			stores.SecretResolver = secret.NewProjectReferenceResolver(stores.SecretStore)
@@ -55,6 +60,16 @@ func (c *Context) runtimeStores() executionStores {
 		}
 	}
 	return stores
+}
+
+// connectionsFor returns the checker of the connections of a run that
+// workerID executes. A run on a worker is not checked against this host's
+// connection store, as a worker's in-process runs are not.
+func (s executionStores) connectionsFor(workerID string) agent.ConnectionChecker {
+	if workerID != "local" {
+		return nil
+	}
+	return s.Connections
 }
 
 // subDAGSecretResolver returns the resolver a sub-DAG run uses for its

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/connection"
 	iengine "github.com/dagucloud/dagu/v2/internal/engine"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -464,6 +465,9 @@ func filePersistenceFactory(ctx context.Context, cfg *config.Config) (iengine.Pe
 				SecretStore:          file.NewSecretStore(ctx, cfg, backend.Collection(persis.CollectionSecrets)),
 				ProfileStore:         file.NewProfileStore(ctx, cfg, backend.Collection(persis.CollectionProfiles)),
 				MaterializationStore: filematerialization.New(filepath.Join(cfg.Paths.DataDir, "materializations")),
+				OpenConnectionStore: func() (connection.Store, error) {
+					return file.NewServerStores(cfg).ConnectionStore()
+				},
 			}
 		},
 	}, nil

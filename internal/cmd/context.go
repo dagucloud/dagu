@@ -633,6 +633,7 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 		StateStore:         c.Persistence.StateStore,
 		SecretStore:        stores.SecretStore,
 		SecretResolver:     stores.subDAGSecretResolver(),
+		ConnectionChecker:  stores.Connections,
 		ProfileStore:       stores.ProfileStore,
 		ProfileResolver:    stores.subDAGProfileResolver(),
 		ServiceRegistry:    c.Persistence.ServiceRegistry,

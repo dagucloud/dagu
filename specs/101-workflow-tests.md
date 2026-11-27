@@ -964,6 +964,8 @@ Rules:
   the ref of an SSH credential of the DAG makes the case invalid.
 - Values and placeholders are masked in logs, in stored run status, and in
   the report, as secret values are in a real run (Spec 069).
+- No connection record (Spec 107) is read, and a run under test skips
+  Spec 107's admission checks.
 
 Committed test files therefore hold no secret values, and a case's secrets
 do not depend on the host it runs on. Other values can: a DAG `env` entry
