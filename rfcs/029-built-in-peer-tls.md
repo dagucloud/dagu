@@ -273,8 +273,9 @@ The environment variables are `DAGU_WORKER_COORDINATORS` and
   so the container exits again and the pod shows `CrashLoopBackOff`. The
   worker writes the reason to its termination message, so
   `kubectl describe pod` shows it. For such a worker, the confirmation says
-  the pod keeps restarting until the Deployment is scaled down or the pod
-  is deleted.
+  the pod keeps restarting until the Deployment is scaled down. A deleted
+  pod comes back with an empty `emptyDir` and enrolls again while its
+  reusable invite exists, so the confirmation offers to delete the invite.
 - A worker on the peer token has no **Remove**, since it would reconnect at
   once. The page says to stop it on its host, or to change the peer token.
 - **Invites** lists each invite with its kind, creator, creation and expiry
@@ -382,8 +383,8 @@ transport in this order:
 | Configuration | Transport |
 | --- | --- |
 | `peer.insecure: true` | h2c, as today |
-| `peer.insecure: false` with `peer.cert_file`, `peer.client_ca_file`, or `peer.skip_tls_verify` | TLS with those files, as today |
-| A worker invite or certificate, `peer.ca_cert_file`, or a registry entry that reports built-in TLS | Built-in TLS |
+| `peer.insecure: false` with `peer.cert_file`, `peer.key_file`, `peer.client_ca_file`, or `peer.skip_tls_verify` | TLS with those files, as today |
+| A worker invite or certificate, `peer.ca_cert_file`, or the CA certificate a coordinator publishes in the client's data directory while the registry there lists a coordinator that reports built-in TLS | Built-in TLS |
 | None of these | h2c, as today |
 
 - `peer.insecure: true` remains for networks that already encrypt traffic,
@@ -395,9 +396,16 @@ transport in this order:
   same. Whether v3.0 lets a TLS file select TLS is open question 1.
 - Each coordinator adds `tls: builtin` to the entry it registers, and
   writes the certificate of the CA it uses, generated or from
-  `peer.ca_cert_file`, to its data directory. A client that finds
-  coordinators in the registry reads that certificate. A client's own
-  `peer.ca_cert_file` takes precedence. Older processes ignore the field.
+  `peer.ca_cert_file`, to its data directory, without touching a generated
+  CA. A client that shares that data directory reads that certificate,
+  whether it finds coordinators in the registry or in
+  `worker.coordinators`. A client's own `peer.ca_cert_file` takes
+  precedence. Older processes ignore the field.
+- A coordinator that leaves built-in TLS, with own certificates, removes
+  the published certificate. A certificate that a downgraded coordinator
+  leaves behind selects nothing, since its registry entry no longer reports
+  built-in TLS; a client that dials before the entry changes falls back on
+  the failed handshake.
 - In v2.x, a client on the peer token or on no credential falls back to h2c
   when the TLS handshake fails at the transport level: the connection is
   reset, or the other side answers with something other than TLS. This is
@@ -503,7 +511,9 @@ worker                                         coordinator
   by its user only, and reuses them across restarts. Run processes the
   worker starts use the same files. It also records which invite it
   enrolled with. A worker with a certificate ignores its invite, so
-  restarts do not use up a single-use invite.
+  restarts do not use up a single-use invite, unless the invite names a CA
+  other than the one that signed its certificate. Then it enrolls with the
+  invite, so a worker can join a coordinator set up again with a new CA.
 - The worker holds a lock on its certificate while it runs. A second worker
   that finds the lock held exits with `Another worker uses this data
   directory`, so two containers on one volume never share a certificate. A
@@ -630,8 +640,8 @@ The existing keys keep working, with three fixes:
   coordinator before inviting workers.
 - **Downgrade:** an older coordinator ignores the CA and the new
   collections and serves h2c only. Workers that joined with an invite fail
-  until they get `peer.token`. Processes that use the peer token keep
-  working.
+  until they get `peer.token` and `peer.insecure: true` and lose
+  `worker.invite`. Processes that use the peer token keep working.
 - **Bring your own certificates:** unchanged. A TLS file without
   `peer.insecure: false` is still ignored, now with a warning.
 
