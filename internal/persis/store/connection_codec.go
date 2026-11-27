@@ -105,8 +105,16 @@ type sessionRecord struct {
 	User      string                  `json:"user,omitempty"`
 	Phase     connection.SessionPhase `json:"phase"`
 	ExpiresAt time.Time               `json:"expires_at"`
+	ClaimedAt time.Time               `json:"claimed_at,omitzero"`
 	Reason    string                  `json:"reason,omitempty"`
 	Tokens    tokensRecord            `json:"tokens,omitzero"`
+	// Probes hold provider errors, which carry no secret.
+	Probes []probeRecord `json:"probes,omitempty"`
+}
+
+type probeRecord struct {
+	Service string `json:"service"`
+	Error   string `json:"error,omitempty"`
 }
 
 type catalogRecord struct {
@@ -251,8 +259,12 @@ func (c connectionCodec) tokenStateToRecord(state *connection.TokenState) (*toke
 			User:      s.User,
 			Phase:     s.Phase,
 			ExpiresAt: s.ExpiresAt,
+			ClaimedAt: s.ClaimedAt,
 			Reason:    s.Reason,
 			Tokens:    sessionTokens,
+		}
+		for _, p := range s.Probes {
+			rec.Session.Probes = append(rec.Session.Probes, probeRecord(p))
 		}
 	}
 	return rec, nil
@@ -287,8 +299,12 @@ func (c connectionCodec) tokenStateFromRecord(rec *tokenStateRecord) (*connectio
 			User:      s.User,
 			Phase:     s.Phase,
 			ExpiresAt: s.ExpiresAt,
+			ClaimedAt: s.ClaimedAt,
 			Reason:    s.Reason,
 			Tokens:    sessionTokens,
+		}
+		for _, p := range s.Probes {
+			state.Session.Probes = append(state.Session.Probes, connection.Probe(p))
 		}
 	}
 	return state, nil

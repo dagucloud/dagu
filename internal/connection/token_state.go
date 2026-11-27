@@ -82,11 +82,25 @@ type Session struct {
 	User      string
 	Phase     SessionPhase
 	ExpiresAt time.Time
+	// ClaimedAt is when a callback began to complete the waiting session,
+	// or zero. While the claim holds, other callbacks are refused, so a
+	// code is exchanged once.
+	ClaimedAt time.Time
 	// Reason is the error of a failed session.
 	Reason string
 	// Tokens are those consent produced, with the account read after it,
 	// before they are confirmed.
 	Tokens Tokens
+	// Probes hold the result of each service's check after consent.
+	Probes []Probe
+}
+
+// Probe is the result of one service's check after consent.
+type Probe struct {
+	Service string
+	// Error is the provider's error, without secrets, or empty when the
+	// service answered.
+	Error string
 }
 
 // TokenStatus is the state of a connection's authorization.

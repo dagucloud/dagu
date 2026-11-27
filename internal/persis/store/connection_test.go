@@ -414,6 +414,7 @@ func TestTokenStateRoundTrip(t *testing.T) {
 			ID:     "session-1",
 			Phase:  connection.SessionPhaseConfirm,
 			Tokens: connection.Tokens{RefreshToken: "session-refresh"},
+			Probes: []connection.Probe{{Service: "gmail"}, {Service: "drive", Error: "status 403"}},
 		}
 		return nil
 	})
