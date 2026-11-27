@@ -6,7 +6,6 @@ package test
 import (
 	"context"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"path/filepath"
 	"testing"
 	"time"
@@ -83,7 +82,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 		ds,
 		helper.Config.DAGDiscovery.Recursive,
 		helper.Config.Paths.BaseConfig,
-		workspace.BaseConfigDir(helper.Config.Paths.DAGsDir),
+		helper.Config.WorkspaceBaseConfigDir(),
 		filedag.WatchCalendars(helper.Config.Paths.CalendarsDir),
 	)
 

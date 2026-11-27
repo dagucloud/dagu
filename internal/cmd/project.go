@@ -21,7 +21,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -301,16 +300,31 @@ func (c *Context) projectPaths() config.ProjectPaths {
 // projectLoadOptions returns the options that load a DAG of the addressed
 // project: its base config and its DAG directory.
 func (c *Context) projectLoadOptions() []spec.LoadOption {
-	baseConfig := c.Config.Paths.BaseConfig
 	dagsDir := c.Config.Paths.DAGsDir
-	workspaceDir := workspace.BaseConfigDir(dagsDir)
 	if c.projectStores != nil {
-		baseConfig, workspaceDir = c.projectStores.BaseConfig()
 		dagsDir = c.projectStores.Paths.DAGsDir
 	}
+	return append(c.projectBaseConfigOptions(), spec.WithDAGsDir(dagsDir))
+}
+
+// projectBaseConfigOptions returns the options that apply the addressed
+// project's base config to a DAG it loads.
+func (c *Context) projectBaseConfigOptions() []spec.LoadOption {
+	if c.projectStores == nil {
+		return baseConfigOptions(c.Config)
+	}
+	baseConfig, workspaceDir := c.projectStores.BaseConfig()
 	return []spec.LoadOption{
 		spec.WithBaseConfig(baseConfig),
 		spec.WithWorkspaceBaseConfigDir(workspaceDir),
-		spec.WithDAGsDir(dagsDir),
+	}
+}
+
+// baseConfigOptions returns the options that apply the default project's
+// base config to a DAG it loads.
+func baseConfigOptions(cfg *config.Config) []spec.LoadOption {
+	return []spec.LoadOption{
+		spec.WithBaseConfig(cfg.Paths.BaseConfig),
+		spec.WithWorkspaceBaseConfigDir(cfg.WorkspaceBaseConfigDir()),
 	}
 }

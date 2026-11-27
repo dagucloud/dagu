@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // projectsSwitchKey is the undocumented key that turns projects on.
@@ -18,6 +19,7 @@ const projectsSwitchKey = "experimental_projects"
 // Project layout with projects on:
 //
 //	<projects_dir>/<name>/          DAG directory (paths.dags_dir for default)
+//	  base.yaml                     base config (paths.base_config for default)
 //	<data_dir>/projects/<name>/     state directory
 //	  logs/ artifacts/ runs/        unless the matching path is set
 //	  settings/                     secrets, profiles, routes, policies, ...
@@ -50,6 +52,8 @@ const (
 	// setApartLibrarySuffix names a project's library directory under a
 	// path set apart. A project name has no ".", so no project takes it.
 	setApartLibrarySuffix = ".library"
+	// projectBaseConfigFileName is a file of the DAG directory, not a DAG.
+	projectBaseConfigFileName = "base.yaml"
 )
 
 // ProjectPaths holds the directories of one project.
@@ -233,6 +237,31 @@ func projectDirName(name string) (string, error) {
 // rules.
 func isPathElement(name string) bool {
 	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, `/\:`)
+}
+
+// ProjectBaseConfig returns the base config file of the project called
+// name, "" naming the default project: paths.base_config for the default
+// project, and base.yaml in the DAG directory of any other. A project whose
+// file does not exist has no base config.
+func (c *Config) ProjectBaseConfig(name string) (string, error) {
+	if name == "" || strings.EqualFold(name, defaultProjectName) {
+		return c.Paths.BaseConfig, nil
+	}
+	paths, err := c.ProjectPaths(name)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(paths.DAGsDir, projectBaseConfigFileName), nil
+}
+
+// WorkspaceBaseConfigDir returns the directory of the workspace base
+// configs that a DAG's workspace label layers over its base config. It is
+// empty while projects are on: a label then adds no layer.
+func (c *Config) WorkspaceBaseConfigDir() string {
+	if c.ProjectsEnabled {
+		return ""
+	}
+	return workspace.BaseConfigDir(c.Paths.DAGsDir)
 }
 
 // DiscoverySkipRoots returns paths.dags_dir, paths.projects_dir, and

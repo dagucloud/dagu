@@ -15,7 +15,7 @@ import (
 )
 
 func RestoreDAGFromStatusForTest(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus) (*ir.DAG, error) {
-	return restoreDAGFromStatus(ctx, dag, status, nil)
+	return restoreDAGFromStatus(ctx, dag, status, nil, baseConfigOptions(config.GetConfig(ctx)))
 }
 
 var WorkerFlagsForTest = workerFlags

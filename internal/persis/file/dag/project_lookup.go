@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -57,7 +58,18 @@ func (store *Store) locateInProject(ctx context.Context, target string) (Resolve
 			return ResolvedFile{}, false, err
 		}
 	}
+	// The project's base config lies in its DAG directory but is no DAG.
+	// Only a match of the same file name is compared by identity, which
+	// also holds where the file system ignores case.
+	isBaseConfig := func(resolved ResolvedFile) bool {
+		return store.baseConfigPath != "" &&
+			strings.EqualFold(filepath.Base(resolved.ResolvedPath), filepath.Base(store.baseConfigPath)) &&
+			sameFile(resolved.ResolvedPath, store.baseConfigPath)
+	}
 	accept := func(resolved ResolvedFile) (bool, error) {
+		if isBaseConfig(resolved) {
+			return false, nil
+		}
 		owner, err := scope.owners.OfIn(ctx, scope.name, resolved.ResolvedPath)
 		if err != nil {
 			return false, err
@@ -120,8 +132,15 @@ func (store *Store) locateInProject(ctx context.Context, target string) (Resolve
 		}
 		if exists && (owner.Library || owner.Is(scope.name)) {
 			resolved, ok, err := resolveTargetFile(file)
-			if err != nil || ok {
-				return resolved, err
+			switch {
+			case err != nil:
+				return ResolvedFile{}, err
+			case ok && isBaseConfig(resolved):
+				return ResolvedFile{}, &projectLookupError{
+					msg: fmt.Sprintf("%s is the base config of project %q, not a DAG", target, scope.name),
+				}
+			case ok:
+				return resolved, nil
 			}
 		}
 		if other.Project == "" {

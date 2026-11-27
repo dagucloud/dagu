@@ -132,9 +132,12 @@ func NewProjectStores(
 	if cfg.ProjectsEnabled {
 		dags.project, dags.owners = p.Name, server.owners
 	}
-	// Another project's base config comes in a later change; until then
-	// none applies to it.
-	if isDefault {
+	switch {
+	case cfg.ProjectsEnabled:
+		if dags.baseConfig, err = cfg.ProjectBaseConfig(p.Name); err != nil {
+			return nil, err
+		}
+	case isDefault:
 		dags.baseConfig = cfg.Paths.BaseConfig
 		dags.workspaceBaseConfigDir = workspace.BaseConfigDir(paths.DAGsDir)
 	}

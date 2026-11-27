@@ -46,7 +46,6 @@ import (
 	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	spectypes "github.com/dagucloud/dagu/v2/internal/spec/types"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/parser"
 )
@@ -3925,7 +3924,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 		} else {
 			snapshotLoadOpts = append(snapshotLoadOpts,
 				spec.WithBaseConfig(a.config.Paths.BaseConfig),
-				spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+				spec.WithWorkspaceBaseConfigDir(a.config.WorkspaceBaseConfigDir()),
 			)
 		}
 
@@ -5761,7 +5760,7 @@ func (a *API) loadCurrentRescheduleDAG(ctx context.Context, sourceFile, nameOver
 
 	loadOpts := []spec.LoadOption{
 		spec.WithBaseConfig(a.config.Paths.BaseConfig),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+		spec.WithWorkspaceBaseConfigDir(a.config.WorkspaceBaseConfigDir()),
 		spec.WithDAGsDir(a.config.Paths.DAGsDir),
 	}
 	if nameOverride != "" {
@@ -5855,6 +5854,6 @@ func (a *API) refreshBaseSMTP(ctx context.Context, dag *ir.DAG, status *ir.DAGRu
 	}
 	return spec.RefreshBaseSMTP(dag,
 		spec.WithBaseConfig(a.config.Paths.BaseConfig),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+		spec.WithWorkspaceBaseConfigDir(a.config.WorkspaceBaseConfigDir()),
 	)
 }
