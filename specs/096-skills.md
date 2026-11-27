@@ -269,11 +269,13 @@ The text has no other line.
 Every write of the API carries the precondition of the client. Here a write is every route that
 changes a skill: both `PUT` routes and both `DELETE` routes.
 
-- `If-Match: <hash>` applies the write only when the skill still has this hash. The value can be in quotes,
-  and a prefix `W/` is ignored. A value that is not 64 hexadecimal characters gives 400.
+- `If-Match: <hash>` applies the write only when the skill still has this hash. The value can be in a
+  pair of quotes, and a prefix `W/` is ignored. A value that is not 64 hexadecimal characters gives 400.
 - `If-None-Match: *` applies the write only when the skill folder does not exist. This creates a skill.
   Of the writes, only `PUT /skills/{name}` accepts this header. Another value, or the header on
   another write, gives 400. So a delete and a file write need `If-Match`.
+
+A write with both headers gives 400.
 
 A write with neither header is refused with the HTTP status 428. A write with a stale hash, or a
 create on an existing skill, gives 409 with the code `conflict` and the current hash (`hash`). The

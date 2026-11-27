@@ -215,16 +215,23 @@ func (a *API) GetSkillFile(ctx context.Context, request api.GetSkillFileRequestO
 
 // skillPrecondition reads the headers If-Match and If-None-Match.
 func skillPrecondition(ifMatch, ifNoneMatch *string) (skill.Precondition, error) {
+	hasIfMatch := ifMatch != nil && strings.TrimSpace(*ifMatch) != ""
 	if ifNoneMatch != nil && strings.TrimSpace(*ifNoneMatch) != "" {
+		if hasIfMatch {
+			return skill.Precondition{}, &Error{Code: api.ErrorCodeBadRequest, Message: "send If-Match or If-None-Match, not both", HTTPStatus: http.StatusBadRequest}
+		}
 		if strings.TrimSpace(*ifNoneMatch) != "*" {
 			return skill.Precondition{}, &Error{Code: api.ErrorCodeBadRequest, Message: "If-None-Match must be *", HTTPStatus: http.StatusBadRequest}
 		}
 		return skill.Precondition{MustNotExist: true}, nil
 	}
-	if ifMatch == nil || strings.TrimSpace(*ifMatch) == "" {
+	if !hasIfMatch {
 		return skill.Precondition{}, errSkillPreconditionRequired
 	}
-	hash := strings.Trim(strings.TrimPrefix(strings.TrimSpace(*ifMatch), "W/"), `"`)
+	hash := strings.TrimPrefix(strings.TrimSpace(*ifMatch), "W/")
+	if len(hash) >= 2 && hash[0] == '"' && hash[len(hash)-1] == '"' {
+		hash = hash[1 : len(hash)-1]
+	}
 	if _, err := hex.DecodeString(hash); err != nil || len(hash) != 64 {
 		return skill.Precondition{}, &Error{Code: api.ErrorCodeBadRequest, Message: "If-Match must be the hash of the skill (64 hexadecimal characters)", HTTPStatus: http.StatusBadRequest}
 	}
