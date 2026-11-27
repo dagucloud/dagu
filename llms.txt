@@ -709,7 +709,7 @@ A completed `parallel` step publishes a JSON array of each successful child run'
 
 ## nodes: Run On Inventory Nodes
 
-`nodes:` runs a step once per node a selector matches: inventory (SSH) nodes and worker nodes, the workers that set `worker.id`, alike. The selector is the label filter that `dagu history --labels` takes: terms separated by commas, all of which must match, such as `web,env=prod,!canary`. Quote a selector that starts with `!`.
+`nodes:` runs a step once per node a selector matches: inventory (SSH) nodes and worker nodes, the workers that set `worker.id`, alike. Only the default project's runs go to workers, so a run of another project matches its inventory nodes only. The selector is the label filter that `dagu history --labels` takes: terms separated by commas, all of which must match, such as `web,env=prod,!canary`. Quote a selector that starts with `!`.
 
 ```yaml
 steps:

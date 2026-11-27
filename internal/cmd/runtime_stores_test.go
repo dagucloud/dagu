@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/stretchr/testify/assert"
@@ -84,4 +87,44 @@ func seedRuntimeSettings(t *testing.T, stores executionStores, name string) {
 	require.NoError(t, stores.ProfileStore.Create(ctx, prod))
 	_, err = profile.NewManager(stores.ProfileStore, stores.SecretStore).SetSecret(ctx, prod, "PROFILE_TOKEN", name+"-profile", "test")
 	require.NoError(t, err)
+}
+
+// Only the default project's runs go to workers, so only its runs match
+// worker nodes. Another project's steps match its inventory nodes alone.
+func TestRuntimeStoresWorkerNodesInDefaultProject(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	cfg := runtimeStoresConfig(t)
+	server := file.NewServerStores(cfg)
+	workers, err := server.WorkerNodeStore()
+	require.NoError(t, err)
+	require.NoError(t, workers.Record(ctx, inventory.WorkerNode{Name: "gw-1", Host: "gw.tokyo", Labels: ir.NewLabels([]string{"web"}), Online: true}))
+
+	for name, want := range map[string][]string{
+		project.DefaultName: {"gw-1", "web01"},
+		"weather":           {"web01"},
+	} {
+		settings, err := file.NewProjectSettings(cfg, server, name)
+		require.NoError(t, err)
+		c := &Context{Context: ctx, Config: cfg, serverStores: server, settings: settings,
+			projectStores: &file.ProjectStores{ProjectSettings: settings}, project: project.Project{Name: name}}
+		stores := c.runtimeStores()
+		_, err = stores.Inventory.Create(ctx, inventory.Inventory{Name: "fleet", Nodes: []inventory.Node{
+			{Name: "web01", Host: "10.0.1.11", Labels: []string{"web"}},
+		}})
+		require.NoError(t, err)
+
+		matched, err := stores.Nodes.Select(ctx, "web")
+		require.NoError(t, err)
+		named, err := stores.Nodes.Named(ctx, []string{"gw-1", "web01"})
+		require.NoError(t, err)
+		for _, nodes := range [][]inventory.ResolvedNode{matched, named} {
+			names := make([]string, len(nodes))
+			for i, node := range nodes {
+				names[i] = node.Name
+			}
+			assert.Equal(t, want, names, name)
+		}
+	}
 }
