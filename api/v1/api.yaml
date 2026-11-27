@@ -10092,6 +10092,12 @@ paths:
           description: "The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header."
           schema:
             type: string
+        - name: If-None-Match
+          in: header
+          required: false
+          description: "Not allowed: only the creation of a skill takes If-None-Match. The header gives 400."
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -10137,7 +10143,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/SkillError"
         "413":
-          description: "The file is too large"
+          description: "The file is above 4 MiB"
           content:
             application/json:
               schema:
@@ -10169,6 +10175,12 @@ paths:
           in: header
           required: false
           description: "The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header."
+          schema:
+            type: string
+        - name: If-None-Match
+          in: header
+          required: false
+          description: "Not allowed: only the creation of a skill takes If-None-Match. The header gives 400."
           schema:
             type: string
       responses:

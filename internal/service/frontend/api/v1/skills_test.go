@@ -341,6 +341,12 @@ func TestSkillsFiles(t *testing.T) {
 			ExpectStatus(http.StatusPreconditionRequired).Send(t)
 		putSkill(server, "/api/v1/skills/missing/files?path=references/a.md", []byte("x"), skillIfMatch(h)).
 			ExpectStatus(http.StatusNotFound).Send(t)
+		// Only the creation of a skill takes If-None-Match.
+		both := map[string]string{"If-Match": h, "If-None-Match": "*"}
+		putSkill(server, "/api/v1/skills/refund-policy/files?path=references/a.md", []byte("x"), both).
+			ExpectStatus(http.StatusBadRequest).Send(t)
+		deleteSkillRequest(server, "/api/v1/skills/refund-policy/files?path=references/faq.md", both).
+			ExpectStatus(http.StatusBadRequest).Send(t)
 		assert.Equal(t, h, getSkill(t, server, "refund-policy").Hash, "a refused write changes nothing")
 	})
 
@@ -369,6 +375,7 @@ func TestSkillsDelete(t *testing.T) {
 
 	deleteSkillRequest(server, "/api/v1/skills/refund-policy", nil).ExpectStatus(http.StatusPreconditionRequired).Send(t)
 	deleteSkillRequest(server, "/api/v1/skills/refund-policy", skillIfMatch(strings.Repeat("0", 64))).ExpectStatus(http.StatusConflict).Send(t)
+	deleteSkillRequest(server, "/api/v1/skills/refund-policy", map[string]string{"If-Match": h, "If-None-Match": "*"}).ExpectStatus(http.StatusBadRequest).Send(t)
 	deleteSkillRequest(server, "/api/v1/skills/refund-policy", skillIfMatch(h)).ExpectStatus(http.StatusNoContent).Send(t)
 	_, err := os.Stat(filepath.Join(skillsDir(server), "refund-policy"))
 	assert.ErrorIs(t, err, os.ErrNotExist, "the whole folder goes")
