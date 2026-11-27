@@ -1,7 +1,8 @@
 # RFC 029: Built-in Peer TLS and Worker Invites
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-27
+- **Accepted:** 2026-11-27
 - **Affected areas:** `service/coordinator`, `service/worker`, `cmn/config`,
   `persis` (stores, service registry), `proto`, `cmd`, `api/v1`,
   `service/frontend` (API, UI, MCP), `charts`, `specs`, `conformance`,
