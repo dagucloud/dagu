@@ -207,12 +207,14 @@ func classify(ctx context.Context, err error, obs *observingTransport, cc *conne
 		return &callError{kind: kindCanceled, message: "call canceled"}
 	}
 	if cc != nil {
-		if cerr := cc.refusal(err, redact); cerr != nil {
-			return cerr
-		}
+		// A refresh after a refusal can find the connection needs
+		// reconnecting.
 		if errors.Is(err, broker.ErrReconnectRequired) {
 			cerr := authError(cc.name, err)
 			cerr.message = redact.apply(cerr.message)
+			return cerr
+		}
+		if cerr := cc.refusal(err, redact); cerr != nil {
 			return cerr
 		}
 	} else if status := obs.authStatus(); status != 0 {

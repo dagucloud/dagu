@@ -222,7 +222,7 @@ func (b *Bearer) Explain(err error) error {
 	}
 	explained := *b.rejected
 	explained.Err = err
-	if msg := err.Error(); strings.Contains(msg, b.refusedToken) {
+	if msg := err.Error(); b.refusedToken != "" && strings.Contains(msg, b.refusedToken) {
 		explained.Err = errors.New(b.redact(msg))
 	}
 	return &explained
