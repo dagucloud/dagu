@@ -240,10 +240,13 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchReques
 	if task == nil {
 		return fmt.Errorf("dispatch task is nil")
 	}
-	if err := cli.prepareTaskWorkspace(ctx, task); err != nil {
-		if !errors.Is(err, runtimeexec.ErrDAGWorkspaceSourceUnavailable) {
-			return err
-		}
+	// Uploading the workspace admits nothing, so it ends as soon as the
+	// call's attempts stop.
+	prepareCtx, cancelPrepare := contextUntilAttemptStop(ctx)
+	err := cli.prepareTaskWorkspace(prepareCtx, task)
+	cancelPrepare()
+	if err != nil && !errors.Is(err, runtimeexec.ErrDAGWorkspaceSourceUnavailable) {
+		return err
 	}
 	protoTask, err := convert.DispatchTaskToProto(task)
 	if err != nil {

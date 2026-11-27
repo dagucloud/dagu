@@ -14,6 +14,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 type stubServiceRegistry struct{}
@@ -168,4 +170,37 @@ func TestDispatchStopsRetryingWhenAttemptsStop(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "no coordinators available")
 	require.Equal(t, 1, registry.lookups)
+}
+
+// stalledHealthClient is the health service of a coordinator that accepts a
+// check and never answers it. The check stops the call's attempts, as an
+// interrupt during the check does.
+type stalledHealthClient struct {
+	grpc_health_v1.HealthClient
+	stop func()
+}
+
+func (c stalledHealthClient) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckRequest, _ ...grpc.CallOption) (*grpc_health_v1.HealthCheckResponse, error) {
+	c.stop()
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// The health check before a dispatch changes nothing, so it ends as soon as
+// the call's attempts stop, and the call returns without a dispatch.
+func TestDispatchHealthCheckEndsWhenAttemptsStop(t *testing.T) {
+	t.Parallel()
+
+	stop := make(chan struct{})
+	member := serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 1}
+	cli := New(staticStateRegistry{members: []serviceregistry.HostInfo{member}}, DefaultConfig()).(*clientImpl)
+	cli.clients[coordinatorMemberKey(member)] = &client{
+		address:      coordinatorAddress(member),
+		healthClient: stalledHealthClient{stop: sync.OnceFunc(func() { close(stop) })},
+	}
+
+	err := cli.Dispatch(WithAttemptStop(context.Background(), stop), dispatch.DispatchRequest{
+		Task: &dispatch.DispatchTask{Operation: dispatch.DispatchOperationStart, Target: "deploy", DAGRunID: "run"},
+	})
+	require.ErrorContains(t, err, "health check failed")
 }
