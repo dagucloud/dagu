@@ -14,6 +14,7 @@
 package mcpclient
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -37,8 +38,8 @@ import (
 const (
 	// redactedText replaces a secret in an error's text.
 	redactedText = "[redacted]"
-	// maxRefusalBody bounds the part of a refusal's body read for the
-	// provider's message.
+	// maxRefusalBody bounds the part of a refusal's body that a
+	// RejectedError keeps.
 	maxRefusalBody = 4 << 10
 )
 
@@ -63,6 +64,10 @@ type RejectedError struct {
 	// Err is the failure the MCP client reported, which carries the
 	// provider's message, with the token redacted.
 	Err error
+	// Body is the start of the response body, at most 4 KiB, with the
+	// token redacted. It holds the provider's error when that is no
+	// JSON-RPC error, such as a Google API's JSON error.
+	Body string
 }
 
 func (e *RejectedError) Error() string {
@@ -95,7 +100,8 @@ var (
 // HTTPS to the connection's bound hosts and refuses any other request. As
 // the session's OAuth handler, it reports a token refused with HTTP 401 to
 // the source once, so the request is retried with the token the source
-// returns.
+// returns. A Bearer serves one call, such as one mcp.call or one listing:
+// it allows one report in its lifetime.
 type Bearer struct {
 	source  broker.Source
 	conn    *connection.Connection
@@ -169,7 +175,10 @@ func (b *Bearer) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := b.base.RoundTrip(req)
-	if err == nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
+	// The DELETE that closes a session answers for no operation of the
+	// call, so its refusal never stands for the call's failure.
+	if err == nil && req.Method != http.MethodDelete &&
+		(resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
 		b.reject(resp, token)
 	}
 	return resp, err
@@ -228,8 +237,16 @@ func (b *Bearer) Explain(err error) error {
 	return &explained
 }
 
+// reject remembers the refusal resp, with the start of its body, which it
+// leaves for the SDK to read whole.
 func (b *Bearer) reject(resp *http.Response, token string) {
-	rejected := &RejectedError{Status: resp.StatusCode}
+	// A read error recurs when the SDK reads the rest of the body.
+	head, _ := io.ReadAll(io.LimitReader(resp.Body, maxRefusalBody))
+	resp.Body = readCloser{Reader: io.MultiReader(bytes.NewReader(head), resp.Body), Closer: resp.Body}
+	rejected := &RejectedError{
+		Status: resp.StatusCode,
+		Body:   strings.ReplaceAll(string(head), token, redactedText),
+	}
 	for _, m := range challengeParam.FindAllStringSubmatch(resp.Header.Get("WWW-Authenticate"), -1) {
 		value := m[2] + m[3]
 		switch strings.ToLower(m[1]) {
@@ -244,6 +261,11 @@ func (b *Bearer) reject(resp *http.Response, token string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.rejected, b.refusedToken = rejected, token
+}
+
+type readCloser struct {
+	io.Reader
+	io.Closer
 }
 
 func (b *Bearer) redact(text string) string {
