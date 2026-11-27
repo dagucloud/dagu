@@ -144,7 +144,11 @@ func TestConnections_ExportOnWorker(t *testing.T) {
 			require.NoError(t, err)
 			status := f.waitForStatus(tt.want, executionStatusTimeout())
 			if !tt.export {
-				require.Contains(t, status.Error, `connection "work-google" does not allow token export`)
+				// The run reports its startup failure in the scheduler log it
+				// streams to the coordinator, which escapes the quotes.
+				runLog := getLogContent(t, status.Log)
+				require.Contains(t, runLog, "does not allow token export")
+				require.Contains(t, runLog, "work-google")
 				require.Equal(t, ir.NodeNotStarted, status.Nodes[0].Status)
 				return
 			}
