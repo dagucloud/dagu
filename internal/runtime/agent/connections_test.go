@@ -61,3 +61,24 @@ steps:
 		require.Equal(t, ir.NodeNotStarted, node.Status, "step %q ran", node.Step.Name)
 	}
 }
+
+// Two workspace labels name no workspace, so the run is not checked against
+// the .global connections, which serve only DAGs without the label.
+func TestAgent_ConnectionCheckRejectsInvalidWorkspaceLabel(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, `
+labels:
+  - workspace=ops
+  - workspace=sales
+steps:
+  - name: unread
+    action: mcp.call
+    with: {connection: work-google, server: gmail, tool: search_threads}
+`)
+	checker := &missingConnections{}
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{ConnectionChecker: checker}))
+	dagAgent.RunCheckErr(t, `connection "work-google": the DAG's workspace label`)
+	require.Empty(t, checker.checks)
+}

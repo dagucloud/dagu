@@ -450,9 +450,7 @@ type Options struct {
 	// When nil, SecretStore supplies the local resolver.
 	SecretReferenceResolver providers.ReferenceResolver
 	// ConnectionChecker checks the connections the DAG declares before its
-	// first step. When nil, they are not checked before the run starts: a
-	// worker has no connection store and passes nil until it can ask the
-	// coordinator.
+	// first step. When nil, the run does not check them.
 	ConnectionChecker ConnectionChecker
 	// SecretValues, when non-nil, holds the value of each DAG secrets entry
 	// by name and of each SSH credential secret ref by ref, and no secret
