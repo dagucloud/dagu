@@ -5,12 +5,15 @@ package coordinator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/agentsession"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
@@ -36,13 +39,16 @@ type ProjectStores struct {
 	NodeInventory            inventory.Store
 	TrustedHostKeys          runctx.TrustedHostKeys
 	AgentSessionCleanupQueue *agentsession.CleanupQueue
+	// EventService records the events of the project's runs.
+	EventService *eventstore.Service
 }
 
 // ProjectSource finds the stores of the runs of registered projects other
 // than those of the default project's own DAGs.
 type ProjectSource interface {
 	// Stores returns the stores of the runs that scope addresses. It fails
-	// when no registered project has the scope's ID.
+	// when no registered project has the scope's ID, or its stores are not
+	// open yet.
 	Stores(ctx context.Context, scope dispatch.ProjectScope) (*ProjectStores, error)
 	// Projects returns the scopes of the own DAGs of the registered
 	// projects other than the default one.
@@ -62,7 +68,8 @@ type scopedStores struct {
 // handler reads or writes for the call comes from the returned context, and
 // runs are cached and locked by scope as well as by run ID, since a migrated
 // project shares the default project's run IDs. A scope the coordinator
-// does not serve is an error.
+// does not serve is an error, returned with ctx unchanged. A project whose
+// stores are not open answers Unavailable, which callers retry.
 func (h *Handler) inProject(ctx context.Context, scope dispatch.ProjectScope) (context.Context, error) {
 	scoped := scopedStores{scope: scope, stores: &h.defaults}
 	if scope == (dispatch.ProjectScope{}) && ctx.Value(scopedStoresKey{}) == nil {
@@ -70,15 +77,15 @@ func (h *Handler) inProject(ctx context.Context, scope dispatch.ProjectScope) (c
 	}
 	if scope != (dispatch.ProjectScope{}) {
 		if h.projects == nil {
-			return nil, status.Error(codes.FailedPrecondition, "this coordinator serves only the default project's own DAGs")
+			return ctx, status.Error(codes.FailedPrecondition, "this coordinator serves only the default project's own DAGs")
 		}
 		stores, err := h.projects.Stores(ctx, scope)
 		if err != nil {
-			return nil, status.Error(codes.NotFound, err.Error())
+			return ctx, status.Error(codes.Unavailable, err.Error())
 		}
 		scoped.stores = stores
 	}
-	return context.WithValue(ctx, scopedStoresKey{}, scoped), nil
+	return h.eventContext(context.WithValue(ctx, scopedStoresKey{}, scoped)), nil
 }
 
 // inProjectOf returns ctx addressing the runs of the project a call names,
@@ -122,36 +129,55 @@ func (h *Handler) checkLeaseProject(ctx context.Context, lease *dispatch.DAGRunL
 	return nil
 }
 
-// inLeaseProject returns ctx addressing the project of the attempt whose
-// lease attemptKey names, for calls that name an attempt but no project.
-// Without such a lease, ctx keeps addressing the default project's own DAGs.
-func (h *Handler) inLeaseProject(ctx context.Context, attemptKey string) (context.Context, error) {
-	if h.projects == nil || h.dagRunLeaseStore == nil || attemptKey == "" {
-		return ctx, nil
+// errCallerRequired refuses a call for another project than the default one
+// that names no attempt of the caller.
+var errCallerRequired = status.Error(codes.PermissionDenied, "a call for another project than the default one must name the caller's attempt")
+
+// authorizeCaller refuses a call that ctx scopes unless caller names a
+// fresh attempt that the calling worker holds in that project. A call for
+// the default project's own DAGs that names no attempt passes, as calls of
+// workers that predate projects do.
+func (h *Handler) authorizeCaller(ctx context.Context, caller *coordinatorv1.CallerAttempt) error {
+	if caller == nil {
+		if scopeOf(ctx) != (dispatch.ProjectScope{}) {
+			return errCallerRequired
+		}
+		return nil
 	}
-	lease, err := h.dagRunLeaseStore.Get(ctx, attemptKey)
-	if err != nil || lease == nil {
-		return ctx, nil
+	if caller.GetWorkerId() == "" || caller.GetAttemptKey() == "" || caller.GetAttemptId() == "" {
+		return status.Error(codes.InvalidArgument, "caller worker_id, attempt_key, and attempt_id are required")
 	}
-	return h.inProject(ctx, lease.Project)
+	if h.dagRunLeaseStore == nil {
+		return status.Error(codes.FailedPrecondition, "dag-run lease store is not configured")
+	}
+	lease, err := h.dagRunLeaseStore.Get(ctx, caller.GetAttemptKey())
+	switch {
+	case errors.Is(err, dispatch.ErrDAGRunLeaseNotFound):
+		return status.Error(codes.PermissionDenied, remoteAttemptRejectedLeaseInactive)
+	case err != nil:
+		return status.Error(codes.Internal, "failed to load distributed run lease: "+err.Error())
+	}
+	if lease.WorkerID != caller.GetWorkerId() || lease.AttemptID != caller.GetAttemptId() ||
+		!lease.IsFresh(time.Now().UTC(), h.staleLeaseThreshold) {
+		return status.Error(codes.PermissionDenied, remoteAttemptRejectedLeaseInactive)
+	}
+	return h.checkLeaseProject(ctx, lease)
 }
 
-// eachProject calls fn with ctx addressing the own DAGs of the default
-// project and then of each other registered project. A project whose stores
-// cannot open is skipped.
-func (h *Handler) eachProject(ctx context.Context, fn func(context.Context) bool) {
-	if !fn(ctx) || h.projects == nil {
-		return
+// callerAttemptOf returns the wire form of the attempt run names, or nil for
+// an attempt of the default project's own DAGs, whose calls name none.
+func callerAttemptOf(run SecretReferenceRun) *coordinatorv1.CallerAttempt {
+	if run.Project == (dispatch.ProjectScope{}) {
+		return nil
 	}
-	for _, scope := range h.projects.Projects() {
-		scoped, err := h.inProject(ctx, scope)
-		if err != nil {
-			continue
-		}
-		if !fn(scoped) {
-			return
-		}
-	}
+	return &coordinatorv1.CallerAttempt{WorkerId: run.WorkerID, AttemptKey: run.AttemptKey, AttemptId: run.AttemptID}
+}
+
+// runningTaskContext returns ctx addressing the project of a running task a
+// worker reports. A worker that predates projects names none, and runs only
+// the default project's tasks.
+func (h *Handler) runningTaskContext(ctx context.Context, task *coordinatorv1.RunningTask) (context.Context, error) {
+	return h.inProjectOf(ctx, task.GetProject())
 }
 
 // errStreamProjectChanged refuses a stream whose chunks address more than

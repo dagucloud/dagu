@@ -82,7 +82,7 @@ func (srv *Service) Start(ctx context.Context) (err error) {
 
 	// Create an internal context that can be cancelled by Stop()
 	internalCtx, cancel := context.WithCancel(ctx)
-	internalCtx = eventstore.WithContext(internalCtx, srv.handler.eventService, eventstore.Source{
+	internalCtx = eventstore.WithContext(internalCtx, srv.handler.defaults.EventService, eventstore.Source{
 		Service:  eventstore.SourceServiceCoordinator,
 		Instance: srv.handler.eventSourceInstance,
 	})

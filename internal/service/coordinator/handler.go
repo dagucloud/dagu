@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/agentsession"
@@ -198,7 +199,10 @@ type Handler struct {
 	zombieDetectorStarted bool
 	zombieDetectorDone    chan struct{}
 
-	eventService        *eventstore.Service
+	// cleanupCursor picks the project whose agent session cleanups a claim
+	// checks besides the default project's.
+	cleanupCursor atomic.Uint64
+
 	eventSourceInstance string
 }
 
@@ -342,7 +346,6 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
 		workerWaitTimeout:         cfg.WorkerWaitTimeout,
-		eventService:              cfg.EventService,
 		eventSourceInstance:       cfg.EventSourceInstance,
 		defaults: ProjectStores{
 			DAGRunRepository:         cfg.DAGRunRepository,
@@ -355,12 +358,15 @@ func NewHandler(cfg HandlerConfig) *Handler {
 			NodeInventory:            cfg.NodeInventory,
 			TrustedHostKeys:          cfg.TrustedHostKeys,
 			AgentSessionCleanupQueue: cfg.AgentSessionCleanupQueue,
+			EventService:             cfg.EventService,
 		},
 	}
 }
 
+// eventContext returns ctx recording run events in the event store of the
+// project ctx addresses.
 func (h *Handler) eventContext(ctx context.Context) context.Context {
-	return eventstore.WithContext(ctx, h.eventService, eventstore.Source{
+	return eventstore.WithContext(ctx, h.stores(ctx).EventService, eventstore.Source{
 		Service:  eventstore.SourceServiceCoordinator,
 		Instance: h.eventSourceInstance,
 	})
@@ -1759,16 +1765,30 @@ func (h *Handler) ClaimAgentSessionCleanup(
 	if req.WorkerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "worker_id is required")
 	}
-	// Each project queues the cleanups of its own removed runs.
-	var (
-		resp *coordinatorv1.ClaimAgentSessionCleanupResponse
-		err  error
-	)
-	h.eachProject(ctx, func(ctx context.Context) bool {
-		resp, err = h.claimAgentSessionCleanup(ctx, req.WorkerId)
-		return err == nil && !resp.GetFound()
-	})
-	return resp, err
+	resp, err := h.claimAgentSessionCleanup(ctx, req.WorkerId)
+	if h.projects == nil || (err == nil && resp.GetFound()) {
+		return resp, err
+	}
+	if err != nil {
+		logger.Warn(ctx, "Failed to claim an agent session cleanup of the default project", tag.Error(err))
+	}
+	// Each project queues the cleanups of its own removed runs. A call
+	// checks the default project and one other, in turn, so an idle claim
+	// reads at most two queues.
+	scopes := h.projects.Projects()
+	if len(scopes) == 0 {
+		return &coordinatorv1.ClaimAgentSessionCleanupResponse{}, nil
+	}
+	scope := scopes[h.cleanupCursor.Add(1)%uint64(len(scopes))]
+	scoped, err := h.inProject(ctx, scope)
+	if err == nil {
+		if resp, err = h.claimAgentSessionCleanup(scoped, req.WorkerId); err == nil {
+			return resp, nil
+		}
+	}
+	logger.Warn(ctx, "Skipping the agent session cleanups of a project",
+		slog.String("project", scope.ID), tag.Error(err))
+	return &coordinatorv1.ClaimAgentSessionCleanupResponse{}, nil
 }
 
 // claimAgentSessionCleanup reserves a cleanup that the project ctx
@@ -1859,15 +1879,22 @@ func (h *Handler) RunHeartbeat(ctx context.Context, req *coordinatorv1.RunHeartb
 			cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
 			continue
 		}
-		taskCtx, err := h.inLeaseProject(ctx, task.AttemptKey)
+		taskCtx, err := h.runningTaskContext(ctx, task)
 		if err != nil {
 			logger.Warn(ctx, "Skipping run heartbeat for a project this coordinator cannot open",
 				tag.AttemptKey(task.AttemptKey), tag.Error(err))
 			continue
 		}
 		if err := h.validateAttempt(taskCtx, identity); err != nil {
-			if status.Code(err) == codes.FailedPrecondition {
+			code := status.Code(err)
+			if code == codes.FailedPrecondition {
 				cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
+				continue
+			}
+			if code == codes.PermissionDenied {
+				// The task names another project than its lease does.
+				logger.Warn(ctx, "Skipping run heartbeat for an attempt of another project",
+					tag.AttemptKey(task.AttemptKey), tag.Error(err))
 				continue
 			}
 			return nil, err
@@ -2234,7 +2261,7 @@ func (h *Handler) isTaskCancelled(ctx context.Context, task *coordinatorv1.Runni
 	if task == nil {
 		return false
 	}
-	ctx, err := h.inLeaseProject(ctx, task.AttemptKey)
+	ctx, err := h.runningTaskContext(ctx, task)
 	if err != nil {
 		logger.Warn(ctx, "Failed to open the project of a running task while checking cancellation",
 			tag.AttemptKey(task.AttemptKey), tag.Error(err))
@@ -3128,6 +3155,9 @@ func (h *Handler) GetDAGRunStatus(ctx context.Context, req *coordinatorv1.GetDAG
 func (h *Handler) GetDAG(ctx context.Context, req *coordinatorv1.GetDAGRequest) (*coordinatorv1.GetDAGResponse, error) {
 	ctx, err := h.inProjectOf(ctx, req.GetProject())
 	if err != nil {
+		return nil, err
+	}
+	if err := h.authorizeCaller(ctx, req.GetCaller()); err != nil {
 		return nil, err
 	}
 	if h.stores(ctx).DAGRepository == nil {

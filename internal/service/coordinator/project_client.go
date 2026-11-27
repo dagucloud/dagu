@@ -24,7 +24,7 @@ var errClientWithoutProjects = errors.New("the coordinator client cannot address
 type projectCaller interface {
 	getDAGRunStatus(ctx context.Context, scope dispatch.ProjectScope, dagName, dagRunID string, rootRef *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error)
 	requestCancel(ctx context.Context, scope dispatch.ProjectScope, dagName, dagRunID string, rootRef *ir.DAGRunRef) error
-	getDAG(ctx context.Context, scope dispatch.ProjectScope, name string) (string, error)
+	getDAG(ctx context.Context, scope dispatch.ProjectScope, caller *coordinatorv1.CallerAttempt, name string) (string, error)
 }
 
 var _ projectCaller = (*clientImpl)(nil)
@@ -40,11 +40,29 @@ func InProject(c Client, scope dispatch.ProjectScope) Client {
 	return &projectClient{Client: c, scope: scope, project: convert.ProjectScopeToProto(scope)}
 }
 
+// InAttempt returns a client whose calls for runs address the project of the
+// attempt run names, as InProject does, and name that attempt where the
+// coordinator ties a call to its caller. It returns c itself for an attempt
+// of the default project's own DAGs.
+func InAttempt(c Client, run SecretReferenceRun) Client {
+	if c == nil || run.Project == (dispatch.ProjectScope{}) {
+		return c
+	}
+	return &projectClient{
+		Client:  c,
+		scope:   run.Project,
+		project: convert.ProjectScopeToProto(run.Project),
+		caller:  callerAttemptOf(run),
+	}
+}
+
 // projectClient is a Client that addresses one project's runs.
 type projectClient struct {
 	Client
 	scope   dispatch.ProjectScope
 	project *coordinatorv1.ProjectScope
+	// caller is the attempt the client's calls act for, or nil.
+	caller *coordinatorv1.CallerAttempt
 }
 
 func (c *projectClient) Dispatch(ctx context.Context, req dispatch.DispatchRequest) error {
@@ -77,7 +95,7 @@ func (c *projectClient) GetDAG(ctx context.Context, name string) (string, error)
 	if !ok {
 		return "", errClientWithoutProjects
 	}
-	return caller.getDAG(ctx, c.scope, name)
+	return caller.getDAG(ctx, c.scope, c.caller, name)
 }
 
 func (c *projectClient) ReportStatus(ctx context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {

@@ -1476,11 +1476,12 @@ func (cli *clientImpl) getDAGRunStatus(ctx context.Context, scope dispatch.Proje
 
 // GetDAG retrieves a DAG definition (raw YAML spec) from the coordinator's DAG store.
 func (cli *clientImpl) GetDAG(ctx context.Context, name string) (string, error) {
-	return cli.getDAG(ctx, dispatch.ProjectScope{}, name)
+	return cli.getDAG(ctx, dispatch.ProjectScope{}, nil, name)
 }
 
-// getDAG retrieves a DAG definition of the project scope addresses.
-func (cli *clientImpl) getDAG(ctx context.Context, scope dispatch.ProjectScope, name string) (string, error) {
+// getDAG retrieves a DAG definition of the project scope addresses, for the
+// attempt caller names.
+func (cli *clientImpl) getDAG(ctx context.Context, scope dispatch.ProjectScope, caller *coordinatorv1.CallerAttempt, name string) (string, error) {
 	members, err := cli.getCoordinatorMembers(ctx)
 	if err != nil {
 		return "", err
@@ -1489,6 +1490,7 @@ func (cli *clientImpl) getDAG(ctx context.Context, scope dispatch.ProjectScope, 
 	req := &coordinatorv1.GetDAGRequest{
 		Name:    name,
 		Project: convert.ProjectScopeToProto(scope),
+		Caller:  caller,
 	}
 
 	var resp *coordinatorv1.GetDAGResponse

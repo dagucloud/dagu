@@ -21,6 +21,9 @@ func (h *Handler) GetState(ctx context.Context, req *coordinatorv1.GetStateReque
 	if err != nil {
 		return nil, err
 	}
+	if err := h.authorizeCaller(ctx, req.GetCaller()); err != nil {
+		return nil, err
+	}
 	if h.stores(ctx).StateStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "state store is not configured")
 	}
@@ -42,6 +45,9 @@ func (h *Handler) GetState(ctx context.Context, req *coordinatorv1.GetStateReque
 func (h *Handler) PutState(ctx context.Context, req *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error) {
 	ctx, err := h.inProjectOf(ctx, req.GetProject())
 	if err != nil {
+		return nil, err
+	}
+	if err := h.authorizeCaller(ctx, req.GetCaller()); err != nil {
 		return nil, err
 	}
 	if h.stores(ctx).StateStore == nil {
@@ -73,6 +79,9 @@ func (h *Handler) DeleteState(ctx context.Context, req *coordinatorv1.DeleteStat
 	if err != nil {
 		return nil, err
 	}
+	if err := h.authorizeCaller(ctx, req.GetCaller()); err != nil {
+		return nil, err
+	}
 	if h.stores(ctx).StateStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "state store is not configured")
 	}
@@ -91,6 +100,9 @@ func (h *Handler) DeleteState(ctx context.Context, req *coordinatorv1.DeleteStat
 func (h *Handler) ListState(ctx context.Context, req *coordinatorv1.ListStateRequest) (*coordinatorv1.ListStateResponse, error) {
 	ctx, err := h.inProjectOf(ctx, req.GetProject())
 	if err != nil {
+		return nil, err
+	}
+	if err := h.authorizeCaller(ctx, req.GetCaller()); err != nil {
 		return nil, err
 	}
 	if h.stores(ctx).StateStore == nil {

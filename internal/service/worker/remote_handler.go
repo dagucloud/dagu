@@ -85,7 +85,7 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 	stateClient, _ := cfg.CoordinatorClient.(coordinator.StateClient)
 	stateStore := cfg.StateStore
 	if stateStore == nil {
-		stateStore = coordinator.NewStateStoreClient(stateClient, dispatch.ProjectScope{})
+		stateStore = coordinator.NewStateStoreClient(stateClient, coordinator.SecretReferenceRun{})
 	}
 	return &remoteTaskHandler{
 		workerID:          cfg.WorkerID,
@@ -108,8 +108,11 @@ type remoteTaskHandler struct {
 	workerID          string
 	coordinatorClient coordinator.Client
 	stateClient       coordinator.StateClient
-	// project is the project whose task the handler runs.
+	// project is the project whose task the handler runs, and attempt the
+	// task's attempt while that is another than the default project's own
+	// DAGs.
 	project         dispatch.ProjectScope
+	attempt         coordinator.SecretReferenceRun
 	dagRepository   *persis.DAGRepository
 	dagRunMgr       runtime.Manager
 	stateStore      dagrun.StateStore
@@ -121,7 +124,7 @@ type remoteTaskHandler struct {
 
 // Handle executes a task in-process with remote status/log streaming
 func (h *remoteTaskHandler) Handle(ctx context.Context, task *coordinatorv1.Task) error {
-	h = h.inProject(convert.ProtoToProjectScope(task.GetProject()))
+	h = h.inProject(task)
 	logger.Info(ctx, "Executing remote task",
 		slog.String("operation", task.Operation.String()),
 		tag.Target(task.Target),
@@ -144,18 +147,22 @@ func (h *remoteTaskHandler) Handle(ctx context.Context, task *coordinatorv1.Task
 	}
 }
 
-// inProject returns h, or a copy of h for a task of the project scope
-// addresses when that is another than the default project's own DAGs. Each
-// call of the copy's runs addresses that project. The worker's own DAG
+// inProject returns h, or a copy of h for task when it is a task of another
+// project than the default project's own DAGs. Each call of the copy's runs
+// addresses that project and names the task's attempt. The worker's own DAG
 // directories, base config, secrets, and profiles serve the default
 // project's tasks alone.
-func (h *remoteTaskHandler) inProject(scope dispatch.ProjectScope) *remoteTaskHandler {
+func (h *remoteTaskHandler) inProject(task *coordinatorv1.Task) *remoteTaskHandler {
+	scope := convert.ProtoToProjectScope(task.GetProject())
 	if scope == (dispatch.ProjectScope{}) {
 		return h
 	}
 	scoped := *h
 	scoped.project = scope
-	scoped.stateStore = coordinator.NewStateStoreClient(h.stateClient, scope)
+	scoped.attempt = coordinator.SecretReferenceRun{
+		WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: task.AttemptId, Project: scope,
+	}
+	scoped.stateStore = coordinator.NewStateStoreClient(h.stateClient, scoped.attempt)
 	if !scoped.ownsLocalFiles() {
 		scoped.dagRepository = nil
 		scoped.runtimeStores = runtimeStores{}
@@ -166,7 +173,24 @@ func (h *remoteTaskHandler) inProject(scope dispatch.ProjectScope) *remoteTaskHa
 // runClient returns the client for the calls of the task's run that address
 // its project: it dispatches, reports, and reads runs and DAGs there.
 func (h *remoteTaskHandler) runClient() coordinator.Client {
-	return coordinator.InProject(h.coordinatorClient, h.project)
+	return coordinator.InAttempt(h.coordinatorClient, h.attempt)
+}
+
+// projectDir returns the directory below root that keeps the files of the
+// task's runs. A migrated project shares the default project's run IDs, so
+// another project's runs get a directory of their own, whose name holds an
+// @, which no run ID or DAG name does.
+func (h *remoteTaskHandler) projectDir(root string) string {
+	if root == "" {
+		return root
+	}
+	if h.project.ID != "" {
+		root = filepath.Join(root, "@project-"+h.project.ID)
+	}
+	if h.project.Library {
+		root = filepath.Join(root, "@library")
+	}
+	return root
 }
 
 // ownsLocalFiles reports whether the worker's own DAG directories, base
@@ -697,17 +721,7 @@ func stagingPrefix(dagRunID string) string {
 // The cleanup function must be called after execution completes.
 // Includes workerID in path to prevent collisions with concurrent workers on the same host.
 func (h *remoteTaskHandler) createAgentEnv(ctx context.Context, dag *ir.DAG, dagRunID string) (*agentEnv, error) {
-	// A migrated project shares the default project's run IDs, so another
-	// project's runs get their own directory. Its name holds a dot, which no
-	// run ID does.
-	logRoot := filepath.Join(os.TempDir(), "dagu", "worker-logs", h.workerID)
-	if h.project.ID != "" {
-		logRoot = filepath.Join(logRoot, ".project-"+h.project.ID)
-	}
-	if h.project.Library {
-		logRoot = filepath.Join(logRoot, ".library")
-	}
-	logDir := filepath.Join(logRoot, dagRunID)
+	logDir := filepath.Join(h.projectDir(filepath.Join(os.TempDir(), "dagu", "worker-logs", h.workerID)), dagRunID)
 	if err := os.MkdirAll(logDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
@@ -892,8 +906,8 @@ func (h *remoteTaskHandler) executeDAGRun(
 		ArtifactFinalizer:  artifactUploader,
 		RemoteDAGLoader:    remoteDAGLoader,
 		WorkerID:           h.workerID,
-		DAGRunLogDir:       h.config.Paths.LogDir,
-		DAGRunArtifactDir:  h.config.Paths.ArtifactDir,
+		DAGRunLogDir:       h.projectDir(h.config.Paths.LogDir),
+		DAGRunArtifactDir:  h.projectDir(h.config.Paths.ArtifactDir),
 	})
 
 	// Build agent options

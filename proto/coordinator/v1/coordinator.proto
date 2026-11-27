@@ -207,6 +207,15 @@ message ProjectScope {
   bool library = 2;      // The runs of the library DAGs that run in the project
 }
 
+// CallerAttempt names the distributed attempt a worker's call acts for. A
+// call for another project than the default one must name it, and the
+// worker must hold the attempt's lease in that project.
+message CallerAttempt {
+  string worker_id = 1;
+  string attempt_key = 2;
+  string attempt_id = 3;
+}
+
 enum Operation {
   OPERATION_UNSPECIFIED = 0;
   OPERATION_START = 1;    // Start a new DAG run
@@ -366,6 +375,7 @@ message RunningTask {
   string parent_dag_run_name = 6;
   string parent_dag_run_id = 7;
   string attempt_key = 8;       // Globally unique attempt identifier
+  ProjectScope project = 9;     // Unset for the default project's own DAGs
 }
 
 // Request message for reporting DAG run status.
@@ -558,6 +568,7 @@ message StateEntry {
 message GetStateRequest {
   StateRef ref = 1;
   ProjectScope project = 2;
+  CallerAttempt caller = 3;
 }
 
 message GetStateResponse {
@@ -573,6 +584,7 @@ message PutStateRequest {
   bool create_only = 5;
   StateUpdateSource updated_by = 6;
   ProjectScope project = 7;
+  CallerAttempt caller = 8;
 }
 
 message PutStateResponse {
@@ -582,6 +594,7 @@ message PutStateResponse {
 message DeleteStateRequest {
   StateRef ref = 1;
   ProjectScope project = 2;
+  CallerAttempt caller = 3;
 }
 
 message DeleteStateResponse {
@@ -594,6 +607,7 @@ message ListStateRequest {
   string key_prefix = 3;
   int32 limit = 4;
   ProjectScope project = 5;
+  CallerAttempt caller = 6;
 }
 
 message ListStateResponse {
@@ -607,6 +621,7 @@ message ListStateResponse {
 message GetDAGRequest {
   string name = 1;  // DAG name to look up
   ProjectScope project = 2;
+  CallerAttempt caller = 3;
 }
 
 message GetDAGResponse {

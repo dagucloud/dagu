@@ -625,6 +625,7 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 		ParentDagRunName: task.ParentDagRunName,
 		ParentDagRunId:   task.ParentDagRunId,
 		AttemptKey:       attemptKey,
+		Project:          task.GetProject(),
 	}
 
 	if task.AttemptKey != "" && owner.Host != "" {

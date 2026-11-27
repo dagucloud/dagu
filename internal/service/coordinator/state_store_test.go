@@ -7,14 +7,17 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
+	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -26,7 +29,7 @@ func TestStateStoreClientUsesCoordinatorRPC(t *testing.T) {
 	handler := NewHandler(HandlerConfig{
 		StateStore: store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state")),
 	})
-	stateStore := NewStateStoreClient(fakeStateClient{handler: handler}, dispatch.ProjectScope{})
+	stateStore := NewStateStoreClient(fakeStateClient{handler: handler}, SecretReferenceRun{})
 	ctx := context.Background()
 	ref := dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "cursor"}
 
@@ -58,7 +61,7 @@ func TestStateStoreClientValidatesBeforeRPC(t *testing.T) {
 		handler: NewHandler(HandlerConfig{
 			StateStore: store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state")),
 		}),
-	}, dispatch.ProjectScope{})
+	}, SecretReferenceRun{})
 	ctx := context.Background()
 
 	_, err := stateStore.Get(ctx, dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "../bad"})
@@ -78,7 +81,7 @@ func TestStateStoreClientNormalizesValueBeforeRPC(t *testing.T) {
 	t.Parallel()
 
 	client := &capturingStateClient{}
-	stateStore := NewStateStoreClient(client, dispatch.ProjectScope{})
+	stateStore := NewStateStoreClient(client, SecretReferenceRun{})
 	ref := dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "cursor"}
 
 	entry, err := stateStore.Put(context.Background(), ref, json.RawMessage(`{ "b": 2, "a": 1 }`), dagrun.StatePutOptions{})
@@ -96,20 +99,38 @@ func TestStateClientErrorPreservesInvalidArgumentSubtype(t *testing.T) {
 }
 
 // The same state reference holds a value of its own in each project: a
-// client for a project reads, lists, and writes that project's state alone.
+// client for an attempt of a project reads, lists, and writes that project's
+// state alone. A call for another project must name an attempt the worker
+// holds there.
 func TestStateStoreClientKeepsProjectsApart(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	weather := dispatch.ProjectScope{ID: "weather-id"}
+	leases := newTestDAGRunLeaseStore(t.TempDir())
+	run := SecretReferenceRun{WorkerID: "worker-1", AttemptKey: "key-1", AttemptID: "attempt-1", Project: weather}
+	require.NoError(t, leases.Upsert(ctx, dispatch.DAGRunLease{
+		AttemptKey: run.AttemptKey, AttemptID: run.AttemptID, WorkerID: run.WorkerID,
+		DAGRun: ir.NewDAGRunRef("forecast", "run-1"), Project: weather, LastHeartbeatAt: time.Now().UnixMilli(),
+	}))
 	handler := NewHandler(HandlerConfig{
-		StateStore: store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state")),
+		StateStore:       store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state")),
+		DAGRunLeaseStore: leases,
 		Projects: stubProjects{scope: weather, stores: &ProjectStores{
 			StateStore: store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state")),
 		}},
 	})
-	defaults := NewStateStoreClient(fakeStateClient{handler: handler}, dispatch.ProjectScope{})
-	inWeather := NewStateStoreClient(fakeStateClient{handler: handler}, weather)
-	ctx := context.Background()
+	defaults := NewStateStoreClient(fakeStateClient{handler: handler}, SecretReferenceRun{})
+	inWeather := NewStateStoreClient(fakeStateClient{handler: handler}, run)
+	// A call for weather that names no attempt, or one of another worker,
+	// is refused.
+	for _, caller := range []*coordinatorv1.CallerAttempt{nil, {WorkerId: "worker-2", AttemptKey: run.AttemptKey, AttemptId: run.AttemptID}} {
+		_, err := handler.GetState(ctx, &coordinatorv1.GetStateRequest{
+			Ref:     &coordinatorv1.StateRef{Scope: string(dagrun.StateScopeDAG), Namespace: "forecast", Key: "cursor"},
+			Project: convert.ProjectScopeToProto(weather), Caller: caller,
+		})
+		require.Equal(t, codes.PermissionDenied, status.Code(err), err)
+	}
 	ref := dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "forecast", Key: "cursor"}
 
 	_, err := defaults.Put(ctx, ref, json.RawMessage(`"default"`), dagrun.StatePutOptions{})

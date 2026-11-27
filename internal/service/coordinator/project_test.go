@@ -123,6 +123,67 @@ func TestHandlerKeepsProjectRunsApart(t *testing.T) {
 	assert.Equal(t, ir.Running, readStatus(defaults))
 }
 
+// A lease or a running task of a project whose stores the coordinator does
+// not hold, such as one dropped from the registry, is skipped: the zombie
+// passes and heartbeats go on with the other runs.
+func TestHandlerSkipsRunsOfUnservedProjects(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	gone := dispatch.ProjectScope{ID: "gone"}
+	leases := newTestDAGRunLeaseStore(t.TempDir())
+	require.NoError(t, leases.Upsert(ctx, dispatch.DAGRunLease{
+		AttemptKey: "key-1", AttemptID: "attempt-1", WorkerID: "worker-1",
+		DAGRun: ir.NewDAGRunRef("forecast", "run-1"), Project: gone,
+	}))
+	h := NewHandler(HandlerConfig{
+		DAGRunRepository: newMockDAGRunStore().repository,
+		DAGRunLeaseStore: leases,
+		Projects:         stubProjects{scope: dispatch.ProjectScope{ID: "weather-id"}},
+	})
+
+	h.detectStaleLeases(ctx)
+	resp, err := h.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{
+		WorkerId: "worker-1",
+		Stats: &coordinatorv1.WorkerStats{RunningTasks: []*coordinatorv1.RunningTask{{
+			DagName: "forecast", DagRunId: "run-1", AttemptKey: "key-1",
+			Project: convert.ProjectScopeToProto(gone),
+		}}},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, resp.CancelledRuns)
+	_, err = leases.Get(ctx, "key-1")
+	require.NoError(t, err, "the lease of an unserved project is kept")
+}
+
+// A heartbeat finds a running task's run in the project the worker names
+// for it, so a lease that cannot be read cancels no healthy run of another
+// project.
+func TestHeartbeatKeepsRunWithUnreadableLease(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	weather := dispatch.ProjectScope{ID: "weather-id"}
+	weatherRuns := newMockDAGRunStore()
+	weatherRuns.addAttempt(ir.NewDAGRunRef("forecast", "run-1"), &ir.DAGRunStatus{
+		Name: "forecast", DAGRunID: "run-1", AttemptID: "attempt-1", AttemptKey: "key-1",
+		WorkerID: "worker-1", Status: ir.Running,
+	})
+	h := NewHandler(HandlerConfig{
+		DAGRunRepository: newMockDAGRunStore().repository,
+		DAGRunLeaseStore: corruptLeaseStore{DAGRunLeaseStore: newTestDAGRunLeaseStore(t.TempDir()), attemptKey: "key-1"},
+		Projects:         stubProjects{scope: weather, stores: &ProjectStores{DAGRunRepository: weatherRuns.repository}},
+	})
+
+	resp, err := h.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{
+		WorkerId: "worker-1",
+		Stats: &coordinatorv1.WorkerStats{RunningTasks: []*coordinatorv1.RunningTask{{
+			DagName: "forecast", DagRunId: "run-1", AttemptKey: "key-1",
+			Project: convert.ProjectScopeToProto(weather),
+		}}},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, resp.CancelledRuns)
+}
+
 // A call that names a project the coordinator does not serve is refused.
 func TestHandlerRefusesUnservedProject(t *testing.T) {
 	t.Parallel()
@@ -134,5 +195,5 @@ func TestHandlerRefusesUnservedProject(t *testing.T) {
 
 	h := NewHandler(HandlerConfig{Projects: stubProjects{scope: dispatch.ProjectScope{ID: "weather-id"}}})
 	_, err = h.GetDAGRunStatus(ctx, &coordinatorv1.GetDAGRunStatusRequest{DagName: "forecast", DagRunId: "run-1", Project: unknown})
-	assert.Equal(t, codes.NotFound, status.Code(err), err)
+	assert.Equal(t, codes.Unavailable, status.Code(err), err)
 }
