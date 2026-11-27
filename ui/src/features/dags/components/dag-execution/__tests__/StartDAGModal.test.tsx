@@ -135,8 +135,8 @@ describe('StartDAGModal', () => {
       expect(useQueryMock).not.toHaveBeenCalled();
     });
 
-    // A disabled node fails a bound run, and a run binds only to an SSH
-    // node, so neither a disabled node nor a worker node is offered.
+    // A disabled node fails a bound run, so it is not offered. A worker node
+    // is, since the run then runs on that worker.
     it('starts on the chosen enabled node', async () => {
       const user = userEvent.setup();
       const onSubmit = renderModal({ name: 'deploy-one', nodeRequired: true });
@@ -144,7 +144,7 @@ describe('StartDAGModal', () => {
       await user.click(screen.getByRole('combobox', { name: 'Node' }));
       expect(
         screen.getAllByRole('option').map((option) => option.textContent)
-      ).toEqual(['web01', 'web03']);
+      ).toEqual(['gw01', 'web01', 'web03']);
       await user.click(screen.getByRole('option', { name: 'web03' }));
       await user.click(screen.getByRole('button', { name: 'Enqueue' }));
 
