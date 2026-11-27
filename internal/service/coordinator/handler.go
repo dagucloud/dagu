@@ -1273,13 +1273,14 @@ var errRollbackMoved = errors.New("attempt is no longer rolled back")
 
 // resetRolledBackAttempt returns a rolled-back attempt to NotStarted, so its
 // dispatch can be admitted again. It reports false, changing nothing, when
-// the attempt is no longer the run's latest or no longer rolled back.
+// the attempt is no longer rolled back, and fails as superseded when it is
+// no longer the run's latest.
 func (h *Handler) resetRolledBackAttempt(ctx context.Context, task *coordinatorv1.Task, attempt dagrun.Attempt, dagName string) (bool, error) {
 	var root ir.DAGRunRef
 	if task.ParentDagRunId != "" {
 		root = ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
 	}
-	_, swapped, err := h.dagRunRepository.CompareAndSwapLatestAttemptStatus(
+	latest, swapped, err := h.dagRunRepository.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		ir.DAGRunRef{Name: dagName, ID: task.DagRunId},
 		attempt.ID(),
@@ -1300,6 +1301,9 @@ func (h *Handler) resetRolledBackAttempt(ctx context.Context, task *coordinatorv
 	}
 	if err != nil {
 		return false, fmt.Errorf("failed to reset attempt %s: %w", attempt.ID(), err)
+	}
+	if !swapped && latest != nil && latest.AttemptID != attempt.ID() {
+		return false, fmt.Errorf("%w: attempt %s", errDispatchSuperseded, task.AttemptId)
 	}
 	return swapped, nil
 }
