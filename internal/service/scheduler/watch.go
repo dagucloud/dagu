@@ -50,9 +50,9 @@ func WatchRuntimeParams(path string) string {
 // it is derived: when the ledger that remembers the file is lost, as it is
 // when the process stops between queuing the run and saving the ledger,
 // the file is queued again under the same ID and the queue, which already
-// holds it, leaves it alone.
-func WatchRunID(dagName, path string, mark schedulerstate.FileMark) string {
-	sum := sha256.Sum256([]byte(dagName + "\x00" + path + "\x00" + strconv.FormatInt(mark.Size, 10) + "\x00" + strconv.FormatInt(mark.ModTime.UnixNano(), 10)))
+// holds it, leaves it alone. seed is the seed of GenerateSlotRunID.
+func WatchRunID(seed, dagName, path string, mark schedulerstate.FileMark) string {
+	sum := sha256.Sum256([]byte(seed + "\x00" + dagName + "\x00" + path + "\x00" + strconv.FormatInt(mark.Size, 10) + "\x00" + strconv.FormatInt(mark.ModTime.UnixNano(), 10)))
 	return "file-" + hex.EncodeToString(sum[:16])
 }
 
@@ -63,6 +63,8 @@ type folderWatcherConfig struct {
 	// Store keeps the ledgers across restarts; nil keeps them in memory.
 	Store schedulerstate.WatchStore
 	Clock Clock
+	// RunIDSeed is the seed of each file's run ID; see WatchRunID.
+	RunIDSeed string
 }
 
 // folderWatcher reads the folders DAGs watch and starts their runs.
@@ -230,7 +232,7 @@ func (w *folderWatcher) start(ctx context.Context, entry DAGEntry, path string, 
 	if suspended {
 		return false
 	}
-	runID := WatchRunID(dag.Name, path, mark)
+	runID := WatchRunID(w.cfg.RunIDSeed, dag.Name, path, mark)
 	if err := w.cfg.Enqueue(ctx, entry, runID, WatchRuntimeParams(path)); err != nil {
 		logger.Error(ctx, "Failed to start the run for a file", tag.DAG(dag.Name), slog.String("file", path), tag.Error(err))
 		return false

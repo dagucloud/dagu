@@ -229,7 +229,18 @@ func TestWatchNamesARunAfterTheFileVersion(t *testing.T) {
 	f.read()
 	require.Len(t, f.runIDs, 3)
 	assert.NotEqual(t, f.runIDs[0], f.runIDs[2], "another version of the file is another run")
-	assert.Equal(t, WatchRunID("inbox", path, schedulerstate.FileMark{Size: 7, ModTime: f.now.Add(40 * time.Second)}), f.runIDs[2])
+	assert.Equal(t, WatchRunID("", "inbox", path, schedulerstate.FileMark{Size: 7, ModTime: f.now.Add(40 * time.Second)}), f.runIDs[2])
+}
+
+// Two installations whose DAGs of the same name watch the same file give its
+// run different IDs, so installations never share a run ID (Spec 085).
+func TestWatchRunIDOfInstallation(t *testing.T) {
+	t.Parallel()
+
+	mark := schedulerstate.FileMark{Size: 7, ModTime: time.Date(2026, 10, 26, 9, 0, 0, 0, time.UTC)}
+	path := filepath.Join(t.TempDir(), "a.txt")
+	assert.Equal(t, WatchRunID("/data", "inbox", path, mark), WatchRunID("/data", "inbox", path, mark))
+	assert.NotEqual(t, WatchRunID("/data", "inbox", path, mark), WatchRunID("/other-data", "inbox", path, mark))
 }
 
 // A DAG the entries leave out for a while, as one being edited is, keeps

@@ -112,34 +112,40 @@ func TestGenerateOneOffRunID(t *testing.T) {
 	fingerprint := "at:2026-03-29T02:10:00+01:00"
 
 	t.Run("normal name", func(t *testing.T) {
-		id := GenerateOneOffRunID("etl-pipeline", fingerprint, ts)
+		id := GenerateOneOffRunID("/data", "etl-pipeline", fingerprint, ts)
 		assert.Regexp(t, scheduledRunIDPattern(oneOffPrefix, "20260329T011000"), id)
 		require.NoError(t, ir.ValidateDAGRunID(id))
 	})
 
 	t.Run("deterministic", func(t *testing.T) {
-		id1 := GenerateOneOffRunID("my-dag", fingerprint, ts)
-		id2 := GenerateOneOffRunID("my-dag", fingerprint, ts)
+		id1 := GenerateOneOffRunID("/data", "my-dag", fingerprint, ts)
+		id2 := GenerateOneOffRunID("/data", "my-dag", fingerprint, ts)
 		assert.Equal(t, id1, id2)
 	})
 
 	t.Run("fingerprint changes ID", func(t *testing.T) {
-		id1 := GenerateOneOffRunID("my-dag", fingerprint, ts)
-		id2 := GenerateOneOffRunID("my-dag", "at:2026-03-29T02:11:00+01:00", ts)
+		id1 := GenerateOneOffRunID("/data", "my-dag", fingerprint, ts)
+		id2 := GenerateOneOffRunID("/data", "my-dag", "at:2026-03-29T02:11:00+01:00", ts)
 		assert.NotEqual(t, id1, id2)
 	})
 
 	t.Run("dag name changes ID", func(t *testing.T) {
-		id1 := GenerateOneOffRunID("my-dag", fingerprint, ts)
-		id2 := GenerateOneOffRunID("other-dag", fingerprint, ts)
+		id1 := GenerateOneOffRunID("/data", "my-dag", fingerprint, ts)
+		id2 := GenerateOneOffRunID("/data", "other-dag", fingerprint, ts)
 		assert.NotEqual(t, id1, id2)
+	})
+
+	t.Run("seed changes ID", func(t *testing.T) {
+		id1 := GenerateOneOffRunID("/data", "my-dag", fingerprint, ts)
+		id2 := GenerateOneOffRunID("/other-data", "my-dag", fingerprint, ts)
+		assert.NotEqual(t, id1, id2, "installations never share a run ID")
 	})
 
 	t.Run("UTC normalization", func(t *testing.T) {
 		loc, _ := time.LoadLocation("America/New_York")
 		tsLocal := ts.In(loc)
-		id1 := GenerateOneOffRunID("my-dag", fingerprint, ts)
-		id2 := GenerateOneOffRunID("my-dag", fingerprint, tsLocal)
+		id1 := GenerateOneOffRunID("/data", "my-dag", fingerprint, ts)
+		id2 := GenerateOneOffRunID("/data", "my-dag", fingerprint, tsLocal)
 		assert.Equal(t, id1, id2)
 	})
 }

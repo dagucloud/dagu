@@ -1328,7 +1328,7 @@ func (tp *TickPlanner) createPlannedRun(entry DAGEntry, schedule ir.Schedule, sc
 	dag := entry.DAG
 	runID := GenerateSlotRunID(tp.cfg.SlotSeed, dag.Name, scheduledTime)
 	if triggerType != ir.TriggerTypeCatchUp && schedule.IsOneOff() {
-		runID = GenerateOneOffRunID(dag.Name, schedule.Fingerprint(), scheduledTime)
+		runID = GenerateOneOffRunID(tp.cfg.SlotSeed, dag.Name, schedule.Fingerprint(), scheduledTime)
 	}
 
 	return PlannedRun{
@@ -2154,15 +2154,19 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 			return
 		}
 		if !exists {
-			legacyRunID := generateLegacyOneOffRunID(run.DAG.Name, run.Fingerprint, run.ScheduledTime)
-			exists, err = tp.cfg.RunExists(ctx, run.DAG, legacyRunID)
-			if err != nil {
-				logger.Error(ctx, "Failed to check for existing one-off dag-run",
-					tag.DAG(run.DAG.Name),
-					tag.RunID(legacyRunID),
-					tag.Error(err),
-				)
-				return
+			for _, earlierRunID := range earlierOneOffRunIDs(run.DAG.Name, run.Fingerprint, run.ScheduledTime) {
+				exists, err = tp.cfg.RunExists(ctx, run.DAG, earlierRunID)
+				if err != nil {
+					logger.Error(ctx, "Failed to check for existing one-off dag-run",
+						tag.DAG(run.DAG.Name),
+						tag.RunID(earlierRunID),
+						tag.Error(err),
+					)
+					return
+				}
+				if exists {
+					break
+				}
 			}
 		}
 		if exists {
@@ -2252,15 +2256,19 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 				return
 			}
 			if !exists {
-				legacyRunID := generateLegacyOneOffRunID(run.DAG.Name, run.Fingerprint, run.ScheduledTime)
-				exists, existsErr = tp.cfg.RunExists(ctx, run.DAG, legacyRunID)
-				if existsErr != nil {
-					logger.Error(ctx, "Failed to re-check one-off dag-run after dispatch error",
-						tag.DAG(run.DAG.Name),
-						tag.RunID(legacyRunID),
-						tag.Error(existsErr),
-					)
-					return
+				for _, earlierRunID := range earlierOneOffRunIDs(run.DAG.Name, run.Fingerprint, run.ScheduledTime) {
+					exists, existsErr = tp.cfg.RunExists(ctx, run.DAG, earlierRunID)
+					if existsErr != nil {
+						logger.Error(ctx, "Failed to re-check one-off dag-run after dispatch error",
+							tag.DAG(run.DAG.Name),
+							tag.RunID(earlierRunID),
+							tag.Error(existsErr),
+						)
+						return
+					}
+					if exists {
+						break
+					}
 				}
 			}
 			if exists {

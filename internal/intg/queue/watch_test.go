@@ -12,6 +12,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
+	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -47,7 +49,10 @@ steps:
 		record, err := f.th.Backend.Collection(persis.CollectionWatchState).Get(f.th.Context, "watch")
 		return err == nil && strings.Contains(string(record.Data), `"inbox"`)
 	})
-	require.NoError(t, os.WriteFile(filepath.Join(inbox, "order-1.txt"), []byte("new"), 0o600))
+	arrived := filepath.Join(inbox, "order-1.txt")
+	require.NoError(t, os.WriteFile(arrived, []byte("new"), 0o600))
+	info, err := os.Stat(arrived)
+	require.NoError(t, err)
 
 	var statuses []ir.DAGRunStatus
 	f.h.Wait.EventuallyEveryWithin("the file's run finishes", 40*time.Second, 200*time.Millisecond, func() bool {
@@ -61,6 +66,9 @@ steps:
 	}
 	assert.Equal(t, ir.Succeeded, statuses[0].Status)
 	assert.Equal(t, ir.TriggerTypeFile, statuses[0].TriggerType)
+	// The scheduler seeds the ID with its data directory.
+	mark := schedulerstate.FileMark{Size: info.Size(), ModTime: info.ModTime()}
+	assert.Equal(t, scheduler.WatchRunID(f.th.Config.Paths.DataDir, "inbox", arrived, mark), statuses[0].DAGRunID)
 	data, err := os.ReadFile(filepath.Join(done, "order-1.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "new", string(data))

@@ -40,15 +40,25 @@ func GenerateCatchupRunID(dagName string, scheduledTime time.Time) string {
 // GenerateSlotRunID produces the run ID of one slot of a recurring schedule. A
 // live run and a catch-up of the slot share it, so whichever comes second is
 // rejected as a duplicate. seed is the slot seed of the DAG's project, or
-// paths.data_dir while projects are off. It keeps installations on one host
-// from sharing an ID, and with it a control socket.
+// paths.data_dir while projects are off, so installations never share a run
+// ID (Spec 085).
 func GenerateSlotRunID(seed, dagName string, scheduledTime time.Time) string {
 	return generateScheduledRunID(slotPrefix, seed+":"+dagName, scheduledTime)
 }
 
 // GenerateOneOffRunID produces a deterministic run ID for a one-off schedule.
-func GenerateOneOffRunID(dagName, fingerprint string, scheduledTime time.Time) string {
-	return generateScheduledRunID(oneOffPrefix, dagName+":"+fingerprint, scheduledTime)
+// seed is the seed of GenerateSlotRunID.
+func GenerateOneOffRunID(seed, dagName, fingerprint string, scheduledTime time.Time) string {
+	return generateScheduledRunID(oneOffPrefix, seed+":"+dagName+":"+fingerprint, scheduledTime)
+}
+
+// earlierOneOffRunIDs returns the IDs that earlier releases gave the run of a
+// one-off schedule, so that the schedule does not run again after an upgrade.
+func earlierOneOffRunIDs(dagName, fingerprint string, scheduledTime time.Time) []string {
+	return []string{
+		generateLegacyOneOffRunID(dagName, fingerprint, scheduledTime),
+		generateScheduledRunID(oneOffPrefix, dagName+":"+fingerprint, scheduledTime),
+	}
 }
 
 // GenerateRestartRunID produces a deterministic run ID for a restart. It is
@@ -56,8 +66,7 @@ func GenerateOneOffRunID(dagName, fingerprint string, scheduledTime time.Time) s
 // for example around a failover, names the same run. previousRunID is empty for
 // the first run of a DAG. previousEnd is when the previous run ended; it is zero
 // when there is no previous run or its end is unknown, and the ID then has no
-// time part. seed is the seed of GenerateSlotRunID: it keeps installations on
-// one host from sharing an ID, and with it a control socket.
+// time part. seed is the seed of GenerateSlotRunID.
 func GenerateRestartRunID(seed, dagName, previousRunID string, previousEnd time.Time) string {
 	hashSource := seed + ":" + dagName + ":" + previousRunID
 	if previousEnd.IsZero() {

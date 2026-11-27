@@ -496,6 +496,7 @@ func newScheduler(
 		IsSuspended: isSuspended,
 		Enqueue:     s.enqueueFileRun,
 		Clock:       func() time.Time { return s.clock() },
+		RunIDSeed:   cfg.Paths.DataDir,
 	})
 	return s, nil
 }

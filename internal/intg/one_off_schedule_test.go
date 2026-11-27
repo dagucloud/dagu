@@ -55,7 +55,7 @@ steps:
 		file.NewCollection(filepath.Join(th.Config.Paths.DataDir, "scheduler")),
 	)
 	fingerprint := dag.Schedule[0].Fingerprint()
-	runID := scheduler.GenerateOneOffRunID(dag.Name, fingerprint, scheduledAt)
+	runID := scheduler.GenerateOneOffRunID(th.Config.Paths.DataDir, dag.Name, fingerprint, scheduledAt)
 
 	require.NoError(t, stateStore.Save(th.Context, &schedulerstate.State{
 		DAGs: map[string]schedulerstate.DAGWatermark{
