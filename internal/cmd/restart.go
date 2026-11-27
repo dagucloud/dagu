@@ -281,7 +281,7 @@ func executeDAGWithRunID(
 			HostKeys:                 as.HostKeys,
 			TargetNodes:              opts.targetNodes,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
-			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory("local"),
+			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(as, "local"),
 			RootDAGRun:               ir.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:               ctx.Config.Core.Peer,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,

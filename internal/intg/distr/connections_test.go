@@ -39,17 +39,18 @@ steps:
 // An in-process child of a run on a worker checks its connections through
 // the coordinator before its first step. A connection its workspace lacks
 // fails the child with no step started. Once the workspace has it, the step
-// starts, and fails without a token, which no step on a worker asks for
-// yet.
+// starts, and fails without a token: the connection was never connected.
 func TestConnections_CheckedOnWorker(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name        string
 		create      bool
 		wantStarted bool
+		// wantError is part of the started step's error.
+		wantError string
 	}{
 		{name: "Missing"},
-		{name: "Present", create: true, wantStarted: true},
+		{name: "Present", create: true, wantStarted: true, wantError: `connection "work-google": the connection was never connected`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -69,6 +70,9 @@ func TestConnections_CheckedOnWorker(t *testing.T) {
 			require.Equal(t, ir.Failed, child.Status)
 			started := len(child.Nodes) == 1 && child.Nodes[0].Status != ir.NodeNotStarted
 			require.Equal(t, tt.wantStarted, started, "child nodes: %+v", child.Nodes)
+			if tt.wantStarted {
+				require.Contains(t, child.Nodes[0].Error, tt.wantError)
+			}
 		})
 	}
 }

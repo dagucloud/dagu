@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -81,11 +82,11 @@ func TestForbiddenIsAuth(t *testing.T) {
 	assert.Contains(t, err.Error(), "403")
 }
 
-// An overloaded or unavailable server is a transport failure, not a protocol
-// mismatch, so it can be retried like a lost connection.
+// An unavailable server is a transport failure, not a protocol mismatch, so
+// it can be retried like a lost connection.
 func TestUnavailableIsTransport(t *testing.T) {
 	t.Parallel()
-	for name, code := range map[string]int{"503": http.StatusServiceUnavailable, "429": http.StatusTooManyRequests} {
+	for name, code := range map[string]int{"503": http.StatusServiceUnavailable, "502": http.StatusBadGateway} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -99,6 +100,47 @@ func TestUnavailableIsTransport(t *testing.T) {
 			assert.Contains(t, err.Error(), name)
 		})
 	}
+}
+
+// A rate limited call fails with the provider's message and Retry-After, so
+// a user who hits a quota sees a quota error.
+func TestRateLimited(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"code":429,"message":"Quota exceeded for quota metric 'Queries'"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	out, err := run(t.Context(), t, map[string]any{"url": srv.URL, "tool": "echo"})
+	require.Error(t, err)
+	assert.Equal(t, kindRateLimited, errKind(t, err))
+	assert.Equal(t, map[string]any{
+		"kind":        kindRateLimited,
+		"message":     "server responded with HTTP 429 Too Many Requests: Quota exceeded for quota metric 'Queries'; retry after 30",
+		"retry_after": "30",
+	}, decode(t, out)["error"])
+}
+
+// A 429 page that is not JSON, such as a proxy's, adds only the start of
+// its first line to the error.
+func TestRateLimitedPageExcerpt(t *testing.T) {
+	t.Parallel()
+	page := "<html><title>" + strings.Repeat("busy ", 100) + "</title>\n<body>try later</body></html>"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(page))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := run(t.Context(), t, map[string]any{"url": srv.URL, "tool": "echo"})
+	require.Error(t, err)
+	assert.Equal(t, kindRateLimited, errKind(t, err))
+	assert.Contains(t, err.Error(), "<html><title>busy busy")
+	assert.NotContains(t, err.Error(), "try later")
+	assert.NotContains(t, err.Error(), "</title>")
+	assert.True(t, strings.HasSuffix(err.Error(), "..."), err.Error())
 }
 
 func TestNoImplicitRetry(t *testing.T) {

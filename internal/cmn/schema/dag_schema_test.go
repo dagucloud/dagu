@@ -450,6 +450,39 @@ steps:
 `,
 		},
 		{
+			name: "ActionMCPCallConnection",
+			spec: `
+steps:
+  - action: mcp.call
+    with:
+      connection: work-google
+      server: gmail
+      tool: search_threads
+`,
+		},
+		{
+			name: "RejectActionMCPCallWithoutURLOrConnection",
+			spec: `
+steps:
+  - action: mcp.call
+    with:
+      tool: scrape
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionMCPCallServerWithoutConnection",
+			spec: `
+steps:
+  - action: mcp.call
+    with:
+      url: https://mcp.example.com/mcp
+      server: gmail
+      tool: scrape
+`,
+			wantErr: "did not validate",
+		},
+		{
 			name: "RejectActionMCPCallMissingTool",
 			spec: `
 steps:

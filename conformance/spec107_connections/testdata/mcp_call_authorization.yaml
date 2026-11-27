@@ -1,0 +1,10 @@
+labels: [workspace=ops]
+steps:
+  - id: whoami
+    action: mcp.call
+    with:
+      connection: work-api
+      url: https://api.example.com/mcp
+      tool: whoami
+      headers:
+        Authorization: Bearer conformance-header

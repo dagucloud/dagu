@@ -21,7 +21,7 @@ This spec does not define:
 
 - local stdio servers or the legacy HTTP+SSE transport
 - MCP resources, prompts, or tasks
-- server-initiated requests (sampling, elicitation); the client advertises no
+- sampling, and elicitation without a connection: such a client advertises no
   capability for them
 - connection pooling or a shared server registry
 - provider-specific behavior; any protocol-compatible server works
@@ -46,21 +46,64 @@ stored and does not send `tools/call` again.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `url` | yes, without `connection` | Absolute `http` or `https` endpoint. User info in the URL is rejected. |
+| `url` | yes, without `connection` | Absolute `http` or `https` endpoint. User info in the URL is rejected. With `connection`, it must be HTTPS on the connection's bound hosts. |
 | `tool` | yes | Tool name. |
 | `connection` | no | A connection of [Spec 107](107-connections.md), by name. The name is a literal. |
 | `server` | no | The connection's service to call, such as `gmail`. A literal. Requires `connection`. |
 | `arguments` | no | JSON object passed as the tool arguments. Dagu references resolve as in other `with` values. |
-| `headers` | no | Map of request headers. Use `${SECRET}` references for credentials. |
+| `headers` | no | Map of request headers. Use `${SECRET}` references for credentials. With `connection`, `Authorization` is not allowed. |
 | `include_raw` | no | When true, adds the full MCP result as `raw`, masked like the rest of the output. |
 | `save_binary` | no | When true, saves binary content as run artifacts instead of writing it as base64. See [Binary content](#binary-content). |
 
 Unknown fields fail validation.
 
 A run checks each `connection` and `server` before its first step, as
-Spec 107 [Admission Checks](107-connections.md#admission-checks) states. A
-step with `connection` fails when it runs, until the part of Spec 107 that
-delivers its token lands (#4217).
+Spec 107 [Admission Checks](107-connections.md#admission-checks) states.
+
+### Connections
+
+With `connection`, the call sends the connection's access token in place of
+an `Authorization` header, following Spec 107
+[Using a Connection](107-connections.md#using-a-connection).
+
+- The endpoint is `url` when set. Otherwise, a `google` or `microsoft`
+  connection calls the MCP server of the preset that `server` names, such
+  as `https://gmailmcp.googleapis.com/mcp/v1` for `gmail`, and an `mcp`
+  connection calls its own server, which takes no `server`. The token goes
+  only over HTTPS to a bound host. An endpoint that is not one fails the
+  step with kind `auth` before any request.
+- The token stays valid for at least 5 minutes when the call takes it. It is
+  masked in the step's logs from the step's start and redacted from its
+  output, as is a token taken later in the step.
+- A 401 reports the token to the token source once and sends the refused
+  request again with the token the source returns. The source refreshes
+  only while the refused token is the stored one. A second 401 fails with
+  kind `auth`.
+- A 403 fails with kind `auth`, without a refresh. With an
+  `insufficient_scope` challenge, the error's `detail` is
+  `insufficient_scope` and its `scope` the missing scope.
+- A connection that needs reconnecting, is pending, or uses an invalid app
+  fails with kind `auth` and `detail` `reconnect_required`, before any
+  request. Any other failure to get the token, such as a coordinator that
+  cannot hand out tokens to workers, fails with kind `auth` without that
+  detail.
+- The client advertises form elicitation, as Spec 107
+  [Confirmation Requests](107-connections.md#confirmation-requests)
+  requires. It declines a confirmation request at once, and the call fails
+  with kind `confirmation_required`.
+- On a worker, the token and the binding come from the coordinator
+  (Spec 107 [Workers](107-connections.md#workers)).
+
+```yaml
+steps:
+  - id: unread
+    action: mcp.call
+    with:
+      connection: work-google
+      server: gmail
+      tool: search_threads
+      arguments: { query: "is:unread newer_than:1d" }
+```
 
 ### Output
 
@@ -110,6 +153,10 @@ received and is not masked. `raw` is not changed.
 
 The step fails when the call fails or `is_error` is true. When the call
 produced no result, stdout is `{"error": {"kind": "...", "message": "..."}}`.
+An error of a call through a connection adds `connection`, its name, to an
+`auth` or `confirmation_required` error, and `detail` and `scope` as
+[Connections](#connections) states. A `rate_limited` error adds
+`retry_after`, the server's `Retry-After` as sent, when it sent one.
 The step error message starts with `mcp.call: <kind> error:`, except when the
 step's own `timeout_sec` elapses: Dagu then reports its step timeout error, and
 stdout still carries the kind. Kinds:
@@ -117,9 +164,11 @@ stdout still carries the kind. Kinds:
 | Kind | Meaning |
 | --- | --- |
 | `tool` | The tool ran and reported `isError: true`. The normal output is still written. |
-| `auth` | The server answered HTTP 401 or 403. |
+| `auth` | The server answered HTTP 401 or 403, or a connection could not give the call a token. |
 | `protocol` | A JSON-RPC error, a lost session, an invalid response, or an HTTP 3xx redirect. Redirects are not followed; configure the final URL. |
-| `transport` | A network failure, such as a refused connection or a connection lost mid-response, or HTTP 429, 500, 502, 503, or 504. |
+| `transport` | A network failure, such as a refused connection or a connection lost mid-response, or HTTP 500, 502, 503, or 504. |
+| `rate_limited` | The server answered HTTP 429. The message carries the provider's message and any `Retry-After`. |
+| `confirmation_required` | Through a connection, the server asked to confirm the action. The message names the ways to let it through: approve it once in Try it and save the approval where the provider's form offers that, ask the Workspace admin to change the confirmation rules, or use `http.request` with a standard connection. |
 | `timeout` | The step or DAG timeout elapsed. |
 | `canceled` | The run was stopped. |
 
