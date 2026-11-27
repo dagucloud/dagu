@@ -36,6 +36,7 @@ type holdFixture struct {
 	runs       *mockDAGRunStore
 	heartbeats dispatch.WorkerHeartbeatStore
 	dispatches dispatch.DispatchTaskStore
+	leases     dispatch.DAGRunLeaseStore
 }
 
 func newHoldFixture(t *testing.T, wait time.Duration) *holdFixture {
@@ -47,12 +48,13 @@ func newHoldFixture(t *testing.T, wait time.Duration) *holdFixture {
 		runs:       newMockDAGRunStore(),
 		heartbeats: newTestWorkerHeartbeatStore(baseDir),
 		dispatches: newTestDispatchTaskStore(baseDir),
+		leases:     newTestDAGRunLeaseStore(baseDir),
 	}
 	f.heartbeat(t, "worker-gpu", map[string]string{"type": "gpu"})
 	f.h = NewHandler(HandlerConfig{
 		DAGRunRepository:     f.runs.repository,
 		DispatchTaskStore:    f.dispatches,
-		DAGRunLeaseStore:     newTestDAGRunLeaseStore(baseDir),
+		DAGRunLeaseStore:     f.leases,
 		WorkerHeartbeatStore: f.heartbeats,
 		WorkerWaitTimeout:    wait,
 	})

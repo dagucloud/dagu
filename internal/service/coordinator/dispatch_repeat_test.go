@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -625,4 +626,127 @@ func TestDispatchRollbackSparesAnotherAdmission(t *testing.T) {
 
 	assert.Equal(t, ir.NotStarted, f.status(t, "run-slow").Status)
 	assert.Equal(t, 1, f.claimAll(t))
+}
+
+func (f *holdFixture) claimAndAck(t *testing.T) (*dispatch.ClaimedDispatchTask, *coordinatorv1.AckTaskClaimResponse) {
+	t.Helper()
+	claimed, err := f.dispatches.ClaimNext(t.Context(), dispatch.DispatchTaskClaim{
+		WorkerID: "worker-gpu", PollerID: "poller-ack", Labels: map[string]string{"type": "gpu"}, ClaimTimeout: time.Minute,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	ack, err := f.h.AckTaskClaim(t.Context(), &coordinatorv1.AckTaskClaimRequest{
+		ClaimToken: claimed.ClaimToken, WorkerId: "worker-gpu", AttemptKey: claimed.Task.AttemptKey,
+	})
+	require.NoError(t, err)
+	return claimed, ack
+}
+
+// A duplicate task of an attempt that already finished is refused at ack and
+// dropped, so no lease lets it stream logs over the finished attempt's.
+func TestAckRefusesDuplicateOfFinishedAttempt(t *testing.T) {
+	f := newHoldFixture(t, 0)
+	_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeatTask("run-done")})
+	require.NoError(t, err)
+	first, ack := f.claimAndAck(t)
+	require.True(t, ack.Accepted)
+
+	finished := *f.status(t, "run-done")
+	finished.Status = ir.Succeeded
+	require.NoError(t, f.attempt("run-done").Write(t.Context(), finished))
+	require.NoError(t, f.leases.Delete(t.Context(), first.Task.AttemptKey))
+	duplicate := *first.Task
+	duplicate.ClaimToken = ""
+	duplicate.Owner = dispatch.CoordinatorEndpoint{}
+	require.NoError(t, f.dispatches.Enqueue(t.Context(), &duplicate))
+
+	claimed, ack := f.claimAndAck(t)
+	assert.False(t, ack.Accepted)
+	assert.Contains(t, ack.Error, "already finished")
+	_, err = f.dispatches.GetClaim(t.Context(), claimed.ClaimToken)
+	assert.ErrorIs(t, err, dispatch.ErrDispatchTaskNotFound)
+	_, err = f.leases.Get(t.Context(), first.Task.AttemptKey)
+	assert.ErrorIs(t, err, dispatch.ErrDAGRunLeaseNotFound)
+}
+
+// A rollback whose check for another admission fails marks the attempt
+// failed, so the run does not wait forever with no task.
+func TestDispatchRollbackWhenCheckFails(t *testing.T) {
+	registerCommandExecutorCapsForCoordinatorTest()
+	f := newHoldFixture(t, 0)
+	h := NewHandler(HandlerConfig{
+		DAGRunRepository: f.runs.repository,
+		DispatchTaskStore: &failingDispatchTaskStore{
+			enqueueErr:     errors.New("disk full"),
+			outstandingErr: errors.New("listing failed"),
+		},
+		WorkerHeartbeatStore: f.heartbeats,
+	})
+	t.Cleanup(func() { h.Close(context.Background()) })
+
+	_, err := h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeatTask("run-check")})
+	require.Error(t, err)
+
+	runStatus := f.status(t, "run-check")
+	assert.Equal(t, ir.Failed, runStatus.Status)
+	assert.Contains(t, runStatus.Error, handoffFailedPrefix)
+}
+
+// The rollback reset of a repeat changes nothing when the attempt moved on,
+// or another attempt replaced it, between the repeat's read and its swap.
+func TestDispatchRepeatResetMisses(t *testing.T) {
+	tests := []struct {
+		name    string
+		change  func(*holdFixture)
+		wantErr string
+		want    ir.Status
+	}{
+		{
+			name: "MovedOn",
+			change: func(f *holdFixture) {
+				running := *f.status(t, "run-reset")
+				running.Status = ir.Running
+				require.NoError(t, f.attempt("run-reset").Write(context.Background(), running))
+			},
+			want: ir.Running,
+		},
+		{
+			name: "Superseded",
+			change: func(f *holdFixture) {
+				f.runs.addAttempt(ir.NewDAGRunRef("routed", "run-reset"), &ir.DAGRunStatus{
+					Name: "routed", DAGRunID: "run-reset", AttemptID: "newer2", Status: ir.NotStarted,
+				})
+			},
+			wantErr: "no longer the latest",
+			want:    ir.NotStarted,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			registerCommandExecutorCapsForCoordinatorTest()
+			f := newHoldFixture(t, 0)
+			rollback := NewHandler(HandlerConfig{
+				DAGRunRepository:     f.runs.repository,
+				DispatchTaskStore:    &failingDispatchTaskStore{enqueueErr: errors.New("disk full")},
+				WorkerHeartbeatStore: f.heartbeats,
+			})
+			t.Cleanup(func() { rollback.Close(context.Background()) })
+			_, err := rollback.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeatTask("run-reset")})
+			require.Error(t, err)
+			require.Equal(t, ir.Failed, f.status(t, "run-reset").Status)
+
+			var once sync.Once
+			f.runs.beforeCompareAndSwap = func() { once.Do(func() { tt.change(f) }) }
+			_, err = f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: repeatTask("run-reset")})
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+				assert.Contains(t, err.Error(), tt.wantErr)
+			}
+			assert.Equal(t, tt.want, f.status(t, "run-reset").Status)
+			assert.Zero(t, f.claimAll(t))
+		})
+	}
 }

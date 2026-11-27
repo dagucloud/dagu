@@ -139,7 +139,10 @@ type mockDAGRunStore struct {
 	attemptWriteErr     error
 	listStatusesCalls   int
 	compareAndSwapCalls int
-	mu                  sync.Mutex
+	// beforeCompareAndSwap runs at the start of each compare-and-swap, so a
+	// test can change the run between a caller's read and its swap.
+	beforeCompareAndSwap func()
+	mu                   sync.Mutex
 }
 
 func newMockDAGRunStore() *mockDAGRunStore {
@@ -357,6 +360,9 @@ func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 ) (*ir.DAGRunStatus, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
+	}
+	if m.beforeCompareAndSwap != nil {
+		m.beforeCompareAndSwap()
 	}
 
 	m.mu.Lock()
@@ -1804,7 +1810,8 @@ func TestPrepareDispatchTaskWorkspaceUsesRuntimeParams(t *testing.T) {
 }
 
 type failingDispatchTaskStore struct {
-	enqueueErr error
+	enqueueErr     error
+	outstandingErr error
 }
 
 func (s *failingDispatchTaskStore) Enqueue(context.Context, *dispatch.DispatchTask) error {
@@ -1840,7 +1847,7 @@ func (s *failingDispatchTaskStore) HasOutstandingAttempt(context.Context, string
 }
 
 func (s *failingDispatchTaskStore) HasOutstandingAttemptUncached(context.Context, string) (bool, error) {
-	return false, nil
+	return false, s.outstandingErr
 }
 
 func (s *failingDispatchTaskStore) ListExpiredHeld(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {

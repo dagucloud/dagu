@@ -1709,13 +1709,14 @@ func (h *Handler) markPreparedAttemptDispatchFailed(ctx context.Context, task *c
 	}
 	// A repeat on another coordinator may have queued the same attempt
 	// meanwhile; failing it then would fail a run that is admitted.
-	if outstanding, err := h.dispatchOutstanding(storeCtx, task.AttemptKey, true); err != nil || outstanding {
-		if err != nil {
-			logger.Warn(ctx, "Failed to check for another admission before failing the attempt",
-				tag.RunID(task.DagRunId),
-				tag.Error(err),
-			)
-		}
+	outstanding, err := h.dispatchOutstanding(storeCtx, task.AttemptKey, true)
+	if err != nil {
+		logger.Warn(ctx, "Failed to check for another admission before failing the attempt",
+			tag.RunID(task.DagRunId),
+			tag.Error(err),
+		)
+	}
+	if outstanding {
 		return
 	}
 
@@ -1928,6 +1929,21 @@ func (h *Handler) dispatchOrphaned(ctx context.Context, task *dispatch.DispatchT
 		return true
 	}
 	return runStatus.Status != ir.Queued && runStatus.Status != ir.NotStarted
+}
+
+// claimedAttemptMovedOn reports whether the run of a claimed task has a newer
+// attempt or has finished the claimed one. A run that cannot be read does not
+// count as moved on.
+func (h *Handler) claimedAttemptMovedOn(ctx context.Context, task *coordinatorv1.Task) bool {
+	rootRef := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	attempt, runStatus, err := h.resolveLatestAttempt(ctx, task.Target, task.DagRunId, rootRef)
+	if err != nil || runStatus == nil {
+		return false
+	}
+	if task.AttemptId != "" && attempt.ID() != task.AttemptId {
+		return true
+	}
+	return runStatus.Status.IsTerminal()
 }
 
 // writeHeldAttemptStatus writes through the attempt handle kept open since the
@@ -2164,6 +2180,14 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 	}
 	if req.AttemptKey != "" && req.AttemptKey != task.AttemptKey {
 		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim belongs to a different attempt"}, nil
+	}
+	// A duplicate task of an attempt that finished or was replaced must not
+	// start it again under that attempt's lease.
+	if h.claimedAttemptMovedOn(ctx, task) {
+		if err := h.dispatchTaskStore.DeleteClaim(ctx, req.ClaimToken); err != nil {
+			return nil, status.Error(codes.Internal, "failed to drop task claim: "+err.Error())
+		}
+		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "attempt already finished or superseded"}, nil
 	}
 	if err := h.attemptOwnership().recordTaskClaim(ctx, task, workerID); err != nil {
 		if errors.Is(err, dispatch.ErrDAGRunLeaseConflict) {
