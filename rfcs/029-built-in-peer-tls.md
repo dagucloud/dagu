@@ -52,8 +52,9 @@ file, and the cluster issues and rotates node certificates.
    the CLI, or Dagu Cloud. Until the coordinator can accept it, the dialog
    shows what to change instead of a command.
 3. A worker that joined with an invite holds its own certificate, not the
-   peer token. Removing it keeps it out across restarts, whichever kind of
-   invite it used.
+   peer token. Removing it keeps that worker out across restarts, whichever
+   kind of invite it used. A reusable invite still admits new hosts and new
+   pods until it is deleted.
 4. No certificate to create, copy, renew, or match to an address.
 5. Nothing that works today breaks on upgrade. Old and new workers,
    schedulers, and coordinators work together in either upgrade order.
@@ -151,12 +152,13 @@ chosen:
     | Tab | Invite | Why |
     | --- | --- | --- |
     | Linux | Single use by default | The host keeps its data directory |
-    | Docker | Single use by default | The command mounts a named volume (`-v dagu-worker:/var/lib/dagu`), so a restarted container keeps its certificate. For several containers, choose reusable |
+    | Docker | Single use by default | The command mounts a named volume (`-v dagu-worker:/var/lib/dagu`), so a restarted container keeps its certificate. For several containers, choose reusable and give each container its own volume |
     | Kubernetes | Reusable only | Pods are replaced and scaled, and a new pod has no certificate, so a single-use invite would fail on the second pod |
 
   - The Docker tab passes the invite as `DAGU_WORKER_INVITE`. The
     Kubernetes tab creates a Secret and maps it to that variable in a
-    Deployment.
+    Deployment whose data directory is an `emptyDir`. A container restarted
+    in the same pod keeps its certificate; a new pod has none.
   - Labels and the address go into the command, not the invite.
 - The dialog waits. When a worker enrolls with this invite and sends its
   first heartbeat, the dialog shows its ID and labels. Closing the dialog
@@ -256,6 +258,13 @@ The environment variables are `DAGU_WORKER_COORDINATORS` and
   enrolls as a new worker. For a worker on a reusable invite, the
   confirmation says so and offers to delete the invite too, naming the
   other workers that use it.
+- A removed worker in Kubernetes exits, and Kubernetes restarts its
+  container in the same pod. The `emptyDir` keeps the revoked certificate,
+  so the container exits again and the pod shows `CrashLoopBackOff`. The
+  worker writes the reason to its termination message, so
+  `kubectl describe pod` shows it. For such a worker, the confirmation says
+  the pod keeps restarting until the Deployment is scaled down or the pod
+  is deleted.
 - A worker on the peer token has no **Remove**, since it would reconnect at
   once. The page says to stop it on its host, or to change the peer token.
 - **Invites** lists each invite with its kind, creator, creation and expiry
@@ -276,6 +285,8 @@ coord.example.com:50055 belongs to a different Dagu (its CA does not match the i
   Check the coordinator address.
 This worker was removed from the coordinator
   Get a new command from "Add worker" to add it again.
+Another worker uses this data directory
+  Give each worker its own data directory or volume.
 The coordinator requires TLS
   Upgrade this process, or remove peer.insecure: true.
 ```
@@ -361,12 +372,17 @@ transport in this order:
 | Configuration | Transport |
 | --- | --- |
 | `peer.insecure: true` | h2c, as today |
-| `peer.cert_file`, `peer.client_ca_file`, or `peer.skip_tls_verify` set | TLS with those files, as `peer.insecure: false` does today |
+| `peer.insecure: false` with `peer.cert_file`, `peer.client_ca_file`, or `peer.skip_tls_verify` | TLS with those files, as today |
 | A worker invite or certificate, `peer.ca_cert_file`, or a registry entry that reports built-in TLS | Built-in TLS |
 | None of these | h2c, as today |
 
 - `peer.insecure: true` remains for networks that already encrypt traffic,
   such as a service mesh.
+- A TLS file without `peer.insecure: false` is still ignored, as today. A
+  coordinator without certificates serves such a client over h2c now, and
+  selecting TLS from the file would break that setup. The process logs at
+  start which file it ignores and why, and `dagu worker --check` says the
+  same. Whether v3.0 lets a TLS file select TLS is open question 1.
 - Each coordinator adds `tls: builtin` to the entry it registers. A client
   that finds coordinators in the registry reads the CA from the same data
   directory. Older processes ignore the field.
@@ -465,12 +481,26 @@ worker                                         coordinator
   worker starts use the same files. It also records which invite it
   enrolled with. A worker with a certificate ignores its invite, so
   restarts do not use up a single-use invite.
+- The worker holds a lock on its certificate while it runs. A second worker
+  that finds the lock held exits with `Another worker uses this data
+  directory`, so two containers on one volume never share a certificate. A
+  lock whose holder is gone is taken over.
+- The worker reports in its heartbeat whether it runs in a container or in
+  Kubernetes, for the **Remove** confirmation.
 - The certificate has no expiry date, so a worker that stays off for months
   reconnects when it starts. An expiry date would need renewal, and a
   copied key could renew just as the worker does; the date would only break
   workers that stay off past it. **Remove** ends a certificate at once.
 - An unrevoked certificate counts as the peer token, including under
   `coordinator.require_token`.
+- `worker_certificates` records each certificate at enrollment with its
+  last heartbeat, which is written at most once a day. Once a day, each
+  coordinator deletes the records of unrevoked certificates without a
+  heartbeat for 90 days. Acceptance depends only on the chain to the peer
+  CA and the revoked set, so a certificate whose record was deleted still
+  connects, and its next heartbeat writes the record again. Containers on a
+  reusable invite without a volume enroll at each start, and this keeps
+  their records bounded.
 
 ### Revocation
 
@@ -514,8 +544,9 @@ worker                                         coordinator
 
 The existing keys keep working, with three fixes:
 
-- Setting any TLS file selects TLS, so `peer.insecure: false` is no longer
-  needed. An explicit `peer.insecure: true` still selects h2c.
+- A TLS file that `peer.insecure` overrides is reported at start and by
+  `dagu worker --check` instead of being ignored silently. It still selects
+  no TLS in v2.x; see [Client transport](#client-transport).
 - At start, the coordinator fails when the key does not match the
   certificate, and warns when the certificate does not name
   `coordinator.advertise` or expires within 14 days. A process that serves
@@ -571,8 +602,8 @@ The existing keys keep working, with three fixes:
   collections and serves h2c only. Workers that joined with an invite fail
   until they get `peer.token`. Processes that use the peer token keep
   working.
-- **Bring your own certificates:** unchanged, except that a TLS file now
-  selects TLS without `peer.insecure: false`.
+- **Bring your own certificates:** unchanged. A TLS file without
+  `peer.insecure: false` is still ignored, now with a warning.
 
 ## Performance
 
@@ -585,6 +616,9 @@ The existing keys keep working, with three fixes:
   also when idle. It is one small collection read, independent of DAGs and
   runs, with one record per removed worker. Invites are read on enrollment
   only.
+- **Certificate records:** one per certificate seen in the last 90 days,
+  plus one per removed worker. A record's last heartbeat is written at most
+  once a day, and each coordinator prunes the collection once a day.
 - **Workers list:** up to three fields per worker, about 120 bytes, on the
   existing 2-second refresh of an open Workers page. The Dagu Cloud report
   grows by about 25 bytes per worker, for at most 256 workers.
@@ -598,9 +632,9 @@ The existing keys keep working, with three fixes:
 
 ## Rollout
 
-1. Bring-your-own fixes: TLS selection, start checks, the chosen-transport
-   log, `dagu worker --check`, and the configuration reference without
-   `insecure: true`.
+1. Bring-your-own fixes: the ignored-file warning, start checks, the
+   chosen-transport log, `dagu worker --check`, and the configuration
+   reference without `insecure: true`.
 2. Built-in CA, `dagu peer init`, coordinator certificate, one-port TLS and
    h2c, client transport rule, registry flag.
 3. Invites, enrollment, revocation, configuration conflicts, join
@@ -624,7 +658,8 @@ single-use invite, and revocation of an open connection.
 ## Open questions
 
 1. Should `coordinator.require_tls` default to `true` in v3.0, with
-   `coordinator.require_token`?
+   `coordinator.require_token`? And should a TLS file select TLS without
+   `peer.insecure: false` from v3.0?
 2. Should a worker certificate be limited to the worker ID it enrolled with?
    The default ID (`hostname@PID`) changes at each start, so this needs a
    stable worker ID first.
