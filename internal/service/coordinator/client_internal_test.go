@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -216,6 +217,51 @@ func TestDispatchHealthCheckEndsWhenAttemptsStop(t *testing.T) {
 	require.ErrorContains(t, err, "health check failed")
 	require.NoError(t, ctx.Err(), "the call ends when its attempts stop, before its deadline")
 	require.Zero(t, cli.Metrics().FailCount)
+}
+
+// passingStopHealthClient is the health service of a healthy coordinator. The
+// check stops the call's attempts, as an interrupt right after it does.
+type passingStopHealthClient struct {
+	grpc_health_v1.HealthClient
+	stop func()
+}
+
+func (c passingStopHealthClient) Check(context.Context, *grpc_health_v1.HealthCheckRequest, ...grpc.CallOption) (*grpc_health_v1.HealthCheckResponse, error) {
+	c.stop()
+	return &grpc_health_v1.HealthCheckResponse{Status: grpc_health_v1.HealthCheckResponse_SERVING}, nil
+}
+
+// countingCoordinator counts the Dispatch requests a coordinator receives.
+type countingCoordinator struct {
+	coordinatorv1.CoordinatorServiceClient
+	dispatches int
+}
+
+func (c *countingCoordinator) Dispatch(context.Context, *coordinatorv1.DispatchRequest, ...grpc.CallOption) (*coordinatorv1.DispatchResponse, error) {
+	c.dispatches++
+	return &coordinatorv1.DispatchResponse{}, nil
+}
+
+// No Dispatch request starts once the call's attempts stop, here right after
+// a passing health check.
+func TestDispatchSendsNothingAfterAttemptsStop(t *testing.T) {
+	t.Parallel()
+
+	stop := make(chan struct{})
+	member := serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 1}
+	cli := New(staticStateRegistry{members: []serviceregistry.HostInfo{member}}, DefaultConfig()).(*clientImpl)
+	server := &countingCoordinator{}
+	cli.clients[coordinatorMemberKey(member)] = &client{
+		address:      coordinatorAddress(member),
+		client:       server,
+		healthClient: passingStopHealthClient{stop: sync.OnceFunc(func() { close(stop) })},
+	}
+
+	err := cli.Dispatch(WithAttemptStop(t.Context(), stop), dispatch.DispatchRequest{
+		Task: &dispatch.DispatchTask{Operation: dispatch.DispatchOperationStart, Target: "deploy", DAGRunID: "run"},
+	})
+	require.ErrorIs(t, err, errAttemptsStopped)
+	require.Zero(t, server.dispatches)
 }
 
 // The upload of a dispatch's workspace admits nothing, so it ends as soon as

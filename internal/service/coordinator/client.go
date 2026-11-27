@@ -529,6 +529,13 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []serviceregistr
 			cli.recordFailure(err)
 			continue
 		}
+		// The stop can come after a passing check. No request starts after it.
+		if attemptsStopped(ctx) {
+			if lastErr == nil {
+				lastErr = errAttemptsStopped
+			}
+			return lastErr
+		}
 
 		// Create request
 		if err := callback(ctx, member, client); err != nil {
