@@ -36,6 +36,10 @@ type Service struct {
 	hostPort            string
 	configuredHost      string
 	disableHealthServer bool
+	// peerCA, when set, makes the registry entry report built-in TLS, and
+	// its certificate stays published in publishedCAFile.
+	peerCA          *PeerCA
+	publishedCAFile string
 
 	// For graceful shutdown
 	mu         sync.Mutex
@@ -70,6 +74,20 @@ func NewService(
 // DisableHealthServer disables the dedicated HTTP health check server.
 func (srv *Service) DisableHealthServer() {
 	srv.disableHealthServer = true
+}
+
+// ServeBuiltinTLS makes the registry entry report built-in TLS with ca, and
+// writes the certificate of ca to publishedCAFile again whenever the entry
+// is refreshed and the file is missing. Call it before Start.
+func (srv *Service) ServeBuiltinTLS(ca *PeerCA, publishedCAFile string) {
+	srv.peerCA = ca
+	srv.publishedCAFile = publishedCAFile
+}
+
+func (srv *Service) republishCA(ctx context.Context) {
+	if err := srv.peerCA.RepublishCertificate(srv.publishedCAFile); err != nil {
+		logger.Warn(ctx, "Failed to publish the peer CA certificate", tag.Error(err))
+	}
 }
 
 func (srv *Service) Start(ctx context.Context) (err error) {
@@ -147,6 +165,12 @@ func (srv *Service) Start(ctx context.Context) (err error) {
 			Host:   srv.configuredHost,
 			Port:   port,
 			Status: serviceregistry.ServiceStatusActive, // Coordinator is active when serving
+		}
+		if srv.peerCA != nil {
+			hostInfo.TLS = serviceregistry.TLSBuiltin
+			if observer, ok := srv.registry.(serviceregistry.RefreshObserver); ok {
+				observer.OnRefresh(serviceregistry.ServiceNameCoordinator, srv.republishCA)
+			}
 		}
 		if err := srv.registry.Register(ctx, serviceregistry.ServiceNameCoordinator, hostInfo); err != nil {
 			return fmt.Errorf("failed to register with service registry: %w", err)

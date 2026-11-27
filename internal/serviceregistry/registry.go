@@ -77,6 +77,20 @@ type HostInfo struct {
 	// ReleasedProjects lists the IDs of the projects whose stores the
 	// instance has released.
 	ReleasedProjects []string
+	// TLS is TLSBuiltin for a coordinator that serves built-in TLS, and empty
+	// otherwise.
+	TLS string
+}
+
+// TLSBuiltin is the TLS of a coordinator that serves built-in TLS.
+const TLSBuiltin = "builtin"
+
+// RefreshObserver calls a function each time a process refreshes an entry
+// it registers.
+type RefreshObserver interface {
+	// OnRefresh calls fn each time this process refreshes the entry it
+	// registers for serviceName. A later call replaces fn.
+	OnRefresh(serviceName ServiceName, fn func(context.Context))
 }
 
 // ProjectReleaseRecorder records which projects' stores a process has

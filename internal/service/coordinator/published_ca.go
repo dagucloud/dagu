@@ -1,0 +1,67 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package coordinator
+
+import (
+	"bytes"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"io/fs"
+	"path/filepath"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+)
+
+// publishedCAFileMode lets every user that shares the data directory read
+// the published CA certificate, which holds no secret.
+const publishedCAFileMode = 0o644
+
+// PublishCertificate writes the CA certificate to path, the published CA
+// certificate, unless path already holds it.
+func (ca *PeerCA) PublishCertificate(path string) error {
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.cert.Raw})
+	if current, err := fileutil.ReadFile(path); err == nil && bytes.Equal(current, certPEM) {
+		return nil
+	}
+	if err := fileutil.MkdirAll(filepath.Dir(path), peerDirMode); err != nil {
+		return fmt.Errorf("create published CA certificate directory: %w", err)
+	}
+	if err := fileutil.WriteFileAtomic(path, certPEM, publishedCAFileMode); err != nil {
+		return fmt.Errorf("write published CA certificate: %w", err)
+	}
+	return nil
+}
+
+// RepublishCertificate writes the CA certificate to path when the file is
+// missing.
+func (ca *PeerCA) RepublishCertificate(path string) error {
+	if _, err := fileutil.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return ca.PublishCertificate(path)
+}
+
+// RemovePublishedCertificate removes the published CA certificate at path,
+// so clients that share the data directory stop using built-in TLS.
+func RemovePublishedCertificate(path string) error {
+	if err := fileutil.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove published CA certificate: %w", err)
+	}
+	return nil
+}
+
+// readCertPool returns the certificates in the PEM file at path.
+func readCertPool(path string) (*x509.CertPool, error) {
+	data, err := fileutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(data) {
+		return nil, fmt.Errorf("%s holds no PEM certificate", path)
+	}
+	return pool, nil
+}

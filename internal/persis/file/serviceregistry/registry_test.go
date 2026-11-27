@@ -224,6 +224,38 @@ func TestRegistry_HeartbeatRecreatesFile(t *testing.T) {
 	assert.Equal(t, "localhost:8080", fmt.Sprintf("%s:%d", info.Host, info.Port))
 }
 
+// Another process reads whether a coordinator serves built-in TLS from its
+// entry, and the refresh hook runs on each heartbeat.
+func TestRegistry_BuiltinTLS(t *testing.T) {
+	tmpDir := t.TempDir()
+	ctx := context.Background()
+	registry := New(tmpDir)
+	registry.heartbeatInterval = 10 * time.Millisecond
+	refreshed := make(chan struct{}, 1)
+	registry.OnRefresh(serviceregistry.ServiceNameCoordinator, func(context.Context) {
+		select {
+		case refreshed <- struct{}{}:
+		default:
+		}
+	})
+	require.NoError(t, registry.Register(ctx, serviceregistry.ServiceNameCoordinator, serviceregistry.HostInfo{
+		ID:   "coordinator-1",
+		Host: "localhost",
+		TLS:  serviceregistry.TLSBuiltin,
+	}))
+	defer registry.Unregister(ctx)
+
+	members, err := New(tmpDir).GetServiceMembers(ctx, serviceregistry.ServiceNameCoordinator)
+	require.NoError(t, err)
+	require.Len(t, members, 1)
+	assert.Equal(t, serviceregistry.TLSBuiltin, members[0].TLS)
+	select {
+	case <-refreshed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the refresh hook did not run")
+	}
+}
+
 // Released projects recorded before the process registers reach its entry
 // once it does, and each later call replaces them. Another process reads
 // them from the entry.

@@ -143,6 +143,7 @@ func (f *finder) processInstanceFile(ctx context.Context, path string) *servicer
 		Status:           instance.Status,
 		StartedAt:        instance.StartedAt,
 		ReleasedProjects: instance.ReleasedProjects,
+		TLS:              instance.TLS,
 	}
 }
 
