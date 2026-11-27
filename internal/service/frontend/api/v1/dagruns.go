@@ -3401,7 +3401,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		}
 		if worker != "" {
 			opts = append(opts, executor.WithTargetWorkerID(worker), executor.WithBoundNode(worker, ""))
-		} else if workerID := ir.RetryAgentOwnerWorkerID(prevStatus, stepName != ""); workerID != "" {
+		} else if workerID := ir.RetryAgentOwnerWorkerID(prevStatus, stepName, includeDownstream && len(retryPath.Hops) == 0); workerID != "" {
 			opts = append(opts, executor.WithTargetWorkerID(workerID))
 		}
 		if dag.SourceFile != "" {
@@ -4658,7 +4658,7 @@ func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.
 		}
 		if worker != "" {
 			options = append(options, executor.WithTargetWorkerID(worker), executor.WithBoundNode(worker, ""))
-		} else if workerID := ir.RetryAgentOwnerWorkerID(status, step != ""); workerID != "" {
+		} else if workerID := ir.RetryAgentOwnerWorkerID(status, step, false); workerID != "" {
 			options = append(options, executor.WithTargetWorkerID(workerID))
 		}
 		if dag.SourceFile != "" {

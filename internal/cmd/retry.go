@@ -824,7 +824,7 @@ func retryTaskOptions(opts runOptions) []executor.TaskOption {
 	// A retry that resumes agent sessions goes to the worker that holds them,
 	// as the API routes it.
 	if opts.boundWorker == "" {
-		if owner := ir.RetryAgentOwnerWorkerID(opts.retried, opts.step != ""); owner != "" {
+		if owner := ir.RetryAgentOwnerWorkerID(opts.retried, opts.step, opts.includeDownstream && len(opts.retryPath.Hops) == 0); owner != "" {
 			taskOpts = append(taskOpts, executor.WithTargetWorkerID(owner))
 		}
 	}

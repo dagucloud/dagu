@@ -433,22 +433,44 @@ func TestStatusBuilderRetainsHandlerAgentSessions(t *testing.T) {
 	assert.Equal(t, "diagnose", status.AgentSessions[0].StepName)
 }
 
-func TestRetryAgentOwnerWorkerIDIncludesCompletedSessionsForStepRetry(t *testing.T) {
+// A retry targets the worker that holds the sessions of the steps it reruns:
+// for a step retry, the step and, with downstream, its dependants; for a run
+// retry, the steps that did not finish. Sessions of other steps do not count.
+func TestRetryAgentOwnerWorkerID(t *testing.T) {
 	t.Parallel()
 
+	session := func(owner string) *ir.AgentSession {
+		return &ir.AgentSession{Provider: "opencode", SessionID: "session-" + owner, OwnerWorkerID: owner, SessionOwned: true}
+	}
 	status := &ir.DAGRunStatus{Nodes: []*ir.Node{
-		{Step: ir.Step{Name: "prepare"}, Status: ir.NodeFailed},
+		{Step: ir.Step{Name: "a"}, Status: ir.NodeSucceeded, AgentSession: session("w1")},
+		{Step: ir.Step{Name: "b", Depends: []string{"a"}}, Status: ir.NodeSucceeded, AgentSession: session("w2")},
+		{Step: ir.Step{Name: "c", Depends: []string{"b"}}, Status: ir.NodeFailed},
 		{
-			Step:   ir.Step{Name: "implement"},
-			Status: ir.NodeSucceeded,
-			AgentSession: &ir.AgentSession{
-				Provider: "opencode", SessionID: "session-1", OwnerWorkerID: "worker-1", SessionOwned: true,
-			},
+			Step:   ir.Step{Name: "d", InferredDepends: []ir.InferredDependency{{Step: "c"}}},
+			Status: ir.NodeNotStarted, AgentSession: session("w3"),
 		},
 	}}
 
-	assert.Empty(t, ir.RetryAgentOwnerWorkerID(status, false))
-	assert.Equal(t, "worker-1", ir.RetryAgentOwnerWorkerID(status, true))
+	tests := []struct {
+		name       string
+		step       string
+		downstream bool
+		want       string
+	}{
+		{name: "Run", want: "w3"},
+		{name: "Step", step: "b", want: "w2"},
+		{name: "StepWithoutSession", step: "c"},
+		{name: "Downstream", step: "c", downstream: true, want: "w3"},
+		{name: "DownstreamMixedOwners", step: "b", downstream: true},
+		{name: "UnknownStep", step: "missing"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, ir.RetryAgentOwnerWorkerID(status, tt.step, tt.downstream))
+		})
+	}
 }
 
 func TestDAGRunStatusErrorText(t *testing.T) {
