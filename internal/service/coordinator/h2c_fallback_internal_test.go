@@ -37,4 +37,11 @@ func TestH2CWindowsKeepUnwrittenWindows(t *testing.T) {
 		_, open := windows.active(address, now)
 		assert.True(t, open, address)
 	}
+
+	// A window renewed in memory outlives the older one in the record.
+	later := now.Add(h2cWindowLength)
+	require.True(t, windows.open("a:1", h2cWindow{Until: later.Add(h2cWindowLength), Source: sourceNetworkPath}, later))
+	require.True(t, windows.open("d:1", window, now))
+	_, open := windows.active("a:1", later.Add(time.Minute))
+	assert.True(t, open, "renewed window")
 }

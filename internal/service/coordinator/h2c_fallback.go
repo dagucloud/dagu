@@ -109,7 +109,11 @@ func (w *h2cWindows) loadLocked() {
 // the record.
 func (w *h2cWindows) saveLocked(address string, window *h2cWindow, now time.Time) {
 	records := maps.Clone(w.records)
-	maps.Copy(records, w.read())
+	for key, record := range w.read() {
+		if current, ok := records[key]; !ok || record.Until.After(current.Until) {
+			records[key] = record
+		}
+	}
 	if window != nil {
 		records[address] = *window
 	} else {

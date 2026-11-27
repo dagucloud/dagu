@@ -190,9 +190,9 @@ func runStartAll(ctx *Context, _ []string) error {
 			return fmt.Errorf("failed to initialize coordinator: %w", err)
 		}
 	}
-	coordinatorBuilt := false
+	servicesStarting := false
 	defer func() {
-		if !coordinatorBuilt {
+		if !servicesStarting {
 			peerCA.unpublish()
 		}
 	}()
@@ -244,7 +244,6 @@ func runStartAll(ctx *Context, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to initialize coordinator: %w", withPortInUseHint(err, coordinatorPortInUseHint))
 		}
-		coordinatorBuilt = true
 		coord.DisableHealthServer()
 		// The server and the scheduler dial this coordinator with the same
 		// peer settings.
@@ -263,6 +262,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	if err := resourceService.Start(serviceCtx); err != nil {
 		return fmt.Errorf("failed to start resource service: %w", err)
 	}
+	servicesStarting = true
 
 	auditShipper := startCloudAudit(serviceCtx, stores.Secret)
 	if cloudReporter := startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService,
