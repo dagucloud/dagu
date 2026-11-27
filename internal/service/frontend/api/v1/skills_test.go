@@ -45,9 +45,9 @@ func getSkill(t *testing.T, server test.Server, name string) api.SkillDetail {
 	return api.SkillDetail(out)
 }
 
-func ifMatch(hash string) map[string]string { return map[string]string{"If-Match": hash} }
+func skillIfMatch(hash string) map[string]string { return map[string]string{"If-Match": hash} }
 
-func put(server test.Server, path string, body any, headers map[string]string) *test.Request {
+func putSkill(server test.Server, path string, body any, headers map[string]string) *test.Request {
 	r := server.Client().Put(path, body)
 	for k, v := range headers {
 		r = r.WithHeader(k, v)
@@ -55,7 +55,7 @@ func put(server test.Server, path string, body any, headers map[string]string) *
 	return r
 }
 
-func del(server test.Server, path string, headers map[string]string) *test.Request {
+func deleteSkill(server test.Server, path string, headers map[string]string) *test.Request {
 	r := server.Client().Delete(path)
 	for k, v := range headers {
 		r = r.WithHeader(k, v)
@@ -160,8 +160,8 @@ func TestSkillsPutNeedsAPrecondition(t *testing.T) {
 	server := test.SetupServer(t)
 	body := api.UpdateSkillJSONRequestBody{Content: validSkill}
 
-	put(server, "/api/v1/skills/refund-policy", body, nil).ExpectStatus(http.StatusPreconditionRequired).Send(t)
-	put(server, "/api/v1/skills/refund-policy", body, ifMatch("nope")).ExpectStatus(http.StatusBadRequest).Send(t)
+	putSkill(server, "/api/v1/skills/refund-policy", body, nil).ExpectStatus(http.StatusPreconditionRequired).Send(t)
+	putSkill(server, "/api/v1/skills/refund-policy", body, skillIfMatch("nope")).ExpectStatus(http.StatusBadRequest).Send(t)
 	_, err := os.Stat(filepath.Join(skillsDir(server), "refund-policy"))
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
@@ -173,7 +173,7 @@ func TestSkillsPutChainAndConflict(t *testing.T) {
 	file := filepath.Join(skillsDir(server), "refund-policy", "SKILL.md")
 
 	var created api.UpdateSkill200JSONResponse
-	put(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: validSkill}, create).
+	putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: validSkill}, create).
 		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &created)
 	assert.Len(t, created.Hash, 64)
 	assert.Empty(t, created.Errors)
@@ -184,7 +184,7 @@ func TestSkillsPutChainAndConflict(t *testing.T) {
 
 	t.Run("CreateOfAnExistingSkillConflicts", func(t *testing.T) {
 		var out api.SkillError
-		put(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: validSkill}, create).
+		putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: validSkill}, create).
 			ExpectStatus(http.StatusConflict).Send(t).Unmarshal(t, &out)
 		assert.Equal(t, api.ErrorCodeConflict, out.Code)
 		require.NotNil(t, out.Hash)
@@ -194,7 +194,7 @@ func TestSkillsPutChainAndConflict(t *testing.T) {
 	next := "---\nname: refund-policy\ndescription: Changed rules to refund an order.\n---\nNew body\n"
 	var updated api.UpdateSkill200JSONResponse
 	t.Run("OverwriteWithTheHash", func(t *testing.T) {
-		put(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: next}, ifMatch(created.Hash)).
+		putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: next}, skillIfMatch(created.Hash)).
 			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &updated)
 		assert.NotEqual(t, created.Hash, updated.Hash)
 		data, err := os.ReadFile(file)
@@ -204,7 +204,7 @@ func TestSkillsPutChainAndConflict(t *testing.T) {
 
 	t.Run("StaleHashConflictsAndKeepsTheFile", func(t *testing.T) {
 		var out api.SkillError
-		put(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: validSkill}, ifMatch(created.Hash)).
+		putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: validSkill}, skillIfMatch(created.Hash)).
 			ExpectStatus(http.StatusConflict).Send(t).Unmarshal(t, &out)
 		require.NotNil(t, out.Hash)
 		assert.Equal(t, updated.Hash, *out.Hash, "the conflict gives the current hash")
@@ -215,7 +215,7 @@ func TestSkillsPutChainAndConflict(t *testing.T) {
 
 	t.Run("AChangeOnDiskIsAConflict", func(t *testing.T) {
 		require.NoError(t, os.WriteFile(file, []byte(strings.Replace(next, "New body", "Edited by hand", 1)), 0o600))
-		put(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: next}, ifMatch(updated.Hash)).
+		putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: next}, skillIfMatch(updated.Hash)).
 			ExpectStatus(http.StatusConflict).Send(t)
 	})
 
@@ -227,7 +227,7 @@ func TestSkillsPutChainAndConflict(t *testing.T) {
 			"just text": "front-matter-start",
 		} {
 			var out api.SkillError
-			put(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: content}, ifMatch(cur)).
+			putSkill(server, "/api/v1/skills/refund-policy", api.UpdateSkillJSONRequestBody{Content: content}, skillIfMatch(cur)).
 				ExpectStatus(http.StatusBadRequest).Send(t).Unmarshal(t, &out)
 			assert.Equal(t, api.ErrorCodeBadRequest, out.Code)
 			require.NotNil(t, out.Issues)
@@ -239,7 +239,7 @@ func TestSkillsPutChainAndConflict(t *testing.T) {
 	t.Run("InvalidName", func(t *testing.T) {
 		for _, name := range []string{"Bad", "9-"} {
 			body := api.UpdateSkillJSONRequestBody{Content: strings.ReplaceAll(validSkill, "refund-policy", name)}
-			put(server, "/api/v1/skills/"+name, body, create).ExpectStatus(http.StatusBadRequest).Send(t)
+			putSkill(server, "/api/v1/skills/"+name, body, create).ExpectStatus(http.StatusBadRequest).Send(t)
 		}
 	})
 }
@@ -253,13 +253,13 @@ func TestSkillsDelete(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(extra, "a.md"), []byte("x"), 0o600))
 	h := getSkill(t, server, "refund-policy").Hash
 
-	del(server, "/api/v1/skills/refund-policy", nil).ExpectStatus(http.StatusPreconditionRequired).Send(t)
-	del(server, "/api/v1/skills/refund-policy", ifMatch(strings.Repeat("0", 64))).ExpectStatus(http.StatusConflict).Send(t)
-	del(server, "/api/v1/skills/refund-policy", ifMatch(h)).ExpectStatus(http.StatusNoContent).Send(t)
+	deleteSkill(server, "/api/v1/skills/refund-policy", nil).ExpectStatus(http.StatusPreconditionRequired).Send(t)
+	deleteSkill(server, "/api/v1/skills/refund-policy", skillIfMatch(strings.Repeat("0", 64))).ExpectStatus(http.StatusConflict).Send(t)
+	deleteSkill(server, "/api/v1/skills/refund-policy", skillIfMatch(h)).ExpectStatus(http.StatusNoContent).Send(t)
 	_, err := os.Stat(filepath.Join(skillsDir(server), "refund-policy"))
 	assert.ErrorIs(t, err, os.ErrNotExist, "the whole folder goes")
-	del(server, "/api/v1/skills/refund-policy", ifMatch(h)).ExpectStatus(http.StatusNotFound).Send(t)
-	del(server, "/api/v1/skills/.x", ifMatch(h)).ExpectStatus(http.StatusBadRequest).Send(t)
+	deleteSkill(server, "/api/v1/skills/refund-policy", skillIfMatch(h)).ExpectStatus(http.StatusNotFound).Send(t)
+	deleteSkill(server, "/api/v1/skills/.x", skillIfMatch(h)).ExpectStatus(http.StatusBadRequest).Send(t)
 }
 
 // A file is sent as stored, as an attachment of type application/octet-stream,
@@ -343,9 +343,9 @@ func TestSkillsPathTraversal(t *testing.T) {
 			case http.MethodGet:
 				req = server.Client().Get("/api/v1/skills/" + name)
 			case http.MethodPut:
-				req = put(server, "/api/v1/skills/"+name, api.UpdateSkillJSONRequestBody{Content: validSkill}, map[string]string{"If-None-Match": "*"})
+				req = putSkill(server, "/api/v1/skills/"+name, api.UpdateSkillJSONRequestBody{Content: validSkill}, map[string]string{"If-None-Match": "*"})
 			default:
-				req = del(server, "/api/v1/skills/"+name, ifMatch(strings.Repeat("0", 64)))
+				req = deleteSkill(server, "/api/v1/skills/"+name, skillIfMatch(strings.Repeat("0", 64)))
 			}
 			status := req.Send(t).Response.StatusCode()
 			assert.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, status, "%s %s", method, name)
