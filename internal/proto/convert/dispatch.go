@@ -74,6 +74,7 @@ func DispatchTaskToProto(task *dispatch.DispatchTask) (*coordinatorv1.Task, erro
 		OwnerCoordinatorHost:       task.Owner.Host,
 		OwnerCoordinatorPort:       int32(task.Owner.Port), //nolint:gosec // Port is range-checked above before narrowing to proto int32.
 		ClaimToken:                 task.ClaimToken,
+		Project:                    ProjectScopeToProto(task.Project),
 	}
 	if task.PreviousStatus != nil {
 		protoStatus, err := DAGRunStatusToProto(task.PreviousStatus)
@@ -142,6 +143,7 @@ func ProtoToDispatchTask(task *coordinatorv1.Task) (*dispatch.DispatchTask, erro
 			Port: int(task.OwnerCoordinatorPort),
 		},
 		ClaimToken: task.ClaimToken,
+		Project:    ProtoToProjectScope(task.GetProject()),
 	}
 	if task.PreviousStatus != nil {
 		status, err := ProtoToDAGRunStatus(task.PreviousStatus)
@@ -151,6 +153,21 @@ func ProtoToDispatchTask(task *coordinatorv1.Task) (*dispatch.DispatchTask, erro
 		dispatchTask.PreviousStatus = status
 	}
 	return dispatchTask, nil
+}
+
+// ProjectScopeToProto converts a project scope to the coordinator wire
+// shape, which leaves the default project's own DAGs unset.
+func ProjectScopeToProto(scope dispatch.ProjectScope) *coordinatorv1.ProjectScope {
+	if scope == (dispatch.ProjectScope{}) {
+		return nil
+	}
+	return &coordinatorv1.ProjectScope{ProjectId: scope.ID, Library: scope.Library}
+}
+
+// ProtoToProjectScope converts a coordinator wire project scope, unset for
+// the default project's own DAGs, to the domain shape.
+func ProtoToProjectScope(scope *coordinatorv1.ProjectScope) dispatch.ProjectScope {
+	return dispatch.ProjectScope{ID: scope.GetProjectId(), Library: scope.GetLibrary()}
 }
 
 // WorkerStatsToProto converts worker stats to the coordinator wire shape.

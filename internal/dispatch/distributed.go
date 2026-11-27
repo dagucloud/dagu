@@ -240,6 +240,8 @@ type DAGRunLease struct {
 	WorkspaceBundleDigest string              `json:"workspaceBundleDigest,omitempty"`
 	ClaimedAt             int64               `json:"claimedAt"`
 	LastHeartbeatAt       int64               `json:"lastHeartbeatAt"`
+	// Project is the project whose run the claim runs.
+	Project ProjectScope `json:"project,omitzero"`
 }
 
 // MatchesClaim reports whether the lease identifies the worker claim.
@@ -283,6 +285,8 @@ type ActiveDistributedRun struct {
 	WorkerID   string       `json:"workerId"`
 	Status     ir.Status    `json:"status"`
 	UpdatedAt  int64        `json:"updatedAt"`
+	// Project is the project whose run the attempt runs.
+	Project ProjectScope `json:"project,omitzero"`
 }
 
 // ActiveDistributedRunStore persists the coordinator-owned active distributed

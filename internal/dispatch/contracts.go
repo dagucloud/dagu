@@ -103,6 +103,20 @@ type DispatchTask struct {
 
 	Owner      CoordinatorEndpoint
 	ClaimToken string
+
+	// Project is the project whose run the task starts or retries.
+	Project ProjectScope `json:",omitzero"`
+}
+
+// ProjectScope addresses the runs of one project: those of its own DAGs, or
+// those of the library DAGs that run in it. The zero value addresses the
+// runs of the default project's own DAGs.
+type ProjectScope struct {
+	// ID is the project's ID. It is empty for the default project.
+	ID string `json:"id,omitempty"`
+	// Library addresses the runs of the library DAGs that run in the
+	// project.
+	Library bool `json:"library,omitempty"`
 }
 
 // DAGRunStatusResult is a distributed status lookup result.
