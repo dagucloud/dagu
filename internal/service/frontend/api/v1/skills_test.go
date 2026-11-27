@@ -4,9 +4,11 @@
 package api_test
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -383,6 +385,79 @@ func TestSkillsDelete(t *testing.T) {
 	deleteSkillRequest(server, "/api/v1/skills/.x", skillIfMatch(h)).ExpectStatus(http.StatusBadRequest).Send(t)
 }
 
+func unzip(t *testing.T, data []byte) map[string]string {
+	t.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	require.NoError(t, err)
+	out := map[string]string{}
+	for _, f := range zr.File {
+		rc, err := f.Open()
+		require.NoError(t, err)
+		b, err := io.ReadAll(rc)
+		require.NoError(t, err)
+		_ = rc.Close()
+		out[f.Name] = string(b)
+	}
+	return out
+}
+
+func TestSkillsDownload(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	writeSkillFile(t, server, "alpha", "---\nname: alpha\ndescription: Alpha rules. Use when asked.\n---\nA\n")
+	writeSkillFile(t, server, "beta", "---\nname: beta\ndescription: Beta rules. Use when asked.\n---\nB\n")
+	writeSkillFile(t, server, "broken", "nope\n")
+	require.NoError(t, os.MkdirAll(filepath.Join(skillsDir(server), "alpha", "assets"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(skillsDir(server), "alpha", "assets", "x.bin"), []byte{0, 255}, 0o600))
+
+	t.Run("OneSkill", func(t *testing.T) {
+		resp := server.Client().Get("/api/v1/skills/alpha/download").ExpectStatus(http.StatusOK).Send(t)
+		assert.Equal(t, "application/zip", resp.Response.Header().Get("Content-Type"))
+		assert.Equal(t, `attachment; filename="alpha.zip"`, resp.Response.Header().Get("Content-Disposition"))
+		files := unzip(t, resp.Response.Body())
+		assert.Equal(t, map[string]string{
+			"alpha/SKILL.md":     "---\nname: alpha\ndescription: Alpha rules. Use when asked.\n---\nA\n",
+			"alpha/assets/x.bin": "\x00\xff",
+		}, files)
+	})
+
+	t.Run("SeveralSkillsAreDeterministic", func(t *testing.T) {
+		post := func(names ...string) []byte {
+			resp := server.Client().Post("/api/v1/skills/download", map[string]any{"names": names}).ExpectStatus(http.StatusOK).Send(t)
+			assert.Equal(t, "application/zip", resp.Response.Header().Get("Content-Type"))
+			assert.Regexp(t, `^attachment; filename="skills-\d{4}-\d{2}-\d{2}\.zip"$`, resp.Response.Header().Get("Content-Disposition"))
+			return resp.Response.Body()
+		}
+		first := post("beta", "alpha", "broken")
+		second := post("alpha", "broken", "beta", "alpha")
+		assert.Equal(t, first, second)
+		files := unzip(t, first)
+		assert.Len(t, files, 4)
+		assert.Equal(t, "nope\n", files["broken/SKILL.md"], "an invalid skill can be downloaded, marked nowhere")
+		assert.Equal(t, "---\nname: beta\ndescription: Beta rules. Use when asked.\n---\nB\n", files["beta/SKILL.md"])
+	})
+
+	t.Run("UnknownNameGivesNoZip", func(t *testing.T) {
+		var out api.Error
+		resp := server.Client().Post("/api/v1/skills/download", map[string]any{"names": []string{"alpha", "nope"}}).
+			ExpectStatus(http.StatusNotFound).Send(t)
+		resp.Unmarshal(t, &out)
+		assert.Contains(t, out.Message, "nope")
+		assert.Equal(t, "application/json", resp.Response.Header().Get("Content-Type"))
+		server.Client().Get("/api/v1/skills/nope/download").ExpectStatus(http.StatusNotFound).Send(t)
+	})
+
+	t.Run("Limits", func(t *testing.T) {
+		names := make([]string, 101)
+		for i := range names {
+			names[i] = "s" + strings.Repeat("a", i+1)
+		}
+		server.Client().Post("/api/v1/skills/download", map[string]any{"names": names}).ExpectStatus(http.StatusBadRequest).Send(t)
+		server.Client().Post("/api/v1/skills/download", map[string]any{"names": []string{}}).ExpectStatus(http.StatusBadRequest).Send(t)
+	})
+}
+
+
 // A file is sent as stored, as an attachment of type application/octet-stream,
 // with the hash of the skill in ETag. A link in the folder is never followed.
 func TestSkillsReadFile(t *testing.T) {
@@ -587,6 +662,8 @@ func TestSkillsWriteNeedsDeveloper(t *testing.T) {
 	h = written.(api.PutSkillFile200JSONResponse).Hash
 
 	_, err = apiImpl.ListSkills(viewer, api.ListSkillsRequestObject{})
+	require.NoError(t, err)
+	_, err = apiImpl.DownloadSkills(viewer, api.DownloadSkillsRequestObject{Body: &api.DownloadSkillsJSONRequestBody{Names: []string{"refund-policy"}}})
 	require.NoError(t, err)
 
 	_, err = apiImpl.UpdateSkill(viewer, api.UpdateSkillRequestObject{

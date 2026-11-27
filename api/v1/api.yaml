@@ -9806,6 +9806,71 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /skills/download:
+    post:
+      summary: "Download several skills as one ZIP"
+      description: "Streams one ZIP that holds each named skill as a top-level folder with its files exactly as stored. A skill that is not valid can be downloaded. An unknown name gives 404 and no ZIP. At most 100 skills."
+      operationId: "downloadSkills"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                names:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: string
+                    maxLength: 255
+                  description: "Names of the skills"
+              required:
+                - names
+      responses:
+        "200":
+          description: "The ZIP"
+          headers:
+            Content-Disposition:
+              schema:
+                type: "string"
+              description: "Attachment file name: skills-<date>.zip, or <name>.zip for one skill"
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: "Invalid request, or too many skills, or the skills are too large"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "A skill does not exist"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /skills/{name}:
     get:
       summary: "Get a skill"
@@ -10000,6 +10065,54 @@ paths:
                 $ref: "#/components/schemas/SkillError"
         "428":
           description: "The request has no If-Match header"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /skills/{name}/download:
+    get:
+      summary: "Download one skill as a ZIP"
+      description: "Streams a ZIP with the skill as the top-level folder <name>/ and its files exactly as stored. A skill that is not valid can be downloaded."
+      operationId: "downloadSkill"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/SkillName"
+      responses:
+        "200":
+          description: "The ZIP"
+          headers:
+            Content-Disposition:
+              schema:
+                type: "string"
+              description: "Attachment file name: <name>.zip"
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: "Invalid skill name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Skill not found"
           content:
             application/json:
               schema:

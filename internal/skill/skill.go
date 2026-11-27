@@ -54,6 +54,9 @@ const (
 	// MaxReadFileBytes is the size limit of a file that the tool
 	// read_skill_file returns.
 	MaxReadFileBytes = 256 * 1024
+	// MaxDownloadSkills and MaxDownloadBytes limit one ZIP download.
+	MaxDownloadSkills = 100
+	MaxDownloadBytes  = 256 << 20
 )
 
 // Severity of an issue.
