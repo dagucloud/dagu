@@ -32,15 +32,16 @@ type hostValues struct {
 	// values holds the values of every host variable that text matches
 	// wherever it holds them.
 	values []string
-	// short holds the short parts of every host variable, which only a
+	// short holds the short values of every host variable, which only a
 	// whole value matches.
 	short []string
 }
 
-// hostVar is a host variable with a masker of its values and its short
-// parts.
+// hostVar is a host variable with its values, a masker of its long ones,
+// and its short ones.
 type hostVar struct {
 	name   string
+	values []string
 	masker *masking.Masker
 	short  []string
 }
@@ -75,17 +76,17 @@ func hostValuesOf(read map[string][]string) hostValues {
 		if len(parts.values) == 0 && len(parts.short) == 0 {
 			continue
 		}
-		h.vars = append(h.vars, hostVar{name: name, masker: masking.NewValueMasker(parts.values), short: parts.short})
+		h.vars = append(h.vars, hostVar{name: name, values: parts.values, masker: masking.NewValueMasker(parts.values), short: parts.short})
 		h.values = append(h.values, parts.values...)
 		h.short = append(h.short, parts.short...)
 	}
 	return h
 }
 
-// minHostPart is the length, in characters, below which a string or a
-// number inside a JSON host value matches only a whole value or member
-// equal to it. Text that merely contains a part that short, such as us in
-// us-east-1, cannot be told apart from it.
+// minHostPart is the length, in characters, below which a host value, or a
+// string or number inside a JSON host value, matches only a whole value or
+// member equal to it. Text that merely contains a value that short, such
+// as us in us-east-1, cannot be told apart from it.
 const minHostPart = 4
 
 // hostParts collects the values of one host variable.
@@ -100,15 +101,15 @@ type hostParts struct {
 // part of it. A boolean holds one bit, so it is no host value, and neither
 // is an empty value.
 func (p *hostParts) add(value string) {
-	p.part(value, false)
+	p.part(value)
 	var walk func(v any)
 	walk = func(v any) {
 		switch x := v.(type) {
 		case string:
-			p.part(x, true)
+			p.part(x)
 		case json.Number:
 			for _, text := range numberTexts(x) {
-				p.part(text, true)
+				p.part(text)
 			}
 		case map[string]any:
 			for _, item := range x {
@@ -126,11 +127,10 @@ func (p *hostParts) add(value string) {
 	}
 }
 
-// part adds text, as a short part when it is a part of a JSON value shorter
-// than minHostPart.
-func (p *hostParts) part(text string, inJSON bool) {
+// part adds text, as a short value when it is shorter than minHostPart.
+func (p *hostParts) part(text string) {
 	list := &p.values
-	if inJSON && utf8.RuneCountInString(text) < minHostPart {
+	if utf8.RuneCountInString(text) < minHostPart {
 		list = &p.short
 	}
 	if text != "" && !slices.Contains(*list, text) {
@@ -149,12 +149,24 @@ func numberTexts(n json.Number) []string {
 }
 
 // held returns, sorted, the names of the host variables whose values text
-// holds, as written or inside a JSON string, or whose short parts text
+// holds, as written or inside a JSON string, or whose short values text
 // equals.
 func (h *hostValues) held(text string) []string {
 	var names []string
 	for _, v := range h.vars {
 		if v.masker.MaskString(text) != text || slices.Contains(v.short, text) {
+			names = append(names, v.name)
+		}
+	}
+	return names
+}
+
+// equal returns, sorted, the names of the host variables that have text as
+// one of their values.
+func (h *hostValues) equal(text string) []string {
+	var names []string
+	for _, v := range h.vars {
+		if slices.Contains(v.values, text) || slices.Contains(v.short, text) {
 			names = append(names, v.name)
 		}
 	}
@@ -303,11 +315,21 @@ func (g *hostGuard) variable(name, written, updated string) string {
 // of the call that hold them are the ones the case can set under env.
 func (g *hostGuard) keep(field string, vars []string) {
 	k := keptValue{step: g.step, field: field, vars: vars}
+	inVars := func(v string) bool { return slices.Contains(vars, v) }
 	for _, name := range slices.Sorted(maps.Keys(g.call.Env)) {
-		forwarded := slices.Contains(vars, name) && slices.Contains(g.call.Host, name)
-		if forwarded || slices.ContainsFunc(g.host.held(g.call.Env[name]), func(v string) bool { return slices.Contains(vars, v) }) {
-			k.env = append(k.env, name)
+		value := g.call.Env[name]
+		switch {
+		case inVars(name) && slices.Contains(g.call.Host, name):
+		// A variable forwarded by default, such as PATH, holds other text,
+		// so only its own value being the host value names it.
+		case config.ForwardedByDefault(name):
+			if !slices.ContainsFunc(g.host.equal(value), inVars) {
+				continue
+			}
+		case !slices.ContainsFunc(g.host.held(value), inVars):
+			continue
 		}
+		k.env = append(k.env, name)
 	}
 	g.kept = append(g.kept, k)
 }

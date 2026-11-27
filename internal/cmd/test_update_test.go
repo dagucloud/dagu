@@ -226,16 +226,20 @@ const (
 	updateHostToken = "host-token-7f3a"
 	updatePassToken = "pass-token-91c2"
 	updateForwarded = "forwarded-5d0e"
+	// updateHostRegion is shorter than four characters, so only a value
+	// equal to it holds it.
+	updateHostRegion = "us"
 )
 
-// hostValuesDAG reads a host variable into a DAG env entry, which reaches a
+// hostValuesDAG reads host variables into DAG env entries, which reach a
 // run text, a variable, and a with input.
 const hostValuesDAG = `env:
   - TOKEN: ${TEST_UPDATE_HOST_TOKEN}
+  - AREA: ${TEST_UPDATE_HOST_REGION}
   - REGION: eu-west-1
 steps:
   - id: deploy
-    run: ./deploy.sh ${env.TOKEN}
+    run: ./deploy.sh ${env.TOKEN} --zone us-east-1
   - id: notify
     depends: deploy
     action: http.request
@@ -250,12 +254,18 @@ steps:
 // holds the value of a host variable stays as written, and so does a
 // variable that Dagu forwards from the host, also one forwarded by default.
 // Each kept value has a line that names the env entries to set, and the
-// report masks host values. A case that sets those entries in env is
-// rewritten. t.Setenv rules out t.Parallel.
+// report masks host values. A host value shorter than four characters
+// counts only where a value equals it, and a variable forwarded by default,
+// such as PATH, is named only when its value is the host value. A case
+// that sets those entries in env is rewritten. t.Setenv rules out
+// t.Parallel.
 func TestTestUpdateHostValues(t *testing.T) {
 	t.Setenv("TEST_UPDATE_HOST_TOKEN", updateHostToken)
 	t.Setenv("TEST_UPDATE_PASS_TOKEN", updatePassToken)
 	t.Setenv("DAG_TEST_UPDATE_FORWARDED", updateForwarded)
+	t.Setenv("TEST_UPDATE_HOST_REGION", updateHostRegion)
+	// PATH holds the passed-through token and "us", as in /usr/bin.
+	t.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+filepath.Join(string(filepath.Separator)+"usr", updatePassToken))
 
 	home := writeInitDAG(t, "deploy.yaml", hostValuesDAG)
 	require.NoError(t, os.WriteFile(filepath.Join(home, "config.yaml"), []byte("env_passthrough: [TEST_UPDATE_PASS_TOKEN]\n"), 0o600))
@@ -272,6 +282,7 @@ func TestTestUpdateHostValues(t *testing.T) {
               TOKEN: old
               TEST_UPDATE_PASS_TOKEN: old
               DAG_TEST_UPDATE_FORWARDED: old
+              AREA: old
               REGION: ` + region + `
         notify:
           called_with:
@@ -308,15 +319,17 @@ func TestTestUpdateHostValues(t *testing.T) {
 	assert.Equal(t, testExitFailed, exit.code)
 	assertInOrder(t, stdout,
 		"FAIL "+reported+": host values stay out (",
-		`  step deploy called_with.run: expected "./deploy.sh old", got "./deploy.sh *******"`+"\n",
+		`  step deploy called_with.run: expected "./deploy.sh old", got "./deploy.sh ******* --zone us-east-1"`+"\n",
 		`  step deploy called_with.env.TOKEN: expected "old", got "*******"`+"\n",
 		`  step deploy called_with.env.TEST_UPDATE_PASS_TOKEN: expected "old", got "*******"`+"\n",
 		`  step deploy called_with.env.DAG_TEST_UPDATE_FORWARDED: expected "old", got "`+updateForwarded+`"`+"\n",
+		`  step deploy called_with.env.AREA: expected "old", got "*******"`+"\n",
 		`  step notify called_with.with.headers: expected {"Authorization":"Bearer old"}, got {"Authorization":"Bearer *******"}`+"\n",
 		"  step deploy called_with.run: kept, it holds the value of host variable TEST_UPDATE_HOST_TOKEN; set TOKEN under env\n",
 		"  step deploy called_with.env.TOKEN: kept, it holds the value of host variable TEST_UPDATE_HOST_TOKEN; set TOKEN under env\n",
 		"  step deploy called_with.env.TEST_UPDATE_PASS_TOKEN: kept, it holds the value of host variable TEST_UPDATE_PASS_TOKEN; set TEST_UPDATE_PASS_TOKEN under env\n",
 		"  step deploy called_with.env.DAG_TEST_UPDATE_FORWARDED: kept, it holds the value of host variable DAG_TEST_UPDATE_FORWARDED; set DAG_TEST_UPDATE_FORWARDED under env\n",
+		"  step deploy called_with.env.AREA: kept, it holds the value of host variable TEST_UPDATE_HOST_REGION; set AREA under env\n",
 		"  step notify called_with.with.headers: kept, it holds the value of host variable TEST_UPDATE_HOST_TOKEN; set TOKEN under env\n",
 		"  expect updated\n",
 		"PASS "+reported+": the case sets the token (", "  expect updated\n")
@@ -338,6 +351,7 @@ func TestTestUpdateHostValues(t *testing.T) {
 		{Step: "deploy", Field: "called_with.env.TOKEN", Variables: []string{"TEST_UPDATE_HOST_TOKEN"}, Env: []string{"TOKEN"}},
 		{Step: "deploy", Field: "called_with.env.TEST_UPDATE_PASS_TOKEN", Variables: []string{"TEST_UPDATE_PASS_TOKEN"}, Env: []string{"TEST_UPDATE_PASS_TOKEN"}},
 		{Step: "deploy", Field: "called_with.env.DAG_TEST_UPDATE_FORWARDED", Variables: []string{"DAG_TEST_UPDATE_FORWARDED"}, Env: []string{"DAG_TEST_UPDATE_FORWARDED"}},
+		{Step: "deploy", Field: "called_with.env.AREA", Variables: []string{"TEST_UPDATE_HOST_REGION"}, Env: []string{"AREA"}},
 		{Step: "notify", Field: "called_with.with.headers", Variables: []string{"TEST_UPDATE_HOST_TOKEN"}, Env: []string{"TOKEN"}},
 	}, report.Cases[0].UpdateKept)
 	assert.Empty(t, report.Cases[1].UpdateKept)
