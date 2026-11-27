@@ -77,6 +77,12 @@ func (a *Agent) resolveStartup(ctx context.Context) (startupResolution, error) {
 		if result.profileErr != nil || ctx.Err() != nil {
 			return
 		}
+		// Connections are checked first, since a connection secret takes
+		// its token from a checked connection.
+		result.connectionErr = snapshot.checkConnections(ctx)
+		if result.connectionErr != nil || ctx.Err() != nil {
+			return
+		}
 		result.secrets, result.secretErr = snapshot.resolveSecrets(ctx, result.profileValues)
 		if result.secretErr != nil || ctx.Err() != nil {
 			return
@@ -87,10 +93,6 @@ func (a *Agent) resolveStartup(ctx context.Context) (startupResolution, error) {
 			return
 		}
 		result.credentials, result.secretErr = snapshot.resolveCredentialRefs(ctx, result.binding)
-		if result.secretErr != nil || ctx.Err() != nil {
-			return
-		}
-		result.connectionErr = snapshot.checkConnections(ctx)
 	}()
 	select {
 	case result := <-resolved:

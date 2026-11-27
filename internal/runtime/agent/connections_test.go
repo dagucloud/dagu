@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
@@ -29,6 +30,8 @@ func (c *missingConnections) CheckConnection(_ context.Context, workspace string
 	c.checks = append(c.checks, fmt.Sprintf("%s/%s%v", workspace, ref.Name, ref.Servers))
 	return fmt.Errorf("connection %q not found", ref.Name)
 }
+
+func (c *missingConnections) Connections(string) providers.Connections { return nil }
 
 // Every declared connection is checked in the run's workspace, and a failed
 // check fails the run before its first step, naming each connection.

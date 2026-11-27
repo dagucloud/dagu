@@ -49,7 +49,7 @@ func (c *Context) runtimeStores() executionStores {
 		stores.Nodes = inventory.NewProjectNodes(inventories, c.runtimeWorkerNodeStore())
 	}
 	if c.serverStores != nil {
-		stores.Connections = agent.NewStoreConnectionChecker(c.serverStores.ConnectionStore)
+		stores.Connections = agent.NewStoreConnectionChecker(c.serverStores.ConnectionStore, c.serverStores.ConnectionLocks())
 	}
 	if c.Config.ProjectsEnabled {
 		if stores.SecretStore != nil {

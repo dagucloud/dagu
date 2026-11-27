@@ -37,6 +37,10 @@ import (
 //nolint:gosec // A fixed provider endpoint, not a credential.
 const googleTokenURL = "https://oauth2.googleapis.com/token"
 
+// ExportMinTTL is the minTTL that a token exported to a step's environment
+// asks for, since the step cannot ask again when the token runs low.
+const ExportMinTTL = 50 * time.Minute
+
 // OAuth error codes that the broker handles apart from transient failures.
 const (
 	codeInvalidGrant       = "invalid_grant"
