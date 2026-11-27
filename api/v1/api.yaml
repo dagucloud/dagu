@@ -9954,11 +9954,17 @@ paths:
           description: "The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header."
           schema:
             type: string
+        - name: If-None-Match
+          in: header
+          required: false
+          description: "Not allowed: only the creation of a skill takes If-None-Match. The header gives 400."
+          schema:
+            type: string
       responses:
         "204":
           description: "Skill deleted"
         "400":
-          description: "Invalid skill name"
+          description: "Invalid skill name or precondition header"
           content:
             application/json:
               schema:

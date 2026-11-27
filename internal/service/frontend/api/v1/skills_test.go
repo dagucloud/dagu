@@ -257,6 +257,7 @@ func TestSkillsDelete(t *testing.T) {
 
 	deleteSkill(server, "/api/v1/skills/refund-policy", nil).ExpectStatus(http.StatusPreconditionRequired).Send(t)
 	deleteSkill(server, "/api/v1/skills/refund-policy", skillIfMatch(strings.Repeat("0", 64))).ExpectStatus(http.StatusConflict).Send(t)
+	deleteSkill(server, "/api/v1/skills/refund-policy", map[string]string{"If-Match": h, "If-None-Match": "*"}).ExpectStatus(http.StatusBadRequest).Send(t)
 	deleteSkill(server, "/api/v1/skills/refund-policy", skillIfMatch(h)).ExpectStatus(http.StatusNoContent).Send(t)
 	_, err := os.Stat(filepath.Join(skillsDir(server), "refund-policy"))
 	assert.ErrorIs(t, err, os.ErrNotExist, "the whole folder goes")

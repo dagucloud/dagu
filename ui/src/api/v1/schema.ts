@@ -22495,6 +22495,8 @@ export interface operations {
             header?: {
                 /** @description The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header. */
                 "If-Match"?: string;
+                /** @description Not allowed: only the creation of a skill takes If-None-Match. The header gives 400. */
+                "If-None-Match"?: string;
             };
             path: {
                 /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */
@@ -22511,7 +22513,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Invalid skill name */
+            /** @description Invalid skill name or precondition header */
             400: {
                 headers: {
                     [name: string]: unknown;
