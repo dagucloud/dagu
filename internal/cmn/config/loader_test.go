@@ -386,7 +386,6 @@ func TestLoad_Env(t *testing.T) {
 			Port:              50099,
 			HealthPort:        50101,
 			WorkerWaitTimeout: 90 * time.Second,
-			RequireToken:      true,
 		},
 		Worker: Worker{
 			ID:              "test-worker-123",
@@ -498,17 +497,20 @@ func TestLoad_WorkerWaitTimeout(t *testing.T) {
 	}
 }
 
-// Coordinators require the peer token unless the operator opts out.
+// require_token is unset unless the operator sets it, so the coordinator can
+// tell the default from an explicit value.
 func TestLoad_RequireToken(t *testing.T) {
 	for name, tc := range map[string]struct {
 		yaml string
 		env  map[string]string
-		want bool
+		want *bool
 	}{
-		"default":      {yaml: "# minimal config", want: true},
-		"other fields": {yaml: "coordinator:\n  port: 50099\n", want: true},
-		"opt-out":      {yaml: "coordinator:\n  require_token: false\n", want: false},
-		"opt-out env":  {yaml: "# minimal config", env: map[string]string{"DAGU_COORDINATOR_REQUIRE_TOKEN": "false"}, want: false},
+		"default":      {yaml: "# minimal config"},
+		"other fields": {yaml: "coordinator:\n  port: 50099\n"},
+		"explicit":     {yaml: "coordinator:\n  require_token: true\n", want: new(true)},
+		"opt-out":      {yaml: "coordinator:\n  require_token: false\n", want: new(false)},
+		"opt-out env":  {yaml: "# minimal config", env: map[string]string{"DAGU_COORDINATOR_REQUIRE_TOKEN": "false"}, want: new(false)},
+		"explicit env": {yaml: "# minimal config", env: map[string]string{"DAGU_COORDINATOR_REQUIRE_TOKEN": "true"}, want: new(true)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := loadWithEnv(t, tc.yaml, tc.env)
@@ -1347,7 +1349,6 @@ scheduler:
 			Port:              8081,
 			HealthPort:        8091,
 			WorkerWaitTimeout: 2 * time.Minute,
-			RequireToken:      true,
 		},
 		Worker: Worker{
 			ID:              "worker-1",

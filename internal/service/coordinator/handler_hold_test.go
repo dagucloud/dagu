@@ -192,7 +192,7 @@ func TestDispatchFailureNamesPeerTokenRefusal(t *testing.T) {
 	const note = "workers were refused for a missing or different peer token"
 	refuseMethod := func(t *testing.T, h *Handler, method string) {
 		t.Helper()
-		h.peerAuth = NewPeerTokenAuth("coordinator-token", false, true)
+		h.peerAuth = NewPeerTokenAuth("coordinator-token", false, true, false)
 		ctx := callContext(t, newPeerTokenCredentials("", ""))
 		require.Error(t, h.peerAuth.authorize(ctx, method))
 	}
@@ -228,7 +228,7 @@ func TestDispatchFailureNamesPeerTokenRefusal(t *testing.T) {
 	// offer it.
 	t.Run("configured token", func(t *testing.T) {
 		f := newHoldFixture(t, 0)
-		f.h.peerAuth = NewPeerTokenAuth("coordinator-token", true, true)
+		f.h.peerAuth = NewPeerTokenAuth("coordinator-token", true, true, false)
 		ctx := callContext(t, newPeerTokenCredentials("", ""))
 		require.Error(t, f.h.peerAuth.authorize(ctx, coordinatorv1.CoordinatorService_Poll_FullMethodName))
 		_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: cpuTask("run-refused")})
@@ -261,7 +261,7 @@ func TestDispatchFailureNamesPeerTokenRefusal(t *testing.T) {
 
 	t.Run("no refusal", func(t *testing.T) {
 		f := newHoldFixture(t, 0)
-		f.h.peerAuth = NewPeerTokenAuth("coordinator-token", false, true)
+		f.h.peerAuth = NewPeerTokenAuth("coordinator-token", false, true, false)
 		_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: cpuTask("run-refused")})
 		require.Error(t, err)
 		assert.NotContains(t, err.Error(), note)

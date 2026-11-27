@@ -287,27 +287,36 @@ func coordinatorConnections(ctx *Context) (connection.Store, broker.Source) {
 }
 
 // coordinatorPeerAuth checks the peer token on coordinator calls: the
-// configured peer.token, or the token generated in the data directory. When the
-// generated token cannot be prepared and no token is required, the coordinator
-// still starts and accepts calls with a warning, as it did before peer tokens.
+// configured peer.token, or the token generated in the data directory.
+//
+// A coordinator that verifies client certificates already authenticates its
+// peers, so a verified certificate stands in for the token unless the
+// operator sets coordinator.require_token: true to require both. When the
+// generated token cannot be prepared and no call can need it, the coordinator
+// still starts.
 func coordinatorPeerAuth(ctx *Context, cfg *config.Config) (*coordinator.PeerTokenAuth, error) {
-	require := cfg.Coordinator.RequireToken
-	if token := cfg.Core.Peer.Token; token != "" {
-		return coordinator.NewPeerTokenAuth(token, true, require), nil
+	peer := cfg.Core.Peer
+	verifiesCerts := peer.CertFile != "" && peer.KeyFile != "" && peer.ClientCaFile != ""
+	explicit := cfg.Coordinator.RequireToken
+	require := explicit == nil || *explicit
+	trustCerts := verifiesCerts && (explicit == nil || !*explicit)
+	if peer.Token != "" {
+		return coordinator.NewPeerTokenAuth(peer.Token, true, require, trustCerts), nil
 	}
-	token, err := coordinator.LoadOrCreatePeerToken(cfg.Core.Peer.TokenFile)
+	token, err := coordinator.LoadOrCreatePeerToken(peer.TokenFile)
 	if err != nil {
-		if require {
-			return nil, fmt.Errorf("coordinator.require_token is true, but the peer token could not be prepared (set peer.token, or coordinator.require_token: false): %w", err)
+		if require && !trustCerts {
+			return nil, fmt.Errorf("the coordinator requires a peer token, but it could not be prepared (set peer.token, or coordinator.require_token: false): %w", err)
 		}
 		logger.Warn(ctx, "Coordinator runs without a peer token", tag.Error(err))
-		return coordinator.NewPeerTokenAuth("", false, false), nil
+		return coordinator.NewPeerTokenAuth("", false, require, trustCerts), nil
 	}
 	logger.Info(ctx, "Coordinator peer token",
-		slog.String("file", cfg.Core.Peer.TokenFile),
+		slog.String("file", peer.TokenFile),
 		slog.Bool("required", require),
+		slog.Bool("client-certificates", trustCerts),
 	)
-	return coordinator.NewPeerTokenAuth(token, false, require), nil
+	return coordinator.NewPeerTokenAuth(token, false, require, trustCerts), nil
 }
 
 // loadCoordinatorTLSCredentials loads TLS credentials for the coordinator server.

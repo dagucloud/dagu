@@ -51,7 +51,7 @@ func TestCoordinatorClientSendsPeerToken(t *testing.T) {
 				token, err = coordinator.LoadOrCreatePeerToken(coordinatorCfg.Core.Peer.TokenFile)
 				require.NoError(t, err)
 			}
-			auth := coordinator.NewPeerTokenAuth(token, tc.token != "", true)
+			auth := coordinator.NewPeerTokenAuth(token, tc.token != "", true, false)
 			server := grpc.NewServer(grpc.ChainUnaryInterceptor(auth.UnaryInterceptor()))
 			coordinatorv1.RegisterCoordinatorServiceServer(server, workersOnlyServer{})
 			listener, err := net.Listen("tcp", "127.0.0.1:0")

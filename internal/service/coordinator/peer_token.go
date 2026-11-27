@@ -20,6 +20,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
@@ -156,15 +157,18 @@ func (c *peerTokenCredentials) current() string {
 
 // PeerTokenAuth checks the peer token on coordinator calls.
 //
-// A call with the coordinator's token passes. A call with another token fails
-// when the token was configured or required, since only a generated token can
-// differ between coordinators that do not share a data directory. A call
-// without a token fails when the token is required; otherwise it passes and
-// the coordinator logs a warning. The coordinator also logs refused calls.
+// A call with the coordinator's token passes, and so does a call over a
+// client certificate the coordinator verified when certificates are trusted.
+// A call with another token fails when the token was configured or required,
+// since only a generated token can differ between coordinators that do not
+// share a data directory. A call without a token fails when the token is
+// required; otherwise it passes and the coordinator logs a warning. The
+// coordinator also logs refused calls.
 type PeerTokenAuth struct {
 	token      string
 	configured bool
 	require    bool
+	trustCerts bool
 
 	mu             sync.Mutex
 	lastWarn       time.Time
@@ -175,9 +179,10 @@ type PeerTokenAuth struct {
 }
 
 // NewPeerTokenAuth returns a check for token. configured reports whether the
-// token came from peer.token, and require whether calls must carry it.
-func NewPeerTokenAuth(token string, configured, require bool) *PeerTokenAuth {
-	return &PeerTokenAuth{token: token, configured: configured, require: require}
+// token came from peer.token, require whether calls must carry it, and
+// trustCerts whether a verified client certificate stands in for it.
+func NewPeerTokenAuth(token string, configured, require, trustCerts bool) *PeerTokenAuth {
+	return &PeerTokenAuth{token: token, configured: configured, require: require, trustCerts: trustCerts}
 }
 
 // UnaryInterceptor checks the peer token on unary calls.
@@ -202,6 +207,9 @@ func (a *PeerTokenAuth) StreamInterceptor() grpc.StreamServerInterceptor {
 
 func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
 	if strings.HasPrefix(method, grpcHealthMethodPrefix) {
+		return nil
+	}
+	if a.trustCerts && verifiedClientCert(ctx) {
 		return nil
 	}
 	var got string
@@ -301,6 +309,17 @@ func logDue(last *time.Time, now time.Time) bool {
 	}
 	*last = now
 	return true
+}
+
+// verifiedClientCert reports whether the call arrived over TLS with a client
+// certificate that the coordinator verified against its client CA.
+func verifiedClientCert(ctx context.Context) bool {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return false
+	}
+	info, ok := p.AuthInfo.(credentials.TLSInfo)
+	return ok && len(info.State.VerifiedChains) > 0
 }
 
 func peerAddr(ctx context.Context) string {
