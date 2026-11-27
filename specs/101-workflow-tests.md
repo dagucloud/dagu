@@ -977,16 +977,17 @@ A case's run reads the host environment as a run of `dagu start` does. A
 host value is the value of a variable that the run takes from it:
 
 - a variable that resolving the DAG and its steps reads from the host, such
-  as `HOST_TOKEN` in a DAG `env` entry `TOKEN: ${HOST_TOKEN}` or in
-  `${env.HOST_TOKEN}`. A JSON path into a host variable, such as
-  `${HOST_JSON.token}`, takes the part it selects.
+  as `HOST_TOKEN` in a DAG `env` entry `TOKEN: ${HOST_TOKEN}`, in
+  `${env.HOST_TOKEN}`, or in a JSON path such as `${HOST_JSON.token}`.
 - a variable that Dagu passes to steps because `env_passthrough` or
   `env_passthrough_prefixes` in the configuration names it.
 
-The variables that Dagu passes to every step whatever the configuration
-have no host value: its fixed allowlist, such as `PATH` and `HOME`, and the
-names that start with `DAGU_`, `DAG_`, `LC_`, or `KUBERNETES_`. An empty
-value is no host value either.
+When the value is JSON, each string in it is a host value too, since a JSON
+path or the listed keys of an assertion can take a part of it, also through
+a DAG `env` entry. The variables that Dagu passes to every step whatever
+the configuration have no host value: its fixed allowlist, such as `PATH`
+and `HOME`, and the names that start with `DAGU_`, `DAG_`, `LC_`, or
+`KUBERNETES_`. An empty string is no host value either.
 
 Rules:
 
@@ -995,7 +996,8 @@ Rules:
   part that a shell-style operator takes from a host value, such as
   `${HOST_TOKEN#Bearer }`, is not matched.
 - The text and the JSON report mask host values in the values of a failed
-  output or `called_with` assertion, as they mask secrets.
+  output or `called_with` assertion, as they mask secrets. Notification
+  recipients are written as the run resolved them.
 - `--update` writes no value that holds a host value, and no `called_with`
   variable whose value the step takes from the host. See
   [Authoring Flags](#authoring-flags).
@@ -1229,13 +1231,14 @@ Rules:
   `<label>: kept, it holds the value of host variable <names>; set <variables> under env`.
   `<label>` is the start of the assertion's failure line:
   `step <key> output <name>`, `step <key> called_with.run`,
-  `step <key> called_with.with.<name>`, or
-  `step <key> called_with.env.<name>`. `<names>` lists the host variables
-  whose values the run's value holds, sorted and separated by `, `, and the
-  line reads `the values of host variables` when there are more than one.
+  `step <key> called_with.with.<name>`, `step <key> called_with.env.<name>`,
+  or `notifications`. `<names>` lists the host variables whose values the
+  run's value holds, sorted and separated by `, `, and the line reads
+  `the values of host variables` when there are more than one.
   `<variables>` lists the variables of the step's call that hold those
   values, sorted and separated by `, `. `; set <variables> under env` is
-  left out when no variable of the call holds them.
+  left out when no variable of the call holds them, and always for
+  `notifications`.
 - `<steps>` lists step labels in the order the DAG declares the steps, then
   handlers, separated by `, `. A step label is the step's `id`, or its
   `name` when it has no `id`, and a handler's label is
@@ -1340,9 +1343,10 @@ Failure object:
 | `expected` | except for `called_with`, `limit`, and `error` | For `status` and `attempts`, the expected token or number. For `outputs.<name>`, the expected value, with host values masked. For a stream, the text or expression. For a `called_with` part, the expected text, expression, or value, with secrets and host values masked. For `notifications`, the expected list of notification objects. For `timeout`, the `--timeout` limit in milliseconds |
 | `actual` | for `status`, `attempts`, `notifications`, `limit`, `error`, a published output, and a `called_with` part that the call has | The actual token or number, the published value (a string for a text output, the JSON value for a `type: json` output) with host values masked, the resolved run text, `with` input, or variable, with secrets and host values masked, the actual list of notification objects, for `limit`, the resolved limit as a string, or, for `error`, the reason a run could not complete (see [Timeout, Limits, and Interrupt](#timeout-limits-and-interrupt)) |
 
-Kept object: `step`, the step key as `expect.steps` writes it; `field`, the
-assertion's field as a failure object names it, `outputs.<name>`,
-`called_with.run`, `called_with.with.<name>`, or `called_with.env.<name>`;
+Kept object: `step`, the step key as `expect.steps` writes it, present for
+a step assertion; `field`, the assertion's field as a failure object names
+it, `outputs.<name>`, `called_with.run`, `called_with.with.<name>`,
+`called_with.env.<name>`, or `notifications`;
 `variables`, the host variables whose values the run's value holds, sorted;
 and `env`, present when any, the variables of the step's call that hold
 them, sorted. See [Host Values](#host-values).
@@ -1467,12 +1471,13 @@ a step it adds in the same shape:
   reports them as failures. No `called_with` is added.
 - No value from the host is written. An output, a `called_with` `run`, a
   `with` input, or a variable whose run value holds a host value (see
-  [Host Values](#host-values)) stays as written. So does a `called_with`
+  [Host Values](#host-values)) stays as written, and so do `notifications`
+  when a recipient of the sent ones holds one. So does a `called_with`
   variable whose value the step takes from the host, which Dagu passes to
   steps with no DAG, step, or case `env` entry in its place, a variable of
   the fixed allowlist such as `HOME` included. The case reports each as a
-  failure, with host values masked, and a line names the host variables and
-  the variables to set under the case's `env`, such as
+  failure, masked as [Host Values](#host-values) says, and a line names the
+  host variables and the variables to set under the case's `env`, such as
   `step deploy called_with.env.TOKEN: kept, it holds the value of host variable HOST_TOKEN; set TOKEN under env`.
   Once the case sets those variables, its run takes their values from the
   case, and `--update` writes the values that hold no host value.
