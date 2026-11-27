@@ -1303,7 +1303,11 @@ func testFailedStartKeepsTheCleanup(t *testing.T, failAfterExit bool) {
 	first.Env = []string{"PATH=/usr/bin:/bin"}
 	var stdout bytes.Buffer
 	first.Stdout = &stdout
-	failing := exec.Command(filepath.Join(workDir, "no-such-binary")) //nolint:gosec
+	// The start helper runs a missing command and exits with 127, so the
+	// start of a command whose context has ended is the one that fails.
+	ended, cancel := context.WithCancel(ctx)
+	cancel()
+	failing := exec.CommandContext(ended, "/bin/true")
 	failing.Dir = workDir
 
 	if failAfterExit {
