@@ -6,7 +6,6 @@ package spec102_projects_test
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -48,7 +47,7 @@ func TestAPIChoosesProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, code, body)
 	require.Contains(t, body, "projects with a DAG of that name: intraday")
 
-	code, body = post(t, base+"/dags/forecast/start?project=intraday")
+	code, body = post(t, base+"/dags/forecast/start?project=intraday", "", "{}")
 	require.Equal(t, http.StatusOK, code, body)
 	var started struct {
 		DagRunID string `json:"dagRunId"`
@@ -80,19 +79,4 @@ func listedDAGs(t *testing.T, url string) []string {
 		names = append(names, dag.FileName)
 	}
 	return names
-}
-
-// post makes a POST request with an empty JSON body and returns the status
-// code and body.
-func post(t *testing.T, url string) (int, string) {
-	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, strings.NewReader("{}"))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	data, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	return resp.StatusCode, string(data)
 }

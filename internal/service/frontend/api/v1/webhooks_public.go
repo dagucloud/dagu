@@ -249,10 +249,14 @@ const webhookRestoreTimeout = time.Minute
 // behind, where its local endpoint and public URL could no longer start the
 // DAG. It reports whether the DAG had a webhook to move.
 func (a *API) moveWebhookForRename(ctx context.Context, oldName, newName string) (bool, error) {
-	if !a.ownsWebhooks() {
+	webhooks, err := a.dagWebhooks(ctx)
+	if err != nil {
+		return false, err
+	}
+	if webhooks == nil {
 		return false, nil
 	}
-	err := a.authService.RenameWebhook(ctx, oldName, newName)
+	err = webhooks.RenameDAG(ctx, oldName, newName)
 	switch {
 	case err == nil:
 		return true, nil
@@ -275,7 +279,11 @@ func (a *API) moveWebhookForRename(ctx context.Context, oldName, newName string)
 func (a *API) restoreWebhookAfterFailedRename(ctx context.Context, oldName, newName string) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), webhookRestoreTimeout)
 	defer cancel()
-	if err := a.authService.RenameWebhook(ctx, newName, oldName); err != nil {
+	webhooks, err := a.dagWebhooks(ctx)
+	if err == nil && webhooks != nil {
+		err = webhooks.RenameDAG(ctx, newName, oldName)
+	}
+	if err != nil {
 		logger.Error(ctx, "Failed to move webhook back after a failed rename",
 			tag.Error(err),
 			slog.String("old_name", oldName),

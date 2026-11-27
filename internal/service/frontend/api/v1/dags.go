@@ -285,9 +285,12 @@ func (a *API) DeleteDAG(ctx context.Context, request api.DeleteDAGRequestObject)
 		return nil, fmt.Errorf("error deleting DAG: %w", err)
 	}
 
-	if a.ownsWebhooks() {
-		webhook, _ := a.authService.GetWebhookByDAGName(ctx, request.FileName)
-		if err := a.authService.DeleteWebhook(ctx, request.FileName); err != nil && !errors.Is(err, auth.ErrWebhookNotFound) {
+	webhooks, err := a.dagWebhooks(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Failed to delete webhook for deleted DAG", tag.Name(request.FileName), tag.Error(err))
+	} else if webhooks != nil {
+		webhook, _ := webhooks.GetByDAGName(ctx, request.FileName)
+		if err := webhooks.DeleteByDAGName(ctx, request.FileName); err != nil && !errors.Is(err, auth.ErrWebhookNotFound) {
 			logger.Warn(ctx, "Failed to delete webhook for deleted DAG",
 				tag.Name(request.FileName),
 				tag.Error(err),

@@ -315,11 +315,52 @@ func (a *API) inOtherProject() bool {
 	return name != "" && !strings.EqualFold(name, project.DefaultName)
 }
 
-// ownsWebhooks reports whether the API keeps the webhooks of its DAGs. The
-// webhook store holds the default project's webhooks only, so the API of
-// another project leaves them alone when its DAGs are deleted or renamed.
-func (a *API) ownsWebhooks() bool {
-	return a.authService != nil && a.authService.HasWebhookStore() && !a.inOtherProject()
+// dagWebhookStore holds the webhooks of the DAGs of one project, by DAG
+// name.
+type dagWebhookStore interface {
+	GetByDAGName(ctx context.Context, dagName string) (*auth.Webhook, error)
+	DeleteByDAGName(ctx context.Context, dagName string) error
+	RenameDAG(ctx context.Context, oldName, newName string) error
+}
+
+// dagWebhooks returns the webhooks of the API's project, or nil when the
+// project keeps none. The default project's are the auth service's; another
+// project's are in its own store.
+func (a *API) dagWebhooks(ctx context.Context) (dagWebhookStore, error) {
+	if !a.inOtherProject() {
+		if a.authService == nil || !a.authService.HasWebhookStore() {
+			return nil, nil
+		}
+		return serviceWebhooks{a.authService}, nil
+	}
+	if a.webhookProjects == nil {
+		return nil, nil
+	}
+	target, err := a.webhookProjects.Get(ctx, a.dagRunMgr.Project())
+	if err != nil {
+		return nil, fmt.Errorf("open the webhooks of project %s: %w", a.dagRunMgr.Project(), err)
+	}
+	if target.Webhooks == nil {
+		return nil, nil
+	}
+	return target.Webhooks, nil
+}
+
+// serviceWebhooks reaches the webhooks that the auth service keeps.
+type serviceWebhooks struct {
+	service AuthService
+}
+
+func (s serviceWebhooks) GetByDAGName(ctx context.Context, dagName string) (*auth.Webhook, error) {
+	return s.service.GetWebhookByDAGName(ctx, dagName)
+}
+
+func (s serviceWebhooks) DeleteByDAGName(ctx context.Context, dagName string) error {
+	return s.service.DeleteWebhook(ctx, dagName)
+}
+
+func (s serviceWebhooks) RenameDAG(ctx context.Context, oldName, newName string) error {
+	return s.service.RenameWebhook(ctx, oldName, newName)
 }
 
 // requireDeveloperInScope requires the developer role or above: in the

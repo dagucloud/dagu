@@ -124,8 +124,8 @@ type API struct {
 	apiKeyWriteMu        sync.Mutex // Serializes API key writes, so each checks the state it changes
 	workspaceStore       workspace.Store
 	projectAccess        *projectaccess.Checker
-	runLogDir            string // Logs of the runs that the API queues
-	runArtifactDir       string // Artifacts of the runs that the API queues
+	runLogDir            string                 // Logs of the runs that the API queues
+	runArtifactDir       string                 // Artifacts of the runs that the API queues
 	projectRequests      *projectaccess.Checker // Decides the projects a request may name
 	projectAPIs          func(project.Project) (*API, bool)
 	projectDAGs          func(project.Project) (*persis.DAGRepository, bool)

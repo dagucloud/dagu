@@ -11,11 +11,13 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/project"
+	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -215,9 +217,10 @@ func waitingRun(details api.DAGRunDetails) bool {
 	return details.Status == api.Status(ir.Waiting)
 }
 
-// Deleting or renaming a project's DAG leaves alone the webhook and the pin
-// of the default project's DAG of the same name, and does not tell whether
-// the default project has a webhook under the new name.
+// Deleting or renaming a project's DAG moves or removes the project's own
+// webhook of the DAG, and leaves alone the webhook and the pin of the
+// default project's DAG of the same name. The default project's webhook
+// under the new name does not refuse the rename.
 func TestProjectParam_DAGChangesStayInProject(t *testing.T) {
 	t.Parallel()
 	server, token := setupProjectDAGsServer(t)
@@ -228,19 +231,43 @@ func TestProjectParam_DAGChangesStayInProject(t *testing.T) {
 	}
 	server.Client().Put("/api/v1/dags/etl/pin", nil).WithBearerToken(token).
 		ExpectStatus(http.StatusNoContent).Send(t)
+	_, err := authservice.New(nil, authservice.Config{}, authservice.WithWebhookStore(projectWebhooks(t, server, "payments"))).
+		CreateWebhook(server.Context, "etl", "admin")
+	require.NoError(t, err)
 
 	assert.Empty(t, pinnedDAGNames(t, server, token, "/api/v1/dags?project=payments"))
 
 	server.Client().Post("/api/v1/dags/etl/rename?project=payments", api.RenameDAGJSONRequestBody{NewFileName: "cleanup"}).
 		WithBearerToken(token).ExpectStatus(http.StatusOK).Send(t)
+	_, err = projectWebhooks(t, server, "payments").GetByDAGName(server.Context, "etl")
+	require.ErrorIs(t, err, auth.ErrWebhookNotFound)
+	_, err = projectWebhooks(t, server, "payments").GetByDAGName(server.Context, "cleanup")
+	require.NoError(t, err, "the project's webhook moves with its DAG")
+
 	server.Client().Delete("/api/v1/dags/cleanup?project=payments").WithBearerToken(token).
 		ExpectStatus(http.StatusNoContent).Send(t)
+	_, err = projectWebhooks(t, server, "payments").GetByDAGName(server.Context, "cleanup")
+	require.ErrorIs(t, err, auth.ErrWebhookNotFound, "the project's webhook goes with its DAG")
 
 	for _, name := range []string{"etl", "cleanup"} {
 		server.Client().Get("/api/v1/dags/" + name + "/webhook").WithBearerToken(token).
 			ExpectStatus(http.StatusOK).Send(t)
 	}
 	assert.Equal(t, []string{"etl"}, pinnedDAGNames(t, server, token, "/api/v1/dags"))
+}
+
+// projectWebhooks opens the webhooks of the project called name. The store
+// reads its index when it opens, so each check opens it again.
+func projectWebhooks(t *testing.T, server test.Server, name string) auth.WebhookStore {
+	t.Helper()
+	stores := file.NewServerStores(server.Config)
+	settings, err := file.NewProjectSettings(server.Config, stores, name)
+	require.NoError(t, err)
+	enc, err := stores.Encryptor()
+	require.NoError(t, err)
+	webhooks, err := settings.WebhookStore(enc)
+	require.NoError(t, err)
+	return webhooks
 }
 
 func pinnedDAGNames(t *testing.T, server test.Server, token, path string) []string {

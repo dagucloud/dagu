@@ -101,13 +101,22 @@ func SetupServer(t *testing.T, opts ...HelperOption) Server {
 func (srv *Server) newFrontendServer(t *testing.T, listener net.Listener) (*frontend.Server, error) {
 	cc := coordinator.New(srv.ServiceRegistry, CoordinatorClientConfig(srv.Config.Paths.DataDir))
 
+	serverStores := file.NewServerStores(srv.Config)
+	projects, err := srv.followProjects(t, serverStores)
+	if err != nil {
+		return nil, err
+	}
 	// Pass the pre-bound listener to the server to avoid port race conditions
-	serverOpts := append([]frontend.ServerOption{
+	serverOpts := []frontend.ServerOption{
 		frontend.WithListener(listener),
 		frontend.WithAPIOption(apiv1.WithDAGRunLeaseStore(srv.DAGRunLeaseStore)),
 		frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(srv.WorkerHeartbeatStore)),
-	}, srv.ServerOptions...)
-	serverStores := file.NewServerStores(srv.Config)
+	}
+	if projects != nil {
+		webhooks := frontendfile.NewWebhookProjects(srv.Config, serverStores, projectregistry.New(srv.Config.Paths.DataDir), projects)
+		serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithWebhookProjects(webhooks)))
+	}
+	serverOpts = append(serverOpts, srv.ServerOptions...)
 	settings, err := file.NewProjectSettings(srv.Config, serverStores, project.DefaultName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the default project's settings: %w", err)
@@ -122,10 +131,6 @@ func (srv *Server) newFrontendServer(t *testing.T, listener net.Listener) (*fron
 		srv.Backend.Collection(persis.CollectionSchedulerProcess),
 		pauses,
 	)
-	projects, err := srv.followProjects(t, serverStores)
-	if err != nil {
-		return nil, err
-	}
 	server, err := frontend.NewServer(frontend.ServerConfig{
 		Context:              srv.Context,
 		Config:               srv.Config,
