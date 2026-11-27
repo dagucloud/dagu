@@ -18,6 +18,7 @@ type resolver struct {
 	deferShellVars         bool
 	recognizeEscapedDollar bool
 	maskedReads            *maskedReads
+	hostReads              *hostReads
 }
 
 // newResolver creates a resolver from the given context and options.
@@ -30,6 +31,7 @@ func newResolver(ctx context.Context, opts *options) *resolver {
 		deferShellVars:         opts.DeferShellVars,
 		recognizeEscapedDollar: opts.RecognizeEscapedDollar,
 		maskedReads:            maskedReadsFrom(ctx),
+		hostReads:              hostReadsFrom(ctx),
 	}
 }
 
@@ -197,7 +199,7 @@ func (r *resolver) resolveForShell(name string) (string, bool) {
 		return val, true
 	}
 	if r.expandOS {
-		return lookupProcessEnv(name)
+		return r.hostReads.lookup(name)
 	}
 	return "", false
 }
@@ -209,33 +211,39 @@ func (r *resolver) resolveReference(ctx context.Context, varName, path string) (
 			return value, true
 		}
 	}
-	jsonStr, ok := r.resolveJSONSource(varName)
+	jsonStr, host, ok := r.resolveJSONSource(varName)
 	if !ok {
 		return "", false
 	}
 	// Any path into a masked variable counts, whatever part it selects.
 	r.maskedReads.noteEntry(r.scopeEntry(varName, jsonStr))
-	return resolveJSONPath(ctx, varName, jsonStr, path)
+	value, ok := resolveJSONPath(ctx, varName, jsonStr, path)
+	if ok && host {
+		r.hostReads.note(varName, value)
+	}
+	return value, ok
 }
 
 // resolveJSONSource looks up a variable's raw value for JSON path resolution.
 // Unlike resolve, this includes OS-sourced scope entries when expandOS is true,
 // because JSON path resolution needs the actual value regardless of source.
-// It records no read: the path decides what the reference reads.
-func (r *resolver) resolveJSONSource(name string) (string, bool) {
+// It records no read: the path decides what the reference reads. host reports
+// a value taken from the process environment.
+func (r *resolver) resolveJSONSource(name string) (value string, host, ok bool) {
 	if val, ok := r.peekVariable(name); ok {
-		return val, true
+		return val, false, true
 	}
 	if r.expandOS {
 		if r.scope != nil {
-			if val, ok := r.scope.Get(name); ok {
-				return val, true
+			if entry, ok := r.scope.GetEntry(name); ok {
+				return entry.Value, entry.Source == EnvSourceOS, true
 			}
 		}
-		return lookupProcessEnv(name)
+		val, ok := lookupProcessEnv(name)
+		return val, ok, ok
 	}
 	entry, ok := r.peekScopeNonOSEntry(name)
-	return entry.Value, ok
+	return entry.Value, false, ok
 }
 
 // replaceVars substitutes $VAR and ${VAR} patterns using all resolver sources.

@@ -18,7 +18,7 @@ import (
 func ExpandEnvContext(ctx context.Context, s string) string {
 	scope := GetEnvScope(ctx)
 	if scope == nil {
-		return expandWithLookup(s, lookupProcessEnv, true)
+		return expandWithLookup(s, hostReadsFrom(ctx).lookup, true)
 	}
 	return expandWithLookup(s, scopeLookup(ctx, scope), true)
 }
@@ -34,13 +34,15 @@ func expandEnvScopeOnly(ctx context.Context, s string) string {
 }
 
 // scopeLookup returns a lookup of the entries in scope that records the
-// masked reads through ctx.
+// masked reads and the host reads through ctx.
 func scopeLookup(ctx context.Context, scope *EnvScope) func(string) (string, bool) {
 	reads := maskedReadsFrom(ctx)
+	hosts := hostReadsFrom(ctx)
 	return func(key string) (string, bool) {
 		entry, ok := scope.GetEntry(key)
 		if ok {
 			reads.noteEntry(entry)
+			hosts.noteEntry(entry)
 		}
 		return entry.Value, ok
 	}

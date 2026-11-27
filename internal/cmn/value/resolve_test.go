@@ -58,7 +58,7 @@ func TestResolveJSONSource_FromScope(t *testing.T) {
 	scope = scope.WithEntry("JSONVAR", `{"a":1}`, EnvSourceDAGEnv)
 	r := &resolver{scope: scope}
 
-	val, ok := r.resolveJSONSource("JSONVAR")
+	val, _, ok := r.resolveJSONSource("JSONVAR")
 	require.True(t, ok)
 	require.Equal(t, `{"a":1}`, val)
 }
@@ -68,7 +68,7 @@ func TestResolveJSONSource_FromScopeWithExpandOS(t *testing.T) {
 	scope = scope.WithEntry("JSONVAR", `{"a":1}`, EnvSourceDAGEnv)
 	r := &resolver{scope: scope, expandOS: true}
 
-	val, ok := r.resolveJSONSource("JSONVAR")
+	val, _, ok := r.resolveJSONSource("JSONVAR")
 	require.True(t, ok)
 	require.Equal(t, `{"a":1}`, val)
 }
@@ -77,14 +77,14 @@ func TestResolveJSONSource_FromOSEnv(t *testing.T) {
 	t.Setenv("JSONOSVAR", `{"b":2}`)
 	r := &resolver{expandOS: true}
 
-	val, ok := r.resolveJSONSource("JSONOSVAR")
+	val, _, ok := r.resolveJSONSource("JSONOSVAR")
 	require.True(t, ok)
 	require.Equal(t, `{"b":2}`, val)
 }
 
 func TestResolveJSONSource_NotFound(t *testing.T) {
 	r := &resolver{}
-	_, ok := r.resolveJSONSource("NOPE_NOT_HERE_12345")
+	_, _, ok := r.resolveJSONSource("NOPE_NOT_HERE_12345")
 	assert.False(t, ok)
 }
 
@@ -422,21 +422,21 @@ func TestResolveJSONSource_WithoutExpandOS(t *testing.T) {
 
 	// OS env should not be found
 	r := &resolver{expandOS: false}
-	_, ok := r.resolveJSONSource("JSON_OS_VAR")
+	_, _, ok := r.resolveJSONSource("JSON_OS_VAR")
 	assert.False(t, ok)
 
 	// OS-sourced scope entries should not be found
 	scope := NewEnvScope(nil, false).
 		WithEntry("SCOPE_OS", `{"b":2}`, EnvSourceOS)
 	r2 := &resolver{scope: scope, expandOS: false}
-	_, ok = r2.resolveJSONSource("SCOPE_OS")
+	_, _, ok = r2.resolveJSONSource("SCOPE_OS")
 	assert.False(t, ok)
 
 	// Non-OS scope entries should still be found
 	scope2 := NewEnvScope(nil, false).
 		WithEntry("SCOPE_DAG", `{"c":3}`, EnvSourceDAGEnv)
 	r3 := &resolver{scope: scope2, expandOS: false}
-	val, ok := r3.resolveJSONSource("SCOPE_DAG")
+	val, _, ok := r3.resolveJSONSource("SCOPE_DAG")
 	require.True(t, ok)
 	require.Equal(t, `{"c":3}`, val)
 }
