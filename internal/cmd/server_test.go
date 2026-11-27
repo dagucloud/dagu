@@ -60,7 +60,6 @@ func TestServerSecondInterruptTerminatesBlockedCleanup(t *testing.T) {
 	assertSecondInterruptTerminatesBlockedCleanup(t, "server", "Resource monitoring service stopped")
 }
 
-// findPort finds an available port.
 // Test service ports come from below the ephemeral port ranges of Linux
 // (32768 and up), macOS, and Windows (49152 and up). A port the kernel hands
 // out to a port-0 bind is in that range, where an outgoing connection of a
@@ -71,6 +70,7 @@ const (
 	testPortAttempts = 100
 )
 
+// findPort finds an available port.
 func findPort(t *testing.T) string {
 	t.Helper()
 	for range testPortAttempts {
