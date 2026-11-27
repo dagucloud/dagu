@@ -36,7 +36,6 @@ func TestAdmit(t *testing.T) {
 		{name: "AgentApp", workspace: "ops", conn: "work-google", servers: []string{"gmail"}},
 		{name: "SameNameOtherWorkspace", workspace: "sales", conn: "work-google", servers: []string{"gmail"}},
 		{name: "NoServer", workspace: "ops", conn: "ops-mail"},
-		{name: "ServiceWithoutMCPServer", workspace: "ops", conn: "ops-mail", servers: []string{"mailbox"}},
 		{name: "ServiceAccountNeedsNoAgent", workspace: "ops", conn: "ops-robot", servers: []string{"gmail"}},
 		{name: "NoWorkspaceLabel", conn: "shared"},
 		// Admission reads no token state, so a broken connection runs its
@@ -59,7 +58,12 @@ func TestAdmit(t *testing.T) {
 			wantErr: `connection "work-google": server "drive" is not one of its services (gmail)`,
 		},
 		{
-			name: "AppLacksAgent", workspace: "ops", conn: "ops-mail", servers: []string{"mailbox", "gmail"},
+			// mcp.call cannot call a service whose preset has no MCP server.
+			name: "ServiceWithoutMCPServer", workspace: "ops", conn: "ops-mail", servers: []string{"mailbox"},
+			wantErr: `connection "ops-mail": service "mailbox" has no MCP server`,
+		},
+		{
+			name: "AppLacksAgent", workspace: "ops", conn: "ops-mail", servers: []string{"gmail"},
 			wantErr: `connection "ops-mail": app "google-std" lacks the agent flag, which Google MCP server "gmail" needs`,
 		},
 	}

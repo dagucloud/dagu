@@ -16,9 +16,9 @@ import (
 // Admit checks that a run of a DAG in workspace may use the connection
 // named name, calling servers through it as MCP servers. It fails with an
 // error that names the connection when the workspace has no such
-// connection, when a server is not one of its services, or when a Google
-// MCP server on a connection that signs in a user needs an app with Agent
-// set.
+// connection, when a server is not one of its services or its preset has
+// no MCP server, or when a Google MCP server on a connection that signs in
+// a user needs an app with Agent set.
 //
 // An empty workspace is that of DAGs without a workspace label, whose
 // connections are in secret.GlobalWorkspace. No other workspace falls back
@@ -39,6 +39,9 @@ func Admit(ctx context.Context, store Store, workspace, name string, servers []s
 	for _, server := range servers {
 		if !slices.ContainsFunc(conn.Services, func(svc Service) bool { return svc.Name == server }) {
 			return fmt.Errorf("connection %q: server %q is not one of its services (%s)", name, server, serviceNames(conn.Services))
+		}
+		if p, ok := LookupPreset(conn.Provider, server); ok && p.MCPURL == "" {
+			return fmt.Errorf("connection %q: service %q has no MCP server", name, server)
 		}
 		if agentServer == "" && conn.needsAgent(server) {
 			agentServer = server
