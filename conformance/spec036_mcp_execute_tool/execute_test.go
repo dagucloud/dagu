@@ -482,6 +482,10 @@ func TestExecuteDecidesSubDAGRunStep(t *testing.T) {
 	require.Equal(t, "child_gate", output["stepName"])
 
 	require.NotEqual(t, "waiting", readStep(t, readRun(t, session, parentName, dagRunID, subRunID), "child_gate")["statusLabel"])
+
+	// The approval resumes the child in a process of its own; the test ends
+	// after the runs end, so that process does not outlive the test's home.
+	server.WaitForDAGRunStatus(t, parentName, dagRunID, api.StatusSuccess)
 }
 
 // Refused decisions leave the waiting run untouched, so the cases share one run.
