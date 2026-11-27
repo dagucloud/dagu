@@ -6,7 +6,6 @@ package untrusted
 import (
 	"os"
 	"path/filepath"
-	"sync"
 )
 
 // Spec 092, "Trusted steps after an untrusted step". A trusted process reads
@@ -19,27 +18,11 @@ import (
 // process reads.
 var homeVariables = []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"}
 
-var (
-	privateHomeOnce sync.Once
-	privateHomeDir  string
-	privateHomeErr  error
-)
-
-// privateHome returns the private HOME of the trusted processes of the worker
-// process: a folder of the user of the worker with the mode 0700 and a random
-// name. It is made once and kept until the process ends.
-func privateHome() (string, error) {
-	privateHomeOnce.Do(func() {
-		privateHomeDir, privateHomeErr = os.MkdirTemp("", "dagu-home-")
-	})
-	return privateHomeDir, privateHomeErr
-}
-
-// TrustedHome returns the variables that give a trusted process a private
-// HOME, when the restricted user of cfg can write the folder home or one of
-// the folders that lookup gives for the XDG variables. It returns nil when the
-// folders are safe or when the configuration has no restricted user.
-func TrustedHome(uid, gid uint32, home string, lookup func(string) (string, bool)) (map[string]string, error) {
+// TrustedHome returns the variables that give a trusted process a new private
+// HOME, and the function that removes that HOME, when the restricted user uid
+// or its group gid can write the folder home or one of the folders that lookup
+// gives for the XDG variables. It returns nil when the folders are safe.
+func TrustedHome(uid, gid uint32, home string, lookup func(string) (string, bool)) (map[string]string, func() error, error) {
 	unsafe := home == "" || writableBy(home, uid, gid)
 	for _, name := range homeVariables {
 		if dir, ok := lookup(name); ok && dir != "" && writableBy(dir, uid, gid) {
@@ -47,11 +30,12 @@ func TrustedHome(uid, gid uint32, home string, lookup func(string) (string, bool
 		}
 	}
 	if !unsafe {
-		return nil, nil
+		return nil, nil, nil
 	}
-	dir, err := privateHome()
+	// A folder of the user of the worker with the mode 0700 and a random name.
+	dir, err := os.MkdirTemp("", "dagu-home-")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return map[string]string{
 		"HOME":            dir,
@@ -59,5 +43,5 @@ func TrustedHome(uid, gid uint32, home string, lookup func(string) (string, bool
 		"XDG_DATA_HOME":   filepath.Join(dir, ".local", "share"),
 		"XDG_STATE_HOME":  filepath.Join(dir, ".local", "state"),
 		"XDG_CACHE_HOME":  filepath.Join(dir, ".cache"),
-	}, nil
+	}, func() error { return os.RemoveAll(dir) }, nil
 }

@@ -100,11 +100,13 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 	defer leaveGate()
 	if untrustedRun(ctx) && !node.Step().IsUntrusted() {
 		ctx = untrusted.WithGitSafetyContext(ctx)
-		if ctx, err = withTrustedHome(ctx, node); err != nil {
+		var removeHome func()
+		if ctx, removeHome, err = withTrustedHome(ctx, node); err != nil {
 			node.SetError(err)
 			node.SetExitCode(1)
 			return err
 		}
+		defer removeHome()
 	}
 
 	ctx, untrustedStep, err := beginUntrustedStep(ctx, node)

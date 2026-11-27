@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -148,6 +149,33 @@ func TestTrustedStepOfUntrustedRunGetsGitSafety(t *testing.T) {
 	).assertRun(t, ir.Succeeded)
 
 	assert.Equal(t, "explicit", result.nodeByName(t, "check").OutputVariablesMap()["SETTING"])
+}
+
+// In a run with isolation, a trusted step whose HOME the restricted user can
+// write gets a new private HOME and XDG folders, which Dagu removes when the
+// step ends (Spec 103, "Protections for later trusted steps").
+func TestTrustedStepGetsAPrivateHome(t *testing.T) {
+	t.Parallel()
+	if goruntime.GOOS != "linux" {
+		t.Skip("the restricted user exists on Linux only")
+	}
+
+	shared := t.TempDir()
+	require.NoError(t, os.Chmod(shared, 0o1777)) //nolint:gosec // a folder that any user can write, as /tmp
+	cfg := config.UntrustedConfig{Enabled: true, UID: 64011, GID: 64011}
+	result := untrustedPlan(t, cfg, t.TempDir(),
+		newStep("check", withEnvVars("HOME="+shared), withScript(`touch "$HOME/planted"; echo "$HOME $XDG_CONFIG_HOME"`), withOutput("HOMES")),
+		// The untrusted step makes the run isolated and does not run.
+		newStep("verify", withDepends("check"), withUntrusted(), withPrecondition(&ir.Condition{Condition: "false"}), withCommand("true")),
+	).assertRun(t, ir.Succeeded)
+
+	result.assertNodeStatus(t, "check", ir.NodeSucceeded)
+	homes := strings.Fields(result.nodeByName(t, "check").OutputVariablesMap()["HOMES"])
+	require.Len(t, homes, 2)
+	assert.True(t, strings.HasPrefix(homes[0], filepath.Join(os.TempDir(), "dagu-home-")), homes[0])
+	assert.Equal(t, filepath.Join(homes[0], ".config"), homes[1])
+	assert.NoFileExists(t, filepath.Join(shared, "planted"))
+	assert.NoDirExists(t, homes[0], "the private HOME is removed after the step")
 }
 
 // In a run with an untrusted step, a redirect into the work directory does not

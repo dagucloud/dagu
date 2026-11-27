@@ -9,6 +9,8 @@ import (
 	"os"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -52,26 +54,32 @@ func beginUntrustedStep(ctx context.Context, node *Node) (context.Context, *untr
 // withTrustedHome gives a trusted step of an isolated run a private HOME when
 // the restricted user can write the HOME of the worker (Spec 092, "Trusted
 // steps after an untrusted step"). Then a file that an untrusted step planted
-// there, such as a git config with hooks, does not reach the trusted step.
-func withTrustedHome(ctx context.Context, node *Node) (context.Context, error) {
+// there, such as a git config with hooks, does not reach the trusted step. The
+// caller calls the returned function at the end of the step, which removes the
+// private HOME.
+func withTrustedHome(ctx context.Context, node *Node) (context.Context, func(), error) {
 	cfg := config.GetConfig(ctx).Untrusted
 	if !cfg.Enabled {
-		return ctx, nil
+		return ctx, func() {}, nil
 	}
 	env, ok := LookupEnv(ctx)
 	if !ok {
 		env = NewEnv(ctx, node.Step())
 	}
 	home, _ := env.Scope.Get("HOME")
-	entries, err := untrusted.TrustedHome(cfg.UID, cfg.GID, home, env.Scope.Get)
+	entries, remove, err := untrusted.TrustedHome(cfg.UID, cfg.GID, home, env.Scope.Get)
 	if err != nil {
-		return ctx, fmt.Errorf("step %q: make a private HOME for a trusted step: %w", node.Step().Name, err)
+		return ctx, nil, fmt.Errorf("step %q: make a private HOME for a trusted step: %w", node.Step().Name, err)
 	}
 	if entries == nil {
-		return ctx, nil
+		return ctx, func() {}, nil
 	}
 	env.Scope = env.Scope.WithEntries(entries, cmnvalue.EnvSourceStepEnv)
-	return WithEnv(ctx, env), nil
+	return WithEnv(ctx, env), func() {
+		if err := remove(); err != nil {
+			logger.Warn(ctx, "Failed to remove the private HOME of a trusted step", tag.Step(node.Name()), tag.Error(err))
+		}
+	}, nil
 }
 
 // untrustedRun reports whether the run of ctx has an untrusted step.
