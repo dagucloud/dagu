@@ -1604,13 +1604,17 @@ func heldDispatchFailure(task *dispatch.DispatchTask, wait time.Duration) string
 // withPeerRefusal adds to the reason a dispatch found no worker that the
 // coordinator recently refused worker calls for its peer token. Run errors
 // are visible to run readers, so the text names only the fixes that keep the
-// check on.
+// check on. The data directory carries the token only while the coordinator
+// uses a generated one.
 func (h *Handler) withPeerRefusal(reason string) string {
 	if !h.peerAuth.refusedWorkerRecently() {
 		return reason
 	}
-	return reason + "; workers were refused for a missing or different peer token: " +
-		"set the same peer.token on the coordinator and every worker, or run the workers on the coordinator's data directory as its OS user"
+	fix := "set the same peer.token on the coordinator and every worker"
+	if !h.peerAuth.configured {
+		fix += ", or run the workers on the coordinator's data directory as its OS user"
+	}
+	return reason + "; workers were refused for a missing or different peer token: " + fix
 }
 
 func (h *Handler) releasePreparedDispatchAttempt(ctx context.Context, dagRunID string, attempt dagrun.Attempt) {

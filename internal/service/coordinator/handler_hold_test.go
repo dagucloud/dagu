@@ -221,6 +221,19 @@ func TestDispatchFailureNamesPeerTokenRefusal(t *testing.T) {
 		_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: cpuTask("run-refused")})
 		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 		assert.ErrorContains(t, err, note)
+		assert.ErrorContains(t, err, "coordinator's data directory")
+	})
+
+	// A configured token is not in the data directory, so the hint does not
+	// offer it.
+	t.Run("configured token", func(t *testing.T) {
+		f := newHoldFixture(t, 0)
+		f.h.peerAuth = NewPeerTokenAuth("coordinator-token", true, true)
+		ctx := callContext(t, newPeerTokenCredentials("", ""))
+		require.Error(t, f.h.peerAuth.authorize(ctx, coordinatorv1.CoordinatorService_Poll_FullMethodName))
+		_, err := f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: cpuTask("run-refused")})
+		assert.ErrorContains(t, err, note+": set the same peer.token on the coordinator and every worker")
+		assert.NotContains(t, err.Error(), "data directory")
 	})
 
 	// A refused call that a worker does not need to register, such as one
