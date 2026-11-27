@@ -208,6 +208,44 @@ func TestListServiceDAGs(t *testing.T) {
 	assert.Equal(t, api.ServiceDAGsResponse(list), sseData)
 }
 
+// Between two reads of the DAG directory, the list takes the service DAGs from
+// the listing that the DAG store saved, so its cost does not grow with the
+// other DAGs. A DAG file written outside Dagu shows once the interval has
+// passed; a DAG saved through Dagu shows at once.
+func TestListServiceDAGsReadsTheDAGDirectoryOnceAnInterval(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	dir := helper.Config.Paths.DAGsDir
+	helper.CreateDAGFile(t, dir, "svc-a", []byte(serviceDAGSpec))
+	now := time.Now()
+	apiImpl := newServiceDAGAPI(helper, localapi.WithServiceDAGsClockForTest(func() time.Time { return now }))
+	list := func() []string {
+		t.Helper()
+		resp, err := apiImpl.ListServiceDAGs(ctx, api.ListServiceDAGsRequestObject{})
+		require.NoError(t, err)
+		page, ok := resp.(api.ListServiceDAGs200JSONResponse)
+		require.True(t, ok, "expected 200 response, got %T", resp)
+		names := make([]string, 0, len(page.Dags))
+		for _, dag := range page.Dags {
+			names = append(names, dag.FileName)
+		}
+		return names
+	}
+	assert.Equal(t, []string{"svc-a"}, list())
+
+	helper.CreateDAGFile(t, dir, "svc-b", []byte(serviceDAGSpec))
+	now = now.Add(10 * time.Second)
+	assert.Equal(t, []string{"svc-a"}, list())
+
+	now = now.Add(30 * time.Second)
+	assert.Equal(t, []string{"svc-a", "svc-b"}, list())
+
+	require.NoError(t, helper.DAGRepository.Create(ctx, "svc-c", []byte(serviceDAGSpec)))
+	now = now.Add(time.Second)
+	assert.Equal(t, []string{"svc-a", "svc-b", "svc-c"}, list())
+}
+
 // The count of runs that failed soon after they started lives in the scheduler.
 // A DAG with hist_retention_runs: 1 keeps one run, so the list must take the
 // count from the scheduler and not from the runs it can read.

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"sync"
 	"time"
 
@@ -47,6 +48,42 @@ func (a *API) GetServiceDAGsData(ctx context.Context, queryString string) (any, 
 	return a.readServiceDAGs(ctx, filter)
 }
 
+// serviceDAGsDirectoryReadInterval bounds how long the service DAG list goes
+// without reading the DAG directory. In between, it reads the listing that the
+// DAG store saved last, which costs the service DAGs and not all DAGs. A write
+// through Dagu clears that listing, so only a DAG file changed outside Dagu
+// waits for the next read of the directory.
+const serviceDAGsDirectoryReadInterval = 30 * time.Second
+
+// serviceDAGDirectoryReads remembers when the service DAG list last read the
+// DAG directory, and the errors of the DAG files it found then.
+type serviceDAGDirectoryReads struct {
+	mu     sync.Mutex
+	now    func() time.Time
+	readAt time.Time
+	issues []string
+}
+
+// plan tells whether the list may read the saved listing now, with the file
+// errors of the last directory read for it to report.
+func (r *serviceDAGDirectoryReads) plan() (now time.Time, saved bool, issues []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now = time.Now()
+	if r.now != nil {
+		now = r.now()
+	}
+	saved = !r.readAt.IsZero() && now.Sub(r.readAt) < serviceDAGsDirectoryReadInterval
+	return now, saved, slices.Clone(r.issues)
+}
+
+// record notes a read of the DAG directory and the file errors it found.
+func (r *serviceDAGDirectoryReads) record(at time.Time, issues []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.readAt, r.issues = at, slices.Clone(issues)
+}
+
 // readServiceDAGs lists the service DAGs within the read timeout of the other
 // DAG-run reads. For each DAG the list probes the process table, the socket of a
 // running run and the status file, and the live stream asks for it every two
@@ -61,12 +98,21 @@ func (a *API) readServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 
 func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFilter) (api.ServiceDAGsResponse, error) {
 	hold := a.restartHold(ctx)
+	now, saved, savedIssues := a.serviceDAGReads.plan()
 	views, errList, err := scheduler.ListServiceDAGs(ctx, scheduler.ServiceDAGSources{
 		DAGs: a.dagRepository, Runs: a.dagRunRepository, History: a.dagRunMgr,
 		Backoff: a.restartBackoff(ctx), Held: hold != nil, Filter: filter,
+		Saved: saved,
 	})
 	if err != nil {
 		return api.ServiceDAGsResponse{}, err
+	}
+	// The saved listing knows no file error, so the list keeps reporting the
+	// ones of the last directory read.
+	if saved {
+		errList = savedIssues
+	} else {
+		a.serviceDAGReads.record(now, errList)
 	}
 	dags := make([]api.ServiceDAG, 0, len(views))
 	for _, v := range views {

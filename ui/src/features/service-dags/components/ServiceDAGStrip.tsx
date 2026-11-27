@@ -21,10 +21,13 @@ type ServiceDAG = components['schemas']['ServiceDAG'];
 
 function ServiceDAGCard({
   dag,
+  activity,
   expanded,
   onToggle,
 }: {
   dag: ServiceDAG;
+  /** The run history of the DAG, drawn under its name and state. */
+  activity?: React.ReactNode;
   /** Set when the card can open the list of runs of its DAG. */
   expanded?: boolean;
   onToggle?: () => void;
@@ -32,28 +35,34 @@ function ServiceDAGCard({
   const { ts } = useI18n();
   return (
     <div className="flex min-w-0 items-stretch rounded-md border border-border bg-card transition-colors focus-within:ring-2 focus-within:ring-ring">
-      <Link
-        to={`/dags/${encodeURIComponent(dag.fileName)}`}
-        title={ts('Restarts {seconds}s after a run ends', {
-          seconds: dag.restartWaitSec,
-        })}
-        className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md px-2.5 py-1.5 transition-colors hover:bg-accent/50 focus-visible:outline-none"
-      >
-        <span className="min-w-0">
-          <span className="block truncate text-xs font-medium leading-tight">
-            {dag.name}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Link
+          to={`/dags/${encodeURIComponent(dag.fileName)}`}
+          title={ts('Restarts {seconds}s after a run ends', {
+            seconds: dag.restartWaitSec,
+          })}
+          className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md px-2.5 py-1.5 transition-colors hover:bg-accent/50 focus-visible:outline-none"
+        >
+          <span className="min-w-0">
+            <span className="block truncate text-xs font-medium leading-tight">
+              {dag.name}
+            </span>
+            <ServiceDAGStatusText
+              dag={dag}
+              className="block truncate text-[11px] text-muted-foreground"
+            />
+            <ServiceDAGFailure
+              dag={dag}
+              className="block truncate text-[11px] text-destructive"
+            />
           </span>
-          <ServiceDAGStatusText
-            dag={dag}
-            className="block truncate text-[11px] text-muted-foreground"
-          />
-          <ServiceDAGFailure
-            dag={dag}
-            className="block truncate text-[11px] text-destructive"
-          />
-        </span>
-        <ServiceDAGStateBadge state={dag.state} />
-      </Link>
+          <ServiceDAGStateBadge state={dag.state} />
+        </Link>
+        {/* The strip opens a detail of its own, so it stands outside the link. */}
+        {activity ? (
+          <div className="flex items-center px-2.5 pb-1.5">{activity}</div>
+        ) : null}
+      </div>
       {onToggle && (
         <button
           type="button"
@@ -89,6 +98,7 @@ export function ServiceDAGStrip({
   expandable = false,
   bounded = false,
   nameFilter = '',
+  renderActivity,
   className,
 }: {
   expandable?: boolean;
@@ -99,6 +109,11 @@ export function ServiceDAGStrip({
   bounded?: boolean;
   /** Shows only the service DAGs whose name contains it, ignoring case. */
   nameFilter?: string;
+  /**
+   * The run history of a DAG for its card, on a page that reads it. Null
+   * draws none.
+   */
+  renderActivity?: (dag: ServiceDAG) => React.ReactNode;
   className?: string;
 }): React.ReactElement | null {
   const { ts } = useI18n();
@@ -142,6 +157,7 @@ export function ServiceDAGStrip({
           <ServiceDAGCard
             key={dag.fileName}
             dag={dag}
+            activity={renderActivity?.(dag)}
             expanded={expandable ? dag.fileName === open : undefined}
             onToggle={
               expandable

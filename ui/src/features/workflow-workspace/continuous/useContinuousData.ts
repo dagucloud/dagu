@@ -81,21 +81,17 @@ export function useSampleAvailability(source: SampleSource, poll: boolean) {
 const SAMPLES_PATH = '/dag-runs/{name}/{dagRunId}/steps/{stepName}/samples';
 const HISTORY_SAMPLES_PATH = '/dags/{fileName}/run-history/samples';
 
-/**
- * The window of the samples: fixed times, a preset that ends now, or the
- * time since a start (it ends now, as a preset does).
- */
+/** The window of the samples: fixed times, or a preset that ends now. */
 export type SamplesWindow =
   | { from: number; to: number }
-  | { preset: RangePresetId; startedAt?: number }
-  | { since: number };
+  | { preset: RangePresetId; startedAt?: number };
 
 /** The ends of a window at `now`, in ms. */
 function windowAt(window: SamplesWindow, now: number) {
   if ('preset' in window) {
     return presetView(window.preset, now, window.startedAt);
   }
-  return 'since' in window ? { from: window.since, to: now } : window;
+  return window;
 }
 
 function samplesPollMs(window: SamplesWindow): number {
@@ -179,9 +175,7 @@ export function useSamples(
   const at =
     'preset' in window
       ? [window.preset, window.startedAt ?? null]
-      : 'since' in window
-        ? ['since', window.since]
-        : [window.from, window.to];
+      : [window.from, window.to];
   const pollMs = samplesPollMs(window);
   // The key has the samples path at [1], like a swr-openapi key, so that the
   // workspace revalidation of App.tsx (isWorkspaceScopedSWRKey) reaches it.

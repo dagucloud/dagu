@@ -25,7 +25,7 @@ This spec covers:
 - the bounds on disk, memory, API responses and page elements
 - the run history queries of the HTTP API
 - the activity of a service DAG in the DAG list
-- the contract of the Activity panel and of the Workflows list for a service DAG
+- the contract of the Activity panel, of the Workflows list and of the Runs page for a service DAG
 - distributed runs, and the history of a service DAG that existed before this spec
 
 This spec does not define:
@@ -465,7 +465,7 @@ Rules:
   the strip keeps the last activity.
 - A node that gives no activity, such as an older remote node that answers `404`, or a node
   without the event store that answers `501` for the feed, draws no strip and no placeholder.
-- The Last Run column of a service DAG shows the state of the service in the chip of the Runs list:
+- The Last Run column of a service DAG shows the state of the service in a chip:
   Healthy for the states running and restarting, because a service that restarts as designed is
   well. Pending, failing, suspended and stopped keep their names. A DAG that is not a service DAG
   keeps its time. A running run of such a DAG that has a continuous step reads Running, not
@@ -510,42 +510,45 @@ Rules:
 
 #### Runs List
 
-A service DAG can have up to 100 retained runs. The Runs list of the Workflows page does not show
-them. It sends `excludeServiceDAGRuns=true`, so the server leaves out every run of a service DAG.
-The list shows one row for each service DAG instead. The rows come from `GET /service-dags` and from
-its live topic, `servicedags`.
+A service DAG can have up to 100 retained runs. The Runs page does not show them in its unfiltered
+list. It sends `excludeServiceDAGRuns=true`, so the server leaves out every run of a service DAG.
+The page shows one card for each service DAG above the list instead, in the List and the Grouped
+view. The cards come from `GET /service-dags` and from its live topic, `servicedags`.
 
-The row of a service DAG shows:
+The card of a service DAG shows:
 
-- the name of the DAG with the service marker.
-- a strip of at most 60 cells of the run history, with the colors of the Workflows list. The strip
-  has the compact count of the runs of the window and the uptime of the window, or the success rate
-  when the uptime is unknown. The samples query of the run history gives the uptime of the window.
-- the state of the DAG: Healthy (running or restarting), pending, failing, suspended or stopped. A run that the scheduler queued counts as restarting, the first run included, unless the DAG is suspended. Pending means that the DAG is not suspended, and that it has no run or a run the scheduler did not queue waits to start.
-  The row shows the restart wait in seconds next to it.
-- the time of the last failure of the DAG.
-- for the state failing: the count of failed runs in a row, and the error. The error is the
-  `readError` of the DAG, or else the error of its latest run. The count shows `10+` at its limit.
+- the name of the DAG, and what it does now: how long its run is up, when the next run starts, or
+  why none starts, such as restarts on hold. Its title gives the restart wait in seconds.
+- the state of the DAG: running, restarting, pending, waiting, failing, suspended or stopped.
+- the failures in a row and the error of the latest run, or the `readError` of the DAG, which then
+  takes the place of the error. The count shows `10+` at its limit.
+- the strip of the Workflows list: at most 60 cells of the run history of the last 24 hours, the
+  compact count of the runs of the window and its uptime, or the success rate when the uptime is
+  unknown. Its detail gives the time of the last failure.
 
 Rules:
 
-- The rows stand before the runs. A DAG that is failing goes first. The other DAGs keep the order
-  of the server.
-- A click on the row opens the page of the DAG, as a click on a row of the Workflows list does.
-- The window of the strip is the date filter of the list. A date filter with no start date gives a
-  window of three years. A filter with no end date gives a window that ends now.
+- The cards stand before the runs. A DAG that fails or waits for a person goes first. The other
+  DAGs keep the order of the server.
+- A click on the card opens the page of the DAG. Its toggle opens the latest runs of the DAG under
+  the cards, and reads them only then.
 - The strip counts the run history of the window, not the runs of the list. The run history has more
   runs than the retention keeps.
+- Until the activity of a card arrives, its strip shows a placeholder. A node that gives no activity
+  draws no strip and no placeholder, as in the Workflows list.
 - A filter on the name, on the run ID, on the status or on the labels shows the runs as they are.
-  The list then sends no `excludeServiceDAGRuns` and shows no service DAG row. A filter on the dates
-  keeps the rows.
+  The list then sends no `excludeServiceDAGRuns` and shows no service DAG card. A filter on the
+  dates keeps the cards. The list of one backfill shows no card.
 - The head page, its live topic and each next page of the list send the same value of
   `excludeServiceDAGRuns`. The cursor of the list does not change.
-- The selection, the keys and the batch actions reach only the runs of the list. A row of a service
+- The selection, the keys and the batch actions reach only the runs of the list. A card of a service
   DAG is not a run.
-- The list reads the run history of a DAG once for each row, and again each minute. It reads the
-  service DAGs once, and the live topic updates them at most every two seconds.
-- The strip of a row draws no element for each run.
+- The page makes no request of its own for each card. The strips come from `GET /dag-list-activity`
+  requests that name the cards, read again as in the Workflows list.
+- The page reads the service DAGs once, and the live topic updates them at most every two seconds.
+  When the read fails, the section of the cards shows its error, so the list does not look like
+  one without a service DAG.
+- The strip of a card draws no element for each run.
 
 ## Constraints
 
@@ -553,6 +556,10 @@ Rules:
   sample adds 1 KiB at most. Each day older than the raw tier adds a constant that does not
   depend on the count of runs. The events add 4 MiB at most.
 - The memory of the scheduler and of the server does not grow with the count of runs.
+- A read of `GET /service-dags`, or of its live topic, reads the DAG directory at most once in 30
+  seconds. In between, it reads the listing that the DAG store saved last, so its cost grows with
+  the service DAGs and not with all DAGs. A change through Dagu clears that listing; a DAG file
+  changed outside Dagu shows within 30 seconds.
 - A run history query answers in 500 ms at most on the reference machine of the tests. This is
   true for a history of three years at one run each second.
 - The bounds of this spec are for one run each second. The loop of Spec 080 is slower: a run starts

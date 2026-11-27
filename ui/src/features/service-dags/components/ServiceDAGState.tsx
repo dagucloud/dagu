@@ -15,7 +15,7 @@ import dayjs from '@/lib/dayjs';
 import { formatDurationMs } from '@/lib/formatDuration';
 import { useI18n } from '@/i18n/I18nProvider';
 
-export type ServiceDAG = components['schemas']['ServiceDAG'];
+type ServiceDAG = components['schemas']['ServiceDAG'];
 type BadgeVariant = React.ComponentProps<typeof Badge>['variant'];
 
 const STATE_LABEL: Record<ServiceDAGState, string> = {

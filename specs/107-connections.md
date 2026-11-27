@@ -35,6 +35,13 @@ Implemented so far:
   [checks after consent](#checks-after-consent), and the
   [consent errors](#consent-errors). No route starts a session until the
   REST API lands.
+- [REST API](#rest-api): `/oauth-apps` and `/connections`, with their
+  [Permissions](#permissions) and [Audit](#audit), the audit of
+  revocations, and [Deleting a Project](#deleting-a-project) for a
+  workspace, which also cannot be renamed while it owns connections. The
+  API takes only `google` and `microsoft` apps, since no request sets an
+  app's `endpoints` or a connection's `resource` yet, and creates a
+  connection only for the `authorization_code` grant.
 
 The tests against Google also settle whether Docs, Sheets, and Slides
 answer `NOT_FOUND` rather than `PERMISSION_DENIED` for a resource ID that
@@ -299,6 +306,9 @@ A worker has neither.
 
 - No other transition exists. Remove deletes the records and tool catalogs
   in any status.
+- A connection whose token state is missing or cannot be decoded or
+  decrypted has no status of its own. The API shows it as `broken`, as
+  [REST API](#rest-api) states.
 - A `service_account` or `client_credentials` connection fetches a token
   when it is created, with no session. When the fetch fails, the
   connection stays `pending` with the provider's error in
@@ -1152,6 +1162,11 @@ an event, so a first connect from `pending` sends none.
   `refreshTokenConfigured`, and similar flags. A `PATCH` with a blank secret
   keeps the stored one.
 - A request whose `remoteNode` names another server is refused.
+- A connection whose token state is missing or cannot be decoded or
+  decrypted, as a create that stopped halfway leaves it, is shown with
+  status `broken` and a reason that says to remove it and add it again. It
+  is still listed and can be removed. Any other failure to read the token
+  state fails the request.
 - `GET .../authorization` with a session handle returns `waiting`, or
   `confirm` with the account, while that session is in progress. After it
   ends, it returns `connected` when the session was confirmed, and
@@ -1304,6 +1319,10 @@ Token issuance is not audited. No audit entry holds a secret.
 
 - Creating a connection with a name that breaks the [name rules](#names),
   or that exists in its project, is refused and changes nothing.
+- Before v3.0, creating a connection in a workspace that does not exist,
+  or whose name has an uppercase letter, is refused. A workspace created
+  later under the name would inherit the connection, and a run finds its
+  connections by the DAG's `workspace` label, which is lowercased.
 - Creating an app with `kind: hosted`, or a connection with
   `holder: cloud`, is refused.
 - Creating an `oauth2` connection without `bound_hosts`, or an `oauth2` app

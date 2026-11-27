@@ -261,6 +261,38 @@ describe('ServiceDAGStrip', () => {
     expect(screen.queryByRole('link', { name: /web-api/ })).toBeNull();
   });
 
+  // The page reads the run history of all the cards at once and gives each
+  // card its strip. The strip opens a detail of its own, so it stands outside
+  // the link of the card.
+  it('draws the run history that the page gives a card', () => {
+    hook.serviceDAGs = [
+      dag({ fileName: 'ingest', name: 'ingest' }),
+      dag({ fileName: 'web-api', name: 'web-api' }),
+    ];
+
+    render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <MemoryRouter>
+            <ServiceDAGStrip
+              renderActivity={(service) =>
+                service.fileName === 'ingest' ? (
+                  <span data-testid="history">history of ingest</span>
+                ) : null
+              }
+            />
+          </MemoryRouter>
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+
+    const history = screen.getByTestId('history');
+    expect(history).toHaveTextContent('history of ingest');
+    expect(screen.getByRole('link', { name: /ingest/ })).not.toContainElement(
+      history
+    );
+  });
+
   it('shows nothing without a service DAG', () => {
     const { container } = renderStrip();
 

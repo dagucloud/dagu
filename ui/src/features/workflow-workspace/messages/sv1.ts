@@ -23,8 +23,6 @@ export default defineMessages({
       'The runs before {time} are not kept.',
     'Runs in the last {window}': 'Runs in the last {window}',
     'Longest gap': 'Longest gap',
-    'Wait {seconds} s': 'Wait {seconds} s',
-    '{count} failed in a row': '{count} failed in a row',
     'Runs in the last {window}: {count}, failed {failures}, success rate {availability}':
       'Runs in the last {window}: {count}, failed {failures}, success rate {availability}',
     'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}':
@@ -50,8 +48,6 @@ export default defineMessages({
     'The runs before {time} are not kept.': '{time} 之前的运行未保留。',
     'Runs in the last {window}': '过去 {window}内的运行',
     'Longest gap': '最长空档',
-    'Wait {seconds} s': '等待 {seconds} 秒',
-    '{count} failed in a row': '连续失败 {count} 次',
     'Runs in the last {window}: {count}, failed {failures}, success rate {availability}':
       '过去 {window}内的运行：{count}，失败 {failures}，成功率 {availability}',
     'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}':
@@ -78,8 +74,6 @@ export default defineMessages({
       '{time} より前の実行は保持されていません。',
     'Runs in the last {window}': '過去 {window}の実行',
     'Longest gap': '最長の空白',
-    'Wait {seconds} s': '{seconds} 秒待機',
-    '{count} failed in a row': '{count} 回連続で失敗',
     'Runs in the last {window}: {count}, failed {failures}, success rate {availability}':
       '過去 {window}の実行：{count}、失敗 {failures}、成功率 {availability}',
     'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}':
@@ -107,8 +101,6 @@ export default defineMessages({
       'Die Läufe vor {time} werden nicht aufbewahrt.',
     'Runs in the last {window}': 'Läufe der letzten {window}',
     'Longest gap': 'Längste Lücke',
-    'Wait {seconds} s': '{seconds} s warten',
-    '{count} failed in a row': '{count} in Folge fehlgeschlagen',
     'Runs in the last {window}: {count}, failed {failures}, success rate {availability}':
       'Läufe in den letzten {window}: {count}, fehlgeschlagen {failures}, Erfolgsquote {availability}',
     'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}':
@@ -138,8 +130,6 @@ export default defineMessages({
       'Avant le {time}, les exécutions ne sont pas conservées.',
     'Runs in the last {window}': 'Exécutions sur les dernières {window}',
     'Longest gap': 'Lacune la plus longue',
-    'Wait {seconds} s': 'Attendre {seconds} s',
-    '{count} failed in a row': '{count} échecs de suite',
     'Runs in the last {window}: {count}, failed {failures}, success rate {availability}':
       'Exécutions sur les dernières {window} : {count}, échecs {failures}, taux de réussite {availability}',
     'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}':

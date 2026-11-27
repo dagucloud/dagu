@@ -31,6 +31,14 @@ func NextRunProjectionForTest(ctx context.Context, a *API) func(*ir.DAG, time.Ti
 	return a.nextRunProjection(ctx)
 }
 
+// WithServiceDAGsClockForTest sets the clock that decides when the service
+// DAG list reads the DAG directory again.
+func WithServiceDAGsClockForTest(now func() time.Time) APIOption {
+	return func(a *API) {
+		a.serviceDAGReads.now = now
+	}
+}
+
 // WithRunSortDAGLimitForTest sets how many matching DAGs the status and
 // lastRun sorts read before they fall back to the name sort.
 func WithRunSortDAGLimitForTest(limit int) APIOption {

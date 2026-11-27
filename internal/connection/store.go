@@ -69,9 +69,10 @@ type Store interface {
 	TokenState(ctx context.Context, conn *Connection) (*TokenState, error)
 	// UpdateTokenState applies fn to the token state of conn and stores the
 	// result only when no other write came between the read and the write;
-	// otherwise it reads again and reapplies fn. It never creates token
-	// state: it returns ErrNotFound when the state is missing, or when conn
-	// was removed or replaced by a connection with the same key.
+	// otherwise it reads again and reapplies fn. An error from fn stores
+	// nothing and is returned. It never creates token state: it returns
+	// ErrNotFound when the state is missing, or when conn was removed or
+	// replaced by a connection with the same key.
 	UpdateTokenState(ctx context.Context, conn *Connection, fn func(*TokenState) error) (*TokenState, error)
 
 	// Catalog returns the catalog of service that was saved for conn, or

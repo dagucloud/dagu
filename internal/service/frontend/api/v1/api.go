@@ -27,6 +27,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/connection"
+	"github.com/dagucloud/dagu/v2/internal/connection/connect"
 	"github.com/dagucloud/dagu/v2/internal/dagpin"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
@@ -113,6 +115,9 @@ type API struct {
 	secretStore          secretpkg.Store
 	aiEndpoints          *aiendpoint.Service
 	aiMCPServers         *aiendpoint.MCPService
+	connectionStore      connection.Store
+	connectEngine        *connect.Engine
+	publicURL            func() string // The server's usable public URL, or empty
 	profileStore         profilepkg.Store
 	viewStore            view.Store
 	inventoryStore       inventory.Store
@@ -141,6 +146,7 @@ type API struct {
 	openCodeHost         *opencodehost.Host
 	workspaceDeprecation deprecation.Sources
 	serviceDAGFailures   failureStreaks
+	serviceDAGReads      serviceDAGDirectoryReads
 	activities           activityCache
 	activityReads        singleflight.Group
 	runChanges           runChanges
@@ -345,6 +351,23 @@ func WithAIMCPServerService(service *aiendpoint.MCPService) APIOption {
 func WithAIEndpointService(service *aiendpoint.Service) APIOption {
 	return func(a *API) {
 		a.aiEndpoints = service
+	}
+}
+
+// WithConnections returns an APIOption that sets the store of OAuth apps
+// and connections and the engine that connects and removes them.
+func WithConnections(store connection.Store, engine *connect.Engine) APIOption {
+	return func(a *API) {
+		a.connectionStore = store
+		a.connectEngine = engine
+	}
+}
+
+// WithPublicURLResolver returns an APIOption that sets how the API finds
+// the server's usable public URL, which is empty when it has none.
+func WithPublicURLResolver(resolve func() string) APIOption {
+	return func(a *API) {
+		a.publicURL = resolve
 	}
 }
 
