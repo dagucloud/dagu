@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import { RefreshButton } from '@/components/ui/refresh-button';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import { useConfig } from '@/contexts/ConfigContext';
 import { PeekHost } from '@/features/peek/PeekHost';
 import {
   usePeekOrOpen,
@@ -107,6 +108,7 @@ function queueRefreshToken(
 
 function QueueDetailsPage() {
   const { ts } = useI18n();
+  const canDequeue = useConfig().permissions.runDags;
   const { name } = useParams();
   const queueName = React.useMemo(() => decodeQueueName(name), [name]);
   const appBarContext = React.useContext(AppBarContext);
@@ -219,6 +221,15 @@ function QueueDetailsPage() {
     selectedRuns,
   });
 
+  React.useEffect(() => {
+    if (!canDequeue) {
+      clearSelection();
+      if (phase !== null) {
+        closeDialog();
+      }
+    }
+  }, [canDequeue, clearSelection, closeDialog, phase]);
+
   const handleRefresh = React.useCallback(async () => {
     await Promise.all([mutate(), reload()]);
   }, [mutate, reload]);
@@ -251,9 +262,9 @@ function QueueDetailsPage() {
           : false;
 
   const selectionSummary =
-    selectedCount === 0
-      ? `${queuedItems.length} loaded`
-      : `${selectedCount} selected of ${queuedItems.length} loaded`;
+    canDequeue && selectedCount > 0
+      ? `${selectedCount} selected of ${queuedItems.length} loaded`
+      : `${queuedItems.length} loaded`;
 
   const totalBatchCount = activeBatch?.snapshot.length ?? 0;
   const isDialogLocked = phase === 'running' || progress.isRefreshing;
@@ -448,34 +459,36 @@ function QueueDetailsPage() {
                     className="h-7 w-[170px] text-xs"
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={selectAllLoaded}
-                    disabled={queuedItems.length === 0 || isRunning}
-                  >
-                    <I18nText text={'Select all loaded'} />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={clearSelection}
-                    disabled={selectedCount === 0 || isRunning}
-                  >
-                    <I18nText text={'Clear selection'} />
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={openBatchDialog}
-                    disabled={selectedCount === 0 || isRunning}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    <span className="ml-1">
-                      <I18nText text={'Dequeue selected'} />
-                    </span>
-                  </Button>
-                </div>
+                {canDequeue && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={selectAllLoaded}
+                      disabled={queuedItems.length === 0 || isRunning}
+                    >
+                      <I18nText text={'Select all loaded'} />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={clearSelection}
+                      disabled={selectedCount === 0 || isRunning}
+                    >
+                      <I18nText text={'Clear selection'} />
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={openBatchDialog}
+                      disabled={selectedCount === 0 || isRunning}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span className="ml-1">
+                        <I18nText text={'Dequeue selected'} />
+                      </span>
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -489,7 +502,7 @@ function QueueDetailsPage() {
                   <QueueRunsTable
                     items={queuedItems}
                     onDAGRunClick={handleDAGRunClick}
-                    selectable
+                    selectable={canDequeue}
                     disableSelection={isRunning}
                     headerCheckboxState={headerCheckboxState}
                     isSelected={isSelected}
@@ -579,7 +592,7 @@ function QueueDetailsPage() {
       </div>
 
       <Dialog
-        open={phase !== null}
+        open={canDequeue && phase !== null}
         onOpenChange={(open) => {
           if (!open) {
             closeDialog();
@@ -771,7 +784,7 @@ function QueueDetailsPage() {
           )}
 
           <DialogFooter>
-            {phase === 'confirm' && activeBatch && (
+            {canDequeue && phase === 'confirm' && activeBatch && (
               <>
                 <Button variant="outline" onClick={closeDialog}>
                   <I18nText text={'Cancel'} />
