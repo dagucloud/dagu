@@ -47,9 +47,12 @@ type NotificationEvent struct {
 	ObservedAt time.Time
 }
 
-// connectionRunKeyPrefix keeps the run keys of connection events apart
-// from those of DAG runs.
-const connectionRunKeyPrefix = "connection:"
+// Prefixes keep the run keys of connection events apart from those of DAG
+// runs, and those of apps apart from those of connections.
+const (
+	connectionRunKeyPrefix = "connection:"
+	appRunKeyPrefix        = "oauth-app:"
+)
 
 // deliverable reports whether e has a key and something to report.
 func (e NotificationEvent) deliverable() bool {
@@ -57,12 +60,20 @@ func (e NotificationEvent) deliverable() bool {
 }
 
 // runKey identifies the events that replace one another while pending: the
-// statuses of one DAG-run attempt. A connection event replaces no other.
+// statuses of one DAG-run attempt, or of one connection or app. A later
+// status replaces an undelivered earlier one, so a channel never gets an
+// old status after a new one.
 func (e NotificationEvent) runKey() string {
-	if e.Connection != nil {
+	switch c := e.Connection; {
+	case c == nil:
+		return NotificationRunKey(e.Status)
+	case c.AppID != "":
+		return appRunKeyPrefix + c.AppID
+	case len(c.Connections) == 1:
+		return connectionRunKeyPrefix + c.Connections[0].Workspace + "/" + c.Connections[0].Name
+	default:
 		return connectionRunKeyPrefix + e.Key
 	}
-	return NotificationRunKey(e.Status)
 }
 
 // DAGRouteKey returns the DAG-scoped configuration key, falling back to the runtime name.

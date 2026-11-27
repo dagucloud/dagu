@@ -263,6 +263,82 @@ func TestNotificationMonitor_DeliversConnectionEvents(t *testing.T) {
 	}
 }
 
+// A restored event replaces an undelivered needs_attention event of the
+// same connection, so a channel whose delivery failed never ends on the
+// old status after the retry.
+func TestNotificationMonitor_ConnectionEventReplacesUndelivered(t *testing.T) {
+	t.Parallel()
+
+	store, err := fileeventstore.New(t.TempDir())
+	require.NoError(t, err)
+	service := eventstore.New(store)
+
+	var (
+		mu        sync.Mutex
+		failing   = true
+		attempted []eventstore.EventType
+		delivered []eventstore.EventType
+	)
+	transport := &fakeNotificationTransport{
+		destinations: []string{"dest-1"},
+		flushFn: func(_ context.Context, _ string, batch NotificationBatch, _ bool) bool {
+			mu.Lock()
+			defer mu.Unlock()
+			for _, event := range batch.Events {
+				attempted = append(attempted, event.Type)
+			}
+			if failing {
+				return false
+			}
+			for _, event := range batch.Events {
+				delivered = append(delivered, event.Type)
+			}
+			return true
+		},
+	}
+	attemptedType := func(eventType eventstore.EventType) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Contains(attempted, eventType)
+	}
+
+	monitor := newFileBackedMonitor(service, filepath.Join(t.TempDir(), "state.json"), transport,
+		slog.New(slog.NewTextHandler(io.Discard, nil)), newTestNotificationMonitorConfig())
+	stopMonitor := testutil.StartContextRunner(t, monitor)
+	defer stopMonitor()
+	require.Eventually(t, func() bool {
+		monitor.stateMu.Lock()
+		defer monitor.stateMu.Unlock()
+		return monitor.state.Bootstrapped
+	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+
+	source := eventstore.Source{Service: eventstore.SourceServiceServer, Instance: "test"}
+	conn := []eventstore.ConnectionName{{Workspace: "ops", Name: "work"}}
+	require.NoError(t, service.Emit(context.Background(), eventstore.NewConnectionEvent(source,
+		eventstore.TypeConnectionNeedsAttention,
+		eventstore.ConnectionChange{Connections: conn, Status: "needs_reconnect"}, time.Now())))
+	require.Eventually(t, func() bool { return attemptedType(eventstore.TypeConnectionNeedsAttention) },
+		notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+
+	require.NoError(t, service.Emit(context.Background(), eventstore.NewConnectionEvent(source,
+		eventstore.TypeConnectionRestored,
+		eventstore.ConnectionChange{Connections: conn, Status: "connected"}, time.Now())))
+	require.Eventually(t, func() bool { return attemptedType(eventstore.TypeConnectionRestored) },
+		notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+
+	mu.Lock()
+	failing = false
+	mu.Unlock()
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(delivered) > 0
+	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []eventstore.EventType{eventstore.TypeConnectionRestored}, delivered)
+}
+
 func TestNotificationMonitor_CompetingBootstrapPreservesStartupEvent(t *testing.T) {
 	t.Parallel()
 

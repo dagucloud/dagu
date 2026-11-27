@@ -1136,7 +1136,9 @@ an event, so a first connect from `pending` sends none.
 - An app's message to a channel names only the connections of the
   projects whose routes reach that channel.
 - A channel gets the messages of one connection or app in the order of
-  its changes, so its last message tells the current status.
+  its changes. A change replaces an earlier one that the channel has not
+  received yet, also when the earlier delivery failed, so the channel's
+  last message tells the current status.
   A connection that stays broken while many runs fail sends one message per
   channel.
 - Messages are plain text, also on channels that format run events.
