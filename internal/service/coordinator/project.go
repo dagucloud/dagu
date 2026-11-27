@@ -65,6 +65,9 @@ type scopedStores struct {
 // does not serve is an error.
 func (h *Handler) inProject(ctx context.Context, scope dispatch.ProjectScope) (context.Context, error) {
 	scoped := scopedStores{scope: scope, stores: &h.defaults}
+	if scope == (dispatch.ProjectScope{}) && ctx.Value(scopedStoresKey{}) == nil {
+		return ctx, nil
+	}
 	if scope != (dispatch.ProjectScope{}) {
 		if h.projects == nil {
 			return nil, status.Error(codes.FailedPrecondition, "this coordinator serves only the default project's own DAGs")
