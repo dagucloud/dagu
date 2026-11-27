@@ -450,10 +450,10 @@ func (iso *isolation) openPath(path, managedRoot string) error {
 	}
 }
 
-// passDir checks that the restricted user can pass the folder dir: by the bit
-// x for others, or by an ACL entry of the user. A folder that it cannot pass
-// gets the access ACL of passACL when managed is true, the folder belongs to
-// the user of the worker and it has no access ACL. The bit x for others would
+// passDir checks that the restricted user can pass the folder dir, by its
+// mode and its access ACL (canPass). A folder that it cannot pass gets the
+// access ACL of passACL when managed is true, the folder belongs to the user
+// of the worker and it has no access ACL. The bit x for others would
 // let every user of the host reach the work directory, whose mode is 1777
 // during the step. The check and the change go through one descriptor, which
 // the isolation keeps for the restore, so a folder that replaces dir cannot
@@ -471,7 +471,8 @@ func (iso *isolation) passDir(dir string, managed bool) error {
 	fdPath := "/proc/self/fd/" + strconv.Itoa(fd)
 	mode := st.Mode & 0o7777
 	acl, aclErr := readAccessACL(fdPath)
-	if mode&0o001 != 0 || (aclErr == nil && aclLetsPass(acl, iso.uid)) {
+	noACL := errors.Is(aclErr, unix.ENODATA) || errors.Is(aclErr, unix.EOPNOTSUPP)
+	if (aclErr == nil || noACL) && canPass(&st, acl, iso.uid, iso.gid) {
 		_ = unix.Close(fd)
 		return nil
 	}
@@ -485,7 +486,7 @@ func (iso *isolation) passDir(dir string, managed bool) error {
 		_ = unix.Close(fd)
 		return fmt.Errorf("the folder %s changed while Dagu opened it", dir)
 	}
-	if !errors.Is(aclErr, unix.ENODATA) && !errors.Is(aclErr, unix.EOPNOTSUPP) {
+	if !noACL {
 		_ = unix.Close(fd)
 		return fmt.Errorf("the folder %s has an access ACL that does not let the restricted user pass it", dir)
 	}
@@ -517,6 +518,7 @@ const (
 	aclUserObj     = 0x01
 	aclUser        = 0x02
 	aclGroupObj    = 0x04
+	aclGroup       = 0x08
 	aclMask        = 0x10
 	aclOther       = 0x20
 	aclUndefinedID = ^uint32(0)
@@ -539,25 +541,46 @@ func readAccessACL(path string) ([]byte, error) {
 	return buf[:n], nil
 }
 
-// aclLetsPass reports whether the ACL has an entry of the user uid with the
-// bit x and a mask with the bit x.
-func aclLetsPass(acl []byte, uid uint32) bool {
-	if len(acl) < 4 || binary.LittleEndian.Uint32(acl) != aclVersion {
-		return false
+// canPass reports whether the user uid, whose only group is gid, can pass the
+// folder of st with the access ACL acl (nil without one), as the kernel checks
+// it (acl(5), "Access check algorithm"): the entry of the owner, else the
+// entry of the user, else the entries of its group, else the bits of others.
+func canPass(st *unix.Stat_t, acl []byte, uid, gid uint32) bool {
+	if st.Uid == uid {
+		return st.Mode&0o100 != 0
 	}
-	user, mask := false, false
-	for entry := acl[4:]; len(entry) >= aclEntrySize; entry = entry[aclEntrySize:] {
-		tag := binary.LittleEndian.Uint16(entry)
-		perm := binary.LittleEndian.Uint16(entry[2:])
-		id := binary.LittleEndian.Uint32(entry[4:])
-		switch {
-		case tag == aclUser && id == uid:
-			user = perm&1 != 0
-		case tag == aclMask:
-			mask = perm&1 != 0
+	user, group := -1, -1
+	groupObj, mask := int(st.Mode>>3&7), 7
+	if acl != nil {
+		if len(acl) < 4 || binary.LittleEndian.Uint32(acl) != aclVersion {
+			return false
+		}
+		for entry := acl[4:]; len(entry) >= aclEntrySize; entry = entry[aclEntrySize:] {
+			perm := int(binary.LittleEndian.Uint16(entry[2:]))
+			id := binary.LittleEndian.Uint32(entry[4:])
+			switch binary.LittleEndian.Uint16(entry) {
+			case aclUser:
+				if id == uid {
+					user = perm
+				}
+			case aclGroupObj:
+				groupObj = perm
+			case aclGroup:
+				if id == gid {
+					group = perm
+				}
+			case aclMask:
+				mask = perm
+			}
 		}
 	}
-	return user && mask
+	switch {
+	case user >= 0:
+		return user&mask&1 != 0
+	case st.Gid == gid || group >= 0:
+		return (st.Gid == gid && groupObj&mask&1 != 0) || (group >= 0 && group&mask&1 != 0)
+	}
+	return st.Mode&0o001 != 0
 }
 
 // passACL returns the access ACL that keeps the permissions of the owner, the

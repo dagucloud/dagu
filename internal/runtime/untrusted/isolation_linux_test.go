@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io/fs"
 	"net"
 	"os"
@@ -332,15 +333,23 @@ func TestIsolatedStepRefusesOtherFolders(t *testing.T) {
 	requireIsolation(t)
 	for name, tc := range map[string]struct {
 		blocked func(root string) string
+		mode    fs.FileMode
 	}{
-		"above the root": {blocked: func(root string) string {
+		"above the root": {mode: 0o750, blocked: func(root string) string {
 			base := filepath.Dir(root)
 			require.NoError(t, os.Chmod(base, 0o750))
 			return base
 		}},
-		"of another user": {blocked: func(root string) string {
+		"of another user": {mode: 0o750, blocked: func(root string) string {
 			require.NoError(t, os.Chown(root, testUID+1, testGID+1))
 			return root
+		}},
+		// The entry of the user comes before the bits of others.
+		"denied by an ACL": {mode: 0o755, blocked: func(root string) string {
+			base := filepath.Dir(root)
+			setACL(t, base, aclNames[0], [3]uint32{0x01, 7, ^uint32(0)}, [3]uint32{0x02, 0, testUID},
+				[3]uint32{0x04, 5, ^uint32(0)}, [3]uint32{0x10, 5, ^uint32(0)}, [3]uint32{0x20, 5, ^uint32(0)})
+			return base
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -350,8 +359,8 @@ func TestIsolatedStepRefusesOtherFolders(t *testing.T) {
 			req.ManagedRoot = root
 			_, err := beginStep(t, context.Background(), req)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "the folder "+blocked+" has the mode 0750: the restricted user cannot pass it")
-			assert.Equal(t, fs.FileMode(0o750), permOf(t, blocked))
+			assert.Contains(t, err.Error(), fmt.Sprintf("the folder %s has the mode %04o: the restricted user cannot pass it", blocked, tc.mode))
+			assert.Equal(t, tc.mode, permOf(t, blocked))
 			assertRunFolders(t, fs.FileMode(0o750), unix.ENODATA, dag)
 		})
 	}
