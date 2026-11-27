@@ -55,6 +55,23 @@ func killAllAs(t *testing.T) {
 	t.Log("killAllAs: processes of the restricted user are left")
 }
 
+// startAs starts the script as a process of the step and keeps that process
+// running, so that the processes which the script leaves stay until End: the
+// watcher of the step stops them once no root process of the step runs.
+func startAs(t *testing.T, ctx context.Context, dir, script string) {
+	t.Helper()
+	cmd := exec.Command("/bin/sh", "-c", script+"\nexec sleep 1000") //nolint:gosec
+	cmd.Dir = dir
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	process, err := StartManagedProcess(ctx, cmd)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = process.Stop(cmdutil.StopRequest{Intent: cmdutil.ForceTermination()})
+		_ = process.Wait()
+		_ = process.Release()
+	})
+}
+
 // hopSource is a loop that forks; the parent exits at once. The loop ends by
 // itself after 45 s.
 const hopSource = `#include <time.h>
@@ -158,7 +175,7 @@ func TestReviewZombieLeaderSurvivesEnd(t *testing.T) {
 	marker := filepath.Join(os.TempDir(), "dagu-review-zombie-"+strconv.Itoa(os.Getpid()))
 	_ = os.Remove(marker)
 	t.Cleanup(func() { _ = os.Remove(marker) })
-	runAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"), bin+" "+marker+" </dev/null >/dev/null 2>&1 &\nsleep 1")
+	startAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"), bin+" "+marker+" </dev/null >/dev/null 2>&1 &")
 	// A count that changes shows that the thread runs before End, so an equal
 	// count below means a stopped thread. A read between the truncation and
 	// the write of the file is empty.
@@ -207,10 +224,9 @@ func TestReviewForkHopIsKilled(t *testing.T) {
 		workDir := testWorkDir(t)
 		step, err := beginStep(t, ctx, testRequest(t, workDir, filepath.Join(workDir, "repo")))
 		require.NoError(t, err)
-		// The script waits 1 s so that the loop runs before End.
-		out := runAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"),
-			"cut -d' ' -f5 /proc/loadavg\n"+hop+" </dev/null >/dev/null 2>&1 &\nsleep 1\ncut -d' ' -f5 /proc/loadavg")
-		t.Logf("round %d: last PID before and after 1 s of the loop: %s", round, strings.Join(strings.Fields(out), " -> "))
+		// The test waits 1 s so that the loop runs before End.
+		startAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"), hop+" </dev/null >/dev/null 2>&1 &")
+		time.Sleep(time.Second)
 		endErr := step.End(ctx)
 		after, _ := userProcesses(testUID)
 		// A process that is still there 500 ms later is a live loop, not a
@@ -288,7 +304,7 @@ func TestReviewStopperBlocksNoStart(t *testing.T) {
 	marker := filepath.Join(os.TempDir(), "dagu-review-stopper-"+strconv.Itoa(os.Getpid()))
 	_ = os.Remove(marker)
 	t.Cleanup(func() { _ = os.Remove(marker) })
-	runAs(t, stepCtx, repo, bin+" "+marker+" </dev/null >/dev/null 2>&1 &")
+	startAs(t, stepCtx, repo, bin+" "+marker+" </dev/null >/dev/null 2>&1 &")
 	require.Eventually(t, func() bool {
 		_, err := os.Stat(marker)
 		return err == nil
