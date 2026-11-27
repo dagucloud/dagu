@@ -1005,7 +1005,9 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 	if existingStatus != nil && existingStatus.Status == ir.Queued {
 		task.AttemptId = existingAttempt.ID()
 		task.AttemptKey = generateRootAttemptKey(task)
-		admitted, err := h.dispatchOutstanding(ctx, task.AttemptKey, false)
+		// The scheduler's queue dispatch binds its admission in the shared
+		// store, so only another caller pays for the shared-record check.
+		admitted, err := h.dispatchOutstanding(ctx, task.AttemptKey, queueDispatchStatus == nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1203,6 +1205,16 @@ func (h *Handler) repeatedDispatchAttempt(
 	if admitted {
 		return &preparedDispatchAttempt{attempt: attempt, admitted: true}, nil
 	}
+	if rolledBack(runStatus) {
+		reset, err := h.resetRolledBackAttempt(ctx, task, attempt, runStatus.Name)
+		if err != nil {
+			return nil, err
+		}
+		if !reset {
+			// The attempt moved on after the decision, so another admission took it.
+			return &preparedDispatchAttempt{attempt: attempt, admitted: true}, nil
+		}
+	}
 
 	h.attemptsMu.RLock()
 	cached, ok := h.openAttempts[task.DagRunId]
@@ -1216,12 +1228,6 @@ func (h *Handler) repeatedDispatchAttempt(
 		h.attemptsMu.Lock()
 		h.openAttempts[task.DagRunId] = attempt
 		h.attemptsMu.Unlock()
-	}
-	if rolledBack(runStatus) {
-		if err := resetRolledBackAttempt(ctx, attempt); err != nil {
-			h.releasePreparedDispatchAttempt(context.WithoutCancel(ctx), task.DagRunId, attempt)
-			return nil, err
-		}
 	}
 	logger.Info(ctx, "Finishing the admission of a repeated dispatch",
 		tag.RunID(task.DagRunId),
@@ -1262,20 +1268,40 @@ func rolledBack(runStatus *ir.DAGRunStatus) bool {
 	return runStatus.Status == ir.Failed && strings.HasPrefix(runStatus.Error, handoffFailedPrefix)
 }
 
+// errRollbackMoved stops a reset of an attempt that is no longer rolled back.
+var errRollbackMoved = errors.New("attempt is no longer rolled back")
+
 // resetRolledBackAttempt returns a rolled-back attempt to NotStarted, so its
-// dispatch can be admitted again.
-func resetRolledBackAttempt(ctx context.Context, attempt dagrun.Attempt) error {
-	runStatus, err := attempt.ReadStatusUncached(ctx)
+// dispatch can be admitted again. It reports false, changing nothing, when
+// the attempt is no longer the run's latest or no longer rolled back.
+func (h *Handler) resetRolledBackAttempt(ctx context.Context, task *coordinatorv1.Task, attempt dagrun.Attempt, dagName string) (bool, error) {
+	var root ir.DAGRunRef
+	if task.ParentDagRunId != "" {
+		root = ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	}
+	_, swapped, err := h.dagRunRepository.CompareAndSwapLatestAttemptStatus(
+		ctx,
+		ir.DAGRunRef{Name: dagName, ID: task.DagRunId},
+		attempt.ID(),
+		ir.Failed,
+		func(runStatus *ir.DAGRunStatus) error {
+			if !rolledBack(runStatus) {
+				return errRollbackMoved
+			}
+			runStatus.Status = ir.NotStarted
+			runStatus.Error = ""
+			runStatus.FinishedAt = ""
+			return nil
+		},
+		persis.DAGRunCompareAndSwapOptions{RootDAGRun: root},
+	)
+	if errors.Is(err, errRollbackMoved) {
+		return false, nil
+	}
 	if err != nil {
-		return fmt.Errorf("failed to read attempt %s: %w", attempt.ID(), err)
+		return false, fmt.Errorf("failed to reset attempt %s: %w", attempt.ID(), err)
 	}
-	runStatus.Status = ir.NotStarted
-	runStatus.Error = ""
-	runStatus.FinishedAt = ""
-	if err := attempt.Write(ctx, *runStatus); err != nil {
-		return fmt.Errorf("failed to reset attempt %s: %w", attempt.ID(), err)
-	}
-	return nil
+	return swapped, nil
 }
 
 // repeatAdmitted reports whether the earlier dispatch of the attempt that
