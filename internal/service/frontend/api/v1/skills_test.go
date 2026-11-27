@@ -16,7 +16,9 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/skill"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -61,6 +63,28 @@ func deleteSkill(server test.Server, path string, headers map[string]string) *te
 		r = r.WithHeader(k, v)
 	}
 	return r
+}
+
+// newSkillsAPI builds an API on the DAGs directory of helper. Two of them on one
+// helper stand for two servers that share the directory.
+func newSkillsAPI(helper test.Helper, opts ...localapi.APIOption) *localapi.API {
+	return localapi.New(
+		helper.DAGRepository, helper.DAGRunRepository, helper.QueueStore, helper.ProcRepository,
+		helper.DAGRunMgr, helper.Config, nil, helper.ServiceRegistry, nil, nil, opts...,
+	)
+}
+
+// createSkill creates the skill refund-policy through apiImpl and returns its
+// hash.
+func createSkill(t *testing.T, ctx context.Context, apiImpl *localapi.API) string {
+	t.Helper()
+	none := "*"
+	created, err := apiImpl.UpdateSkill(ctx, api.UpdateSkillRequestObject{
+		Name: "refund-policy", Params: api.UpdateSkillParams{IfNoneMatch: &none},
+		Body: &api.UpdateSkillJSONRequestBody{Content: validSkill},
+	})
+	require.NoError(t, err)
+	return created.(api.UpdateSkill200JSONResponse).Hash
 }
 
 func issueRules(issues []api.SkillIssue) []string {
@@ -365,24 +389,11 @@ func TestSkillsPathTraversal(t *testing.T) {
 func TestSkillsTwoInstancesRaceOnOneDirectory(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
-	newAPI := func() *localapi.API {
-		return localapi.New(
-			helper.DAGRepository, helper.DAGRunRepository, helper.QueueStore, helper.ProcRepository,
-			helper.DAGRunMgr, helper.Config, nil, helper.ServiceRegistry, nil, nil,
-		)
-	}
 	ctx := context.Background()
-	none := "*"
-	first := newAPI()
-	created, err := first.UpdateSkill(ctx, api.UpdateSkillRequestObject{
-		Name: "refund-policy", Params: api.UpdateSkillParams{IfNoneMatch: &none},
-		Body: &api.UpdateSkillJSONRequestBody{Content: validSkill},
-	})
-	require.NoError(t, err)
-	hash := created.(api.UpdateSkill200JSONResponse).Hash
+	hash := createSkill(t, ctx, newSkillsAPI(helper))
 
 	for round := range 10 {
-		instances := []*localapi.API{newAPI(), newAPI()}
+		instances := []*localapi.API{newSkillsAPI(helper), newSkillsAPI(helper)}
 		contents := []string{
 			strings.Replace(validSkill, "Refund in 30 days.", "Round "+strings.Repeat("a", round+1), 1),
 			strings.Replace(validSkill, "Refund in 30 days.", "Round "+strings.Repeat("b", round+1), 1),
@@ -419,26 +430,16 @@ func TestSkillsTwoInstancesRaceOnOneDirectory(t *testing.T) {
 // a developer could make, with the current hash, so only the role refuses it.
 func TestSkillsWriteNeedsDeveloper(t *testing.T) {
 	t.Parallel()
-	helper := test.Setup(t)
-	apiImpl := localapi.New(
-		helper.DAGRepository, helper.DAGRunRepository, helper.QueueStore, helper.ProcRepository,
-		helper.DAGRunMgr, helper.Config, nil, helper.ServiceRegistry, nil, nil,
-	)
+	apiImpl := newSkillsAPI(test.Setup(t))
 	asRole := func(role auth.Role) context.Context {
 		return auth.WithUser(context.Background(), &auth.User{
 			ID: "cloud:" + string(role), Role: role, AuthProvider: auth.AuthProviderCloud,
 		})
 	}
 	viewer, developer := asRole(auth.RoleViewer), asRole(auth.RoleDeveloper)
-	none := "*"
-	created, err := apiImpl.UpdateSkill(developer, api.UpdateSkillRequestObject{
-		Name: "refund-policy", Params: api.UpdateSkillParams{IfNoneMatch: &none},
-		Body: &api.UpdateSkillJSONRequestBody{Content: validSkill},
-	})
-	require.NoError(t, err)
-	h := created.(api.UpdateSkill200JSONResponse).Hash
+	h := createSkill(t, developer, apiImpl)
 
-	_, err = apiImpl.ListSkills(viewer, api.ListSkillsRequestObject{})
+	_, err := apiImpl.ListSkills(viewer, api.ListSkillsRequestObject{})
 	require.NoError(t, err)
 
 	_, err = apiImpl.UpdateSkill(viewer, api.UpdateSkillRequestObject{
@@ -452,6 +453,54 @@ func TestSkillsWriteNeedsDeveloper(t *testing.T) {
 	got, err := apiImpl.GetSkill(viewer, api.GetSkillRequestObject{Name: "refund-policy"})
 	require.NoError(t, err)
 	require.Equal(t, h, got.(api.GetSkill200JSONResponse).Hash, "the refused changes left the skill as it was")
+}
+
+// A skill write follows the rules of a DAG write: it needs the permission
+// write_dags, and the read-only mode of Git Sync refuses it.
+func TestSkillsWritesFollowTheDAGWriteRules(t *testing.T) {
+	t.Parallel()
+	for name, mutate := range map[string]func(*config.Config){
+		"no write_dags permission": func(cfg *config.Config) { cfg.Server.Permissions[config.PermissionWriteDAGs] = false },
+		"Git Sync read-only mode": func(cfg *config.Config) {
+			cfg.GitSync.Enabled = true
+			cfg.GitSync.PushEnabled = false
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			apiImpl := newSkillsAPI(test.Setup(t, test.WithConfigMutator(mutate)))
+			ctx := context.Background()
+			none, h := "*", strings.Repeat("0", 64)
+			_, err := apiImpl.UpdateSkill(ctx, api.UpdateSkillRequestObject{
+				Name: "refund-policy", Params: api.UpdateSkillParams{IfNoneMatch: &none},
+				Body: &api.UpdateSkillJSONRequestBody{Content: validSkill},
+			})
+			requireAPIErrorStatus(t, err, http.StatusForbidden)
+			_, err = apiImpl.DeleteSkill(ctx, api.DeleteSkillRequestObject{Name: "refund-policy", Params: api.DeleteSkillParams{IfMatch: &h}})
+			requireAPIErrorStatus(t, err, http.StatusForbidden)
+		})
+	}
+}
+
+// Each write and each delete leaves one audit entry with the name and the hash
+// of the skill, and no content of the skill.
+func TestSkillsWritesAreAudited(t *testing.T) {
+	t.Parallel()
+	auditStore := &recordingAuditStore{}
+	apiImpl := newSkillsAPI(test.Setup(t), localapi.WithAuditService(audit.New(auditStore)))
+	ctx := context.Background()
+	h := createSkill(t, ctx, apiImpl)
+	_, err := apiImpl.DeleteSkill(ctx, api.DeleteSkillRequestObject{Name: "refund-policy", Params: api.DeleteSkillParams{IfMatch: &h}})
+	require.NoError(t, err)
+
+	require.Len(t, auditStore.entries, 2)
+	assert.Equal(t, "skill_update", auditStore.entries[0].Action)
+	assert.Contains(t, auditStore.entries[0].Details, h)
+	assert.Equal(t, "skill_delete", auditStore.entries[1].Action)
+	for _, entry := range auditStore.entries {
+		assert.Contains(t, entry.Details, "refund-policy")
+		assert.NotContains(t, entry.Details, "Refund in 30 days", "an audit entry holds no content of the skill")
+	}
 }
 
 // A listing reads at most skill.MaxListedSkills folders, the first in name
