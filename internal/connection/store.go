@@ -18,6 +18,9 @@ var (
 	ErrInvalid = errors.New("invalid connection record")
 	// ErrReserved reports a value reserved for Dagu Cloud.
 	ErrReserved = errors.New("reserved for Dagu Cloud")
+	// ErrCorrupt reports a stored record that cannot be decoded or
+	// decrypted, so reading it again does not help.
+	ErrCorrupt = errors.New("connection record cannot be read")
 )
 
 // Store keeps OAuth apps, connections, their token state, and their tool
@@ -48,16 +51,21 @@ type Store interface {
 	Get(ctx context.Context, key Key) (*Connection, error)
 	// List returns the connections of one workspace, ordered by name.
 	List(ctx context.Context, workspace string) ([]*Connection, error)
+	// ListAll returns the connections of every workspace and the
+	// notification connection. Unlike List, it fails when a record cannot
+	// be read.
+	ListAll(ctx context.Context) ([]*Connection, error)
 	// Update applies fn to the connection with key and stores the result,
 	// or returns ErrNotFound. fn cannot change the ID or key.
 	Update(ctx context.Context, key Key, fn func(*Connection) error) (*Connection, error)
 	// Delete removes the connection with key, with its token state and
-	// catalogs, or returns ErrNotFound.
+	// catalogs, also when they cannot be read, or returns ErrNotFound.
 	Delete(ctx context.Context, key Key) error
 
 	// TokenState returns the token state of conn. When the state is missing
 	// or belongs to another connection with the same key, it returns
-	// pending state without tokens.
+	// pending state without tokens. State that cannot be decoded or
+	// decrypted fails with ErrCorrupt, as it does in UpdateTokenState.
 	TokenState(ctx context.Context, conn *Connection) (*TokenState, error)
 	// UpdateTokenState applies fn to the token state of conn and stores the
 	// result only when no other write came between the read and the write;

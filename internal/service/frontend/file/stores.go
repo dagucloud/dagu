@@ -315,6 +315,7 @@ func newConnectEngine(
 	}
 	return connect.New(connect.Config{
 		Store:           connections,
+		Locks:           server.ConnectionLocks(),
 		Encryptor:       encryptor,
 		AnyUserConfirms: cfg.Server.Auth.Mode == config.AuthModeNone,
 	})

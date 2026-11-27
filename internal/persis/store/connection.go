@@ -260,6 +260,22 @@ func (s *ConnectionStore) List(ctx context.Context, workspace string) ([]*connec
 	return conns, nil
 }
 
+func (s *ConnectionStore) ListAll(ctx context.Context) ([]*connection.Connection, error) {
+	recs, err := listAllStrict(ctx, s.conns.col, persis.ListQuery{})
+	if err != nil {
+		return nil, fmt.Errorf("connection store: list connections: %w", err)
+	}
+	conns := make([]*connection.Connection, 0, len(recs))
+	for _, rec := range recs {
+		conn, err := decodeConnection(rec)
+		if err != nil {
+			return nil, fmt.Errorf("connection store: record %q: %w", rec.ID, err)
+		}
+		conns = append(conns, conn)
+	}
+	return conns, nil
+}
+
 func (s *ConnectionStore) Update(ctx context.Context, key connection.Key, fn func(*connection.Connection) error) (*connection.Connection, error) {
 	if key.Validate() != nil {
 		return nil, connection.ErrNotFound
@@ -317,12 +333,14 @@ func (s *ConnectionStore) Delete(ctx context.Context, key connection.Key) error 
 		if err != nil {
 			return fmt.Errorf("connection store: delete token state: %w", err)
 		}
-		catalogs, err := listAll(ctx, s.catalogs.col, persis.ListQuery{Prefix: id + "/"})
+		// Catalogs are found by record ID, so one that cannot be read is
+		// removed too.
+		catalogs, err := recordIDs(ctx, s.catalogs.col, id+"/")
 		if err != nil {
 			return fmt.Errorf("connection store: list catalogs: %w", err)
 		}
-		for _, rec := range catalogs {
-			err := deleteConnectionRecord(ctx, s.catalogs.col, rec.ID, conn.ID, held, func(rec *persis.Record) (string, error) {
+		for _, catalogID := range catalogs {
+			err := deleteConnectionRecord(ctx, s.catalogs.col, catalogID, conn.ID, held, func(rec *persis.Record) (string, error) {
 				var stored catalogRecord
 				err := persis.Decode(rec, &stored)
 				return stored.ConnectionID, err
@@ -345,7 +363,10 @@ func (s *ConnectionStore) Delete(ctx context.Context, key connection.Key) error 
 
 // deleteConnectionRecord removes record id of col while owner reads
 // connectionID from it. A record that is missing or belongs to another
-// connection is kept.
+// connection is kept. A record that cannot be read is removed: it lies
+// under the key of the connection being deleted, which Create cannot take
+// while the lifecycle lock is held, so it is that connection's or one an
+// earlier connection left.
 func deleteConnectionRecord(
 	ctx context.Context,
 	col persis.Collection,
@@ -358,18 +379,22 @@ func deleteConnectionRecord(
 		if errors.Is(err, persis.ErrNotFound) {
 			return nil
 		}
-		if err != nil {
+		corrupt := errors.Is(err, persis.ErrCorrupt)
+		if err != nil && !corrupt {
 			return err
 		}
-		got, err := owner(rec)
-		if err != nil {
-			return err
-		}
-		if got != connectionID {
-			return nil
+		if !corrupt {
+			got, err := owner(rec)
+			if err == nil && got != connectionID {
+				return nil
+			}
 		}
 		if err := held(); err != nil {
 			return err
+		}
+		// A corrupt record gives nothing to compare with.
+		if corrupt {
+			return col.Delete(ctx, id)
 		}
 		err = col.CompareAndDelete(ctx, rec)
 		if errors.Is(err, persis.ErrNotFound) {
@@ -388,7 +413,7 @@ func (s *ConnectionStore) TokenState(ctx context.Context, conn *connection.Conne
 		return pendingTokenState(conn), nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, tokenStateError(err)
 	}
 	state, err := s.decodeTokenState(rec)
 	if err != nil {
@@ -418,7 +443,7 @@ func (s *ConnectionStore) UpdateTokenState(
 			return connection.ErrNotFound
 		}
 		if err != nil {
-			return err
+			return tokenStateError(err)
 		}
 		state, err := s.decodeTokenState(current)
 		if err != nil {
@@ -546,9 +571,22 @@ func (s *ConnectionStore) encodeTokenState(state *connection.TokenState) ([]byte
 func (s *ConnectionStore) decodeTokenState(rec *persis.Record) (*connection.TokenState, error) {
 	var stored tokenStateRecord
 	if err := persis.Decode(rec, &stored); err != nil {
-		return nil, fmt.Errorf("connection store: decode token state: %w", err)
+		return nil, fmt.Errorf("connection store: decode token state: %w: %w", connection.ErrCorrupt, err)
 	}
-	return s.codec.tokenStateFromRecord(&stored)
+	state, err := s.codec.tokenStateFromRecord(&stored)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", connection.ErrCorrupt, err)
+	}
+	return state, nil
+}
+
+// tokenStateError marks a token state record that the backend found
+// corrupt.
+func tokenStateError(err error) error {
+	if errors.Is(err, persis.ErrCorrupt) {
+		return fmt.Errorf("%w: %w", connection.ErrCorrupt, err)
+	}
+	return err
 }
 
 func pendingTokenState(conn *connection.Connection) *connection.TokenState {
@@ -591,6 +629,23 @@ func connectionRecordID(key connection.Key) string {
 
 func catalogRecordID(key connection.Key, service string) string {
 	return connectionRecordID(key) + "/" + service
+}
+
+// recordIDs returns the IDs of col's records under prefix, also of records
+// that cannot be read, where the collection lists IDs apart from records.
+func recordIDs(ctx context.Context, col persis.Collection, prefix string) ([]string, error) {
+	if idCol, ok := col.(recordIDsCollection); ok {
+		return idCol.RecordIDs(ctx, prefix)
+	}
+	recs, err := listAll(ctx, col, persis.ListQuery{Prefix: prefix})
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(recs))
+	for i, rec := range recs {
+		ids[i] = rec.ID
+	}
+	return ids, nil
 }
 
 // workspaceSegment writes each uppercase letter as upperCaseEscape and its
