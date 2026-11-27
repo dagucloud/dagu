@@ -842,7 +842,14 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
 - A worker enforces the binding it receives as a local run does.
 - The coordinator dispatches a DAG that declares connections only to a
   worker that reports, with its polls and heartbeats, that it makes token
-  requests.
+  requests. A run that only older workers match waits or fails, saying the
+  matching workers must be upgraded.
+- The coordinator answers a run's DAG and the child DAGs the run names as
+  written, in its steps, `foreach` bodies, and handlers. A child DAG file
+  whose name holds a reference, such as `dag: mail-${params.team}`, that
+  runs on the worker that runs its parent cannot use connections: its
+  check fails, saying so. A child named as written, or one dispatched to a
+  worker of its own, such as one with `worker_selector`, can.
 
 #### Shared Storage
 

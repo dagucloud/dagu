@@ -44,6 +44,8 @@ type connectionRun struct {
 	attemptID  string
 	// refreshes counts the provider's refresh requests.
 	refreshes *atomic.Int32
+	conns     connection.Store
+	tokens    broker.Source
 }
 
 func newConnectionRun(t *testing.T) connectionRun {
@@ -127,7 +129,7 @@ func newConnectionRun(t *testing.T) connectionRun {
 		DAGRunLeaseStore:    leases,
 		StaleLeaseThreshold: time.Minute,
 	})
-	return connectionRun{handler: handler, attemptKey: attemptKey, attemptID: attempt.ID(), refreshes: refreshes}
+	return connectionRun{handler: handler, attemptKey: attemptKey, attemptID: attempt.ID(), refreshes: refreshes, conns: conns, tokens: tokens}
 }
 
 // resolve sends req as worker-1's request for the run.
@@ -204,9 +206,20 @@ func TestResolveConnectionTokenDenied(t *testing.T) {
 	_, err = run.resolve(&coordinatorv1.ResolveConnectionTokenRequest{Connection: "notify", DagName: "unlabeled"})
 	assert.Equal(t, codes.NotFound, status.Code(err))
 
+	// A child the run does not name as written, such as one named by a
+	// reference, is denied with the reason.
+	_, err = run.resolve(&coordinatorv1.ResolveConnectionTokenRequest{Connection: "work", DagName: "mail-ops"})
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+	assert.ErrorContains(t, err, "a child named by a reference cannot use connections on the worker that runs its parent")
+
 	_, err = coordinator.NewHandler(coordinator.HandlerConfig{}).ResolveConnectionToken(context.Background(),
 		&coordinatorv1.ResolveConnectionTokenRequest{Connection: "work"})
 	assert.Equal(t, codes.Unavailable, status.Code(err), "no connection store")
+
+	// FailedPrecondition is kept for a connection that needs reconnecting.
+	_, err = coordinator.NewHandler(coordinator.HandlerConfig{ConnectionStore: run.conns, ConnectionTokens: run.tokens}).ResolveConnectionToken(context.Background(),
+		&coordinatorv1.ResolveConnectionTokenRequest{WorkerId: "worker-1", AttemptKey: run.attemptKey, AttemptId: run.attemptID, Connection: "work"})
+	assert.Equal(t, codes.Internal, status.Code(err), "no lease store")
 }
 
 // The client keeps the coordinator's status, so a worker tells a missing

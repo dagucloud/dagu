@@ -323,7 +323,11 @@ func TestDispatchConnectionTaskWaitsForTokenWorker(t *testing.T) {
 
 	_, err := f.h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: connectionTask()})
 	require.NoError(t, err)
-	assert.Equal(t, ir.Queued, f.status(t, "run-connection").Status)
+	held := f.status(t, "run-connection")
+	assert.Equal(t, ir.Queued, held.Status)
+	workerReady, ok := conditionOf(held.Conditions, ir.DAGRunConditionWorkerReady)
+	require.True(t, ok)
+	assert.Equal(t, ir.NoConnectionWorkerReadyMessage, workerReady.Message)
 	f.pollNone(t, "worker-gpu", gpu)
 
 	polled, err := f.h.Poll(ctx, &coordinatorv1.PollRequest{
@@ -336,7 +340,33 @@ func TestDispatchConnectionTaskWaitsForTokenWorker(t *testing.T) {
 	refused := newHoldFixture(t, 0)
 	_, err = refused.h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: connectionTask()})
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-	assert.ErrorContains(t, err, "the DAG declares connections, which no matching worker supports")
+	assert.ErrorContains(t, err, "the DAG declares connections, which no matching worker supports; upgrade the matching workers")
+
+	bound := connectionTask()
+	bound.WorkerSelector = nil
+	bound.TargetWorkerId, bound.BoundNode = "worker-gpu", "worker-gpu"
+	_, err = f.h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: bound})
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+	assert.ErrorContains(t, err, `worker node "worker-gpu": no workers match the required selector: the DAG declares connections`)
+}
+
+// The declaration load runs no eval: this one fails when it runs, which
+// would fail the load and hide the connection.
+func TestDeclaresConnectionsRunsNoEval(t *testing.T) {
+	task := &coordinatorv1.Task{
+		Target:     "mail",
+		Definition: "params:\n  - name: v\n    type: string\n    eval: \"`exit 3`\"\nsteps:\n  - name: read\n    action: mcp.call\n    with: {connection: work, tool: search}\n",
+	}
+	assert.True(t, declaresConnections(t.Context(), task))
+}
+
+// A held run whose wait passes says that the matching workers must support
+// the DAG's connections.
+func TestHeldDispatchFailureNamesConnections(t *testing.T) {
+	task := &dispatch.DispatchTask{WorkerSelector: map[string]string{"type": "gpu"}, NeedsConnectionTokens: true}
+	assert.Equal(t,
+		"no worker matched the selector {type: gpu} within 1m0s; the DAG declares connections, so the matching workers must support them: upgrade older ones",
+		heldDispatchFailure(task, time.Minute))
 }
 
 // A run bound to a worker node fails at once while its worker is offline,

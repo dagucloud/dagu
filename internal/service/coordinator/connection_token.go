@@ -80,7 +80,7 @@ func (h *Handler) ResolveConnectionToken(ctx context.Context, req *coordinatorv1
 	}
 	dag, err := h.leaseDAG(ctx, req.GetWorkerId(), req.GetAttemptKey(), req.GetAttemptId(), req.GetDagName(), connectionAccessDenied)
 	if err != nil {
-		return nil, err
+		return nil, h.connectionLeaseError(ctx, req, err)
 	}
 	ref, ok := declaredConnection(dag, req.GetConnection())
 	if !ok {
@@ -106,7 +106,8 @@ func (h *Handler) ResolveConnectionToken(ctx context.Context, req *coordinatorv1
 		return resp, nil
 	}
 
-	minTTL := time.Duration(max(req.GetMinTtlSeconds(), 0)) * time.Second
+	// At least a second, so a token never expires before its answer is read.
+	minTTL := time.Duration(max(req.GetMinTtlSeconds(), 1)) * time.Second
 	var expiresIn time.Duration
 	if rejected := req.GetRejectedToken(); rejected != "" {
 		resp.AccessToken, expiresIn, err = h.connectionTokens.Rejected(ctx, conn, req.GetResource(), rejected, minTTL)
@@ -120,16 +121,42 @@ func (h *Handler) ResolveConnectionToken(ctx context.Context, req *coordinatorv1
 	return resp, nil
 }
 
+// connectionLeaseError returns the error of a request whose lease check
+// failed. A coordinator that cannot check leases fails as Internal, since
+// FailedPrecondition tells the worker that the connection needs
+// reconnecting. A child the run reaches only by a reference is denied with
+// the reason.
+func (h *Handler) connectionLeaseError(ctx context.Context, req *coordinatorv1.ResolveConnectionTokenRequest, err error) error {
+	switch status.Code(err) { //nolint:exhaustive // Only codes that would mislead the worker are rewritten.
+	case codes.FailedPrecondition:
+		return status.Error(codes.Internal, status.Convert(err).Message())
+	case codes.PermissionDenied:
+		if req.GetDagName() == "" {
+			return err
+		}
+		if _, rootErr := h.leaseDAG(ctx, req.GetWorkerId(), req.GetAttemptKey(), req.GetAttemptId(), "", connectionAccessDenied); rootErr != nil {
+			return err
+		}
+		return status.Errorf(codes.PermissionDenied,
+			"connection %q: %s: DAG %q is not a child the run names as written, and a child named by a reference cannot use connections on the worker that runs its parent; name the child as written or give it a worker_selector",
+			req.GetConnection(), connectionAccessDenied, req.GetDagName())
+	}
+	return err
+}
+
 // declaresConnections reports whether the definition of task, or one of
-// its local DAGs, declares connections. A definition that fails to load
-// declares none here; preparing its attempt reports the failure.
+// its local DAGs, declares connections. The load runs no eval, so it has no
+// side effect. A definition that fails to load declares none here;
+// preparing its attempt reports the failure.
 func declaresConnections(ctx context.Context, task *coordinatorv1.Task) bool {
 	// Every field that declares a connection is named connection, so a
-	// definition without the word declares none and is not loaded.
-	if !strings.Contains(task.Definition, connectionField) && !strings.Contains(task.BaseConfig, connectionField) {
+	// definition without the word declares none and is not loaded. A
+	// double-quoted YAML key can spell the word with escapes, which need a
+	// backslash.
+	if !mayDeclareConnections(task.Definition) && !mayDeclareConnections(task.BaseConfig) {
 		return false
 	}
-	loadOpts := []spec.LoadOption{spec.WithName(task.Target)}
+	loadOpts := []spec.LoadOption{spec.WithName(task.Target), spec.WithoutEval()}
 	if task.BaseConfig != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfigContent([]byte(task.BaseConfig)))
 	}
@@ -137,19 +164,11 @@ func declaresConnections(ctx context.Context, task *coordinatorv1.Task) bool {
 	if err != nil {
 		return false
 	}
-	return declaresAny(dag)
+	return dag.DeclaresConnections()
 }
 
-func declaresAny(dag *ir.DAG) bool {
-	if len(dag.Connections) > 0 {
-		return true
-	}
-	for _, child := range dag.LocalDAGs {
-		if declaresAny(child) {
-			return true
-		}
-	}
-	return false
+func mayDeclareConnections(yaml string) bool {
+	return strings.Contains(yaml, connectionField) || strings.Contains(yaml, `\`)
 }
 
 // declaredConnection returns the connection named name that dag declares.
@@ -174,11 +193,14 @@ func connectionBinding(conn *connection.Connection) *coordinatorv1.ConnectionBin
 	return binding
 }
 
-// expiresInSeconds rounds up, so a token that expires in under a second is
-// not read as one without an expiry.
+// expiresInSeconds rounds up, and answers 1 for a token already past its
+// expiry, so only a token without an expiry answers 0.
 func expiresInSeconds(d time.Duration) int64 {
-	if d <= 0 {
+	switch {
+	case d == 0:
 		return 0
+	case d < 0:
+		return 1
 	}
 	return int64((d + time.Second - 1) / time.Second)
 }
