@@ -11,13 +11,10 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/spf13/cobra"
 )
-
-// errNoWorkerCoordinators is the failure of a worker without
-// worker.coordinators.
-var errNoWorkerCoordinators = errors.New("worker.coordinators is required")
 
 // isWorkerCheck reports whether cmd is dagu worker --check.
 func isWorkerCheck(cmd *cobra.Command) bool {
@@ -33,9 +30,9 @@ func isWorkerCheck(cmd *cobra.Command) bool {
 // worker.coordinators it checks the coordinators in the service registry,
 // and fails since the worker does not start without them.
 func runWorkerCheck(ctx *Context) error {
-	clientConfig := coordinator.ConfigFromPeer(ctx.Config.Core.Peer)
-	if err := clientConfig.Validate(); err != nil {
-		return fmt.Errorf("invalid coordinator client configuration: %w", err)
+	clientConfig, err := worker.CoordinatorClientConfig(ctx.Config)
+	if err != nil {
+		return err
 	}
 	members, err := workerCheckMembers(ctx)
 	if err != nil {
@@ -59,7 +56,7 @@ func runWorkerCheck(ctx *Context) error {
 	}
 	switch {
 	case len(ctx.Config.Worker.Coordinators) == 0:
-		return fmt.Errorf("%w: set it to the address of a coordinator above that passed", errNoWorkerCoordinators)
+		return fmt.Errorf("%w: set it to the address of a coordinator above that passed", worker.ErrNoCoordinators)
 	case failed > 0:
 		return fmt.Errorf("%d of %d coordinators did not pass the check", failed, len(members))
 	}
@@ -67,25 +64,25 @@ func runWorkerCheck(ctx *Context) error {
 	return nil
 }
 
-// workerCheckMembers returns the coordinators in worker.coordinators, or
-// the live ones in the service registry without it.
+// workerCheckMembers returns the coordinators the worker calls, or the live
+// ones in the service registry without worker.coordinators.
 func workerCheckMembers(ctx *Context) ([]serviceregistry.HostInfo, error) {
 	var registry serviceregistry.ServiceRegistry
-	if len(ctx.Config.Worker.Coordinators) > 0 {
-		static, err := coordinator.NewStaticRegistry(ctx.Config.Worker.Coordinators)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create static registry: %w", err)
-		}
-		registry = static
-	} else {
+	static, err := worker.CoordinatorRegistry(ctx.Config)
+	switch {
+	case errors.Is(err, worker.ErrNoCoordinators):
 		registry = ctx.serverStores.ServiceRegistry
+	case err != nil:
+		return nil, err
+	default:
+		registry = static
 	}
 	members, err := registry.GetServiceMembers(ctx, serviceregistry.ServiceNameCoordinator)
 	if err != nil {
 		return nil, err
 	}
 	if len(members) == 0 {
-		return nil, errNoWorkerCoordinators
+		return nil, worker.ErrNoCoordinators
 	}
 	return members, nil
 }
@@ -94,14 +91,18 @@ func workerCheckMembers(ctx *Context) ([]serviceregistry.HostInfo, error) {
 // Spec 108.
 func printWorkerCheck(w io.Writer, result coordinator.CheckResult) {
 	_, _ = fmt.Fprintf(w, "Coordinator %s\n", result.Address)
+	through := ""
+	if result.Proxy != "" {
+		through = ", through proxy " + result.Proxy
+	}
 	if result.DialErr != nil {
 		_, port, _ := net.SplitHostPort(result.Address)
-		_, _ = fmt.Fprintf(w, "  Reachable: no (%v)\n", result.DialErr)
+		_, _ = fmt.Fprintf(w, "  Reachable: no%s (%v)\n", through, result.DialErr)
 		_, _ = fmt.Fprintf(w, "  Cannot reach coordinator at %s\n", result.Address)
 		_, _ = fmt.Fprintf(w, "  Check that the coordinator accepts workers from other hosts, that port %s is open on the way, and that the address is right.\n", port)
 		return
 	}
-	_, _ = fmt.Fprintln(w, "  Reachable: yes")
+	_, _ = fmt.Fprintf(w, "  Reachable: yes%s\n", through)
 
 	switch {
 	case result.TLS == nil:
@@ -111,6 +112,9 @@ func printWorkerCheck(w io.Writer, result coordinator.CheckResult) {
 		_, _ = fmt.Fprintf(w, "    Address dialed: %s\n", result.Address)
 		printServerCertificate(w, result.TLS.Certificate)
 		return
+	case !result.TLS.Verified:
+		_, _ = fmt.Fprintln(w, "  Handshake: TLS, certificate not verified (peer.skip_tls_verify: true)")
+		printServerCertificate(w, result.TLS.Certificate)
 	default:
 		_, _ = fmt.Fprintln(w, "  Handshake: TLS")
 		printServerCertificate(w, result.TLS.Certificate)
@@ -124,15 +128,24 @@ func printWorkerCheck(w io.Writer, result coordinator.CheckResult) {
 	_, _ = fmt.Fprintln(w, "  Coordinator answered: serving, and it accepted the call")
 }
 
+// printServerCertificate prints the names a certificate covers, marked as
+// DNS names or IP addresses, and the CA it chains to.
 func printServerCertificate(w io.Writer, cert *coordinator.ServerCertificate) {
 	if cert == nil {
 		return
 	}
-	names := "no names"
-	if len(cert.Names) > 0 {
-		names = strings.Join(cert.Names, ", ")
+	names := make([]string, 0, len(cert.DNSNames)+len(cert.IPAddresses))
+	for _, name := range cert.DNSNames {
+		names = append(names, "DNS:"+name)
 	}
-	_, _ = fmt.Fprintf(w, "    Certificate covers: %s\n", names)
+	for _, ip := range cert.IPAddresses {
+		names = append(names, "IP:"+ip)
+	}
+	covers := "no names"
+	if len(names) > 0 {
+		covers = strings.Join(names, ", ")
+	}
+	_, _ = fmt.Fprintf(w, "    Certificate covers: %s\n", covers)
 	ca := cert.CA
 	if cert.SelfSigned {
 		ca += " (the certificate signs itself)"

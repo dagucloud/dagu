@@ -5,10 +5,12 @@ package cmd_test
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,7 +20,9 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -70,30 +74,85 @@ func TestWorkerCheck(t *testing.T) {
 	}
 }
 
-// Without worker.coordinators and without a coordinator in the registry,
-// the check fails as the worker does.
+// Without worker.coordinators, the check dials the coordinators in the
+// service registry, then fails since the worker does not start without
+// worker.coordinators. With an empty registry it fails as the worker does.
 func TestWorkerCheckWithoutCoordinators(t *testing.T) {
 	t.Parallel()
 
-	out, err := runWorkerCheck(t)
+	t.Run("Registry", func(t *testing.T) {
+		t.Parallel()
 
-	require.ErrorContains(t, err, "worker.coordinators is required")
-	assert.Empty(t, out)
+		home := checkHome(t)
+		addr := startCheckCoordinator(t)
+		registerCoordinator(t, home, addr)
+
+		out, err := runWorkerCheckIn(t, home)
+
+		require.EqualError(t, err, "worker.coordinators is required: set it to the address of a coordinator above that passed")
+		assert.Contains(t, out, "Coordinator "+addr+"\n  Reachable: yes\n")
+		assert.Contains(t, out, "  Coordinator answered: serving, and it accepted the call\n")
+	})
+
+	t.Run("EmptyRegistry", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := runWorkerCheck(t)
+
+		require.EqualError(t, err, "worker.coordinators is required")
+		assert.Empty(t, out)
+	})
 }
 
 func runWorkerCheck(t *testing.T, args ...string) (string, error) {
 	t.Helper()
-	home := t.TempDir()
-	configPath := filepath.Join(home, "config.yaml")
-	require.NoError(t, os.WriteFile(configPath, []byte("# empty\n"), 0o600))
+	return runWorkerCheckIn(t, checkHome(t), args...)
+}
 
+// runWorkerCheckIn runs dagu worker --check with home as DAGU_HOME and
+// returns its standard output.
+func runWorkerCheckIn(t *testing.T, home string, args ...string) (string, error) {
+	t.Helper()
 	command := cmd.CmdWorker()
 	var out bytes.Buffer
 	command.SetOut(&out)
 	command.SetErr(io.Discard)
-	command.SetArgs(append([]string{"--dagu-home", home, "--config", configPath, "--check"}, args...))
+	command.SetArgs(append(checkArgs(home), args...))
 	err := command.ExecuteContext(t.Context())
 	return out.String(), err
+}
+
+// checkHome returns a DAGU_HOME with an empty config file.
+func checkHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(home, "config.yaml"), []byte("# empty\n"), 0o600))
+	return home
+}
+
+func checkArgs(home string) []string {
+	return []string{"--dagu-home", home, "--config", filepath.Join(home, "config.yaml"), "--check"}
+}
+
+// registerCoordinator lists the coordinator at addr in the service registry
+// of home until the test ends.
+func registerCoordinator(t *testing.T, home, addr string) {
+	t.Helper()
+	command := cmd.CmdWorker()
+	command.SetContext(t.Context())
+	require.NoError(t, command.ParseFlags(checkArgs(home)))
+	ctx, err := cmd.NewContext(command, cmd.WorkerFlagsForTest)
+	require.NoError(t, err)
+
+	host, portText, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portText)
+	require.NoError(t, err)
+	registry := file.NewServiceRegistry(ctx.Config)
+	require.NoError(t, registry.Register(t.Context(), serviceregistry.ServiceNameCoordinator, serviceregistry.HostInfo{
+		ID: "coordinator-test", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
+	}))
+	t.Cleanup(func() { registry.Unregister(context.Background()) })
 }
 
 // startCheckCoordinator starts a coordinator on h2c that serves the health
