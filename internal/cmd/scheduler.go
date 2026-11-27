@@ -87,6 +87,7 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Schedul
 	deps.DispatchTaskStore = ctx.Persistence.DispatchTaskStore
 	deps.WorkerHeartbeatStore = ctx.Persistence.WorkerHeartbeatStore
 	deps.LicenseManager = ctx.LicenseManager
+	deps.LibraryDAGRunRepository, deps.LibraryProcRepository = ctx.projectStores.LibraryRuns()
 	addPublicWebhooks(ctx, &deps)
 	return scheduler.New(ctx.Config, deps)
 }

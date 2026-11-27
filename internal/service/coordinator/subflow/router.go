@@ -19,6 +19,9 @@ var errNoMatchingRunner = errors.New("no child workflow runner matched request")
 // Router selects the first child workflow runner that accepts a request.
 type Router struct {
 	runners []executor.SubWorkflowRunner
+	// workerRefusal, when set, refuses every child that would go to a
+	// worker.
+	workerRefusal error
 
 	mu       sync.Mutex
 	selected map[string]executor.SubWorkflowRunner
@@ -41,6 +44,13 @@ func NewRouter(runners ...executor.SubWorkflowRunner) *Router {
 	}
 }
 
+// RefuseWorkers makes r refuse, with err, every child that would go to a
+// worker. A nil err refuses none.
+func (r *Router) RefuseWorkers(err error) *Router {
+	r.workerRefusal = err
+	return r
+}
+
 // ShouldRun reports whether any runner accepts req.
 func (r *Router) ShouldRun(ctx context.Context, req executor.SubWorkflowRequest) bool {
 	return r.selectRunner(ctx, req) != nil
@@ -52,7 +62,7 @@ func (r *Router) Run(ctx context.Context, req executor.SubWorkflowRequest) (*ir.
 	if runner == nil {
 		return nil, errNoMatchingRunner
 	}
-	if err := checkProjectRoute(ctx, runner); err != nil {
+	if err := r.checkRoute(ctx, runner); err != nil {
 		return nil, err
 	}
 	r.remember(req.RunID, runner)
@@ -66,7 +76,7 @@ func (r *Router) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest
 	if runner == nil {
 		return nil, errNoMatchingRunner
 	}
-	if err := checkProjectRoute(ctx, runner); err != nil {
+	if err := r.checkRoute(ctx, runner); err != nil {
 		return nil, err
 	}
 	r.remember(req.RunID, runner)
@@ -135,12 +145,15 @@ func (r *Router) Cleanup(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// checkProjectRoute refuses to send a child of a run of a project other
-// than the default one to a worker, where the coordinator would record it
-// in the default project.
-func checkProjectRoute(ctx context.Context, runner executor.SubWorkflowRunner) error {
+// checkRoute refuses to send a child to a worker when r refuses workers, or
+// when the child's run is of a project other than the default one, where
+// the coordinator would record it in the default project.
+func (r *Router) checkRoute(ctx context.Context, runner executor.SubWorkflowRunner) error {
 	if _, distributed := runner.(*Runner); !distributed {
 		return nil
+	}
+	if r.workerRefusal != nil {
+		return r.workerRefusal
 	}
 	return project.RefuseOtherProject(runProject(ctx), project.ErrWorkerRun)
 }
