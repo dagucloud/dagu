@@ -53,6 +53,11 @@ The coordinator server provides a central point for distributed workers to:
 This server uses gRPC for efficient communication with remote workers and
 supports authentication via signing keys and TLS encryption.
 
+Calls must carry the peer token (coordinator.require_token, default true).
+Without peer.token, the coordinator generates one in its data directory,
+which processes sharing that directory read. Give remote peers the same
+peer.token, for example through DAGU_PEER_TOKEN.
+
 Flags:
   --coordinator.host string         Host address to bind the gRPC server to (default: 127.0.0.1)
   --coordinator.advertise string    Address to advertise in service registry (default: auto-detected hostname)

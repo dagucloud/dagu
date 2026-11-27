@@ -33,6 +33,10 @@ poller_id for every poll request.
 
 By default, the worker ID is set to hostname@PID, but can be overridden.
 
+The coordinator refuses a worker without its peer token. A worker that does
+not share the coordinator's data directory needs the coordinator's
+peer.token, for example through DAGU_PEER_TOKEN.
+
 Flags:
   --worker.id string                       Worker instance ID (default: hostname@PID)
   --worker.max-active-runs int             Maximum number of active runs (default: 100)
