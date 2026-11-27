@@ -241,9 +241,8 @@ type skillFailure struct {
 // a refused content (400) and a conflict (409), an *Error for the rest.
 func (a *API) classifySkillWrite(ctx context.Context, name string, err error) skillFailure {
 	if conflict, ok := errors.AsType[*skill.ConflictError](err); ok {
-		hash := conflict.Current
 		return skillFailure{status: http.StatusConflict, body: api.SkillError{
-			Code: api.ErrorCodeConflict, Message: conflict.Message, Hash: &hash,
+			Code: api.ErrorCodeConflict, Message: conflict.Message, Hash: ptrIfNotEmpty(conflict.Current),
 		}}
 	}
 	if invalid, ok := errors.AsType[*skill.InvalidError](err); ok {

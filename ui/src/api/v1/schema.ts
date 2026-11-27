@@ -5518,7 +5518,7 @@ export interface components {
             message: string;
             /** @description The rules that the content breaks */
             issues?: components["schemas"]["SkillIssue"][];
-            /** @description For a conflict: the hash of the skill now. Empty when the server knows no current version: another writer holds the skill, or the skill is being changed. */
+            /** @description For a conflict: the hash of the skill now. Absent when the server knows no current version: another writer holds the skill, or the skill is being changed. */
             hash?: string;
         };
         /** @description A tool definition that was available to the LLM */
