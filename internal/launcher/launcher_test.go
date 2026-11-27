@@ -423,12 +423,14 @@ func TestSubCmdBuilderProject(t *testing.T) {
 			t.Parallel()
 			b := tt.builder
 			tail := append(slices.Clone(tt.flags), "--config", "/etc/dagu/config.yaml")
+			// A start or retry runs where its caller placed it. A restart
+			// places its new run itself.
 			assert.Equal(t, [][]string{
-				append(append([]string{"start", "--run-id=run-1"}, tail...), "/dags/etl.yaml"),
+				append(append([]string{"start", "--no-dispatch", "--run-id=run-1"}, tail...), "/dags/etl.yaml"),
 				append(append([]string{"enqueue", "--run-id=run-1"}, tail...), "/dags/etl.yaml"),
 				append([]string{"dequeue", "etl", "--dag-run=etl:run-1"}, tail...),
 				append(append([]string{"restart"}, tail...), "/dags/etl.yaml"),
-				append(append([]string{"retry", "--run-id=run-1", "-q"}, tail...), "etl"),
+				append(append([]string{"retry", "--no-dispatch", "--run-id=run-1", "-q"}, tail...), "etl"),
 			}, [][]string{
 				b.Start(dag, launcher.StartOptions{DAGRunID: "run-1"}).Args,
 				b.Enqueue(dag, launcher.EnqueueOptions{DAGRunID: "run-1"}).Args,

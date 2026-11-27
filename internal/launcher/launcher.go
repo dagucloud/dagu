@@ -147,6 +147,9 @@ func (b *SubCmdBuilder) ExecutableMissing() bool {
 const (
 	daguHomeEnvKey    = "DAGU_HOME"
 	projectFlagPrefix = "--project="
+	// noDispatchArg keeps a launched run on this host, so a run its caller
+	// placed is not dispatched again.
+	noDispatchArg = "--no-dispatch"
 )
 
 // envEntry returns the last KEY=value entry of env for key, or "".
@@ -198,9 +201,11 @@ func filterExecutionEnv(env []string) []string {
 	return filtered
 }
 
-// Start creates a start command spec.
+// Start creates a start command spec. The command runs the run on this
+// host: the caller has already decided that it does not go to the
+// coordinator.
 func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
-	args := []string{"start"}
+	args := []string{"start", noDispatchArg}
 
 	if opts.Params != "" {
 		args = append(args, "--params-stdin")
@@ -362,9 +367,10 @@ func (b *SubCmdBuilder) Restart(dag *ir.DAG, opts RestartOptions) CmdSpec {
 	}
 }
 
-// Retry creates a retry command spec.
+// Retry creates a retry command spec. The command runs the retry on this
+// host, as Start does.
 func (b *SubCmdBuilder) Retry(dag *ir.DAG, opts RetryOptions) CmdSpec {
-	args := []string{"retry", fmt.Sprintf("--run-id=%s", opts.DAGRunID), "-q"}
+	args := []string{"retry", noDispatchArg, fmt.Sprintf("--run-id=%s", opts.DAGRunID), "-q"}
 
 	if opts.Step != "" {
 		args = append(args, fmt.Sprintf("--step=%s", opts.Step))

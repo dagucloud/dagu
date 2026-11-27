@@ -39,6 +39,7 @@ func TestRequireWorkerOnline(t *testing.T) {
 	}}
 
 	require.NoError(t, requireWorkerOnline(context.Background(), client, "gw-1"))
+	require.NoError(t, requireWorkerOnline(context.Background(), client, ""), "a run not bound to a worker needs only the coordinator")
 	require.EqualError(t, requireWorkerOnline(context.Background(), client, "gw-2"), `worker node "gw-2" is offline`)
 	require.EqualError(t, requireWorkerOnline(context.Background(), client, "gw-3"), `worker node "gw-3" is offline`)
 }

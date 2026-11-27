@@ -581,14 +581,24 @@ func (f *testFixture) startWithLabels(labels string) error {
 	f.t.Helper()
 	subCmdBuilder := launcher.NewSubCmdBuilder(f.coord.Config)
 	startSpec := subCmdBuilder.Start(f.dagWrapper.DAG, launcher.StartOptions{Quiet: true, Labels: labels})
-	return launcher.Start(f.coord.Context, startSpec)
+	return launcher.Start(f.coord.Context, asUser(startSpec))
 }
 
 func (f *testFixture) retry(dagRunID string) error {
 	f.t.Helper()
 	subCmdBuilder := launcher.NewSubCmdBuilder(f.coord.Config)
 	retrySpec := subCmdBuilder.Retry(f.dagWrapper.DAG, launcher.RetryOptions{DAGRunID: dagRunID})
-	return launcher.Start(f.coord.Context, retrySpec)
+	return launcher.Start(f.coord.Context, asUser(retrySpec))
+}
+
+// asUser returns spec as a user runs the command: without the --no-dispatch
+// that the launcher adds for a run its caller already placed, so the command
+// places the run itself.
+func asUser(spec launcher.CmdSpec) launcher.CmdSpec {
+	spec.Args = slices.DeleteFunc(slices.Clone(spec.Args), func(arg string) bool {
+		return arg == "--no-dispatch"
+	})
+	return spec
 }
 
 func (f *testFixture) waitForQueued() {

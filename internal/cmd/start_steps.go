@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -283,20 +282,17 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 		ArtifactBaseDir:  ctx.projectPaths().ArtifactDir,
 	}
 
-	coordinatorCli, err := ctx.NewCoordinatorClient()
+	placement, err := placeRun(ctx, dag, nil, "")
 	if err != nil {
 		return err
 	}
-	if dispatch.ShouldDispatchToCoordinator(dag, coordinatorCli != nil, ctx.Config.DefaultExecMode) {
-		if dag.Type == ir.TypeBuild {
-			return dispatch.ErrBuildRequiresLocal
-		}
+	if placement.dispatched() {
 		_, status, err := intake.SeedRun(ctx, seed)
 		if err != nil {
 			return err
 		}
 		opts.seed = status
-		return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, opts, coordinatorCli)
+		return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, opts, placement.client)
 	}
 
 	var status *ir.DAGRunStatus

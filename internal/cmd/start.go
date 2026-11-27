@@ -95,7 +95,7 @@ This command parses the DAG definition, resolves parameters, and initiates the D
 }
 
 // Command line flags for the start command
-var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, nodeFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag, allowChangedFlag, reuseFromFlag, recursiveOutputFlag}
+var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, nodeFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, noDispatchFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag, allowChangedFlag, reuseFromFlag, recursiveOutputFlag}
 
 var fromRunIDFlag = commandLineFlag{
 	name:  "from-run-id",
@@ -426,26 +426,15 @@ func tryExecuteDAG(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 	if dag.Type == ir.TypeBuild && opts.workerID != "local" {
 		return dispatch.ErrBuildRequiresLocal
 	}
-	// Check for dispatch to coordinator for distributed execution.
-	// Skip if already running on a worker (workerID != "local").
+	// A run on a worker (workerID != "local") is already placed.
 	if opts.workerID == "local" {
-		// A run bound to a worker node runs on that worker, whatever the
-		// default execution mode.
-		worker, coordinatorCli, err := boundWorker(ctx, dag, opts.targetNodes, "")
+		placement, err := placeRun(ctx, dag, opts.targetNodes, "")
 		if err != nil {
 			return err
 		}
-		opts.boundWorker = worker
-		if worker == "" {
-			if coordinatorCli, err = ctx.NewCoordinatorClient(); err != nil {
-				return err
-			}
-		}
-		if worker != "" || dispatch.ShouldDispatchToCoordinator(dag, coordinatorCli != nil, ctx.Config.DefaultExecMode) {
-			if dag.Type == ir.TypeBuild {
-				return dispatch.ErrBuildRequiresLocal
-			}
-			return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, opts, coordinatorCli)
+		if placement.dispatched() {
+			opts.boundWorker = placement.worker
+			return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, opts, placement.client)
 		}
 	}
 

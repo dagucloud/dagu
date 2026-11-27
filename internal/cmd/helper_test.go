@@ -129,6 +129,26 @@ func TestDispatchBoundWorkerRetry(t *testing.T) {
 	assert.Equal(t, []string{"gw-1"}, client.task.TargetNodes, "the retry keeps the run's node list")
 }
 
+// A retry that the rules send to the coordinator goes to the worker that holds
+// the agent session of a failed step, as the API sends it.
+func TestDispatchRetryToSessionOwner(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	retried := &ir.DAGRunStatus{Name: "agent", DAGRunID: "run", Status: ir.Failed, Nodes: []*ir.Node{{
+		Status:       ir.NodeFailed,
+		AgentSession: &ir.AgentSession{OwnerWorkerID: "worker-2"},
+	}}}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "agent", WorkerSelector: map[string]string{"gpu": "true"}}, "run",
+		runOptions{retried: retried}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, dispatch.DispatchOperationRetry, client.task.Operation)
+	assert.Equal(t, "worker-2", client.task.TargetWorkerID)
+	assert.Equal(t, map[string]string{"gpu": "true"}, client.task.WorkerSelector)
+}
+
 type smtpDispatchClient struct {
 	coordinator.Client
 	task *dispatch.DispatchTask
