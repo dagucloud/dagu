@@ -5,6 +5,7 @@ package connect
 
 import (
 	"context"
+	"time"
 
 	"golang.org/x/oauth2"
 
@@ -17,9 +18,8 @@ import (
 type Provider interface {
 	// ParseClientFile returns the app that a client file issued by the
 	// provider describes, such as Google's client JSON. The app has no ID
-	// and no status. A file that lists redirect URIs fails with
-	// connection.ErrInvalid when it lacks the one that opts choose for the
-	// app's client type.
+	// and no status. A provider may refuse, with connection.ErrInvalid, a
+	// file whose redirect URIs lack the one that opts choose for the app.
 	ParseClientFile(data []byte, opts RedirectOptions) (*connection.App, error)
 	// Endpoint returns the authorization and token URLs of app.
 	Endpoint(app *connection.App) (oauth2.Endpoint, error)
@@ -46,10 +46,10 @@ type Advisor interface {
 	// access_denied, of a session of app with redirectURI, or "" when the
 	// provider has no advice.
 	ConsentFix(code string, app *connection.App, redirectURI string) string
-	// RefreshTokenFix returns how to lift the limit on a refresh token's
-	// lifetime that the provider reports with refresh_token_expires_in, or
-	// "".
-	RefreshTokenFix() string
+	// RefreshTokenFix returns what to do about a refresh token whose end
+	// the provider reports with refresh_token_expires_in, given how long it
+	// stays valid, or "".
+	RefreshTokenFix(remaining time.Duration) string
 }
 
 // Revoker is a Provider that can revoke refresh tokens. No token of a

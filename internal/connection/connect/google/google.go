@@ -63,7 +63,13 @@ const (
 	// API that the client's project has not enabled.
 	errorInfoType         = "type.googleapis.com/google.rpc.ErrorInfo"
 	reasonServiceDisabled = "SERVICE_DISABLED"
-	insufficientScope     = "insufficient_scope"
+	// statusNotFound is the status of a Google API's error for a resource
+	// that does not exist.
+	statusNotFound    = "NOT_FOUND"
+	insufficientScope = "insufficient_scope"
+	// testingLimit is how long Google keeps a refresh token of an app in
+	// Testing status.
+	testingLimit = 7 * 24 * time.Hour
 )
 
 // tokenFields are the fields of Google's token response.
@@ -75,6 +81,8 @@ var tokenFields = []string{
 // restProbe is the read that checks a REST service.
 type restProbe struct {
 	url string
+	// api is the ID of the API that the read calls.
+	api string
 	// absent marks a read of absentID, which passes with Not Found.
 	absent bool
 }
@@ -82,14 +90,14 @@ type restProbe struct {
 // restProbes read a profile of each service that has a REST API, or, for
 // an API without one, a resource that does not exist.
 var restProbes = map[string]restProbe{
-	"gmail":    {url: "https://gmail.googleapis.com/gmail/v1/users/me/profile"},
-	"calendar": {url: "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=1"},
-	"drive":    {url: "https://www.googleapis.com/drive/v3/about?fields=user"},
-	"docs":     {url: "https://docs.googleapis.com/v1/documents/" + absentID, absent: true},
-	"sheets":   {url: "https://sheets.googleapis.com/v4/spreadsheets/" + absentID, absent: true},
-	"slides":   {url: "https://slides.googleapis.com/v1/presentations/" + absentID, absent: true},
-	"chat":     {url: "https://chat.googleapis.com/v1/spaces?pageSize=1"},
-	"people":   {url: "https://people.googleapis.com/v1/people/me?personFields=names"},
+	"gmail":    {url: "https://gmail.googleapis.com/gmail/v1/users/me/profile", api: "gmail.googleapis.com"},
+	"calendar": {url: "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=1", api: "calendar-json.googleapis.com"},
+	"drive":    {url: "https://www.googleapis.com/drive/v3/about?fields=user", api: "drive.googleapis.com"},
+	"docs":     {url: "https://docs.googleapis.com/v1/documents/" + absentID, api: "docs.googleapis.com", absent: true},
+	"sheets":   {url: "https://sheets.googleapis.com/v4/spreadsheets/" + absentID, api: "sheets.googleapis.com", absent: true},
+	"slides":   {url: "https://slides.googleapis.com/v1/presentations/" + absentID, api: "slides.googleapis.com", absent: true},
+	"chat":     {url: "https://chat.googleapis.com/v1/spaces?pageSize=1", api: "chat.googleapis.com"},
+	"people":   {url: "https://people.googleapis.com/v1/people/me?personFields=names", api: "people.googleapis.com"},
 }
 
 var (
@@ -125,7 +133,14 @@ func New(cfg Config) (*Provider, error) {
 	return &Provider{
 		catalog:   cfg.Catalog,
 		transport: transport,
-		client:    &http.Client{Transport: transport},
+		// No endpoint redirects, and net/http would forward the token on a
+		// redirect to the same host or a subdomain over any scheme or port.
+		client: &http.Client{
+			Transport: transport,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}, nil
 }
 
@@ -215,7 +230,7 @@ func (p *Provider) Identity(ctx context.Context, _ *connection.App, token *oauth
 	var info struct {
 		Sub           string `json:"sub"`
 		Email         string `json:"email"`
-		EmailVerified bool   `json:"email_verified"`
+		EmailVerified flag   `json:"email_verified"`
 	}
 	if err := json.Unmarshal(body, &info); err != nil {
 		return connect.Identity{}, fmt.Errorf("decode Google's userinfo: %w", err)
@@ -245,12 +260,24 @@ func (p *Provider) Probe(ctx context.Context, app *connection.App, conn *connect
 	}
 	probes := make([]connection.Probe, len(conn.Services))
 	done := make([]bool, len(conn.Services))
+	record := func(r result) {
+		probes[r.index] = connection.Probe{Service: conn.Services[r.index].Name, Error: r.err}
+		done[r.index] = true
+	}
 	for range conn.Services {
 		select {
 		case r := <-results:
-			probes[r.index] = connection.Probe{Service: conn.Services[r.index].Name, Error: r.err}
-			done[r.index] = true
+			record(r)
 		case <-ctx.Done():
+			// Results that arrived with the deadline still count.
+			for drained := false; !drained; {
+				select {
+				case r := <-results:
+					record(r)
+				default:
+					drained = true
+				}
+			}
 			for i, svc := range conn.Services {
 				if !done[i] {
 					probes[i] = connection.Probe{Service: svc.Name, Error: "the check did not finish: " + ctx.Err().Error()}
@@ -287,8 +314,8 @@ func (p *Provider) probeMCP(ctx context.Context, app *connection.App, conn *conn
 	case !errors.As(err, &rejected) || rejected.Code == insufficientScope:
 		return err.Error()
 	}
-	if message, reason := apiError([]byte(rejected.Body)); reason == reasonServiceDisabled {
-		return disabledAPI(preset, message)
+	if e := parseAPIError([]byte(rejected.Body)); e.reason == reasonServiceDisabled {
+		return e.disabled(preset.APIs)
 	}
 	return fmt.Sprintf("Google rejected the client, which may lack the agent flag: select \"Use this client for an AI-powered agent\" on %s. %v", clientPage(app), err)
 }
@@ -299,14 +326,19 @@ func (p *Provider) probeREST(ctx context.Context, preset connection.Preset, toke
 		return fmt.Sprintf("%s has no REST API, so only a client with the agent flag can use it, through its MCP server", preset.Name)
 	}
 	status, body, err := p.get(ctx, probe.url, token.AccessToken)
-	switch {
-	case err != nil:
+	if err != nil {
 		return err.Error()
-	case status >= 200 && status < 300, status == http.StatusNotFound && probe.absent:
-		return ""
 	}
-	if message, reason := apiError(body); reason == reasonServiceDisabled {
-		return disabledAPI(preset, message)
+	e := parseAPIError(body)
+	switch {
+	case status >= 200 && status < 300:
+		return ""
+	// Only the API's own answer for the absent resource passes, not a 404
+	// of a wrong path or of Google's front end.
+	case status == http.StatusNotFound && probe.absent && e.status == statusNotFound:
+		return ""
+	case e.reason == reasonServiceDisabled:
+		return e.disabled([]string{probe.api})
 	}
 	return httpError(preset.Name, status, body).Error()
 }
@@ -327,10 +359,16 @@ func (p *Provider) ConsentFix(code string, app *connection.App, redirectURI stri
 	return ""
 }
 
-// RefreshTokenFix explains Google's seven-day limit on the refresh tokens
-// of an app in Testing status.
-func (p *Provider) RefreshTokenFix() string {
-	return "Google ends the refresh tokens of an app in Testing status after seven days. Publishing the app to Production, or making it Internal, on " + audiencePage + " removes the limit."
+// RefreshTokenFix explains a refresh token that Google ends. Google reports
+// the end for time-based access, which the account chose at consent. A
+// token that ends within seven days may instead meet Google's limit for an
+// app in Testing status, so only then does the fix name that limit.
+func (p *Provider) RefreshTokenFix(remaining time.Duration) string {
+	fix := "The account granted access for a limited time. Reconnect before it ends, and grant access without a time limit to keep the connection working."
+	if remaining <= testingLimit {
+		fix += " If the app is in Testing status, Google also ends its refresh tokens after seven days. Publishing the app to Production, or making it Internal, on " + audiencePage + " removes that limit."
+	}
+	return fix
 }
 
 // get sends a GET with token to url, and returns the status and at most
@@ -406,40 +444,76 @@ func grantedScopes(token *oauth2.Token, conn *connection.Connection) []string {
 	return conn.RequestedScopes()
 }
 
-// apiError returns the message and the ErrorInfo reason of body when it
-// holds the JSON error of a Google API (AIP-193).
-func apiError(body []byte) (message, reason string) {
+// apiError is what the JSON error of a Google API (AIP-193) tells. Its
+// fields are empty for any other body.
+type apiError struct {
+	message string
+	// status is the error's canonical code, such as NOT_FOUND.
+	status string
+	// reason and service come from its ErrorInfo detail. service is the
+	// ID of the API that the reason is about, such as a disabled one.
+	reason  string
+	service string
+}
+
+func parseAPIError(body []byte) apiError {
 	var e struct {
 		Error struct {
 			Message string `json:"message"`
+			Status  string `json:"status"`
 			Details []struct {
-				Type   string `json:"@type"`
-				Reason string `json:"reason"`
+				Type     string            `json:"@type"`
+				Reason   string            `json:"reason"`
+				Metadata map[string]string `json:"metadata"`
 			} `json:"details"`
 		} `json:"error"`
 	}
 	if json.Unmarshal(body, &e) != nil {
-		return "", ""
+		return apiError{}
 	}
+	parsed := apiError{message: e.Error.Message, status: e.Error.Status}
 	for _, d := range e.Error.Details {
 		if d.Type == errorInfoType {
-			return e.Error.Message, d.Reason
+			parsed.reason, parsed.service = d.Reason, d.Metadata["service"]
+			break
 		}
 	}
-	return e.Error.Message, ""
+	return parsed
+}
+
+// disabled says to enable the API that the error names, or else apis.
+func (e apiError) disabled(apis []string) string {
+	if e.service != "" {
+		apis = []string{e.service}
+	}
+	return fmt.Sprintf("Enable %s in the client's Google Cloud project on %s. Google says: %s",
+		strings.Join(apis, " and "), enableAPIsPage+strings.Join(apis, ","), e.message)
 }
 
 // httpError reports an unexpected answer of what, with Google's message.
 func httpError(what string, status int, body []byte) error {
-	if message, _ := apiError(body); message != "" {
+	if message := parseAPIError(body).message; message != "" {
 		return fmt.Errorf("%s answered HTTP %d: %s", what, status, message)
 	}
 	return fmt.Errorf("%s answered HTTP %d", what, status)
 }
 
-func disabledAPI(preset connection.Preset, message string) string {
-	return fmt.Sprintf("Enable %s in the client's Google Cloud project on %s. Google says: %s",
-		strings.Join(preset.APIs, " and "), enableAPIsPage+strings.Join(preset.APIs, ","), message)
+// flag is a JSON boolean that also reads the string "true", as Google's
+// ID token example writes email_verified.
+type flag bool
+
+func (f *flag) UnmarshalJSON(data []byte) error {
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	switch v := v.(type) {
+	case bool:
+		*f = flag(v)
+	case string:
+		*f = flag(v == "true")
+	}
+	return nil
 }
 
 func clientPage(app *connection.App) string {

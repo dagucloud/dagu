@@ -117,8 +117,7 @@ func TestParseClientFile(t *testing.T) {
 
 // With an agent app, each MCP service lists its tools with the consent's
 // token. A refusal says what to fix: a disabled API, or else the agent
-// flag. Google's email alias counts as the requested email scope, and the
-// refresh token's limit comes with its fix.
+// flag. Google's email alias counts as the requested email scope.
 func TestConsentChecksMCP(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, true,
@@ -128,7 +127,6 @@ func TestConsentChecksMCP(t *testing.T) {
 	)
 	f.google.grant("openid", emailAlias, "gmail.readonly", "calendar.calendarlist.readonly",
 		"calendar.events.freebusy", "calendar.events.readonly", "drive.readonly")
-	f.google.refreshExpiresIn = 604799
 
 	status := f.consent(t, connect.StartOptions{})
 	assert.Equal(t, connect.PhaseConfirm, status.Phase)
@@ -136,14 +134,15 @@ func TestConsentChecksMCP(t *testing.T) {
 	assert.Equal(t, "sub-1", status.AccountID)
 	assert.Contains(t, status.GrantedScopes, "email")
 	assert.NotContains(t, status.GrantedScopes, emailAlias)
-	assert.False(t, status.RefreshTokenExpiresAt.IsZero())
-	assert.Contains(t, status.RefreshTokenFix, "Production")
+	assert.True(t, status.RefreshTokenExpiresAt.IsZero())
+	assert.Empty(t, status.RefreshTokenFix)
 
-	probes := probeErrors(status.Probes)
+	probes := probeErrors(t, status.Probes, "gmail", "calendar", "drive")
 	assert.Empty(t, probes["gmail"])
 	assert.Contains(t, probes["calendar"], "agent flag")
 	assert.Contains(t, probes["calendar"], "https://console.cloud.google.com/auth/clients/"+clientID)
-	assert.Contains(t, probes["drive"], "Enable drive.googleapis.com and drivemcp.googleapis.com")
+	// Google's error names no API here, so the fix names the preset's.
+	assert.Contains(t, probes["drive"], "Enable drive.googleapis.com and drivemcp.googleapis.com in")
 	assert.NotContains(t, probes["drive"], "agent flag")
 
 	catalog, err := f.store.Catalog(testCtx(t), f.conn, "gmail")
@@ -153,28 +152,70 @@ func TestConsentChecksMCP(t *testing.T) {
 }
 
 // Without the agent flag, each service reads its REST profile, and a
-// service whose scopes Google did not grant names them without a call.
+// service whose scopes Google did not grant names them without a call. A
+// read of an absent resource passes only on the API's own Not Found.
 func TestConsentChecksREST(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, false,
 		connection.Service{Name: "gmail", Access: connection.AccessRead},
 		connection.Service{Name: "docs", Access: connection.AccessRead},
 		connection.Service{Name: "sheets", Access: connection.AccessRead},
+		connection.Service{Name: "slides", Access: connection.AccessRead},
 		connection.Service{Name: "calendar", Access: connection.AccessRead},
 		connection.Service{Name: "search", Access: connection.AccessRead},
 	)
 	f.google.grant("openid", emailAlias, "gmail.readonly", "drive.readonly", "documents.readonly",
-		"spreadsheets.readonly", "calendar.calendarlist.readonly", "calendar.events.freebusy",
-		"calendar.readonly", "chat.messages.readonly", "chat.spaces.readonly", "chat.memberships.readonly")
+		"spreadsheets.readonly", "presentations.readonly", "calendar.calendarlist.readonly",
+		"calendar.events.freebusy", "calendar.readonly", "chat.messages.readonly", "chat.spaces.readonly",
+		"chat.memberships.readonly")
 
 	status := f.consent(t, connect.StartOptions{})
-	probes := probeErrors(status.Probes)
+	probes := probeErrors(t, status.Probes, "gmail", "docs", "sheets", "slides", "calendar", "search")
 	assert.Empty(t, probes["gmail"])
 	assert.Empty(t, probes["docs"])
-	assert.Contains(t, probes["sheets"], "Enable sheets.googleapis.com and sheetsmcp.googleapis.com")
+	// Google's error names the disabled API, and the REST read needs no
+	// MCP API.
+	assert.Contains(t, probes["sheets"], "Enable sheets.googleapis.com in")
+	assert.Contains(t, probes["slides"], "slides answered HTTP 404")
 	assert.Contains(t, probes["calendar"], "Google did not grant "+scopePrefix+"calendar.events.readonly")
 	assert.Contains(t, probes["search"], "no REST API")
-	assert.Equal(t, []string{"/gmail/v1/users/me/profile", "/v1/documents/dagu-connection-check", "/v4/spreadsheets/dagu-connection-check"}, f.google.restReads())
+	assert.Equal(t, []string{
+		"/gmail/v1/users/me/profile",
+		"/v1/documents/dagu-connection-check",
+		"/v1/presentations/dagu-connection-check",
+		"/v4/spreadsheets/dagu-connection-check",
+	}, f.google.restReads())
+}
+
+// Google reports a refresh token's end for time-based access. Only an end
+// within seven days may be the limit of an app in Testing status, so only
+// then does the fix name it.
+func TestRefreshTokenFix(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		expiresIn   time.Duration
+		wantTesting bool
+	}{
+		{name: "WithinSevenDays", expiresIn: 7*24*time.Hour - time.Second, wantTesting: true},
+		{name: "Longer", expiresIn: 30 * 24 * time.Hour},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t, false)
+			f.google.refreshExpiresIn = int(tt.expiresIn.Seconds())
+
+			status := f.consent(t, connect.StartOptions{})
+			assert.False(t, status.RefreshTokenExpiresAt.IsZero())
+			assert.Contains(t, status.RefreshTokenFix, "limited time")
+			if tt.wantTesting {
+				assert.Contains(t, status.RefreshTokenFix, "Publishing the app to Production")
+			} else {
+				assert.NotContains(t, status.RefreshTokenFix, "Testing")
+			}
+		})
+	}
 }
 
 // An expected account confirms at once only by an email that Google
@@ -183,17 +224,19 @@ func TestVerifiedEmailConfirmsAtOnce(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name      string
-		verified  bool
+		verified  any
 		wantPhase connect.Phase
 	}{
 		{name: "Verified", verified: true, wantPhase: connect.PhaseConnected},
-		{name: "Unverified", wantPhase: connect.PhaseConfirm},
+		// Google's ID token example writes the flag as a string.
+		{name: "VerifiedString", verified: "true", wantPhase: connect.PhaseConnected},
+		{name: "Unverified", verified: false, wantPhase: connect.PhaseConfirm},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			f := newFixture(t, false)
-			f.google.unverified = !tt.verified
+			f.google.emailVerified = tt.verified
 
 			status := f.consent(t, connect.StartOptions{ExpectedAccount: "User@Example.com"})
 			assert.Equal(t, tt.wantPhase, status.Phase)
@@ -327,14 +370,14 @@ const (
 // fakeGoogle serves Google's token, userinfo, MCP, and REST endpoints on
 // one TLS server, telling them apart by host. Its MCP and REST services
 // answer as their probes expect: gmailmcp lists a tool, calendarmcp
-// rejects the client as Google does without the agent flag, and drivemcp
-// and the sheets API are disabled.
+// rejects the client as Google does without the agent flag, drivemcp and
+// the sheets API are disabled, and slides answers a bare 404.
 type fakeGoogle struct {
 	srv *httptest.Server
 	// Tests set these before the consent.
 	scope            string
 	refreshExpiresIn int
-	unverified       bool
+	emailVerified    any
 	exchangeError    string
 
 	mu    sync.Mutex
@@ -343,7 +386,7 @@ type fakeGoogle struct {
 
 func newFakeGoogle(t *testing.T) *fakeGoogle {
 	t.Helper()
-	g := &fakeGoogle{}
+	g := &fakeGoogle{emailVerified: true}
 	server := sdk.NewServer(&sdk.Implementation{Name: "gmail", Version: "1"}, nil)
 	server.AddTool(&sdk.Tool{Name: "search_threads", InputSchema: map[string]any{"type": "object"}},
 		func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
@@ -361,20 +404,25 @@ func newFakeGoogle(t *testing.T) *fakeGoogle {
 		case "oauth2.googleapis.com":
 			g.token(w, r)
 		case "openidconnect.googleapis.com":
-			writeJSON(w, http.StatusOK, map[string]any{"sub": "sub-1", "email": "user@example.com", "email_verified": !g.unverified})
+			writeJSON(w, http.StatusOK, map[string]any{"sub": "sub-1", "email": "user@example.com", "email_verified": g.emailVerified})
 		case "gmailmcp.googleapis.com":
 			mcp.ServeHTTP(w, r)
 		case "calendarmcp.googleapis.com":
 			w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
 			w.WriteHeader(http.StatusUnauthorized)
 		case "drivemcp.googleapis.com":
-			writeJSON(w, http.StatusForbidden, serviceDisabled(r.Host))
+			writeJSON(w, http.StatusForbidden, serviceDisabled(""))
 		case "sheets.googleapis.com":
 			g.read(r)
 			writeJSON(w, http.StatusForbidden, serviceDisabled(r.Host))
 		case "docs.googleapis.com":
 			g.read(r)
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": map[string]any{"code": 404, "message": "Requested entity was not found."}})
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": map[string]any{
+				"code": 404, "message": "Requested entity was not found.", "status": "NOT_FOUND",
+			}})
+		case "slides.googleapis.com":
+			g.read(r)
+			http.NotFound(w, r)
 		default:
 			g.read(r)
 			writeJSON(w, http.StatusOK, map[string]any{})
@@ -448,17 +496,21 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // serviceDisabled is Google's error for an API that the project has not
-// enabled.
+// enabled. Its ErrorInfo names api, unless api is empty.
 func serviceDisabled(api string) map[string]any {
+	info := map[string]any{
+		"@type":  "type.googleapis.com/google.rpc.ErrorInfo",
+		"reason": "SERVICE_DISABLED",
+		"domain": "googleapis.com",
+	}
+	if api != "" {
+		info["metadata"] = map[string]string{"service": api, "consumer": "projects/123"}
+	}
 	return map[string]any{"error": map[string]any{
 		"code":    403,
-		"message": api + " has not been used in project 123 before or it is disabled.",
+		"message": "The API has not been used in project 123 before or it is disabled.",
 		"status":  "PERMISSION_DENIED",
-		"details": []map[string]any{{
-			"@type":  "type.googleapis.com/google.rpc.ErrorInfo",
-			"reason": "SERVICE_DISABLED",
-			"domain": "googleapis.com",
-		}},
+		"details": []map[string]any{info},
 	}}
 }
 
@@ -468,11 +520,17 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-func probeErrors(probes []connection.Probe) map[string]string {
+// probeErrors returns each probe's error by service, once the probes are
+// exactly one per service of services.
+func probeErrors(t *testing.T, probes []connection.Probe, services ...string) map[string]string {
+	t.Helper()
 	errs := make(map[string]string, len(probes))
-	for _, p := range probes {
+	got := make([]string, len(probes))
+	for i, p := range probes {
 		errs[p.Service] = p.Error
+		got[i] = p.Service
 	}
+	require.ElementsMatch(t, services, got)
 	return errs
 }
 

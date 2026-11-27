@@ -37,6 +37,8 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/connection"
 	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 )
@@ -191,8 +193,8 @@ type SessionStatus struct {
 	AccountID             string
 	GrantedScopes         []string
 	RefreshTokenExpiresAt time.Time
-	// RefreshTokenFix says how to lift the limit that RefreshTokenExpiresAt
-	// shows, when the provider has advice.
+	// RefreshTokenFix says what to do about the end that
+	// RefreshTokenExpiresAt shows, when the provider has advice.
 	RefreshTokenFix string
 	Probes          []connection.Probe
 	// Duplicates name the other connections of the workspace that hold
@@ -233,8 +235,8 @@ func New(cfg Config) (*Engine, error) {
 }
 
 // ParseClientFile returns the app that a client file of provider
-// describes, without an ID or status. A file that lists redirect URIs must
-// list the one that opts choose for the app.
+// describes, without an ID or status. The provider may refuse a file whose
+// redirect URIs lack the one that opts choose for the app.
 func (e *Engine) ParseClientFile(provider connection.Provider, data []byte, opts RedirectOptions) (*connection.App, error) {
 	p, ok := e.providers[provider]
 	if !ok {
@@ -543,7 +545,7 @@ func (e *Engine) Session(ctx context.Context, conn *connection.Connection, sessi
 		status.Probes = s.Probes
 		status.Duplicates = s.Duplicates
 		if advisor, ok := e.providers[conn.Provider].(Advisor); ok && !status.RefreshTokenExpiresAt.IsZero() {
-			status.RefreshTokenFix = advisor.RefreshTokenFix()
+			status.RefreshTokenFix = advisor.RefreshTokenFix(status.RefreshTokenExpiresAt.Sub(e.now()))
 		}
 	}
 	return status, nil
@@ -598,10 +600,6 @@ func (e *Engine) consent(ctx context.Context, conn *connection.Connection, st au
 	if id.AccountID == "" {
 		return consentTokens{}, consentChecks{}, errors.New("the provider returned no account ID")
 	}
-	duplicates, err := e.duplicates(ctx, conn, id.AccountID)
-	if err != nil {
-		return consentTokens{}, consentChecks{}, fmt.Errorf("look for duplicate connections: %w", err)
-	}
 	probes := provider.Probe(ctx, app, conn, token)
 	for i := range probes {
 		probes[i].Error = redact(probes[i].Error, secrets...)
@@ -609,32 +607,49 @@ func (e *Engine) consent(ctx context.Context, conn *connection.Connection, st au
 	return consentTokens{
 		Tokens:       tokensOf(token, id, cfg.Scopes, exchangedAt),
 		vouchedEmail: id.VouchedEmail,
-	}, consentChecks{probes: probes, duplicates: duplicates}, nil
+	}, consentChecks{probes: probes, duplicates: e.duplicates(ctx, conn, app, id.AccountID)}, nil
 }
 
 // duplicates returns the names of the other connections in conn's
-// workspace whose live tokens are of accountID through conn's app.
-// Connections of other workspaces never count, so the check reveals none
-// of them.
-func (e *Engine) duplicates(ctx context.Context, conn *connection.Connection, accountID string) ([]string, error) {
+// workspace whose live tokens are of accountID through the client of app,
+// which may be held by another app record. Connections of other
+// workspaces never count, so the check reveals none of them. The check
+// only warns, so a record it cannot read is skipped and logged.
+func (e *Engine) duplicates(ctx context.Context, conn *connection.Connection, app *connection.App, accountID string) []string {
 	conns, err := e.store.List(ctx, conn.Workspace)
 	if err != nil {
-		return nil, err
+		logger.Warn(ctx, "Duplicate connection check skipped", tag.Name(conn.Name), tag.Error(err))
+		return nil
 	}
+	sameClient := map[string]bool{app.ID: true}
 	var names []string
 	for _, other := range conns {
-		if other.ID == conn.ID || other.App != conn.App {
+		if other.ID == conn.ID || other.Provider != app.Provider {
+			continue
+		}
+		same, seen := sameClient[other.App]
+		if !seen {
+			otherApp, err := e.store.GetApp(ctx, other.App)
+			if err != nil {
+				logger.Warn(ctx, "Duplicate connection check skipped a connection", tag.Name(other.Name), tag.Error(err))
+				continue
+			}
+			same = otherApp.ClientID == app.ClientID
+			sameClient[other.App] = same
+		}
+		if !same {
 			continue
 		}
 		state, err := e.store.TokenState(ctx, other)
 		if err != nil {
-			return nil, err
+			logger.Warn(ctx, "Duplicate connection check skipped a connection", tag.Name(other.Name), tag.Error(err))
+			continue
 		}
 		if state.AccountID == accountID {
 			names = append(names, other.Name)
 		}
 	}
-	return names, nil
+	return names
 }
 
 // tokensOf returns the tokens of a consent whose exchange returned token

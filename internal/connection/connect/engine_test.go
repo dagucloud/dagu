@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -147,24 +148,43 @@ func TestRefreshTokenExpiryFromExchange(t *testing.T) {
 }
 
 // A consent names the other connections of its workspace that hold the
-// same account through the same app. One in another workspace is not
-// named, and neither is one that holds another account.
+// same account through the same client, whichever app record holds it.
+// One in another workspace, of another client, or of another account is
+// not named. A connection whose token state cannot be read is skipped,
+// since the check only warns.
 func TestConsentNamesDuplicates(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
+	appWith := func(clientID string) string {
+		app, err := f.store.CreateApp(ctx, &connection.App{
+			Name:         clientID,
+			Provider:     f.conn.Provider,
+			Kind:         connection.AppKindBYO,
+			ClientID:     clientID,
+			ClientSecret: "secret",
+			ClientType:   connection.ClientTypeWeb,
+		})
+		require.NoError(t, err)
+		return app.ID
+	}
+	sameClient, otherClient := appWith("client"), appWith("other-client")
+	var broken *connection.Connection
 	for _, other := range []struct {
-		workspace, name, accountID string
+		workspace, name, app, accountID string
 	}{
-		{"ops", "twin", "sub-1"},
-		{"ops", "colleague", "sub-2"},
-		{"dev", "elsewhere", "sub-1"},
+		{"ops", "twin", f.conn.App, "sub-1"},
+		{"ops", "copy", sameClient, "sub-1"},
+		{"ops", "broken", f.conn.App, "sub-1"},
+		{"ops", "colleague", f.conn.App, "sub-2"},
+		{"ops", "stranger", otherClient, "sub-1"},
+		{"dev", "elsewhere", f.conn.App, "sub-1"},
 	} {
 		conn, err := f.store.Create(ctx, &connection.Connection{
 			Workspace: other.workspace,
 			Name:      other.name,
 			Provider:  f.conn.Provider,
-			App:       f.conn.App,
+			App:       other.app,
 			Grant:     connection.GrantAuthorizationCode,
 		})
 		require.NoError(t, err)
@@ -173,13 +193,18 @@ func TestConsentNamesDuplicates(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err)
+		if other.name == "broken" {
+			broken = conn
+		}
 	}
+	require.NoError(t, os.WriteFile(f.tokenFile(t, broken), []byte("{"), 0o600))
 	auth := f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
 
 	require.NoError(t, f.engine.Callback(ctx, f.provider.consent(t, auth)))
 	status, err := f.engine.Session(ctx, f.conn, auth.SessionID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"twin"}, status.Duplicates)
+	assert.Equal(t, connect.PhaseConfirm, status.Phase)
+	assert.ElementsMatch(t, []string{"twin", "copy"}, status.Duplicates)
 }
 
 // A refresh token is required only for an access token that expires.
@@ -791,6 +816,20 @@ func (f *fixture) state(t *testing.T) *connection.TokenState {
 	st, err := f.store.TokenState(context.Background(), f.conn)
 	require.NoError(t, err)
 	return st
+}
+
+// tokenFile returns the path of conn's token state record.
+func (f *fixture) tokenFile(t *testing.T, conn *connection.Connection) string {
+	t.Helper()
+	for _, path := range f.files(t, tokensDir) {
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		if strings.Contains(string(data), conn.ID) {
+			return path
+		}
+	}
+	require.FailNow(t, "no token state record", conn.Name)
+	return ""
 }
 
 // fakeProvider consents in place of a browser and serves a token endpoint
