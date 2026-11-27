@@ -3,26 +3,26 @@
 ## Status
 
 Partially implemented. Implemented: the unset default of `peer.insecure`,
-the [Start Line](#start-line) for rows 1, 2, and 5 of
-[Client Transport](#client-transport), the warnings of
-[Ignored Settings](#ignored-settings) for `peer.cert_file`, `peer.key_file`,
-`peer.client_ca_file`, and `peer.skip_tls_verify: true`,
+[Client Transport](#client-transport) and the
+[Start Line](#start-line) except worker invites and certificates, the
+[Per Coordinator](#per-coordinator) line, the warnings of
+[Ignored Settings](#ignored-settings) except in `dagu worker --check`,
 [Bring Your Own Certificates](#bring-your-own-certificates), the
-[Peer CA](#peer-ca) except the exit under `coordinator.require_tls: true`
-and the [Published CA Certificate](#published-ca-certificate), the rows of
+[Peer CA](#peer-ca) and the
+[Published CA Certificate](#published-ca-certificate), the rows of
 [Configuration Conflicts](#configuration-conflicts) for `peer.ca_cert_file`
 and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
-[Coordinator Line](#coordinator-line) except its
-`coordinator.require_tls` row, the
+[Coordinator Line](#coordinator-line), the
 [Coordinator Certificate](#coordinator-certificate),
-[One Port](#one-port) except the revoked set, the coordinator call of
+[One Port](#one-port) except the revoked set,
+[Require TLS](#require-tls), the coordinator call of
 [Join Readiness](#join-readiness), the [Invites](#invites) and their
 [Coordinator Calls](#coordinator-calls) except removal and the daily
 deletion of ended [Invite Records](#invite-records), and the
 [Coordinator Side](#coordinator-side) of enrollment with the
 [Worker Certificate](#worker-certificate) and its record, except refusing
-the key of a revoked certificate. The coordinator serves built-in TLS and
-enrollment, but no client uses them yet.
+the key of a revoked certificate. Clients that share a coordinator's data
+directory use built-in TLS. No client enrolls or sends an h2c reason yet.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -204,10 +204,16 @@ A client picks its transport from the first row that matches:
   - A client with `worker.coordinators`, such as a worker, uses built-in TLS
     for each of those addresses. An address need not match a registry
     entry: in Compose, the worker dials the service name while the entry
-    holds the advertised host.
+    holds the advertised host. An address that a live entry holds follows
+    that entry, as for a client that finds coordinators in the registry.
 - The client checks the published CA certificate and the registry when it
   opens a connection. Without both, it has no TLS source, and it uses h2c
   as before this spec.
+- At start, the [Start Line](#start-line) and row 4 of
+  [Client Transport](#client-transport) count the published CA certificate
+  as a TLS source when the client can read it, since a coordinator that
+  shares the data directory may register after the client starts. Each
+  connection still checks the registry.
 - Built-in TLS verifies the chain against the CA certificate, and requires
   the server certificate to name `coordinator.dagu.invalid` and to allow
   server authentication. It does not compare the dialed address with the
@@ -237,6 +243,9 @@ A client picks its transport from the first row that matches:
   tries built-in TLS again on its first new connection after that.
 - The client logs one warning per fallback, naming the address and the
   handshake error.
+- The call that met the failure is sent once more over h2c, so a fallback
+  fails no call. The same holds for a call that met a certificate on an
+  [unlisted address](#unlisted-addresses).
 - These never fall back:
   - an invite worker, with or without a worker certificate
   - a client on TLS from row 2 of [Client Transport](#client-transport)
@@ -435,6 +444,12 @@ dagu peer init --out <dir>
 
 - It refuses the call and keeps the connection open, so the client can show
   the reason.
+- A refused client logs, at level error, once until one of its calls to
+  that coordinator succeeds:
+
+  ```text
+  The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true.
+  ```
 - `coordinator.require_tls` has no effect on a coordinator with own
   certificates, which serves no h2c.
 

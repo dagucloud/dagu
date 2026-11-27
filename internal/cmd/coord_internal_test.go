@@ -27,9 +27,10 @@ func TestCoordinatorPeerCA(t *testing.T) {
 	require.NoError(t, os.WriteFile(notADir, nil, 0o600))
 
 	tests := []struct {
-		name   string
-		peer   config.Peer
-		wantCA bool
+		name       string
+		peer       config.Peer
+		requireTLS bool
+		wantCA     bool
 		// generates reports whether the coordinator writes a generated CA.
 		generates bool
 		wantErr   string
@@ -43,6 +44,13 @@ func TestCoordinatorPeerCA(t *testing.T) {
 		// A generated CA that cannot be read gives no CA and no error, so the
 		// coordinator still starts.
 		{name: "GeneratedUnreadable", peer: config.Peer{GeneratedCAFile: filepath.Join(notADir, "coordinator", "peer-ca.pem")}},
+		// Under coordinator.require_tls, h2c only is no way to start.
+		{
+			name:       "GeneratedUnreadableRequireTLS",
+			peer:       config.Peer{GeneratedCAFile: filepath.Join(notADir, "coordinator", "peer-ca.pem")},
+			requireTLS: true,
+			wantErr:    "coordinator.require_tls is set, but the peer CA could not be prepared",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -51,7 +59,7 @@ func TestCoordinatorPeerCA(t *testing.T) {
 				tt.peer.GeneratedCAFile = generated
 			}
 
-			ca, err := coordinatorPeerCA(context.Background(), tt.peer)
+			ca, err := coordinatorPeerCA(context.Background(), tt.peer, tt.requireTLS)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return
@@ -78,7 +86,7 @@ func TestCoordinatorPeerCAReadOnlyDataDir(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(dataDir, 0o700) })
 	generated := filepath.Join(dataDir, "coordinator", "peer-ca.pem")
 
-	ca, err := coordinatorPeerCA(context.Background(), config.Peer{GeneratedCAFile: generated})
+	ca, err := coordinatorPeerCA(context.Background(), config.Peer{GeneratedCAFile: generated}, false)
 	require.NoError(t, err)
 	assert.Nil(t, ca)
 	assert.NoDirExists(t, filepath.Dir(generated))
@@ -93,19 +101,24 @@ func TestCoordinatorTransport(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name string
-		peer config.Peer
-		ca   *coordinator.PeerCA
-		want string
+		name       string
+		peer       config.Peer
+		requireTLS bool
+		ca         *coordinator.PeerCA
+		want       string
 	}{
 		{name: "GeneratedCA", ca: ca, want: "Coordinator transport: built-in TLS and h2c (from the generated CA)"},
 		{name: "SuppliedCA", peer: config.Peer{CACertFile: "ca.crt", CAKeyFile: "ca.key"}, ca: ca, want: "Coordinator transport: built-in TLS and h2c (from peer.ca_cert_file)"},
+		{name: "RequireTLS", requireTLS: true, ca: ca, want: "Coordinator transport: built-in TLS only (from coordinator.require_tls)"},
 		{name: "OwnCertificates", peer: config.Peer{CertFile: certFile, KeyFile: keyFile}, want: "Coordinator transport: TLS (from peer.cert_file)"},
+		// coordinator.require_tls has no effect with own certificates.
+		{name: "OwnCertificatesRequireTLS", peer: config.Peer{CertFile: certFile, KeyFile: keyFile}, requireTLS: true, want: "Coordinator transport: TLS (from peer.cert_file)"},
 		{name: "NoCA", want: "Coordinator transport: h2c (from no peer CA)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.Config{Core: config.Core{Peer: tt.peer}}
+			cfg.Coordinator.RequireTLS = tt.requireTLS
 			records := captureLogs(t, func(ctx context.Context) {
 				_, err := coordinatorTransport(ctx, cfg, tt.ca, "coordinator.test", "host.test")
 				require.NoError(t, err)

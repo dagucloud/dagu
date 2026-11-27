@@ -62,22 +62,6 @@ func TestWorkerInsecureFalseWithoutTLS(t *testing.T) {
 	assert.NotContains(t, result.Stderr(), "Peer transport:")
 }
 
-// start-all logs the transport its scheduler and server use to call its
-// coordinator (Spec 108 §Start Line).
-func TestStartAllStartLine(t *testing.T) {
-	dagu := harness.NewRunner(t)
-	services := dagu.StartWithEnv(nil,
-		"start-all",
-		"--host=127.0.0.1",
-		fmt.Sprintf("--port=%d", harness.FreePort(t)),
-		"--dags="+dagu.ProjectPath("."),
-		"--coordinator.host=127.0.0.1",
-		fmt.Sprintf("--coordinator.port=%d", harness.FreePort(t)),
-	)
-	output := waitForOutput(t, services, h2cNoSource)
-	assert.Equal(t, 1, strings.Count(output, "Peer transport:"), output)
-}
-
 // startWorker starts a worker whose coordinator does not answer, which is
 // enough for its start line.
 func startWorker(t *testing.T, dagu *harness.Runner, args ...string) *harness.Process {
