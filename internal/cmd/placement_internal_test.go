@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/project"
 )
 
 // placementContext is the context of a run command with the command line
@@ -93,4 +94,22 @@ func TestPlaceRunLocalWithoutClient(t *testing.T) {
 
 	_, err = placeRun(ctx, &ir.DAG{WorkerSelector: map[string]string{"gpu": "true"}}, nil, "")
 	require.ErrorContains(t, err, "invalid coordinator client configuration")
+}
+
+// A run of a project other than the default one cannot be dispatched, so the
+// rules refuse it before the command acts, as before a restart stops a run.
+// The same run on this host is not refused.
+func TestPlaceRunOtherProject(t *testing.T) {
+	t.Parallel()
+
+	ctx := placementContext(t, true, config.ExecutionModeLocal)
+	ctx.Config.ProjectsEnabled = true
+	ctx.project = project.Project{Name: "weather"}
+
+	_, err := placeRun(ctx, &ir.DAG{WorkerSelector: map[string]string{"gpu": "true"}}, nil, "")
+	require.ErrorIs(t, err, project.ErrWorkerRun)
+
+	placement, err := placeRun(ctx, &ir.DAG{}, nil, "")
+	require.NoError(t, err)
+	assert.False(t, placement.dispatched())
 }

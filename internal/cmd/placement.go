@@ -37,7 +37,8 @@ func (p runPlacement) dispatched() bool {
 // and the scheduler apply: on the worker of the worker node it is bound to,
 // through the coordinator for a worker selector or the distributed execution
 // mode, or on this host. targetNodes and admitted are as for boundWorker. A
-// run launched with --no-dispatch runs on this host.
+// run launched with --no-dispatch runs on this host. A run the rules
+// dispatch fails when it cannot be dispatched.
 func placeRun(ctx *Context, dag *ir.DAG, targetNodes []string, admitted string) (runPlacement, error) {
 	if launchedPlaced(ctx) {
 		return runPlacement{}, nil
@@ -56,6 +57,11 @@ func placeRun(ctx *Context, dag *ir.DAG, targetNodes []string, admitted string) 
 	}
 	if dag.Type == ir.TypeBuild {
 		return runPlacement{}, dispatch.ErrBuildRequiresLocal
+	}
+	// A run that cannot be dispatched is refused before the command changes
+	// anything, such as the run a restart stops.
+	if err := ctx.checkProjectDispatch(); err != nil {
+		return runPlacement{}, err
 	}
 	return runPlacement{client: client, worker: worker}, nil
 }
