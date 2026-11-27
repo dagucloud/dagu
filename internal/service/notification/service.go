@@ -747,8 +747,13 @@ func (s *Service) ShouldDeliverNotificationBatch(chatbridge.NotificationBatch) b
 }
 
 // SendChannelTest sends a sample failure notification to a saved channel,
-// regardless of its enabled state or configured routes.
-func (s *Service) SendChannelTest(ctx context.Context, channelID string) ([]TestResult, error) {
+// regardless of its enabled state or configured routes. Of opts, only
+// HideChannelErrors applies.
+func (s *Service) SendChannelTest(ctx context.Context, channelID string, opts ...TestOption) ([]TestResult, error) {
+	var options testOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	channel, err := s.GetChannel(ctx, channelID)
 	if err != nil {
 		return nil, err
@@ -758,18 +763,24 @@ func (s *Service) SendChannelTest(ctx context.Context, channelID string) ([]Test
 		Status:     testStatus("channel-test", eventstore.TypeDAGRunFailed),
 		ObservedAt: time.Now().UTC(),
 	}
-	return s.deliverTestTargets(ctx, []resolvedTarget{{
+	targets := []resolvedTarget{{
 		ResultID:   channel.ID,
 		ResultName: channel.Name,
+		Provider:   channel.Type,
 		Target:     channel.ToTarget(),
-	}}, event), nil
+	}}
+	results := s.deliverTestTargets(ctx, targets, event)
+	if options.hideChannelErrors {
+		s.hideChannelErrors("", targets, results)
+	}
+	return results, nil
 }
 
 // ErrCommandTestDenied is returned by SendTest, before anything is sent, when
 // DenyCommandChannels is set and the test would run a command channel.
 var ErrCommandTestDenied = errors.New("test send would run a command channel")
 
-// TestOption configures SendTest.
+// TestOption configures SendTest and SendChannelTest.
 type TestOption func(*testOptions)
 
 type testOptions struct {
@@ -833,7 +844,8 @@ func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventT
 
 // hideChannelErrors replaces the error of each failed delivery to a saved
 // channel in results, which follow targets, with one that names the
-// channel, and logs the error it replaces.
+// channel, and logs the error it replaces. dagName is empty for a test of
+// the channel itself.
 func (s *Service) hideChannelErrors(dagName string, targets []resolvedTarget, results []TestResult) {
 	for i, target := range targets {
 		// Only a saved channel's target carries the channel's provider.

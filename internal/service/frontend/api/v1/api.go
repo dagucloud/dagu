@@ -171,7 +171,7 @@ type NotificationService interface {
 	GetChannel(ctx context.Context, channelID string) (*notificationmodel.Channel, error)
 	SaveChannel(ctx context.Context, channel *notificationmodel.Channel, updatedBy string) (*notificationmodel.Channel, error)
 	DeleteChannel(ctx context.Context, channelID string) error
-	SendChannelTest(ctx context.Context, channelID string) ([]notificationservice.TestResult, error)
+	SendChannelTest(ctx context.Context, channelID string, opts ...notificationservice.TestOption) ([]notificationservice.TestResult, error)
 	SendTest(ctx context.Context, dagName, targetID string, eventType eventstore.EventType, opts ...notificationservice.TestOption) ([]notificationservice.TestResult, error)
 	CommandChannelsEnabled() bool
 }

@@ -7,10 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
 	incidentservice "github.com/dagucloud/dagu/v2/internal/service/incident"
 )
@@ -161,6 +164,13 @@ func (a *API) TestIncidentProvider(ctx context.Context, request api.TestIncident
 		"provider_id": request.ProviderId,
 		"delivered":   result != nil && result.Delivered,
 	})
+	if result != nil && result.Error != "" && !a.deliveryErrorsVisible(ctx) {
+		logger.Warn(ctx, "Incident provider test delivery failed",
+			slog.String("provider", result.ProviderName),
+			tag.Error(result.Error),
+		)
+		result.Error = fmt.Sprintf("delivery to %s provider %q failed; see the server log", result.ProviderType, result.ProviderName)
+	}
 	return api.TestIncidentProvider200JSONResponse{
 		Result: toAPITestIncidentProviderResult(result),
 	}, nil
