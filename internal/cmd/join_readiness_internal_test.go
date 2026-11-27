@@ -35,6 +35,7 @@ func TestCoordinatorJoinReadiness(t *testing.T) {
 		assert.Equal(t, "/etc/dagu/config.yaml", got.ConfigFile)
 		assert.Equal(t, envSource, got.HostSource)
 		assert.Equal(t, "dagu.example.com", got.Advertise)
+		assert.True(t, got.BuiltinTLS)
 		assert.Equal(t, coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_UNSPECIFIED, got.BuiltinTLSReason)
 	})
 

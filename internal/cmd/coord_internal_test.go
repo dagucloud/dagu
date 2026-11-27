@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/test/peercert"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -80,4 +82,51 @@ func TestCoordinatorPeerCAReadOnlyDataDir(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, ca)
 	assert.NoDirExists(t, filepath.Dir(generated))
+}
+
+// The coordinator logs one line at start for what it serves (Spec 108
+// §Coordinator Line).
+func TestCoordinatorTransport(t *testing.T) {
+	dir := t.TempDir()
+	certFile, keyFile := peercert.Write(t, dir, peercert.Options{Name: "server", DNSNames: []string{"coordinator.test"}})
+	ca, err := coordinator.LoadOrCreatePeerCA(filepath.Join(dir, "peer-ca.pem"))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		peer config.Peer
+		ca   *coordinator.PeerCA
+		want string
+	}{
+		{name: "GeneratedCA", ca: ca, want: "Coordinator transport: built-in TLS and h2c (from the generated CA)"},
+		{name: "SuppliedCA", peer: config.Peer{CACertFile: "ca.crt", CAKeyFile: "ca.key"}, ca: ca, want: "Coordinator transport: built-in TLS and h2c (from peer.ca_cert_file)"},
+		{name: "OwnCertificates", peer: config.Peer{CertFile: certFile, KeyFile: keyFile}, want: "Coordinator transport: TLS (from peer.cert_file)"},
+		{name: "NoCA", want: "Coordinator transport: h2c (from no peer CA)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{Core: config.Core{Peer: tt.peer}}
+			records := captureLogs(t, func(ctx context.Context) {
+				_, err := coordinatorTransport(ctx, cfg, tt.ca, "coordinator.test", "host.test")
+				require.NoError(t, err)
+			})
+			var lines []string
+			for _, record := range records {
+				if strings.HasPrefix(record.Msg, "Coordinator transport:") {
+					lines = append(lines, record.Level+" "+record.Msg)
+				}
+			}
+			assert.Equal(t, []string{"INFO " + tt.want}, lines)
+		})
+	}
+}
+
+// A non-ASCII advertise address and host name, one of which no certificate
+// can carry, do not stop a coordinator with a peer CA from starting.
+func TestCoordinatorTransportNonASCIIHosts(t *testing.T) {
+	ca, err := coordinator.LoadOrCreatePeerCA(filepath.Join(t.TempDir(), "peer-ca.pem"))
+	require.NoError(t, err)
+	opts, err := coordinatorTransport(t.Context(), &config.Config{}, ca, "ホスト", "ホスト!")
+	require.NoError(t, err)
+	assert.Len(t, opts, 1)
 }

@@ -41,6 +41,10 @@ import (
 // payloads that include LLM session messages from workers.
 const grpcMaxMsgSize = 16 * 1024 * 1024
 
+// coordinatorLineFormat is the line a coordinator logs at start for what it
+// serves, from the transport and what selected it.
+const coordinatorLineFormat = "Coordinator transport: %s (from %s)"
+
 func CmdCoordinator() *cobra.Command {
 	return NewCommand(
 		&cobra.Command{
@@ -148,8 +152,11 @@ func newCoordinator(
 	persistence := ctx.Persistence
 	// Generate instance ID
 	hostname, err := os.Hostname()
+	// The built-in TLS certificate names the host name only when it is known.
+	certHostname := hostname
 	if err != nil {
 		hostname = "unknown"
+		certHostname = ""
 	}
 	instanceID := fmt.Sprintf("%s@%d", hostname, cfg.Coordinator.Port)
 
@@ -203,24 +210,15 @@ func newCoordinator(
 	if err != nil {
 		return nil, nil, err
 	}
+	transportOpts, err := coordinatorTransport(ctx, cfg, peerCA, advertiseAddr, certHostname)
+	if err != nil {
+		return nil, nil, err
+	}
+	serverOpts = append(serverOpts, transportOpts...)
 	serverOpts = append(serverOpts,
 		grpc.ChainUnaryInterceptor(peerAuth.UnaryInterceptor()),
 		grpc.ChainStreamInterceptor(peerAuth.StreamInterceptor()),
 	)
-
-	// Configure TLS using global peer config
-	if cfg.Core.Peer.CertFile != "" && cfg.Core.Peer.KeyFile != "" {
-		cert, err := loadPeerKeyPair(cfg.Core.Peer)
-		if err != nil {
-			return nil, nil, err
-		}
-		warnCoordinatorCertificate(ctx, cfg.Core.Peer.CertFile, cert.Leaf, advertiseAddr)
-		creds, err := loadCoordinatorTLSCredentials(cert, cfg.Core.Peer.ClientCaFile)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load TLS credentials: %w", err)
-		}
-		serverOpts = append(serverOpts, grpc.Creds(creds))
-	}
 
 	// Create gRPC server with options
 	grpcServer := grpc.NewServer(serverOpts...)
@@ -272,9 +270,45 @@ func newCoordinator(
 	return coordinator.NewService(grpcServer, handler, listener, healthServer, httpHealthServer, persistence.ServiceRegistry, cfg, instanceID, advertiseAddr), handler, nil
 }
 
+// coordinatorTransport returns the server options that set what the
+// coordinator serves, and logs it: TLS with own certificates, or built-in TLS
+// and h2c on one port with peerCA, the CA from coordinatorPeerCA, or h2c
+// without either. The built-in TLS certificate names advertise and hostname,
+// when not empty.
+func coordinatorTransport(ctx context.Context, cfg *config.Config, peerCA *coordinator.PeerCA, advertise, hostname string) ([]grpc.ServerOption, error) {
+	peer := cfg.Core.Peer
+	switch {
+	case peer.CertFile != "" && peer.KeyFile != "":
+		cert, err := loadPeerKeyPair(peer)
+		if err != nil {
+			return nil, err
+		}
+		warnCoordinatorCertificate(ctx, peer.CertFile, cert.Leaf, advertise)
+		creds, err := loadCoordinatorTLSCredentials(cert, peer.ClientCaFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load TLS credentials: %w", err)
+		}
+		logger.Info(ctx, fmt.Sprintf(coordinatorLineFormat, "TLS", "peer.cert_file"))
+		return []grpc.ServerOption{grpc.Creds(creds)}, nil
+	case peerCA == nil:
+		logger.Info(ctx, fmt.Sprintf(coordinatorLineFormat, "h2c", "no peer CA"))
+		return nil, nil
+	}
+	creds, err := coordinator.NewPeerTransportCredentials(ctx, peerCA, advertise, hostname)
+	if err != nil {
+		return nil, err
+	}
+	source := "the generated CA"
+	if peer.CACertFile != "" {
+		source = "peer.ca_cert_file"
+	}
+	logger.Info(ctx, fmt.Sprintf(coordinatorLineFormat, "built-in TLS and h2c", source))
+	return []grpc.ServerOption{grpc.Creds(creds)}, nil
+}
+
 // coordinatorJoinReadiness returns the settings the coordinator reports as
-// its join readiness. peerCA is the CA from coordinatorPeerCA. BuiltinTLS
-// stays false until the coordinator serves built-in TLS.
+// its join readiness. peerCA is the CA from coordinatorPeerCA; with it, the
+// coordinator serves built-in TLS.
 func coordinatorJoinReadiness(cfg *config.Config, peerCA *coordinator.PeerCA) coordinator.JoinReadinessConfig {
 	configFile := cfg.Paths.ConfigFileUsed
 	if configFile == "" {
@@ -288,9 +322,11 @@ func coordinatorJoinReadiness(cfg *config.Config, peerCA *coordinator.PeerCA) co
 		Advertise:  cfg.Coordinator.Advertise,
 	}
 	switch {
+	case peerCA != nil:
+		readiness.BuiltinTLS = true
 	case cfg.Core.Peer.CertFile != "" && cfg.Core.Peer.KeyFile != "":
 		readiness.BuiltinTLSReason = coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_OWN_CERTIFICATES
-	case peerCA == nil:
+	default:
 		// Without own certificates, only a generated CA that could not be
 		// created or read leaves the coordinator without a peer CA.
 		readiness.BuiltinTLSReason = coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_CA_UNAVAILABLE
