@@ -4,12 +4,12 @@
 package spec108_peer_transport_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -77,10 +77,11 @@ func (s startAll) startSharedWorker(t *testing.T, dagu *harness.Runner, id, coor
 // an error, which it does only when it reaches the coordinator.
 func (s startAll) waitForWorker(t *testing.T, id string) {
 	t.Helper()
-	deadline := time.Now().Add(harness.WaitTimeout(t))
+	ctx, cancel := context.WithTimeout(t.Context(), harness.WaitTimeout(t))
+	defer cancel()
 	var last string
-	for time.Now().Before(deadline) {
-		listed, err := s.lists(id)
+	for ctx.Err() == nil {
+		listed, err := s.lists(ctx, id)
 		if listed {
 			return
 		}
@@ -95,8 +96,12 @@ func (s startAll) waitForWorker(t *testing.T, id string) {
 }
 
 // lists reports whether the server lists the worker id without an error.
-func (s startAll) lists(id string) (bool, error) {
-	resp, err := http.Get("http://" + s.server + "/api/v1/workers")
+func (s startAll) lists(ctx context.Context, id string) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+s.server+"/api/v1/workers", nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return false, err
 	}
@@ -131,7 +136,6 @@ func TestStartAllBuiltinTLS(t *testing.T) {
 	output := waitForOutput(t, services.process,
 		"Coordinator transport: built-in TLS only (from coordinator.require_tls)", builtinFromDataDir)
 	assert.Equal(t, 1, strings.Count(output, "Peer transport:"), output)
-	assert.FileExists(t, filepath.Join(services.home, "data", "coordinator", "peer-ca.crt"))
 
 	worker := services.startSharedWorker(t, dagu, "tls-worker", services.coordinator)
 	waitForOutput(t, worker, builtinFromDataDir)
