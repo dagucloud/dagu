@@ -195,7 +195,8 @@ func newCoordinator(
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, err := coordinatorPeerCA(ctx, cfg.Core.Peer); err != nil {
+	peerCA, err := coordinatorPeerCA(ctx, cfg.Core.Peer)
+	if err != nil {
 		return nil, nil, err
 	}
 	workerNodes, err := ctx.workerNodeStore()
@@ -261,7 +262,7 @@ func newCoordinator(
 		TrustedHostKeys:           hostKeys,
 		AgentSessionCleanupQueue:  persistence.AgentSessionCleanupQueue,
 		WorkerNodeStore:           workerNodes,
-		JoinReadiness:             coordinatorJoinReadiness(cfg),
+		JoinReadiness:             coordinatorJoinReadiness(cfg, peerCA),
 		WorkerWaitTimeout:         cfg.Coordinator.WorkerWaitTimeout,
 		EventService:              ctx.event,
 		EventSourceInstance:       ctx.EventSourceInstance,
@@ -272,9 +273,9 @@ func newCoordinator(
 }
 
 // coordinatorJoinReadiness returns the settings the coordinator reports as
-// its join readiness. BuiltinTLS stays false until the coordinator has a
-// peer CA; the reason is known now only for own certificates.
-func coordinatorJoinReadiness(cfg *config.Config) coordinator.JoinReadinessConfig {
+// its join readiness. peerCA is the CA from coordinatorPeerCA. BuiltinTLS
+// stays false until the coordinator serves built-in TLS.
+func coordinatorJoinReadiness(cfg *config.Config, peerCA *coordinator.PeerCA) coordinator.JoinReadinessConfig {
 	configFile := cfg.Paths.ConfigFileUsed
 	if configFile == "" {
 		configFile = cfg.Paths.DefaultConfigFile
@@ -286,8 +287,13 @@ func coordinatorJoinReadiness(cfg *config.Config) coordinator.JoinReadinessConfi
 		HostSource: cfg.Sources["coordinator.host"],
 		Advertise:  cfg.Coordinator.Advertise,
 	}
-	if cfg.Core.Peer.CertFile != "" && cfg.Core.Peer.KeyFile != "" {
+	switch {
+	case cfg.Core.Peer.CertFile != "" && cfg.Core.Peer.KeyFile != "":
 		readiness.BuiltinTLSReason = coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_OWN_CERTIFICATES
+	case peerCA == nil:
+		// Without own certificates, only a generated CA that could not be
+		// created or read leaves the coordinator without a peer CA.
+		readiness.BuiltinTLSReason = coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_CA_UNAVAILABLE
 	}
 	return readiness
 }
