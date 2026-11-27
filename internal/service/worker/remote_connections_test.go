@@ -120,11 +120,34 @@ func TestRemoteConnectionsKeepToken(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "tok-3", token)
 
+	// TestRemoteConnectionsKeepExactLifetime covers the asked lifetime.
+	got := proto.Clone(coord.requests[0]).(*coordinatorv1.ResolveConnectionTokenRequest)
+	got.MinTtlSeconds = 0
 	want := &coordinatorv1.ResolveConnectionTokenRequest{
 		WorkerId: "worker-1", AttemptKey: "key-1", AttemptId: "attempt-1", DagName: "child",
-		Connection: "work", MinTtlSeconds: 302,
+		Connection: "work",
 	}
-	assert.True(t, proto.Equal(want, coord.requests[0]), coord.requests[0])
+	assert.True(t, proto.Equal(want, got), got)
+}
+
+// A token granted for exactly the lifetime the worker asked for is kept
+// for the next call. The kept lifetime counts from the request, less a
+// second, so a worker that asked for the caller's minTTL alone would ask
+// again at once for the same token.
+func TestRemoteConnectionsKeepExactLifetime(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	coord := &tokenCoordinator{respond: func(req *coordinatorv1.ResolveConnectionTokenRequest) (*coordinatorv1.ResolveConnectionTokenResponse, error) {
+		return &coordinatorv1.ResolveConnectionTokenResponse{AccessToken: "tok-1", ExpiresInSeconds: req.GetMinTtlSeconds()}, nil
+	}}
+	conns, _ := newTestConnections(coord)
+
+	for range 2 {
+		token, _, err := conns.Token(ctx, workConnection, "", tokenMinTTL)
+		require.NoError(t, err)
+		assert.Equal(t, "tok-1", token)
+	}
+	assert.Equal(t, 1, coord.calls())
 }
 
 // A rejected token is reported and replaced. A token rejected after another
