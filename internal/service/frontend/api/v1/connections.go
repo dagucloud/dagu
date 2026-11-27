@@ -83,6 +83,10 @@ func (a *API) CreateConnection(ctx context.Context, request api.CreateConnection
 			return nil, err
 		}
 	}
+	// Workspace deletes and renames hold the write lock while they check
+	// for connections, so none runs between this check and the create.
+	a.workspaceWikiMu.RLock()
+	defer a.workspaceWikiMu.RUnlock()
 	if err := a.requireWorkspaceExists(ctx, ws); err != nil {
 		return nil, err
 	}

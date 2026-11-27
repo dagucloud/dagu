@@ -5135,7 +5135,7 @@ export interface paths {
         put?: never;
         /**
          * Create an OAuth app
-         * @description Registers an OAuth client from its fields, or from the client file the provider issued, such as a Google client JSON. oauth2 and mcp apps are refused until requests take their endpoints. Needs admin.
+         * @description Registers an OAuth client from its fields, or from the client file the provider issued, such as a Google client JSON. Needs admin.
          */
         post: operations["createOAuthApp"];
         delete?: never;
@@ -5224,7 +5224,7 @@ export interface paths {
         post?: never;
         /**
          * Remove a connection
-         * @description Deletes the connection with its tokens and tool catalogs, then revokes its refresh token unless another connection on this server holds the same account on the same client. Connections on other servers that use the same client may lose access. Needs manager or above in the workspace.
+         * @description Deletes the connection with its tokens and tool catalogs, then revokes its refresh token where the provider supports it, unless another connection on this server holds the same grant. Revocation is best-effort: 204 confirms the removal here, not the revocation, and a failed revocation is logged and audited. Connections on other servers that use the same client may lose access. Needs manager or above in the workspace.
          */
         delete: operations["deleteConnection"];
         options?: never;
@@ -10143,7 +10143,11 @@ export interface components {
         };
         CreateOAuthAppRequest: {
             name: string;
-            provider: components["schemas"]["ConnectionProviderName"];
+            /**
+             * @description oauth2 and mcp apps are refused until requests take their endpoints.
+             * @enum {string}
+             */
+            provider: CreateOAuthAppRequestProvider;
             /** @description The client file the provider issued, as is. It replaces clientId, clientSecret, and clientType. */
             clientFile?: string;
             clientId?: string;
@@ -10668,7 +10672,7 @@ export interface components {
         };
     };
     responses: {
-        /** @description An error: 400 for an invalid request, 403 without the role, 404 for an unknown or hidden record, and 409 for a conflict. */
+        /** @description An error: 400 for an invalid request, 403 without the role or for a remoteNode other than local, since each server keeps its own apps and connections, 404 for an unknown or hidden record, and 409 for a conflict. */
         ConnectionError: {
             headers: {
                 [name: string]: unknown;
@@ -29592,6 +29596,10 @@ export enum OAuthAppKind {
 export enum OAuthAppStatus {
     ok = "ok",
     invalid = "invalid"
+}
+export enum CreateOAuthAppRequestProvider {
+    google = "google",
+    microsoft = "microsoft"
 }
 export enum ConnectionAccess {
     read = "read",

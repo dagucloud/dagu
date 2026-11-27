@@ -256,7 +256,7 @@ func TestCreateOAuthAppFromClientFile(t *testing.T) {
 	f := newConnectionsFixture(t, apiv1.WithPublicURLResolver(func() string { return "https://dagu.example.com" }))
 	create := func(file string, clientID *string) (apigen.OAuthApp, error) {
 		resp, err := f.api.CreateOAuthApp(f.admin(), apigen.CreateOAuthAppRequestObject{Body: &apigen.CreateOAuthAppRequest{
-			Name: "Google", Provider: apigen.ConnectionProviderNameGoogle, ClientFile: &file, ClientId: clientID,
+			Name: "Google", Provider: apigen.CreateOAuthAppRequestProviderGoogle, ClientFile: &file, ClientId: clientID,
 		}})
 		if err := expectResponse[apigen.CreateOAuthApp201JSONResponse](resp, err); err != nil {
 			return apigen.OAuthApp{}, err
@@ -289,12 +289,13 @@ func TestCreateOAuthAppFromClientFile(t *testing.T) {
 }
 
 // Apps of oauth2 and mcp are refused, since no request sets the endpoints
-// they need, nor the resource URL of an mcp connection.
+// they need, nor the resource URL of an mcp connection. The schema leaves
+// them out, and the handler refuses them also without request validation.
 func TestCreateOAuthAppProviders(t *testing.T) {
 	f := newConnectionsFixture(t)
 	for _, provider := range []apigen.ConnectionProviderName{apigen.ConnectionProviderNameOauth2, apigen.ConnectionProviderNameMcp} {
 		body := googleAppRequest()
-		body.Provider = provider
+		body.Provider = apigen.CreateOAuthAppRequestProvider(provider)
 		resp, err := f.api.CreateOAuthApp(f.admin(), apigen.CreateOAuthAppRequestObject{Body: body})
 		requireStatus(t, http.StatusBadRequest, expectResponse[apigen.CreateOAuthApp201JSONResponse](resp, err))
 	}
@@ -467,7 +468,7 @@ func (f *connectionsFixture) tokenFiles(t *testing.T) []string {
 func googleAppRequest() *apigen.CreateOAuthAppRequest {
 	return &apigen.CreateOAuthAppRequest{
 		Name:         "Google",
-		Provider:     apigen.ConnectionProviderNameGoogle,
+		Provider:     apigen.CreateOAuthAppRequestProviderGoogle,
 		ClientId:     new("client-id"),
 		ClientSecret: new(testClientSecret),
 		ClientType:   new(apigen.OAuthClientTypeWeb),

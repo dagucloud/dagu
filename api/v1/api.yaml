@@ -14392,7 +14392,7 @@ paths:
           $ref: "#/components/responses/ConnectionError"
     post:
       summary: "Create an OAuth app"
-      description: "Registers an OAuth client from its fields, or from the client file the provider issued, such as a Google client JSON. oauth2 and mcp apps are refused until requests take their endpoints. Needs admin."
+      description: "Registers an OAuth client from its fields, or from the client file the provider issued, such as a Google client JSON. Needs admin."
       operationId: "createOAuthApp"
       tags:
         - "connections"
@@ -14553,7 +14553,7 @@ paths:
           $ref: "#/components/responses/ConnectionError"
     delete:
       summary: "Remove a connection"
-      description: "Deletes the connection with its tokens and tool catalogs, then revokes its refresh token unless another connection on this server holds the same account on the same client. Connections on other servers that use the same client may lose access. Needs manager or above in the workspace."
+      description: "Deletes the connection with its tokens and tool catalogs, then revokes its refresh token where the provider supports it, unless another connection on this server holds the same grant. Revocation is best-effort: 204 confirms the removal here, not the revocation, and a failed revocation is logged and audited. Connections on other servers that use the same client may lose access. Needs manager or above in the workspace."
       operationId: "deleteConnection"
       tags:
         - "connections"
@@ -14743,7 +14743,7 @@ components:
 
   responses:
     ConnectionError:
-      description: "An error: 400 for an invalid request, 403 without the role, 404 for an unknown or hidden record, and 409 for a conflict."
+      description: "An error: 400 for an invalid request, 403 without the role or for a remoteNode other than local, since each server keeps its own apps and connections, 404 for an unknown or hidden record, and 409 for a conflict."
       content:
         application/json:
           schema:
@@ -24507,6 +24507,7 @@ components:
 
     CreateOAuthAppRequest:
       type: object
+      additionalProperties: false
       required:
         - name
         - provider
@@ -24514,7 +24515,11 @@ components:
         name:
           type: string
         provider:
-          $ref: "#/components/schemas/ConnectionProviderName"
+          type: string
+          description: "oauth2 and mcp apps are refused until requests take their endpoints."
+          enum:
+            - google
+            - microsoft
         clientFile:
           type: string
           writeOnly: true
@@ -24533,6 +24538,7 @@ components:
 
     UpdateOAuthAppRequest:
       type: object
+      additionalProperties: false
       properties:
         name:
           type: string
@@ -24557,6 +24563,7 @@ components:
 
     ConnectionServiceRequest:
       type: object
+      additionalProperties: false
       required:
         - name
         - access
@@ -24679,6 +24686,7 @@ components:
 
     CreateConnectionRequest:
       type: object
+      additionalProperties: false
       required:
         - name
         - app
@@ -24708,6 +24716,7 @@ components:
 
     UpdateConnectionRequest:
       type: object
+      additionalProperties: false
       properties:
         services:
           type: array
