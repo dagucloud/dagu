@@ -53,7 +53,9 @@ func withLifecycleLock(ctx context.Context, cfg *config.Config, fn func() error)
 	}
 	defer func() { _ = lock.Unlock() }()
 
-	beatCtx, stop := context.WithCancel(ctx)
+	// The heartbeat lasts as long as fn, also after the caller gives up, so
+	// that no other process takes the lock while fn still removes files.
+	beatCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
 	beaten := make(chan struct{})
 	go func() {
 		defer close(beaten)

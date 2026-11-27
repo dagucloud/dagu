@@ -156,3 +156,24 @@ func TestProjectsOff(t *testing.T) {
 	}
 	assert.NoDirExists(t, filepath.Join(server.Config.Paths.ProjectsDir, "ops"))
 }
+
+// TestAPIKeyGrantOnDeletingProject proves that no API key gets a grant on
+// a project marked deleting, which the delete would not remove once it has
+// removed the project's grants.
+func TestAPIKeyGrantOnDeletingProject(t *testing.T) {
+	t.Parallel()
+	server := setupProjectsAuthServer(t, "payments")
+	adminToken := getAdminToken(t, server)
+	registry := projectregistry.New(server.Config.Paths.DataDir)
+	payments, err := registry.Get(context.Background(), "payments")
+	require.NoError(t, err)
+	_, err = registry.SetDeleting(context.Background(), payments.ID, true)
+	require.NoError(t, err)
+
+	server.Client().Post("/api/v1/api-keys",
+		newProjectAPIKeyRequest("payments-viewer", api.ProjectGrant{Project: "payments", Role: api.UserRoleViewer})).
+		WithBearerToken(adminToken).
+		ExpectStatus(http.StatusBadRequest).
+		Send(t)
+	assert.NotContains(t, listAPIKeyNames(t, server, adminToken), "payments-viewer")
+}

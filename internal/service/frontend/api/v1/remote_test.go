@@ -60,6 +60,14 @@ func serveRemoteNodeRequest(t *testing.T, server config.Server, user *auth.User,
 // response status.
 func serveRemoteNodeRequestTo(t *testing.T, remote http.Handler, server config.Server, user *auth.User, method, path, body string, header http.Header) int {
 	t.Helper()
+	return serveRemoteNodeRequestWith(t, remote, &config.Config{Server: server}, user, method, path, body, header)
+}
+
+// serveRemoteNodeRequestWith is serveRemoteNodeRequestTo with the whole
+// configuration.
+func serveRemoteNodeRequestWith(t *testing.T, remote http.Handler, cfg *config.Config, user *auth.User, method, path, body string, header http.Header) int {
+	t.Helper()
+	server := &cfg.Server
 
 	remoteServer := httptest.NewServer(remote)
 	t.Cleanup(remoteServer.Close)
@@ -67,7 +75,7 @@ func serveRemoteNodeRequestTo(t *testing.T, remote http.Handler, server config.S
 	server.APIBasePath = "/api/v1"
 	server.Auth = config.Auth{Mode: config.AuthModeBuiltin}
 	a := &API{
-		config:      &config.Config{Server: server},
+		config:      cfg,
 		authService: remoteSyncAuthService{user: user},
 		remoteNodeResolver: remotenode.NewResolver([]config.RemoteNode{{
 			Name:       "edge",
@@ -162,6 +170,32 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 				assert.Equal(t, http.StatusForbidden, status)
 			}
 		})
+	}
+}
+
+// A remote node answers a project list with its stored credential, often an
+// admin's, which shows host paths, so forwarding one needs a local admin.
+func TestRemoteNodeProjectListNeedsAdmin(t *testing.T) {
+	all := auth.AllWorkspaceAccess()
+	for _, tc := range []struct {
+		user     *auth.User
+		wantCall bool
+	}{
+		{user: &auth.User{Role: auth.RoleManager, WorkspaceAccess: all}},
+		{user: &auth.User{Role: auth.RoleAdmin, WorkspaceAccess: all}, wantCall: true},
+	} {
+		var called atomic.Bool
+		remote := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called.Store(true)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"projects":[]}`))
+		})
+		status := serveRemoteNodeRequestWith(t, remote, &config.Config{ProjectsEnabled: true}, tc.user,
+			http.MethodGet, "/api/v1/projects", "", nil)
+		assert.Equal(t, tc.wantCall, called.Load(), tc.user.Role)
+		if !tc.wantCall {
+			assert.Equal(t, http.StatusForbidden, status)
+		}
 	}
 }
 

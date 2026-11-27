@@ -110,6 +110,9 @@ func (a *API) CreateAPIKey(ctx context.Context, request api.CreateAPIKeyRequestO
 
 	a.apiKeyWriteMu.Lock()
 	defer a.apiKeyWriteMu.Unlock()
+	if err := a.refuseGrantsOnDeleting(ctx, projectGrants); err != nil {
+		return nil, err
+	}
 
 	if err := a.requireCommunityAPIKeyLimit(ctx); err != nil {
 		return nil, err
@@ -247,6 +250,9 @@ func (a *API) UpdateAPIKey(ctx context.Context, request api.UpdateAPIKeyRequestO
 	if manager.projectsOn && request.Body.ProjectGrants != nil {
 		projectGrants, err := manager.projectGrants(*request.Body.ProjectGrants)
 		if err != nil {
+			return nil, err
+		}
+		if err := a.refuseGrantsOnDeleting(ctx, projectGrants); err != nil {
 			return nil, err
 		}
 		input.ProjectGrants = &projectGrants
