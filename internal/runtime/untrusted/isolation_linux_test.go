@@ -572,6 +572,34 @@ func TestHandoffMarksTheWorkDirectory(t *testing.T) {
 	require.NoError(t, next.unmarkUnlessAborted(next.restore(true)))
 }
 
+// abortBegin undoes the Begin of iso, which failed: abort gives back the slot
+// that Begin took.
+func abortBegin(iso *isolation) error {
+	slot <- struct{}{}
+	return iso.abort()
+}
+
+// A handoff that fails before it changes an owner, as at a git folder outside
+// the work directory, changes nothing at the abort: a file of the worker keeps
+// its set-user-ID bit. It needs no root.
+func TestAbortBeforeTheHandoffChangesNothing(t *testing.T) {
+	t.Parallel()
+	iso := selfIsolation(t, t.TempDir())
+	tool := filepath.Join(iso.workDir, "tool")
+	require.NoError(t, os.WriteFile(tool, []byte("#!/bin/sh\n"), 0o755))
+	require.NoError(t, os.Chmod(tool, 0o755|fs.ModeSetuid))
+	repo := filepath.Join(iso.workDir, "repo")
+	require.NoError(t, os.Mkdir(repo, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".git"), []byte("gitdir: "+t.TempDir()+"\n"), 0o644))
+
+	require.ErrorContains(t, iso.handoff(), "which is not in the work directory")
+	require.NoError(t, abortBegin(iso))
+	info, err := os.Lstat(tool)
+	require.NoError(t, err)
+	assert.Equal(t, fs.ModeSetuid, info.Mode()&fs.ModeSetuid)
+	assert.NoError(t, CheckWorkDir(iso.lexicalWork), "the abort removes the marker")
+}
+
 // A FIFO named commondir fails the handoff instead of holding it until a writer
 // opens the FIFO. It needs no root.
 func TestHandoffRefusesAFIFOGitPointer(t *testing.T) {

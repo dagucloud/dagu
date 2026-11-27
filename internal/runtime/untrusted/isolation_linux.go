@@ -106,7 +106,8 @@ type isolation struct {
 	// marker is the marker of the work directory that this step made, until
 	// a restore makes the work directory safe.
 	marker string
-	// handedOff is true once the walk of the handoff started.
+	// handedOff is true once the walk of the handoff that changes owners
+	// started.
 	handedOff bool
 
 	ended atomic.Bool
@@ -303,10 +304,11 @@ func (iso *isolation) releaseSlot() {
 
 // abort undoes a Begin that failed. No process of the restricted user started.
 func (iso *isolation) abort() error {
-	var errs []error
+	var restoreErr error
 	if iso.handedOff {
-		errs = append(errs, iso.unmarkUnlessAborted(iso.restore(false)))
+		restoreErr = iso.restore(false)
 	}
+	errs := []error{iso.unmarkUnlessAborted(restoreErr)}
 	if iso.privateDir != "" {
 		if removeErr := os.RemoveAll(iso.privateDir); removeErr != nil {
 			errs = append(errs, stepError(iso.step, "remove the folder", iso.privateDir, removeErr))

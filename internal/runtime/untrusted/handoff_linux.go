@@ -227,11 +227,11 @@ func (iso *isolation) handoff() error {
 	if err := iso.markHandoff(); err != nil {
 		return err
 	}
-	iso.handedOff = true
 	if err := iso.discoverGit(); err != nil {
 		return err
 	}
 	protected := iso.protectedPaths()
+	iso.handedOff = true
 	return walkFD(iso.workDir, func(e *fsEntry) (bool, error) {
 		switch {
 		case iso.gitDirs[e.path]:
