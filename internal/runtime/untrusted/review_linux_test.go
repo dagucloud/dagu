@@ -512,7 +512,9 @@ func TestReviewWatcherKillsNextProcess(t *testing.T) {
 	const rounds = 5
 	for range rounds {
 		// The first command starts a server in the background, as "npm start &".
-		runAs(t, stepCtx, workDir, `sleep 1000 &`)
+		// Its output goes elsewhere, so that runAs returns whatever the watcher
+		// does.
+		runAs(t, stepCtx, workDir, `sleep 1000 >/dev/null 2>&1 &`)
 		cmd := exec.Command("/bin/sh", "-c", "sleep 0.3; echo second") //nolint:gosec
 		cmd.Dir = workDir
 		cmd.Env = []string{"PATH=/usr/bin:/bin"}

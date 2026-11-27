@@ -276,9 +276,13 @@ func TestIsolatedStepPassesTheRunFolders(t *testing.T) {
 	step, err := beginStep(t, ctx, req)
 	require.NoError(t, err)
 	assert.Equal(t, "reached\n", runAs(t, WithStep(ctx, step), run, `touch file && echo reached`))
-	other := exec.Command("/bin/sh", "-c", "cd "+run) //nolint:gosec
-	other.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: testUID + 1, Gid: testGID + 1}}
-	assert.Error(t, other.Run(), "another user passed the run folders")
+	cdAs := func(uid, gid uint32) error {
+		probe := exec.Command("/bin/sh", "-c", `cd "$1"`, "sh", run)
+		probe.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uid, Gid: gid}}
+		return probe.Run()
+	}
+	require.NoError(t, cdAs(testUID, testGID), "the restricted user cannot pass the run folders")
+	assert.Error(t, cdAs(testUID+1, testGID+1), "another user passed the run folders")
 	assertRunFolders(t, fs.FileMode(0o750), nil, root, dag)
 
 	require.NoError(t, step.End(ctx))
@@ -393,7 +397,7 @@ func TestIsolatedStepSharesAFileReadOnly(t *testing.T) {
 	assert.Equal(t, fs.FileMode(0o550), info.Mode().Perm())
 	uid, gid := ownerOf(info)
 	assert.Equal(t, []int{os.Geteuid(), testGID}, []int{uid, gid})
-	out := runAs(t, WithStep(ctx, step), workDir, script+`; (echo x >> `+script+`) 2>/dev/null && echo write:allowed || echo write:denied`)
+	out := runAs(t, WithStep(ctx, step), workDir, `"$SCRIPT"; (echo x >> "$SCRIPT") 2>/dev/null && echo write:allowed || echo write:denied`, "SCRIPT="+script)
 	assert.Equal(t, "shared\nwrite:denied\n", out)
 	other := exec.Command("/bin/cat", script)
 	other.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: testUID + 1, Gid: testGID + 1}}
