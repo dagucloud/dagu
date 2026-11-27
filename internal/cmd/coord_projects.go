@@ -60,8 +60,11 @@ func (p *coordinatorProjects) Stores(ctx context.Context, scope dispatch.Project
 	if opened, ok := p.opened[scope]; ok && opened.source == runs {
 		return opened.stores, nil
 	}
-	stores := openCoordinatorStores(ctx, project, runs)
-	p.opened[scope] = openedProjectStores{source: runs, stores: stores}
+	stores, complete := openCoordinatorStores(ctx, project, runs)
+	// A store that failed to open is tried again on the next call.
+	if complete {
+		p.opened[scope] = openedProjectStores{source: runs, stores: stores}
+	}
 	return stores, nil
 }
 
@@ -87,8 +90,9 @@ func (p *coordinatorProjects) Projects() []dispatch.ProjectScope {
 }
 
 // openCoordinatorStores returns the coordinator stores of the runs that
-// runs records, with the settings of project, whose runs they are.
-func openCoordinatorStores(ctx context.Context, project, runs *file.ProjectStores) *coordinator.ProjectStores {
+// runs records, with the settings of project, whose runs they are, and
+// whether every store opened.
+func openCoordinatorStores(ctx context.Context, project, runs *file.ProjectStores) (*coordinator.ProjectStores, bool) {
 	stores := &coordinator.ProjectStores{
 		DAGRunRepository:         runs.DAGRunRepository,
 		LogDir:                   runs.Paths.LogDir,
@@ -99,15 +103,18 @@ func openCoordinatorStores(ctx context.Context, project, runs *file.ProjectStore
 		ProfileStore:             project.ProfileStore(ctx),
 		AgentSessionCleanupQueue: runs.AgentSessionCleanupQueue,
 	}
+	complete := stores.SecretStore != nil && stores.ProfileStore != nil
 	if inventories, err := project.CachedInventoryStore(); err != nil {
+		complete = false
 		logger.Warn(ctx, "Node inventory of a project is unavailable", tag.Dir(project.Paths.StateDir), tag.Error(err))
 	} else {
 		stores.NodeInventory = inventories
 	}
 	if hostKeys, err := project.HostKeyStore(); err != nil {
+		complete = false
 		logger.Warn(ctx, "Trusted host keys of a project are unavailable", tag.Dir(project.Paths.StateDir), tag.Error(err))
 	} else {
 		stores.TrustedHostKeys = hostKeys
 	}
-	return stores
+	return stores, complete
 }

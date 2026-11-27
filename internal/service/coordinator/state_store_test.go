@@ -95,6 +95,46 @@ func TestStateClientErrorPreservesInvalidArgumentSubtype(t *testing.T) {
 	require.ErrorIs(t, stateClientError(status.Error(codes.InvalidArgument, "dag state: invalid value: unexpected end of JSON input")), dagrun.ErrInvalidStateValue)
 }
 
+// The same state reference holds a value of its own in each project: a
+// client for a project reads, lists, and writes that project's state alone.
+func TestStateStoreClientKeepsProjectsApart(t *testing.T) {
+	t.Parallel()
+
+	weather := dispatch.ProjectScope{ID: "weather-id"}
+	handler := NewHandler(HandlerConfig{
+		StateStore: store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state")),
+		Projects: stubProjects{scope: weather, stores: &ProjectStores{
+			StateStore: store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state")),
+		}},
+	})
+	defaults := NewStateStoreClient(fakeStateClient{handler: handler}, dispatch.ProjectScope{})
+	inWeather := NewStateStoreClient(fakeStateClient{handler: handler}, weather)
+	ctx := context.Background()
+	ref := dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "forecast", Key: "cursor"}
+
+	_, err := defaults.Put(ctx, ref, json.RawMessage(`"default"`), dagrun.StatePutOptions{})
+	require.NoError(t, err)
+	_, err = inWeather.Put(ctx, ref, json.RawMessage(`"weather"`), dagrun.StatePutOptions{})
+	require.NoError(t, err)
+
+	for client, want := range map[dagrun.StateStore]string{defaults: `"default"`, inWeather: `"weather"`} {
+		got, err := client.Get(ctx, ref)
+		require.NoError(t, err)
+		assert.JSONEq(t, want, string(got.Value))
+		entries, err := client.List(ctx, dagrun.StateListOptions{Scope: dagrun.StateScopeDAG, Namespace: "forecast"})
+		require.NoError(t, err)
+		require.Len(t, entries, 1)
+		assert.JSONEq(t, want, string(entries[0].Value))
+	}
+
+	deleted, err := inWeather.Delete(ctx, ref)
+	require.NoError(t, err)
+	assert.True(t, deleted)
+	got, err := defaults.Get(ctx, ref)
+	require.NoError(t, err)
+	assert.JSONEq(t, `"default"`, string(got.Value))
+}
+
 type fakeStateClient struct {
 	handler *Handler
 }
