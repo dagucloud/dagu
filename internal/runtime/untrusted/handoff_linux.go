@@ -303,16 +303,25 @@ func (iso *isolation) protectGitEntry(e *fsEntry) error {
 	if err := iso.checkNoDevice(e); err != nil {
 		return err
 	}
-	if e.uid() != iso.workerUID || e.gid() == int(iso.gid) {
+	chown := e.uid() != iso.workerUID || e.gid() == int(iso.gid)
+	perm := e.perm()
+	if !e.isLink() {
+		perm = perm&^0o002 | 0o004
+		if e.isDir() {
+			perm |= 0o001
+		}
+	}
+	// A change acts on the file, so it would also reach the other paths of a
+	// file with more than one link, as git clone --local makes them.
+	if e.isRegular() && e.st.Nlink > 1 && (chown || perm != e.perm()) {
+		return stepError(iso.step, "protect", e.path, errors.New("the file has more than one link"))
+	}
+	if chown {
 		if err := chownFD(e, iso.workerUID, iso.workerGID); err != nil {
 			return stepError(iso.step, "change the owner of", e.path, err)
 		}
 	}
 	if !e.isLink() {
-		perm := e.perm()&^0o002 | 0o004
-		if e.isDir() {
-			perm |= 0o001
-		}
 		if perm != e.perm() {
 			iso.gitModes[e.path] = e.perm()
 			if err := chmodFD(e, perm); err != nil {

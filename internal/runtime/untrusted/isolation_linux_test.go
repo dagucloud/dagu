@@ -603,6 +603,25 @@ func TestHandoffMarksTheWorkDirectory(t *testing.T) {
 	require.NoError(t, next.unmarkUnlessAborted(next.restore(true)))
 }
 
+// A file of a git folder with more than one link fails the step when the
+// handoff must change its mode: the change would also open its path outside
+// the work directory to the restricted user. It needs no root.
+func TestHandoffRefusesALinkedGitFile(t *testing.T) {
+	t.Parallel()
+	iso := selfIsolation(t, t.TempDir())
+	gitDir := filepath.Join(iso.workDir, "repo", ".git")
+	require.NoError(t, os.MkdirAll(gitDir, 0o755))
+	outside := filepath.Join(t.TempDir(), "credentials")
+	require.NoError(t, os.WriteFile(outside, []byte("token"), 0o600))
+	require.NoError(t, os.Link(outside, filepath.Join(gitDir, "config")))
+
+	err := iso.handoff()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "the file has more than one link")
+	assert.Equal(t, fs.FileMode(0o600), permOf(t, outside))
+	require.NoError(t, iso.unmarkUnlessAborted(iso.restore(false)))
+}
+
 // A tree deeper than maxWalkDepth that the restricted user made, also in a new
 // .git that the restore must remove, stops the run instead of holding a
 // descriptor and a path for each level of the walk. It needs no root.
