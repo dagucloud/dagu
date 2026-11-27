@@ -32,10 +32,18 @@ const (
 	// listTimeout bounds one listing, which readers that join it share, so
 	// it does not end with the reader that started it.
 	listTimeout = 2 * time.Minute
+	// failureHold is how long a failed listing's error answers the readers
+	// of its process, so a server that keeps failing is not listed by every
+	// reader.
+	failureHold = 30 * time.Second
 	// mcpService names the catalog of an mcp connection, whose one server
 	// is no preset service.
 	mcpService = "mcp"
 )
+
+// ErrNotMCPService reports a service that the connection does not use, or
+// that has no MCP server.
+var ErrNotMCPService = errors.New("not an MCP service of the connection")
 
 // Lister lists the tools of an MCP server for a connection.
 type Lister interface {
@@ -62,14 +70,16 @@ type Reader struct {
 	now    func() time.Time
 
 	mu sync.Mutex
-	// listings holds the listings in flight, so it never holds more entries
-	// than there are catalogs being listed.
+	// listings holds the listings in flight and the failed ones held until
+	// their retryAt, so it holds at most one entry per catalog. An expired
+	// failure is dropped by the next stale read.
 	listings map[listingKey]*listing
 }
 
 type listingKey struct {
 	connectionID string
 	service      string
+	endpoint     string
 }
 
 // listing is one listing of a catalog, whose result every reader that
@@ -78,6 +88,9 @@ type listing struct {
 	done    chan struct{}
 	catalog *connection.Catalog
 	err     error
+	// retryAt is set, under Reader.mu, once the listing failed. Until then
+	// its error answers readers without a new listing.
+	retryAt time.Time
 }
 
 // target is the catalog a reader asks for and the MCP server it lists.
@@ -106,10 +119,13 @@ func New(cfg Config) (*Reader, error) {
 
 // Catalog returns the catalog of service for conn. A catalog listed less
 // than 10 minutes ago is returned as stored. An older or missing one is
-// listed again, once on a host however many readers ask for it together;
-// a failed listing returns the server's error and keeps the stored
-// catalog. service names one of conn's preset services that has an MCP
-// server, or is empty for an mcp connection.
+// listed again, once in a process however many readers ask for it
+// together, and by one process of a host at a time. A failed listing
+// returns the server's error, keeps the stored catalog, and answers the
+// process's readers for 30 seconds. service names one of conn's preset
+// services that has an MCP server, or is empty for an mcp connection;
+// any other service fails with ErrNotMCPService. Each reader receives a
+// catalog of its own.
 func (r *Reader) Catalog(ctx context.Context, conn *connection.Connection, service string) (*connection.Catalog, error) {
 	if conn == nil {
 		return nil, connection.ErrNotFound
@@ -124,18 +140,27 @@ func (r *Reader) Catalog(ctx context.Context, conn *connection.Connection, servi
 	l := r.join(ctx, conn, t)
 	select {
 	case <-l.done:
-		return l.catalog, l.err
+		if l.err != nil {
+			return nil, l.err
+		}
+		return cloneCatalog(l.catalog), nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 }
 
-// join returns the listing of t in flight, starting one when there is
-// none.
+// join returns the listing of t in flight, or its failure while held,
+// starting a listing when there is neither.
 func (r *Reader) join(ctx context.Context, conn *connection.Connection, t target) *listing {
-	key := listingKey{connectionID: conn.ID, service: t.service}
+	key := listingKey{connectionID: conn.ID, service: t.service, endpoint: t.endpoint}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	now := r.now()
+	for k, l := range r.listings {
+		if !l.retryAt.IsZero() && !now.Before(l.retryAt) {
+			delete(r.listings, k)
+		}
+	}
 	if l, ok := r.listings[key]; ok {
 		return l
 	}
@@ -144,9 +169,14 @@ func (r *Reader) join(ctx context.Context, conn *connection.Connection, t target
 	go func() {
 		listCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), listTimeout)
 		defer cancel()
-		l.catalog, l.err = r.list(listCtx, conn, t)
+		catalog, err := r.list(listCtx, conn, t)
 		r.mu.Lock()
-		delete(r.listings, key)
+		l.catalog, l.err = catalog, err
+		if err != nil {
+			l.retryAt = r.now().Add(failureHold)
+		} else {
+			delete(r.listings, key)
+		}
 		r.mu.Unlock()
 		close(l.done)
 	}()
@@ -212,19 +242,32 @@ func (r *Reader) fresh(ctx context.Context, conn *connection.Connection, service
 func resolve(conn *connection.Connection, service string) (target, error) {
 	if conn.Provider == connection.ProviderMCP {
 		if service != "" {
-			return target{}, fmt.Errorf("connection %q: an mcp connection has no service %q", conn.Name, service)
+			return target{}, fmt.Errorf("%w: connection %q is an mcp connection, which has no service %q", ErrNotMCPService, conn.Name, service)
 		}
 		if conn.Resource == "" {
-			return target{}, fmt.Errorf("connection %q has no MCP server URL", conn.Name)
+			return target{}, fmt.Errorf("%w: connection %q has no MCP server URL", ErrNotMCPService, conn.Name)
 		}
 		return target{service: mcpService, endpoint: conn.Resource}, nil
 	}
 	if !slices.ContainsFunc(conn.Services, func(s connection.Service) bool { return s.Name == service }) {
-		return target{}, fmt.Errorf("connection %q does not use service %q", conn.Name, service)
+		return target{}, fmt.Errorf("%w: connection %q does not use service %q", ErrNotMCPService, conn.Name, service)
 	}
 	preset, ok := connection.LookupPreset(conn.Provider, service)
 	if !ok || preset.MCPURL == "" {
-		return target{}, fmt.Errorf("connection %q: service %q has no MCP server", conn.Name, service)
+		return target{}, fmt.Errorf("%w: service %q of connection %q has no MCP server", ErrNotMCPService, service, conn.Name)
 	}
 	return target{service: service, endpoint: preset.MCPURL}, nil
+}
+
+// cloneCatalog copies c, so readers that share a listing can each change
+// their catalog.
+func cloneCatalog(c *connection.Catalog) *connection.Catalog {
+	clone := *c
+	clone.Tools = make([]connection.Tool, len(c.Tools))
+	for i, tool := range c.Tools {
+		tool.InputSchema = slices.Clone(tool.InputSchema)
+		tool.Annotations = slices.Clone(tool.Annotations)
+		clone.Tools[i] = tool
+	}
+	return &clone
 }

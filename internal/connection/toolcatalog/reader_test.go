@@ -26,6 +26,7 @@ const (
 	calendarMCP   = "https://calendarmcp.googleapis.com/mcp/v1"
 	testTimeout   = 30 * time.Second
 	catalogMaxAge = 10 * time.Minute
+	failureHold   = 30 * time.Second
 )
 
 // Readers in several processes that find a catalog missing together cause
@@ -102,7 +103,8 @@ func TestCatalogFreshness(t *testing.T) {
 }
 
 // A failed listing returns the server's error and keeps the stored
-// catalog, which a later reader lists again.
+// catalog. Its error answers readers for 30 seconds; the first reader
+// after that lists again.
 func TestCatalogListingFails(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -118,6 +120,12 @@ func TestCatalogListingFails(t *testing.T) {
 	assert.True(t, previous.ListedAt.Equal(kept.ListedAt))
 	assert.Equal(t, previous.Tools, kept.Tools)
 
+	f.clock.advance(failureHold - time.Second)
+	_, err = r.Catalog(testCtx(t), f.conn, "gmail")
+	require.ErrorIs(t, err, errQuota)
+	assert.Len(t, lister.endpoints(), 1)
+
+	f.clock.advance(time.Second)
 	_, err = r.Catalog(testCtx(t), f.conn, "gmail")
 	require.ErrorIs(t, err, errQuota)
 	assert.Len(t, lister.endpoints(), 2)
@@ -140,7 +148,7 @@ func TestCatalogServices(t *testing.T) {
 
 	for _, service := range []string{"drive", "mailbox", ""} {
 		_, err := r.Catalog(testCtx(t), f.conn, service)
-		assert.Error(t, err, service)
+		assert.ErrorIs(t, err, toolcatalog.ErrNotMCPService, service)
 	}
 	assert.Len(t, lister.endpoints(), 2)
 }
