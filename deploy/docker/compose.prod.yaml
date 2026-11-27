@@ -43,9 +43,6 @@ services:
       - DAGU_PEER_CERT_FILE=/etc/dagu/tls/coordinator.crt
       - DAGU_PEER_KEY_FILE=/etc/dagu/tls/coordinator.key
       - DAGU_PEER_CLIENT_CA_FILE=/etc/dagu/tls/ca.crt
-      # Peer token every Dagu service sends; the worker cannot read the one
-      # the coordinator would generate in dagu-data.
-      - DAGU_PEER_TOKEN=${DAGU_PEER_TOKEN:?set DAGU_PEER_TOKEN to a shared random token}
       # Bind on the container network and advertise stable Compose DNS
       - DAGU_COORDINATOR_HOST=0.0.0.0
       - DAGU_COORDINATOR_ADVERTISE=dagu-coordinator
@@ -72,7 +69,6 @@ services:
       - DAGU_PEER_CERT_FILE=/etc/dagu/tls/client.crt
       - DAGU_PEER_KEY_FILE=/etc/dagu/tls/client.key
       - DAGU_PEER_CLIENT_CA_FILE=/etc/dagu/tls/ca.crt
-      - DAGU_PEER_TOKEN=${DAGU_PEER_TOKEN:?set DAGU_PEER_TOKEN to a shared random token}
       # Optional: set timezone, logging, etc
       # - DAGU_TZ=UTC
       # - DAGU_LOG_FORMAT=json
@@ -103,7 +99,6 @@ services:
       - DAGU_PEER_CERT_FILE=/etc/dagu/tls/client.crt
       - DAGU_PEER_KEY_FILE=/etc/dagu/tls/client.key
       - DAGU_PEER_CLIENT_CA_FILE=/etc/dagu/tls/ca.crt
-      - DAGU_PEER_TOKEN=${DAGU_PEER_TOKEN:?set DAGU_PEER_TOKEN to a shared random token}
       # Builtin authentication (RBAC) - CHANGE TOKEN_SECRET IN PRODUCTION
       - DAGU_AUTH_MODE=builtin
       # Token secret: auto-generated if not set (persisted to {dataDir}/auth/token_secret)
@@ -137,7 +132,6 @@ services:
       - DAGU_PEER_CERT_FILE=/etc/dagu/tls/client.crt
       - DAGU_PEER_KEY_FILE=/etc/dagu/tls/client.key
       - DAGU_PEER_CLIENT_CA_FILE=/etc/dagu/tls/ca.crt
-      - DAGU_PEER_TOKEN=${DAGU_PEER_TOKEN:?set DAGU_PEER_TOKEN to a shared random token}
       # Optional worker tuning and labels
       # - DAGU_WORKER_MAX_ACTIVE_RUNS=100
       # - DAGU_WORKER_LABELS=region=us-east-1,instance-type=m5.large

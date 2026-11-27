@@ -596,7 +596,6 @@ name.
 | Account token | None | `automountServiceAccountToken: false` |
 | Network | An internal network with the coordinator and the proxy, on Docker Engine 26.0 or later | A `NetworkPolicy` that allows the coordinator and the proxy, and no DNS; `hostAliases` with their Service IPs |
 | Certificate | A read-only file, owner 0, mode `0400` | A `Secret` volume with `defaultMode: 0400` |
-| Peer token | `DAGU_PEER_TOKEN`, the coordinator's `peer.token` | `DAGU_PEER_TOKEN` from the `Secret` that gives the coordinator its `peer.token` |
 | Restart | `restart: always` | A `Deployment` |
 
 The worker starts as user ID 0 because switching to the restricted user needs `CAP_SETUID`. The Pod
@@ -1081,9 +1080,10 @@ env_passthrough:
 dagu worker --config /etc/dagu/config.yaml --agent claude=/usr/local/bin/claude
 ```
 
-The coordinator refuses calls without its peer token (`coordinator.require_token` is `true` by
-default). The agent worker does not share the coordinator's data directory, so the deployment
-gives it the coordinator's `peer.token` as `DAGU_PEER_TOKEN`. `env_passthrough` does not list it.
+The coordinator verifies the worker's client certificate, so the worker needs no peer token. A
+coordinator that sets `coordinator.require_token: true` also requires the token over mutual TLS;
+the deployment then gives the worker the coordinator's `peer.token` as `DAGU_PEER_TOKEN`, and
+`env_passthrough` does not list it.
 
 ### Errors at start
 

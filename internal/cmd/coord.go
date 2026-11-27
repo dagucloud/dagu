@@ -53,8 +53,9 @@ The coordinator server provides a central point for distributed workers to:
 This server uses gRPC for efficient communication with remote workers and
 supports authentication via signing keys and TLS encryption.
 
-Calls must carry the peer token (coordinator.require_token, default true).
-Without peer.token, the coordinator generates one in its data directory,
+Calls must carry the peer token, unless the coordinator verifies client
+certificates (--peer.client-ca-file) and the call has a verified one; set
+coordinator.require_token: true to require both. Without peer.token, the coordinator generates one in its data directory,
 which processes on the same data directory as the same OS user read. Give
 every other peer the same peer.token, for example through DAGU_PEER_TOKEN.
 Once peer.token is set here, every process that calls the coordinator needs

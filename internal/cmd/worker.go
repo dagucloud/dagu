@@ -34,9 +34,10 @@ poller_id for every poll request.
 By default, the worker ID is set to hostname@PID, but can be overridden.
 
 The coordinator refuses a worker without its peer token. A worker needs the
-coordinator's peer.token, for example through DAGU_PEER_TOKEN, unless the
-coordinator uses its generated token and the worker runs on the
-coordinator's data directory as the same OS user.
+coordinator's peer.token, for example through DAGU_PEER_TOKEN, unless it has
+a client certificate the coordinator verifies, or the coordinator uses its
+generated token and the worker runs on the coordinator's data directory as
+the same OS user.
 
 Flags:
   --worker.id string                       Worker instance ID (default: hostname@PID)
