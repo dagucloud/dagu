@@ -977,6 +977,9 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	if len(a.inheritedEnvs) > 0 {
 		contextOpts = append(contextOpts, runtime.WithInheritedEnvs(a.inheritedEnvs))
 	}
+	if conns := a.runConnections(); conns != nil {
+		contextOpts = append(contextOpts, runtime.WithConnections(conns))
+	}
 
 	if a.workDir != "" {
 		contextOpts = append(contextOpts, runtime.WithWorkDir(a.workDir))

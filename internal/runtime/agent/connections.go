@@ -13,8 +13,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/connection"
 	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/secret"
-	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -31,13 +31,14 @@ type ConnectionChecker interface {
 	CheckConnection(ctx context.Context, workspace string, ref ir.ConnectionRef) error
 	// Connections returns where a run of a DAG in workspace gets the
 	// connections it declares and their tokens.
-	Connections(workspace string) providers.Connections
+	Connections(workspace string) runtime.Connections
 }
 
 // NewStoreConnectionChecker returns a checker that admits connections
-// against the store open returns. The runs it checks take tokens from one
-// broker over that store and locks, which keeps the tokens it hands out.
-// It calls open once, on first use.
+// against the store open returns. Its runs take tokens from one broker
+// over that store and locks, which keeps the tokens it hands out, so a
+// run and its in-process sub-DAGs share them. It calls open once, on
+// first use.
 func NewStoreConnectionChecker(open func() (connection.Store, error), locks connection.Locks) ConnectionChecker {
 	return &storeConnectionChecker{open: open, locks: locks}
 }
@@ -70,7 +71,7 @@ func (c *storeConnectionChecker) CheckConnection(ctx context.Context, workspace 
 	return connection.Admit(ctx, c.store, workspace, ref.Name, ref.Servers)
 }
 
-func (c *storeConnectionChecker) Connections(workspace string) providers.Connections {
+func (c *storeConnectionChecker) Connections(workspace string) runtime.Connections {
 	return &storeConnections{
 		checker:   c,
 		workspace: secret.NormalizeWorkspace(workspace),
@@ -79,8 +80,8 @@ func (c *storeConnectionChecker) Connections(workspace string) providers.Connect
 }
 
 // storeConnections are the connections of one workspace. It keeps each
-// connection it reads, so a run reads a record once beyond its admission
-// check; the run names only the connections its DAG declares.
+// connection it reads, so it reads each record once; a run names only the
+// connections its DAG declares.
 type storeConnections struct {
 	checker   *storeConnectionChecker
 	workspace string
@@ -89,7 +90,7 @@ type storeConnections struct {
 	conns map[string]*connection.Connection
 }
 
-var _ providers.Connections = (*storeConnections)(nil)
+var _ runtime.Connections = (*storeConnections)(nil)
 
 func (s *storeConnections) Connection(ctx context.Context, name string) (*connection.Connection, error) {
 	s.mu.Lock()
@@ -137,7 +138,7 @@ func (s *storeConnections) tokens() (*broker.Broker, error) {
 // runConnections returns where the run gets its connections, or nil when
 // the run checks none or is a workflow test case, which reads no
 // connection record.
-func (a *Agent) runConnections() providers.Connections {
+func (a *Agent) runConnections() runtime.Connections {
 	if a.connectionChecker == nil || a.testSideEffects != nil || len(a.dag.Connections) == 0 {
 		return nil
 	}

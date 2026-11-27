@@ -17,6 +17,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/connection"
+	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
@@ -72,6 +74,7 @@ type Context struct {
 	NoReuse              bool
 	Nodes                NodeSelector        // Inventory nodes for steps with nodes (RFC 012)
 	HostKeys             TrustedHostKeys     // Host keys trusted for nodes (RFC 012)
+	Connections          Connections         // Connections the DAG declares (Spec 107)
 	Node                 *cmnvalue.BoundNode // The node a bound run reads as ${node.*} (RFC 013)
 	RedirectRoot         RedirectRoot
 	// SecretValues, when non-nil, holds the secret values the run resolved
@@ -538,6 +541,22 @@ type TrustedHostKeys interface {
 func WithHostKeys(keys TrustedHostKeys) ContextOption {
 	return func(o *contextOptions) {
 		o.HostKeys = keys
+	}
+}
+
+// Connections hands out the connections that a run's DAG declares, and
+// their tokens.
+type Connections interface {
+	broker.Source
+	// Connection returns the connection named name in the run's project,
+	// with every host that may receive its token.
+	Connection(ctx context.Context, name string) (*connection.Connection, error)
+}
+
+// WithConnections sets where the run's steps get their connections.
+func WithConnections(conns Connections) ContextOption {
+	return func(o *contextOptions) {
+		o.Connections = conns
 	}
 }
 

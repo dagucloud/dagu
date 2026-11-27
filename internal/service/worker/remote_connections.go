@@ -22,8 +22,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/connection/oauthrefresh"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
-	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -63,8 +63,14 @@ type tokenKey struct {
 	resource   string
 }
 
+// coordinatorTTLMargin is asked for beyond a caller's minTTL. A kept
+// token's lifetime counts from the request, less a second, so a token asked
+// for at minTTL alone falls below it at once, and each later call would ask
+// again for the same token.
+const coordinatorTTLMargin = 2 * time.Second
+
 var (
-	_ providers.Connections     = (*remoteConnections)(nil)
+	_ runtime.Connections       = (*remoteConnections)(nil)
 	_ rtagent.ConnectionChecker = (*remoteConnections)(nil)
 )
 
@@ -114,7 +120,7 @@ func (c *remoteConnections) CheckConnection(ctx context.Context, _ string, ref i
 
 // Connections returns c: the coordinator resolves each name in the run's
 // workspace.
-func (c *remoteConnections) Connections(string) providers.Connections {
+func (c *remoteConnections) Connections(string) runtime.Connections {
 	return c
 }
 
@@ -145,7 +151,7 @@ func (c *remoteConnections) token(ctx context.Context, conn *connection.Connecti
 		resp, err := c.call(ctx, &coordinatorv1.ResolveConnectionTokenRequest{
 			Connection:    conn.Name,
 			Resource:      resource,
-			MinTtlSeconds: int64((minTTL + time.Second - 1) / time.Second),
+			MinTtlSeconds: int64((minTTL + coordinatorTTLMargin + time.Second - 1) / time.Second),
 			RejectedToken: rejected,
 		})
 		if err != nil {

@@ -250,3 +250,10 @@ type NamedOutputsPublisher interface {
 	// successful execution publishes.
 	NamedOutputs() map[string]any
 }
+
+// SecretMaskerAware is implemented by executors that learn secret values
+// while they run, such as a token that a forced refresh mints. The step's
+// logs and outputs mask each value passed to mask from then on.
+type SecretMaskerAware interface {
+	SetSecretMasker(mask func(values ...string))
+}

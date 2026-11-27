@@ -51,6 +51,9 @@ const (
 // redacted replaces a secret in a provider's error text.
 const redacted = "[redacted]"
 
+// StepMinTTL is the minTTL that a step using a token in process asks for.
+const StepMinTTL = 5 * time.Minute
+
 // ErrReconnectRequired reports a connection that cannot hand out tokens
 // until it is reconnected or its app is fixed: it is pending or needs a
 // reconnect, or its app is invalid.

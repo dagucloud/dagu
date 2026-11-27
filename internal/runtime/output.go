@@ -86,7 +86,7 @@ func (oc *OutputCoordinator) unlock() {
 }
 
 // setupMasker creates a masker for environment variable masking.
-func (oc *OutputCoordinator) setupMasker(ctx context.Context, _ NodeData) error {
+func (oc *OutputCoordinator) setupMasker(ctx context.Context, data NodeData) error {
 	oc.mu.Lock()
 	defer oc.mu.Unlock()
 
@@ -102,8 +102,10 @@ func (oc *OutputCoordinator) setupMasker(ctx context.Context, _ NodeData) error 
 		secretEnvs = append(secretEnvs, k+"="+v)
 	}
 
-	// Create masker if there are secrets to mask
-	if len(secretEnvs) > 0 {
+	// Create masker if there are secrets to mask. A step that uses a
+	// connection gets one in any case, so that it can mask tokens minted
+	// while it runs and Google token formats in its logs.
+	if len(secretEnvs) > 0 || stepConnection(data.Step) != "" {
 		oc.masker = masking.NewMasker(masking.SourcedEnvVars{
 			Secrets: secretEnvs,
 		})
@@ -112,6 +114,17 @@ func (oc *OutputCoordinator) setupMasker(ctx context.Context, _ NodeData) error 
 	}
 
 	return nil
+}
+
+// addSecrets makes the step's logs mask values from now on. A step without
+// secrets or a connection has no masker, and masks nothing.
+func (oc *OutputCoordinator) addSecrets(values ...string) {
+	oc.mu.Lock()
+	masker := oc.masker
+	oc.mu.Unlock()
+	if masker != nil {
+		masker.Add(values...)
+	}
 }
 
 func (oc *OutputCoordinator) setup(ctx context.Context, data NodeData) (err error) {

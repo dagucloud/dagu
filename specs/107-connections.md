@@ -22,12 +22,14 @@ Implemented so far:
 - [Admission Checks](#admission-checks), except the literal `http.request`
   URL check, on a local run from the CLI or the embedded engine, and on a
   run on a worker, including the embedded engine's worker, through the
-  check-only request. An `mcp.call` step that passes them fails when it
-  runs, until its token is delivered.
+  check-only request.
 - [Workers](#workers): the coordinator answers token, check-only, and
   rejected-token requests, and dispatches a DAG that declares connections
-  only to workers that make them. On a worker, only a `connection` secret
-  asks for a token so far.
+  only to workers that make them.
+- [Using a Connection](#using-a-connection),
+  [Confirmation Requests](#confirmation-requests), and [Masking](#masking)
+  for `mcp.call`, in a local run and on a worker. Its
+  [Run Records](#run-records) are not written yet.
 - The [Connect Flow](#connect-flow) for `google` inside the server: the
   authorization request, the server callback, confirmation, the
   [checks after consent](#checks-after-consent), and the
