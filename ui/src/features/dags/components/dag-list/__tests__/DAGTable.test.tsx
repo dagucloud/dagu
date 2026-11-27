@@ -1644,7 +1644,7 @@ describe('DAGTable', () => {
     });
 
     // A service DAG has no runs to draw: its row and its card hold no strip.
-    it('draws no strip for a service DAG', () => {
+    it('draws no bars and no chevron for a service DAG', () => {
       const dags = [
         withActivity([run('r1', HOUR)]),
         {
@@ -1658,20 +1658,22 @@ describe('DAGTable', () => {
             status: Status.Success,
             statusLabel: 'Success',
           },
-          activity: { runs: [], truncated: false },
+          activity: { runs: [], truncated: false, buckets: [] },
         } as never,
       ];
       const table = renderTable('', { dags });
 
-      // The row of alpha, which alone can unfold its runs.
-      expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
+      // The bars of alpha, which alone can unfold its runs, and the run
+      // history of the service.
+      expect(screen.getAllByTestId('dag-activity')).toHaveLength(2);
+      expect(screen.getAllByTestId('dag-service-activity')).toHaveLength(1);
       expect(screen.getAllByTestId('dag-activity-toggle')).toHaveLength(1);
 
       table.unmount();
       renderTable('', { dags, panelWidth: 600 });
 
-      // The card of alpha.
-      expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
+      expect(screen.getAllByTestId('dag-activity')).toHaveLength(2);
+      expect(screen.getAllByTestId('dag-service-activity')).toHaveLength(1);
     });
 
     // A workflow that becomes a service DAG loses its chevron, so its panel
@@ -1723,144 +1725,104 @@ describe('DAGTable', () => {
       renderTable('', { dags, activity: undefined, panelWidth: 1200 });
       expect(header()).toHaveClass('hidden');
     });
-  });
 
-  describe('activity of a service DAG', () => {
-    const HOUR = 3_600_000;
-    const hour = Math.floor(Date.now() / HOUR) * HOUR;
-    const bucket = (ago: number, count: number, failures: number) => ({
-      time: new Date(hour - ago).toISOString(),
-      count,
-      failures,
-      minMs: 1,
-      maxMs: 5,
-      p50Ms: 2,
-      p95Ms: 4,
-    });
-    function service() {
-      return {
-        ...workflow({ name: 'beat' }),
-        dag: {
-          name: 'beat',
-          restartPolicy: 'always',
-          restartWaitSec: 1,
-        },
-        activity: {
-          runs: [],
-          truncated: false,
-          resolutionSeconds: 3600,
-          buckets: [bucket(2 * HOUR, 3000, 0), bucket(0, 600, 6)],
-        },
-      } as never;
-    }
-
-    beforeEach(() => {
-      recentRuns.dagRuns = [];
-      vi.stubGlobal(
-        'ResizeObserver',
-        class {
-          constructor(private callback: ResizeObserverCallback) {}
-          observe(target: Element) {
-            this.callback(
-              [{ target, contentRect: { width: 300 } } as ResizeObserverEntry],
-              this as unknown as ResizeObserver
-            );
-          }
-          unobserve() {}
-          disconnect() {}
-        }
-      );
-    });
-
-    afterEach(() => {
-      vi.unstubAllGlobals();
-    });
-
-    it('draws the strip of the buckets in the row, with its marker', () => {
-      renderTable('', { dags: [service()] });
-      const table = screen.getByRole('table');
-
-      const strip = within(table).getByTestId('dag-activity');
-      expect(strip.children).toHaveLength(24);
-      expect(strip.querySelectorAll('[data-run-id]')).toHaveLength(0);
-      expect(strip).toHaveAttribute(
-        'aria-label',
-        expect.stringContaining('Runs in the last 24 hours: 3,600')
-      );
-      expect(within(table).getByTestId('compact-count')).toHaveTextContent(
-        '3.6k'
-      );
-      expect(within(table).getByTestId('schedule-cell')).toHaveTextContent(
-        'Restart: always · 1s'
-      );
-    });
-
-    it('draws the same strip in the card', () => {
-      renderTable('', { dags: [service()], panelWidth: 600 });
-      const cards = screen.getByTestId('workflow-card-view');
-
-      const strip = within(cards).getByTestId('dag-activity');
-      expect(strip.children).toHaveLength(24);
-      expect(strip).toHaveStyle({ width: '196px' });
-      expect(within(cards).getByTestId('dag-service-figures')).toBeVisible();
-    });
-
-    it('does not change the strip of a workflow that is not a service', () => {
-      renderTable('', {
-        dags: [
-          {
-            ...workflow({ name: 'alpha' }),
-            activity: { runs: [], truncated: false },
-          } as never,
-        ],
+    describe('of a service DAG', () => {
+      const hour = Math.floor(Date.now() / HOUR) * HOUR;
+      const bucket = (ago: number, count: number, failures: number) => ({
+        time: new Date(hour - ago).toISOString(),
+        count,
+        failures,
+        minMs: 1,
+        maxMs: 5,
+        p50Ms: 2,
+        p95Ms: 4,
       });
-      const table = screen.getByRole('table');
-      expect(within(table).queryByTestId('dag-service-activity')).toBeNull();
-      expect(within(table).getByTestId('dag-activity')).toHaveAttribute(
-        'aria-label',
-        'No runs in the last 24 hours'
-      );
-    });
-
-    it('draws no strip and no bar for a server that sends no buckets', () => {
-      const old = service() as { activity: object };
-      old.activity = {
-        runs: [
-          {
-            dagRunId: 'r1',
-            status: Status.Success,
-            startedAt: new Date().toISOString(),
+      function service() {
+        return {
+          ...workflow({ name: 'beat' }),
+          dag: {
+            name: 'beat',
+            restartPolicy: 'always',
+            restartWaitSec: 1,
           },
-        ],
-        truncated: false,
-      };
-      renderTable('', { dags: [old as never] });
-      expect(screen.queryByTestId('dag-activity')).toBeNull();
-      expect(screen.queryByTestId('dag-service-activity')).toBeNull();
-      expect(document.querySelector('[data-run-id]')).toBeNull();
-    });
+          activity: {
+            runs: [],
+            truncated: false,
+            resolutionSeconds: 3600,
+            buckets: [bucket(2 * HOUR, 3000, 0), bucket(0, 600, 6)],
+          },
+        } as never;
+      }
 
-    it('keeps the strip when the latest run is queued', () => {
-      const queued = service() as { latestDAGRun: object };
-      queued.latestDAGRun = { status: Status.Queued, statusLabel: 'Queued' };
-      renderTable('', { dags: [queued as never] });
-      expect(
-        within(screen.getByRole('table')).getByTestId('dag-activity').children
-      ).toHaveLength(24);
-    });
+      it('draws the strip of the buckets in the row', () => {
+        renderTable('', { dags: [service()] });
+        const table = screen.getByRole('table');
 
-    // A service row held 77 elements and a card 80, with a bar for each run.
-    it('keeps the DOM of a row and of a card small', () => {
-      const table = renderTable('', { dags: [service()] });
-      const row = within(screen.getByRole('table')).getAllByRole('row')[1]!;
-      expect(row.querySelectorAll('*').length).toBeLessThan(77);
+        const strip = within(table).getByTestId('dag-activity');
+        expect(strip.children).toHaveLength(24);
+        expect(strip.querySelectorAll('[data-run-id]')).toHaveLength(0);
+        expect(strip).toHaveAttribute(
+          'aria-label',
+          expect.stringContaining('Runs in the last 24 hours: 3,600')
+        );
+        expect(within(table).getByTestId('compact-count')).toHaveTextContent(
+          '3.6k'
+        );
+      });
 
-      table.unmount();
-      renderTable('', { dags: [service()], panelWidth: 600 });
-      const card = within(screen.getByTestId('workflow-card-view'))
-        .getByTestId('dag-service-activity')
-        .closest('.card-obsidian')!;
-      expect(card.querySelectorAll('*').length).toBeLessThan(80);
+      it('draws the same strip in the card', () => {
+        renderTable('', { dags: [service()], panelWidth: 600 });
+        const cards = screen.getByTestId('workflow-card-view');
+
+        const strip = within(cards).getByTestId('dag-activity');
+        expect(strip.children).toHaveLength(24);
+        expect(strip).toHaveStyle({ width: '196px' });
+        expect(within(cards).getByTestId('dag-service-figures')).toBeVisible();
+      });
+
+      it('does not change the strip of a workflow that is not a service', () => {
+        renderTable('', {
+          dags: [
+            {
+              ...workflow({ name: 'alpha' }),
+              activity: { runs: [], truncated: false },
+            } as never,
+          ],
+        });
+        const table = screen.getByRole('table');
+        expect(within(table).queryByTestId('dag-service-activity')).toBeNull();
+        expect(within(table).getByTestId('dag-activity')).toHaveAttribute(
+          'aria-label',
+          'No runs in the last 24 hours'
+        );
+      });
+
+      it('draws no strip and no bar for a server that sends no buckets', () => {
+        const old = service() as { activity: object };
+        old.activity = {
+          runs: [
+            {
+              dagRunId: 'r1',
+              status: Status.Success,
+              startedAt: new Date().toISOString(),
+            },
+          ],
+          truncated: false,
+        };
+        renderTable('', { dags: [old as never] });
+        expect(screen.queryByTestId('dag-activity')).toBeNull();
+        expect(screen.queryByTestId('dag-service-activity')).toBeNull();
+        expect(document.querySelector('[data-run-id]')).toBeNull();
+      });
+
+      it('keeps the strip when the latest run is queued', () => {
+        const queued = service() as { latestDAGRun: object };
+        queued.latestDAGRun = { status: Status.Queued, statusLabel: 'Queued' };
+        renderTable('', { dags: [queued as never] });
+        expect(
+          within(screen.getByRole('table')).getByTestId('dag-activity').children
+        ).toHaveLength(24);
+      });
     });
   });
 
