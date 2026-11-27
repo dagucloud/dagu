@@ -12581,6 +12581,18 @@ type ListSkillsParams struct {
 	RemoteNode *RemoteNode `form:"remoteNode,omitempty" json:"remoteNode,omitempty"`
 }
 
+// DeleteSkillParams defines parameters for DeleteSkill.
+type DeleteSkillParams struct {
+	// RemoteNode name of the remote node
+	RemoteNode *RemoteNode `form:"remoteNode,omitempty" json:"remoteNode,omitempty"`
+
+	// IfMatch The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header.
+	IfMatch *string `json:"If-Match,omitempty"`
+
+	// IfNoneMatch Not allowed: only the creation of a skill takes If-None-Match. The header gives 400.
+	IfNoneMatch *string `json:"If-None-Match,omitempty"`
+}
+
 // GetSkillParams defines parameters for GetSkill.
 type GetSkillParams struct {
 	// RemoteNode name of the remote node
@@ -12605,6 +12617,18 @@ type UpdateSkillParams struct {
 	IfNoneMatch *string `json:"If-None-Match,omitempty"`
 }
 
+// DeleteSkillFileParams defines parameters for DeleteSkillFile.
+type DeleteSkillFileParams struct {
+	// RemoteNode name of the remote node
+	RemoteNode *RemoteNode `form:"remoteNode,omitempty" json:"remoteNode,omitempty"`
+
+	// Path Path of a file of the skill, relative to its folder, with / separators, for example references/guide.md
+	Path SkillFilePath `form:"path" json:"path"`
+
+	// IfMatch The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header.
+	IfMatch *string `json:"If-Match,omitempty"`
+}
+
 // GetSkillFileParams defines parameters for GetSkillFile.
 type GetSkillFileParams struct {
 	// RemoteNode name of the remote node
@@ -12612,6 +12636,18 @@ type GetSkillFileParams struct {
 
 	// Path Path of a file of the skill, relative to its folder, with / separators, for example references/guide.md
 	Path SkillFilePath `form:"path" json:"path"`
+}
+
+// PutSkillFileParams defines parameters for PutSkillFile.
+type PutSkillFileParams struct {
+	// RemoteNode name of the remote node
+	RemoteNode *RemoteNode `form:"remoteNode,omitempty" json:"remoteNode,omitempty"`
+
+	// Path Path of a file of the skill, relative to its folder, with / separators, for example references/guide.md
+	Path SkillFilePath `form:"path" json:"path"`
+
+	// IfMatch The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header.
+	IfMatch *string `json:"If-Match,omitempty"`
 }
 
 // SyncCleanupParams defines parameters for SyncCleanup.
@@ -14611,15 +14647,24 @@ type ServerInterface interface {
 	// List skills
 	// (GET /skills)
 	ListSkills(w http.ResponseWriter, r *http.Request, params ListSkillsParams)
+	// Delete a skill
+	// (DELETE /skills/{name})
+	DeleteSkill(w http.ResponseWriter, r *http.Request, name SkillName, params DeleteSkillParams)
 	// Get a skill
 	// (GET /skills/{name})
 	GetSkill(w http.ResponseWriter, r *http.Request, name SkillName, params GetSkillParams)
 	// Create or update SKILL.md
 	// (PUT /skills/{name})
 	UpdateSkill(w http.ResponseWriter, r *http.Request, name SkillName, params UpdateSkillParams)
+	// Delete one file of a skill
+	// (DELETE /skills/{name}/files)
+	DeleteSkillFile(w http.ResponseWriter, r *http.Request, name SkillName, params DeleteSkillFileParams)
 	// Get one file of a skill
 	// (GET /skills/{name}/files)
 	GetSkillFile(w http.ResponseWriter, r *http.Request, name SkillName, params GetSkillFileParams)
+	// Create or replace one file of a skill
+	// (PUT /skills/{name}/files)
+	PutSkillFile(w http.ResponseWriter, r *http.Request, name SkillName, params PutSkillFileParams)
 	// Cleanup missing sync items
 	// (POST /sync/cleanup)
 	SyncCleanup(w http.ResponseWriter, r *http.Request, params SyncCleanupParams)
@@ -16333,6 +16378,12 @@ func (_ Unimplemented) ListSkills(w http.ResponseWriter, r *http.Request, params
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Delete a skill
+// (DELETE /skills/{name})
+func (_ Unimplemented) DeleteSkill(w http.ResponseWriter, r *http.Request, name SkillName, params DeleteSkillParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Get a skill
 // (GET /skills/{name})
 func (_ Unimplemented) GetSkill(w http.ResponseWriter, r *http.Request, name SkillName, params GetSkillParams) {
@@ -16345,9 +16396,21 @@ func (_ Unimplemented) UpdateSkill(w http.ResponseWriter, r *http.Request, name 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Delete one file of a skill
+// (DELETE /skills/{name}/files)
+func (_ Unimplemented) DeleteSkillFile(w http.ResponseWriter, r *http.Request, name SkillName, params DeleteSkillFileParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Get one file of a skill
 // (GET /skills/{name}/files)
 func (_ Unimplemented) GetSkillFile(w http.ResponseWriter, r *http.Request, name SkillName, params GetSkillFileParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create or replace one file of a skill
+// (PUT /skills/{name}/files)
+func (_ Unimplemented) PutSkillFile(w http.ResponseWriter, r *http.Request, name SkillName, params PutSkillFileParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -32330,6 +32393,96 @@ func (siw *ServerInterfaceWrapper) ListSkills(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteSkill operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSkill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name SkillName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, ApiTokenScopes, []string{})
+
+	ctx = context.WithValue(ctx, BasicAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteSkillParams
+
+	// ------------- Optional query parameter "remoteNode" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "remoteNode", r.URL.Query(), &params.RemoteNode, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "remoteNode"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "remoteNode", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	// ------------- Optional header parameter "If-None-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-None-Match")]; found {
+		var IfNoneMatch string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-None-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-None-Match", valueList[0], &IfNoneMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-None-Match", Err: err})
+			return
+		}
+
+		params.IfNoneMatch = &IfNoneMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSkill(w, r, name, params)
+	}))
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		handler = siw.HandlerMiddlewares[i](handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetSkill operation middleware
 func (siw *ServerInterfaceWrapper) GetSkill(w http.ResponseWriter, r *http.Request) {
 
@@ -32470,6 +32623,90 @@ func (siw *ServerInterfaceWrapper) UpdateSkill(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteSkillFile operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSkillFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name SkillName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, ApiTokenScopes, []string{})
+
+	ctx = context.WithValue(ctx, BasicAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteSkillFileParams
+
+	// ------------- Optional query parameter "remoteNode" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "remoteNode", r.URL.Query(), &params.RemoteNode, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "remoteNode"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "remoteNode", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSkillFile(w, r, name, params)
+	}))
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		handler = siw.HandlerMiddlewares[i](handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetSkillFile operation middleware
 func (siw *ServerInterfaceWrapper) GetSkillFile(w http.ResponseWriter, r *http.Request) {
 
@@ -32524,6 +32761,90 @@ func (siw *ServerInterfaceWrapper) GetSkillFile(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetSkillFile(w, r, name, params)
+	}))
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		handler = siw.HandlerMiddlewares[i](handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutSkillFile operation middleware
+func (siw *ServerInterfaceWrapper) PutSkillFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name SkillName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, ApiTokenScopes, []string{})
+
+	ctx = context.WithValue(ctx, BasicAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PutSkillFileParams
+
+	// ------------- Optional query parameter "remoteNode" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "remoteNode", r.URL.Query(), &params.RemoteNode, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "remoteNode"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "remoteNode", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutSkillFile(w, r, name, params)
 	}))
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -36115,13 +36436,22 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/skills", wrapper.ListSkills)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/skills/{name}", wrapper.DeleteSkill)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/skills/{name}", wrapper.GetSkill)
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/skills/{name}", wrapper.UpdateSkill)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/skills/{name}/files", wrapper.DeleteSkillFile)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/skills/{name}/files", wrapper.GetSkillFile)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/skills/{name}/files", wrapper.PutSkillFile)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/sync/cleanup", wrapper.SyncCleanup)
@@ -53878,6 +54208,124 @@ func (response ListSkillsdefaultJSONResponse) VisitListSkillsResponse(w http.Res
 	return err
 }
 
+type DeleteSkillRequestObject struct {
+	Name   SkillName `json:"name"`
+	Params DeleteSkillParams
+}
+
+type DeleteSkillResponseObject interface {
+	VisitDeleteSkillResponse(w http.ResponseWriter) error
+}
+
+type DeleteSkill204Response struct {
+}
+
+func (response DeleteSkill204Response) VisitDeleteSkillResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteSkill400JSONResponse Error
+
+func (response DeleteSkill400JSONResponse) VisitDeleteSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSkill401JSONResponse Error
+
+func (response DeleteSkill401JSONResponse) VisitDeleteSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSkill403JSONResponse Error
+
+func (response DeleteSkill403JSONResponse) VisitDeleteSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSkill404JSONResponse Error
+
+func (response DeleteSkill404JSONResponse) VisitDeleteSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSkill409JSONResponse SkillError
+
+func (response DeleteSkill409JSONResponse) VisitDeleteSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSkill428JSONResponse Error
+
+func (response DeleteSkill428JSONResponse) VisitDeleteSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSkilldefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteSkilldefaultJSONResponse) VisitDeleteSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetSkillRequestObject struct {
 	Name   SkillName `json:"name"`
 	Params GetSkillParams
@@ -54113,6 +54561,130 @@ func (response UpdateSkilldefaultJSONResponse) VisitUpdateSkillResponse(w http.R
 	return err
 }
 
+type DeleteSkillFileRequestObject struct {
+	Name   SkillName `json:"name"`
+	Params DeleteSkillFileParams
+}
+
+type DeleteSkillFileResponseObject interface {
+	VisitDeleteSkillFileResponse(w http.ResponseWriter) error
+}
+
+type DeleteSkillFile200JSONResponse SkillWriteResult
+
+func (response DeleteSkillFile200JSONResponse) VisitDeleteSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSkillFile400JSONResponse SkillError
+
+func (response DeleteSkillFile400JSONResponse) VisitDeleteSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSkillFile401JSONResponse Error
+
+func (response DeleteSkillFile401JSONResponse) VisitDeleteSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSkillFile403JSONResponse Error
+
+func (response DeleteSkillFile403JSONResponse) VisitDeleteSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSkillFile404JSONResponse Error
+
+func (response DeleteSkillFile404JSONResponse) VisitDeleteSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSkillFile409JSONResponse SkillError
+
+func (response DeleteSkillFile409JSONResponse) VisitDeleteSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSkillFile428JSONResponse Error
+
+func (response DeleteSkillFile428JSONResponse) VisitDeleteSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSkillFiledefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteSkillFiledefaultJSONResponse) VisitDeleteSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetSkillFileRequestObject struct {
 	Name   SkillName `json:"name"`
 	Params GetSkillFileParams
@@ -54230,6 +54802,145 @@ type GetSkillFiledefaultJSONResponse struct {
 }
 
 func (response GetSkillFiledefaultJSONResponse) VisitGetSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutSkillFileRequestObject struct {
+	Name   SkillName `json:"name"`
+	Params PutSkillFileParams
+	Body   io.Reader
+}
+
+type PutSkillFileResponseObject interface {
+	VisitPutSkillFileResponse(w http.ResponseWriter) error
+}
+
+type PutSkillFile200JSONResponse SkillWriteResult
+
+func (response PutSkillFile200JSONResponse) VisitPutSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutSkillFile400JSONResponse SkillError
+
+func (response PutSkillFile400JSONResponse) VisitPutSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutSkillFile401JSONResponse Error
+
+func (response PutSkillFile401JSONResponse) VisitPutSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutSkillFile403JSONResponse Error
+
+func (response PutSkillFile403JSONResponse) VisitPutSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutSkillFile404JSONResponse Error
+
+func (response PutSkillFile404JSONResponse) VisitPutSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutSkillFile409JSONResponse SkillError
+
+func (response PutSkillFile409JSONResponse) VisitPutSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutSkillFile413JSONResponse Error
+
+func (response PutSkillFile413JSONResponse) VisitPutSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutSkillFile428JSONResponse Error
+
+func (response PutSkillFile428JSONResponse) VisitPutSkillFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutSkillFiledefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutSkillFiledefaultJSONResponse) VisitPutSkillFileResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -58123,15 +58834,24 @@ type StrictServerInterface interface {
 	// List skills
 	// (GET /skills)
 	ListSkills(ctx context.Context, request ListSkillsRequestObject) (ListSkillsResponseObject, error)
+	// Delete a skill
+	// (DELETE /skills/{name})
+	DeleteSkill(ctx context.Context, request DeleteSkillRequestObject) (DeleteSkillResponseObject, error)
 	// Get a skill
 	// (GET /skills/{name})
 	GetSkill(ctx context.Context, request GetSkillRequestObject) (GetSkillResponseObject, error)
 	// Create or update SKILL.md
 	// (PUT /skills/{name})
 	UpdateSkill(ctx context.Context, request UpdateSkillRequestObject) (UpdateSkillResponseObject, error)
+	// Delete one file of a skill
+	// (DELETE /skills/{name}/files)
+	DeleteSkillFile(ctx context.Context, request DeleteSkillFileRequestObject) (DeleteSkillFileResponseObject, error)
 	// Get one file of a skill
 	// (GET /skills/{name}/files)
 	GetSkillFile(ctx context.Context, request GetSkillFileRequestObject) (GetSkillFileResponseObject, error)
+	// Create or replace one file of a skill
+	// (PUT /skills/{name}/files)
+	PutSkillFile(ctx context.Context, request PutSkillFileRequestObject) (PutSkillFileResponseObject, error)
 	// Cleanup missing sync items
 	// (POST /sync/cleanup)
 	SyncCleanup(ctx context.Context, request SyncCleanupRequestObject) (SyncCleanupResponseObject, error)
@@ -66011,6 +66731,33 @@ func (sh *strictHandler) ListSkills(w http.ResponseWriter, r *http.Request, para
 	}
 }
 
+// DeleteSkill operation middleware
+func (sh *strictHandler) DeleteSkill(w http.ResponseWriter, r *http.Request, name SkillName, params DeleteSkillParams) {
+	var request DeleteSkillRequestObject
+
+	request.Name = name
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteSkill(ctx, request.(DeleteSkillRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteSkill")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteSkillResponseObject); ok {
+		if err := validResponse.VisitDeleteSkillResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetSkill operation middleware
 func (sh *strictHandler) GetSkill(w http.ResponseWriter, r *http.Request, name SkillName, params GetSkillParams) {
 	var request GetSkillRequestObject
@@ -66072,6 +66819,33 @@ func (sh *strictHandler) UpdateSkill(w http.ResponseWriter, r *http.Request, nam
 	}
 }
 
+// DeleteSkillFile operation middleware
+func (sh *strictHandler) DeleteSkillFile(w http.ResponseWriter, r *http.Request, name SkillName, params DeleteSkillFileParams) {
+	var request DeleteSkillFileRequestObject
+
+	request.Name = name
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteSkillFile(ctx, request.(DeleteSkillFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteSkillFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteSkillFileResponseObject); ok {
+		if err := validResponse.VisitDeleteSkillFileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetSkillFile operation middleware
 func (sh *strictHandler) GetSkillFile(w http.ResponseWriter, r *http.Request, name SkillName, params GetSkillFileParams) {
 	var request GetSkillFileRequestObject
@@ -66092,6 +66866,35 @@ func (sh *strictHandler) GetSkillFile(w http.ResponseWriter, r *http.Request, na
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetSkillFileResponseObject); ok {
 		if err := validResponse.VisitGetSkillFileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutSkillFile operation middleware
+func (sh *strictHandler) PutSkillFile(w http.ResponseWriter, r *http.Request, name SkillName, params PutSkillFileParams) {
+	var request PutSkillFileRequestObject
+
+	request.Name = name
+	request.Params = params
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutSkillFile(ctx, request.(PutSkillFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutSkillFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutSkillFileResponseObject); ok {
+		if err := validResponse.VisitPutSkillFileResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -69121,119 +69924,125 @@ var swaggerSpec = []string{
 	"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",
-	"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",
+	"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",
+	"AA==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

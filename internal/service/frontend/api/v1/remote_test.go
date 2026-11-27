@@ -136,6 +136,8 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 		{name: "viewer reads a skill file", method: http.MethodGet, path: "/api/v1/skills/demo/files", user: viewer, wantCall: true},
 		{name: "developer writes a skill", method: http.MethodPut, path: "/api/v1/skills/demo", user: developer, permissions: writeOnly, wantCall: true},
 		{name: "operator cannot write a skill", method: http.MethodPut, path: "/api/v1/skills/demo", user: operator, permissions: writeOnly},
+		{name: "developer deletes a skill", method: http.MethodDelete, path: "/api/v1/skills/demo", user: developer, permissions: writeOnly, wantCall: true},
+		{name: "viewer cannot delete a skill", method: http.MethodDelete, path: "/api/v1/skills/demo", user: viewer, permissions: writeOnly},
 		{name: "node lists are never forwarded", method: http.MethodGet, path: "/api/v1/nodes", user: admin, permissions: writeAndRun},
 		{name: "nodes are never forwarded", method: http.MethodGet, path: "/api/v1/nodes/web01", user: admin, permissions: writeAndRun},
 		{name: "node labels are never forwarded", method: http.MethodGet, path: "/api/v1/node-labels", user: admin, permissions: writeAndRun},

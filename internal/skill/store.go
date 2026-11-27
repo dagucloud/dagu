@@ -32,7 +32,15 @@ const (
 	// lockStaleThreshold is the age after which another writer takes a lock that
 	// its holder no longer refreshes.
 	lockStaleThreshold = 30 * time.Second
+	// deletedDirPrefix starts the name of the hidden folder that a delete moves
+	// a skill to before it removes the files.
+	deletedDirPrefix = ".deleted."
 )
+
+// ErrFilesLeft is returned by DeleteSkill when the skill is deleted but some of
+// its files could not be removed. They stay in a hidden folder of the skills
+// directory, which no read lists.
+var ErrFilesLeft = errors.New("the skill is deleted, but some of its files remain in a hidden folder")
 
 // ErrPreconditionRequired is returned for a write that has no precondition.
 var ErrPreconditionRequired = errors.New("a write needs a precondition: the hash that the client read, or the rule that the skill must not exist")
@@ -457,6 +465,136 @@ func checkQuota(current *Skill, rel string, size int64) error {
 	return nil
 }
 
+// DeleteFile deletes one file of a skill folder, or one entry that breaks the
+// layout, then the folders that become empty inside references/, assets/ and
+// scripts/. The owner removes an entry that breaks the layout to repair the
+// skill. A folder that the layout allows cannot be deleted: delete its files.
+// SKILL.md cannot be deleted alone: delete the skill. It returns the skill
+// after the delete.
+func (s *Store) DeleteFile(ctx context.Context, name, rel string, pre Precondition) (*Skill, error) {
+	rel, err := CheckExistingPath(rel)
+	if err != nil {
+		return nil, err
+	}
+	if rel == FileName {
+		return nil, &InvalidError{Issues: []Issue{{Severity: SeverityError, Rule: RulePath, File: rel,
+			Message: "SKILL.md cannot be deleted alone; delete the skill"}}}
+	}
+	if !IsSafeFolderName(name) {
+		return nil, ErrNotFound
+	}
+	var result *Skill
+	err = s.withLock(ctx, name, pre, func(held func() error) error {
+		current, err := s.checkPrecondition(name, pre)
+		if err != nil {
+			return err
+		}
+		if current == nil {
+			return ErrNotFound
+		}
+		root, err := s.openSkillRoot(name)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = root.Close() }()
+		// A link at the end of the path is the entry that the owner removes to repair
+		// the skill. The delete removes the link and never its target.
+		if err := checkNoLink(root, rel, true); err != nil {
+			return err
+		}
+		info, err := root.Lstat(rel)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("%w: no file %s", ErrNotFound, rel)
+			}
+			return err
+		}
+		if info.IsDir() && layoutAllowsDir(rel) {
+			return &InvalidError{Issues: []Issue{pathIssue(rel, "a folder of the layout cannot be deleted; delete its files")}}
+		}
+		if err := held(); err != nil {
+			return err
+		}
+		if info.IsDir() {
+			err = root.RemoveAll(rel)
+		} else {
+			err = root.Remove(rel)
+		}
+		if err != nil {
+			return fmt.Errorf("delete %s: %w", rel, err)
+		}
+		// Remove the parents that are empty, up to the top directory. Then sync the
+		// nearest parent that still exists.
+		top, _, _ := strings.Cut(rel, "/")
+		dir := path.Dir(rel)
+		for dir != top && dir != "." {
+			if root.Remove(dir) != nil {
+				break
+			}
+			dir = path.Dir(dir)
+		}
+		if err := fileutil.SyncDir(filepath.Join(root.Name(), filepath.FromSlash(dir))); err != nil {
+			return fmt.Errorf("delete %s: %w", rel, err)
+		}
+		result, err = Read(s.Dir(name))
+		return err
+	})
+	return result, err
+}
+
+// layoutAllowsDir reports whether rel is a folder that the layout allows: a top
+// folder of the layout, or a folder below it that is not hidden.
+func layoutAllowsDir(rel string) bool {
+	top, rest, _ := strings.Cut(rel, "/")
+	if top != DirReferences && top != DirAssets && top != DirScripts {
+		return false
+	}
+	for p := range strings.SplitSeq(rest, "/") {
+		if strings.HasPrefix(p, ".") {
+			return false
+		}
+	}
+	return true
+}
+
+// DeleteSkill deletes the whole folder of a skill, with every file. A reader
+// sees the whole skill or no skill. It returns ErrFilesLeft when the skill is
+// gone but some of its files could not be removed.
+func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) error {
+	if !IsSafeFolderName(name) {
+		return ErrNotFound
+	}
+	if pre.MustNotExist {
+		return ErrPreconditionRequired
+	}
+	return s.withLock(ctx, name, pre, func(held func() error) error {
+		current, err := s.checkPrecondition(name, pre)
+		if err != nil {
+			return err
+		}
+		if current == nil {
+			return ErrNotFound
+		}
+		if err := held(); err != nil {
+			return err
+		}
+		// One rename removes the skill for every reader; the files go after it. A
+		// reader that holds a file open keeps reading the version it opened.
+		hidden := filepath.Join(s.root, fmt.Sprintf("%s%016x", deletedDirPrefix, rand.Uint64())) //nolint:gosec // the name of a hidden folder, not a secret
+		if err := fileutil.Rename(s.Dir(name), hidden); err != nil {
+			return fmt.Errorf("delete the skill folder: %w", err)
+		}
+		left := fileutil.RemoveAll(hidden)
+		if err := fileutil.SyncDir(s.root); err != nil {
+			return fmt.Errorf("delete the skill folder: %w", err)
+		}
+		if left != nil {
+			return fmt.Errorf("%w: %s: %v", ErrFilesLeft, hidden, left)
+		}
+		return nil
+	})
+}
+
 // checkPrecondition reads the skill and compares it with the precondition. It
 // returns the current skill, or nil when the folder does not exist.
 func (s *Store) checkPrecondition(name string, pre Precondition) (*Skill, error) {
@@ -518,16 +656,33 @@ func (s *Store) withLock(ctx context.Context, name string, pre Precondition, fn 
 	lock := dirlock.New(lockDir, &dirlock.LockOptions{StaleThreshold: lockStaleThreshold})
 	lctx, cancel := context.WithTimeout(ctx, lockTimeout)
 	defer cancel()
-	if err := os.MkdirAll(lockDir, dirPerm); err != nil {
-		return fmt.Errorf("create the lock folder: %w", err)
-	}
-	if err := lock.Lock(lctx); err != nil {
+	for {
+		if err := os.MkdirAll(lockDir, dirPerm); err != nil {
+			return fmt.Errorf("create the lock folder: %w", err)
+		}
+		err := lock.Lock(lctx)
+		if err == nil {
+			break
+		}
+		// The writer that deleted the skill can remove the lock folder while
+		// this one takes the lock.
+		if errors.Is(err, fs.ErrNotExist) && lctx.Err() == nil {
+			continue
+		}
 		// Only the end of the wait for another writer is a conflict.
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 			return &ConflictError{Message: fmt.Sprintf("another writer holds the skill %q", name)}
 		}
 		return fmt.Errorf("lock the skill %q: %w", name, err)
 	}
+	// The lock folder of a skill that no longer exists goes after the unlock, so
+	// the lock folders stay one per skill. Remove deletes an empty folder only,
+	// never the lock of another writer.
+	defer func() {
+		if _, err := os.Lstat(s.Dir(name)); errors.Is(err, fs.ErrNotExist) {
+			_ = os.Remove(lockDir)
+		}
+	}()
 	defer func() { _ = lock.Unlock() }()
 	// A slow write on shared storage can last longer than the stale threshold. The
 	// heartbeat keeps the lock fresh, so another instance does not take it. held
