@@ -14,8 +14,8 @@ import (
 )
 
 // A migrated project records the files that run in place as its own. A
-// record stays while its file is absent, and ends once the project's DAG
-// directory holds a DAG file of the same name.
+// record stays while its file is absent, and ends for good once the
+// project's DAG directory holds a DAG file of the same name.
 func TestInPlaceRecords(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -49,22 +49,73 @@ func TestInPlaceRecords(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, files)
 
-	// The file in the project's DAG directory wins, whatever its extension.
+	// The file in the project's DAG directory wins, whatever its extension,
+	// and the record stays ended once that file is gone again.
 	moved := filepath.Join(projects, "billing", "reports.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(moved), 0o750))
-	require.NoError(t, os.WriteFile(moved, []byte("steps: []\n"), 0o600))
+	writeDAGFile(t, moved)
 	files, err = records.InPlaceFiles(ctx, "billing")
 	require.NoError(t, err)
 	require.Equal(t, []string{invoices}, files)
-	owner, err = records.InPlaceOwner(ctx, reports)
+	require.NoError(t, os.Remove(moved))
+	for _, other := range []project.InPlaceRecords{records, reg.InPlace(projects)} {
+		files, err = other.InPlaceFiles(ctx, "billing")
+		require.NoError(t, err)
+		require.Equal(t, []string{invoices}, files)
+		owner, err = other.InPlaceOwner(ctx, reports)
+		require.NoError(t, err)
+		require.Empty(t, owner)
+	}
+
+	// A lookup by path that finds a record ended ends it as well.
+	moved = filepath.Join(projects, "billing", "invoices.yml")
+	writeDAGFile(t, moved)
+	owner, err = records.InPlaceOwner(ctx, invoices)
 	require.NoError(t, err)
 	require.Empty(t, owner)
+	require.NoError(t, os.Remove(moved))
+	files, err = records.InPlaceFiles(ctx, "billing")
+	require.NoError(t, err)
+	require.Empty(t, files)
 
-	// The project keeps the records it migrated with.
+	// The project keeps the DAGs it migrated with.
 	renamed, err := reg.SetDisplayName(ctx, created.ID, "Billing")
 	require.NoError(t, err)
 	require.Equal(t, created.MigratedDAGs, renamed.MigratedDAGs)
-	owner, err = records.InPlaceOwner(ctx, invoices)
+}
+
+// Registering a workspace's project again keeps its ID and name and
+// replaces its records with the new ones.
+func TestRegisterMigrated(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	root := t.TempDir()
+	reg := projectregistry.New(filepath.Join(root, "data"))
+	first, err := reg.RegisterMigrated(ctx, project.CreateInput{
+		Name: "billing", MigratedFrom: "billing",
+		MigratedDAGs: []string{"invoices"}, InPlaceFiles: []string{filepath.Join(root, "invoices.yaml")},
+	})
 	require.NoError(t, err)
-	require.Equal(t, "billing", owner)
+
+	again, err := reg.RegisterMigrated(ctx, project.CreateInput{
+		Name: "billing-2", MigratedFrom: "billing",
+		MigratedDAGs: []string{"reports"}, InPlaceFiles: []string{filepath.Join(root, "reports.yaml")},
+	})
+	require.NoError(t, err)
+	require.Equal(t, first.ID, again.ID)
+	require.Equal(t, "billing", again.Name)
+	require.Equal(t, []string{"reports"}, again.MigratedDAGs)
+	files, err := reg.InPlace(filepath.Join(root, "projects")).InPlaceFiles(ctx, "billing")
+	require.NoError(t, err)
+	require.Equal(t, []string{filepath.Join(root, "reports.yaml")}, files)
+
+	_, err = reg.Create(ctx, project.CreateInput{Name: "ops"})
+	require.NoError(t, err)
+	_, err = reg.RegisterMigrated(ctx, project.CreateInput{Name: "OPS", MigratedFrom: "OPS"})
+	require.ErrorIs(t, err, project.ErrNameTaken)
+}
+
+func writeDAGFile(t *testing.T, path string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("steps: []\n"), 0o600))
 }

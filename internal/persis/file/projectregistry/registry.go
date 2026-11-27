@@ -144,8 +144,57 @@ func (r *Registry) GetByID(_ context.Context, id string) (project.Project, error
 
 // Create registers a project under a new ID.
 func (r *Registry) Create(ctx context.Context, in project.CreateInput) (project.Project, error) {
-	if err := project.ValidateName(in.Name); err != nil {
+	created, err := r.newEntry(in)
+	if err != nil {
 		return project.Project{}, err
+	}
+	err = r.update(ctx, func(entries []entry) ([]entry, bool, error) {
+		if i := indexByName(entries, in.Name); i >= 0 {
+			return nil, false, fmt.Errorf("%w: %q", project.ErrNameTaken, entries[i].Name)
+		}
+		return append(entries, created), true, nil
+	})
+	if err != nil {
+		return project.Project{}, err
+	}
+	return created.Project, nil
+}
+
+// RegisterMigrated registers the project that the v2 workspace
+// in.MigratedFrom becomes, as Create does. When a project of that workspace
+// is registered, it keeps that project's ID and name, replaces its
+// MigratedDAGs and files that run in place with in's, and returns it.
+func (r *Registry) RegisterMigrated(ctx context.Context, in project.CreateInput) (project.Project, error) {
+	if in.MigratedFrom == "" {
+		return project.Project{}, errors.New("project registry: a migrated project names its workspace")
+	}
+	created, err := r.newEntry(in)
+	if err != nil {
+		return project.Project{}, err
+	}
+	var result project.Project
+	err = r.update(ctx, func(entries []entry) ([]entry, bool, error) {
+		i := slices.IndexFunc(entries, func(e entry) bool { return e.MigratedFrom == in.MigratedFrom })
+		if i >= 0 {
+			entries[i].MigratedDAGs = created.MigratedDAGs
+			entries[i].inPlace = created.inPlace
+			result = entries[i].Project
+			return entries, true, nil
+		}
+		if j := indexByName(entries, in.Name); j >= 0 {
+			return nil, false, fmt.Errorf("%w: %q", project.ErrNameTaken, entries[j].Name)
+		}
+		result = created.Project
+		return append(entries, created), true, nil
+	})
+	return result, err
+}
+
+// newEntry returns the entry of a project to register from in, under a new
+// ID. It returns an error when in breaks the name rules.
+func (r *Registry) newEntry(in project.CreateInput) (entry, error) {
+	if err := project.ValidateName(in.Name); err != nil {
+		return entry{}, err
 	}
 	id := uuid.NewString()
 	created := project.Project{
@@ -154,25 +203,35 @@ func (r *Registry) Create(ctx context.Context, in project.CreateInput) (project.
 		DisplayName:  cmp.Or(in.DisplayName, in.Name),
 		CreatedAt:    r.now().UTC(),
 		MigratedFrom: in.MigratedFrom,
+		MigratedDAGs: slices.Clone(in.MigratedDAGs),
 		SlotSeed:     id,
 	}
 	if in.MigratedFrom != "" {
 		created.SlotSeed = r.dirSeed
 	}
 	if err := project.ValidateDisplayName(created.DisplayName); err != nil {
-		return project.Project{}, err
+		return entry{}, err
 	}
-	created.MigratedDAGs = slices.Clone(in.MigratedDAGs)
-	err := r.update(ctx, func(entries []entry) ([]entry, bool, error) {
-		if i := indexByName(entries, in.Name); i >= 0 {
-			return nil, false, fmt.Errorf("%w: %q", project.ErrNameTaken, entries[i].Name)
+	return entry{Project: created, inPlace: slices.Clone(in.InPlaceFiles)}, nil
+}
+
+// endInPlace removes the records of ended, files that ran in place as the
+// project with the given ID, unless the registry no longer holds them.
+func (r *Registry) endInPlace(ctx context.Context, id string, ended []string) error {
+	return r.update(ctx, func(entries []entry) ([]entry, bool, error) {
+		i := slices.IndexFunc(entries, func(e entry) bool { return e.ID == id })
+		if i < 0 {
+			return nil, false, nil
 		}
-		return append(entries, entry{Project: created, inPlace: slices.Clone(in.InPlaceFiles)}), true, nil
+		kept := slices.DeleteFunc(slices.Clone(entries[i].inPlace), func(file string) bool {
+			return slices.Contains(ended, file)
+		})
+		if len(kept) == len(entries[i].inPlace) {
+			return nil, false, nil
+		}
+		entries[i].inPlace = kept
+		return entries, true, nil
 	})
-	if err != nil {
-		return project.Project{}, err
-	}
-	return created, nil
 }
 
 // EnsureDefault returns the default project, registering it first when the
