@@ -276,28 +276,121 @@ func agentSessionResourceKey(resource AgentSessionResource) string {
 	return resource.Provider + "\x00" + resource.OwnerWorkerID + "\x00" + resource.SessionID
 }
 
-// RetryAgentOwnerWorkerID returns the execution host required by an agent session that will resume.
-func RetryAgentOwnerWorkerID(status *DAGRunStatus, stepRetry bool) string {
+// RetryAgentOwnerWorkerID returns the worker that holds the agent sessions a
+// retry resumes. An empty step names a retry of the run, which resumes the
+// steps that did not finish. Otherwise the retry resumes step, every
+// not-started step it reaches through not-started steps, and, with
+// includeDownstream, every step that depends on it. It returns "" when no
+// worker or more than one worker holds those sessions; the retry then has no
+// target, and a session the chosen worker does not hold cannot resume there.
+//
+// A step retry also runs other not-started steps whose upstream already
+// finished, and it does not run a dependant that a failed step outside the
+// retry blocks. The first are not counted and the second are.
+func RetryAgentOwnerWorkerID(status *DAGRunStatus, step string, includeDownstream bool) string {
+	return soleOwner(addRetryOwners(nil, status, step, includeDownstream))
+}
+
+// addRetryOwners adds to owners the workers that hold the sessions a retry of
+// status resumes, as RetryAgentOwnerWorkerID selects them.
+func addRetryOwners(owners map[string]struct{}, status *DAGRunStatus, step string, includeDownstream bool) map[string]struct{} {
 	if status == nil {
-		return ""
+		return owners
 	}
-	var owner string
+	resumes := resumedByRunRetry
+	if step != "" {
+		selected := stepRetrySelection(status.Nodes, step, includeDownstream)
+		resumes = func(node *Node) bool {
+			_, ok := selected[node.Step.Name]
+			return ok
+		}
+	}
 	for _, node := range status.Nodes {
-		if node == nil || node.AgentSession == nil {
+		if node == nil || node.AgentSession == nil || !resumes(node) {
 			continue
 		}
 		session := node.AgentSession
-		if !stepRetry && node.Status != NodeFailed && node.Status != NodeRetrying && node.Status != NodeAborted &&
-			node.Status != NodeRejected && node.Status != NodeNotStarted && node.Status != NodeWaiting {
-			continue
-		}
 		if session.RestartPending || session.OwnerWorkerID == "" {
 			continue
 		}
-		if owner != "" && owner != session.OwnerWorkerID {
-			return ""
+		if owners == nil {
+			owners = make(map[string]struct{}, 1)
 		}
-		owner = session.OwnerWorkerID
+		owners[session.OwnerWorkerID] = struct{}{}
 	}
-	return owner
+	return owners
+}
+
+// soleOwner returns the only worker in owners, or "" when there is none or
+// more than one.
+func soleOwner(owners map[string]struct{}) string {
+	if len(owners) != 1 {
+		return ""
+	}
+	for owner := range owners {
+		return owner
+	}
+	return ""
+}
+
+// resumedByRunRetry reports whether a retry of the run counts node's session.
+// A running node is one whose process died before the run's status was
+// repaired, so its session resumes.
+func resumedByRunRetry(node *Node) bool {
+	switch node.Status {
+	case NodeFailed, NodeRetrying, NodeRunning, NodeAborted, NodeRejected, NodeNotStarted, NodeWaiting:
+		return true
+	default:
+		return false
+	}
+}
+
+// stepRetrySelection returns the names of the steps a retry of step runs:
+// step, the not-started steps it reaches through not-started steps, which the
+// runner starts once their upstream finishes, and, with includeDownstream,
+// every step reachable from it. Reachability follows explicit and inferred
+// dependencies.
+func stepRetrySelection(nodes []*Node, step string, includeDownstream bool) map[string]struct{} {
+	dependants := make(map[string][]*Node, len(nodes))
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		for _, dep := range node.Step.AllDepends() {
+			dependants[dep] = append(dependants[dep], node)
+		}
+	}
+	selected := map[string]struct{}{step: {}}
+	queue := []string{step}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, dependant := range dependants[current] {
+			name := dependant.Step.Name
+			if _, ok := selected[name]; ok {
+				continue
+			}
+			if !includeDownstream && dependant.Status != NodeNotStarted {
+				continue
+			}
+			selected[name] = struct{}{}
+			queue = append(queue, name)
+		}
+	}
+	return selected
+}
+
+// RetryPathAgentOwnerWorkerID returns the worker that holds the agent sessions
+// a retry along a retry path resumes. The root run, status, reruns rootStep;
+// the last sub-run on the path, sub, reruns step, as RetryAgentOwnerWorkerID
+// selects for each. A sub-run runs in its root's process unless it is
+// dispatched on its own, so sub counts only when its status carries the claim
+// of the root's attempt, which a sub-run in that process reports under. A nil
+// sub counts no sessions.
+func RetryPathAgentOwnerWorkerID(status *DAGRunStatus, rootStep string, sub *DAGRunStatus, step string, includeDownstream bool) string {
+	owners := addRetryOwners(nil, status, rootStep, false)
+	if status != nil && sub != nil && sub.ClaimKey != "" && sub.ClaimKey == status.ClaimKey {
+		owners = addRetryOwners(owners, sub, step, includeDownstream)
+	}
+	return soleOwner(owners)
 }

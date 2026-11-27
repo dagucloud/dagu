@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -147,6 +148,46 @@ func TestDispatchRetryToSessionOwner(t *testing.T) {
 	assert.Equal(t, dispatch.DispatchOperationRetry, client.task.Operation)
 	assert.Equal(t, "worker-2", client.task.TargetWorkerID)
 	assert.Equal(t, map[string]string{"gpu": "true"}, client.task.WorkerSelector)
+}
+
+// A step retry goes to the worker that holds that step's session, even when
+// another step's session is on another worker.
+func TestDispatchStepRetryToSessionOwner(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	retried := &ir.DAGRunStatus{Name: "agent", DAGRunID: "run", Status: ir.Succeeded, Nodes: []*ir.Node{
+		{Step: ir.Step{Name: "a"}, Status: ir.NodeSucceeded, AgentSession: &ir.AgentSession{OwnerWorkerID: "worker-1"}},
+		{Step: ir.Step{Name: "b"}, Status: ir.NodeSucceeded, AgentSession: &ir.AgentSession{OwnerWorkerID: "worker-2"}},
+	}}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "agent", WorkerSelector: map[string]string{"gpu": "true"}}, "run",
+		runOptions{retried: retried, step: "b"}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, "b", client.task.Step)
+	assert.Equal(t, "worker-2", client.task.TargetWorkerID)
+}
+
+// A step retry in a sub-run that ran in the root's process, so under the root
+// attempt's claim, goes to the worker that holds the sub-run step's session.
+func TestDispatchSubRunStepRetryToSessionOwner(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	retried := &ir.DAGRunStatus{Name: "parent", DAGRunID: "run", Status: ir.Failed, WorkerID: "worker-2", ClaimKey: "claim", Nodes: []*ir.Node{
+		{Step: ir.Step{Name: "call"}, Status: ir.NodeFailed},
+	}}
+	sub := &ir.DAGRunStatus{Name: "child", DAGRunID: "child-run", Status: ir.Failed, WorkerID: "worker-2", ClaimKey: "claim", Nodes: []*ir.Node{
+		{Step: ir.Step{Name: "agent"}, Status: ir.NodeFailed, AgentSession: &ir.AgentSession{OwnerWorkerID: "worker-2"}},
+	}}
+	path := dagrun.RetryPath{Hops: []dagrun.RetryHop{{Step: "call", RunID: "child-run"}}, Step: "agent"}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "parent", WorkerSelector: map[string]string{"gpu": "true"}}, "run",
+		runOptions{retried: retried, retriedSubRun: sub, step: "call", retryPath: path}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, "worker-2", client.task.TargetWorkerID)
 }
 
 type smtpDispatchClient struct {

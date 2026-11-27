@@ -277,7 +277,7 @@ func (e *DAGExecutor) executeDAG(
 		}
 		if worker != "" {
 			taskOpts = append(taskOpts, executor.WithTargetWorkerID(worker), executor.WithBoundNode(worker, ""))
-		} else if workerID := ir.RetryAgentOwnerWorkerID(previousStatus, false); workerID != "" {
+		} else if workerID := ir.RetryAgentOwnerWorkerID(previousStatus, "", false); workerID != "" {
 			taskOpts = append(taskOpts, executor.WithTargetWorkerID(workerID))
 		}
 		if dag.SourceFile != "" {

@@ -3399,10 +3399,15 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 			executor.WithPreviousStatus(prevStatus),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig), dag.BaseConfigWorkspace),
 		}
+		// A retry that resumes agent sessions goes to the worker that holds them.
+		owner := ir.RetryAgentOwnerWorkerID(prevStatus, stepName, includeDownstream)
+		if len(retryPath.Hops) > 0 {
+			owner = ir.RetryPathAgentOwnerWorkerID(prevStatus, stepName, retryValidationStatus, retryPath.Step, includeDownstream)
+		}
 		if worker != "" {
 			opts = append(opts, executor.WithTargetWorkerID(worker), executor.WithBoundNode(worker, ""))
-		} else if workerID := ir.RetryAgentOwnerWorkerID(prevStatus, stepName != ""); workerID != "" {
-			opts = append(opts, executor.WithTargetWorkerID(workerID))
+		} else if owner != "" {
+			opts = append(opts, executor.WithTargetWorkerID(owner))
 		}
 		if dag.SourceFile != "" {
 			opts = append(opts, executor.WithSourceFile(dag.SourceFile))
@@ -4425,7 +4430,7 @@ func (a *API) resumeWaitingDAGRun(ctx context.Context, ref ir.DAGRunRef, status 
 	if err != nil || admission == nil {
 		return err
 	}
-	if err := a.resumeManagedAttempt(ctx, dag, admission.Status, ref.ID, admission, dagrun.RetryPath{}); err != nil {
+	if err := a.resumeManagedAttempt(ctx, dag, admission.Status, ref.ID, admission, dagrun.RetryPath{}, ""); err != nil {
 		if rollbackErr := admission.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, queue.ErrRetryStaleLatest) {
 			return errors.Join(err, rollbackErr)
 		}
@@ -4465,7 +4470,7 @@ func (a *API) resumeSubDAGRun(ctx context.Context, rootRef ir.DAGRunRef, subDAGR
 	if err != nil || admission == nil {
 		return err
 	}
-	if err := a.resumeManagedAttempt(ctx, dag, admission.Status, subDAGRunID, admission, dagrun.RetryPath{}); err != nil {
+	if err := a.resumeManagedAttempt(ctx, dag, admission.Status, subDAGRunID, admission, dagrun.RetryPath{}, ""); err != nil {
 		if rollbackErr := admission.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, queue.ErrRetryStaleLatest) {
 			return errors.Join(err, rollbackErr)
 		}
@@ -4548,7 +4553,14 @@ func (a *API) resumeSubDAGRunAncestors(
 	}
 	admission.root, err = queue.PrepareRetry(ctx, a.dagRunRepository, rootDAG, rootStatus, rootOpts)
 	if err == nil && admission.root != nil {
-		err = a.resumeManagedAttempt(ctx, rootDAG, admission.root.Status, rootRef.ID, admission, path)
+		// The admitted checkpoints drop the workers that ran them, which the
+		// owner rule compares, so it reads the statuses before admission.
+		var resumedSub *ir.DAGRunStatus
+		if admission.sub != nil {
+			resumedSub = subStatus
+		}
+		owner := ir.RetryPathAgentOwnerWorkerID(rootStatus, path.RootStep(), resumedSub, "", false)
+		err = a.resumeManagedAttempt(ctx, rootDAG, admission.root.Status, rootRef.ID, admission, path, owner)
 		if err == nil {
 			return true, nil
 		}
@@ -4635,9 +4647,13 @@ type retryAdmission interface {
 
 // resumeManagedAttempt launches the retry that continues status. A path with
 // hops retries path.RootStep along path instead of running the default retry
-// plan.
-func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, runID string, admission retryAdmission, path dagrun.RetryPath) error {
+// plan, and pathOwner is the worker that holds the sessions it resumes.
+func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, runID string, admission retryAdmission, path dagrun.RetryPath, pathOwner string) error {
 	step := path.RootStep()
+	owner := pathOwner
+	if len(path.Hops) == 0 {
+		owner = ir.RetryAgentOwnerWorkerID(status, "", false)
+	}
 	// A root run bound to a worker node resumes on that worker.
 	var worker string
 	var err error
@@ -4658,8 +4674,8 @@ func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.
 		}
 		if worker != "" {
 			options = append(options, executor.WithTargetWorkerID(worker), executor.WithBoundNode(worker, ""))
-		} else if workerID := ir.RetryAgentOwnerWorkerID(status, step != ""); workerID != "" {
-			options = append(options, executor.WithTargetWorkerID(workerID))
+		} else if owner != "" {
+			options = append(options, executor.WithTargetWorkerID(owner))
 		}
 		if dag.SourceFile != "" {
 			options = append(options, executor.WithSourceFile(dag.SourceFile))
