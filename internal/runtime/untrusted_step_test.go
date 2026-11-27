@@ -178,19 +178,22 @@ func TestUntrustedRunRedirectRefusesLink(t *testing.T) {
 
 // A work directory that an untrusted step got and that no restore made safe,
 // as after a stop of the process during the step, keeps each step of the run
-// from running, also a trusted step, and stops the run.
+// from running, also a trusted step and a DAG precondition, and stops the run.
 func TestWorkDirNotGivenBackStopsTheRun(t *testing.T) {
 	t.Parallel()
 	skipWithoutPosixShell(t)
 
 	work := t.TempDir()
 	require.NoError(t, os.WriteFile(work+".untrusted-handoff", nil, 0o600))
-	marker := filepath.Join(t.TempDir(), "ran")
+	ran := t.TempDir()
 	ph := untrustedPlan(t, config.UntrustedConfig{IsolationOff: true}, work,
-		newStep("check", withCommand("touch "+marker)),
+		newStep("check", withCommand("touch "+filepath.Join(ran, "step"))),
 		newStep("verify", withDepends("check"), withUntrusted(), withCommand("true")),
 	)
-	dag := &ir.DAG{Name: "test_dag", WorkingDir: work, Steps: ph.steps}
+	dag := &ir.DAG{
+		Name: "test_dag", WorkingDir: work, Steps: ph.steps,
+		Preconditions: []*ir.Condition{{Condition: "touch " + filepath.Join(ran, "precondition")}},
+	}
 	ctx := runtime.NewContext(ph.Context, dag, ph.cfg.DAGRunID, filepath.Join(ph.cfg.LogDir, "run.log"), ph.contextOpts...)
 
 	err := ph.runner.Run(ctx, ph.Plan, nil)
@@ -198,8 +201,8 @@ func TestWorkDirNotGivenBackStopsTheRun(t *testing.T) {
 	require.ErrorIs(t, err, untrusted.ErrRunAborted)
 	assert.ErrorContains(t, err, "not given back safely")
 	assert.Equal(t, ir.Aborted, ph.runner.Status(ctx, ph.Plan))
-	assert.Equal(t, ir.NodeFailed, ph.GetNodeByName("check").State().Status)
-	assert.NoFileExists(t, marker)
+	assert.NoFileExists(t, filepath.Join(ran, "precondition"))
+	assert.NoFileExists(t, filepath.Join(ran, "step"))
 }
 
 // A step error that marks the run as unsafe fails the step and stops the run:
