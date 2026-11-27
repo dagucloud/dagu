@@ -5,6 +5,9 @@ package coordinator
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,7 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -128,4 +133,38 @@ func TestReadPeerTokenRejectsNonPrintable(t *testing.T) {
 
 	_, err := readPeerToken(tokenFile)
 	require.Error(t, err)
+}
+
+// Only a client certificate that chains to the CA given to
+// AcceptWorkerCertificates counts as the peer token, so a client certificate
+// from peer.client_ca_file on a coordinator with own certificates does not.
+func TestPeerTokenAuthWorkerCertificate(t *testing.T) {
+	const method = "/coordinator.v1.CoordinatorService/Poll"
+	dir := t.TempDir()
+	peerCA, err := LoadOrCreatePeerCA(filepath.Join(dir, "peer", "ca.pem"))
+	require.NoError(t, err)
+	otherCA, err := LoadOrCreatePeerCA(filepath.Join(dir, "other", "ca.pem"))
+	require.NoError(t, err)
+	leaf := &x509.Certificate{Subject: pkix.Name{CommonName: "certificate-id"}}
+	ctx := peer.NewContext(context.Background(), &peer.Peer{AuthInfo: credentials.TLSInfo{
+		State: tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{leaf, peerCA.cert}}},
+	}})
+
+	for _, tc := range []struct {
+		name     string
+		accept   *PeerCA
+		wantCode codes.Code
+	}{
+		{name: "peer CA", accept: peerCA, wantCode: codes.OK},
+		{name: "another CA", accept: otherCA, wantCode: codes.Unauthenticated},
+		{name: "none accepted", wantCode: codes.Unauthenticated},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			auth := NewPeerTokenAuth("token", true, true)
+			if tc.accept != nil {
+				auth.AcceptWorkerCertificates(tc.accept)
+			}
+			assert.Equal(t, tc.wantCode, status.Code(auth.authorize(ctx, method)))
+		})
+	}
 }
