@@ -2497,6 +2497,7 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("coordinator.host", "127.0.0.1")
 	l.v.SetDefault("coordinator.advertise", "")
 	l.v.SetDefault("coordinator.port", 50055)
+	l.v.SetDefault("coordinator.require_token", true)
 
 	// Worker
 	l.v.SetDefault("worker.max_active_runs", 100)

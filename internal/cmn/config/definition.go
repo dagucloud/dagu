@@ -431,6 +431,7 @@ type CoordinatorDef struct {
 	// refuses a dispatch with no healthy matching worker at once.
 	WorkerWaitTimeout string `mapstructure:"worker_wait_timeout"`
 	// RequireToken rejects calls that do not carry the peer token.
+	// Default: true.
 	RequireToken bool `mapstructure:"require_token"`
 }
 

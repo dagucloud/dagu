@@ -824,7 +824,7 @@ type Coordinator struct {
 	// such a dispatch at once.
 	WorkerWaitTimeout time.Duration
 	// RequireToken rejects calls that do not carry the peer token. When
-	// false, such calls are accepted with a warning.
+	// false, such calls are accepted with a warning. Default: true.
 	RequireToken bool
 }
 

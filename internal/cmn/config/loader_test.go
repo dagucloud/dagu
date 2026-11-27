@@ -386,6 +386,7 @@ func TestLoad_Env(t *testing.T) {
 			Port:              50099,
 			HealthPort:        50101,
 			WorkerWaitTimeout: 90 * time.Second,
+			RequireToken:      true,
 		},
 		Worker: Worker{
 			ID:              "test-worker-123",
@@ -493,6 +494,26 @@ func TestLoad_WorkerWaitTimeout(t *testing.T) {
 			cfg := testLoad(t, WithConfigFile(configFile))
 
 			assert.Equal(t, tc.want, cfg.Coordinator.WorkerWaitTimeout)
+		})
+	}
+}
+
+// Coordinators require the peer token unless the operator opts out.
+func TestLoad_RequireToken(t *testing.T) {
+	for name, tc := range map[string]struct {
+		yaml string
+		env  map[string]string
+		want bool
+	}{
+		"default":      {yaml: "# minimal config", want: true},
+		"other fields": {yaml: "coordinator:\n  port: 50099\n", want: true},
+		"opt-out":      {yaml: "coordinator:\n  require_token: false\n", want: false},
+		"opt-out env":  {yaml: "# minimal config", env: map[string]string{"DAGU_COORDINATOR_REQUIRE_TOKEN": "false"}, want: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := loadWithEnv(t, tc.yaml, tc.env)
+
+			assert.Equal(t, tc.want, cfg.Coordinator.RequireToken)
 		})
 	}
 }
@@ -1326,6 +1347,7 @@ scheduler:
 			Port:              8081,
 			HealthPort:        8091,
 			WorkerWaitTimeout: 2 * time.Minute,
+			RequireToken:      true,
 		},
 		Worker: Worker{
 			ID:              "worker-1",
