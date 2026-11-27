@@ -982,24 +982,25 @@ host value is the value of a variable that the run takes from it:
 - a variable that Dagu passes to steps because `env_passthrough` or
   `env_passthrough_prefixes` in the configuration names it.
 
-When the value is JSON, each string and number in it of at least four
-characters is a host value too, since a JSON path or the listed keys of an
-assertion can take a part of it, also through a DAG `env` entry. A number
-counts in each text it takes, as written and as resolved, so `7.36491e5`
-also counts as `736491`. A shorter
-part, such as `us` or `443`, and a boolean are left out: they cannot be
-told apart from the text around them, hold no credential, and would keep
-and mask unrelated text. A four-digit PIN still counts. The variables that
-Dagu passes to every step whatever the configuration have no host value:
-its fixed allowlist, such as `PATH` and `HOME`, and the names that start
-with `DAGU_`, `DAG_`, `LC_`, or `KUBERNETES_`. An empty value is no host
-value either.
+When the value is JSON, each string and number in it is a host value too,
+since a JSON path or the listed keys of an assertion can take a part of it,
+also through a DAG `env` entry. A number counts in each text it takes, as
+written and as resolved, so `7.36491e5` also counts as `736491`. A part
+shorter than four characters, such as `us` or `482`, is a short part: it
+counts only where a value, or a string or number inside one, equals it, not
+in text that merely contains it, such as `us-east-1`, since text that short
+cannot be told apart from the text around it. A boolean holds one bit and
+is no host value. The variables that Dagu passes to every step whatever the
+configuration have no host value: its fixed allowlist, such as `PATH` and
+`HOME`, and the names that start with `DAGU_`, `DAG_`, `LC_`, or
+`KUBERNETES_`. An empty value is no host value either.
 
 Rules:
 
 - A value holds a host value when its text contains one, as written or
-  inside a JSON string, as output masking matches a secret (Spec 069). A
-  part that a shell-style operator takes from a host value, such as
+  inside a JSON string, as output masking matches a secret (Spec 069), or
+  when it, or a string or number inside it, equals a short part. A part
+  that a shell-style operator takes from a host value, such as
   `${HOST_TOKEN#Bearer }`, is not matched.
 - The text and the JSON report mask host values in the values of a failed
   output or `called_with` assertion, as they mask secrets. Notification
