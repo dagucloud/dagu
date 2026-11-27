@@ -307,7 +307,7 @@ type NodeClient interface {
 	// ResolveNodes answers the nodes selector matches, or those names names,
 	// for the attempt run identifies. Exactly one of selector and names is
 	// set. A name of no node is left out.
-	ResolveNodes(ctx context.Context, owner serviceregistry.HostInfo, selector string, names []string, run SecretReferenceRun) (ResolvedNodes, error)
+	ResolveNodes(ctx context.Context, owner serviceregistry.HostInfo, selector string, names []string, run WorkerAttempt) (ResolvedNodes, error)
 }
 
 // ResolvedNodes is what ResolveNodes answers. Credentials are secret refs.
@@ -321,7 +321,7 @@ type ResolvedNodes struct {
 	HostKeys []inventory.TrustedHostKey
 }
 
-func (cli *clientImpl) ResolveNodes(ctx context.Context, owner serviceregistry.HostInfo, selector string, names []string, run SecretReferenceRun) (ResolvedNodes, error) {
+func (cli *clientImpl) ResolveNodes(ctx context.Context, owner serviceregistry.HostInfo, selector string, names []string, run WorkerAttempt) (ResolvedNodes, error) {
 	if !emptyCoordinatorOwner(owner) && !completeCoordinatorOwner(owner) {
 		return ResolvedNodes{}, fmt.Errorf("resolve nodes owner coordinator endpoint is incomplete")
 	}

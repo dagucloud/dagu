@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/agentsession"
@@ -166,7 +167,7 @@ func (h *Handler) authorizeCaller(ctx context.Context, caller *coordinatorv1.Cal
 
 // callerAttemptOf returns the wire form of the attempt run names, or nil for
 // an attempt of the default project's own DAGs, whose calls name none.
-func callerAttemptOf(run SecretReferenceRun) *coordinatorv1.CallerAttempt {
+func callerAttemptOf(run WorkerAttempt) *coordinatorv1.CallerAttempt {
 	if run.Project == (dispatch.ProjectScope{}) {
 		return nil
 	}
@@ -178,6 +179,43 @@ func callerAttemptOf(run SecretReferenceRun) *coordinatorv1.CallerAttempt {
 // the default project's tasks.
 func (h *Handler) runningTaskContext(ctx context.Context, task *coordinatorv1.RunningTask) (context.Context, error) {
 	return h.inProjectOf(ctx, task.GetProject())
+}
+
+// cleanupCursorIdle is how long a worker's cleanup cursor outlives the
+// worker's last claim. Workers claim every few seconds while they run.
+const cleanupCursorIdle = 10 * time.Minute
+
+// cleanupCursors count each worker's cleanup claims, so each worker checks
+// the projects in turn whatever the other workers claim. The cursor of a
+// worker that stops claiming is dropped, so they are as many as the live
+// workers.
+type cleanupCursors struct {
+	mu      sync.Mutex
+	workers map[string]cleanupCursor
+}
+
+type cleanupCursor struct {
+	claims   uint64
+	lastUsed time.Time
+}
+
+// next returns the number of workerID's claim at now, from 1.
+func (c *cleanupCursors) next(workerID string, now time.Time) uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.workers == nil {
+		c.workers = make(map[string]cleanupCursor)
+	}
+	for id, cursor := range c.workers {
+		if now.Sub(cursor.lastUsed) > cleanupCursorIdle {
+			delete(c.workers, id)
+		}
+	}
+	cursor := c.workers[workerID]
+	cursor.claims++
+	cursor.lastUsed = now
+	c.workers[workerID] = cursor
+	return cursor.claims
 }
 
 // errStreamProjectChanged refuses a stream whose chunks address more than

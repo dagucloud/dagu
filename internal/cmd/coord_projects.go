@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"golang.org/x/sync/singleflight"
 )
 
 // projectStoreRetryDelay is how long a coordinator serves the stores of a
@@ -28,8 +29,9 @@ type coordinatorProjects struct {
 	cfg   *config.Config
 	cache *file.ProjectStoreCache
 
-	mu     sync.Mutex
-	opened map[dispatch.ProjectScope]openedProjectStores
+	mu      sync.Mutex
+	opened  map[dispatch.ProjectScope]openedProjectStores
+	opening singleflight.Group
 }
 
 // openedProjectStores are the coordinator stores built from source. When
@@ -75,16 +77,20 @@ func (p *coordinatorProjects) Stores(ctx context.Context, scope dispatch.Project
 	if ok && opened.source == runs && (opened.retryAt.IsZero() || time.Now().Before(opened.retryAt)) {
 		return opened.stores, nil
 	}
-	// Stores open without the lock, so a slow open delays no other project.
-	stores, complete := openCoordinatorStores(ctx, p.cfg, project, runs)
-	opened = openedProjectStores{source: runs, stores: stores}
-	if !complete {
-		opened.retryAt = time.Now().Add(projectStoreRetryDelay)
-	}
-	p.mu.Lock()
-	p.opened[scope] = opened
-	p.mu.Unlock()
-	return stores, nil
+	// Stores open without the lock, so a slow open delays no other project,
+	// and once per scope however many calls wait for them.
+	stores, _, _ := p.opening.Do(fmt.Sprintf("%s\x00%t", scope.ID, scope.Library), func() (any, error) {
+		stores, complete := openCoordinatorStores(ctx, p.cfg, project, runs)
+		opened := openedProjectStores{source: runs, stores: stores}
+		if !complete {
+			opened.retryAt = time.Now().Add(projectStoreRetryDelay)
+		}
+		p.mu.Lock()
+		p.opened[scope] = opened
+		p.mu.Unlock()
+		return stores, nil
+	})
+	return stores.(*coordinator.ProjectStores), nil
 }
 
 func (p *coordinatorProjects) Projects() []dispatch.ProjectScope {

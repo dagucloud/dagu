@@ -837,11 +837,14 @@ Rules:
   coordinator refuses such a call for a task of another project.
 - A worker's calls for another project's DAG state and DAG definitions name
   the attempt they act for, and the coordinator serves them only while that
-  worker holds the attempt's lease in that project.
-- Dispatches, run status queries, and cancel requests also come from the
-  server, the scheduler, and the CLI, which hold no lease. The coordinator
-  serves them for any project to a caller with the peer token, the same
-  credential that lets a caller dispatch any DAG to any worker.
+  worker holds the attempt's lease in that project. This check routes calls
+  to the right project; it does not authenticate them. The attempt a call
+  names is the caller's own claim, and every worker shares one credential.
+- Projects separate what users can see and change through the API and the
+  UI. They do not isolate workflow code: a step, run locally or on a shared
+  worker, runs with that process's permissions and coordinator credential,
+  which reach every project's runs, state, and secrets. Groups that must not
+  reach each other's workflows run separate Dagu instances.
 - A `dag.run` inside a distributed run resolves only in the task's project,
   then the library.
 - A worker reads no project directory. It sees a project's files only through

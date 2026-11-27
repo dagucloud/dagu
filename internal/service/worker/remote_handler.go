@@ -85,7 +85,7 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 	stateClient, _ := cfg.CoordinatorClient.(coordinator.StateClient)
 	stateStore := cfg.StateStore
 	if stateStore == nil {
-		stateStore = coordinator.NewStateStoreClient(stateClient, coordinator.SecretReferenceRun{})
+		stateStore = coordinator.NewStateStoreClient(stateClient, coordinator.WorkerAttempt{})
 	}
 	return &remoteTaskHandler{
 		workerID:          cfg.WorkerID,
@@ -112,7 +112,7 @@ type remoteTaskHandler struct {
 	// task's attempt while that is another than the default project's own
 	// DAGs.
 	project         dispatch.ProjectScope
-	attempt         coordinator.SecretReferenceRun
+	attempt         coordinator.WorkerAttempt
 	dagRepository   *persis.DAGRepository
 	dagRunMgr       runtime.Manager
 	stateStore      dagrun.StateStore
@@ -159,7 +159,7 @@ func (h *remoteTaskHandler) inProject(task *coordinatorv1.Task) *remoteTaskHandl
 	}
 	scoped := *h
 	scoped.project = scope
-	scoped.attempt = coordinator.SecretReferenceRun{
+	scoped.attempt = coordinator.WorkerAttempt{
 		WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: task.AttemptId, Project: scope,
 	}
 	scoped.stateStore = coordinator.NewStateStoreClient(h.stateClient, scoped.attempt)
@@ -838,13 +838,13 @@ func (h *remoteTaskHandler) executeDAGRun(
 		})
 	}
 	secretResolver := func(current *ir.DAG) providers.ReferenceResolver {
-		return h.secretReferenceResolver(current, run.owner, coordinator.SecretReferenceRun{
+		return h.secretReferenceResolver(current, run.owner, coordinator.WorkerAttempt{
 			WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID, Project: h.project,
 		})
 	}
 	// Each run reads the nodes of its own DAG, so a child run gets its own.
 	nodes := func(current *ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys) {
-		nodeRun := coordinator.SecretReferenceRun{WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID, Project: h.project}
+		nodeRun := coordinator.WorkerAttempt{WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID, Project: h.project}
 		if current != nil {
 			nodeRun.DAGName = current.Name
 		}
@@ -986,7 +986,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	return nil
 }
 
-func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner serviceregistry.HostInfo, run coordinator.SecretReferenceRun) providers.ReferenceResolver {
+func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner serviceregistry.HostInfo, run coordinator.WorkerAttempt) providers.ReferenceResolver {
 	client, ok := h.coordinatorClient.(coordinator.SecretReferenceClient)
 	if !ok {
 		return nil

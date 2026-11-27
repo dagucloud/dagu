@@ -29,7 +29,7 @@ func TestStateStoreClientUsesCoordinatorRPC(t *testing.T) {
 	handler := NewHandler(HandlerConfig{
 		StateStore: store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state")),
 	})
-	stateStore := NewStateStoreClient(fakeStateClient{handler: handler}, SecretReferenceRun{})
+	stateStore := NewStateStoreClient(fakeStateClient{handler: handler}, WorkerAttempt{})
 	ctx := context.Background()
 	ref := dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "cursor"}
 
@@ -61,7 +61,7 @@ func TestStateStoreClientValidatesBeforeRPC(t *testing.T) {
 		handler: NewHandler(HandlerConfig{
 			StateStore: store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state")),
 		}),
-	}, SecretReferenceRun{})
+	}, WorkerAttempt{})
 	ctx := context.Background()
 
 	_, err := stateStore.Get(ctx, dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "../bad"})
@@ -81,7 +81,7 @@ func TestStateStoreClientNormalizesValueBeforeRPC(t *testing.T) {
 	t.Parallel()
 
 	client := &capturingStateClient{}
-	stateStore := NewStateStoreClient(client, SecretReferenceRun{})
+	stateStore := NewStateStoreClient(client, WorkerAttempt{})
 	ref := dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "cursor"}
 
 	entry, err := stateStore.Put(context.Background(), ref, json.RawMessage(`{ "b": 2, "a": 1 }`), dagrun.StatePutOptions{})
@@ -108,7 +108,7 @@ func TestStateStoreClientKeepsProjectsApart(t *testing.T) {
 
 	weather := dispatch.ProjectScope{ID: "weather-id"}
 	leases := newTestDAGRunLeaseStore(t.TempDir())
-	run := SecretReferenceRun{WorkerID: "worker-1", AttemptKey: "key-1", AttemptID: "attempt-1", Project: weather}
+	run := WorkerAttempt{WorkerID: "worker-1", AttemptKey: "key-1", AttemptID: "attempt-1", Project: weather}
 	require.NoError(t, leases.Upsert(ctx, dispatch.DAGRunLease{
 		AttemptKey: run.AttemptKey, AttemptID: run.AttemptID, WorkerID: run.WorkerID,
 		DAGRun: ir.NewDAGRunRef("forecast", "run-1"), Project: weather, LastHeartbeatAt: time.Now().UnixMilli(),
@@ -120,7 +120,7 @@ func TestStateStoreClientKeepsProjectsApart(t *testing.T) {
 			StateStore: store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state")),
 		}},
 	})
-	defaults := NewStateStoreClient(fakeStateClient{handler: handler}, SecretReferenceRun{})
+	defaults := NewStateStoreClient(fakeStateClient{handler: handler}, WorkerAttempt{})
 	inWeather := NewStateStoreClient(fakeStateClient{handler: handler}, run)
 	// A call for weather that names no attempt, or one of another worker,
 	// is refused.

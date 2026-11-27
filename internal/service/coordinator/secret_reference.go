@@ -25,13 +25,15 @@ import (
 )
 
 type SecretReferenceClient interface {
-	ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error)
+	ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run WorkerAttempt) (string, error)
 	// ResolveNodeSecretReference resolves ref for the connection to node, its
 	// bastion's included.
-	ResolveNodeSecretReference(ctx context.Context, owner serviceregistry.HostInfo, node string, ref secretref.Ref, workspace string, run SecretReferenceRun) (string, error)
+	ResolveNodeSecretReference(ctx context.Context, owner serviceregistry.HostInfo, node string, ref secretref.Ref, workspace string, run WorkerAttempt) (string, error)
 }
 
-type SecretReferenceRun struct {
+// WorkerAttempt names the distributed attempt that a worker's call to the
+// coordinator acts for.
+type WorkerAttempt struct {
 	WorkerID   string
 	AttemptKey string
 	AttemptID  string
@@ -46,10 +48,10 @@ type secretReferenceResolver struct {
 	client    SecretReferenceClient
 	workspace string
 	owner     serviceregistry.HostInfo
-	run       SecretReferenceRun
+	run       WorkerAttempt
 }
 
-func NewSecretReferenceResolver(client SecretReferenceClient, workspace string, owner serviceregistry.HostInfo, run SecretReferenceRun) providers.ReferenceResolver {
+func NewSecretReferenceResolver(client SecretReferenceClient, workspace string, owner serviceregistry.HostInfo, run WorkerAttempt) providers.ReferenceResolver {
 	if client == nil {
 		return nil
 	}
@@ -80,11 +82,11 @@ func (r *secretReferenceResolver) ResolveNodeReference(ctx context.Context, node
 	return r.client.ResolveNodeSecretReference(ctx, r.owner, node, ref, r.workspace, r.run)
 }
 
-func (cli *clientImpl) ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error) {
+func (cli *clientImpl) ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run WorkerAttempt) (string, error) {
 	return cli.sendSecretReference(ctx, owner, secretReferenceRequest(ref, workspace, checkOnly, run))
 }
 
-func (cli *clientImpl) ResolveNodeSecretReference(ctx context.Context, owner serviceregistry.HostInfo, node string, ref secretref.Ref, workspace string, run SecretReferenceRun) (string, error) {
+func (cli *clientImpl) ResolveNodeSecretReference(ctx context.Context, owner serviceregistry.HostInfo, node string, ref secretref.Ref, workspace string, run WorkerAttempt) (string, error) {
 	req := secretReferenceRequest(ref, workspace, false, run)
 	req.Name, req.Node = "", node
 	return cli.sendSecretReference(ctx, owner, req)
@@ -151,7 +153,7 @@ func completeCoordinatorOwner(owner serviceregistry.HostInfo) bool {
 	return owner.Host != "" && owner.Port != 0
 }
 
-func secretReferenceRequest(ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) *coordinatorv1.ResolveSecretReferenceRequest {
+func secretReferenceRequest(ref secretref.Ref, workspace string, checkOnly bool, run WorkerAttempt) *coordinatorv1.ResolveSecretReferenceRequest {
 	return &coordinatorv1.ResolveSecretReferenceRequest{
 		Name:       ref.Name,
 		Ref:        ref.Ref,

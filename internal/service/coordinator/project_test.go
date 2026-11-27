@@ -121,6 +121,60 @@ func TestHandlerKeepsProjectRunsApart(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, resp.Accepted, resp.Error)
 	assert.Equal(t, ir.Running, readStatus(defaults))
+
+	// A running task that names another project than its lease is stopped,
+	// though a run of the same ID runs in the project it names.
+	task := claimed[weather]
+	for _, tc := range []struct {
+		project *coordinatorv1.ProjectScope
+		stopped bool
+	}{{nil, true}, {convert.ProjectScopeToProto(weather), false}} {
+		heartbeat, err := h.RunHeartbeat(ctx, &coordinatorv1.RunHeartbeatRequest{
+			WorkerId: "worker-1",
+			RunningTasks: []*coordinatorv1.RunningTask{{
+				DagName: task.Target, DagRunId: task.DagRunId, AttemptKey: task.AttemptKey, Project: tc.project,
+			}},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, tc.stopped, len(heartbeat.CancelledRuns) == 1, tc.project)
+	}
+}
+
+// recordingProjects serves no project's stores and records the projects
+// asked for.
+type recordingProjects struct {
+	scopes []dispatch.ProjectScope
+	asked  []string
+}
+
+func (p *recordingProjects) Stores(_ context.Context, scope dispatch.ProjectScope) (*ProjectStores, error) {
+	p.asked = append(p.asked, scope.ID)
+	return &ProjectStores{}, nil
+}
+
+func (p *recordingProjects) Projects() []dispatch.ProjectScope { return p.scopes }
+
+// Workers that claim cleanups in turn each check every project within as
+// many claims as there are projects, whatever the other workers claim.
+func TestCleanupClaimsVisitEveryProjectPerWorker(t *testing.T) {
+	t.Parallel()
+	projects := &recordingProjects{scopes: []dispatch.ProjectScope{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}}}
+	h := NewHandler(HandlerConfig{Projects: projects})
+
+	seen := map[string]map[string]bool{}
+	for range len(projects.scopes) {
+		for _, worker := range []string{"w1", "w2"} {
+			_, err := h.ClaimAgentSessionCleanup(t.Context(), &coordinatorv1.ClaimAgentSessionCleanupRequest{WorkerId: worker})
+			require.NoError(t, err)
+			if seen[worker] == nil {
+				seen[worker] = map[string]bool{}
+			}
+			seen[worker][projects.asked[len(projects.asked)-1]] = true
+		}
+	}
+	for _, worker := range []string{"w1", "w2"} {
+		assert.Len(t, seen[worker], len(projects.scopes), worker)
+	}
 }
 
 // A lease or a running task of a project whose stores the coordinator does

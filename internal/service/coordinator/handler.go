@@ -14,7 +14,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/agentsession"
@@ -199,9 +198,9 @@ type Handler struct {
 	zombieDetectorStarted bool
 	zombieDetectorDone    chan struct{}
 
-	// cleanupCursor picks the project whose agent session cleanups a claim
-	// checks besides the default project's.
-	cleanupCursor atomic.Uint64
+	// cleanupCursors pick, for each worker, the project whose agent session
+	// cleanups its claim checks besides the default project's.
+	cleanupCursors cleanupCursors
 
 	eventSourceInstance string
 }
@@ -1773,13 +1772,14 @@ func (h *Handler) ClaimAgentSessionCleanup(
 		logger.Warn(ctx, "Failed to claim an agent session cleanup of the default project", tag.Error(err))
 	}
 	// Each project queues the cleanups of its own removed runs. A call
-	// checks the default project and one other, in turn, so an idle claim
-	// reads at most two queues.
+	// checks the default project and one other, in turn for each worker, so
+	// an idle claim reads at most two queues and each worker checks every
+	// project within as many claims as there are projects.
 	scopes := h.projects.Projects()
 	if len(scopes) == 0 {
 		return &coordinatorv1.ClaimAgentSessionCleanupResponse{}, nil
 	}
-	scope := scopes[h.cleanupCursor.Add(1)%uint64(len(scopes))]
+	scope := scopes[h.cleanupCursors.next(req.WorkerId, time.Now())%uint64(len(scopes))]
 	scoped, err := h.inProject(ctx, scope)
 	if err == nil {
 		if resp, err = h.claimAgentSessionCleanup(scoped, req.WorkerId); err == nil {
@@ -1887,14 +1887,14 @@ func (h *Handler) RunHeartbeat(ctx context.Context, req *coordinatorv1.RunHeartb
 		}
 		if err := h.validateAttempt(taskCtx, identity); err != nil {
 			code := status.Code(err)
-			if code == codes.FailedPrecondition {
-				cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
-				continue
-			}
 			if code == codes.PermissionDenied {
-				// The task names another project than its lease does.
-				logger.Warn(ctx, "Skipping run heartbeat for an attempt of another project",
+				// The task names another project than its lease does, so
+				// none of its calls can reach its run: the worker stops it.
+				logger.Warn(ctx, "Stopping a running task that names another project than its lease",
 					tag.AttemptKey(task.AttemptKey), tag.Error(err))
+			}
+			if code == codes.FailedPrecondition || code == codes.PermissionDenied {
+				cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
 				continue
 			}
 			return nil, err

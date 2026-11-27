@@ -20,7 +20,7 @@ import (
 type nodeRequest struct {
 	selector string
 	names    []string
-	run      coordinator.SecretReferenceRun
+	run      coordinator.WorkerAttempt
 }
 
 // nodeCoordinator answers ResolveNodes from answer and records each call.
@@ -30,12 +30,12 @@ type nodeCoordinator struct {
 	requests []nodeRequest
 }
 
-func (c *nodeCoordinator) ResolveNodes(_ context.Context, _ serviceregistry.HostInfo, selector string, names []string, run coordinator.SecretReferenceRun) (coordinator.ResolvedNodes, error) {
+func (c *nodeCoordinator) ResolveNodes(_ context.Context, _ serviceregistry.HostInfo, selector string, names []string, run coordinator.WorkerAttempt) (coordinator.ResolvedNodes, error) {
 	c.requests = append(c.requests, nodeRequest{selector: selector, names: names, run: run})
 	return c.answer(selector, names), nil
 }
 
-var runIdentity = coordinator.SecretReferenceRun{WorkerID: "worker-1", AttemptKey: "key-1", AttemptID: "attempt-1", DAGName: "deploy"}
+var runIdentity = coordinator.WorkerAttempt{WorkerID: "worker-1", AttemptKey: "key-1", AttemptID: "attempt-1", DAGName: "deploy"}
 
 func newTestRemoteNodes(t *testing.T, client *nodeCoordinator) *remoteNodes {
 	t.Helper()

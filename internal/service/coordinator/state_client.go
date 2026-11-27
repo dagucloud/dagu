@@ -84,7 +84,7 @@ type stateStoreClient struct {
 // NewStateStoreClient adapts coordinator state RPCs to the persistent state
 // store interface, for the DAG state of the project of the attempt run
 // names. The zero run addresses the default project's own DAGs.
-func NewStateStoreClient(client StateClient, run SecretReferenceRun) dagrun.StateStore {
+func NewStateStoreClient(client StateClient, run WorkerAttempt) dagrun.StateStore {
 	if client == nil {
 		return nil
 	}

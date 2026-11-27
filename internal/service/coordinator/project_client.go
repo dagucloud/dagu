@@ -44,7 +44,7 @@ func InProject(c Client, scope dispatch.ProjectScope) Client {
 // attempt run names, as InProject does, and name that attempt where the
 // coordinator ties a call to its caller. It returns c itself for an attempt
 // of the default project's own DAGs.
-func InAttempt(c Client, run SecretReferenceRun) Client {
+func InAttempt(c Client, run WorkerAttempt) Client {
 	if c == nil || run.Project == (dispatch.ProjectScope{}) {
 		return c
 	}
