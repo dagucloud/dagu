@@ -27,7 +27,7 @@ var ErrDownloadRefused = errors.New("the skills cannot be downloaded as one ZIP"
 // ErrNotFound for the first name that does not exist, and with
 // ErrDownloadRefused when the skills break a limit, so that the caller sends
 // no partial ZIP. The result holds no file content.
-func (s *Store) DownloadSkills(names []string) ([]*Skill, error) {
+func (s *Store) DownloadSkills(ctx context.Context, names []string) ([]*Skill, error) {
 	unique := slices.Compact(slices.Sorted(slices.Values(names)))
 	if len(unique) > MaxDownloadSkills {
 		return nil, fmt.Errorf("%w: %d skills asked, the limit is %d", ErrDownloadRefused, len(unique), MaxDownloadSkills)
@@ -47,6 +47,9 @@ func (s *Store) DownloadSkills(names []string) ([]*Skill, error) {
 	var total int64
 	out := make([]*Skill, 0, len(unique))
 	for _, n := range unique {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		sk, err := s.Read(n)
 		if errors.Is(err, ErrNotFound) {
 			return nil, fmt.Errorf("%w: %s", ErrNotFound, n)

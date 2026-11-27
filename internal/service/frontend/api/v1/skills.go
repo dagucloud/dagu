@@ -356,7 +356,7 @@ func (a *API) DownloadSkills(ctx context.Context, request api.DownloadSkillsRequ
 // skillZip reads and checks every skill before the first byte, so that an
 // unknown name or a broken limit gives an error and no partial ZIP.
 func (a *API) skillZip(ctx context.Context, names []string) (*skillZipResponse, error) {
-	skills, err := a.skillStore().DownloadSkills(names)
+	skills, err := a.skillStore().DownloadSkills(ctx, names)
 	switch {
 	case errors.Is(err, skill.ErrNotFound):
 		return nil, &Error{Code: api.ErrorCodeNotFound, Message: err.Error(), HTTPStatus: http.StatusNotFound}

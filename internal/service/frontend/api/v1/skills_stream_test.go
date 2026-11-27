@@ -48,7 +48,7 @@ func TestSkillZipStreamAborts(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(file), 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: demo\n---\n"), 0o600))
 	require.NoError(t, os.WriteFile(file, []byte("abcd"), 0o600))
-	skills, err := skill.NewStore(root).DownloadSkills([]string{"demo"})
+	skills, err := skill.NewStore(root).DownloadSkills(t.Context(), []string{"demo"})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(file, []byte("abce"), 0o600))
 

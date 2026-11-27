@@ -22,7 +22,7 @@ import (
 // buildZip reads the skills and writes their ZIP.
 func buildZip(t *testing.T, s *skill.Store, names ...string) []byte {
 	t.Helper()
-	skills, err := s.DownloadSkills(names)
+	skills, err := s.DownloadSkills(context.Background(), names)
 	require.NoError(t, err)
 	var buf bytes.Buffer
 	require.NoError(t, skill.WriteZip(context.Background(), &buf, skills))
@@ -81,7 +81,7 @@ func TestZip(t *testing.T) {
 		require.Equal(t, first, buildZip(t, s, "beta", "alpha"))
 	})
 	t.Run("unknown name gives no result", func(t *testing.T) {
-		_, err := s.DownloadSkills([]string{"alpha", "nope"})
+		_, err := s.DownloadSkills(context.Background(), []string{"alpha", "nope"})
 		require.ErrorIs(t, err, skill.ErrNotFound)
 		require.Contains(t, err.Error(), "nope")
 	})
@@ -120,7 +120,7 @@ func TestZipLimits(t *testing.T) {
 	create(t, s, "alpha")
 	refused := func(names ...string) {
 		t.Helper()
-		_, err := s.DownloadSkills(names)
+		_, err := s.DownloadSkills(context.Background(), names)
 		require.ErrorIs(t, err, skill.ErrDownloadRefused, "%v", names)
 	}
 
@@ -177,7 +177,7 @@ func TestZipStopsAtAChange(t *testing.T) {
 			sk := create(t, s, name)
 			_, err := s.WriteFile(ctx, name, "references/r.md", []byte("ref\n"), skill.Precondition{IfMatch: sk.Hash})
 			require.NoError(t, err)
-			skills, err := s.DownloadSkills([]string{name})
+			skills, err := s.DownloadSkills(context.Background(), []string{name})
 			require.NoError(t, err)
 			change(s.Dir(name))
 
@@ -194,11 +194,13 @@ func TestZipStopsWhenTheContextEnds(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	create(t, s, "alpha")
-	skills, err := s.DownloadSkills([]string{"alpha"})
+	skills, err := s.DownloadSkills(context.Background(), []string{"alpha"})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var out bytes.Buffer
 	require.ErrorIs(t, skill.WriteZip(ctx, &out, skills), context.Canceled)
 	require.Zero(t, out.Len())
+	_, err = s.DownloadSkills(ctx, []string{"alpha"})
+	require.ErrorIs(t, err, context.Canceled)
 }
