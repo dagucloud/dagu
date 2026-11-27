@@ -60,9 +60,10 @@ func TestReportRuns(t *testing.T) {
 	failed.Params = "token=secret"
 	failed.Nodes = []*ir.Node{
 		{Step: ir.Step{Name: "extract"}, Status: ir.NodeSucceeded, StartedAt: "2026-10-10T09:00:00Z", FinishedAt: "2026-10-10T09:01:00Z"},
-		{Step: ir.Step{Name: "load"}, Status: ir.NodeFailed, Error: "db.internal: connection refused",
+		{Step: ir.Step{Name: "load", Depends: []string{"extract", "extract"}}, Status: ir.NodeFailed, Error: "db.internal: connection refused",
 			StartedAt: "2026-10-10T09:01:00Z", FinishedAt: "2026-10-10T09:04:00Z", RetryCount: 2},
-		{Step: ir.Step{Name: "notify"}, Status: ir.NodeFailed, StartedAt: "-", FinishedAt: "-"},
+		{Step: ir.Step{Name: "notify", InferredDepends: []ir.InferredDependency{{Step: "load", Field: "rows"}}},
+			Status: ir.NodeFailed, StartedAt: "-", FinishedAt: "-"},
 	}
 	failed.OnFailure = &ir.Node{Step: ir.Step{Name: "on_failure"}, Status: ir.NodeFailed}
 	dir.emit(eventstore.TypeDAGRunFailed, failed)
@@ -96,8 +97,8 @@ func TestReportRuns(t *testing.T) {
 			"finished_at": "2026-10-10T09:05:00Z", "failed_steps": ["load", "notify", "on_failure"],
 			"steps": [
 				{"name": "extract", "status": "succeeded", "start": 0, "took": 60},
-				{"name": "load", "status": "failed", "start": 60, "took": 180, "retries": 2},
-				{"name": "notify", "status": "failed"}
+				{"name": "load", "status": "failed", "start": 60, "took": 180, "retries": 2, "depends": [0]},
+				{"name": "notify", "status": "failed", "depends": [1]}
 			],
 			"handlers": {"onFailure": {"status": "failed"}},
 			"steps_total": 3
