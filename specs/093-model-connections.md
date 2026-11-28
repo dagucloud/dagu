@@ -5,8 +5,8 @@
 Not implemented.
 
 This spec describes planned behavior. No version of Dagu accepts a
-connection of the provider `model`, or the step key `connection` of
-`chat.completion`, `agent.run`, or `harness.run`, yet. One rule is already
+connection of the provider `model`, or a model connection in the step key
+`connection`, yet. One rule is already
 enforced: Dagu reserves the secret ref prefix `ai/`, as Spec 069 and
 Spec 103 state. This spec stores no key in the secret store, and the
 prefix stays reserved.
@@ -163,7 +163,7 @@ This spec adds these transitions to Spec 107, for the grants `api_key` and
 | From | To | When |
 | --- | --- | --- |
 | none | `connected` | The connection is created |
-| `connected` | `needs_reconnect` | The provider answers 401 to a request that carried the stored key |
+| `connected` | `needs_reconnect` | The provider answers 401 to a model request of a step that carried the stored key. A catalog read's 401 is only a catalog error |
 | `needs_reconnect` | `connected` | The key is rotated |
 
 - A 401 causes no refresh and no retry, since a key has no refresh. It
@@ -208,13 +208,16 @@ This spec adds these transitions to Spec 107, for the grants `api_key` and
   and to the models reader, with one exception: a local-model preset or
   `custom` sends the key over `http` to a base URL that a person entered.
 - A redirect from a request that carries the key fails the request.
-- A change that adds or changes a base URL or a models URL needs the key
-  again in the same request, so no one can send a stored key to a URL of
-  their choosing.
+- On a connection with a stored key, a change that adds or changes a base
+  URL or a models URL needs the key again in the same request, so no one
+  can send a stored key to a URL of their choosing.
 - Each base URL and models URL is a credential past its origin, since a
   path or query can hold a secret. Dagu stores it encrypted, as the key.
-  Reads, catalog errors, and audit entries show only the origin, and the
-  gateway removes it from every response, as it removes the key.
+  Reads, errors, and audit entries show only the origin.
+- Dagu removes the key, and each URL past its origin, from everything a
+  provider returns before Dagu stores it, shows it, or passes it to a
+  step: responses, errors, and catalogs. A model ID that holds one is
+  dropped.
 
 ### Presets
 
@@ -456,7 +459,6 @@ conformance test confirms them.
   holds only the relay secret of its attempt.
 - It forwards only the API operations of the step's protocol. No other
   method or path carries the key, so no upstream can echo it back.
-- It removes the key from every response it returns to the step.
 - The gateway removes the client headers `x-api-key`, `authorization`, and
   `proxy-authorization`, and sets the header of the protocol's `auth`.
 - It sends a request only to a bound host, and only for the step's
