@@ -23,6 +23,13 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
+// The coordinator's refusals of a call without the peer token, and of a call
+// over h2c under coordinator.require_tls.
+const (
+	peerTokenRefusal  = "the coordinator requires a peer token: set peer.token, or let this process read the coordinator's data directory"
+	requireTLSRefusal = "the coordinator requires TLS: upgrade this process, or remove peer.insecure: true"
+)
+
 // testInvite is the invite the stub coordinator creates.
 const testInvite = "dagu1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 
@@ -154,7 +161,8 @@ func TestWorkerAccessErrors(t *testing.T) {
 			"invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file"},
 		{status.Error(codes.InvalidArgument, "address must be host:port"), http.StatusBadRequest, "address must be host:port"},
 		{status.Error(codes.NotFound, "no invite has this ID"), http.StatusNotFound, "no invite has this ID"},
-		{status.Error(codes.Unauthenticated, "missing peer token"), http.StatusServiceUnavailable, peerTokenMissingMessage},
+		{status.Error(codes.Unauthenticated, peerTokenRefusal), http.StatusServiceUnavailable, coordinatorRefusedPrefix + peerTokenRefusal},
+		{status.Error(codes.Unauthenticated, requireTLSRefusal), http.StatusServiceUnavailable, coordinatorRefusedPrefix + requireTLSRefusal},
 		{status.Error(codes.Unimplemented, "unknown method CreateInvite"), http.StatusConflict, olderCoordinatorMessage},
 		{status.Error(codes.Unavailable, "connection refused"), http.StatusServiceUnavailable, coordinatorUnreachableMessage + ": connection refused"},
 		{errors.New("no coordinators available"), http.StatusServiceUnavailable, coordinatorUnreachableMessage},
@@ -210,7 +218,7 @@ func TestCreateWorkerInvite(t *testing.T) {
 func TestCreateWorkerInviteExpiresIn(t *testing.T) {
 	t.Parallel()
 
-	for _, expiresIn := range []string{"soon", "0s", "-1h", ""} {
+	for _, expiresIn := range []string{"soon", "0s", "-1h", "", "2562047h47m16.000000001s", "2562047h47m16.854775807s"} {
 		stub := &inviteCoordinatorStub{}
 		a, _ := rolesAPI(stub)
 		_, err := a.CreateWorkerInvite(userContext(auth.RoleAdmin), openapiv1.CreateWorkerInviteRequestObject{
@@ -384,4 +392,32 @@ func TestGetWorkerJoinReadinessFailures(t *testing.T) {
 	require.True(t, isOK)
 	assert.Len(t, ok.Coordinators, 1)
 	assert.Nil(t, ok.LastInviteAddress)
+}
+
+// The longest expiry rounds to whole seconds without overflowing.
+func TestCreateWorkerInviteLongestExpiry(t *testing.T) {
+	t.Parallel()
+
+	stub := &inviteCoordinatorStub{}
+	a, _ := rolesAPI(stub)
+	_, err := a.CreateWorkerInvite(userContext(auth.RoleAdmin), openapiv1.CreateWorkerInviteRequestObject{
+		Body: &openapiv1.CreateWorkerInviteRequest{ExpiresIn: new("2562047h47m16s")},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(9223372036), stub.created.ExpiresInSeconds)
+}
+
+// Each refusal of the server reaches the admin with the coordinator's own
+// reason, for join readiness as for the invite calls.
+func TestGetWorkerJoinReadinessRefusal(t *testing.T) {
+	t.Parallel()
+
+	for _, refusal := range []string{peerTokenRefusal, requireTLSRefusal} {
+		a, _ := rolesAPI(&inviteCoordinatorStub{readiness: []coordinator.JoinReadiness{{Err: status.Error(codes.Unauthenticated, refusal)}}})
+		_, err := a.GetWorkerJoinReadiness(userContext(auth.RoleAdmin), openapiv1.GetWorkerJoinReadinessRequestObject{})
+		var apiErr *Error
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, http.StatusServiceUnavailable, apiErr.HTTPStatus)
+		assert.Equal(t, coordinatorRefusedPrefix+refusal, apiErr.Message)
+	}
 }

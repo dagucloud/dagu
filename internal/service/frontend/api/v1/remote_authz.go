@@ -227,6 +227,12 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"ListAuditLogs": remoteNodeAccessManager,
 	"ListEventLogs": remoteNodeAccessManager,
 
+	// Worker invite and removal changes stay on the server the admin uses,
+	// so its audit entry names that admin.
+	"CreateWorkerInvite": remoteNodeAccessDenied,
+	"DeleteWorkerInvite": remoteNodeAccessDenied,
+	"RemoveWorker":       remoteNodeAccessDenied,
+
 	// Endpoints that act on the stored credential itself or authenticate by
 	// other means.
 	"ChangePassword":        remoteNodeAccessDenied,
