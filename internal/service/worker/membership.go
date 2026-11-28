@@ -175,6 +175,10 @@ type Membership struct {
 	revoked     chan struct{}
 	recorded    chan struct{}
 	revokedOnce sync.Once
+	// stopWorker, once NewWorker set it, stops the worker's admission and
+	// runs the moment a refusal arrives. mu guards it.
+	mu         sync.Mutex
+	stopWorker func()
 }
 
 // joinOptions are what a Membership waits, enrolls, and retries with.
@@ -316,16 +320,21 @@ func (m *Membership) start(ctx context.Context, cred *credential) error {
 		m.cred = cred
 		return m.removedFailure(ctx)
 	case keptUnused:
-		// A new certificate that cannot be kept would leave the old one for
-		// a restart without the invite to reuse.
 		if cred != nil && !m.writable {
-			return failure{
-				cause: "This worker cannot replace the certificate it enrolled for with one from the invite's CA",
-				next:  fmt.Sprintf("Make %s writable, then start the worker again.", m.cfg.Paths.DataDir),
-			}
+			return m.errCannotReplace()
 		}
 	}
 	return nil
+}
+
+// errCannotReplace is the failure of a worker that would replace its kept
+// certificate with one from its invite but could not keep the new one,
+// which would leave the old one for a restart without the invite to reuse.
+func (m *Membership) errCannotReplace() error {
+	return failure{
+		cause: "This worker cannot replace the certificate it enrolled for with one from the invite's CA",
+		next:  fmt.Sprintf("Make %s writable, then start the worker again.", m.cfg.Paths.DataDir),
+	}
 }
 
 // openWithoutInvite uses the worker certificate in the data directory, if
@@ -508,11 +517,30 @@ func (m *Membership) refused(ctx context.Context) {
 // kill ends after it still exits at its next start.
 func (m *Membership) revoke(ctx context.Context) {
 	m.revokedOnce.Do(func() {
+		m.mu.Lock()
 		close(m.revoked)
+		stopWorker := m.stopWorker
+		m.mu.Unlock()
+		if stopWorker != nil {
+			stopWorker()
+		}
 		m.recordRemoval(ctx)
 		_ = m.removedFailure(ctx)
 		close(m.recorded)
 	})
+}
+
+// bindWorker makes stop run the moment a refusal arrives, or at once when
+// one already did.
+func (m *Membership) bindWorker(stop func()) {
+	m.mu.Lock()
+	m.stopWorker = stop
+	m.mu.Unlock()
+	select {
+	case <-m.revoked:
+		stop()
+	default:
+	}
 }
 
 // removed returns the failure a worker exits with once a coordinator refused
@@ -660,6 +688,9 @@ func (m *Membership) removedAtStart(ctx context.Context) error {
 	m.recordRemoval(ctx)
 	if keptUseOf(m.cred, m.invite) != keptUnused {
 		return m.removedFailure(ctx)
+	}
+	if !m.writable {
+		return m.errCannotReplace()
 	}
 	logger.Info(ctx, "This worker was removed from the coordinator; it enrolls again with worker.invite")
 	m.cred = nil

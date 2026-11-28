@@ -32,9 +32,9 @@ type Poller struct {
 	handler        TaskHandler
 	index          int
 	labels         map[string]string
-	// isRemoved reports that a coordinator refused the worker's
-	// certificate as revoked; nil reports nothing.
-	isRemoved func() bool
+	// removal is canceled once a coordinator refused the worker's
+	// certificate as revoked; nil is never canceled.
+	removal context.Context
 }
 
 // NewPoller creates a new poller instance
@@ -85,13 +85,9 @@ func (p *Poller) Run(ctx context.Context) {
 
 			// If we got a task, execute it
 			if task != nil {
-				logger.Info(ctx, "Task received, starting execution",
-					tag.WorkerID(p.workerID),
-					tag.PollerIndex(p.index),
-					tag.RunID(task.DagRunId))
-
 				// A removed worker accepts no task: the claim expires and
 				// returns the task to the queue.
+				ackErr := p.ackTaskClaim(ctx, task)
 				if p.removed() {
 					logger.Info(ctx, "Task left unaccepted: this worker was removed from the coordinator",
 						tag.WorkerID(p.workerID),
@@ -100,14 +96,18 @@ func (p *Poller) Run(ctx context.Context) {
 					<-ctx.Done()
 					return
 				}
-				if err := p.ackTaskClaim(ctx, task); err != nil {
+				if ackErr != nil {
 					logger.Error(ctx, "Failed to acknowledge claimed task",
 						tag.WorkerID(p.workerID),
 						tag.PollerIndex(p.index),
 						tag.RunID(task.DagRunId),
-						tag.Error(err))
+						tag.Error(ackErr))
 					continue
 				}
+				logger.Info(ctx, "Task received, starting execution",
+					tag.WorkerID(p.workerID),
+					tag.PollerIndex(p.index),
+					tag.RunID(task.DagRunId))
 
 				// Execute the task using the TaskHandler
 				err := p.handler.Handle(ctx, task)
@@ -147,7 +147,7 @@ func (p *Poller) Run(ctx context.Context) {
 // removed reports whether a coordinator refused the worker's certificate as
 // revoked.
 func (p *Poller) removed() bool {
-	return p.isRemoved != nil && p.isRemoved()
+	return p.removal != nil && p.removal.Err() != nil
 }
 
 func (p *Poller) ackTaskClaim(ctx context.Context, task *coordinatorv1.Task) error {
@@ -171,7 +171,14 @@ func (p *Poller) ackTaskClaim(ctx context.Context, task *coordinatorv1.Task) err
 	var resp *coordinatorv1.AckTaskClaimResponse
 	retryCtx, cancel := context.WithTimeout(ctx, taskClaimAckRetryTimeout)
 	defer cancel()
+	// A removal cancels an acknowledgment under way and stops its retries.
+	if p.removal != nil {
+		defer context.AfterFunc(p.removal, cancel)()
+	}
 	err = backoff.Retry(retryCtx, func(ctx context.Context) error {
+		if p.removed() {
+			return errWorkerRemoved
+		}
 		var callErr error
 		resp, callErr = p.coordinatorCli.AckTaskClaimTo(ctx, owner, req)
 		return callErr

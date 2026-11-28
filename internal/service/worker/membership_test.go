@@ -1290,3 +1290,37 @@ func TestWorkerMembership(t *testing.T) {
 	assert.False(t, wa.isRemoved())
 	assert.True(t, wb.isRemoved())
 }
+
+// A removed worker given another invite enrolls again only when it can keep
+// the new certificate, whether the refusal is recorded or arrives at start,
+// so a restart with the same settings does not find the removed one (Spec 108
+// §Worker Start).
+func TestMembershipRemovedReplacementNeedsWritable(t *testing.T) {
+	for name, recorded := range map[string]bool{"Recorded": true, "AtStart": false} {
+		t.Run(name, func(t *testing.T) {
+			ca := newTestCA(t)
+			dataDir := t.TempDir()
+			fake := enrolling(ca)
+			join(t, workerConfig(dataDir, ca.invite(t)), fake)
+			if recorded {
+				m, err := open(t, workerConfig(dataDir, ""), fake)
+				require.NoError(t, err)
+				require.NoError(t, connect(t.Context(), t, m))
+				require.Error(t, m.removed(t.Context()))
+				require.NoError(t, m.Close())
+			} else {
+				fake.start = startRefused
+			}
+			// A directory in place of the write probe fails it, while the
+			// lock still works.
+			require.NoError(t, os.MkdirAll(filepath.Join(dataDir, credentialDirName, writeProbeName, "taken"), 0o700))
+
+			m, err := open(t, workerConfig(dataDir, ca.invite(t)), fake)
+			if err == nil {
+				err = connect(t.Context(), t, m)
+			}
+			assert.EqualError(t, err, "This worker cannot replace the certificate it enrolled for with one from the invite's CA\n  Make "+dataDir+" writable, then start the worker again.")
+			assert.Equal(t, 1, fake.calls(), "the worker enrolled with a certificate it cannot keep")
+		})
+	}
+}

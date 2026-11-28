@@ -69,14 +69,13 @@ type Worker struct {
 	runsCtx     context.Context    // Running tasks are canceled when this is done
 	pollersDone chan struct{}      // Signals when all pollers, and so all tasks, have stopped
 	stopDone    chan struct{}      // Signals when all goroutines have stopped
-	// removed is closed once a coordinator refuses the worker's
-	// certificate as revoked.
-	removed     chan struct{}
-	removedOnce sync.Once
-	// removalSignal is closed once the worker's client met a refusal as
-	// revoked on any call, and removalExit returns the failure the worker
-	// then exits with. Both are nil for a client of no membership.
-	removalSignal <-chan struct{}
+	// removed is closed, and removal canceled, once a coordinator refuses
+	// the worker's certificate as revoked. publishRemoval does both under
+	// pollersMu. removalExit returns the failure the worker then exits
+	// with; nil for a worker of no membership.
+	removed       chan struct{}
+	removal       context.Context
+	cancelRemoval context.CancelFunc
 	removalExit   func(context.Context) error
 
 	// For global PostgreSQL connection pool
@@ -208,8 +207,10 @@ func NewWorker(
 		openCodeHost:   opencodehost.New(context.Background(), openCodeConfig),
 	}
 	w.healthServer.SetReadyFunc(w.ready.Load)
+	w.removal, w.cancelRemoval = context.WithCancel(context.Background())
 	if membership != nil {
-		w.removalSignal, w.removalExit = membership.revoked, membership.removed
+		w.removalExit = membership.removed
+		membership.bindWorker(w.publishRemoval)
 	}
 	return w
 }
@@ -300,7 +301,7 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 				handler:     w.handler,
 			}
 			poller := NewPoller(w.id, w.coordinatorCli, wrappedHandler, pollerIndex, w.labels)
-			poller.isRemoved = w.isRemoved
+			poller.removal = w.removal
 			poller.Run(pollCtx)
 		}(i)
 	}
@@ -336,7 +337,6 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 		}
 		return nil
 	case <-w.removed:
-	case <-w.removalSignal:
 	}
 	w.stopRemoved(ctx)
 	return w.removedError(ctx)
@@ -499,7 +499,6 @@ func (w *Worker) Stop(ctx context.Context) error {
 			select {
 			case <-w.pollersDone:
 			case <-w.removed:
-			case <-w.removalSignal:
 			case <-ctx.Done():
 				logger.Warn(ctx, "Worker stop timed out waiting for running tasks",
 					tag.WorkerID(w.id))
@@ -529,25 +528,11 @@ func (w *Worker) stopRemoved(ctx context.Context) {
 	})
 }
 
-// haltRemoved stops a removed worker. Its runs can no longer report to a
-// coordinator, so each is logged and stopped at once. The coordinator ends
-// them as it does when a worker stops sending heartbeats.
+// haltRemoved stops a removed worker and releases what it holds, once
+// publishRemoval stopped its runs.
 func (w *Worker) haltRemoved(ctx context.Context) {
-	w.markRemoved()
-	w.pollersMu.Lock()
-	for _, state := range w.runningTasks {
-		if state == nil {
-			continue
-		}
-		if state.task != nil {
-			logRemovedRun(ctx, state.task)
-		}
-		if state.stop != nil {
-			state.stop(errWorkerRemoved)
-		}
-	}
-	w.pollersMu.Unlock()
-	// A done context cancels the runs at once and bounds the waits.
+	w.publishRemoval()
+	// A done context bounds the waits.
 	done, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	cancel()
 	if err := w.halt(done); err != nil {
@@ -555,13 +540,20 @@ func (w *Worker) haltRemoved(ctx context.Context) {
 	}
 }
 
+// logContext is the context the worker logs with outside a call: the one
+// of its runs once it started.
+func (w *Worker) logContext() context.Context {
+	if w.runsCtx != nil {
+		return w.runsCtx
+	}
+	return context.Background()
+}
+
 // isRemoved reports whether a coordinator refused the worker's certificate
-// as revoked, as the worker or its client learned.
+// as revoked.
 func (w *Worker) isRemoved() bool {
 	select {
 	case <-w.removed:
-		return true
-	case <-w.removalSignal:
 		return true
 	default:
 		return false
@@ -585,10 +577,32 @@ func logRemovedRun(ctx context.Context, task *coordinatorv1.RunningTask) {
 		tag.AttemptKey(task.AttemptKey))
 }
 
-// markRemoved records that a coordinator refused the worker's certificate
-// as revoked, which ends Start.
-func (w *Worker) markRemoved() {
-	w.removedOnce.Do(func() { close(w.removed) })
+// publishRemoval records, the moment a refusal as revoked arrives, that the
+// worker was removed, which ends Start, and stops what may no longer run:
+// under the lock that admission takes, it ends the context of each
+// registered run, with the removal as its cause, and cancels the claim
+// acknowledgments under way. Its runs can no longer report to a
+// coordinator, so each is logged. The coordinator ends them as it does when
+// a worker stops sending heartbeats.
+func (w *Worker) publishRemoval() {
+	w.pollersMu.Lock()
+	defer w.pollersMu.Unlock()
+	if w.isRemoved() {
+		return
+	}
+	close(w.removed)
+	w.cancelRemoval()
+	for _, state := range w.runningTasks {
+		if state == nil {
+			continue
+		}
+		if state.task != nil {
+			logRemovedRun(w.logContext(), state.task)
+		}
+		if state.stop != nil {
+			state.stop(errWorkerRemoved)
+		}
+	}
 }
 
 // halt cancels the running tasks, waits for the worker's goroutines, and
@@ -678,7 +692,6 @@ func (w *Worker) drain(ctx context.Context) bool {
 	case <-timer.C:
 		logger.Warn(ctx, "Worker tasks still running after the drain timeout", tag.WorkerID(w.id))
 	case <-w.removed:
-	case <-w.removalSignal:
 	case <-ctx.Done():
 	}
 	return w.isRemoved()

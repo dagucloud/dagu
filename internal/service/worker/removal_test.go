@@ -33,10 +33,11 @@ type removalClient struct {
 	polled    atomic.Bool
 	poll      func(context.Context) error
 	preflight func(context.Context) error
-	// beforeTask runs before the first poll returns task, and acks counts
-	// the acknowledgments of its claim.
+	// beforeTask runs before the first poll returns task, acks counts the
+	// acknowledgments of its claim, and ack, when set, answers them.
 	beforeTask func()
 	acks       atomic.Int32
+	ack        func() error
 }
 
 func (c *removalClient) Poll(ctx context.Context, _ backoff.RetryPolicy, _ *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
@@ -68,6 +69,11 @@ func (c *removalClient) RunHeartbeatTo(ctx context.Context, _ serviceregistry.Ho
 
 func (c *removalClient) AckTaskClaimTo(context.Context, serviceregistry.HostInfo, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
 	c.acks.Add(1)
+	if c.ack != nil {
+		if err := c.ack(); err != nil {
+			return nil, err
+		}
+	}
 	return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
 }
 
@@ -83,14 +89,21 @@ func (h runHandler) Handle(ctx context.Context, task *coordinatorv1.Task) error 
 // errRemovedForTest is the failure a removed worker's membership returns.
 var errRemovedForTest = removedFailure{failure{cause: "This worker was removed from the coordinator", next: "test"}}
 
+// refusal is a coordinator's refusal of the worker's certificate as revoked,
+// which a membership passes to its worker the moment it arrives.
+type refusal struct {
+	w *Worker
+}
+
+func (r *refusal) refuse() { r.w.publishRemoval() }
+
 // newRemovableWorker returns a worker of client with up to maxActiveRuns runs
-// that stops as removed once removed is closed, as one given a client from
-// Membership.Connect does.
-func newRemovableWorker(client coordinator.Client, maxActiveRuns int, cfg *config.Config, removed <-chan struct{}, run runHandler) *Worker {
+// that r removes, as a worker of a membership is.
+func newRemovableWorker(client coordinator.Client, maxActiveRuns int, cfg *config.Config, r *refusal, run runHandler) *Worker {
 	w := NewWorker("test-worker", maxActiveRuns, client, map[string]string{}, cfg, nil)
-	w.removalSignal = removed
 	w.removalExit = func(context.Context) error { return errRemovedForTest }
 	w.SetHandler(run)
+	r.w = w
 	return w
 }
 
@@ -114,19 +127,19 @@ func startRemovable(t *testing.T, w *Worker) error {
 // and Start returns the membership's failure once the run has exited (Spec
 // 108 §Removed Worker).
 func TestWorkerRemoved(t *testing.T) {
-	removed := make(chan struct{})
+	r := new(refusal)
 	started := make(chan struct{})
 	client := &removalClient{
 		task: &coordinatorv1.Task{DagRunId: "run-1", AttemptKey: "attempt-1"},
 		poll: func(context.Context) error {
 			// A poll refused as revoked: the client reports it first.
 			<-started
-			close(removed)
+			r.refuse()
 			return status.Error(codes.Unauthenticated, "this worker was removed from the coordinator")
 		},
 	}
 	runErr := make(chan error, 1)
-	w := newRemovableWorker(client, 2, &config.Config{}, removed, func(ctx context.Context, _ *coordinatorv1.Task) error {
+	w := newRemovableWorker(client, 2, &config.Config{}, r, func(ctx context.Context, _ *coordinatorv1.Task) error {
 		close(started)
 		<-ctx.Done()
 		runErr <- ctx.Err()
@@ -159,10 +172,10 @@ func ownedTask() *coordinatorv1.Task {
 func TestWorkerRemovedDuringPreflight(t *testing.T) {
 	for name, refuseCheck := range map[string]bool{"SignalDuringCheck": false, "CheckRefused": true} {
 		t.Run(name, func(t *testing.T) {
-			removed := make(chan struct{})
+			r := new(refusal)
 			var once sync.Once
 			client := &removalClient{task: ownedTask(), preflight: func(ctx context.Context) error {
-				once.Do(func() { close(removed) })
+				once.Do(func() { r.refuse() })
 				if refuseCheck {
 					// The client reported the refusal before it returns.
 					return status.Error(codes.Unauthenticated, "this worker was removed from the coordinator")
@@ -173,7 +186,7 @@ func TestWorkerRemovedDuringPreflight(t *testing.T) {
 				return ctx.Err()
 			}}
 			var executed atomic.Bool
-			w := newRemovableWorker(client, 1, &config.Config{}, removed, func(context.Context, *coordinatorv1.Task) error {
+			w := newRemovableWorker(client, 1, &config.Config{}, r, func(context.Context, *coordinatorv1.Task) error {
 				executed.Store(true)
 				return nil
 			})
@@ -199,12 +212,12 @@ func TestWorkerRemovedDuringDrain(t *testing.T) {
 			return ctx.Err()
 		},
 	}
-	removed := make(chan struct{})
+	r := new(refusal)
 	started := make(chan struct{})
 	runErr := make(chan error, 1)
 	cfg := &config.Config{}
 	cfg.SignalHandling.DrainTimeout = time.Hour
-	w := newRemovableWorker(client, 2, cfg, removed, func(ctx context.Context, _ *coordinatorv1.Task) error {
+	w := newRemovableWorker(client, 2, cfg, r, func(ctx context.Context, _ *coordinatorv1.Task) error {
 		close(started)
 		<-ctx.Done()
 		runErr <- ctx.Err()
@@ -217,7 +230,7 @@ func TestWorkerRemovedDuringDrain(t *testing.T) {
 	stopErr := make(chan error, 1)
 	go func() { stopErr <- w.Stop(t.Context()) }()
 	<-pollStopped
-	close(removed)
+	r.refuse()
 	select {
 	case err := <-stopErr:
 		assert.Equal(t, errRemovedForTest, err)
@@ -235,11 +248,9 @@ func TestWorkerRemovedDuringDrain(t *testing.T) {
 
 // A worker without a membership ends as removed with errWorkerRemoved.
 func TestWorkerRemovedWithoutMembership(t *testing.T) {
-	removed := make(chan struct{})
-	close(removed)
 	w := NewWorker("test-worker", 1, &removalClient{}, map[string]string{}, &config.Config{}, nil)
-	w.removalSignal = removed
 	w.SetHandler(runHandler(func(context.Context, *coordinatorv1.Task) error { return nil }))
+	w.publishRemoval()
 	err := startRemovable(t, w)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, errWorkerRemoved))
@@ -249,49 +260,49 @@ func TestWorkerRemovedWithoutMembership(t *testing.T) {
 // execution stops the run: it never reaches the executor (Spec 108 §Removed
 // Worker).
 func TestWorkerRemovedBeforeExecution(t *testing.T) {
-	removed := make(chan struct{})
+	r := new(refusal)
 	client := &removalClient{task: &coordinatorv1.Task{DagRunId: "run-1", AttemptKey: "attempt-1"}}
 	var executed atomic.Bool
-	w := newRemovableWorker(client, 1, &config.Config{}, removed, func(context.Context, *coordinatorv1.Task) error {
+	w := newRemovableWorker(client, 1, &config.Config{}, r, func(context.Context, *coordinatorv1.Task) error {
 		executed.Store(true)
 		return nil
 	})
-	w.beforeExecute = func() { close(removed) }
+	w.beforeExecute = func() { r.refuse() }
 
 	assert.Equal(t, errRemovedForTest, startRemovable(t, w))
 	assert.False(t, executed.Load(), "the run reached the executor after the removal")
 }
 
-// A removal that arrives once a run moved into execution, before the executor
-// runs, stops the run with the removal as its cause, so the executor starts
-// stopped (Spec 108 §Removed Worker).
+// A refusal that arrives once a run moved into execution, before the
+// executor runs, stops the run the moment it arrives, with the removal as its
+// cause, so the executor starts stopped, before the worker's own stop runs
+// (Spec 108 §Removed Worker).
 func TestWorkerRemovedAfterAdmission(t *testing.T) {
-	removed := make(chan struct{})
+	r := new(refusal)
 	client := &removalClient{task: &coordinatorv1.Task{DagRunId: "run-1", AttemptKey: "attempt-1"}}
 	cause := make(chan error, 1)
-	w := newRemovableWorker(client, 1, &config.Config{}, removed, func(ctx context.Context, _ *coordinatorv1.Task) error {
+	w := newRemovableWorker(client, 1, &config.Config{}, r, func(ctx context.Context, _ *coordinatorv1.Task) error {
 		cause <- context.Cause(ctx)
 		return ctx.Err()
 	})
-	w.afterAdmit = func(ctx context.Context) {
-		close(removed)
-		<-ctx.Done()
-	}
+	// The refusal lands in the gap, and the run goes on at once, without
+	// waiting for the worker to stop.
+	w.afterAdmit = func(context.Context) { r.refuse() }
 
 	assert.Equal(t, errRemovedForTest, startRemovable(t, w))
-	assert.ErrorIs(t, <-cause, errWorkerRemoved)
+	assert.ErrorIs(t, <-cause, errWorkerRemoved, "the run entered the executor live")
 }
 
 // A worker that learns of its removal while a poll returns a task accepts
 // no task: the claim expires and returns the task to the queue (Spec 108
 // §Removal).
 func TestWorkerRemovedBeforeAcknowledgment(t *testing.T) {
-	removed := make(chan struct{})
+	r := new(refusal)
 	task := ownedTask()
 	task.ClaimToken = "claim-1"
-	client := &removalClient{task: task, beforeTask: func() { close(removed) }}
+	client := &removalClient{task: task, beforeTask: func() { r.refuse() }}
 	var executed atomic.Bool
-	w := newRemovableWorker(client, 1, &config.Config{}, removed, func(context.Context, *coordinatorv1.Task) error {
+	w := newRemovableWorker(client, 1, &config.Config{}, r, func(context.Context, *coordinatorv1.Task) error {
 		executed.Store(true)
 		return nil
 	})
@@ -299,4 +310,45 @@ func TestWorkerRemovedBeforeAcknowledgment(t *testing.T) {
 	assert.Equal(t, errRemovedForTest, startRemovable(t, w))
 	assert.Zero(t, client.acks.Load(), "the claim was acknowledged after the removal")
 	assert.False(t, executed.Load())
+}
+
+// A refusal that arrives while the worker acknowledges a claim stops the
+// acknowledgment: no further attempt is made, and the task is left to return
+// to the queue (Spec 108 §Removal).
+func TestWorkerRemovedDuringAcknowledgment(t *testing.T) {
+	r := new(refusal)
+	task := ownedTask()
+	task.ClaimToken = "claim-1"
+	client := &removalClient{task: task, ack: func() error {
+		// The first attempt fails as the refusal arrives.
+		r.refuse()
+		return status.Error(codes.Unavailable, "coordinator restarting")
+	}}
+	var executed atomic.Bool
+	w := newRemovableWorker(client, 1, &config.Config{}, r, func(context.Context, *coordinatorv1.Task) error {
+		executed.Store(true)
+		return nil
+	})
+
+	assert.Equal(t, errRemovedForTest, startRemovable(t, w))
+	assert.Equal(t, int32(1), client.acks.Load(), "an acknowledgment was tried after the removal")
+	assert.False(t, executed.Load())
+}
+
+// A refusal that arrives during a claim acknowledgment ends it: no attempt
+// follows, whatever the worker's own stop does meanwhile (Spec 108 §Removal).
+func TestAcknowledgmentStopsOnRemoval(t *testing.T) {
+	removal, cancelRemoval := context.WithCancel(context.Background())
+	defer cancelRemoval()
+	task := ownedTask()
+	task.ClaimToken = "claim-1"
+	client := &removalClient{ack: func() error {
+		cancelRemoval()
+		return status.Error(codes.Unavailable, "coordinator restarting")
+	}}
+	p := NewPoller("test-worker", client, nil, 0, nil)
+	p.removal = removal
+
+	require.Error(t, p.ackTaskClaim(t.Context(), task))
+	assert.Equal(t, int32(1), client.acks.Load())
 }
