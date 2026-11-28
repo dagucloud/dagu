@@ -677,7 +677,8 @@ func (h *Handler) startPeerMaintenance(ctx context.Context) {
 // each revocation runs on its own, so no listing, cancel request, reread,
 // or other certificate's revocation holds one up. A revocation that fails is
 // tried again heartbeatSettleInterval later, and only that certificate
-// waits.
+// waits. A store write that stalls while it holds the store's lock can
+// still delay the revocations behind it.
 func (h *Handler) runStopDeadlines(ctx context.Context) {
 	timer := time.NewTimer(recordPruneInterval)
 	defer timer.Stop()
@@ -705,6 +706,28 @@ type stopDeadlineState struct {
 	retryAt  map[string]time.Time
 }
 
+// claim marks a revocation of the certificate id under way and reports
+// whether none was.
+func (st *stopDeadlineState) claim(id string) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.inFlight[id] {
+		return false
+	}
+	if st.inFlight == nil {
+		st.inFlight = make(map[string]bool)
+	}
+	st.inFlight[id] = true
+	return true
+}
+
+// release ends the revocation of the certificate id that claim marked.
+func (st *stopDeadlineState) release(id string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	delete(st.inFlight, id)
+}
+
 // startDueStops starts the revocation of each stop removal whose deadline,
 // or retry after a failed write, has come at now, each in its own
 // goroutine, and returns the next such time, or zero when none waits.
@@ -715,6 +738,8 @@ func (h *Handler) startDueStops(ctx context.Context, now time.Time) time.Time {
 	defer st.mu.Unlock()
 	if st.inFlight == nil {
 		st.inFlight = make(map[string]bool)
+	}
+	if st.retryAt == nil {
 		st.retryAt = make(map[string]time.Time)
 	}
 	for id := range st.retryAt {
@@ -831,8 +856,18 @@ func (h *Handler) settleRemovals(ctx context.Context, removing []persis.WorkerCe
 // from listings taken after its removal record was read, in one write
 // from that version: an acceptance confirmed in between changes the
 // record, so the listings are taken again and see its lease. The holder
-// it waits for is the one that version names.
+// it waits for is the one that version names. It goes through the same
+// per-certificate state as the stop deadline, so the two never write at
+// once, and it leaves a stop removal whose wait ended meanwhile to the
+// deadline.
 func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertificateRemoval, now time.Time) {
+	if !h.stops.claim(removal.ID) {
+		return
+	}
+	defer func() {
+		h.stops.release(removal.ID)
+		h.wakeStopDeadlines()
+	}()
 	cert, revoked, err := h.workerCertificates.RevokeIfIdle(ctx, removal.ID, func(ctx context.Context, read persis.WorkerCertificate) (bool, error) {
 		presence, err := h.listPresence(ctx)
 		if err != nil {
@@ -841,6 +876,9 @@ func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertifica
 		leases, err := h.listLeases(ctx)
 		if err != nil {
 			return false, err
+		}
+		if stopRunsDue(removalOf(read), h.clock()) {
+			return false, nil
 		}
 		return h.removalDue(removalOf(read), presence, leases, now), nil
 	})
