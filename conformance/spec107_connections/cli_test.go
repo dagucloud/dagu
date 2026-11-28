@@ -87,8 +87,11 @@ func TestConnectionCLI(t *testing.T) {
 		result.ExpectStdoutNotContains(cliClientSecret)
 	}
 
-	// An app in use cannot be removed.
-	dagu.RunWithEnv(env, "connection", "apps", "remove", "work").ExpectNonZeroExitCode()
+	// An app in use cannot be removed, and the refusal names its
+	// connections.
+	inUse := dagu.RunWithEnv(env, "connection", "apps", "remove", "work")
+	inUse.ExpectNonZeroExitCode()
+	inUse.ExpectStderrContains("is used by connections global/work")
 
 	remove := dagu.RunWithEnv(env, "connections", "remove", "work", "--yes")
 	remove.ExpectExitCode(0)
