@@ -347,6 +347,41 @@ func TestCheckThroughProxy(t *testing.T) {
 	assert.Contains(t, proxy.targets(), addr)
 }
 
+// A canceled check returns while a proxy that refused CONNECT withholds the
+// body it announced. Not parallel: it replaces the proxy selection.
+func TestCheckProxyRefusalCanceled(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		if _, err := http.ReadRequest(bufio.NewReader(conn)); err != nil {
+			return
+		}
+		_, _ = io.WriteString(conn, "HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 1\r\n\r\n")
+		// Hold the connection, and the announced byte, until the test ends.
+		_, _ = io.Copy(io.Discard, conn)
+	}()
+	coordinator.SetCheckProxyForTest(t, &url.URL{Scheme: "http", Host: listener.Addr().String()})
+	// A cancellation, not a deadline, since the dial sets the deadline on
+	// the connection.
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	time.AfterFunc(200*time.Millisecond, cancel)
+	config := coordinator.DefaultConfig()
+	config.DialTimeout = time.Minute
+
+	start := time.Now()
+	result := coordinator.Check(ctx, config, checkMember(t, "127.0.0.1:1"))
+
+	assert.Error(t, result.DialErr)
+	assert.Less(t, time.Since(start), config.DialTimeout/2, "the check waits for the cancellation, not the dial timeout")
+}
+
 // A proxy URL without a port is dialed on 443, as gRPC dials it. Not
 // parallel: it replaces the proxy selection.
 func TestCheckProxyDefaultPort(t *testing.T) {

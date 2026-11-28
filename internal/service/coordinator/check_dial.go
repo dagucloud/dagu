@@ -84,14 +84,17 @@ func connectThrough(ctx context.Context, conn net.Conn, address string, user *ur
 	// The coordinator speaks only after the client does on TLS, and the h2c
 	// probe reads nothing, so the reader holds no tunneled bytes.
 	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+	if err == nil {
+		// Closing drains the body of a refusal, so it runs while a canceled
+		// context can still interrupt it.
+		_ = resp.Body.Close()
+	}
 	if !stop() {
 		return fmt.Errorf("CONNECT to the proxy: %w", ctx.Err())
 	}
 	if err != nil {
 		return fmt.Errorf("read the proxy's answer to CONNECT: %w", err)
 	}
-	// The body of a refusal is left unread: the caller closes the
-	// connection, and draining it could wait past a canceled context.
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("the proxy refused to connect to %s: %s", address, resp.Status)
 	}
