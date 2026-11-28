@@ -6,8 +6,6 @@ package healthcheck
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"net"
 	"net/http"
 	"testing"
 
@@ -55,30 +53,18 @@ func TestServer(t *testing.T) {
 	})
 }
 
-// Listen holds the port from before Start until Stop, so no other process
-// can take it in between, and Start serves on it.
-func TestServerListen(t *testing.T) {
-	for _, start := range []bool{true, false} {
-		probe, err := net.Listen("tcp", ":0")
-		require.NoError(t, err)
-		port := probe.Addr().(*net.TCPAddr).Port
-		require.NoError(t, probe.Close())
+// A server started again while it runs keeps serving on its port, as a
+// worker's health check does once the worker that started it early starts.
+func TestServerStartWhileRunning(t *testing.T) {
+	hs := NewServerWithAddr("test-service", "127.0.0.1:0")
+	require.NoError(t, hs.Start(t.Context()))
+	url := hs.URL() + "/health"
+	require.NoError(t, hs.Start(t.Context()))
+	assert.Equal(t, url, hs.URL()+"/health")
 
-		hs := NewServer("test-service", port)
-		require.NoError(t, hs.Listen())
-		_, err = net.Listen("tcp", fmt.Sprintf(":%d", port))
-		require.Error(t, err, "the port is held")
-
-		if start {
-			require.NoError(t, hs.Start(t.Context()))
-			resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
-			require.NoError(t, err)
-			require.NoError(t, resp.Body.Close())
-			assert.Equal(t, http.StatusOK, resp.StatusCode)
-		}
-		require.NoError(t, hs.Stop(t.Context()))
-		free, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-		require.NoError(t, err, "Stop releases the port")
-		require.NoError(t, free.Close())
-	}
+	resp, err := http.Get(url)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NoError(t, hs.Stop(t.Context()))
 }

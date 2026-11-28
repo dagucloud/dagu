@@ -606,9 +606,10 @@ worker                                          coordinator
 - Another Dagu at one address ends enrollment only when no coordinator of
   the invite's CA answered in the same round. An answer, also one that
   asks to try again, keeps the worker retrying.
-- It sends `Enroll` with the invite, a certificate signing request for a new
-  ECDSA P-256 key, its worker ID, its host name, and whether it can keep its
-  certificate for later starts.
+- It sends `Enroll` with the invite, a certificate signing request, its
+  worker ID, its host name, and whether it can keep its certificate for
+  later starts. Once enrolled, it calls the coordinator with the
+  certificate it got.
 - On built-in TLS with a worker certificate, it does not send the peer
   token. A worker with `worker.invite` and `peer.token` logs this once at
   start.
@@ -712,9 +713,11 @@ The `worker_certificates` collection keeps one record per certificate:
 
 #### Worker Lock
 
-- Only a worker that holds or obtains a worker certificate takes the lock.
-  Workers that share a data directory on the peer token, as in
-  shared-filesystem mode, take none.
+- Only a worker that reuses a certificate from an earlier start, or
+  enrolls for one it keeps for later starts, takes the lock. A worker that
+  cannot keep its certificate enrolls at each start and takes none, and so
+  do workers that share a data directory on the peer token, as in
+  shared-filesystem mode.
 - The worker takes the lock before it enrolls or connects and holds it
   while it runs. The lock is a file lock of the operating system, which
   holds it while the process lives, also while the process is paused, and

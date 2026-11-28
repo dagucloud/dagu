@@ -18,10 +18,10 @@ import (
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
 
-// The worker holds its health check port while its enrollment is in
-// flight, so no other process can take the port and leave the worker
-// unable to start after its single-use invite is used up. It then serves
-// its health check on that port.
+// The worker serves its health check while its enrollment is in flight,
+// so a liveness probe sees it alive while it waits for a coordinator, and
+// no other process can take the port and leave the worker unable to start
+// after its single-use invite is used up. It keeps serving once enrolled.
 func TestWorkerInviteHoldsHealthPort(t *testing.T) {
 	t.Parallel()
 	dagu := harness.NewRunner(t)
@@ -47,6 +47,7 @@ func TestWorkerInviteHoldsHealthPort(t *testing.T) {
 		_ = other.Close()
 		t.Fatal("another process could bind the health check port while enrollment was in flight")
 	}
+	expectHealthy(t, port)
 
 	release()
 	waitForOutput(t, worker, workerEnrolled)

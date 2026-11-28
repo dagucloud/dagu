@@ -396,9 +396,22 @@ type answeringCoordinator struct {
 	// release, when set, holds the reply until the test closes it, after
 	// the round ended, so the caller's deadline always passes first.
 	release <-chan struct{}
+	// entered is closed when Enroll is first called.
+	entered *closeOnce
 }
 
+// closeOnce is a channel that is closed at most once.
+type closeOnce struct {
+	once sync.Once
+	ch   chan struct{}
+}
+
+func (c *closeOnce) close() { c.once.Do(func() { close(c.ch) }) }
+
 func (c answeringCoordinator) Enroll(context.Context, *coordinatorv1.EnrollRequest) (*coordinatorv1.EnrollResponse, error) {
+	if c.entered != nil {
+		c.entered.close()
+	}
 	if c.release != nil {
 		<-c.release
 		return nil, status.Error(codes.Unavailable, "released")
@@ -415,6 +428,8 @@ type roundServers struct {
 	ours   credentials.TransportCredentials
 	other  credentials.TransportCredentials
 	ca     testCA
+	// entered tells, by address, when a silent coordinator got its call.
+	entered map[string]*closeOnce
 }
 
 func newRoundServers(t *testing.T) roundServers {
@@ -426,11 +441,12 @@ func newRoundServers(t *testing.T) roundServers {
 	require.NoError(t, err)
 	pin := sha256.Sum256(oursCert.Raw)
 	return roundServers{
-		t:      t,
-		invite: "dagu1." + base64.RawURLEncoding.EncodeToString(pin[:]) + "." + base64.RawURLEncoding.EncodeToString(secret),
-		ours:   ours,
-		other:  other,
-		ca:     newTestCA(t),
+		t:       t,
+		invite:  "dagu1." + base64.RawURLEncoding.EncodeToString(pin[:]) + "." + base64.RawURLEncoding.EncodeToString(secret),
+		ours:    ours,
+		other:   other,
+		ca:      newTestCA(t),
+		entered: map[string]*closeOnce{},
 	}
 }
 
@@ -483,6 +499,8 @@ func (r roundServers) address(c roundCoordinator) string {
 	if c.kind == "silent" {
 		release = make(chan struct{})
 		service.release = release
+		service.entered = &closeOnce{ch: make(chan struct{})}
+		r.entered[listener.Addr().String()] = service.entered
 	}
 	coordinatorv1.RegisterCoordinatorServiceServer(server, service)
 	go func() { _ = server.Serve(listener) }()
@@ -569,6 +587,18 @@ func TestEnrollRoundPrecedence(t *testing.T) {
 				require.NoError(t, err)
 				assert.NotNil(t, resp)
 			}
+			// A silent coordinator's row says something only when the
+			// call reached it.
+			for _, entered := range []*closeOnce{servers.entered[addrA], servers.entered[addrB]} {
+				if entered == nil {
+					continue
+				}
+				select {
+				case <-entered.ch:
+				default:
+					t.Fatal("the silent coordinator got no call")
+				}
+			}
 		})
 	}
 }
@@ -624,13 +654,14 @@ func TestReasonHidesPaths(t *testing.T) {
 // access list can on Windows, a restart says so with the system's cause,
 // naming only the data directory as configured.
 func TestMembershipRestrictFailure(t *testing.T) {
-	ca := newTestCA(t)
 	dataDir := t.TempDir()
-	join(t, workerConfig(dataDir, ca.invite(t)), enrolling(ca))
-	t.Cleanup(fileutil.SetRestrictToOwnerForTest(func(string) error { return syscall.EACCES }))
+	m, err := open(t, workerConfig(dataDir, ""), nil)
+	require.NoError(t, err)
+	// The error MkdirPrivate returns when the system refuses the
+	// restriction.
+	refused := &fs.PathError{Op: "restrict to owner", Path: filepath.Join(dataDir, credentialDirName), Err: syscall.EACCES}
 
-	_, err := open(t, workerConfig(dataDir, ""), nil)
-	require.EqualError(t, err, "This worker cannot lock its certificate: "+syscall.EACCES.Error()+
+	require.EqualError(t, m.errCannotLock(refused), "This worker cannot lock its certificate: "+syscall.EACCES.Error()+
 		"\n  Make "+dataDir+" writable, so that one worker at a time uses the certificate.")
 }
 

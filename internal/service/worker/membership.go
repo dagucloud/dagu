@@ -261,18 +261,21 @@ func (m *Membership) openWithoutInvite(ctx context.Context) error {
 
 // takeLock locks the certificate and removes what an interrupted save left.
 func (m *Membership) takeLock(ctx context.Context) error {
-	lock, err := lockCertificate(ctx, m.store.dir, m.opts.lock, func(err error) error {
-		return failure{
-			cause: "This worker cannot lock its certificate: " + reason(err),
-			next:  fmt.Sprintf("Make %s writable, so that one worker at a time uses the certificate.", m.cfg.Paths.DataDir),
-		}
-	})
+	lock, err := lockCertificate(ctx, m.store.dir, m.opts.lock, m.errCannotLock)
 	if err != nil {
 		return err
 	}
 	m.lock = lock
 	m.store.removeLeftovers()
 	return nil
+}
+
+// errCannotLock is the failure of a certificate lock that cannot be taken.
+func (m *Membership) errCannotLock(err error) error {
+	return failure{
+		cause: "This worker cannot lock its certificate: " + reason(err),
+		next:  fmt.Sprintf("Make %s writable, so that one worker at a time uses the certificate.", m.cfg.Paths.DataDir),
+	}
 }
 
 // errUnreadable is the failure of a kept credential that cannot be read.

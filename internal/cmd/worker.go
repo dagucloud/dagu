@@ -129,23 +129,15 @@ func runWorker(ctx *Context, _ []string) error {
 	maxActiveRuns := ctx.Config.Worker.MaxActiveRuns
 	labels := ctx.Config.Worker.Labels
 
-	// Heartbeats carry the machine's figures, which the server reports to
-	// Dagu Cloud on paid licenses. Monitoring starts before the worker
-	// joins, so its failure uses up no invite.
-	machine := resource.NewService(ctx.Config)
-	if err := machine.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start resource monitoring: %w", err)
-	}
-	defer func() { _ = machine.Stop(ctx.Context) }()
-
 	// Nothing the worker starts, such as a workflow's subprocess, needs
 	// the invite, so it leaves the environment once loaded.
 	config.ClearWorkerInviteEnv(ctx.Config)
 
-	// The health check port is held from before the worker joins until
-	// the worker serves on it, so a busy port uses up no invite.
+	// The health check serves from before the worker joins, so a busy port
+	// uses up no invite and a liveness probe sees the worker alive while
+	// it waits for a coordinator to enroll it.
 	health := healthcheck.NewServer("worker", ctx.Config.Worker.HealthPort)
-	if err := health.Listen(); err != nil {
+	if err := health.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start worker health check server: %w", err)
 	}
 	defer func() { _ = health.Stop(ctx.Context) }()
@@ -160,6 +152,14 @@ func runWorker(ctx *Context, _ []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Heartbeats carry the machine's figures, which the server reports to
+	// Dagu Cloud on paid licenses.
+	machine := resource.NewService(ctx.Config)
+	if err := machine.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start resource monitoring: %w", err)
+	}
+	defer func() { _ = machine.Stop(ctx.Context) }()
 
 	w := worker.NewWorker(
 		workerID,

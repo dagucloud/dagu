@@ -24,11 +24,9 @@ const Path = "/health"
 
 // Server represents a lightweight HTTP health check server for a service.
 type Server struct {
-	mu       sync.Mutex
-	server   *http.Server
-	listener net.Listener
-	// held is the listener Listen bound before Start.
-	held       net.Listener
+	mu         sync.Mutex
+	server     *http.Server
+	listener   net.Listener
 	port       int
 	listenAddr string
 	boundAddr  string
@@ -86,38 +84,20 @@ func (h *Server) URL() string {
 	return "http://" + h.boundAddr
 }
 
-// Listen binds the server's port and holds it until Start serves on it or
-// Stop releases it, so a process can fail on a busy port before work it
-// cannot undo. It does nothing for a disabled server.
-func (h *Server) Listen() error {
-	if h.disabled() {
-		return nil
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.held != nil || h.server != nil {
-		return nil
-	}
-	listener, err := net.Listen("tcp", h.listenAddr)
-	if err != nil {
-		return err
-	}
-	h.held = listener
-	return nil
-}
-
-func (h *Server) disabled() bool {
-	return h.listenAddr == "" || (h.port == 0 && h.listenAddr == ":0")
-}
-
-// Start starts the health check server, on the port Listen holds if it
-// was called.
+// Start starts the health check server. It does nothing while the server
+// runs.
 func (h *Server) Start(ctx context.Context) error {
-	if h.disabled() {
+	if h.listenAddr == "" || (h.port == 0 && h.listenAddr == ":0") {
 		logger.Info(ctx, "Health check server disabled",
 			slog.String("service", h.serviceName()),
 			tag.Port(h.port),
 		)
+		return nil
+	}
+	h.mu.Lock()
+	running := h.server != nil
+	h.mu.Unlock()
+	if running {
 		return nil
 	}
 
@@ -132,15 +112,9 @@ func (h *Server) Start(ctx context.Context) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	h.mu.Lock()
-	listener := h.held
-	h.held = nil
-	h.mu.Unlock()
-	if listener == nil {
-		var err error
-		if listener, err = net.Listen("tcp", h.listenAddr); err != nil {
-			return err
-		}
+	listener, err := net.Listen("tcp", h.listenAddr)
+	if err != nil {
+		return err
 	}
 	boundAddr := listener.Addr().String()
 
@@ -177,12 +151,7 @@ func (h *Server) Stop(ctx context.Context) error {
 	server := h.server
 	listener := h.listener
 	if server == nil {
-		held := h.held
-		h.held = nil
 		h.mu.Unlock()
-		if held != nil {
-			return held.Close()
-		}
 		return nil
 	}
 	h.mu.Unlock()

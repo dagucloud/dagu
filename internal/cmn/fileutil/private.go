@@ -11,17 +11,8 @@ import (
 // privateDirMode is the mode of a directory only its owner may use.
 const privateDirMode = 0o700
 
-// restrictToOwner limits a directory to its owner.
+// restrictToOwner limits a directory to its owner. Tests replace it to fail.
 var restrictToOwner = makePrivate
-
-// SetRestrictToOwnerForTest makes MkdirPrivate restrict a directory with
-// restrict, so a test can fail it as the system can, and returns the
-// function that undoes it. Tests that call it must not run in parallel.
-func SetRestrictToOwnerForTest(restrict func(dir string) error) (restore func()) {
-	previous := restrictToOwner
-	restrictToOwner = restrict
-	return func() { restrictToOwner = previous }
-}
 
 // MkdirPrivate creates dir and its missing parents, and makes dir usable by
 // its owner only, also when it existed: mode 0700 on Unix, and on Windows an
