@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"slices"
 	"time"
@@ -25,9 +26,13 @@ const (
 	// coordinatorUnreachableMessage answers a call that reached no
 	// coordinator.
 	coordinatorUnreachableMessage = "no coordinator is running or reachable"
-	// peerTokenMissingMessage answers a call the coordinator refused for
-	// lack of the peer token.
-	peerTokenMissingMessage = "the coordinator refused the server: set peer.token, or run the server where it reads the coordinator's data directory"
+	// coordinatorRefusedPrefix starts the answer to a call the coordinator
+	// refused to the server, before the coordinator's reason, such as a
+	// missing peer token or a TLS requirement.
+	coordinatorRefusedPrefix = "the coordinator refused the server: "
+	// maxExpiresInSeconds keeps an invite's expiry within what the
+	// coordinator accepts.
+	maxExpiresInSeconds = math.MaxInt64 / int64(time.Second)
 	// olderCoordinatorMessage answers a call that only coordinators of an
 	// earlier release received.
 	olderCoordinatorMessage = "the coordinator runs an earlier Dagu release without worker invites: upgrade it"
@@ -222,7 +227,7 @@ func coordinatorCallError(err error) *Error {
 	case codes.Unimplemented:
 		return answer(http.StatusConflict, api.ErrorCodeConflict, olderCoordinatorMessage)
 	case codes.Unauthenticated:
-		return answer(http.StatusServiceUnavailable, api.ErrorCodeInternalError, peerTokenMissingMessage)
+		return answer(http.StatusServiceUnavailable, api.ErrorCodeInternalError, coordinatorRefusedPrefix+st.Message())
 	case codes.Unavailable, codes.DeadlineExceeded:
 		return answer(http.StatusServiceUnavailable, api.ErrorCodeInternalError, coordinatorUnreachableMessage+": "+st.Message())
 	default:
@@ -231,17 +236,26 @@ func coordinatorCallError(err error) *Error {
 }
 
 // expiresInSeconds returns the seconds of the duration expiresIn, rounded
-// up, or the 400 answer when it is not a positive Go duration.
+// up, or the 400 answer when it is not a positive Go duration the
+// coordinator accepts.
 func expiresInSeconds(expiresIn string) (int64, error) {
+	invalid := &Error{
+		HTTPStatus: http.StatusBadRequest,
+		Code:       api.ErrorCodeBadRequest,
+		Message:    "expiresIn must be a positive duration of at most 2562047h47m16s, such as 24h",
+	}
 	d, err := time.ParseDuration(expiresIn)
 	if err != nil || d <= 0 {
-		return 0, &Error{
-			HTTPStatus: http.StatusBadRequest,
-			Code:       api.ErrorCodeBadRequest,
-			Message:    "expiresIn must be a positive duration, such as 24h",
-		}
+		return 0, invalid
 	}
-	return int64((d + time.Second - 1) / time.Second), nil
+	seconds := int64(d / time.Second)
+	if d%time.Second != 0 {
+		seconds++
+	}
+	if seconds > maxExpiresInSeconds {
+		return 0, invalid
+	}
+	return seconds, nil
 }
 
 func workerInvite(record *coordinatorv1.InviteRecord) api.WorkerInvite {
