@@ -40,20 +40,30 @@ const (
 	// workerDataDir is the data directory of the image, where a worker keeps
 	// its certificate.
 	workerDataDir = "/var/lib/dagu"
+	// workerLabelRule is the rule a worker applies to its labels at start.
+	workerLabelRule = "a label is key or key=value; a key holds only letters, digits, -, _, and ., " +
+		"at most 63, and a value only those and /, at most 255, each starting with a letter or digit"
 )
+
+// builtinLabelKeys are the labels a worker sets from its own host.
+var builtinLabelKeys = []string{"os", "arch"}
 
 // addWorkerFields lists the fields add_worker takes besides action.
 var addWorkerFields = []string{executeFieldAddress, executeFieldReusable, executeFieldExpiresIn, executeFieldLabels}
 
 var (
-	// releaseVersion matches the version of a release or prerelease build,
-	// whose image tag is the version without the leading v.
-	releaseVersion = regexp.MustCompile(`^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)$`)
+	// releaseVersion matches the version of a build from a release tag,
+	// vX.Y.Z or vX.Y.Z-<anything>, whose image the release workflow tags with
+	// the version without the leading v.
+	releaseVersion = regexp.MustCompile(`^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?)$`)
 	// unreleasedSuffix matches what an unreleased build adds to the last
 	// tag: git describe's commit count and hash, or a snapshot's -next.
 	unreleasedSuffix = regexp.MustCompile(`(-\d+-g[0-9a-f]+|-next)$`)
 	// containerID matches a short or full container ID used as a host name.
 	containerID = regexp.MustCompile(`^[0-9a-f]{12}([0-9a-f]{52})?$`)
+	// dnsName matches one DNS name, so a list, a zone, or shell syntax is
+	// not taken for a host.
+	dnsName = regexp.MustCompile(`^([A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9])?\.?$`)
 )
 
 // addWorkerInput holds the fields of the add_worker action. The worker
@@ -97,13 +107,33 @@ func validateAddWorkerInput(input *executeInput, provided map[string]bool) *exec
 			return executeInputError("The address field "+problem+".", executeFieldAddress)
 		}
 	}
-	for _, label := range input.Labels {
-		if !strings.Contains(label, "=") {
-			return executeInputError(fmt.Sprintf("Worker label %q must be key=value.", label), executeFieldLabels)
+	return workerLabelsProblem(input.Labels)
+}
+
+// workerLabelsProblem refuses labels the worker would refuse at start, by
+// the worker's own parsing and rules. A refusal names a label by its
+// position, never by its text, which may be a pasted invite.
+func workerLabelsProblem(labels []string) *executeToolError {
+	for i, label := range labels {
+		position := fmt.Sprintf("Worker label %d", i+1)
+		one := config.ParseWorkerLabels(label)
+		if len(one) != 1 {
+			return executeInputError(position+" must be one key or key=value, without a comma.", executeFieldLabels)
 		}
-		if err := ir.ValidateLabel(ir.ParseLabel(label)); err != nil {
-			return executeInputError(fmt.Sprintf("Worker label %q is not valid: %s.", label, err), executeFieldLabels)
+		accepted, err := ir.WorkerLabels(one)
+		if err != nil {
+			return executeInputError(position+" breaks the worker label rule: "+workerLabelRule+".", executeFieldLabels)
 		}
+		for key := range accepted {
+			if slices.Contains(builtinLabelKeys, key) {
+				return executeInputError(position+" sets "+key+", which a worker sets from its own host.", executeFieldLabels)
+			}
+		}
+	}
+	// The command carries the labels joined, as the worker parses them.
+	accepted, err := ir.WorkerLabels(config.ParseWorkerLabels(strings.Join(labels, ",")))
+	if err != nil || len(accepted) != len(labels) {
+		return executeInputError("Worker labels must set each key once; keys compare without case.", executeFieldLabels)
 	}
 	return nil
 }
@@ -124,10 +154,14 @@ func dialAddressProblem(addr string) string {
 			return "must name one address, not " + host
 		case ip.IsLoopback():
 			return "must not be a loopback address, which reaches only the worker's own machine"
+		case ip.IsLinkLocalUnicast():
+			return "must not be a link-local address, which another network does not route"
 		}
 		return ""
 	}
 	switch {
+	case !dnsName.MatchString(host):
+		return "must name one host: an IP address without a zone, or a DNS name"
 	case strings.EqualFold(strings.TrimSuffix(host, "."), "localhost"):
 		return "must not be localhost, which reaches only the worker's own machine"
 	case containerID.MatchString(host):
@@ -204,10 +238,10 @@ func (svc *Service) addWorker(ctx context.Context, input executeInput) (*mcpsdk.
 	switch {
 	case !published:
 		output["imageUnavailable"] = "This server runs build " + config.Version + ", which has no published image, " +
-			"so commands has no Docker or Kubernetes command. A worker container needs an image built from the same source."
+			"so commands has no container command. A worker container needs an image built from the same source."
 		message += " " + output["imageUnavailable"].(string)
 	case !in.Reusable:
-		message += " Kubernetes needs reusable=true, since a new pod has no certificate."
+		message += " The kubernetes command needs reusable=true, since a new pod has no certificate."
 	}
 	return resultWithLinks(message), output, nil
 }
@@ -270,11 +304,11 @@ func joinChanges(report *daguapi.JoinReadinessReport) []string {
 		changes = append(changes, fmt.Sprintf("It listens on %s, so only its own machine can connect. %s", report.ListenHost, listenChange(report)))
 	}
 	if !report.BuiltinTLS {
-		reason := "this coordinator could not create or read its CA; see its start warning"
+		change := "Built-in TLS is unavailable. Check the coordinator startup log."
 		if report.BuiltinTLSReason != nil && *report.BuiltinTLSReason == daguapi.BuiltinTLSReasonOwnCertificates {
-			reason = "this coordinator uses peer.cert_file and peer.key_file"
+			change = "Invites need built-in TLS, and this coordinator uses peer.cert_file and peer.key_file."
 		}
-		changes = append(changes, "Invites need the built-in CA: "+reason+".")
+		changes = append(changes, change)
 	}
 	return changes
 }

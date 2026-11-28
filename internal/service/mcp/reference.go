@@ -299,7 +299,7 @@ Fields:
 - singleton: singleton run flag for start and enqueue.
 - noReuse: when true for start or enqueue, execute eligible build steps instead of reusing prior materializations.
 - profile: runtime profile name for start and enqueue. Selects the profile for this run only. When omitted, a stored DAG keeps its default profile resolution and an inline spec runs without a profile. The profile must exist and be usable by the caller.
-- labels: labels for start and enqueue, each key=value or key-only. For add_worker, worker labels put into the commands, each key=value whose key holds only letters, digits, -, _, and . and whose value holds only those and /; any other label is refused, since the worker would refuse it at start.
+- labels: labels for start and enqueue, each key=value or key-only. For add_worker, worker labels put into the commands, each key or key=value as a worker accepts at start: a key holds only letters, digits, -, _, and ., a value only those and /, each key once, and not os or arch. A refusal names a label by its position.
 - targetNodes: for start and enqueue, the nodes the run is narrowed to. Its steps with nodes, and those of its child runs, run only on listed nodes; a step none of whose nodes is listed is skipped without blocking later steps, and a run whose list leaves every such step without a node fails. A node: required DAG needs exactly one node and runs bound to it, on that worker for a worker node. Each name must be a node, inventory or worker.
 - stepName: optional step name for retry. Required for approve, reject, and push_back: the waiting step to decide.
 - includeDownstream: when true, retry the selected step and every reachable descendant. Requires stepName.
@@ -309,7 +309,7 @@ Fields:
 - attemptId: for approve, reject, and push_back, the attemptId from the run details the decision is based on. When the run has moved to another attempt, the decision is refused with conflict.
 - wait: when true, wait for the identified run to reach a terminal state or a waiting checkpoint before returning. Requires a name that identifies the run.
 - waitTimeoutSeconds: maximum seconds to wait, from 1 to 300. Defaults to 60.
-- address, reusable, expiresIn: for add_worker only. address is the host:port workers dial: not 0.0.0.0, [::], a loopback address, localhost, or a container ID. reusable makes an invite any number of workers join with; expiresIn is a Go duration such as 24h.
+- address, reusable, expiresIn: for add_worker only. address is the host:port workers dial: one IP address without a zone or one DNS name, and not 0.0.0.0, [::], a loopback or link-local address, localhost, or a container ID. reusable makes an invite any number of workers join with; expiresIn is a Go duration such as 24h.
 
 Action behavior:
 
@@ -322,7 +322,7 @@ Action behavior:
 - add_worker is admin only and takes only address, reusable, expiresIn, and labels. It walks through Add worker as the Workers section of System status does:
   1. Call it without address. coordinators lists each coordinator with ready, its report, and, when not ready, changes or error to show the user. Each change needs a restart of the coordinator; call add_worker again after it. notes hold reminders that apply even when ready, such as publishing the port of a container.
   2. Ask the user for the address workers dial. addressOptions.initial is the address of the last invite or coordinator.advertise; addressOptions.suggestions are the coordinators' own addresses. In a container there are none, and addressOptions.note says to ask for the address of the machine that runs it. Never fill in a host name the result does not give.
-  3. Call it with address, reusable, and labels. Once every coordinator is ready, it creates the invite and returns inviteId, invite, kind, expiresAt, and commands: linux and docker, and kubernetes (a Secret and a Deployment) for a reusable invite only, since a new pod has no certificate. The container commands use the image of this server's release; a development build has no published image, so commands has only linux and imageUnavailable says why. While a coordinator is not ready, it creates nothing and returns step 1 again.
+  3. Call it with address, reusable, and labels. Once every coordinator is ready, it creates the invite and returns inviteId, invite, kind, expiresAt when the invite expires, and commands: linux and docker, and kubernetes (a manifest) for a reusable invite only, since a new pod has no certificate. The container commands use the image of this server's release; a development build has no published image, so commands has only linux and imageUnavailable says why. While a coordinator is not ready, it creates nothing and returns step 1 again.
 - Only the add_worker result that creates the invite contains it. Show it to the user once; no later read returns it. A worker that joins with it lists its inviteId.
 - With wait=true, the call returns once the run reaches a terminal state, stops at a waiting checkpoint, or the timeout elapses. A run stopped at a checkpoint has completed=false and reports each waiting step under run.steps as humanTask or approval with its prompt; resolve them to resume the run. On timeout the run keeps executing and the output has completed=false.
 

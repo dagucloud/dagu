@@ -139,6 +139,15 @@ func TestAddWorkerNotReady(t *testing.T) {
 			key:       "error",
 			want:      "the coordinator runs an earlier Dagu release without worker invites: upgrade it",
 		},
+		"CA unavailable": {
+			readiness: []coordinator.JoinReadiness{{Report: &coordinatorv1.GetJoinReadinessResponse{
+				ListenHost:       "0.0.0.0",
+				Port:             50055,
+				BuiltinTlsReason: coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_CA_UNAVAILABLE,
+			}}},
+			key:  "changes",
+			want: "Built-in TLS is unavailable. Check the coordinator startup log.",
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -303,6 +312,8 @@ func TestAddWorkerRefusesAddress(t *testing.T) {
 	for _, address := range []string{
 		"0.0.0.0:50055", "[::]:50055", "127.0.0.1:50055", "[::1]:50055", "localhost:50055",
 		"192.168.1.20", "192.168.1.20:0", "3f4e5a6b7c8d:50055",
+		"[::1%lo0]:50055", "[fe80::1%eth0]:50055", "[fe80::1]:50055", "169.254.10.20:50055",
+		"host1,host2:50055", "$(DAGU_WORKER_INVITE):50055",
 	} {
 		stub := &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}}
 		svc, _ := newAddWorkerService(stub)
@@ -324,15 +335,18 @@ func TestAddWorkerInputValidation(t *testing.T) {
 		input string
 		field string
 	}{
-		"name on add_worker":   {input: `{"action":"add_worker","name":"etl"}`, field: executeFieldName},
-		"address on start":     {input: `{"action":"start","name":"etl","address":"192.168.1.20:50055"}`, field: executeFieldAddress},
-		"reusable on backfill": {input: `{"action":"backfill","name":"etl","reusable":true}`, field: executeFieldReusable},
-		"label without value":  {input: `{"action":"add_worker","labels":["gpu"]}`, field: executeFieldLabels},
-		"comma in a label":     {input: `{"action":"add_worker","labels":["zone=a,b"]}`, field: executeFieldLabels},
-		"space in a label":     {input: `{"action":"add_worker","labels":["team=data eng"]}`, field: executeFieldLabels},
-		"quote in a label":     {input: `{"action":"add_worker","labels":["note=it's"]}`, field: executeFieldLabels},
-		"dollar in a label":    {input: `{"action":"add_worker","labels":["leak=$(DAGU_WORKER_INVITE)"]}`, field: executeFieldLabels},
-		"bad label key":        {input: `{"action":"add_worker","labels":["gpu/type=a100"]}`, field: executeFieldLabels},
+		"name on add_worker":    {input: `{"action":"add_worker","name":"etl"}`, field: executeFieldName},
+		"address on start":      {input: `{"action":"start","name":"etl","address":"192.168.1.20:50055"}`, field: executeFieldAddress},
+		"reusable on backfill":  {input: `{"action":"backfill","name":"etl","reusable":true}`, field: executeFieldReusable},
+		"empty label":           {input: `{"action":"add_worker","labels":[" "]}`, field: executeFieldLabels},
+		"same key twice":        {input: `{"action":"add_worker","labels":["gpu=a","gpu=b"]}`, field: executeFieldLabels},
+		"same key in two cases": {input: `{"action":"add_worker","labels":["GPU=true","gpu=false"]}`, field: executeFieldLabels},
+		"built-in key":          {input: `{"action":"add_worker","labels":["os=linux"]}`, field: executeFieldLabels},
+		"comma in a label":      {input: `{"action":"add_worker","labels":["zone=a,b"]}`, field: executeFieldLabels},
+		"space in a label":      {input: `{"action":"add_worker","labels":["team=data eng"]}`, field: executeFieldLabels},
+		"quote in a label":      {input: `{"action":"add_worker","labels":["note=it's"]}`, field: executeFieldLabels},
+		"dollar in a label":     {input: `{"action":"add_worker","labels":["leak=$(DAGU_WORKER_INVITE)"]}`, field: executeFieldLabels},
+		"bad label key":         {input: `{"action":"add_worker","labels":["gpu/type=a100"]}`, field: executeFieldLabels},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -345,19 +359,37 @@ func TestAddWorkerInputValidation(t *testing.T) {
 	}
 }
 
+// A label the worker accepts at start passes, key-only ones included. A
+// refused label is named by its position, never by its text, which may be
+// a pasted invite.
+func TestAddWorkerLabels(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseExecuteToolInput(json.RawMessage(`{"action":"add_worker","labels":["gpu","Zone=Tokyo-1","pool=gpu/a100"]}`))
+	require.Nil(t, err)
+
+	_, err = parseExecuteToolInput(json.RawMessage(`{"action":"add_worker","labels":["gpu=true","` + testWorkerInvite + `"]}`))
+	require.NotNil(t, err)
+	require.Equal(t, executeFieldLabels, err.Field)
+	require.Contains(t, err.Message, "label 2")
+	require.NotContains(t, err.Message, "AAAAAAAAAA")
+}
+
 // A release or prerelease build gets its own image tag. A build that was
 // never published gets none.
 func TestWorkerImage(t *testing.T) {
 	t.Parallel()
 
 	for version, want := range map[string]string{
-		"2.28.0":          "ghcr.io/dagucloud/dagu:2.28.0",
-		"v2.28.0":         "ghcr.io/dagucloud/dagu:2.28.0",
-		"v2.28.0-rc.1":    "ghcr.io/dagucloud/dagu:2.28.0-rc.1",
-		"dev":             "",
-		"0.0.0":           "",
-		"v2.27.0-12-gabc": "",
-		"2.27.1-next":     "",
+		"2.28.0":                   "ghcr.io/dagucloud/dagu:2.28.0",
+		"v2.28.0":                  "ghcr.io/dagucloud/dagu:2.28.0",
+		"v2.28.0-rc.1":             "ghcr.io/dagucloud/dagu:2.28.0-rc.1",
+		"dev":                      "",
+		"0.0.0":                    "",
+		"v2.27.0-12-gabc":          "",
+		"2.28.0-preview-test.1":    "ghcr.io/dagucloud/dagu:2.28.0-preview-test.1",
+		"v2.28.0-rc.1-3-g1a2b3c4d": "",
+		"2.27.1-next":              "",
 	} {
 		image, ok := workerImage(version)
 		require.Equal(t, want, image, version)
@@ -381,4 +413,10 @@ func TestWorkerContainerCommands(t *testing.T) {
 	require.Contains(t, manifest, `args: ["dagu", "worker", "--worker.coordinators=$$(DAGU_WORKER_INVITE):50055"]`)
 	require.Contains(t, manifest, "image: ghcr.io/dagucloud/dagu:2.28.0")
 	require.Equal(t, 1, strings.Count(manifest, testWorkerInvite), "only the Secret holds the invite")
+
+	commands = workerCommands("192.168.1.20:50055", nil, testWorkerInvite, "ghcr.io/dagucloud/dagu:2.28.0", false)
+	require.Equal(t, map[string]string{
+		"linux":  "dagu worker --worker.coordinators=192.168.1.20:50055 --worker.invite=" + testWorkerInvite,
+		"docker": "docker run -d --restart unless-stopped -v dagu-worker:/var/lib/dagu -e DAGU_WORKER_INVITE=" + testWorkerInvite + " ghcr.io/dagucloud/dagu:2.28.0 dagu worker --worker.coordinators=192.168.1.20:50055",
+	}, commands, "a single-use invite gets no manifest")
 }

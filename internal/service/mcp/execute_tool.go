@@ -151,7 +151,7 @@ func executeToolInputSchema() json.RawMessage {
 			"labels": {
 				"type": "array",
 				"items": {"type": "string"},
-				"description": "Additional labels, each as key=value or key-only. For add_worker: worker labels, each key=value whose key holds only letters, digits, -, _, and . and whose value holds only those and /, put into the commands, not the invite."
+				"description": "Additional labels, each as key=value or key-only. For add_worker: worker labels put into the commands, not the invite, each key or key=value as a worker accepts at start: a key holds only letters, digits, -, _, and ., a value only those and /, each key once, and not os or arch."
 			},
 			"targetNodes": {
 				"type": "array",
@@ -236,11 +236,11 @@ func executeToolInputSchema() json.RawMessage {
 			},
 			"address": {
 				"type": "string",
-				"description": "For add_worker: the host:port workers dial to reach the coordinator: not 0.0.0.0, [::], a loopback address, localhost, or a container ID. Without it, add_worker creates no invite."
+				"description": "For add_worker: the host:port workers dial to reach the coordinator: one IP address without a zone or one DNS name, and not 0.0.0.0, [::], a loopback or link-local address, localhost, or a container ID. Without it, add_worker creates no invite."
 			},
 			"reusable": {
 				"type": "boolean",
-				"description": "For add_worker: true for an invite any number of workers join with, as Kubernetes needs. Defaults to false: one worker."
+				"description": "For add_worker: true for an invite any number of workers join with, as the kubernetes command needs. Defaults to false: one worker."
 			},
 			"expiresIn": {
 				"type": "string",
