@@ -1017,18 +1017,34 @@ func sanitizedRequestLogger(httpLogger *httplog.Logger) func(next http.Handler) 
 var secretQueryParams = []string{"token", "code", "state"}
 
 // redactSecretsFromRequest returns a request with the secretQueryParams
-// redacted, and without the pairs a query parser drops, which may hide one.
-// If neither is present, the original request is returned unchanged.
+// redacted, every worker invite in its path or query values redacted, and
+// without the query pairs a parser drops, which may hide one. If none of
+// these is present, the original request is returned unchanged.
 func redactSecretsFromRequest(r *http.Request) *http.Request {
-	if r.URL.RawQuery == "" {
-		return r
-	}
+	path := coordinator.RedactInvites(r.URL.Path)
+	rawPath := coordinator.RedactInvites(r.URL.RawPath)
+	found := path != r.URL.Path || rawPath != r.URL.RawPath
 
-	q, err := url.ParseQuery(r.URL.RawQuery)
-	found := err != nil
-	for _, name := range secretQueryParams {
-		if q.Has(name) {
-			q.Set(name, "[REDACTED]")
+	rawQuery := r.URL.RawQuery
+	if rawQuery != "" {
+		q, err := url.ParseQuery(rawQuery)
+		queryFound := err != nil
+		for _, name := range secretQueryParams {
+			if q.Has(name) {
+				q.Set(name, "[REDACTED]")
+				queryFound = true
+			}
+		}
+		for _, values := range q {
+			for i, value := range values {
+				if redacted := coordinator.RedactInvites(value); redacted != value {
+					values[i] = redacted
+					queryFound = true
+				}
+			}
+		}
+		if queryFound {
+			rawQuery = q.Encode()
 			found = true
 		}
 	}
@@ -1037,7 +1053,9 @@ func redactSecretsFromRequest(r *http.Request) *http.Request {
 	}
 
 	redacted := r.Clone(r.Context())
-	redacted.URL.RawQuery = q.Encode()
+	redacted.URL.Path = path
+	redacted.URL.RawPath = rawPath
+	redacted.URL.RawQuery = rawQuery
 	redacted.RequestURI = redacted.URL.RequestURI()
 
 	return redacted

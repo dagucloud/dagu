@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -94,4 +95,26 @@ func TestDisabledTrustedProxyRoutePrecedesSPAFallback(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, resp.Code)
 	assert.Equal(t, "not found\n", resp.Body.String())
+}
+
+// testInvite is shaped like a worker invite.
+var testInvite = "dagu1." + strings.Repeat("A", 43) + "." + strings.Repeat("B", 43)
+
+// An invite pasted into a path or a query value reaches the handler as
+// sent and stays out of the access log.
+func TestRequestLoggerRedactsInvites(t *testing.T) {
+	var output bytes.Buffer
+	httpLogger := httplog.NewLogger("test", httplog.Options{JSON: true, Concise: true, Writer: &output})
+	handler := sanitizedRequestLogger(httpLogger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v1/workers/invites/"+testInvite, r.URL.Path)
+		assert.Equal(t, testInvite, r.URL.Query().Get("expiresIn"))
+		w.WriteHeader(http.StatusNotFound)
+	}))
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/workers/invites/"+testInvite+"?expiresIn="+testInvite+"&remoteNode=local", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	assert.Contains(t, output.String(), "/api/v1/workers/invites/")
+	assert.Contains(t, output.String(), "remoteNode=local")
+	assert.NotContains(t, output.String(), testInvite)
 }

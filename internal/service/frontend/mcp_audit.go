@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/google/uuid"
 )
 
@@ -57,7 +58,7 @@ func (srv *Server) logMCPAuthDenied(r *http.Request, reason string, apiKey *auth
 		"result":        "denied",
 		"denial_reason": reason,
 		"resource_type": "mcp_request",
-		"resource_id":   r.URL.Path,
+		"resource_id":   coordinator.RedactInvites(r.URL.Path),
 		"http_method":   r.Method,
 	}
 	srv.apiV1.LogAudit(ctx, audit.CategoryMCP, "mcp.request.denied", details)
