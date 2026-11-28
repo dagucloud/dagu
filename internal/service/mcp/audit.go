@@ -361,18 +361,14 @@ func executeAuditMetadata(input executeInput) toolAuditMetadata {
 	}
 }
 
-// addWorkerAuditMetadata records the invite options of an add_worker call.
+// addWorkerAuditMetadata records the invite kind of an add_worker call. It
+// records no string the caller sent, since an entry is written before the
+// caller is authorized; worker_invite_create records the address.
 func addWorkerAuditMetadata(input executeInput) toolAuditMetadata {
 	attrs := map[string]any{
 		"action":      executeActionAddWorker,
 		"reusable":    input.AddWorker.Reusable,
 		"label_count": len(input.Labels),
-	}
-	if input.AddWorker.Address != "" {
-		attrs["address"] = input.AddWorker.Address
-	}
-	if input.AddWorker.ExpiresIn != "" {
-		attrs["expires_in"] = input.AddWorker.ExpiresIn
 	}
 	return toolAuditMetadata{Action: executeActionAddWorker, ResourceType: "worker_invite", Attributes: attrs}
 }

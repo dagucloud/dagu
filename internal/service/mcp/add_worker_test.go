@@ -6,6 +6,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -13,6 +14,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -39,9 +41,17 @@ func (s *workerAccessStub) GetJoinReadiness(context.Context) ([]coordinator.Join
 	return s.readiness, nil
 }
 
+// testInviteExpiry is when a single-use invite of the stub expires.
+const testInviteExpiry = "2024-03-10T16:00:00Z"
+
+// CreateInvite answers as a coordinator does: a single-use invite expires
+// by default, and a reusable one does not.
 func (s *workerAccessStub) CreateInvite(_ context.Context, req *coordinatorv1.CreateInviteRequest) (*coordinatorv1.CreateInviteResponse, error) {
 	s.created = req
-	record := &coordinatorv1.InviteRecord{Id: "invite-1", Kind: coordinatorv1.InviteKind_INVITE_KIND_REUSABLE, Address: req.Address}
+	record := &coordinatorv1.InviteRecord{Id: "invite-1", Kind: coordinatorv1.InviteKind_INVITE_KIND_SINGLE_USE, ExpiresAt: 1710086400, Address: req.Address}
+	if req.Reusable {
+		record.Kind, record.ExpiresAt = coordinatorv1.InviteKind_INVITE_KIND_REUSABLE, 0
+	}
 	return &coordinatorv1.CreateInviteResponse{Invite: testWorkerInvite, Record: record}, nil
 }
 
@@ -155,7 +165,9 @@ func TestAddWorkerNotReady(t *testing.T) {
 }
 
 // A readiness-only call holds no invite. The call with an address creates
-// one, and only its result holds it; no audit entry does.
+// one, and only its result holds it; no audit entry does. The test binary
+// is a development build, so the result has no container command and says
+// why.
 func TestAddWorkerCreatesInvite(t *testing.T) {
 	t.Parallel()
 
@@ -174,16 +186,18 @@ func TestAddWorkerCreatesInvite(t *testing.T) {
 	require.NotContains(t, output, "invite")
 	require.Nil(t, stub.created)
 
-	result, data = addWorker(t, ctx, svc, map[string]any{"address": "192.168.1.20:50055", "reusable": true, "labels": []string{"gpu=true"}})
+	result, data = addWorker(t, ctx, svc, map[string]any{"address": "192.168.1.20:50055", "labels": []string{"gpu=true"}})
 	require.False(t, result.IsError, data)
 	output = structuredMap(t, result)
 	require.Equal(t, "invite-1", output["inviteId"])
 	require.Equal(t, testWorkerInvite, output["invite"])
-	commands := output["commands"].(map[string]string)
-	require.Equal(t, "dagu worker --worker.coordinators=192.168.1.20:50055 --worker.labels=gpu=true --worker.invite="+testWorkerInvite, commands["linux"])
-	require.Contains(t, commands["docker"], "-v dagu-worker:/var/lib/dagu -e DAGU_WORKER_INVITE="+testWorkerInvite)
-	require.Contains(t, commands["kubernetes"], "invite: "+testWorkerInvite)
-	require.True(t, stub.created.GetReusable())
+	require.Equal(t, daguapi.WorkerInviteKindSingleUse, output["kind"])
+	require.Equal(t, testInviteExpiry, output["expiresAt"])
+	require.Equal(t, map[string]string{
+		"linux": "dagu worker --worker.coordinators=192.168.1.20:50055 --worker.labels=gpu=true --worker.invite=" + testWorkerInvite,
+	}, output["commands"])
+	require.Contains(t, output["imageUnavailable"], "no published image")
+	require.False(t, stub.created.GetReusable())
 	require.Equal(t, "192.168.1.20:50055", stub.created.GetAddress())
 	require.Equal(t, "pat", stub.created.GetCreatedBy())
 
@@ -196,17 +210,27 @@ func TestAddWorkerCreatesInvite(t *testing.T) {
 	require.Contains(t, actions["mcp.tool_call.succeeded"], `"invite_id":"invite-1"`)
 }
 
-// A single-use invite gets no Kubernetes command, since a new pod has no
-// certificate.
-func TestAddWorkerSingleUseCommands(t *testing.T) {
+// A reusable invite has no expiry by default. The command keeps an IPv6
+// address and labels with spaces, quotes, and dollar signs as given.
+func TestAddWorkerReusableInvite(t *testing.T) {
 	t.Parallel()
 
-	svc, _ := newAddWorkerService(&workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}})
+	stub := &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}}
+	svc, _ := newAddWorkerService(stub)
 
-	result, data := addWorker(t, cloudUser(auth.RoleAdmin), svc, map[string]any{"address": "192.168.1.20:50055"})
+	result, data := addWorker(t, cloudUser(auth.RoleAdmin), svc, map[string]any{
+		"address":  "[2001:db8::1]:50055",
+		"reusable": true,
+		"labels":   []string{"team=data eng", "note=it's $HOME"},
+	})
 
 	require.False(t, result.IsError, data)
-	require.NotContains(t, structuredMap(t, result)["commands"], "kubernetes")
+	output := structuredMap(t, result)
+	require.Equal(t, daguapi.WorkerInviteKindReusable, output["kind"])
+	require.NotContains(t, output, "expiresAt")
+	require.Equal(t, `dagu worker '--worker.coordinators=[2001:db8::1]:50055' '--worker.labels=team=data eng,note=it'\''s $HOME' --worker.invite=`+testWorkerInvite,
+		output["commands"].(map[string]string)["linux"])
+	require.True(t, stub.created.GetReusable())
 }
 
 func TestAddWorkerRefused(t *testing.T) {
@@ -218,23 +242,51 @@ func TestAddWorkerRefused(t *testing.T) {
 		role   auth.Role
 		code   string
 	}{
-		"non-admin":         {client: &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}}, role: auth.RoleManager, code: executeErrorUnauthorized},
+		"non-admin":         {client: &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}}, role: auth.RoleDeveloper, code: executeErrorUnauthorized},
 		"no coordinator":    {role: auth.RoleAdmin, code: executeErrorResourceUnavailable},
 		"older coordinator": {client: older, role: auth.RoleAdmin, code: executeErrorConflict},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			svc, _ := newAddWorkerService(tc.client)
+			svc, store := newAddWorkerService(tc.client)
 
-			result, data := addWorker(t, cloudUser(tc.role), svc, map[string]any{"address": "192.168.1.20:50055"})
+			// An invite pasted into expiresIn reaches no audit entry.
+			result, data := addWorker(t, cloudUser(tc.role), svc, map[string]any{"address": "192.168.1.20:50055", "expiresIn": testWorkerInvite})
 
 			require.True(t, result.IsError, data)
 			require.Equal(t, tc.code, structuredMap(t, result)["code"])
 			if stub, ok := tc.client.(*workerAccessStub); ok {
 				require.Nil(t, stub.created)
 			}
+			require.NotEmpty(t, store.entries)
+			for _, entry := range store.entries {
+				require.Equal(t, "cloud:user-1", entry.UserID, entry.Action)
+				require.NotContains(t, entry.Details, testWorkerInvite, entry.Action)
+			}
 		})
+	}
+}
+
+// An address a worker on another host cannot dial is refused before any
+// coordinator is asked.
+func TestAddWorkerRefusesAddress(t *testing.T) {
+	t.Parallel()
+
+	for _, address := range []string{
+		"0.0.0.0:50055", "[::]:50055", "127.0.0.1:50055", "[::1]:50055", "localhost:50055",
+		"192.168.1.20", "192.168.1.20:0", "3f4e5a6b7c8d:50055",
+	} {
+		stub := &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}}
+		svc, _ := newAddWorkerService(stub)
+
+		result, data := addWorker(t, cloudUser(auth.RoleAdmin), svc, map[string]any{"address": address})
+
+		require.True(t, result.IsError, address)
+		output := structuredMap(t, result)
+		require.Equal(t, executeErrorInvalidToolInput, output["code"], data)
+		require.Equal(t, executeFieldAddress, output["field"], data)
+		require.Nil(t, stub.created, address)
 	}
 }
 
@@ -248,6 +300,8 @@ func TestAddWorkerInputValidation(t *testing.T) {
 		"name on add_worker":   {input: `{"action":"add_worker","name":"etl"}`, field: executeFieldName},
 		"address on start":     {input: `{"action":"start","name":"etl","address":"192.168.1.20:50055"}`, field: executeFieldAddress},
 		"reusable on backfill": {input: `{"action":"backfill","name":"etl","reusable":true}`, field: executeFieldReusable},
+		"label without value":  {input: `{"action":"add_worker","labels":["gpu"]}`, field: executeFieldLabels},
+		"comma in a label":     {input: `{"action":"add_worker","labels":["zone=a,b"]}`, field: executeFieldLabels},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -258,4 +312,42 @@ func TestAddWorkerInputValidation(t *testing.T) {
 			require.Equal(t, tc.field, err.Field)
 		})
 	}
+}
+
+// A release or prerelease build gets its own image tag. A build that was
+// never published gets none.
+func TestWorkerImage(t *testing.T) {
+	t.Parallel()
+
+	for version, want := range map[string]string{
+		"2.28.0":          "ghcr.io/dagucloud/dagu:2.28.0",
+		"v2.28.0":         "ghcr.io/dagucloud/dagu:2.28.0",
+		"v2.28.0-rc.1":    "ghcr.io/dagucloud/dagu:2.28.0-rc.1",
+		"dev":             "",
+		"0.0.0":           "",
+		"v2.27.0-12-gabc": "",
+		"2.27.1-next":     "",
+	} {
+		image, ok := workerImage(version)
+		require.Equal(t, want, image, version)
+		require.Equal(t, want != "", ok, version)
+	}
+}
+
+// The container commands keep the address and labels as given. The
+// manifest takes the invite from the Secret only, and a $ in a label does
+// not expand a variable such as the invite's.
+func TestWorkerContainerCommands(t *testing.T) {
+	t.Parallel()
+
+	labels := []string{"team=data eng", "leak=$(DAGU_WORKER_INVITE)"}
+	commands := workerCommands("[2001:db8::1]:50055", labels, testWorkerInvite, "ghcr.io/dagucloud/dagu:2.28.0", true)
+
+	require.Equal(t, "docker run -d --restart unless-stopped -v dagu-worker:/var/lib/dagu -e DAGU_WORKER_INVITE="+testWorkerInvite+
+		` ghcr.io/dagucloud/dagu:2.28.0 dagu worker '--worker.coordinators=[2001:db8::1]:50055' '--worker.labels=team=data eng,leak=$(DAGU_WORKER_INVITE)'`,
+		commands["docker"])
+	manifest := commands["kubernetes"]
+	require.Contains(t, manifest, `args: ["dagu", "worker", "--worker.coordinators=[2001:db8::1]:50055", "--worker.labels=team=data eng,leak=$$(DAGU_WORKER_INVITE)"]`)
+	require.Contains(t, manifest, "image: ghcr.io/dagucloud/dagu:2.28.0")
+	require.Equal(t, 1, strings.Count(manifest, testWorkerInvite), "only the Secret holds the invite")
 }

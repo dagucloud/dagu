@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -26,8 +28,9 @@ const (
 	// allInterfacesHost is the coordinator.host that accepts workers from
 	// other hosts.
 	allInterfacesHost = "0.0.0.0"
-	// workerImage is the image the Docker and Kubernetes commands run.
-	workerImage = "ghcr.io/dagucloud/dagu:latest"
+	// workerImageRepository is the repository of the published images. Each
+	// release is tagged with its version.
+	workerImageRepository = "ghcr.io/dagucloud/dagu"
 	// workerInviteEnv carries the invite into a worker container.
 	workerInviteEnv = "DAGU_WORKER_INVITE"
 	// workerDataDir is the data directory of the image, where a worker keeps
@@ -37,6 +40,17 @@ const (
 
 // addWorkerFields lists the fields add_worker takes besides action.
 var addWorkerFields = []string{executeFieldAddress, executeFieldReusable, executeFieldExpiresIn, executeFieldLabels}
+
+var (
+	// releaseVersion matches the version of a release or prerelease build,
+	// whose image tag is the version without the leading v.
+	releaseVersion = regexp.MustCompile(`^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)$`)
+	// unreleasedSuffix matches what an unreleased build adds to the last
+	// tag: git describe's commit count and hash, or a snapshot's -next.
+	unreleasedSuffix = regexp.MustCompile(`(-\d+-g[0-9a-f]+|-next)$`)
+	// containerID matches a short or full container ID used as a host name.
+	containerID = regexp.MustCompile(`^[0-9a-f]{12}([0-9a-f]{52})?$`)
+)
 
 // addWorkerInput holds the fields of the add_worker action. The worker
 // labels are executeInput.Labels.
@@ -65,14 +79,64 @@ func parseAddWorkerField(input *addWorkerInput, field string, value json.RawMess
 	return err
 }
 
-// validateAddWorkerInput refuses the fields add_worker does not take.
-func validateAddWorkerInput(provided map[string]bool) *executeToolError {
+// validateAddWorkerInput refuses the fields add_worker does not take, an
+// address a worker on another host cannot dial, and a label the commands
+// cannot carry.
+func validateAddWorkerInput(input *executeInput, provided map[string]bool) *executeToolError {
 	for field := range provided {
 		if field != executeFieldAction && !slices.Contains(addWorkerFields, field) {
 			return executeInputError(fmt.Sprintf("The %s field is not valid for %s.", field, executeActionAddWorker), field)
 		}
 	}
+	if address := input.AddWorker.Address; address != "" {
+		if problem := dialAddressProblem(address); problem != "" {
+			return executeInputError("The address field "+problem+".", executeFieldAddress)
+		}
+	}
+	for _, label := range input.Labels {
+		if key, _, ok := strings.Cut(label, "="); !ok || key == "" || strings.Contains(label, ",") {
+			return executeInputError("Each worker label must be key=value without a comma.", executeFieldLabels)
+		}
+	}
 	return nil
+}
+
+// dialAddressProblem says why a worker on another host cannot dial addr, or
+// returns "" when it can. Spec 108 §Add Worker states the rule.
+func dialAddressProblem(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return "must be host:port, such as 192.168.1.20:50055"
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return "must have a port from 1 to 65535"
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		switch {
+		case ip.IsUnspecified():
+			return "must name one address, not " + host
+		case ip.IsLoopback():
+			return "must not be a loopback address, which reaches only the worker's own machine"
+		}
+		return ""
+	}
+	switch {
+	case strings.EqualFold(strings.TrimSuffix(host, "."), "localhost"):
+		return "must not be localhost, which reaches only the worker's own machine"
+	case containerID.MatchString(host):
+		return "must not be a container ID; give the address of the machine that runs the container"
+	}
+	return ""
+}
+
+// workerImage returns the published image of the server version, and false
+// for a build that has no published image.
+func workerImage(version string) (string, bool) {
+	match := releaseVersion.FindStringSubmatch(version)
+	if match == nil || match[1] == "0.0.0" || unreleasedSuffix.MatchString(version) {
+		return "", false
+	}
+	return workerImageRepository + ":" + match[1], true
 }
 
 // addWorker returns the join readiness and, once every coordinator is ready
@@ -126,10 +190,16 @@ func (svc *Service) addWorker(ctx context.Context, input executeInput) (*mcpsdk.
 	if invite.ExpiresAt != nil {
 		output["expiresAt"] = *invite.ExpiresAt
 	}
-	output["commands"] = workerCommands(in.Address, input.Labels, invite.Invite, in.Reusable)
+	image, published := workerImage(config.Version)
+	output["commands"] = workerCommands(in.Address, input.Labels, invite.Invite, image, in.Reusable)
 	message := "Invite " + invite.Id + " created. Show the user one of commands; no other result contains the invite. " +
 		"A worker that joins with it lists inviteId " + invite.Id + "."
-	if !in.Reusable {
+	switch {
+	case !published:
+		output["imageUnavailable"] = "This server runs build " + config.Version + ", which has no published image, " +
+			"so commands has no Docker or Kubernetes command. A worker container needs an image built from the same source."
+		message += " " + output["imageUnavailable"].(string)
+	case !in.Reusable:
 		message += " Kubernetes needs reusable=true, since a new pod has no certificate."
 	}
 	return resultWithLinks(message), output, nil
@@ -252,30 +322,49 @@ func addressOptions(readiness daguapi.GetWorkerJoinReadiness200JSONResponse) map
 }
 
 // workerCommands returns the command that joins a worker with invite for
-// each way to run one. Kubernetes takes only a reusable invite.
-func workerCommands(address string, labels []string, invite string, reusable bool) map[string]string {
+// each way to run one. Without image, it has no container commands.
+// Kubernetes takes only a reusable invite.
+func workerCommands(address string, labels []string, invite, image string, reusable bool) map[string]string {
 	args := []string{"dagu", "worker", "--worker.coordinators=" + address}
 	if len(labels) > 0 {
 		args = append(args, "--worker.labels="+strings.Join(labels, ","))
 	}
-	commands := map[string]string{
-		"linux": strings.Join(append(args, "--worker.invite="+invite), " "),
-		"docker": "docker run -d --restart unless-stopped -v dagu-worker:" + workerDataDir + " -e " + workerInviteEnv + "=" + invite +
-			" " + workerImage + " " + strings.Join(args, " "),
+	commands := map[string]string{"linux": shellCommand(append(args, "--worker.invite="+invite)...)}
+	if image == "" {
+		return commands
 	}
+	docker := []string{"docker", "run", "-d", "--restart", "unless-stopped", "-v", "dagu-worker:" + workerDataDir,
+		"-e", workerInviteEnv + "=" + invite, image}
+	commands["docker"] = shellCommand(append(docker, args...)...)
 	if reusable {
-		commands["kubernetes"] = kubernetesManifest(args, invite)
+		commands["kubernetes"] = kubernetesManifest(args, invite, image)
 	}
 	return commands
 }
 
-// kubernetesManifest returns a Secret with invite and a Deployment that runs
-// args with it. The data directory is an emptyDir, so a new pod enrolls
-// again with the reusable invite.
-func kubernetesManifest(args []string, invite string) string {
+// shellCommand joins args into a POSIX shell command, quoting each argument
+// that holds a character the shell treats specially.
+func shellCommand(args ...string) string {
 	quoted := make([]string, 0, len(args))
 	for _, arg := range args {
-		quoted = append(quoted, strconv.Quote(arg))
+		if arg != "" && strings.Trim(arg, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-") == "" {
+			quoted = append(quoted, arg)
+			continue
+		}
+		quoted = append(quoted, "'"+strings.ReplaceAll(arg, "'", `'\''`)+"'")
+	}
+	return strings.Join(quoted, " ")
+}
+
+// kubernetesManifest returns a Secret with invite and a Deployment that runs
+// image with args and takes the invite from the Secret. The data directory
+// is an emptyDir, so a new pod enrolls again with the reusable invite.
+func kubernetesManifest(args []string, invite, image string) string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		// $$ keeps a $ from expanding a variable reference such as
+		// $(DAGU_WORKER_INVITE).
+		quoted = append(quoted, strconv.Quote(strings.ReplaceAll(arg, "$", "$$")))
 	}
 	return `apiVersion: v1
 kind: Secret
@@ -300,7 +389,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: ` + workerImage + `
+          image: ` + image + `
           args: [` + strings.Join(quoted, ", ") + `]
           env:
             - name: ` + workerInviteEnv + `

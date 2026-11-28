@@ -151,7 +151,7 @@ func executeToolInputSchema() json.RawMessage {
 			"labels": {
 				"type": "array",
 				"items": {"type": "string"},
-				"description": "Additional labels, each as key=value or key-only. For add_worker: worker labels, each key=value, put into the commands, not the invite."
+				"description": "Additional labels, each as key=value or key-only. For add_worker: worker labels, each key=value without a comma, put into the commands, not the invite."
 			},
 			"targetNodes": {
 				"type": "array",
@@ -236,7 +236,7 @@ func executeToolInputSchema() json.RawMessage {
 			},
 			"address": {
 				"type": "string",
-				"description": "For add_worker: the host:port workers dial to reach the coordinator. Without it, add_worker creates no invite."
+				"description": "For add_worker: the host:port workers dial to reach the coordinator: not 0.0.0.0, [::], a loopback address, localhost, or a container ID. Without it, add_worker creates no invite."
 			},
 			"reusable": {
 				"type": "boolean",
@@ -627,7 +627,7 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 	case executeActionBackfill, executeActionBackfillResume, executeActionBackfillCancel:
 		return validateBackfillInput(input, provided)
 	case executeActionAddWorker:
-		return validateAddWorkerInput(provided)
+		return validateAddWorkerInput(input, provided)
 	default:
 		return executeInputError("Unsupported execute action.", executeFieldAction)
 	}
