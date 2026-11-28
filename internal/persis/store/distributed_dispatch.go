@@ -1223,6 +1223,17 @@ func (s *DispatchTaskStore) expireClaim(ctx context.Context, rec *persis.Record,
 	if err != nil {
 		return err
 	}
+	// A pass that read the decision before another one finished it, and
+	// that a poll then took the queued task of, finds the claim gone here
+	// and queues nothing, so the task runs once.
+	if _, err := s.col.Get(ctx, rec.ID); errors.Is(err, persis.ErrNotFound) {
+		if s.index != nil {
+			s.index.removeClaim(rec.ID)
+		}
+		return nil
+	} else if err != nil {
+		return err
+	}
 	if err := s.col.Create(ctx, pendingRec); err != nil && !errors.Is(err, persis.ErrConflict) {
 		return err
 	}

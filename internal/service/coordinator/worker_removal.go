@@ -639,9 +639,12 @@ func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertifica
 
 // removalDue reports whether the removing certificate removal is to be
 // revoked: no worker that holds it has a fresh heartbeat, or it was
-// removing for 30 seconds and no worker that holds it holds a run. A worker holds it when its fresh
-// heartbeat carries it or when the removal names it, so a worker ID that
-// changes during the removal is still waited for.
+// removing for 30 seconds and no worker that holds it holds a run. A worker
+// holds it when its fresh heartbeat carries it, so a worker ID that changes
+// during the removal is still waited for, and a replacement that took the
+// worker ID with another certificate is not. A heartbeat without a
+// certificate ID, from a coordinator predating the field, holds it when it
+// comes from the worker the removal names.
 func (h *Handler) removalDue(removal persis.WorkerCertificateRemoval, presence []dispatch.WorkerHeartbeatRecord, leases []dispatch.DAGRunLease, now time.Time) bool {
 	return len(h.removalHolders(removal, presence, now)) == 0 ||
 		(h.removals.removingFor(removal.ID, removingMinimum, now) && len(h.heldRunsOf(removal, presence, leases, now)) == 0)
@@ -652,7 +655,7 @@ func (h *Handler) removalDue(removal persis.WorkerCertificateRemoval, presence [
 func (h *Handler) removalHolders(removal persis.WorkerCertificateRemoval, presence []dispatch.WorkerHeartbeatRecord, now time.Time) []dispatch.WorkerHeartbeatRecord {
 	var holders []dispatch.WorkerHeartbeatRecord
 	for _, hb := range presence {
-		if (hb.CertificateID == removal.ID || hb.WorkerID == removal.WorkerID) && dispatch.WorkerHeartbeatFresh(hb, now, h.staleHeartbeatThreshold) {
+		if (hb.CertificateID == removal.ID || (hb.CertificateID == "" && hb.WorkerID == removal.WorkerID)) && dispatch.WorkerHeartbeatFresh(hb, now, h.staleHeartbeatThreshold) {
 			holders = append(holders, hb)
 		}
 	}
@@ -667,9 +670,11 @@ func (h *Handler) heldRunsOf(removal persis.WorkerCertificateRemoval, presence [
 	for _, hb := range holders {
 		workerIDs[hb.WorkerID] = true
 	}
-	// Waiting errs on the safe side: any lease under a holder's ID counts.
+	// A lease that names the certificate counts. One without a certificate
+	// ID, written before the field, counts under a holder's worker ID, which
+	// errs on the safe side.
 	counts := func(lease dispatch.DAGRunLease) bool {
-		return lease.CertificateID == removal.ID || workerIDs[lease.WorkerID]
+		return lease.CertificateID == removal.ID || (lease.CertificateID == "" && workerIDs[lease.WorkerID])
 	}
 	return heldRuns(holders, leases, counts, now, h.staleLeaseThreshold)
 }

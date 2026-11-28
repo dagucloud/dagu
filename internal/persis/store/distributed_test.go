@@ -1068,6 +1068,64 @@ func TestDispatchTaskStore_ListBundleDigestsDuringTransitions(t *testing.T) {
 	}
 }
 
+// pauseAfterClaimRead pauses right after the first read of a claim record
+// until release closes.
+type pauseAfterClaimRead struct {
+	persis.Collection
+	reads   atomic.Int32
+	reached chan struct{}
+	release chan struct{}
+}
+
+func (c *pauseAfterClaimRead) Get(ctx context.Context, id string) (*persis.Record, error) {
+	rec, err := c.Collection.Get(ctx, id)
+	if strings.HasPrefix(id, "claims/") && c.reads.Add(1) == 1 {
+		close(c.reached)
+		<-c.release
+	}
+	return rec, err
+}
+
+// A claim's expiry records its decision and stops before it queues the
+// task again. Another coordinator's pass reads the decided claim, and before
+// it goes on, the first coordinator finishes the expiry and a poll takes the
+// queued task. The late pass finds the claim gone and queues nothing, so
+// the task is claimed once (Spec 108 §Removal).
+func TestDispatchTaskStore_ExpiryReplayAfterTaskTaken(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	base := testutil.NewMemoryBackend().Collection("dispatch_tasks")
+	stopping := &afterRequeue{Collection: base}
+	first, claimed := expiringStore(t, stopping)
+	time.Sleep(100 * time.Millisecond)
+	stopping.failCreate.Store(true)
+	_, err := first.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-2", PollerID: "poller-2"})
+	require.Error(t, err, "the expiry stops after its decision")
+	paused := &pauseAfterClaimRead{Collection: base, reached: make(chan struct{}), release: make(chan struct{})}
+	late := store.NewDispatchTaskStore(paused, store.WithDispatchReservationTTL(50*time.Millisecond))
+	lateClaim := make(chan *dispatch.ClaimedDispatchTask, 1)
+	go func() {
+		task, err := late.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-3", PollerID: "poller-3"})
+		assert.NoError(t, err)
+		lateClaim <- task
+	}()
+	<-paused.reached
+
+	taken, err := first.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-2", PollerID: "poller-2"})
+	require.NoError(t, err)
+	require.NotNil(t, taken)
+	close(paused.release)
+	assert.Nil(t, <-lateClaim, "the late pass queues nothing")
+	claims, err := base.List(ctx, persis.ListQuery{Prefix: "claims/"})
+	require.NoError(t, err)
+	assert.Len(t, claims.Records, 1)
+	pending, err := base.List(ctx, persis.ListQuery{Prefix: "pending/"})
+	require.NoError(t, err)
+	assert.Empty(t, pending.Records)
+	_, err = first.GetClaim(ctx, claimed.ClaimToken)
+	assert.ErrorIs(t, err, dispatch.ErrDispatchTaskNotFound)
+}
+
 // beforeFirstWrite runs hook once, right before the first write.
 type beforeFirstWrite struct {
 	persis.Collection

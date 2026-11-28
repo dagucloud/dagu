@@ -774,13 +774,13 @@ or `stop`:
     `worker node "<node>" is being removed`. The coordinator reads the
     bound worker's certificate state from the store for that check, so a
     coordinator that has not reread the removals yet refuses the run too.
-    A queued run fails then too, rather than staying queued. A repeat of a
-    dispatch admitted before the removal still succeeds, also one admitted
-    through another coordinator, which the check looks up in the store, and
-    a dispatch whose check cannot read the store fails with `Unavailable`,
-    so the caller tries again.
-  - A run already queued for a removed worker stays queued, as for an
-    offline worker.
+    A queued run whose handoff to the worker is refused so fails, rather
+    than staying queued. A repeat of a dispatch admitted before the removal
+    still succeeds, also one admitted through another coordinator, which
+    the check looks up in the store, and a dispatch whose check cannot read
+    the store fails with `Unavailable`, so the caller tries again.
+  - A run already admitted and waiting for the worker when the worker is
+    removed stays queued, as for an offline worker.
   - A worker accepts a task only while the store shows its certificate
     `active`: the coordinator that the acceptance reaches reads the
     certificate's state before it creates the task's lease. An acceptance
@@ -825,9 +825,13 @@ or `stop`:
     and the next pass returns the task. A coordinator that takes a task
     back from a worker in removal decides on the claim the same way, so it
     and the claim's expiry return the task once between them.
-  - The certificate is held by the worker the removal names and by each
-    worker whose fresh heartbeat carries it, so a worker ID that changes at
-    a restart is still waited for.
+  - The certificate is held by each worker whose fresh heartbeat carries
+    it, so a worker ID that changes at a restart is still waited for, and
+    a replacement that took the worker ID with another certificate is not.
+    A heartbeat that a coordinator predating the certificate ID in
+    heartbeats recorded holds it when it comes from the worker the removal
+    names. A lease counts toward the certificate when it names it, or,
+    written without a certificate ID, under a holder's worker ID.
   - The certificate is revoked when no worker that holds it holds a task, at
     least 30 seconds after the coordinator knows the store wrote the
     certificate `removing`, timed from when the write returned or when the

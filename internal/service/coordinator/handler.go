@@ -2394,11 +2394,24 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 
 // ackMissingClaim answers an acknowledgement of the claim claimToken that
 // is gone: accepted when the lease of attemptKey records that claim for
-// workerID, as after an acknowledgement that finished first.
+// workerID, as after an acknowledgement that finished first, unless the
+// call's certificate was revoked meanwhile, as an acknowledgement that then
+// refused the claim found.
 func (h *Handler) ackMissingClaim(ctx context.Context, attemptKey, workerID, claimToken string) (*coordinatorv1.AckTaskClaimResponse, error) {
 	if attemptKey != "" && workerID != "" {
 		lease, err := h.dagRunLeaseStore.Get(ctx, attemptKey)
 		if err == nil && lease.MatchesClaim(attemptKey, workerID) && lease.ClaimToken == claimToken {
+			if cert := h.callerCertificate(ctx); cert != nil {
+				record, err := h.workerCertificates.Get(ctx, cert.Subject.CommonName)
+				switch {
+				case err == nil && record.State == persis.WorkerCertificateRevoked:
+					h.removals.apply(removalOf(record))
+					return nil, status.Error(codes.Unauthenticated, removedWorkerMessage)
+				case err != nil && !errors.Is(err, persis.ErrWorkerCertificateNotFound):
+					// The worker retries an unavailable acceptance.
+					return nil, status.Error(codes.Unavailable, "failed to read the worker's certificate; try again")
+				}
+			}
 			return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
 		}
 		if err != nil && !errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) {

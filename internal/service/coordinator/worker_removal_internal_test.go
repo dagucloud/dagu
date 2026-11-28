@@ -1906,6 +1906,47 @@ func TestAckRetryAfterClaimFinalized(t *testing.T) {
 	assert.True(t, ack.Accepted, ack.Error)
 }
 
+// onGetClaim runs hook once, before the first claim read.
+type onGetClaim struct {
+	dispatch.DispatchTaskStore
+	hook func()
+	once sync.Once
+}
+
+func (s *onGetClaim) GetClaim(ctx context.Context, claimToken string) (*dispatch.ClaimedDispatchTask, error) {
+	s.once.Do(s.hook)
+	return s.DispatchTaskStore.GetClaim(ctx, claimToken)
+}
+
+// A retried acknowledgement passes the removal check, and before it reads
+// the claim, the first acknowledgement writes the lease, finds the
+// certificate revoked, and drops the claim. The retry finds the lease but
+// is refused as well, as the worker is removed (Spec 108 §Removal).
+func TestAckRetryAfterRevokedAcceptance(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	f.heartbeat(t, f.h, w)
+	require.NoError(t, f.dispatches.Enqueue(t.Context(), &dispatch.DispatchTask{
+		DAGRunID: "run-5", Target: "dag", AttemptID: "attempt-1", AttemptKey: attemptKeyOf("run-5"),
+	}))
+	task, err := f.poll(t, f.h, w)
+	require.NoError(t, err)
+	require.NotNil(t, task)
+	f.h.dispatchTaskStore = &onGetClaim{DispatchTaskStore: f.dispatches, hook: func() {
+		require.NoError(t, f.leases.Upsert(t.Context(), dispatch.DAGRunLease{
+			AttemptKey: task.AttemptKey, DAGRun: ir.DAGRunRef{Name: "dag", ID: "run-5"}, AttemptID: "attempt-1",
+			WorkerID: w.id, CertificateID: w.certID, ClaimToken: task.ClaimToken,
+			ClaimedAt: f.now.UnixMilli(), LastHeartbeatAt: f.now.UnixMilli(),
+		}))
+		_, err := f.certs.SetState(t.Context(), w.certID, persis.WorkerCertificateRevoked)
+		require.NoError(t, err)
+		require.NoError(t, f.dispatches.DeleteClaim(t.Context(), task.ClaimToken))
+	}}
+
+	_, err = f.h.AckTaskClaim(w.ctx, &coordinatorv1.AckTaskClaimRequest{WorkerId: w.id, ClaimToken: task.ClaimToken, AttemptKey: task.AttemptKey})
+	assert.Equal(t, codes.Unauthenticated, status.Code(err))
+}
+
 // recordHook runs hook once, before the first record pass.
 type recordHook struct {
 	persis.WorkerCertificateStore
@@ -2081,6 +2122,27 @@ func TestRemoveConnectedIDOnceHeldElsewhere(t *testing.T) {
 			assert.Equal(t, persis.WorkerCertificateActive, f.state(t, moved))
 		})
 	}
+}
+
+// worker-a holds a run on certificate X when a removal starts for it, and
+// then stops. A replacement enrolls as worker-a on certificate Y and stays
+// busy with its own run. Its heartbeat and lease name Y, so X's removal
+// does not wait for them, and X is revoked (Spec 108 §Removal).
+func TestFinishRevokedBesideBusyReplacement(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	f.heartbeat(t, f.h, w, "run-1")
+	f.lease(t, w, "run-1")
+	f.remove(t, w)
+	require.NoError(t, f.leases.Delete(t.Context(), attemptKeyOf("run-1")))
+	replacement := f.enroll(t, "worker-a")
+	f.now = removalStart.Add(removingMinimum + time.Second)
+	f.heartbeat(t, f.h, replacement, "run-2")
+	f.lease(t, replacement, "run-2")
+
+	f.h.rereadRemovals(t.Context())
+	assert.Equal(t, persis.WorkerCertificateRevoked, f.state(t, w))
+	assert.Equal(t, persis.WorkerCertificateActive, f.state(t, replacement))
 }
 
 // A repeat of a bound dispatch admitted before a removal elsewhere succeeds
