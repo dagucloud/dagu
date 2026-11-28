@@ -91,28 +91,33 @@ func (cli *clientImpl) ListInvites(ctx context.Context) ([]*coordinatorv1.Invite
 
 func (cli *clientImpl) DeleteInvite(ctx context.Context, id string) error {
 	// Reading the invites before the delete tells an ID that no invite has
-	// from an invite that a delete with a lost answer removed.
-	listed, err := cli.inviteListed(ctx, id)
-	if err != nil {
-		return err
-	}
-	if !listed {
+	// from an invite that a delete with a lost answer removed. A failed
+	// read does not stop the delete; it only leaves that unknown.
+	listed, listErr := cli.inviteListed(ctx, id)
+	if listErr == nil && !listed {
 		return status.Error(codes.NotFound, missingInviteMessage)
 	}
-	err = cli.callInviteCoordinator(ctx, true, func(ctx context.Context, client coordinatorv1.CoordinatorServiceClient, opts ...grpc.CallOption) error {
+	err := cli.callInviteCoordinator(ctx, true, func(ctx context.Context, client coordinatorv1.CoordinatorServiceClient, opts ...grpc.CallOption) error {
 		_, err := client.DeleteInvite(ctx, &coordinatorv1.DeleteInviteRequest{Id: id}, opts...)
 		return err
 	})
-	if err == nil || status.Code(err) == codes.NotFound {
-		// The invite was listed a moment ago, so it is gone.
+	if err == nil {
 		return nil
 	}
-	// The error kept is the worst of all coordinators, and another one may
-	// have deleted the invite and lost its answer. The invites show it.
-	if listed, listErr := cli.inviteListed(ctx, id); listErr == nil && !listed {
-		return nil
+	if status.Code(err) != codes.NotFound {
+		// The error kept is the worst of all coordinators, and another one
+		// may have deleted the invite and lost its answer. The invites show
+		// it.
+		if listed, afterErr := cli.inviteListed(ctx, id); afterErr != nil || listed {
+			return err
+		}
 	}
-	return err
+	if listErr != nil {
+		// Without the first read, an invite gone now may never have been.
+		return status.Error(codes.NotFound, missingInviteMessage)
+	}
+	// The invite was listed before the delete, so it is gone.
+	return nil
 }
 
 // inviteListed reports whether the invites list one with the ID id.
