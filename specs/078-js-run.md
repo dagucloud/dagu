@@ -48,6 +48,11 @@ The sandbox exposes the ECMAScript builtins, `console` (whose methods write to
 the step's stderr), `URL`, and `URLSearchParams`. It has no `require`,
 `fetch`, filesystem access, `process`, or timers.
 
+`Date` local time uses the zone named by `TZ` in the step's environment,
+resolved as in [Spec 006](006-value-resolution-env.md), so it matches the
+`TZ` a command step receives. An empty or unknown `TZ` means UTC; without
+`TZ`, the host's local zone applies.
+
 ### Language Level
 
 The engine implements ECMAScript 5.1 in full and the ES2015 through ES2022
@@ -113,5 +118,6 @@ steps:
 
 `conformance/spec078_js_run/` runs fixtures with `dagu start` and checks the
 written stdout for each output shape, inline and file input, template
-literals, console output, and failures from thrown errors and timeouts. It
+literals, console output, `Date` local time under a DAG and a step `TZ`, and
+failures from thrown errors and timeouts. It
 checks `dagu validate` for the configuration errors above.

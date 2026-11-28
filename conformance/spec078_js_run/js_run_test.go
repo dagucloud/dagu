@@ -28,6 +28,8 @@ func TestJSRun(t *testing.T) {
 		{"await.yaml", "4\n"},
 		{"input_file_json.yaml", "Metropolis\n"},
 		{"template_literal.yaml", "Hello Metropolis\n"},
+		{"timezone_dag.yaml", "0:15 -345\n"},
+		{"timezone_step.yaml", "0:15 -345\n"},
 	} {
 		t.Run(tc.fixture, func(t *testing.T) {
 			t.Parallel()

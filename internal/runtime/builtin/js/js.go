@@ -277,6 +277,12 @@ func (e *js) Run(ctx context.Context) error {
 	vm := goja.New()
 	vm.SetMaxCallStackSize(maxCallStackSize)
 
+	if loc, ok := resolveTimezone(ctx); ok {
+		if err := installDateTimezone(vm, loc); err != nil {
+			return fmt.Errorf("js: failed to configure timezone: %w", err)
+		}
+	}
+
 	jsonObject := vm.Get("JSON").ToObject(vm)
 	stringify, _ := goja.AssertFunction(jsonObject.Get("stringify"))
 	parse, _ := goja.AssertFunction(jsonObject.Get("parse"))
