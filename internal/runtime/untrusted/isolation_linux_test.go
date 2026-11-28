@@ -451,6 +451,27 @@ func TestIsolatedStepSharesAFileReadOnly(t *testing.T) {
 	assert.Error(t, other.Run(), "another user read the script")
 }
 
+// A folder above a shared file that the restricted user cannot pass fails the
+// share, also when others may pass it and the ACL entry of the user denies it.
+func TestIsolatedStepShareChecksTheACL(t *testing.T) {
+	requireIsolation(t)
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, context.Background(), testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	dir, err := os.MkdirTemp("", "dagu-untrusted-share-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	require.NoError(t, os.Chmod(dir, 0o755))
+	setACL(t, dir, aclNames[0], [3]uint32{0x01, 7, ^uint32(0)}, [3]uint32{0x02, 0, testUID},
+		[3]uint32{0x04, 5, ^uint32(0)}, [3]uint32{0x10, 5, ^uint32(0)}, [3]uint32{0x20, 5, ^uint32(0)})
+	script := filepath.Join(dir, "script.sh")
+	require.NoError(t, os.WriteFile(script, []byte("echo shared\n"), 0o750))
+
+	err = step.ShareReadOnly(script)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), fmt.Sprintf("the folder %s has the mode 0755: the restricted user cannot pass it", dir))
+}
+
 // A device node in the work directory, also in .git, fails the step: as its
 // owner, or with the bit r for others, the restricted user could open the
 // device. The node keeps its owner and its mode.

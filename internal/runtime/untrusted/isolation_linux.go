@@ -419,17 +419,21 @@ func (iso *isolation) place(workDir, workingDir, managedRoot string) error {
 	return nil
 }
 
-// checkTraversable checks that each folder above path lets any user pass
-// (the bit x for others), so that the restricted user can reach path. Dagu
-// does not change the mode of such a folder.
-func checkTraversable(path string) error {
+// checkTraversable checks that the restricted user can pass each folder above
+// path, by its mode and its access ACL (canPass), so that it can reach path.
+// Dagu does not change such a folder.
+func (iso *isolation) checkTraversable(path string) error {
 	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
-		info, err := os.Stat(dir)
-		if err != nil {
-			return err
+		var st unix.Stat_t
+		if err := unix.Stat(dir, &st); err != nil {
+			return &fs.PathError{Op: "stat", Path: dir, Err: err}
 		}
-		if info.Mode().Perm()&0o001 == 0 {
-			return fmt.Errorf("the folder %s has the mode %04o: the restricted user cannot pass it", dir, info.Mode().Perm())
+		acl, err := readAccessACL(dir)
+		if err != nil && !errors.Is(err, unix.ENODATA) && !errors.Is(err, unix.EOPNOTSUPP) {
+			return &fs.PathError{Op: "getxattr", Path: dir, Err: err}
+		}
+		if !canPass(&st, acl, iso.uid, iso.gid) {
+			return fmt.Errorf("the folder %s has the mode %04o: the restricted user cannot pass it", dir, st.Mode&0o777)
 		}
 		if parent := filepath.Dir(dir); parent == dir {
 			return nil
@@ -656,7 +660,7 @@ func (iso *isolation) makePrivateDir() error {
 	if err := os.Chmod(dir, 0o711); err != nil { //nolint:gosec // The mode 0711 is the design: the restricted user passes the folder and cannot list or write it.
 		return stepError(iso.step, "change the mode of", dir, err)
 	}
-	if err := checkTraversable(dir); err != nil {
+	if err := iso.checkTraversable(dir); err != nil {
 		return stepError(iso.step, "reach the folder of the step", dir, err)
 	}
 	home := filepath.Join(dir, "home")
@@ -1017,7 +1021,7 @@ func (iso *isolation) copyOutput() error {
 // changes go through a descriptor, so a link that replaces the path cannot
 // redirect them.
 func (iso *isolation) shareReadOnly(path string) error {
-	if err := checkTraversable(path); err != nil {
+	if err := iso.checkTraversable(path); err != nil {
 		return stepError(iso.step, "share", path, err)
 	}
 	err := walkFD(path, func(e *fsEntry) (bool, error) {
