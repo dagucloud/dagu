@@ -128,15 +128,17 @@ func installDateTimezone(vm *goja.Runtime, loc *time.Location) error {
 	origSetTime, _ := goja.AssertFunction(proto.Get("setTime"))
 	origParse, _ := goja.AssertFunction(origDate.Get("parse"))
 
-	extractTime := func(this goja.Value) (time.Time, bool, error) {
+	// extractTime reads this in loc and reports false for an invalid date. A
+	// receiver that is not a Date throws the TypeError the builtin method throws.
+	extractTime := func(method string, this goja.Value) (time.Time, bool) {
 		val, err := origGetTime(this)
 		if err != nil {
-			return time.Time{}, false, err
+			panic(vm.NewTypeError("Method Date.prototype.%s is called on incompatible receiver", method))
 		}
 		if goja.IsNaN(val) {
-			return time.Time{}, false, nil
+			return time.Time{}, false
 		}
-		return time.UnixMilli(val.ToInteger()).In(loc), true, nil
+		return time.UnixMilli(val.ToInteger()).In(loc), true
 	}
 
 	// setMethod installs fn with the name and length the builtin reports.
@@ -149,10 +151,7 @@ func installDateTimezone(vm *goja.Runtime, loc *time.Location) error {
 
 	readField := func(method string, fn func(time.Time) goja.Value) {
 		setMethod(method, 0, func(call goja.FunctionCall) goja.Value {
-			t, valid, err := extractTime(call.This)
-			if err != nil {
-				panic(err)
-			}
+			t, valid := extractTime(method, call.This)
 			if !valid {
 				return goja.NaN()
 			}
@@ -162,10 +161,7 @@ func installDateTimezone(vm *goja.Runtime, loc *time.Location) error {
 
 	readString := func(method string, layout string) {
 		setMethod(method, 0, func(call goja.FunctionCall) goja.Value {
-			t, valid, err := extractTime(call.This)
-			if err != nil {
-				panic(err)
-			}
+			t, valid := extractTime(method, call.This)
 			if !valid {
 				return vm.ToValue(invalidDateString)
 			}
@@ -195,10 +191,7 @@ func installDateTimezone(vm *goja.Runtime, loc *time.Location) error {
 
 	setFields := func(method string, maxArgs int, startFromEpochOnInvalid bool, startIdx int) {
 		setMethod(method, maxArgs, func(call goja.FunctionCall) goja.Value {
-			t, valid, err := extractTime(call.This)
-			if err != nil {
-				panic(err)
-			}
+			t, valid := extractTime(method, call.This)
 			if !valid {
 				if !startFromEpochOnInvalid {
 					return goja.NaN()
@@ -355,11 +348,23 @@ func installDateTimezone(vm *goja.Runtime, loc *time.Location) error {
     enumerable: false,
     configurable: true
   });
-  Date.UTC = OrigDate.UTC;
-  Date.now = OrigDate.now;
-  Date.parse = function parse(str) {
-    return parseLocalMs(String(str));
-  };
+  // Static methods stay non-enumerable, like the builtin ones.
+  function defineStatic(name, fn) {
+    Object.defineProperty(Date, name, {
+      value: fn,
+      writable: true,
+      enumerable: false,
+      configurable: true
+    });
+  }
+  defineStatic('UTC', OrigDate.UTC);
+  defineStatic('now', OrigDate.now);
+  // Method syntax keeps parse non-constructible, like the builtin.
+  defineStatic('parse', {
+    parse(str) {
+      return parseLocalMs(String(str));
+    }
+  }.parse);
   return Date;
 })`)
 	if err != nil {

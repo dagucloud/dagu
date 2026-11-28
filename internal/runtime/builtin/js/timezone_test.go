@@ -218,13 +218,24 @@ return [s instanceof Stamp, s instanceof Date, s.label(), s.toISOString()]`, nil
 		assert.JSONEq(t, `[true, true, "h2", "2026-11-12T17:14:00.000Z"]`, got.stdout)
 	})
 
-	t.Run("MethodNamesMatchBuiltins", func(t *testing.T) {
+	t.Run("MethodsMatchBuiltins", func(t *testing.T) {
 		t.Parallel()
 		got := run(t, ctxWithTZ("Asia/Tokyo", nil), `
 const p = Date.prototype;
-return [p.getHours.name, p.getHours.length, p.toString.name, p.setHours.name, p.setHours.length, p.setFullYear.length]`, nil)
+const thrown = (fn) => { try { fn(); } catch (e) { return e.name + ": " + e.message; } return "none"; };
+return {
+  names: [p.getHours.name, p.getHours.length, p.toString.name, p.setHours.name, p.setHours.length, p.setFullYear.length],
+  staticKeys: Object.keys(Date),
+  badReceiver: thrown(() => p.getHours.call({})),
+  newParse: thrown(() => new Date.parse("2026")).split(":")[0]
+}`, nil)
 		require.NoError(t, got.err)
-		assert.JSONEq(t, `["getHours", 0, "toString", "setHours", 4, 3]`, got.stdout)
+		assert.JSONEq(t, `{
+  "names": ["getHours", 0, "toString", "setHours", 4, 3],
+  "staticKeys": [],
+  "badReceiver": "TypeError: Method Date.prototype.getHours is called on incompatible receiver",
+  "newParse": "TypeError"
+}`, got.stdout)
 	})
 
 	t.Run("FixedOffsetTZ", func(t *testing.T) {
