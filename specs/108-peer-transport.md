@@ -774,7 +774,9 @@ or `stop`:
     `worker node "<node>" is being removed`. The coordinator reads the
     bound worker's certificate state from the store for that check, so a
     coordinator that has not reread the removals yet refuses the run too.
-    A repeat of a dispatch admitted before the removal still succeeds, and
+    A queued run fails then too, rather than staying queued. A repeat of a
+    dispatch admitted before the removal still succeeds, also one admitted
+    through another coordinator, which the check looks up in the store, and
     a dispatch whose check cannot read the store fails with `Unavailable`,
     so the caller tries again.
   - A worker accepts a task only while the store shows its certificate

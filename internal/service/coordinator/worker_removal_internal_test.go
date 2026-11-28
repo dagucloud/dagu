@@ -32,6 +32,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
+	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -1629,6 +1630,46 @@ func TestDispatchRepeatToNodeRemovedElsewhere(t *testing.T) {
 	_, err = f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: boundRepeatTask("run-other")})
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 	assert.Contains(t, status.Convert(err).Message(), "is being removed")
+}
+
+// The scheduler queues a run bound to node-a through one coordinator, and
+// another coordinator removes the worker. A repeat of that queued dispatch
+// reaches a third coordinator, whose own dispatch store looked up the
+// attempt before it was queued. The repeat still succeeds (Spec 108
+// §Removal).
+func TestQueuedRepeatToNodeRemovedElsewhere(t *testing.T) {
+	f, certs := removalDispatchFixture(t)
+	queued := &ir.DAGRunStatus{Name: "routed", DAGRunID: "run-queued", AttemptID: "queued01", Status: ir.Queued}
+	f.runs.addAttempt(ir.NewDAGRunRef("routed", "run-queued"), queued)
+	previous, err := convert.DAGRunStatusToProto(queued)
+	require.NoError(t, err)
+	task := func() *coordinatorv1.Task {
+		task := boundRepeatTask("run-queued")
+		task.Operation = coordinatorv1.Operation_OPERATION_RETRY
+		task.PreviousStatus = previous
+		return task
+	}
+	dispatches := newTestDispatchTaskStore(f.baseDir)
+	other := NewHandler(HandlerConfig{
+		DAGRunRepository:     f.runs.repository,
+		DispatchTaskStore:    dispatches,
+		DAGRunLeaseStore:     f.leases,
+		WorkerHeartbeatStore: f.heartbeats,
+	})
+	t.Cleanup(func() { other.Close(context.Background()) })
+	other.workerCertificates = certs
+	attemptKey := ir.GenerateAttemptKey("routed", "run-queued", "routed", "run-queued", "queued01")
+	outstanding, err := dispatches.HasOutstandingAttempt(t.Context(), attemptKey, 0)
+	require.NoError(t, err)
+	require.False(t, outstanding)
+
+	_, err = f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: task()})
+	require.NoError(t, err)
+	_, err = certs.MarkRemoving(t.Context(), "cert-1", "node-a", time.Now)
+	require.NoError(t, err)
+
+	_, err = other.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: task()})
+	assert.NoError(t, err)
 }
 
 // failingCertificateRead fails every certificate read.

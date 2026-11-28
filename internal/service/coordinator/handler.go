@@ -727,7 +727,7 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	// A repeat of an admitted dispatch needs no worker now, so a shortfall
 	// does not refuse it.
 	if shortfall != nil && (req.Task.BoundNode != "" || !h.holdsDispatch(req.Task)) {
-		admitted, err := h.admittedRepeat(ctx, req.Task)
+		admitted, err := h.admittedRepeat(ctx, req.Task, false)
 		if err != nil {
 			return nil, status.Error(prepareAttemptErrorCode(err), "failed to prepare attempt: "+err.Error())
 		}
@@ -740,11 +740,13 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	// for it (RFC 013 §Matching).
 	// The removal state comes first and is read from the store, since this
 	// coordinator's copy may not hold another coordinator's removal yet. A
-	// repeat of a dispatch admitted before the removal still goes through.
+	// repeat of a dispatch admitted before the removal still goes through,
+	// also one admitted on another coordinator, so the repeat is looked up
+	// in the store too: the refusal ends the run.
 	if req.Task.BoundNode != "" {
 		removing, readErr := h.workerInRemoval(ctx, req.Task.TargetWorkerId)
 		if removing || readErr != nil {
-			admitted, err := h.admittedRepeat(ctx, req.Task)
+			admitted, err := h.admittedRepeat(ctx, req.Task, true)
 			if err != nil {
 				return nil, status.Error(prepareAttemptErrorCode(err), "failed to prepare attempt: "+err.Error())
 			}
@@ -1489,7 +1491,7 @@ func awaitsAdmission(runStatus *ir.DAGRunStatus) bool {
 
 // admittedRepeat reports whether task repeats a dispatch that was admitted,
 // without preparing an attempt when it does not.
-func (h *Handler) admittedRepeat(ctx context.Context, task *coordinatorv1.Task) (bool, error) {
+func (h *Handler) admittedRepeat(ctx context.Context, task *coordinatorv1.Task, fresh bool) (bool, error) {
 	queued, err := queueDispatchStatusForTask(task)
 	if err != nil {
 		return false, err
@@ -1502,7 +1504,7 @@ func (h *Handler) admittedRepeat(ctx context.Context, task *coordinatorv1.Task) 
 		// worker can take it. Its admission is bound in the shared store, so
 		// the cached index rules a repeat out before the run is looked up.
 		attemptKey := ir.GenerateAttemptKey(task.Target, task.DagRunId, task.Target, task.DagRunId, queued.AttemptID)
-		outstanding, err := h.dispatchOutstanding(ctx, attemptKey, false)
+		outstanding, err := h.dispatchOutstanding(ctx, attemptKey, fresh)
 		if err != nil || !outstanding {
 			return false, err
 		}
