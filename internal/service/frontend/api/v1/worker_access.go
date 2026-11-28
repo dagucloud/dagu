@@ -61,6 +61,34 @@ var builtinTLSReasons = map[coordinatorv1.BuiltinTLSReason]api.BuiltinTLSReason{
 	coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_CA_UNAVAILABLE:   api.BuiltinTLSReasonCaUnavailable,
 }
 
+// coordinatorAnswer is how the server answers a coordinator refusal.
+type coordinatorAnswer struct {
+	httpStatus int
+	code       api.ErrorCode
+	// message returns the answer's message from the coordinator's.
+	message func(coordinatorMessage string) string
+}
+
+// coordinatorAnswers maps each coordinator refusal to its answer, as Spec
+// 108 §REST API states. Other codes answer 500.
+var coordinatorAnswers = map[codes.Code]coordinatorAnswer{
+	codes.InvalidArgument:    {http.StatusBadRequest, api.ErrorCodeBadRequest, asSent},
+	codes.NotFound:           {http.StatusNotFound, api.ErrorCodeNotFound, asSent},
+	codes.FailedPrecondition: {http.StatusConflict, api.ErrorCodeConflict, asSent},
+	codes.Unimplemented:      {http.StatusConflict, api.ErrorCodeConflict, func(string) string { return olderCoordinatorMessage }},
+	codes.Unauthenticated:    {http.StatusServiceUnavailable, api.ErrorCodeInternalError, prefixed(coordinatorRefusedPrefix)},
+	codes.Unavailable:        {http.StatusServiceUnavailable, api.ErrorCodeInternalError, prefixed(coordinatorUnreachableMessage + ": ")},
+	codes.DeadlineExceeded:   {http.StatusServiceUnavailable, api.ErrorCodeInternalError, prefixed(coordinatorUnreachableMessage + ": ")},
+}
+
+// asSent answers with the coordinator's message.
+func asSent(message string) string { return message }
+
+// prefixed answers with the coordinator's message after prefix.
+func prefixed(prefix string) func(string) string {
+	return func(message string) string { return prefix + message }
+}
+
 var errNoCoordinator = &Error{
 	HTTPStatus: http.StatusServiceUnavailable,
 	Code:       api.ErrorCodeInternalError,
@@ -214,24 +242,13 @@ func coordinatorCallError(err error) *Error {
 	if !ok {
 		return errNoCoordinator
 	}
-	answer := func(httpStatus int, code api.ErrorCode, message string) *Error {
-		return &Error{HTTPStatus: httpStatus, Code: code, Message: message}
+	if answer, ok := coordinatorAnswers[st.Code()]; ok {
+		return &Error{HTTPStatus: answer.httpStatus, Code: answer.code, Message: answer.message(st.Message())}
 	}
-	switch st.Code() {
-	case codes.InvalidArgument:
-		return answer(http.StatusBadRequest, api.ErrorCodeBadRequest, st.Message())
-	case codes.NotFound:
-		return answer(http.StatusNotFound, api.ErrorCodeNotFound, st.Message())
-	case codes.FailedPrecondition:
-		return answer(http.StatusConflict, api.ErrorCodeConflict, st.Message())
-	case codes.Unimplemented:
-		return answer(http.StatusConflict, api.ErrorCodeConflict, olderCoordinatorMessage)
-	case codes.Unauthenticated:
-		return answer(http.StatusServiceUnavailable, api.ErrorCodeInternalError, coordinatorRefusedPrefix+st.Message())
-	case codes.Unavailable, codes.DeadlineExceeded:
-		return answer(http.StatusServiceUnavailable, api.ErrorCodeInternalError, coordinatorUnreachableMessage+": "+st.Message())
-	default:
-		return answer(http.StatusInternalServerError, api.ErrorCodeInternalError, "the coordinator failed: "+st.Message())
+	return &Error{
+		HTTPStatus: http.StatusInternalServerError,
+		Code:       api.ErrorCodeInternalError,
+		Message:    "the coordinator failed: " + st.Message(),
 	}
 }
 
