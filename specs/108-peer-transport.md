@@ -1012,13 +1012,21 @@ A coordinator reports, from its own host:
 | `POST /api/v1/workers/invites` | Body `{"reusable": false, "expiresIn": "24h", "address": "192.168.1.20:50055"}`, every field optional. Returns `201` with `{"id", "invite", "expiresAt"}`. Only this response contains the invite |
 | `GET /api/v1/workers/invites` | Lists invites with `id`, `kind`, `createdBy`, `createdAt`, `expiresAt`, `useCount`, `lastUsedAt`, and `address`. No secret |
 | `DELETE /api/v1/workers/invites/{id}` | Deletes the invite. `204`, also when a coordinator's answer is lost: within the same request, the server confirms from the invites that it is gone. `400` for a value that is not an invite ID, a UUID, before any coordinator call, so an invite pasted in its place reaches no log or audit entry. `404` when none has the ID, so a second delete answers `404` |
-| `POST /api/v1/workers/removals` | Removes the worker the body names: `{"workerId", "certificateId", "runs"}`. `workerId` and `certificateId` are required; `certificateId` is the one the [Workers List](#workers-list) shows. The worker ID is in the body, so any worker ID works, also one with `/` or `%` or one that equals a fixed route. `"runs": "finish"`, the default, or `"stop"`. Returns `{"state": "removing"}` or `{"state": "removed"}`. `400` for another `runs` value, or without `workerId` or `certificateId`. `404` when no worker has the ID |
+| `POST /api/v1/workers/removals` | Removes the worker the body names, as in `{"workerId": "<worker ID>", "certificateId": "<certificate ID>", "runs": "finish"}`. `workerId` and `certificateId` are required; `certificateId` is the one the [Workers List](#workers-list) shows. The worker ID is in the body, so any worker ID works, also one with `/` or `%` or one that equals a fixed route. `"runs": "finish"`, the default, or `"stop"`. Returns `{"state": "removing"}` or `{"state": "removed"}`. `400` for another `runs` value, or without `workerId` or `certificateId`. `404` when no worker has the ID |
 | `GET /api/v1/workers/join-readiness` | Returns the reports of [Join Readiness](#join-readiness) |
 
 - Each endpoint is admin only. An API key with the admin role can call it.
   The server does not forward a create, delete, or removal to a remote
   node, so the audit entry names the admin who made it.
 - `expiresIn` is a positive Go duration of at most 2562047h47m16s.
+- `address` is `host:port`. The host is a DNS hostname, an IPv4 address
+  in dotted decimal, or an IPv6 address in brackets without a zone. A
+  hostname has dot-separated labels of 1 to 63 ASCII letters, digits, and
+  hyphens, none starting or ending with a hyphen, at most 253 characters
+  in all, and no trailing dot. The port is a decimal number from 1 to
+  65535 without a sign or leading zero. Any other address, as one with
+  `/`, `?`, `#`, `@`, `_`, or whitespace, answers `400` before any
+  coordinator call.
 - With several coordinators, the server sends each call except join
   readiness to one of them, since they share the invite and certificate
   records: the first in the registry's sorted order that answers.

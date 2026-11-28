@@ -186,7 +186,7 @@ func (a *API) CreateWorkerInvite(ctx context.Context, request api.CreateWorkerIn
 			return nil, &Error{
 				HTTPStatus: http.StatusBadRequest,
 				Code:       api.ErrorCodeBadRequest,
-				Message:    "address must be host:port",
+				Message:    "address must be host:port, with a hostname, an IPv4 address, or a bracketed IPv6 address as host",
 			}
 		}
 		if body.ExpiresIn != nil {

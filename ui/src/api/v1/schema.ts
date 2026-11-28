@@ -9497,7 +9497,7 @@ export interface components {
             reusable?: boolean;
             /** @description A positive Go duration, such as 24h, rounded up to whole seconds. Default: 24 hours for a single-use invite, none for a reusable one. */
             expiresIn?: string;
-            /** @description The host:port of the coordinator the invite is made for. Join readiness reports the newest one as lastInviteAddress. */
+            /** @description The host:port of the coordinator the invite is made for: a hostname, an IPv4 address, or an IPv6 address in brackets, then a port from 1 to 65535. Join readiness reports the newest one as lastInviteAddress. */
             address?: string;
         };
         /** @description A created invite. No other response contains the invite. */

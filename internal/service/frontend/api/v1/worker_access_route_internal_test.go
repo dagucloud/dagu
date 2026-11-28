@@ -87,6 +87,30 @@ func TestRemoveWorkerTakesBodyWorkerIDs(t *testing.T) {
 	}
 }
 
+// An invite address whose host is no hostname or IP address answers 400
+// before any coordinator call, in both validation modes.
+func TestCreateWorkerInviteRefusesMalformedHost(t *testing.T) {
+	t.Parallel()
+	for name, strict := range validationModes {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			stub := &inviteCoordinatorStub{}
+			router := workerAccessServer(t, stub, auth.RoleAdmin, strict)
+			for _, addr := range []string{
+				"coordinator.example.com/path:50055",
+				"coordinator.example.com?q:50055",
+				"user@coordinator.example.com:50055",
+				"coordinator example.com:50055",
+				"[192.168.1.20]:50055",
+			} {
+				status := serve(t, router, http.MethodPost, "/api/v1/workers/invites", map[string]string{"address": addr})
+				assert.Equal(t, http.StatusBadRequest, status, addr)
+			}
+			assert.Nil(t, stub.created, "no invite reached the coordinator")
+		})
+	}
+}
+
 // A removal for a remote node is refused locally whatever worker it names.
 func TestRemoveWorkerNeverRemote(t *testing.T) {
 	t.Parallel()

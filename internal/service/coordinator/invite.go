@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"math"
 	"net"
+	"net/netip"
 	"regexp"
 	"strconv"
 	"strings"
@@ -87,7 +88,7 @@ func (h *Handler) CreateInvite(ctx context.Context, req *coordinatorv1.CreateInv
 		return nil, status.Error(codes.InvalidArgument, "expires_in_seconds must be a positive number of seconds, or 0 for the default")
 	}
 	if req.Address != "" && !ValidInviteAddress(req.Address) {
-		return nil, status.Error(codes.InvalidArgument, "address must be host:port")
+		return nil, status.Error(codes.InvalidArgument, "address must be host:port, with a hostname, an IPv4 address, or a bracketed IPv6 address as host")
 	}
 
 	now := h.clock().UTC()
@@ -226,15 +227,53 @@ func inviteSecretHash(secret []byte) []byte {
 }
 
 // ValidInviteAddress reports whether addr can be an invite's address:
-// host:port with a port a TCP listener can have, and a host that is not an
-// invite.
+// host:port, where host is one of
+//   - a DNS hostname: dot-separated labels of 1 to 63 ASCII letters, digits,
+//     and hyphens, neither starting nor ending with a hyphen, at most 253
+//     characters in all, with no trailing dot;
+//   - an IPv4 address in dotted decimal;
+//   - an IPv6 address in brackets, without a zone;
+//
+// and port is a decimal number from 1 to 65535 without a sign or leading
+// zero. The host is not an invite.
 func ValidInviteAddress(addr string) bool {
 	host, port, err := net.SplitHostPort(addr)
-	if err != nil || host == "" || RedactInvites(host) != host {
+	if err != nil || !validInvitePort(port) || RedactInvites(host) != host {
+		return false
+	}
+	if strings.HasPrefix(addr, "[") {
+		ip, err := netip.ParseAddr(host)
+		return err == nil && ip.Is6() && ip.Zone() == ""
+	}
+	if ip, err := netip.ParseAddr(host); err == nil {
+		return ip.Is4()
+	}
+	return validHostname(host)
+}
+
+// validInvitePort reports whether port is a decimal TCP port from 1 to
+// 65535, written without a sign or leading zero.
+func validInvitePort(port string) bool {
+	if port == "" || port[0] == '0' || strings.Trim(port, "0123456789") != "" {
 		return false
 	}
 	n, err := strconv.Atoi(port)
-	return err == nil && n > 0 && n <= math.MaxUint16
+	return err == nil && n <= math.MaxUint16
+}
+
+// validHostname reports whether host is a DNS hostname as
+// [ValidInviteAddress] states.
+func validHostname(host string) bool {
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	for label := range strings.SplitSeq(host, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' ||
+			strings.Trim(label, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-") != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func inviteRecord(invite persis.WorkerInvite) *coordinatorv1.InviteRecord {
