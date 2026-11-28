@@ -294,7 +294,12 @@ const ACCESS_REASONS: Record<WorkerAccessReason, Advise> = {
  */
 export function describeWorkerError(
   error: unknown,
-  advice: { notFound: WorkerErrorAdvice; reasons?: ReasonAdvice },
+  advice: {
+    notFound: WorkerErrorAdvice;
+    reasons?: ReasonAdvice;
+    /** Whether the request went to a remote node, with its credentials. */
+    remoteNode?: boolean;
+  },
   ts: Translate
 ): WorkerErrorAdvice {
   const failure = error instanceof WorkerRequestError ? error : undefined;
@@ -307,6 +312,17 @@ export function describeWorkerError(
       ? failure?.serverMessage
       : undefined;
   if (known) return { ...known(ts), detail };
+  if (failure?.status === 403 && advice.remoteNode) {
+    // The server calls a remote node with the credentials configured for
+    // it, so signing in again here changes nothing.
+    return {
+      cause: ts(
+        'The credentials this server uses for the selected node lack admin access there.'
+      ),
+      change: ts('Give those credentials the admin role on the selected node.'),
+      detail,
+    };
+  }
   return { ...statusAdvice(failure?.status, advice.notFound, ts), detail };
 }
 

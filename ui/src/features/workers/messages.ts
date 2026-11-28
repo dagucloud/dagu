@@ -91,6 +91,10 @@ export const workerAdminMessages = defineMessages({
       'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.',
     'Check the coordinator log for the state that conflicts, then try again once it is resolved.':
       'Check the coordinator log for the state that conflicts, then try again once it is resolved.',
+    'The credentials this server uses for the selected node lack admin access there.':
+      'The credentials this server uses for the selected node lack admin access there.',
+    'Give those credentials the admin role on the selected node.':
+      'Give those credentials the admin role on the selected node.',
   },
   'zh-CN': {
     'Only admins can manage workers and invites.':
@@ -175,6 +179,10 @@ export const workerAdminMessages = defineMessages({
       '该 Worker 未被移除。列表现在显示该 Worker 的当前状态：请检查后，如有需要再次移除。',
     'Check the coordinator log for the state that conflicts, then try again once it is resolved.':
       '请查看 Coordinator 日志中冲突的状态，待其解决后重试。',
+    'The credentials this server uses for the selected node lack admin access there.':
+      '此服务器用于所选节点的凭据在该节点上没有管理员权限。',
+    'Give those credentials the admin role on the selected node.':
+      '请在所选节点上为这些凭据授予管理员角色。',
   },
   ja: {
     'Only admins can manage workers and invites.':
@@ -263,6 +271,10 @@ export const workerAdminMessages = defineMessages({
       'ワーカーは削除されていません。一覧にワーカーの現在の状態が表示されます。確認して、必要なら削除し直してください。',
     'Check the coordinator log for the state that conflicts, then try again once it is resolved.':
       'コーディネーターのログで競合している状態を確認し、解消してからもう一度お試しください。',
+    'The credentials this server uses for the selected node lack admin access there.':
+      'このサーバーが選択中のノードに使う認証情報には、そのノードの管理者権限がありません。',
+    'Give those credentials the admin role on the selected node.':
+      '選択中のノードで、その認証情報に管理者ロールを付与してください。',
   },
   de: {
     'Only admins can manage workers and invites.':
@@ -351,6 +363,10 @@ export const workerAdminMessages = defineMessages({
       'Der Worker wurde nicht entfernt. Die Liste zeigt den Worker jetzt, wie er ist: Prüfen Sie ihn und entfernen Sie ihn bei Bedarf erneut.',
     'Check the coordinator log for the state that conflicts, then try again once it is resolved.':
       'Sehen Sie im Log des Coordinators nach dem Zustand, der im Konflikt steht, und versuchen Sie es erneut, sobald er behoben ist.',
+    'The credentials this server uses for the selected node lack admin access there.':
+      'Die Zugangsdaten, die dieser Server für den ausgewählten Knoten nutzt, haben dort keine Admin-Rechte.',
+    'Give those credentials the admin role on the selected node.':
+      'Geben Sie diesen Zugangsdaten auf dem ausgewählten Knoten die Admin-Rolle.',
   },
   fr: {
     'Only admins can manage workers and invites.':
@@ -438,5 +454,9 @@ export const workerAdminMessages = defineMessages({
       'Le worker n’a pas été retiré. La liste montre maintenant le worker tel qu’il est : vérifiez-le, puis retirez-le à nouveau si besoin.',
     'Check the coordinator log for the state that conflicts, then try again once it is resolved.':
       'Consultez le journal du coordinateur pour l’état en conflit, puis réessayez une fois qu’il est résolu.',
+    'The credentials this server uses for the selected node lack admin access there.':
+      'Les identifiants que ce serveur utilise pour le nœud sélectionné n’y ont pas les droits d’admin.',
+    'Give those credentials the admin role on the selected node.':
+      'Donnez à ces identifiants le rôle admin sur le nœud sélectionné.',
   },
 });

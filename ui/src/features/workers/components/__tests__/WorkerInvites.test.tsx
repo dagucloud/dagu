@@ -243,6 +243,26 @@ describe('WorkerInvites', () => {
     expect(row).toHaveTextContent(/Expiry 10s ago/);
   });
 
+  // The state follows the same clock as the expiry: an invite reads
+  // Expired as soon as its expiry reads as past, not at the next minute.
+  it('turns the state with the expiry', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    server.invites = invitesAnswer([
+      invite('expiring', {
+        expiresAt: new Date(Date.now() + 20e3).toISOString(),
+      }),
+    ]);
+    renderInvites([], false);
+    const [row] = await rows();
+    expect(row).toHaveTextContent('Active');
+
+    await act(() => vi.advanceTimersByTimeAsync(30e3));
+
+    expect(row).toHaveTextContent(/Expiry 10s ago/);
+    expect(row).toHaveTextContent('Expired');
+    expect(row).not.toHaveTextContent('Active');
+  });
+
   it('deletes the invite it names after one confirmation', async () => {
     server.invites = invitesAnswer([
       invite('a4611fb6-951a', { kind: WorkerInviteKind.reusable }),
@@ -800,6 +820,65 @@ describe('WorkerInvites', () => {
 
     await waitFor(() => expect(rows()).resolves.toHaveLength(1));
     expect((await rows())[0]).toHaveTextContent('Used');
+  });
+
+  // A read under way when the list left a node cannot answer for the
+  // workers it shows on return: the first read on return starts afresh.
+  it('reads afresh on return to a node', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    const { update, refresh } = renderInvites([worker('worker-a')]);
+    await rows();
+    let stale: (answer: { status: number; body: unknown }) => void = () =>
+      undefined;
+    const answers = [
+      () =>
+        new Promise<{ status: number; body: unknown }>(
+          (resolve) => (stale = resolve)
+        ),
+      () => invitesAnswer([]),
+      () =>
+        invitesAnswer([
+          invite('inv-1', { useCount: 1, lastUsedAt: hoursFromNow(0) }),
+        ]),
+    ];
+    server.invites = () => answers.shift()!() as never;
+    // A manual refresh starts a read that will not answer for a while.
+    refresh();
+    await waitFor(() => expect(reads()).toBe(2));
+    server.node = 'node-b';
+    update(undefined);
+    update([]);
+    server.node = 'local';
+    update(undefined);
+    update([worker('worker-a'), worker('worker-b', { inviteId: 'inv-1' })]);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('listitem', { name: 'Invite inv-1' })
+      ).toHaveTextContent('Used')
+    );
+    await act(async () =>
+      stale({ status: 200, body: { invites: [invite('inv-1')] } })
+    );
+    expect(
+      screen.getByRole('listitem', { name: 'Invite inv-1' })
+    ).toHaveTextContent('Used');
+  });
+
+  // A remote node is called with the credentials this server keeps for
+  // it: signing in again here would not help.
+  it('names the node credentials on a remote 403', async () => {
+    server.node = 'node-b';
+    server.invites = refused(403, 'forbidden', 'forbidden');
+
+    renderInvites();
+
+    expect(
+      await screen.findByText(
+        'The credentials this server uses for the selected node lack admin access there.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Sign in/)).not.toBeInTheDocument();
   });
 
   // Reads asked for while the tab is hidden, by two deletes and a manual

@@ -185,7 +185,7 @@ function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
         action={false}
         advice={describeWorkerError(
           error,
-          { notFound: listUnavailable(ts) },
+          { notFound: listUnavailable(ts), remoteNode: !local },
           ts
         )}
       />
@@ -308,6 +308,9 @@ function useInviteReads({
     const listed = joins ? joins.split('\n') : [];
     if (seen.current === null) {
       seen.current = new Set(listed);
+      // A read under way from before this baseline, as from before a switch
+      // away and back, cannot answer for the workers it holds.
+      joinedWorkers();
       setReady(true);
       return;
     }
@@ -375,11 +378,14 @@ function InviteRow({
   onDelete?: () => void;
 }) {
   const { ts } = useI18n();
-  const { state } = inviteState(invite, now);
   // Turns at the expiry itself, on the shared second clock, so the expiry
-  // never reads as ahead once it passed.
+  // never reads as ahead once it passed, and the state agrees with it.
   const expired = useClock(invite.expiresAt ? 1000 : null, (nowMs) =>
     expiryPassed(invite, nowMs)
+  );
+  const { state } = inviteState(
+    invite,
+    expired && invite.expiresAt ? Date.parse(invite.expiresAt) : now
   );
   const id = shortInviteId(invite.id);
   const deleteLabel = ts('Delete invite {id} ({kind})', {
@@ -424,7 +430,7 @@ function InviteRow({
       {/* On a wide list each detail is a grid cell; on a narrow one they wrap
           on one line, each with its label. */}
       <div className="flex min-w-0 flex-wrap gap-x-3 text-xs text-muted-foreground @3xl:contents @3xl:text-sm">
-        <span className="min-w-0 truncate">
+        <span className="min-w-0 break-words">
           <NarrowLabel text="By" />
           {invite.createdBy}
         </span>
