@@ -407,7 +407,9 @@ conformance test confirms them.
 | `pi` | A `dagu` provider in a generated `models.json`, with the relay `baseUrl`, its `api`, and the secret as `$<variable>` | Project-local files, with `--no-approve`. A new `PI_CODING_AGENT_DIR` | `--provider dagu --model <model>` | `--thinking`: `low` to `xhigh` |
 
 - The effort select offers the levels that both the CLI and the model
-  accept. Another level fails validation with `effort_unsupported`.
+  accept. A level that the CLI does not accept fails validation with
+  `effort_unsupported`. A level that the model's catalog lacks gets an
+  amber marker, since validation reads no catalog.
 - An adapter lists the aliases of its CLI, such as `sonnet` and `opus` for
   `claude`. The editor offers them, and they pass the editor's model
   warning. Dagu passes an alias to the CLI unchanged.
@@ -516,7 +518,7 @@ A red marker shows an error that stops validation or admission:
 
 - a connection that the project lacks, or that the step cannot use
 - a step with `connection` and no model
-- an effort level that the CLI or the model does not accept
+- an effort level that the CLI does not accept
 - `connection` on a CLI with no adapter
 
 An amber marker shows a likely failure, and never blocks a save or a run:
@@ -524,6 +526,7 @@ An amber marker shows a likely failure, and never blocks a save or a run:
 - a literal model that the catalog lacks, with the closest catalog ID as a
   suggestion. A reference, an adapter's alias, a catalog with `truncated`
   true, and a connection with no catalog get no marker.
+- an effort level that the model's catalog lacks
 - a model that `allowed_models` lacks
 - a connection whose status is `needs_reconnect`
 
