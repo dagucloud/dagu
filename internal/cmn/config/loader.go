@@ -1706,6 +1706,7 @@ func (l *ConfigLoader) loadWorkerConfig(cfg *Config, def Definition) {
 			cfg.Worker.Coordinators = addresses
 			l.warnings = append(l.warnings, addrWarnings...)
 		}
+		cfg.Worker.Invite = strings.TrimSpace(def.Worker.Invite)
 
 		if def.Worker.PostgresPool != nil {
 			l.loadPostgresPoolConfig(&cfg.Worker.PostgresPool, def.Worker.PostgresPool)
@@ -2808,6 +2809,7 @@ var envBindings = []envBinding{
 	{key: "worker.coordinators", env: "WORKER_COORDINATORS"},
 	{key: "worker.health_port", env: "WORKER_HEALTH_PORT"},
 	{key: "worker.shutdown_timeout", env: "WORKER_SHUTDOWN_TIMEOUT"},
+	{key: "worker.invite", env: "WORKER_INVITE", secret: true},
 
 	// Peer
 	{key: "peer.cert_file", env: "PEER_CERT_FILE"},

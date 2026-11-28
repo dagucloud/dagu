@@ -455,7 +455,9 @@ type WorkerDef struct {
 	Labels any `mapstructure:"labels"`
 	// Coordinators accepts either a single string URL or []string of URLs.
 	// When string, used as single coordinator address.
-	Coordinators any              `mapstructure:"coordinators"`
+	Coordinators any `mapstructure:"coordinators"`
+	// Invite lets the worker join over built-in TLS: dagu1.<pin>.<secret>.
+	Invite       string           `mapstructure:"invite"`
 	PostgresPool *PostgresPoolDef `mapstructure:"postgres_pool"`
 }
 

@@ -846,7 +846,10 @@ type Worker struct {
 	// ShutdownTimeout bounds how long a stopping worker drains running DAG
 	// runs before it cancels them. Default: 60s; 0 waits without a bound.
 	ShutdownTimeout time.Duration
-	PostgresPool    PostgresPoolConfig
+	// Invite is worker.invite, which lets the worker enroll for a worker
+	// certificate. It is a secret.
+	Invite       string
+	PostgresPool PostgresPoolConfig
 }
 
 // Proc represents local proc-file heartbeat configuration.
@@ -999,7 +1002,10 @@ func (c *Config) Validate() error {
 	if err := ValidatePeerToken(c.Core.Peer.Token); err != nil {
 		return fmt.Errorf("peer.token %w", err)
 	}
-	return c.validatePeerCA()
+	if err := c.validatePeerCA(); err != nil {
+		return err
+	}
+	return c.validateWorkerInvite()
 }
 
 // validatePeerCA rejects peer CA settings that contradict other peer
@@ -1012,6 +1018,32 @@ func (c *Config) validatePeerCA() error {
 	}
 	if peer.CACertFile != "" && peer.SkipTLSVerify {
 		return errors.New("peer.skip_tls_verify turns off the check that peer.ca_cert_file makes: remove one")
+	}
+	return nil
+}
+
+// validateWorkerInvite rejects peer settings that contradict worker.invite,
+// which needs built-in TLS.
+func (c *Config) validateWorkerInvite() error {
+	peer := c.Core.Peer
+	if c.Worker.Invite == "" {
+		return nil
+	}
+	if peer.Insecure && !peer.InsecureUnset {
+		return errors.New("worker.invite needs TLS: remove peer.insecure: true")
+	}
+	for _, setting := range []struct {
+		key string
+		set bool
+	}{
+		{"peer.cert_file", peer.CertFile != ""},
+		{"peer.key_file", peer.KeyFile != ""},
+		{"peer.client_ca_file", peer.ClientCaFile != ""},
+		{"peer.skip_tls_verify: true", peer.SkipTLSVerify},
+	} {
+		if setting.set {
+			return fmt.Errorf("worker.invite needs the built-in CA: remove %s or the invite", setting.key)
+		}
 	}
 	return nil
 }
