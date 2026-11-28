@@ -369,7 +369,7 @@ var (
 
 	peerCACertFileFlag = commandLineFlag{
 		name:      "peer.ca-cert-file",
-		usage:     "Path to the peer CA certificate, which signs coordinator certificates",
+		usage:     "Path to the peer CA certificate",
 		bindViper: true,
 		viperKey:  "peer.ca_cert_file",
 	}

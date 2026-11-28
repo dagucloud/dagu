@@ -71,7 +71,7 @@ Flags:
   --peer.client-ca-file string      Path to CA certificate file for client verification (mTLS)
   --peer.insecure                   Calls to a coordinator only; what this coordinator serves does not depend on it
   --peer.skip-tls-verify            Skip TLS certificate verification (insecure)
-  --peer.ca-cert-file string        Path to the CA certificate that signs peer certificates
+  --peer.ca-cert-file string        Path to the peer CA certificate
   --peer.ca-key-file string         Path to the private key of --peer.ca-cert-file
 
 Example:

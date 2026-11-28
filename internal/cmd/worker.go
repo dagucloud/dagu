@@ -51,7 +51,7 @@ TLS Configuration (uses global peer settings):
   --peer.key-file string                   Path to TLS key file for mutual TLS
   --peer.client-ca-file string             Path to CA certificate file for server verification
   --peer.skip-tls-verify                   Skip TLS certificate verification (insecure)
-  --peer.ca-cert-file string               Path to the peer CA certificate, which signs coordinator certificates
+  --peer.ca-cert-file string               Path to the peer CA certificate
 
 Example:
   dagu worker --worker.coordinators=coordinator-1:50055
