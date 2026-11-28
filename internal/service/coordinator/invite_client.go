@@ -55,7 +55,7 @@ type InviteClient interface {
 	// DeleteInvite deletes the invite with the ID id. It fails with
 	// NotFound only when no invite has the ID before the delete, and
 	// succeeds when the invite is gone afterwards, also when the answer of
-	// the coordinator that deleted it was lost.
+	// the coordinator that deleted it was lost during this call.
 	DeleteInvite(ctx context.Context, id string) error
 }
 
@@ -103,16 +103,14 @@ func (cli *clientImpl) DeleteInvite(ctx context.Context, id string) error {
 		_, err := client.DeleteInvite(ctx, &coordinatorv1.DeleteInviteRequest{Id: id}, opts...)
 		return err
 	})
-	code := status.Code(err)
-	if code == codes.NotFound {
+	if err == nil || status.Code(err) == codes.NotFound {
 		// The invite was listed a moment ago, so it is gone.
 		return nil
 	}
-	if code == codes.Unavailable || code == codes.DeadlineExceeded {
-		// No coordinator answered. The invites show whether one deleted it.
-		if listed, listErr := cli.inviteListed(ctx, id); listErr == nil && !listed {
-			return nil
-		}
+	// The error kept is the worst of all coordinators, and another one may
+	// have deleted the invite and lost its answer. The invites show it.
+	if listed, listErr := cli.inviteListed(ctx, id); listErr == nil && !listed {
+		return nil
 	}
 	return err
 }
@@ -162,6 +160,11 @@ func (cli *clientImpl) callInviteCoordinator(ctx context.Context, idempotent boo
 // the next coordinator. resendable reports whether it may be sent again
 // after a coordinator that did not answer.
 func tryNextCoordinator(err error, resendable bool) bool {
+	// A coordinator that named why it refused answered the call, also with
+	// Unavailable, such as when it asks to try again later.
+	if RefusalReason(err) != "" {
+		return false
+	}
 	code := status.Code(err)
 	if code == codes.Unimplemented {
 		return true

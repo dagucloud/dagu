@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -362,4 +363,52 @@ func TestClientListInvitesFirstAnswer(t *testing.T) {
 	invites, err := client.ListInvites(t.Context())
 	require.NoError(t, err)
 	assert.Empty(t, invites)
+}
+
+// An older coordinator's Unimplemented does not hide a delete that another
+// coordinator made and lost the answer of, whichever is asked first.
+func TestClientDeleteInviteLostAnswerBesideOlder(t *testing.T) {
+	t.Parallel()
+
+	older := serving(&coordinatorv1.UnimplementedCoordinatorServiceServer{})
+	for name, lostFirst := range map[string]bool{"lost first": true, "older first": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			shared := newSharedInvites("invite-1")
+			lost := serving(&sharingCoordinator{shared: shared, loseAnswer: true})
+			kinds := []memberKind{older, lost}
+			if lostFirst {
+				kinds = []memberKind{lost, older}
+			}
+			require.NoError(t, inviteClientOf(t, kinds...).DeleteInvite(t.Context(), "invite-1"))
+			assert.False(t, shared.has("invite-1"))
+		})
+	}
+}
+
+// retryLater asks to try again later, with the reason as a status detail.
+type retryLater struct {
+	coordinatorv1.UnimplementedCoordinatorServiceServer
+}
+
+func (retryLater) ListInvites(context.Context, *coordinatorv1.ListInvitesRequest) (*coordinatorv1.ListInvitesResponse, error) {
+	st, err := status.New(codes.Unavailable, "try again in a minute").
+		WithDetails(&errdetails.ErrorInfo{Reason: "retry_later", Domain: "coordinator.dagu"})
+	if err != nil {
+		return nil, err
+	}
+	return nil, st.Err()
+}
+
+// A coordinator that answered with a reason is the answer, also with
+// Unavailable, so an older coordinator asked next does not replace it.
+func TestClientInviteReasonedRefusalWins(t *testing.T) {
+	t.Parallel()
+
+	older := serving(&coordinatorv1.UnimplementedCoordinatorServiceServer{})
+	bothOrders(t, serving(retryLater{}), older, func(t *testing.T, client coordinator.InviteClient) {
+		_, err := client.ListInvites(t.Context())
+		assert.Equal(t, codes.Unavailable, status.Code(err), "%v", err)
+		assert.Equal(t, "retry_later", coordinator.RefusalReason(err))
+	})
 }
