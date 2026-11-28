@@ -170,7 +170,7 @@ func TestAddWorkerCreatesInvite(t *testing.T) {
 	require.False(t, result.IsError, data)
 	output := structuredMap(t, result)
 	require.Equal(t, true, output["ready"])
-	require.Equal(t, map[string]any{"initial": "10.0.0.5:50055", "suggestions": []string{"192.168.1.20:50055"}}, output["address"])
+	require.Equal(t, map[string]any{"initial": "10.0.0.5:50055", "suggestions": []string{"192.168.1.20:50055"}}, output["addressOptions"])
 	require.NotContains(t, output, "invite")
 	require.Nil(t, stub.created)
 

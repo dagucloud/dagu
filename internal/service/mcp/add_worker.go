@@ -88,11 +88,11 @@ func (svc *Service) addWorker(ctx context.Context, input executeInput) (*mcpsdk.
 	}
 	coordinators, notReady := joinSteps(readiness.Coordinators)
 	output := map[string]any{
-		"action":       executeActionAddWorker,
-		"ready":        notReady == 0,
-		"coordinators": coordinators,
-		"address":      addressStep(readiness),
-		"references":   defaultReferenceURIs(),
+		"action":         executeActionAddWorker,
+		"ready":          notReady == 0,
+		"coordinators":   coordinators,
+		"addressOptions": addressOptions(readiness),
+		"references":     defaultReferenceURIs(),
 	}
 	in := input.AddWorker
 	switch {
@@ -101,7 +101,7 @@ func (svc *Service) addWorker(ctx context.Context, input executeInput) (*mcpsdk.
 			"Show the user coordinators[].changes and coordinators[].error; each change needs a restart of the coordinator. Then call add_worker again.", notReady, len(coordinators))), output, nil
 	case in.Address == "":
 		return resultWithLinks("Every coordinator accepts workers from other hosts. No invite created: " +
-			"ask for the address workers dial, starting from address.initial, and call add_worker again with it."), output, nil
+			"ask for the address workers dial, starting from addressOptions.initial, and call add_worker again with it."), output, nil
 	}
 
 	body := &daguapi.CreateWorkerInviteJSONRequestBody{Address: &in.Address, Reusable: &in.Reusable}
@@ -220,10 +220,10 @@ func environmentIs(report *daguapi.JoinReadinessReport, environment daguapi.Host
 	return report.Environment != nil && *report.Environment == environment
 }
 
-// addressStep returns step 2 of Add worker: the address to start from and
+// addressOptions returns step 2 of Add worker: the address to start from and
 // the addresses to suggest. It never names a host the coordinators did not
 // report.
-func addressStep(readiness daguapi.GetWorkerJoinReadiness200JSONResponse) map[string]any {
+func addressOptions(readiness daguapi.GetWorkerJoinReadiness200JSONResponse) map[string]any {
 	step := map[string]any{}
 	suggestions := []string{}
 	for _, entry := range readiness.Coordinators {

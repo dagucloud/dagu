@@ -321,7 +321,7 @@ Action behavior:
 - Fields unsupported by an action are invalid. params, singleton, noReuse, profile, labels, and targetNodes apply only to start and enqueue; queue only to enqueue; includeDownstream only to retry; stepName only to retry, approve, reject, and push_back; subDAGRunId and attemptId only to approve, reject, and push_back; inputs only to approve and push_back; reason only to reject.
 - add_worker is admin only and takes only address, reusable, expiresIn, and labels. It walks through Add worker as the Workers section of System status does:
   1. Call it without address. coordinators lists each coordinator with ready, its report, and, when not ready, changes or error to show the user. Each change needs a restart of the coordinator; call add_worker again after it. notes hold reminders that apply even when ready, such as publishing the port of a container.
-  2. Ask the user for the address workers dial. address.initial is the address of the last invite or coordinator.advertise; address.suggestions are the coordinators' own addresses. In a container there are none, and address.note says to ask for the address of the machine that runs it. Never fill in a host name the result does not give.
+  2. Ask the user for the address workers dial. addressOptions.initial is the address of the last invite or coordinator.advertise; addressOptions.suggestions are the coordinators' own addresses. In a container there are none, and addressOptions.note says to ask for the address of the machine that runs it. Never fill in a host name the result does not give.
   3. Call it with address, reusable, and labels. Once every coordinator is ready, it creates the invite and returns inviteId, invite, kind, expiresAt, and commands: linux and docker, and kubernetes (a Secret and a Deployment) for a reusable invite only, since a new pod has no certificate. While a coordinator is not ready, it creates nothing and returns step 1 again.
 - Only the add_worker result that creates the invite contains it. Show it to the user once; no later read returns it. A worker that joins with it lists its inviteId.
 - With wait=true, the call returns once the run reaches a terminal state, stops at a waiting checkpoint, or the timeout elapses. A run stopped at a checkpoint has completed=false and reports each waiting step under run.steps as humanTask or approval with its prompt; resolve them to resume the run. On timeout the run keeps executing and the output has completed=false.
@@ -333,7 +333,7 @@ Output:
 - When a run is identified, output includes runUri and logsUri. Without wait, it also includes subscribe guidance.
 - approve, reject, and push_back output also has stepName, subDAGRunId when given, and, without wait, the run status and statusLabel observed after the decision.
 - With wait=true, output has completed plus the last observed status and statusLabel, and a completed run includes the run detail summary under run with per-step statuses, errors, and the run's outputs.
-- add_worker output has action, ready, coordinators, address, and references, and once it creates the invite also inviteId, invite, kind, expiresAt when the invite expires, and commands.
+- add_worker output has action, ready, coordinators, addressOptions, and references, and once it creates the invite also inviteId, invite, kind, expiresAt when the invite expires, and commands.
 
 Errors:
 

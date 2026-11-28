@@ -1089,7 +1089,7 @@ The Workers page is the list of workers on System status.
   after step 2.
 - `coordinators` holds, for each coordinator, `ready`, its report or
   `error`, the `changes` of step 1 while it is not ready, and the `notes`
-  that step 1 keeps even when ready. `address` holds `initial`, the value
+  that step 1 keeps even when ready. `addressOptions` holds `initial`, the value
   step 2 starts with, and `suggestions`, the addresses step 2 suggests.
 - While a coordinator is not ready, or does not report, it creates no
   invite.
