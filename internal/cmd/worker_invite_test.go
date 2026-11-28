@@ -73,6 +73,18 @@ func (c *inviteCoordinator) DeleteInvite(_ context.Context, req *coordinatorv1.D
 	return &coordinatorv1.DeleteInviteResponse{}, nil
 }
 
+// ListInvites lists the one invite the coordinator creates until it is
+// deleted.
+func (c *inviteCoordinator) ListInvites(context.Context, *coordinatorv1.ListInvitesRequest) (*coordinatorv1.ListInvitesResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	resp := &coordinatorv1.ListInvitesResponse{}
+	if len(c.created) > 0 && len(c.deleted) == 0 {
+		resp.Invites = append(resp.Invites, &coordinatorv1.InviteRecord{Id: "invite-1"})
+	}
+	return resp, nil
+}
+
 func (c *inviteCoordinator) deletedIDs() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
