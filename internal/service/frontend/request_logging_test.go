@@ -117,4 +117,21 @@ func TestRequestLoggerRedactsInvites(t *testing.T) {
 	assert.Contains(t, output.String(), "/api/v1/workers/invites/")
 	assert.Contains(t, output.String(), "remoteNode=local")
 	assert.NotContains(t, output.String(), testInvite)
+
+}
+
+// An invite alone after the question mark parses as a query name, and stays
+// out of the access log too.
+func TestRequestLoggerRedactsInviteQueryNames(t *testing.T) {
+	var output bytes.Buffer
+	httpLogger := httplog.NewLogger("test", httplog.Options{JSON: true, Concise: true, Writer: &output})
+	handler := sanitizedRequestLogger(httpLogger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.True(t, r.URL.Query().Has(testInvite))
+		w.WriteHeader(http.StatusNotFound)
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/workers/invites?"+testInvite, nil))
+
+	assert.Contains(t, output.String(), "/api/v1/workers/invites")
+	assert.NotContains(t, output.String(), testInvite)
 }

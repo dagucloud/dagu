@@ -1020,7 +1020,8 @@ func sanitizedRequestLogger(httpLogger *httplog.Logger) func(next http.Handler) 
 var secretQueryParams = []string{"token", "code", "state"}
 
 // redactSecretsFromRequest returns a request with the secretQueryParams
-// redacted, every worker invite in its path or query values redacted, and
+// redacted, every worker invite in its path, query names, or query values
+// redacted, and
 // without the query pairs a parser drops, which may hide one. If none of
 // these is present, the original request is returned unchanged.
 func redactSecretsFromRequest(r *http.Request) *http.Request {
@@ -1038,12 +1039,18 @@ func redactSecretsFromRequest(r *http.Request) *http.Request {
 				queryFound = true
 			}
 		}
-		for _, values := range q {
+		for name, values := range q {
 			for i, value := range values {
 				if redacted := coordinator.RedactInvites(value); redacted != value {
 					values[i] = redacted
 					queryFound = true
 				}
+			}
+			// A bare query component, such as "?<invite>", parses as a name.
+			if redacted := coordinator.RedactInvites(name); redacted != name {
+				delete(q, name)
+				q[redacted] = append(q[redacted], values...)
+				queryFound = true
 			}
 		}
 		if queryFound {
