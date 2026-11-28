@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -135,7 +134,7 @@ func (s credentialStore) save(c *credential) error {
 // removeLeftovers removes the partial files of saves that a stop
 // interrupted. The caller holds the lock, so no save is under way.
 func (s credentialStore) removeLeftovers() {
-	entries, err := os.ReadDir(s.dir)
+	entries, err := fileutil.ReadDir(s.dir)
 	if err != nil {
 		return
 	}

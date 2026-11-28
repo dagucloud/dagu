@@ -76,6 +76,23 @@ func errNoBuiltinTLS(address string) failure {
 	}
 }
 
+func errAnswered(address, message string) failure {
+	return failure{
+		cause: "Coordinator at " + address + " could not enroll this worker: " + message,
+		next:  "Check the coordinator's log for the cause.",
+	}
+}
+
+// answered reports an error that a coordinator returned, rather than one of
+// reaching it.
+func answered(err error) bool {
+	switch status.Code(err) {
+	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled, codes.Unknown:
+		return false
+	}
+	return true
+}
+
 func errInvalidReply(address string) failure {
 	return failure{
 		cause: "Coordinator at " + address + " returned a certificate that does not match this worker's request",
@@ -335,11 +352,27 @@ func (m *Membership) enrollAny(ctx context.Context, req *coordinatorv1.EnrollReq
 	}
 }
 
+// The ranks of the failures to retry after. Of a round's failures, the
+// worker reports the one of the highest rank, the last among equals: a
+// coordinator's answer says more than a coordinator without built-in TLS,
+// which says more than one it cannot reach.
+const (
+	rankUnreachable = iota + 1
+	rankNoBuiltinTLS
+	rankAnswered
+)
+
 // enrollRound sends req to each coordinator once. It returns the response
 // of the first that enrolls the worker, or the error that ends the attempt,
 // or else the failure to retry after.
 func (m *Membership) enrollRound(ctx context.Context, req *coordinatorv1.EnrollRequest) (*coordinatorv1.EnrollResponse, failure, error) {
 	var last failure
+	lastRank := 0
+	note := func(f failure, rank int) {
+		if rank >= lastRank {
+			last, lastRank = f, rank
+		}
+	}
 	var otherDagu string
 	for _, address := range m.cfg.Worker.Coordinators {
 		resp, err := m.opts.enroll(ctx, m.config, address, req)
@@ -357,16 +390,18 @@ func (m *Membership) enrollRound(ctx context.Context, req *coordinatorv1.EnrollR
 			logger.Error(ctx, "Enrollment reply refused", tag.Addr(address), tag.Error(err))
 			return nil, failure{}, errInvalidReply(address)
 		case errors.Is(err, coordinator.ErrOwnCertificates):
-			last = errOwnCertificates(address)
+			note(errOwnCertificates(address), rankNoBuiltinTLS)
 		case errors.Is(err, coordinator.ErrNoBuiltinTLS):
-			last = errNoBuiltinTLS(address)
+			note(errNoBuiltinTLS(address), rankNoBuiltinTLS)
 		case status.Code(err) == codes.PermissionDenied:
 			return nil, failure{}, errInviteRefused
 		case status.Code(err) == codes.FailedPrecondition && !req.KeepsCertificate:
 			// The invite is single use, and the coordinator kept it.
 			return nil, failure{}, fmt.Errorf("a single-use invite needs a writable data directory: use a reusable invite, or make %s writable", m.cfg.Paths.DataDir)
+		case answered(err):
+			note(errAnswered(address, status.Convert(err).Message()), rankAnswered)
 		default:
-			last = errCannotReach(address)
+			note(errCannotReach(address), rankUnreachable)
 		}
 		logger.Debug(ctx, "Enrollment failed", tag.Addr(address), tag.Error(err))
 	}

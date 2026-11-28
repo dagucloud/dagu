@@ -12,6 +12,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -420,22 +421,38 @@ func TestClientTransportWorkerCertificateNoFallback(t *testing.T) {
 // A worker certificate client says which coordinator belongs to another
 // Dagu: one on built-in TLS whose CA did not sign the certificate (Spec 108
 // §Messages).
+//
+// Own certificates that name coordinator.dagu.invalid and come with their
+// CA are not one of another Dagu, and get the change to make instead.
 func TestClientTransportWorkerCertificateOtherDagu(t *testing.T) {
-	coord := serveTestCoordinator(t, builtinCredentials(t, newTestCA(t)))
-	config := workerCertificateConfig(t, newTestCA(t))
-	member := coord.member("")
-	cli := newTestClient(t, &config, member)
+	for _, tc := range []struct {
+		name  string
+		creds credentials.TransportCredentials
+		want  string
+	}{
+		{name: "OtherDagu", creds: builtinCredentials(t, newTestCA(t)),
+			want: `%s belongs to a different Dagu than the one this worker joined. Get a new command from "Add worker" to join it.`},
+		{name: "OwnCertificatesWithBuiltinName", creds: ownChainCredentials(t),
+			want: "Coordinator at %s serves TLS with its own certificates, so this worker cannot use its worker certificate there. Remove peer.cert_file and peer.key_file from the coordinator's config, so it serves built-in TLS."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			coord := serveTestCoordinator(t, tc.creds)
+			config := workerCertificateConfig(t, newTestCA(t))
+			member := coord.member("")
+			cli := newTestClient(t, &config, member)
 
-	lines := captureClientLogs(t, func(ctx context.Context) {
-		client, err := cli.getOrCreateDiscoveredClient(member)
-		require.NoError(t, err)
-		require.Error(t, cli.isHealthy(ctx, client))
-		// The line comes with the context of the next call.
-		_ = cli.isHealthy(ctx, client)
-	})
-	require.NotEmpty(t, lines)
-	assert.Equal(t, "ERROR", lines[0].Level)
-	assert.Equal(t, coord.addr+` belongs to a different Dagu than the one this worker joined. Get a new command from "Add worker" to join it.`, lines[0].Msg)
+			lines := captureClientLogs(t, func(ctx context.Context) {
+				client, err := cli.getOrCreateDiscoveredClient(member)
+				require.NoError(t, err)
+				require.Error(t, cli.isHealthy(ctx, client))
+				// The line comes with the context of the next call.
+				_ = cli.isHealthy(ctx, client)
+			})
+			require.NotEmpty(t, lines)
+			assert.Equal(t, "ERROR", lines[0].Level)
+			assert.Equal(t, fmt.Sprintf(tc.want, coord.addr), lines[0].Msg)
+		})
+	}
 }
 
 // testCoordinator serves the health service and an unimplemented coordinator

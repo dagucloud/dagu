@@ -147,7 +147,6 @@ func verifyPinnedChain(certs []*x509.Certificate, pin string) error {
 		return errNotBuiltinCertificate
 	}
 	leaf := certs[0]
-	signed := false
 	for _, ca := range certs[1:] {
 		if caPin(ca) == pin {
 			_, err := leaf.Verify(x509.VerifyOptions{
@@ -157,14 +156,26 @@ func verifyPinnedChain(certs []*x509.Certificate, pin string) error {
 			})
 			return err
 		}
-		// A coordinator of built-in TLS sends the CA that signed its
-		// certificate.
-		signed = signed || (ca.IsCA && leaf.CheckSignatureFrom(ca) == nil)
 	}
-	if signed && isCoordinatorCertificate(leaf) {
+	if isBuiltinChain(certs) {
 		return ErrInviteCAMismatch
 	}
 	return errNotBuiltinCertificate
+}
+
+// isBuiltinChain reports whether certs, the chain a coordinator sent, is one
+// of built-in TLS: its server certificate is a coordinator certificate, and
+// a CA in the chain signed it.
+func isBuiltinChain(certs []*x509.Certificate) bool {
+	if len(certs) == 0 || !isCoordinatorCertificate(certs[0]) {
+		return false
+	}
+	for _, ca := range certs[1:] {
+		if ca.IsCA && certs[0].CheckSignatureFrom(ca) == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // isCoordinatorCertificate reports whether cert is one a coordinator issues

@@ -102,6 +102,10 @@ func requireTLSClientMessage(source string) string {
 // coordinator on built-in TLS whose CA did not sign the certificate.
 const otherDaguFormat = "%s belongs to a different Dagu than the one this worker joined. Get a new command from \"Add worker\" to join it."
 
+// ownCertificatesFormat is what a worker with a worker certificate says
+// about a coordinator that serves TLS with its own certificates.
+const ownCertificatesFormat = "Coordinator at %s serves TLS with its own certificates, so this worker cannot use its worker certificate there. Remove peer.cert_file and peer.key_file from the coordinator's config, so it serves built-in TLS."
+
 // transportChoice is a transport and the source that selected it.
 type transportChoice struct {
 	transport string
@@ -320,11 +324,15 @@ func (t *clientTransport) use(address string, choice transportChoice) {
 // unlisted address, opens an h2c window for the address. The client that
 // opens a window logs its warning.
 func (t *clientTransport) failed(address string, plan connectionPlan, conn *handshakeConn, err error) {
-	if plan.cert != nil && isOtherDagu(err) {
+	if plan.cert != nil && isUnknownAuthority(err) {
+		format := ownCertificatesFormat
+		if isOtherDagu(err) {
+			format = otherDaguFormat
+		}
 		t.mu.Lock()
 		defer t.mu.Unlock()
 		t.pending = append(t.pending, func(ctx context.Context) {
-			logger.Error(ctx, fmt.Sprintf(otherDaguFormat, address), tag.Error(err))
+			logger.Error(ctx, fmt.Sprintf(format, address), tag.Error(err))
 		})
 		return
 	}
@@ -788,8 +796,7 @@ func isUnknownAuthority(err error) bool {
 // coordinatorCertName, that does not chain to the CA the client trusts.
 func isOtherDagu(err error) bool {
 	verification, ok := errors.AsType[*tls.CertificateVerificationError](err)
-	return ok && isUnknownAuthority(err) && len(verification.UnverifiedCertificates) > 0 &&
-		verification.UnverifiedCertificates[0].VerifyHostname(coordinatorCertName) == nil
+	return ok && isUnknownAuthority(err) && isBuiltinChain(verification.UnverifiedCertificates)
 }
 
 // h2cCredentials dial h2c, and give each connection an h2cInfo with the

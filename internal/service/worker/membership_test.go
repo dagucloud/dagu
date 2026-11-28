@@ -315,6 +315,13 @@ func TestMembershipEnrollFailures(t *testing.T) {
 			results: map[string][]any{coordinatorA: {coordinator.ErrOwnCertificates, ca}, coordinatorB: {coordinator.ErrOwnCertificates}},
 			wantLog: "Remove peer.cert_file and peer.key_file from the coordinator's config, so it serves built-in TLS.",
 		},
+		{
+			// A coordinator's answer says more than a later address that
+			// cannot be reached.
+			name:    "AnswerBeforeUnreachable",
+			results: map[string][]any{coordinatorA: {status.Error(codes.Internal, "failed to record the worker certificate"), ca}},
+			wantLog: "Coordinator at coordinator-a:50055 could not enroll this worker: failed to record the worker certificate. Check the coordinator's log for the cause.",
+		},
 		{name: "Refused", results: map[string][]any{coordinatorA: {refused}}, wantErr: errInviteRefused.Error()},
 		{
 			name:    "OtherDagu",

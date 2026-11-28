@@ -127,6 +127,24 @@ func serveReplyingCoordinator(t *testing.T, ca *PeerCA, reply func(*coordinatorv
 	return listener.Addr().String()
 }
 
+// ownChainCredentials serve TLS with own certificates that name
+// coordinator.dagu.invalid and expire, sent with the CA that signed them.
+func ownChainCredentials(t *testing.T) credentials.TransportCredentials {
+	t.Helper()
+	ca := newTestCA(t)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	leaf := signedBy(t, ca, key.Public(), &x509.Certificate{
+		Subject:     pkix.Name{CommonName: coordinatorCertName},
+		DNSNames:    []string{coordinatorCertName},
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	})
+	return credentials.NewTLS(&tls.Config{
+		Certificates: []tls.Certificate{{Certificate: [][]byte{leaf, ca.cert.Raw}, PrivateKey: key}},
+		MinVersion:   tls.VersionTLS13,
+	})
+}
+
 // signedBy returns a DER certificate from template for key, signed by ca.
 func signedBy(t *testing.T, ca *PeerCA, key any, template *x509.Certificate) []byte {
 	t.Helper()
@@ -167,25 +185,14 @@ func TestEnrollErrorOrder(t *testing.T) {
 // that signed them are not one of another Dagu: the worker counts the
 // coordinator as unavailable instead of stopping (Spec 108 §Worker Side).
 func TestEnrollOwnChainWithBuiltinName(t *testing.T) {
-	ca, other := newTestCA(t), newTestCA(t)
-	invite, _, err := newInvite(other.cert)
+	invite, _, err := newInvite(newTestCA(t).cert)
 	require.NoError(t, err)
 	parsed, ok := ParseInvite(invite)
 	require.True(t, ok)
 
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	leaf := signedBy(t, ca, key.Public(), &x509.Certificate{
-		Subject:     pkix.Name{CommonName: coordinatorCertName},
-		DNSNames:    []string{coordinatorCertName},
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	})
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{
-		Certificates: []tls.Certificate{{Certificate: [][]byte{leaf, ca.cert.Raw}, PrivateKey: key}},
-		MinVersion:   tls.VersionTLS13,
-	})))
+	server := grpc.NewServer(grpc.Creds(ownChainCredentials(t)))
 	coordinatorv1.RegisterCoordinatorServiceServer(server, coordinatorv1.UnimplementedCoordinatorServiceServer{})
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
