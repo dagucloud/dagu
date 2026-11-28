@@ -1338,14 +1338,20 @@ The Workers page is the list of workers on System status.
 - The confirmation and **Stop runs now** close by themselves when every
   step they took succeeded. Otherwise only the admin closes them: they keep
   their outcome when a refresh of the list changes or drops the worker's
-  row, or fails, and show a dropped row as last listed, and a request that ends after its dialog was closed
-  leaves a newer one open.
-- With running runs, the confirmation lists them, each by its DAG and run
-  ID and a child run also by its root run, and offers
-  **Remove after its runs finish** (`finish`, the default) and
-  **Stop its runs and remove** (`stop`), which sends a cancel request to
-  each run and removes the worker within two minutes, whether or not its
-  runs have ended. Once the list shows no runs, the choice returns to
+  row, or fails, and show a dropped row as last listed. While a request
+  is under way, which for the confirmation includes the invite delete
+  after the removal, Cancel is disabled and the dialog stays open.
+- A refresh that reports another certificate for the worker locks the
+  confirmation, also when the same read carries coordinator errors.
+- Stop cancels the runs of a certificate. The confirmation and
+  **Stop runs now** list the runs of every listed worker on the confirmed
+  certificate, naming those workers when there are several, each run by
+  its DAG and run ID and a child run also by its root run, and say that
+  a run the list does not show gets a cancel request too. With runs, the
+  confirmation offers **Remove after its runs finish** (`finish`, the
+  default) and **Stop its runs and remove** (`stop`), which sends a cancel
+  request to each run on the certificate and removes the worker within
+  two minutes, whether or not its runs have ended. Once the list shows no runs, the choice returns to
   `finish`. **Stop runs now** says the same. A `removing` worker
   shows
   `Removing (<n> runs left)`, or `Removing (1 run left)`, and
@@ -1353,7 +1359,8 @@ The Workers page is the list of workers on System status.
   open **Stop runs now** says none remain and sends nothing. Once the list
   no longer shows the worker, or its latest read failed, its runs are
   unknown: **Stop runs now** says
-  so and sends nothing, and the confirmation sends `finish`. The count
+  so and sends nothing, and the confirmation says so, with no runs or
+  choice, and sends `finish`. The count
   comes from the page's existing `/workers` refresh.
 - For a worker on a reusable invite that is still active, the confirmation
   says the invite still admits new workers, names the other workers that
@@ -1367,8 +1374,9 @@ The Workers page is the list of workers on System status.
   delete that same invite again; it closes once that delete succeeds.
   From the accepted removal on, the confirmation shows and acts on the
   invite recorded then, whatever the list shows later.
-- For a worker with `environment: kubernetes`, the confirmation says the pod
-  keeps restarting until the Deployment is scaled down. A replacement pod
+- For a worker with `environment: kubernetes`, the confirmation says that
+  if a Deployment manages the pod, the pod keeps restarting until the
+  Deployment is scaled down. A replacement pod
   can join again while its reusable invite is active, so the confirmation
   offers to delete the invite as well.
 - **Invites** lists invites with kind, a short ID, creator, creation and

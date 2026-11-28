@@ -791,7 +791,7 @@ describe('Remove', () => {
     expect(
       within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
     ).toHaveAccessibleName(
-      /Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended\./
+      /Each run on its certificate gets a cancel request, also one the list does not show, and the worker is removed within two minutes, whether or not its runs have ended\./
     );
   });
 
@@ -1052,7 +1052,7 @@ describe('Remove', () => {
     const dialog = screen.getByRole('dialog');
     // The worker is removed within two minutes whether or not its runs end.
     expect(dialog).toHaveTextContent(
-      'Each of its 2 runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.'
+      'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.'
     );
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Stop runs' })
@@ -1140,14 +1140,8 @@ describe('Remove', () => {
         'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
       )
     ).toBeInTheDocument();
-    expect(
-      within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
-    ).toBeDisabled();
-    expect(
-      within(dialog).getByRole('radio', {
-        name: /Remove after its runs finish/,
-      })
-    ).toBeChecked();
+    expect(within(dialog).queryByRole('radio')).not.toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent('running run');
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Remove' })
     );
@@ -1222,16 +1216,94 @@ describe('Remove', () => {
         'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
       )
     ).toBeInTheDocument();
-    expect(
-      within(dialog).getByRole('radio', {
-        name: /Remove after its runs finish/,
-      })
-    ).toBeChecked();
+    expect(within(dialog).queryByRole('radio')).not.toBeInTheDocument();
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Remove' })
     );
     await waitFor(() => expect(removals()).toHaveLength(1));
     expect(removals()[0]?.body?.runs).toBe('finish');
+  });
+
+  // Stop cancels runs by certificate. Workers that share it are named, with
+  // their runs, in both dialogs.
+  it('lists every worker on the certificate with its runs', async () => {
+    const shared = (id: string, runId: string) =>
+      worker(id, {
+        certificateId: 'cert-shared',
+        removing: id === 'worker-a1',
+        runningTasks: [task('etl', runId)],
+      });
+    renderPage([
+      shared('worker-a1', 'run-1'),
+      shared('worker-a2', 'run-2'),
+      worker('worker-c1', { runningTasks: [task('etl', 'run-3')] }),
+    ]);
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop runs now on worker-a1' })
+    );
+    let dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent(
+      'Workers on this certificate: worker-a1, worker-a2'
+    );
+    expect(
+      within(dialog)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent)
+    ).toEqual(['worker-a1etlrun-1', 'worker-a2etlrun-2']);
+    expect(dialog).toHaveTextContent('also one the list does not show');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Cancel' })
+    );
+
+    dialog = await openRemove('worker-a2');
+    expect(dialog).toHaveTextContent('It has 2 running runs:');
+    expect(dialog).toHaveTextContent(
+      'Workers on this certificate: worker-a1, worker-a2'
+    );
+    expect(
+      within(dialog)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent)
+    ).toEqual(['worker-a1etlrun-1', 'worker-a2etlrun-2']);
+    expect(dialog).not.toHaveTextContent('run-3');
+  });
+
+  // A read that carries coordinator errors still reports rows: a
+  // replacement certificate it shows locks the confirmation.
+  it('locks on a replacement row from a read with errors', async () => {
+    const rows = (certificateId: string) => [
+      worker('worker-a1', { certificateId, inviteId: 'inv-r' }),
+    ];
+    const answers = [
+      { status: 200, body: { workers: rows('cert-1'), errors: [] } },
+      {
+        status: 200,
+        body: { workers: rows('cert-2'), errors: ['raw words'] },
+      },
+    ];
+    server.workers = () => answers.shift()! as never;
+    render(<LivePage />, { wrapper: Providers });
+    const [remove] = await screen.findAllByRole('button', {
+      name: 'Remove worker-a1',
+    });
+    await userEvent.click(remove!);
+    const dialog = screen.getByRole('dialog');
+
+    // The open dialog blocks the pointer; this stands in for the page's refresh.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Refresh workers', hidden: true })
+    );
+
+    expect(
+      await within(dialog).findByText(
+        'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.'
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    ).toBeDisabled();
+    expect(removals()).toHaveLength(0);
   });
 
   // The worker ID travels in the body as it is, so an ID that names a
@@ -1503,7 +1575,7 @@ describe('Remove', () => {
     const dialog = await openRemove('worker-k1');
 
     expect(dialog).toHaveTextContent(
-      'its pod keeps restarting until its Deployment is scaled down'
+      'if a Deployment manages its pod, the pod keeps restarting until the Deployment is scaled down'
     );
     expect(dialog).toHaveTextContent(
       'A replacement pod can join with the invite while it is active, so delete the invite as well.'
@@ -1621,25 +1693,47 @@ describe('Remove', () => {
     expect(screen.queryByText(/Server message/)).not.toBeInTheDocument();
   });
 
-  // A request that ends after its dialog was closed leaves a newer
-  // confirmation of the same row open.
-  it('keeps a newer confirmation open when an older removal ends', async () => {
-    let answer: (value: { status: number; body: unknown }) => void = () =>
+  // A confirmation stays until its requests settle: the removal and the
+  // invite delete that follows report in it, so Cancel and Escape wait.
+  it('stays open until the removal and the invite delete settle', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    let removal: (value: { status: number; body: unknown }) => void = () =>
       undefined;
-    server.del = () => new Promise((resolve) => (answer = resolve));
-    renderPage([worker('worker-a1')]);
-    let dialog = await openRemove('worker-a1');
+    server.del = (request) =>
+      isRemoval(request)
+        ? new Promise((resolve) => (removal = resolve))
+        : refused(503, '', 'internal_error', 'no_coordinator');
+    renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
+    await screen.findByText('Reusable');
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: /Also delete the invite/ })
+    );
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Remove' })
     );
-    await userEvent.click(
-      within(dialog).getByRole('button', { name: 'Cancel' })
-    );
-    dialog = await openRemove('worker-a1');
 
-    await act(async () => answer({ status: 200, body: { state: 'removing' } }));
-
+    const cancel = within(dialog).getByRole('button', { name: 'Cancel' });
+    expect(cancel).toBeDisabled();
+    await userEvent.click(cancel);
+    await userEvent.keyboard('{Escape}');
     expect(screen.getByRole('dialog')).toBe(dialog);
+
+    await act(async () =>
+      removal({ status: 200, body: { state: 'removing' } })
+    );
+
+    expect(
+      await within(dialog).findByText('The invite was not deleted.')
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Delete the invite' })
+    ).toBeEnabled();
+    expect(
+      within(dialog).getByRole('button', { name: 'Cancel' })
+    ).toBeEnabled();
   });
 
   // Only the admin closes a confirmation: a refresh that takes away its

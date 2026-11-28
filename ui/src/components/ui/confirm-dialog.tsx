@@ -23,6 +23,11 @@ type ConfirmDialogProps = {
   children: React.ReactNode;
   visible: boolean;
   dismissModal: () => void;
+  /**
+   * Disables Cancel while a request that the dialog reports on is under
+   * way. The caller ignores other ways to dismiss meanwhile.
+   */
+  cancelDisabled?: boolean;
   onSubmit: () => void;
   submitDisabled?: boolean;
   fullscreen?: boolean;
@@ -63,6 +68,7 @@ function ConfirmDialog({
   buttonText,
   visible,
   dismissModal,
+  cancelDisabled = false,
   onSubmit,
   submitDisabled = false,
   fullscreen = false,
@@ -169,7 +175,12 @@ function ConfirmDialog({
         <div className={cn('py-4', bodyClassName)}>{children}</div>
 
         <DialogFooter className={footerClassName}>
-          <Button ref={cancelButtonRef} variant="ghost" onClick={dismissModal}>
+          <Button
+            ref={cancelButtonRef}
+            variant="ghost"
+            disabled={cancelDisabled}
+            onClick={dismissModal}
+          >
             <X className="h-4 w-4" />
             <I18nText text={'Cancel'} />
           </Button>

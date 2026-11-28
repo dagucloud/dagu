@@ -107,10 +107,13 @@ export function WorkerActionsHost({
 }) {
   const [open, setOpen] = React.useState<OpenAction | null>(null);
   const requests = React.useRef(0);
-  const listed =
-    open && available
-      ? workers.find((candidate) => candidate.id === open.worker.id)
-      : undefined;
+  // The latest row reported for the worker, also by a read that carried
+  // errors: a replacement certificate it shows still locks the
+  // confirmation. Its runs count only when the read listed every worker.
+  const listed = open
+    ? workers.find((candidate) => candidate.id === open.worker.id)
+    : undefined;
+  const runsKnown = available && !!listed;
   // The open confirmation keeps the row as last listed, so a row the list
   // drops later shows its latest runs, not those from the click.
   React.useEffect(() => {
@@ -142,7 +145,7 @@ export function WorkerActionsHost({
         <RemoveWorkerDialog
           key={open.request}
           worker={worker}
-          listed={!!listed}
+          listed={runsKnown}
           certificateId={open.certificateId}
           workers={workers}
           onClose={() => close(open.request)}
@@ -152,8 +155,9 @@ export function WorkerActionsHost({
         <StopRunsDialog
           key={open.request}
           worker={worker}
-          listed={!!listed}
+          listed={runsKnown}
           certificateId={open.certificateId}
+          workers={workers}
           onClose={() => close(open.request)}
         />
       )}
@@ -438,7 +442,10 @@ function RemoveWorkerDialog({
   const [inviteError, setInviteError] = React.useState<unknown>(null);
   const locked = useLockedConfirmation(worker, certificateId);
 
-  const tasks = worker.runningTasks ?? [];
+  const onCertificate = listed
+    ? certificateRuns(workers, certificateId)
+    : NO_RUNS;
+  const tasks = onCertificate.runs;
   // The choice applies only while the list shows the worker with runs.
   // Without them, or once the list drops the row and its runs are unknown,
   // a removal lets any run finish.
@@ -520,7 +527,9 @@ function RemoveWorkerDialog({
             : 'Remove'
       )}
       visible
-      dismissModal={onClose}
+      // A request under way reports here: the dialog stays until it settles.
+      dismissModal={submitting ? () => undefined : onClose}
+      cancelDisabled={submitting}
       onSubmit={() => void submit()}
       // The invite warning must be on screen before the removal can start.
       // A refused removal needs a new confirmation with the current state.
@@ -549,15 +558,17 @@ function RemoveWorkerDialog({
               />
             </p>
 
-            {tasks.length === 0 ? (
+            {!listed ? (
               <p>
                 <I18nText
                   text={
-                    listed
-                      ? 'It has no running runs.'
-                      : 'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
+                    'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
                   }
                 />
+              </p>
+            ) : tasks.length === 0 ? (
+              <p>
+                <I18nText text="It has no running runs." />
               </p>
             ) : (
               <fieldset className="min-w-0 space-y-2">
@@ -571,29 +582,7 @@ function RemoveWorkerDialog({
                     values={{ count: tasks.length }}
                   />
                 </legend>
-                <ul className="max-h-32 space-y-0.5 overflow-auto rounded border px-2 py-1 text-xs">
-                  {tasks.map((task) => (
-                    <li key={runKey(task)} className="min-w-0 break-all">
-                      <div className="flex min-w-0 flex-wrap gap-x-2">
-                        <span className="font-medium">{task.dagName}</span>
-                        <span className="font-mono text-muted-foreground">
-                          {task.dagRunId}
-                        </span>
-                      </div>
-                      {underRoot(task) && (
-                        <div className="text-muted-foreground">
-                          <I18nText
-                            text="Root run: {dag} {run}"
-                            values={{
-                              dag: task.rootDagRunName ?? '',
-                              run: task.rootDagRunId ?? '',
-                            }}
-                          />
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
+                <CertificateRunsList runs={onCertificate} />
                 <RunsChoice
                   checked={runs === WorkerRemovalRuns.finish}
                   disabled={submitting}
@@ -603,20 +592,11 @@ function RemoveWorkerDialog({
                 />
                 <RunsChoice
                   checked={runs === WorkerRemovalRuns.stop}
-                  disabled={submitting || !listed}
+                  disabled={submitting}
                   onChange={() => setRuns(WorkerRemovalRuns.stop)}
                   label="Stop its runs and remove"
-                  detail="Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended."
+                  detail="Each run on its certificate gets a cancel request, also one the list does not show, and the worker is removed within two minutes, whether or not its runs have ended."
                 />
-                {!listed && (
-                  <p className="text-muted-foreground">
-                    <I18nText
-                      text={
-                        'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
-                      }
-                    />
-                  </p>
-                )}
               </fieldset>
             )}
 
@@ -624,7 +604,7 @@ function RemoveWorkerDialog({
               <p>
                 <I18nText
                   text={
-                    'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.'
+                    'It runs in Kubernetes: if a Deployment manages its pod, the pod keeps restarting until the Deployment is scaled down.'
                   }
                 />
                 {reusable && (
@@ -809,6 +789,80 @@ function RunsChoice({
 
 type RunningTask = NonNullable<Worker['runningTasks']>[number];
 
+// The runs on a certificate, by the listed workers that use it. Stop
+// cancels runs by certificate, so every worker on it counts.
+interface CertificateRuns {
+  workerIds: string[];
+  runs: Array<{ workerId: string; task: RunningTask }>;
+}
+
+const NO_RUNS: CertificateRuns = { workerIds: [], runs: [] };
+
+function certificateRuns(
+  workers: Worker[],
+  certificateId: string
+): CertificateRuns {
+  const sharing = workers.filter(
+    (worker) => worker.certificateId === certificateId
+  );
+  return {
+    workerIds: sharing.map((worker) => worker.id),
+    runs: sharing.flatMap((worker) =>
+      (worker.runningTasks ?? []).map((task) => ({
+        workerId: worker.id,
+        task,
+      }))
+    ),
+  };
+}
+
+// The runs a stop cancels. Workers that share the certificate are named,
+// and so is the worker of each run.
+function CertificateRunsList({ runs }: { runs: CertificateRuns }) {
+  const shared = runs.workerIds.length > 1;
+  return (
+    <>
+      {shared && (
+        <p className="break-all">
+          <I18nText
+            text="Workers on this certificate: {workers}"
+            values={{ workers: runs.workerIds.join(', ') }}
+          />
+        </p>
+      )}
+      <ul className="max-h-32 space-y-0.5 overflow-auto rounded border px-2 py-1 text-xs">
+        {runs.runs.map(({ workerId, task }) => (
+          <li
+            key={`${workerId}\n${runKey(task)}`}
+            className="min-w-0 break-all"
+          >
+            {shared && (
+              <div className="font-mono text-muted-foreground">{workerId}</div>
+            )}
+            <div className="flex min-w-0 flex-wrap gap-x-2">
+              <span className="font-medium">{task.dagName}</span>
+              <span className="font-mono text-muted-foreground">
+                {task.dagRunId}
+              </span>
+            </div>
+            {underRoot(task) && (
+              <div className="text-muted-foreground">
+                <I18nText
+                  text="Root run: {dag} {run}"
+                  values={{
+                    dag: task.rootDagRunName ?? '',
+                    run: task.rootDagRunId ?? '',
+                  }}
+                />
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 // A run is named by its root run as well: a child DAG run of one root can
 // share its DAG and run ID with that of another root.
 function runKey(task: RunningTask): string {
@@ -833,6 +887,7 @@ function StopRunsDialog({
   worker,
   listed,
   certificateId,
+  workers,
   onClose,
 }: {
   worker: Worker;
@@ -840,13 +895,17 @@ function StopRunsDialog({
   listed: boolean;
   /** The certificate whose runs the admin confirms to stop. */
   certificateId: string;
+  workers: Worker[];
   onClose: () => void;
 }) {
   const { ts } = useI18n();
   const { removeWorker, rereadWorkers } = useWorkerActions();
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<unknown>(null);
-  const count = worker.runningTasks?.length ?? 0;
+  const onCertificate = listed
+    ? certificateRuns(workers, certificateId)
+    : NO_RUNS;
+  const count = onCertificate.runs.length;
   const locked = useLockedConfirmation(worker, certificateId);
   // Nothing to stop: the runs all ended, or the list no longer shows the
   // worker and its runs are unknown.
@@ -875,7 +934,9 @@ function StopRunsDialog({
       title={ts('Stop the runs of {worker}', { worker: worker.id })}
       buttonText={ts('Stop runs')}
       visible
-      dismissModal={onClose}
+      // A request under way reports here: the dialog stays until it settles.
+      dismissModal={submitting ? () => undefined : onClose}
+      cancelDisabled={submitting}
       onSubmit={() => void submit()}
       // A refused stop needs a new confirmation with the current state, and
       // runs that all ended leave nothing to stop.
@@ -896,13 +957,11 @@ function StopRunsDialog({
                 ? 'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
                 : count === 0
                   ? 'No runs remain to stop. The worker is removed as planned.'
-                  : count === 1
-                    ? 'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.'
-                    : 'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.'
+                  : 'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.'
             }
-            values={{ count }}
           />
         </p>
+        {count > 0 && <CertificateRunsList runs={onCertificate} />}
         {locked && <ReplacedNotice />}
         {error !== null && (
           <WorkerError

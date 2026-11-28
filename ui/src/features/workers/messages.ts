@@ -114,8 +114,8 @@ export const workerAdminMessages = defineMessages({
     'Remove after its runs finish': 'Remove after its runs finish',
     'It gets no new runs, and is removed when its last run ends.':
       'It gets no new runs, and is removed when its last run ends.',
-    'Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended.':
-      'Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended.',
+    'Each run on its certificate gets a cancel request, also one the list does not show, and the worker is removed within two minutes, whether or not its runs have ended.':
+      'Each run on its certificate gets a cancel request, also one the list does not show, and the worker is removed within two minutes, whether or not its runs have ended.',
     'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
       'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.',
     'Other workers on this invite: {workers}':
@@ -123,8 +123,8 @@ export const workerAdminMessages = defineMessages({
     'Also delete the invite': 'Also delete the invite',
     'Workers that joined with it keep their certificates.':
       'Workers that joined with it keep their certificates.',
-    'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
-      'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.',
+    'It runs in Kubernetes: if a Deployment manages its pod, the pod keeps restarting until the Deployment is scaled down.':
+      'It runs in Kubernetes: if a Deployment manages its pod, the pod keeps restarting until the Deployment is scaled down.',
     'A replacement pod can join with the invite while it is active, so delete the invite as well.':
       'A replacement pod can join with the invite while it is active, so delete the invite as well.',
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
@@ -133,10 +133,8 @@ export const workerAdminMessages = defineMessages({
     'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.':
       'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.',
     'Stop runs': 'Stop runs',
-    'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
-      'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.',
-    'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.':
-      'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.',
+    'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.':
+      'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.',
     'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
       'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
@@ -181,6 +179,8 @@ export const workerAdminMessages = defineMessages({
       'Check the coordinator log for the reason, or run {command} on the host of the selected node, then try again.',
     'Start the coordinator, or check that the selected node can reach it, then try again.':
       'Start the coordinator, or check that the selected node can reach it, then try again.',
+    'Workers on this certificate: {workers}':
+      'Workers on this certificate: {workers}',
   },
   'zh-CN': {
     'Only admins can manage workers and invites.':
@@ -288,8 +288,8 @@ export const workerAdminMessages = defineMessages({
     'Remove after its runs finish': '在其运行结束后移除',
     'It gets no new runs, and is removed when its last run ends.':
       '它不再获得新的运行，并在最后一个运行结束时被移除。',
-    'Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended.':
-      '每个运行都会收到取消请求，无论运行是否结束，该 Worker 都会在两分钟内被移除。',
+    'Each run on its certificate gets a cancel request, also one the list does not show, and the worker is removed within two minutes, whether or not its runs have ended.':
+      '其证书上的每个运行（包括列表中未显示的运行）都会收到取消请求，Worker 将在两分钟内被移除，无论其运行是否已结束。',
     'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
       '它通过可重复使用的邀请加入，该邀请仍允许新的 Worker 加入，包括替代它的 Worker。',
     'Other workers on this invite: {workers}':
@@ -297,8 +297,8 @@ export const workerAdminMessages = defineMessages({
     'Also delete the invite': '同时删除该邀请',
     'Workers that joined with it keep their certificates.':
       '已通过它加入的 Worker 保留其证书。',
-    'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
-      '它运行在 Kubernetes 中：在其 Deployment 缩容之前，其 Pod 会不断重启。',
+    'It runs in Kubernetes: if a Deployment manages its pod, the pod keeps restarting until the Deployment is scaled down.':
+      '它运行在 Kubernetes 中：如果其 Pod 由 Deployment 管理，该 Pod 会不断重启，直到 Deployment 缩容。',
     'A replacement pod can join with the invite while it is active, so delete the invite as well.':
       '邀请有效期间，替代的 Pod 可以通过它加入，因此请同时删除邀请。',
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
@@ -307,10 +307,8 @@ export const workerAdminMessages = defineMessages({
     'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.':
       '移除和立即停止运行仅适用于此页面所属的服务器。要在所选节点上使用，请打开该节点的 Dagu UI。',
     'Stop runs': '停止运行',
-    'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
-      '其运行会收到取消请求。无论运行是否结束，该 Worker 都会在两分钟内被移除。',
-    'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.':
-      '其 {count} 个运行都会收到取消请求。无论运行是否结束，该 Worker 都会在两分钟内被移除。',
+    'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.':
+      '其证书上的每个运行（包括列表中未显示的运行）都会收到取消请求。Worker 将在两分钟内被移除，无论这些运行是否已结束。',
     'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
       '此 Worker 已不再使用此对话框打开时显示的证书连接。请关闭此对话框，并为它重新确认。',
     'The invite it joined with no longer exists, so it lets no new worker join.':
@@ -355,6 +353,7 @@ export const workerAdminMessages = defineMessages({
       '请查看 Coordinator 日志了解原因，或在所选节点的主机上运行 {command}，然后重试。',
     'Start the coordinator, or check that the selected node can reach it, then try again.':
       '请启动 Coordinator，或检查所选节点能否访问它，然后重试。',
+    'Workers on this certificate: {workers}': '使用此证书的 Worker：{workers}',
   },
   ja: {
     'Only admins can manage workers and invites.':
@@ -466,8 +465,8 @@ export const workerAdminMessages = defineMessages({
     'Remove after its runs finish': '実行の終了後に削除',
     'It gets no new runs, and is removed when its last run ends.':
       '新しい実行を受け取らず、最後の実行が終わると削除されます。',
-    'Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended.':
-      '各実行に取り消し要求を送り、実行が終わったかどうかにかかわらず、2 分以内にワーカーを削除します。',
+    'Each run on its certificate gets a cancel request, also one the list does not show, and the worker is removed within two minutes, whether or not its runs have ended.':
+      'その証明書上の各実行（一覧に表示されないものを含む）にキャンセル要求が送られ、実行が終わったかどうかにかかわらず、ワーカーは 2 分以内に削除されます。',
     'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
       '再利用可能な招待で参加しています。この招待では、このワーカーの代わりを含め、今後も新しいワーカーが参加できます。',
     'Other workers on this invite: {workers}':
@@ -475,8 +474,8 @@ export const workerAdminMessages = defineMessages({
     'Also delete the invite': '招待も削除',
     'Workers that joined with it keep their certificates.':
       '参加済みのワーカーは証明書を保持します。',
-    'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
-      'Kubernetes で動いています。Deployment をスケールダウンするまで Pod は再起動を続けます。',
+    'It runs in Kubernetes: if a Deployment manages its pod, the pod keeps restarting until the Deployment is scaled down.':
+      'Kubernetes で動作しています。Pod を Deployment が管理している場合、Deployment をスケールダウンするまで Pod は再起動し続けます。',
     'A replacement pod can join with the invite while it is active, so delete the invite as well.':
       '招待が有効な間は代わりの Pod がそれで参加できるため、招待も削除してください。',
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
@@ -485,10 +484,8 @@ export const workerAdminMessages = defineMessages({
     'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.':
       '削除と今すぐ実行を停止は、このページのサーバーでのみ使えます。選択中のノードで使うには、そのノードの Dagu UI を開いてください。',
     'Stop runs': '実行を停止',
-    'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
-      '実行に取り消し要求を送ります。実行が終わったかどうかにかかわらず、2 分以内にワーカーを削除します。',
-    'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.':
-      '{count} 件の実行それぞれに取り消し要求を送ります。実行が終わったかどうかにかかわらず、2 分以内にワーカーを削除します。',
+    'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.':
+      'その証明書上の各実行（一覧に表示されないものを含む）にキャンセル要求が送られます。実行が終わったかどうかにかかわらず、ワーカーは 2 分以内に削除されます。',
     'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
       'このワーカーは、このダイアログを開いたときに表示した証明書で接続していません。このダイアログを閉じて、改めて確認してください。',
     'The invite it joined with no longer exists, so it lets no new worker join.':
@@ -533,6 +530,8 @@ export const workerAdminMessages = defineMessages({
       'コーディネーターのログで理由を確認するか、選択したノードのホストで {command} を実行してから、もう一度お試しください。',
     'Start the coordinator, or check that the selected node can reach it, then try again.':
       'コーディネーターを起動するか、選択したノードから到達できるか確認してから、もう一度お試しください。',
+    'Workers on this certificate: {workers}':
+      'この証明書を使うワーカー: {workers}',
   },
   de: {
     'Only admins can manage workers and invites.':
@@ -645,8 +644,8 @@ export const workerAdminMessages = defineMessages({
     'Remove after its runs finish': 'Nach Ende seiner Läufe entfernen',
     'It gets no new runs, and is removed when its last run ends.':
       'Er erhält keine neuen Läufe und wird entfernt, wenn sein letzter Lauf endet.',
-    'Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended.':
-      'Jeder Lauf erhält eine Abbruchanfrage, und der Worker wird innerhalb von zwei Minuten entfernt, ob seine Läufe geendet haben oder nicht.',
+    'Each run on its certificate gets a cancel request, also one the list does not show, and the worker is removed within two minutes, whether or not its runs have ended.':
+      'Jeder Lauf auf seinem Zertifikat erhält eine Abbruchanforderung, auch einer, den die Liste nicht zeigt, und der Worker wird innerhalb von zwei Minuten entfernt, unabhängig davon, ob seine Läufe beendet sind.',
     'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
       'Er ist mit einer wiederverwendbaren Einladung beigetreten, mit der weiterhin neue Worker beitreten können, auch ein Ersatz für ihn.',
     'Other workers on this invite: {workers}':
@@ -654,8 +653,8 @@ export const workerAdminMessages = defineMessages({
     'Also delete the invite': 'Auch die Einladung löschen',
     'Workers that joined with it keep their certificates.':
       'Worker, die damit beigetreten sind, behalten ihre Zertifikate.',
-    'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
-      'Er läuft in Kubernetes: Sein Pod startet immer wieder neu, bis sein Deployment herunterskaliert wird.',
+    'It runs in Kubernetes: if a Deployment manages its pod, the pod keeps restarting until the Deployment is scaled down.':
+      'Er läuft in Kubernetes: Wenn ein Deployment seinen Pod verwaltet, startet der Pod immer wieder neu, bis das Deployment herunterskaliert wird.',
     'A replacement pod can join with the invite while it is active, so delete the invite as well.':
       'Ein Ersatz-Pod kann mit der Einladung beitreten, solange sie aktiv ist. Löschen Sie daher auch die Einladung.',
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
@@ -664,10 +663,8 @@ export const workerAdminMessages = defineMessages({
     'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.':
       'Entfernen und Läufe jetzt stoppen funktionieren nur für den Server, zu dem diese Seite gehört. Um sie auf dem ausgewählten Knoten zu nutzen, öffnen Sie die Dagu-Oberfläche dieses Knotens.',
     'Stop runs': 'Läufe stoppen',
-    'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
-      'Sein Lauf erhält eine Abbruchanfrage. Der Worker wird innerhalb von zwei Minuten entfernt, ob der Lauf geendet hat oder nicht.',
-    'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.':
-      'Jeder seiner {count} Läufe erhält eine Abbruchanfrage. Der Worker wird innerhalb von zwei Minuten entfernt, ob sie geendet haben oder nicht.',
+    'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.':
+      'Jeder Lauf auf seinem Zertifikat erhält eine Abbruchanforderung, auch einer, den die Liste nicht zeigt. Der Worker wird innerhalb von zwei Minuten entfernt, unabhängig davon, ob sie beendet sind.',
     'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
       'Dieser Worker verbindet sich nicht mehr mit dem Zertifikat, das beim Öffnen dieses Dialogs angezeigt wurde. Schließen Sie diesen Dialog und bestätigen Sie für ihn erneut.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
@@ -713,6 +710,8 @@ export const workerAdminMessages = defineMessages({
       'Prüfen Sie das Protokoll des Coordinators auf den Grund, oder führen Sie {command} auf dem Host des ausgewählten Knotens aus, und versuchen Sie es dann erneut.',
     'Start the coordinator, or check that the selected node can reach it, then try again.':
       'Starten Sie den Coordinator, oder prüfen Sie, ob der ausgewählte Knoten ihn erreichen kann, und versuchen Sie es dann erneut.',
+    'Workers on this certificate: {workers}':
+      'Worker mit diesem Zertifikat: {workers}',
   },
   fr: {
     'Only admins can manage workers and invites.':
@@ -825,8 +824,8 @@ export const workerAdminMessages = defineMessages({
     'Remove after its runs finish': 'Retirer après la fin de ses exécutions',
     'It gets no new runs, and is removed when its last run ends.':
       'Il ne reçoit plus de nouvelles exécutions et il est retiré à la fin de la dernière.',
-    'Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended.':
-      'Chaque exécution reçoit une demande d’annulation, et le worker est retiré dans les deux minutes, que ses exécutions soient terminées ou non.',
+    'Each run on its certificate gets a cancel request, also one the list does not show, and the worker is removed within two minutes, whether or not its runs have ended.':
+      'Chaque exécution sur son certificat reçoit une demande d’annulation, y compris une que la liste n’affiche pas, et le worker est retiré dans les deux minutes, que ses exécutions soient terminées ou non.',
     'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
       'Il a rejoint avec une invitation réutilisable, qui laisse encore rejoindre de nouveaux workers, y compris un remplaçant pour celui-ci.',
     'Other workers on this invite: {workers}':
@@ -834,8 +833,8 @@ export const workerAdminMessages = defineMessages({
     'Also delete the invite': 'Supprimer aussi l’invitation',
     'Workers that joined with it keep their certificates.':
       'Les workers qui l’ont utilisée gardent leurs certificats.',
-    'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
-      'Il tourne dans Kubernetes : son pod redémarre sans cesse tant que son Deployment n’est pas réduit à zéro.',
+    'It runs in Kubernetes: if a Deployment manages its pod, the pod keeps restarting until the Deployment is scaled down.':
+      'Il s’exécute dans Kubernetes : si un Deployment gère son pod, le pod redémarre jusqu’à ce que le Deployment soit réduit.',
     'A replacement pod can join with the invite while it is active, so delete the invite as well.':
       'Un pod de remplacement peut rejoindre avec l’invitation tant qu’elle est active. Supprimez donc aussi l’invitation.',
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
@@ -844,10 +843,8 @@ export const workerAdminMessages = defineMessages({
     'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.':
       'Le retrait et l’arrêt immédiat des exécutions ne fonctionnent que pour le serveur de cette page. Pour les utiliser sur le nœud sélectionné, ouvrez l’interface Dagu de ce nœud.',
     'Stop runs': 'Arrêter les exécutions',
-    'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
-      'Son exécution reçoit une demande d’annulation. Le worker est retiré dans les deux minutes, que l’exécution soit terminée ou non.',
-    'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.':
-      'Chacune de ses {count} exécutions reçoit une demande d’annulation. Le worker est retiré dans les deux minutes, qu’elles soient terminées ou non.',
+    'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.':
+      'Chaque exécution sur son certificat reçoit une demande d’annulation, y compris une que la liste n’affiche pas. Le worker est retiré dans les deux minutes, qu’elles soient terminées ou non.',
     'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
       'Ce worker ne se connecte plus avec le certificat affiché à l’ouverture de cette boîte de dialogue. Fermez-la et confirmez à nouveau pour lui.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
@@ -892,5 +889,7 @@ export const workerAdminMessages = defineMessages({
       'Consultez le journal du coordinateur pour en connaître la raison, ou exécutez {command} sur l’hôte du nœud sélectionné, puis réessayez.',
     'Start the coordinator, or check that the selected node can reach it, then try again.':
       'Démarrez le coordinateur, ou vérifiez que le nœud sélectionné peut le joindre, puis réessayez.',
+    'Workers on this certificate: {workers}':
+      'Workers sur ce certificat : {workers}',
   },
 });
