@@ -734,6 +734,10 @@ single-use invite, and revocation of an open connection.
 1. Should `coordinator.require_tls` default to `true` in v3.0, with
    `coordinator.require_token`? And from v3.0, should a TLS file select TLS
    without `peer.insecure: false`, and should the h2c fallback go?
+   Before v3.0, should a client that sets `peer.ca_cert_file` stop falling
+   back? No config sets it before this RFC, but a path that cannot carry
+   TLS would then fail for it. Until this is decided it falls back like
+   other clients, and `peer.insecure: false` turns the fallback off.
 2. Should a worker certificate be limited to the worker ID it enrolled with?
    The default ID (`hostname@PID`) changes at each start, so this needs a
    stable worker ID first.
