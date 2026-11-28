@@ -344,13 +344,6 @@ describe('WorkerInvites', () => {
       'No coordinator is running or reachable.',
       'Start the coordinator, or check that this server can reach it, then try again.',
     ],
-    // A bad ID is refused before any coordinator call; its words stay out.
-    [
-      400,
-      refused(400, 'inviteId must be a UUID', 'bad_request'),
-      'The request failed.',
-      'Please try again or check the server connection.',
-    ],
   ])(
     'announces the cause and the change of a %i on delete',
     async (_status, answer, cause, change) => {
@@ -368,9 +361,35 @@ describe('WorkerInvites', () => {
       );
       expect(alert).toHaveTextContent(cause);
       expect(alert).toHaveTextContent(change);
-      expect(alert).not.toHaveTextContent('UUID');
     }
   );
+
+  // A bad ID is refused before any coordinator call. The words of that
+  // refusal appear nowhere, in the dialog or in a page notice.
+  it('keeps the words of a refused bad ID off the page', async () => {
+    const words =
+      'this is not an invite ID: list the invites to find their IDs';
+    server.invites = invitesAnswer([invite('inv-1')]);
+    server.del = () => refused(400, words, 'bad_request');
+
+    render(
+      <QueryFeedback>
+        <WorkerInvites workers={[worker('worker-a')]} live refreshes={0} />
+      </QueryFeedback>,
+      { wrapper: Providers }
+    );
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Delete invite inv-1/ })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    const alert = await within(screen.getByRole('dialog')).findByRole('alert');
+    expect(alert).toHaveTextContent('The request failed.');
+    expect(alert).toHaveTextContent(
+      'Please try again or check the server connection.'
+    );
+    expect(document.body).not.toHaveTextContent('not an invite ID');
+  });
 
   // The API names why it refused in details.reason; the explanation follows
   // it, not the wording of the message.
@@ -393,7 +412,7 @@ describe('WorkerInvites', () => {
     [
       'require_tls',
       'The coordinator requires TLS, and this server called it over plaintext.',
-      'Remove peer.insecure: true from the server config if it is set, and check that the network path to the coordinator passes TLS.',
+      'Clear peer.insecure: true or peer.skip_tls_verify: true in the server config if set, and set peer.ca_cert_file to the CA certificate of the coordinator if this server has none.',
     ],
     [
       'older_coordinator',

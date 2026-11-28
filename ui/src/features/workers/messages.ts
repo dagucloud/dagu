@@ -57,8 +57,8 @@ export const workerAdminMessages = defineMessages({
       'Give the server the same peer.token as the coordinator.',
     'The coordinator requires TLS, and this server called it over plaintext.':
       'The coordinator requires TLS, and this server called it over plaintext.',
-    'Remove {setting} from the server config if it is set, and check that the network path to the coordinator passes TLS.':
-      'Remove {setting} from the server config if it is set, and check that the network path to the coordinator passes TLS.',
+    'Clear {insecure} or {skipVerify} in the server config if set, and set {caFile} to the CA certificate of the coordinator if this server has none.':
+      'Clear {insecure} or {skipVerify} in the server config if set, and set {caFile} to the CA certificate of the coordinator if this server has none.',
     'The coordinator refused the server.':
       'The coordinator refused the server.',
     'Check the coordinator log for the reason, or run {command} on this host, then try again.':
@@ -147,8 +147,8 @@ export const workerAdminMessages = defineMessages({
       '请为服务器设置与 Coordinator 相同的 peer.token。',
     'The coordinator requires TLS, and this server called it over plaintext.':
       'Coordinator 要求 TLS，而此服务器以明文调用了它。',
-    'Remove {setting} from the server config if it is set, and check that the network path to the coordinator passes TLS.':
-      '如果服务器配置中设置了 {setting}，请将其删除，并检查到 Coordinator 的网络路径是否允许 TLS 通过。',
+    'Clear {insecure} or {skipVerify} in the server config if set, and set {caFile} to the CA certificate of the coordinator if this server has none.':
+      '如果服务器配置中设置了 {insecure} 或 {skipVerify}，请将其清除；如果此服务器没有 Coordinator 的 CA 证书，请将 {caFile} 设置为该证书。',
     'The coordinator refused the server.': 'Coordinator 拒绝了此服务器。',
     'Check the coordinator log for the reason, or run {command} on this host, then try again.':
       '请查看 Coordinator 日志了解原因，或在此主机上运行 {command}，然后重试。',
@@ -235,8 +235,8 @@ export const workerAdminMessages = defineMessages({
       'サーバーにコーディネーターと同じ peer.token を設定してください。',
     'The coordinator requires TLS, and this server called it over plaintext.':
       'コーディネーターは TLS を必要としますが、このサーバーは平文で呼び出しました。',
-    'Remove {setting} from the server config if it is set, and check that the network path to the coordinator passes TLS.':
-      'サーバーの設定に {setting} があれば削除し、コーディネーターまでのネットワーク経路が TLS を通すか確認してください。',
+    'Clear {insecure} or {skipVerify} in the server config if set, and set {caFile} to the CA certificate of the coordinator if this server has none.':
+      'サーバーの設定に {insecure} や {skipVerify} があれば外し、このサーバーにコーディネーターの CA 証明書がなければ {caFile} にそれを設定してください。',
     'The coordinator refused the server.':
       'コーディネーターがこのサーバーを拒否しました。',
     'Check the coordinator log for the reason, or run {command} on this host, then try again.':
@@ -328,8 +328,8 @@ export const workerAdminMessages = defineMessages({
       'Geben Sie dem Server dasselbe peer.token wie dem Coordinator.',
     'The coordinator requires TLS, and this server called it over plaintext.':
       'Der Coordinator verlangt TLS, und dieser Server hat ihn im Klartext aufgerufen.',
-    'Remove {setting} from the server config if it is set, and check that the network path to the coordinator passes TLS.':
-      'Entfernen Sie {setting} aus der Serverkonfiguration, falls gesetzt, und prüfen Sie, ob der Netzwerkpfad zum Coordinator TLS durchlässt.',
+    'Clear {insecure} or {skipVerify} in the server config if set, and set {caFile} to the CA certificate of the coordinator if this server has none.':
+      'Entfernen Sie {insecure} oder {skipVerify} aus der Serverkonfiguration, falls gesetzt, und setzen Sie {caFile} auf das CA-Zertifikat des Coordinators, falls dieser Server keines hat.',
     'The coordinator refused the server.':
       'Der Coordinator hat den Server abgelehnt.',
     'Check the coordinator log for the reason, or run {command} on this host, then try again.':
@@ -420,8 +420,8 @@ export const workerAdminMessages = defineMessages({
       'Donnez au serveur le même peer.token que le coordinateur.',
     'The coordinator requires TLS, and this server called it over plaintext.':
       'Le coordinateur exige TLS, et ce serveur l’a appelé en clair.',
-    'Remove {setting} from the server config if it is set, and check that the network path to the coordinator passes TLS.':
-      'Retirez {setting} de la configuration du serveur s’il y figure, et vérifiez que le chemin réseau vers le coordinateur laisse passer TLS.',
+    'Clear {insecure} or {skipVerify} in the server config if set, and set {caFile} to the CA certificate of the coordinator if this server has none.':
+      'Retirez {insecure} ou {skipVerify} de la configuration du serveur s’ils y figurent, et définissez {caFile} sur le certificat d’AC du coordinateur si ce serveur n’en a pas.',
     'The coordinator refused the server.':
       'Le coordinateur a refusé le serveur.',
     'Check the coordinator log for the reason, or run {command} on this host, then try again.':
