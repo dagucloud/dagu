@@ -253,6 +253,10 @@ func TestNewToolRegistryRefusesEvaluatedInput(t *testing.T) {
 		{"ForeachKey", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: [1]\n      key: ${params.Q}\n      steps:\n        - run: echo ${foreach.key}\n", `refers to ${foreach.key}, which`},
 		{"ShellVariable", params + "shell: bash\nsteps:\n  - run: echo \"$Q\" \"$DAG_PARAMS_JSON\"\n", ""},
 		{"ShellVariableBeforeDot", params + "shell: bash\nsteps:\n  - run: cat \"/data/$Q\".txt\n", ""},
+		// Dagu fills $NAME.path only when the path parses as jq, and the
+		// text up to the next space here does not.
+		{"ShellVariableBeforeEllipsis", params + "shell: bash\nsteps:\n  - run: echo \"Looking up $Q...\"\n", ""},
+		{"ShellVariableBeforeQuote", params + "shell: bash\nsteps:\n  - run: cat \"/data/$Q.txt\"\n", ""},
 		{"ForeachItemEnvCopy", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: ${params.Q}\n      steps:\n        - env:\n            - VALUE: ${foreach.item}\n          run: echo \"$VALUE\"\n", ""},
 		{"ForeachLiteralItems", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: [a, b]\n      steps:\n        - run: echo ${foreach.item} \"$Q\"\n", ""},
 		{"StepPOSIXShell", params + "shell: pwsh\nsteps:\n  - with:\n      shell: bash\n    run: echo \"$Q\"\n", ""},

@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/llm/toolschema"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/itchyny/gojq"
 )
 
 // toolParam represents a parsed parameter definition.
@@ -166,8 +167,8 @@ var substitutedRef = regexp.MustCompile(`\$\{\s*(?:params|(?:params|env)\.([A-Za
 var quotedRef = regexp.MustCompile(`"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"`)
 
 // pathRef matches ${NAME.path} and $NAME.path, which Dagu fills with a field of
-// the JSON value of NAME on every shell.
-var pathRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\.[^}]+\}|\$([A-Za-z_][A-Za-z0-9_]*)\.\S+`)
+// the JSON value of NAME on every shell when the path parses as jq.
+var pathRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(\.[^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)(\.\S+)`)
 
 // foreachNamespace stands for the item scope of a foreach body, which holds
 // text that the model sets when the items or the key read an input.
@@ -225,9 +226,12 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 			continue
 		}
 		stepInputs = withEnvCopies(stepInputs, step.Env)
-		fills := fillsShellVariables(ctx, dag, step)
+		shell, local := localShell(ctx, dag, step)
+		// Dagu fills $NAME into the command of a local command step unless a
+		// POSIX or Nix shell runs it.
+		fills := local && !cmdutil.IsUnixLikeShell(shell) && !cmdutil.IsNixShell(shell)
 		where := fmt.Sprintf("the command of step %q", step.Name)
-		for _, text := range commandTexts(step) {
+		for _, text := range commandTexts(step, local && shell != "") {
 			if ref, variable, ok := modelRef(text, stepInputs, fills); ok {
 				return modelInputError(dag, where, ref, variable, !fills)
 			}
@@ -328,12 +332,12 @@ func withEnvCopies(inputs map[string]bool, env []string) map[string]bool {
 	return inputs
 }
 
-// fillsShellVariables reports whether Dagu fills $NAME into the command of a
-// local command step, which it does unless a POSIX or Nix shell runs it. The
-// shell is the step's, else the DAG's, else the default one.
-func fillsShellVariables(ctx context.Context, dag *ir.DAG, step *ir.Step) bool {
+// localShell returns the shell that runs the command of a local command step:
+// the step's, else the DAG's, else the default one. It reports false for a
+// step of another executor.
+func localShell(ctx context.Context, dag *ir.DAG, step *ir.Step) (string, bool) {
 	if !step.ExecutorConfig.IsCommand() && step.ExecutorConfig.Type != "shell" {
-		return false
+		return "", false
 	}
 	shell := step.Shell
 	if shell == "" {
@@ -342,7 +346,7 @@ func fillsShellVariables(ctx context.Context, dag *ir.DAG, step *ir.Step) bool {
 	if shell == "" {
 		shell = cmdutil.GetShellCommand(config.GetConfig(ctx).Core.DefaultShell)
 	}
-	return !cmdutil.IsUnixLikeShell(shell) && !cmdutil.IsNixShell(shell)
+	return shell, true
 }
 
 // checkConditions checks the evals of conditions, and the conditions that run
@@ -367,11 +371,18 @@ func checkConditions(dag *ir.DAG, where string, conditions []*ir.Condition, inpu
 }
 
 // commandTexts returns the texts of a step that become a command or a script.
-func commandTexts(step *ir.Step) []string {
+// When a shell runs the command text of an entry and the step has no script,
+// the split command and args of the entry never run, and their quotes are
+// gone, so they are left out.
+func commandTexts(step *ir.Step, shellConfigured bool) []string {
 	texts := []string{step.Command, step.CmdWithArgs, step.CmdArgsSys, step.ShellCmdArgs, step.Script}
 	texts = append(texts, step.Args...)
 	for _, entry := range step.Commands {
-		texts = append(texts, entry.Command, entry.CmdWithArgs)
+		texts = append(texts, entry.CmdWithArgs)
+		if shellConfigured && entry.CmdWithArgs != "" && step.Script == "" {
+			continue
+		}
+		texts = append(texts, entry.Command)
 		texts = append(texts, entry.Args...)
 	}
 	return texts
@@ -395,7 +406,7 @@ func modelRef(text string, inputs map[string]bool, eval bool) (ref, variable str
 		}
 	}
 	for _, m := range pathRef.FindAllStringSubmatch(text, -1) {
-		if name := m[1] + m[2]; inputs[name] {
+		if name := m[1] + m[3]; inputs[name] && parsesAsPath(m[2]+m[4]) {
 			return m[0], name, true
 		}
 	}
@@ -408,6 +419,13 @@ func modelRef(text string, inputs map[string]bool, eval bool) (ref, variable str
 		}
 	}
 	return "", "", false
+}
+
+// parsesAsPath reports whether Dagu reads path as a JSON path. Dagu leaves a
+// reference whose path does not parse as jq to the shell as written.
+func parsesAsPath(path string) bool {
+	_, err := gojq.Parse(path)
+	return err == nil
 }
 
 // modelInputError names the tool DAG, the place and the reference. A command
