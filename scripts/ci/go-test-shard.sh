@@ -13,8 +13,9 @@
 # package spreads across every shard. The remaining packages are dealt out
 # whole. For a given TOTAL, every test belongs to exactly one shard.
 #
-# The regexp lists test names, and Windows caps a command line at 32767
-# characters, so --split suits packages with a few hundred tests at most.
+# The regexp lists test names. Windows caps a command line at 32767
+# characters, so a shard's split tests are printed over as many lines as it
+# takes to keep each regexp under 8000 characters.
 
 set -euo pipefail
 
@@ -77,13 +78,20 @@ awk -v module="${module}" '
     print (dir == "." ? module : module "/" dir), name
   }
 ' "${split_files[@]}" | LC_ALL=C sort -u -k2,2 -k1,1 | awk \
-  -v shard="${index}" -v total="${total}" '
+  -v shard="${index}" -v total="${total}" -v limit=8000 '
+    function flush() {
+      if (list != "") printf "%s\t^(%s)$\n", list, regexp
+      regexp = ""; list = ""; split("", names); split("", pkgs)
+    }
     # A name shared by several packages is assigned once, so it runs in each
     # of those packages on the same shard.
     $2 != last { selected = (n++ % total + 1 == shard); last = $2 }
     selected {
-      if (!($2 in names)) { names[$2]; regexp = regexp (regexp == "" ? "" : "|") $2 }
+      if (!($2 in names)) {
+        if (regexp != "" && length(regexp) + length($2) + 1 > limit) flush()
+        names[$2]; regexp = regexp (regexp == "" ? "" : "|") $2
+      }
       if (!($1 in pkgs)) { pkgs[$1]; list = list (list == "" ? "" : " ") $1 }
     }
-    END { if (list != "") printf "%s\t^(%s)$\n", list, regexp }
+    END { flush() }
   '
