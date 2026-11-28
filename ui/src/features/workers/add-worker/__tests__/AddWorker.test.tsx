@@ -1176,6 +1176,86 @@ describe('AddWorker', () => {
     expect(screen.getByRole('radio', { name: /^Reusable/ })).toBeEnabled();
   });
 
+  // The whole form holds while a request runs, so the invite and its
+  // command follow the values sent: an address or label edit then does
+  // nothing.
+  it('freezes the form while an invite is created', async () => {
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    fireEvent.change(screen.getByLabelText('Labels (optional)'), {
+      target: { value: 'gpu=true' },
+    });
+    const created = deferred<unknown>();
+    api.POST.mockReturnValue(created.promise);
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
+    const field = screen.getByLabelText(ADDRESS);
+    const labels = screen.getByLabelText('Labels (optional)');
+    expect(field).toHaveAttribute('readonly');
+    expect(labels).toHaveAttribute('readonly');
+    expect(
+      screen.getByRole('button', { name: '10.0.0.5:50055' })
+    ).toBeDisabled();
+    await userEvent.setup().type(labels, ',os=linux');
+    expect(labels).toHaveValue('gpu=true');
+
+    created.resolve(answer(201, { id: 'inv-1', invite: INVITE }));
+    await settle();
+    expect(shownCommand()).toContain(
+      '--worker.coordinators=192.168.1.20:50055 --worker.labels=gpu=true '
+    );
+    expect(field).not.toHaveAttribute('readonly');
+  });
+
+  // The status region sits outside what a readiness reading hides, so a
+  // result during a reading is announced, and a refusal stays in view.
+  it.each([
+    [
+      'created',
+      answer(201, { id: 'inv-1', invite: INVITE }),
+      'Invite created. Its command is below.',
+    ],
+    ['refused', answer(503, undefined, WorkerAccessReason.no_coordinator), ''],
+  ])('reports an invite %s during a reading', async (_, result, text) => {
+    const { rerender } = await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    const status = step('Worker').getAllByRole('status')[0];
+    const created = deferred<unknown>();
+    api.POST.mockReturnValue(created.promise);
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
+    expect(status).toHaveTextContent('Creating invite…');
+    const reading = deferred<unknown>();
+    api.GET.mockReturnValue(reading.promise);
+    rerender(view([], true));
+    rerender(view([], false));
+    await settle();
+
+    created.resolve(result);
+    await settle();
+    expect(status).toBeInTheDocument();
+    expect(status).toHaveTextContent(text);
+    if (!text) {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /No coordinator is running/
+      );
+    }
+    reading.resolve(answer(200, readiness()));
+    await settle();
+  });
+
+  // Leaving the new command clears its completion, so coming back does not
+  // announce it again.
+  it('clears the completion when the command is left', async () => {
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    const status = step('Worker').getAllByRole('status')[0];
+    await createInvite();
+    expect(status).toHaveTextContent('Invite created. Its command is below.');
+    fireEvent.click(screen.getByRole('tab', { name: 'Kubernetes' }));
+    expect(status).toHaveTextContent('');
+    fireEvent.click(screen.getByRole('tab', { name: 'Linux' }));
+    expect(status).toHaveTextContent('');
+  });
+
   // Create invite goes away with the new invite, so the keyboard focus
   // moves to the command's copy button, not back to the address.
   it('moves the focus to the new command', async () => {
@@ -1217,6 +1297,8 @@ describe('AddWorker', () => {
     expect(reads).toHaveLength(2);
   });
 
+  // A reading during the request leaves the frozen field; one after it
+  // moves the untouched field, and the command keeps its own address.
   it('keeps the command on the address the invite was made for', async () => {
     const { rerender } = await open(
       readiness({ advertise: 'coord.example.com' })
@@ -1224,14 +1306,18 @@ describe('AddWorker', () => {
     const created = deferred<unknown>();
     api.POST.mockReturnValue(created.promise);
     fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
-
-    api.GET.mockResolvedValue(
-      answer(200, readiness({ advertise: 'coord.example.com', port: 50155 }))
-    );
+    const moved = readiness({ advertise: 'coord.example.com', port: 50155 });
+    api.GET.mockResolvedValue(answer(200, moved));
     rerender(view([], true));
     rerender(view([], false));
     await settle();
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(
+      'coord.example.com:50055'
+    );
     created.resolve(answer(201, { id: 'inv-1', invite: INVITE }));
+    await settle();
+    rerender(view([], true));
+    rerender(view([], false));
     await settle();
 
     expect(shownCommand()).toContain(

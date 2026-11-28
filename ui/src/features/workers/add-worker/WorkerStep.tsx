@@ -84,6 +84,7 @@ export function WorkerStep({
   invites,
   onInvite,
   onCreating,
+  onStatus,
 }: {
   /** The validated host:port; undefined while step 2 is not done. */
   address?: string;
@@ -93,6 +94,8 @@ export function WorkerStep({
   onInvite: (invite: CreatedInvite) => void;
   /** Whether an invite request is pending, so the dialog stays open. */
   onCreating: (creating: boolean) => void;
+  /** The invite progress or result for the dialog's status region. */
+  onStatus: (text: string | undefined) => void;
 }) {
   const { ts } = useI18n();
   const client = useClient();
@@ -112,8 +115,7 @@ export function WorkerStep({
     if (focusCopy) setFocusCopy(false);
   }, [focusCopy]);
   const [createdId, setCreatedId] = React.useState<string>();
-
-  if (!address && invites.length === 0) return null;
+  const createdRef = React.useRef(false);
 
   const kind =
     tab === WorkerTab.kubernetes ? WorkerInviteKind.reusable : chosenKind;
@@ -121,6 +123,18 @@ export function WorkerStep({
   // newest of the kind, so going back to an earlier address shows its own.
   const ofKind = invites.filter((i) => i.kind === kind).reverse();
   const invite = ofKind.find((i) => i.address === address) ?? ofKind[0];
+
+  // Leaving the new command clears its completion, so it is not announced
+  // again on the way back.
+  React.useEffect(() => {
+    if (createdId && invite?.id !== createdId) {
+      setCreatedId(undefined);
+      onStatus(undefined);
+    }
+  }, [createdId, invite?.id, onStatus]);
+
+  // Readiness gates new invites; a request or its refusal stays in view.
+  if (!address && invites.length === 0 && !creating && !problem) return null;
   const labels = normalizeLabels(labelsInput);
   const image = publishedImage(version);
   const panelId = `${TAB_PREFIX}-panel`;
@@ -141,8 +155,10 @@ export function WorkerStep({
   const create = async () => {
     if (!address) return;
     const from = document.activeElement;
+    createdRef.current = false;
     setCreating(true);
     onCreating(true);
+    onStatus('Creating invite…');
     setProblem(undefined);
     try {
       const { data, error, response } = await client.POST('/workers/invites', {
@@ -150,7 +166,9 @@ export function WorkerStep({
       });
       if (data) {
         onInvite({ ...data, createdAt: Date.now(), address, kind });
+        createdRef.current = true;
         setCreatedId(data.id);
+        onStatus('Invite created. Its command is below.');
         const now = document.activeElement;
         const kept =
           !now ||
@@ -170,6 +188,8 @@ export function WorkerStep({
     } catch {
       setProblem({ text: 'The request failed.' });
     } finally {
+      // A refusal shows as an alert, so the status says nothing more.
+      if (!createdRef.current) onStatus(undefined);
       setCreating(false);
       onCreating(false);
     }
@@ -199,21 +219,6 @@ export function WorkerStep({
         tabIndex={panelShowsInvite ? undefined : 0}
         className="space-y-3"
       >
-        {/* One region stays mounted, so progress and completion are
-            announced as its text changes. */}
-        <p
-          role="status"
-          className="text-xs text-muted-foreground empty:sr-only"
-        >
-          {creating ? (
-            <I18nText text="Creating invite…" />
-          ) : (
-            createdId === invite?.id &&
-            createdId && (
-              <I18nText text="Invite created. Its command is below." />
-            )
-          )}
-        </p>
         {tab !== WorkerTab.linux && !image ? (
           <p className="text-sm">
             <I18nText
@@ -297,6 +302,7 @@ function WorkerCommand({
           rows={1}
           className="min-h-9"
           value={labelsInput}
+          readOnly={creating}
           placeholder="gpu=true,region=eu"
           aria-invalid={'problem' in labels || undefined}
           aria-describedby={

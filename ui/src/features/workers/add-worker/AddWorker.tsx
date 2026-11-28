@@ -127,8 +127,12 @@ export function AddWorkerDialog({
   const [placement, setPlacement] = React.useState<Placement>();
   // Kept here, so an invite stays on screen when readiness changes later.
   const [invites, setInvites] = React.useState<CreatedInvite[]>([]);
-  // A pending invite request keeps the dialog open, so its invite shows.
-  const creating = React.useRef(false);
+  // A pending invite request keeps the dialog open and freezes the form, so
+  // its invite shows for the values it was made from.
+  const [creating, setCreating] = React.useState(false);
+  const frozen = React.useRef(false);
+  // The invite progress and result, outside what readiness hides.
+  const [status, setStatus] = React.useState<string>();
   const touched = React.useRef(false);
   // The reading the field's address came from: the first one, or the one
   // whose endpoint the admin took. A later reading never rewrites the
@@ -250,10 +254,7 @@ export function AddWorkerDialog({
   if (!checking) step1State = ready ? 'Ready' : 'Needs change';
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next) => !next && !creating.current && onClose()}
-    >
+    <Dialog open onOpenChange={(next) => !next && !creating && onClose()}>
       <DialogContent
         className="flex max-h-[90dvh] max-w-2xl flex-col gap-5 overflow-y-auto"
         onFocusCapture={(e) => (lastFocus.current = e.target as HTMLElement)}
@@ -313,6 +314,7 @@ export function AddWorkerDialog({
               address={address}
               hostField={hostField}
               placementField={placementField}
+              locked={creating}
               placement={placement}
               moved={opened && movedEndpoint(address, opened, data)}
               onTakeMoved={(next) => {
@@ -343,12 +345,24 @@ export function AddWorkerDialog({
               : 'Shown after steps 1 and 2'
           }
         >
+          {/* One region stays mounted, so progress and completion are
+              announced as its text changes, also while readiness reads. */}
+          <p
+            role="status"
+            className="text-xs text-muted-foreground empty:sr-only"
+          >
+            {status && <I18nText text={status} />}
+          </p>
           <WorkerStep
             address={validAddress}
             workers={workers}
             invites={invites}
             onInvite={(invite) => setInvites((prev) => [...prev, invite])}
-            onCreating={(pending) => (creating.current = pending)}
+            onCreating={(pending) => {
+              frozen.current = pending;
+              setCreating(pending);
+            }}
+            onStatus={setStatus}
           />
         </Step>
       </DialogContent>
@@ -361,6 +375,7 @@ function AddressFields({
   address,
   hostField,
   placementField,
+  locked,
   placement,
   moved,
   onTakeMoved,
@@ -372,6 +387,8 @@ function AddressFields({
   address: string;
   hostField: React.Ref<HTMLTextAreaElement>;
   placementField: React.Ref<HTMLInputElement>;
+  /** Freezes the address while an invite request runs. */
+  locked: boolean;
   placement?: Placement;
   /** An endpoint the coordinators now report in place of the field's. */
   moved?: string;
@@ -415,6 +432,7 @@ function AddressFields({
               <input
                 ref={i === 0 ? placementField : undefined}
                 type="radio"
+                disabled={locked}
                 name={`${id}-placement`}
                 checked={placement === value}
                 onChange={() => onPlace(value)}
@@ -448,6 +466,7 @@ function AddressFields({
               className="min-h-9"
               placeholder="host:port"
               required
+              readOnly={locked}
               value={address}
               aria-invalid={problem ? true : undefined}
               aria-describedby={
@@ -485,6 +504,7 @@ function AddressFields({
                   variant="ghost"
                   className="font-mono"
                   aria-pressed={address === suggestion}
+                  disabled={locked}
                   onClick={() => onTakeMoved(suggestion)}
                 >
                   {suggestion}
