@@ -574,8 +574,8 @@ describe('AddWorker', () => {
     );
     expect(screen.getByText(hint)).toBeInTheDocument();
     api.GET.mockResolvedValue(answer(200, data(next)));
-    rerender(view(true));
-    rerender(view(false));
+    rerender(view([], true));
+    rerender(view([], false));
     await settle();
     expect(screen.getByLabelText(ADDRESS)).toHaveValue(
       first ? `${first}:50055` : ''
@@ -615,8 +615,8 @@ describe('AddWorker', () => {
     expect(locked()).toBeNull();
     const later = deferred<unknown>();
     api.GET.mockReturnValue(later.promise);
-    rerender(view(true));
-    rerender(view(false));
+    rerender(view([], true));
+    rerender(view([], false));
     await settle();
     expect(locked()).toBeInTheDocument();
     later.resolve(answer(200, readiness({}, '192.168.1.30:50055')));
@@ -1127,6 +1127,45 @@ describe('AddWorker', () => {
       await settle();
     }
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // A slow answer leaves the focus where the admin moved it meanwhile.
+  it('keeps the focus the admin moved while an invite was pending', async () => {
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    const created = deferred<unknown>();
+    api.POST.mockReturnValue(created.promise);
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
+    const labels = screen.getByLabelText('Labels (optional)');
+    labels.focus();
+    fireEvent.change(labels, { target: { value: 'gpu=true' } });
+    created.resolve(answer(201, { id: 'inv-1', invite: INVITE }));
+    await settle();
+    expect(document.activeElement).toBe(labels);
+  });
+
+  // An invite made while the admin switched to a tab of another kind is
+  // announced there, with a way back to its command.
+  it('points to an invite made on another tab', async () => {
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    fireEvent.click(screen.getByRole('tab', { name: 'Kubernetes' }));
+    const created = deferred<unknown>();
+    api.POST.mockReturnValue(created.promise);
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Linux' }));
+    created.resolve(answer(201, { id: 'inv-1', invite: INVITE }));
+    await settle();
+    expect(
+      screen.getByText('The invite you created is on the Kubernetes tab.')
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show it' }));
+    expect(screen.getByRole('tab', { name: 'Kubernetes' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(shownCommand()).toContain('kind: Secret');
+    expect(screen.queryByText(/The invite you created/)).toBeNull();
   });
 
   // Create invite goes away with the new invite, so the keyboard focus

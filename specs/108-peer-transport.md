@@ -1389,7 +1389,10 @@ and prints the message:
   readings, and replacement invites. Each tab shows the newest invite of
   its kind made for the field's address, else the newest of its kind, so
   going back to an earlier address shows that address's invite. The
-  dialog stays open while an invite request is pending. At 60 seconds without a worker it reads `/workers` once
+  dialog stays open while an invite request is pending. A new invite moves
+  the focus to its command's copy button only if the focus is still where
+  the request left it; one made while a tab of another kind shows is
+  announced there, with a way back to its command. At 60 seconds without a worker it reads `/workers` once
   itself, since the page's refresh may be paused; a failed or partial read
   says the list could not be read.
 - When no worker arrives within 60 seconds and a complete read of

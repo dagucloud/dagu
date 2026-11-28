@@ -13,6 +13,13 @@ export const addWorkerMessages = defineMessages({
       "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it. If these settings are in order, check that the network path to the coordinator passes TLS.",
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.',
+    'Show it': 'Show it',
+    'The invite you created is on the {tab} tab.':
+      'The invite you created is on the {tab} tab.',
+    "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
+      "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:",
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':
+      'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.",
     'Diagnostic command copied': 'Diagnostic command copied',
@@ -38,8 +45,6 @@ export const addWorkerMessages = defineMessages({
       'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:',
     'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
       'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:',
-    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own.':
-      'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own.',
     'Switch to the local server to add a worker.':
       'Switch to the local server to add a worker.',
     'Copy the change': 'Copy the change',
@@ -71,8 +76,6 @@ export const addWorkerMessages = defineMessages({
       'The address holds an invite. The invite goes only into the commands.',
     'Address and port': 'Address and port',
     'Look for the worker again': 'Look for the worker again',
-    "Run this against the cluster. The worker's log names the cause:":
-      "Run this against the cluster. The worker's log names the cause:",
     'Label {position} sets {key}, which a worker sets from its own host.':
       'Label {position} sets {key}, which a worker sets from its own host.',
     'Label {position} breaks the worker label rule: a key takes letters, digits, -, _, and ., at most 63, and a value also /, at most 255, each starting with a letter or digit.':
@@ -178,6 +181,13 @@ export const addWorkerMessages = defineMessages({
       '协调器要求 TLS。请在此服务器上清除所有 peer.insecure: true 或 peer.skip_tls_verify: true，无论它由参数、变量还是配置文件设置。如果此服务器没有协调器可用的 CA 证书，请将其切换到内置 TLS：清除 peer.cert_file、peer.key_file 和 peer.client_ca_file，然后将 peer.ca_cert_file 设为协调器的 CA 证书。然后重启它。如果这些设置都没有问题，请检查到协调器的网络路径是否允许 TLS 通过。',
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       '请确认 Worker Pod 可以访问此地址。其他命名空间中的 Worker 需要使用带命名空间的 Service 地址，例如 dagu-coordinator.<namespace>.svc:50055。',
+    'Show it': '显示',
+    'The invite you created is on the {tab} tab.':
+      '您创建的邀请在 {tab} 标签页中。',
+    "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
+      '请使用应用清单时相同的 kubectl 上下文和命名空间运行此命令。Worker 的日志会说明原因：',
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':
+      '在 Worker 主机上运行此命令，该主机需要 Docker。如需在同一主机上运行另一个 Worker，请将卷 dagu-worker 改为它自己的卷，并使用新的邀请或可重复使用的邀请。',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       '输入协调器 Service 的地址和端口。其他命名空间中的 Worker 需要使用带命名空间的名称，例如 dagu-coordinator.<namespace>.svc:50055。',
     'Diagnostic command copied': '诊断命令已复制',
@@ -203,8 +213,6 @@ export const addWorkerMessages = defineMessages({
       '在 Worker 主机上运行以下命令。它在新的容器中显示该主机能否访问该地址以及协调器的响应：',
     'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
       '在 Worker 主机上运行以下命令。它使用空的数据目录，因此即使 Worker 已加入也会发起连接，并显示该主机能否访问该地址以及协调器的响应：',
-    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own.':
-      '在 Worker 主机上运行以下命令，该主机需要 Docker。若要在同一主机上添加另一个 Worker，请将卷 dagu-worker 改为它自己的卷。',
     'Switch to the local server to add a worker.':
       '切换到本地服务器以添加 Worker。',
     'Copy the change': '复制修改内容',
@@ -236,8 +244,6 @@ export const addWorkerMessages = defineMessages({
       '地址中包含邀请。邀请只应放在命令中。',
     'Address and port': '地址和端口',
     'Look for the worker again': '再次查找 Worker',
-    "Run this against the cluster. The worker's log names the cause:":
-      '在集群上运行以下命令。Worker 的日志会说明原因：',
     'Label {position} sets {key}, which a worker sets from its own host.':
       '第 {position} 个标签设置了 {key}，而 Worker 会根据自身主机设置它。',
     'Label {position} breaks the worker label rule: a key takes letters, digits, -, _, and ., at most 63, and a value also /, at most 255, each starting with a letter or digit.':
@@ -341,6 +347,13 @@ export const addWorkerMessages = defineMessages({
       'コーディネーターは TLS を必要とします。このサーバーで peer.insecure: true と peer.skip_tls_verify: true を、フラグ、変数、設定ファイルのどれで設定されていてもすべて解除してください。このサーバーにコーディネーター用の使える CA 証明書がない場合は、組み込み TLS に切り替えてください。peer.cert_file、peer.key_file、peer.client_ca_file を解除してから、peer.ca_cert_file をコーディネーターの CA 証明書にします。その後再起動してください。これらの設定に問題がなければ、コーディネーターまでのネットワーク経路が TLS を通すか確認してください。',
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       'ワーカー Pod がこのアドレスに到達できることを確認してください。別の名前空間のワーカーには、dagu-coordinator.<namespace>.svc:50055 のような名前空間付きの Service アドレスが必要です。',
+    'Show it': '表示',
+    'The invite you created is on the {tab} tab.':
+      '作成した招待は {tab} タブにあります。',
+    "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
+      'マニフェストを適用したときと同じ kubectl のコンテキストと名前空間でこれを実行してください。ワーカーのログに原因が示されます:',
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':
+      'ワーカーホストでこれを実行してください。ホストには Docker が必要です。同じホストで別のワーカーを動かす場合は、ボリューム dagu-worker をそのワーカー専用のものに変え、新しい招待か再利用可能な招待を使ってください。',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       'コーディネーター Service のアドレスとポートを入力してください。別の名前空間のワーカーには、dagu-coordinator.<namespace>.svc:50055 のような名前空間付きの名前が必要です。',
     'Diagnostic command copied': '診断コマンドをコピーしました',
@@ -367,8 +380,6 @@ export const addWorkerMessages = defineMessages({
       'ワーカーのホストでこれを実行してください。新しいコンテナで、ホストがアドレスに届くかとコーディネーターの応答を表示します:',
     'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
       'ワーカーのホストでこれを実行してください。空のデータディレクトリを使うので、ワーカーが参加した後でも接続し、ホストがアドレスに届くかとコーディネーターの応答を表示します:',
-    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own.':
-      'ワーカーのホストでこれを実行してください。Docker が必要です。同じホストに別のワーカーを追加するときは、ボリューム dagu-worker をそのワーカー専用の名前に変えてください。',
     'Switch to the local server to add a worker.':
       'ワーカーを追加するにはローカルサーバーに切り替えてください。',
     'Copy the change': '変更をコピー',
@@ -400,8 +411,6 @@ export const addWorkerMessages = defineMessages({
       'アドレスに招待が含まれています。招待はコマンドにだけ入れます。',
     'Address and port': 'アドレスとポート',
     'Look for the worker again': 'ワーカーをもう一度探す',
-    "Run this against the cluster. The worker's log names the cause:":
-      'クラスターに対してこれを実行してください。ワーカーのログに原因が示されます:',
     'Label {position} sets {key}, which a worker sets from its own host.':
       'ラベル {position} は {key} を設定していますが、これはワーカーが自身のホストから設定します。',
     'Label {position} breaks the worker label rule: a key takes letters, digits, -, _, and ., at most 63, and a value also /, at most 255, each starting with a letter or digit.':
@@ -508,6 +517,13 @@ export const addWorkerMessages = defineMessages({
       'Der Koordinator verlangt TLS. Entfernen Sie auf diesem Server jedes peer.insecure: true und peer.skip_tls_verify: true, ob ein Flag, eine Variable oder die Konfigurationsdatei es setzt. Hat dieser Server kein nutzbares CA-Zertifikat für den Koordinator, stellen Sie ihn auf eingebautes TLS um: Entfernen Sie peer.cert_file, peer.key_file und peer.client_ca_file und setzen Sie dann peer.ca_cert_file auf das CA-Zertifikat des Koordinators. Starten Sie ihn dann neu. Sind diese Einstellungen in Ordnung, prüfen Sie, ob der Netzwerkpfad zum Koordinator TLS durchlässt.',
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       'Prüfen Sie, dass Worker-Pods diese Adresse erreichen. Worker in einem anderen Namespace brauchen die Service-Adresse mit Namespace, etwa dagu-coordinator.<namespace>.svc:50055.',
+    'Show it': 'Anzeigen',
+    'The invite you created is on the {tab} tab.':
+      'Die erstellte Einladung ist im Tab {tab}.',
+    "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
+      'Führen Sie dies mit demselben kubectl-Kontext und Namespace aus, mit dem Sie das Manifest angewendet haben. Das Log des Workers nennt die Ursache:',
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':
+      'Führen Sie dies auf dem Worker-Host aus, der Docker braucht. Für einen weiteren Worker auf demselben Host ändern Sie das Volume dagu-worker in ein eigenes und verwenden eine neue oder eine wiederverwendbare Einladung.',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       'Geben Sie Adresse und Port des Koordinator-Service ein. Worker in einem anderen Namespace brauchen seinen Namen mit Namespace, etwa dagu-coordinator.<namespace>.svc:50055.',
     'Diagnostic command copied': 'Diagnosebefehl kopiert',
@@ -534,8 +550,6 @@ export const addWorkerMessages = defineMessages({
       'Führen Sie dies auf dem Worker-Host aus. In einem frischen Container zeigt es, ob der Host die Adresse erreicht und was der Koordinator antwortet:',
     'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
       'Führen Sie dies auf dem Worker-Host aus. Mit einem leeren Datenverzeichnis wählt es sich auch nach dem Beitritt des Workers ein und zeigt, ob der Host die Adresse erreicht und was der Koordinator antwortet:',
-    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own.':
-      'Führen Sie dies auf dem Worker-Host aus, der Docker braucht. Für einen weiteren Worker auf demselben Host ändern Sie das Volume dagu-worker in ein eigenes.',
     'Switch to the local server to add a worker.':
       'Wechseln Sie zum lokalen Server, um einen Worker hinzuzufügen.',
     'Copy the change': 'Änderung kopieren',
@@ -567,8 +581,6 @@ export const addWorkerMessages = defineMessages({
       'Die Adresse enthält eine Einladung. Die Einladung gehört nur in die Befehle.',
     'Address and port': 'Adresse und Port',
     'Look for the worker again': 'Erneut nach dem Worker suchen',
-    "Run this against the cluster. The worker's log names the cause:":
-      'Führen Sie dies gegen den Cluster aus. Das Log des Workers nennt die Ursache:',
     'Label {position} sets {key}, which a worker sets from its own host.':
       'Label {position} setzt {key}, das ein Worker selbst aus seinem Host setzt.',
     'Label {position} breaks the worker label rule: a key takes letters, digits, -, _, and ., at most 63, and a value also /, at most 255, each starting with a letter or digit.':
@@ -681,6 +693,13 @@ export const addWorkerMessages = defineMessages({
       'Le coordinateur exige TLS. Sur ce serveur, retirez tout peer.insecure : true ou peer.skip_tls_verify : true, qu’une option, une variable ou le fichier de configuration le définisse. Si ce serveur n’a pas de certificat de CA utilisable pour le coordinateur, passez-le au TLS intégré : retirez peer.cert_file, peer.key_file et peer.client_ca_file, puis définissez peer.ca_cert_file sur le certificat de CA du coordinateur. Puis redémarrez-le. Si ces réglages sont en ordre, vérifiez que le chemin réseau vers le coordinateur laisse passer TLS.',
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       'Vérifiez que les pods des workers atteignent cette adresse. Les workers d’un autre espace de noms ont besoin de l’adresse du Service qualifiée par l’espace de noms, par exemple dagu-coordinator.<namespace>.svc:50055.',
+    'Show it': 'L’afficher',
+    'The invite you created is on the {tab} tab.':
+      'L’invitation créée se trouve dans l’onglet {tab}.',
+    "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
+      'Exécutez ceci avec le même contexte kubectl et le même espace de noms que pour appliquer le manifeste. Le journal du worker indique la cause :',
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':
+      'Exécutez ceci sur l’hôte du worker, qui a besoin de Docker. Pour un autre worker sur le même hôte, remplacez le volume dagu-worker par un volume qui lui est propre et utilisez une nouvelle invitation, ou une invitation réutilisable.',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       'Saisissez l’adresse et le port du Service du coordinateur. Les workers d’un autre espace de noms ont besoin de son nom qualifié par l’espace de noms, par exemple dagu-coordinator.<namespace>.svc:50055.',
     'Diagnostic command copied': 'Commande de diagnostic copiée',
@@ -707,8 +726,6 @@ export const addWorkerMessages = defineMessages({
       'Exécutez ceci sur l’hôte du worker. Dans un nouveau conteneur, cela montre si l’hôte joint l’adresse et ce que répond le coordinateur :',
     'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
       'Exécutez ceci sur l’hôte du worker. Avec un répertoire de données vide, cela se connecte même après que le worker a rejoint, et montre si l’hôte joint l’adresse et ce que répond le coordinateur :',
-    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own.':
-      'Exécutez ceci sur l’hôte du worker, qui a besoin de Docker. Pour un autre worker sur le même hôte, remplacez le volume dagu-worker par un volume qui lui est propre.',
     'Switch to the local server to add a worker.':
       'Passez au serveur local pour ajouter un worker.',
     'Copy the change': 'Copier la modification',
@@ -740,8 +757,6 @@ export const addWorkerMessages = defineMessages({
       'L’adresse contient une invitation. L’invitation va seulement dans les commandes.',
     'Address and port': 'Adresse et port',
     'Look for the worker again': 'Chercher à nouveau le worker',
-    "Run this against the cluster. The worker's log names the cause:":
-      'Exécutez ceci sur le cluster. Le journal du worker en donne la cause :',
     'Label {position} sets {key}, which a worker sets from its own host.':
       'Le label {position} définit {key}, que le worker définit d’après son propre hôte.',
     'Label {position} breaks the worker label rule: a key takes letters, digits, -, _, and ., at most 63, and a value also /, at most 255, each starting with a letter or digit.':

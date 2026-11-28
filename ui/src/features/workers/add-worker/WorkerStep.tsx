@@ -50,7 +50,7 @@ const INSTALL_DOCS_URL = 'https://docs.dagu.sh/getting-started/installation/';
 const RUN_WHERE: Record<WorkerTab, string> = {
   [WorkerTab.linux]: 'Install Dagu on the worker host, then run this there.',
   [WorkerTab.docker]:
-    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own.',
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.',
   [WorkerTab.kubernetes]:
     'Save this as a file and apply it with kubectl apply -f to the cluster that runs the workers.',
 };
@@ -63,7 +63,7 @@ const CHECK_HINT: Record<WorkerTab, string> = {
   [WorkerTab.docker]:
     'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:',
   [WorkerTab.kubernetes]:
-    "Run this against the cluster. The worker's log names the cause:",
+    "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:",
 };
 
 const TABS: { id: WorkerTab; label: string }[] = [
@@ -105,11 +105,19 @@ export function WorkerStep({
   const [creating, setCreating] = React.useState(false);
   const [problem, setProblem] = React.useState<RequestProblem>();
   // The Create invite button goes away with a new invite, so the focus
-  // moves to the new command's copy button once.
+  // moves to the new command's copy button once, unless the admin moved it
+  // or the tab while the request ran.
   const [focusCopy, setFocusCopy] = React.useState(false);
   React.useEffect(() => {
     if (focusCopy) setFocusCopy(false);
   }, [focusCopy]);
+  const shownTab = React.useRef(tab);
+  shownTab.current = tab;
+  // An invite made while the admin switched tabs, until its tab shows it.
+  const [created, setCreated] = React.useState<{
+    id: string;
+    tab: WorkerTab;
+  }>();
 
   if (!address && invites.length === 0) return null;
 
@@ -135,9 +143,12 @@ export function WorkerStep({
         }
       : undefined;
   const panelShowsInvite = !(tab !== WorkerTab.linux && !image);
+  const elsewhere = created && created.id !== invite?.id ? created : undefined;
 
   const create = async () => {
     if (!address) return;
+    const from = document.activeElement;
+    const fromTab = tab;
     setCreating(true);
     onCreating(true);
     setProblem(undefined);
@@ -147,7 +158,14 @@ export function WorkerStep({
       });
       if (data) {
         onInvite({ ...data, createdAt: Date.now(), address, kind });
-        setFocusCopy(true);
+        setCreated({ id: data.id, tab: fromTab });
+        const now = document.activeElement;
+        const kept =
+          !now ||
+          now === from ||
+          now === document.body ||
+          now.getAttribute('role') === 'dialog';
+        if (kept && shownTab.current === fromTab) setFocusCopy(true);
       } else {
         setProblem(
           requestProblem(
@@ -184,6 +202,28 @@ export function WorkerStep({
         tabIndex={panelShowsInvite ? undefined : 0}
         className="space-y-3"
       >
+        {elsewhere && (
+          <p
+            role="status"
+            className="flex flex-wrap items-center gap-2 text-sm"
+          >
+            <I18nText
+              text="The invite you created is on the {tab} tab."
+              values={{
+                tab: TABS.find((t) => t.id === elsewhere.tab)?.label ?? '',
+              }}
+            />
+            <Button
+              size="xs"
+              onClick={() => {
+                setTab(elsewhere.tab);
+                setCreated(undefined);
+              }}
+            >
+              <I18nText text="Show it" />
+            </Button>
+          </p>
+        )}
         {tab !== WorkerTab.linux && !image ? (
           <p className="text-sm">
             <I18nText
