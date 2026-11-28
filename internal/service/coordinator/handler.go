@@ -66,6 +66,21 @@ type heartbeatInfo struct {
 
 	connectionTokens bool
 	connection       peerConnection
+
+	host string
+	// certificateID is the worker certificate the heartbeat arrived with,
+	// and certificatePass the latest pass to its record, which the
+	// following heartbeats with that certificate and host share.
+	certificateID   string
+	certificatePass *certificatePass
+}
+
+// certificatePass is a heartbeat's pass to its certificate's record. The
+// heartbeats that follow share it, so a failed pass is retried by the next
+// of them, and a newer pass is another value.
+type certificatePass struct {
+	// recheckAt is when the next heartbeat passes again. h.mu guards it.
+	recheckAt time.Time
 }
 
 // defaultStaleHeartbeatThreshold is the default duration after which a worker's heartbeat is considered stale.
@@ -215,6 +230,10 @@ type Handler struct {
 	peerCA                    *PeerCA                            // Signs worker certificates; nil without built-in TLS
 	workerInvites             persis.WorkerInviteStore           // Invites that admit enrollments
 	workerCertificates        persis.WorkerCertificateStore      // Records of issued worker certificates
+	removals                  workerRemovals                     // Certificates in removal, refused or given no task
+	peerMaintenance           sync.WaitGroup                     // The removal reread and the daily prune
+	clock                     func() time.Time                   // The time removals and certificate heartbeats use
+	removalReread             time.Duration                      // How often the removals are reread
 
 	// Open attempts cache for status persistence
 	attemptsMu   sync.RWMutex
@@ -418,6 +437,8 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		peerCA:                    cfg.PeerCA,
 		workerInvites:             cfg.WorkerInviteStore,
 		workerCertificates:        cfg.WorkerCertificateStore,
+		clock:                     time.Now,
+		removalReread:             removalRereadInterval,
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
 		workerWaitTimeout:         cfg.WorkerWaitTimeout,
@@ -554,12 +575,17 @@ func (h *Handler) Poll(ctx context.Context, req *coordinatorv1.PollRequest) (*co
 		}
 	}
 
+	cert := h.callerCertificate(ctx)
 	pollWait := h.dispatchPollInitialWait
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		observedGeneration, _ := h.dispatchWakeSnapshot()
+		// A revocation during the long poll ends it.
+		if cert != nil && h.removals.revoked(cert.Subject.CommonName) {
+			return nil, status.Error(codes.Unauthenticated, removedWorkerMessage)
+		}
 		claimed, err := h.dispatchTaskStore.ClaimNext(ctx, dispatch.DispatchTaskClaim{
 			WorkerID:     req.WorkerId,
 			PollerID:     req.PollerId,
@@ -571,6 +597,14 @@ func (h *Handler) Poll(ctx context.Context, req *coordinatorv1.PollRequest) (*co
 		})
 		if err != nil {
 			return nil, status.Error(codes.Internal, "failed to claim task: "+err.Error())
+		}
+		// A revocation that this coordinator applied while it claimed the
+		// task takes the task back before the worker sees it.
+		if claimed != nil && claimed.Task != nil && cert != nil && h.removals.revoked(cert.Subject.CommonName) {
+			if err := h.dispatchTaskStore.ReleaseClaim(context.WithoutCancel(ctx), claimed.ClaimToken); err != nil && !errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
+				logger.Warn(ctx, "Failed to return a removed worker's task to the queue", tag.WorkerID(req.WorkerId), tag.Error(err))
+			}
+			return nil, status.Error(codes.Unauthenticated, removedWorkerMessage)
 		}
 		if claimed != nil && claimed.Task != nil {
 			claimed.Task.WorkerID = req.WorkerId
@@ -2147,10 +2181,10 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 	if req.WorkerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "worker_id is required")
 	}
-	receivedAt := time.Now().UTC()
-	connection := callerConnection(ctx, h.peerCA)
-	h.mu.Lock()
-	h.heartbeats[req.WorkerId] = &heartbeatInfo{
+	receivedAt := h.clock().UTC()
+	cert := h.callerCertificate(ctx)
+	connection := callerConnection(ctx, cert)
+	info := &heartbeatInfo{
 		workerID:        req.WorkerId,
 		labels:          req.Labels,
 		stats:           req.Stats,
@@ -2159,7 +2193,23 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 
 		connectionTokens: req.ConnectionTokens,
 		connection:       connection,
+
+		host: req.Host,
 	}
+	var pass *certificatePass
+	h.mu.Lock()
+	if cert != nil {
+		info.certificateID = cert.Subject.CommonName
+		prev := h.heartbeats[req.WorkerId]
+		if prev != nil && prev.certificateID == info.certificateID && prev.host == req.Host &&
+			prev.certificatePass != nil && receivedAt.Before(prev.certificatePass.recheckAt) {
+			info.certificatePass = prev.certificatePass
+		} else {
+			pass = &certificatePass{recheckAt: receivedAt.Add(certificateHeartbeatPass)}
+			info.certificatePass = pass
+		}
+	}
+	h.heartbeats[req.WorkerId] = info
 	h.mu.Unlock()
 
 	if h.workerHeartbeatStore != nil {
@@ -2175,9 +2225,20 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 			ConnectionTokens: req.ConnectionTokens,
 			Connection:       connection.kind,
 			PlaintextReason:  connection.plaintextReason,
+			CertificateID:    info.certificateID,
 		}); err != nil {
+			if pass != nil {
+				// The pass this heartbeat reserved did not happen, so the
+				// next heartbeat that shares it makes it.
+				h.mu.Lock()
+				pass.recheckAt = time.Time{}
+				h.mu.Unlock()
+			}
 			return nil, status.Error(codes.Internal, "failed to persist worker heartbeat: "+err.Error())
 		}
+	}
+	if cert != nil {
+		h.observeCertificateHeartbeat(ctx, cert, req, receivedAt, pass)
 	}
 	h.workerNodes.observe(ctx, req.WorkerId, req.Host, req.Labels, receivedAt)
 	if h.dagRunLeaseStore == nil {
@@ -3720,6 +3781,10 @@ func (h *Handler) detectAndCleanupZombies(ctx context.Context) {
 	// Pass 1: clean up stale worker presence records used for discovery.
 	if h.workerHeartbeatStore != nil {
 		_, _ = h.workerHeartbeatStore.DeleteStale(ctx, time.Now().Add(-h.staleHeartbeatThreshold))
+		// The local entries hold only this coordinator's view of each
+		// worker, such as when its heartbeat passes to its certificate
+		// record, so the stale ones go too.
+		h.collectAndRemoveStaleHeartbeats()
 	} else {
 		for _, info := range h.collectAndRemoveStaleHeartbeats() {
 			h.markWorkerTasksFailed(ctx, info)

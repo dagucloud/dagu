@@ -37,6 +37,11 @@ const (
 	// invalidInviteMessage refuses an invite that is malformed, unknown,
 	// deleted, expired, or used up, without telling which.
 	invalidInviteMessage = "the invite is invalid, expired, or already used"
+	// removedKeyMessage refuses the key of a revoked certificate.
+	removedKeyMessage = "this key belongs to a removed worker"
+	// removedDuringEnrollMessage refuses an enrollment of a worker ID that
+	// a removal ran for alongside it.
+	removedDuringEnrollMessage = "this worker was removed while it enrolled; enroll it again"
 )
 
 // Enroll issues a worker certificate for the key of the request's
@@ -61,7 +66,7 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 	if err != nil {
 		return nil, inviteUseError(ctx, err)
 	}
-	now := time.Now().UTC()
+	now := h.clock().UTC()
 	if invite.Ended(now) {
 		return nil, status.Error(codes.PermissionDenied, invalidInviteMessage)
 	}
@@ -70,19 +75,38 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 			"a single-use invite enrolls only a worker that keeps its certificate: make the worker's data directory writable, or use a reusable invite")
 	}
 
+	fingerprint := sha256.Sum256(csr.RawSubjectPublicKeyInfo)
+	// The removals of the worker ID are counted first, so a removal that
+	// begins later fails the confirmation below.
+	workerRemovals, err := h.workerCertificates.WorkerRemovals(ctx, req.WorkerId)
+	if err != nil {
+		logger.Error(ctx, "Failed to read the worker's removals", tag.WorkerID(req.WorkerId), tag.Error(err))
+		return nil, status.Error(codes.Internal, "failed to check the key")
+	}
+	removals, err := h.workerCertificates.ListRemovals(ctx)
+	if err != nil {
+		logger.Error(ctx, "Failed to read the removed workers", tag.Error(err))
+		return nil, status.Error(codes.Internal, "failed to check the key")
+	}
+	if keyRevoked(removals, fingerprint[:]) {
+		return nil, status.Error(codes.PermissionDenied, removedKeyMessage)
+	}
+
 	certID := uuid.NewString()
-	der, err := h.peerCA.issueWorkerCertificate(csr.PublicKey, certID, invite.ID)
+	// The record takes the issuance time at the certificate's precision,
+	// so a record written again from the certificate keeps it.
+	issuedAt := now.Truncate(time.Second)
+	der, err := h.peerCA.issueWorkerCertificate(csr.PublicKey, certID, invite.ID, issuedAt)
 	if err != nil {
 		logger.Error(ctx, "Failed to issue a worker certificate", tag.Error(err))
 		return nil, status.Error(codes.Internal, "failed to issue the worker certificate")
 	}
 	// The invite is used at the time it admits the worker, after signing,
 	// so one that ends meanwhile admits nothing.
-	now = time.Now().UTC()
+	now = h.clock().UTC()
 	if _, err := h.workerInvites.Use(ctx, invite.ID, now); err != nil {
 		return nil, inviteUseError(ctx, err)
 	}
-	fingerprint := sha256.Sum256(csr.RawSubjectPublicKeyInfo)
 	if err := h.workerCertificates.Create(ctx, persis.WorkerCertificate{
 		ID:             certID,
 		InviteID:       invite.ID,
@@ -90,7 +114,10 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 		State:          persis.WorkerCertificateActive,
 		WorkerID:       req.WorkerId,
 		Host:           req.Host,
-		CreatedAt:      now,
+		CreatedAt:      issuedAt,
+
+		EnrolledAs:       req.WorkerId,
+		EnrolledRemovals: workerRemovals,
 	}); err != nil {
 		logger.Error(ctx, "Failed to record a worker certificate",
 			slog.String("certificate-id", certID),
@@ -98,6 +125,30 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 			tag.Error(err),
 		)
 		return nil, status.Error(codes.Internal, "failed to record the worker certificate")
+	}
+	// A removal that revoked the key, or began for the worker ID, while the
+	// certificate was issued refuses the enrollment, and the certificate is
+	// never handed out. A removal that began after the confirmation finds
+	// the record in its last listing and revokes it itself. The invite stays
+	// used, as when recording the certificate fails.
+	after, err := h.workerCertificates.ListRemovals(ctx)
+	if err != nil {
+		logger.Error(ctx, "Failed to read the removed workers", slog.String("certificate-id", certID), tag.Error(err))
+		return nil, status.Error(codes.Internal, "failed to check the key")
+	}
+	if keyRevoked(after, fingerprint[:]) {
+		_ = h.revoke(ctx, certID)
+		return nil, status.Error(codes.PermissionDenied, removedKeyMessage)
+	}
+	confirmed, err := h.workerCertificates.ConfirmEnrollment(ctx, req.WorkerId, workerRemovals)
+	if err != nil {
+		logger.Error(ctx, "Failed to confirm an enrollment", slog.String("certificate-id", certID), tag.Error(err))
+		_ = h.revoke(ctx, certID)
+		return nil, status.Error(codes.Internal, "failed to check the key")
+	}
+	if !confirmed {
+		_ = h.revoke(ctx, certID)
+		return nil, status.Error(codes.PermissionDenied, removedDuringEnrollMessage)
 	}
 	logger.Info(ctx, "Worker enrolled",
 		slog.String("certificate-id", certID),
@@ -148,7 +199,7 @@ func parseWorkerCSR(der []byte) (*x509.CertificateRequest, error) {
 // with no expiry date. Its subject common name is certID and a URI
 // urn:dagu:invite:<inviteID> names its invite. It allows client
 // authentication only and is not a CA.
-func (ca *PeerCA) issueWorkerCertificate(key crypto.PublicKey, certID, inviteID string) ([]byte, error) {
+func (ca *PeerCA) issueWorkerCertificate(key crypto.PublicKey, certID, inviteID string, now time.Time) ([]byte, error) {
 	serial, err := newCertSerial()
 	if err != nil {
 		return nil, fmt.Errorf("generate worker certificate serial number: %w", err)
@@ -156,7 +207,7 @@ func (ca *PeerCA) issueWorkerCertificate(key crypto.PublicKey, certID, inviteID 
 	template := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: certID},
-		NotBefore:             time.Now().Add(-certBackdate),
+		NotBefore:             now.Add(-certBackdate),
 		NotAfter:              peerCANoExpiry,
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},

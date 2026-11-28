@@ -14,21 +14,23 @@ Partially implemented. Implemented: the unset default of `peer.insecure`,
 and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
 [Coordinator Line](#coordinator-line), the
 [Coordinator Certificate](#coordinator-certificate),
-[One Port](#one-port) except the revoked set,
-[Require TLS](#require-tls), the [h2c Reasons](#h2c-reasons), the
-`connection` and `plaintextReason` of the [Workers List](#workers-list),
-`connection` and `plaintext_reason` in its Dagu Cloud report, the
-[h2c Callers](#h2c-callers), the `Connection` column and the h2c
-callers of the [Workers Page](#workers-page), the coordinator call of
-[Join Readiness](#join-readiness), the [Invites](#invites) and their
-[Coordinator Calls](#coordinator-calls) except removal and the daily
-deletion of ended [Invite Records](#invite-records), the
+[One Port](#one-port), [Require TLS](#require-tls), the
+[h2c Reasons](#h2c-reasons), the `connection` and `plaintextReason` of the
+[Workers List](#workers-list), `connection` and `plaintext_reason` in its
+Dagu Cloud report, the [h2c Callers](#h2c-callers), the `Connection` column
+and the h2c callers of the [Workers Page](#workers-page), the coordinator
+call of [Join Readiness](#join-readiness), the [Invites](#invites) and
+their [Coordinator Calls](#coordinator-calls), the
 [Coordinator Side](#coordinator-side) of enrollment with the
-[Worker Certificate](#worker-certificate) and its record, except refusing
-the key of a revoked certificate, and
+[Worker Certificate](#worker-certificate) and its record, the coordinator
+side of [Revocation](#revocation), and [Removal](#removal) of a worker that
+is not connected, and
 [`dagu worker --check`](#dagu-worker---check) without the lines of invite
 workers. Clients that share a coordinator's data directory use built-in
-TLS. No client enrolls yet.
+TLS. No client enrolls yet. A removal of a connected worker fails with
+`FailedPrecondition` and says to stop the worker on its host first, and a
+worker does not yet act on its removal as
+[Removed Worker](#removed-worker) states.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -630,19 +632,28 @@ The `worker_certificates` collection keeps one record per certificate:
 | `invite_id` | The invite it enrolled with |
 | `state` | `active`, `removing`, or `revoked` |
 | `worker_id` | The worker ID at its last heartbeat |
+| `worker_ids` | The worker IDs its heartbeats reported, at most the 8 most recently seen, each with when it was last seen |
 | `host` | The host name the worker reported |
 | `environment` | `host`, `container`, or `kubernetes`, from the worker's heartbeat |
 | `created_at` | The enrollment time |
 | `last_heartbeat_at` | The time of its last recorded heartbeat, or none before the first |
+| `enrolled_as` | The worker ID it enrolled as, or none for a record written before the field |
+| `enrolled_removals` | How many removals of that worker ID had begun when its enrollment started |
 
 - A record identifies its certificate's key, so `Enroll` can refuse that
   key after revocation.
 - A heartbeat with a worker certificate that is not newer than the stored
   `last_heartbeat_at` writes nothing. Otherwise it writes the record when
-  the stored `last_heartbeat_at` is more than 24 hours old, or none, or
-  when the worker ID, host, or environment it reports changed and the
-  stored `last_heartbeat_at` is at least a minute old. It writes the
-  record again when it was pruned. It keeps the stored state.
+  the stored `last_heartbeat_at` is more than 24 hours old, or none, when
+  the worker ID it reports is not among `worker_ids`, when that ID returns
+  after another one and was last seen more than a minute before, or when
+  the host or environment it reports changed and the stored
+  `last_heartbeat_at` is at least a minute old. A new worker ID joins
+  `worker_ids` at once, a returning one becomes the most recently seen,
+  and the least recently seen beyond 8 goes. So a removal finds a worker
+  by any ID it reported lately, while workers that share a certificate
+  write at most once a minute each. It writes the record again when it was
+  pruned. It keeps the stored state.
 - Once a day, each coordinator deletes the records in state `active` whose
   `last_heartbeat_at`, or `created_at` when it is none, is more than 90
   days old.
@@ -700,12 +711,18 @@ The `worker_certificates` collection keeps one record per certificate:
 - Revoking a certificate sets its record's state to `revoked` and adds its
   ID to the revoked set.
 - Every call with a worker certificate is checked against the revoked set,
-  so calls on open connections are refused too. A refused call fails with
-  `Unauthenticated` and the message
-  `this worker was removed from the coordinator`.
+  so calls on open connections are refused too, `Enroll` among them: a
+  revoked certificate cannot enroll again by presenting itself. A refused
+  call fails with `Unauthenticated` and the message
+  `this worker was removed from the coordinator`. The gRPC health service
+  is the one exception: it answers whatever certificate a call carries, so
+  a removed worker learns of its removal from its own calls, not from a
+  coordinator that looks down.
 - The coordinator that revokes applies it at once. Every other coordinator
   rereads the revoked set, and the set of `removing` certificates, every 30
-  seconds, also when idle.
+  seconds, also when idle. A coordinator reads them before it serves, and
+  until a read succeeds it refuses every call with a worker certificate
+  with `Unavailable`.
 - `Enroll` refuses a request whose key is the key of a revoked certificate.
 
 #### Removal
@@ -715,7 +732,7 @@ or `stop`:
 
 | Worker | `finish` | `stop` |
 | --- | --- | --- |
-| Not connected: its last heartbeat is stale | Revoked at once | Revoked at once |
+| Not connected: its last heartbeat is stale, and no worker connects with its certificate | Revoked at once | Revoked at once |
 | Connected, no running tasks | `removing` | `removing` |
 | Connected, with running tasks | `removing` | `removing`, and each run is canceled |
 
@@ -744,6 +761,27 @@ or `stop`:
 - A removal with `stop` of a worker in `removing` cancels its runs as above.
 - A worker on the peer token cannot be removed. The removal fails and says
   to stop the worker on its host, or to change the peer token.
+- A fresh heartbeat that a coordinator predating the certificate ID in
+  heartbeats recorded as a certificate connection counts as connected when
+  it names the removed worker ID, an ID in the certificate's `worker_ids`,
+  or the certificate's host.
+- A removal by a worker ID finds each certificate whose `worker_id` or
+  `worker_ids` names it, and the removal records keep those IDs.
+- Coordinators order the enrollments and removals of one worker ID
+  through one shared record per worker ID: a removal counts itself there
+  before it looks for the worker's certificates, and an enrollment, after
+  recording its certificate, confirms there that no removal began since it
+  started. An enrollment that started before the removal counted itself
+  either recorded its certificate in time for the removal to revoke it, or
+  fails with `PermissionDenied` and the message
+  `this worker was removed while it enrolled; enroll it again`, and its
+  certificate is revoked. An enrollment that starts after the removal
+  counted itself is a new one and succeeds, and the removal leaves its certificate active
+  unless it carries a key the removal revoked. The removal tells the two
+  apart by `enrolled_as` and `enrolled_removals`.
+- The removal decides from the heartbeats as it reads them. A worker that
+  connects again while the removal runs is removed all the same: its next
+  call is refused, and the coordinator logs that it connected.
 
 #### Removed Worker
 
@@ -789,7 +827,9 @@ or `stop`:
   `StreamLogs`, `StreamArtifacts`, `GetWorkspaceBundle`, `GetDAG`, the
   state calls (`GetState`, `PutState`, `DeleteState`, `ListState`), the
   agent session cleanup calls, the `Resolve` calls, and `Enroll`. The
-  [Workers List](#workers-list) shows how workers connect.
+  [Workers List](#workers-list) shows how workers connect. The
+  [Coordinator Calls](#coordinator-calls), worker removal among them, are
+  not workers' calls, so the list holds them.
 - The list holds the calls that `coordinator.require_tls` refuses too.
 - `GET /api/v1/services/coordinator` returns them as `h2cCallers` for each
   active coordinator, with `host`, `reason`, and `lastCallAt`, the latest
@@ -1117,8 +1157,15 @@ The Workers page is the list of workers on System status.
   window opens or ends, and keep at most 64 windows per host.
 - A connection on h2c without a TLS source reads the published CA
   certificate and the registry at most every 10 seconds.
-- A heartbeat writes a certificate record at most once a day, or once a
-  minute while the worker ID, host, or environment it reports changes.
+- A heartbeat writes a certificate record at most once a day, at once
+  when it reports a worker ID that `worker_ids` lacks, and at most once a
+  minute for a returning worker ID or while the host or environment it
+  reports changes. `worker_ids` holds at most 8 IDs. A coordinator passes
+  each worker's heartbeat to the record at most once a minute, which reads
+  the record and writes only as above, so the record orders worker IDs by
+  when any coordinator last saw them.
+- Each worker ID that a removal named or that enrolled keeps one small
+  record that orders its enrollments and removals.
 - Invites are read only at enrollment and when listed.
 - The h2c callers take at most 64 entries per coordinator.
 
@@ -1161,7 +1208,11 @@ handshake error that caused the fallback.
 | `Enroll` with a single-use invite from a worker that cannot keep its certificate | `FailedPrecondition`; the invite is not consumed |
 | `Enroll` with a certificate signing request that cannot be read, whose signature does not verify, or whose key is not ECDSA P-256 | `InvalidArgument`; the invite is not consumed |
 | `Enroll` with the key of a revoked certificate | `PermissionDenied`: `this key belongs to a removed worker` |
+| `Enroll` of a worker ID that a removal ran for alongside it | `PermissionDenied`: `this worker was removed while it enrolled; enroll it again`. The rejected certificate is revoked, so its key is refused, and a single-use invite is spent: a new enrollment needs a new key, together with a reusable invite that is still valid or a new invite |
 | A call with a revoked worker certificate | `Unauthenticated`: `this worker was removed from the coordinator` |
+| A call with a worker certificate to a coordinator that could not yet read the revoked set | `Unavailable`, so the worker tries again or tries the next coordinator |
+| A removal of a worker on the peer token | `FailedPrecondition`, saying to stop the worker on its host or to change the peer token |
+| A removal of a worker ID that no heartbeat or certificate names | `NotFound` |
 | A call over h2c with `coordinator.require_tls: true` | `Unauthenticated`, with the message of [Require TLS](#require-tls) |
 | An invite, removal, or join readiness call without the peer token | `Unauthenticated` |
 | An invite, removal, or join readiness call with a worker certificate | `PermissionDenied` |

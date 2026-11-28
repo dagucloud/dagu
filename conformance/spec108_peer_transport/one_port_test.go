@@ -125,6 +125,14 @@ func TestOwnCertificatesTransport(t *testing.T) {
 func serveCoordinator(t *testing.T, dagu *harness.Runner, env []string, line string, args ...string) string {
 	t.Helper()
 	port := harness.FreePort(t)
+	startCoordinatorOnPort(t, dagu, env, port, line, args...)
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+}
+
+// startCoordinatorOnPort starts a coordinator on the loopback port with
+// env and returns it once it has logged line.
+func startCoordinatorOnPort(t *testing.T, dagu *harness.Runner, env []string, port int, line string, args ...string) *harness.Process {
+	t.Helper()
 	coordinator := dagu.StartWithEnv(env, append([]string{
 		"coordinator",
 		"--coordinator.host=127.0.0.1",
@@ -133,7 +141,7 @@ func serveCoordinator(t *testing.T, dagu *harness.Runner, env []string, line str
 		"--coordinator.health-port=0",
 	}, args...)...)
 	waitForOutput(t, coordinator, line, "Starting to serve on coordinator service")
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	return coordinator
 }
 
 func dialCoordinator(t *testing.T, addr string, creds credentials.TransportCredentials) *grpc.ClientConn {

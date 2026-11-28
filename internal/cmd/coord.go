@@ -222,9 +222,6 @@ func newCoordinator(
 	if err != nil {
 		return nil, nil, err
 	}
-	if peerCA.ca != nil {
-		peerAuth.AcceptWorkerCertificates(peerCA.ca)
-	}
 	transportOpts, err := coordinatorTransport(ctx, cfg, peerCA.ca, advertiseAddr, certHostname)
 	if err != nil {
 		return nil, nil, err
@@ -291,6 +288,7 @@ func newCoordinator(
 		EventService:              ctx.event,
 		EventSourceInstance:       ctx.EventSourceInstance,
 	})
+	peerAuth.AcceptWorkerCertificates(handler)
 
 	// Create and return service with advertise address for service registry
 	svc := coordinator.NewService(grpcServer, handler, listener, healthServer, httpHealthServer, persistence.ServiceRegistry, cfg, instanceID, advertiseAddr)

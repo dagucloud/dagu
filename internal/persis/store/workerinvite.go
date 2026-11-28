@@ -41,8 +41,13 @@ type workerInviteStoredRecord struct {
 	LastUsedAt    time.Time               `json:"last_used_at,omitzero"`
 }
 
-// workerInviteSchemaVersion is the record format this version writes.
-const workerInviteSchemaVersion = 1
+const (
+	// workerInviteSchemaVersion is the record format this version writes.
+	workerInviteSchemaVersion = 1
+
+	// workerInviteRetention is how long an ended invite's record stays.
+	workerInviteRetention = 7 * 24 * time.Hour
+)
 
 // NewWorkerInviteStore creates a WorkerInviteStore backed by col.
 func NewWorkerInviteStore(col persis.Collection) (*WorkerInviteStore, error) {
@@ -160,6 +165,48 @@ func (s *WorkerInviteStore) Use(ctx context.Context, id string, at time.Time) (p
 		return persis.WorkerInvite{}, err
 	}
 	return used, nil
+}
+
+func (s *WorkerInviteStore) Prune(ctx context.Context, now time.Time) (int, error) {
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
+	if err != nil {
+		return 0, fmt.Errorf("worker invite store: list: %w", err)
+	}
+	removed := 0
+	var errs []error
+	for _, rec := range recs {
+		invite, err := decodeWorkerInvite(rec)
+		if err != nil {
+			continue
+		}
+		endedAt, ends := inviteEndedAt(invite)
+		if !ends || now.Sub(endedAt) <= workerInviteRetention {
+			continue
+		}
+		// Only the record as read is deleted. An ended invite changes only
+		// when deleted, so a conflict means it is gone.
+		err = s.col.CompareAndDelete(ctx, rec)
+		if errors.Is(err, persis.ErrConflict) || errors.Is(err, persis.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			// One record that cannot be deleted leaves the others to go.
+			errs = append(errs, fmt.Errorf("worker invite store: delete invite %q: %w", invite.ID, err))
+			continue
+		}
+		removed++
+	}
+	return removed, errors.Join(errs...)
+}
+
+// inviteEndedAt returns when invite ended or ends: at its use for a used
+// single-use invite, else at its expiry. It returns false for an invite
+// that never ends.
+func inviteEndedAt(invite persis.WorkerInvite) (time.Time, bool) {
+	if invite.Kind == persis.WorkerInviteSingleUse && invite.UseCount > 0 {
+		return invite.LastUsedAt, true
+	}
+	return invite.ExpiresAt, !invite.ExpiresAt.IsZero()
 }
 
 func encodeWorkerInvite(invite persis.WorkerInvite) (*persis.Record, error) {

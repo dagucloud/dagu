@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 )
 
@@ -136,17 +138,29 @@ func TestPropagationWaitsForAllRuns(t *testing.T) {
 }
 
 // The registry signals the whole process group, so children spawned by the
-// launched command terminate too. A shell running a nested sleep proves the
-// signal reached past the directly started process.
+// launched command terminate too. The shell runs sleep in the background and
+// waits, so sleep is a child of its own, not the shell replaced by exec.
 func TestProcessRegistryPropagatesToProcessGroup(t *testing.T) {
 	reg := launcher.NewProcessRegistry()
 	ctx := launcher.ContextWithProcessRegistry(context.Background(), reg)
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
 
 	res, err := launcher.StartProcess(ctx, launcher.CmdSpec{
 		Executable: "sh",
-		Args:       []string{"-c", "sleep 30"},
+		Args:       []string{"-c", `sleep 30 & echo $! > "$1"; wait`, "sh", pidFile},
 	})
 	require.NoError(t, err)
+	var child int
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile(pidFile)
+		if err != nil {
+			return false
+		}
+		child, err = strconv.Atoi(strings.TrimSpace(string(data)))
+		return err == nil
+	}, 5*time.Second, 10*time.Millisecond)
+	childStartedAt, ok := procutil.StartTime(child)
+	require.True(t, ok)
 
 	reg.Propagate(ctx, syscall.SIGTERM)
 
@@ -156,10 +170,14 @@ func TestProcessRegistryPropagatesToProcessGroup(t *testing.T) {
 		t.Fatal("propagated signal did not terminate the process group")
 	}
 
-	// Once every group member exited, probing the empty group fails with ESRCH.
+	// The nested child ends too. It counts as ended once it is gone, is a
+	// zombie that a non-reaping init adopted, or its PID now belongs to a
+	// newer process. A probe of the whole group would still find either of
+	// the last two.
 	require.Eventually(t, func() bool {
-		return syscall.Kill(-res.PID, 0) == syscall.ESRCH
-	}, 3*time.Second, 50*time.Millisecond)
+		same, _, found := procutil.MatchesStartTime(child, childStartedAt)
+		return !found || !same || !procutil.IsAlive(child)
+	}, 5*time.Second, 50*time.Millisecond)
 }
 
 // Cancellation must leave a registered run alive so shutdown can forward the

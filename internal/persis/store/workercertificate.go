@@ -6,6 +6,8 @@ package store
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -31,15 +33,33 @@ type WorkerCertificateStore struct {
 
 type workerCertificateStoredRecord struct {
 	// SchemaVersion is the record's format.
-	SchemaVersion   int                      `json:"schema_version"`
-	ID              string                   `json:"id"`
-	InviteID        string                   `json:"invite_id"`
-	KeyFingerprint  []byte                   `json:"key_fingerprint"`
-	WorkerID        string                   `json:"worker_id,omitempty"`
-	Host            string                   `json:"host,omitempty"`
-	Environment     persis.WorkerEnvironment `json:"environment,omitempty"`
-	CreatedAt       time.Time                `json:"created_at"`
-	LastHeartbeatAt time.Time                `json:"last_heartbeat_at,omitzero"`
+	SchemaVersion    int                      `json:"schema_version"`
+	ID               string                   `json:"id"`
+	InviteID         string                   `json:"invite_id"`
+	KeyFingerprint   []byte                   `json:"key_fingerprint"`
+	WorkerID         string                   `json:"worker_id,omitempty"`
+	WorkerIDs        []workerIDSeenRecord     `json:"worker_ids,omitempty"`
+	Host             string                   `json:"host,omitempty"`
+	Environment      persis.WorkerEnvironment `json:"environment,omitempty"`
+	CreatedAt        time.Time                `json:"created_at"`
+	LastHeartbeatAt  time.Time                `json:"last_heartbeat_at,omitzero"`
+	EnrolledAs       string                   `json:"enrolled_as,omitempty"`
+	EnrolledRemovals int64                    `json:"enrolled_removals,omitempty"`
+}
+
+type workerIDSeenRecord struct {
+	ID     string    `json:"id"`
+	SeenAt time.Time `json:"seen_at"`
+}
+
+// workerFenceRecord orders the enrollments and removals of one worker ID:
+// each removal counts itself before it looks for certificates, and each
+// enrollment confirms the count it read at its start in one write, so one
+// of the two always sees the other.
+type workerFenceRecord struct {
+	WorkerID    string `json:"worker_id"`
+	Removals    int64  `json:"removals"`
+	Enrollments int64  `json:"enrollments"`
 }
 
 type workerCertificateRemovalStoredRecord struct {
@@ -54,14 +74,20 @@ const (
 
 	workerCertificatePrefix        = "certs/"
 	workerCertificateRemovalPrefix = "removals/"
+	workerFencePrefix              = "workers/"
 
 	// workerCertificateHeartbeatInterval bounds heartbeat writes to one a
 	// day per certificate.
 	workerCertificateHeartbeatInterval = 24 * time.Hour
 
-	// workerCertificateChangeInterval bounds the writes of a changed worker
-	// ID, host, or environment to one a minute per certificate, so workers
-	// that share one certificate do not write at every heartbeat.
+	// workerCertificateWorkerIDs bounds the worker IDs a record keeps, so
+	// workers that share one certificate under many IDs cannot grow it.
+	workerCertificateWorkerIDs = 8
+
+	// workerCertificateChangeInterval bounds the writes of a changed host
+	// or environment to one a minute per certificate, so workers that share
+	// one certificate do not write at every heartbeat. A changed worker ID
+	// is written at once, since removal finds a worker by it.
 	workerCertificateChangeInterval = time.Minute
 
 	// workerCertificateRetention is how long an active certificate's
@@ -178,7 +204,9 @@ func (s *WorkerCertificateStore) ListRemovals(ctx context.Context) ([]persis.Wor
 	}
 	removals := make([]persis.WorkerCertificateRemoval, 0, len(removed))
 	for _, cert := range removed {
-		removals = append(removals, persis.WorkerCertificateRemoval{ID: cert.ID, KeyFingerprint: cert.KeyFingerprint, State: cert.State})
+		removals = append(removals, persis.WorkerCertificateRemoval{
+			ID: cert.ID, KeyFingerprint: cert.KeyFingerprint, State: cert.State, WorkerID: cert.WorkerID,
+		})
 	}
 	return removals, nil
 }
@@ -206,6 +234,7 @@ func (s *WorkerCertificateStore) listRemoved(ctx context.Context) ([]persis.Work
 func withHeartbeat(removed, cert persis.WorkerCertificate) persis.WorkerCertificate {
 	if cert.LastHeartbeatAt.After(removed.LastHeartbeatAt) {
 		removed.WorkerID = cert.WorkerID
+		removed.WorkerIDs = cert.WorkerIDs
 		removed.Host = cert.Host
 		removed.Environment = cert.Environment
 		removed.LastHeartbeatAt = cert.LastHeartbeatAt
@@ -225,9 +254,14 @@ func (s *WorkerCertificateStore) RecordHeartbeat(ctx context.Context, cert persi
 			next.InviteID = stored.InviteID
 			next.KeyFingerprint = stored.KeyFingerprint
 			next.CreatedAt = stored.CreatedAt
+			next.EnrolledAs = stored.EnrolledAs
+			next.EnrolledRemovals = stored.EnrolledRemovals
+			next.WorkerIDs = seeWorkerID(knownWorkerIDs(stored), cert.WorkerID, cert.LastHeartbeatAt)
 		case errors.Is(err, persis.ErrWorkerCertificateNotFound):
+			next.WorkerIDs = seeWorkerID(nil, cert.WorkerID, cert.LastHeartbeatAt)
 		case current != nil:
 			// The stored payload cannot be read, so the report replaces it.
+			next.WorkerIDs = seeWorkerID(nil, cert.WorkerID, cert.LastHeartbeatAt)
 		case errors.Is(err, persis.ErrCorrupt):
 			// The stored file cannot be read at all, so no compare-and-swap
 			// can match it. It is removed only while still unreadable, and
@@ -252,12 +286,143 @@ func (s *WorkerCertificateStore) RecordHeartbeat(ctx context.Context, cert persi
 }
 
 // heartbeatWriteDue reports whether the heartbeat reported in cert is to be
-// written over stored. Both conditions need a newer report, so a delayed
+// written over stored. Each condition needs a newer report, so a delayed
 // report never replaces newer fields.
 func heartbeatWriteDue(stored, cert persis.WorkerCertificate) bool {
 	age := cert.LastHeartbeatAt.Sub(stored.LastHeartbeatAt)
-	changed := cert.WorkerID != stored.WorkerID || cert.Host != stored.Host || cert.Environment != stored.Environment
-	return age > workerCertificateHeartbeatInterval || (changed && age >= workerCertificateChangeInterval)
+	if age <= 0 {
+		return false
+	}
+	changed := cert.Host != stored.Host || cert.Environment != stored.Environment
+	return age > workerCertificateHeartbeatInterval || workerIDDue(knownWorkerIDs(stored), cert.WorkerID, cert.LastHeartbeatAt) ||
+		(changed && age >= workerCertificateChangeInterval)
+}
+
+// workerIDDue reports whether a heartbeat at at from the worker ID id
+// changes ids enough to write: id is new, or it returns after another ID
+// and was last seen more than workerCertificateChangeInterval before. A
+// worker that keeps its ID writes nothing for it.
+func workerIDDue(ids []persis.WorkerIDSeen, id string, at time.Time) bool {
+	if id == "" {
+		return false
+	}
+	i := slices.IndexFunc(ids, func(seen persis.WorkerIDSeen) bool { return seen.ID == id })
+	if i < 0 {
+		return true
+	}
+	return i < len(ids)-1 && at.Sub(ids[i].SeenAt) > workerCertificateChangeInterval
+}
+
+// knownWorkerIDs returns the worker IDs that cert names: its WorkerIDs, or
+// its WorkerID for a record written before them.
+func knownWorkerIDs(cert persis.WorkerCertificate) []persis.WorkerIDSeen {
+	if len(cert.WorkerIDs) > 0 {
+		return cert.WorkerIDs
+	}
+	if cert.WorkerID == "" {
+		return nil
+	}
+	return []persis.WorkerIDSeen{{ID: cert.WorkerID, SeenAt: cert.LastHeartbeatAt}}
+}
+
+// seeWorkerID returns ids with id seen at at, the most recently seen last,
+// dropping the least recently seen beyond workerCertificateWorkerIDs.
+func seeWorkerID(ids []persis.WorkerIDSeen, id string, at time.Time) []persis.WorkerIDSeen {
+	// The most recently seen ID stays as it is, so a worker that keeps its
+	// ID changes nothing here.
+	if len(ids) > 0 && ids[len(ids)-1].ID == id {
+		return slices.Clone(ids)
+	}
+	seen := slices.DeleteFunc(slices.Clone(ids), func(known persis.WorkerIDSeen) bool { return known.ID == id })
+	if id != "" {
+		seen = append(seen, persis.WorkerIDSeen{ID: id, SeenAt: at.UTC()})
+	}
+	if extra := len(seen) - workerCertificateWorkerIDs; extra > 0 {
+		seen = seen[extra:]
+	}
+	return seen
+}
+
+func (s *WorkerCertificateStore) WorkerRemovals(ctx context.Context, workerID string) (int64, error) {
+	_, fence, err := s.getFence(ctx, workerID)
+	return fence.Removals, err
+}
+
+func (s *WorkerCertificateStore) BeginWorkerRemoval(ctx context.Context, workerID string) (int64, error) {
+	var removals int64
+	err := retryConflict(ctx, func(ctx context.Context) error {
+		current, fence, err := s.getFence(ctx, workerID)
+		if err != nil {
+			return err
+		}
+		fence.Removals++
+		removals = fence.Removals
+		return s.putFence(ctx, current, fence)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("worker certificate store: begin the removal of %q: %w", workerID, err)
+	}
+	return removals, nil
+}
+
+func (s *WorkerCertificateStore) ConfirmEnrollment(ctx context.Context, workerID string, removals int64) (bool, error) {
+	confirmed := false
+	err := retryConflict(ctx, func(ctx context.Context) error {
+		current, fence, err := s.getFence(ctx, workerID)
+		if err != nil {
+			return err
+		}
+		if fence.Removals != removals {
+			confirmed = false
+			return nil
+		}
+		fence.Enrollments++
+		if err := s.putFence(ctx, current, fence); err != nil {
+			return err
+		}
+		confirmed = true
+		return nil
+	})
+	if err != nil {
+		return false, fmt.Errorf("worker certificate store: confirm the enrollment of %q: %w", workerID, err)
+	}
+	return confirmed, nil
+}
+
+// getFence returns the fence record of workerID and its stored record, or a
+// new fence and nil when none is stored.
+func (s *WorkerCertificateStore) getFence(ctx context.Context, workerID string) (*persis.Record, workerFenceRecord, error) {
+	rec, err := s.col.Get(ctx, workerFenceID(workerID))
+	if errors.Is(err, persis.ErrNotFound) {
+		return nil, workerFenceRecord{WorkerID: workerID}, nil
+	}
+	if err != nil {
+		return nil, workerFenceRecord{}, err
+	}
+	var fence workerFenceRecord
+	if err := persis.Decode(rec, &fence); err != nil {
+		return nil, workerFenceRecord{}, fmt.Errorf("decode the fence of %q: %w", workerID, err)
+	}
+	return rec, fence, nil
+}
+
+// putFence writes fence over current, the record it was read from, or
+// creates it when current is nil; either fails with a conflict when another
+// write came first.
+func (s *WorkerCertificateStore) putFence(ctx context.Context, current *persis.Record, fence workerFenceRecord) error {
+	data, err := persis.Encode(fence)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	return createOrSwap(ctx, s.col, current, &persis.Record{ID: workerFenceID(fence.WorkerID), Data: data, CreatedAt: now, UpdatedAt: now})
+}
+
+// workerFenceID is the record ID of the fence of workerID. The worker ID is
+// hashed, so any ID makes a valid record ID.
+func workerFenceID(workerID string) string {
+	sum := sha256.Sum256([]byte(workerID))
+	return workerFencePrefix + hex.EncodeToString(sum[:])
 }
 
 func (s *WorkerCertificateStore) SetState(ctx context.Context, id string, state persis.WorkerCertificateState) (persis.WorkerCertificate, error) {
@@ -393,30 +558,55 @@ func decodeWorkerCertificate(rec *persis.Record) (persis.WorkerCertificate, erro
 
 func storedWorkerCertificate(cert persis.WorkerCertificate) workerCertificateStoredRecord {
 	return workerCertificateStoredRecord{
-		SchemaVersion:   workerCertificateSchemaVersion,
-		ID:              cert.ID,
-		InviteID:        cert.InviteID,
-		KeyFingerprint:  cert.KeyFingerprint,
-		WorkerID:        cert.WorkerID,
-		Host:            cert.Host,
-		Environment:     cert.Environment,
-		CreatedAt:       cert.CreatedAt.UTC(),
-		LastHeartbeatAt: cert.LastHeartbeatAt.UTC(),
+		SchemaVersion:    workerCertificateSchemaVersion,
+		ID:               cert.ID,
+		InviteID:         cert.InviteID,
+		KeyFingerprint:   cert.KeyFingerprint,
+		WorkerID:         cert.WorkerID,
+		WorkerIDs:        storedWorkerIDs(cert.WorkerIDs),
+		Host:             cert.Host,
+		Environment:      cert.Environment,
+		CreatedAt:        cert.CreatedAt.UTC(),
+		LastHeartbeatAt:  cert.LastHeartbeatAt.UTC(),
+		EnrolledAs:       cert.EnrolledAs,
+		EnrolledRemovals: cert.EnrolledRemovals,
 	}
 }
 
 func (r workerCertificateStoredRecord) certificate(state persis.WorkerCertificateState) persis.WorkerCertificate {
 	return persis.WorkerCertificate{
-		ID:              r.ID,
-		InviteID:        r.InviteID,
-		KeyFingerprint:  r.KeyFingerprint,
-		State:           state,
-		WorkerID:        r.WorkerID,
-		Host:            r.Host,
-		Environment:     r.Environment,
-		CreatedAt:       r.CreatedAt,
-		LastHeartbeatAt: r.LastHeartbeatAt,
+		ID:               r.ID,
+		InviteID:         r.InviteID,
+		KeyFingerprint:   r.KeyFingerprint,
+		State:            state,
+		WorkerID:         r.WorkerID,
+		WorkerIDs:        r.workerIDs(),
+		Host:             r.Host,
+		Environment:      r.Environment,
+		CreatedAt:        r.CreatedAt,
+		LastHeartbeatAt:  r.LastHeartbeatAt,
+		EnrolledAs:       r.EnrolledAs,
+		EnrolledRemovals: r.EnrolledRemovals,
 	}
+}
+
+func storedWorkerIDs(ids []persis.WorkerIDSeen) []workerIDSeenRecord {
+	stored := make([]workerIDSeenRecord, 0, len(ids))
+	for _, seen := range ids {
+		stored = append(stored, workerIDSeenRecord{ID: seen.ID, SeenAt: seen.SeenAt.UTC()})
+	}
+	return stored
+}
+
+func (r workerCertificateStoredRecord) workerIDs() []persis.WorkerIDSeen {
+	if len(r.WorkerIDs) == 0 {
+		return nil
+	}
+	ids := make([]persis.WorkerIDSeen, 0, len(r.WorkerIDs))
+	for _, seen := range r.WorkerIDs {
+		ids = append(ids, persis.WorkerIDSeen{ID: seen.ID, SeenAt: seen.SeenAt})
+	}
+	return ids
 }
 
 func encodeWorkerCertificateRemoval(cert persis.WorkerCertificate) (*persis.Record, error) {

@@ -38,6 +38,22 @@ type WorkerCertificateStore interface {
 	// List returns every record, oldest first.
 	List(ctx context.Context) ([]WorkerCertificate, error)
 
+	// WorkerRemovals returns how many removals of the worker ID workerID
+	// began, zero when none did.
+	WorkerRemovals(ctx context.Context, workerID string) (int64, error)
+
+	// BeginWorkerRemoval counts one more removal of the worker ID
+	// workerID, before the removal looks for its certificates, and returns
+	// how many removals of it began, this one included.
+	BeginWorkerRemoval(ctx context.Context, workerID string) (int64, error)
+
+	// ConfirmEnrollment reports whether the removals of the worker ID
+	// workerID still number removals, and records an enrollment of it if
+	// so, in one write that a removal beginning at the same time cannot
+	// pass unnoticed. A false result means a removal of the worker began
+	// during the enrollment.
+	ConfirmEnrollment(ctx context.Context, workerID string, removals int64) (bool, error)
+
 	// ListRemovals returns the certificates in state removing or revoked.
 	// Its cost grows with those certificates only, not with every record.
 	// It fails when one cannot be read, so no revoked certificate is left
@@ -48,9 +64,12 @@ type WorkerCertificateStore interface {
 	// cert.LastHeartbeatAt, with the worker ID, host, and environment it
 	// reported. A report not newer than the stored heartbeat writes nothing.
 	// Otherwise it writes when the stored heartbeat is more than a day
-	// older, or at least a minute older and a reported field changed. It
-	// keeps the stored state. A pruned or unreadable record is recorded
-	// again from cert.
+	// older, when the worker ID is not among the stored worker IDs, which
+	// it joins, when it returns after another ID and was last seen more
+	// than a minute before, or when it is at least a minute older and the
+	// host or environment changed. Of the worker IDs, the least recently
+	// seen goes beyond eight. It keeps the stored state. A pruned or
+	// unreadable record is recorded again from cert.
 	RecordHeartbeat(ctx context.Context, cert WorkerCertificate) error
 
 	// SetState moves the certificate to state and returns the record as
@@ -77,6 +96,10 @@ type WorkerCertificate struct {
 	State          WorkerCertificateState
 	// WorkerID is the worker ID at the last recorded heartbeat.
 	WorkerID string
+	// WorkerIDs are the worker IDs the certificate's recorded heartbeats
+	// reported, the least recently seen first, at most eight. A record
+	// written before the field has none, and names only WorkerID.
+	WorkerIDs []WorkerIDSeen
 	// Host is the host name the worker reported.
 	Host        string
 	Environment WorkerEnvironment
@@ -84,6 +107,12 @@ type WorkerCertificate struct {
 	CreatedAt time.Time
 	// LastHeartbeatAt is zero before the first recorded heartbeat.
 	LastHeartbeatAt time.Time
+	// EnrolledAs is the worker ID the certificate enrolled as, and
+	// EnrolledRemovals the [WorkerCertificateStore.WorkerRemovals] of it
+	// when the enrollment started. A record written before the fields has
+	// neither.
+	EnrolledAs       string
+	EnrolledRemovals int64
 }
 
 // WorkerCertificateRemoval is a certificate in state removing or revoked.
@@ -92,6 +121,15 @@ type WorkerCertificateRemoval struct {
 	// KeyFingerprint is the certificate's [WorkerCertificate.KeyFingerprint].
 	KeyFingerprint []byte
 	State          WorkerCertificateState
+	// WorkerID is the certificate's [WorkerCertificate.WorkerID].
+	WorkerID string
+}
+
+// WorkerIDSeen is a worker ID a certificate's heartbeats reported, and when
+// one last did, as recorded.
+type WorkerIDSeen struct {
+	ID     string
+	SeenAt time.Time
 }
 
 // WorkerCertificateState is where a certificate is in its removal.

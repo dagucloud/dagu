@@ -46,6 +46,12 @@ type WorkerInviteStore interface {
 	// concurrent uses of a single-use invite, across every client of the
 	// store, at most one succeeds.
 	Use(ctx context.Context, id string, at time.Time) (WorkerInvite, error)
+
+	// Prune deletes the invites that ended more than 7 days before now and
+	// returns the number deleted. A record it cannot delete does not stop it
+	// from deleting the others. An invite that never ends, a reusable
+	// one without an expiry, stays until it is deleted.
+	Prune(ctx context.Context, now time.Time) (int, error)
 }
 
 // WorkerInvite is an invite's record.
