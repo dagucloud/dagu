@@ -114,7 +114,7 @@ Rules:
 | `backfill` | Plans a backfill of the DAG named by `name` and, unless `dryRun`, submits it. |
 | `backfill_resume` | Runs again the slots of a backfill that have neither succeeded nor been skipped. |
 | `backfill_cancel` | Cancels an open backfill. |
-| `add_worker` | Returns join readiness and, with `address`, creates a worker invite, as [Spec 108](108-peer-transport.md) §MCP Action states. |
+| `add_worker` | Returns join readiness and, with `address`, creates a worker invite, as [Spec 108](108-peer-transport.md) §MCP Action states. Admin only, for local MCP callers; a call Dagu Cloud carries over the relay is refused with `unauthorized`. |
 
 ### Backfill actions
 

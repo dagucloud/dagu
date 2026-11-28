@@ -1007,10 +1007,10 @@ and prints the message:
       value `0.0.0.0`
     - otherwise: `configFile` and the lines `coordinator:` and
       `  host: 0.0.0.0` to add to it
-  - Without `builtinTLS`, that invites need the built-in CA, and for
-    `builtinTLSReason` `ownCertificates`, that the coordinator uses
-    `peer.cert_file` and `peer.key_file`, or for `caUnavailable`, that it
-    could not create or read its CA and to see its start warning.
+  - Without `builtinTLS`, for `builtinTLSReason` `ownCertificates`, that
+    invites need built-in TLS and the coordinator uses `peer.cert_file` and
+    `peer.key_file`, or for `caUnavailable`,
+    `Built-in TLS is unavailable. Check the coordinator startup log.`
   - Each change needs a restart.
 - Step 1 keeps, even when ready, the reminder to publish port `<port>` in a
   container, and in Kubernetes the statement that workers outside the
@@ -1025,14 +1025,17 @@ and prints the message:
   browser's host.
 - Step 2 refuses an address that a worker on another host cannot dial: one
   that is not `host:port` with a port from 1 to 65535, or whose host is
-  `0.0.0.0`, `[::]`, a loopback address, `localhost`, or a container ID (12
-  or 64 lowercase hexadecimal characters). `POST /api/v1/workers/invites`
+  not one IP address without a zone or one DNS name, or is `0.0.0.0`,
+  `[::]`, a loopback or link-local address, `localhost`, or a container ID
+  (12 or 64 lowercase hexadecimal characters). `POST /api/v1/workers/invites`
   checks only the `host:port` form, since automation may reach the
   coordinator through a tunnel.
-- Worker labels are each `key=value`, and a worker accepts them: the key
-  holds only letters, digits, `-`, `_`, and `.`, and the value only those
-  and `/`. Step 3 and the MCP action refuse any other label, since the
-  worker would exit at start.
+- Step 3 and the MCP action refuse a worker label that a worker would
+  refuse at start, by the worker's own parsing and label rules: each label
+  is one `key` or `key=value`, a key holds only letters, digits, `-`, `_`,
+  and `.`, a value only those and `/`, and each key appears once, compared
+  without case. They also refuse `os` and `arch`, which a worker sets from
+  its own host. A refusal names the label by its position, not its text.
 - Step 3 shows only after steps 1 and 2. Its tab sets the invite kind:
 
   | Tab | Invite | Command |
@@ -1043,15 +1046,16 @@ and prints the message:
 
 - Labels and the address go into the command, not the invite.
 - The commands quote each argument a POSIX shell treats specially, so an
-  IPv6 address keeps its brackets. The Deployment's
-  arguments write each `$` as `$$`, so no argument expands a variable such
-  as `DAGU_WORKER_INVITE`, and only the Secret holds the invite.
-- The Docker and Kubernetes commands run `ghcr.io/dagucloud/dagu:<tag>`,
-  where `<tag>` is the server's version without its leading `v`, for a
-  release or a prerelease, such as `2.28.0` or `2.28.0-rc.1`. A server
-  whose version is `dev`, `0.0.0`, or ends in a `git describe` suffix such
-  as `-12-g1a2b3c4` or in `-next` has no published image: step 3 says so
-  and shows no Docker or Kubernetes command.
+  IPv6 address keeps its brackets. The manifest's container arguments
+  write each `$` as `$$`, so no argument expands a variable such as
+  `DAGU_WORKER_INVITE`, and only the Secret holds the invite.
+- The container commands run `ghcr.io/dagucloud/dagu:<tag>`, where `<tag>`
+  is the server's version without its leading `v`. A release tag
+  `vX.Y.Z` or `vX.Y.Z-<prerelease>` publishes that image, such as `2.28.0`,
+  `2.28.0-rc.1`, or `2.28.0-preview-test.1`. A server whose version is
+  `dev`, `0.0.0`, or ends in a `git describe` suffix such as
+  `-12-g1a2b3c4` or in `-next` has no published image: step 3 says so and
+  shows no container command.
 - The dialog waits on the page's existing `/workers` refresh for a worker
   with the invite's ID, and then shows its ID and labels. Closing the dialog
   keeps the invite.
@@ -1115,13 +1119,21 @@ The Workers page is the list of workers on System status.
 - While a coordinator is not ready, or does not report, it creates no
   invite.
 - The result that creates the invite holds `inviteId`, `invite`, `kind`,
-  `expiresAt`, and `commands`: `linux`, `docker`, and, for a reusable
+  `expiresAt` when the invite expires, and `commands`: `linux`, `docker`, and, for a reusable
   invite only, `kubernetes`, as step 3's tabs give them. On a server with no
   published image, `commands` holds only `linux`, and `imageUnavailable`
   says why.
-- Only the result that creates the invite contains it. Each call is in the
-  audit log, and the entry of the call that creates an invite has its ID.
-  The entries of the call record no string the caller sent.
+- Only the result that creates the invite contains it. Each call that
+  passes input validation is in the audit log, and the entry of the call
+  that creates an invite has its ID. The entries record no string the
+  caller sent. A call refused for its input, as every `dagu_execute`
+  action refuses one, asks no coordinator and changes nothing.
+- It is for local MCP callers only: a signed-in admin or an admin API key
+  on the server's MCP endpoint. A call that Dagu Cloud carries over the
+  relay runs below admin, as
+  [RFC 002](../rfcs/002-dagu-cloud-connector.md) keeps every relay call,
+  so it gets `unauthorized`, is audited, and creates no invite. Dagu Cloud
+  creates no worker invite.
 - A non-admin gets `unauthorized`. No coordinator running or reachable, or
   a coordinator that refuses the server, gives `resource_unavailable` with
   the message of [REST API](#rest-api). Only coordinators of an earlier
