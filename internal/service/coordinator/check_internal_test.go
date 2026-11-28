@@ -57,7 +57,7 @@ func TestSignsItself(t *testing.T) {
 // is nil.
 func createCertificate(t *testing.T, name pkix.Name, key *ecdsa.PrivateKey, parent *x509.Certificate, parentKey *ecdsa.PrivateKey) *x509.Certificate {
 	t.Helper()
-	return createCertificateAt(t, name, key, parent, parentKey, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	return createCertificateAt(t, name, key, parent, parentKey, parent == nil, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
 }
 
 // newKey returns a new P-256 key.
@@ -68,16 +68,16 @@ func newKey(t *testing.T) *ecdsa.PrivateKey {
 	return key
 }
 
-// createCertificateAt is createCertificate, valid from notBefore to
-// notAfter.
-func createCertificateAt(t *testing.T, name pkix.Name, key *ecdsa.PrivateKey, parent *x509.Certificate, parentKey *ecdsa.PrivateKey, notBefore, notAfter time.Time) *x509.Certificate {
+// createCertificateAt is createCertificate, a CA when isCA, valid from
+// notBefore to notAfter.
+func createCertificateAt(t *testing.T, name pkix.Name, key *ecdsa.PrivateKey, parent *x509.Certificate, parentKey *ecdsa.PrivateKey, isCA bool, notBefore, notAfter time.Time) *x509.Certificate {
 	t.Helper()
 	template := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
 		Subject:               name,
 		NotBefore:             notBefore,
 		NotAfter:              notAfter,
-		IsCA:                  parent == nil,
+		IsCA:                  isCA,
 		BasicConstraintsValid: true,
 	}
 	if parent == nil {
@@ -258,14 +258,24 @@ func TestVerificationProblemExpiredIntermediate(t *testing.T) {
 
 	now := time.Now()
 	rootKey := newKey(t)
-	root := createCertificateAt(t, pkix.Name{CommonName: "root"}, rootKey, nil, nil, now.Add(-4*time.Hour), now.Add(time.Hour))
+	root := createCertificateAt(t, pkix.Name{CommonName: "root"}, rootKey, nil, nil, true, now.Add(-4*time.Hour), now.Add(time.Hour))
 	interKey := newKey(t)
-	inter := createCertificateAt(t, pkix.Name{CommonName: "intermediate"}, interKey, root, rootKey, now.Add(-4*time.Hour), now.Add(-3*time.Hour))
-	leaf := createCertificateAt(t, pkix.Name{CommonName: "leaf"}, newKey(t), inter, interKey, now.Add(-4*time.Hour), now.Add(-time.Hour))
+	inter := createCertificateAt(t, pkix.Name{CommonName: "intermediate"}, interKey, root, rootKey, true, now.Add(-4*time.Hour), now.Add(-3*time.Hour))
+	leaf := createCertificateAt(t, pkix.Name{CommonName: "leaf"}, newKey(t), inter, interKey, false, now.Add(-4*time.Hour), now.Add(-time.Hour))
+	// The chain verifies against its own root within its shared validity, so
+	// only the trust decides the diagnostic below.
+	ownRoots := x509.NewCertPool()
+	ownRoots.AddCert(root)
+	intermediates := x509.NewCertPool()
+	intermediates.AddCert(inter)
+	_, err := leaf.Verify(x509.VerifyOptions{
+		Roots: ownRoots, Intermediates: intermediates, CurrentTime: now.Add(-3*time.Hour - time.Minute),
+	})
+	require.NoError(t, err)
 	otherRoots := x509.NewCertPool()
 	otherRoots.AddCert(createCertificate(t, pkix.Name{CommonName: "other"}, newKey(t), nil, nil))
 
-	err := verificationProblem(&tls.CertificateVerificationError{UnverifiedCertificates: []*x509.Certificate{leaf, inter}}, otherRoots, "leaf")
+	err = verificationProblem(&tls.CertificateVerificationError{UnverifiedCertificates: []*x509.Certificate{leaf, inter}}, otherRoots, "leaf")
 
 	assert.EqualError(t, err, "the certificate does not cover leaf; the certificate has expired or is not valid yet; the certificate does not chain to a CA this client trusts")
 }

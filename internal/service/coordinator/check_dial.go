@@ -90,7 +90,8 @@ func connectThrough(ctx context.Context, conn net.Conn, address string, user *ur
 	if err != nil {
 		return fmt.Errorf("read the proxy's answer to CONNECT: %w", err)
 	}
-	_ = resp.Body.Close()
+	// The body of a refusal is left unread: the caller closes the
+	// connection, and draining it could wait past a canceled context.
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("the proxy refused to connect to %s: %s", address, resp.Status)
 	}
