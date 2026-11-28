@@ -4,12 +4,14 @@
 package chat
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 
@@ -101,6 +103,16 @@ func (e *ToolExecutor) executeToolCall(ctx context.Context, tc llmpkg.ToolCall) 
 
 	logger.Debug(ctx, "Parsed tool arguments", slog.Any("args", args))
 
+	// The model sets only the inputs that the tool shows it. Another name could set
+	// a variable of the child run, such as PATH or LD_PRELOAD.
+	if name, ok := undeclaredArg(args, e.registry.tools[toolName]); ok {
+		return ir.ToolResult{
+			ToolCallID: tc.ID,
+			Name:       toolName,
+			Error:      fmt.Sprintf("tool %q has no input %q", toolName, name),
+		}, ir.SubDAGRun{}
+	}
+
 	// Build parameter string from arguments
 	params := buildParamString(args)
 
@@ -182,6 +194,20 @@ func (e *ToolExecutor) executeToolCall(ctx context.Context, tc llmpkg.ToolCall) 
 	}, subRun
 }
 
+// undeclaredArg returns the first argument, in name order, that is not an input
+// that the tool shows to the model.
+func undeclaredArg(args map[string]any, info *toolInfo) (string, bool) {
+	if info == nil {
+		return "", false
+	}
+	for _, name := range slices.Sorted(maps.Keys(args)) {
+		if !slices.ContainsFunc(info.Params, func(p toolParam) bool { return p.Name == name }) {
+			return name, true
+		}
+	}
+	return "", false
+}
+
 // Kill terminates all running tool DAG executions.
 func (e *ToolExecutor) Kill(sig os.Signal) error {
 	e.mu.Lock()
@@ -200,34 +226,24 @@ func (e *ToolExecutor) Kill(sig os.Signal) error {
 	return nil
 }
 
-// buildParamString converts tool arguments to a DAG parameter string.
-// Format: "KEY1=value1 KEY2=value2"
+// buildParamString converts tool arguments to the parameters of the child run:
+// a JSON object of strings, with the keys in order. A value cannot add a pair
+// or change another pair, whatever quotes or spaces it holds.
 func buildParamString(args map[string]any) string {
 	if len(args) == 0 {
 		return ""
 	}
-
-	// Sort keys for deterministic output
-	keys := make([]string, 0, len(args))
-	for k := range args {
-		keys = append(keys, k)
+	values := make(map[string]string, len(args))
+	for key, value := range args {
+		values[key] = formatArgValue(value)
 	}
-	sort.Strings(keys)
-
-	var parts []string
-	for _, key := range keys {
-		value := args[key]
-		valueStr := formatArgValue(value)
-
-		// Quote values with spaces
-		if strings.Contains(valueStr, " ") {
-			valueStr = fmt.Sprintf(`"%s"`, valueStr)
-		}
-
-		parts = append(parts, fmt.Sprintf("%s=%s", key, valueStr))
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(values); err != nil {
+		return ""
 	}
-
-	return strings.Join(parts, " ")
+	return strings.TrimSuffix(buf.String(), "\n")
 }
 
 // formatArgValue converts an argument value to a string representation.
