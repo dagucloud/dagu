@@ -9,14 +9,17 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 )
 
 const (
 	// peerInsecureKey is the setting that selects h2c or the TLS settings.
 	peerInsecureKey = "peer.insecure"
+	// peerCACertFileKey is the CA certificate that selects built-in TLS.
+	peerCACertFileKey = "peer.ca_cert_file"
 	// startLineFormat is the start line, from the transport and what
 	// selected it.
-	startLineFormat = "Peer transport: %s (from %s)"
+	startLineFormat = "Peer transport: %s"
 )
 
 // peerSetting is a TLS setting of the peer client and its value.
@@ -49,33 +52,48 @@ func logPeerTransport(ctx context.Context, command string, cfg *config.Config) {
 		return
 	}
 	for _, setting := range ignored {
-		logIgnored(ctx, fmt.Sprintf(
-			"Peer TLS setting ignored: %s (%s) has no effect while %s is not false; set %s: false to use it",
-			setting.key, setting.value, peerInsecureKey, peerInsecureKey,
-		))
+		logIgnored(ctx, ignoredSettingWarning(setting))
 	}
 	logLine(ctx, line)
 }
 
-// peerTransport returns the start line for the peer client transport and the
-// TLS settings that it ignores. The line is empty when peer.insecure is false
-// without a TLS setting, as the client then fails to start.
-func peerTransport(cfg *config.Config) (string, []peerSetting) {
-	peer := cfg.Core.Peer
-	settings := peerTLSSettings(peer)
-	if !peer.Insecure {
-		if len(settings) == 0 {
-			return "", nil
-		}
-		return fmt.Sprintf(startLineFormat, "TLS", peerInsecureKey+": false"), nil
+// ignoredSettingWarning is the warning for a TLS setting that the transport
+// ignores, with the change that would use it.
+func ignoredSettingWarning(setting peerSetting) string {
+	if setting.key == peerCACertFileKey {
+		return fmt.Sprintf(
+			"Peer TLS setting ignored: %s (%s) has no effect while %s is true; remove %s: true to use it",
+			setting.key, setting.value, peerInsecureKey, peerInsecureKey,
+		)
 	}
-	if cfg.Sources[peerInsecureKey].Kind == config.SourceKindDefault {
-		return fmt.Sprintf(startLineFormat, "h2c", "no TLS source"), settings
-	}
-	return fmt.Sprintf(startLineFormat, "h2c", peerInsecureKey+": true"), settings
+	return fmt.Sprintf(
+		"Peer TLS setting ignored: %s (%s) has no effect while %s is not false; set %s: false to use it",
+		setting.key, setting.value, peerInsecureKey, peerInsecureKey,
+	)
 }
 
-// peerTLSSettings returns the TLS settings that peer sets, in config order.
+// peerTransport returns the start line for the peer client transport and the
+// TLS settings that it ignores. The line is empty when peer.insecure is false
+// without a TLS setting or a TLS source, as the client then fails to start.
+func peerTransport(cfg *config.Config) (string, []peerSetting) {
+	peer := cfg.Core.Peer
+	transport, err := coordinator.ConfigFromPeer(peer).StartTransport()
+	if err != nil {
+		return "", nil
+	}
+	line := fmt.Sprintf(startLineFormat, transport)
+	if !peer.Insecure {
+		return line, nil
+	}
+	ignored := peerTLSSettings(peer)
+	if !peer.InsecureUnset && peer.CACertFile != "" {
+		ignored = append(ignored, peerSetting{peerCACertFileKey, peer.CACertFile})
+	}
+	return line, ignored
+}
+
+// peerTLSSettings returns the settings of TLS with peer.insecure: false that
+// peer sets, in config order.
 func peerTLSSettings(peer config.Peer) []peerSetting {
 	var settings []peerSetting
 	for _, setting := range []peerSetting{

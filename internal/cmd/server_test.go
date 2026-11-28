@@ -5,6 +5,7 @@ package cmd_test
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"path/filepath"
 	"testing"
@@ -59,12 +60,28 @@ func TestServerSecondInterruptTerminatesBlockedCleanup(t *testing.T) {
 	assertSecondInterruptTerminatesBlockedCleanup(t, "server", "Resource monitoring service stopped")
 }
 
+// Test service ports come from below the ephemeral port ranges of Linux
+// (32768 and up), macOS, and Windows (49152 and up). A port the kernel hands
+// out to a port-0 bind is in that range, where an outgoing connection of a
+// parallel test can take it before the service binds it.
+const (
+	testPortMin      = 10000
+	testPortMax      = 32000
+	testPortAttempts = 100
+)
+
 // findPort finds an available port.
 func findPort(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", ":0")
-	require.NoError(t, err)
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-	return fmt.Sprintf("%d", port)
+	for range testPortAttempts {
+		port := testPortMin + rand.IntN(testPortMax-testPortMin) //nolint:gosec // Spreads test ports; needs no unpredictability.
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			continue
+		}
+		require.NoError(t, ln.Close())
+		return fmt.Sprintf("%d", port)
+	}
+	t.Fatalf("no free TCP port between %d and %d", testPortMin, testPortMax)
+	return ""
 }

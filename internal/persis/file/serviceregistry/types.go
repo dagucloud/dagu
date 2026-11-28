@@ -25,6 +25,8 @@ type instanceInfo struct {
 	// ReleasedProjects lists the projects whose stores the instance has
 	// released.
 	ReleasedProjects []string `json:"releasedProjects,omitempty"`
+	// TLS is "builtin" for a coordinator that serves built-in TLS.
+	TLS string `json:"tls,omitempty"`
 }
 
 // instanceFilePath returns the file path for an instance

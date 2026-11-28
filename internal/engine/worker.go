@@ -28,6 +28,8 @@ func (e *Engine) NewWorker(opts WorkerOptions) (*Worker, error) {
 	cfg.Worker.Coordinators = append([]string{}, coordinators...)
 	cfg.Worker.HealthPort = opts.HealthPort
 	cfg.Core.Peer.Insecure = tls.Insecure
+	// TLS states the transport, so no TLS source changes it.
+	cfg.Core.Peer.InsecureUnset = false
 	cfg.Core.Peer.CertFile = tls.CertFile
 	cfg.Core.Peer.KeyFile = tls.KeyFile
 	cfg.Core.Peer.ClientCaFile = tls.ClientCAFile

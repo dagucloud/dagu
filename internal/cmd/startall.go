@@ -180,6 +180,23 @@ func runStartAll(ctx *Context, _ []string) error {
 
 	warnTestNamedDAGs(serviceCtx)
 
+	// The coordinator publishes its CA certificate before the scheduler and
+	// the server build their clients, so their start transport is built-in
+	// TLS. They dial it only once it registers, which it does with built-in
+	// TLS.
+	var peerCA preparedPeerCA
+	if ctx.Config.Coordinator.Enabled {
+		if peerCA, err = prepareCoordinatorPeerCA(serviceCtx, ctx.Config); err != nil {
+			return fmt.Errorf("failed to initialize coordinator: %w", err)
+		}
+	}
+	servicesStarting := false
+	defer func() {
+		if !servicesStarting {
+			peerCA.unpublish()
+		}
+	}()
+
 	// Initialize all services using the signal-aware context
 	scheduler, err := newScheduler(serviceCtx, schedulerDeps)
 	if err != nil {
@@ -223,7 +240,7 @@ func runStartAll(ctx *Context, _ []string) error {
 		var err error
 		// The coordinator shares the server's inventory, so a change through
 		// the server reaches it at once.
-		coord, _, err = newCoordinator(serviceCtx, stores.Secret, stores.Profile, stores.Inventory, stores.HostKeys)
+		coord, _, err = newCoordinator(serviceCtx, peerCA, stores.Secret, stores.Profile, stores.Inventory, stores.HostKeys)
 		if err != nil {
 			return fmt.Errorf("failed to initialize coordinator: %w", withPortInUseHint(err, coordinatorPortInUseHint))
 		}
@@ -234,6 +251,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	} else {
 		logger.Info(serviceCtx, "Coordinator disabled via configuration")
 	}
+	logPeerTransport(serviceCtx, "start-all", ctx.Config)
 
 	// Persist monitor boundaries before any bundled service can emit DAG-run events.
 	if err := scheduler.BootstrapMonitors(serviceCtx); err != nil {
@@ -244,6 +262,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	if err := resourceService.Start(serviceCtx); err != nil {
 		return fmt.Errorf("failed to start resource service: %w", err)
 	}
+	servicesStarting = true
 
 	auditShipper := startCloudAudit(serviceCtx, stores.Secret)
 	if cloudReporter := startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService,
@@ -278,6 +297,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	if coord != nil {
 		wg.Go(func() {
 			if err := coord.Start(serviceCtx.WithEventSource(eventstore.SourceServiceCoordinator)); err != nil {
+				peerCA.unpublish()
 				select {
 				case errCh <- fmt.Errorf("coordinator failed: %w", err):
 				default:

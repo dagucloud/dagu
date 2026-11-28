@@ -44,11 +44,14 @@ type registry struct {
 	heartbeatInterval time.Duration
 	// releasedProjects goes into every registration's instance file.
 	releasedProjects []string
+	// refreshHooks run after each heartbeat of their service's registration.
+	refreshHooks map[serviceregistry.ServiceName]func(context.Context)
 }
 
 var (
 	_ serviceregistry.ServiceRegistry        = (*registry)(nil)
 	_ serviceregistry.ProjectReleaseRecorder = (*registry)(nil)
+	_ serviceregistry.RefreshObserver        = (*registry)(nil)
 )
 
 // New creates a new file-based service registry
@@ -58,6 +61,7 @@ func New(serviceRegistryDir string) *registry {
 		finders:           make(map[serviceregistry.ServiceName]*finder),
 		registrations:     make(map[serviceregistry.ServiceName]*registrationInfo),
 		heartbeatInterval: 10 * time.Second, // default
+		refreshHooks:      make(map[serviceregistry.ServiceName]func(context.Context)),
 	}
 }
 
@@ -94,6 +98,7 @@ func (r *registry) Register(ctx context.Context, serviceName serviceregistry.Ser
 			Status:           hostInfo.Status,
 			StartedAt:        time.Now(),
 			ReleasedProjects: r.releasedProjects,
+			TLS:              hostInfo.TLS,
 		},
 	}
 
@@ -246,6 +251,21 @@ func (r *registry) SetReleasedProjects(_ context.Context, projectIDs []string) e
 	return errors.Join(errs...)
 }
 
+// OnRefresh runs fn after each heartbeat of the registration of
+// serviceName.
+func (r *registry) OnRefresh(serviceName serviceregistry.ServiceName, fn func(context.Context)) {
+	r.registrationsMu.Lock()
+	defer r.registrationsMu.Unlock()
+	r.refreshHooks[serviceName] = fn
+}
+
+// refreshHook returns the function OnRefresh set for serviceName, or nil.
+func (r *registry) refreshHook(serviceName serviceregistry.ServiceName) func(context.Context) {
+	r.registrationsMu.Lock()
+	defer r.registrationsMu.Unlock()
+	return r.refreshHooks[serviceName]
+}
+
 // rewrite writes reg's instance file when it is missing or its last write
 // failed.
 func (r *registry) rewrite(reg *registrationInfo, missing bool) error {
@@ -297,6 +317,9 @@ func (r *registry) startHeartbeat(ctx context.Context, serviceName serviceregist
 					logger.Error(ctx, "Failed to update heartbeat",
 						tag.Error(err),
 						tag.File(reg.fileName))
+				}
+				if hook := r.refreshHook(serviceName); hook != nil {
+					hook(ctx)
 				}
 			}
 		}

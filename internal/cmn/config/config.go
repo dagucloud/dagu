@@ -832,6 +832,8 @@ type Coordinator struct {
 	// RequireToken rejects calls that do not carry the peer token. When
 	// false, such calls are accepted with a warning.
 	RequireToken bool
+	// RequireTLS refuses calls over h2c on a coordinator with a peer CA.
+	RequireTLS bool
 }
 
 // Worker represents the worker configuration.
@@ -900,8 +902,11 @@ type Peer struct {
 	ClientCaFile  string
 	SkipTLSVerify bool
 	// Insecure selects h2c instead of TLS. It is true while peer.insecure is
-	// unset; Sources tells an unset key from one set to true.
-	Insecure      bool
+	// unset; InsecureUnset tells an unset key from one set to true.
+	Insecure bool
+	// InsecureUnset reports that peer.insecure is unset. Insecure is then
+	// true, but a client with a TLS source still uses built-in TLS.
+	InsecureUnset bool
 	MaxRetries    int           // Default: 10 (exponential backoff, capped at 30s)
 	RetryInterval time.Duration // Default: 1s
 	// Token is the shared token peers send to the coordinator. Empty means
@@ -919,6 +924,13 @@ type Peer struct {
 	// GeneratedCAFile is where the coordinator keeps the CA it generates,
 	// under the data directory, when neither a CA nor own certificates are set.
 	GeneratedCAFile string
+	// PublishedCAFile is the certificate of the CA a coordinator uses, which
+	// it keeps under the data directory for the clients that share it.
+	PublishedCAFile string
+	// FallbackFile is where clients keep, under the data directory, the
+	// coordinator addresses on which built-in TLS failed, so later processes
+	// on the host use h2c there without another failed handshake.
+	FallbackFile string
 }
 
 // Validate performs basic validation on the configuration to ensure required fields are set

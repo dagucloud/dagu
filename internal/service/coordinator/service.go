@@ -10,6 +10,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -36,6 +37,14 @@ type Service struct {
 	hostPort            string
 	configuredHost      string
 	disableHealthServer bool
+	// peerCA, when set, makes the registry entry report built-in TLS, and
+	// its certificate stays published in publishedCAFile. caPublished
+	// reports that no retry of the write at start is left, and failedCA is
+	// that write when it failed.
+	peerCA          *PeerCA
+	publishedCAFile string
+	caPublished     atomic.Bool
+	failedCA        *FailedPublication
 
 	// For graceful shutdown
 	mu         sync.Mutex
@@ -70,6 +79,33 @@ func NewService(
 // DisableHealthServer disables the dedicated HTTP health check server.
 func (srv *Service) DisableHealthServer() {
 	srv.disableHealthServer = true
+}
+
+// ServeBuiltinTLS makes the registry entry report built-in TLS with ca.
+// Whenever the entry is refreshed, the certificate of ca is written to
+// publishedCAFile when the file is missing. After failed, a write at start
+// that failed, each refresh first retries that write over what the file held
+// then, until it succeeds or another coordinator publishes. Call it before
+// Start.
+func (srv *Service) ServeBuiltinTLS(ca *PeerCA, publishedCAFile string, failed *FailedPublication) {
+	srv.peerCA = ca
+	srv.publishedCAFile = publishedCAFile
+	srv.caPublished.Store(failed == nil)
+	srv.failedCA = failed
+}
+
+func (srv *Service) republishCA(ctx context.Context) {
+	var err error
+	if srv.caPublished.Load() {
+		err = srv.peerCA.republishCertificate(srv.publishedCAFile)
+	} else {
+		var done bool
+		done, err = srv.peerCA.retryCertificate(srv.publishedCAFile, srv.failedCA)
+		srv.caPublished.Store(done)
+	}
+	if err != nil {
+		logger.Warn(ctx, "Failed to publish the peer CA certificate", tag.Error(err))
+	}
 }
 
 func (srv *Service) Start(ctx context.Context) (err error) {
@@ -147,6 +183,12 @@ func (srv *Service) Start(ctx context.Context) (err error) {
 			Host:   srv.configuredHost,
 			Port:   port,
 			Status: serviceregistry.ServiceStatusActive, // Coordinator is active when serving
+		}
+		if srv.peerCA != nil {
+			hostInfo.TLS = serviceregistry.TLSBuiltin
+			if observer, ok := srv.registry.(serviceregistry.RefreshObserver); ok {
+				observer.OnRefresh(serviceregistry.ServiceNameCoordinator, srv.republishCA)
+			}
 		}
 		if err := srv.registry.Register(ctx, serviceregistry.ServiceNameCoordinator, hostInfo); err != nil {
 			return fmt.Errorf("failed to register with service registry: %w", err)

@@ -277,8 +277,11 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			Scope:               scope,
 		}, nil
 	}
-	// Only a local context calls the coordinator.
-	logPeerTransport(ctx, commandName, cfg)
+	// Only a local context calls the coordinator. start-all logs the line
+	// once its coordinator has published the CA certificate.
+	if commandName != "start-all" {
+		logPeerTransport(ctx, commandName, cfg)
+	}
 	// Before any store opens v2 state.
 	if err := migrateState(ctx, cmd.Name(), scope, cfg); err != nil {
 		return nil, err
@@ -639,6 +642,7 @@ func (c *Context) coordinatorEnabled() bool {
 func (c *Context) coordinatorClient() (coordinator.Client, error) {
 	clientConfig := coordinator.ConfigFromPeer(c.Config.Core.Peer)
 	clientConfig.WorkspaceBundleDir = workspacebundle.StoreDir(c.Config.Paths.DataDir)
+	clientConfig.LocalRegistry = c.Persistence.ServiceRegistry
 	if err := clientConfig.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid coordinator client configuration: %w", err)
 	}

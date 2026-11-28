@@ -256,10 +256,13 @@ func TestLoad_Env(t *testing.T) {
 			EnvPassthroughPrefixes: []string{},
 			Peer: Peer{
 				Insecure:        true, // Default is true
+				InsecureUnset:   true,
 				TokenFile:       filepath.Join(testPaths, "data", "coordinator", "peer-token"),
 				CACertFile:      filepath.Join(testPaths, "peer-ca.crt"),
 				CAKeyFile:       filepath.Join(testPaths, "peer-ca.key"),
 				GeneratedCAFile: filepath.Join(testPaths, "data", "coordinator", "peer-ca.pem"),
+				PublishedCAFile: filepath.Join(testPaths, "data", "coordinator", "peer-ca.crt"),
+				FallbackFile:    filepath.Join(testPaths, "data", "coordinator", "peer-h2c.json"),
 			},
 			BaseEnv: cfg.Core.BaseEnv, // Dynamic, copy from actual
 		},
@@ -1193,6 +1196,8 @@ scheduler:
 				Insecure:        false,
 				TokenFile:       filepath.Join(resolvedTestPath(t, "/var/dagu/data"), "coordinator", "peer-token"),
 				GeneratedCAFile: filepath.Join(resolvedTestPath(t, "/var/dagu/data"), "coordinator", "peer-ca.pem"),
+				PublishedCAFile: filepath.Join(resolvedTestPath(t, "/var/dagu/data"), "coordinator", "peer-ca.crt"),
+				FallbackFile:    filepath.Join(resolvedTestPath(t, "/var/dagu/data"), "coordinator", "peer-h2c.json"),
 			},
 			BaseEnv: cfg.Core.BaseEnv, // Dynamic, copy from actual
 		},
