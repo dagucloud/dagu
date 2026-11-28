@@ -369,9 +369,9 @@ export function useWorkerActions() {
   // shows also while the page's auto refresh is off.
   const rereadWorkers = useCallback(
     () =>
-      whenVisible(
-        () => void mutate((key) => Array.isArray(key) && key[1] === '/workers')
-      ),
+      readWhenVisible('workers', () => {
+        void mutate((key) => Array.isArray(key) && key[1] === '/workers');
+      }),
     [mutate]
   );
 

@@ -27,7 +27,7 @@ import {
   useWorkerInvites,
 } from '../hooks/useWorkerAdmin';
 import { WorkerError } from './WorkerError';
-import { inviteGone, inviteState } from './WorkerInvites';
+import { inviteState, listUnavailable } from './WorkerInvites';
 
 type Worker = components['schemas']['Worker'];
 
@@ -333,6 +333,21 @@ function useInviteLookup(inviteId: string | undefined) {
   };
 }
 
+/**
+ * Whether a confirmation opened for `certificateId` no longer acts: the row
+ * showed another certificate, or none, at any time since it opened. It
+ * stays locked when the row later goes away and the page falls back to the
+ * row as it was when the admin clicked.
+ */
+function useLockedConfirmation(worker: Worker, certificateId: string): boolean {
+  const replaced = worker.certificateId !== certificateId;
+  const [locked, setLocked] = React.useState(replaced);
+  React.useEffect(() => {
+    if (replaced) setLocked(true);
+  }, [replaced]);
+  return replaced || locked;
+}
+
 // Says that the worker joined again since the dialog opened, so the dialog
 // no longer acts: another removal needs its own confirmation.
 function ReplacedNotice() {
@@ -367,10 +382,11 @@ function RemoveWorkerDialog({
   const [alsoDeleteInvite, setAlsoDeleteInvite] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<unknown>(null);
-  // Whether a delete of the invite went through, so a removal that fails
-  // after it is not reported as no change.
-  const [inviteDeleted, setInviteDeleted] = React.useState(false);
-  const replaced = worker.certificateId !== certificateId;
+  // The removal goes first, and the invite is deleted only once the server
+  // accepted it. Each step reports its own outcome.
+  const [accepted, setAccepted] = React.useState(false);
+  const [inviteError, setInviteError] = React.useState<unknown>(null);
+  const locked = useLockedConfirmation(worker, certificateId);
 
   const tasks = worker.runningTasks ?? [];
   // The choice applies only while the worker has runs. Without them a
@@ -378,7 +394,6 @@ function RemoveWorkerDialog({
   const sentRuns = tasks.length > 0 ? runs : WorkerRemovalRuns.finish;
   const invite = lookup.invite;
   const reusable =
-    !inviteDeleted &&
     invite?.kind === WorkerInviteKind.reusable &&
     inviteState(invite, Date.now()).state === 'active';
   const others = reusable
@@ -389,47 +404,58 @@ function RemoveWorkerDialog({
     : [];
   const kubernetes = worker.environment === HostEnvironment.kubernetes;
 
+  const deleteChosenInvite = reusable && alsoDeleteInvite && !!invite;
+
   const submit = async () => {
-    if (submitting || replaced) return;
+    if (submitting || (locked && !accepted)) return;
     setSubmitting(true);
     setError(null);
-    let invitesChanged = false;
+    setInviteError(null);
     try {
-      // The invite goes first, so a replacement cannot join with it between
-      // the two calls.
-      if (reusable && alsoDeleteInvite && invite) {
-        invitesChanged = true;
-        await deleteInvite(invite.id).catch((err: unknown) => {
-          if (!(err instanceof WorkerRequestError && err.status === 404)) {
-            throw err;
-          }
-        });
-        setInviteDeleted(true);
+      if (!accepted) {
+        await removeWorker({ id: worker.id, certificateId }, sentRuns);
+        setAccepted(true);
       }
-      await removeWorker({ id: worker.id, certificateId }, sentRuns);
-      onClose();
     } catch (err) {
       setError(err);
-    } finally {
       setSubmitting(false);
       rereadWorkers();
-      if (invitesChanged) rereadInvites('local');
+      return;
     }
+    rereadWorkers();
+    if (deleteChosenInvite && invite) {
+      try {
+        await deleteInvite(invite.id);
+      } catch (err) {
+        // An invite that is gone already needs no delete.
+        if (!(err instanceof WorkerRequestError && err.status === 404)) {
+          setInviteError(err);
+          setSubmitting(false);
+          rereadInvites('local');
+          return;
+        }
+      }
+      rereadInvites('local');
+    }
+    setSubmitting(false);
+    onClose();
   };
 
   return (
     <ConfirmModal
       title={ts('Remove {worker}', { worker: worker.id })}
       buttonText={ts(
-        sentRuns === WorkerRemovalRuns.stop
-          ? 'Stop its runs and remove'
-          : 'Remove'
+        accepted
+          ? 'Delete the invite'
+          : sentRuns === WorkerRemovalRuns.stop
+            ? 'Stop its runs and remove'
+            : 'Remove'
       )}
       visible
       dismissModal={onClose}
       onSubmit={() => void submit()}
       // The invite warning must be on screen before the removal can start.
-      submitDisabled={submitting || lookup.reading || replaced}
+      submitDisabled={submitting || lookup.reading || (locked && !accepted)}
       initialFocus="cancel"
       // A long list of runs or workers scrolls inside the dialog, so the
       // buttons stay on screen.
@@ -498,7 +524,7 @@ function RemoveWorkerDialog({
                 {' '}
                 <I18nText
                   text={
-                    'A replacement pod can join with the invite while it is active, so delete the invite first.'
+                    'A replacement pod can join with the invite while it is active, so delete the invite as well.'
                   }
                 />
               </>
@@ -556,7 +582,7 @@ function RemoveWorkerDialog({
               action={false}
               advice={describeWorkerError(
                 lookup.error,
-                { notFound: inviteGone(ts) },
+                { notFound: listUnavailable(ts) },
                 ts
               )}
             />
@@ -576,11 +602,11 @@ function RemoveWorkerDialog({
           </p>
         )}
 
-        {replaced && <ReplacedNotice />}
+        {locked && !accepted && <ReplacedNotice />}
 
-        {inviteDeleted && (
+        {accepted && (
           <p role="status">
-            <I18nText text="The invite was deleted." />
+            <I18nText text="The server accepted the removal." />
           </p>
         )}
 
@@ -588,6 +614,18 @@ function RemoveWorkerDialog({
           <WorkerError
             action
             advice={describeWorkerError(error, removalAdvice(ts), ts)}
+          />
+        )}
+
+        {inviteError !== null && (
+          <WorkerError
+            action
+            title={ts('The invite was not deleted.')}
+            advice={describeWorkerError(
+              inviteError,
+              { notFound: removalAdvice(ts).notFound },
+              ts
+            )}
           />
         )}
       </div>
@@ -642,10 +680,10 @@ function StopRunsDialog({
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<unknown>(null);
   const count = worker.runningTasks?.length ?? 0;
-  const replaced = worker.certificateId !== certificateId;
+  const locked = useLockedConfirmation(worker, certificateId);
 
   const submit = async () => {
-    if (submitting || replaced) return;
+    if (submitting || locked) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -669,7 +707,7 @@ function StopRunsDialog({
       visible
       dismissModal={onClose}
       onSubmit={() => void submit()}
-      submitDisabled={submitting || replaced}
+      submitDisabled={submitting || locked}
       initialFocus="cancel"
       // A long list of runs or workers scrolls inside the dialog, so the
       // buttons stay on screen.
@@ -687,7 +725,7 @@ function StopRunsDialog({
             values={{ count }}
           />
         </p>
-        {replaced && <ReplacedNotice />}
+        {locked && <ReplacedNotice />}
         {error !== null && (
           <WorkerError
             action

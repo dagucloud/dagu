@@ -1316,9 +1316,10 @@ The Workers page is the list of workers on System status.
   `tls` or `plaintext` worker, a line below the list says how to stop one
   instead: on its host, or by changing the peer token.
 - The confirmation and **Stop runs now** act on the `certificateId` shown
-  when the admin opened them. When the worker connects with another
-  certificate before the admin confirms, they say so and send nothing; a
-  new confirmation is needed.
+  when the admin opened them. Once the worker connects with another
+  certificate, or none, before the admin confirms, they say so and send
+  nothing, also when that row later goes away; a new confirmation is
+  needed.
 - Only the admin closes the confirmation and **Stop runs now**. They keep
   their outcome when a refresh of the list changes or drops the worker's
   row, or fails, and a request that ends after its dialog was closed
@@ -1334,13 +1335,14 @@ The Workers page is the list of workers on System status.
   use it, and offers to delete it. An invite the page's list lacks is read
   once more before the removal can start. When the invites cannot be read,
   the confirmation says so and offers to read them again, and the removal
-  stays available. When the invite is deleted and the removal then fails,
-  the confirmation says both.
+  stays available. The invite is deleted only after the server accepted
+  the removal. When that delete fails, the confirmation says the removal
+  was accepted and the invite was not deleted, and offers to delete it
+  again.
 - For a worker with `environment: kubernetes`, the confirmation says the pod
-  keeps restarting until the Deployment is scaled down. A deleted pod comes
-  back as a new pod with an empty data directory, which enrolls again
-  while its reusable invite exists, so the confirmation offers to delete
-  the invite first.
+  keeps restarting until the Deployment is scaled down. A replacement pod
+  can join again while its reusable invite is active, so the confirmation
+  offers to delete the invite as well.
 - **Invites** lists invites with kind, a short ID, creator, creation and
   expiry times, use count, and last use, and deletes one. The confirmation
   names the invite by its short ID, kind, and creation time. An invite that

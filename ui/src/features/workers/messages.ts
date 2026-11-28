@@ -125,8 +125,8 @@ export const workerAdminMessages = defineMessages({
       'Workers that joined with it keep their certificates.',
     'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
       'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.',
-    'A replacement pod can join with the invite while it is active, so delete the invite first.':
-      'A replacement pod can join with the invite while it is active, so delete the invite first.',
+    'A replacement pod can join with the invite while it is active, so delete the invite as well.':
+      'A replacement pod can join with the invite while it is active, so delete the invite as well.',
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
       'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.',
     'Stop the runs of {worker}': 'Stop the runs of {worker}',
@@ -141,9 +141,11 @@ export const workerAdminMessages = defineMessages({
       'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       'The invite it joined with no longer exists, so it lets no new worker join.',
-    'The invite was deleted.': 'The invite was deleted.',
     'The coordinator runs an earlier Dagu release that cannot remove workers.':
       'The coordinator runs an earlier Dagu release that cannot remove workers.',
+    'The server accepted the removal.': 'The server accepted the removal.',
+    'The invite was not deleted.': 'The invite was not deleted.',
+    'Delete the invite': 'Delete the invite',
     'Invite {id} was not deleted.': 'Invite {id} was not deleted.',
     'The selected node has no peer token for its coordinator.':
       'The selected node has no peer token for its coordinator.',
@@ -281,8 +283,8 @@ export const workerAdminMessages = defineMessages({
       '已通过它加入的 Worker 保留其证书。',
     'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
       '它运行在 Kubernetes 中：在其 Deployment 缩容之前，其 Pod 会不断重启。',
-    'A replacement pod can join with the invite while it is active, so delete the invite first.':
-      '邀请有效期间，替代的 Pod 可以通过它加入，因此请先删除邀请。',
+    'A replacement pod can join with the invite while it is active, so delete the invite as well.':
+      '邀请有效期间，替代的 Pod 可以通过它加入，因此请同时删除邀请。',
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
       '无法读取它加入时使用的邀请，因此无法确定该邀请是否仍允许新的 Worker 加入。仍可以移除。',
     'Stop the runs of {worker}': '停止 {worker} 的运行',
@@ -297,9 +299,11 @@ export const workerAdminMessages = defineMessages({
       '此 Worker 已不再使用此对话框打开时显示的证书连接。请关闭此对话框，并为它重新确认。',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       '它加入时使用的邀请已不存在，因此不会再有新的 Worker 通过它加入。',
-    'The invite was deleted.': '邀请已删除。',
     'The coordinator runs an earlier Dagu release that cannot remove workers.':
       'Coordinator 运行的是无法移除 Worker 的较早 Dagu 版本。',
+    'The server accepted the removal.': '服务器已接受移除。',
+    'The invite was not deleted.': '邀请未被删除。',
+    'Delete the invite': '删除邀请',
     'Invite {id} was not deleted.': '邀请 {id} 未被删除。',
     'The selected node has no peer token for its coordinator.':
       '所选节点没有其 Coordinator 的 peer token。',
@@ -441,8 +445,8 @@ export const workerAdminMessages = defineMessages({
       '参加済みのワーカーは証明書を保持します。',
     'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
       'Kubernetes で動いています。Deployment をスケールダウンするまで Pod は再起動を続けます。',
-    'A replacement pod can join with the invite while it is active, so delete the invite first.':
-      '招待が有効な間は代わりの Pod がそれで参加できるため、先に招待を削除してください。',
+    'A replacement pod can join with the invite while it is active, so delete the invite as well.':
+      '招待が有効な間は代わりの Pod がそれで参加できるため、招待も削除してください。',
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
       '参加に使った招待を読み込めなかったため、その招待で今も新しいワーカーが参加できるかは分かりません。削除はできます。',
     'Stop the runs of {worker}': '{worker} の実行を停止',
@@ -457,9 +461,11 @@ export const workerAdminMessages = defineMessages({
       'このワーカーは、このダイアログを開いたときに表示した証明書で接続していません。このダイアログを閉じて、改めて確認してください。',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       '参加に使った招待はもう存在しないため、新しいワーカーはそれで参加できません。',
-    'The invite was deleted.': '招待は削除されました。',
     'The coordinator runs an earlier Dagu release that cannot remove workers.':
       'コーディネーターはワーカーを削除できない以前の Dagu を動かしています。',
+    'The server accepted the removal.': 'サーバーは削除を受け付けました。',
+    'The invite was not deleted.': '招待は削除されていません。',
+    'Delete the invite': '招待を削除',
     'Invite {id} was not deleted.': '招待 {id} は削除されませんでした。',
     'The selected node has no peer token for its coordinator.':
       '選択したノードには、そのコーディネーターの peer token がありません。',
@@ -602,8 +608,8 @@ export const workerAdminMessages = defineMessages({
       'Worker, die damit beigetreten sind, behalten ihre Zertifikate.',
     'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
       'Er läuft in Kubernetes: Sein Pod startet immer wieder neu, bis sein Deployment herunterskaliert wird.',
-    'A replacement pod can join with the invite while it is active, so delete the invite first.':
-      'Ein Ersatz-Pod kann mit der Einladung beitreten, solange sie aktiv ist. Löschen Sie daher zuerst die Einladung.',
+    'A replacement pod can join with the invite while it is active, so delete the invite as well.':
+      'Ein Ersatz-Pod kann mit der Einladung beitreten, solange sie aktiv ist. Löschen Sie daher auch die Einladung.',
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
       'Die Einladung, mit der er beigetreten ist, konnte nicht gelesen werden. Daher ist unklar, ob mit ihr noch neue Worker beitreten können. Entfernen funktioniert trotzdem.',
     'Stop the runs of {worker}': 'Läufe von {worker} stoppen',
@@ -618,9 +624,12 @@ export const workerAdminMessages = defineMessages({
       'Dieser Worker verbindet sich nicht mehr mit dem Zertifikat, das beim Öffnen dieses Dialogs angezeigt wurde. Schließen Sie diesen Dialog und bestätigen Sie für ihn erneut.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       'Die Einladung, mit der er beigetreten ist, gibt es nicht mehr, daher kann kein neuer Worker damit beitreten.',
-    'The invite was deleted.': 'Die Einladung wurde gelöscht.',
     'The coordinator runs an earlier Dagu release that cannot remove workers.':
       'Der Coordinator läuft mit einer älteren Dagu-Version, die keine Worker entfernen kann.',
+    'The server accepted the removal.':
+      'Der Server hat das Entfernen angenommen.',
+    'The invite was not deleted.': 'Die Einladung wurde nicht gelöscht.',
+    'Delete the invite': 'Einladung löschen',
     'Invite {id} was not deleted.': 'Die Einladung {id} wurde nicht gelöscht.',
     'The selected node has no peer token for its coordinator.':
       'Der ausgewählte Knoten hat kein Peer-Token für seinen Coordinator.',
@@ -763,8 +772,8 @@ export const workerAdminMessages = defineMessages({
       'Les workers qui l’ont utilisée gardent leurs certificats.',
     'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
       'Il tourne dans Kubernetes : son pod redémarre sans cesse tant que son Deployment n’est pas réduit à zéro.',
-    'A replacement pod can join with the invite while it is active, so delete the invite first.':
-      'Un pod de remplacement peut rejoindre avec l’invitation tant qu’elle est active. Supprimez donc d’abord l’invitation.',
+    'A replacement pod can join with the invite while it is active, so delete the invite as well.':
+      'Un pod de remplacement peut rejoindre avec l’invitation tant qu’elle est active. Supprimez donc aussi l’invitation.',
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
       'L’invitation qu’il a utilisée n’a pas pu être lue, on ne peut donc pas dire si elle laisse encore rejoindre de nouveaux workers. Le retrait reste possible.',
     'Stop the runs of {worker}': 'Arrêter les exécutions de {worker}',
@@ -779,9 +788,11 @@ export const workerAdminMessages = defineMessages({
       'Ce worker ne se connecte plus avec le certificat affiché à l’ouverture de cette boîte de dialogue. Fermez-la et confirmez à nouveau pour lui.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       'L’invitation qu’il a utilisée n’existe plus, aucun nouveau worker ne peut donc rejoindre avec elle.',
-    'The invite was deleted.': 'L’invitation a été supprimée.',
     'The coordinator runs an earlier Dagu release that cannot remove workers.':
       'Le coordinateur exécute une version antérieure de Dagu qui ne peut pas retirer de workers.',
+    'The server accepted the removal.': 'Le serveur a accepté le retrait.',
+    'The invite was not deleted.': 'L’invitation n’a pas été supprimée.',
+    'Delete the invite': 'Supprimer l’invitation',
     'Invite {id} was not deleted.': 'L’invitation {id} n’a pas été supprimée.',
     'The selected node has no peer token for its coordinator.':
       'Le nœud sélectionné n’a pas de jeton de pair pour son coordinateur.',

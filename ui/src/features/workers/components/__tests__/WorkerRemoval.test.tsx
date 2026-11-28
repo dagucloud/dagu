@@ -218,9 +218,9 @@ describe('Remove', () => {
     );
   });
 
-  // The invite delete went through even though the removal did not: the
-  // dialog says both.
-  it('reports a deleted invite when the removal after it fails', async () => {
+  // The invite is deleted only once the server accepted the removal: a
+  // refused removal leaves the invite as it is.
+  it('keeps the invite when the removal is refused', async () => {
     server.invites = invitesAnswer([
       invite('inv-r', { kind: WorkerInviteKind.reusable }),
     ]);
@@ -239,13 +239,71 @@ describe('Remove', () => {
       within(dialog).getByRole('button', { name: 'Remove' })
     );
 
-    expect(await within(dialog).findByRole('status')).toHaveTextContent(
-      'The invite was deleted.'
-    );
-    expect(within(dialog).getByRole('alert')).toHaveTextContent(
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
       'The worker was not removed.'
     );
-    expect(within(dialog).getByRole('alert')).not.toHaveTextContent('Nothing');
+    expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(0);
+  });
+
+  // Each step reports its own outcome: an accepted removal and an invite
+  // that could not be deleted, which a second click deletes on its own.
+  it('reports an invite delete that fails after the removal', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    let inviteAnswer = refused(503, '', 'internal_error', 'no_coordinator');
+    server.del = (request) =>
+      request.path.endsWith('/certificate')
+        ? { status: 200, body: { state: 'removing' } }
+        : inviteAnswer;
+    renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
+    await screen.findByText('Reusable');
+
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: /Also delete the invite/ })
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+
+    expect(await within(dialog).findByRole('status')).toHaveTextContent(
+      'The server accepted the removal.'
+    );
+    const alert = within(dialog).getByRole('alert');
+    expect(alert).toHaveTextContent('The invite was not deleted.');
+    expect(alert).toHaveTextContent('No coordinator is running or reachable.');
+    expect(alert).not.toHaveTextContent('not removed');
+
+    inviteAnswer = { status: 204 } as typeof inviteAnswer;
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Delete the invite' })
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    );
+    expect(removals()).toHaveLength(1);
+    expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(2);
+  });
+
+  // A confirmation stays locked to the certificate it opened for: once the
+  // row showed another one, it stays locked when that row goes away too.
+  it('stays locked after the replacement row goes away', async () => {
+    const { update } = renderPage([worker('worker-a1')]);
+    const dialog = await openRemove('worker-a1');
+
+    update([worker('worker-a1', { certificateId: 'cert-new' })]);
+    update([]);
+
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    ).toBeDisabled();
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+    expect(removals()).toHaveLength(0);
   });
 
   // The admin sees which runs the removal affects, and the default lets them
@@ -361,8 +419,9 @@ describe('Remove', () => {
   });
 
   // A reusable invite still lets new hosts join, so the confirmation says
-  // so, names the workers that share it, and deletes it before the removal.
-  it('warns about a reusable invite and deletes it first when asked', async () => {
+  // so, names the workers that share it, and deletes it once the server
+  // accepted the removal.
+  it('warns about a reusable invite and deletes it after the removal', async () => {
     server.invites = invitesAnswer([
       invite('inv-r', { kind: WorkerInviteKind.reusable, useCount: 2 }),
     ]);
@@ -387,12 +446,16 @@ describe('Remove', () => {
     );
 
     await waitFor(() => expect(removals()).toHaveLength(1));
-    const changes = server.requests
-      .filter((request) => request.method === 'DELETE')
-      .map((request) => request.path);
-    expect(changes).toEqual([
-      '/api/v1/workers/invites/inv-r',
+    await waitFor(() =>
+      expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(1)
+    );
+    expect(
+      server.requests
+        .filter((request) => request.method === 'DELETE')
+        .map((request) => request.path)
+    ).toEqual([
       '/api/v1/workers/worker-a1/certificate',
+      '/api/v1/workers/invites/inv-r',
     ]);
   });
 
@@ -569,7 +632,7 @@ describe('Remove', () => {
       'its pod keeps restarting until its Deployment is scaled down'
     );
     expect(dialog).toHaveTextContent(
-      'A replacement pod can join with the invite while it is active, so delete the invite first.'
+      'A replacement pod can join with the invite while it is active, so delete the invite as well.'
     );
   });
 
@@ -759,12 +822,10 @@ describe('Remove', () => {
     update([], ['no coordinator is running or reachable']);
 
     expect(screen.getByRole('dialog')).toBe(dialog);
-    expect(within(dialog).getByRole('status')).toHaveTextContent(
-      'The invite was deleted.'
-    );
     expect(within(dialog).getByRole('alert')).toHaveTextContent(
       'No coordinator is running or reachable.'
     );
+    expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(0);
   });
 
   // The dialog explains a failed invite lookup itself, with no page notice
