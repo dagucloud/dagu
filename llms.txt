@@ -3498,7 +3498,7 @@ Setting `DAGU_HOME` or `DAGU_DAGS_DIR` only points a local CLI at the server's f
 | Forget an offline worker node (admin; ask first) | not supported | `DELETE /nodes/{name}` | `dagu nodes forget` |
 | Add a worker on another host (admin) | not supported | `GET /workers/join-readiness`, then `POST /workers/invites` | not supported; `dagu worker invite` runs on a host with the coordinator's peer token |
 | List or delete worker invites (admin; ask before deleting) | not supported | `GET /workers/invites`, `DELETE /workers/invites/{id}` | no |
-| Remove a worker that joined with an invite (admin; ask first) | not supported | `POST /workers/removals` `{"workerId", "certificateId", "runs": "finish\|stop"}` | no |
+| Remove a worker that joined with an invite (admin; ask first) | not supported | `POST /workers/removals` `{"workerId": "<worker ID>", "certificateId": "<certificate ID>", "runs": "finish"}` (`runs`: `finish` or `stop`) | no |
 | Approve, reject, push back a waiting step | `dagu_execute` | where supported | not supported |
 | Schedule | `schedule:` via `dagu_change` | edit the DAG spec | no separate command |
 

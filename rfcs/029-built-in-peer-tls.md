@@ -490,7 +490,7 @@ names the setting to change:
   | `POST /api/v1/workers/invites` | Body `{"reusable": false, "expiresIn": "24h"}`. Returns `{"id", "invite", "expiresAt"}`; only this response contains the invite |
   | `GET /api/v1/workers/invites` | Lists invites without their secrets |
   | `DELETE /api/v1/workers/invites/{id}` | Deletes an invite |
-  | `POST /api/v1/workers/removals` | Removes the worker the body names: `{"workerId", "certificateId", "runs"}`. `certificateId`, required, is the certificate the workers list shows. `"runs": "finish"`, the default, waits for its runs; `"stop"` stops them. Returns `removing` or `removed` |
+  | `POST /api/v1/workers/removals` | Removes the worker the body names, as in `{"workerId": "<worker ID>", "certificateId": "<certificate ID>", "runs": "finish"}`. `workerId` and `certificateId` are required; `certificateId` is the certificate the workers list shows. `"runs": "finish"`, the default, waits for its runs; `"stop"` stops them. Returns `removing` or `removed` |
 
 ### Join readiness
 
