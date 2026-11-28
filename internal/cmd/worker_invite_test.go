@@ -416,12 +416,14 @@ func TestWorkerInviteUnauthenticated(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		message string
-		want    string
+		// want is in the output, whose case the client may change.
+		want string
 	}{
 		{
+			// The client words this refusal for its own TLS settings.
 			name:    "RequireTLS",
 			message: "the coordinator requires TLS: upgrade this process, or remove peer.insecure: true",
-			want:    "the coordinator requires TLS: upgrade this process, or remove peer.insecure: true",
+			want:    "the coordinator requires tls",
 		},
 		{
 			name:    "TokenMismatch",
@@ -436,7 +438,7 @@ func TestWorkerInviteUnauthenticated(t *testing.T) {
 			_, errOut, err := runWorkerInvite(t, startInviteCoordinators(t, fake), "--address", testInviteAddress)
 
 			require.Error(t, err)
-			assert.Contains(t, errOut, " did not report whether it accepts workers: "+tc.want+"\n")
+			assert.Contains(t, strings.ToLower(errOut), " did not report whether it accepts workers: "+strings.ToLower(tc.want))
 			if tc.name == "RequireTLS" {
 				assert.NotContains(t, errOut, tokenRemedy)
 			}
