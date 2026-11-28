@@ -245,9 +245,10 @@ output holding the error object:
 ```
 
 `code` and `message` are required. Clients must branch on `code`, not parse
-`message`. `action`, `targetType`, `dagName`, `dagRunId`, `field`, and
-`details` are present when they apply, with `field` naming the single input
-field that caused an input failure.
+`message`. `action`, `targetType`, `dagName`, `dagRunId`, `field`, `reason`,
+and `details` are present when they apply, with `field` naming the single
+input field that caused an input failure, and `reason` the stable reason
+the REST API gives the failure, such as `no_coordinator` for `add_worker`.
 
 Common conditions map to codes as follows:
 

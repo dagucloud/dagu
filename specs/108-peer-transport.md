@@ -1051,12 +1051,13 @@ and prints the message:
   write each `$` as `$$`, so no argument expands a variable such as
   `DAGU_WORKER_INVITE`, and only the Secret holds the invite.
 - The container commands run `ghcr.io/dagucloud/dagu:<tag>`, where `<tag>`
-  is the server's version without its leading `v`. A release tag
-  `vX.Y.Z` or `vX.Y.Z-<prerelease>` publishes that image, such as `2.28.0`,
-  `2.28.0-rc.1`, or `2.28.0-preview-test.1`. A server whose version is
-  `dev`, `0.0.0`, or ends in a `git describe` suffix such as
-  `-12-g1a2b3c4` or in `-next` has no published image: step 3 says so and
-  shows no container command.
+  is the server's version without its leading `v`. The image workflow
+  publishes a release tag's image only when that version matches
+  `^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.-]+)?$`, does not match
+  `^0\.0\.0$|-[0-9]+-g[0-9a-f]+$|-next$`, and has at most 128 characters,
+  and refuses any other tag. Step 3 uses the same rule: a server whose
+  version fails it, such as `dev`, has no published image, so step 3 says
+  so and shows no container command.
 - The dialog waits on the page's existing `/workers` refresh for a worker
   with the invite's ID, and then shows its ID and labels. Closing the dialog
   keeps the invite.
@@ -1111,13 +1112,19 @@ The Workers page is the list of workers on System status.
   the fields of the `POST /api/v1/workers/invites` body: `address`,
   `reusable`, and `expiresIn`. `labels` go into the commands.
 - Without `address`, it creates no invite, as the dialog shows step 3 only
-  after step 2. It refuses an `address` and `labels` as step 2 and step 3
-  do, and an `expiresIn` that `POST /api/v1/workers/invites` would refuse,
-  with `invalid_tool_input`, before asking any coordinator.
+  after step 2.
+- It checks that the caller is an admin, then its input, then asks the
+  coordinators. It refuses an `address` and `labels` as step 2 and step 3
+  do, an `address` or label that holds invite text, and an `expiresIn` that
+  `POST /api/v1/workers/invites` would refuse, with `invalid_tool_input`,
+  before asking any coordinator. A refusal does not repeat the text it
+  refuses.
 - `coordinators` holds, for each coordinator, `ready`, its report or
-  `error`, the `changes` of step 1 while it is not ready, and the `notes`
-  that step 1 keeps even when ready. `addressOptions` holds `initial`, the value
-  step 2 starts with, and `suggestions`, the addresses step 2 suggests.
+  `error` and `errorReason` as join readiness gives them, the `changes` of
+  step 1 while it is not ready, and the `notes` that step 1 keeps even when
+  ready. `addressOptions` holds `initial`, the value step 2 starts with, and
+  `suggestions`, the addresses step 2 suggests, each one that step 2
+  accepts.
 - While a coordinator is not ready, or does not report, it creates no
   invite.
 - The result that creates the invite holds `inviteId`, `invite`, `kind`,
@@ -1125,11 +1132,12 @@ The Workers page is the list of workers on System status.
   invite only, `kubernetes`, as step 3's tabs give them. On a server with no
   published image, `commands` holds only `linux`, and `imageUnavailable`
   says why.
-- Only the result that creates the invite contains it. Each call that
-  passes input validation is in the audit log, and the entry of the call
-  that creates an invite has its ID. The entries record no string the
-  caller sent. A call refused for its input, as every `dagu_execute`
-  action refuses one, asks no coordinator and changes nothing.
+- Only the result that creates the invite contains it. Each call is in the
+  audit log, including one refused for its `address`, `labels`, or
+  `expiresIn`, and the entry of the call that creates an invite has its
+  ID. The entries record no string the caller sent. A call that is not
+  valid tool input, such as an unknown field or a value of the wrong type,
+  is refused before it is audited, as for every `dagu_execute` action.
 - It is for local MCP callers only: a signed-in admin or an admin API key
   on the server's MCP endpoint. A call that Dagu Cloud carries over the
   relay runs below admin, as
@@ -1139,7 +1147,8 @@ The Workers page is the list of workers on System status.
 - A non-admin gets `unauthorized`. No coordinator running or reachable, or
   a coordinator that refuses the server, gives `resource_unavailable` with
   the message of [REST API](#rest-api). Only coordinators of an earlier
-  release give `conflict`.
+  release give `conflict`. An error that the REST API gives a reason
+  carries it as `reason`.
 
 ### Secrets in Output
 
