@@ -305,7 +305,7 @@ func (o *operator) act(ctx context.Context, index int, spec actSpec, timeout tim
 		key, literal = replayKey(index, spec.Instruction, pageURL), literalKey(index, spec.Instruction, pageURL)
 	}
 	status := agentstep.StatusCompleted
-	rec, ok := o.recordingAt(choice, key, literal)
+	rec, at, ok := o.recordingAt(choice, key, literal)
 	actions := rec.Actions
 	// An approved commit act does only what was approved: the actions it
 	// recorded, never what a model picks.
@@ -355,7 +355,7 @@ func (o *operator) act(ctx context.Context, index int, spec actSpec, timeout tim
 		status = agentstep.StatusHealed
 		// The recording is dropped unless the act that heals it records what
 		// it did.
-		o.recorder.drop(key)
+		o.recorder.drop(at)
 		// A recorded action before the miss may have loaded a new document.
 		document, _ = o.eng.DocumentID(ctx)
 	}
@@ -372,7 +372,7 @@ func (o *operator) act(ctx context.Context, index int, spec actSpec, timeout tim
 		return opResult{}, fmt.Errorf("act did not complete: %s", outcome.Message)
 	}
 	if recorded && len(outcome.Actions) > 0 {
-		o.recorder.stage(key, recordAct(spec.Instruction, outcome.Actions, o.variables))
+		o.keep(at, key, literal, pageURL, recordAct(spec.Instruction, outcome.Actions, o.variables))
 	}
 	detail := describeActions(outcome.Actions)
 	if len(outcome.Actions) == 0 {
@@ -414,20 +414,31 @@ func (o *operator) recording(choice, key string) (recording, bool) {
 	return o.lookup(key)
 }
 
-// recordingAt returns what was recorded for an operation under its replay
-// key or, failing that, under its literal key, where a recording made
-// before replay keys ignored record IDs is kept. A recording found under
-// the literal key moves to the replay key once the attempt succeeds.
-func (o *operator) recordingAt(choice, key, literal string) (recording, bool) {
-	rec, ok := o.recording(choice, key)
-	if ok || literal == key {
-		return rec, ok
+// recordingAt returns what was recorded for an operation and the key it
+// is kept under. A recording under the literal key, made on this record
+// before replay keys ignored record IDs or kept to it by keepKey, comes
+// before the one under the replay key that every record shares.
+func (o *operator) recordingAt(choice, key, literal string) (recording, string, bool) {
+	if literal != key {
+		if rec, ok := o.recording(choice, literal); ok {
+			return rec, literal, true
+		}
 	}
-	if rec, ok = o.recording(choice, literal); ok {
-		o.recorder.stage(key, rec)
+	rec, ok := o.recording(choice, key)
+	return rec, key, ok
+}
+
+// keep stages rec, what the model did for an operation on pageURL, under
+// the key keepKey picks. It replaces the record's own recording, found
+// under at, wherever rec goes. A shared recording that rec does not replace
+// stays for the records it fits; one a replay contradicted is already
+// dropped.
+func (o *operator) keep(at, key, literal, pageURL string, rec recording) {
+	to := keepKey(key, literal, pageURL, rec.Actions)
+	if at == literal && to != literal {
 		o.recorder.drop(literal)
 	}
-	return rec, ok
+	o.recorder.stage(to, rec)
 }
 
 // lookup returns what was recorded under key, if it holds any action.
@@ -645,18 +656,19 @@ func (o *operator) readPages(ctx context.Context, index int, spec extractSpec, s
 func (o *operator) turnPage(ctx context.Context, index int, next string, turned bool, made *[]recordedAction, timeout time.Duration) (bool, error) {
 	document, _ := o.eng.DocumentID(ctx)
 	choice, recorded := o.decide("", nil)
-	key, literal := "", ""
+	key, literal, pageURL := "", "", ""
 	if recorded {
-		pageURL, err := o.eng.CurrentURL(ctx)
-		if err != nil {
+		var err error
+		if pageURL, err = o.eng.CurrentURL(ctx); err != nil {
 			return false, err
 		}
 		key, literal = replayKey(index, next, pageURL), literalKey(index, next, pageURL)
 	}
-	actions := *made
+	actions, at := *made, key
 	if len(actions) == 0 {
-		if rec, ok := o.recordingAt(choice, key, literal); ok && unfit(next, rec, o.variables) == "" {
-			actions = rec.Actions
+		rec, found, ok := o.recordingAt(choice, key, literal)
+		if ok && unfit(next, rec, o.variables) == "" {
+			actions, at = rec.Actions, found
 		}
 	}
 	if len(actions) > 0 {
@@ -683,7 +695,7 @@ func (o *operator) turnPage(ctx context.Context, index int, next string, turned 
 		return false, fmt.Errorf("act did not complete: %s", outcome.Message)
 	}
 	if recorded && len(outcome.Actions) > 0 {
-		o.recorder.stage(key, recordAct(next, outcome.Actions, o.variables))
+		o.keep(at, key, literal, pageURL, recordAct(next, outcome.Actions, o.variables))
 	}
 	if choice != aiEveryRun {
 		*made = outcome.Actions

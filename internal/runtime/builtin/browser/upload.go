@@ -130,7 +130,7 @@ func (o *operator) upload(ctx context.Context, index int, spec uploadSpec, timeo
 	// and tells whether a recorded element is still the one recorded.
 	snap, snapErr := o.eng.Snapshot(ctx)
 	status := agentstep.StatusCompleted
-	rec, ok := o.recordingAt(choice, key, literal)
+	rec, at, ok := o.recordingAt(choice, key, literal)
 	if !ok && choice == aiNever {
 		return opResult{}, replayMiss{kind: opUpload, reason: noRecording}
 	}
@@ -153,7 +153,7 @@ func (o *operator) upload(ctx context.Context, index int, spec uploadSpec, timeo
 		status = agentstep.StatusHealed
 		// The recording is dropped unless the upload that heals it records
 		// what it did.
-		o.recorder.drop(key)
+		o.recorder.drop(at)
 	}
 	found, err := o.eng.Observe(ctx, uploadInstruction(spec.Into), timeout)
 	if err != nil {
@@ -172,7 +172,7 @@ func (o *operator) upload(ctx context.Context, index int, spec uploadSpec, timeo
 		return opResult{}, err
 	}
 	if recorded {
-		o.recorder.stage(key, recording{Actions: []recordedAction{action}})
+		o.keep(at, key, literal, pageURL, recording{Actions: []recordedAction{action}})
 	}
 	return result(status, agentstep.ViaModel, &action, how, pageURL), nil
 }
