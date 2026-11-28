@@ -161,9 +161,21 @@ func TestRemoveWorkerAPI(t *testing.T) {
 	for _, id := range []string{"finish", "stop", "offline"} {
 		workers[id], certs[id] = peer.enrollWorker(t, services.coordinator, created.Invite, id)
 	}
+	// Each connected worker holds a run of its own.
+	held := map[string]*coordinatorv1.RunningTask{}
 	for _, id := range []string{"finish", "stop"} {
-		_, err := workers[id].Heartbeat(callContext(t), &coordinatorv1.HeartbeatRequest{WorkerId: id, Host: "host-" + id})
+		held[id] = services.holdRun(t, dagu, workers[id], id)
+	}
+	heartbeat := func(id string) *coordinatorv1.HeartbeatResponse {
+		resp, err := workers[id].Heartbeat(callContext(t), &coordinatorv1.HeartbeatRequest{
+			WorkerId: id, Host: "host-" + id,
+			Stats: &coordinatorv1.WorkerStats{TotalPollers: 1, BusyPollers: 1, RunningTasks: []*coordinatorv1.RunningTask{held[id]}},
+		})
 		require.NoError(t, err)
+		return resp
+	}
+	for _, id := range []string{"finish", "stop"} {
+		assert.Empty(t, heartbeat(id).CancelledRuns, id)
 	}
 	for _, id := range []string{"finish", "stop"} {
 		listed := services.waitForWorker(t, id)
@@ -190,10 +202,43 @@ func TestRemoveWorkerAPI(t *testing.T) {
 	for _, id := range []string{"finish", "stop"} {
 		assert.True(t, services.waitForWorker(t, id).Removing, id)
 	}
+	// Only stop asks the worker to cancel the run it holds.
+	assert.Empty(t, heartbeat("finish").CancelledRuns)
+	cancelled := heartbeat("stop").CancelledRuns
+	require.Len(t, cancelled, 1)
+	assert.Equal(t, held["stop"].AttemptKey, cancelled[0].AttemptKey)
 	_, err := workers["offline"].GetWorkers(callContext(t), &coordinatorv1.GetWorkersRequest{})
 	assert.Equal(t, codes.Unauthenticated, status.Code(err), "%v", err)
 
 	code, body = remove("offline", certs["offline"], "finish")
 	assert.Equal(t, http.StatusOK, code, body)
 	assert.JSONEq(t, `{"state": "removed"}`, body, "a retried removal answers removed")
+}
+
+// holdRun enqueues a run of a DAG that only the worker id takes, has the
+// worker poll and accept it as worker, and returns the running task its
+// heartbeats report.
+func (s startAll) holdRun(t *testing.T, dagu *harness.Runner, worker coordinatorv1.CoordinatorServiceClient, id string) *coordinatorv1.RunningTask {
+	t.Helper()
+	dag := "held_" + id + ".yaml"
+	dagu.WriteFile(dag, "worker_selector:\n  holder: "+id+"\nsteps:\n  - id: wait\n    run: sleep 60\n")
+	ctx := callContext(t)
+	labels := map[string]string{"holder": id}
+	// The queue dispatches only to a worker whose heartbeat matches.
+	_, err := worker.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{
+		WorkerId: id, Host: "host-" + id, Labels: labels, Stats: &coordinatorv1.WorkerStats{TotalPollers: 1},
+	})
+	require.NoError(t, err)
+	dagu.RunWithEnv([]string{"DAGU_HOME=" + s.home}, "enqueue", "--run-id=held-"+id, dag).ExpectExitCode(0)
+
+	var task *coordinatorv1.Task
+	for task == nil {
+		resp, err := worker.Poll(ctx, &coordinatorv1.PollRequest{WorkerId: id, PollerId: id + "-poller", Labels: labels})
+		require.NoError(t, err)
+		task = resp.Task
+	}
+	ack, err := worker.AckTaskClaim(ctx, &coordinatorv1.AckTaskClaimRequest{WorkerId: id, ClaimToken: task.ClaimToken, AttemptKey: task.AttemptKey})
+	require.NoError(t, err)
+	require.True(t, ack.Accepted, id)
+	return &coordinatorv1.RunningTask{DagName: "held_" + id, DagRunId: task.DagRunId, AttemptKey: task.AttemptKey}
 }
