@@ -254,6 +254,79 @@ jobs:
           test "$(grep -Fc 'priorityClassName: "true"' /tmp/dagu-priority-render.yaml)" -eq 3
           grep -Fq 'priorityClassName: "null"' /tmp/dagu-priority-render.yaml
 
+      - name: Render peer TLS
+        run: |
+          distributed=(
+            --namespace dagu
+            --kube-version 1.35.0
+            --set deploymentMode=distributed
+            --set persistence.accessMode=ReadWriteMany
+          )
+
+          # Without a CA Secret, the coordinator keeps its CA in the data
+          # volume: no pod mounts one, and the config does not force h2c.
+          helm template dagu ./charts/dagu "${distributed[@]}" \
+            >/tmp/dagu-peer-default-render.yaml
+          if grep -Eq 'insecure: true|peer-ca|ca_cert_file|DAGU_PEER_CA' /tmp/dagu-peer-default-render.yaml; then
+            echo "::error::Without peer.existingCASecret, no pod may mount a CA or set peer.insecure"
+            exit 1
+          fi
+          helm template dagu ./charts/dagu "${distributed[@]}" \
+            --show-only templates/coordinator-service.yaml \
+            >/tmp/dagu-coordinator-service-render.yaml
+          grep -Fq 'type: ClusterIP' /tmp/dagu-coordinator-service-render.yaml
+
+          ca_values=(--set-string peer.existingCASecret=dagu-peer-ca)
+          helm template dagu ./charts/dagu "${distributed[@]}" "${ca_values[@]}" \
+            --show-only templates/configmap.yaml >/tmp/dagu-peer-config-render.yaml
+          grep -Fq 'ca_cert_file: "/etc/dagu-peer-ca/ca.crt"' /tmp/dagu-peer-config-render.yaml
+          if grep -Fq 'insecure:' /tmp/dagu-peer-config-render.yaml; then
+            echo "::error::The rendered config must not set peer.insecure"
+            exit 1
+          fi
+
+          # Every pod mounts ca.crt read-only and owner-only; only the
+          # coordinator gets ca.key and points peer.ca_key_file at it.
+          for component in coordinator scheduler ui worker; do
+            render="/tmp/dagu-peer-${component}-render.yaml"
+            helm template dagu ./charts/dagu "${distributed[@]}" "${ca_values[@]}" \
+              --show-only "templates/${component}-deployment.yaml" >"${render}"
+            grep -Fq 'secretName: "dagu-peer-ca"' "${render}"
+            grep -Fq 'defaultMode: 256' "${render}"
+            grep -Fq 'key: ca.crt' "${render}"
+            grep -A2 -F -- '- name: peer-ca' "${render}" | grep -Fq 'mountPath: /etc/dagu-peer-ca'
+            grep -A2 -F -- '- name: peer-ca' "${render}" | grep -Fq 'readOnly: true'
+            if [[ "${component}" == coordinator ]]; then
+              grep -Fq 'key: ca.key' "${render}"
+              grep -A1 -F 'name: DAGU_PEER_CA_KEY_FILE' "${render}" | grep -Fq 'value: "/etc/dagu-peer-ca/ca.key"'
+            elif grep -Eq 'ca\.key|DAGU_PEER_CA_KEY_FILE' "${render}"; then
+              echo "::error::Only the coordinator may mount ca.key"
+              exit 1
+            fi
+          done
+
+          # start-all runs no coordinator, so standalone mode mounts no CA.
+          helm template dagu ./charts/dagu --namespace dagu "${ca_values[@]}" \
+            >/tmp/dagu-peer-standalone-render.yaml
+          if grep -Eq 'peer-ca|ca_cert_file|DAGU_PEER_CA' /tmp/dagu-peer-standalone-render.yaml; then
+            echo "::error::Standalone mode must not mount the peer CA"
+            exit 1
+          fi
+
+          helm template dagu ./charts/dagu "${distributed[@]}" \
+            --set coordinator.service.type=LoadBalancer \
+            --set-string 'coordinator.service.annotations.example\.com/exposure=internal' \
+            --show-only templates/coordinator-service.yaml \
+            >/tmp/dagu-coordinator-lb-render.yaml
+          grep -Fq 'type: LoadBalancer' /tmp/dagu-coordinator-lb-render.yaml
+          grep -Fq 'example.com/exposure: internal' /tmp/dagu-coordinator-lb-render.yaml
+
+          helm template dagu ./charts/dagu "${distributed[@]}" \
+            --set coordinator.service.type=NodePort \
+            --show-only templates/coordinator-service.yaml \
+            >/tmp/dagu-coordinator-nodeport-render.yaml
+          grep -Fq 'type: NodePort' /tmp/dagu-coordinator-nodeport-render.yaml
+
       - name: Smoke-render optional configurations
         run: |
           helm template dagu ./charts/dagu \
