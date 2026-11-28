@@ -168,6 +168,10 @@ alert from the server are not transport-level failures.
   the CA that signs coordinator certificates.
 - `peer.ca_key_file` is the PEM private key of `peer.ca_cert_file`. Only a
   coordinator reads it.
+- `coordinator`, `worker`, and `start-all` take `--peer.insecure` and
+  `--peer.ca-cert-file`, as they take the other `--peer.*` flags. Only
+  `coordinator` and `start-all` take `--peer.ca-key-file`. Other peer
+  processes read these keys from the config file and the environment.
 - Config output masks `worker.invite` as it masks `peer.token`.
 
 ### Client Transport

@@ -51,6 +51,7 @@ TLS Configuration (uses global peer settings):
   --peer.key-file string                   Path to TLS key file for mutual TLS
   --peer.client-ca-file string             Path to CA certificate file for server verification
   --peer.skip-tls-verify                   Skip TLS certificate verification (insecure)
+  --peer.ca-cert-file string               Path to the CA certificate that signs coordinator certificates
 
 Example:
   dagu worker --worker.coordinators=coordinator-1:50055
@@ -96,6 +97,7 @@ var workerFlags = []commandLineFlag{
 	peerKeyFileFlag,
 	peerClientCAFileFlag,
 	peerSkipTLSVerifyFlag,
+	peerCACertFileFlag,
 }
 
 func runWorker(ctx *Context, _ []string) error {
