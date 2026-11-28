@@ -1299,6 +1299,15 @@ func fillWorkerMetadata(worker, other *coordinatorv1.WorkerInfo) {
 		worker.Connection = other.Connection
 		worker.PlaintextReason = other.PlaintextReason
 	}
+	if worker.Environment == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_UNSPECIFIED {
+		worker.Environment = other.Environment
+	}
+	if worker.CertificateId == "" {
+		worker.CertificateId = other.CertificateId
+		worker.InviteId = other.InviteId
+	}
+	// A coordinator that has not reread the removals yet reports false.
+	worker.Removing = worker.Removing || other.Removing
 }
 
 // Heartbeat sends a heartbeat to coordinators and returns the response

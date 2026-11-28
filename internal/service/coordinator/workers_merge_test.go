@@ -53,8 +53,11 @@ func TestClientGetWorkers_KeepsNewerFields(t *testing.T) {
 		WorkerId:        "worker-1",
 		LastHeartbeatAt: heartbeat,
 		Version:         "2.27.0",
-		Connection:      coordinatorv1.WorkerConnection_WORKER_CONNECTION_PLAINTEXT,
-		PlaintextReason: "peer.insecure",
+		Connection:      coordinatorv1.WorkerConnection_WORKER_CONNECTION_CERTIFICATE,
+		Environment:     coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES,
+		CertificateId:   "cert-1",
+		InviteId:        "invite-1",
+		Removing:        true,
 	})
 	for name, kinds := range map[string][]memberKind{"older first": {older, newer}, "newer first": {newer, older}} {
 		t.Run(name, func(t *testing.T) {
@@ -69,8 +72,11 @@ func TestClientGetWorkers_KeepsNewerFields(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, workers, 1)
 			assert.Equal(t, "2.27.0", workers[0].Version)
-			assert.Equal(t, coordinatorv1.WorkerConnection_WORKER_CONNECTION_PLAINTEXT, workers[0].Connection)
-			assert.Equal(t, "peer.insecure", workers[0].PlaintextReason)
+			assert.Equal(t, coordinatorv1.WorkerConnection_WORKER_CONNECTION_CERTIFICATE, workers[0].Connection)
+			assert.Equal(t, coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES, workers[0].Environment)
+			assert.Equal(t, "cert-1", workers[0].CertificateId)
+			assert.Equal(t, "invite-1", workers[0].InviteId)
+			assert.True(t, workers[0].Removing)
 		})
 	}
 }

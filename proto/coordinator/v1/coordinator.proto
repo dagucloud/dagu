@@ -935,6 +935,10 @@ message EnrollResponse {
 message RemoveWorkerRequest {
   string worker_id = 1;
   RemoveWorkerRuns runs = 2;
+  // The certificate the worker was listed with, or empty for any. A
+  // removal of a revoked one answers REMOVED; one the worker neither
+  // connects with nor holds fails with FailedPrecondition.
+  string certificate_id = 3;
 }
 
 // What a removal does with the runs the worker holds.

@@ -9558,9 +9558,13 @@ func (b0 EnrollResponse_builder) Build() *EnrollResponse {
 }
 
 type RemoveWorkerRequest struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	WorkerId      string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
-	Runs          RemoveWorkerRuns       `protobuf:"varint,2,opt,name=runs,proto3,enum=coordinator.v1.RemoveWorkerRuns" json:"runs,omitempty"`
+	state    protoimpl.MessageState `protogen:"hybrid.v1"`
+	WorkerId string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
+	Runs     RemoveWorkerRuns       `protobuf:"varint,2,opt,name=runs,proto3,enum=coordinator.v1.RemoveWorkerRuns" json:"runs,omitempty"`
+	// The certificate the worker was listed with, or empty for any. A
+	// removal of a revoked one answers REMOVED; one the worker neither
+	// connects with nor holds fails with FailedPrecondition.
+	CertificateId string `protobuf:"bytes,3,opt,name=certificate_id,json=certificateId,proto3" json:"certificate_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -9604,6 +9608,13 @@ func (x *RemoveWorkerRequest) GetRuns() RemoveWorkerRuns {
 	return RemoveWorkerRuns_REMOVE_WORKER_RUNS_UNSPECIFIED
 }
 
+func (x *RemoveWorkerRequest) GetCertificateId() string {
+	if x != nil {
+		return x.CertificateId
+	}
+	return ""
+}
+
 func (x *RemoveWorkerRequest) SetWorkerId(v string) {
 	x.WorkerId = v
 }
@@ -9612,11 +9623,19 @@ func (x *RemoveWorkerRequest) SetRuns(v RemoveWorkerRuns) {
 	x.Runs = v
 }
 
+func (x *RemoveWorkerRequest) SetCertificateId(v string) {
+	x.CertificateId = v
+}
+
 type RemoveWorkerRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	WorkerId string
 	Runs     RemoveWorkerRuns
+	// The certificate the worker was listed with, or empty for any. A
+	// removal of a revoked one answers REMOVED; one the worker neither
+	// connects with nor holds fails with FailedPrecondition.
+	CertificateId string
 }
 
 func (b0 RemoveWorkerRequest_builder) Build() *RemoveWorkerRequest {
@@ -9625,6 +9644,7 @@ func (b0 RemoveWorkerRequest_builder) Build() *RemoveWorkerRequest {
 	_, _ = b, x
 	x.WorkerId = b.WorkerId
 	x.Runs = b.Runs
+	x.CertificateId = b.CertificateId
 	return m0
 }
 
@@ -10241,10 +10261,11 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x11keeps_certificate\x18\x05 \x01(\bR\x10keepsCertificate\"Y\n" +
 	"\x0eEnrollResponse\x12 \n" +
 	"\vcertificate\x18\x01 \x01(\fR\vcertificate\x12%\n" +
-	"\x0eca_certificate\x18\x02 \x01(\fR\rcaCertificate\"h\n" +
+	"\x0eca_certificate\x18\x02 \x01(\fR\rcaCertificate\"\x8f\x01\n" +
 	"\x13RemoveWorkerRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x124\n" +
-	"\x04runs\x18\x02 \x01(\x0e2 .coordinator.v1.RemoveWorkerRunsR\x04runs\"y\n" +
+	"\x04runs\x18\x02 \x01(\x0e2 .coordinator.v1.RemoveWorkerRunsR\x04runs\x12%\n" +
+	"\x0ecertificate_id\x18\x03 \x01(\tR\rcertificateId\"y\n" +
 	"\x14RemoveWorkerResponse\x128\n" +
 	"\x05state\x18\x01 \x01(\x0e2\".coordinator.v1.WorkerRemovalStateR\x05state\x12'\n" +
 	"\x0fcertificate_ids\x18\x02 \x03(\tR\x0ecertificateIds*P\n" +
