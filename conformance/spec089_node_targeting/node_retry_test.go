@@ -251,8 +251,8 @@ func TestNodeStepRetry(t *testing.T) {
 	//     makes it fail.
 	// lockAgeMargin leaves time for the retry to start on a slow host. The
 	// wait helper starts while the lock is fresh and must end once the lock
-	// is past 30 seconds. TestDataRootLockStaleAge checks the lock code's
-	// boundary exactly.
+	// is past 30 seconds, while the stale lock is still on disk.
+	// TestDataRootLockStaleAge checks the lock code's boundary exactly.
 	t.Run("after a stopped process left its run lock", func(t *testing.T) {
 		t.Parallel()
 
@@ -304,9 +304,12 @@ func TestNodeStepRetry(t *testing.T) {
 		default:
 		}
 
+		ageLock(specStaleAge + time.Second)
+		require.NoError(t, <-waited)
+		require.DirExists(t, lock, "the wait must end on the lock's age, not its removal")
+
 		ageLock(nearStaleAge)
 		run.retry(t, "retry").ExpectExitCode(0)
-		require.NoError(t, <-waited)
 		require.Equal(t, []string{"web01=succeeded", "web02=succeeded", "web03=succeeded"}, nodeStatuses(t, run.dagu))
 	})
 
