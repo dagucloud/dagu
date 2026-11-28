@@ -163,6 +163,10 @@ var substitutedRef = regexp.MustCompile(`\$\{\s*(?:params|(?:params|env)\.([A-Za
 // here-document body or a single-quoted span of a command.
 var quotedRef = regexp.MustCompile(`"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"`)
 
+// pathRef matches ${NAME.path} and $NAME.path, which Dagu fills with a field of
+// the JSON value of NAME on every shell.
+var pathRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\.[^}]+\}|\$([A-Za-z_][A-Za-z0-9_]*)\.\S+`)
+
 // envRef matches $NAME and ${NAME}, which Dagu also expands in an eval.
 var envRef = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*)`)
 
@@ -346,6 +350,11 @@ func modelRef(text string, inputs map[string]bool, eval bool) (ref, variable str
 	for _, m := range quotedRef.FindAllStringSubmatch(text, -1) {
 		if inputs[m[1]] {
 			return m[0], m[1], true
+		}
+	}
+	for _, m := range pathRef.FindAllStringSubmatch(text, -1) {
+		if name := m[1] + m[2]; inputs[name] {
+			return m[0], name, true
 		}
 	}
 	if !eval {
