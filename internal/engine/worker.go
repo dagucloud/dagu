@@ -56,7 +56,7 @@ func (e *Engine) NewWorker(opts WorkerOptions) (*Worker, error) {
 	}
 	labels := cloneStringMap(opts.Labels)
 	stores := e.runtimeStores(context.Background())
-	w := worker.NewWorker(workerID, maxActiveRuns, client, labels, &cfg)
+	w := worker.NewWorker(workerID, maxActiveRuns, client, labels, &cfg, nil)
 	w.SetHandler(worker.NewRemoteTaskHandler(worker.RemoteTaskHandlerConfig{
 		WorkerID:          workerID,
 		CoordinatorClient: client,

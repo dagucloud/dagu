@@ -21,7 +21,7 @@ import (
 func TestWorkerHealthServerStartsAndStops(t *testing.T) {
 	t.Parallel()
 
-	w := NewWorker("test-worker", 1, newMockRemoteCoordinatorClient(), nil, &config.Config{})
+	w := NewWorker("test-worker", 1, newMockRemoteCoordinatorClient(), nil, &config.Config{}, nil)
 	w.SetHandler(noopHealthTaskHandler{})
 	w.healthServer = healthcheck.NewServerWithAddr("worker", "127.0.0.1:0")
 
@@ -58,7 +58,7 @@ func TestWorkerHealthServerStaysHealthyDuringHeartbeatFailures(t *testing.T) {
 		return nil, errors.New("heartbeat failed")
 	}
 
-	w := NewWorker("test-worker", 1, client, nil, &config.Config{})
+	w := NewWorker("test-worker", 1, client, nil, &config.Config{}, nil)
 	w.SetHandler(noopHealthTaskHandler{})
 	w.healthServer = healthcheck.NewServerWithAddr("worker", "127.0.0.1:0")
 

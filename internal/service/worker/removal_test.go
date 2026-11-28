@@ -33,10 +33,17 @@ type removalClient struct {
 	polled    atomic.Bool
 	poll      func(context.Context) error
 	preflight func(context.Context) error
+	// beforeTask runs before the first poll returns task, and acks counts
+	// the acknowledgments of its claim.
+	beforeTask func()
+	acks       atomic.Int32
 }
 
 func (c *removalClient) Poll(ctx context.Context, _ backoff.RetryPolicy, _ *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
 	if !c.polled.Swap(true) && c.task != nil {
+		if c.beforeTask != nil {
+			c.beforeTask()
+		}
 		return c.task, nil
 	}
 	if c.poll != nil {
@@ -59,6 +66,11 @@ func (c *removalClient) RunHeartbeatTo(ctx context.Context, _ serviceregistry.Ho
 	return &coordinatorv1.RunHeartbeatResponse{}, nil
 }
 
+func (c *removalClient) AckTaskClaimTo(context.Context, serviceregistry.HostInfo, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+	c.acks.Add(1)
+	return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
+}
+
 func (c *removalClient) Metrics() coordinator.Metrics { return coordinator.Metrics{IsConnected: true} }
 
 func (c *removalClient) Cleanup(context.Context) error { return nil }
@@ -75,7 +87,7 @@ var errRemovedForTest = removedFailure{failure{cause: "This worker was removed f
 // that stops as removed once removed is closed, as one given a client from
 // Membership.Connect does.
 func newRemovableWorker(client coordinator.Client, maxActiveRuns int, cfg *config.Config, removed <-chan struct{}, run runHandler) *Worker {
-	w := NewWorker("test-worker", maxActiveRuns, client, map[string]string{}, cfg)
+	w := NewWorker("test-worker", maxActiveRuns, client, map[string]string{}, cfg, nil)
 	w.removalSignal = removed
 	w.removalExit = func(context.Context) error { return errRemovedForTest }
 	w.SetHandler(run)
@@ -225,7 +237,7 @@ func TestWorkerRemovedDuringDrain(t *testing.T) {
 func TestWorkerRemovedWithoutMembership(t *testing.T) {
 	removed := make(chan struct{})
 	close(removed)
-	w := NewWorker("test-worker", 1, &removalClient{}, map[string]string{}, &config.Config{})
+	w := NewWorker("test-worker", 1, &removalClient{}, map[string]string{}, &config.Config{}, nil)
 	w.removalSignal = removed
 	w.SetHandler(runHandler(func(context.Context, *coordinatorv1.Task) error { return nil }))
 	err := startRemovable(t, w)
@@ -248,4 +260,43 @@ func TestWorkerRemovedBeforeExecution(t *testing.T) {
 
 	assert.Equal(t, errRemovedForTest, startRemovable(t, w))
 	assert.False(t, executed.Load(), "the run reached the executor after the removal")
+}
+
+// A removal that arrives once a run moved into execution, before the executor
+// runs, stops the run with the removal as its cause, so the executor starts
+// stopped (Spec 108 §Removed Worker).
+func TestWorkerRemovedAfterAdmission(t *testing.T) {
+	removed := make(chan struct{})
+	client := &removalClient{task: &coordinatorv1.Task{DagRunId: "run-1", AttemptKey: "attempt-1"}}
+	cause := make(chan error, 1)
+	w := newRemovableWorker(client, 1, &config.Config{}, removed, func(ctx context.Context, _ *coordinatorv1.Task) error {
+		cause <- context.Cause(ctx)
+		return ctx.Err()
+	})
+	w.afterAdmit = func(ctx context.Context) {
+		close(removed)
+		<-ctx.Done()
+	}
+
+	assert.Equal(t, errRemovedForTest, startRemovable(t, w))
+	assert.ErrorIs(t, <-cause, errWorkerRemoved)
+}
+
+// A worker that learns of its removal while a poll returns a task accepts
+// no task: the claim expires and returns the task to the queue (Spec 108
+// §Removal).
+func TestWorkerRemovedBeforeAcknowledgment(t *testing.T) {
+	removed := make(chan struct{})
+	task := ownedTask()
+	task.ClaimToken = "claim-1"
+	client := &removalClient{task: task, beforeTask: func() { close(removed) }}
+	var executed atomic.Bool
+	w := newRemovableWorker(client, 1, &config.Config{}, removed, func(context.Context, *coordinatorv1.Task) error {
+		executed.Store(true)
+		return nil
+	})
+
+	assert.Equal(t, errRemovedForTest, startRemovable(t, w))
+	assert.Zero(t, client.acks.Load(), "the claim was acknowledged after the removal")
+	assert.False(t, executed.Load())
 }

@@ -89,15 +89,19 @@ type Worker struct {
 	// ready reports that a heartbeat has reached a coordinator, so the
 	// worker can take runs. Its health server answers readiness from it.
 	ready atomic.Bool
-	// beforeExecute, when set, runs between a run's registration and its
-	// move into execution. Tests set it.
+	// beforeExecute and afterAdmit, when set, run between a run's
+	// registration and its move into execution, and between that move and
+	// the executor. Tests set them.
 	beforeExecute func()
+	afterAdmit    func(context.Context)
 }
 
 type runningTaskState struct {
 	task                 *coordinatorv1.RunningTask
 	owner                serviceregistry.HostInfo
 	lastOwnerHeartbeatAt time.Time
+	// stop ends the run's context with a cause.
+	stop context.CancelCauseFunc
 }
 
 // TaskHandler defines the interface for executing tasks.
@@ -157,13 +161,18 @@ func (w *Worker) SetAfterTaskAckHook(hook func(context.Context, *coordinatorv1.T
 	w.afterTaskAckHook = hook
 }
 
-// NewWorker creates a new worker instance.
+// NewWorker creates a new worker instance. With membership, the one whose
+// Connect returned coordinatorClient, the worker stops as removed once a
+// coordinator refuses that client's certificate as revoked, on any call, and
+// Start and Stop then return the removed worker's failure. Without one, nil,
+// the worker runs as before Spec 108.
 func NewWorker(
 	workerID string,
 	maxActiveRuns int,
 	coordinatorClient coordinator.Client,
 	labels map[string]string,
 	cfg *config.Config,
+	membership *Membership,
 ) *Worker {
 	host, err := os.Hostname()
 	if err != nil {
@@ -199,15 +208,10 @@ func NewWorker(
 		openCodeHost:   opencodehost.New(context.Background(), openCodeConfig),
 	}
 	w.healthServer.SetReadyFunc(w.ready.Load)
+	if membership != nil {
+		w.removalSignal, w.removalExit = membership.revoked, membership.removed
+	}
 	return w
-}
-
-// SetMembership makes the worker stop as removed once a coordinator refuses
-// the certificate of the client that m.Connect returned as revoked, on any
-// call. Start and Stop then return the removed worker's failure. Call it
-// before Start.
-func (w *Worker) SetMembership(m *Membership) {
-	w.removalSignal, w.removalExit = m.revoked, m.removed
 }
 
 // Start begins the worker's operation, launching multiple polling goroutines.
@@ -532,8 +536,14 @@ func (w *Worker) haltRemoved(ctx context.Context) {
 	w.markRemoved()
 	w.pollersMu.Lock()
 	for _, state := range w.runningTasks {
-		if state != nil && state.task != nil {
+		if state == nil {
+			continue
+		}
+		if state.task != nil {
 			logRemovedRun(ctx, state.task)
+		}
+		if state.stop != nil {
+			state.stop(errWorkerRemoved)
 		}
 	}
 	w.pollersMu.Unlock()
@@ -749,7 +759,8 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 
 	// Create a cancellable context for this task. It outlives the poll
 	// context so a graceful stop can finish; Stop cancels it through runsCtx.
-	taskCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	taskCtx, stop := context.WithCancelCause(context.WithoutCancel(ctx))
+	cancel := func() { stop(nil) }
 	defer cancel()
 	if t.worker.runsCtx != nil {
 		defer context.AfterFunc(t.worker.runsCtx, cancel)()
@@ -801,6 +812,7 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 		task:                 runningTask,
 		owner:                owner,
 		lastOwnerHeartbeatAt: time.Now().UTC(),
+		stop:                 stop,
 	}
 	t.worker.pollerTasks[pollerID] = attemptKey
 	t.worker.cancelFuncs[attemptKey] = cancel
@@ -822,14 +834,19 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 		t.worker.beforeExecute()
 	}
 	// The move into execution and a removal's stop of the registered runs
-	// take the same lock, so a run either starts before the removal, which
-	// then stops it, or never starts.
+	// take the same lock. A run the removal finds first never starts. A run
+	// that moved first is one the removal stops: it ends the run's context
+	// under that lock, so the run enters the executor stopped if it has not
+	// entered yet.
 	t.worker.pollersMu.Lock()
 	removed := t.worker.isRemoved()
 	t.worker.pollersMu.Unlock()
 	if removed {
 		logRemovedRun(taskCtx, runningTask)
 		return errWorkerRemoved
+	}
+	if t.worker.afterAdmit != nil {
+		t.worker.afterAdmit(taskCtx)
 	}
 
 	// Execute the task with cancellable context

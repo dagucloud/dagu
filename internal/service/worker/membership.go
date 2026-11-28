@@ -448,9 +448,9 @@ func (m *Membership) StartTransport() (string, error) {
 // invite's CA. A worker that holds a worker certificate first asks the
 // coordinators whether they accept it. It fails when one refuses it as
 // revoked, unless worker.invite is another invite, with which it enrolls
-// again, and when no reachable coordinator's CA signed it. NewWorker, given
-// the client, stops the worker once a coordinator refuses the certificate as
-// revoked on any later call.
+// again, and when no reachable coordinator's CA signed it. A worker that
+// NewWorker creates with the membership stops once a coordinator refuses the
+// certificate of the client as revoked on any later call.
 func (m *Membership) Connect(ctx context.Context, workerID string) (coordinator.Client, error) {
 	for {
 		if m.invite != nil && m.cred == nil {

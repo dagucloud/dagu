@@ -90,6 +90,16 @@ func (p *Poller) Run(ctx context.Context) {
 					tag.PollerIndex(p.index),
 					tag.RunID(task.DagRunId))
 
+				// A removed worker accepts no task: the claim expires and
+				// returns the task to the queue.
+				if p.removed() {
+					logger.Info(ctx, "Task left unaccepted: this worker was removed from the coordinator",
+						tag.WorkerID(p.workerID),
+						tag.PollerIndex(p.index),
+						tag.RunID(task.DagRunId))
+					<-ctx.Done()
+					return
+				}
 				if err := p.ackTaskClaim(ctx, task); err != nil {
 					logger.Error(ctx, "Failed to acknowledge claimed task",
 						tag.WorkerID(p.workerID),

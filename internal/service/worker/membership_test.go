@@ -1040,8 +1040,7 @@ func TestMembershipConnectKeepsClient(t *testing.T) {
 				assert.Implements(t, capability, client)
 			}
 
-			w := NewWorker("worker-1", 1, client, nil, &config.Config{})
-			w.SetMembership(m)
+			w := NewWorker("worker-1", 1, client, nil, &config.Config{}, m)
 			assert.False(t, w.isRemoved())
 			if invite == "" {
 				return
@@ -1273,7 +1272,7 @@ type valueClient struct {
 // The membership reaches the worker whatever client the worker runs with,
 // and a second membership binds its own worker only (Spec 108 §Removed
 // Worker).
-func TestWorkerSetMembership(t *testing.T) {
+func TestWorkerMembership(t *testing.T) {
 	ca := newTestCA(t)
 	first, second := enrolling(ca), enrolling(ca)
 	a, err := open(t, workerConfig(t.TempDir(), ca.invite(t)), first)
@@ -1284,10 +1283,8 @@ func TestWorkerSetMembership(t *testing.T) {
 	require.NoError(t, connect(t.Context(), t, b))
 
 	client := valueClient{addresses: []string{coordinatorA}}
-	wa := NewWorker("worker-a", 1, client, nil, &config.Config{})
-	wa.SetMembership(a)
-	wb := NewWorker("worker-b", 1, client, nil, &config.Config{})
-	wb.SetMembership(b)
+	wa := NewWorker("worker-a", 1, client, nil, &config.Config{}, a)
+	wb := NewWorker("worker-b", 1, client, nil, &config.Config{}, b)
 
 	second.onRemoved()
 	assert.False(t, wa.isRemoved())
