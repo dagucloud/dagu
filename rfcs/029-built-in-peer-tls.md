@@ -593,8 +593,8 @@ worker                                         coordinator
   connection that carries the worker's heartbeat.
 - `GET /workers` returns them. The **Add worker** dialog uses System
   status's existing `/workers` refresh and waits for a worker with its invite ID.
-- The Dagu Cloud report adds `connection` to `health.workers[]`, on paid
-  plans as today.
+- The Dagu Cloud report adds `connection` to `health.workers[]`, and the
+  reason for a plaintext worker, on paid plans as today.
 
 ### Bring your own certificates
 
@@ -688,8 +688,10 @@ The existing keys keep working, with three fixes:
   plus one per removed worker. A record's last heartbeat is written at most
   once a day, and each coordinator prunes the collection once a day.
 - **Workers list:** up to three fields per worker, about 120 bytes, on the
-  existing 2-second refresh of an open System status page. The Dagu Cloud report
-  grows by about 25 bytes per worker, for at most 256 workers.
+  existing 2-second refresh of an open System status page. The Dagu Cloud
+  report grows by about 25 bytes per worker, or up to about 80 for a
+  plaintext worker with its reason, for at most 256 workers, within the
+  64 KiB worker list cap.
 - **Join readiness:** one RPC per coordinator when the dialog opens or the
   server restarts while it is open. No file reads and no polling.
 - **Removal:** `Poll` checks an in-memory set of removing certificates,
