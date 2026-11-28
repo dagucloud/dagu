@@ -129,10 +129,11 @@ function reportedEndpoints(readiness: JoinReadiness): string[] {
 
 /**
  * The endpoint to offer in place of the field's address after the
- * coordinators' reports changed since step 2 started, as after a restart on
- * a new port: a newly reported endpoint with the field's host, else one
- * that replaced the field's address. Undefined while the field holds a
- * reported endpoint or the reports are as they were.
+ * coordinators' reports changed since the reading the field came from, as
+ * after a restart on a new port: a newly reported endpoint with the
+ * field's host, else one that replaced the field's address. Only an
+ * endpoint that passes addressProblem is offered. Undefined while the field
+ * holds a reported endpoint or the reports are as they were.
  */
 export function movedEndpoint(
   address: string,
@@ -144,7 +145,7 @@ export function movedEndpoint(
   const now = reportedEndpoints(current);
   if (now.includes(field) || now.join() === before.join()) return undefined;
   const host = splitHostPort(field)?.[0];
-  const fresh = now.filter((e) => !before.includes(e));
+  const fresh = now.filter((e) => !before.includes(e) && !addressProblem(e));
   return (
     fresh.find((e) => splitHostPort(e)?.[0] === host) ??
     (before.includes(field) ? fresh[0] : undefined)

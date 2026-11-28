@@ -89,7 +89,8 @@ export function AddWorkerDialog({
   const [address, setAddress] = React.useState<string>();
   const [placement, setPlacement] = React.useState<Placement>();
   const touched = React.useRef(false);
-  // The reading step 2 started from. A later reading never rewrites the
+  // The reading the field's address came from: the first one, or the one
+  // whose endpoint the admin took. A later reading never rewrites the
   // field; it offers an endpoint that moved since.
   const [opened, setOpened] = React.useState<JoinReadiness>();
   const openedRef = React.useRef<JoinReadiness | undefined>(undefined);
@@ -270,6 +271,11 @@ export function AddWorkerDialog({
               placementField={placementField}
               placement={placement}
               moved={opened && movedEndpoint(address, opened, data)}
+              onTakeMoved={(next) => {
+                touched.current = true;
+                setOpened(data);
+                setAddress(next);
+              }}
               onPlace={(next) => {
                 touched.current = false;
                 setPlacement(next);
@@ -301,6 +307,7 @@ function AddressFields({
   placementField,
   placement,
   moved,
+  onTakeMoved,
   onPlace,
   problem,
   onChange,
@@ -312,6 +319,8 @@ function AddressFields({
   placement?: Placement;
   /** An endpoint the coordinators now report in place of the field's. */
   moved?: string;
+  /** Takes the moved endpoint into the field. */
+  onTakeMoved: (address: string) => void;
   onPlace: (placement: Placement) => void;
   problem?: AddressProblem;
   onChange: (address: string) => void;
@@ -402,7 +411,7 @@ function AddressFields({
                 text="The coordinator now reports {address}."
                 values={{ address: moved }}
               />
-              <Button size="xs" onClick={() => onChange(moved)}>
+              <Button size="xs" onClick={() => onTakeMoved(moved)}>
                 <I18nText text="Use this address" />
               </Button>
             </p>

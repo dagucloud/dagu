@@ -196,6 +196,32 @@ describe('AddWorker', () => {
     expect(screen.queryByText(/now reports/)).toBeNull();
   });
 
+  // After the admin takes an endpoint, a later move is offered from that
+  // reading, and an endpoint the rule refuses is never offered.
+  it('offers each move from the endpoint taken', async () => {
+    const advertise = 'coord.example.com';
+    const addresses: string[] = [];
+    const { rerender } = await open(readiness({ advertise, addresses }));
+    const reread = async (r: Readiness) => {
+      api.GET.mockResolvedValue(answer(200, r));
+      rerender(view(true));
+      rerender(view(false));
+      await settle();
+    };
+    await reread(readiness({ advertise, addresses, port: 50155 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use this address' }));
+    await reread(readiness({ advertise, addresses }));
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(`${advertise}:50155`);
+    expect(
+      screen.getByText(`The coordinator now reports ${advertise}:50055.`)
+    ).toBeInTheDocument();
+
+    await reread(
+      readiness({ advertise: `${advertise}.`, addresses, port: 50255 })
+    );
+    expect(screen.queryByText(/now reports/)).toBeNull();
+  });
+
   // A retained address stays on open, and a reading that still reports it,
   // or reports nothing new, offers nothing.
   it.each([
