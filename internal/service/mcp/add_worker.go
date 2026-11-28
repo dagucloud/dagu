@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net"
 	"net/http"
@@ -54,7 +55,7 @@ const (
 	// publishedVersionPattern matches a version, without its leading v, of
 	// a vX.Y.Z or vX.Y.Z-* tag, which the image workflow publishes as that
 	// image tag, in the characters an image tag may hold.
-	publishedVersionPattern = `^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.-]+)?$`
+	publishedVersionPattern = `^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.-]*)?$`
 	// devBuildPattern matches the version of a development build, which no
 	// release is tagged with: the default 0.0.0, git describe's commit count
 	// and hash after the last tag, or a snapshot's -next.
@@ -63,6 +64,20 @@ const (
 	workerLabelRule = "a label is key or key=value; a key holds only letters, digits, -, _, and ., " +
 		"at most 63, and a value only those and /, at most 255, each starting with a letter or digit"
 )
+
+// builtinTLSChanges says, for each reason a coordinator has no built-in TLS,
+// the cause and what to do, without how the coordinator handles its CA.
+var builtinTLSChanges = map[daguapi.BuiltinTLSReason]string{
+	daguapi.BuiltinTLSReasonCaUnavailable:   "Built-in TLS is unavailable. Check the coordinator startup log.",
+	daguapi.BuiltinTLSReasonOwnCertificates: "Invites need built-in TLS, and this coordinator uses peer.cert_file and peer.key_file.",
+}
+
+// reasonTLSNames maps the refusal reasons of the worker access API to the
+// join readiness reasons for the same cause.
+var reasonTLSNames = map[string]daguapi.BuiltinTLSReason{
+	string(daguapi.WorkerAccessReasonCaUnavailable):   daguapi.BuiltinTLSReasonCaUnavailable,
+	string(daguapi.WorkerAccessReasonOwnCertificates): daguapi.BuiltinTLSReasonOwnCertificates,
+}
 
 // builtinLabelKeys are the labels a worker sets from its own host.
 var builtinLabelKeys = []string{"os", "arch"}
@@ -86,6 +101,8 @@ type addWorkerInput struct {
 	Address   string
 	Reusable  bool
 	ExpiresIn string
+	// Fields are the fields the call gave.
+	Fields map[string]bool
 }
 
 // isAddWorkerField reports whether a field belongs to add_worker only.
@@ -107,22 +124,17 @@ func parseAddWorkerField(input *addWorkerInput, field string, value json.RawMess
 	return err
 }
 
-// validateAddWorkerInput refuses the fields add_worker does not take.
-func validateAddWorkerInput(provided map[string]bool) *executeToolError {
-	for field := range provided {
-		if field != executeFieldAction && !slices.Contains(addWorkerFields, field) {
-			return executeInputError(fmt.Sprintf("The %s field is not valid for %s.", field, executeActionAddWorker), field)
-		}
-	}
-	return nil
-}
-
-// checkAddWorkerInput refuses an address a worker on another host cannot
+// checkAddWorkerInput refuses a field add_worker does not take, an address a worker on another host cannot
 // dial, an expiresIn the invite API would refuse, a label the worker would
 // refuse at start, and invite text in an address or a label, which would
 // reach the invite record or the worker's log. A refusal never repeats the
 // text it refuses.
 func checkAddWorkerInput(input executeInput) *executeToolError {
+	for _, field := range slices.Sorted(maps.Keys(input.AddWorker.Fields)) {
+		if field != executeFieldAction && !slices.Contains(addWorkerFields, field) {
+			return executeInputError(fmt.Sprintf("The %s field is not valid for %s.", field, executeActionAddWorker), field)
+		}
+	}
 	if address := input.AddWorker.Address; address != "" {
 		if holdsInvite(address) {
 			return executeInputError("The address field holds an invite; the invite goes only into the commands.", executeFieldAddress)
@@ -264,7 +276,7 @@ func (svc *Service) addWorker(ctx context.Context, input executeInput) (*mcpsdk.
 	}
 	created, err := svc.api.CreateWorkerInvite(ctx, daguapi.CreateWorkerInviteRequestObject{Body: body})
 	if err != nil {
-		return nil, nil, inviteInputError(err)
+		return nil, nil, createRefusal(err)
 	}
 	invite, ok := created.(daguapi.CreateWorkerInvite201JSONResponse)
 	if !ok {
@@ -292,15 +304,26 @@ func (svc *Service) addWorker(ctx context.Context, input executeInput) (*mcpsdk.
 	case !in.Reusable:
 		message += " The kubernetes command needs reusable=true, since a new pod has no certificate."
 	}
+	if published {
+		message += " A second worker on the same host needs its own volume: change dagu-worker in the docker command."
+	}
 	return resultWithLinks(message), output, nil
 }
 
-// inviteInputError names the field of a create refusal for a bad request:
-// the API and the coordinator start its message with the field. Any other
-// error returns as it is.
-func inviteInputError(err error) error {
+// createRefusal returns the tool error for a refused create. A refusal for
+// the CA says the cause and where to look, as step 1 does, by its reason.
+// A bad request names its field: the API and the coordinator start its
+// message with it. Any other error returns as it is.
+func createRefusal(err error) error {
 	apiErr, ok := errors.AsType[*frontendapi.Error](err)
-	if !ok || apiErr.HTTPStatus != http.StatusBadRequest {
+	if !ok {
+		return err
+	}
+	reason, _ := apiErr.Details["reason"].(string)
+	if change, ok := builtinTLSChanges[daguapi.BuiltinTLSReason(reasonTLSNames[reason])]; ok {
+		return &executeToolError{Code: executeErrorConflict, Message: change, Reason: reason}
+	}
+	if apiErr.HTTPStatus != http.StatusBadRequest {
 		return err
 	}
 	field := ""
@@ -356,9 +379,9 @@ func joinChanges(report *daguapi.JoinReadinessReport) []string {
 		changes = append(changes, fmt.Sprintf("It listens on %s, so only its own machine can connect. %s", report.ListenHost, listenChange(report)))
 	}
 	if !report.BuiltinTLS {
-		change := "Built-in TLS is unavailable. Check the coordinator startup log."
+		change := builtinTLSChanges[daguapi.BuiltinTLSReasonCaUnavailable]
 		if report.BuiltinTLSReason != nil && *report.BuiltinTLSReason == daguapi.BuiltinTLSReasonOwnCertificates {
-			change = "Invites need built-in TLS, and this coordinator uses peer.cert_file and peer.key_file."
+			change = builtinTLSChanges[daguapi.BuiltinTLSReasonOwnCertificates]
 		}
 		changes = append(changes, change)
 	}

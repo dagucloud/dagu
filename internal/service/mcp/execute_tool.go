@@ -571,7 +571,7 @@ func parseExecuteToolInput(raw json.RawMessage) (executeInput, *executeToolError
 				parseErr = parseAddWorkerField(&input.AddWorker, field, value)
 				break
 			}
-			parseErr = executeInputError("Unknown field "+field+".", field)
+			parseErr = unknownFieldError(field)
 		}
 		if parseErr != nil {
 			return executeInput{}, parseErr
@@ -630,7 +630,9 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 	case executeActionBackfill, executeActionBackfillResume, executeActionBackfillCancel:
 		return validateBackfillInput(input, provided)
 	case executeActionAddWorker:
-		return validateAddWorkerInput(provided)
+		// The fields are checked after the caller's access, in addWorker.
+		input.AddWorker.Fields = provided
+		return nil
 	default:
 		return executeInputError("Unsupported execute action.", executeFieldAction)
 	}
@@ -752,6 +754,15 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 	return nil
 }
 
+// unknownFieldError refuses a field dagu_execute does not know. It names
+// the field unless the name holds an invite, which no output repeats.
+func unknownFieldError(field string) *executeToolError {
+	if holdsInvite(field) {
+		return executeInputError("Unknown field.", "")
+	}
+	return executeInputError("Unknown field "+field+".", field)
+}
+
 func executeInputError(message, field string) *executeToolError {
 	return &executeToolError{
 		Code:    executeErrorInvalidToolInput,
@@ -769,11 +780,16 @@ func classifyExecuteToolError(input executeInput, err error) *executeToolError {
 		DAGName:    input.Name,
 		DAGRunID:   input.DAGRunID,
 	}
+	if input.Action == executeActionAddWorker {
+		// add_worker takes no DAG, so a name it refuses is not repeated.
+		out.DAGName = ""
+	}
 
 	if executeErr, ok := errors.AsType[*executeToolError](err); ok {
 		out.Code = executeErr.Code
 		out.Message = executeErr.Message
 		out.Field = executeErr.Field
+		out.Reason = executeErr.Reason
 		out.Details = executeErr.Details
 		return out
 	}

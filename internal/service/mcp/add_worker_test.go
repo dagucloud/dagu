@@ -42,6 +42,8 @@ type workerAccessStub struct {
 	readiness []coordinator.JoinReadiness
 	invites   []*coordinatorv1.InviteRecord
 	created   *coordinatorv1.CreateInviteRequest
+	// createErr is the create call's refusal, when set.
+	createErr error
 	// readinessCalls counts the join readiness calls.
 	readinessCalls int
 }
@@ -58,6 +60,9 @@ const testInviteExpiry = "2024-03-10T16:00:00Z"
 // by default, and a reusable one does not.
 func (s *workerAccessStub) CreateInvite(_ context.Context, req *coordinatorv1.CreateInviteRequest) (*coordinatorv1.CreateInviteResponse, error) {
 	s.created = req
+	if s.createErr != nil {
+		return nil, s.createErr
+	}
 	record := &coordinatorv1.InviteRecord{Id: "invite-1", Kind: coordinatorv1.InviteKind_INVITE_KIND_SINGLE_USE, ExpiresAt: 1710086400, Address: req.Address}
 	if req.Reusable {
 		record.Kind, record.ExpiresAt = coordinatorv1.InviteKind_INVITE_KIND_REUSABLE, 0
@@ -327,12 +332,16 @@ func TestAddWorkerChecksAccessFirst(t *testing.T) {
 	stub := &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}}
 	svc, store := newAddWorkerService(stub)
 
-	result, data := addWorker(t, cloudUser(auth.RoleDeveloper), svc, map[string]any{"address": "0.0.0.0:50055"})
-	require.True(t, result.IsError, data)
-	require.Equal(t, executeErrorUnauthorized, structuredMap(t, result)["code"], data)
+	for _, args := range []map[string]any{{"address": "0.0.0.0:50055"}, {"name": "etl"}} {
+		store.entries = nil
+		result, data := addWorker(t, cloudUser(auth.RoleDeveloper), svc, args)
+		require.True(t, result.IsError, data)
+		require.Equal(t, executeErrorUnauthorized, structuredMap(t, result)["code"], data)
+		require.NotEmpty(t, store.entries, "the refusal is audited")
+	}
 
 	store.entries = nil
-	result, data = addWorker(t, cloudUser(auth.RoleAdmin), svc, map[string]any{"address": "0.0.0.0:50055"})
+	result, data := addWorker(t, cloudUser(auth.RoleAdmin), svc, map[string]any{"address": "0.0.0.0:50055"})
 	require.True(t, result.IsError, data)
 	require.Equal(t, executeErrorInvalidToolInput, structuredMap(t, result)["code"], data)
 	actions := make([]string, 0, len(store.entries))
@@ -353,6 +362,7 @@ func TestAddWorkerKeepsPastedInvitesOut(t *testing.T) {
 		executeFieldLabels:    []string{"note=" + testWorkerInvite},
 		executeFieldExpiresIn: testWorkerInvite,
 		executeFieldName:      testWorkerInvite,
+		testWorkerInvite:      "x",
 	} {
 		stub := &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}}
 		svc, store := newAddWorkerService(stub)
@@ -371,6 +381,36 @@ func TestAddWorkerKeepsPastedInvitesOut(t *testing.T) {
 			require.NotContains(t, entry.Details, testWorkerInvite, field)
 		}
 		require.NotContains(t, logs.String(), testWorkerInvite, field)
+		require.Zero(t, stub.readinessCalls, field)
+	}
+}
+
+// A create refusal for the CA says the cause and where to look, as step 1
+// does, and keeps the reason, not the coordinator's account of its CA.
+func TestAddWorkerCreateRefusal(t *testing.T) {
+	t.Parallel()
+
+	for message, want := range map[string]struct{ reason, message string }{
+		"invites need the built-in CA: this coordinator could not create or read its CA; see its start warning": {
+			"ca_unavailable", "Built-in TLS is unavailable. Check the coordinator startup log.",
+		},
+		"invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file": {
+			"own_certificates", "Invites need built-in TLS, and this coordinator uses peer.cert_file and peer.key_file.",
+		},
+	} {
+		stub := &workerAccessStub{
+			readiness: []coordinator.JoinReadiness{{Report: readyReport()}},
+			createErr: status.Error(codes.FailedPrecondition, message),
+		}
+		svc, _ := newAddWorkerService(stub)
+
+		result, data := addWorker(t, cloudUser(auth.RoleAdmin), svc, map[string]any{"address": "192.168.1.20:50055"})
+
+		require.True(t, result.IsError, data)
+		output := structuredMap(t, result)
+		require.Equal(t, executeErrorConflict, output["code"], data)
+		require.Equal(t, want.reason, output["reason"], data)
+		require.Equal(t, want.message, output["message"], data)
 	}
 }
 
@@ -526,7 +566,7 @@ func TestWorkerImageFollowsImageWorkflow(t *testing.T) {
 
 	devBuilds := []string{"v2.28.0-next", "v2.28.0-1-gabc1234", "v0.0.0"}
 	for _, tag := range append([]string{
-		"v2.28.0", "v2.28.0-rc.1", "v2.28.0--preview.1", "v2.28.0-preview-test.1", "v2.28.0-rc_1", "release-2.28.0",
+		"v2.28.0", "v2.28.0-", "v2.28.0-rc.1", "v2.28.0--preview.1", "v2.28.0-preview-test.1", "v2.28.0-rc_1", "release-2.28.0",
 	}, devBuilds...) {
 		_, ok := workerImage(tag)
 		if slices.Contains(devBuilds, tag) {
