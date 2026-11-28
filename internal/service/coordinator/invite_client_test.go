@@ -418,13 +418,30 @@ func TestClientInviteReasonedRefusalWins(t *testing.T) {
 	})
 }
 
-// A read of the invites that fails does not stop a delete that succeeds.
+// A read of the invites that fails does not stop a delete. The delete
+// succeeds when the invite is gone afterwards and a delete may have removed
+// it, also with its answer lost, and an ID that no delete could have
+// removed stays NotFound.
 func TestClientDeleteInviteAfterFailedList(t *testing.T) {
 	t.Parallel()
 
-	shared := newSharedInvites("invite-1")
-	c := &sharingCoordinator{shared: shared}
-	c.failLists.Store(1)
-	require.NoError(t, inviteClientOf(t, serving(c)).DeleteInvite(t.Context(), "invite-1"))
-	assert.False(t, shared.has("invite-1"))
+	for name, tt := range map[string]struct {
+		ids        []string
+		loseAnswer bool
+		want       codes.Code
+	}{
+		"answered":    {ids: []string{"invite-1"}, want: codes.OK},
+		"lost answer": {ids: []string{"invite-1"}, loseAnswer: true, want: codes.OK},
+		"no invite":   {want: codes.NotFound},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			shared := newSharedInvites(tt.ids...)
+			c := &sharingCoordinator{shared: shared, loseAnswer: tt.loseAnswer}
+			c.failLists.Store(1)
+			err := inviteClientOf(t, serving(c)).DeleteInvite(t.Context(), "invite-1")
+			assert.Equal(t, tt.want, status.Code(err), "%v", err)
+			assert.False(t, shared.has("invite-1"))
+		})
+	}
 }

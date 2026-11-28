@@ -55,7 +55,9 @@ type InviteClient interface {
 	// DeleteInvite deletes the invite with the ID id. It fails with
 	// NotFound only when no invite has the ID before the delete, and
 	// succeeds when the invite is gone afterwards, also when the answer of
-	// the coordinator that deleted it was lost during this call.
+	// the coordinator that deleted it was lost during this call. Its read
+	// of the invites before the delete, the delete, and its read after each
+	// have their own 10-second budget.
 	DeleteInvite(ctx context.Context, id string) error
 }
 
@@ -97,8 +99,15 @@ func (cli *clientImpl) DeleteInvite(ctx context.Context, id string) error {
 	if listErr == nil && !listed {
 		return status.Error(codes.NotFound, missingInviteMessage)
 	}
+	// mayHaveDeleted records a delete that reached a coordinator and got
+	// no answer, so it may have deleted the invite.
+	var mayHaveDeleted bool
 	err := cli.callInviteCoordinator(ctx, true, func(ctx context.Context, client coordinatorv1.CoordinatorServiceClient, opts ...grpc.CallOption) error {
-		_, err := client.DeleteInvite(ctx, &coordinatorv1.DeleteInviteRequest{Id: id}, opts...)
+		var p peer.Peer
+		_, err := client.DeleteInvite(ctx, &coordinatorv1.DeleteInviteRequest{Id: id}, append(opts, grpc.Peer(&p))...)
+		if code := status.Code(err); p.Addr != nil && (code == codes.Unavailable || code == codes.DeadlineExceeded) {
+			mayHaveDeleted = true
+		}
 		return err
 	})
 	if err == nil {
@@ -112,12 +121,12 @@ func (cli *clientImpl) DeleteInvite(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	if listErr != nil {
-		// Without the first read, an invite gone now may never have been.
-		return status.Error(codes.NotFound, missingInviteMessage)
+	// The invite is gone. It was deleted here when it was listed before, or
+	// when a delete that got no answer may have deleted it.
+	if listErr == nil || mayHaveDeleted {
+		return nil
 	}
-	// The invite was listed before the delete, so it is gone.
-	return nil
+	return status.Error(codes.NotFound, missingInviteMessage)
 }
 
 // inviteListed reports whether the invites list one with the ID id.
