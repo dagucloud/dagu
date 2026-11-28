@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
@@ -85,7 +87,7 @@ func NewToolRegistry(ctx context.Context, dagNames []string) (*ToolRegistry, err
 				return nil, fmt.Errorf("failed to parse params for tool DAG %q: %w", dagName, err)
 			}
 		}
-		if err := checkModelInputs(dag, params); err != nil {
+		if err := checkModelInputs(ctx, dag, params); err != nil {
 			return nil, err
 		}
 
@@ -154,13 +156,17 @@ func (r *ToolRegistry) HasTools() bool {
 // the text itself: ${params}, ${params.NAME} and ${env.NAME}.
 var substitutedRef = regexp.MustCompile(`\$\{\s*(?:params|(?:params|env)\.([A-Za-z_][A-Za-z0-9_]*))\s*\}`)
 
+// quotedRef matches "${NAME}", which Dagu fills with a quoted value in a
+// here-document body or a single-quoted span of a command.
+var quotedRef = regexp.MustCompile(`"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"`)
+
 // envRef matches $NAME and ${NAME}, which Dagu also expands in an eval.
 var envRef = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*)`)
 
 // checkModelInputs fails when the tool DAG would evaluate text that the model
 // sets: a command that Dagu fills with an input before the shell runs it, or an
 // eval that reads an input.
-func checkModelInputs(dag *ir.DAG, params []toolParam) error {
+func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) error {
 	if len(params) == 0 {
 		return nil
 	}
@@ -191,10 +197,11 @@ func checkModelInputs(dag *ir.DAG, params []toolParam) error {
 		if step == nil {
 			continue
 		}
+		fills := fillsShellVariables(ctx, dag, step)
 		where := fmt.Sprintf("the command of step %q", step.Name)
 		for _, text := range commandTexts(step) {
-			if ref, variable, ok := modelRef(text, inputs, false); ok {
-				return modelInputError(dag, where, ref, variable, true)
+			if ref, variable, ok := modelRef(text, inputs, fills); ok {
+				return modelInputError(dag, where, ref, variable, !fills)
 			}
 		}
 		if err := checkConditions(dag, fmt.Sprintf("a precondition of step %q", step.Name), step.Preconditions, inputs); err != nil {
@@ -207,6 +214,23 @@ func checkModelInputs(dag *ir.DAG, params []toolParam) error {
 		}
 	}
 	return nil
+}
+
+// fillsShellVariables reports whether Dagu fills $NAME into the command of a
+// local command step, which it does unless a POSIX or Nix shell runs it. The
+// shell is the step's, else the DAG's, else the default one.
+func fillsShellVariables(ctx context.Context, dag *ir.DAG, step *ir.Step) bool {
+	if !step.ExecutorConfig.IsCommand() && step.ExecutorConfig.Type != "shell" {
+		return false
+	}
+	shell := step.Shell
+	if shell == "" {
+		shell = dag.Shell
+	}
+	if shell == "" {
+		shell = cmdutil.GetShellCommand(config.GetConfig(ctx).Core.DefaultShell)
+	}
+	return !cmdutil.IsUnixLikeShell(shell) && !cmdutil.IsNixShell(shell)
 }
 
 // checkConditions checks the evals of conditions, and the conditions that run
@@ -253,6 +277,11 @@ func modelRef(text string, inputs map[string]bool, eval bool) (ref, variable str
 			return m[0], m[1], true
 		}
 	}
+	for _, m := range quotedRef.FindAllStringSubmatch(text, -1) {
+		if inputs[m[1]] {
+			return m[0], m[1], true
+		}
+	}
 	if !eval {
 		return "", "", false
 	}
@@ -265,10 +294,11 @@ func modelRef(text string, inputs map[string]bool, eval bool) (ref, variable str
 }
 
 // modelInputError names the tool DAG, the place and the reference. A command
-// can read the input from its variable instead, which the shell keeps as data.
-func modelInputError(dag *ir.DAG, where, ref, variable string, command bool) error {
+// run by a POSIX or Nix shell can read the input from its variable instead,
+// which the shell keeps as data.
+func modelInputError(dag *ir.DAG, where, ref, variable string, hint bool) error {
 	err := fmt.Errorf("tool DAG %q: %s refers to %s, which holds text that the model sets, and that text would run as code", dag.Name, where, ref)
-	if command {
+	if hint {
 		return fmt.Errorf("%w; read it as \"$%s\" in the command, which the shell keeps as data", err, variable)
 	}
 	return err
