@@ -1086,6 +1086,33 @@ func TestRestartScannerHistory(t *testing.T) {
 		assert.Equal(t, []string{"run-1", "hand"}, runIDs(store.samples))
 	})
 
+	// The coordinator writes the status of a run on a worker to the same store
+	// as a local run, and the worker records no sample. The scanner records it
+	// from that status, before the next run is queued.
+	t.Run("RunOnWorker", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		h.latest = ir.DAGRunStatus{
+			DAGRunID: "run-1", AttemptID: "attempt-1", Status: ir.Running, WorkerID: "worker-1",
+			StartedAt: h.now.Add(-time.Minute).Format(time.RFC3339),
+		}
+		h.onWorker = true
+		h.scan()
+		assert.Empty(t, store.samples, "a run in progress has no sample")
+
+		h.latest.Status, h.latest.FinishedAt = ir.Succeeded, h.now.Format(time.RFC3339)
+		h.onWorker = false
+		for ended := h.now; len(h.enqueued) == 0; {
+			require.Less(t, h.now.Sub(ended), time.Minute, "no restart within a minute")
+			h.now = h.now.Add(time.Second)
+			h.scan()
+		}
+		assert.Equal(t, []string{"sample:run-1", "enqueue"}, h.order)
+		require.Len(t, store.samples, 1)
+		assert.Equal(t, time.Minute, store.samples[0].Duration)
+	})
+
 	// A suspended DAG reads its status again only when a run ends, or after the
 	// reconcile interval.
 	t.Run("SuspendedReads", func(t *testing.T) {
