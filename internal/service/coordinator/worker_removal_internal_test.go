@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1800,7 +1801,7 @@ type afterBoundList struct {
 	once sync.Once
 }
 
-func (s *afterBoundList) ListBoundTo(ctx context.Context, workerIDs []string) ([]*dispatch.DispatchTask, error) {
+func (s *afterBoundList) ListBoundTo(ctx context.Context, workerIDs []string) ([]dispatch.BoundDispatch, error) {
 	tasks, err := s.DispatchTaskStore.ListBoundTo(ctx, workerIDs)
 	s.once.Do(s.hook)
 	return tasks, err
@@ -1898,6 +1899,38 @@ func TestRemovalFailsAdmittedBoundRun(t *testing.T) {
 			}}
 			return f.h
 		}},
+		{name: "marked before a restart", run: func(f *strandFixture) *Handler {
+			// The coordinator stopped after it marked the task, before it
+			// failed the run.
+			f.admit(f.h, "run-1")
+			f.revoke()
+			bound, err := f.dispatches.ListBoundTo(f.t.Context(), []string{"node-a"})
+			require.NoError(f.t, err)
+			require.Len(f.t, bound, 1)
+			require.NoError(f.t, f.dispatches.MarkRetiring(f.t.Context(), bound[0].Task))
+			restartedStore, _, _ := newTestDispatchAdmissionTaskStore(f.baseDir)
+			return f.coordinator(restartedStore)
+		}},
+		{name: "enrolled after the listing", kept: true, claimable: true, run: func(f *strandFixture) *Handler {
+			f.admit(f.h, "run-1")
+			f.revoke()
+			f.h.dispatchTaskStore = &afterBoundList{DispatchTaskStore: f.dispatches, hook: func() {
+				require.NoError(f.t, f.certs.Create(f.t.Context(), persis.WorkerCertificate{
+					ID: "cert-2", KeyFingerprint: []byte("cert-2"), State: persis.WorkerCertificateActive, WorkerID: "node-a", CreatedAt: time.Now(),
+				}))
+			}}
+			return f.h
+		}},
+		{name: "an active certificate's history names the ID", kept: true, claimable: true, run: func(f *strandFixture) *Handler {
+			f.admit(f.h, "run-1")
+			f.revoke()
+			require.NoError(f.t, f.certs.Create(f.t.Context(), persis.WorkerCertificate{
+				ID: "cert-2", KeyFingerprint: []byte("cert-2"), State: persis.WorkerCertificateActive, WorkerID: "node-renamed",
+				WorkerIDs: []persis.WorkerIDSeen{{ID: "node-a", SeenAt: time.Now()}, {ID: "node-renamed", SeenAt: time.Now()}},
+				CreatedAt: time.Now(),
+			}))
+			return f.h
+		}},
 		{name: "an active certificate names the ID", kept: true, claimable: true, run: func(f *strandFixture) *Handler {
 			f.admit(f.h, "run-1")
 			f.revoke()
@@ -1938,13 +1971,60 @@ func TestRemovalFailsAdmittedBoundRun(t *testing.T) {
 	}
 }
 
+// pausePendingDelete pauses the first deletion of a pending record, once
+// armed, until release closes, as a poll that wrote its claim and has yet
+// to drop the pending record.
+type pausePendingDelete struct {
+	persis.Collection
+	armed   atomic.Bool
+	reached chan struct{}
+	release chan struct{}
+}
+
+func (c *pausePendingDelete) CompareAndDelete(ctx context.Context, rec *persis.Record) error {
+	if strings.HasPrefix(rec.ID, "pending/") && c.armed.CompareAndSwap(true, false) {
+		close(c.reached)
+		<-c.release
+	}
+	return c.Collection.CompareAndDelete(ctx, rec)
+}
+
+// Another coordinator's poll claims an unrelated run and pauses before it
+// drops the run's pending record, while this coordinator's reread looks for
+// the runs of a removed worker. The reread leaves the unrelated run alone,
+// so the poll keeps its claim (Spec 108 §Removal).
+func TestStrandedRunPassSparesUnrelatedPoll(t *testing.T) {
+	f := newStrandFixture(t)
+	f.revoke()
+	require.NoError(t, f.dispatches.Enqueue(t.Context(), &dispatch.DispatchTask{
+		DAGRunID: "run-other", Target: "routed", AttemptID: "attempt-other", AttemptKey: "attempt-key-other",
+	}))
+	paused := &pausePendingDelete{Collection: file.NewCollection(f.baseDir), reached: make(chan struct{}), release: make(chan struct{})}
+	peer := store.NewDispatchTaskStore(paused, store.WithDispatchAdmissionLiveness(f.leases, f.active))
+	paused.armed.Store(true)
+	claimed := make(chan *dispatch.ClaimedDispatchTask, 1)
+	go func() {
+		task, err := peer.ClaimNext(context.WithoutCancel(t.Context()), dispatch.DispatchTaskClaim{WorkerID: "node-z", PollerID: "poller-z"})
+		assert.NoError(t, err)
+		claimed <- task
+	}()
+	<-paused.reached
+
+	f.h.rereadRemovals(t.Context())
+	close(paused.release)
+	task := <-claimed
+	require.NotNil(t, task, "the poll keeps the run it claimed")
+	_, err := peer.GetClaim(t.Context(), task.ClaimToken)
+	assert.NoError(t, err)
+}
+
 // countingBoundLists counts the listings of bound tasks.
 type countingBoundLists struct {
 	dispatch.DispatchTaskStore
 	calls atomic.Int32
 }
 
-func (s *countingBoundLists) ListBoundTo(ctx context.Context, workerIDs []string) ([]*dispatch.DispatchTask, error) {
+func (s *countingBoundLists) ListBoundTo(ctx context.Context, workerIDs []string) ([]dispatch.BoundDispatch, error) {
 	s.calls.Add(1)
 	return s.DispatchTaskStore.ListBoundTo(ctx, workerIDs)
 }

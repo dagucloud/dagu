@@ -307,11 +307,15 @@ func (s *claimReleaseStore) ListStalePending(context.Context, time.Time) ([]*dis
 	return nil, nil
 }
 
-func (s *claimReleaseStore) ListBoundTo(context.Context, []string) ([]*dispatch.DispatchTask, error) {
+func (s *claimReleaseStore) ListBoundTo(context.Context, []string) ([]dispatch.BoundDispatch, error) {
 	return nil, nil
 }
 
-func (s *claimReleaseStore) RetireBound(context.Context, *dispatch.DispatchTask) error {
+func (s *claimReleaseStore) MarkRetiring(context.Context, *dispatch.DispatchTask) error {
+	return nil
+}
+
+func (s *claimReleaseStore) DeleteRetiring(context.Context, *dispatch.DispatchTask) error {
 	return nil
 }
 
@@ -373,11 +377,15 @@ func (s *pollingDispatchStore) ListStalePending(context.Context, time.Time) ([]*
 	return nil, nil
 }
 
-func (s *pollingDispatchStore) ListBoundTo(context.Context, []string) ([]*dispatch.DispatchTask, error) {
+func (s *pollingDispatchStore) ListBoundTo(context.Context, []string) ([]dispatch.BoundDispatch, error) {
 	return nil, nil
 }
 
-func (s *pollingDispatchStore) RetireBound(context.Context, *dispatch.DispatchTask) error {
+func (s *pollingDispatchStore) MarkRetiring(context.Context, *dispatch.DispatchTask) error {
+	return nil
+}
+
+func (s *pollingDispatchStore) DeleteRetiring(context.Context, *dispatch.DispatchTask) error {
 	return nil
 }
 

@@ -611,10 +611,14 @@ func (s *WorkerCertificateStore) SetState(ctx context.Context, id string, state 
 			return nil
 		}
 		cert.State = state
+		ids := removalWorkerIDs(cert, current)
 		if state == persis.WorkerCertificateRevoked {
+			// The revoked record is the last write of the removal, so it
+			// keeps the IDs of both records, as a finish revocation does.
 			cert.RevokedAt = time.Now().UTC()
+			ids = cert.WorkerIDs
 		}
-		next, err := encodeWorkerCertificateRemoval(cert, removalWorkerIDs(cert, current), acceptancesOf(current))
+		next, err := encodeWorkerCertificateRemoval(cert, ids, acceptancesOf(current))
 		if err != nil {
 			return err
 		}

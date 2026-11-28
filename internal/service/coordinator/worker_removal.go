@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -665,13 +666,12 @@ func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertifica
 	}
 }
 
-// failStrandedRuns fails each run bound to the worker of a certificate
-// revoked less than strandedRunWindow ago that no worker took, pending or
-// claimed without an acceptance, and frees its place in its queue. A worker
-// ID that an active certificate or a fresh heartbeat names keeps its runs,
-// as one that enrolled again under the same ID does. It runs at each
-// reread, so a revocation at startup, one by another coordinator, and a
-// claim that came late are all found by a later pass.
+// failStrandedRuns fails each run bound to a worker ID that a certificate
+// revoked less than strandedRunWindow ago names, which no worker took,
+// pending or claimed without an acceptance, and frees its place in its
+// queue. It runs at each reread, so a revocation at startup, one by
+// another coordinator, and a claim that came late are all found by a later
+// pass.
 func (h *Handler) failStrandedRuns(ctx context.Context) {
 	if h.dispatchTaskStore == nil || h.dagRunRepository == nil {
 		return
@@ -686,80 +686,95 @@ func (h *Handler) failStrandedRuns(ctx context.Context) {
 		logger.Warn(ctx, "Failed to list the tasks of removed workers", tag.Error(err))
 		return
 	}
-	if len(tasks) == 0 {
-		return
-	}
-	presence, err := h.listPresence(ctx)
-	if err != nil {
-		logger.Warn(ctx, "Failed to list worker heartbeats for the tasks of removed workers", tag.Error(err))
-		return
-	}
-	certs, err := h.workerCertificates.List(ctx)
-	if err != nil {
-		logger.Warn(ctx, "Failed to list worker certificates for the tasks of removed workers", tag.Error(err))
-		return
-	}
-	for _, task := range tasks {
-		if workerIdentified(task.TargetWorkerID, certs, presence, now, h.staleHeartbeatThreshold) {
-			continue
-		}
-		h.failStrandedRun(ctx, task, now)
+	for _, bound := range tasks {
+		h.failStrandedRun(ctx, bound, now)
 	}
 }
 
-// failStrandedRun fails the run of task, bound to a removed worker that
-// did not accept it, and releases its place in its queue. It first retires
-// the task from the version the store holds, so a worker that claimed or
-// began to accept the task meanwhile keeps the run, and a later pass looks
-// again. A run that no longer waits for the task, or cannot be read, keeps
-// its task.
-func (h *Handler) failStrandedRun(ctx context.Context, task *dispatch.DispatchTask, now time.Time) {
+// failStrandedRun fails the run of the task of bound and releases its place
+// in its queue. Unless the task is being retired already, it first checks
+// that no active certificate or fresh heartbeat names the task's worker ID,
+// as one that enrolled again under it does, and marks the task, so no
+// worker claims or accepts it after. Then it fails the run, releases its
+// place, and deletes the task. A pass that stops on the way leaves the mark
+// for the next one, which goes on from there.
+func (h *Handler) failStrandedRun(ctx context.Context, bound dispatch.BoundDispatch, now time.Time) {
+	task := bound.Task
+	storeCtx := context.WithoutCancel(ctx)
+	if !bound.Retiring {
+		identified, err := h.workerIdentified(storeCtx, task.TargetWorkerID, now)
+		if err != nil {
+			logger.Warn(ctx, "Failed to check the worker of a removed worker's task", tag.WorkerID(task.TargetWorkerID), tag.Error(err))
+			return
+		}
+		if identified {
+			return
+		}
+		if err := h.dispatchTaskStore.MarkRetiring(storeCtx, task); err != nil {
+			if !errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
+				logger.Warn(ctx, "Failed to retire the task of a removed worker", tag.RunID(task.DAGRunID), tag.Error(err))
+			}
+			return
+		}
+	}
+	if !h.failRetiredRun(storeCtx, task, now) {
+		return
+	}
+	if err := h.dispatchTaskStore.DeleteRetiring(storeCtx, task); err != nil {
+		logger.Warn(ctx, "Failed to delete the task of a removed worker", tag.RunID(task.DAGRunID), tag.Error(err))
+	}
+}
+
+// failRetiredRun fails the run of the retiring task while the run still
+// waits for it, and releases the run's place in its queue. It reports
+// whether the task may go: false while the run cannot be read or written.
+func (h *Handler) failRetiredRun(ctx context.Context, task *dispatch.DispatchTask, now time.Time) bool {
 	held := h.runLocks.lock(task.DAGRunID)
 	defer h.runLocks.unlock(task.DAGRunID, held)
 
-	storeCtx := context.WithoutCancel(ctx)
 	rootRef := ir.DAGRunRef{Name: task.RootDAGRunName, ID: task.RootDAGRunID}
-	attempt, runStatus, err := h.resolveLatestAttempt(storeCtx, task.Target, task.DAGRunID, rootRef)
-	if err != nil || runStatus == nil {
-		return
+	attempt, runStatus, err := h.resolveLatestAttempt(ctx, task.Target, task.DAGRunID, rootRef)
+	switch {
+	case errors.Is(err, dagrun.ErrDAGRunIDNotFound), errors.Is(err, dagrun.ErrNoStatusData):
+		return true
+	case err != nil || runStatus == nil:
+		return false
 	}
-	if (runStatus.Status != ir.Queued && runStatus.Status != ir.NotStarted) || runStatus.WorkerID != "" ||
-		(task.AttemptID != "" && runStatus.AttemptID != task.AttemptID) {
-		return
-	}
-	if err := h.dispatchTaskStore.RetireBound(storeCtx, task); err != nil {
-		if !errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
-			logger.Warn(ctx, "Failed to retire the task of a removed worker", tag.RunID(task.DAGRunID), tag.Error(err))
+	if (runStatus.Status == ir.Queued || runStatus.Status == ir.NotStarted) && runStatus.WorkerID == "" &&
+		(task.AttemptID == "" || runStatus.AttemptID == task.AttemptID) {
+		// runStatus may be the cached status other readers share.
+		failed := *runStatus
+		failed.Status = ir.Failed
+		failed.FinishedAt = stringutil.FormatTime(now)
+		failed.Error = fmt.Sprintf("worker %s was removed before it took the run", task.TargetWorkerID)
+		if err := h.writeHeldAttemptStatus(ctx, task.DAGRunID, attempt, failed); err != nil {
+			logger.Warn(ctx, "Failed to fail a run bound to a removed worker", tag.RunID(task.DAGRunID), tag.Error(err))
+			return false
 		}
-		return
+		runStatus = &failed
+		logger.Warn(ctx, "A run bound to a removed worker failed", tag.RunID(task.DAGRunID), tag.WorkerID(task.TargetWorkerID))
 	}
-	// runStatus may be the cached status other readers share.
-	failed := *runStatus
-	failed.Status = ir.Failed
-	failed.FinishedAt = stringutil.FormatTime(now)
-	failed.Error = fmt.Sprintf("worker %s was removed before it took the run", task.TargetWorkerID)
-	if err := h.writeHeldAttemptStatus(storeCtx, task.DAGRunID, attempt, failed); err != nil {
-		logger.Warn(ctx, "Failed to fail a run bound to a removed worker", tag.RunID(task.DAGRunID), tag.Error(err))
-		return
-	}
-	h.finalizeAdmissionForStatus(storeCtx, &failed, attempt.ID())
-	logger.Warn(ctx, "A run bound to a removed worker failed", tag.RunID(task.DAGRunID), tag.WorkerID(task.TargetWorkerID))
+	h.finalizeAdmissionForStatus(ctx, runStatus, attempt.ID())
+	return true
 }
 
-// workerIdentified reports whether an active certificate of certs or a
-// fresh heartbeat of presence names the worker ID workerID now.
-func workerIdentified(workerID string, certs []persis.WorkerCertificate, presence []dispatch.WorkerHeartbeatRecord, now time.Time, stale time.Duration) bool {
-	for _, cert := range certs {
-		if cert.State == persis.WorkerCertificateActive && cert.WorkerID == workerID {
-			return true
-		}
+// workerIdentified reports whether an active certificate or a fresh
+// heartbeat names the worker ID workerID now.
+func (h *Handler) workerIdentified(ctx context.Context, workerID string, now time.Time) (bool, error) {
+	hb, err := h.workerPresence(ctx, workerID)
+	if err != nil {
+		return false, err
 	}
-	for _, hb := range presence {
-		if hb.WorkerID == workerID && dispatch.WorkerHeartbeatFresh(hb, now, stale) {
-			return true
-		}
+	if hb != nil && dispatch.WorkerHeartbeatFresh(*hb, now, h.staleHeartbeatThreshold) {
+		return true, nil
 	}
-	return false
+	certs, err := h.workerCertificates.List(ctx)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(certs, func(cert persis.WorkerCertificate) bool {
+		return cert.State == persis.WorkerCertificateActive && namesWorker(cert, workerID)
+	}), nil
 }
 
 // removalDue reports whether the removing certificate removal is to be

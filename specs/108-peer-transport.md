@@ -783,13 +783,16 @@ or `stop`:
     waits for the worker or the worker claimed it without accepting it,
     fails with `worker <worker ID> was removed before it took the run` and
     frees its place in its queue. This holds for every worker ID that the
-    removal names, and happens at the first reread, within 30 seconds,
-    after the certificate is revoked, on any coordinator, also after a
-    restart. A worker ID that an active certificate or a fresh heartbeat
-    names keeps its runs, as after the worker enrolled again under it, and
-    so does a run whose acceptance began: the coordinator retires the task
-    before it fails the run. Coordinators look for such runs for 10 minutes
-    after the revocation.
+    removal names, on any coordinator, also after a restart. It happens at
+    the first reread after the revocation that finds the task taken by no
+    worker: for a claim whose acceptance began and died, that is the first
+    reread after the claim timeout. A worker ID that an active certificate
+    or a fresh heartbeat names keeps its runs, as after the worker
+    enrolled again under it, and so does a run whose acceptance began
+    first. The coordinator marks the task before it fails the run, so no
+    worker takes the task after, and a coordinator that stops on the way
+    leaves the mark for the next reread. Coordinators look for such runs
+    for 10 minutes after the revocation.
   - A worker accepts a task only while the store shows its certificate
     `active`: the coordinator that the acceptance reaches reads the
     certificate's state before it creates the task's lease. An acceptance
@@ -1318,7 +1321,10 @@ The Workers page is the list of workers on System status.
 - The reread reads the records of `removing` and `revoked` certificates
   only, so its cost grows with removed workers, not with enrollments.
   For 10 minutes after a revocation, it also lists the IDs of the queued
-  and claimed tasks and reads those bound to the removed workers.
+  and claimed tasks, reads every queued and claimed task once when other
+  coordinators changed those IDs since its last read, and else reads only
+  those bound to the removed workers. For each such task it reads the
+  worker's heartbeat and lists the certificates once.
 - A client that uses the published CA certificate reads it and the registry
   when it opens a connection. Connections are long-lived, so this does not
   grow with runs.

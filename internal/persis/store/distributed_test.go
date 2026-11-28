@@ -1068,6 +1068,45 @@ func TestDispatchTaskStore_ListBundleDigestsDuringTransitions(t *testing.T) {
 	}
 }
 
+// A task bound to a removed worker is marked for retirement. No poll
+// claims it, and a claim marked so takes no acceptance; the retirement
+// then deletes it.
+func TestDispatchTaskStore_RetiringTaskNotTaken(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	for _, runID := range []string{"run-pending", "run-claimed"} {
+		require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
+			DAGRunID: runID, Target: "dag", AttemptID: "attempt", AttemptKey: "key-" + runID, TargetWorkerID: "node-a",
+		}))
+	}
+	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "node-a", PollerID: "poller-1"})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	bound, err := s.ListBoundTo(ctx, []string{"node-a"})
+	require.NoError(t, err)
+	require.Len(t, bound, 2)
+	for _, b := range bound {
+		require.False(t, b.Retiring)
+		require.NoError(t, s.MarkRetiring(ctx, b.Task))
+	}
+
+	again, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "node-a", PollerID: "poller-2"})
+	require.NoError(t, err)
+	assert.Nil(t, again, "no poll takes a retiring task")
+	assert.ErrorIs(t, s.MarkClaimLeasing(ctx, claimed.ClaimToken), dispatch.ErrDispatchTaskNotFound)
+	bound, err = s.ListBoundTo(ctx, []string{"node-a"})
+	require.NoError(t, err)
+	require.Len(t, bound, 2)
+	for _, b := range bound {
+		assert.True(t, b.Retiring)
+		require.NoError(t, s.DeleteRetiring(ctx, b.Task))
+	}
+	bound, err = s.ListBoundTo(ctx, []string{"node-a"})
+	require.NoError(t, err)
+	assert.Empty(t, bound)
+}
+
 // beforeFirstWrite runs hook once, right before the first write.
 type beforeFirstWrite struct {
 	persis.Collection

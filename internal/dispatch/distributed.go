@@ -130,18 +130,22 @@ type DispatchTaskStore interface {
 	// ListBoundTo returns the tasks bound to one of workerIDs that no
 	// worker accepted: the pending ones, held ones included, and the
 	// claimed ones whose acceptance has not begun, with their claim token.
-	// It first completes the expiry of the claims past their timeout, as a
-	// claim does, and reads the shared record IDs, so it sees the tasks
-	// that other coordinators queued or claimed. When their writes changed
-	// those IDs, it reads every pending and claimed record once to rebuild
-	// its index; otherwise it reads only the records of the bound tasks.
-	ListBoundTo(ctx context.Context, workerIDs []string) ([]*DispatchTask, error)
-	// RetireBound deletes task, one that [DispatchTaskStore.ListBoundTo]
-	// returned, in one compare-and-delete from the version it reads: its
-	// claim when it has a claim token, else its pending record. It returns
-	// [ErrDispatchTaskNotFound] when the task is gone or no longer its to
-	// retire, as when a worker claimed or began to accept it meanwhile.
-	RetireBound(ctx context.Context, task *DispatchTask) error
+	// It reads the shared record IDs first, so it sees the tasks that other
+	// coordinators queued or claimed; when their writes changed those IDs,
+	// it reads every pending and claimed record once to rebuild its index.
+	// It completes the expiry of the bound claims past their timeout, as
+	// a claim's expiry does, and reads only the records of bound tasks.
+	ListBoundTo(ctx context.Context, workerIDs []string) ([]BoundDispatch, error)
+	// MarkRetiring marks task, one that [DispatchTaskStore.ListBoundTo]
+	// returned, as being retired, in one compare-and-swap from the version
+	// it reads: its claim when it has a claim token, else its pending
+	// record. No worker claims or accepts a marked task. It returns
+	// [ErrDispatchTaskNotFound] when the task is gone or a worker claimed
+	// or began to accept it first.
+	MarkRetiring(ctx context.Context, task *DispatchTask) error
+	// DeleteRetiring deletes task, which [DispatchTaskStore.MarkRetiring]
+	// marked. A task already gone is no error.
+	DeleteRetiring(ctx context.Context, task *DispatchTask) error
 	// DeletePending removes the pending task of an attempt, if any. A task
 	// already claimed is left alone.
 	DeletePending(ctx context.Context, attemptKey string) error
@@ -268,6 +272,15 @@ func WorkerHeartbeatMatches(record WorkerHeartbeatRecord, selector map[string]st
 		return false
 	}
 	return ir.MatchWorkerSelector(record.Labels, selector)
+}
+
+// BoundDispatch is a task bound to a worker that no worker accepted, as
+// [DispatchTaskStore.ListBoundTo] returns it.
+type BoundDispatch struct {
+	Task *DispatchTask
+	// Retiring is set once [DispatchTaskStore.MarkRetiring] marked the
+	// task.
+	Retiring bool
 }
 
 // WorkerHeartbeatStore persists shared worker presence across coordinators.

@@ -125,6 +125,10 @@ type dispatchTaskPayload struct {
 	// is gone for every reader but the expiry, which finishes returning the
 	// task.
 	ExpiredAt int64 `json:"expiredAt,omitempty"`
+	// RetiringAt is when a coordinator began to retire the task, which a
+	// removal left with no worker, in Unix milliseconds, or zero. No worker
+	// claims or accepts a task with it set.
+	RetiringAt int64 `json:"retiringAt,omitempty"`
 }
 
 type legacyDAGRunStatusProto struct {
@@ -686,7 +690,7 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 			s.index.addPending(rec, payload)
 			continue
 		}
-		if holdExpired(payload.Task.HoldUntil, now) {
+		if holdExpired(payload.Task.HoldUntil, now) || payload.RetiringAt != 0 {
 			// The coordinator fails the run and drops the task.
 			s.index.addPending(rec, payload)
 			continue
@@ -786,7 +790,7 @@ func (s *DispatchTaskStore) GetClaim(ctx context.Context, claimToken string) (*d
 	if err != nil {
 		return nil, err
 	}
-	if payload.Task == nil || payload.ClaimToken == "" || payload.ClaimToken != claimToken || payload.ClaimedAt == 0 || payload.ExpiredAt != 0 {
+	if payload.Task == nil || payload.ClaimToken == "" || payload.ClaimToken != claimToken || payload.ClaimedAt == 0 || payload.ExpiredAt != 0 || payload.RetiringAt != 0 {
 		return nil, dispatch.ErrDispatchTaskNotFound
 	}
 	return &dispatch.ClaimedDispatchTask{
@@ -815,7 +819,7 @@ func (s *DispatchTaskStore) ReleaseClaim(ctx context.Context, claimToken string)
 		// A claim that its expiry decided on, or that an acceptance marked,
 		// is no longer this release's.
 		if payload.Task == nil || payload.ClaimToken == "" || payload.ClaimToken != claimToken || payload.ClaimedAt == 0 ||
-			payload.ExpiredAt != 0 || payload.LeasingAt != 0 {
+			payload.ExpiredAt != 0 || payload.LeasingAt != 0 || payload.RetiringAt != 0 {
 			return dispatch.ErrDispatchTaskNotFound
 		}
 		// The release decides on the claim as its expiry does, so the two
@@ -1064,7 +1068,7 @@ func (s *DispatchTaskStore) ListStalePending(ctx context.Context, cutoff time.Ti
 	return stale, nil
 }
 
-func (s *DispatchTaskStore) ListBoundTo(ctx context.Context, workerIDs []string) ([]*dispatch.DispatchTask, error) {
+func (s *DispatchTaskStore) ListBoundTo(ctx context.Context, workerIDs []string) ([]dispatch.BoundDispatch, error) {
 	if len(workerIDs) == 0 {
 		return nil, nil
 	}
@@ -1074,15 +1078,18 @@ func (s *DispatchTaskStore) ListBoundTo(ctx context.Context, workerIDs []string)
 	if err := s.ensureDispatchIndex(ctx); err != nil {
 		return nil, err
 	}
-	if _, err := s.reconcileDispatchIndexIDs(ctx, time.Now().UTC()); err != nil {
+	now := time.Now().UTC()
+	if _, err := s.reconcileDispatchIndexIDs(ctx, now); err != nil {
 		return nil, err
 	}
-	// A claim whose mark outlived the claim timeout without a lease goes
-	// back to the queue first, so it is found as pending.
-	if err := s.recycleExpiredReservations(ctx); err != nil {
-		return nil, err
+	// A bound claim past its timeout goes back to the queue first, as its
+	// expiry decides, so a claim whose acceptance died is found as pending.
+	for _, id := range s.boundEntryIDs(s.index.claims, workerIDs) {
+		if err := s.recycleClaim(ctx, id, now); err != nil {
+			return nil, err
+		}
 	}
-	var bound []*dispatch.DispatchTask
+	var bound []dispatch.BoundDispatch
 	for _, ids := range [][]string{s.boundEntryIDs(s.index.pending, workerIDs), s.boundEntryIDs(s.index.claims, workerIDs)} {
 		for _, id := range ids {
 			rec, err := s.col.Get(ctx, id)
@@ -1102,7 +1109,7 @@ func (s *DispatchTaskStore) ListBoundTo(ctx context.Context, workerIDs []string)
 			}
 			task := cloneDispatchTask(payload.Task)
 			task.ClaimToken = payload.ClaimToken
-			bound = append(bound, task)
+			bound = append(bound, dispatch.BoundDispatch{Task: task, Retiring: payload.RetiringAt != 0})
 		}
 	}
 	return bound, nil
@@ -1121,27 +1128,59 @@ func (s *DispatchTaskStore) boundEntryIDs(entries map[string]dispatchTaskIndexEn
 	return ids
 }
 
-func (s *DispatchTaskStore) RetireBound(ctx context.Context, task *dispatch.DispatchTask) error {
+func (s *DispatchTaskStore) MarkRetiring(ctx context.Context, task *dispatch.DispatchTask) error {
+	return s.retireBound(ctx, task, func(ctx context.Context, rec *persis.Record, payload dispatchTaskPayload) error {
+		if payload.RetiringAt != 0 {
+			return nil
+		}
+		payload.RetiringAt = time.Now().UTC().UnixMilli()
+		next, err := s.newDispatchRecord(rec.ID, payload, rec.CreatedAt, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		return s.col.CompareAndSwap(ctx, rec.ID, rec.Data, next.Data)
+	}, false)
+}
+
+func (s *DispatchTaskStore) DeleteRetiring(ctx context.Context, task *dispatch.DispatchTask) error {
+	err := s.retireBound(ctx, task, func(ctx context.Context, rec *persis.Record, payload dispatchTaskPayload) error {
+		if payload.RetiringAt == 0 {
+			return dispatch.ErrDispatchTaskNotFound
+		}
+		return s.col.CompareAndDelete(ctx, rec)
+	}, true)
+	if errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
+		return nil
+	}
+	return err
+}
+
+// retireBound applies write to the record of task, its claim when it has a
+// claim token, else its pending records, each from the version it reads
+// while no worker claimed or began to accept it. It returns
+// [dispatch.ErrDispatchTaskNotFound] when write applied to none. With
+// deleted, a record that write applied to leaves the index.
+func (s *DispatchTaskStore) retireBound(ctx context.Context, task *dispatch.DispatchTask, write func(context.Context, *persis.Record, dispatchTaskPayload) error, deleted bool) error {
 	if task == nil {
 		return dispatch.ErrDispatchTaskNotFound
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.ensureDispatchIndex(ctx); err != nil {
+		return err
+	}
 	var ids []string
 	if task.ClaimToken != "" {
 		ids = []string{claimDispatchRecordID(task.ClaimToken)}
 	} else {
-		if err := s.ensureDispatchIndex(ctx); err != nil {
-			return err
-		}
 		for id, entry := range s.index.pending {
 			if entry.attemptKey == task.AttemptKey && entry.targetWorkerID == task.TargetWorkerID {
 				ids = append(ids, id)
 			}
 		}
 	}
-	retired := false
+	applied := false
 	for _, id := range ids {
 		err := retryConflict(ctx, func(ctx context.Context) error {
 			rec, err := s.col.Get(ctx, id)
@@ -1157,15 +1196,17 @@ func (s *DispatchTaskStore) RetireBound(ctx context.Context, task *dispatch.Disp
 				return dispatch.ErrDispatchTaskNotFound
 			}
 			return s.withClaimTransition(ctx, payload, func(ctx context.Context) error {
-				return s.col.CompareAndDelete(ctx, rec)
+				return write(ctx, rec, payload)
 			})
 		})
 		switch {
 		case err == nil:
-			retired = true
-			if task.ClaimToken != "" {
+			applied = true
+			switch {
+			case !deleted:
+			case task.ClaimToken != "":
 				s.index.removeClaim(id)
-			} else {
+			default:
 				s.index.removePending(id)
 			}
 		case errors.Is(err, persis.ErrNotFound), errors.Is(err, dispatch.ErrDispatchTaskNotFound):
@@ -1173,7 +1214,7 @@ func (s *DispatchTaskStore) RetireBound(ctx context.Context, task *dispatch.Disp
 			return err
 		}
 	}
-	if !retired {
+	if !applied {
 		return dispatch.ErrDispatchTaskNotFound
 	}
 	return nil
@@ -1239,75 +1280,85 @@ func (s *DispatchTaskStore) recycleExpiredClaims(ctx context.Context) error {
 	}
 	sort.Strings(ids)
 	for _, id := range ids {
-		entry, ok := s.index.claims[id]
-		if !ok {
-			continue
+		if err := s.recycleClaim(ctx, id, now); err != nil {
+			return err
 		}
-		claimedAt := dispatchRecordTimestamp(entry.claimedAt, entry.updatedAt)
-		if now.Sub(claimedAt) < s.reservationTTL {
-			continue
-		}
+	}
+	return nil
+}
 
-		rec, err := s.col.Get(ctx, id)
-		if err != nil {
-			if errors.Is(err, persis.ErrNotFound) {
-				s.index.removeClaim(id)
-				continue
-			}
-			return err
+// recycleClaim returns the task of the claim id to the queue when the
+// claim is past its timeout at now, as its expiry decides.
+func (s *DispatchTaskStore) recycleClaim(ctx context.Context, id string, now time.Time) error {
+	entry, ok := s.index.claims[id]
+	if !ok {
+		return nil
+	}
+	claimedAt := dispatchRecordTimestamp(entry.claimedAt, entry.updatedAt)
+	if now.Sub(claimedAt) < s.reservationTTL {
+		return nil
+	}
+
+	rec, err := s.col.Get(ctx, id)
+	if err != nil {
+		if errors.Is(err, persis.ErrNotFound) {
+			s.index.removeClaim(id)
+			return nil
 		}
-		payload, err := dispatchTaskPayloadFromRecord(rec)
-		if err != nil {
-			return err
-		}
-		claimedAt = dispatchRecordTimestamp(payload.ClaimedAt, rec.UpdatedAt)
-		if now.Sub(claimedAt) < s.reservationTTL {
+		return err
+	}
+	payload, err := dispatchTaskPayloadFromRecord(rec)
+	if err != nil {
+		return err
+	}
+	claimedAt = dispatchRecordTimestamp(payload.ClaimedAt, rec.UpdatedAt)
+	// A claim being retired is the retirement's to finish.
+	if now.Sub(claimedAt) < s.reservationTTL || payload.RetiringAt != 0 {
+		s.index.addClaim(rec, payload)
+		return nil
+	}
+
+	// A claim that an acceptance marked before writing the attempt's
+	// lease never returns to the queue while the mark is fresh, and its
+	// lease, once written, is the stale-lease check's to end. A mark as
+	// old as the claim timeout is of an acceptance that died: the claim
+	// returns to the queue only when no lease came of it. The release
+	// below deletes the claim from the version read here, so a mark
+	// written meanwhile keeps it.
+	if payload.LeasingAt != 0 {
+		if now.Sub(time.UnixMilli(payload.LeasingAt)) < s.reservationTTL {
 			s.index.addClaim(rec, payload)
-			continue
+			return nil
 		}
+		leased, err := s.claimLeased(ctx, payload)
+		if err != nil {
+			// Only this claim waits for a lease that can be read.
+			logger.Warn(ctx, "Failed to read the lease of an expired claim", tag.AttemptKey(payload.Task.AttemptKey), tag.Error(err))
+			s.index.addClaim(rec, payload)
+			return nil
+		}
+		if leased {
+			if err := s.col.CompareAndDelete(ctx, rec); err != nil && !errors.Is(err, persis.ErrNotFound) && !errors.Is(err, persis.ErrConflict) {
+				return err
+			}
+			s.index.removeClaim(id)
+			return nil
+		}
+	}
 
-		// A claim that an acceptance marked before writing the attempt's
-		// lease never returns to the queue while the mark is fresh, and its
-		// lease, once written, is the stale-lease check's to end. A mark as
-		// old as the claim timeout is of an acceptance that died: the claim
-		// returns to the queue only when no lease came of it. The release
-		// below deletes the claim from the version read here, so a mark
-		// written meanwhile keeps it.
-		if payload.LeasingAt != 0 {
-			if now.Sub(time.UnixMilli(payload.LeasingAt)) < s.reservationTTL {
-				s.index.addClaim(rec, payload)
-				continue
-			}
-			leased, err := s.claimLeased(ctx, payload)
-			if err != nil {
-				// Only this claim waits for a lease that can be read.
-				logger.Warn(ctx, "Failed to read the lease of an expired claim", tag.AttemptKey(payload.Task.AttemptKey), tag.Error(err))
-				s.index.addClaim(rec, payload)
-				continue
-			}
-			if leased {
-				if err := s.col.CompareAndDelete(ctx, rec); err != nil && !errors.Is(err, persis.ErrNotFound) && !errors.Is(err, persis.ErrConflict) {
-					return err
-				}
-				s.index.removeClaim(id)
-				continue
-			}
+	if err := s.withClaimTransition(ctx, payload, func(ctx context.Context) error {
+		return s.expireClaim(ctx, rec, payload, now)
+	}); err != nil {
+		switch {
+		case errors.Is(err, persis.ErrNotFound):
+			s.index.removeClaim(id)
+			return nil
+		case errors.Is(err, persis.ErrConflict):
+			// The claim changed since the read, as when an acceptance
+			// marked it; a later pass reads it again.
+			return nil
 		}
-
-		if err := s.withClaimTransition(ctx, payload, func(ctx context.Context) error {
-			return s.expireClaim(ctx, rec, payload, now)
-		}); err != nil {
-			switch {
-			case errors.Is(err, persis.ErrNotFound):
-				s.index.removeClaim(id)
-				continue
-			case errors.Is(err, persis.ErrConflict):
-				// The claim changed since the read, as when an acceptance
-				// marked it; a later pass reads it again.
-				continue
-			}
-			return err
-		}
+		return err
 	}
 	return nil
 }
@@ -1379,7 +1430,7 @@ func (s *DispatchTaskStore) MarkClaimLeasing(ctx context.Context, claimToken str
 		if err != nil {
 			return err
 		}
-		if payload.ExpiredAt != 0 {
+		if payload.ExpiredAt != 0 || payload.RetiringAt != 0 {
 			return dispatch.ErrDispatchTaskNotFound
 		}
 		if payload.LeasingAt != 0 {
