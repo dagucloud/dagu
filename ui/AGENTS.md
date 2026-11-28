@@ -408,6 +408,8 @@ Exception: the node inventory endpoints (`/nodes`, `/node-labels`, `/inventories
 
 Exception: deleting a worker invite (`DELETE /workers/invites/{inviteId}`) and removing a worker (`POST /workers/removals`) serve only the server the browser talks to and declare no `remoteNode`. On a remote node the workers and invites lists still read with `remoteNode` but offer no Delete, Remove, or Stop runs now (Spec 108 §Workers Page).
 
+Exception: `POST /workers/invites` creates an invite on the local server only and declares no `remoteNode`. The Add worker dialog sends it without one and is disabled while a remote node is selected.
+
 #### Pattern for `useQuery` hooks:
 ```tsx
 const remoteNode = appBarContext.selectedRemoteNode || 'local';

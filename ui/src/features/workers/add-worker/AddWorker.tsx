@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { RefreshCw } from 'lucide-react';
+import { Plus, RefreshCw } from 'lucide-react';
 import * as React from 'react';
 import {
   HostEnvironment,
@@ -18,6 +18,8 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Spinner } from '@/components/ui/spinner';
+import { useIsAdmin } from '@/contexts/AuthContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
 import { I18nText } from '@/i18n/I18nText';
 import {
@@ -39,7 +41,9 @@ import {
   type RequestProblem,
 } from './parts';
 import { allReady, ReadinessBody } from './ReadinessStep';
+import { WorkerStep, type CreatedInvite } from './WorkerStep';
 
+type Worker = components['schemas']['Worker'];
 type JoinReadiness = components['schemas']['WorkerJoinReadinessResponse'];
 
 const LOCAL_NODE = 'local';
@@ -63,6 +67,8 @@ type Readiness =
   | { state: 'failed'; problem: RequestProblem };
 
 interface AddWorkerProps {
+  /** The workers list that System status refreshes. */
+  workers: Worker[];
   /** True while that refresh fails, as during a restart of the server. */
   refreshFailed: boolean;
 }
@@ -73,11 +79,42 @@ function placedAddress(data: JoinReadiness, placement: Placement): string {
   return placement === Placement.inside ? (podAddress(data) ?? '') : '';
 }
 
+/** The Add worker button of the Workers section, for admins. */
+export function AddWorker({ workers, refreshFailed }: AddWorkerProps) {
+  const isAdmin = useIsAdmin();
+  const remote = useRemoteNode() !== LOCAL_NODE;
+  const [open, setOpen] = React.useState(false);
+  if (!isAdmin) return null;
+  return (
+    <>
+      {/* Invites come from the server this page is served by, never through
+          a remote node, so its audit entry names the admin. */}
+      {remote && (
+        <span className="min-w-0 text-xs text-muted-foreground">
+          <I18nText text="Switch to the local server to add a worker." />
+        </span>
+      )}
+      <Button size="xs" disabled={remote} onClick={() => setOpen(true)}>
+        <Plus />
+        <I18nText text="Add worker" />
+      </Button>
+      {open && (
+        <AddWorkerDialog
+          workers={workers}
+          refreshFailed={refreshFailed}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
 /**
  * The Add worker dialog. It is mounted only while open, so each opening
  * reads readiness afresh.
  */
 export function AddWorkerDialog({
+  workers,
   refreshFailed,
   onClose,
 }: AddWorkerProps & { onClose: () => void }) {
@@ -88,6 +125,13 @@ export function AddWorkerDialog({
   const [checking, setChecking] = React.useState(true);
   const [address, setAddress] = React.useState<string>();
   const [placement, setPlacement] = React.useState<Placement>();
+  // Kept here, so an invite stays on screen when readiness changes later.
+  const [invites, setInvites] = React.useState<CreatedInvite[]>([]);
+  // A pending invite request keeps the dialog open and freezes the form, so
+  // its invite shows for the values it was made from.
+  const [creating, setCreating] = React.useState(false);
+  // The invite progress and result, outside what readiness hides.
+  const [status, setStatus] = React.useState<string>();
   const touched = React.useRef(false);
   // The reading the field's address came from: the first one, or the one
   // whose endpoint the admin took. A later reading never rewrites the
@@ -209,7 +253,7 @@ export function AddWorkerDialog({
   if (!checking) step1State = ready ? 'Ready' : 'Needs change';
 
   return (
-    <Dialog open onOpenChange={(next) => !next && onClose()}>
+    <Dialog open onOpenChange={(next) => !next && !creating && onClose()}>
       <DialogContent
         className="flex max-h-[90dvh] max-w-2xl flex-col gap-5 overflow-y-auto"
         onFocusCapture={(e) => (lastFocus.current = e.target as HTMLElement)}
@@ -269,6 +313,7 @@ export function AddWorkerDialog({
               address={address}
               hostField={hostField}
               placementField={placementField}
+              locked={creating}
               placement={placement}
               moved={opened && movedEndpoint(address, opened, data)}
               onTakeMoved={(next) => {
@@ -293,8 +338,31 @@ export function AddWorkerDialog({
         <Step
           number={3}
           title="Worker"
-          state={validAddress ? undefined : 'Shown after steps 1 and 2'}
-        />
+          state={
+            validAddress || invites.length > 0
+              ? undefined
+              : 'Shown after steps 1 and 2'
+          }
+        >
+          {/* One region stays mounted, so progress and completion are
+              announced as its text changes, also while readiness reads. */}
+          <p
+            role="status"
+            className="text-xs text-muted-foreground empty:sr-only"
+          >
+            {status && <I18nText text={status} />}
+          </p>
+          <WorkerStep
+            address={validAddress}
+            workers={workers}
+            invites={invites}
+            onInvite={(invite) => setInvites((prev) => [...prev, invite])}
+            onCreating={(pending) => {
+              setCreating(pending);
+            }}
+            onStatus={setStatus}
+          />
+        </Step>
       </DialogContent>
     </Dialog>
   );
@@ -305,6 +373,7 @@ function AddressFields({
   address,
   hostField,
   placementField,
+  locked,
   placement,
   moved,
   onTakeMoved,
@@ -316,6 +385,8 @@ function AddressFields({
   address: string;
   hostField: React.Ref<HTMLTextAreaElement>;
   placementField: React.Ref<HTMLInputElement>;
+  /** Freezes the address while an invite request runs. */
+  locked: boolean;
   placement?: Placement;
   /** An endpoint the coordinators now report in place of the field's. */
   moved?: string;
@@ -359,6 +430,7 @@ function AddressFields({
               <input
                 ref={i === 0 ? placementField : undefined}
                 type="radio"
+                disabled={locked}
                 name={`${id}-placement`}
                 checked={placement === value}
                 onChange={() => onPlace(value)}
@@ -392,6 +464,7 @@ function AddressFields({
               className="min-h-9"
               placeholder="host:port"
               required
+              readOnly={locked}
               value={address}
               aria-invalid={problem ? true : undefined}
               aria-describedby={
@@ -414,7 +487,11 @@ function AddressFields({
                 text="The coordinator now reports {address}."
                 values={{ address: moved }}
               />
-              <Button size="xs" onClick={() => onTakeMoved(moved)}>
+              <Button
+                size="xs"
+                disabled={locked}
+                onClick={() => onTakeMoved(moved)}
+              >
                 <I18nText text="Use this address" />
               </Button>
             </p>
@@ -429,6 +506,7 @@ function AddressFields({
                   variant="ghost"
                   className="font-mono"
                   aria-pressed={address === suggestion}
+                  disabled={locked}
                   onClick={() => onTakeMoved(suggestion)}
                 >
                   {suggestion}

@@ -6,15 +6,24 @@ import { defineMessages } from '@/features/workflow-workspace/messages/define';
 /** The static messages of the Add worker dialog. */
 export const addWorkerMessages = defineMessages({
   en: {
+    'Invite created.': 'Invite created.',
     'Use this address': 'Use this address',
     'The coordinator now reports {address}.':
       'The coordinator now reports {address}.',
     "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it. If these settings are in order, check that the network path to the coordinator passes TLS.":
       "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it. If these settings are in order, check that the network path to the coordinator passes TLS.",
+    'Creating invite…': 'Creating invite…',
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.',
+    "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
+      "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:",
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':
+      'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.",
+    'Diagnostic command copied': 'Diagnostic command copied',
+    'Command copied': 'Command copied',
+    'Copy the diagnostic command': 'Copy the diagnostic command',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod shares its storage with the scheduler and the web UI, so all three need a volume they can each write; worker pods keep their own. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod shares its storage with the scheduler and the web UI, so all three need a volume they can each write; worker pods keep their own. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.",
     'Outside the cluster': 'Outside the cluster',
@@ -27,6 +36,16 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': 'Move to built-in TLS',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.",
+    '{count} workers joined with this invite.':
+      '{count} workers joined with this invite.',
+    '1 worker joined with this invite.': '1 worker joined with this invite.',
+    'Looking for the worker...': 'Looking for the worker...',
+    'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
+      'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:',
+    'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
+      'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:',
+    'Switch to the local server to add a worker.':
+      'Switch to the local server to add a worker.',
     'Copy the change': 'Copy the change',
     'Check again': 'Check again',
     'The coordinator cannot do this yet. Try again in a moment.':
@@ -34,6 +53,14 @@ export const addWorkerMessages = defineMessages({
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
       'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.',
     'Shown after step 1': 'Shown after step 1',
+    'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
+      'The workers list could not be read, so the dialog cannot tell whether the worker joined.',
+    'Label {position} sets a key an earlier label sets; keys compare without case.':
+      'Label {position} sets a key an earlier label sets; keys compare without case.',
+    'Label {position} is empty. Write one key or key=value.':
+      'Label {position} is empty. Write one key or key=value.',
+    'Label {position} holds an invite. The invite goes only into the commands.':
+      'Label {position} holds an invite. The invite goes only into the commands.',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} is a multicast or broadcast address. Enter the address of one machine.',
     'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
@@ -45,6 +72,46 @@ export const addWorkerMessages = defineMessages({
     'The address holds an invite. The invite goes only into the commands.':
       'The address holds an invite. The invite goes only into the commands.',
     'Address and port': 'Address and port',
+    'Look for the worker again': 'Look for the worker again',
+    'Label {position} sets {key}, which a worker sets from its own host.':
+      'Label {position} sets {key}, which a worker sets from its own host.',
+    'Label {position} breaks the worker label rule: a key takes letters, digits, -, _, and ., at most 63, and a value also /, at most 255, each starting with a letter or digit.':
+      'Label {position} breaks the worker label rule: a key takes letters, digits, -, _, and ., at most 63, and a value also /, at most 255, each starting with a letter or digit.',
+    'Save this as a file and apply it with kubectl apply -f to the cluster that runs the workers.':
+      'Save this as a file and apply it with kubectl apply -f to the cluster that runs the workers.',
+    'This server is a development build ({version}), so no published image matches it. Run a released Dagu to add a worker with Docker or Kubernetes, or use the Linux tab.':
+      'This server is a development build ({version}), so no published image matches it. Run a released Dagu to add a worker with Docker or Kubernetes, or use the Linux tab.',
+    'Installation guide': 'Installation guide',
+    'Install Dagu on the worker host, then run this there.':
+      'Install Dagu on the worker host, then run this there.',
+    'The coordinator cannot create invites.':
+      'The coordinator cannot create invites.',
+    'Copy the command': 'Copy the command',
+    'How the worker runs': 'How the worker runs',
+    'Labels (optional)': 'Labels (optional)',
+    Invite: 'Invite',
+    'Single use: one worker that keeps its data directory. Expires after 24 hours unless used.':
+      'Single use: one worker that keeps its data directory. Expires after 24 hours unless used.',
+    'Reusable: any number of hosts. Lasts until deleted.':
+      'Reusable: any number of hosts. Lasts until deleted.',
+    'Reusable: any number of containers, each with its own volume. Lasts until deleted.':
+      'Reusable: any number of containers, each with its own volume. Lasts until deleted.',
+    'Reusable invite: pods are replaced and scaled, and each new pod joins with it. It lasts until deleted.':
+      'Reusable invite: pods are replaced and scaled, and each new pod joins with it. It lasts until deleted.',
+    'Create invite': 'Create invite',
+    'Single-use invite, expires {time}.': 'Single-use invite, expires {time}.',
+    'Reusable invite, expires {time}.': 'Reusable invite, expires {time}.',
+    'Reusable invite, until deleted.': 'Reusable invite, until deleted.',
+    'The invite is shown only here. Closing the dialog keeps it.':
+      'The invite is shown only here. Closing the dialog keeps it.',
+    'Waiting for the worker to join...': 'Waiting for the worker to join...',
+    'No worker has joined yet. The usual causes:':
+      'No worker has joined yet. The usual causes:',
+    'A firewall or security group closes port {port}.':
+      'A firewall or security group closes port {port}.',
+    'The container that runs Dagu does not publish port {port}.':
+      'The container that runs Dagu does not publish port {port}.',
+    'The worker cannot reach {address}.': 'The worker cannot reach {address}.',
     '{host} is not one host. Enter an IP address without a zone, or a DNS name.':
       '{host} is not one host. Enter an IP address without a zone, or a DNS name.',
     '{host} is a link-local address, which another network does not route. Enter another address of the machine.':
@@ -104,15 +171,24 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Shown after steps 1 and 2',
   },
   'zh-CN': {
+    'Invite created.': '邀请已创建。',
     'Use this address': '使用此地址',
     'The coordinator now reports {address}.':
       '协调器现在报告的地址为 {address}。',
     "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it. If these settings are in order, check that the network path to the coordinator passes TLS.":
       '协调器要求 TLS。请在此服务器上清除所有 peer.insecure: true 或 peer.skip_tls_verify: true，无论它由参数、变量还是配置文件设置。如果此服务器没有协调器可用的 CA 证书，请将其切换到内置 TLS：清除 peer.cert_file、peer.key_file 和 peer.client_ca_file，然后将 peer.ca_cert_file 设为协调器的 CA 证书。然后重启它。如果这些设置都没有问题，请检查到协调器的网络路径是否允许 TLS 通过。',
+    'Creating invite…': '正在创建邀请…',
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       '请确认 Worker Pod 可以访问此地址。其他命名空间中的 Worker 需要使用带命名空间的 Service 地址，例如 dagu-coordinator.<namespace>.svc:50055。',
+    "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
+      '请使用应用清单时相同的 kubectl 上下文和命名空间运行此命令。Worker 的日志会说明原因：',
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':
+      '在 Worker 主机上运行此命令，该主机需要 Docker。如需在同一主机上运行另一个 Worker，请将卷 dagu-worker 改为它自己的卷，并使用新的邀请或可重复使用的邀请。',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       '输入协调器 Service 的地址和端口。其他命名空间中的 Worker 需要使用带命名空间的名称，例如 dagu-coordinator.<namespace>.svc:50055。',
+    'Diagnostic command copied': '诊断命令已复制',
+    'Command copied': '命令已复制',
+    'Copy the diagnostic command': '复制诊断命令',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod shares its storage with the scheduler and the web UI, so all three need a volume they can each write; worker pods keep their own. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       '在协调器的工作负载上将 DAGU_COORDINATOR_HOST 设为 0.0.0.0，然后重启它。在独立 Pod 中运行的协调器与调度器和 Web UI 共享存储，因此三者都需要各自可写的卷；Worker Pod 使用自己的卷。使用 Helm Chart 时，请使用 deploymentMode: distributed，它会设置该变量。将数据迁移到 ReadWriteMany 声明，然后在升级前将 persistence.existingClaim 设为该声明，并将 persistence.accessMode 设为 ReadWriteMany。',
     'Outside the cluster': '在集群外',
@@ -125,6 +201,16 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': '迁移到内置 TLS',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       '输入 Worker 可访问的协调器 Service 地址：其负载均衡器；如果使用 NodePort，则为节点地址和分配的节点端口。Service 自身的名称只在集群内有效。',
+    '{count} workers joined with this invite.':
+      '已有 {count} 个 Worker 通过此邀请加入。',
+    '1 worker joined with this invite.': '已有 1 个 Worker 通过此邀请加入。',
+    'Looking for the worker...': '正在查找 Worker...',
+    'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
+      '在 Worker 主机上运行以下命令。它在新的容器中显示该主机能否访问该地址以及协调器的响应：',
+    'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
+      '在 Worker 主机上运行以下命令。它使用空的数据目录，因此即使 Worker 已加入也会发起连接，并显示该主机能否访问该地址以及协调器的响应：',
+    'Switch to the local server to add a worker.':
+      '切换到本地服务器以添加 Worker。',
     'Copy the change': '复制修改内容',
     'Check again': '重新检查',
     'The coordinator cannot do this yet. Try again in a moment.':
@@ -132,6 +218,14 @@ export const addWorkerMessages = defineMessages({
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
       '协调器在当前状态下无法执行此操作。其日志说明了原因；修复后请重试。',
     'Shown after step 1': '完成步骤 1 后显示',
+    'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
+      '无法读取 Worker 列表，因此对话框无法判断 Worker 是否已加入。',
+    'Label {position} sets a key an earlier label sets; keys compare without case.':
+      '第 {position} 个标签设置的键已由前面的标签设置；键不区分大小写。',
+    'Label {position} is empty. Write one key or key=value.':
+      '第 {position} 个标签为空。请写一个 key 或 key=value。',
+    'Label {position} holds an invite. The invite goes only into the commands.':
+      '第 {position} 个标签中包含邀请。邀请只应放在命令中。',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} 是多播或广播地址。请输入一台机器的地址。',
     'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
@@ -143,6 +237,45 @@ export const addWorkerMessages = defineMessages({
     'The address holds an invite. The invite goes only into the commands.':
       '地址中包含邀请。邀请只应放在命令中。',
     'Address and port': '地址和端口',
+    'Look for the worker again': '再次查找 Worker',
+    'Label {position} sets {key}, which a worker sets from its own host.':
+      '第 {position} 个标签设置了 {key}，而 Worker 会根据自身主机设置它。',
+    'Label {position} breaks the worker label rule: a key takes letters, digits, -, _, and ., at most 63, and a value also /, at most 255, each starting with a letter or digit.':
+      '第 {position} 个标签不符合 Worker 标签规则：键只能使用字母、数字、-、_ 和 .，最多 63 个字符；值还可以使用 /，最多 255 个字符；两者都必须以字母或数字开头。',
+    'Save this as a file and apply it with kubectl apply -f to the cluster that runs the workers.':
+      '将以下内容保存为文件，并用 kubectl apply -f 应用到运行 Worker 的集群。',
+    'This server is a development build ({version}), so no published image matches it. Run a released Dagu to add a worker with Docker or Kubernetes, or use the Linux tab.':
+      '此服务器是开发版本（{version}），没有与之匹配的已发布镜像。请运行已发布的 Dagu 版本来通过 Docker 或 Kubernetes 添加 Worker，或使用 Linux 选项卡。',
+    'Installation guide': '安装指南',
+    'Install Dagu on the worker host, then run this there.':
+      '在 Worker 主机上安装 Dagu，然后在那里运行以下命令。',
+    'The coordinator cannot create invites.': '协调器无法创建邀请。',
+    'Copy the command': '复制命令',
+    'How the worker runs': 'Worker 的运行方式',
+    'Labels (optional)': '标签（可选）',
+    Invite: '邀请',
+    'Single use: one worker that keeps its data directory. Expires after 24 hours unless used.':
+      '一次性：用于一个保留其数据目录的 Worker。未使用时 24 小时后过期。',
+    'Reusable: any number of hosts. Lasts until deleted.':
+      '可重复使用：任意数量的主机。删除前一直有效。',
+    'Reusable: any number of containers, each with its own volume. Lasts until deleted.':
+      '可重复使用：任意数量的容器，每个容器使用自己的卷。删除前一直有效。',
+    'Reusable invite: pods are replaced and scaled, and each new pod joins with it. It lasts until deleted.':
+      '可重复使用的邀请：Pod 会被替换和扩缩，每个新 Pod 都用它加入。删除前一直有效。',
+    'Create invite': '创建邀请',
+    'Single-use invite, expires {time}.': '一次性邀请，{time} 过期。',
+    'Reusable invite, expires {time}.': '可重复使用的邀请，{time} 过期。',
+    'Reusable invite, until deleted.': '可重复使用的邀请，删除前一直有效。',
+    'The invite is shown only here. Closing the dialog keeps it.':
+      '邀请只在此处显示。关闭对话框后邀请仍然保留。',
+    'Waiting for the worker to join...': '正在等待 Worker 加入...',
+    'No worker has joined yet. The usual causes:':
+      '还没有 Worker 加入。常见原因：',
+    'A firewall or security group closes port {port}.':
+      '防火墙或安全组关闭了端口 {port}。',
+    'The container that runs Dagu does not publish port {port}.':
+      '运行 Dagu 的容器没有发布端口 {port}。',
+    'The worker cannot reach {address}.': 'Worker 无法访问 {address}。',
     '{host} is not one host. Enter an IP address without a zone, or a DNS name.':
       '{host} 不是单个主机。请输入不带区域的 IP 地址或 DNS 名称。',
     '{host} is a link-local address, which another network does not route. Enter another address of the machine.':
@@ -201,15 +334,24 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': '完成步骤 1 和 2 后显示',
   },
   ja: {
+    'Invite created.': '招待を作成しました。',
     'Use this address': 'このアドレスを使う',
     'The coordinator now reports {address}.':
       'コーディネーターは現在 {address} を報告しています。',
     "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it. If these settings are in order, check that the network path to the coordinator passes TLS.":
       'コーディネーターは TLS を必要とします。このサーバーで peer.insecure: true と peer.skip_tls_verify: true を、フラグ、変数、設定ファイルのどれで設定されていてもすべて解除してください。このサーバーにコーディネーター用の使える CA 証明書がない場合は、組み込み TLS に切り替えてください。peer.cert_file、peer.key_file、peer.client_ca_file を解除してから、peer.ca_cert_file をコーディネーターの CA 証明書にします。その後再起動してください。これらの設定に問題がなければ、コーディネーターまでのネットワーク経路が TLS を通すか確認してください。',
+    'Creating invite…': '招待を作成しています…',
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       'ワーカー Pod がこのアドレスに到達できることを確認してください。別の名前空間のワーカーには、dagu-coordinator.<namespace>.svc:50055 のような名前空間付きの Service アドレスが必要です。',
+    "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
+      'マニフェストを適用したときと同じ kubectl のコンテキストと名前空間でこれを実行してください。ワーカーのログに原因が示されます:',
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':
+      'ワーカーホストでこれを実行してください。ホストには Docker が必要です。同じホストで別のワーカーを動かす場合は、ボリューム dagu-worker をそのワーカー専用のものに変え、新しい招待か再利用可能な招待を使ってください。',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       'コーディネーター Service のアドレスとポートを入力してください。別の名前空間のワーカーには、dagu-coordinator.<namespace>.svc:50055 のような名前空間付きの名前が必要です。',
+    'Diagnostic command copied': '診断コマンドをコピーしました',
+    'Command copied': 'コマンドをコピーしました',
+    'Copy the diagnostic command': '診断コマンドをコピー',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod shares its storage with the scheduler and the web UI, so all three need a volume they can each write; worker pods keep their own. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       'コーディネーターのワークロードで DAGU_COORDINATOR_HOST を 0.0.0.0 にし、再起動してください。独自の Pod で動くコーディネーターはスケジューラーおよび Web UI とストレージを共有するため、3 つとも書き込めるボリュームが必要です。ワーカー Pod は自分のボリュームを使います。Helm チャートでは deploymentMode: distributed を使ってください。これがこの変数を設定します。データを ReadWriteMany のクレームに移し、アップグレードの前に persistence.existingClaim をそのクレームに、persistence.accessMode を ReadWriteMany にしてください。',
     'Outside the cluster': 'クラスターの外',
@@ -222,6 +364,17 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': '組み込み TLS に移行',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       'ワーカーが到達できるコーディネーター Service のアドレスを入力してください。ロードバランサー、または NodePort ならノードのアドレスと割り当てられたノードポートです。Service 自体の名前はクラスター内でのみ使えます。',
+    '{count} workers joined with this invite.':
+      'この招待で {count} 台のワーカーが参加しました。',
+    '1 worker joined with this invite.':
+      'この招待で 1 台のワーカーが参加しました。',
+    'Looking for the worker...': 'ワーカーを探しています...',
+    'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
+      'ワーカーのホストでこれを実行してください。新しいコンテナで、ホストがアドレスに届くかとコーディネーターの応答を表示します:',
+    'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
+      'ワーカーのホストでこれを実行してください。空のデータディレクトリを使うので、ワーカーが参加した後でも接続し、ホストがアドレスに届くかとコーディネーターの応答を表示します:',
+    'Switch to the local server to add a worker.':
+      'ワーカーを追加するにはローカルサーバーに切り替えてください。',
     'Copy the change': '変更をコピー',
     'Check again': '再確認',
     'The coordinator cannot do this yet. Try again in a moment.':
@@ -229,6 +382,14 @@ export const addWorkerMessages = defineMessages({
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
       'コーディネーターは現在の状態ではこれを実行できません。理由はそのログにあります。修正してからもう一度試してください。',
     'Shown after step 1': 'ステップ 1 の後に表示',
+    'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
+      'ワーカーの一覧を読めなかったため、ワーカーが参加したかどうか分かりません。',
+    'Label {position} sets a key an earlier label sets; keys compare without case.':
+      'ラベル {position} は前のラベルと同じキーを設定しています。キーは大文字と小文字を区別しません。',
+    'Label {position} is empty. Write one key or key=value.':
+      'ラベル {position} が空です。key か key=value を 1 つ書いてください。',
+    'Label {position} holds an invite. The invite goes only into the commands.':
+      'ラベル {position} に招待が含まれています。招待はコマンドにだけ入れます。',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} はマルチキャストまたはブロードキャストのアドレスです。1 台のマシンのアドレスを入力してください。',
     'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
@@ -240,6 +401,46 @@ export const addWorkerMessages = defineMessages({
     'The address holds an invite. The invite goes only into the commands.':
       'アドレスに招待が含まれています。招待はコマンドにだけ入れます。',
     'Address and port': 'アドレスとポート',
+    'Look for the worker again': 'ワーカーをもう一度探す',
+    'Label {position} sets {key}, which a worker sets from its own host.':
+      'ラベル {position} は {key} を設定していますが、これはワーカーが自身のホストから設定します。',
+    'Label {position} breaks the worker label rule: a key takes letters, digits, -, _, and ., at most 63, and a value also /, at most 255, each starting with a letter or digit.':
+      'ラベル {position} はワーカーのラベル規則に反しています: キーは英字、数字、-、_、. で 63 文字まで、値はそれに加えて / も使え 255 文字まで、どちらも英字か数字で始めます。',
+    'Save this as a file and apply it with kubectl apply -f to the cluster that runs the workers.':
+      'これをファイルに保存し、ワーカーを実行するクラスターに kubectl apply -f で適用してください。',
+    'This server is a development build ({version}), so no published image matches it. Run a released Dagu to add a worker with Docker or Kubernetes, or use the Linux tab.':
+      'このサーバーは開発ビルド ({version}) のため、対応する公開イメージがありません。Docker や Kubernetes でワーカーを追加するにはリリース版の Dagu を実行するか、Linux タブを使ってください。',
+    'Installation guide': 'インストールガイド',
+    'Install Dagu on the worker host, then run this there.':
+      'ワーカーのホストに Dagu をインストールし、そこでこれを実行してください。',
+    'The coordinator cannot create invites.':
+      'コーディネーターは招待を作成できません。',
+    'Copy the command': 'コマンドをコピー',
+    'How the worker runs': 'ワーカーの実行方法',
+    'Labels (optional)': 'ラベル (任意)',
+    Invite: '招待',
+    'Single use: one worker that keeps its data directory. Expires after 24 hours unless used.':
+      '1 回限り: データディレクトリを保持する 1 台のワーカー用。使われなければ 24 時間後に期限切れ。',
+    'Reusable: any number of hosts. Lasts until deleted.':
+      '再利用可能: 任意の数のホスト用。削除するまで有効。',
+    'Reusable: any number of containers, each with its own volume. Lasts until deleted.':
+      '再利用可能: それぞれ専用のボリュームを持つ任意の数のコンテナ用。削除するまで有効。',
+    'Reusable invite: pods are replaced and scaled, and each new pod joins with it. It lasts until deleted.':
+      '再利用可能な招待: Pod は置き換えやスケールが起こり、新しい Pod はそれぞれこの招待で参加します。削除するまで有効です。',
+    'Create invite': '招待を作成',
+    'Single-use invite, expires {time}.': '1 回限りの招待、{time} に期限切れ。',
+    'Reusable invite, expires {time}.': '再利用可能な招待、{time} に期限切れ。',
+    'Reusable invite, until deleted.': '再利用可能な招待、削除するまで有効。',
+    'The invite is shown only here. Closing the dialog keeps it.':
+      '招待はここにだけ表示されます。ダイアログを閉じても招待は残ります。',
+    'Waiting for the worker to join...': 'ワーカーの参加を待っています...',
+    'No worker has joined yet. The usual causes:':
+      'まだワーカーが参加していません。よくある原因:',
+    'A firewall or security group closes port {port}.':
+      'ファイアウォールかセキュリティグループがポート {port} を閉じている。',
+    'The container that runs Dagu does not publish port {port}.':
+      'Dagu を実行するコンテナがポート {port} を公開していない。',
+    'The worker cannot reach {address}.': 'ワーカーから {address} に届かない。',
     '{host} is not one host. Enter an IP address without a zone, or a DNS name.':
       '{host} は 1 つのホストではありません。ゾーンなしの IP アドレスか DNS 名を入力してください。',
     '{host} is a link-local address, which another network does not route. Enter another address of the machine.':
@@ -300,15 +501,24 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'ステップ 1 と 2 の後に表示',
   },
   de: {
+    'Invite created.': 'Einladung erstellt.',
     'Use this address': 'Diese Adresse verwenden',
     'The coordinator now reports {address}.':
       'Der Koordinator meldet jetzt {address}.',
     "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it. If these settings are in order, check that the network path to the coordinator passes TLS.":
       'Der Koordinator verlangt TLS. Entfernen Sie auf diesem Server jedes peer.insecure: true und peer.skip_tls_verify: true, ob ein Flag, eine Variable oder die Konfigurationsdatei es setzt. Hat dieser Server kein nutzbares CA-Zertifikat für den Koordinator, stellen Sie ihn auf eingebautes TLS um: Entfernen Sie peer.cert_file, peer.key_file und peer.client_ca_file und setzen Sie dann peer.ca_cert_file auf das CA-Zertifikat des Koordinators. Starten Sie ihn dann neu. Sind diese Einstellungen in Ordnung, prüfen Sie, ob der Netzwerkpfad zum Koordinator TLS durchlässt.',
+    'Creating invite…': 'Einladung wird erstellt…',
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       'Prüfen Sie, dass Worker-Pods diese Adresse erreichen. Worker in einem anderen Namespace brauchen die Service-Adresse mit Namespace, etwa dagu-coordinator.<namespace>.svc:50055.',
+    "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
+      'Führen Sie dies mit demselben kubectl-Kontext und Namespace aus, mit dem Sie das Manifest angewendet haben. Das Log des Workers nennt die Ursache:',
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':
+      'Führen Sie dies auf dem Worker-Host aus, der Docker braucht. Für einen weiteren Worker auf demselben Host ändern Sie das Volume dagu-worker in ein eigenes und verwenden eine neue oder eine wiederverwendbare Einladung.',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       'Geben Sie Adresse und Port des Koordinator-Service ein. Worker in einem anderen Namespace brauchen seinen Namen mit Namespace, etwa dagu-coordinator.<namespace>.svc:50055.',
+    'Diagnostic command copied': 'Diagnosebefehl kopiert',
+    'Command copied': 'Befehl kopiert',
+    'Copy the diagnostic command': 'Diagnosebefehl kopieren',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod shares its storage with the scheduler and the web UI, so all three need a volume they can each write; worker pods keep their own. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       'Setzen Sie DAGU_COORDINATOR_HOST auf dem Workload des Koordinators auf 0.0.0.0 und starten Sie ihn neu. Ein Koordinator in einem eigenen Pod teilt seinen Speicher mit dem Scheduler und der Web-UI, daher brauchen alle drei ein Volume, in das jeder schreiben kann; Worker-Pods behalten ihr eigenes. Mit dem Helm-Chart nutzen Sie deploymentMode: distributed, das die Variable setzt. Verschieben Sie die Daten in einen ReadWriteMany-Claim und setzen Sie vor dem Upgrade persistence.existingClaim darauf und persistence.accessMode auf ReadWriteMany.',
     'Outside the cluster': 'Außerhalb des Clusters',
@@ -321,6 +531,17 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': 'Auf eingebautes TLS umstellen',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       'Geben Sie die Adresse des Koordinator-Service ein, die Worker erreichen: seinen Load Balancer oder bei NodePort die Adresse eines Knotens und den zugewiesenen Knotenport. Der Name des Service selbst funktioniert nur im Cluster.',
+    '{count} workers joined with this invite.':
+      '{count} Worker sind mit dieser Einladung beigetreten.',
+    '1 worker joined with this invite.':
+      '1 Worker ist mit dieser Einladung beigetreten.',
+    'Looking for the worker...': 'Suche nach dem Worker...',
+    'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
+      'Führen Sie dies auf dem Worker-Host aus. In einem frischen Container zeigt es, ob der Host die Adresse erreicht und was der Koordinator antwortet:',
+    'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
+      'Führen Sie dies auf dem Worker-Host aus. Mit einem leeren Datenverzeichnis wählt es sich auch nach dem Beitritt des Workers ein und zeigt, ob der Host die Adresse erreicht und was der Koordinator antwortet:',
+    'Switch to the local server to add a worker.':
+      'Wechseln Sie zum lokalen Server, um einen Worker hinzuzufügen.',
     'Copy the change': 'Änderung kopieren',
     'Check again': 'Erneut prüfen',
     'The coordinator cannot do this yet. Try again in a moment.':
@@ -328,6 +549,14 @@ export const addWorkerMessages = defineMessages({
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
       'Der Koordinator kann dies in seinem jetzigen Zustand nicht tun. Sein Log nennt den Grund; beheben Sie ihn und versuchen Sie es erneut.',
     'Shown after step 1': 'Erscheint nach Schritt 1',
+    'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
+      'Die Worker-Liste konnte nicht gelesen werden, daher kann der Dialog nicht sagen, ob der Worker beigetreten ist.',
+    'Label {position} sets a key an earlier label sets; keys compare without case.':
+      'Label {position} setzt einen Schlüssel, den ein früheres Label setzt; Schlüssel werden ohne Groß- und Kleinschreibung verglichen.',
+    'Label {position} is empty. Write one key or key=value.':
+      'Label {position} ist leer. Schreiben Sie einen key oder key=value.',
+    'Label {position} holds an invite. The invite goes only into the commands.':
+      'Label {position} enthält eine Einladung. Die Einladung gehört nur in die Befehle.',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} ist eine Multicast- oder Broadcast-Adresse. Geben Sie die Adresse eines einzelnen Rechners ein.',
     'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
@@ -339,6 +568,51 @@ export const addWorkerMessages = defineMessages({
     'The address holds an invite. The invite goes only into the commands.':
       'Die Adresse enthält eine Einladung. Die Einladung gehört nur in die Befehle.',
     'Address and port': 'Adresse und Port',
+    'Look for the worker again': 'Erneut nach dem Worker suchen',
+    'Label {position} sets {key}, which a worker sets from its own host.':
+      'Label {position} setzt {key}, das ein Worker selbst aus seinem Host setzt.',
+    'Label {position} breaks the worker label rule: a key takes letters, digits, -, _, and ., at most 63, and a value also /, at most 255, each starting with a letter or digit.':
+      'Label {position} verletzt die Label-Regel des Workers: Ein Schlüssel besteht aus Buchstaben, Ziffern, -, _ und ., höchstens 63, ein Wert auch aus /, höchstens 255, beide beginnen mit einem Buchstaben oder einer Ziffer.',
+    'Save this as a file and apply it with kubectl apply -f to the cluster that runs the workers.':
+      'Speichern Sie dies als Datei und wenden Sie es mit kubectl apply -f auf den Cluster an, in dem die Worker laufen.',
+    'This server is a development build ({version}), so no published image matches it. Run a released Dagu to add a worker with Docker or Kubernetes, or use the Linux tab.':
+      'Dieser Server ist ein Entwicklungs-Build ({version}), daher passt kein veröffentlichtes Image zu ihm. Betreiben Sie eine veröffentlichte Dagu-Version, um einen Worker mit Docker oder Kubernetes hinzuzufügen, oder nutzen Sie den Linux-Tab.',
+    'Installation guide': 'Installationsanleitung',
+    'Install Dagu on the worker host, then run this there.':
+      'Installieren Sie Dagu auf dem Worker-Host und führen Sie dies dort aus.',
+    'The coordinator cannot create invites.':
+      'Der Koordinator kann keine Einladungen erstellen.',
+    'Copy the command': 'Befehl kopieren',
+    'How the worker runs': 'Wie der Worker läuft',
+    'Labels (optional)': 'Labels (optional)',
+    Invite: 'Einladung',
+    'Single use: one worker that keeps its data directory. Expires after 24 hours unless used.':
+      'Einmalig: ein Worker, der sein Datenverzeichnis behält. Läuft nach 24 Stunden ab, wenn unbenutzt.',
+    'Reusable: any number of hosts. Lasts until deleted.':
+      'Wiederverwendbar: beliebig viele Hosts. Gilt bis zum Löschen.',
+    'Reusable: any number of containers, each with its own volume. Lasts until deleted.':
+      'Wiederverwendbar: beliebig viele Container, jeder mit eigenem Volume. Gilt bis zum Löschen.',
+    'Reusable invite: pods are replaced and scaled, and each new pod joins with it. It lasts until deleted.':
+      'Wiederverwendbare Einladung: Pods werden ersetzt und skaliert, und jeder neue Pod tritt mit ihr bei. Sie gilt bis zum Löschen.',
+    'Create invite': 'Einladung erstellen',
+    'Single-use invite, expires {time}.':
+      'Einmalige Einladung, läuft {time} ab.',
+    'Reusable invite, expires {time}.':
+      'Wiederverwendbare Einladung, läuft {time} ab.',
+    'Reusable invite, until deleted.':
+      'Wiederverwendbare Einladung, gilt bis zum Löschen.',
+    'The invite is shown only here. Closing the dialog keeps it.':
+      'Die Einladung erscheint nur hier. Das Schließen des Dialogs behält sie.',
+    'Waiting for the worker to join...':
+      'Warten auf den Beitritt des Workers...',
+    'No worker has joined yet. The usual causes:':
+      'Noch kein Worker ist beigetreten. Die üblichen Ursachen:',
+    'A firewall or security group closes port {port}.':
+      'Eine Firewall oder Sicherheitsgruppe sperrt Port {port}.',
+    'The container that runs Dagu does not publish port {port}.':
+      'Der Container, in dem Dagu läuft, veröffentlicht Port {port} nicht.',
+    'The worker cannot reach {address}.':
+      'Der Worker erreicht {address} nicht.',
     '{host} is not one host. Enter an IP address without a zone, or a DNS name.':
       '{host} ist kein einzelner Host. Geben Sie eine IP-Adresse ohne Zone oder einen DNS-Namen ein.',
     '{host} is a link-local address, which another network does not route. Enter another address of the machine.':
@@ -400,15 +674,24 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Erscheint nach Schritt 1 und 2',
   },
   fr: {
+    'Invite created.': 'Invitation créée.',
     'Use this address': 'Utiliser cette adresse',
     'The coordinator now reports {address}.':
       'Le coordinateur indique maintenant {address}.',
     "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it. If these settings are in order, check that the network path to the coordinator passes TLS.":
       'Le coordinateur exige TLS. Sur ce serveur, retirez tout peer.insecure : true ou peer.skip_tls_verify : true, qu’une option, une variable ou le fichier de configuration le définisse. Si ce serveur n’a pas de certificat de CA utilisable pour le coordinateur, passez-le au TLS intégré : retirez peer.cert_file, peer.key_file et peer.client_ca_file, puis définissez peer.ca_cert_file sur le certificat de CA du coordinateur. Puis redémarrez-le. Si ces réglages sont en ordre, vérifiez que le chemin réseau vers le coordinateur laisse passer TLS.',
+    'Creating invite…': 'Création de l’invitation…',
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       'Vérifiez que les pods des workers atteignent cette adresse. Les workers d’un autre espace de noms ont besoin de l’adresse du Service qualifiée par l’espace de noms, par exemple dagu-coordinator.<namespace>.svc:50055.',
+    "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
+      'Exécutez ceci avec le même contexte kubectl et le même espace de noms que pour appliquer le manifeste. Le journal du worker indique la cause :',
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':
+      'Exécutez ceci sur l’hôte du worker, qui a besoin de Docker. Pour un autre worker sur le même hôte, remplacez le volume dagu-worker par un volume qui lui est propre et utilisez une nouvelle invitation, ou une invitation réutilisable.',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       'Saisissez l’adresse et le port du Service du coordinateur. Les workers d’un autre espace de noms ont besoin de son nom qualifié par l’espace de noms, par exemple dagu-coordinator.<namespace>.svc:50055.',
+    'Diagnostic command copied': 'Commande de diagnostic copiée',
+    'Command copied': 'Commande copiée',
+    'Copy the diagnostic command': 'Copier la commande de diagnostic',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod shares its storage with the scheduler and the web UI, so all three need a volume they can each write; worker pods keep their own. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       'Définissez DAGU_COORDINATOR_HOST à 0.0.0.0 sur la charge de travail du coordinateur, puis redémarrez-la. Un coordinateur dans son propre pod partage son stockage avec le planificateur et l’interface web, donc tous trois ont besoin d’un volume où chacun peut écrire ; les pods des workers gardent le leur. Avec le chart Helm, utilisez deploymentMode : distributed, qui définit la variable. Déplacez les données vers une demande ReadWriteMany, puis définissez persistence.existingClaim sur celle-ci et persistence.accessMode à ReadWriteMany avant la mise à jour.',
     'Outside the cluster': 'Hors du cluster',
@@ -421,6 +704,17 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': 'Passer au TLS intégré',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       'Saisissez l’adresse du Service du coordinateur que les workers atteignent : son équilibreur de charge, ou pour NodePort, l’adresse d’un nœud et le port de nœud attribué. Le nom du Service ne fonctionne qu’à l’intérieur du cluster.',
+    '{count} workers joined with this invite.':
+      '{count} workers ont rejoint avec cette invitation.',
+    '1 worker joined with this invite.':
+      '1 worker a rejoint avec cette invitation.',
+    'Looking for the worker...': 'Recherche du worker…',
+    'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
+      'Exécutez ceci sur l’hôte du worker. Dans un nouveau conteneur, cela montre si l’hôte joint l’adresse et ce que répond le coordinateur :',
+    'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
+      'Exécutez ceci sur l’hôte du worker. Avec un répertoire de données vide, cela se connecte même après que le worker a rejoint, et montre si l’hôte joint l’adresse et ce que répond le coordinateur :',
+    'Switch to the local server to add a worker.':
+      'Passez au serveur local pour ajouter un worker.',
     'Copy the change': 'Copier la modification',
     'Check again': 'Revérifier',
     'The coordinator cannot do this yet. Try again in a moment.':
@@ -428,6 +722,14 @@ export const addWorkerMessages = defineMessages({
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
       'Le coordinateur ne peut pas le faire dans son état actuel. Son journal en donne la raison ; corrigez-la, puis réessayez.',
     'Shown after step 1': 'Affiché après l’étape 1',
+    'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
+      'La liste des workers n’a pas pu être lue, donc la boîte de dialogue ne peut pas dire si le worker a rejoint.',
+    'Label {position} sets a key an earlier label sets; keys compare without case.':
+      'Le label {position} définit une clé qu’un label précédent définit déjà ; les clés se comparent sans tenir compte de la casse.',
+    'Label {position} is empty. Write one key or key=value.':
+      'Le label {position} est vide. Écrivez une clé ou une paire key=value.',
+    'Label {position} holds an invite. The invite goes only into the commands.':
+      'Le label {position} contient une invitation. L’invitation va seulement dans les commandes.',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} est une adresse multicast ou de diffusion. Saisissez l’adresse d’une seule machine.',
     'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
@@ -439,6 +741,50 @@ export const addWorkerMessages = defineMessages({
     'The address holds an invite. The invite goes only into the commands.':
       'L’adresse contient une invitation. L’invitation va seulement dans les commandes.',
     'Address and port': 'Adresse et port',
+    'Look for the worker again': 'Chercher à nouveau le worker',
+    'Label {position} sets {key}, which a worker sets from its own host.':
+      'Le label {position} définit {key}, que le worker définit d’après son propre hôte.',
+    'Label {position} breaks the worker label rule: a key takes letters, digits, -, _, and ., at most 63, and a value also /, at most 255, each starting with a letter or digit.':
+      'Le label {position} enfreint la règle des labels du worker : une clé prend des lettres, des chiffres, -, _ et ., 63 au plus, et une valeur aussi /, 255 au plus, chacune commençant par une lettre ou un chiffre.',
+    'Save this as a file and apply it with kubectl apply -f to the cluster that runs the workers.':
+      'Enregistrez ceci dans un fichier et appliquez-le avec kubectl apply -f au cluster qui exécute les workers.',
+    'This server is a development build ({version}), so no published image matches it. Run a released Dagu to add a worker with Docker or Kubernetes, or use the Linux tab.':
+      'Ce serveur est une version de développement ({version}), donc aucune image publiée ne lui correspond. Utilisez une version publiée de Dagu pour ajouter un worker avec Docker ou Kubernetes, ou utilisez l’onglet Linux.',
+    'Installation guide': 'Guide d’installation',
+    'Install Dagu on the worker host, then run this there.':
+      'Installez Dagu sur l’hôte du worker, puis exécutez ceci sur cet hôte.',
+    'The coordinator cannot create invites.':
+      'Le coordinateur ne peut pas créer d’invitations.',
+    'Copy the command': 'Copier la commande',
+    'How the worker runs': 'Comment le worker s’exécute',
+    'Labels (optional)': 'Labels (facultatif)',
+    Invite: 'Invitation',
+    'Single use: one worker that keeps its data directory. Expires after 24 hours unless used.':
+      'Usage unique : un worker qui garde son répertoire de données. Expire après 24 heures si elle n’est pas utilisée.',
+    'Reusable: any number of hosts. Lasts until deleted.':
+      'Réutilisable : autant d’hôtes que voulu. Valable jusqu’à sa suppression.',
+    'Reusable: any number of containers, each with its own volume. Lasts until deleted.':
+      'Réutilisable : autant de conteneurs que voulu, chacun avec son volume. Valable jusqu’à sa suppression.',
+    'Reusable invite: pods are replaced and scaled, and each new pod joins with it. It lasts until deleted.':
+      'Invitation réutilisable : les pods sont remplacés et mis à l’échelle, et chaque nouveau pod rejoint avec elle. Elle est valable jusqu’à sa suppression.',
+    'Create invite': 'Créer une invitation',
+    'Single-use invite, expires {time}.':
+      'Invitation à usage unique, expire le {time}.',
+    'Reusable invite, expires {time}.':
+      'Invitation réutilisable, expire le {time}.',
+    'Reusable invite, until deleted.':
+      'Invitation réutilisable, valable jusqu’à sa suppression.',
+    'The invite is shown only here. Closing the dialog keeps it.':
+      'L’invitation n’est affichée qu’ici. Fermer la boîte de dialogue la conserve.',
+    'Waiting for the worker to join...': 'En attente du worker…',
+    'No worker has joined yet. The usual causes:':
+      'Aucun worker n’a encore rejoint. Les causes habituelles :',
+    'A firewall or security group closes port {port}.':
+      'Un pare-feu ou un groupe de sécurité ferme le port {port}.',
+    'The container that runs Dagu does not publish port {port}.':
+      'Le conteneur qui exécute Dagu ne publie pas le port {port}.',
+    'The worker cannot reach {address}.':
+      'Le worker ne peut pas joindre {address}.',
     '{host} is not one host. Enter an IP address without a zone, or a DNS name.':
       '{host} n’est pas un hôte unique. Saisissez une adresse IP sans zone, ou un nom DNS.',
     '{host} is a link-local address, which another network does not route. Enter another address of the machine.':

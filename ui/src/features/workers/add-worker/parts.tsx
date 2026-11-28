@@ -165,10 +165,16 @@ export function Step({
 export function CommandBlock({
   text,
   label,
+  copiedLabel,
+  autoFocus,
   className,
 }: {
   text: string;
   label: string;
+  /** The button's name for a moment after it copied; else "Copied". */
+  copiedLabel?: string;
+  /** Focuses the copy button when it mounts. */
+  autoFocus?: boolean;
   className?: string;
 }) {
   const { ts } = useI18n();
@@ -177,9 +183,14 @@ export function CommandBlock({
       <pre className="max-h-72 overflow-auto rounded-md border bg-muted px-3 py-2 pr-10 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all">
         {text}
       </pre>
+      {/* A new text gets a new button, so "Copied" never names text it
+          did not copy. */}
       <CopyButton
+        key={text}
         text={text}
         label={ts(label)}
+        copiedLabel={copiedLabel && ts(copiedLabel)}
+        autoFocus={autoFocus}
         size="sm"
         className="absolute right-1.5 top-1.5"
       />
