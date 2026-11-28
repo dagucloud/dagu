@@ -233,6 +233,8 @@ type Handler struct {
 	workerCertificates        persis.WorkerCertificateStore      // Records of issued worker certificates
 	removals                  workerRemovals                     // Certificates in removal, refused or given no task
 	peerMaintenance           sync.WaitGroup                     // The removal reread and the daily prune
+	removalStarted            chan struct{}                      // Wakes the stop deadlines for a new one
+	stops                     stopDeadlineState                  // The progress of each stop deadline
 	clock                     func() time.Time                   // The time removals and certificate heartbeats use
 	removalReread             time.Duration                      // How often the removals are reread
 
@@ -440,6 +442,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		workerCertificates:        cfg.WorkerCertificateStore,
 		clock:                     time.Now,
 		removalReread:             removalRereadInterval,
+		removalStarted:            make(chan struct{}, 1),
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
 		workerWaitTimeout:         cfg.WorkerWaitTimeout,
@@ -2375,7 +2378,7 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 		}
 		return nil, status.Error(codes.Internal, "failed to create run lease: "+err.Error())
 	}
-	if err := h.settleAcceptedRun(ctx); err != nil {
+	if err := h.settleAcceptedRun(ctx, task); err != nil {
 		// The lease is the stale-lease check's to end now, so the claim
 		// goes and its expiry never queues the attempt again.
 		if status.Code(err) != codes.Unavailable {
@@ -2915,6 +2918,14 @@ func (h *Handler) getCancelledRunsForWorker(ctx context.Context, stats *coordina
 	for _, task := range stats.RunningTasks {
 		if h.isTaskCancelled(ctx, task) {
 			cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
+		}
+	}
+	// A removal with stop asks through the lease, which the request was
+	// recorded on, so the request reaches the worker whatever else it can
+	// read.
+	if cert := h.callerCertificate(ctx); cert != nil {
+		for _, key := range h.stoppedRuns(ctx, cert.Subject.CommonName, stats.RunningTasks) {
+			cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, key)
 		}
 	}
 	return cancelledRuns
@@ -4651,8 +4662,20 @@ func (h *Handler) RequestCancel(ctx context.Context, req *coordinatorv1.RequestC
 		tag.DAG(req.DagName),
 		tag.RunID(req.DagRunId),
 	)
+	attempt, err := h.findCancelAttempt(ctx, req)
+	if err != nil {
+		logger.Warn(ctx, "Failed to find DAG run for cancellation", tag.Error(err))
+		return &coordinatorv1.RequestCancelResponse{
+			Accepted: false,
+			Error:    fmt.Sprintf("failed to find DAG run: %v", err),
+		}, nil
+	}
+	return h.cancelAttempt(ctx, attempt), nil
+}
 
-	// Find the attempt (either root or sub-DAG)
+// findCancelAttempt returns the latest attempt of the DAG run that req
+// names, a root run or a sub-DAG run.
+func (h *Handler) findCancelAttempt(ctx context.Context, req *coordinatorv1.RequestCancelRequest) (dagrun.Attempt, error) {
 	var attempt dagrun.Attempt
 	var err error
 
@@ -4668,22 +4691,19 @@ func (h *Handler) RequestCancel(ctx context.Context, req *coordinatorv1.RequestC
 		attempt, err = h.dagRunRepository.FindAttempt(ctx, ref)
 		logger.Info(ctx, "Looking up DAG attempt for cancellation")
 	}
+	return attempt, err
+}
 
-	if err != nil {
-		logger.Warn(ctx, "Failed to find DAG run for cancellation", tag.Error(err))
-		return &coordinatorv1.RequestCancelResponse{
-			Accepted: false,
-			Error:    fmt.Sprintf("failed to find DAG run: %v", err),
-		}, nil
-	}
-
+// cancelAttempt sets the cancel request of attempt, and ends at once an
+// attempt that no worker started.
+func (h *Handler) cancelAttempt(ctx context.Context, attempt dagrun.Attempt) *coordinatorv1.RequestCancelResponse {
 	// Set the abort flag
 	if err := attempt.Abort(ctx); err != nil {
 		logger.Warn(ctx, "Failed to abort DAG run", tag.Error(err))
 		return &coordinatorv1.RequestCancelResponse{
 			Accepted: false,
 			Error:    fmt.Sprintf("failed to abort: %v", err),
-		}, nil
+		}
 	}
 
 	if err := finalizeNotStartedCancellation(ctx, attempt); err != nil {
@@ -4691,13 +4711,13 @@ func (h *Handler) RequestCancel(ctx context.Context, req *coordinatorv1.RequestC
 		return &coordinatorv1.RequestCancelResponse{
 			Accepted: false,
 			Error:    fmt.Sprintf("failed to finalize cancellation: %v", err),
-		}, nil
+		}
 	}
 	h.finalizeAdmissionForAttempt(ctx, attempt)
 	h.dropHeldDispatch(ctx, attempt)
 
 	logger.Info(ctx, "DAG run cancellation requested successfully")
-	return &coordinatorv1.RequestCancelResponse{Accepted: true}, nil
+	return &coordinatorv1.RequestCancelResponse{Accepted: true}
 }
 
 // dropHeldDispatch removes the pending task of a cancelled run that was

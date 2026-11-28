@@ -23,9 +23,9 @@ import (
 const removedWorkerMessage = "this worker was removed from the coordinator"
 
 // remove removes the enrolled worker with the peer token.
-func (s peerTLSServer) remove(t *testing.T) *coordinatorv1.RemoveWorkerResponse {
+func (s peerTLSServer) remove(t *testing.T, runs coordinatorv1.RemoveWorkerRuns) *coordinatorv1.RemoveWorkerResponse {
 	t.Helper()
-	resp, err := s.tlsClient(t).RemoveWorker(callContext(t), &coordinatorv1.RemoveWorkerRequest{WorkerId: enrollWorkerID})
+	resp, err := s.tlsClient(t).RemoveWorker(callContext(t), &coordinatorv1.RemoveWorkerRequest{WorkerId: enrollWorkerID, Runs: runs})
 	require.NoError(t, err)
 	return resp
 }
@@ -79,11 +79,11 @@ func TestRemoveWorkerNotConnected(t *testing.T) {
 	_, err := worker.GetWorkers(t.Context(), &coordinatorv1.GetWorkersRequest{})
 	require.NoError(t, err)
 
-	resp := server.remove(t)
+	resp := server.remove(t, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
 	assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, resp.State)
 	assert.Equal(t, []string{cert.Subject.CommonName}, resp.CertificateIds)
 	assertRemoved(t, worker)
-	assert.Equal(t, resp.State, server.remove(t).State,
+	assert.Equal(t, resp.State, server.remove(t, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_STOP).State,
 		"removing a removed worker again changes nothing")
 }
 
@@ -94,7 +94,7 @@ func TestRemovedCertificateEnrollAndHealth(t *testing.T) {
 	t.Parallel()
 	server := startPeerTLSServer(t, certHosts)
 	key, cert, invite := server.enrolled(t)
-	server.remove(t)
+	server.remove(t, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
 
 	config := server.tlsConfig()
 	config.Certificates = []tls.Certificate{{Certificate: [][]byte{cert.Raw}, PrivateKey: key}}
@@ -118,7 +118,7 @@ func TestRemoveWorkerOtherCoordinator(t *testing.T) {
 	key, cert, _ := server.enrolled(t)
 	worker := other.workerClient(t, cert.Raw, key)
 
-	server.remove(t)
+	server.remove(t, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
 	assertServed(t, worker)
 	coordinator.RereadRemovalsForTest(other.handler)
 	assertRemoved(t, worker)
@@ -130,7 +130,7 @@ func TestEnrollRefusesRemovedKey(t *testing.T) {
 	t.Parallel()
 	server := startPeerTLSServer(t, certHosts)
 	key, _, invite := server.enrolled(t)
-	server.remove(t)
+	server.remove(t, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
 
 	_, err := server.another(t).tlsClient(t).Enroll(t.Context(), enrollRequest(t, invite.Invite, key))
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
@@ -149,7 +149,7 @@ func TestRemoveWorkerConnected(t *testing.T) {
 	_, err := worker.Heartbeat(t.Context(), &coordinatorv1.HeartbeatRequest{WorkerId: enrollWorkerID, Host: enrollHost})
 	require.NoError(t, err)
 
-	resp := server.remove(t)
+	resp := server.remove(t, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
 	assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING, resp.State)
 	assertServed(t, worker)
 	_, err = worker.Heartbeat(t.Context(), &coordinatorv1.HeartbeatRequest{WorkerId: enrollWorkerID, Host: enrollHost})

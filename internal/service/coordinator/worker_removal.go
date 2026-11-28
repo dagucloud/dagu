@@ -39,6 +39,9 @@ const (
 	// the store before it lets the worker accept a task, so the minimum only
 	// has to outlast the moment from that read to the task's lease.
 	removingMinimum = 30 * time.Second
+	// stopRunsWait bounds how long a removal that stops the worker's runs
+	// waits for them to end.
+	stopRunsWait = 2 * time.Minute
 	// certificateHeartbeatPass bounds how often a coordinator passes a
 	// worker's heartbeat to its certificate record. The store writes only
 	// what is due by the record, so the record orders worker IDs by when
@@ -116,6 +119,14 @@ func (r *workerRemovals) addLocked(removals []persis.WorkerCertificateRemoval) {
 		if ok && removalStateRank[removal.State] < removalStateRank[current.State] {
 			continue
 		}
+		// A read that began before a stop request keeps the request and
+		// its time.
+		if ok && current.StopRequested {
+			removal.StopRequested = true
+		}
+		if ok && !current.StopRunsAt.IsZero() && (removal.StopRunsAt.IsZero() || current.StopRunsAt.Before(removal.StopRunsAt)) {
+			removal.StopRunsAt = current.StopRunsAt
+		}
 		r.byID[removal.ID] = removal
 		switch removal.State {
 		case persis.WorkerCertificateRevoked:
@@ -187,6 +198,20 @@ func (r *workerRemovals) get(id string) (persis.WorkerCertificateRemoval, bool) 
 	return removal, ok
 }
 
+// stopDeadlines returns when the wait for stopped runs of each removing
+// certificate ends, also when it has already passed.
+func (r *workerRemovals) stopDeadlines() map[string]time.Time {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	deadlines := make(map[string]time.Time)
+	for _, removal := range r.byID {
+		if removal.State == persis.WorkerCertificateRemoving && !removal.StopRunsAt.IsZero() {
+			deadlines[removal.ID] = removal.StopRunsAt.Add(stopRunsWait)
+		}
+	}
+	return deadlines
+}
+
 // removing returns the certificates in state removing.
 func (r *workerRemovals) removing() []persis.WorkerCertificateRemoval {
 	r.mu.RLock()
@@ -202,7 +227,8 @@ func (r *workerRemovals) removing() []persis.WorkerCertificateRemoval {
 
 // RemoveWorker revokes the certificate of a worker that is not connected,
 // and marks the certificate of a connected worker removing, so it is
-// revoked once the runs the worker holds end.
+// revoked once the runs the worker holds end. With stop, it also cancels
+// those runs.
 func (h *Handler) RemoveWorker(ctx context.Context, req *coordinatorv1.RemoveWorkerRequest) (*coordinatorv1.RemoveWorkerResponse, error) {
 	if err := h.requirePeerCA(); err != nil {
 		return nil, err
@@ -225,15 +251,16 @@ func (h *Handler) RemoveWorker(ctx context.Context, req *coordinatorv1.RemoveWor
 		}
 		return nil, status.Error(codes.FailedPrecondition, peerTokenWorkerMessage)
 	}
+	stop := req.Runs == coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_STOP
 	if !connected {
-		return h.revokeWorker(ctx, req.WorkerId, hb, now)
+		return h.revokeWorker(ctx, req.WorkerId, hb, now, stop)
 	}
 	removals, err := h.workerCertificates.BeginWorkerRemoval(ctx, req.WorkerId)
 	if err != nil {
 		logger.Error(ctx, "Failed to begin a worker's removal", tag.WorkerID(req.WorkerId), tag.Error(err))
 		return nil, status.Error(codes.Internal, "failed to remove the worker")
 	}
-	resp, err := h.startRemoval(ctx, hb.CertificateID, req.WorkerId)
+	resp, err := h.startRemoval(ctx, hb.CertificateID, req.WorkerId, stop)
 	if err != nil {
 		return nil, err
 	}
@@ -246,12 +273,13 @@ func (h *Handler) RemoveWorker(ctx context.Context, req *coordinatorv1.RemoveWor
 }
 
 // startRemoval marks the certificate certID removing for the connected
-// worker workerID. It removes that certificate only, so it leaves the
-// enrollments of workerID alone.
-func (h *Handler) startRemoval(ctx context.Context, certID, workerID string) (*coordinatorv1.RemoveWorkerResponse, error) {
+// worker workerID, and with stop cancels the runs its holders hold. It
+// removes that certificate only, so it leaves the enrollments of workerID
+// alone.
+func (h *Handler) startRemoval(ctx context.Context, certID, workerID string, stop bool) (*coordinatorv1.RemoveWorkerResponse, error) {
 	// The removal names the worker as it connects now: a worker ID that
 	// changed at a restart may not have reached the record yet.
-	cert, err := h.workerCertificates.MarkRemoving(ctx, certID, workerID, h.clock)
+	cert, err := h.workerCertificates.MarkRemoving(ctx, certID, workerID, h.clock, stop)
 	if errors.Is(err, persis.ErrWorkerCertificateNotFound) {
 		// A worker back after its record was pruned connects before its
 		// heartbeat writes the record again, within a minute.
@@ -271,8 +299,27 @@ func (h *Handler) startRemoval(ctx context.Context, certID, workerID string) (*c
 		resp.State = coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED
 		return resp, nil
 	}
-	logger.Info(ctx, "Worker removal started", tag.WorkerID(workerID), slog.String("certificate-id", cert.ID))
+	logger.Info(ctx, "Worker removal started",
+		tag.WorkerID(workerID), slog.String("certificate-id", cert.ID), slog.Bool("stop-runs", stop))
+	if stop {
+		h.confirmStop(ctx, cert.ID)
+		h.cancelHeldRuns(ctx, removalOf(cert))
+	}
 	return resp, nil
+}
+
+// confirmStop records, as the stop of the removing certificate id, a time
+// read after the stop request was known to be in the store, unless a time
+// is recorded already, and arms its deadline. Every coordinator counts the
+// 2-minute wait from that one stored time.
+func (h *Handler) confirmStop(ctx context.Context, id string) {
+	cert, err := h.workerCertificates.ConfirmStop(ctx, id, h.clock())
+	if err != nil {
+		logger.Warn(ctx, "Failed to record when a removed worker's runs were asked to stop", slog.String("certificate-id", id), tag.Error(err))
+		return
+	}
+	h.removals.apply(removalOf(cert))
+	h.wakeStopDeadlines()
 }
 
 // revokeWorker revokes every certificate that names the worker workerID,
@@ -283,7 +330,7 @@ func (h *Handler) startRemoval(ctx context.Context, certID, workerID string) (*c
 // ID in heartbeats refuses the removal. A certificate that an enrollment
 // running alongside records for the worker is revoked too, as
 // revokeEnrolledAlongside states.
-func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatch.WorkerHeartbeatRecord, now time.Time) (*coordinatorv1.RemoveWorkerResponse, error) {
+func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatch.WorkerHeartbeatRecord, now time.Time, stop bool) (*coordinatorv1.RemoveWorkerResponse, error) {
 	certs, err := h.workerCertificates.List(ctx)
 	if err != nil {
 		logger.Error(ctx, "Failed to list worker certificates", tag.Error(err))
@@ -324,7 +371,7 @@ func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatc
 		if !ok {
 			continue
 		}
-		removing, err := h.startRemoval(ctx, cert.ID, holder)
+		removing, err := h.startRemoval(ctx, cert.ID, holder, stop)
 		if err != nil {
 			return nil, err
 		}
@@ -490,11 +537,75 @@ func (h *Handler) revoke(ctx context.Context, id string) error {
 	return nil
 }
 
-// heldRun is a run a worker holds: the DAG run it names, and the attempt
-// the worker runs, or empty when the worker names none.
+// cancelHeldRuns sends the cancel request for each run whose lease names
+// the certificate of removal. A pass that cannot list the leases leaves the
+// runs to the next reread, which sends the requests again.
+func (h *Handler) cancelHeldRuns(ctx context.Context, removal persis.WorkerCertificateRemoval) {
+	leases, err := h.listLeases(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Failed to list run leases to stop a removed worker's runs", tag.WorkerID(removal.WorkerID), tag.Error(err))
+		return
+	}
+	h.stopLeasedRuns(ctx, removal.ID, leases)
+}
+
+// heldRun is a run a worker holds: the DAG run its cancel request names,
+// and the attempt the worker runs, or empty when the worker names none.
 type heldRun struct {
 	cancel     *coordinatorv1.RequestCancelRequest
 	attemptKey string
+}
+
+// stopLeasedRuns sends the cancel request for each attempt whose lease in
+// leases names the certificate certID, also a lease gone stale.
+func (h *Handler) stopLeasedRuns(ctx context.Context, certID string, leases []dispatch.DAGRunLease) {
+	for _, lease := range leases {
+		if lease.CertificateID != certID {
+			continue
+		}
+		h.stopAttempt(ctx, certID, lease.AttemptKey)
+	}
+}
+
+// stopAttempt records on the lease of the attempt attemptKey that the
+// removal of the certificate certID asks it to stop, when, as the request is
+// written, the lease names that certificate; a lease that a later write
+// left naming another certificate or none gets no request. The worker that
+// holds the lease learns of the request from its heartbeat and ends the
+// run, and a run whose worker no longer reports ends through the stale-lease
+// check. The coordinator never ends the attempt itself, so an acceptance of
+// the attempt that runs alongside never races its end.
+func (h *Handler) stopAttempt(ctx context.Context, certID, attemptKey string) {
+	if h.dagRunLeaseStore == nil || attemptKey == "" {
+		return
+	}
+	if _, err := h.dagRunLeaseStore.RequestStop(ctx, attemptKey, certID); err != nil {
+		logger.Warn(ctx, "Failed to stop a removed worker's run", tag.AttemptKey(attemptKey), tag.Error(err))
+	}
+}
+
+// stoppedRuns returns the attempt keys of tasks whose lease records a stop
+// request of the removal of the certificate certID. It reads the leases
+// only while this coordinator knows that certificate in a removal with
+// stop, so a heartbeat of any other worker reads none.
+func (h *Handler) stoppedRuns(ctx context.Context, certID string, tasks []*coordinatorv1.RunningTask) []string {
+	if h.dagRunLeaseStore == nil {
+		return nil
+	}
+	if removal, ok := h.removals.get(certID); !ok || !removal.StopRequested {
+		return nil
+	}
+	var stopped []string
+	for _, task := range tasks {
+		if task.GetAttemptKey() == "" {
+			continue
+		}
+		lease, err := h.dagRunLeaseStore.Get(ctx, task.AttemptKey)
+		if err == nil && lease.StopRequested && lease.CertificateID == certID {
+			stopped = append(stopped, task.AttemptKey)
+		}
+	}
+	return stopped
 }
 
 // heldRuns returns the runs that the workers of holders hold: those their
@@ -542,9 +653,12 @@ func (h *Handler) startPeerMaintenance(ctx context.Context) {
 	if h.peerCA == nil {
 		return
 	}
-	h.rereadRemovals(ctx)
+	// The first read arms the stop deadlines before any listing, so a
+	// slow listing at startup never holds one up.
+	h.loadRemovals(ctx)
+	h.peerMaintenance.Go(func() { h.runStopDeadlines(ctx) })
 	// The prune runs apart from the removal loop, so a slow prune never
-	// holds up a reread.
+	// holds up a reread or a stop deadline.
 	h.peerMaintenance.Go(func() {
 		h.pruneRecords(ctx)
 		prune := time.NewTicker(recordPruneInterval)
@@ -559,6 +673,7 @@ func (h *Handler) startPeerMaintenance(ctx context.Context) {
 		}
 	})
 	h.peerMaintenance.Go(func() {
+		h.settleLoaded(ctx)
 		reread := time.NewTicker(h.removalReread)
 		defer reread.Stop()
 		for {
@@ -572,6 +687,96 @@ func (h *Handler) startPeerMaintenance(ctx context.Context) {
 	})
 }
 
+// runStopDeadlines revokes each stop removal when its 2-minute wait ends,
+// until ctx ends. It reads only this coordinator's copy of the removals, and
+// each revocation runs on its own, so no listing, cancel request, reread,
+// or other certificate's revocation holds one up. A revocation that fails is
+// tried again heartbeatSettleInterval later, and only that certificate
+// waits.
+func (h *Handler) runStopDeadlines(ctx context.Context) {
+	timer := time.NewTimer(recordPruneInterval)
+	defer timer.Stop()
+	for {
+		now := h.clock()
+		if next := h.startDueStops(ctx, now); !next.IsZero() {
+			timer.Reset(next.Sub(now))
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		case <-h.removalStarted:
+		}
+	}
+}
+
+// stopDeadlineState is the progress of each stop removal's deadline: the
+// revocations under way and, for each whose write failed, when it is tried
+// again. Every deadline write goes through it, so no certificate has two
+// at once.
+type stopDeadlineState struct {
+	mu       sync.Mutex
+	inFlight map[string]bool
+	retryAt  map[string]time.Time
+}
+
+// startDueStops starts the revocation of each stop removal whose deadline,
+// or retry after a failed write, has come at now, each in its own
+// goroutine, and returns the next such time, or zero when none waits.
+func (h *Handler) startDueStops(ctx context.Context, now time.Time) time.Time {
+	deadlines := h.removals.stopDeadlines()
+	st := &h.stops
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.inFlight == nil {
+		st.inFlight = make(map[string]bool)
+		st.retryAt = make(map[string]time.Time)
+	}
+	for id := range st.retryAt {
+		if _, ok := deadlines[id]; !ok {
+			delete(st.retryAt, id)
+		}
+	}
+	var next time.Time
+	for id, at := range deadlines {
+		if st.inFlight[id] {
+			continue
+		}
+		if retry, ok := st.retryAt[id]; ok {
+			at = retry
+		}
+		if at.After(now) {
+			if next.IsZero() || at.Before(next) {
+				next = at
+			}
+			continue
+		}
+		st.inFlight[id] = true
+		h.peerMaintenance.Go(func() {
+			err := h.revoke(ctx, id)
+			st.mu.Lock()
+			delete(st.inFlight, id)
+			if err != nil {
+				st.retryAt[id] = h.clock().Add(heartbeatSettleInterval)
+			} else {
+				delete(st.retryAt, id)
+			}
+			st.mu.Unlock()
+			h.wakeStopDeadlines()
+		})
+	}
+	return next
+}
+
+// wakeStopDeadlines makes runStopDeadlines read the removals again, as after
+// a stop removal began or a revocation ended.
+func (h *Handler) wakeStopDeadlines() {
+	select {
+	case h.removalStarted <- struct{}{}:
+	default:
+	}
+}
+
 // waitPeerMaintenance waits for the work startPeerMaintenance started to end
 // after its context ended.
 func (h *Handler) waitPeerMaintenance() {
@@ -581,12 +786,33 @@ func (h *Handler) waitPeerMaintenance() {
 // rereadRemovals reads the certificates in removal and revokes each
 // removing one that is due. A failed read keeps the last copy.
 func (h *Handler) rereadRemovals(ctx context.Context) {
+	if h.loadRemovals(ctx) {
+		h.settleLoaded(ctx)
+	}
+}
+
+// loadRemovals reads the certificates in removal into the copy, records the
+// stop time of a stop removal that another coordinator started but did not
+// time, and wakes the stop deadlines. A failed read keeps the last copy,
+// whose deadlines still revoke, and reports false.
+func (h *Handler) loadRemovals(ctx context.Context) bool {
 	removals, err := h.workerCertificates.ListRemovals(ctx)
 	if err != nil {
 		logger.Warn(ctx, "Failed to read the removed workers", tag.Error(err))
-		return
+		return false
 	}
 	h.removals.load(removals)
+	for _, removal := range h.removals.removing() {
+		if removal.StopRequested && removal.StopRunsAt.IsZero() {
+			h.confirmStop(ctx, removal.ID)
+		}
+	}
+	h.wakeStopDeadlines()
+	return true
+}
+
+// settleLoaded settles each removing certificate of the copy.
+func (h *Handler) settleLoaded(ctx context.Context) {
 	if removing := h.removals.removing(); len(removing) > 0 {
 		h.settleRemovals(ctx, removing, h.clock())
 	}
@@ -600,10 +826,22 @@ func (h *Handler) settleRemovals(ctx context.Context, removing []persis.WorkerCe
 		leases, err = h.listLeases(ctx)
 	}
 	if err != nil {
+		// A stop removal past its wait is revoked by its deadline, which
+		// needs no list.
 		logger.Warn(ctx, "Failed to list worker heartbeats or run leases for removing workers", tag.Error(err))
 		return
 	}
 	for _, removal := range removing {
+		// A stop removal past its wait is its deadline's to revoke.
+		if stopRunsDue(removal, now) {
+			continue
+		}
+		// The cancel requests go out again while a stop removal waits, so
+		// a run that a failed pass missed still gets one. They change
+		// nothing for a run that has one.
+		if removal.StopRequested {
+			h.stopLeasedRuns(ctx, removal.ID, leases)
+		}
 		if h.removalDue(removal, presence, leases, now) {
 			h.revokeIdle(ctx, removal, now)
 		}
@@ -638,13 +876,14 @@ func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertifica
 }
 
 // removalDue reports whether the removing certificate removal is to be
-// revoked: no worker that holds it has a fresh heartbeat, or it was
-// removing for 30 seconds and no worker that holds it holds a run. A worker
-// holds it when its fresh heartbeat carries it, so a worker ID that changes
-// during the removal is still waited for, and a replacement that took the
-// worker ID with another certificate is not. A heartbeat without a
-// certificate ID, from a coordinator predating the field, holds it when it
-// comes from the worker the removal names.
+// revoked: no worker that holds it has a fresh heartbeat, 2 minutes passed
+// since its runs were asked to stop, or it was removing for 30 seconds and
+// no worker that holds it holds a run. A worker holds it when its fresh
+// heartbeat carries it, so a worker ID that changes during the removal is
+// still waited for, and a replacement that took the worker ID with another
+// certificate is not. A heartbeat without a certificate ID, from a
+// coordinator predating the field, holds it when it comes from the worker
+// the removal names.
 func (h *Handler) removalDue(removal persis.WorkerCertificateRemoval, presence []dispatch.WorkerHeartbeatRecord, leases []dispatch.DAGRunLease, now time.Time) bool {
 	return len(h.removalHolders(removal, presence, now)) == 0 ||
 		(h.removals.removingFor(removal.ID, removingMinimum, now) && len(h.heldRunsOf(removal, presence, leases, now)) == 0)
@@ -679,6 +918,12 @@ func (h *Handler) heldRunsOf(removal persis.WorkerCertificateRemoval, presence [
 	return heldRuns(holders, leases, counts, now, h.staleLeaseThreshold)
 }
 
+// stopRunsDue reports whether 2 minutes passed since the removal asked the
+// worker's runs to stop.
+func stopRunsDue(removal persis.WorkerCertificateRemoval, now time.Time) bool {
+	return !removal.StopRunsAt.IsZero() && now.Sub(removal.StopRunsAt) >= stopRunsWait
+}
+
 // pruneRecords deletes the certificate and invite records that the stores'
 // retention rules let go.
 func (h *Handler) pruneRecords(ctx context.Context) {
@@ -694,7 +939,8 @@ func (h *Handler) pruneRecords(ctx context.Context) {
 // observeCertificateHeartbeat records a heartbeat that arrived at at with
 // the worker certificate cert in the certificate's record when pass is set,
 // and settles the certificate's removal when the heartbeat may make it due:
-// it lists no running task after the minimum wait.
+// it lists no running task after the minimum wait, or the wait for stopped
+// runs has passed.
 func (h *Handler) observeCertificateHeartbeat(ctx context.Context, cert *x509.Certificate, req *coordinatorv1.HeartbeatRequest, at time.Time, pass *certificatePass) {
 	certID := cert.Subject.CommonName
 	if pass != nil {
@@ -705,6 +951,11 @@ func (h *Handler) observeCertificateHeartbeat(ctx context.Context, cert *x509.Ce
 	removal, ok := h.removals.get(certID)
 	if !ok || removal.State != persis.WorkerCertificateRemoving {
 		return
+	}
+	// A stop removal past its wait is the deadline loop's to revoke, so
+	// this heartbeat only wakes it.
+	if stopRunsDue(removal, at) {
+		h.wakeStopDeadlines()
 	}
 	// The bound keeps a revocation that keeps failing from being retried
 	// at every heartbeat.
@@ -800,6 +1051,8 @@ func removalOf(cert persis.WorkerCertificate) persis.WorkerCertificateRemoval {
 		State:          cert.State,
 		WorkerID:       cmp.Or(cert.HolderID, cert.WorkerID),
 		RemovingAt:     cert.RemovingAt,
+		StopRequested:  cert.StopRequested,
+		StopRunsAt:     cert.StopRunsAt,
 	}
 }
 
@@ -873,8 +1126,12 @@ func (h *Handler) listPresence(ctx context.Context) ([]dispatch.WorkerHeartbeatR
 // lease of task was created, and refuses the acceptance when the
 // certificate was revoked meanwhile. A refusal leaves the lease, which the
 // stale-lease check ends, since a retry of the same claim may own it. A
-// removal that starts later sees the lease in its own pass.
-func (h *Handler) settleAcceptedRun(ctx context.Context) error {
+// removal with stop that began after the acceptance was checked may have
+// run its own pass before the lease existed, so the run gets its cancel
+// request here; the acceptance stands, and the worker ends the run once it
+// learns of the request. A removal that starts later sees the lease in its
+// own pass.
+func (h *Handler) settleAcceptedRun(ctx context.Context, task *coordinatorv1.Task) error {
 	cert := h.callerCertificate(ctx)
 	if cert == nil {
 		return nil
@@ -895,6 +1152,9 @@ func (h *Handler) settleAcceptedRun(ctx context.Context) error {
 	if record.State == persis.WorkerCertificateRevoked {
 		h.removals.apply(removalOf(record))
 		return status.Error(codes.Unauthenticated, removedWorkerMessage)
+	}
+	if record.StopRequested {
+		h.stopAttempt(ctx, record.ID, task.AttemptKey)
 	}
 	return nil
 }
