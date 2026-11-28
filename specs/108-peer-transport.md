@@ -723,8 +723,9 @@ The `worker_certificates` collection keeps one record per certificate:
 - This holds while the worker keeps its enrollment. A fresh worker
   instance, one that kept no enrollment or starts without the one it had,
   enrolls again while its reusable invite exists. In Kubernetes, a
-  restarted container keeps its enrollment and exits again, and a replaced
-  pod is a fresh worker instance.
+  restarted container keeps its enrollment and exits again. A replacement
+  pod that starts without the enrollment is a fresh worker instance, and
+  one that starts with it exits again.
 
 #### Worker Lock
 
@@ -974,7 +975,9 @@ as the REST API always does:
 - It learns of the refusal from any of its calls, its heartbeat every
   second among them, and stops at the first refusal, also while a
   coordinator that has not reread the revoked set yet still accepts its
-  heartbeats. A run it accepted that has not started yet never starts.
+  heartbeats. It stops admitting runs at once, before it records the
+  refusal, and a run it accepted that has not started yet never starts.
+  Its exit and the release of its lock wait for the record.
 - Once it learned of the refusal, it exits with the message, also when a
   signal stops it at the same time.
 - In Kubernetes, it also writes the message, on one line, to

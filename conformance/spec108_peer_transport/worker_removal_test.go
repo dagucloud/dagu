@@ -21,7 +21,8 @@ const (
 
 // A connected worker that is removed exits with the message once its
 // certificate is revoked. Remove holds across a restart: the same invite
-// exits at once with the same message, and the check reports the refusal.
+// exits at once with the same message, and the check reports the refusal,
+// and fails on the worker's record when a coordinator still accepts it.
 // A new invite brings the worker back (Spec 108 §Removed Worker, §Worker
 // Start, §Remove With Running Runs).
 func TestWorkerRemoved(t *testing.T) {
@@ -61,6 +62,15 @@ func TestWorkerRemoved(t *testing.T) {
 	check.ExpectExitCode(1)
 	assert.Contains(t, check.Stdout(), "  Invite pin: matches the coordinator's CA\n")
 	assert.Contains(t, check.Stdout(), "  Coordinator answered: "+workerRemoved+"\n  "+workerRemovedNext+"\n")
+
+	// A coordinator of the same CA that keeps no record of the removal still
+	// accepts the certificate, and the check fails all the same.
+	unaware := serveCoordinator(t, dagu, coord.env, servingBuiltinTLS)
+	check = dagu.RunWithEnv(env(invite), "worker", "--check", "--worker.coordinators="+unaware)
+	check.ExpectExitCode(1)
+	assert.Contains(t, check.Stdout(), "  Coordinator answered: serving, and it accepted the worker certificate\n")
+	assert.Contains(t, check.Stdout(), "This worker keeps a record that a coordinator refused its certificate as revoked, so it exits at start\n")
+	check.ExpectStderrContains(workerRemoved)
 
 	rejoined := dagu.StartWithEnv(env(coord.createInvite(t, false).Invite), inviteWorkerArgs("worker-a-again", coord.addr)...)
 	waitForOutput(t, rejoined, workerEnrolled)
