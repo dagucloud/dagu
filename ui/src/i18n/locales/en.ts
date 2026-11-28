@@ -2316,6 +2316,8 @@ export const baseEnglish = {
   'Page {page} of {total}': 'Page {page} of {total}',
   'of {total}': 'of {total}',
   'Partially succeeded': 'Partially succeeded',
+  'Connection needs attention': 'Connection needs attention',
+  'Connection restored': 'Connection restored',
   'Processing {count} request using the existing DAG-run API.':
     'Processing {count} request using the existing DAG-run API.',
   'Processing {count} requests using the existing DAG-run API.':

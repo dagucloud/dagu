@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/connection/connect"
 	"github.com/dagucloud/dagu/v2/internal/connection/connect/google"
+	"github.com/dagucloud/dagu/v2/internal/connection/statusevent"
 	"github.com/dagucloud/dagu/v2/internal/connection/toolcatalog"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -312,7 +313,9 @@ func initEncryptedStores(
 // newConnectEngine returns the server's connection store and an engine
 // that runs connect sessions over it and reports to events. Providers
 // register as they are added. It sets the process's one tool catalog
-// reader, which the engine's probes save through, in stores.
+// reader, which the engine's probes save through, in stores. The status
+// changes that the server's broker, engine, and API make are recorded in
+// the event store and audit log of stores.
 func newConnectEngine(
 	cfg *config.Config,
 	server *persisfile.ServerStores,
@@ -324,9 +327,20 @@ func newConnectEngine(
 	if err != nil {
 		return nil, nil, err
 	}
+	recorder := statusevent.New(statusevent.Config{
+		Store:  func() (connection.Store, error) { return connections, nil },
+		Events: stores.Event,
+		Audit:  auditOpener(stores.Audit),
+		Source: eventstore.Source{Service: eventstore.SourceServiceServer},
+	})
+	stores.RecordConnectionStatus = recorder.Record
 	// The server runs long, so its broker caches no token: a reconnect or
 	// a status change reaches the next request.
-	tokens, err := broker.New(broker.Config{Store: connections, Locks: server.ConnectionLocks()})
+	tokens, err := broker.New(broker.Config{
+		Store:          connections,
+		Locks:          server.ConnectionLocks(),
+		OnStatusChange: recorder.Record,
+	})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -351,6 +365,7 @@ func newConnectEngine(
 		Encryptor:       encryptor,
 		Tokens:          tokens,
 		AnyUserConfirms: cfg.Server.Auth.Mode == config.AuthModeNone,
+		OnStatusChange:  recorder.Record,
 		OnRevoke:        events.Revoked,
 	})
 	if err != nil {
@@ -358,6 +373,15 @@ func newConnectEngine(
 	}
 	stores.ToolCatalog = catalog
 	return connections, engine, nil
+}
+
+// auditOpener returns a Config.Audit over store, or nil while audit
+// logging is off.
+func auditOpener(store audit.Store) func() (audit.Store, error) {
+	if store == nil {
+		return nil
+	}
+	return func() (audit.Store, error) { return store, nil }
 }
 
 func newRemoteNodeStore(

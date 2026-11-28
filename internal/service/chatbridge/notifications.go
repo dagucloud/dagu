@@ -6,6 +6,7 @@ package chatbridge
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -33,13 +34,46 @@ const (
 	NotificationClassUrgent
 )
 
-// NotificationEvent is a status snapshot buffered for delivery.
+// NotificationEvent is a status snapshot buffered for delivery: a DAG
+// run's status, or a connection's status change.
 type NotificationEvent struct {
-	Key        string
-	Type       eventstore.EventType
-	Status     *ir.DAGRunStatus
+	Key    string
+	Type   eventstore.EventType
+	Status *ir.DAGRunStatus
+	// Connection is set, in place of Status, for a connection event, whose
+	// Key is its event ID.
+	Connection *eventstore.ConnectionChange
 	DAGFile    string
 	ObservedAt time.Time
+}
+
+// Prefixes keep the run keys of connection events apart from those of DAG
+// runs, and those of apps apart from those of connections.
+const (
+	connectionRunKeyPrefix = "connection:"
+	appRunKeyPrefix        = "oauth-app:"
+)
+
+// deliverable reports whether e has a key and something to report.
+func (e NotificationEvent) deliverable() bool {
+	return e.Key != "" && (e.Status != nil || e.Connection != nil)
+}
+
+// runKey identifies the events that replace one another while pending: the
+// statuses of one DAG-run attempt, or of one connection or app. A later
+// status replaces an undelivered earlier one, so a channel never gets an
+// old status after a new one.
+func (e NotificationEvent) runKey() string {
+	switch c := e.Connection; {
+	case c == nil:
+		return NotificationRunKey(e.Status)
+	case c.AppID != "":
+		return appRunKeyPrefix + c.AppID
+	case len(c.Connections) == 1:
+		return connectionRunKeyPrefix + c.Connections[0].Workspace + "/" + c.Connections[0].Name
+	default:
+		return connectionRunKeyPrefix + e.Key
+	}
 }
 
 // DAGRouteKey returns the DAG-scoped configuration key, falling back to the runtime name.
@@ -181,7 +215,7 @@ func (b *NotificationBatcher) DrainAndStop() []NotificationPendingBatch {
 
 // Enqueue adds a status snapshot into the appropriate destination/window bucket.
 func (b *NotificationBatcher) Enqueue(destination string, event NotificationEvent) bool {
-	if destination == "" || event.Status == nil || event.Key == "" {
+	if destination == "" || !event.deliverable() {
 		return false
 	}
 	if shouldSuppressNotificationEvent(event) {
@@ -189,15 +223,19 @@ func (b *NotificationBatcher) Enqueue(destination string, event NotificationEven
 	}
 
 	eventType := event.Type
+	var status ir.Status
+	if event.Status != nil {
+		status = event.Status.Status
+	}
 	if eventType == "" {
 		var ok bool
-		eventType, ok = eventstore.PersistedDAGRunEventTypeForStatus(event.Status.Status)
+		eventType, ok = eventstore.PersistedDAGRunEventTypeForStatus(status)
 		if !ok {
 			return false
 		}
 	}
 
-	class, ok := NotificationClassForEvent(eventType, event.Status.Status)
+	class, ok := NotificationClassForEvent(eventType, status)
 	if !ok {
 		return false
 	}
@@ -209,7 +247,7 @@ func (b *NotificationBatcher) Enqueue(destination string, event NotificationEven
 	snapshot := cloneNotificationEvent(event)
 	snapshot.Type = eventType
 	snapshot.ObservedAt = observedAt
-	runKey := NotificationRunKey(snapshot.Status)
+	runKey := snapshot.runKey()
 	destRunKey := notificationDestinationRunKey(destination, runKey)
 
 	b.mu.Lock()
@@ -225,7 +263,7 @@ func (b *NotificationBatcher) Enqueue(destination string, event NotificationEven
 			continue
 		}
 		for _, existing := range pending.Batch.Events {
-			if existing.Key == snapshot.Key && NotificationRunKey(existing.Status) == runKey {
+			if existing.Key == snapshot.Key && existing.runKey() == runKey {
 				return true
 			}
 		}
@@ -288,7 +326,7 @@ func (b *NotificationBatcher) removeReadyRunLocked(destination, runKey string) {
 
 		filteredEvents := pending.Batch.Events[:0]
 		for _, event := range pending.Batch.Events {
-			if NotificationRunKey(event.Status) == runKey {
+			if event.runKey() == runKey {
 				continue
 			}
 			filteredEvents = append(filteredEvents, event)
@@ -505,7 +543,8 @@ func NotificationClassForEvent(eventType eventstore.EventType, status ir.Status)
 		return NotificationClassSuccessDigest, true
 	case eventstore.TypeDAGRunQueued, eventstore.TypeDAGRunRunning:
 		return NotificationClassInformational, true
-	case eventstore.TypeDAGRunAborted, eventstore.TypeDAGRunRejected:
+	case eventstore.TypeDAGRunAborted, eventstore.TypeDAGRunRejected,
+		eventstore.TypeConnectionNeedsAttention, eventstore.TypeConnectionRestored:
 		return NotificationClassUrgent, true
 	case eventstore.TypeDAGRunUpdated, eventstore.TypeLLMUsageRecorded:
 		return NotificationClassUnknown, false
@@ -842,6 +881,11 @@ func cloneNotificationStatus(status *ir.DAGRunStatus) *ir.DAGRunStatus {
 func cloneNotificationEvent(event NotificationEvent) NotificationEvent {
 	clone := event
 	clone.Status = cloneNotificationStatus(event.Status)
+	if event.Connection != nil {
+		change := *event.Connection
+		change.Connections = slices.Clone(event.Connection.Connections)
+		clone.Connection = &change
+	}
 	return clone
 }
 
@@ -863,6 +907,9 @@ func sortNotificationEvents(events []NotificationEvent) {
 	sort.Slice(events, func(i, j int) bool {
 		if !events[i].ObservedAt.Equal(events[j].ObservedAt) {
 			return events[i].ObservedAt.After(events[j].ObservedAt)
+		}
+		if events[i].Status == nil || events[j].Status == nil {
+			return events[i].Key < events[j].Key
 		}
 		if events[i].Status.Name != events[j].Status.Name {
 			return events[i].Status.Name < events[j].Status.Name

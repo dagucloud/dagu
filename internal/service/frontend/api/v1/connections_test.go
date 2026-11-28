@@ -253,6 +253,39 @@ func TestOAuthAppInUse(t *testing.T) {
 	require.NoError(t, deleteApp())
 }
 
+// Only a new client ID or secret returns an invalid app to ok, and the
+// return is recorded once.
+func TestUpdateOAuthAppRestoresInvalidApp(t *testing.T) {
+	var changes []broker.StatusChange
+	f := newConnectionsFixture(t, apiv1.WithConnectionStatusRecorder(func(_ context.Context, change broker.StatusChange) {
+		changes = append(changes, change)
+	}))
+	admin := f.admin()
+	app := f.createApp(t, admin)
+	_, err := f.store.UpdateApp(admin, app.Id, func(a *connection.App) error {
+		a.Status, a.StatusReason = connection.AppStatusInvalid, "invalid_client"
+		return nil
+	})
+	require.NoError(t, err)
+	update := func(body apigen.UpdateOAuthAppRequest) apigen.OAuthApp {
+		resp, err := f.api.UpdateOAuthApp(admin, apigen.UpdateOAuthAppRequestObject{AppId: app.Id, Body: &body})
+		require.NoError(t, expectResponse[apigen.UpdateOAuthApp200JSONResponse](resp, err))
+		return apigen.OAuthApp(resp.(apigen.UpdateOAuthApp200JSONResponse))
+	}
+
+	renamed := update(apigen.UpdateOAuthAppRequest{Name: new("Renamed")})
+	assert.Equal(t, apigen.OAuthAppStatusInvalid, renamed.Status)
+	assert.Empty(t, changes)
+
+	fixed := update(apigen.UpdateOAuthAppRequest{ClientSecret: new("GOCSPX-new")})
+	assert.Equal(t, apigen.OAuthAppStatusOk, fixed.Status)
+	assert.Equal(t, []broker.StatusChange{{
+		App:     app.Id,
+		AppFrom: connection.AppStatusInvalid,
+		AppTo:   connection.AppStatusOK,
+	}}, changes)
+}
+
 // A Google client JSON registers an app as downloaded. A web client must
 // list the server callback that the server would register, and the file
 // takes the place of the client fields.

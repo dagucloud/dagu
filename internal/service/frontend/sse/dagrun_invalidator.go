@@ -344,7 +344,8 @@ func affectedDAGRunListStatuses(eventType eventstore.EventType, current ir.Statu
 		return []ir.Status{ir.NotStarted, ir.Queued, ir.Running, ir.Waiting, ir.Failed, current}
 	case eventstore.TypeDAGRunRejected:
 		return []ir.Status{ir.Waiting, current}
-	case eventstore.TypeDAGRunUpdated, eventstore.TypeLLMUsageRecorded:
+	case eventstore.TypeDAGRunUpdated, eventstore.TypeLLMUsageRecorded,
+		eventstore.TypeConnectionNeedsAttention, eventstore.TypeConnectionRestored:
 		return nil
 	default:
 		return nil

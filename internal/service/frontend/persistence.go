@@ -10,6 +10,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/connection"
+	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/connection/connect"
 	"github.com/dagucloud/dagu/v2/internal/connection/toolcatalog"
 	"github.com/dagucloud/dagu/v2/internal/dagpin"
@@ -73,6 +74,9 @@ type Stores struct {
 	ToolCatalog *toolcatalog.Reader
 	// ConnectEvents receives what Connect reports.
 	ConnectEvents *ConnectEvents
+	// RecordConnectionStatus records a status change that this process
+	// made to a connection or an OAuth app.
+	RecordConnectionStatus func(context.Context, broker.StatusChange)
 }
 
 // ConnectEvents passes the reports of a connect engine, which the stores

@@ -27,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/connection"
+	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/connection/connect"
 	"github.com/dagucloud/dagu/v2/internal/connection/toolcatalog"
 	"github.com/dagucloud/dagu/v2/internal/dagpin"
@@ -116,6 +117,7 @@ type API struct {
 	connectionStore      connection.Store
 	connectEngine        *connect.Engine
 	toolCatalog          *toolcatalog.Reader
+	connectionStatus     func(context.Context, broker.StatusChange)
 	publicURL            func() string // The server's usable public URL, or empty
 	profileStore         profilepkg.Store
 	viewStore            view.Store
@@ -347,6 +349,14 @@ func WithConnections(store connection.Store, engine *connect.Engine, catalog *to
 		a.connectionStore = store
 		a.connectEngine = engine
 		a.toolCatalog = catalog
+	}
+}
+
+// WithConnectionStatusRecorder returns an APIOption that sets where the
+// API records the status changes it makes to OAuth apps.
+func WithConnectionStatusRecorder(record func(context.Context, broker.StatusChange)) APIOption {
+	return func(a *API) {
+		a.connectionStatus = record
 	}
 }
 

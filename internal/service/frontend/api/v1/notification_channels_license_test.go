@@ -430,9 +430,9 @@ func TestNotificationRoutes_GlobalAndWorkspaceRouteSets(t *testing.T) {
 			Id:        new("global-route"),
 			ChannelId: channel.Id,
 			Enabled:   true,
-			Events: &[]api.NotificationEventType{
-				api.NotificationEventTypeDagRunFailed,
-				api.NotificationEventTypeDagRunPartiallySucceeded,
+			Events: &[]api.NotificationRouteEventType{
+				api.NotificationRouteEventTypeDagRunFailed,
+				api.NotificationRouteEventTypeDagRunPartiallySucceeded,
 			},
 		}},
 	}).ExpectStatus(http.StatusOK).Send(t)
@@ -443,7 +443,7 @@ func TestNotificationRoutes_GlobalAndWorkspaceRouteSets(t *testing.T) {
 	require.Len(t, globalRoutes.Routes, 1)
 	assert.Equal(t, "global-route", globalRoutes.Routes[0].Id)
 	require.NotNil(t, globalRoutes.Routes[0].Events)
-	assert.Contains(t, *globalRoutes.Routes[0].Events, api.NotificationEventTypeDagRunPartiallySucceeded)
+	assert.Contains(t, *globalRoutes.Routes[0].Events, api.NotificationRouteEventTypeDagRunPartiallySucceeded)
 
 	server.Client().Post("/api/v1/workspaces", api.CreateWorkspaceRequest{
 		Name: "ops",
@@ -455,7 +455,7 @@ func TestNotificationRoutes_GlobalAndWorkspaceRouteSets(t *testing.T) {
 			Id:        new("ops-route"),
 			ChannelId: channel.Id,
 			Enabled:   true,
-			Events:    &[]api.NotificationEventType{api.NotificationEventTypeDagRunWaiting},
+			Events:    &[]api.NotificationRouteEventType{api.NotificationRouteEventTypeDagRunWaiting},
 		}},
 	}).ExpectStatus(http.StatusOK).Send(t)
 	var workspaceRoutes api.NotificationRouteSet

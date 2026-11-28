@@ -511,6 +511,11 @@ func (s *Service) NotificationDestinations() []string {
 }
 
 func (s *Service) NotificationDestinationsForEvent(event chatbridge.NotificationEvent) []string {
+	if event.Connection != nil {
+		destinations := s.connectionDestinations(event)
+		slices.Sort(destinations)
+		return destinations
+	}
 	routeKey := event.DAGRouteKey()
 	if event.Status == nil || routeKey == "" {
 		return nil
@@ -1063,7 +1068,9 @@ func (s *Service) isSupportedEvent(eventType eventstore.EventType) bool {
 	case eventstore.TypeDAGRunQueued,
 		eventstore.TypeDAGRunRunning,
 		eventstore.TypeDAGRunUpdated,
-		eventstore.TypeLLMUsageRecorded:
+		eventstore.TypeLLMUsageRecorded,
+		eventstore.TypeConnectionNeedsAttention,
+		eventstore.TypeConnectionRestored:
 		return false
 	}
 	return false
@@ -1093,7 +1100,9 @@ func testStatus(dagName string, eventType eventstore.EventType) *ir.DAGRunStatus
 	case eventstore.TypeDAGRunQueued,
 		eventstore.TypeDAGRunRunning,
 		eventstore.TypeDAGRunUpdated,
-		eventstore.TypeLLMUsageRecorded:
+		eventstore.TypeLLMUsageRecorded,
+		eventstore.TypeConnectionNeedsAttention,
+		eventstore.TypeConnectionRestored:
 	}
 	return &ir.DAGRunStatus{
 		Name:       dagName,
@@ -1127,17 +1136,36 @@ func (s *Service) deliverTarget(ctx context.Context, target notificationmodel.Ta
 
 // deliverChannelEvents delivers events to a channel target. A command runs once
 // per event and can take most of the flush deadline, so each event is passed
-// to delivered as its command succeeds.
+// to delivered as its command succeeds. Each connection event is sent as a
+// message of its own, in plain text.
 func (s *Service) deliverChannelEvents(
 	ctx context.Context,
 	target notificationmodel.Target,
 	events []chatbridge.NotificationEvent,
 	delivered func(chatbridge.NotificationEvent),
 ) error {
-	if target.Type != notificationmodel.ProviderCommand {
-		return s.deliverTarget(ctx, target, events)
-	}
+	var runEvents, connectionEvents []chatbridge.NotificationEvent
 	for _, event := range events {
+		if event.Connection == nil {
+			runEvents = append(runEvents, event)
+		} else {
+			connectionEvents = append(connectionEvents, event)
+		}
+	}
+	sortOldestFirst(connectionEvents)
+	for _, event := range connectionEvents {
+		if err := s.deliverTarget(ctx, plainTextTarget(target), []chatbridge.NotificationEvent{event}); err != nil {
+			return err
+		}
+		delivered(event)
+	}
+	if len(runEvents) == 0 {
+		return nil
+	}
+	if target.Type != notificationmodel.ProviderCommand {
+		return s.deliverTarget(ctx, target, runEvents)
+	}
+	for _, event := range runEvents {
 		if err := s.deliverTarget(ctx, target, []chatbridge.NotificationEvent{event}); err != nil {
 			return err
 		}
@@ -1349,6 +1377,13 @@ func (s *Service) effectiveRouteSetForEvent(ctx context.Context, event chatbridg
 	if state == workspace.WorkspaceLabelInvalid && !s.projectsEnabled {
 		return nil
 	}
+	return s.effectiveRouteSet(ctx, workspaceName)
+}
+
+// effectiveRouteSet returns the route set that serves workspaceName: its
+// own unless it inherits the global one. An empty name, or projects being
+// on, selects the global route set.
+func (s *Service) effectiveRouteSet(ctx context.Context, workspaceName string) *notificationmodel.RouteSet {
 	if workspaceName != "" && !s.projectsEnabled {
 		workspaceRouteSet, err := s.loadRouteSet(ctx, notificationmodel.RouteScopeWorkspace, workspaceName)
 		if err == nil {
@@ -1405,7 +1440,14 @@ func matchingSubscriptionEvents(setting *notificationmodel.Settings, subscriptio
 
 func (s *Service) matchingRouteEvents(ctx context.Context, routeSet *notificationmodel.RouteSet, route notificationmodel.Route, events []chatbridge.NotificationEvent) []chatbridge.NotificationEvent {
 	result := make([]chatbridge.NotificationEvent, 0, len(events))
+	destination := routeDestinationID(routeSet.Scope, routeSet.Workspace, route.ID)
 	for _, event := range events {
+		if event.Connection != nil {
+			if scoped, ok := s.connectionEventFor(event, destination, route.ChannelID); ok {
+				result = append(result, scoped)
+			}
+			continue
+		}
 		routeKey := event.DAGRouteKey()
 		if event.Status == nil || routeKey == "" {
 			continue
@@ -1860,6 +1902,9 @@ func signWebhookBody(body []byte, secret string) string {
 }
 
 func titleForEvents(events []chatbridge.NotificationEvent) string {
+	if len(events) == 1 && events[0].Connection != nil {
+		return connectionTitle(events[0])
+	}
 	if len(events) == 0 || events[0].Status == nil {
 		return "DAG notification"
 	}
@@ -1895,6 +1940,14 @@ func emailSubjectForEvents(email *notificationmodel.EmailTarget, events []chatbr
 func bodyForEvents(events []chatbridge.NotificationEvent, publicURL string) string {
 	var b strings.Builder
 	for i, event := range events {
+		if event.Connection != nil {
+			if i > 0 {
+				b.WriteString("\n\n")
+			}
+			b.WriteString(connectionText(event, publicURL))
+			b.WriteString("\n")
+			continue
+		}
 		if event.Status == nil {
 			continue
 		}
@@ -2000,6 +2053,10 @@ func notificationTemplateValues(event chatbridge.NotificationEvent, publicURL st
 	}
 	if !event.ObservedAt.IsZero() {
 		values["event.observedAt"] = event.ObservedAt.Format(time.RFC3339)
+	}
+	if event.Connection != nil {
+		connectionTemplateValues(event, values)
+		return values
 	}
 	if event.Status == nil {
 		return values
@@ -2213,6 +2270,10 @@ func slackTextForEvents(template string, events []chatbridge.NotificationEvent, 
 func webhookPayloadForEvents(events []chatbridge.NotificationEvent, publicURL string) map[string]any {
 	items := make([]map[string]any, 0, len(events))
 	for _, event := range events {
+		if event.Connection != nil {
+			items = append(items, connectionWebhookItem(event, publicURL))
+			continue
+		}
 		if event.Status == nil {
 			continue
 		}

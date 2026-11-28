@@ -150,7 +150,7 @@ type stubNotificationStore struct {
 }
 
 var _ eventstore.Store = (*stubNotificationStore)(nil)
-var _ eventstore.DAGRunReader = (*stubNotificationStore)(nil)
+var _ eventstore.NotificationReader = (*stubNotificationStore)(nil)
 
 func (s *stubNotificationStore) Emit(_ context.Context, event *eventstore.Event) error {
 	if event == nil {
@@ -168,7 +168,7 @@ func (s *stubNotificationStore) Query(context.Context, eventstore.QueryFilter) (
 	return &eventstore.QueryResult{}, nil
 }
 
-func (s *stubNotificationStore) DAGRunHeadCursor(context.Context) (eventstore.DAGRunCursor, error) {
+func (s *stubNotificationStore) NotificationHeadCursor(context.Context) (eventstore.DAGRunCursor, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -179,7 +179,7 @@ func (s *stubNotificationStore) DAGRunHeadCursor(context.Context) (eventstore.DA
 	return s.currentCursorLocked(), nil
 }
 
-func (s *stubNotificationStore) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
+func (s *stubNotificationStore) ReadNotificationEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

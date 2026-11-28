@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/connection"
+	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/connection/connect"
 )
 
@@ -99,7 +100,8 @@ func (a *API) GetOAuthApp(ctx context.Context, request api.GetOAuthAppRequestObj
 }
 
 // UpdateOAuthApp changes the fields a request sets. A blank secret keeps
-// the stored one.
+// the stored one. The store returns an invalid app to ok when its client
+// ID or secret changes, and that return is reported.
 func (a *API) UpdateOAuthApp(ctx context.Context, request api.UpdateOAuthAppRequestObject) (api.UpdateOAuthAppResponseObject, error) {
 	if err := a.requireOAuthAppWrite(ctx); err != nil {
 		return nil, err
@@ -108,7 +110,10 @@ func (a *API) UpdateOAuthApp(ctx context.Context, request api.UpdateOAuthAppRequ
 	if body == nil {
 		return nil, badConnectionRequest("Request body is required")
 	}
-	var secretChanged bool
+	var (
+		secretChanged bool
+		wasInvalid    bool
+	)
 	updated, err := a.connectionStore.UpdateApp(ctx, request.AppId, func(app *connection.App) error {
 		// The authorization code connections on an app need its client
 		// type, which they were created for.
@@ -118,6 +123,7 @@ func (a *API) UpdateOAuthApp(ctx context.Context, request api.UpdateOAuthAppRequ
 			}
 		}
 		secretChanged = false
+		wasInvalid = app.Status == connection.AppStatusInvalid
 		if body.Name != nil {
 			app.Name = *body.Name
 		}
@@ -146,6 +152,13 @@ func (a *API) UpdateOAuthApp(ctx context.Context, request api.UpdateOAuthAppRequ
 		return nil, connectionWriteError("update OAuth app", err)
 	}
 	a.logAudit(ctx, audit.CategoryConnection, "oauth_app_update", oauthAppAuditDetails(updated, secretChanged))
+	if wasInvalid && updated.Status == connection.AppStatusOK && a.connectionStatus != nil {
+		a.connectionStatus(context.WithoutCancel(ctx), broker.StatusChange{
+			App:     updated.ID,
+			AppFrom: connection.AppStatusInvalid,
+			AppTo:   connection.AppStatusOK,
+		})
+	}
 	return api.UpdateOAuthApp200JSONResponse(toOAuthAppResponse(updated)), nil
 }
 

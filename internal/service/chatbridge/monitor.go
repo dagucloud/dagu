@@ -43,6 +43,8 @@ var defaultInterestedNotificationEventTypes = []eventstore.EventType{
 	eventstore.TypeDAGRunFailed,
 	eventstore.TypeDAGRunAborted,
 	eventstore.TypeDAGRunRejected,
+	eventstore.TypeConnectionNeedsAttention,
+	eventstore.TypeConnectionRestored,
 }
 
 // NotificationMonitorConfig controls source polling, batching, and shutdown behavior.
@@ -244,7 +246,7 @@ func (m *NotificationMonitor) bootstrapOwned(ctx context.Context) error {
 	var cursor eventstore.DAGRunCursor
 	if m.eventService != nil {
 		var err error
-		cursor, err = m.eventService.DAGRunHeadCursor(ctx)
+		cursor, err = m.eventService.NotificationHeadCursor(ctx)
 		if err != nil {
 			return fmt.Errorf("capture notification bootstrap cursor: %w", err)
 		}
@@ -514,9 +516,9 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 		return
 	}
 
-	events, nextCursor, err := m.eventService.ReadDAGRunEvents(ctx, cursor)
+	events, nextCursor, err := m.eventService.ReadNotificationEvents(ctx, cursor)
 	if err != nil {
-		m.logger.Debug("Failed to read DAG-run events", slog.String("error", err.Error()))
+		m.logger.Debug("Failed to read notification events", slog.String("error", err.Error()))
 		return
 	}
 	if ctx.Err() != nil {
@@ -526,6 +528,12 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 	pending := make([]NotificationEvent, 0, len(events))
 	for _, event := range events {
 		if event == nil {
+			continue
+		}
+		if event.Kind == eventstore.KindConnection {
+			if notice, ok := m.connectionNotification(event); ok {
+				pending = append(pending, notice)
+			}
 			continue
 		}
 		snapshot, err := eventstore.DAGRunSnapshotFromEvent(event)
@@ -569,8 +577,34 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 	}
 }
 
+// connectionNotification returns the notification of a connection event,
+// keyed by the event's ID.
+func (m *NotificationMonitor) connectionNotification(event *eventstore.Event) (NotificationEvent, bool) {
+	if !m.isInterestedEventType(event.Type) {
+		return NotificationEvent{}, false
+	}
+	change, err := eventstore.ConnectionChangeFromEvent(event)
+	if err != nil {
+		m.logger.Warn("Failed to decode connection event payload",
+			slog.String("event_id", event.ID),
+			slog.String("error", err.Error()),
+		)
+		return NotificationEvent{}, false
+	}
+	observedAt := event.RecordedAt
+	if observedAt.IsZero() {
+		observedAt = time.Now()
+	}
+	return NotificationEvent{
+		Key:        event.ID,
+		Type:       event.Type,
+		Connection: change,
+		ObservedAt: observedAt.UTC(),
+	}, true
+}
+
 func (m *NotificationMonitor) advanceSourceCursorToHead(ctx context.Context) {
-	cursor, err := m.eventService.DAGRunHeadCursor(ctx)
+	cursor, err := m.eventService.NotificationHeadCursor(ctx)
 	if err != nil {
 		m.logger.Debug("Failed to advance DAG-run notification cursor", slog.String("error", err.Error()))
 		return
@@ -726,7 +760,7 @@ func (m *NotificationMonitor) requeuePending(ctx context.Context, destinations [
 			continue
 		}
 		for _, event := range destState.Pending {
-			if event.Status == nil || event.Key == "" {
+			if !event.deliverable() {
 				continue
 			}
 			if shouldSuppressNotificationEvent(event) {
@@ -988,7 +1022,7 @@ func (m *NotificationMonitor) ensureBootstrapped(ctx context.Context) bool {
 		return true
 	}
 
-	cursor, err := m.eventService.DAGRunHeadCursor(ctx)
+	cursor, err := m.eventService.NotificationHeadCursor(ctx)
 	if err != nil {
 		m.recordBootstrapFailure("Failed to bootstrap notification cursor: " + err.Error())
 		return false
@@ -1437,11 +1471,11 @@ func enqueueNotifications(state *notificationMonitorState, destinations []string
 	for _, destination := range destinations {
 		destState := destinationState(state, destination)
 		for _, event := range events {
-			if event.Status == nil || event.Key == "" {
+			if !event.deliverable() {
 				continue
 			}
 			if shouldSuppressNotificationEvent(event) {
-				if removePendingNotificationsForRun(destState, NotificationRunKey(event.Status)) {
+				if removePendingNotificationsForRun(destState, event.runKey()) {
 					changed = true
 				}
 				continue
@@ -1466,12 +1500,9 @@ func enqueueNotifications(state *notificationMonitorState, destinations []string
 				}
 			}
 
-			runKey := NotificationRunKey(event.Status)
+			runKey := event.runKey()
 			for pendingKey, pending := range destState.Pending {
-				if pending.Status == nil {
-					continue
-				}
-				if NotificationRunKey(pending.Status) != runKey || pendingKey == event.Key {
+				if pending.runKey() != runKey || pendingKey == event.Key {
 					continue
 				}
 				delete(destState.Pending, pendingKey)
@@ -1557,7 +1588,7 @@ func filterEvictedNotifications(queued []queuedNotification, evicted pendingEvic
 }
 
 func migrateWaitingDelivery(destState *notificationDestinationState, event NotificationEvent) bool {
-	if event.Status.Status != ir.Waiting {
+	if event.Status == nil || event.Status.Status != ir.Waiting {
 		return false
 	}
 	legacyKey := legacyNotificationSeenKey(event.Status)
