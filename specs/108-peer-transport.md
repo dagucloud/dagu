@@ -1257,10 +1257,15 @@ and prints the message:
   - While `loopbackOnly`, the change for how Dagu was started:
     - in Kubernetes: set `coordinator.host` to `0.0.0.0` through the
       chart's values
-    - in a container: recreate it with
-      `-p <port>:<port> -e DAGU_COORDINATOR_HOST=0.0.0.0`
+    - in a container: recreate it with `-p <port>:<port>`, and with
+      `-e <variable>=0.0.0.0`, where `<variable>` is the `hostSource`
+      variable or `DAGU_COORDINATOR_HOST`. When a flag or a file sets the
+      host, which wins over a variable, the change for that flag or file
+      replaces `-e`
     - for `hostSource` `env` or `flag`: that variable or flag with the
-      value `0.0.0.0`
+      value `0.0.0.0`, or for a flag, its removal
+    - for `hostSource` `file`: that file, whose `coordinator.host` to change
+      to `0.0.0.0`, since it may be one applied after `configFile`
     - otherwise: `configFile` and the lines `coordinator:` and
       `  host: 0.0.0.0` to add to it
   - Without `builtinTLS`, that invites need the built-in CA, and for
@@ -1268,6 +1273,11 @@ and prints the message:
     `peer.cert_file` and `peer.key_file`, or for `caUnavailable`, that it
     could not create or read its CA and to see its start warning.
   - Each change needs a restart.
+  - For a coordinator that did not report, its `errorReason` in the
+    dialog's words, or that it did not report.
+- The dialog explains a refused call by `details.reason`, and a coordinator
+  that did not report by `errorReason`, in its own words with the change to
+  make. It never shows the message of the server or of a coordinator.
 - Step 1 keeps, even when ready, the reminder to publish port `<port>` in a
   container, and in Kubernetes the statement that workers outside the
   cluster need the coordinator Service to be of type `LoadBalancer` or
@@ -1284,13 +1294,15 @@ and prints the message:
   container. It never fills in a host name, a container ID, or the
   browser's host.
 - The port sits beside the address and starts with the port of
-  `lastInviteAddress`, else the reported `port`, since a published port or a
-  `NodePort` can differ from it. The address is a host name or an IP
-  address.
+  `lastInviteAddress`, else the `port` of the coordinator whose `advertise`
+  or `addresses` it uses, since a published port or a `NodePort` can differ
+  from it. Each suggestion sets both. A new reading resets the address and
+  port while the admin has not changed them.
 - Step 2 refuses an address that a worker on another host cannot dial: one
   that is not `host:port` with a port from 1 to 65535, or whose host is
-  `0.0.0.0`, `[::]`, a loopback address, `localhost`, or a container ID (12
-  or 64 lowercase hexadecimal characters). `POST /api/v1/workers/invites`
+  not one IP address without a zone or one DNS name, or is `0.0.0.0`,
+  `[::]`, a loopback or link-local address, `localhost`, or a container ID
+  (12 or 64 lowercase hexadecimal characters). `POST /api/v1/workers/invites`
   checks only the `host:port` form, since automation may reach the
   coordinator through a tunnel.
 - Step 3 shows only after steps 1 and 2. Its tab sets the invite kind:
@@ -1429,8 +1441,10 @@ The Workers page is the list of workers on System status.
 - A coordinator with a peer CA checks that the published CA certificate
   exists each time it refreshes its registry entry, which it does already.
   It adds no timer.
-- Join readiness is read only when the dialog opens, when the server comes
-  back while it is open, and by `dagu worker invite`.
+- Join readiness is read only by the dialog, at the times
+  [Add Worker](#add-worker) lists, and by `dagu worker invite`. Each read
+  also reads the invite records for `lastInviteAddress`, so its cost grows
+  with the invites that have not been pruned.
 - The clients on a host that fell back try TLS again at most once per
   coordinator address per 10 minutes, or after a refusal of
   `coordinator.require_tls`. They write the window record only when a
