@@ -117,7 +117,6 @@ A model connection has the Spec 107 metadata fields `name`, `project`,
 | `protocols` | A map from a protocol to its `base_url` and `auth`. At least one entry. A preset fills it, and a person may remove an entry. `custom` sets each entry |
 | `models_url` | `custom` only. See [Models List](#models-list) |
 | `allowed_models` | Optional. Model IDs or CLI aliases, matched exactly. Empty means every model |
-| `credential` | `key`, `shared_key`, `sign_in`, or `none`. See [Credentials](#credentials) |
 
 - `base_url` is an `https` URL with no user information, query, or
   fragment. A local-model preset and `custom` also accept `http`, and the
@@ -125,9 +124,10 @@ A model connection has the Spec 107 metadata fields `name`, `project`,
 - `auth` is `x-api-key`, `bearer`, or `anthropic-oauth`, the forms of
   [Key injection](105-egress-proxy.md#key-injection).
   `anthropic-oauth` is valid with `anthropic-messages` only.
-- `grant` is `api_key` for a `key` or `shared_key` credential,
-  `authorization_code` or `device_code` for `sign_in`, and `none` for
-  `none`. This spec adds the grants `api_key` and `none` to Spec 107.
+- `grant` is `api_key`, `authorization_code`, `device_code`, or `none`.
+  `app` names a shared key or the OAuth app of a sign-in, and is empty
+  otherwise. See [Credentials](#credentials). Spec 107 lists the provider
+  `model` and these grants.
 - `services`, `scopes`, `subject`, `bound_hosts`, and `resource` do not
   apply.
 - `allow_token_export` is always off. No step, `secrets` entry, or route
@@ -136,12 +136,12 @@ A model connection has the Spec 107 metadata fields `name`, `project`,
 
 ### Credentials
 
-| `credential` | Where the key is | Who adds it |
-| --- | --- | --- |
-| `key` | In the connection's token state, encrypted | `manager` or above in the project |
-| `shared_key` | In a [shared key](#shared-keys). The connection names the app | An admin, through Share |
-| `sign_in` | In the token state, from the connect flow of Spec 107. The broker refreshes it | `manager` or above in the project |
-| `none` | Nowhere. Valid for a local-model preset only | `manager` or above in the project |
+| Credential | `grant` and `app` | Where the key is | Who adds it |
+| --- | --- | --- | --- |
+| Own key | `api_key`, no `app` | In the connection's token state, encrypted | `manager` or above in the project |
+| Shared key | `api_key`, `app` names a [shared key](#shared-keys) | In the app | An admin, through Share |
+| Sign-in | `authorization_code` or `device_code`, `app` names an OAuth app | In the token state, from the connect flow of Spec 107. The broker refreshes it | `manager` or above in the project |
+| No key | `none`, no `app` | Nowhere. Valid for a local-model preset only | `manager` or above in the project |
 
 - A key is write-only. After a save, no route and no page shows it. Pages
   show a prefix and a fingerprint. The prefix is the first characters of
@@ -151,16 +151,16 @@ A model connection has the Spec 107 metadata fields `name`, `project`,
 - A key is not empty, is valid UTF-8 with no control character, and has
   at most 8192 bytes. A save does not call the provider.
 - A long-lived token that a CLI prints for automation, such as the token
-  of `claude setup-token`, is a `key` with the auth `anthropic-oauth`.
-- A rotation replaces the key in one place: the connection for `key`, the
-  app for `shared_key`. Every connection on a shared key sends the new key
+  of `claude setup-token`, is an own key with the auth `anthropic-oauth`.
+- A rotation replaces the key in one place: the connection for an own key,
+  the app for a shared key. Every connection on a shared key sends the new key
   from its next request.
 - The key is stored as Spec 107 [Records](107-connections.md#records)
   state: encrypted with the server's key, and never in the secret store.
 
 ### Connection Status
 
-A `sign_in` connection follows the Spec 107 status transitions. This spec
+A sign-in connection follows the Spec 107 status transitions. This spec
 adds these for the grants `api_key` and `none`:
 
 | From | To | When |
@@ -171,7 +171,7 @@ adds these for the grants `api_key` and `none`:
 
 - A 401 causes no refresh and no retry, since a key has no refresh.
 - A 403 changes no status. It can deny one model and allow others.
-- For a `shared_key` connection, the 401 sets the app's status to
+- For a connection on a shared key, the 401 sets the app's status to
   `invalid` in place of the connection's, and a rotation of the app sets
   it back to `ok`. Every connection on the app shows the status.
 - The change records the event `connection.needs_attention` of Spec 107,
@@ -187,8 +187,8 @@ adds these for the grants `api_key` and `none`:
 - Only an admin creates, changes, rotates, shares, or deletes a shared
   key.
 - Share picks projects, or all projects. Dagu creates, in each picked
-  project, a connection of the app's name with the credential
-  `shared_key`. With all projects, a project created later gets one too.
+  project, a connection of the app's name with the grant `api_key` and
+  that app. With all projects, a project created later gets one too.
 - A connection on a shared key holds no key. It takes `preset`,
   `protocols`, and `models_url` from the app. A manager of its project
   may set its `allowed_models`, or remove it. Removing it leaves the
@@ -242,7 +242,7 @@ serves all of them with one key.
   and may remove a protocol. A person cannot add a protocol that the
   preset lacks; `custom` serves any provider.
 - The local-model presets are `ollama`, `vllm`, and `litellm`. They accept
-  `http` and the credential `none`. A row with no base URL needs one from
+  `http` and the grant `none`. A row with no base URL needs one from
   the person.
 - The models URL follows the base URLs. When the table's URL starts with
   the default base URL of one of the preset's protocols, Dagu puts the
@@ -598,7 +598,7 @@ A step fails at run time with:
 - `model_not_allowed`: a request's model is not in `allowed_models`
 - `model_unknown`: the provider does not know the model
 - `key_rejected`: the provider answered 401 to the stored key
-- `reconnect_required`: a `sign_in` connection needs a reconnect
+- `reconnect_required`: a sign-in connection needs a reconnect
 
 ```text
 codex cannot use connection "anthropic-main": it serves anthropic-messages, and codex needs openai-responses
@@ -617,7 +617,7 @@ A create request. The key is only in the request.
   "name": "anthropic-main",
   "provider": "model",
   "preset": "anthropic",
-  "credential": "key",
+  "grant": "api_key",
   "key": "<the API key>"
 }
 ```
@@ -632,7 +632,7 @@ A read of it:
   "protocols": {
     "anthropic-messages": { "baseUrl": "https://api.anthropic.com", "auth": "x-api-key" }
   },
-  "credential": "key",
+  "grant": "api_key",
   "keyPrefix": "sk-ant",
   "keyFingerprint": "0123456789ab",
   "keyUpdatedAt": "2026-11-04T10:00:00Z",
