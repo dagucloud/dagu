@@ -2880,8 +2880,8 @@ func TestStopDeadlineBlockedRevocation(t *testing.T) {
 
 // The stop request reaches the worker from the lease it was recorded on:
 // the heartbeat that lists the run returns its cancel even while the run's
-// status cannot be read, also on another coordinator that has not reread
-// the removals since the stop (Spec 108 §Removal).
+// status cannot be read, also on another coordinator once it reread the
+// removals after the stop (Spec 108 §Removal).
 func TestStopRequestReachesHeartbeat(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -2904,6 +2904,9 @@ func TestStopRequestReachesHeartbeat(t *testing.T) {
 			}
 			f.removeStop(t, w)
 			require.True(t, f.stopRequested(t, "run-1"))
+			if tc.other {
+				beats.rereadRemovals(t.Context())
+			}
 
 			resp, err := beats.Heartbeat(w.ctx, &coordinatorv1.HeartbeatRequest{WorkerId: w.id, Host: "host-" + w.id, Stats: &coordinatorv1.WorkerStats{
 				RunningTasks: []*coordinatorv1.RunningTask{{DagName: "dag", DagRunId: "run-1", AttemptKey: attemptKeyOf("run-1")}},

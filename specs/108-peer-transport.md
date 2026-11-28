@@ -853,9 +853,10 @@ or `stop`:
   creates a task's lease, it reads the certificate's state again and asks
   when a removal with `stop` began, and the acceptance stands. The request
   is written on the run's lease, only while the lease names the removed
-  certificate, and the worker learns of it from its heartbeat, on any
-  coordinator, which reads the run's lease and returns the run as
-  cancelled, and ends the run. The coordinator does not end the
+  certificate, and the worker learns of it from its heartbeat, which
+  returns the run as cancelled, and ends the run. A heartbeat to another
+  coordinator returns the cancel within 30 seconds, once that coordinator
+  has read the removal. The coordinator does not end the
   attempt itself, so a stop never races an acceptance of the attempt. The 2
   minutes of a stop count from the time that the stop request's write
   recorded on the removal, which a later stop keeps, so every coordinator

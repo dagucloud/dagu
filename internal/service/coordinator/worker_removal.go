@@ -573,11 +573,16 @@ func (h *Handler) stopAttempt(ctx context.Context, certID, attemptKey string) {
 }
 
 // stoppedRuns returns the attempt keys of tasks whose lease records a stop
-// request of the removal of the certificate certID. It reads each task's
-// lease, so a stop that another coordinator requested reaches the worker
-// before this coordinator rereads the removals.
+// request of the removal of the certificate certID. It reads the leases
+// only while this coordinator's copy shows that certificate in a removal
+// with stop, so a heartbeat of any other worker reads none. A stop that
+// another coordinator requested reaches the worker here from the next
+// reread of the removals, within 30 seconds.
 func (h *Handler) stoppedRuns(ctx context.Context, certID string, tasks []*coordinatorv1.RunningTask) []string {
 	if h.dagRunLeaseStore == nil {
+		return nil
+	}
+	if removal, ok := h.removals.get(certID); !ok || !removal.StopRequested {
 		return nil
 	}
 	var stopped []string
