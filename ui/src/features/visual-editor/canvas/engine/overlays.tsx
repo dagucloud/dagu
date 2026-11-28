@@ -793,7 +793,9 @@ export function MiniMap({
     <Panel
       position="bottom-left"
       className={cn(
-        'hidden motion-safe:transition-opacity motion-safe:duration-300 md:block',
+        // The host can keep the foot of the canvas free (a tab that lies over
+        // it): it sets `--canvas-inset-bottom` on an element above the canvas.
+        'mb-[var(--canvas-inset-bottom,0px)] hidden motion-safe:transition-opacity motion-safe:duration-300 md:block',
         visible ? 'opacity-100' : 'pointer-events-none opacity-0',
         resting && !moving && !hovered && 'opacity-60'
       )}

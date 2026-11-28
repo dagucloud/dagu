@@ -5,7 +5,6 @@ import type { Page } from '@playwright/test';
 import {
   loadStack,
   loginViaAPI,
-  openColumnTab,
   startDAG,
   uniqueName,
   waitForDAGAvailable,
@@ -474,8 +473,11 @@ test.describe('workspace theme and layout', () => {
     await signIn(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoWorkspace(page, routePath(ranDAG, 'latest'));
-    // The YAML tab shows the whole file; no step is selected.
-    await openColumnTab(page, 'YAML');
+    // The YAML button opens the whole file; no step is selected.
+    await page
+      .getByTestId('ve-toolbar')
+      .getByRole('button', { name: 'YAML', exact: true })
+      .click();
     const ndv = page.getByTestId('ndv');
     await expect(ndv).toHaveAttribute('data-state', 'docked', {
       timeout: 30_000,

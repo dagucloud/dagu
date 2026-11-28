@@ -10,6 +10,7 @@ import {
   useCloseRightPanel,
   useRightPanel,
   useRightPanelClaim,
+  type RightPanelHandle,
   type RightPanelId,
 } from '../RightPanelContext';
 
@@ -94,6 +95,82 @@ describe('RightPanelContext', () => {
       act(() => result.current.workflow.claim());
       act(() => result.current.workflow.release());
       expect(restoreYaml).toHaveBeenCalledTimes(1);
+    });
+
+    // The host shows the covered panel again a render or more later. The
+    // place stays with that panel in between, so that a part of the page
+    // that takes turns with the panels, such as Activity, does not come back
+    // for a moment.
+    it('keeps the place for the covered panel while it comes back', () => {
+      const seen: (RightPanelId | null)[] = [];
+      const { result } = renderHook(
+        () => {
+          const active = useActiveRightPanel();
+          seen.push(active);
+          return {
+            yaml: useRightPanel('yaml', vi.fn(), vi.fn()),
+            addStep: useRightPanel('add-step', vi.fn()),
+            active,
+          };
+        },
+        { wrapper: withProvider }
+      );
+      act(() => result.current.yaml.claim());
+      act(() => result.current.addStep.claim());
+      seen.length = 0;
+      act(() => result.current.addStep.release());
+      expect(result.current.active).toBe('yaml');
+      expect(seen).not.toContain(null);
+
+      act(() => result.current.yaml.claim());
+      expect(result.current.active).toBe('yaml');
+    });
+
+    it('frees the place when the covered panel cannot come back', () => {
+      const { result } = renderHook(() => usePanels(vi.fn(), vi.fn()), {
+        wrapper: withProvider,
+      });
+      act(() => result.current.yaml.claim());
+      act(() => result.current.addStep.claim());
+      act(() => result.current.addStep.release());
+      expect(result.current.active).toBeNull();
+    });
+
+    it('frees the place of a covered panel that unmounted', () => {
+      const restoreYaml = vi.fn();
+      const handles: Partial<Record<RightPanelId, RightPanelHandle>> = {};
+      function Panel({
+        id,
+        onRestore,
+      }: {
+        id: RightPanelId;
+        onRestore?: () => void;
+      }) {
+        handles[id] = useRightPanel(id, () => {}, onRestore);
+        return null;
+      }
+      function Active() {
+        return <output>{useActiveRightPanel() ?? 'none'}</output>;
+      }
+      const view = render(
+        <RightPanelProvider>
+          <Panel key="yaml" id="yaml" onRestore={restoreYaml} />
+          <Panel key="add-step" id="add-step" />
+          <Active />
+        </RightPanelProvider>
+      );
+      act(() => handles.yaml?.claim());
+      act(() => handles['add-step']?.claim());
+
+      view.rerender(
+        <RightPanelProvider>
+          <Panel key="add-step" id="add-step" />
+          <Active />
+        </RightPanelProvider>
+      );
+      act(() => handles['add-step']?.release());
+      expect(restoreYaml).not.toHaveBeenCalled();
+      expect(view.getByRole('status')).toHaveTextContent('none');
     });
 
     // Its own host can close the panel of the page in the commit that opens

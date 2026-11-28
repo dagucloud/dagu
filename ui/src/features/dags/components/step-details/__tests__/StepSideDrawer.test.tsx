@@ -397,6 +397,14 @@ describe('StepSideDrawer box', () => {
     expect(panel.className).not.toMatch(/translate-x/);
     expect(panel).toHaveAttribute('data-panel-shell', 'right');
   });
+
+  // A person who asks for less motion gets no fade.
+  it('turns its fade off for reduced motion', () => {
+    render(<ControlledDrawer onClose={() => {}} />);
+    expect(screen.getByTestId('step-side-drawer').className).toMatch(
+      /motion-reduce:transition-none/
+    );
+  });
 });
 
 describe('StepSideDrawer resize keys', () => {
@@ -446,12 +454,12 @@ describe('StepSideDrawer resize keys', () => {
     expect(handle).toHaveAttribute('aria-valuenow', '420');
     expect(localStorage.getItem(WIDTH_KEY)).toBe('420');
 
-    // End leaves 240px of the 1400px window.
+    // End leaves 360px of the 1400px window to the graph.
     fireEvent.keyDown(handle, { key: 'End' });
-    expect(handle).toHaveAttribute('aria-valuemax', '1160');
-    expect(handle).toHaveAttribute('aria-valuenow', '1160');
-    expect(localStorage.getItem(WIDTH_KEY)).toBe('1160');
-    expect(getStoredDrawerWidth()).toBe(1160);
+    expect(handle).toHaveAttribute('aria-valuemax', '1040');
+    expect(handle).toHaveAttribute('aria-valuenow', '1040');
+    expect(localStorage.getItem(WIDTH_KEY)).toBe('1040');
+    expect(getStoredDrawerWidth()).toBe(1040);
   });
 
   // Below 1100px a panel beside the page shows at most 45% of its zone: the
@@ -472,8 +480,8 @@ describe('StepSideDrawer resize keys', () => {
     vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1024);
     const handle = renderDrawer(true);
     fireEvent.keyDown(handle, { key: 'End' });
-    expect(handle).toHaveAttribute('aria-valuenow', '784');
-    expect(localStorage.getItem(WIDTH_KEY)).toBe('784');
+    expect(handle).toHaveAttribute('aria-valuenow', '664');
+    expect(localStorage.getItem(WIDTH_KEY)).toBe('664');
   });
 
   // A 4K window keeps a stored width far past the old cap of 960px. jsdom
@@ -482,7 +490,7 @@ describe('StepSideDrawer resize keys', () => {
     vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(3840);
     localStorage.setItem(WIDTH_KEY, '3000');
     const handle = renderDrawer();
-    expect(handle).toHaveAttribute('aria-valuemax', '3600');
+    expect(handle).toHaveAttribute('aria-valuemax', '3480');
     expect(handle).toHaveAttribute('aria-valuenow', '3000');
     fireEvent.keyDown(handle, { key: 'ArrowLeft' });
     expect(localStorage.getItem(WIDTH_KEY)).toBe('3040');
@@ -493,7 +501,7 @@ describe('StepSideDrawer resize keys', () => {
   it('keeps the stored width on a click without a drag', () => {
     localStorage.setItem(WIDTH_KEY, '3000');
     const handle = renderDrawer();
-    expect(handle).toHaveAttribute('aria-valuenow', '1160');
+    expect(handle).toHaveAttribute('aria-valuenow', '1040');
 
     fireEvent.mouseDown(handle, { clientX: 240 });
     fireEvent.mouseUp(document);
@@ -502,7 +510,7 @@ describe('StepSideDrawer resize keys', () => {
     fireEvent.mouseDown(handle, { clientX: 240 });
     fireEvent.mouseMove(document, { clientX: 300 });
     fireEvent.mouseUp(document);
-    expect(localStorage.getItem(WIDTH_KEY)).toBe('1100');
+    expect(localStorage.getItem(WIDTH_KEY)).toBe('980');
   });
 
   // A browser that refuses the storage keeps the new width for the page.
@@ -523,7 +531,52 @@ describe('StepSideDrawer resize keys', () => {
     // and the width of the page goes.
     setItem.mockRestore();
     fireEvent.keyDown(handle, { key: 'End' });
-    expect(localStorage.getItem(WIDTH_KEY)).toBe('1160');
-    expect(handle).toHaveAttribute('aria-valuenow', '1160');
+    expect(localStorage.getItem(WIDTH_KEY)).toBe('1040');
+    expect(handle).toHaveAttribute('aria-valuenow', '1040');
+  });
+});
+
+// The YAML and the step details keep one width; each other panel keeps its own.
+describe('StepSideDrawer width per panel', () => {
+  // A window wide enough that a stored width of 900px keeps its value.
+  beforeEach(() => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1400);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function renderWorkflowPanel() {
+    render(
+      <StepSideDrawer
+        isOpen
+        onClose={() => {}}
+        hasContent
+        modal={false}
+        label="Workflow"
+        panelId="workflow"
+      >
+        <p>Workflow</p>
+      </StepSideDrawer>
+    );
+    return screen.getByRole('separator', { name: 'Resize step details' });
+  }
+
+  it('does not give the width of the YAML to the Workflow panel', () => {
+    // The YAML was widened: it stores its width under the first key.
+    localStorage.setItem(WIDTH_KEY, '900');
+    expect(getStoredDrawerWidth('ndv')).toBe(900);
+    expect(getStoredDrawerWidth('yaml')).toBe(900);
+    expect(getStoredDrawerWidth('workflow')).toBe(560);
+    expect(renderWorkflowPanel()).toHaveAttribute('aria-valuenow', '560');
+  });
+
+  it('stores the width of a panel under its own key', () => {
+    localStorage.setItem(WIDTH_KEY, '900');
+    fireEvent.keyDown(renderWorkflowPanel(), { key: 'ArrowLeft' });
+    expect(localStorage.getItem(`${WIDTH_KEY}.workflow`)).toBe('600');
+    expect(localStorage.getItem(WIDTH_KEY)).toBe('900');
+    expect(getStoredDrawerWidth('workflow')).toBe(600);
+    expect(getStoredDrawerWidth('add-step')).toBe(560);
   });
 });

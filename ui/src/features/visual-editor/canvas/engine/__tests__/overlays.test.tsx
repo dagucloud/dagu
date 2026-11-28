@@ -463,6 +463,13 @@ describe('MiniMap', () => {
     expect(screen.getByTestId('flow-minimap')).toBeInTheDocument();
   });
 
+  // The Activity tab of the workspace lies over the foot of the canvas: the
+  // host gives the room of the tab with `--canvas-inset-bottom`.
+  it('lifts the overview by the room that the host keeps at the foot of the canvas', () => {
+    renderOverlays();
+    expect(panel().className).toContain('mb-[var(--canvas-inset-bottom,0px)]');
+  });
+
   // A workflow of 100 steps in a column was a line of 2 px in a box of 200 x 150.
   describe('for a tall graph', () => {
     const column = Array.from({ length: 100 }, (_, i) => ({

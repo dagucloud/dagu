@@ -79,10 +79,9 @@ describe('right-side panel shell', () => {
     }
     expect(header.workflow).toBe(PANEL_HEADER_CLASS);
     expect(header.add).toBe(PANEL_HEADER_CLASS);
-    // The width rule is one function: the stored width, never over the
-    // window nor over all but a strip of the zone.
+    // The width rule is one function: the stored width, never over the window.
     expect(panelWidth(560, 1400)).toBe(
-      'min(100vw, 560px, max(100% - 240px, 420px))'
+      'min(100vw, 560px, max(100% - 360px, 360px))'
     );
   });
 
@@ -130,30 +129,41 @@ describe('right-side panel shell', () => {
     // A stored width under the cap stays.
     expect(effectivePanelWidth(420, 1000, 1050)).toBe(420);
     // From 1100px the stored width applies, never over the window.
-    expect(effectivePanelWidth(560, 860, 1100)).toBe(560);
+    expect(effectivePanelWidth(560, 1000, 1100)).toBe(560);
+    expect(effectivePanelWidth(960, 1458, 1700)).toBe(960);
   });
 
-  // From 1100px a panel may take its whole zone but a strip of 240px, so
-  // that a wide screen shows long lines; the canvas and the edge stay.
-  it('leaves a strip of the zone free from 1100px', () => {
-    expect(panelMaxWidth(1100)).toBe('max(100% - 240px, 420px)');
-    expect(panelMaxWidthIn(3600)).toBe(3360);
-    expect(panelMaxWidthIn(500)).toBe(420);
+  // From 1100px the graph beside a panel keeps 360px at least.
+  it('leaves 360px to the graph from 1100px', () => {
+    expect(panelWidth(900, 1100)).toBe(
+      'min(100vw, 900px, max(100% - 360px, 360px))'
+    );
+    expect(panelMaxWidth(1100)).toBe('max(100% - 360px, 360px)');
+    // A zone of 1038px at 1280px: the panel takes 678px at most.
+    expect(effectivePanelWidth(960, 1038, 1280)).toBe(678);
+    // A stored width under the cap stays.
+    expect(effectivePanelWidth(560, 1038, 1280)).toBe(560);
+    // A narrow zone keeps the floor of the panel.
+    expect(effectivePanelWidth(560, 600, 1280)).toBe(360);
+    // The wide limit of the panel is the zone less the room of the graph.
+    expect(panelMaxWidthIn(1100)).toBe(740);
+    expect(panelMaxWidthIn(3600)).toBe(3240);
+    expect(panelMaxWidthIn(500)).toBe(360);
     expect(clampPanelWidth(100, 1600)).toBe(420);
-    expect(clampPanelWidth(5000, 1600)).toBe(1360);
+    expect(clampPanelWidth(5000, 1600)).toBe(1240);
     expect(clampPanelWidth(900.4, 1600)).toBe(900);
     // A 4K window with the sidebar: a zone of 3600px.
-    expect(effectivePanelWidth(5000, 3600, 3840)).toBe(3360);
-    expect(effectivePanelWidth(960, 860, 1200)).toBe(620);
+    expect(effectivePanelWidth(5000, 3600, 3840)).toBe(3240);
+    expect(effectivePanelWidth(960, 860, 1200)).toBe(500);
   });
 
   // The resize handle of a panel beside the page stops where panelWidth
   // caps the panel; a modal panel gives no viewport and has no such cap.
   it('bounds the resize handle as panelWidth caps the panel', () => {
-    expect(panelMaxWidthIn(1600, 1600)).toBe(1360);
+    expect(panelMaxWidthIn(1600, 1600)).toBe(1240);
     expect(panelMaxWidthIn(1000, 1050)).toBe(450);
     expect(panelMaxWidthIn(784, 1024)).toBe(360);
-    expect(panelMaxWidthIn(784)).toBe(544);
+    expect(panelMaxWidthIn(784)).toBe(424);
     expect(clampPanelWidth(900, 1000, 1050)).toBe(450);
     // A cap under the narrowest width is the one width left.
     expect(clampPanelWidth(100, 784, 1024)).toBe(360);

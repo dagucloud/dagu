@@ -4,6 +4,10 @@
 import { useLocation } from 'react-router-dom';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import {
+  useFullBleed,
+  useHideBreadcrumb,
+} from '@/contexts/LayoutChromeContext';
+import {
   PANEL_HEADER_CLASS,
   PANEL_ZONE_SHELL_CLASS,
   panelMaxWidth,
@@ -35,7 +39,9 @@ const WORKFLOW_TAB = /^\/dags\/[^/]+\/([^/]+)/;
  * page: the YAML panel by ?ndv or as the user left it, else the Workflow
  * panel as the user left it (useYamlPanelMemory), and the Run panel by
  * ?dock, a ?run of a link or as the user left it (DockProvider). The Run
- * panel yields to the step view; a right panel sits above it.
+ * panel yields to the step view. In the editor it also takes turns with a
+ * right panel and with the panel of a step that a link opens; the definition
+ * of a run keeps it beside its YAML.
  */
 function panelsAtLoad(
   pathname: string,
@@ -45,11 +51,13 @@ function panelsAtLoad(
   const tab = WORKFLOW_TAB.exec(pathname)?.[1];
   const query = new URLSearchParams(search);
   const url = parseWorkspaceUrl(tab, query);
+  const runLinked = url.run !== null && !isRunRedirect(routeState);
   const restorable =
     url.ndv === null &&
     url.step === null &&
     url.panel === null &&
     url.dock === null &&
+    !runLinked &&
     url.def === null &&
     tab === undefined &&
     !query.has('yaml');
@@ -60,11 +68,11 @@ function panelsAtLoad(
         ? 'workflow'
         : null;
   const stepView = url.ndv === 'expanded' && url.step !== null;
-  const dock =
-    !stepView &&
-    (url.dock !== null ||
-      (url.run !== null && !isRunRedirect(routeState)) ||
-      storedDockOpen());
+  // A link to a step opens its panel (useStepPanel).
+  const stepPanel = url.step !== null && url.ndv === null && url.dock === null;
+  const yields =
+    stepView || (url.def === null && (right !== null || stepPanel));
+  const dock = !yields && (url.dock !== null || runLinked || storedDockOpen());
   return { right, dock };
 }
 
@@ -87,6 +95,10 @@ export function WorkspaceLoading({
   url?: string;
 }) {
   const { ts } = useI18n();
+  // The frame takes the shape of the page while it loads: a reload shows no
+  // breadcrumb strip and no padding that go away.
+  useFullBleed(true);
+  useHideBreadcrumb(true);
   const location = useLocation();
   const target = url ? new URL(url, window.location.origin) : location;
   const { right, dock } = panelsAtLoad(
@@ -94,7 +106,8 @@ export function WorkspaceLoading({
     target.search,
     url ? null : location.state
   );
-  const panelWidth = getStoredDrawerWidth();
+  // Each dock has its own stored width.
+  const panelWidth = getStoredDrawerWidth(right);
   return (
     <div
       role="status"

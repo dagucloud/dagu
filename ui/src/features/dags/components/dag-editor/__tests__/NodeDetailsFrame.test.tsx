@@ -1,7 +1,14 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { createPortal } from 'react-dom';
@@ -566,6 +573,8 @@ describe('NodeDetailsFrame editor', () => {
 // parity:drawer-shell
 describe('NodeDetailsFrame states', () => {
   it('docks with the stored width, expands centred and hides on null', async () => {
+    // A window wide enough that 700px leaves 360px to the graph.
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1400);
     localStorage.setItem('dagu.stepDetailsDrawer.width', '700');
     await renderFrame({ initial: 'docked' });
     const section = frame();
@@ -607,6 +616,8 @@ describe('NodeDetailsFrame states', () => {
     expect(frame()).toBe(section);
     expect(section).toHaveAttribute('hidden');
     expect(backdrop).toHaveAttribute('hidden');
+    // A hidden frame is no panel: the zone measures the panel that shows.
+    expect(section).not.toHaveAttribute('data-panel-shell');
   });
 
   it('keeps the classic YAML drawer without the ndv prop', async () => {
@@ -665,6 +676,27 @@ describe('NodeDetailsFrame in a graph zone', () => {
     expect(header().getByRole('button', { name: 'Close' })).toBeInTheDocument();
     expect(section.querySelector('#ndv-input')).not.toBeNull();
     expect(section.querySelector('#ndv-output')).not.toBeNull();
+  });
+
+  // The frame grows from the docked panel to the zone with a short wipe from
+  // the docked width, and not at all under reduced motion.
+  it('grows to the zone from the docked width, not in a window', async () => {
+    render(inZone({ initial: 'expanded' }));
+    await settle();
+    const section = frame();
+    expect(section).toHaveClass(
+      'animate-[ndv-grow_180ms_ease-out]',
+      'motion-reduce:animate-none'
+    );
+    expect(section.style.getPropertyValue('--ndv-from')).toMatch(/\d+px/);
+    cleanup();
+    render(inZone({ initial: 'docked' }));
+    await settle();
+    expect(frame().className).not.toContain('ndv-grow');
+    cleanup();
+    render(tree({ initial: 'expanded' }));
+    await settle();
+    expect(frame().className).not.toContain('ndv-grow');
   });
 
   it('docks on the right edge of the zone and shares the shell of the panels', async () => {
@@ -1431,7 +1463,7 @@ describe('NodeDetailsFrame focus and width', () => {
     expect(screen.queryByRole('separator')).toBeNull();
   });
 
-  // A 4K window: the panel takes all but a strip of the canvas, far past
+  // A 4K window: the panel takes all but 360px of the canvas, far past
   // the old cap of 960px, so that long lines of YAML fit.
   it('grows to all but a strip of its zone on a wide window', () => {
     vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(3840);
@@ -1440,60 +1472,18 @@ describe('NodeDetailsFrame focus and width', () => {
     const edge = screen.getByRole('separator', {
       name: 'Resize step details',
     });
-    expect(edge).toHaveAttribute('aria-valuemax', '3600');
+    expect(edge).toHaveAttribute('aria-valuemax', '3480');
 
     // From the edge of a 560px panel to the left end of the window.
     fireEvent.mouseDown(edge, { clientX: 3280 });
     fireEvent.mouseMove(document, { clientX: 0 });
     fireEvent.mouseUp(document);
-    expect(frame().style.width).toBe('3600px');
-    expect(localStorage.getItem('dagu.stepDetailsDrawer.width')).toBe('3600');
+    expect(frame().style.width).toBe('3480px');
+    expect(localStorage.getItem('dagu.stepDetailsDrawer.width')).toBe('3480');
 
     fireEvent.keyDown(edge, { key: 'Home' });
     fireEvent.keyDown(edge, { key: 'End' });
-    expect(edge).toHaveAttribute('aria-valuenow', '3600');
-  });
-
-  it('maximizes to the width of its zone and restores the stored width', () => {
-    localStorage.setItem('dagu.stepDetailsDrawer.width', '700');
-    render(<FocusHarness />);
-    openFromNode();
-    fireEvent.click(header().getByRole('button', { name: 'Maximize panel' }));
-    expect(frame().style.width).toBe('100%');
-    // It stays a panel beside the page, not the node view of a step.
-    expect(frame()).toHaveAttribute('data-state', 'docked');
-    expect(frame()).not.toHaveAttribute('role', 'dialog');
-    // A maximized panel has no edge to drag.
-    expect(screen.queryByRole('separator')).toBeNull();
-
-    fireEvent.click(header().getByRole('button', { name: 'Restore panel' }));
-    expect(frame().style.width).toBe('700px');
-    expect(
-      screen.getByRole('separator', { name: 'Resize step details' })
-    ).toHaveAttribute('aria-valuenow', '700');
-    expect(localStorage.getItem('dagu.stepDetailsDrawer.width')).toBe('700');
-
-    // The node view of a step fills its zone already: no toggle.
-    setNdv('expanded');
-    expect(
-      header().queryByRole('button', { name: 'Maximize panel' })
-    ).toBeNull();
-  });
-
-  // As in an editor that keeps its panel maximized: the panel that opens
-  // again shows as the user left it.
-  it('opens again maximized after a close', () => {
-    render(<FocusHarness />);
-    openFromNode();
-    fireEvent.click(header().getByRole('button', { name: 'Maximize panel' }));
-    fireEvent.click(header().getByRole('button', { name: 'Close' }));
-    expect(frame()).toHaveAttribute('hidden');
-
-    openFromNode();
-    expect(frame().style.width).toBe('100%');
-    expect(
-      header().getByRole('button', { name: 'Restore panel' })
-    ).toBeInTheDocument();
+    expect(edge).toHaveAttribute('aria-valuenow', '3480');
   });
 
   // The canvas beside the panel and the other right panels read one width:
@@ -1531,5 +1521,63 @@ describe('NodeDetailsFrame focus and width', () => {
     fireEvent.mouseUp(document);
     expect(probe).toHaveTextContent('760');
     expect(drawerEdge).toHaveAttribute('aria-valuenow', '760');
+  });
+
+  // The frame claims its place in an effect: on the render that opens it,
+  // the panel that shows is still the one that it replaces.
+  it('opens at its own width, not at that of the panel it replaces', () => {
+    localStorage.setItem('dagu.stepDetailsDrawer.width.workflow', '900');
+    const widths: string[] = [];
+    function YamlOverWorkflow() {
+      const [workflow, setWorkflow] = React.useState(true);
+      const [yaml, setYaml] = React.useState(false);
+      // Each commit while the frame is open: the width that it painted.
+      React.useLayoutEffect(() => {
+        if (yaml) widths.push(frame().style.width);
+      });
+      return (
+        <>
+          <button type="button" onClick={() => setYaml(true)}>
+            Open YAML
+          </button>
+          <StepSideDrawer
+            isOpen={workflow}
+            onClose={() => setWorkflow(false)}
+            hasContent={workflow}
+            modal={false}
+            label="Workflow"
+            panelId="workflow"
+          >
+            <p>Workflow</p>
+          </StepSideDrawer>
+          <NodeDetailsFrame
+            state={yaml ? 'docked' : null}
+            scope="file"
+            onClose={() => setYaml(false)}
+            stepName="transform"
+            dag={dag as React.ComponentProps<typeof NodeDetailsFrame>['dag']}
+            onSelectStep={vi.fn()}
+            formMode
+            canForm
+            onFormModeChange={vi.fn()}
+            toolbarRef={() => {}}
+            inputRef={() => {}}
+            outputRef={() => {}}
+          >
+            <input aria-label="Step field" />
+          </NodeDetailsFrame>
+        </>
+      );
+    }
+    render(
+      <RightPanelProvider>
+        <YamlOverWorkflow />
+      </RightPanelProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open YAML' }));
+    expect(screen.queryByText('Workflow')).toBeNull();
+    expect(widths.length).toBeGreaterThan(0);
+    expect(widths).not.toContain('900px');
+    expect(frame().style.width).toBe('560px');
   });
 });

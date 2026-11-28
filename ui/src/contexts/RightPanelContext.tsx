@@ -33,8 +33,11 @@ export interface RightPanelHandle {
 interface Holder {
   id: RightPanelId;
   evict(): void;
-  /** Opens the panel again: a panel that a transient panel covered. */
-  restore?(): void;
+  /**
+   * Opens the panel again: a panel that a transient panel covered. False
+   * when the panel cannot open again.
+   */
+  restore?(): boolean;
 }
 
 /**
@@ -95,7 +98,6 @@ function createRightPanelStore(): RightPanelStore {
       if (holder?.id !== id) return;
       const released = holder;
       holder = null;
-      notify();
       if (!TRANSIENT_PANELS.has(id)) {
         justReleased = released;
         queueMicrotask(() => {
@@ -104,9 +106,17 @@ function createRightPanelStore(): RightPanelStore {
       }
       const back = covered;
       covered = null;
-      if (back && TRANSIENT_PANELS.has(id)) back.restore?.();
+      // The covered panel holds the place while its host shows it again, a
+      // render or more later, unless its restore claimed the place itself:
+      // the place never shows empty in between.
+      if (back && TRANSIENT_PANELS.has(id) && back.restore?.() && !holder) {
+        holder = back;
+      }
+      notify();
     },
     drop(previous) {
+      // A covered panel that unmounts cannot come back.
+      if (covered === previous) covered = null;
       if (holder !== previous) return;
       holder = null;
       covered = null;
@@ -146,7 +156,8 @@ export function RightPanelProvider({
  * The right-side panel `id`. In a provider, claim() calls the onEvicted of
  * the current holder of another id synchronously, then makes `id` active;
  * release() clears it only while `id` is active. A transient panel that
- * closes calls the onRestore of the panel that it covered. Without a
+ * closes calls the onRestore of the panel that it covered, and that panel is
+ * active from then on, before it claims again. Without a
  * provider, claim() and release() only set a local isActive, and onEvicted
  * is never called.
  */
@@ -183,7 +194,11 @@ export function useRightPanel(
       const holder: Holder = {
         id,
         evict: () => onEvictedRef.current(),
-        restore: () => onRestoreRef.current?.(),
+        restore: () => {
+          const restore = onRestoreRef.current;
+          restore?.();
+          return !!restore;
+        },
       };
       claimedRef.current = holder;
       store.claim(holder);

@@ -10,8 +10,16 @@ import {
   type ReactNode,
 } from 'react';
 import { subscribeClock } from '@/hooks/useClock';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useActiveRightPanel } from '@/contexts/RightPanelContext';
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
+import {
+  useActiveRightPanel,
+  useCloseRightPanel,
+} from '@/contexts/RightPanelContext';
 import DAGSpec from '@/features/dags/components/dag-editor/DAGSpec';
 import type { DAGSpecHostProps } from '@/features/dags/components/dag-editor/hostTypes';
 import type {
@@ -55,7 +63,7 @@ import { PaneActiveContext, useModePaneActive } from '../layout/paneActive';
 import { WorkflowTabsPanel } from '../panel/WorkflowTabsPanel';
 import { useSettingsLeaveGuard } from '../settings/useSettingsLeaveGuard';
 import { useWorkspaceNotices } from '../notices/useWorkspaceNotices';
-import { useWorkspaceUrl } from '../state/workspaceUrl';
+import { isRunRedirect, useWorkspaceUrl } from '../state/workspaceUrl';
 import { StepPanel } from '../step/StepPanel';
 import { StepRunTabs } from '../step/StepRunTabs';
 import { composeCarriers } from '@/features/visual-editor/run/reuseSource';
@@ -67,12 +75,13 @@ import { useReuseCheck } from '../step/useReuseCheck';
 import { useReuseSource } from '../step/useReuseSource';
 import { useStepRunActions } from '../step/useStepRunActions';
 import { useCanvasRunSource } from './canvasRunPolicy';
-import { useDock } from '../dock/DockContext';
+import { useDock, useDockCommands } from '../dock/DockContext';
 import { useDockYield } from './useDockYield';
 import { useTestRunNotice } from './useTestRunNotice';
 import { useEscInStepYaml } from './useEscInStepYaml';
 import { useOpenStepDetails } from './useOpenStepDetails';
 import { RightColumn } from './RightColumn';
+import { RIGHT_COLUMN_MOUNTED } from './rightColumnMounted';
 import { useRightColumn, type RightColumnTab } from './useRightColumn';
 import { useRightPanelClearance } from './useRightPanelClearance';
 import { runStepGates, useStepCommandHost } from './useStepCommandHost';
@@ -341,6 +350,65 @@ function MountAfterDockYield({
 }
 
 /**
+ * Closes the right panel and the step panel when Activity opens. A right
+ * panel with a draft or a one-time secret at risk stays instead, and
+ * Activity folds back until it closes: its close would ask first, and
+ * Activity can open with no user action. It is a component of its own: the
+ * state of the dock changes with each toggle, and the canvas must not render
+ * again for it.
+ */
+function CloseRightPanelOnActivity({
+  paneActive,
+  atRisk,
+  stepView,
+  closeStepView,
+  closeStepPanel,
+}: {
+  paneActive: boolean;
+  /** A draft or a one-time secret would be lost (useSettingsLeaveGuard). */
+  atRisk: boolean;
+  /** The step view is open (?ndv=expanded). */
+  stepView: boolean;
+  /** Closes the step view and gives no YAML panel back under it. */
+  closeStepView: () => void;
+  closeStepPanel: () => void;
+}) {
+  const dock = useDock();
+  const { yieldToView } = useDockCommands();
+  const closeRightPanel = useCloseRightPanel();
+  const activePanel = useActiveRightPanel();
+  const panelRef = useRef(activePanel);
+  panelRef.current = activePanel;
+  const dockWasOpen = useRef(dock.open);
+  useEffect(() => {
+    const opened = dock.open && !dockWasOpen.current;
+    dockWasOpen.current = dock.open;
+    if (!opened || !paneActive) return;
+    if (panelRef.current !== null) {
+      if (atRisk) {
+        yieldToView?.(true, { restore: true });
+        return;
+      }
+      // The close of a step view opened from the YAML gives the YAML back,
+      // which would then show beside Activity with no claim.
+      if (stepView) closeStepView();
+      else closeRightPanel();
+    }
+    closeStepPanel();
+  }, [
+    dock.open,
+    paneActive,
+    atRisk,
+    stepView,
+    yieldToView,
+    closeRightPanel,
+    closeStepView,
+    closeStepPanel,
+  ]);
+  return null;
+}
+
+/**
  * The editor pane: DAGSpec in host mode at full height, on the live file with
  * the selected run overlaid on it by step name (canvasRunPolicy). The URL
  * selection and the step actions of the workspace drive it, and it gives its
@@ -365,7 +433,7 @@ export function WorkspaceCanvas({
   // A run without its workflow file shows its own definition only: there is
   // no file to edit.
   const standaloneRun = useStandaloneRun();
-  const { guard, setSecretVisible } = useSettingsLeaveGuard();
+  const { guard, setSecretVisible, atRisk } = useSettingsLeaveGuard();
   // The runs of the step view start and show without leaving the editor.
   const actions = useStepRunActions({ stay: true });
   const [url, setUrl, readUrl] = useWorkspaceUrl();
@@ -389,10 +457,11 @@ export function WorkspaceCanvas({
   const snapshot = url.def === 'run';
   const paneActive = useModePaneActive() && !snapshot;
   const activePanel = useActiveRightPanel();
-  // On a wide window the Workflow panel and the YAML of the file are the tabs
-  // of a right column beside the graph zone, which only the user opens,
-  // switches and collapses. A phone keeps them as panels over the zone.
-  const columnMode = useMediaQuery(WIDE_QUERY, true);
+  // On a wide window the Workflow panel and the YAML of the file can be the
+  // tabs of a right column beside the graph zone, when the app mounts it
+  // (RIGHT_COLUMN_MOUNTED). Otherwise they are docks over the zone.
+  const wide = useMediaQuery(WIDE_QUERY, true);
+  const columnMode = RIGHT_COLUMN_MOUNTED && wide;
   const [columnTab, setColumnTab] = useRightColumn();
   const columnTabRef = useRef(columnTab);
   columnTabRef.current = columnTab;
@@ -458,13 +527,15 @@ export function WorkspaceCanvas({
     () => setUrl({ ndv: 'docked' }, { replace: true }),
     [setUrl]
   );
-  // A link that names a step, a panel or a tab of the Run panel opens that
-  // view instead.
+  // A link that names a step, a panel, a run or a tab of the Run panel opens
+  // that view instead. The redirect to the latest run is no link.
+  const { state: routeState } = useLocation();
   const restorable =
     url.ndv === null &&
     url.step === null &&
     url.panel === null &&
     url.dock === null &&
+    (url.run === null || isRunRedirect(routeState)) &&
     legacyTab === undefined &&
     !snapshot &&
     !wantsYaml &&
@@ -628,8 +699,10 @@ export function WorkspaceCanvas({
   const columnFills = columnMode && columnMaximized && !snapshot;
   const openStepDetails = useOpenStepDetails();
 
-  // The step panel is a right panel too, without a claim of its own. Each
-  // click on a step can hold off its mark, so each one watches again.
+  // The step panel is a right panel too, without a claim of its own: it takes
+  // turns with Activity (useDockYield) and yields to the other right panels
+  // (covered). Each click on a step can hold off its mark, so each one watches
+  // again.
   const clearance = useRightPanelClearance(
     zoneRef,
     activePanel ??
@@ -657,6 +730,10 @@ export function WorkspaceCanvas({
     if (!columnMode && yamlUnderView.current && handle) handle.toggleYaml(true);
     else setUrl({ ndv: null }, { replace: true });
   };
+  const closeStepViewAlone = useCallback(
+    () => setUrl({ ndv: null }, { replace: true }),
+    [setUrl]
+  );
   // Esc closes the expanded node view when no dialog or menu is above it.
   // The YAML panel stays: it is a panel that the page keeps, not a view to
   // leave. With no panel or node view open, Esc clears the step and ?step.
@@ -670,10 +747,21 @@ export function WorkspaceCanvas({
     clearStep: () => setUrl({ step: null, ndv: null }, { replace: true }),
   });
 
-  // The expanded step view and a maximized column hold the room of the Run
-  // panel; Activity comes back when they close. A right panel (a launcher,
-  // the Workflow, the YAML) sits in the zone above Activity: both stay open.
-  useDockYield(paneActive && (shownNdv === 'expanded' || columnFills));
+  // The right panel (a launcher, the Workflow, the YAML, the node view, the
+  // step panel) and the Activity panel take turns. A panel that opens
+  // collapses Activity, which comes back when the panel closes. Activity that
+  // opens closes the panel. A maximized column holds the room of the Run
+  // panel too. The YAML panel and a Workflow panel that the page restores
+  // count from the first render, before the editor loads and claims them, so
+  // that Activity does not show and then fold.
+  useDockYield(
+    paneActive &&
+      (activePanel !== null ||
+        shownNdv === 'expanded' ||
+        columnFills ||
+        (!columnMode &&
+          (shownNdv === 'docked' || workflowPanel.pending || stepPanel.shown)))
+  );
   // Esc in the YAML of the step view closes the view too.
   useEscInStepYaml({
     active: paneActive,
@@ -747,6 +835,13 @@ export function WorkspaceCanvas({
           TOOLBAR_ZONE_CLASS
         )}
       >
+        <CloseRightPanelOnActivity
+          paneActive={paneActive}
+          atRisk={atRisk}
+          stepView={url.ndv === 'expanded'}
+          closeStepView={closeStepViewAlone}
+          closeStepPanel={stepPanel.close}
+        />
         <div
           ref={setToolbarRow}
           data-testid="ww-canvas-toolbar"

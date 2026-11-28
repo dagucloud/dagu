@@ -16,12 +16,20 @@ import {
   Routes,
   useLocation,
   useNavigationType,
+  type InitialEntry,
 } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import {
+  RightPanelProvider,
+  useRightPanel,
+  useRightPanelClaim,
+  type RightPanelHandle,
+} from '@/contexts/RightPanelContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import type DAGSpec from '@/features/dags/components/dag-editor/DAGSpec';
+import { useYamlSection } from '@/features/dags/components/dag-editor/useYamlSection';
 import { usePanelPlacement } from '@/features/dags/components/step-details/PanelShell';
 import type {
   ApiDAGRunDetails,
@@ -36,9 +44,12 @@ import type { StepPanelProps } from '../../step/StepPanel';
 import { useCanvasOverlayInset } from '@/features/visual-editor/canvas/overlayInset';
 import { PANEL_WATCH_MS } from '../useRightPanelClearance';
 import type { StepRunActions } from '../../step/useStepRunActions';
-import { useWorkspaceUrl } from '../../state/workspaceUrl';
+import { RUN_REDIRECT_STATE, useWorkspaceUrl } from '../../state/workspaceUrl';
 import { RIGHT_COLUMN_KEY } from '../useRightColumn';
-import { YAML_PANEL_OPEN_KEY } from '../useYamlPanelMemory';
+import {
+  WORKFLOW_PANEL_OPEN_KEY,
+  YAML_PANEL_OPEN_KEY,
+} from '../useYamlPanelMemory';
 import { WorkspaceCanvas } from '../WorkspaceCanvas';
 import {
   useWorkspaceEditor,
@@ -48,10 +59,16 @@ import {
 type SpecProps = React.ComponentProps<typeof DAGSpec>;
 
 // The tests below run as on a phone, where the Workflow panel and the YAML
-// are panels over the zone; 'right column' sets a wide window.
-const media = vi.hoisted(() => ({ wide: false }));
+// are panels over the zone; 'right column' sets a wide window. The app does
+// not mount the column: that describe turns the switch on for its tests.
+const media = vi.hoisted(() => ({ wide: false, column: false }));
 vi.mock('@/hooks/useMediaQuery', () => ({
   useMediaQuery: () => media.wide,
+}));
+vi.mock('../rightColumnMounted', () => ({
+  get RIGHT_COLUMN_MOUNTED() {
+    return media.column;
+  },
 }));
 
 const host = vi.hoisted(() => ({
@@ -70,6 +87,8 @@ const host = vi.hoisted(() => ({
   dockOpen: [] as boolean[],
   /** Renders the readers of useDock again, as a change of DockProvider does. */
   dockListeners: new Set<() => void>(),
+  /** The stand-in renders the YAML frame of the editor (YamlFrameProbe). */
+  yamlFrame: false,
 }));
 
 // Captures the props; the stand-in gives the handle as DAGSpec does once loaded.
@@ -90,10 +109,13 @@ vi.mock(
         []
       );
       return (
-        <div
-          data-testid="dag-spec-stand-in"
-          data-placement={usePanelPlacement()}
-        />
+        <>
+          <div
+            data-testid="dag-spec-stand-in"
+            data-placement={usePanelPlacement()}
+          />
+          {host.yamlFrame && props.ndv && <YamlFrameProbe ndv={props.ndv} />}
+        </>
       );
     }
     function CapturingDAGSpec(props: SpecProps) {
@@ -427,7 +449,45 @@ function EditorProbe() {
   );
 }
 
-function renderCanvas(url = '/dags/example.yaml') {
+// The right panels that the tests with a RightPanelProvider claim and
+// release, as the editor does: the Workflow panel, which comes back after a
+// transient panel, and Add step, a transient panel.
+const panels = {
+  workflow: null as RightPanelHandle | null,
+  addStep: null as RightPanelHandle | null,
+  evicted: vi.fn(),
+};
+
+function PanelProbe() {
+  panels.workflow = useRightPanel(
+    'workflow',
+    () => panels.evicted('workflow'),
+    () => undefined
+  );
+  panels.addStep = useRightPanel('add-step', () => panels.evicted('add-step'));
+  return null;
+}
+
+// The YAML frame of the editor, as DAGSpec and NodeDetailsFrame wire it: it
+// claims the right panel while the YAML or a step view shows, and its close
+// gives the YAML back to a step view that opened from it.
+function YamlFrameProbe({ ndv }: { ndv: NonNullable<SpecProps['ndv']> }) {
+  const { sectionOpen, setSectionOpen } = useYamlSection(ndv);
+  useRightPanelClaim('ndv', sectionOpen, () => setSectionOpen(false));
+  return null;
+}
+
+function renderCanvas(
+  url: InitialEntry = '/dags/example.yaml',
+  opts: { panels?: boolean } = {}
+) {
+  const canvas = (
+    <WorkspaceEditorProvider>
+      <LocationProbe />
+      <EditorProbe />
+      <WorkspaceCanvas fileName="example.yaml" dagData={dagData} />
+    </WorkspaceEditorProvider>
+  );
   return render(
     <UserPreferencesProvider>
       <AppBarContext.Provider
@@ -447,14 +507,14 @@ function renderCanvas(url = '/dags/example.yaml') {
                 key={path}
                 path={path}
                 element={
-                  <WorkspaceEditorProvider>
-                    <LocationProbe />
-                    <EditorProbe />
-                    <WorkspaceCanvas
-                      fileName="example.yaml"
-                      dagData={dagData}
-                    />
-                  </WorkspaceEditorProvider>
+                  opts.panels ? (
+                    <RightPanelProvider>
+                      <PanelProbe />
+                      {canvas}
+                    </RightPanelProvider>
+                  ) : (
+                    canvas
+                  )
                 }
               />
             ))}
@@ -483,6 +543,7 @@ beforeEach(() => {
   panel.props = null;
   host.real = false;
   host.handle = null;
+  host.yamlFrame = false;
   api.queries = [];
   api.specLoading = false;
   api.saved = 0;
@@ -905,9 +966,11 @@ describe('WorkspaceCanvas', () => {
     const column = () => screen.getByTestId('ww-right-column');
     beforeEach(() => {
       media.wide = true;
+      media.column = true;
     });
     afterEach(() => {
       media.wide = false;
+      media.column = false;
     });
 
     it('shows the YAML tab as the docked YAML and keeps ?ndv for the view of a step', () => {
@@ -1041,6 +1104,25 @@ describe('WorkspaceCanvas', () => {
       expect(screen.getByTestId('ww-canvas-graph')).not.toHaveAttribute(
         'inert'
       );
+    });
+  });
+
+  // The app does not mount the column: on a wide window the Workflow panel
+  // and the YAML are docks that the toolbar toggles, and ?ndv=docked stays.
+  describe('right docks on a wide window', () => {
+    beforeEach(() => {
+      media.wide = true;
+    });
+    afterEach(() => {
+      media.wide = false;
+    });
+
+    it('mounts no right column and keeps ?ndv=docked in the URL', () => {
+      renderCanvas('/dags/example.yaml?ndv=docked');
+      expect(screen.queryByTestId('ww-right-column')).toBeNull();
+      expect(screen.queryByTestId('ww-panel-layer')).toBeNull();
+      expect(props().ndv?.state).toBe('docked');
+      expect(location()).toHaveTextContent('ndv=docked');
     });
   });
 
@@ -1503,11 +1585,16 @@ describe('WorkspaceCanvas', () => {
     }
 
     // The editor lays out the graph with the panel from its first render: a
-    // panel that opened later shrank the graph that had just shown.
+    // panel that opened later shrank the graph that had just shown. The
+    // ?run of the redirect to the latest run is no link to the run.
     it('opens the YAML panel when it was open last, from the first render', () => {
       localStorage.setItem(YAML_PANEL_OPEN_KEY, 'true');
       yamlEditor();
-      renderCanvas('/dags/example.yaml?run=r1');
+      renderCanvas({
+        pathname: '/dags/example.yaml',
+        search: '?run=r1',
+        state: RUN_REDIRECT_STATE,
+      });
       expect(host.ndvStates[0]).toBe('docked');
       expect(host.ndvStates).not.toContain(null);
       expect(location()).toHaveTextContent(
@@ -1529,6 +1616,8 @@ describe('WorkspaceCanvas', () => {
       ['it was closed last', 'false', '/dags/example.yaml'],
       ['a link opens a step', 'true', '/dags/example.yaml?step=extract'],
       ['a link opens a panel', 'true', '/dags/example.yaml?panel=workflow'],
+      // A run link opens Activity, which takes turns with the panel.
+      ['a link opens a run', 'true', '/dags/example.yaml?run=r1'],
       // A legacy /history link lands on the History tab of the Run panel.
       [
         'a link opens a tab of the Run panel',
@@ -1617,14 +1706,77 @@ describe('WorkspaceCanvas', () => {
       expect(yieldToView).toHaveBeenLastCalledWith(false);
     });
 
-    // The YAML panel sits in the zone above Activity: both stay open.
-    it('keeps Activity open beside the docked YAML panel', () => {
+    // The YAML panel and Activity take turns. The stand-in claims no panel:
+    // the docked state alone folds Activity, before the editor has loaded.
+    it('yields to the docked YAML panel from the first render', () => {
       const yieldToView = vi.fn();
       ws.dock = { ...dock, open: true, yieldToView };
       renderCanvas('/dags/example.yaml?step=extract&ndv=docked');
-      expect(yieldToView).not.toHaveBeenCalledWith(true, expect.anything());
+      expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
       expect(screen.getByTestId('dag-spec-stand-in')).toBeInTheDocument();
     });
+
+    // Add step covers the Workflow panel, which comes back when Add step
+    // closes. Activity stays folded through the swap.
+    it('stays folded while a transient panel gives the panel under it back', () => {
+      const yieldToView = vi.fn();
+      ws.dock = { ...dock, open: true, yieldToView };
+      renderCanvas('/dags/example.yaml', { panels: true });
+      act(() => panels.workflow?.claim());
+      expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
+
+      act(() => panels.addStep?.claim());
+      act(() => panels.addStep?.release());
+      act(() => panels.workflow?.claim());
+      expect(yieldToView).not.toHaveBeenCalledWith(false);
+    });
+
+    // A draft or a one-time secret in the panel would be lost, and Activity
+    // can open with no user action: the panel stays, and Activity folds back
+    // until the panel closes.
+    it('keeps a panel with a secret at risk when Activity opens', () => {
+      const yieldToView = vi.fn();
+      ws.dock = { ...dock, open: false, yieldToView };
+      renderCanvas('/dags/example.yaml', { panels: true });
+      act(() => panels.workflow?.claim());
+      act(() => props().launcherHost?.setSecretVisible(true));
+      yieldToView.mockClear();
+
+      act(() => {
+        ws.dock = { ...(ws.dock as DockController), open: true };
+        host.dockListeners.forEach((listener) => listener());
+      });
+      expect(panels.evicted).not.toHaveBeenCalled();
+      expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
+    });
+
+    // The Workflow panel that the page restores folds Activity too, before
+    // the editor has loaded and claimed it.
+    it('yields to the restored Workflow panel from the first render', () => {
+      localStorage.setItem(WORKFLOW_PANEL_OPEN_KEY, 'true');
+      const yieldToView = vi.fn();
+      ws.dock = { ...dock, open: true, yieldToView };
+      renderCanvas('/dags/example.yaml');
+      expect(props().initialWorkflowOpen).toBe(true);
+      expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
+    });
+
+    // A run link, as from the Executions list, opens Activity for the logs
+    // of the run: no stored panel comes back to fold it.
+    it.each([
+      ['YAML', YAML_PANEL_OPEN_KEY],
+      ['Workflow', WORKFLOW_PANEL_OPEN_KEY],
+    ])(
+      'keeps Activity open for a run link over a stored %s panel',
+      (_panel, key) => {
+        localStorage.setItem(key, 'true');
+        const yieldToView = vi.fn();
+        ws.dock = { ...dock, open: true, yieldToView };
+        renderCanvas('/dags/example.yaml?run=r1');
+        expect(props().initialWorkflowOpen).toBe(false);
+        expect(yieldToView).not.toHaveBeenCalled();
+      }
+    );
 
     // A graph that fit the zone above the open Activity fit again, and
     // jumped, when Activity collapsed for the step view.
@@ -1639,6 +1791,57 @@ describe('WorkspaceCanvas', () => {
       expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
       expect(host.dockOpen.length).toBeGreaterThan(0);
       expect(host.dockOpen).not.toContain(true);
+    });
+
+    // The step panel and Activity take turns, as the YAML panel and Activity
+    // do.
+    it('yields to the step panel and comes back when it closes', () => {
+      const yieldToView = vi.fn();
+      ws.dock = { ...dock, open: true, yieldToView };
+      renderCanvas();
+      expect(yieldToView).not.toHaveBeenCalled();
+      act(() => {
+        props().onSelectedStepNameChange?.('extract');
+        props().onStepClick?.('extract', { clientX: 700, clientY: 120 });
+      });
+      expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
+      fireEvent.click(screen.getByRole('button', { name: 'close panel' }));
+      expect(yieldToView).toHaveBeenLastCalledWith(false);
+    });
+
+    it('closes the step panel when Activity opens', () => {
+      ws.dock = { ...dock, open: false, yieldToView: vi.fn() };
+      renderCanvas();
+      act(() => {
+        props().onSelectedStepNameChange?.('extract');
+        props().onStepClick?.('extract', { clientX: 700, clientY: 120 });
+      });
+      expect(screen.queryByTestId('step-panel')).not.toBeNull();
+      act(() => {
+        ws.dock = { ...(ws.dock as DockController), open: true };
+        host.dockListeners.forEach((listener) => listener());
+      });
+      expect(screen.queryByTestId('step-panel')).toBeNull();
+      expect(location()).toHaveTextContent('step=extract');
+    });
+
+    // A step view opened from the YAML gives the YAML back when it closes.
+    // Activity takes the room of both: the YAML must not stay beside it.
+    it('closes a step view opened from the YAML when Activity opens', () => {
+      host.yamlFrame = true;
+      ws.dock = { ...dock, open: false, yieldToView: vi.fn() };
+      renderCanvas('/dags/example.yaml?step=extract&ndv=docked', {
+        panels: true,
+      });
+      act(() => props().ndv?.onStateChange('expanded'));
+      expect(location()).toHaveTextContent('ndv=expanded');
+
+      act(() => {
+        ws.dock = { ...(ws.dock as DockController), open: true };
+        host.dockListeners.forEach((listener) => listener());
+      });
+      expect(location()).not.toHaveTextContent('ndv=');
+      expect(location()).toHaveTextContent('step=extract');
     });
 
     // D10: a click on the canvas selects; it never opens the dock.
