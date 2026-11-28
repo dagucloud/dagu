@@ -374,7 +374,8 @@ What the author verified in the provider documentation, on 2026-11-04:
 Rules of the table:
 
 - A preset sets defaults only. The administrator can change each field that the table gives, except
-  the protocol of a row.
+  the protocol of a row and the models URL. The models URL of a preset follows the base URL, as [The
+  models list](#the-models-list) says.
 - The first form of the column Auth is the default. The route of presets serves the default form only.
   An endpoint of each preset accepts the three forms, with the rule of `anthropic-oauth`.
 - A row with "None" in the column Base URL has no default. The text after "To verify" is a hint for
