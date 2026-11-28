@@ -374,7 +374,7 @@ func workerCertificateConfig(t *testing.T, ca *PeerCA) Config {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
-	der, err := ca.issueWorkerCertificate(key.Public(), "cert-1", "invite-1")
+	der, err := ca.issueWorkerCertificate(key.Public(), "cert-1", "invite-1", time.Now())
 	require.NoError(t, err)
 	config := unset(*DefaultConfig())
 	config.workerCert = &tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}

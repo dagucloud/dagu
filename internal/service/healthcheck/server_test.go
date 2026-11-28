@@ -87,15 +87,15 @@ func TestServerReady(t *testing.T) {
 		return resp.StatusCode
 	}
 	assert.Equal(t, http.StatusOK, get(Path))
-	assert.Equal(t, http.StatusServiceUnavailable, get(ReadyPath))
+	assert.Equal(t, http.StatusServiceUnavailable, get(readyPath))
 	ready.Store(true)
 	assert.Equal(t, http.StatusOK, get(Path))
-	assert.Equal(t, http.StatusOK, get(ReadyPath))
+	assert.Equal(t, http.StatusOK, get(readyPath))
 
 	plain := NewServerWithAddr("test-service", "127.0.0.1:0")
 	require.NoError(t, plain.Start(t.Context()))
 	t.Cleanup(func() { _ = plain.Stop(context.Background()) })
-	resp, err := http.Get(plain.URL() + ReadyPath)
+	resp, err := http.Get(plain.URL() + readyPath)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "a server without a ready function is ready")

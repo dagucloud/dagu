@@ -55,7 +55,7 @@ func TestEnrollChecksReply(t *testing.T) {
 		return csr.PublicKey
 	}
 	issued := func(req *coordinatorv1.EnrollRequest) []byte {
-		der, err := ca.issueWorkerCertificate(csrKey(req), "cert-1", "invite-1")
+		der, err := ca.issueWorkerCertificate(csrKey(req), "cert-1", "invite-1", time.Now())
 		require.NoError(t, err)
 		return der
 	}
@@ -70,17 +70,17 @@ func TestEnrollChecksReply(t *testing.T) {
 		{name: "OtherKey", wantErr: true, reply: func(*coordinatorv1.EnrollRequest) *coordinatorv1.EnrollResponse {
 			key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 			require.NoError(t, err)
-			der, err := ca.issueWorkerCertificate(key.Public(), "cert-1", "invite-1")
+			der, err := ca.issueWorkerCertificate(key.Public(), "cert-1", "invite-1", time.Now())
 			require.NoError(t, err)
 			return &coordinatorv1.EnrollResponse{Certificate: der, CaCertificate: ca.cert.Raw}
 		}},
 		{name: "OtherCA", wantErr: true, reply: func(req *coordinatorv1.EnrollRequest) *coordinatorv1.EnrollResponse {
-			der, err := other.issueWorkerCertificate(csrKey(req), "cert-1", "invite-1")
+			der, err := other.issueWorkerCertificate(csrKey(req), "cert-1", "invite-1", time.Now())
 			require.NoError(t, err)
 			return &coordinatorv1.EnrollResponse{Certificate: der, CaCertificate: other.cert.Raw}
 		}},
 		{name: "NotSignedByCA", wantErr: true, reply: func(req *coordinatorv1.EnrollRequest) *coordinatorv1.EnrollResponse {
-			der, err := other.issueWorkerCertificate(csrKey(req), "cert-1", "invite-1")
+			der, err := other.issueWorkerCertificate(csrKey(req), "cert-1", "invite-1", time.Now())
 			require.NoError(t, err)
 			return &coordinatorv1.EnrollResponse{Certificate: der, CaCertificate: ca.cert.Raw}
 		}},

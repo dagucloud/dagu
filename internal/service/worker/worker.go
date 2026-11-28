@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -76,9 +77,9 @@ type Worker struct {
 
 	afterTaskAckHook func(context.Context, *coordinatorv1.Task) bool
 
-	// connected is closed when a heartbeat first reaches a coordinator.
-	connected     chan struct{}
-	connectedOnce sync.Once
+	// ready reports that a heartbeat has reached a coordinator, so the
+	// worker can take runs. Its health server answers readiness from it.
+	ready atomic.Bool
 }
 
 type runningTaskState struct {
@@ -116,15 +117,11 @@ func (w *Worker) SetHandler(executor TaskHandler) {
 	w.handler = executor
 }
 
-// Connected is closed when a heartbeat of the worker first reaches a
-// coordinator, so the worker can take runs.
-func (w *Worker) Connected() <-chan struct{} {
-	return w.connected
-}
-
 // SetHealthServer makes the worker serve its health check on server, such
-// as one already started. Call it before Start.
+// as one already started, which reports the worker ready once a heartbeat
+// reaches a coordinator. Call it before Start.
 func (w *Worker) SetHealthServer(server *healthcheck.Server) {
+	server.SetReadyFunc(w.ready.Load)
 	w.healthServer = server
 }
 
@@ -168,7 +165,7 @@ func NewWorker(
 	}
 	labels, labelErr := workerLabels(labels)
 
-	return &Worker{
+	w := &Worker{
 		id:             workerID,
 		maxActiveRuns:  maxActiveRuns,
 		coordinatorCli: coordinatorClient,
@@ -181,9 +178,10 @@ func NewWorker(
 		cancelFuncs:    make(map[string]context.CancelFunc),
 		runSignals:     make(map[string]*runSignal),
 		healthServer:   healthcheck.NewServer("worker", healthPort),
-		connected:      make(chan struct{}),
 		openCodeHost:   opencodehost.New(context.Background(), openCodeConfig),
 	}
+	w.healthServer.SetReadyFunc(w.ready.Load)
+	return w
 }
 
 // Start begins the worker's operation, launching multiple polling goroutines.
@@ -770,7 +768,7 @@ func (w *Worker) sendHeartbeats(ctx context.Context) {
 		}
 
 		// Successful heartbeat; reset backoff and schedule healthy interval
-		w.connectedOnce.Do(func() { close(w.connected) })
+		w.ready.Store(true)
 		retrier.Reset()
 		nextDelay = healthyInterval
 	}

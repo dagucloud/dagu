@@ -22,8 +22,8 @@ import (
 // Path is the path of the health endpoint a Server serves.
 const Path = "/health"
 
-// ReadyPath is the path of the readiness endpoint a Server serves.
-const ReadyPath = "/ready"
+// readyPath is the path of the readiness endpoint a Server serves.
+const readyPath = "/ready"
 
 // Server represents a lightweight HTTP health check server for a service.
 type Server struct {
@@ -72,9 +72,9 @@ func (h *Server) SetRoleFunc(fn func() string) {
 	h.roleFunc = fn
 }
 
-// SetReadyFunc makes the server answer ReadyPath with 503 while ready
-// reports false, as for a process that is alive but cannot take work yet.
-// Without it, ReadyPath answers 200 whenever the server runs.
+// SetReadyFunc makes the server answer /ready with 503 while ready reports
+// false, as for a process that is alive but cannot take work yet. Without
+// it, /ready answers 200 whenever the server runs.
 func (h *Server) SetReadyFunc(ready func() bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -118,7 +118,7 @@ func (h *Server) Start(ctx context.Context) error {
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
 	router.Get(Path, h.healthHandler)
-	router.Get(ReadyPath, h.readyHandler)
+	router.Get(readyPath, h.readyHandler)
 
 	server := &http.Server{
 		Addr:              h.listenAddr,

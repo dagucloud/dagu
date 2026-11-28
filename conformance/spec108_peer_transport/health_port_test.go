@@ -30,22 +30,16 @@ func TestWorkerInviteHoldsHealthPort(t *testing.T) {
 	dagu := harness.NewRunner(t)
 	coord := startInviteCoordinator(t, dagu)
 	invite := coord.createInvite(t, false).Invite
-	proxy, accepted, release := gatedProxy(t, coord.addr)
+	proxy, enrollment, calls := gatedProxy(t, coord.addr)
 	port := harness.FreePort(t)
 
 	worker := dagu.StartWithEnv(inviteWorkerEnv(dagu, "host-a", invite),
 		append(inviteWorkerArgs("worker-a", proxy), fmt.Sprintf("--worker.health-port=%d", port))...)
 	// Only enrollment dials the coordinator before the worker holds a
-	// certificate, so a connection at the proxy means it is in flight. It
-	// waits there until release.
+	// certificate, so the first connection at the proxy is enrollment. It
+	// waits there until released.
 	waitForOutput(t, worker, builtinFromInvite)
-	select {
-	case <-accepted:
-	case <-worker.Done():
-		t.Fatalf("the worker exited before it enrolled: %s", worker.FailureOutput())
-	case <-time.After(harness.WaitTimeout(t)):
-		t.Fatal("the worker did not start enrolling")
-	}
+	waitForGate(t, worker, enrollment, "the worker did not start enrolling")
 	if other, err := net.Listen("tcp", fmt.Sprintf(":%d", port)); err == nil {
 		_ = other.Close()
 		t.Fatal("another process could bind the health check port while enrollment was in flight")
@@ -53,40 +47,82 @@ func TestWorkerInviteHoldsHealthPort(t *testing.T) {
 	expectStatus(t, port, "/health", http.StatusOK)
 	assert.Equal(t, http.StatusServiceUnavailable, getStatus(t, port, "/ready"), "not ready while enrollment waits")
 
-	release()
+	// Once enrolled, the worker's calls, its first heartbeat among them,
+	// wait at the proxy too, so readiness still waits.
+	enrollment.release()
 	waitForOutput(t, worker, workerEnrolled)
+	waitForGate(t, worker, calls, "the worker did not call the coordinator after enrolling")
+	expectStatus(t, port, "/health", http.StatusOK)
+	assert.Equal(t, http.StatusServiceUnavailable, getStatus(t, port, "/ready"), "not ready before a heartbeat reaches the coordinator")
+
+	calls.release()
 	expectStatus(t, port, "/ready", http.StatusOK)
 	expectStatus(t, port, "/health", http.StatusOK)
 }
 
-// gatedProxy forwards connections to target once release is called, and
-// holds them until then. accepted is closed when it accepts the first.
-func gatedProxy(t *testing.T, target string) (addr string, accepted <-chan struct{}, release func()) {
+// proxyGate holds connections until released, and says when it holds the
+// first.
+type proxyGate struct {
+	accepted   chan struct{}
+	acceptOnce sync.Once
+	open       chan struct{}
+	openOnce   sync.Once
+}
+
+func newProxyGate() *proxyGate {
+	return &proxyGate{accepted: make(chan struct{}), open: make(chan struct{})}
+}
+
+func (g *proxyGate) hold() {
+	g.acceptOnce.Do(func() { close(g.accepted) })
+	<-g.open
+}
+
+func (g *proxyGate) release() {
+	g.openOnce.Do(func() { close(g.open) })
+}
+
+// gatedProxy forwards connections to target. The first waits at first, and
+// every later one at rest, until each gate is released.
+func gatedProxy(t *testing.T, target string) (addr string, first, rest *proxyGate) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	gate := make(chan struct{})
-	first := make(chan struct{})
-	var once, acceptOnce sync.Once
-	release = func() { once.Do(func() { close(gate) }) }
+	first, rest = newProxyGate(), newProxyGate()
 	t.Cleanup(func() {
-		release()
+		first.release()
+		rest.release()
 		_ = listener.Close()
 	})
 	go func() {
-		for {
+		for n := 0; ; n++ {
 			conn, err := listener.Accept()
 			if err != nil {
 				return
 			}
-			acceptOnce.Do(func() { close(first) })
+			gate := rest
+			if n == 0 {
+				gate = first
+			}
 			go func() {
-				<-gate
+				gate.hold()
 				forward(conn, target)
 			}()
 		}
 	}()
-	return listener.Addr().String(), first, release
+	return listener.Addr().String(), first, rest
+}
+
+// waitForGate waits until gate holds a connection of process.
+func waitForGate(t *testing.T, process *harness.Process, gate *proxyGate, failure string) {
+	t.Helper()
+	select {
+	case <-gate.accepted:
+	case <-process.Done():
+		t.Fatalf("the worker exited: %s", process.FailureOutput())
+	case <-time.After(harness.WaitTimeout(t)):
+		t.Fatal(failure)
+	}
 }
 
 // forward copies conn to target and back until either side closes.
