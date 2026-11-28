@@ -154,6 +154,32 @@ func TestMCPCallReconnectRequired(t *testing.T) {
 	result.ExpectNonZeroExitCode()
 	dagu.ExpectFileContains("unread.out", `"kind":"auth"`, `"connection":"work-api"`, `"detail":"reconnect_required"`, "never connected")
 	dagu.ExpectFileContains("executed.txt", "executed")
+	// The run status records the step's connection and why it got no token.
+	expectRecorded(t, `"connection":{"name":"work-api","failure":"reconnect_required"}`, home.dir, dagu.ProjectPath("."))
+}
+
+// expectRecorded fails unless a file under one of dirs holds part.
+func expectRecorded(t *testing.T, part string, dirs ...string) {
+	t.Helper()
+	for _, dir := range dirs {
+		found := false
+		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || found {
+				return err
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			found = strings.Contains(string(data), part)
+			return nil
+		})
+		require.NoError(t, err)
+		if found {
+			return
+		}
+	}
+	t.Errorf("no file under %v holds %s", dirs, part)
 }
 
 // Static headers may not set Authorization beside a connection.

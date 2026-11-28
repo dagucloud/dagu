@@ -28,8 +28,8 @@ Implemented so far:
   only to workers that make them.
 - [Using a Connection](#using-a-connection),
   [Confirmation Requests](#confirmation-requests), and [Masking](#masking)
-  for `mcp.call`, in a local run and on a worker. Its
-  [Run Records](#run-records) are not written yet. Until Try it and
+  for `mcp.call`, in a local run and on a worker, with its
+  [Run Records](#run-records), shown on the run page. Until Try it and
   `http.request` with `connection` land, the `confirmation_required` error
   names only the Workspace admin's confirmation rules and `http.request`
   with a token from a `provider: connection` secret.
@@ -58,9 +58,9 @@ Implemented so far:
   [Audit](#audit) log. Notification routes offer both types, and new
   routes in the UI select them. The Reconnect URL is
   `<public URL>/connections/<name>?workspace=<project>`, a page the UI does
-  not serve yet. Runs that fail on a broken connection still send their
-  failure messages, and the notification connection's events have no rules
-  of their own yet. An admin's change of an `invalid` app's client ID or
+  not serve yet. A channel that receives `connection.needs_attention`
+  skips the failure message of a run that a broken connection failed. The
+  notification connection's events have no rules of their own yet. An admin's change of an `invalid` app's client ID or
   secret, which returns it to `ok`, records `connection.restored`. The
   Connections navigation badge is not built yet.
 
