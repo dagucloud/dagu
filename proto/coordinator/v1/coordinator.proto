@@ -118,9 +118,8 @@ service CoordinatorService {
   rpc Enroll (EnrollRequest) returns (EnrollResponse);
 
   // RemoveWorker revokes the certificates of a worker that joined with an
-  // invite and is not connected. A connected worker is refused with
-  // FailedPrecondition: stop it on its host, then call again. It takes the
-  // peer token.
+  // invite: at once when the worker is not connected, and once the runs it
+  // holds end when it is. It takes the peer token.
   rpc RemoveWorker (RemoveWorkerRequest) returns (RemoveWorkerResponse);
 }
 
@@ -933,13 +932,19 @@ message RemoveWorkerRequest {
 
 message RemoveWorkerResponse {
   WorkerRemovalState state = 1;
-  // The certificates the removal revoked: each one whose record names the
-  // worker ID, as enrolled or among the IDs its heartbeats reported, or
-  // that the worker's last heartbeat carried.
+  // The certificates the removal removes or revokes: the one the connected
+  // worker holds, or, for a worker that is not connected, each one whose
+  // record names the worker ID, as enrolled or among the IDs its heartbeats
+  // reported, or that the worker's last heartbeat carried. Either way, they
+  // include each certificate that an enrollment of the worker ID recorded
+  // while the removal ran.
   repeated string certificate_ids = 2;
 }
 
 enum WorkerRemovalState {
   WORKER_REMOVAL_STATE_UNSPECIFIED = 0;
+  // The worker gets no new task, and its certificate is revoked once the
+  // runs it holds end.
+  WORKER_REMOVAL_STATE_REMOVING = 1;
   WORKER_REMOVAL_STATE_REMOVED = 2;  // The certificate is revoked
 }

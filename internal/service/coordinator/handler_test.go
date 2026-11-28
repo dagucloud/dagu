@@ -1867,6 +1867,10 @@ func (s *failingDispatchTaskStore) DeleteClaim(context.Context, string) error {
 	return nil
 }
 
+func (s *failingDispatchTaskStore) MarkClaimLeasing(context.Context, string) error {
+	return nil
+}
+
 func (s *failingDispatchTaskStore) ListBundleDigests(context.Context) ([]string, error) {
 	return nil, nil
 }

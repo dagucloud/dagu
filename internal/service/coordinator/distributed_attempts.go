@@ -55,6 +55,7 @@ func (h *Handler) attemptOwnership() *attemptOwnership {
 		LeaseStore:          h.dagRunLeaseStore,
 		ActiveRunStore:      h.activeDistributedRunStore,
 		StaleLeaseThreshold: h.staleLeaseThreshold,
+		Now:                 func() time.Time { return h.clock().UTC() },
 	})
 }
 
@@ -417,9 +418,12 @@ func (o *attemptOwnership) recordTaskClaim(
 	ctx context.Context,
 	task *coordinatorv1.Task,
 	workerID string,
+	certificateID string,
 ) error {
 	now := o.now()
-	if err := o.leaseStore.Upsert(ctx, o.leaseFromTask(task, workerID, now)); err != nil {
+	lease := o.leaseFromTask(task, workerID, now)
+	lease.CertificateID = certificateID
+	if err := o.leaseStore.Upsert(ctx, lease); err != nil {
 		return err
 	}
 	o.upsertActiveFromTask(ctx, task, workerID, now)

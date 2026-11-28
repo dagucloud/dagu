@@ -72,6 +72,27 @@ type WorkerCertificateStore interface {
 	// unreadable record is recorded again from cert.
 	RecordHeartbeat(ctx context.Context, cert WorkerCertificate) error
 
+	// MarkRemoving moves an active certificate to removing, naming workerID
+	// as the worker that holds it, at the time now gives as the record is
+	// written. A removing certificate keeps the time it became removing and
+	// takes workerID, and a revoked one stays as it is. It returns the
+	// record as stored, or [ErrWorkerCertificateNotFound].
+	MarkRemoving(ctx context.Context, id, workerID string, now func() time.Time) (WorkerCertificate, error)
+
+	// ConfirmAcceptance records an acceptance of a task with the
+	// certificate id on its removal record, when it has one that is not
+	// revoked, in one write from the version it read. It returns the
+	// certificate as stored, also when there is nothing to record.
+	ConfirmAcceptance(ctx context.Context, id string) (WorkerCertificate, error)
+
+	// RevokeIfIdle revokes the removing certificate id when idle, which
+	// runs after the removal record is read and gets the certificate as
+	// read, reports that it may be. The revocation is written from that
+	// version, so an acceptance recorded after the read makes it read and
+	// ask idle again. It returns the record as stored and whether it
+	// revoked.
+	RevokeIfIdle(ctx context.Context, id string, idle func(context.Context, WorkerCertificate) (bool, error)) (WorkerCertificate, bool, error)
+
 	// SetState moves the certificate to state and returns the record as
 	// stored. States only move forward, from active to removing to revoked;
 	// setting the current state changes nothing. It returns
@@ -113,6 +134,11 @@ type WorkerCertificate struct {
 	// neither.
 	EnrolledAs       string
 	EnrolledRemovals int64
+	// RemovingAt is when the certificate became removing, or zero.
+	RemovingAt time.Time
+	// HolderID is the worker a removal named as holding the certificate, or
+	// empty. Heartbeats leave it as it is.
+	HolderID string
 }
 
 // WorkerCertificateRemoval is a certificate in state removing or revoked.
@@ -121,8 +147,10 @@ type WorkerCertificateRemoval struct {
 	// KeyFingerprint is the certificate's [WorkerCertificate.KeyFingerprint].
 	KeyFingerprint []byte
 	State          WorkerCertificateState
-	// WorkerID is the certificate's [WorkerCertificate.WorkerID].
-	WorkerID string
+	// WorkerID is the worker the removal named, or the certificate's
+	// [WorkerCertificate.WorkerID] when it named none.
+	WorkerID   string
+	RemovingAt time.Time
 }
 
 // WorkerIDSeen is a worker ID a certificate's heartbeats reported, and when

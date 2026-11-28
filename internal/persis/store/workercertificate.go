@@ -64,7 +64,14 @@ type workerFenceRecord struct {
 
 type workerCertificateRemovalStoredRecord struct {
 	workerCertificateStoredRecord
-	State persis.WorkerCertificateState `json:"state"`
+	State      persis.WorkerCertificateState `json:"state"`
+	RemovingAt time.Time                     `json:"removing_at,omitzero"`
+	// HolderID is the worker the removal named, apart from the worker IDs
+	// the heartbeats report.
+	HolderID string `json:"holder_id,omitempty"`
+	// Acceptances counts the task acceptances recorded during the removal,
+	// so a revocation decided before one fails its compare-and-swap.
+	Acceptances int64 `json:"acceptances,omitempty"`
 }
 
 const (
@@ -205,7 +212,11 @@ func (s *WorkerCertificateStore) ListRemovals(ctx context.Context) ([]persis.Wor
 	removals := make([]persis.WorkerCertificateRemoval, 0, len(removed))
 	for _, cert := range removed {
 		removals = append(removals, persis.WorkerCertificateRemoval{
-			ID: cert.ID, KeyFingerprint: cert.KeyFingerprint, State: cert.State, WorkerID: cert.WorkerID,
+			ID:             cert.ID,
+			KeyFingerprint: cert.KeyFingerprint,
+			State:          cert.State,
+			WorkerID:       cmp.Or(cert.HolderID, cert.WorkerID),
+			RemovingAt:     cert.RemovingAt,
 		})
 	}
 	return removals, nil
@@ -232,9 +243,12 @@ func (s *WorkerCertificateStore) listRemoved(ctx context.Context) ([]persis.Work
 // withHeartbeat returns the removed certificate with the heartbeat fields of
 // its certificate record, when those are newer.
 func withHeartbeat(removed, cert persis.WorkerCertificate) persis.WorkerCertificate {
+	// The removal record keeps the IDs known when the removal began and the
+	// holder it named, and the certificate record the IDs that heartbeats
+	// reported since, so a certificate names the IDs of both.
+	removed.WorkerIDs = mergeWorkerIDs(knownWorkerIDs(removed), knownWorkerIDs(cert))
 	if cert.LastHeartbeatAt.After(removed.LastHeartbeatAt) {
 		removed.WorkerID = cert.WorkerID
-		removed.WorkerIDs = cert.WorkerIDs
 		removed.Host = cert.Host
 		removed.Environment = cert.Environment
 		removed.LastHeartbeatAt = cert.LastHeartbeatAt
@@ -323,6 +337,29 @@ func knownWorkerIDs(cert persis.WorkerCertificate) []persis.WorkerIDSeen {
 		return nil
 	}
 	return []persis.WorkerIDSeen{{ID: cert.WorkerID, SeenAt: cert.LastHeartbeatAt}}
+}
+
+// mergeWorkerIDs returns the worker IDs of a and b, each at its latest
+// sighting, the least recently seen first. Each of a and b is bounded by
+// its own record, so the result drops none of them.
+func mergeWorkerIDs(a, b []persis.WorkerIDSeen) []persis.WorkerIDSeen {
+	latest := make(map[string]time.Time, len(a)+len(b))
+	for _, seen := range slices.Concat(a, b) {
+		if at, ok := latest[seen.ID]; !ok || seen.SeenAt.After(at) {
+			latest[seen.ID] = seen.SeenAt
+		}
+	}
+	merged := make([]persis.WorkerIDSeen, 0, len(latest))
+	for id, at := range latest {
+		merged = append(merged, persis.WorkerIDSeen{ID: id, SeenAt: at})
+	}
+	slices.SortStableFunc(merged, func(x, y persis.WorkerIDSeen) int {
+		return cmp.Or(x.SeenAt.Compare(y.SeenAt), cmp.Compare(x.ID, y.ID))
+	})
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
 }
 
 // seeWorkerID returns ids with id seen at at, the most recently seen last,
@@ -425,6 +462,131 @@ func workerFenceID(workerID string) string {
 	return workerFencePrefix + hex.EncodeToString(sum[:])
 }
 
+func (s *WorkerCertificateStore) MarkRemoving(ctx context.Context, id, workerID string, now func() time.Time) (persis.WorkerCertificate, error) {
+	var result persis.WorkerCertificate
+	err := retryConflict(ctx, func(ctx context.Context) error {
+		cert, current, err := s.load(ctx, id)
+		if err != nil {
+			return err
+		}
+		result = cert
+		if cert.State == persis.WorkerCertificateRevoked {
+			return nil
+		}
+		changed := false
+		if cert.State == persis.WorkerCertificateActive {
+			cert.State = persis.WorkerCertificateRemoving
+			// Taken for each write attempt, so a slow read or a retried
+			// swap does not count toward the time in removing.
+			cert.RemovingAt = now()
+			changed = true
+		}
+		// The removal record, not the newer heartbeat that load merges in,
+		// is what ListRemovals reads, so the stored ID decides.
+		if workerID != cert.HolderID {
+			changed = true
+		}
+		cert.HolderID = workerID
+		own := removalWorkerIDs(cert, current)
+		if !slices.ContainsFunc(own, func(seen persis.WorkerIDSeen) bool { return seen.ID == workerID }) {
+			own = seeWorkerID(own, workerID, cert.RemovingAt)
+			cert.WorkerIDs = mergeWorkerIDs(own, cert.WorkerIDs)
+			changed = true
+		}
+		// Unchanged, cert is the record as stored, with the worker ID of
+		// the removal record rather than of a newer heartbeat.
+		result = cert
+		if !changed {
+			return nil
+		}
+		rec, err := encodeWorkerCertificateRemoval(cert, own, acceptancesOf(current))
+		if err != nil {
+			return err
+		}
+		return createOrSwap(ctx, s.col, current, rec)
+	})
+	if err != nil {
+		return persis.WorkerCertificate{}, err
+	}
+	return result, nil
+}
+
+func (s *WorkerCertificateStore) ConfirmAcceptance(ctx context.Context, id string) (persis.WorkerCertificate, error) {
+	var result persis.WorkerCertificate
+	err := retryConflict(ctx, func(ctx context.Context) error {
+		cert, current, err := s.load(ctx, id)
+		if err != nil {
+			return err
+		}
+		result = cert
+		if current == nil || cert.State == persis.WorkerCertificateRevoked {
+			return nil
+		}
+		removal, err := decodeWorkerCertificateRemovalRecord(current)
+		if err != nil {
+			return err
+		}
+		removal.Acceptances++
+		next, err := encodeRemovalRecord(cert.ID, removal)
+		if err != nil {
+			return err
+		}
+		return createOrSwap(ctx, s.col, current, next)
+	})
+	if err != nil {
+		return persis.WorkerCertificate{}, err
+	}
+	return result, nil
+}
+
+func (s *WorkerCertificateStore) RevokeIfIdle(ctx context.Context, id string, idle func(context.Context, persis.WorkerCertificate) (bool, error)) (persis.WorkerCertificate, bool, error) {
+	var result persis.WorkerCertificate
+	revoked := false
+	err := retryConflict(ctx, func(ctx context.Context) error {
+		revoked = false
+		cert, current, err := s.load(ctx, id)
+		if err != nil {
+			return err
+		}
+		result = cert
+		if current == nil || cert.State != persis.WorkerCertificateRemoving {
+			return nil
+		}
+		ok, err := idle(ctx, cert)
+		if err != nil || !ok {
+			return err
+		}
+		// A heartbeat may have written the certificate record while idle
+		// ran, so the revocation keeps what it wrote.
+		if _, beat, err := s.getCertificate(ctx, id); err == nil {
+			cert = withHeartbeat(cert, beat)
+		}
+		removal, err := decodeWorkerCertificateRemovalRecord(current)
+		if err != nil {
+			return err
+		}
+		// The revoked record is the last write of the removal, so it keeps
+		// the IDs of both records, at most 16.
+		cert.State = persis.WorkerCertificateRevoked
+		removal.workerCertificateStoredRecord = storedWorkerCertificate(cert)
+		removal.State = cert.State
+		next, err := encodeRemovalRecord(cert.ID, removal)
+		if err != nil {
+			return err
+		}
+		if err := createOrSwap(ctx, s.col, current, next); err != nil {
+			return err
+		}
+		result = cert
+		revoked = true
+		return nil
+	})
+	if err != nil {
+		return persis.WorkerCertificate{}, false, err
+	}
+	return result, revoked, nil
+}
+
 func (s *WorkerCertificateStore) SetState(ctx context.Context, id string, state persis.WorkerCertificateState) (persis.WorkerCertificate, error) {
 	rank, ok := workerCertificateStateRank[state]
 	if !ok {
@@ -444,7 +606,13 @@ func (s *WorkerCertificateStore) SetState(ctx context.Context, id string, state 
 			return nil
 		}
 		cert.State = state
-		next, err := encodeWorkerCertificateRemoval(cert)
+		ids := removalWorkerIDs(cert, current)
+		if state == persis.WorkerCertificateRevoked {
+			// The revoked record is the last write of the removal, so it
+			// keeps the IDs of both records, as a finish revocation does.
+			ids = cert.WorkerIDs
+		}
+		next, err := encodeWorkerCertificateRemoval(cert, ids, acceptancesOf(current))
 		if err != nil {
 			return err
 		}
@@ -609,16 +777,65 @@ func (r workerCertificateStoredRecord) workerIDs() []persis.WorkerIDSeen {
 	return ids
 }
 
-func encodeWorkerCertificateRemoval(cert persis.WorkerCertificate) (*persis.Record, error) {
-	data, err := persis.Encode(workerCertificateRemovalStoredRecord{
+// encodeWorkerCertificateRemoval encodes the removal record of cert with
+// the worker IDs ids, keeping the count of acceptances the record it
+// replaces holds.
+func encodeWorkerCertificateRemoval(cert persis.WorkerCertificate, ids []persis.WorkerIDSeen, acceptances int64) (*persis.Record, error) {
+	cert.WorkerIDs = ids
+	return encodeRemovalRecord(cert.ID, workerCertificateRemovalStoredRecord{
 		workerCertificateStoredRecord: storedWorkerCertificate(cert),
 		State:                         cert.State,
+		RemovingAt:                    cert.RemovingAt.UTC(),
+		HolderID:                      cert.HolderID,
+		Acceptances:                   acceptances,
 	})
+}
+
+func encodeRemovalRecord(id string, removal workerCertificateRemovalStoredRecord) (*persis.Record, error) {
+	data, err := persis.Encode(removal)
 	if err != nil {
-		return nil, fmt.Errorf("worker certificate store: encode removal of %q: %w", cert.ID, err)
+		return nil, fmt.Errorf("worker certificate store: encode removal of %q: %w", id, err)
 	}
 	now := time.Now().UTC()
-	return &persis.Record{ID: workerCertificateRemovalPrefix + cert.ID, Data: data, CreatedAt: now, UpdatedAt: now}, nil
+	return &persis.Record{ID: workerCertificateRemovalPrefix + id, Data: data, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+// decodeWorkerCertificateRemovalRecord returns the stored removal record
+// rec.
+func decodeWorkerCertificateRemovalRecord(rec *persis.Record) (workerCertificateRemovalStoredRecord, error) {
+	var payload workerCertificateRemovalStoredRecord
+	if err := persis.Decode(rec, &payload); err != nil {
+		return workerCertificateRemovalStoredRecord{}, fmt.Errorf("worker certificate store: decode %q: %w", rec.ID, err)
+	}
+	return payload, nil
+}
+
+// removalWorkerIDs returns the worker IDs that the removal record current
+// keeps, or those of cert when current is none, as when the removal begins.
+// A removal's writes keep them, while the certificate record keeps the IDs
+// that later heartbeats report.
+func removalWorkerIDs(cert persis.WorkerCertificate, current *persis.Record) []persis.WorkerIDSeen {
+	if current == nil {
+		return knownWorkerIDs(cert)
+	}
+	removal, err := decodeWorkerCertificateRemovalRecord(current)
+	if err != nil {
+		return knownWorkerIDs(cert)
+	}
+	return removal.workerIDs()
+}
+
+// acceptancesOf returns the count of acceptances that the removal record rec
+// holds, or zero for none.
+func acceptancesOf(rec *persis.Record) int64 {
+	if rec == nil {
+		return 0
+	}
+	removal, err := decodeWorkerCertificateRemovalRecord(rec)
+	if err != nil {
+		return 0
+	}
+	return removal.Acceptances
 }
 
 func decodeWorkerCertificateRemoval(rec *persis.Record) (persis.WorkerCertificate, error) {
@@ -629,5 +846,8 @@ func decodeWorkerCertificateRemoval(rec *persis.Record) (persis.WorkerCertificat
 	if rank := workerCertificateStateRank[payload.State]; payload.ID == "" || rank == 0 {
 		return persis.WorkerCertificate{}, fmt.Errorf("worker certificate store: record %q is not a removal", rec.ID)
 	}
-	return payload.certificate(payload.State), nil
+	cert := payload.certificate(payload.State)
+	cert.RemovingAt = payload.RemovingAt
+	cert.HolderID = payload.HolderID
+	return cert, nil
 }

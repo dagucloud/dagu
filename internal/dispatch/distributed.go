@@ -107,6 +107,11 @@ type DispatchTaskStore interface {
 	GetClaim(ctx context.Context, claimToken string) (*ClaimedDispatchTask, error)
 	ReleaseClaim(ctx context.Context, claimToken string) error
 	DeleteClaim(ctx context.Context, claimToken string) error
+	// MarkClaimLeasing marks the claim claimToken as having an acceptance
+	// that writes the attempt's lease, so the claim's expiry does not
+	// return its task to the queue meanwhile. It returns
+	// [ErrDispatchTaskNotFound] when the claim is gone.
+	MarkClaimLeasing(ctx context.Context, claimToken string) error
 	ListBundleDigests(ctx context.Context) ([]string, error)
 	CountOutstandingByQueue(ctx context.Context, queueName string, claimTimeout time.Duration) (int, error)
 	HasOutstandingAttempt(ctx context.Context, attemptKey string, claimTimeout time.Duration) (bool, error)
@@ -270,8 +275,12 @@ type DAGRunLease struct {
 	Owner                 CoordinatorEndpoint `json:"owner"`
 	ClaimToken            string              `json:"claimToken,omitempty"`
 	WorkspaceBundleDigest string              `json:"workspaceBundleDigest,omitempty"`
-	ClaimedAt             int64               `json:"claimedAt"`
-	LastHeartbeatAt       int64               `json:"lastHeartbeatAt"`
+	// CertificateID is the worker certificate the claim was accepted with,
+	// or empty for a worker on the peer token or a lease that a
+	// coordinator predating it wrote.
+	CertificateID   string `json:"certificateId,omitempty"`
+	ClaimedAt       int64  `json:"claimedAt"`
+	LastHeartbeatAt int64  `json:"lastHeartbeatAt"`
 }
 
 // MatchesClaim reports whether the lease identifies the worker claim.

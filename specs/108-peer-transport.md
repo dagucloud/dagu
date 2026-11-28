@@ -19,12 +19,13 @@ and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
 [Workers List](#workers-list), `connection` and `plaintext_reason` in its
 Dagu Cloud report, the [h2c Callers](#h2c-callers), the `Connection` column
 and the h2c callers of the [Workers Page](#workers-page), the coordinator
-call of [Join Readiness](#join-readiness), the [Invites](#invites) and
-their [Coordinator Calls](#coordinator-calls), the
+call of
+[Join Readiness](#join-readiness), the [Invites](#invites) and their
+[Coordinator Calls](#coordinator-calls), the
 [Coordinator Side](#coordinator-side) of enrollment with the
 [Worker Certificate](#worker-certificate) and its record, the coordinator
-side of [Revocation](#revocation), and [Removal](#removal) of a worker that
-is not connected, the [Worker Side](#worker-side) of enrollment, the
+side of [Revocation](#revocation) and [Removal](#removal) except `stop`, the
+[Worker Side](#worker-side) of enrollment, the
 [Worker Files](#worker-files), the [Worker Start](#worker-start) except a
 certificate refused as revoked, the [Worker Lock](#worker-lock), the
 [Environment](#environment) in the heartbeat and in `GetWorkers`, the rows
@@ -33,10 +34,8 @@ the [Messages](#messages) of an enrolling worker,
 [`dagu worker --check`](#dagu-worker---check) without the lines of invite
 workers, and [`dagu worker invite`](#dagu-worker-invite). Clients that share a coordinator's data directory use built-in
 TLS. A worker that holds a certificate logs the message for a coordinator
-of a different Dagu, but does not exit on it yet. A removal of a connected
-worker fails with `FailedPrecondition` and says to stop the worker on its
-host first, and a worker does not yet act on its removal as
-[Removed Worker](#removed-worker) states.
+of a different Dagu, but does not exit on it yet. A worker does not
+yet act on its removal as [Removed Worker](#removed-worker) states.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -661,8 +660,8 @@ The `worker_certificates` collection keeps one record per certificate:
 | `enrolled_as` | The worker ID it enrolled as, or none for a record written before the field |
 | `enrolled_removals` | How many removals of that worker ID had begun when its enrollment started |
 
-- A record identifies its certificate's key, so `Enroll` can refuse that
-  key after revocation.
+- `Enroll` refuses the key of a certificate from the moment it is
+  `removing`. A worker enrolls again with a new key.
 - A heartbeat with a worker certificate that is not newer than the stored
   `last_heartbeat_at` writes nothing. Otherwise it writes the record when
   the stored `last_heartbeat_at` is more than 24 hours old, or none, when
@@ -753,9 +752,7 @@ The `worker_certificates` collection keeps one record per certificate:
   coordinator that looks down.
 - The coordinator that revokes applies it at once. Every other coordinator
   rereads the revoked set, and the set of `removing` certificates, every 30
-  seconds, also when idle. A coordinator reads them before it serves, and
-  until a read succeeds it refuses every call with a worker certificate
-  with `Unavailable`.
+  seconds, also when idle.
 - `Enroll` refuses a request whose key is the key of a revoked certificate.
 
 #### Removal
@@ -767,39 +764,139 @@ or `stop`:
 | --- | --- | --- |
 | Not connected: its last heartbeat is stale, and no worker connects with its certificate | Revoked at once | Revoked at once |
 | Connected, no running tasks | `removing` | `removing` |
-| Connected, with running tasks | `removing` | `removing`, and each run is canceled |
+| Connected, with running tasks | `removing` | `removing`, and a cancel request is tried for each run |
 
 - In state `removing`:
   - `Poll` gives the worker no new tasks.
+  - A dispatch counts the worker as no worker it can go to. A run bound to
+    the worker's node fails at once with `FailedPrecondition`, as one bound
+    to an offline node does, and the message
+    `worker node "<node>" is being removed`. The coordinator reads the
+    bound worker's certificate state from the store for that check, so a
+    coordinator that has not reread the removals yet refuses the run too.
+    A queued run whose handoff to the worker is refused so fails, rather
+    than staying queued. A repeat of a dispatch admitted before the removal
+    still succeeds, also one admitted through another coordinator, which
+    the check looks up in the store, and a dispatch whose check cannot read
+    the store fails with `Unavailable`, so the caller tries again.
+  - A run already admitted and waiting for the worker when the worker is
+    removed stays queued, as for an offline worker.
+  - A worker accepts a task only while the store shows its certificate
+    `active`: the coordinator that the acceptance reaches reads the
+    certificate's state before it creates the task's lease. An acceptance
+    that reads `removing` or `revoked` is refused, also when a coordinator
+    that has not reread the removals yet handed the task out. The claim
+    stays until it expires, so an acceptance of the same claim still under
+    way on another coordinator cannot race a return to the queue. Only a
+    task refused before its lease was written returns to the queue then.
+  - One exception: a retry of an acceptance whose claim already has its
+    lease, written before the removal, goes on as the first acceptance
+    did, so the run it holds is waited for.
+  - An acceptance that read `active` just before the removal was stored
+    creates its lease, so the removal waits for that run like the others.
+    After it creates the lease, the coordinator records the acceptance on
+    the removal, or finds the certificate `revoked` and refuses the call.
+    A revocation for `finish` that was decided before an acceptance it did
+    not see is decided again from the runs as they are then, so it never
+    revokes a worker whose acceptance just succeeded. A lease is never
+    withdrawn once written, since a retry of the same claim may own it, so
+    a run whose acceptance was refused ends through the stale-lease
+    check.
   - Calls for the runs the worker already holds keep working.
-  - A task counts as held by the worker from the moment a coordinator hands
-    it out until the worker reports its end or its lease expires. A task
-    whose `Poll` response the worker never received counts until its lease
-    expires.
-  - The certificate is revoked when the worker holds no task, at least 30
-    seconds after the certificate became `removing`, or when the worker's
-    heartbeat goes stale.
+  - A task counts as held from the moment the worker accepts it, which
+    creates its lease, until the worker reports its end or its lease
+    expires. The lease names the worker certificate the acceptance came
+    with, and keeps the one it was written with, none included. A task the
+    worker never accepted returns to the queue when its claim expires. A
+    task whose acceptance was refused after its lease was written does not:
+    its claim is dropped, and it ends through the stale-lease check. An
+    acceptance marks its claim before it writes the lease. When the claim
+    times out:
+    - a mark younger than the claim timeout keeps the claim, so the
+      acceptance can finish;
+    - a lease that the claim's acceptance wrote ends the claim without
+      returning the task, whose run the stale-lease check then owns;
+    - a mark as old as the claim timeout without a lease is of an
+      acceptance that died, and the task returns to the queue.
+
+    An expiry records its decision on the claim before the task can be
+    claimed again, so an acceptance that marks the claim either comes first
+    and keeps the task, or finds the claim gone and is refused. A coordinator that stops between the two leaves the decision,
+    and the next pass returns the task. A coordinator that takes a task
+    back from a worker in removal decides on the claim the same way, so it
+    and the claim's expiry return the task once between them.
+  - The certificate is held by each worker whose fresh heartbeat carries
+    it, so a worker ID that changes at a restart is still waited for, and
+    a replacement that took the worker ID with another certificate is not.
+    A heartbeat that a coordinator predating the certificate ID in
+    heartbeats recorded holds it when it comes from the worker the removal
+    names. A lease counts toward the certificate when it names it, or,
+    written without a certificate ID, under a holder's worker ID.
+  - The certificate is revoked when no worker that holds it holds a task, at
+    least 30 seconds after the coordinator knows the store wrote the
+    certificate `removing`, timed from when the write returned or when the
+    state reached the coordinator, never from an earlier time, or when no
+    worker that holds it has a fresh heartbeat.
   - The state survives a coordinator restart.
-  - Every coordinator sees `removing` within 30 seconds, at its next reread,
-    and gives the worker no task after that. A task one hands out before its
-    reread is held, so it is waited for like the others.
-- Other coordinators apply a revocation at their next reread, within 30
-  seconds. A task one of them hands out before then ends through the
-  stale-lease check, since the worker is refused at its next call to a
-  coordinator that knows, as [Removed Worker](#removed-worker) states.
-- With `stop`, each run gets the existing cancel request. The certificate is
-  revoked when the runs end, but not before 30 seconds in `removing`, or 2
-  minutes after the cancel requests, whichever comes first. Runs without a
-  final status by then are left to the stale-lease check.
+  - Every coordinator sees `removing` at its next successful reread,
+    within 30 seconds while rereads succeed, and gives the worker no task
+    after that. Task acceptance reads the store, so a coordinator that has
+    not seen it yet still refuses the worker's tasks.
+- Other coordinators apply a revocation at their next successful reread,
+  within 30 seconds while rereads succeed. A coordinator whose reread fails
+  keeps its last copy and applies a revocation made elsewhere at the first
+  reread that succeeds. Until then, the worker's calls to it for the runs
+  it held keep working, and it accepts no new task there, since the
+  acceptance reads the store.
+- With `stop`, the coordinator requests the cancellation of each run, also
+  a run whose acceptance was under way when the removal began: after a
+  coordinator creates a task's lease, it reads the certificate's state
+  again and sends the request when a removal with `stop` began, and the
+  acceptance stands. The request marks the attempt for cancellation; the
+  worker that holds the lease learns of it from its heartbeat and ends the
+  run. The coordinator does not end the attempt itself, so a cancellation
+  never races an acceptance of the attempt. The certificate is revoked
+  when the runs end, but not before 30 seconds in `removing`, when no
+  worker that holds it has a fresh heartbeat, or 2 minutes after the
+  removal with `stop` was stored, whichever comes first. At the 2-minute
+  mark the certificate is revoked first, whatever the cancel requests did,
+  and each removal is revoked on its own, so one that fails to revoke
+  holds up no other. Each reread sends the requests again for the runs
+  still held while the removal waits, so a run an earlier pass missed can
+  get one too. A pass that cannot list the leases sends none, and a
+  removal past its 2-minute wait is revoked then all the same, also when
+  the reread of the removals fails, while runs may still hold their
+  leases. Runs whose worker stops reporting after the revocation end
+  through the stale-lease check.
+- A stop cancels only the attempts whose lease names the removed
+  certificate, whatever a heartbeat reports. A lease of another certificate
+  is never canceled, and neither is a lease that names no certificate, that
+  of a worker on the peer token or one written by a coordinator that
+  predates the field, nor an attempt without a lease. Such a run goes on
+  while its worker reports it. Only an attempt whose worker stops
+  reporting, as a revoked worker does, ends through the stale-lease check;
+  a run that another worker holds is left as it is. Only the
+  attempt that the lease names is canceled, not a newer attempt of the same
+  run.
 - A removal with `stop` of a worker in `removing` cancels its runs as above.
+- A removal that names a worker ID whose heartbeat is stale, while a worker
+  under another ID connects with the same certificate, as after a restart,
+  makes the certificate `removing` for that worker instead of revoking it.
+  It removes that certificate only: the enrollments of that worker's ID
+  and its other certificates stay as they are.
 - A worker on the peer token cannot be removed. The removal fails and says
   to stop the worker on its host, or to change the peer token.
 - A fresh heartbeat that a coordinator predating the certificate ID in
-  heartbeats recorded as a certificate connection counts as connected when
-  it names the removed worker ID, an ID in the certificate's `worker_ids`,
-  or the certificate's host.
+  heartbeats recorded as a certificate connection, under the removed worker
+  ID, an ID in the certificate's `worker_ids`, or on the certificate's
+  host, does not say which certificate the worker holds. The removal fails
+  with `FailedPrecondition` and says to update every coordinator first.
 - A removal by a worker ID finds each certificate whose `worker_id` or
-  `worker_ids` names it, and the removal records keep those IDs.
+  `worker_ids` names it, and the removal records keep those IDs. A
+  certificate in removal names the IDs of both its records: the at most 8
+  its removal record kept when the removal began, with the workers the
+  removal named, and the at most 8 that heartbeats wrote to its
+  certificate record since.
 - Coordinators order the enrollments and removals of one worker ID
   through one shared record per worker ID: a removal counts itself there
   before it looks for the worker's certificates, and an enrollment, after
@@ -809,9 +906,13 @@ or `stop`:
   fails with `PermissionDenied` and the message
   `this worker was removed while it enrolled; enroll it again`, and its
   certificate is revoked. An enrollment that starts after the removal
-  counted itself is a new one and succeeds, and the removal leaves its certificate active
-  unless it carries a key the removal revoked. The removal tells the two
-  apart by `enrolled_as` and `enrolled_removals`.
+  counted itself is a new one and succeeds, and the removal leaves its
+  certificate active unless it carries a key of a certificate the removal
+  found. The removal tells the two apart by `enrolled_as` and
+  `enrolled_removals`. A removal of a connected worker leaves a
+  certificate that another connected worker ID holds as it is, though its
+  `worker_ids` name the removed one, also when that worker's heartbeat
+  reaches a coordinator that predates the certificate ID in heartbeats.
 - The removal decides from the heartbeats as it reads them. A worker that
   connects again while the removal runs is removed all the same: its next
   call is refused, and the coordinator logs that it connected.
@@ -1201,9 +1302,14 @@ The Workers page is the list of workers on System status.
 
 ## Constraints
 
-- A coordinator rereads the revoked and `removing` sets every 30 seconds and
-  prunes certificate and ended invite records once a day. Nothing else in
-  this spec runs on a timer. A worker's certificate lock needs no refresh.
+- A coordinator rereads the revoked and `removing` sets every 30 seconds.
+  Each removal with `stop` has its own deadline, 2 minutes after the stop
+  became durable, at which the coordinator only revokes it, apart from the
+  rereads, the cancel requests, and every other removal; a revocation
+  write that fails is tried again at most every 5 seconds, for that
+  removal alone. It prunes certificate and ended invite records once a
+  day. Nothing else in this spec runs on a timer. A worker's
+  certificate lock needs no refresh.
 - The reread reads the records of `removing` and `revoked` certificates
   only, so its cost grows with removed workers, not with enrollments.
 - A client that uses the published CA certificate reads it and the registry
@@ -1274,11 +1380,12 @@ handshake error that caused the fallback.
 | `Enroll` with an invite that has ended or does not exist | `PermissionDenied`: `the invite is invalid, expired, or already used` |
 | `Enroll` with a single-use invite from a worker that cannot keep its certificate | `FailedPrecondition`; the invite is not consumed |
 | `Enroll` with a certificate signing request that cannot be read, whose signature does not verify, or whose key is not ECDSA P-256 | `InvalidArgument`; the invite is not consumed |
-| `Enroll` with the key of a revoked certificate | `PermissionDenied`: `this key belongs to a removed worker` |
+| `Enroll` with the key of a `removing` or revoked certificate | `PermissionDenied`: `this key belongs to a removed worker` |
 | `Enroll` of a worker ID that a removal ran for alongside it | `PermissionDenied`: `this worker was removed while it enrolled; enroll it again`. The rejected certificate is revoked, so its key is refused, and a single-use invite is spent: a new enrollment needs a new key, together with a reusable invite that is still valid or a new invite |
 | A call with a revoked worker certificate | `Unauthenticated`: `this worker was removed from the coordinator` |
 | A call with a worker certificate to a coordinator that could not yet read the revoked set | `Unavailable`, so the worker tries again or tries the next coordinator |
 | A removal of a worker on the peer token | `FailedPrecondition`, saying to stop the worker on its host or to change the peer token |
+| An acceptance of a task by a worker whose certificate is `removing` | Not accepted. Refused before its lease is written, the task returns to the queue when its claim expires; refused after, it ends through the stale-lease check. A retry of an acceptance that holds its lease goes on, as [Removal](#removal) states. When the certificate is `revoked`: `Unauthenticated`, with the message above |
 | A removal of a worker ID that no heartbeat or certificate names | `NotFound` |
 | A call over h2c with `coordinator.require_tls: true` | `Unauthenticated`, with the message of [Require TLS](#require-tls) |
 | An invite, removal, or join readiness call without the peer token | `Unauthenticated` |

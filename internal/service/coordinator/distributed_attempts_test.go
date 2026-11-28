@@ -316,7 +316,7 @@ func TestAttemptOwnershipTaskClaimTracking(t *testing.T) {
 		OwnerCoordinatorPort:  1234,
 	}
 	activeUpdatedLowerBound := time.Now().UTC().UnixMilli()
-	require.NoError(t, ownership.recordTaskClaim(ctx, task, "worker-1"))
+	require.NoError(t, ownership.recordTaskClaim(ctx, task, "worker-1", ""))
 	activeUpdatedUpperBound := time.Now().UTC().UnixMilli()
 	assert.Equal(t, 1, clockCalls)
 
@@ -362,7 +362,7 @@ func TestAttemptOwnershipTaskClaimFallsBackToConfiguredOwner(t *testing.T) {
 		OwnerCoordinatorId: "coord-a",
 	}
 
-	require.NoError(t, ownership.recordTaskClaim(ctx, task, "worker-1"))
+	require.NoError(t, ownership.recordTaskClaim(ctx, task, "worker-1", ""))
 	lease, err := leaseStore.Get(ctx, task.AttemptKey)
 	require.NoError(t, err)
 	assert.Equal(t, owner, lease.Owner)

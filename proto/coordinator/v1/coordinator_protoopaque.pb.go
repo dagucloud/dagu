@@ -449,17 +449,22 @@ type WorkerRemovalState int32
 
 const (
 	WorkerRemovalState_WORKER_REMOVAL_STATE_UNSPECIFIED WorkerRemovalState = 0
-	WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED     WorkerRemovalState = 2 // The certificate is revoked
+	// The worker gets no new task, and its certificate is revoked once the
+	// runs it holds end.
+	WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING WorkerRemovalState = 1
+	WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED  WorkerRemovalState = 2 // The certificate is revoked
 )
 
 // Enum value maps for WorkerRemovalState.
 var (
 	WorkerRemovalState_name = map[int32]string{
 		0: "WORKER_REMOVAL_STATE_UNSPECIFIED",
+		1: "WORKER_REMOVAL_STATE_REMOVING",
 		2: "WORKER_REMOVAL_STATE_REMOVED",
 	}
 	WorkerRemovalState_value = map[string]int32{
 		"WORKER_REMOVAL_STATE_UNSPECIFIED": 0,
+		"WORKER_REMOVAL_STATE_REMOVING":    1,
 		"WORKER_REMOVAL_STATE_REMOVED":     2,
 	}
 )
@@ -9555,9 +9560,12 @@ type RemoveWorkerResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	State WorkerRemovalState
-	// The certificates the removal revoked: each one whose record names the
-	// worker ID, as enrolled or among the IDs its heartbeats reported, or
-	// that the worker's last heartbeat carried.
+	// The certificates the removal removes or revokes: the one the connected
+	// worker holds, or, for a worker that is not connected, each one whose
+	// record names the worker ID, as enrolled or among the IDs its heartbeats
+	// reported, or that the worker's last heartbeat carried. Either way, they
+	// include each certificate that an enrollment of the worker ID recorded
+	// while the removal ran.
 	CertificateIds []string
 }
 
@@ -10145,9 +10153,10 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"InviteKind\x12\x1b\n" +
 	"\x17INVITE_KIND_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16INVITE_KIND_SINGLE_USE\x10\x01\x12\x18\n" +
-	"\x14INVITE_KIND_REUSABLE\x10\x02*\\\n" +
+	"\x14INVITE_KIND_REUSABLE\x10\x02*\x7f\n" +
 	"\x12WorkerRemovalState\x12$\n" +
-	" WORKER_REMOVAL_STATE_UNSPECIFIED\x10\x00\x12 \n" +
+	" WORKER_REMOVAL_STATE_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dWORKER_REMOVAL_STATE_REMOVING\x10\x01\x12 \n" +
 	"\x1cWORKER_REMOVAL_STATE_REMOVED\x10\x022\xde\x17\n" +
 	"\x12CoordinatorService\x12A\n" +
 	"\x04Poll\x12\x1b.coordinator.v1.PollRequest\x1a\x1c.coordinator.v1.PollResponse\x12M\n" +

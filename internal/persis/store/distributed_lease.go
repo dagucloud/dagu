@@ -132,7 +132,8 @@ func mergeDAGRunLease(current, incoming dispatch.DAGRunLease) (dispatch.DAGRunLe
 		(current.WorkerID != "" && incoming.WorkerID != "" && current.WorkerID != incoming.WorkerID) ||
 		(current.ProfileName != "" && incoming.ProfileName != "" && current.ProfileName != incoming.ProfileName) ||
 		(current.ClaimToken != "" && incoming.ClaimToken != "" && current.ClaimToken != incoming.ClaimToken) ||
-		(current.WorkspaceBundleDigest != "" && incoming.WorkspaceBundleDigest != "" && current.WorkspaceBundleDigest != incoming.WorkspaceBundleDigest) {
+		(current.WorkspaceBundleDigest != "" && incoming.WorkspaceBundleDigest != "" && current.WorkspaceBundleDigest != incoming.WorkspaceBundleDigest) ||
+		(current.CertificateID != "" && incoming.CertificateID != "" && current.CertificateID != incoming.CertificateID) {
 		return dispatch.DAGRunLease{}, dispatch.ErrDAGRunLeaseConflict
 	}
 	if current.DAGRun == (ir.DAGRunRef{}) {
@@ -166,6 +167,9 @@ func mergeDAGRunLease(current, incoming dispatch.DAGRunLease) (dispatch.DAGRunLe
 	if current.WorkspaceBundleDigest == "" {
 		current.WorkspaceBundleDigest = incoming.WorkspaceBundleDigest
 	}
+	// A lease keeps the certificate it was created with, also none, so a
+	// later write cannot make a lease that named none a removed
+	// certificate's.
 	if current.ClaimedAt == 0 {
 		current.ClaimedAt = incoming.ClaimedAt
 	}

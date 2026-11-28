@@ -1660,13 +1660,15 @@ func isNoAvailableWorker(err error) bool {
 
 // isWorkerNodeUnreachable reports a dispatch of a run bound to a worker node
 // that no coordinator can reach, whose node no longer names its worker, or
-// that the coordinator refused because the worker is offline.
+// that the coordinator refused because the worker is offline or being
+// removed.
 func isWorkerNodeUnreachable(err error) bool {
 	if errors.Is(err, intake.ErrNoCoordinator) || errors.Is(err, intake.ErrWorkerNodeChanged) {
 		return true
 	}
 	message := errorMessage(err)
-	return strings.Contains(message, `worker node "`) && strings.Contains(message, `" is offline`)
+	return strings.Contains(message, `worker node "`) &&
+		(strings.Contains(message, `" is offline`) || strings.Contains(message, `" is being removed`))
 }
 
 func errorMessage(err error) string {

@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/intake"
@@ -115,4 +117,27 @@ func TestQueueProcessor_FailsWorkerBoundRunWhenNodeChanged(t *testing.T) {
 	status := f.queuedRunStatus()
 	assert.Equal(t, ir.Failed, status.Status)
 	assert.Contains(t, status.Error, `node "gw-1": `+intake.ErrWorkerNodeChanged.Error())
+}
+
+// A coordinator refuses a queued run bound to gw-1 because its worker is
+// being removed. The run fails rather than staying queued, as for a worker
+// that is offline.
+func TestQueueProcessor_FailsWorkerBoundRunOfRemovedWorker(t *testing.T) {
+	f := newQueueFixture(t).withDAG("deploy-one", 1).
+		withProcessor(config.Queues{}).
+		simulateQueue(1, false)
+	refusal := status.Errorf(codes.FailedPrecondition, "worker node %q is being removed", "gw-1")
+	dispatcher := &mockDispatcher{errFunc: func(int32) error { return refusal }}
+	f.processor.dagExecutor = NewDAGExecutor(dispatcher, nil, config.ExecutionModeLocal, "")
+	f.processor.dagExecutor.nodes = fixedNodes{{Name: "gw-1", Kind: inventory.NodeKindWorker}}
+	f.enqueueBound("gw-1")
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	status := f.queuedRunStatus()
+	assert.Equal(t, ir.Failed, status.Status)
+	assert.Contains(t, status.Error, "is being removed")
+	items, err := f.queueStore.List(f.ctx, f.dag.Name)
+	require.NoError(t, err)
+	assert.Empty(t, items)
 }
