@@ -29,9 +29,9 @@ is not connected, the [Worker Side](#worker-side) of enrollment, the
 certificate refused as revoked, the [Worker Lock](#worker-lock), the
 [Environment](#environment) in the heartbeat and in `GetWorkers`, the rows
 of [Configuration Conflicts](#configuration-conflicts) for `worker.invite`,
-the [Messages](#messages) of an enrolling worker, and
+the [Messages](#messages) of an enrolling worker,
 [`dagu worker --check`](#dagu-worker---check) without the lines of invite
-workers. Clients that share a coordinator's data directory use built-in
+workers, and [`dagu worker invite`](#dagu-worker-invite). Clients that share a coordinator's data directory use built-in
 TLS. A worker that holds a certificate logs the message for a coordinator
 of a different Dagu, but does not exit on it yet. A removal of a connected
 worker fails with `FailedPrecondition` and says to stop the worker on its
@@ -928,14 +928,22 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
 - `--address` is required. It is stored as the invite's `address` and used
   in the printed command.
 - The command calls the coordinator with the peer token, so it runs on any
-  host whose processes have the peer token.
+  host whose processes have the peer token. It calls the coordinators a
+  worker on its host would: those of `worker.coordinators` when set, else
+  those in its service registry.
+- `--expires` is a positive Go duration of at most `2562047h47m16s`. An
+  empty value fails like any other that is not a duration.
 - It first reads join readiness. While a coordinator is not ready, it
-  prints the change to make for each such coordinator, creates no invite,
-  and exits with code 1. For `loopbackOnly`, the change follows
-  `hostSource`, and without `builtinTLS`, it follows `builtinTLSReason`,
-  as the dialog's step 1 does.
+  prints the change to make for each such coordinator to standard error,
+  creates no invite, and exits with code 1. For `loopbackOnly`, the change
+  follows `hostSource`, and without `builtinTLS`, it follows
+  `builtinTLSReason`, as the dialog's step 1 does.
+- A failed call prints the coordinator's refusal, or else only the kind of
+  failure and that `dagu worker --check` on the calling host shows why.
 - On success it prints the invite kind and expiry, the invite, and the
-  command to run on the worker host, and exits with code 0:
+  command to run on the worker host, and exits with code 0. The command
+  quotes an address that a POSIX shell would change, such as an IPv6
+  address in brackets:
 
   ```text
   Invite (single use, expires 2026-11-28T10:00:00Z):

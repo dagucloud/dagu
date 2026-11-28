@@ -47,7 +47,6 @@ func TestWorkerInvite(t *testing.T) {
 	invite := match[1]
 	assert.Equal(t, invite, match[2])
 	result.ExpectStderrNotContains(invite)
-	assert.NotContains(t, coordinator.process.Output(), invite)
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
@@ -60,10 +59,15 @@ func TestWorkerInvite(t *testing.T) {
 	invites := coordinator.invites(t, peer)
 	require.Len(t, invites, 1)
 	assert.Equal(t, "192.168.1.20:50055", invites[0].Address)
+
+	// The coordinator logged everything it handled once it has stopped.
+	coordinator.process.Stop()
+	assert.Contains(t, coordinator.process.Output(), "Worker invite created")
+	assert.NotContains(t, coordinator.process.Output(), invite)
 }
 
 // While the coordinator listens on loopback only, dagu worker invite prints
-// the change to make, creates no invite, and exits with code 1 (Spec 108
+// the change to make to standard error, creates no invite, and exits with code 1 (Spec 108
 // §dagu worker invite).
 func TestWorkerInviteLoopbackOnly(t *testing.T) {
 	dagu := harness.NewRunner(t)
@@ -72,10 +76,11 @@ func TestWorkerInviteLoopbackOnly(t *testing.T) {
 
 	result := dagu.RunWithEnv(coordinator.env, "worker", "invite", "--address", "192.168.1.20:50055")
 	result.ExpectExitCode(1)
-	assert.Equal(t, "Coordinator "+coordinator.addr+" cannot accept workers from other hosts:\n"+
+	result.ExpectStdout("")
+	result.ExpectStderrContains("Coordinator "+coordinator.addr+" cannot accept workers from other hosts:\n"+
 		"  It listens on 127.0.0.1, so only its own machine can connect. Start it with --coordinator.host=0.0.0.0.\n"+
-		"  Each change needs a restart of the coordinator.\n", result.Stdout())
-	result.ExpectStderrContains("no invite created: 1 of 1 coordinators cannot accept workers from other hosts")
+		"  Each change needs a restart of the coordinator.\n",
+		"no invite created: 1 of 1 coordinators cannot accept workers from other hosts")
 	assert.Empty(t, coordinator.invites(t, peer))
 }
 
