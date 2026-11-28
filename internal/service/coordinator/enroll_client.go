@@ -116,8 +116,10 @@ func Enroll(ctx context.Context, config *Config, address string, req *coordinato
 	if err != nil {
 		// A call with a transport passed the pin check, so a status it got
 		// before its own deadline came from a coordinator of this Dagu. One
-		// its deadline ended came from no coordinator.
-		if reached.AuthInfo != nil && callCtx.Err() == nil && status.Code(err) != codes.Unimplemented {
+		// its deadline ended is no answer, also when the coordinator sent
+		// it on seeing the deadline pass.
+		if code := status.Code(err); reached.AuthInfo != nil && callCtx.Err() == nil &&
+			code != codes.Unimplemented && code != codes.DeadlineExceeded && code != codes.Canceled {
 			return nil, fmt.Errorf("%w: %w", ErrCoordinatorAnswered, err)
 		}
 		return nil, enrollError(err, c.link.lastHandshakeError())

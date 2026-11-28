@@ -393,14 +393,15 @@ func roundAnswer(code codes.Code) roundCoordinator {
 type answeringCoordinator struct {
 	coordinatorv1.UnimplementedCoordinatorServiceServer
 	code codes.Code
-	// silent holds the reply until the call ends.
-	silent bool
+	// release, when set, holds the reply until the test closes it, after
+	// the round ended, so the caller's deadline always passes first.
+	release <-chan struct{}
 }
 
-func (c answeringCoordinator) Enroll(ctx context.Context, _ *coordinatorv1.EnrollRequest) (*coordinatorv1.EnrollResponse, error) {
-	if c.silent {
-		<-ctx.Done()
-		return nil, ctx.Err()
+func (c answeringCoordinator) Enroll(context.Context, *coordinatorv1.EnrollRequest) (*coordinatorv1.EnrollResponse, error) {
+	if c.release != nil {
+		<-c.release
+		return nil, status.Error(codes.Unavailable, "released")
 	}
 	return nil, status.Error(c.code, "try again")
 }
@@ -477,9 +478,20 @@ func (r roundServers) address(c roundCoordinator) string {
 		opts = append(opts, grpc.Creds(credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS13})))
 	}
 	server := grpc.NewServer(opts...)
-	coordinatorv1.RegisterCoordinatorServiceServer(server, answeringCoordinator{code: c.code, silent: c.kind == "silent"})
+	service := answeringCoordinator{code: c.code}
+	var release chan struct{}
+	if c.kind == "silent" {
+		release = make(chan struct{})
+		service.release = release
+	}
+	coordinatorv1.RegisterCoordinatorServiceServer(server, service)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
+	if release != nil {
+		// Cleanups run last first, so the reply is released before the
+		// server stops.
+		t.Cleanup(func() { close(release) })
+	}
 	return listener.Addr().String()
 }
 
@@ -517,8 +529,10 @@ func TestEnrollRoundPrecedence(t *testing.T) {
 		{name: "AnswerBeforeH2COnly", a: roundAnswer(codes.Internal), b: roundH2COnly, wantRetry: answerA},
 		{name: "OlderCoordinatorIsNoBuiltinTLS", a: roundAnswer(codes.Unimplemented), b: roundUnreachable, wantRetry: noTLSA},
 		{name: "OtherDaguBeforeUnreachable", a: roundUnreachable, b: roundOtherDagu, wantStop: otherDaguB},
-		// A reply the worker gave up waiting for is no answer.
+		// A reply the worker gave up waiting for is no answer, nor is a
+		// coordinator's word that the deadline passed.
 		{name: "OtherDaguBeforeSilent", a: roundSilent, b: roundOtherDagu, wantStop: otherDaguB},
+		{name: "OtherDaguBeforeDeadlineAnswer", a: roundAnswer(codes.DeadlineExceeded), b: roundOtherDagu, wantStop: otherDaguB},
 		{name: "SilentIsUnreachable", a: roundSilent, b: roundUnreachable, wantRetry: unreachable},
 		{name: "OtherDaguBeforeH2COnly", a: roundOtherDagu, b: roundH2COnly, wantStop: otherDaguA},
 		{name: "H2COnlyBeforeUnreachable", a: roundH2COnly, b: roundUnreachable, wantRetry: noTLSA},
