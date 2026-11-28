@@ -2313,17 +2313,7 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 	claimed, err := h.dispatchTaskStore.GetClaim(ctx, req.ClaimToken)
 	if err != nil {
 		if errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
-			if req.AttemptKey != "" && req.WorkerId != "" {
-				lease, leaseErr := h.dagRunLeaseStore.Get(ctx, req.AttemptKey)
-				if leaseErr == nil && lease.MatchesClaim(req.AttemptKey, req.WorkerId) &&
-					lease.ClaimToken == req.ClaimToken {
-					return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
-				}
-				if leaseErr != nil && !errors.Is(leaseErr, dispatch.ErrDAGRunLeaseNotFound) {
-					return nil, status.Error(codes.Internal, "failed to load acknowledged claim: "+leaseErr.Error())
-				}
-			}
-			return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim not found or expired"}, nil
+			return h.ackMissingClaim(ctx, req.AttemptKey, req.WorkerId, req.ClaimToken)
 		}
 		return nil, status.Error(codes.Internal, "failed to load claim: "+err.Error())
 	}
@@ -2371,7 +2361,9 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 	// queue while this call writes the lease.
 	if err := h.dispatchTaskStore.MarkClaimLeasing(ctx, req.ClaimToken); err != nil {
 		if errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
-			return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim not found or expired"}, nil
+			// An overlapping acknowledgement of the claim may have
+			// finished since the claim was read.
+			return h.ackMissingClaim(ctx, task.AttemptKey, workerID, req.ClaimToken)
 		}
 		return nil, status.Error(codes.Internal, "failed to mark task claim: "+err.Error())
 	}
@@ -2396,6 +2388,22 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 	}
 
 	return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
+}
+
+// ackMissingClaim answers an acknowledgement of the claim claimToken that
+// is gone: accepted when the lease of attemptKey records that claim for
+// workerID, as after an acknowledgement that finished first.
+func (h *Handler) ackMissingClaim(ctx context.Context, attemptKey, workerID, claimToken string) (*coordinatorv1.AckTaskClaimResponse, error) {
+	if attemptKey != "" && workerID != "" {
+		lease, err := h.dagRunLeaseStore.Get(ctx, attemptKey)
+		if err == nil && lease.MatchesClaim(attemptKey, workerID) && lease.ClaimToken == claimToken {
+			return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
+		}
+		if err != nil && !errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) {
+			return nil, status.Error(codes.Internal, "failed to load acknowledged claim: "+err.Error())
+		}
+	}
+	return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim not found or expired"}, nil
 }
 
 // ClaimAgentSessionCleanup reserves deferred provider cleanup for its owning worker.

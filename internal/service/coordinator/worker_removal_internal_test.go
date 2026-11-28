@@ -1806,6 +1806,44 @@ func TestFinishRevocationAfterAcceptance(t *testing.T) {
 	assert.Equal(t, persis.WorkerCertificateRemoving, f.state(t, w), "the accepted run is waited for")
 }
 
+// beforeClaimMark runs hook once, before the first mark of a claim.
+type beforeClaimMark struct {
+	dispatch.DispatchTaskStore
+	hook func()
+	once sync.Once
+}
+
+func (s *beforeClaimMark) MarkClaimLeasing(ctx context.Context, claimToken string) error {
+	s.once.Do(s.hook)
+	return s.DispatchTaskStore.MarkClaimLeasing(ctx, claimToken)
+}
+
+// A retried acknowledgement reads the claim, and the first one writes the
+// lease and drops the claim before the retry marks it. The retry finds the
+// lease the first one wrote and is accepted too.
+func TestAckRetryAfterClaimFinalized(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	f.heartbeat(t, f.h, w)
+	require.NoError(t, f.dispatches.Enqueue(t.Context(), &dispatch.DispatchTask{
+		DAGRunID: "run-4", Target: "dag", AttemptID: "attempt-1", AttemptKey: attemptKeyOf("run-4"),
+	}))
+	task, err := f.poll(t, f.h, w)
+	require.NoError(t, err)
+	require.NotNil(t, task)
+	req := &coordinatorv1.AckTaskClaimRequest{WorkerId: w.id, ClaimToken: task.ClaimToken, AttemptKey: task.AttemptKey}
+	retrier := f.coordinator(t)
+	retrier.dispatchTaskStore = &beforeClaimMark{DispatchTaskStore: f.dispatches, hook: func() {
+		ack, err := f.h.AckTaskClaim(w.ctx, req)
+		require.NoError(t, err)
+		require.True(t, ack.Accepted)
+	}}
+
+	ack, err := retrier.AckTaskClaim(w.ctx, req)
+	require.NoError(t, err)
+	assert.True(t, ack.Accepted, ack.Error)
+}
+
 // recordHook runs hook once, before the first record pass.
 type recordHook struct {
 	persis.WorkerCertificateStore
