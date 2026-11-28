@@ -283,10 +283,12 @@ type sharingCoordinator struct {
 	failFirst  bool
 	// failLists is how many list calls fail before one succeeds.
 	failLists atomic.Int32
+	lists     atomic.Int32
 	deletes   atomic.Int32
 }
 
 func (c *sharingCoordinator) ListInvites(context.Context, *coordinatorv1.ListInvitesRequest) (*coordinatorv1.ListInvitesResponse, error) {
+	c.lists.Add(1)
 	if c.failLists.Add(-1) >= 0 {
 		return nil, status.Error(codes.Internal, "failed to list the invites")
 	}
@@ -467,5 +469,6 @@ func TestClientDeleteInviteRefusesNonID(t *testing.T) {
 		assert.Equal(t, codes.InvalidArgument, status.Code(err), "%q: %v", id, err)
 		assert.NotContains(t, status.Convert(err).Message(), id)
 	}
+	assert.Zero(t, c.lists.Load())
 	assert.Zero(t, c.deletes.Load())
 }
