@@ -94,7 +94,13 @@ export function ConnectDialog({
       ? ts('Connect {name}', { name: connection.name })
       : ts('Reconnect {name}', { name: connection.name });
 
+  // A confirm in flight may already have made the new tokens live, so the
+  // dialog stays open until it answers.
+  const confirming =
+    flow.busy && phase === ConnectionAuthorizationPhase.confirm;
+
   function close() {
+    if (confirming) return;
     flow.reset();
     setPasted('');
     onClose();
@@ -204,7 +210,12 @@ export function ConnectDialog({
         </div>
 
         <DialogFooter>
-          <Button type="button" variant="ghost" onClick={close}>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={confirming}
+            onClick={close}
+          >
             {phase === ConnectionAuthorizationPhase.connected
               ? ts('Close')
               : ts('Cancel')}

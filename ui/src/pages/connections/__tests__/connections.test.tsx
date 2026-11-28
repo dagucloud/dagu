@@ -182,6 +182,13 @@ function stubPopup() {
   return popup;
 }
 
+/** How many times the dialog read the session's state. */
+function reads(): number {
+  return mocks.events.filter(
+    (event) => event === 'GET /connections/{name}/authorization'
+  ).length;
+}
+
 /** The session handles that DELETE .../authorization cancelled. */
 function cancelled(): unknown[] {
   return deletes.map(
@@ -413,7 +420,8 @@ describe('ConnectionPage', () => {
   // The start request returns after the dialog closed: its session is
   // cancelled, and the popup never reaches the consent page.
   it('cancels a session that starts after close', async () => {
-    const user = userEvent.setup();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const popup = stubPopup();
     let respond: (value: unknown) => void = () => {};
     serverCallbackRoutes(
@@ -433,7 +441,129 @@ describe('ConnectionPage', () => {
     await waitFor(() => expect(cancelled()).toEqual(['s1']));
     expect(popup.close).toHaveBeenCalled();
     expect(popup.location.href).toBe('');
-    expect(mocks.events).not.toContain('GET /connections/{name}/authorization');
+    await act(() => vi.advanceTimersByTimeAsync(4000));
+    expect(reads()).toBe(0);
+  });
+
+  // The cutoff runs on the browser's clock: a server whose expiresAt reads
+  // as past here still gets polled, until 10 minutes after the start.
+  it('ends a waiting session at its local deadline', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    stubPopup();
+    serverCallbackRoutes(() => ({
+      ...serverCallbackStart(),
+      expiresAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+    }));
+    mocks.routes['GET /connections/{name}/authorization'] = () => ({
+      phase: ConnectionAuthorizationPhase.waiting,
+    });
+
+    const dialog = await openDialog(user);
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Open sign-in' })
+    );
+    await act(() => vi.advanceTimersByTimeAsync(4000));
+    expect(reads()).toBe(2);
+    expect(within(dialog).queryByText(/Signing in failed/)).toBeNull();
+
+    await act(() => vi.advanceTimersByTimeAsync(10 * 60_000));
+    expect(
+      within(dialog).getByText('Signing in failed: expired')
+    ).toBeVisible();
+    expect(cancelled()).toEqual(['s1']);
+    const total = reads();
+    await act(() => vi.advanceTimersByTimeAsync(4000));
+    expect(reads()).toBe(total);
+  });
+
+  it('ends the session on a refused read', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    stubPopup();
+    serverCallbackRoutes();
+
+    const dialog = await openDialog(user);
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Open sign-in' })
+    );
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(
+      within(dialog).getByText(
+        'Signing in failed: no route GET /connections/{name}/authorization'
+      )
+    ).toBeVisible();
+    await act(() => vi.advanceTimersByTimeAsync(4000));
+    expect(reads()).toBe(1);
+  });
+
+  // A confirm refused because the session ended reads the session again,
+  // which offers another start.
+  it('reads the session after a failed confirm', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    stubPopup();
+    serverCallbackRoutes();
+    const phases = [
+      {
+        phase: ConnectionAuthorizationPhase.confirm,
+        account: 'ops@example.com',
+      },
+      { phase: ConnectionAuthorizationPhase.failed, reason: 'expired' },
+    ];
+    let count = 0;
+    mocks.routes['GET /connections/{name}/authorization'] = () =>
+      phases[Math.min(count++, phases.length - 1)];
+
+    const dialog = await openDialog(user);
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Open sign-in' })
+    );
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Confirm account' })
+    );
+
+    expect(
+      await within(dialog).findByRole('button', { name: 'Try again' })
+    ).toBeVisible();
+    expect(
+      within(dialog).getByText('Signing in failed: expired')
+    ).toBeVisible();
+  });
+
+  // A confirm in flight may already have made the new tokens live, so the
+  // dialog cannot be cancelled until it answers.
+  it('keeps the dialog open while a confirm runs', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    stubPopup();
+    serverCallbackRoutes();
+    mocks.routes['GET /connections/{name}/authorization'] = () => ({
+      phase: ConnectionAuthorizationPhase.confirm,
+      account: 'ops@example.com',
+    });
+    let respond: (value: unknown) => void = () => {};
+    mocks.routes['POST /connections/{name}/authorization/confirm'] = () =>
+      new Promise((resolve) => {
+        respond = resolve;
+      });
+
+    const dialog = await openDialog(user);
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Open sign-in' })
+    );
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Confirm account' })
+    );
+    expect(
+      within(dialog).getByRole('button', { name: 'Cancel' })
+    ).toBeDisabled();
+
+    await act(async () => respond(connection()));
+    expect(await within(dialog).findByText('work is connected.')).toBeVisible();
+    expect(cancelled()).toEqual([]);
   });
 
   it('links to sign-in when the popup is blocked', async () => {

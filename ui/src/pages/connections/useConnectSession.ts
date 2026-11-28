@@ -17,8 +17,13 @@ export type ConnectStart =
 export type ConnectState = components['schemas']['ConnectionAuthorization'];
 
 // Polled only while a server callback session waits for the provider's
-// redirect, until the session's expiresAt at the latest.
+// redirect, until the session's lifetime ends at the latest.
 const POLL_INTERVAL_MS = 2000;
+
+// A session expires 10 minutes after it starts (Spec 107, Sessions). The
+// poll measures this on the browser's clock, which may differ from the
+// server's expiresAt.
+const SESSION_LIFETIME_MS = 10 * 60_000;
 
 // The reason the server gives a session that outlived its expiry.
 const EXPIRED_REASON = 'expired';
@@ -42,6 +47,8 @@ export function useConnectSession(name: string, workspace: string) {
   const client = useClient();
   const { ts } = useI18n();
   const [session, setSession] = useState<ConnectStart | null>(null);
+  // When the session's lifetime ends, on the browser's clock.
+  const [deadline, setDeadline] = useState<number | null>(null);
   const [state, setState] = useState<ConnectState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,23 +87,29 @@ export function useConnectSession(name: string, workspace: string) {
     [client, sessionParams]
   );
 
-  // Reads the session's state. A refusal, such as a 404 once the connection
-  // is removed, ends the session here, since no later read can succeed.
+  // Reads the session's state and returns it, or null when the read gave
+  // none. A refusal, such as a 404 once the connection is removed, ends the
+  // session here, since no later read can succeed.
   const read = useCallback(
-    async (handle: string) => {
+    async (handle: string): Promise<ConnectState | null> => {
       const { data, error, response } = await client.GET(
         '/connections/{name}/authorization',
         { params: sessionParams(handle) }
       );
-      if (current.current !== handle) return;
+      if (current.current !== handle) return null;
       if (data) {
         setState(data);
-      } else if (response.status >= 400 && response.status < 500) {
-        setState({
+        return data;
+      }
+      if (response.status >= 400 && response.status < 500) {
+        const failed = {
           phase: ConnectionAuthorizationPhase.failed,
           reason: messageOf(error, ts('Could not sign in.')),
-        });
+        };
+        setState(failed);
+        return failed;
       }
+      return null;
     },
     [client, sessionParams, ts]
   );
@@ -125,32 +138,37 @@ export function useConnectSession(name: string, workspace: string) {
   const polling =
     session?.mode === ConnectionRedirectMode.server_callback &&
     phase === ConnectionAuthorizationPhase.waiting;
-  const expiresAt = session?.expiresAt;
   useEffect(() => {
-    if (!polling || !handle || !expiresAt) return;
-    const deadline = Date.parse(expiresAt);
+    if (!polling || !handle || deadline === null) return;
     // One read at a time, so an older answer never replaces a newer one.
     let reading = false;
+    let ended = false;
     return subscribeClock(POLL_INTERVAL_MS, () => {
-      // The phase change ends this subscription.
-      if (Date.now() >= deadline) {
-        setState({
-          phase: ConnectionAuthorizationPhase.failed,
-          reason: EXPIRED_REASON,
-        });
-        return;
-      }
-      if (reading) return;
+      if (reading || ended) return;
       reading = true;
+      const last = Date.now() >= deadline;
       read(handle)
-        .catch(() => {
-          // A failed request is retried on the next tick.
+        .catch(() => null)
+        .then((latest) => {
+          // At the deadline the server's answer decides. A session it still
+          // reports as waiting, or that cannot be read, ends here. The phase
+          // change ends this subscription.
+          if (!last || current.current !== handle) return;
+          if (latest && latest.phase !== ConnectionAuthorizationPhase.waiting) {
+            return;
+          }
+          ended = true;
+          cancel(handle);
+          setState({
+            phase: ConnectionAuthorizationPhase.failed,
+            reason: EXPIRED_REASON,
+          });
         })
         .finally(() => {
           reading = false;
         });
     });
-  }, [polling, handle, expiresAt, read]);
+  }, [polling, handle, deadline, read, cancel]);
 
   const start = useCallback(async () => {
     // Opened before any await so the browser treats it as a user action.
@@ -161,9 +179,13 @@ export function useConnectSession(name: string, workspace: string) {
     setPopupBlocked(false);
     current.current = null;
     setSession(null);
+    setDeadline(null);
     setState(null);
     generation.current += 1;
     const started = generation.current;
+    // Taken before the request, so the local deadline is never after the
+    // server's.
+    const startedAt = Date.now();
     try {
       const { data, error: apiError } = await client.POST(
         '/connections/{name}/authorization',
@@ -180,6 +202,7 @@ export function useConnectSession(name: string, workspace: string) {
       }
       current.current = data.session;
       setSession(data);
+      setDeadline(startedAt + SESSION_LIFETIME_MS);
       setState({ phase: ConnectionAuthorizationPhase.waiting });
       if (popup) {
         popup.location.href = data.authorizationUrl;
@@ -233,7 +256,9 @@ export function useConnectSession(name: string, workspace: string) {
         { params, body: { session: session.session } }
       );
       // A reset or a new start while the request ran owns the dialog now.
-      if (started !== generation.current) return false;
+      // A confirm that went through still reports success, since the
+      // connection's tokens changed.
+      if (started !== generation.current) return !apiError;
       if (apiError) {
         throw new Error(messageOf(apiError, ts('Could not confirm.')));
       }
@@ -259,6 +284,7 @@ export function useConnectSession(name: string, workspace: string) {
     inProgress.current = null;
     current.current = null;
     setSession(null);
+    setDeadline(null);
     setState(null);
     setError(null);
     setPopupBlocked(false);
