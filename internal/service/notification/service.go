@@ -540,20 +540,21 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 			)
 			return nil
 		}
-		destinations := s.routeDestinationsForEvent(event, map[string]struct{}{})
+		destinations := s.routeDestinationsForEvent(event, s.connectionCauseChannels(ctx, event))
 		slices.Sort(destinations)
 		return destinations
 	}
-	destinations := s.dagDestinationsForEvent(ctx, setting, event)
+	destinations := s.dagDestinationsForEvent(ctx, setting, event, s.connectionCauseChannels(ctx, event))
 	slices.Sort(destinations)
 	return destinations
 }
 
-func (s *Service) dagDestinationsForEvent(ctx context.Context, setting *notificationmodel.Settings, event chatbridge.NotificationEvent) []string {
+// dagDestinationsForEvent returns the destinations of the DAG's own settings
+// for event. A channel in seenChannelIDs is not one of them.
+func (s *Service) dagDestinationsForEvent(ctx context.Context, setting *notificationmodel.Settings, event chatbridge.NotificationEvent, seenChannelIDs map[string]struct{}) []string {
 	if !notificationmodel.IsEventEnabled(setting, event.Type) {
 		return nil
 	}
-	seenChannelIDs := map[string]struct{}{}
 	destinations := make([]string, 0, len(setting.Targets)+len(setting.Subscriptions))
 	for _, target := range setting.Targets {
 		if !notificationmodel.IsTargetEventEnabled(setting, target, event.Type) {

@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 )
@@ -193,6 +194,83 @@ func TestConnectionEventsOldestFirst(t *testing.T) {
 	require.Len(t, texts, 2)
 	assert.Contains(t, texts[0], "Connection work needs to be reconnected.")
 	assert.Equal(t, "Connection work is connected again.\n", texts[1])
+}
+
+// A channel that receives connection.needs_attention sends no failure
+// message for a run that a broken connection failed; it already got the
+// connection's message. A channel without connection events, and any run
+// with another cause, still get the failure message. The decision reads the
+// run's record alone, so it holds for a run read after a reconnect.
+func TestRunFailureSkippedForBrokenConnection(t *testing.T) {
+	t.Parallel()
+
+	store := newMemoryStore()
+	for _, id := range []string{"attention", "runs-only"} {
+		channel, err := notificationmodel.NormalizeChannel(&notificationmodel.Channel{
+			ID:      id,
+			Name:    id,
+			Type:    notificationmodel.ProviderSlack,
+			Enabled: true,
+			Slack:   &notificationmodel.SlackTarget{WebhookURL: "https://93.184.216.34/" + id},
+		}, "tester")
+		require.NoError(t, err)
+		require.NoError(t, store.SaveChannel(context.Background(), channel))
+	}
+	svc := New(store, nil)
+	_, err := svc.SaveRouteSet(context.Background(), &notificationmodel.RouteSet{
+		Scope:     notificationmodel.RouteScopeWorkspace,
+		Workspace: "ops",
+		Enabled:   true,
+		Routes: []notificationmodel.Route{
+			{
+				ID: "attention", ChannelID: "attention", Enabled: true,
+				Events: []eventstore.EventType{eventstore.TypeDAGRunFailed, eventstore.TypeConnectionNeedsAttention},
+			},
+			{ID: "runs-only", ChannelID: "runs-only", Enabled: true, Events: []eventstore.EventType{eventstore.TypeDAGRunFailed}},
+		},
+	}, "tester")
+	require.NoError(t, err)
+
+	failedOn := func(failure ir.ConnectionFailure) *ir.Node {
+		return &ir.Node{
+			Step:       ir.Step{Name: "unread"},
+			Status:     ir.NodeFailed,
+			Connection: &ir.NodeConnection{Name: "work-google", Failure: failure},
+		}
+	}
+	runsOnly := routeDestinationID(notificationmodel.RouteScopeWorkspace, "ops", "runs-only")
+	attention := routeDestinationID(notificationmodel.RouteScopeWorkspace, "ops", "attention")
+	tests := []struct {
+		name  string
+		nodes []*ir.Node
+		want  []string
+	}{
+		{name: "BrokenConnection", nodes: []*ir.Node{failedOn(ir.ConnectionNeedsAttention)}, want: []string{runsOnly}},
+		{name: "PendingConnection", nodes: []*ir.Node{failedOn(ir.ConnectionReconnectRequired)}, want: []string{attention, runsOnly}},
+		{
+			name: "OtherFailedStep",
+			nodes: []*ir.Node{
+				failedOn(ir.ConnectionNeedsAttention),
+				{Step: ir.Step{Name: "local"}, Status: ir.NodeFailed, Error: "exit status 1"},
+			},
+			want: []string{attention, runsOnly},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			event := chatbridge.NotificationEvent{
+				Key:  "run-1",
+				Type: eventstore.TypeDAGRunFailed,
+				Status: &ir.DAGRunStatus{
+					Name: "mail-dag", DAGRunID: "run-1", AttemptID: "attempt-1",
+					Labels: []string{"workspace=ops"}, Status: ir.Failed, Nodes: tt.nodes,
+				},
+				ObservedAt: time.Now(),
+			}
+			assert.Equal(t, tt.want, svc.NotificationDestinationsForEvent(event))
+		})
+	}
 }
 
 func TestConnectionText(t *testing.T) {
