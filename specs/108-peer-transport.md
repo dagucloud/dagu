@@ -1343,6 +1343,8 @@ The Workers page is the list of workers on System status.
   the removal, never before. When that delete fails, the confirmation says
   the removal was accepted and the invite was not deleted, and offers to
   delete that same invite again; it closes once that delete succeeds.
+  From the accepted removal on, the confirmation shows and acts on the
+  invite recorded then, whatever the list shows later.
 - For a worker with `environment: kubernetes`, the confirmation says the pod
   keeps restarting until the Deployment is scaled down. A replacement pod
   can join again while its reusable invite is active, so the confirmation

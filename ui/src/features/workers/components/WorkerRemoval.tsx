@@ -27,7 +27,12 @@ import {
   useWorkerInvites,
 } from '../hooks/useWorkerAdmin';
 import { WorkerError } from './WorkerError';
-import { inviteState, listUnavailable } from './WorkerInvites';
+import {
+  KIND_TEXT,
+  inviteState,
+  listUnavailable,
+  shortInviteId,
+} from './WorkerInvites';
 
 type Worker = components['schemas']['Worker'];
 
@@ -369,7 +374,10 @@ function RemoveWorkerDialog({
   const { ts } = useI18n();
   const { deleteInvite, removeWorker, rereadInvites, rereadWorkers } =
     useWorkerActions();
-  const lookup = useInviteLookup(worker.inviteId);
+  // The invite of the row the admin confirmed; a later row does not change
+  // what this dialog looks up or deletes.
+  const [inviteId] = React.useState(worker.inviteId);
+  const lookup = useInviteLookup(inviteId);
   const [runs, setRuns] = React.useState(WorkerRemovalRuns.finish);
   const [alsoDeleteInvite, setAlsoDeleteInvite] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
@@ -377,11 +385,11 @@ function RemoveWorkerDialog({
   // The removal goes first, and the invite is deleted only once the server
   // accepted it. Each step reports its own outcome.
   const [accepted, setAccepted] = React.useState(false);
-  // The invite the admin chose to delete when confirming. A retry deletes
-  // this one, whatever the rows show by then.
-  const [inviteToDelete, setInviteToDelete] = React.useState<string | null>(
-    null
-  );
+  // The invite the admin chose to delete when confirming. Once the removal
+  // is accepted, the dialog shows and deletes this one only, whatever the
+  // rows show by then.
+  const [inviteToDelete, setInviteToDelete] =
+    React.useState<ConfirmedInvite | null>(null);
   const [inviteError, setInviteError] = React.useState<unknown>(null);
   const locked = useLockedConfirmation(worker, certificateId);
 
@@ -396,7 +404,7 @@ function RemoveWorkerDialog({
   const others = reusable
     ? workers
         .filter((other) => other.id !== worker.id)
-        .filter((other) => other.inviteId === worker.inviteId)
+        .filter((other) => other.inviteId === inviteId)
         .map((other) => other.id)
     : [];
   const kubernetes = worker.environment === HostEnvironment.kubernetes;
@@ -409,7 +417,10 @@ function RemoveWorkerDialog({
     let target = inviteToDelete;
     try {
       if (!accepted) {
-        target = reusable && alsoDeleteInvite && invite ? invite.id : null;
+        target =
+          reusable && alsoDeleteInvite && invite
+            ? { id: invite.id, kind: invite.kind }
+            : null;
         await removeWorker({ id: worker.id, certificateId }, sentRuns);
         setInviteToDelete(target);
         setAccepted(true);
@@ -423,7 +434,7 @@ function RemoveWorkerDialog({
     rereadWorkers();
     if (target) {
       try {
-        await deleteInvite(target);
+        await deleteInvite(target.id);
       } catch (err) {
         // An invite that is gone already needs no delete.
         if (!(err instanceof WorkerRequestError && err.status === 404)) {
@@ -453,7 +464,7 @@ function RemoveWorkerDialog({
       dismissModal={onClose}
       onSubmit={() => void submit()}
       // The invite warning must be on screen before the removal can start.
-      submitDisabled={submitting || lookup.reading || (locked && !accepted)}
+      submitDisabled={submitting || (!accepted && (lookup.reading || locked))}
       initialFocus="cancel"
       // A long list of runs or workers scrolls inside the dialog, so the
       // buttons stay on screen.
@@ -461,151 +472,155 @@ function RemoveWorkerDialog({
       bodyClassName={SCROLLING_BODY}
     >
       <div className="space-y-3 text-sm">
-        <p>
-          <I18nText
-            text={
-              'Its certificate is revoked, and it stays out across restarts until it gets a new invite.'
-            }
-          />
-        </p>
-
-        {tasks.length === 0 ? (
-          <p>
-            <I18nText text="It has no running runs." />
-          </p>
+        {accepted ? (
+          <AcceptedRemoval invite={inviteToDelete} />
         ) : (
-          <fieldset className="space-y-2">
-            <legend className="mb-1">
-              <I18nText
-                text={
-                  tasks.length === 1
-                    ? 'It has 1 running run:'
-                    : 'It has {count} running runs:'
-                }
-                values={{ count: tasks.length }}
-              />
-            </legend>
-            <ul className="max-h-32 space-y-0.5 overflow-auto rounded border px-2 py-1 text-xs">
-              {tasks.map((task) => (
-                <li key={task.dagRunId} className="flex min-w-0 gap-2">
-                  <span className="truncate font-medium">{task.dagName}</span>
-                  <span className="truncate font-mono text-muted-foreground">
-                    {task.dagRunId}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <RunsChoice
-              checked={runs === WorkerRemovalRuns.finish}
-              onChange={() => setRuns(WorkerRemovalRuns.finish)}
-              label="Remove after its runs finish"
-              detail="It gets no new runs, and is removed when its last run ends."
-            />
-            <RunsChoice
-              checked={runs === WorkerRemovalRuns.stop}
-              onChange={() => setRuns(WorkerRemovalRuns.stop)}
-              label="Stop its runs and remove"
-              detail="Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended."
-            />
-          </fieldset>
-        )}
-
-        {kubernetes && (
-          <p>
-            <I18nText
-              text={
-                'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.'
-              }
-            />
-            {reusable && (
-              <>
-                {' '}
-                <I18nText
-                  text={
-                    'A replacement pod can join with the invite while it is active, so delete the invite as well.'
-                  }
-                />
-              </>
-            )}
-          </p>
-        )}
-
-        {reusable && (
-          <div className="space-y-2 rounded border px-3 py-2">
+          <>
             <p>
               <I18nText
                 text={
-                  'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.'
+                  'Its certificate is revoked, and it stays out across restarts until it gets a new invite.'
                 }
               />
             </p>
-            {others.length > 0 && (
+
+            {tasks.length === 0 ? (
+              <p>
+                <I18nText text="It has no running runs." />
+              </p>
+            ) : (
+              <fieldset className="space-y-2">
+                <legend className="mb-1">
+                  <I18nText
+                    text={
+                      tasks.length === 1
+                        ? 'It has 1 running run:'
+                        : 'It has {count} running runs:'
+                    }
+                    values={{ count: tasks.length }}
+                  />
+                </legend>
+                <ul className="max-h-32 space-y-0.5 overflow-auto rounded border px-2 py-1 text-xs">
+                  {tasks.map((task) => (
+                    <li key={task.dagRunId} className="flex min-w-0 gap-2">
+                      <span className="truncate font-medium">
+                        {task.dagName}
+                      </span>
+                      <span className="truncate font-mono text-muted-foreground">
+                        {task.dagRunId}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <RunsChoice
+                  checked={runs === WorkerRemovalRuns.finish}
+                  onChange={() => setRuns(WorkerRemovalRuns.finish)}
+                  label="Remove after its runs finish"
+                  detail="It gets no new runs, and is removed when its last run ends."
+                />
+                <RunsChoice
+                  checked={runs === WorkerRemovalRuns.stop}
+                  onChange={() => setRuns(WorkerRemovalRuns.stop)}
+                  label="Stop its runs and remove"
+                  detail="Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended."
+                />
+              </fieldset>
+            )}
+
+            {kubernetes && (
               <p>
                 <I18nText
-                  text="Other workers on this invite: {workers}"
-                  values={{ workers: others.join(', ') }}
+                  text={
+                    'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.'
+                  }
+                />
+                {reusable && (
+                  <>
+                    {' '}
+                    <I18nText
+                      text={
+                        'A replacement pod can join with the invite while it is active, so delete the invite as well.'
+                      }
+                    />
+                  </>
+                )}
+              </p>
+            )}
+
+            {reusable && (
+              <div className="space-y-2 rounded border px-3 py-2">
+                <p>
+                  <I18nText
+                    text={
+                      'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.'
+                    }
+                  />
+                </p>
+                {others.length > 0 && (
+                  <p>
+                    <I18nText
+                      text="Other workers on this invite: {workers}"
+                      values={{ workers: others.join(', ') }}
+                    />
+                  </p>
+                )}
+                <label className="flex cursor-pointer items-start gap-2">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={alsoDeleteInvite}
+                    onCheckedChange={(value) =>
+                      setAlsoDeleteInvite(value === true)
+                    }
+                  />
+                  <span>
+                    <I18nText text="Also delete the invite" />
+                    <span className="block text-xs text-muted-foreground">
+                      <I18nText
+                        text={
+                          'Workers that joined with it keep their certificates.'
+                        }
+                      />
+                    </span>
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {lookup.failed && (
+              <div className="space-y-2 rounded border px-3 py-2">
+                <p>
+                  <I18nText
+                    text={
+                      'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.'
+                    }
+                  />
+                </p>
+                <WorkerError
+                  action={false}
+                  advice={describeWorkerError(
+                    lookup.error,
+                    { notFound: listUnavailable(ts) },
+                    ts
+                  )}
+                />
+                <Button size="xs" variant="outline" onClick={lookup.retry}>
+                  <I18nText text="Try again" />
+                </Button>
+              </div>
+            )}
+
+            {lookup.missing && (
+              <p>
+                <I18nText
+                  text={
+                    'The invite it joined with no longer exists, so it lets no new worker join.'
+                  }
                 />
               </p>
             )}
-            <label className="flex cursor-pointer items-start gap-2">
-              <Checkbox
-                className="mt-0.5"
-                checked={alsoDeleteInvite}
-                onCheckedChange={(value) => setAlsoDeleteInvite(value === true)}
-              />
-              <span>
-                <I18nText text="Also delete the invite" />
-                <span className="block text-xs text-muted-foreground">
-                  <I18nText
-                    text={
-                      'Workers that joined with it keep their certificates.'
-                    }
-                  />
-                </span>
-              </span>
-            </label>
-          </div>
-        )}
 
-        {lookup.failed && (
-          <div className="space-y-2 rounded border px-3 py-2">
-            <p>
-              <I18nText
-                text={
-                  'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.'
-                }
-              />
-            </p>
-            <WorkerError
-              action={false}
-              advice={describeWorkerError(
-                lookup.error,
-                { notFound: listUnavailable(ts) },
-                ts
-              )}
-            />
-            <Button size="xs" variant="outline" onClick={lookup.retry}>
-              <I18nText text="Try again" />
-            </Button>
-          </div>
-        )}
-
-        {lookup.missing && (
-          <p>
-            <I18nText
-              text={
-                'The invite it joined with no longer exists, so it lets no new worker join.'
-              }
-            />
-          </p>
-        )}
-
-        {locked && !accepted && <ReplacedNotice />}
-
-        {accepted && (
-          <p role="status">
-            <I18nText text="The server accepted the removal." />
-          </p>
+            {locked && <ReplacedNotice />}
+          </>
         )}
 
         {error !== null && (
@@ -628,6 +643,36 @@ function RemoveWorkerDialog({
         )}
       </div>
     </ConfirmModal>
+  );
+}
+
+// The invite a removal deletes once the server accepted it.
+interface ConfirmedInvite {
+  id: string;
+  kind: WorkerInviteKind;
+}
+
+// What an accepted removal still has to do, from what the admin confirmed
+// only: the rows may show another worker by now.
+function AcceptedRemoval({ invite }: { invite: ConfirmedInvite | null }) {
+  const { ts } = useI18n();
+  return (
+    <>
+      <p role="status">
+        <I18nText text="The server accepted the removal." />
+      </p>
+      {invite && (
+        <p>
+          <I18nText
+            text="Invite to delete: {id} ({kind})"
+            values={{
+              id: shortInviteId(invite.id),
+              kind: ts(KIND_TEXT[invite.kind]),
+            }}
+          />
+        </p>
+      )}
+    </>
   );
 }
 

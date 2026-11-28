@@ -349,6 +349,61 @@ describe('Remove', () => {
     expect(removals()).toHaveLength(1);
   });
 
+  // Once the removal is accepted, the dialog shows and deletes the invite
+  // the admin confirmed, from what it recorded then. A replacement row on
+  // another invite changes neither, and its lookup does not hold the retry.
+  it('keeps the retry on the confirmed invite after a replacement', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    const inviteAnswers = [
+      refused(503, '', 'internal_error', 'no_coordinator'),
+      { status: 204 },
+    ];
+    server.del = (request) =>
+      request.path.endsWith('/certificate')
+        ? { status: 200, body: { state: 'removing' } }
+        : (inviteAnswers.shift() as never);
+    const { update } = renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
+    await screen.findByText('Reusable');
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: /Also delete the invite/ })
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+    await within(dialog).findByText('The invite was not deleted.');
+    // A read of the invites would never answer: the dialog must not wait on
+    // one for the replacement's invite.
+    server.invites = () => new Promise(() => undefined);
+    const reads = requests('GET', '/workers/invites').length;
+
+    update([
+      worker('worker-a1', {
+        certificateId: 'cert-new',
+        inviteId: 'inv-new',
+        environment: HostEnvironment.kubernetes,
+      }),
+    ]);
+
+    expect(dialog).toHaveTextContent('Invite to delete: inv-r (Reusable)');
+    expect(dialog).not.toHaveTextContent('inv-new');
+    expect(dialog).not.toHaveTextContent('Kubernetes');
+    expect(requests('GET', '/workers/invites')).toHaveLength(reads);
+    const retry = within(dialog).getByRole('button', {
+      name: 'Delete the invite',
+    });
+    expect(retry).toBeEnabled();
+    await userEvent.click(retry);
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    );
+    expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(2);
+    expect(requests('DELETE', '/workers/invites/inv-new')).toHaveLength(0);
+  });
+
   // The stop choice says what the server does: a cancel request to each
   // run, and the worker removed within two minutes either way.
   it('says the stop choice removes the worker within two minutes', async () => {
