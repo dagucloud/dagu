@@ -5,6 +5,8 @@ package chat
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -262,4 +264,23 @@ func TestNewToolRegistryRefusesEvaluatedInput(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
+}
+
+// A params schema next to the tool DAG file resolves without a working_dir.
+func TestNewToolRegistryRelativeSchema(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "schema.json"),
+		[]byte(`{"type":"object","properties":{"Q":{"type":"string"}}}`), 0o600))
+	file := filepath.Join(dir, "lookup.yaml")
+	require.NoError(t, os.WriteFile(file,
+		[]byte("name: lookup\nparams:\n  schema: ./schema.json\nsteps:\n  - run: echo \"$Q\"\n"), 0o600))
+	tool, err := spec.Load(context.Background(), file)
+	require.NoError(t, err)
+	parent := &ir.DAG{Name: "parent", LocalDAGs: map[string]*ir.DAG{"lookup": tool}}
+	ctx := runctx.NewContext(context.Background(), parent, "run-1", "/tmp/log")
+
+	registry, err := NewToolRegistry(ctx, []string{"lookup"})
+	require.NoError(t, err)
+	assert.True(t, registry.HasTools())
 }

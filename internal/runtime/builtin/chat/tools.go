@@ -5,6 +5,7 @@
 package chat
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"regexp"
@@ -239,7 +240,17 @@ func rawEnv(ctx context.Context, dag *ir.DAG) ([]string, error) {
 	if len(dag.YamlData) == 0 {
 		return dag.Env, nil
 	}
-	raw, err := spec.LoadYAML(ctx, dag.YamlData, spec.WithoutEval())
+	// Only the env is read, so the params schema is skipped. The source file
+	// keeps relative paths resolving as they did when the DAG loaded.
+	opts := []spec.LoadOption{
+		spec.WithoutEval(),
+		spec.SkipSchemaValidation(),
+		spec.WithSourceFile(cmp.Or(dag.SourceFile, dag.Location)),
+	}
+	if len(dag.BaseConfigData) > 0 {
+		opts = append(opts, spec.WithBaseConfigContent(dag.BaseConfigData))
+	}
+	raw, err := spec.LoadYAML(ctx, dag.YamlData, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("tool DAG %q: failed to read its env: %w", dag.Name, err)
 	}
