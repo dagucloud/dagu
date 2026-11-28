@@ -7410,7 +7410,7 @@ export interface components {
             /** @description Hosts that called this coordinator over h2c in the last 10 minutes, one entry per host and reason, the latest call first. Workers' calls and health checks are left out. The coordinator keeps at most 64 entries and drops the oldest first, so the list may omit a host. Absent when the coordinator does not report them, as one of an earlier release. */
             h2cCallers?: components["schemas"]["H2CCaller"][];
         };
-        /** @description A host that called a coordinator over h2c, with the reason it sent */
+        /** @description A host that called a coordinator over h2c, with the reason the coordinator recorded for its calls */
         H2CCaller: {
             /** @description Remote host of the calls, without the port */
             host: string;

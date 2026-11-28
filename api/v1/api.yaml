@@ -19361,7 +19361,7 @@ components:
 
     H2CCaller:
       type: object
-      description: "A host that called a coordinator over h2c, with the reason it sent"
+      description: "A host that called a coordinator over h2c, with the reason the coordinator recorded for its calls"
       properties:
         host:
           type: string
