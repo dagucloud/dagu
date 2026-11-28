@@ -6,6 +6,7 @@ package spec089_node_targeting_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -21,7 +22,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -115,14 +115,25 @@ func runLockPath(dataDir, dag string) string {
 // takes it over. An error other than the lock's absence counts as fresh.
 func waitForStaleRunLock(t *testing.T, path string) {
 	t.Helper()
-	budget := runLockStaleAge + harness.WaitTimeout(t)
-	var lastErr error
-	if !assert.Eventually(t, func() bool {
+	require.NoError(t, awaitStaleRunLock(path, runLockStaleAge+harness.WaitTimeout(t)))
+}
+
+// awaitStaleRunLock polls the run lock at path until it is gone or older than
+// runLockStaleAge, and returns an error naming the last poll's result once
+// budget has passed.
+func awaitStaleRunLock(path string, budget time.Duration) error {
+	deadline := time.Now().Add(budget)
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
 		stale, err := runLockIsStale(path)
-		lastErr = err
-		return stale
-	}, budget, 200*time.Millisecond) {
-		t.Fatalf("the run lock %s stayed fresh for %s (last error: %v)", path, budget, lastErr)
+		if stale {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("the run lock %s stayed fresh for %s (last error: %v)", path, budget, err)
+		}
+		<-ticker.C
 	}
 }
 
@@ -230,11 +241,10 @@ func TestNodeStepRetry(t *testing.T) {
 	})
 
 	// A process that stopped while holding the run lock left it behind.
-	// While the lock is fresh, waitForStaleRunLock keeps waiting and the
-	// retry fails on it. Once the lock is older than runLockStaleAge, the
-	// wait ends and the retry takes the lock over and runs. The lock is aged
-	// by its timestamp. TestDataRootLockStaleAge checks that the lock code
-	// uses the same age.
+	// The wait starts while the lock is fresh and keeps waiting while a
+	// retry fails on the lock. Once the lock is aged past the spec's 30
+	// seconds, the wait ends and the retry takes the lock over and runs.
+	// TestDataRootLockStaleAge checks that the lock code uses the same age.
 	t.Run("after a stopped process left its run lock", func(t *testing.T) {
 		t.Parallel()
 
@@ -245,18 +255,26 @@ func TestNodeStepRetry(t *testing.T) {
 		lock := runLockPath(run.dataDir, "retry")
 		require.NoError(t, os.Mkdir(lock, 0o700))
 		require.NoError(t, os.WriteFile(filepath.Join(lock, "owner.stopped"), []byte("stopped"), 0o600))
-		stale, err := runLockIsStale(lock)
-		require.NoError(t, err)
-		require.False(t, stale)
+		budget := runLockStaleAge + harness.WaitTimeout(t)
+		waited := make(chan error, 1)
+		go func() {
+			waited <- awaitStaleRunLock(lock, budget)
+		}()
 
 		run.touch(t, "ok-web02")
 		blocked := run.retry(t, "retry")
 		blocked.ExpectNonZeroExitCode()
 		require.Contains(t, blocked.Stderr(), "failed to acquire lock for dag-run")
+		select {
+		case err := <-waited:
+			t.Fatalf("the wait ended while the lock was fresh: %v", err)
+		default:
+		}
 
-		aged := time.Now().Add(-runLockStaleAge - 100*time.Millisecond)
+		const specStaleAge = 30 * time.Second
+		aged := time.Now().Add(-specStaleAge - 100*time.Millisecond)
 		require.NoError(t, os.Chtimes(lock, aged, aged))
-		waitForStaleRunLock(t, lock)
+		require.NoError(t, <-waited)
 		run.retry(t, "retry").ExpectExitCode(0)
 		require.Equal(t, []string{"web01=succeeded", "web02=succeeded", "web03=succeeded"}, nodeStatuses(t, run.dagu))
 	})
