@@ -661,7 +661,7 @@ The `worker_certificates` collection keeps one record per certificate:
 | `enrolled_removals` | How many removals of that worker ID had begun when its enrollment started |
 
 - A record identifies its certificate's key, so `Enroll` can refuse that
-  key after revocation.
+  key from the moment the certificate is `removing`. A new key enrolls.
 - A heartbeat with a worker certificate that is not newer than the stored
   `last_heartbeat_at` writes nothing. Otherwise it writes the record when
   the stored `last_heartbeat_at` is more than 24 hours old, or none, when
@@ -1382,7 +1382,7 @@ handshake error that caused the fallback.
 | `Enroll` with an invite that has ended or does not exist | `PermissionDenied`: `the invite is invalid, expired, or already used` |
 | `Enroll` with a single-use invite from a worker that cannot keep its certificate | `FailedPrecondition`; the invite is not consumed |
 | `Enroll` with a certificate signing request that cannot be read, whose signature does not verify, or whose key is not ECDSA P-256 | `InvalidArgument`; the invite is not consumed |
-| `Enroll` with the key of a revoked certificate | `PermissionDenied`: `this key belongs to a removed worker` |
+| `Enroll` with the key of a `removing` or revoked certificate | `PermissionDenied`: `this key belongs to a removed worker` |
 | `Enroll` of a worker ID that a removal ran for alongside it | `PermissionDenied`: `this worker was removed while it enrolled; enroll it again`. The rejected certificate is revoked, so its key is refused, and a single-use invite is spent: a new enrollment needs a new key, together with a reusable invite that is still valid or a new invite |
 | A call with a revoked worker certificate | `Unauthenticated`: `this worker was removed from the coordinator` |
 | A call with a worker certificate to a coordinator that could not yet read the revoked set | `Unavailable`, so the worker tries again or tries the next coordinator |

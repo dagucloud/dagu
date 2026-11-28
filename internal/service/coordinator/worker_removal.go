@@ -894,11 +894,12 @@ func removalOf(cert persis.WorkerCertificate) persis.WorkerCertificateRemoval {
 	}
 }
 
-// keyRevoked reports whether fingerprint is the key fingerprint of a
-// certificate that removals hold revoked.
-func keyRevoked(removals []persis.WorkerCertificateRemoval, fingerprint []byte) bool {
+// keyRemoved reports whether fingerprint is the key fingerprint of a
+// certificate in removals, removing or revoked. A removing one is revoked
+// once its runs end, so its key is refused before then too.
+func keyRemoved(removals []persis.WorkerCertificateRemoval, fingerprint []byte) bool {
 	for _, removal := range removals {
-		if removal.State == persis.WorkerCertificateRevoked && string(removal.KeyFingerprint) == string(fingerprint) {
+		if string(removal.KeyFingerprint) == string(fingerprint) {
 			return true
 		}
 	}

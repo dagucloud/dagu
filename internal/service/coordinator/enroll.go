@@ -88,7 +88,7 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 		logger.Error(ctx, "Failed to read the removed workers", tag.Error(err))
 		return nil, status.Error(codes.Internal, "failed to check the key")
 	}
-	if keyRevoked(removals, fingerprint[:]) {
+	if keyRemoved(removals, fingerprint[:]) {
 		return nil, status.Error(codes.PermissionDenied, removedKeyMessage)
 	}
 
@@ -136,7 +136,7 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 		logger.Error(ctx, "Failed to read the removed workers", slog.String("certificate-id", certID), tag.Error(err))
 		return nil, status.Error(codes.Internal, "failed to check the key")
 	}
-	if keyRevoked(after, fingerprint[:]) {
+	if keyRemoved(after, fingerprint[:]) {
 		_ = h.revoke(ctx, certID)
 		return nil, status.Error(codes.PermissionDenied, removedKeyMessage)
 	}

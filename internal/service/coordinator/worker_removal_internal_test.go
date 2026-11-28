@@ -1123,6 +1123,27 @@ func TestEnrollmentAfterRemovalBegan(t *testing.T) {
 	assert.Equal(t, persis.WorkerCertificateActive, f.state(t, removalWorker{certID: issued.Subject.CommonName}))
 }
 
+// A worker's certificate is removing while its runs end. An enrollment with
+// the same key is refused, so no certificate of the key outlasts the
+// removal, and an enrollment with a new key succeeds (Spec 108 §Removal).
+func TestEnrollRefusesKeyOfRemovingCertificate(t *testing.T) {
+	f := newRemovalFixture(t)
+	req, tlsCtx := f.enrollCall(t, "worker-a")
+	resp, err := f.h.Enroll(tlsCtx, req)
+	require.NoError(t, err)
+	issued, err := x509.ParseCertificate(resp.Certificate)
+	require.NoError(t, err)
+	_, err = f.certs.MarkRemoving(t.Context(), issued.Subject.CommonName, "worker-a", time.Now)
+	require.NoError(t, err)
+
+	_, err = f.h.Enroll(tlsCtx, req)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+	assert.Equal(t, removedKeyMessage, status.Convert(err).Message())
+	fresh, freshCtx := f.enrollCall(t, "worker-a")
+	_, err = f.h.Enroll(freshCtx, fresh)
+	assert.NoError(t, err)
+}
+
 // A coordinator that predates the certificate ID in heartbeats records a
 // certificate connection without it. Such a fresh heartbeat counts as
 // connected, under the removed worker's ID or under another ID on the
