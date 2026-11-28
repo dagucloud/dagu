@@ -1302,14 +1302,18 @@ func fillWorkerMetadata(worker, other *coordinatorv1.WorkerInfo) {
 	if worker.Environment == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_UNSPECIFIED {
 		worker.Environment = other.Environment
 	}
-	if worker.CertificateId == "" {
+	// Certificate fields belong to a certificate heartbeat only, never to
+	// one a newer coordinator reports as on the peer token.
+	certificateRow := worker.Connection == coordinatorv1.WorkerConnection_WORKER_CONNECTION_UNSPECIFIED ||
+		worker.Connection == coordinatorv1.WorkerConnection_WORKER_CONNECTION_CERTIFICATE
+	if worker.CertificateId == "" && certificateRow {
 		worker.CertificateId = other.CertificateId
 		worker.InviteId = other.InviteId
 	}
 	// Removing describes a certificate, and heartbeats in the same second
 	// may carry two. For the same one, a coordinator that has not reread
 	// the removals yet reports false.
-	if worker.CertificateId == other.CertificateId {
+	if worker.CertificateId != "" && worker.CertificateId == other.CertificateId {
 		worker.Removing = worker.Removing || other.Removing
 	}
 }

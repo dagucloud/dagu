@@ -106,3 +106,36 @@ func TestClientGetWorkers_RemovingFollowsCertificate(t *testing.T) {
 		})
 	}
 }
+
+// A worker on the peer token and a certificate worker under one ID, in the
+// same second: the certificate fields stay with the certificate's row.
+func TestClientGetWorkers_CertificateFieldsStayWithCertificate(t *testing.T) {
+	t.Parallel()
+
+	heartbeat := time.Now().Unix()
+	peerToken := workersFrom(&coordinatorv1.WorkerInfo{
+		WorkerId: "worker-1", LastHeartbeatAt: heartbeat, Connection: coordinatorv1.WorkerConnection_WORKER_CONNECTION_TLS,
+	})
+	certificate := workersFrom(&coordinatorv1.WorkerInfo{
+		WorkerId: "worker-1", LastHeartbeatAt: heartbeat, Connection: coordinatorv1.WorkerConnection_WORKER_CONNECTION_CERTIFICATE,
+		CertificateId: "cert-1", InviteId: "invite-1", Removing: true,
+	})
+	for name, kinds := range map[string][]memberKind{"peer token first": {peerToken, certificate}, "certificate first": {certificate, peerToken}} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			members := make([]serviceregistry.HostInfo, len(kinds))
+			for i, listener := range sortedListeners(t, len(kinds)) {
+				members[i] = kinds[i](t, listener)
+			}
+			client := coordinator.New(&mockServiceMonitor{members: members}, coordinator.DefaultConfig())
+			t.Cleanup(func() { _ = client.Cleanup(context.Background()) })
+			workers, err := client.GetWorkers(t.Context())
+			require.NoError(t, err)
+			require.Len(t, workers, 1)
+			certified := workers[0].Connection == coordinatorv1.WorkerConnection_WORKER_CONNECTION_CERTIFICATE
+			assert.Equal(t, certified, workers[0].CertificateId != "", "%v", workers[0])
+			assert.Equal(t, certified, workers[0].InviteId != "", "%v", workers[0])
+			assert.Equal(t, certified, workers[0].Removing, "%v", workers[0])
+		})
+	}
+}
