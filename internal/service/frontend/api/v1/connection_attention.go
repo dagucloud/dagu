@@ -21,9 +21,9 @@ import (
 )
 
 // connectionAttentionMaxAge bounds how long one read of the connections
-// serves callers, for a status change that no wake reported. It is shorter
-// than the attention topic's maximum refresh interval, so that refresh
-// reads again.
+// serves callers, for a status change that no wake reported. A refresh of
+// the attention topic may use a read up to this old, so such a change
+// shows within the topic's maximum interval plus this age.
 const connectionAttentionMaxAge = 5 * time.Minute
 
 // GetConnectionAttention counts the connections that need reconnecting in
