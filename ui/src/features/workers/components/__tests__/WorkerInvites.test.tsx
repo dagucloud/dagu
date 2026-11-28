@@ -624,6 +624,30 @@ describe('WorkerInvites', () => {
     ).not.toBeInTheDocument();
   });
 
+  // A delete from before a sign-out that fails afterwards reports nothing
+  // to the next admin.
+  it('drops a late delete failure from the previous session', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    const pending = heldDeletes();
+    const { leave, rerender } = renderInvites();
+    await startDelete('inv-1');
+    await userEvent.keyboard('{Escape}');
+
+    leave();
+    act(() => clearAuthSession('logout'));
+    rerender();
+    await screen.findByRole('button', { name: /^Delete invite inv-1/ });
+    await act(async () =>
+      pending[0]!(refused(503, '', 'internal_error', 'no_coordinator'))
+    );
+    await act(() => Promise.resolve());
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /^Delete invite inv-1/ })
+    ).toBeEnabled();
+  });
+
   // A deleted invite leaves the list at once, before the list is read
   // again, so it offers no second Delete meanwhile.
   it('drops a deleted invite before the list is read again', async () => {

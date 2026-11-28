@@ -109,6 +109,11 @@ class InviteStore {
   // Counts the sessions; a delete from an earlier one changes nothing kept.
   private session = 0;
 
+  /** The current auth session, to tell a request's outcome from a later one's. */
+  currentSession(): number {
+    return this.session;
+  }
+
   constructor() {
     addAuthSessionListener(() => this.reset());
   }
@@ -358,7 +363,11 @@ export function useWorkerActions() {
     [client, store]
   );
 
-  return { deleteInvite, rereadInvites };
+  // The current auth session: what a request started in an earlier one
+  // reports is dropped.
+  const session = useCallback(() => store.currentSession(), [store]);
+
+  return { deleteInvite, rereadInvites, session };
 }
 
 // Only a 409 and a 503 carry a worker access reason (Spec 108); the

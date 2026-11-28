@@ -552,7 +552,7 @@ function DeleteInviteDialog({
   onLateFailure: (error: unknown) => void;
 }) {
   const { ts } = useI18n();
-  const { deleteInvite, rereadInvites } = useWorkerActions();
+  const { deleteInvite, rereadInvites, session } = useWorkerActions();
   const [error, setError] = React.useState<unknown>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const gone = error instanceof WorkerRequestError && error.status === 404;
@@ -568,10 +568,13 @@ function DeleteInviteDialog({
     if (submitting || gone) return;
     setSubmitting(true);
     setError(null);
+    // A delete that ends after a sign-in or sign-out reports nothing.
+    const started = session();
     try {
       await deleteInvite(invite.id);
       onClose();
     } catch (err) {
+      if (session() !== started) return;
       if (open.current) {
         setError(err);
       } else if (!(err instanceof WorkerRequestError && err.status === 404)) {
@@ -581,7 +584,7 @@ function DeleteInviteDialog({
       setSubmitting(false);
       // The server deletes on its own coordinators, so the local list is
       // read again, also after a switch to another node and back.
-      rereadInvites('local');
+      if (session() === started) rereadInvites('local');
     }
   };
 
