@@ -1,0 +1,387 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
+	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
+)
+
+// testInvite is the invite the stub coordinator creates.
+const testInvite = "dagu1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+
+var (
+	_ coordinator.InviteClient        = (*inviteCoordinatorStub)(nil)
+	_ coordinator.JoinReadinessClient = (*inviteCoordinatorStub)(nil)
+)
+
+// inviteCoordinatorStub answers the invite and join readiness calls, with
+// err for every invite call when set, and records the requests.
+type inviteCoordinatorStub struct {
+	stubCoordinatorClient
+	err        error
+	invites    []*coordinatorv1.InviteRecord
+	readiness  []coordinator.JoinReadiness
+	membersErr error
+
+	created *coordinatorv1.CreateInviteRequest
+	deleted string
+}
+
+func (s *inviteCoordinatorStub) CreateInvite(_ context.Context, req *coordinatorv1.CreateInviteRequest) (*coordinatorv1.CreateInviteResponse, error) {
+	s.created = req
+	if s.err != nil {
+		return nil, s.err
+	}
+	record := &coordinatorv1.InviteRecord{
+		Id:        "invite-1",
+		Kind:      coordinatorv1.InviteKind_INVITE_KIND_SINGLE_USE,
+		ExpiresAt: 1710086400,
+		Address:   req.Address,
+		CreatedBy: req.CreatedBy,
+		CreatedAt: 1710000000,
+	}
+	s.invites = append(s.invites, record)
+	return &coordinatorv1.CreateInviteResponse{Invite: testInvite, Record: record}, nil
+}
+
+func (s *inviteCoordinatorStub) ListInvites(context.Context) ([]*coordinatorv1.InviteRecord, error) {
+	return s.invites, s.err
+}
+
+func (s *inviteCoordinatorStub) DeleteInvite(_ context.Context, id string) error {
+	s.deleted = id
+	return s.err
+}
+
+func (s *inviteCoordinatorStub) GetJoinReadiness(context.Context) ([]coordinator.JoinReadiness, error) {
+	return s.readiness, s.membersErr
+}
+
+// rolesAPI returns an API whose roles apply, with coordinatorCli as its
+// coordinator client, and the store of its audit entries.
+func rolesAPI(coordinatorCli coordinator.Client) (*API, *restAuditStore) {
+	store := &restAuditStore{}
+	return &API{
+		authService:    struct{ AuthService }{},
+		auditService:   audit.New(store),
+		coordinatorCli: coordinatorCli,
+	}, store
+}
+
+func userContext(role auth.Role) context.Context {
+	return auth.WithUser(context.Background(), &auth.User{ID: "user-1", Username: string(role) + "-user", Role: role})
+}
+
+// workerAccessCalls makes each worker access call, and returns its error.
+func workerAccessCalls(a *API) map[string]func(context.Context) error {
+	return map[string]func(context.Context) error{
+		"create": func(ctx context.Context) error {
+			_, err := a.CreateWorkerInvite(ctx, openapiv1.CreateWorkerInviteRequestObject{})
+			return err
+		},
+		"list": func(ctx context.Context) error {
+			_, err := a.ListWorkerInvites(ctx, openapiv1.ListWorkerInvitesRequestObject{})
+			return err
+		},
+		"delete": func(ctx context.Context) error {
+			_, err := a.DeleteWorkerInvite(ctx, openapiv1.DeleteWorkerInviteRequestObject{InviteId: "invite-1"})
+			return err
+		},
+		"join readiness": func(ctx context.Context) error {
+			_, err := a.GetWorkerJoinReadiness(ctx, openapiv1.GetWorkerJoinReadinessRequestObject{})
+			return err
+		},
+	}
+}
+
+// httpStatus returns the HTTP status that err answers with.
+func httpStatus(t *testing.T, err error) int {
+	t.Helper()
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	return apiErr.HTTPStatus
+}
+
+func TestWorkerAccessRoles(t *testing.T) {
+	t.Parallel()
+
+	stub := &inviteCoordinatorStub{readiness: []coordinator.JoinReadiness{{Report: &coordinatorv1.GetJoinReadinessResponse{}}}}
+	a, _ := rolesAPI(stub)
+	for name, call := range workerAccessCalls(a) {
+		assert.NoError(t, call(userContext(auth.RoleAdmin)), name)
+		for _, role := range []auth.Role{auth.RoleManager, auth.RoleDeveloper, auth.RoleOperator, auth.RoleViewer} {
+			assert.Equal(t, http.StatusForbidden, httpStatus(t, call(userContext(role))), "%s as %s", name, role)
+		}
+	}
+}
+
+func TestWorkerAccessNoCoordinator(t *testing.T) {
+	t.Parallel()
+
+	a, _ := rolesAPI(nil)
+	for name, call := range workerAccessCalls(a) {
+		assert.Equal(t, http.StatusServiceUnavailable, httpStatus(t, call(userContext(auth.RoleAdmin))), name)
+	}
+}
+
+// Each refusal of the coordinator maps to the answer of Spec 108 §REST API.
+func TestWorkerAccessErrors(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		err     error
+		status  int
+		message string
+	}{
+		{status.Error(codes.FailedPrecondition, "invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file"), http.StatusConflict,
+			"invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file"},
+		{status.Error(codes.InvalidArgument, "address must be host:port"), http.StatusBadRequest, "address must be host:port"},
+		{status.Error(codes.NotFound, "no invite has this ID"), http.StatusNotFound, "no invite has this ID"},
+		{status.Error(codes.Unauthenticated, "missing peer token"), http.StatusServiceUnavailable, peerTokenMissingMessage},
+		{status.Error(codes.Unimplemented, "unknown method CreateInvite"), http.StatusConflict, olderCoordinatorMessage},
+		{status.Error(codes.Unavailable, "connection refused"), http.StatusServiceUnavailable, coordinatorUnreachableMessage + ": connection refused"},
+		{errors.New("no coordinators available"), http.StatusServiceUnavailable, coordinatorUnreachableMessage},
+		{status.Error(codes.Internal, "failed to store the invite"), http.StatusInternalServerError, "the coordinator failed: failed to store the invite"},
+	} {
+		a, store := rolesAPI(&inviteCoordinatorStub{err: tt.err})
+		for name, call := range workerAccessCalls(a) {
+			if name == "join readiness" {
+				continue
+			}
+			err := call(userContext(auth.RoleAdmin))
+			var apiErr *Error
+			require.ErrorAs(t, err, &apiErr, name)
+			assert.Equal(t, tt.status, apiErr.HTTPStatus, "%s: %v", name, tt.err)
+			assert.Equal(t, tt.message, apiErr.Message, "%s: %v", name, tt.err)
+		}
+		assert.Empty(t, store.entries, "a refused change writes no audit entry")
+	}
+}
+
+func TestCreateWorkerInvite(t *testing.T) {
+	t.Parallel()
+
+	stub := &inviteCoordinatorStub{}
+	a, store := rolesAPI(stub)
+	resp, err := a.CreateWorkerInvite(userContext(auth.RoleAdmin), openapiv1.CreateWorkerInviteRequestObject{
+		Body: &openapiv1.CreateWorkerInviteRequest{
+			Reusable:  new(true),
+			ExpiresIn: new("90m500ms"),
+			Address:   new("192.168.1.20:50055"),
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, openapiv1.CreateWorkerInvite201JSONResponse{
+		Id:        "invite-1",
+		Invite:    testInvite,
+		ExpiresAt: new("2024-03-10T16:00:00Z"),
+	}, resp)
+	assert.Equal(t, &coordinatorv1.CreateInviteRequest{
+		Reusable:         true,
+		ExpiresInSeconds: 5401,
+		Address:          "192.168.1.20:50055",
+		CreatedBy:        "admin-user",
+	}, stub.created)
+
+	require.Len(t, store.entries, 1)
+	entry := store.entries[0]
+	assert.Equal(t, audit.CategorySystem, entry.Category)
+	assert.Equal(t, "worker_invite_create", entry.Action)
+	assert.JSONEq(t, `{"invite_id":"invite-1","kind":"single_use","address":"192.168.1.20:50055"}`, entry.Details)
+}
+
+func TestCreateWorkerInviteExpiresIn(t *testing.T) {
+	t.Parallel()
+
+	for _, expiresIn := range []string{"soon", "0s", "-1h", ""} {
+		stub := &inviteCoordinatorStub{}
+		a, _ := rolesAPI(stub)
+		_, err := a.CreateWorkerInvite(userContext(auth.RoleAdmin), openapiv1.CreateWorkerInviteRequestObject{
+			Body: &openapiv1.CreateWorkerInviteRequest{ExpiresIn: &expiresIn},
+		})
+		var apiErr *Error
+		require.ErrorAs(t, err, &apiErr, expiresIn)
+		assert.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus, expiresIn)
+		assert.Contains(t, apiErr.Message, "expiresIn", expiresIn)
+		assert.Nil(t, stub.created, "%q reaches no coordinator", expiresIn)
+	}
+}
+
+// The create response is the only one that contains the invite: no later
+// listing, join readiness report, or audit entry does (Spec 108 §Secrets in
+// Output).
+func TestWorkerInviteOnlyInCreateResponse(t *testing.T) {
+	t.Parallel()
+
+	stub := &inviteCoordinatorStub{readiness: []coordinator.JoinReadiness{{Report: &coordinatorv1.GetJoinReadinessResponse{}}}}
+	a, store := rolesAPI(stub)
+	ctx := userContext(auth.RoleAdmin)
+	created, err := a.CreateWorkerInvite(ctx, openapiv1.CreateWorkerInviteRequestObject{
+		Body: &openapiv1.CreateWorkerInviteRequest{Address: new("192.168.1.20:50055")},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, marshal(t, created), testInvite)
+
+	listed, err := a.ListWorkerInvites(ctx, openapiv1.ListWorkerInvitesRequestObject{})
+	require.NoError(t, err)
+	readiness, err := a.GetWorkerJoinReadiness(ctx, openapiv1.GetWorkerJoinReadinessRequestObject{})
+	require.NoError(t, err)
+	_, err = a.DeleteWorkerInvite(ctx, openapiv1.DeleteWorkerInviteRequestObject{InviteId: "invite-1"})
+	require.NoError(t, err)
+
+	for _, later := range []any{listed, readiness, store.entries} {
+		assert.NotContains(t, marshal(t, later), testInvite)
+	}
+}
+
+func marshal(t *testing.T, v any) string {
+	t.Helper()
+	data, err := json.Marshal(v)
+	require.NoError(t, err)
+	return string(data)
+}
+
+func TestListWorkerInvites(t *testing.T) {
+	t.Parallel()
+
+	a, _ := rolesAPI(&inviteCoordinatorStub{invites: []*coordinatorv1.InviteRecord{
+		{Id: "single", Kind: coordinatorv1.InviteKind_INVITE_KIND_SINGLE_USE, CreatedBy: "admin", CreatedAt: 1710000000, ExpiresAt: 1710086400, UseCount: 1, LastUsedAt: 1710003600, Address: "192.168.1.20:50055"},
+		{Id: "reusable", Kind: coordinatorv1.InviteKind_INVITE_KIND_REUSABLE, CreatedBy: "peer token", CreatedAt: 1710000000},
+	}})
+	resp, err := a.ListWorkerInvites(userContext(auth.RoleAdmin), openapiv1.ListWorkerInvitesRequestObject{})
+	require.NoError(t, err)
+	assert.Equal(t, openapiv1.ListWorkerInvites200JSONResponse{Invites: []openapiv1.WorkerInvite{
+		{
+			Id: "single", Kind: openapiv1.WorkerInviteKindSingleUse, CreatedBy: "admin", CreatedAt: "2024-03-09T16:00:00Z",
+			ExpiresAt: new("2024-03-10T16:00:00Z"), UseCount: 1, LastUsedAt: new("2024-03-09T17:00:00Z"), Address: new("192.168.1.20:50055"),
+		},
+		{Id: "reusable", Kind: openapiv1.WorkerInviteKindReusable, CreatedBy: "peer token", CreatedAt: "2024-03-09T16:00:00Z"},
+	}}, resp)
+}
+
+func TestDeleteWorkerInvite(t *testing.T) {
+	t.Parallel()
+
+	stub := &inviteCoordinatorStub{}
+	a, store := rolesAPI(stub)
+	resp, err := a.DeleteWorkerInvite(userContext(auth.RoleAdmin), openapiv1.DeleteWorkerInviteRequestObject{InviteId: "invite-1"})
+	require.NoError(t, err)
+	assert.Equal(t, openapiv1.DeleteWorkerInvite204Response{}, resp)
+	assert.Equal(t, "invite-1", stub.deleted)
+	require.Len(t, store.entries, 1)
+	assert.Equal(t, "worker_invite_delete", store.entries[0].Action)
+	assert.JSONEq(t, `{"invite_id":"invite-1"}`, store.entries[0].Details)
+}
+
+func TestGetWorkerJoinReadiness(t *testing.T) {
+	t.Parallel()
+
+	stub := &inviteCoordinatorStub{
+		readiness: []coordinator.JoinReadiness{
+			{
+				Coordinator: serviceregistry.HostInfo{ID: "coordinator-1", Host: "10.0.0.5", Port: 50055},
+				Report: &coordinatorv1.GetJoinReadinessResponse{
+					ListenHost: "0.0.0.0", Port: 50055, ConfigFile: "/etc/dagu/config.yaml",
+					HostSource:  &coordinatorv1.ConfigSource{Kind: coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_FLAG, Name: "--coordinator.host"},
+					Advertise:   "dagu.example.com",
+					Environment: coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_HOST,
+					Addresses:   []string{"192.168.1.20"},
+					BuiltinTls:  true, Ready: true,
+				},
+			},
+			{
+				Coordinator: serviceregistry.HostInfo{ID: "coordinator-2", Host: "10.0.0.6", Port: 50055},
+				Report: &coordinatorv1.GetJoinReadinessResponse{
+					ListenHost: "127.0.0.1", Port: 50055, ConfigFile: "/root/.config/dagu/config.yaml", LoopbackOnly: true,
+					HostSource:       &coordinatorv1.ConfigSource{Kind: coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_DEFAULT},
+					Environment:      coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_CONTAINER,
+					BuiltinTlsReason: coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_OWN_CERTIFICATES,
+				},
+			},
+			{
+				Coordinator: serviceregistry.HostInfo{ID: "coordinator-3", Host: "10.0.0.7", Port: 50055},
+				Err:         status.Error(codes.Unimplemented, "unknown method GetJoinReadiness"),
+			},
+		},
+		invites: []*coordinatorv1.InviteRecord{
+			{Id: "oldest", Address: "192.168.1.10:50055"},
+			{Id: "newer", Address: "192.168.1.20:50055"},
+			{Id: "newest"},
+		},
+	}
+	a, _ := rolesAPI(stub)
+	resp, err := a.GetWorkerJoinReadiness(userContext(auth.RoleAdmin), openapiv1.GetWorkerJoinReadinessRequestObject{})
+	require.NoError(t, err)
+	assert.Equal(t, openapiv1.GetWorkerJoinReadiness200JSONResponse{
+		Coordinators: []openapiv1.CoordinatorJoinReadiness{
+			{
+				InstanceId: "coordinator-1", Host: "10.0.0.5", Port: 50055,
+				Report: &openapiv1.JoinReadinessReport{
+					ListenHost: "0.0.0.0", Port: 50055, ConfigFile: "/etc/dagu/config.yaml",
+					HostSource:  &openapiv1.ConfigSource{Kind: openapiv1.ConfigSourceKindFlag, Name: new("--coordinator.host")},
+					Advertise:   new("dagu.example.com"),
+					Environment: new(openapiv1.HostEnvironmentHost),
+					Addresses:   []string{"192.168.1.20"},
+					BuiltinTLS:  true, Ready: true,
+				},
+			},
+			{
+				InstanceId: "coordinator-2", Host: "10.0.0.6", Port: 50055,
+				Report: &openapiv1.JoinReadinessReport{
+					ListenHost: "127.0.0.1", Port: 50055, ConfigFile: "/root/.config/dagu/config.yaml", LoopbackOnly: true,
+					HostSource:       &openapiv1.ConfigSource{Kind: openapiv1.ConfigSourceKindDefault},
+					Environment:      new(openapiv1.HostEnvironmentContainer),
+					Addresses:        []string{},
+					BuiltinTLSReason: new(openapiv1.BuiltinTLSReasonOwnCertificates),
+				},
+			},
+			{InstanceId: "coordinator-3", Host: "10.0.0.7", Port: 50055, Error: new(olderCoordinatorMessage)},
+		},
+		LastInviteAddress: new("192.168.1.20:50055"),
+	}, resp)
+}
+
+// Without a single report, the refusal of the coordinators is the answer.
+// Invites that cannot be read leave out the last invite's address only.
+func TestGetWorkerJoinReadinessFailures(t *testing.T) {
+	t.Parallel()
+
+	ctx := userContext(auth.RoleAdmin)
+	request := openapiv1.GetWorkerJoinReadinessRequestObject{}
+
+	a, _ := rolesAPI(&inviteCoordinatorStub{readiness: []coordinator.JoinReadiness{{Err: status.Error(codes.Unauthenticated, "missing peer token")}}})
+	_, err := a.GetWorkerJoinReadiness(ctx, request)
+	assert.Equal(t, http.StatusServiceUnavailable, httpStatus(t, err))
+
+	a, _ = rolesAPI(&inviteCoordinatorStub{membersErr: errors.New("no coordinators available")})
+	_, err = a.GetWorkerJoinReadiness(ctx, request)
+	assert.Equal(t, http.StatusServiceUnavailable, httpStatus(t, err))
+
+	a, _ = rolesAPI(&inviteCoordinatorStub{
+		readiness: []coordinator.JoinReadiness{{Report: &coordinatorv1.GetJoinReadinessResponse{}}},
+		err:       status.Error(codes.FailedPrecondition, "invites need the built-in CA"),
+	})
+	resp, err := a.GetWorkerJoinReadiness(ctx, request)
+	require.NoError(t, err)
+	ok, isOK := resp.(openapiv1.GetWorkerJoinReadiness200JSONResponse)
+	require.True(t, isOK)
+	assert.Len(t, ok.Coordinators, 1)
+	assert.Nil(t, ok.LastInviteAddress)
+}
