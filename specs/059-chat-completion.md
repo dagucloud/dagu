@@ -47,17 +47,27 @@ DAG params. The sub-DAG's declared outputs (`output:`) are JSON-encoded and
 returned to the model as the tool result content, in a `tool` role message
 addressed to the tool call's ID. The loop then sends another request
 including that tool result, repeating until a response has no tool calls.
+The sub-DAG-run gets the arguments as one JSON object of strings, so a quote
+or a space in a value cannot add or change a param.
 
-A tool call naming a DAG outside `with.tools`, or whose sub-DAG-run itself
-fails, is not fatal to the step: the result content reports the problem to
-the model (`tool "<name>" not found`, or the execution error), and the loop
-continues to request another response.
+A tool call naming a DAG outside `with.tools`, passing an argument that the
+tool's schema does not list, or whose sub-DAG-run itself fails, is not fatal
+to the step: the result content reports the problem to the model
+(`tool "<name>" not found`, `tool "<name>" has no input "<argument>"`, or the
+execution error), and the loop continues to request another response. An
+argument that the schema does not list starts no sub-DAG-run.
 
 `with.max_tool_iterations` bounds how many such request/tool-call rounds
 run, default 10. Reaching the limit does not fail the step: it is a second,
 equally successful termination path alongside the model responding with no
 further tool calls. A step with `output_schema` is the exception; see
 below.
+
+A tool DAG must not evaluate text that the model sets. The step fails when
+it starts if a command, a script or a command precondition of a tool DAG
+writes an input as `${params.NAME}`, `${env.NAME}` or `${params}`, or if a
+param or precondition `eval` reads an input. A command reads the input as a
+shell variable instead, such as `"$CITY"`.
 
 ### Structured output
 
