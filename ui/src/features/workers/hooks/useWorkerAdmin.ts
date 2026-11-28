@@ -7,7 +7,7 @@
  * @module features/workers/hooks
  */
 import { useCallback } from 'react';
-import useSWR, { useSWRConfig } from 'swr';
+import useSWR, { unstable_serialize, useSWRConfig } from 'swr';
 import { WorkerAccessReason, type components } from '@/api/v1/schema';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
@@ -115,6 +115,7 @@ export function invitesChanged(node: string) {
  */
 export function useWorkerInvites(enabled: boolean) {
   const client = useClient();
+  const { cache } = useSWRConfig();
   const remoteNode = useRemoteNode();
   const { data, error, mutate } = useSWR<WorkerInvitesList, unknown>(
     enabled ? invitesKey(remoteNode) : null,
@@ -136,6 +137,13 @@ export function useWorkerInvites(enabled: boolean) {
         .catch((err: unknown) => {
           const latest = latestReads.get(remoteNode);
           if (latest && latest !== read) return latest;
+          // A read the invites changed under, as by a join, cannot show its
+          // failure over the list either: the list stays until the next read.
+          const shown = cache.get(unstable_serialize(invitesKey(remoteNode)))
+            ?.data as WorkerInvitesList | undefined;
+          if (shown && inviteGeneration(remoteNode) !== generation) {
+            return shown;
+          }
           throw err;
         })
         .finally(() => {

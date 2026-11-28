@@ -14,10 +14,13 @@ import type { WorkerErrorAdvice } from '../hooks/useWorkerAdmin';
 export function WorkerError({
   advice,
   action,
+  title,
   className,
 }: {
   advice: WorkerErrorAdvice;
   action: boolean;
+  /** What did not happen, when the failure is one step of several. */
+  title?: string;
   className?: string;
 }) {
   return (
@@ -29,6 +32,7 @@ export function WorkerError({
         className
       )}
     >
+      {title && <p className="font-medium">{title}</p>}
       <p>{advice.cause}</p>
       <p className={cn(action && 'text-foreground')}>{advice.change}</p>
       {advice.detail && (

@@ -96,6 +96,24 @@ function renderInvites(
   };
 }
 
+// Holds each DELETE until the test answers it, in the order they came.
+function heldDeletes() {
+  const pending: Array<(answer: { status: number; body?: unknown }) => void> =
+    [];
+  server.del = () => new Promise((resolve) => pending.push(resolve));
+  return pending;
+}
+
+// Confirms the delete of an invite from its row.
+async function startDelete(id: string) {
+  await userEvent.click(
+    await screen.findByRole('button', {
+      name: new RegExp(`^Delete invite ${id}`),
+    })
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+}
+
 async function rows() {
   return screen.findAllByRole('listitem');
 }
@@ -424,18 +442,14 @@ describe('WorkerInvites', () => {
     expect(screen.queryByText(/Server message/)).not.toBeInTheDocument();
   });
 
-  // A delete that fails after its dialog was closed is still announced, in
-  // the list, and leaves a newer confirmation as it is.
+  // A delete that fails after its dialog was closed is announced in the
+  // list once no confirmation is open: under an open one the page is
+  // hidden from screen readers. A newer confirmation stays as it is.
   it('announces a delete that fails after its dialog was closed', async () => {
     server.invites = invitesAnswer([invite('inv-1'), invite('inv-2')]);
-    let answer: (value: { status: number; body: unknown }) => void = () =>
-      undefined;
-    server.del = () => new Promise((resolve) => (answer = resolve));
+    const pending = heldDeletes();
     renderInvites();
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Delete invite inv-1/ })
-    );
-    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await startDelete('inv-1');
     await userEvent.keyboard('{Escape}');
     await waitFor(() =>
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -446,22 +460,92 @@ describe('WorkerInvites', () => {
     const newer = screen.getByRole('dialog');
 
     await act(async () =>
-      answer(refused(503, 'server words', 'internal_error', 'no_coordinator'))
+      pending[0]!(
+        refused(503, 'server words', 'internal_error', 'no_coordinator')
+      )
     );
-
-    await screen.findByText('Invite inv-1 was not deleted.');
+    await act(() => Promise.resolve());
     expect(screen.getByRole('dialog')).toBe(newer);
     expect(within(newer).queryByRole('alert')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Invite inv-1 was not deleted.')
+    ).not.toBeInTheDocument();
 
     await userEvent.click(
       within(newer).getByRole('button', { name: 'Cancel' })
     );
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'No coordinator is running or reachable.'
-    );
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Invite inv-1 was not deleted.');
+    expect(alert).toHaveTextContent('No coordinator is running or reachable.');
     expect(document.body).not.toHaveTextContent('server words');
 
     await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  // The outcome of a delete outlives a switch to another node and back.
+  it('keeps a late delete failure across a node switch', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    const pending = heldDeletes();
+    const { rerender } = renderInvites();
+    await startDelete('inv-1');
+
+    server.node = 'node-b';
+    rerender();
+    await act(async () =>
+      pending[0]!(refused(503, '', 'internal_error', 'no_coordinator'))
+    );
+    server.node = 'local';
+    rerender();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Invite inv-1 was not deleted.'
+    );
+  });
+
+  // Each invite keeps its own late failure.
+  it('keeps the late failures of two invites', async () => {
+    server.invites = invitesAnswer([invite('inv-1'), invite('inv-2')]);
+    const pending = heldDeletes();
+    renderInvites();
+    await startDelete('inv-1');
+    await userEvent.keyboard('{Escape}');
+    await startDelete('inv-2');
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    );
+
+    await act(async () => {
+      pending[0]!(refused(503, '', 'internal_error', 'no_coordinator'));
+      pending[1]!(refused(503, '', 'internal_error', 'no_coordinator'));
+    });
+
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(2));
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts[0]).toHaveTextContent('Invite inv-1 was not deleted.');
+    expect(alerts[1]).toHaveTextContent('Invite inv-2 was not deleted.');
+  });
+
+  // A delete that succeeds clears the failure of an earlier one.
+  it('clears a late delete failure once a retry deletes the invite', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    const pending = heldDeletes();
+    renderInvites();
+    await startDelete('inv-1');
+    await userEvent.keyboard('{Escape}');
+    await act(async () =>
+      pending[0]!(refused(503, '', 'internal_error', 'no_coordinator'))
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Invite inv-1 was not deleted.'
+    );
+
+    server.invites = invitesAnswer([]);
+    await startDelete('inv-1');
+    await act(async () => pending[1]!({ status: 204 } as never));
+
+    expect(await screen.findByText('No invites')).toBeInTheDocument();
     expect(
       screen.queryByText('Invite inv-1 was not deleted.')
     ).not.toBeInTheDocument();
@@ -1029,6 +1113,46 @@ describe('WorkerInvites', () => {
     expect(reads()).toBe(2);
     expect(await rows()).toHaveLength(1);
     expect(screen.queryByText(/inv-stal/)).not.toBeInTheDocument();
+
+    await act(() => vi.advanceTimersByTimeAsync(JOIN_REREAD_DELAY_MS));
+    await waitFor(() => expect(reads()).toBe(3));
+    await waitFor(async () =>
+      expect((await rows())[0]).toHaveTextContent('Used')
+    );
+  });
+
+  // The same for a failed answer: it cannot replace the list with an error.
+  it('drops a failure that answers between a join and its read', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    server.invites = invitesAnswer([invite('inv-1')]);
+    const { update, refresh } = renderInvites([worker('worker-a')]);
+    expect(await rows()).toHaveLength(1);
+    let stale: (answer: { status: number; body: unknown }) => void = () =>
+      undefined;
+    const answers = [
+      () =>
+        new Promise<{ status: number; body: unknown }>(
+          (resolve) => (stale = resolve)
+        ),
+      () =>
+        invitesAnswer([
+          invite('inv-1', { useCount: 1, lastUsedAt: hoursFromNow(0) }),
+        ]),
+    ];
+    server.invites = () => answers.shift()!() as never;
+    refresh();
+    await waitFor(() => expect(reads()).toBe(2));
+
+    update([worker('worker-a'), worker('worker-b', { inviteId: 'inv-1' })]);
+    await act(async () =>
+      stale(refused(503, '', 'internal_error', 'no_coordinator'))
+    );
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    expect(reads()).toBe(2);
+    expect(await rows()).toHaveLength(1);
+    expect(
+      screen.queryByText('No coordinator is running or reachable.')
+    ).not.toBeInTheDocument();
 
     await act(() => vi.advanceTimersByTimeAsync(JOIN_REREAD_DELAY_MS));
     await waitFor(() => expect(reads()).toBe(3));
