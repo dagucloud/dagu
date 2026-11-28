@@ -862,6 +862,78 @@ describe('Remove', () => {
     expect(removals()[0]?.query.get('runs')).toBe('finish');
   });
 
+  // Runs that all end take the stop choice with them. A row the list drops
+  // afterwards shows as last listed, with no runs, so the confirmation
+  // cannot bring the stop choice back from the row at the click.
+  it('sends finish after the runs end and the row goes away', async () => {
+    const { update } = renderPage([
+      worker('worker-a1', { runningTasks: [task('etl', 'run-1')] }),
+    ]);
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
+    );
+
+    update([worker('worker-a1')]);
+    await within(dialog).findByText('It has no running runs.');
+    update([]);
+    expect(dialog).toHaveTextContent('It has no running runs.');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+
+    await waitFor(() => expect(removals()).toHaveLength(1));
+    expect(removals()[0]?.query.get('runs')).toBe('finish');
+  });
+
+  // Runs that start after the earlier ones ended need the stop choice made
+  // again.
+  it('asks for the stop choice again for runs that start later', async () => {
+    const { update } = renderPage([
+      worker('worker-a1', { runningTasks: [task('etl', 'run-1')] }),
+    ]);
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
+    );
+
+    update([worker('worker-a1')]);
+    await within(dialog).findByText('It has no running runs.');
+    update([worker('worker-a1', { runningTasks: [task('etl', 'run-2')] })]);
+
+    expect(
+      await within(dialog).findByRole('radio', {
+        name: /Remove after its runs finish/,
+      })
+    ).toBeChecked();
+    expect(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    ).toBeInTheDocument();
+  });
+
+  // A run is named by its DAG and its run ID; two DAGs can share a run ID.
+  it('lists the runs of two DAGs that share a run ID apart', async () => {
+    const { update } = renderPage([
+      worker('worker-a1', {
+        runningTasks: [task('etl', 'run-1'), task('report', 'run-1')],
+      }),
+    ]);
+    const dialog = await openRemove('worker-a1');
+    const runs = () =>
+      within(dialog)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent);
+    expect(runs()).toEqual(['etlrun-1', 'reportrun-1']);
+
+    update([
+      worker('worker-a1', {
+        runningTasks: [task('backup', 'run-2')],
+      }),
+    ]);
+
+    await waitFor(() => expect(runs()).toEqual(['backuprun-2']));
+  });
+
   // The count rides on the page's refresh of /workers: a new list shows the
   // new count with no reload and no request of its own.
   it('shows the runs left while removing', async () => {
@@ -1178,7 +1250,7 @@ describe('Remove', () => {
     ).not.toBeInTheDocument();
     expect(
       screen.getByText(
-        /no Remove, since it would connect again at once\. To stop one, stop it on its host/
+        /^Remove applies only to workers that joined with an invite\. A worker on TLS or Plaintext, one on its own certificates included, has no Remove: stop it on its host/
       )
     ).toBeInTheDocument();
   });

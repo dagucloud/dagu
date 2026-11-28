@@ -100,8 +100,8 @@ export const workerAdminMessages = defineMessages({
     'Removing ({count} runs left)': 'Removing ({count} runs left)',
     'Stop runs now': 'Stop runs now',
     'Stop runs now on {worker}': 'Stop runs now on {worker}',
-    'A worker on TLS or Plaintext has no certificate and no Remove, since it would connect again at once. To stop one, stop it on its host, or change the peer token if the coordinator requires one.':
-      'A worker on TLS or Plaintext has no certificate and no Remove, since it would connect again at once. To stop one, stop it on its host, or change the peer token if the coordinator requires one.',
+    'Remove applies only to workers that joined with an invite. A worker on TLS or Plaintext, one on its own certificates included, has no Remove: stop it on its host, or change what the coordinator accepts from it.':
+      'Remove applies only to workers that joined with an invite. A worker on TLS or Plaintext, one on its own certificates included, has no Remove: stop it on its host, or change what the coordinator accepts from it.',
     'This worker is no longer listed.': 'This worker is no longer listed.',
     'It may be removed already. The list shows its state.':
       'It may be removed already. The list shows its state.',
@@ -269,8 +269,8 @@ export const workerAdminMessages = defineMessages({
     'Removing ({count} runs left)': '正在移除（剩余 {count} 个运行）',
     'Stop runs now': '立即停止运行',
     'Stop runs now on {worker}': '立即停止 {worker} 上的运行',
-    'A worker on TLS or Plaintext has no certificate and no Remove, since it would connect again at once. To stop one, stop it on its host, or change the peer token if the coordinator requires one.':
-      '使用 TLS 或明文连接的 Worker 没有证书，也没有“移除”操作，因为它会立即重新连接。要停止它，请在其主机上停止；如果 Coordinator 要求 peer token，也可以更换 peer token。',
+    'Remove applies only to workers that joined with an invite. A worker on TLS or Plaintext, one on its own certificates included, has no Remove: stop it on its host, or change what the coordinator accepts from it.':
+      '“移除”仅适用于通过邀请加入的 Worker。使用 TLS 或明文连接的 Worker（包括使用自有证书的 Worker）没有“移除”操作：请在其主机上停止它，或更改 Coordinator 对它接受的凭据。',
     'This worker is no longer listed.': '此 Worker 已不在列表中。',
     'It may be removed already. The list shows its state.':
       '它可能已被移除。列表显示其当前状态。',
@@ -442,8 +442,8 @@ export const workerAdminMessages = defineMessages({
     'Removing ({count} runs left)': '削除中（残り {count} 件の実行）',
     'Stop runs now': '今すぐ実行を停止',
     'Stop runs now on {worker}': '{worker} の実行を今すぐ停止',
-    'A worker on TLS or Plaintext has no certificate and no Remove, since it would connect again at once. To stop one, stop it on its host, or change the peer token if the coordinator requires one.':
-      'TLS または平文で接続するワーカーには証明書がなく、すぐに再接続するため「削除」はありません。停止するには、そのホストで停止するか、コーディネーターが peer token を要求する場合はそれを変更してください。',
+    'Remove applies only to workers that joined with an invite. A worker on TLS or Plaintext, one on its own certificates included, has no Remove: stop it on its host, or change what the coordinator accepts from it.':
+      '「削除」は招待で参加したワーカーにのみ使えます。TLS または平文で接続するワーカー（独自の証明書を使うものを含む）には「削除」がありません。そのホストで停止するか、コーディネーターがそのワーカーから受け入れるものを変更してください。',
     'This worker is no longer listed.': 'このワーカーはもう一覧にありません。',
     'It may be removed already. The list shows its state.':
       'すでに削除された可能性があります。一覧に現在の状態が表示されます。',
@@ -615,8 +615,8 @@ export const workerAdminMessages = defineMessages({
     'Removing ({count} runs left)': 'Wird entfernt ({count} Läufe übrig)',
     'Stop runs now': 'Läufe jetzt stoppen',
     'Stop runs now on {worker}': 'Läufe auf {worker} jetzt stoppen',
-    'A worker on TLS or Plaintext has no certificate and no Remove, since it would connect again at once. To stop one, stop it on its host, or change the peer token if the coordinator requires one.':
-      'Ein Worker über TLS oder Klartext hat kein Zertifikat und kein Entfernen, da er sich sofort wieder verbinden würde. Um ihn zu stoppen, stoppen Sie ihn auf seinem Host, oder ändern Sie das Peer-Token, wenn der Coordinator eines verlangt.',
+    'Remove applies only to workers that joined with an invite. A worker on TLS or Plaintext, one on its own certificates included, has no Remove: stop it on its host, or change what the coordinator accepts from it.':
+      'Entfernen gilt nur für Worker, die mit einer Einladung beigetreten sind. Ein Worker über TLS oder Klartext, auch einer mit eigenen Zertifikaten, hat kein Entfernen: Stoppen Sie ihn auf seinem Host, oder ändern Sie, was der Coordinator von ihm akzeptiert.',
     'This worker is no longer listed.':
       'Dieser Worker ist nicht mehr gelistet.',
     'It may be removed already. The list shows its state.':
@@ -791,8 +791,8 @@ export const workerAdminMessages = defineMessages({
     'Stop runs now': 'Arrêter les exécutions maintenant',
     'Stop runs now on {worker}':
       'Arrêter les exécutions maintenant sur {worker}',
-    'A worker on TLS or Plaintext has no certificate and no Remove, since it would connect again at once. To stop one, stop it on its host, or change the peer token if the coordinator requires one.':
-      'Un worker en TLS ou en clair n’a ni certificat ni retrait, car il se reconnecterait aussitôt. Pour l’arrêter, arrêtez-le sur son hôte, ou changez le jeton de pair si le coordinateur en exige un.',
+    'Remove applies only to workers that joined with an invite. A worker on TLS or Plaintext, one on its own certificates included, has no Remove: stop it on its host, or change what the coordinator accepts from it.':
+      'Le retrait ne s’applique qu’aux workers qui ont rejoint avec une invitation. Un worker en TLS ou en clair, y compris avec ses propres certificats, n’a pas de retrait : arrêtez-le sur son hôte, ou changez ce que le coordinateur accepte de lui.',
     'This worker is no longer listed.': 'Ce worker n’est plus listé.',
     'It may be removed already. The list shows its state.':
       'Il est peut-être déjà retiré. La liste montre son état.',

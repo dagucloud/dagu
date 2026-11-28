@@ -65,9 +65,12 @@ function useLocalNode(): boolean {
 
 type ActionKind = 'remove' | 'stop';
 
+// The one column may not grow past the dialog, so a long worker ID wraps
+// instead of pushing the buttons off a narrow screen.
 const SCROLLING_DIALOG =
-  'sm:max-w-[500px] max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto]';
+  'sm:max-w-[500px] max-h-[calc(100dvh-2rem)] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto]';
 const SCROLLING_BODY = 'min-h-0 overflow-y-auto';
+const WRAPPING_HEADER = 'min-w-0 [overflow-wrap:anywhere]';
 
 // An open confirmation: the worker as the list showed it when the admin
 // clicked, the certificate it acts on, and its own number, so that a
@@ -98,6 +101,19 @@ export function WorkerActionsHost({
 }) {
   const [open, setOpen] = React.useState<OpenAction | null>(null);
   const requests = React.useRef(0);
+  const listed = open
+    ? workers.find((candidate) => candidate.id === open.worker.id)
+    : undefined;
+  // The open confirmation keeps the row as last listed, so a row the list
+  // drops later shows its latest runs, not those from the click.
+  React.useEffect(() => {
+    if (!listed) return;
+    setOpen((current) =>
+      current && current.worker.id === listed.id && current.worker !== listed
+        ? { ...current, worker: listed }
+        : current
+    );
+  }, [listed]);
   const start = React.useCallback((kind: ActionKind, worker: Worker) => {
     const certificateId = worker.certificateId;
     if (!certificateId) return;
@@ -109,12 +125,9 @@ export function WorkerActionsHost({
     []
   );
 
-  // The row as the latest list shows it, or as it was when the admin
-  // clicked once the list no longer has it.
-  const worker =
-    open &&
-    (workers.find((candidate) => candidate.id === open.worker.id) ??
-      open.worker);
+  // The row as the latest list shows it, or as it was last listed once
+  // the list no longer has it.
+  const worker = open && (listed ?? open.worker);
   return (
     <StartActionContext.Provider value={start}>
       {children}
@@ -257,7 +270,7 @@ export function WorkerActionsNote({ workers }: { workers: Worker[] }) {
         text={
           remoteOnly
             ? 'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.'
-            : 'A worker on TLS or Plaintext has no certificate and no Remove, since it would connect again at once. To stop one, stop it on its host, or change the peer token if the coordinator requires one.'
+            : 'Remove applies only to workers that joined with an invite. A worker on TLS or Plaintext, one on its own certificates included, has no Remove: stop it on its host, or change what the coordinator accepts from it.'
         }
       />
     </p>
@@ -418,6 +431,12 @@ function RemoveWorkerDialog({
   // The choice applies only while the worker has runs. Without them a
   // removal lets any run handed out meanwhile finish.
   const sentRuns = tasks.length > 0 ? runs : WorkerRemovalRuns.finish;
+  // Runs that are all gone take the stop choice with them; runs that start
+  // later need it chosen again.
+  const hasTasks = tasks.length > 0;
+  React.useEffect(() => {
+    if (!hasTasks) setRuns(WorkerRemovalRuns.finish);
+  }, [hasTasks]);
   const invite = lookup.invite;
   // The invite's expiry on the shared second clock, as the invites list
   // shows it: an invite that expires while the dialog is open admits no
@@ -502,6 +521,7 @@ function RemoveWorkerDialog({
       // A long list of runs or workers scrolls inside the dialog, so the
       // buttons stay on screen.
       contentClassName={SCROLLING_DIALOG}
+      headerClassName={WRAPPING_HEADER}
       bodyClassName={SCROLLING_BODY}
     >
       <div className="space-y-3 text-sm">
@@ -535,7 +555,10 @@ function RemoveWorkerDialog({
                 </legend>
                 <ul className="max-h-32 space-y-0.5 overflow-auto rounded border px-2 py-1 text-xs">
                   {tasks.map((task) => (
-                    <li key={task.dagRunId} className="flex min-w-0 gap-2">
+                    <li
+                      key={`${task.dagName}\n${task.dagRunId}`}
+                      className="flex min-w-0 gap-2"
+                    >
                       <span className="truncate font-medium">
                         {task.dagName}
                       </span>
@@ -798,6 +821,7 @@ function StopRunsDialog({
       // A long list of runs or workers scrolls inside the dialog, so the
       // buttons stay on screen.
       contentClassName={SCROLLING_DIALOG}
+      headerClassName={WRAPPING_HEADER}
       bodyClassName={SCROLLING_BODY}
     >
       <div className="space-y-2 text-sm">
