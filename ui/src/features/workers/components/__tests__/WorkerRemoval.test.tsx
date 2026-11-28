@@ -287,6 +287,82 @@ describe('Remove', () => {
     expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(2);
   });
 
+  // A retry deletes the invite the admin confirmed, not the one the row
+  // shows by then, and closes only once that delete went through.
+  it('retries the delete of the confirmed invite only', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+      invite('inv-new', { kind: WorkerInviteKind.reusable }),
+    ]);
+    const inviteAnswers = [
+      refused(503, '', 'internal_error', 'no_coordinator'),
+      refused(503, '', 'internal_error', 'no_coordinator'),
+      { status: 204 },
+    ];
+    server.del = (request) =>
+      request.path.endsWith('/certificate')
+        ? { status: 200, body: { state: 'removing' } }
+        : (inviteAnswers.shift() as never);
+    const { update } = renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
+    await screen.findAllByText('Reusable');
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: /Also delete the invite/ })
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+    await within(dialog).findByText('The invite was not deleted.');
+
+    update([
+      worker('worker-a1', {
+        certificateId: 'cert-new',
+        inviteId: 'inv-new',
+      }),
+    ]);
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Delete the invite' })
+    );
+    await waitFor(() =>
+      expect(
+        server.requests.filter((r) => r.path.includes('/workers/invites/'))
+      ).toHaveLength(2)
+    );
+    expect(screen.getByRole('dialog')).toBe(dialog);
+
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Delete the invite' })
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    );
+    expect(
+      server.requests
+        .filter((r) => r.method === 'DELETE' && r.path.includes('/invites/'))
+        .map((r) => r.path)
+    ).toEqual([
+      '/api/v1/workers/invites/inv-r',
+      '/api/v1/workers/invites/inv-r',
+      '/api/v1/workers/invites/inv-r',
+    ]);
+    expect(removals()).toHaveLength(1);
+  });
+
+  // The stop choice says what the server does: a cancel request to each
+  // run, and the worker removed within two minutes either way.
+  it('says the stop choice removes the worker within two minutes', async () => {
+    renderPage([worker('worker-a1', { runningTasks: [task('etl', 'run-1')] })]);
+
+    const dialog = await openRemove('worker-a1');
+
+    expect(
+      within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
+    ).toHaveAccessibleName(
+      /Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended\./
+    );
+  });
+
   // A confirmation stays locked to the certificate it opened for: once the
   // row showed another one, it stays locked when that row goes away too.
   it('stays locked after the replacement row goes away', async () => {
@@ -408,7 +484,10 @@ describe('Remove', () => {
       screen.getByRole('button', { name: 'Stop runs now on worker-a1' })
     );
     const dialog = screen.getByRole('dialog');
-    expect(dialog).toHaveTextContent('Each of its 2 runs gets a stop request');
+    // The worker is removed within two minutes whether or not its runs end.
+    expect(dialog).toHaveTextContent(
+      'Each of its 2 runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.'
+    );
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Stop runs' })
     );
@@ -682,6 +761,11 @@ describe('Remove', () => {
       refused(409, 'peer token worker', 'conflict', 'peer_token_worker'),
       'This worker connects with the peer token, so it would connect again at once.',
       'Stop it on its host, or change the peer token.',
+    ],
+    [
+      refused(409, 'own certificates', 'conflict', 'own_certificates'),
+      'The coordinator uses its own certificates, so it has no worker certificates to remove.',
+      'Stop the worker on its host, or change the peer token.',
     ],
     [
       refused(409, 'older', 'conflict', 'older_coordinator'),

@@ -258,8 +258,8 @@ export function WorkerActionsNote({ workers }: { workers: Worker[] }) {
   );
 }
 
-// The advice of a refused removal: the reasons only a removal has, and the
-// worker that is no longer listed.
+// The advice of a refused removal: the reasons whose shared text speaks of
+// invites, and the worker that is no longer listed.
 function removalAdvice(ts: (source: string) => string): {
   notFound: WorkerErrorAdvice;
   reasons: ReasonAdvice;
@@ -270,25 +270,17 @@ function removalAdvice(ts: (source: string) => string): {
       change: ts('It may be removed already. The list shows its state.'),
     },
     reasons: {
-      [WorkerAccessReason.certificate_changed]: () => ({
+      [WorkerAccessReason.own_certificates]: () => ({
         cause: ts(
-          'This worker no longer holds the certificate the list showed, as after it joined again.'
+          'The coordinator uses its own certificates, so it has no worker certificates to remove.'
         ),
-        change: ts(
-          'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.'
-        ),
+        change: ts('Stop the worker on its host, or change the peer token.'),
       }),
       [WorkerAccessReason.older_coordinator]: () => ({
         cause: ts(
           'The coordinator runs an earlier Dagu release that cannot remove workers.'
         ),
         change: ts('Upgrade the coordinator.'),
-      }),
-      [WorkerAccessReason.peer_token_worker]: () => ({
-        cause: ts(
-          'This worker connects with the peer token, so it would connect again at once.'
-        ),
-        change: ts('Stop it on its host, or change the peer token.'),
       }),
     },
   };
@@ -385,6 +377,11 @@ function RemoveWorkerDialog({
   // The removal goes first, and the invite is deleted only once the server
   // accepted it. Each step reports its own outcome.
   const [accepted, setAccepted] = React.useState(false);
+  // The invite the admin chose to delete when confirming. A retry deletes
+  // this one, whatever the rows show by then.
+  const [inviteToDelete, setInviteToDelete] = React.useState<string | null>(
+    null
+  );
   const [inviteError, setInviteError] = React.useState<unknown>(null);
   const locked = useLockedConfirmation(worker, certificateId);
 
@@ -404,16 +401,17 @@ function RemoveWorkerDialog({
     : [];
   const kubernetes = worker.environment === HostEnvironment.kubernetes;
 
-  const deleteChosenInvite = reusable && alsoDeleteInvite && !!invite;
-
   const submit = async () => {
     if (submitting || (locked && !accepted)) return;
     setSubmitting(true);
     setError(null);
     setInviteError(null);
+    let target = inviteToDelete;
     try {
       if (!accepted) {
+        target = reusable && alsoDeleteInvite && invite ? invite.id : null;
         await removeWorker({ id: worker.id, certificateId }, sentRuns);
+        setInviteToDelete(target);
         setAccepted(true);
       }
     } catch (err) {
@@ -423,9 +421,9 @@ function RemoveWorkerDialog({
       return;
     }
     rereadWorkers();
-    if (deleteChosenInvite && invite) {
+    if (target) {
       try {
-        await deleteInvite(invite.id);
+        await deleteInvite(target);
       } catch (err) {
         // An invite that is gone already needs no delete.
         if (!(err instanceof WorkerRequestError && err.status === 404)) {
@@ -507,7 +505,7 @@ function RemoveWorkerDialog({
               checked={runs === WorkerRemovalRuns.stop}
               onChange={() => setRuns(WorkerRemovalRuns.stop)}
               label="Stop its runs and remove"
-              detail="Each run is stopped as with Stop, and the worker is removed once they end."
+              detail="Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended."
             />
           </fieldset>
         )}
@@ -719,8 +717,8 @@ function StopRunsDialog({
           <I18nText
             text={
               count === 1
-                ? 'Its run gets a stop request, as with Stop. The worker is removed once it ends.'
-                : 'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.'
+                ? 'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.'
+                : 'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.'
             }
             values={{ count }}
           />

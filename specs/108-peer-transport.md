@@ -1320,13 +1320,17 @@ The Workers page is the list of workers on System status.
   certificate, or none, before the admin confirms, they say so and send
   nothing, also when that row later goes away; a new confirmation is
   needed.
-- Only the admin closes the confirmation and **Stop runs now**. They keep
+- The confirmation and **Stop runs now** close by themselves when every
+  step they took succeeded. Otherwise only the admin closes them: they keep
   their outcome when a refresh of the list changes or drops the worker's
   row, or fails, and a request that ends after its dialog was closed
   leaves a newer one open.
 - With running runs, the confirmation lists them and offers
   **Remove after its runs finish** (`finish`, the default) and
-  **Stop its runs and remove** (`stop`). A `removing` worker shows
+  **Stop its runs and remove** (`stop`), which sends a cancel request to
+  each run and removes the worker within two minutes, whether or not its
+  runs have ended. **Stop runs now** says the same. A `removing` worker
+  shows
   `Removing (<n> runs left)`, or `Removing (1 run left)`, and
   **Stop runs now** while it has runs. The count comes from the page's
   existing `/workers` refresh.
@@ -1336,9 +1340,9 @@ The Workers page is the list of workers on System status.
   once more before the removal can start. When the invites cannot be read,
   the confirmation says so and offers to read them again, and the removal
   stays available. The invite is deleted only after the server accepted
-  the removal. When that delete fails, the confirmation says the removal
-  was accepted and the invite was not deleted, and offers to delete it
-  again.
+  the removal, never before. When that delete fails, the confirmation says
+  the removal was accepted and the invite was not deleted, and offers to
+  delete that same invite again; it closes once that delete succeeds.
 - For a worker with `environment: kubernetes`, the confirmation says the pod
   keeps restarting until the Deployment is scaled down. A replacement pod
   can join again while its reusable invite is active, so the confirmation

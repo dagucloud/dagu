@@ -114,8 +114,8 @@ export const workerAdminMessages = defineMessages({
     'Remove after its runs finish': 'Remove after its runs finish',
     'It gets no new runs, and is removed when its last run ends.':
       'It gets no new runs, and is removed when its last run ends.',
-    'Each run is stopped as with Stop, and the worker is removed once they end.':
-      'Each run is stopped as with Stop, and the worker is removed once they end.',
+    'Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended.':
+      'Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended.',
     'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
       'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.',
     'Other workers on this invite: {workers}':
@@ -133,10 +133,10 @@ export const workerAdminMessages = defineMessages({
     'Remove and Stop runs now work on the local server only. Switch to it to use them.':
       'Remove and Stop runs now work on the local server only. Switch to it to use them.',
     'Stop runs': 'Stop runs',
-    'Its run gets a stop request, as with Stop. The worker is removed once it ends.':
-      'Its run gets a stop request, as with Stop. The worker is removed once it ends.',
-    'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
-      'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.',
+    'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
+      'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.',
+    'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.':
+      'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.',
     'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
       'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
@@ -146,6 +146,10 @@ export const workerAdminMessages = defineMessages({
     'The server accepted the removal.': 'The server accepted the removal.',
     'The invite was not deleted.': 'The invite was not deleted.',
     'Delete the invite': 'Delete the invite',
+    'The coordinator uses its own certificates, so it has no worker certificates to remove.':
+      'The coordinator uses its own certificates, so it has no worker certificates to remove.',
+    'Stop the worker on its host, or change the peer token.':
+      'Stop the worker on its host, or change the peer token.',
     'Invite {id} was not deleted.': 'Invite {id} was not deleted.',
     'The selected node has no peer token for its coordinator.':
       'The selected node has no peer token for its coordinator.',
@@ -272,8 +276,8 @@ export const workerAdminMessages = defineMessages({
     'Remove after its runs finish': '在其运行结束后移除',
     'It gets no new runs, and is removed when its last run ends.':
       '它不再获得新的运行，并在最后一个运行结束时被移除。',
-    'Each run is stopped as with Stop, and the worker is removed once they end.':
-      '每个运行都会像“停止”一样被停止，运行结束后移除该 Worker。',
+    'Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended.':
+      '每个运行都会收到取消请求，无论运行是否结束，该 Worker 都会在两分钟内被移除。',
     'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
       '它通过可重复使用的邀请加入，该邀请仍允许新的 Worker 加入，包括替代它的 Worker。',
     'Other workers on this invite: {workers}':
@@ -291,10 +295,10 @@ export const workerAdminMessages = defineMessages({
     'Remove and Stop runs now work on the local server only. Switch to it to use them.':
       '移除和立即停止运行仅适用于本地服务器。请切换到本地服务器后使用。',
     'Stop runs': '停止运行',
-    'Its run gets a stop request, as with Stop. The worker is removed once it ends.':
-      '其运行会像“停止”一样收到停止请求。运行结束后移除该 Worker。',
-    'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
-      '其 {count} 个运行都会像“停止”一样收到停止请求。运行结束后移除该 Worker。',
+    'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
+      '其运行会收到取消请求。无论运行是否结束，该 Worker 都会在两分钟内被移除。',
+    'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.':
+      '其 {count} 个运行都会收到取消请求。无论运行是否结束，该 Worker 都会在两分钟内被移除。',
     'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
       '此 Worker 已不再使用此对话框打开时显示的证书连接。请关闭此对话框，并为它重新确认。',
     'The invite it joined with no longer exists, so it lets no new worker join.':
@@ -304,6 +308,10 @@ export const workerAdminMessages = defineMessages({
     'The server accepted the removal.': '服务器已接受移除。',
     'The invite was not deleted.': '邀请未被删除。',
     'Delete the invite': '删除邀请',
+    'The coordinator uses its own certificates, so it has no worker certificates to remove.':
+      'Coordinator 使用自己的证书，因此没有可移除的 Worker 证书。',
+    'Stop the worker on its host, or change the peer token.':
+      '请在其主机上停止该 Worker，或更换 peer token。',
     'Invite {id} was not deleted.': '邀请 {id} 未被删除。',
     'The selected node has no peer token for its coordinator.':
       '所选节点没有其 Coordinator 的 peer token。',
@@ -434,8 +442,8 @@ export const workerAdminMessages = defineMessages({
     'Remove after its runs finish': '実行の終了後に削除',
     'It gets no new runs, and is removed when its last run ends.':
       '新しい実行を受け取らず、最後の実行が終わると削除されます。',
-    'Each run is stopped as with Stop, and the worker is removed once they end.':
-      '各実行は「停止」と同じく停止され、終わるとワーカーが削除されます。',
+    'Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended.':
+      '各実行に取り消し要求を送り、実行が終わったかどうかにかかわらず、2 分以内にワーカーを削除します。',
     'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
       '再利用可能な招待で参加しています。この招待では、このワーカーの代わりを含め、今後も新しいワーカーが参加できます。',
     'Other workers on this invite: {workers}':
@@ -453,10 +461,10 @@ export const workerAdminMessages = defineMessages({
     'Remove and Stop runs now work on the local server only. Switch to it to use them.':
       '削除と今すぐ実行を停止はローカルサーバーでのみ使えます。ローカルサーバーに切り替えてから使ってください。',
     'Stop runs': '実行を停止',
-    'Its run gets a stop request, as with Stop. The worker is removed once it ends.':
-      '実行に「停止」と同じ停止要求を送ります。終わるとワーカーが削除されます。',
-    'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
-      '{count} 件の実行それぞれに「停止」と同じ停止要求を送ります。終わるとワーカーが削除されます。',
+    'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
+      '実行に取り消し要求を送ります。実行が終わったかどうかにかかわらず、2 分以内にワーカーを削除します。',
+    'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.':
+      '{count} 件の実行それぞれに取り消し要求を送ります。実行が終わったかどうかにかかわらず、2 分以内にワーカーを削除します。',
     'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
       'このワーカーは、このダイアログを開いたときに表示した証明書で接続していません。このダイアログを閉じて、改めて確認してください。',
     'The invite it joined with no longer exists, so it lets no new worker join.':
@@ -466,6 +474,10 @@ export const workerAdminMessages = defineMessages({
     'The server accepted the removal.': 'サーバーは削除を受け付けました。',
     'The invite was not deleted.': '招待は削除されていません。',
     'Delete the invite': '招待を削除',
+    'The coordinator uses its own certificates, so it has no worker certificates to remove.':
+      'コーディネーターは独自の証明書を使っているため、削除できるワーカー証明書がありません。',
+    'Stop the worker on its host, or change the peer token.':
+      'そのホストでワーカーを停止するか、peer token を変更してください。',
     'Invite {id} was not deleted.': '招待 {id} は削除されませんでした。',
     'The selected node has no peer token for its coordinator.':
       '選択したノードには、そのコーディネーターの peer token がありません。',
@@ -597,8 +609,8 @@ export const workerAdminMessages = defineMessages({
     'Remove after its runs finish': 'Nach Ende seiner Läufe entfernen',
     'It gets no new runs, and is removed when its last run ends.':
       'Er erhält keine neuen Läufe und wird entfernt, wenn sein letzter Lauf endet.',
-    'Each run is stopped as with Stop, and the worker is removed once they end.':
-      'Jeder Lauf wird wie mit Stoppen gestoppt, und der Worker wird entfernt, sobald sie enden.',
+    'Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended.':
+      'Jeder Lauf erhält eine Abbruchanfrage, und der Worker wird innerhalb von zwei Minuten entfernt, ob seine Läufe geendet haben oder nicht.',
     'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
       'Er ist mit einer wiederverwendbaren Einladung beigetreten, mit der weiterhin neue Worker beitreten können, auch ein Ersatz für ihn.',
     'Other workers on this invite: {workers}':
@@ -616,10 +628,10 @@ export const workerAdminMessages = defineMessages({
     'Remove and Stop runs now work on the local server only. Switch to it to use them.':
       'Entfernen und Läufe jetzt stoppen funktionieren nur auf dem lokalen Server. Wechseln Sie zu ihm, um sie zu nutzen.',
     'Stop runs': 'Läufe stoppen',
-    'Its run gets a stop request, as with Stop. The worker is removed once it ends.':
-      'Sein Lauf erhält eine Stoppanfrage wie mit Stoppen. Der Worker wird entfernt, sobald er endet.',
-    'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
-      'Jeder seiner {count} Läufe erhält eine Stoppanfrage wie mit Stoppen. Der Worker wird entfernt, sobald sie enden.',
+    'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
+      'Sein Lauf erhält eine Abbruchanfrage. Der Worker wird innerhalb von zwei Minuten entfernt, ob der Lauf geendet hat oder nicht.',
+    'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.':
+      'Jeder seiner {count} Läufe erhält eine Abbruchanfrage. Der Worker wird innerhalb von zwei Minuten entfernt, ob sie geendet haben oder nicht.',
     'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
       'Dieser Worker verbindet sich nicht mehr mit dem Zertifikat, das beim Öffnen dieses Dialogs angezeigt wurde. Schließen Sie diesen Dialog und bestätigen Sie für ihn erneut.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
@@ -630,6 +642,10 @@ export const workerAdminMessages = defineMessages({
       'Der Server hat das Entfernen angenommen.',
     'The invite was not deleted.': 'Die Einladung wurde nicht gelöscht.',
     'Delete the invite': 'Einladung löschen',
+    'The coordinator uses its own certificates, so it has no worker certificates to remove.':
+      'Der Coordinator nutzt eigene Zertifikate und hat daher keine Worker-Zertifikate zum Entfernen.',
+    'Stop the worker on its host, or change the peer token.':
+      'Stoppen Sie den Worker auf seinem Host, oder ändern Sie das Peer-Token.',
     'Invite {id} was not deleted.': 'Die Einladung {id} wurde nicht gelöscht.',
     'The selected node has no peer token for its coordinator.':
       'Der ausgewählte Knoten hat kein Peer-Token für seinen Coordinator.',
@@ -761,8 +777,8 @@ export const workerAdminMessages = defineMessages({
     'Remove after its runs finish': 'Retirer après la fin de ses exécutions',
     'It gets no new runs, and is removed when its last run ends.':
       'Il ne reçoit plus de nouvelles exécutions et il est retiré à la fin de la dernière.',
-    'Each run is stopped as with Stop, and the worker is removed once they end.':
-      'Chaque exécution est arrêtée comme avec Arrêter, et le worker est retiré une fois qu’elles sont terminées.',
+    'Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended.':
+      'Chaque exécution reçoit une demande d’annulation, et le worker est retiré dans les deux minutes, que ses exécutions soient terminées ou non.',
     'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
       'Il a rejoint avec une invitation réutilisable, qui laisse encore rejoindre de nouveaux workers, y compris un remplaçant pour celui-ci.',
     'Other workers on this invite: {workers}':
@@ -780,10 +796,10 @@ export const workerAdminMessages = defineMessages({
     'Remove and Stop runs now work on the local server only. Switch to it to use them.':
       'Le retrait et l’arrêt immédiat des exécutions ne fonctionnent que sur le serveur local. Passez-y pour les utiliser.',
     'Stop runs': 'Arrêter les exécutions',
-    'Its run gets a stop request, as with Stop. The worker is removed once it ends.':
-      'Son exécution reçoit une demande d’arrêt, comme avec Arrêter. Le worker est retiré une fois qu’elle est terminée.',
-    'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
-      'Chacune de ses {count} exécutions reçoit une demande d’arrêt, comme avec Arrêter. Le worker est retiré une fois qu’elles sont terminées.',
+    'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
+      'Son exécution reçoit une demande d’annulation. Le worker est retiré dans les deux minutes, que l’exécution soit terminée ou non.',
+    'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.':
+      'Chacune de ses {count} exécutions reçoit une demande d’annulation. Le worker est retiré dans les deux minutes, qu’elles soient terminées ou non.',
     'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
       'Ce worker ne se connecte plus avec le certificat affiché à l’ouverture de cette boîte de dialogue. Fermez-la et confirmez à nouveau pour lui.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
@@ -793,6 +809,10 @@ export const workerAdminMessages = defineMessages({
     'The server accepted the removal.': 'Le serveur a accepté le retrait.',
     'The invite was not deleted.': 'L’invitation n’a pas été supprimée.',
     'Delete the invite': 'Supprimer l’invitation',
+    'The coordinator uses its own certificates, so it has no worker certificates to remove.':
+      'Le coordinateur utilise ses propres certificats, il n’a donc aucun certificat de worker à retirer.',
+    'Stop the worker on its host, or change the peer token.':
+      'Arrêtez le worker sur son hôte, ou changez le jeton de pair.',
     'Invite {id} was not deleted.': 'L’invitation {id} n’a pas été supprimée.',
     'The selected node has no peer token for its coordinator.':
       'Le nœud sélectionné n’a pas de jeton de pair pour son coordinateur.',
