@@ -151,7 +151,7 @@ func (h *Handler) DeleteInvite(ctx context.Context, req *coordinatorv1.DeleteInv
 	// An invite pasted in place of its ID never reaches the store, and the
 	// refusal does not repeat the ID, so the invite shows up in no error or
 	// log line.
-	notFound := status.Error(codes.NotFound, "no invite has this ID: list the invites to find their IDs")
+	notFound := status.Error(codes.NotFound, missingInviteMessage)
 	if strings.HasPrefix(req.Id, inviteVersion+".") {
 		return nil, notFound
 	}
@@ -174,9 +174,9 @@ func (h *Handler) requirePeerCA() error {
 		return nil
 	}
 	if h.joinReadiness.BuiltinTLSReason == coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_OWN_CERTIFICATES {
-		return status.Error(codes.FailedPrecondition, ownCertificatesMessage)
+		return refusalError(codes.FailedPrecondition, reasonOwnCertificates, ownCertificatesMessage)
 	}
-	return status.Error(codes.FailedPrecondition, caUnavailableMessage)
+	return refusalError(codes.FailedPrecondition, reasonCAUnavailable, caUnavailableMessage)
 }
 
 // newInvite returns a new invite for the CA certificate ca, and what its

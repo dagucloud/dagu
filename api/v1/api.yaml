@@ -23316,10 +23316,12 @@ components:
         Why a worker invite, removal, or join readiness call failed, in `Error.details.reason` and in a coordinator's `errorReason`, for a caller that picks an explanation. The message stays human-readable and may change; these names do not.
         - own_certificates: the coordinator uses peer.cert_file and peer.key_file, so it has no built-in CA.
         - ca_unavailable: the coordinator could not create or read its generated CA.
-        - peer_token_missing: the server has no peer token. Set peer.token, or run the server where it reads the coordinator's data directory.
+        - peer_token_missing: the server has no peer token. Set peer.token.
         - peer_token_mismatch: the server's peer token is not the coordinator's.
         - require_tls: the coordinator requires TLS and the server called over h2c, as with peer.insecure: true.
         - coordinator_refused: the coordinator refused the server for another reason, given in the message.
+        - coordinator_conflict: the coordinator cannot do it in its present state, for a reason given in the message.
+        - retry_later: the coordinator answered that it cannot do it yet. Try again shortly.
         - older_coordinator: the coordinator runs an earlier Dagu release without the call.
         - no_coordinator: no coordinator is running or reachable.
         - peer_token_worker: the worker connects with the peer token, so it cannot be removed.
@@ -23331,6 +23333,8 @@ components:
         - peer_token_mismatch
         - require_tls
         - coordinator_refused
+        - coordinator_conflict
+        - retry_later
         - older_coordinator
         - no_coordinator
         - peer_token_worker

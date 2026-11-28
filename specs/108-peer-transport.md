@@ -847,13 +847,16 @@ A coordinator reports, from its own host:
   | A worker on the peer token, for a removal | `409` |
   | A worker that no longer connects with or holds the named certificate, for a removal | `409` |
   | No coordinator is running or reachable | `503` |
-  | The coordinator refuses the server (`Unauthenticated`) | `503`, with the coordinator's reason: for a missing peer token, that the server needs `peer.token` or the coordinator's data directory; for `coordinator.require_tls`, that the server must not set `peer.insecure: true` |
+  | The coordinator refuses the server (`Unauthenticated`) | `503`, with the coordinator's reason: for a missing peer token, that the server needs `peer.token`; for `coordinator.require_tls`, that the server must not set `peer.insecure: true` |
 - Each such answer carries `details.reason`, a name that does not change
   with the message: `own_certificates`, `ca_unavailable`,
   `peer_token_missing`, `peer_token_mismatch`, `require_tls`,
-  `coordinator_refused`, `older_coordinator`, `no_coordinator`,
-  `peer_token_worker`, or `certificate_changed`. A coordinator in the join
-  readiness report that did not answer has the same name in `errorReason`.
+  `coordinator_refused`, `coordinator_conflict`, `retry_later`,
+  `older_coordinator`, `no_coordinator`, `peer_token_worker`, or
+  `certificate_changed`. A coordinator in the join readiness report that
+  did not answer has the same name in `errorReason`. The coordinator sends
+  the name as a status detail; the server names the refusals of an earlier
+  coordinator by their messages.
 - Each create, delete, and removal writes an audit entry with the invite ID
   or the worker and certificate IDs: `worker_invite_create`,
   `worker_invite_delete`, and `worker_remove`. No audit entry holds an
