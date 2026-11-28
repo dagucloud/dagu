@@ -394,7 +394,11 @@ export function ScopeList({ scopes }: { scopes: string[] }) {
   return (
     <div className="flex flex-wrap gap-1">
       {scopes.map((scope) => (
-        <Badge key={scope} variant="outline" className="font-mono">
+        <Badge
+          key={scope}
+          variant="outline"
+          className="h-auto min-h-5 max-w-full whitespace-normal break-all font-mono"
+        >
           {scope}
         </Badge>
       ))}

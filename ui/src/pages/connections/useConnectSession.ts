@@ -129,6 +129,8 @@ export function useConnectSession(name: string, workspace: string) {
   useEffect(() => {
     if (!polling || !handle || !expiresAt) return;
     const deadline = Date.parse(expiresAt);
+    // One read at a time, so an older answer never replaces a newer one.
+    let reading = false;
     return subscribeClock(POLL_INTERVAL_MS, () => {
       // The phase change ends this subscription.
       if (Date.now() >= deadline) {
@@ -138,9 +140,15 @@ export function useConnectSession(name: string, workspace: string) {
         });
         return;
       }
-      read(handle).catch(() => {
-        // A failed request is retried on the next tick.
-      });
+      if (reading) return;
+      reading = true;
+      read(handle)
+        .catch(() => {
+          // A failed request is retried on the next tick.
+        })
+        .finally(() => {
+          reading = false;
+        });
     });
   }, [polling, handle, expiresAt, read]);
 
@@ -180,15 +188,18 @@ export function useConnectSession(name: string, workspace: string) {
       }
     } catch (err) {
       popup?.close();
-      setError(messageOf(err, ts('Could not start signing in.')));
+      if (started === generation.current) {
+        setError(messageOf(err, ts('Could not start signing in.')));
+      }
     } finally {
-      setBusy(false);
+      if (started === generation.current) setBusy(false);
     }
   }, [client, params, cancel, ts]);
 
   const complete = useCallback(
     async (redirectUrl: string) => {
       if (!session) return;
+      const started = generation.current;
       setBusy(true);
       setError(null);
       try {
@@ -196,13 +207,16 @@ export function useConnectSession(name: string, workspace: string) {
           '/connections/{name}/authorization/complete',
           { params, body: { redirectUrl } }
         );
+        if (started !== generation.current) return;
         // A refused consent fails the session, which the read reports.
         if (apiError) setError(messageOf(apiError, ts('Could not sign in.')));
         await read(session.session);
       } catch (err) {
-        setError(messageOf(err, ts('Could not sign in.')));
+        if (started === generation.current) {
+          setError(messageOf(err, ts('Could not sign in.')));
+        }
       } finally {
-        setBusy(false);
+        if (started === generation.current) setBusy(false);
       }
     },
     [client, params, session, read, ts]
@@ -210,6 +224,7 @@ export function useConnectSession(name: string, workspace: string) {
 
   const confirm = useCallback(async () => {
     if (!session) return false;
+    const started = generation.current;
     setBusy(true);
     setError(null);
     try {
@@ -217,19 +232,22 @@ export function useConnectSession(name: string, workspace: string) {
         '/connections/{name}/authorization/confirm',
         { params, body: { session: session.session } }
       );
+      // A reset or a new start while the request ran owns the dialog now.
+      if (started !== generation.current) return false;
       if (apiError) {
         throw new Error(messageOf(apiError, ts('Could not confirm.')));
       }
       setState({ phase: ConnectionAuthorizationPhase.connected });
       return true;
     } catch (err) {
+      if (started !== generation.current) return false;
       setError(messageOf(err, ts('Could not confirm.')));
       // A session that ended, such as one past its expiry, then reads as
       // failed, which offers another start.
       await read(session.session).catch(() => {});
       return false;
     } finally {
-      setBusy(false);
+      if (started === generation.current) setBusy(false);
     }
   }, [client, params, session, read, ts]);
 

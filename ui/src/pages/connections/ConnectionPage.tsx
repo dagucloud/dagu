@@ -115,6 +115,9 @@ function ConnectionView({
   const [testing, setTesting] = useState(false);
   const [probes, setProbes] = useState<ConnectionProbe[] | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Advances on each confirmed reconnect, which may sign in another account,
+  // so the tools panel lists that account's tools.
+  const [reconnects, setReconnects] = useState(0);
   const params = {
     path: { name: connection.name },
     query: { workspace: connection.workspace, remoteNode: LOCAL_NODE },
@@ -290,6 +293,7 @@ function ConnectionView({
         <section className="card-obsidian p-3">
           <h2 className="mb-2 text-sm font-semibold">{ts('Tools')}</h2>
           <ConnectionTools
+            key={reconnects}
             name={connection.name}
             workspace={connection.workspace}
           />
@@ -301,7 +305,10 @@ function ConnectionView({
           connection={connection}
           open={connecting}
           onClose={() => setConnecting(false)}
-          onConnected={onChanged}
+          onConnected={() => {
+            setReconnects((count) => count + 1);
+            onChanged();
+          }}
         />
       )}
 
