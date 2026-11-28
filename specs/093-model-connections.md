@@ -211,10 +211,10 @@ This spec adds these transitions to Spec 107, for the grants `api_key` and
 - A change that adds or changes a base URL or a models URL needs the key
   again in the same request, so no one can send a stored key to a URL of
   their choosing.
-- The base URLs and `models_url` of a `custom` connection are write-only
-  past their origin, since a path or query can hold a secret. Reads,
-  catalog errors, and audit entries show
-  only the origin.
+- Each base URL and models URL is a credential past its origin, since a
+  path or query can hold a secret. Dagu stores it encrypted, as the key.
+  Reads, catalog errors, and audit entries show only the origin, and the
+  gateway removes it from every response, as it removes the key.
 
 ### Presets
 
@@ -362,9 +362,10 @@ A CLI step takes the first of these that applies:
   Without it, both keep their Spec 067 behavior. Each `fallback` entry
   takes the same keys. A step whose `provider` is a reference cannot
   have `connection`, since its meaning depends on the provider.
-- With `connection`, a CLI option that would change the CLI's provider,
-  base URL, credential, or server, such as `attach` for `opencode`, fails
-  validation with `option_conflict`. Each adapter lists such options.
+- A step that uses a model connection, by any rule above, cannot have a
+  CLI option that changes the CLI's provider, base URL, credential, or
+  server, such as `attach` or `managed: true` for `opencode`. Such a step
+  fails with `option_conflict`. Each adapter lists such options.
 
 ### Choosing the Protocol
 
@@ -443,9 +444,8 @@ conformance test confirms them.
 - An adapter lists the aliases of its CLI, such as `sonnet` and `opus` for
   `claude`. The editor offers them, and they pass the editor's model
   warning. Dagu passes an alias to the CLI unchanged.
-- The `opencode` adapter covers the CLI only. An `opencode` step with
-  `connection` runs the CLI, and with `managed: true` it fails validation
-  with `adapter_missing`.
+- The `opencode` adapter covers the CLI only. An `opencode` step that
+  uses a model connection runs the CLI, never the managed server.
 - Another built-in harness provider, such as `copilot`, `cursor`, `gemini`, or
   `aider`, has no adapter. A step that gives it `connection` fails
   validation with `adapter_missing`.
@@ -600,10 +600,11 @@ No entry holds a key or a value derived from it.
   custom harness keeps `connection` as a flag, and no rule of this spec
   applies to it
 - an effort level that the CLI does not accept: `effort_unsupported`
-- with `connection`, a CLI option that changes the CLI's provider, base
-  URL, credential, or server: `option_conflict`
 
 Admission, at the start of a run and in the editor, fails with:
+
+- `option_conflict`: a step that uses a model connection has a CLI option
+  that changes the CLI's provider, base URL, credential, or server
 
 - a connection that the run's project lacks, as Spec 107 states
 - `protocol_mismatch`: the connection serves none of the consumer's
