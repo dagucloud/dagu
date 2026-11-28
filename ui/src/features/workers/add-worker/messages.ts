@@ -6,6 +6,7 @@ import { defineMessages } from '@/features/workflow-workspace/messages/define';
 /** The static messages of the Add worker dialog. */
 export const addWorkerMessages = defineMessages({
   en: {
+    'IP address or DNS name': 'IP address or DNS name',
     'Add worker': 'Add worker',
     'Run a worker on another machine. It joins this Dagu with an invite.':
       'Run a worker on another machine. It joins this Dagu with an invite.',
@@ -75,6 +76,7 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Shown after steps 1 and 2',
   },
   'zh-CN': {
+    'IP address or DNS name': 'IP 地址或 DNS 名称',
     'Add worker': '添加 Worker',
     'Run a worker on another machine. It joins this Dagu with an invite.':
       '在另一台机器上运行 Worker。它通过邀请加入此 Dagu。',
@@ -140,6 +142,7 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': '完成步骤 1 和 2 后显示',
   },
   ja: {
+    'IP address or DNS name': 'IP アドレスまたは DNS 名',
     'Add worker': 'ワーカーを追加',
     'Run a worker on another machine. It joins this Dagu with an invite.':
       '別のマシンでワーカーを実行します。ワーカーは招待でこの Dagu に参加します。',
@@ -210,6 +213,7 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'ステップ 1 と 2 の後に表示',
   },
   de: {
+    'IP address or DNS name': 'IP-Adresse oder DNS-Name',
     'Add worker': 'Worker hinzufügen',
     'Run a worker on another machine. It joins this Dagu with an invite.':
       'Einen Worker auf einem anderen Rechner ausführen. Er tritt diesem Dagu mit einer Einladung bei.',
@@ -281,6 +285,7 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Erscheint nach Schritt 1 und 2',
   },
   fr: {
+    'IP address or DNS name': 'Adresse IP ou nom DNS',
     'Add worker': 'Ajouter un worker',
     'Run a worker on another machine. It joins this Dagu with an invite.':
       'Exécutez un worker sur une autre machine. Il rejoint ce Dagu avec une invitation.',

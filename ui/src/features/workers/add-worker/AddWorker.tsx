@@ -226,7 +226,7 @@ function AddressFields({
       <div className="flex gap-2">
         <Input
           aria-label={ts('Address')}
-          placeholder="192.168.1.20"
+          placeholder={ts('IP address or DNS name')}
           className="flex-1"
           required
           value={address.host}

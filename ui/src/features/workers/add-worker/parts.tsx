@@ -86,7 +86,10 @@ export function Step({
   );
 }
 
-/** A block of shell or config text with a button that copies exactly it. */
+/**
+ * A block of shell or config text with a button that copies exactly it. Long
+ * lines wrap on screen only.
+ */
 export function CommandBlock({
   text,
   label,
@@ -99,7 +102,7 @@ export function CommandBlock({
   const { ts } = useI18n();
   return (
     <div className={cn('relative', className)}>
-      <pre className="max-h-72 overflow-auto rounded-md border bg-muted px-3 py-2 pr-10 font-mono text-xs leading-relaxed whitespace-pre">
+      <pre className="max-h-72 overflow-auto rounded-md border bg-muted px-3 py-2 pr-10 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all">
         {text}
       </pre>
       <CopyButton
