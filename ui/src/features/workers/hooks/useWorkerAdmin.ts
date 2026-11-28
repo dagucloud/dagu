@@ -7,7 +7,6 @@
  * @module features/workers/hooks
  */
 import { useCallback } from 'react';
-import { useSWRConfig } from 'swr';
 import { ErrorCode, WorkerAccessReason } from '@/api/v1/schema';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient, useQuery } from '@/hooks/api';
@@ -66,17 +65,6 @@ export function useWorkerInvites(enabled: boolean) {
  */
 export function useWorkerActions() {
   const client = useClient();
-  const { mutate } = useSWRConfig();
-
-  // Rereads what a change touched once, so it shows at once, also while the
-  // page's auto refresh is off.
-  const reread = useCallback(
-    (path: '/workers/invites') =>
-      mutate((key) => Array.isArray(key) && key[1] === path).then(
-        () => undefined
-      ),
-    [mutate]
-  );
 
   const deleteInvite = useCallback(
     async (inviteId: string) => {
@@ -91,7 +79,7 @@ export function useWorkerActions() {
     [client]
   );
 
-  return { deleteInvite, reread };
+  return { deleteInvite };
 }
 
 function requestError(status: number, body: unknown): WorkerRequestError {

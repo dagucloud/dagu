@@ -16,6 +16,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import { cn } from '@/lib/utils';
 import {
+  WorkerRequestError,
   describeWorkerError,
   type WorkerErrorAdvice,
   useWorkerActions,
@@ -85,38 +86,51 @@ export function shortInviteId(id: string): string {
   return id.slice(0, 8);
 }
 
-/**
- * WorkerInvites lists the invites that let workers on other hosts join, for
- * admins. `workers` is the page's workers list, undefined until it loads, and
- * `live` its auto refresh.
- */
-function WorkerInvites({
-  workers,
-  live,
-}: {
+interface WorkerInvitesProps {
+  /** The page's workers list, undefined until it loads. */
   workers: Worker[] | undefined;
+  /** Whether the page's auto refresh is on. */
   live: boolean;
-}) {
-  const isAdmin = useIsAdmin();
-  if (!isAdmin) return null;
-  return <InviteList workers={workers} live={live} />;
+  /** The count of the page's manual refreshes; each one reads again. */
+  refreshes: number;
 }
 
-function InviteList({
-  workers,
-  live,
-}: {
-  workers: Worker[] | undefined;
-  live: boolean;
-}) {
+/**
+ * WorkerInvites lists the invites that let workers on other hosts join, for
+ * admins.
+ */
+function WorkerInvites(props: WorkerInvitesProps) {
+  const isAdmin = useIsAdmin();
+  const remoteNode = useRemoteNode();
+  if (!isAdmin) return null;
+  // Another node has other workers and invites: the list starts over, with
+  // that node's first workers list as the baseline and one read.
+  return <InviteList key={remoteNode} {...props} />;
+}
+
+// A confirmation, with its own number so that a delete that ends after its
+// dialog was closed cannot close a newer one.
+interface Deleting {
+  invite: WorkerInvite;
+  request: number;
+}
+
+function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
   const { ts } = useI18n();
   const { invites, error, isLoading, mutate } = useWorkerInvites(true);
-  const [deleting, setDeleting] = React.useState<WorkerInvite | null>(null);
+  const [deleting, setDeleting] = React.useState<Deleting | null>(null);
+  const requests = React.useRef(0);
+  const remoteNode = useRemoteNode();
   // The server deletes invites on its own coordinators only, never on a
   // remote node, which still lists them.
-  const local = useRemoteNode() === 'local';
+  const local = remoteNode === 'local';
   const read = React.useCallback(() => void mutate(), [mutate]);
-  useInviteReads(workers, live, read);
+  const requestRead = useInviteReads({ workers, live, refreshes, read });
+  const closeDialog = React.useCallback(
+    (request: number) =>
+      setDeleting((current) => (current?.request === request ? null : current)),
+    []
+  );
 
   // Rerenders when an invite expires or leaves the list, also while the
   // page's refresh is paused. The list itself is not read again for it.
@@ -179,7 +193,11 @@ function InviteList({
               key={invite.id}
               invite={invite}
               now={now}
-              onDelete={local ? () => setDeleting(invite) : undefined}
+              onDelete={
+                local
+                  ? () => setDeleting({ invite, request: ++requests.current })
+                  : undefined
+              }
             />
           ))}
         </ul>
@@ -200,9 +218,10 @@ function InviteList({
       {body}
       {deleting && (
         <DeleteInviteDialog
-          key={deleting.id}
-          invite={deleting}
-          onClose={() => setDeleting(null)}
+          key={deleting.request}
+          invite={deleting.invite}
+          onClose={() => closeDialog(deleting.request)}
+          onChanged={requestRead}
         />
       )}
     </div>
@@ -210,43 +229,64 @@ function InviteList({
 }
 
 /**
- * Decides when the invites list reads the invites: once on open, once when
- * the page's refresh resumes, and once after workers join, since a join uses
- * an invite. A worker that leaves and comes back is no join. Joins within
+ * Decides when the invites list reads the invites: once on open, once when the page's refresh resumes or is refreshed by
+ * hand, once after a delete, and once after workers join, since a join uses
+ * an invite. A join is a worker ID, certificate, or invite not listed
+ * before, so a worker that leaves and comes back is no join. Joins within
  * JOIN_REREAD_DELAY_MS cost one read. Nothing is read while the tab is
- * hidden; a read that falls due then waits until it shows.
+ * hidden; a read that falls due then waits until it shows. Returns the
+ * function that asks for a read.
  */
-function useInviteReads(
-  workers: Worker[] | undefined,
-  live: boolean,
-  read: () => void
-) {
+function useInviteReads({
+  workers,
+  live,
+  refreshes,
+  read,
+}: {
+  workers: Worker[] | undefined;
+  live: boolean;
+  refreshes: number;
+  read: () => void;
+}): () => void {
   const visible = usePageVisible();
   const [due, setDue] = React.useState<{ delay: number } | null>({
     delay: 0,
   });
+  const requestRead = React.useCallback(() => setDue({ delay: 0 }), []);
 
-  const ids = workers?.map((worker) => worker.id).join('\n');
   const seen = React.useRef<Set<string> | null>(null);
+
+  const joins = workers
+    ?.map((worker) =>
+      [worker.id, worker.certificateId ?? '', worker.inviteId ?? ''].join(' ')
+    )
+    .join('\n');
   React.useEffect(() => {
-    if (ids === undefined) return;
-    const listed = ids ? ids.split('\n') : [];
+    if (joins === undefined) return;
+    const listed = joins ? joins.split('\n') : [];
     if (seen.current === null) {
       seen.current = new Set(listed);
       return;
     }
     const known = seen.current;
-    const joined = listed.filter((id) => !known.has(id));
+    const joined = listed.filter((entry) => !known.has(entry));
     if (joined.length === 0) return;
-    joined.forEach((id) => known.add(id));
+    joined.forEach((entry) => known.add(entry));
     setDue({ delay: JOIN_REREAD_DELAY_MS });
-  }, [ids]);
+  }, [joins]);
 
   const wasLive = React.useRef(live);
   React.useEffect(() => {
-    if (live && !wasLive.current) setDue({ delay: 0 });
+    if (live && !wasLive.current) requestRead();
     wasLive.current = live;
-  }, [live]);
+  }, [live, requestRead]);
+
+  const handled = React.useRef(refreshes);
+  React.useEffect(() => {
+    if (handled.current === refreshes) return;
+    handled.current = refreshes;
+    requestRead();
+  }, [refreshes, requestRead]);
 
   React.useEffect(() => {
     if (!due || !visible) return;
@@ -256,6 +296,8 @@ function useInviteReads(
     }, due.delay);
     return () => clearTimeout(timer);
   }, [due, visible, read]);
+
+  return requestRead;
 }
 
 /** The advice for an invite ID that the coordinator does not know. */
@@ -346,7 +388,7 @@ function InviteRow({
         </span>
         <span className="tabular-nums @3xl:text-right">
           {invite.useCount}
-          <span className="@3xl:hidden">
+          <span className="@3xl:sr-only">
             {' '}
             <I18nText text={invite.useCount === 1 ? 'use' : 'uses'} />
           </span>
@@ -360,6 +402,9 @@ function InviteRow({
           )}
         </span>
         <span>
+          <span className="sr-only">
+            <I18nText text="State" />{' '}
+          </span>
           <I18nText text={STATE_TEXT[state]} />
         </span>
       </div>
@@ -367,28 +412,44 @@ function InviteRow({
   );
 }
 
+// A label that a narrow list shows before its value. A wide list shows the
+// header row instead and keeps the label for screen readers, since the
+// header row is not part of the list.
 function NarrowLabel({ text }: { text: string }) {
   return (
-    <span className="@3xl:hidden">
+    <span className="@3xl:sr-only">
       <I18nText text={text} />{' '}
     </span>
   );
 }
 
+// The advice for a delete of an invite that is already gone: the list is
+// read again, and there is nothing left to delete.
+function deleteGone(ts: (source: string) => string): WorkerErrorAdvice {
+  return {
+    cause: ts('This invite is already gone.'),
+    change: ts('The list is read again. Close this dialog.'),
+  };
+}
+
 function DeleteInviteDialog({
   invite,
   onClose,
+  onChanged,
 }: {
   invite: WorkerInvite;
   onClose: () => void;
+  /** Asks the list to read the invites again. */
+  onChanged: () => void;
 }) {
   const { ts } = useI18n();
-  const { deleteInvite, reread } = useWorkerActions();
+  const { deleteInvite } = useWorkerActions();
   const [error, setError] = React.useState<unknown>(null);
   const [submitting, setSubmitting] = React.useState(false);
+  const gone = error instanceof WorkerRequestError && error.status === 404;
 
   const submit = async () => {
-    if (submitting) return;
+    if (submitting || gone) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -398,7 +459,7 @@ function DeleteInviteDialog({
       setError(err);
     } finally {
       setSubmitting(false);
-      void reread('/workers/invites');
+      onChanged();
     }
   };
 
@@ -409,7 +470,7 @@ function DeleteInviteDialog({
       visible
       dismissModal={onClose}
       onSubmit={() => void submit()}
-      submitDisabled={submitting}
+      submitDisabled={submitting || gone}
       initialFocus="cancel"
     >
       <div className="space-y-2 text-sm">
@@ -435,7 +496,7 @@ function DeleteInviteDialog({
             action
             advice={describeWorkerError(
               error,
-              { notFound: inviteGone(ts) },
+              { notFound: deleteGone(ts) },
               ts
             )}
           />

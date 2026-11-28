@@ -41,6 +41,8 @@ function SystemStatus() {
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [autoRefresh, setAutoRefresh] = React.useState(true);
   const [lastUpdateTime, setLastUpdateTime] = React.useState<Date>(new Date());
+  // Each manual refresh reads the invites list again.
+  const [refreshes, setRefreshes] = React.useState(0);
 
   React.useEffect(() => {
     appBarContext.setTitle('System Status');
@@ -139,6 +141,7 @@ function SystemStatus() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
+    setRefreshes((count) => count + 1);
     try {
       await Promise.all([
         mutateResource(),
@@ -279,7 +282,11 @@ function SystemStatus() {
           }
         />
       </div>
-      <WorkerInvites workers={workersData?.workers} live={autoRefresh} />
+      <WorkerInvites
+        workers={workersData?.workers}
+        live={autoRefresh}
+        refreshes={refreshes}
+      />
 
       {/* Resource Usage */}
       <h2 className="text-xl font-semibold mt-8 mb-4">

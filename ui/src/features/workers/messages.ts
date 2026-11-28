@@ -69,6 +69,9 @@ export const workerAdminMessages = defineMessages({
     'The coordinator runs an earlier Dagu release without worker invites.':
       'The coordinator runs an earlier Dagu release without worker invites.',
     'Upgrade the coordinator.': 'Upgrade the coordinator.',
+    'This invite is already gone.': 'This invite is already gone.',
+    'The list is read again. Close this dialog.':
+      'The list is read again. Close this dialog.',
   },
   'zh-CN': {
     'Only admins can manage workers and invites.':
@@ -132,6 +135,9 @@ export const workerAdminMessages = defineMessages({
     'The coordinator runs an earlier Dagu release without worker invites.':
       'Coordinator 运行的是不支持 Worker 邀请的较早 Dagu 版本。',
     'Upgrade the coordinator.': '请升级 Coordinator。',
+    'This invite is already gone.': '此邀请已不存在。',
+    'The list is read again. Close this dialog.':
+      '列表将重新读取。请关闭此对话框。',
   },
   ja: {
     'Only admins can manage workers and invites.':
@@ -197,6 +203,9 @@ export const workerAdminMessages = defineMessages({
       'コーディネーターはワーカー招待のない以前の Dagu を動かしています。',
     'Upgrade the coordinator.':
       'コーディネーターをアップグレードしてください。',
+    'This invite is already gone.': 'この招待はすでにありません。',
+    'The list is read again. Close this dialog.':
+      '一覧を読み直します。このダイアログを閉じてください。',
   },
   de: {
     'Only admins can manage workers and invites.':
@@ -262,6 +271,9 @@ export const workerAdminMessages = defineMessages({
     'The coordinator runs an earlier Dagu release without worker invites.':
       'Der Coordinator läuft mit einer älteren Dagu-Version ohne Worker-Einladungen.',
     'Upgrade the coordinator.': 'Aktualisieren Sie den Coordinator.',
+    'This invite is already gone.': 'Diese Einladung gibt es schon nicht mehr.',
+    'The list is read again. Close this dialog.':
+      'Die Liste wird neu gelesen. Schließen Sie diesen Dialog.',
   },
   fr: {
     'Only admins can manage workers and invites.':
@@ -327,5 +339,8 @@ export const workerAdminMessages = defineMessages({
     'The coordinator runs an earlier Dagu release without worker invites.':
       'Le coordinateur exécute une version antérieure de Dagu sans invitations de workers.',
     'Upgrade the coordinator.': 'Mettez à jour le coordinateur.',
+    'This invite is already gone.': 'Cette invitation n’existe déjà plus.',
+    'The list is read again. Close this dialog.':
+      'La liste est relue. Fermez cette boîte de dialogue.',
   },
 });

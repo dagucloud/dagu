@@ -1330,10 +1330,12 @@ The Workers page is the list of workers on System status.
   names the invite by its short ID, kind, and creation time. An invite that
   was used up or expired shows as such for 7 days after it ended, then
   leaves the list, also while the page's refresh is paused.
-- The list reads the invites when the page opens, when its refresh
-  resumes, and once 5 seconds after the last of the workers that join. A
-  worker that leaves and comes back is no join. It reads nothing while the
-  tab is hidden and does not retry a failed read.
+- The list reads the invites when the page opens or shows another node,
+  when its refresh resumes or is run by hand, after a delete, and once 5
+  seconds after the last of the workers that join. A join is a worker ID,
+  certificate, or invite the list did not show before, so a worker that
+  leaves and comes back is no join. The list reads nothing while the tab is
+  hidden, and does not retry a failed read on its own.
 - On a remote node, the page lists the invites but offers no **Delete**,
   and says it works on the local server only, since the server does not
   forward it.

@@ -28,17 +28,31 @@ vi.mock('@/hooks/api', async () =>
 );
 vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: vi.fn() }));
 
+interface PageState {
+  workers: Worker[] | undefined;
+  live: boolean;
+  refreshes: number;
+}
+
+// Renders the list as System status does; `update` changes what the page
+// passes, as its refresh of /workers, its auto refresh, or a manual refresh.
 function renderInvites(
   workers: Worker[] | undefined = [worker('worker-a')],
   live = true
 ) {
-  const view = render(<WorkerInvites workers={workers} live={live} />, {
-    wrapper: Providers,
-  });
+  let state: PageState = { workers, live, refreshes: 0 };
+  const view = render(<WorkerInvites {...state} />, { wrapper: Providers });
   return {
     ...view,
-    update: (next: Worker[] | undefined, nextLive = live) =>
-      view.rerender(<WorkerInvites workers={next} live={nextLive} />),
+    update: (next: Worker[] | undefined, nextLive = state.live) => {
+      state = { ...state, workers: next, live: nextLive };
+      view.rerender(<WorkerInvites {...state} />);
+    },
+    refresh: () => {
+      state = { ...state, refreshes: state.refreshes + 1 };
+      view.rerender(<WorkerInvites {...state} />);
+    },
+    rerender: () => view.rerender(<WorkerInvites {...state} />),
   };
 }
 
@@ -243,8 +257,8 @@ describe('WorkerInvites', () => {
     [
       404,
       refused(404, 'no such invite', 'not_found'),
-      'This invite no longer exists.',
-      'It was deleted, or it ended more than 7 days ago.',
+      'This invite is already gone.',
+      'The list is read again. Close this dialog.',
     ],
     [
       409,
@@ -421,5 +435,131 @@ describe('WorkerInvites', () => {
     update([worker('worker-a')], true);
 
     await waitFor(() => expect(reads()).toBe(2));
+  });
+  // A join is a new certificate or invite too: a worker that enrolled again
+  // under its old ID used an invite.
+  it('reads after a worker joins again under its ID', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { update } = renderInvites([
+      worker('worker-a', { certificateId: 'cert-1', inviteId: 'inv-1' }),
+    ]);
+    await screen.findByText('No invites');
+    expect(reads()).toBe(1);
+
+    update([
+      worker('worker-a', { certificateId: 'cert-2', inviteId: 'inv-2' }),
+    ]);
+    await act(() => vi.advanceTimersByTimeAsync(JOIN_REREAD_DELAY_MS + 100));
+
+    expect(reads()).toBe(2);
+  });
+
+  // Another node lists other workers; they are its baseline, not joins, and
+  // its invites are read once.
+  it('reads once for the node it switches to', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { update, rerender } = renderInvites([worker('worker-a')]);
+    await screen.findByText('No invites');
+
+    server.node = 'node-b';
+    rerender();
+    update(undefined);
+    update([worker('worker-x'), worker('worker-y')]);
+    await act(() => vi.advanceTimersByTimeAsync(JOIN_REREAD_DELAY_MS + 100));
+
+    const nodes = requests('GET', '/workers/invites').map((request) =>
+      request.query.get('remoteNode')
+    );
+    expect(nodes).toEqual(['local', 'node-b']);
+  });
+
+  it('waits for the tab to show before reading for a node switch', async () => {
+    const { rerender } = renderInvites();
+    await screen.findByText('No invites');
+
+    act(() => setTabVisible(false));
+    server.node = 'node-b';
+    rerender();
+    await act(() => Promise.resolve());
+    expect(reads()).toBe(1);
+
+    act(() => setTabVisible(true));
+
+    await waitFor(() => expect(reads()).toBe(2));
+  });
+
+  // A delete that ends while the tab is hidden asks for the read the tab
+  // makes once it shows.
+  it('reads after a delete only once the tab shows', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    let answer: (value: { status: number }) => void = () => undefined;
+    server.del = () => new Promise((resolve) => (answer = resolve));
+    renderInvites();
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Delete invite inv-1/ })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    act(() => setTabVisible(false));
+    await act(async () => answer({ status: 204 }));
+    await act(() => Promise.resolve());
+    expect(reads()).toBe(1);
+
+    act(() => setTabVisible(true));
+
+    await waitFor(() => expect(reads()).toBe(2));
+  });
+
+  // Each confirmation owns its delete: one that ends after its dialog was
+  // closed leaves a newer confirmation open.
+  it('keeps a newer confirmation open when an older delete ends', async () => {
+    server.invites = invitesAnswer([invite('inv-1'), invite('inv-2')]);
+    let answer: (value: { status: number }) => void = () => undefined;
+    server.del = () => new Promise((resolve) => (answer = resolve));
+    renderInvites();
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Delete invite inv-1/ })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Delete invite inv-2/ })
+    );
+
+    await act(async () => answer({ status: 204 }));
+
+    expect(screen.getByRole('dialog')).toHaveTextContent('Invite inv-2');
+  });
+
+  // Refresh on System status reads the invites again, so a failed read can
+  // be tried again.
+  it('reads again on a manual refresh', async () => {
+    server.invites = refused(503, '', 'internal_error', 'no_coordinator');
+    const { refresh } = renderInvites();
+    await screen.findByText('No coordinator is running or reachable.');
+
+    server.invites = invitesAnswer([invite('inv-1')]);
+    refresh();
+
+    expect(await rows()).toHaveLength(1);
+    expect(reads()).toBe(2);
+  });
+
+  // An invite that is already gone has nothing left to delete.
+  it('says an invite is already gone and offers no second delete', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    server.del = () => refused(404, 'no such invite', 'not_found');
+    renderInvites();
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Delete invite inv-1/ })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    const alert = await within(screen.getByRole('dialog')).findByRole('alert');
+    expect(alert).toHaveTextContent('This invite is already gone.');
+    expect(alert).toHaveTextContent(
+      'The list is read again. Close this dialog.'
+    );
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
   });
 });

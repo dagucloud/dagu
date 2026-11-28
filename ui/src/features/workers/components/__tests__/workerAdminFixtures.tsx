@@ -39,7 +39,10 @@ interface Request {
  */
 export const server = {
   invites: { status: 200, body: { invites: [] } } as Answer,
-  del: ((): Answer => ({ status: 204 })) as (request: Request) => Answer,
+  /** Answers a DELETE; a promise holds the answer until the test settles it. */
+  del: ((): Answer => ({ status: 204 })) as (
+    request: Request
+  ) => Answer | Promise<Answer>,
   requests: [] as Request[],
   /** The node System status shows. */
   node: 'local',
@@ -86,7 +89,7 @@ export function installServer() {
       server.requests.push(request);
       const answer =
         method === 'DELETE'
-          ? server.del(request)
+          ? await server.del(request)
           : url.pathname === '/api/v1/workers/invites'
             ? server.invites
             : { status: 404, body: { code: 'not_found', message: 'none' } };
