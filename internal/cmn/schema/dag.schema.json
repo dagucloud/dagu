@@ -9951,6 +9951,10 @@
         "request_timeout": {
           "type": "string",
           "description": "Per-request timeout for wait.http. Defaults to 10s."
+        },
+        "skip_tls_verify": {
+          "type": "boolean",
+          "description": "Accept any server certificate for wait.http, such as a self-signed one. Defaults to false."
         }
       },
       "description": "Configuration for wait actions."

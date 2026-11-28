@@ -34,6 +34,7 @@ type config struct {
 	Body           string            `mapstructure:"body"`
 	PollInterval   string            `mapstructure:"poll_interval"`
 	RequestTimeout string            `mapstructure:"request_timeout"`
+	SkipTLSVerify  bool              `mapstructure:"skip_tls_verify"`
 }
 
 const (
@@ -344,6 +345,7 @@ var configSchema = &jsonschema.Schema{
 		"body":            {Type: "string", Description: "HTTP request body for action: wait.http."},
 		"poll_interval":   {Type: "string", Description: "Polling interval for wait.file and wait.http. Defaults to 1s."},
 		"request_timeout": {Type: "string", Description: "Per-request timeout for wait.http. Defaults to 10s."},
+		"skip_tls_verify": {Type: "boolean", Description: "Accept any server certificate for wait.http, such as a self-signed one. Defaults to false."},
 	},
 }
 

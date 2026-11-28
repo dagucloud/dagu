@@ -986,6 +986,7 @@ steps:
       url: https://example.com/health
       status: 204
       request_timeout: 10s
+      skip_tls_verify: true
 `,
 		},
 		{
