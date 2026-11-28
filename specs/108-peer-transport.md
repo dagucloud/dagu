@@ -6,7 +6,7 @@ Partially implemented. Implemented: the unset default of `peer.insecure`,
 [Client Transport](#client-transport) and the
 [Start Line](#start-line) except worker invites and certificates, the
 [Per Coordinator](#per-coordinator) line, the warnings of
-[Ignored Settings](#ignored-settings) except in `dagu worker --check`,
+[Ignored Settings](#ignored-settings),
 [Bring Your Own Certificates](#bring-your-own-certificates), the
 [Peer CA](#peer-ca) and the
 [Published CA Certificate](#published-ca-certificate), the rows of

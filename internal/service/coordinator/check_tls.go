@@ -171,8 +171,8 @@ func verificationProblem(err *tls.CertificateVerificationError, roots *x509.Cert
 	if isInvalid && invalid.Reason == x509.Expired {
 		problems = append(problems, "the certificate has expired or is not valid yet")
 		// The validity check runs before the chain is built, so the chain is
-		// checked again at a time the certificate is valid.
-		options.CurrentTime = validTime(leaf)
+		// checked again at a time every certificate the server sent is valid.
+		options.CurrentTime = validTime(certs)
 		_, chainErr = leaf.Verify(options)
 		invalid, isInvalid = errors.AsType[x509.CertificateInvalidError](chainErr)
 	}
@@ -197,12 +197,26 @@ func verificationProblem(err *tls.CertificateVerificationError, roots *x509.Cert
 	return errors.New(strings.Join(problems, "; "))
 }
 
-// validTime returns a time at which cert is valid.
-func validTime(cert *x509.Certificate) time.Time {
-	if time.Now().After(cert.NotAfter) {
-		return cert.NotAfter.Add(-time.Second)
+// validTime returns a time at which every certificate of chain is valid,
+// the one nearest to now, or a time the leaf is valid when their validity
+// does not overlap.
+func validTime(chain []*x509.Certificate) time.Time {
+	notBefore, notAfter := chain[0].NotBefore, chain[0].NotAfter
+	for _, cert := range chain[1:] {
+		if cert.NotBefore.After(notBefore) {
+			notBefore = cert.NotBefore
+		}
+		if cert.NotAfter.Before(notAfter) {
+			notAfter = cert.NotAfter
+		}
 	}
-	return cert.NotBefore.Add(time.Second)
+	if notAfter.Before(notBefore) {
+		notBefore, notAfter = chain[0].NotBefore, chain[0].NotAfter
+	}
+	if time.Now().After(notAfter) {
+		return notAfter.Add(-time.Second)
+	}
+	return notBefore.Add(time.Second)
 }
 
 // allowsServerAuth reports whether cert's extended key usage, if it names

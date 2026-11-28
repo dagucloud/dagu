@@ -78,9 +78,9 @@ const (
 	h2cReasonOlderVersion = "older version"
 )
 
-// requireTLSClientMessage is what a client says when coordinator.require_tls
+// RequireTLSClientMessage is what a client says when coordinator.require_tls
 // refuses its call over h2c.
-const requireTLSClientMessage = "The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true."
+const RequireTLSClientMessage = "The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true."
 
 // transportChoice is a transport and the source that selected it.
 type transportChoice struct {
@@ -347,7 +347,7 @@ func (t *clientTransport) report(ctx context.Context, link *connLink, method str
 	if fellBack && window.Source == sourceNetworkPath {
 		attrs = append(attrs, slog.String("tls-error", window.Error))
 	}
-	logger.Error(ctx, requireTLSClientMessage, attrs...)
+	logger.Error(ctx, RequireTLSClientMessage, attrs...)
 }
 
 func isRequireTLSRefusal(err error) bool {

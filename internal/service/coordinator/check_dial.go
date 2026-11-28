@@ -74,12 +74,19 @@ func connectThrough(ctx context.Context, conn net.Conn, address string, user *ur
 		_ = conn.SetDeadline(deadline)
 		defer func() { _ = conn.SetDeadline(time.Time{}) }()
 	}
+	// A canceled context ends the exchange at once instead of at the
+	// deadline.
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
 	if err := req.Write(conn); err != nil {
+		stop()
 		return fmt.Errorf("send CONNECT to the proxy: %w", err)
 	}
 	// The coordinator speaks only after the client does on TLS, and the h2c
 	// probe reads nothing, so the reader holds no tunneled bytes.
 	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+	if !stop() {
+		return fmt.Errorf("CONNECT to the proxy: %w", ctx.Err())
+	}
 	if err != nil {
 		return fmt.Errorf("read the proxy's answer to CONNECT: %w", err)
 	}

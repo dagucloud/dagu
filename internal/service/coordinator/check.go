@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
@@ -128,6 +127,11 @@ const (
 // client on h2c.
 var errServesTLS = errors.New("it serves only TLS on this port: set peer.insecure: false with a TLS setting")
 
+// ErrRequireTLS is the answer of a coordinator whose coordinator.require_tls
+// refused the client's call over h2c. RequireTLSClientMessage says it to a
+// person.
+var ErrRequireTLS = errors.New("the coordinator requires TLS")
+
 // Passed reports whether the client has a transport for the coordinator, the
 // coordinator accepted a connection, the TLS handshake completed or the
 // client falls back to h2c after it, and the coordinator served the call.
@@ -165,19 +169,23 @@ func Check(ctx context.Context, config *Config, member serviceregistry.HostInfo)
 		result.DialErr = err
 		return result
 	}
-	h2c := plan.roots == nil && (config.Insecure || config.picksTransportPerConnection())
-	if !h2c {
+	// h2cSource is the source of h2c, which the calls send as their reason;
+	// empty on TLS.
+	var h2cSource string
+	if plan.roots == nil && (config.Insecure || config.picksTransportPerConnection()) {
+		h2cSource = plan.choice.source
+	} else {
 		result.TLS, result.Credential.CertSent = checkHandshake(connectCtx, config, plan, conn, member.Host)
-		h2c = result.TLS.Fallback != ""
+		h2cSource = result.TLS.Fallback
 	}
 	_ = conn.Close()
-	if result.TLS != nil && result.TLS.Err != nil && !h2c {
+	if result.TLS != nil && result.TLS.Err != nil && h2cSource == "" {
 		return result
 	}
 	// The calls get their own time, whatever the handshake took.
 	callCtx, cancelCall := context.WithTimeout(ctx, config.DialTimeout)
 	defer cancelCall()
-	result.AnswerErr = checkAnswer(callCtx, config, plan, member.Host, result.Address, h2c)
+	result.AnswerErr = checkAnswer(callCtx, config, plan, member.Host, result.Address, h2cSource)
 	return result
 }
 
@@ -202,16 +210,18 @@ func checkPlan(ctx context.Context, config *Config, address string) (connectionP
 }
 
 // checkAnswer asks the coordinator for its health and its worker list with
-// the client's credential, over h2c or over the TLS of plan.
-func checkAnswer(ctx context.Context, config *Config, plan connectionPlan, host, address string, h2c bool) error {
+// the client's credential, over h2c from h2cSource or, when it is empty,
+// over the TLS of plan.
+func checkAnswer(ctx context.Context, config *Config, plan connectionPlan, host, address, h2cSource string) error {
 	opts, err := getDialOptions(config)
 	if err != nil {
 		return err
 	}
+	h2c := h2cSource != ""
 	switch {
 	case !config.picksTransportPerConnection():
 	case h2c:
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		opts = append(opts, grpc.WithTransportCredentials(h2cCredentials{source: h2cSource}))
 	default:
 		// Built-in TLS checks the name every coordinator certificate
 		// carries, not the dialed address.
@@ -243,7 +253,7 @@ func checkAnswer(ctx context.Context, config *Config, plan connectionPlan, host,
 	// The health service takes no credential; the worker list does.
 	if _, err := coordinatorv1.NewCoordinatorServiceClient(conn).GetWorkers(ctx, &coordinatorv1.GetWorkersRequest{}); err != nil {
 		if isRequireTLSRefusal(err) {
-			return errors.New(requireTLSClientMessage)
+			return ErrRequireTLS
 		}
 		return fmt.Errorf("serving, but %w", callError(config, err))
 	}
