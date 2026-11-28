@@ -61,11 +61,9 @@ func getCertificate(t *testing.T, s *store.WorkerCertificateStore, id string) pe
 	return cert
 }
 
-func recordHeartbeat(t *testing.T, s *store.WorkerCertificateStore, cert persis.WorkerCertificate) persis.WorkerCertificate {
+func recordHeartbeat(t *testing.T, s *store.WorkerCertificateStore, cert persis.WorkerCertificate) {
 	t.Helper()
-	stored, err := s.RecordHeartbeat(t.Context(), cert)
-	require.NoError(t, err)
-	return stored
+	require.NoError(t, s.RecordHeartbeat(t.Context(), cert))
 }
 
 func setState(t *testing.T, s *store.WorkerCertificateStore, id string, state persis.WorkerCertificateState) persis.WorkerCertificate {
@@ -411,16 +409,15 @@ func TestWorkerCertificateStore_RecordHeartbeat(t *testing.T) {
 	again := back
 	again.WorkerID = "worker-renamed"
 	again.LastHeartbeatAt = back.LastHeartbeatAt.Add(time.Second)
-	assert.Equal(t, back.WorkerIDs, recordHeartbeat(t, s, again).WorkerIDs)
+	recordHeartbeat(t, s, again)
 	assert.Equal(t, back, getCertificate(t, s, "cert-1"))
 	renamed = back
 
-	// A report older than the stored heartbeat writes nothing, and the
-	// result says the stored worker ID differs from the reported one.
+	// A report older than the stored heartbeat writes nothing.
 	late := renamed
 	late.WorkerID = "worker-late"
 	late.LastHeartbeatAt = renamed.LastHeartbeatAt.Add(-time.Hour)
-	assert.Equal(t, renamed.WorkerID, recordHeartbeat(t, s, late).WorkerID)
+	recordHeartbeat(t, s, late)
 	assert.Equal(t, renamed, getCertificate(t, s, "cert-1"))
 }
 

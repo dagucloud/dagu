@@ -68,11 +68,9 @@ type WorkerCertificateStore interface {
 	// it joins, when it returns after another ID and was last seen more
 	// than a minute before, or when it is at least a minute older and the
 	// host or environment changed. Of the worker IDs, the least recently
-	// seen goes beyond eight. It
-	// keeps the stored state. A pruned or unreadable record is recorded
-	// again from cert. It returns the heartbeat fields as stored, so a
-	// caller can tell a reported change that is still to be written.
-	RecordHeartbeat(ctx context.Context, cert WorkerCertificate) (WorkerCertificate, error)
+	// seen goes beyond eight. It keeps the stored state. A pruned or
+	// unreadable record is recorded again from cert.
+	RecordHeartbeat(ctx context.Context, cert WorkerCertificate) error
 
 	// SetState moves the certificate to state and returns the record as
 	// stored. States only move forward, from active to removing to revoked;

@@ -826,7 +826,7 @@ type countingRecords struct {
 	calls int
 }
 
-func (s *countingRecords) RecordHeartbeat(ctx context.Context, cert persis.WorkerCertificate) (persis.WorkerCertificate, error) {
+func (s *countingRecords) RecordHeartbeat(ctx context.Context, cert persis.WorkerCertificate) error {
 	s.calls++
 	return s.WorkerCertificateStore.RecordHeartbeat(ctx, cert)
 }
@@ -851,6 +851,25 @@ func TestSharedCertificateHeartbeatsBounded(t *testing.T) {
 		}
 	}
 	assert.LessOrEqual(t, records.calls, 2)
+}
+
+// A worker's heartbeats stop, and the cleanup pass drops this
+// coordinator's entry for it along with its stale presence. Its next
+// heartbeat passes to the certificate record at once, as a new worker's
+// does, so the entries stay bounded by the workers still reporting.
+func TestCleanupDropsStaleHeartbeatEntries(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	records := &countingRecords{WorkerCertificateStore: f.certs}
+	f.h.workerCertificates = records
+	f.heartbeat(t, f.h, w)
+	f.heartbeat(t, f.h, w)
+	require.Equal(t, 1, records.calls)
+
+	// The cleanup pass reads the wall clock, which is past the fixture's.
+	f.h.detectAndCleanupZombies(t.Context())
+	f.heartbeat(t, f.h, w)
+	assert.Equal(t, 2, records.calls)
 }
 
 // heartbeatAs sends a heartbeat for w under the worker ID id at the time at.

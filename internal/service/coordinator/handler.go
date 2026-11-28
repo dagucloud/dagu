@@ -3781,6 +3781,10 @@ func (h *Handler) detectAndCleanupZombies(ctx context.Context) {
 	// Pass 1: clean up stale worker presence records used for discovery.
 	if h.workerHeartbeatStore != nil {
 		_, _ = h.workerHeartbeatStore.DeleteStale(ctx, time.Now().Add(-h.staleHeartbeatThreshold))
+		// The local entries hold only this coordinator's view of each
+		// worker, such as when its heartbeat passes to its certificate
+		// record, so the stale ones go too.
+		h.collectAndRemoveStaleHeartbeats()
 	} else {
 		for _, info := range h.collectAndRemoveStaleHeartbeats() {
 			h.markWorkerTasksFailed(ctx, info)

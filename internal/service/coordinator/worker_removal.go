@@ -371,7 +371,7 @@ func (h *Handler) observeCertificateHeartbeat(ctx context.Context, cert *x509.Ce
 	if pass == nil {
 		return
 	}
-	if _, err := h.workerCertificates.RecordHeartbeat(ctx, certificateRecord(cert, req, at)); err != nil {
+	if err := h.workerCertificates.RecordHeartbeat(ctx, certificateRecord(cert, req, at)); err != nil {
 		logger.Warn(ctx, "Failed to record a worker certificate's heartbeat", slog.String("certificate-id", cert.Subject.CommonName), tag.Error(err))
 	}
 }

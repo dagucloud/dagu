@@ -767,17 +767,16 @@ or `stop`:
   or the certificate's host.
 - A removal by a worker ID finds each certificate whose `worker_id` or
   `worker_ids` names it, and the removal records keep those IDs.
-- An enrollment and a removal of the same worker ID never both succeed
-  while they overlap. Coordinators order them through one shared record per
-  worker ID: a removal counts itself there before it looks for the
-  worker's certificates, and an enrollment, after recording its
-  certificate, confirms there that no removal began since it started. An
-  enrollment that started before the removal began either recorded its
-  certificate in time for the removal to revoke it, or fails with
-  `PermissionDenied` and the message
+- Coordinators order the enrollments and removals of one worker ID
+  through one shared record per worker ID: a removal counts itself there
+  before it looks for the worker's certificates, and an enrollment, after
+  recording its certificate, confirms there that no removal began since it
+  started. An enrollment that started before the removal counted itself
+  either recorded its certificate in time for the removal to revoke it, or
+  fails with `PermissionDenied` and the message
   `this worker was removed while it enrolled; enroll it again`, and its
-  certificate is revoked. An enrollment that starts after the removal began
-  is a new one and succeeds, and the removal leaves its certificate active
+  certificate is revoked. An enrollment that starts after the removal
+  counted itself is a new one and succeeds, and the removal leaves its certificate active
   unless it carries a key the removal revoked. The removal tells the two
   apart by `enrolled_as` and `enrolled_removals`.
 - The removal decides from the heartbeats as it reads them. A worker that

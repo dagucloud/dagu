@@ -242,15 +242,13 @@ func withHeartbeat(removed, cert persis.WorkerCertificate) persis.WorkerCertific
 	return removed
 }
 
-func (s *WorkerCertificateStore) RecordHeartbeat(ctx context.Context, cert persis.WorkerCertificate) (persis.WorkerCertificate, error) {
-	var result persis.WorkerCertificate
+func (s *WorkerCertificateStore) RecordHeartbeat(ctx context.Context, cert persis.WorkerCertificate) error {
 	err := retryConflict(ctx, func(ctx context.Context) error {
 		current, stored, err := s.getCertificate(ctx, cert.ID)
 		next := cert
 		switch {
 		case err == nil:
 			if !heartbeatWriteDue(stored, cert) {
-				result = stored
 				return nil
 			}
 			next.InviteID = stored.InviteID
@@ -279,16 +277,12 @@ func (s *WorkerCertificateStore) RecordHeartbeat(ctx context.Context, cert persi
 		if err != nil {
 			return err
 		}
-		if err := createOrSwap(ctx, s.col, current, rec); err != nil {
-			return err
-		}
-		result = next
-		return nil
+		return createOrSwap(ctx, s.col, current, rec)
 	})
 	if err != nil {
-		return persis.WorkerCertificate{}, fmt.Errorf("worker certificate store: record heartbeat of %q: %w", cert.ID, err)
+		return fmt.Errorf("worker certificate store: record heartbeat of %q: %w", cert.ID, err)
 	}
-	return result, nil
+	return nil
 }
 
 // heartbeatWriteDue reports whether the heartbeat reported in cert is to be
