@@ -378,11 +378,16 @@ func (iso *isolation) place(workDir, workingDir, managedRoot string) error {
 	if !info.IsDir() {
 		return stepError(iso.step, "read the work directory", real, errors.New("not a folder"))
 	}
+	// The marker comes before the first ACL entry: an entry that a crash or a
+	// failed restore leaves keeps the work directory marked.
+	iso.lexicalWork = lexical
+	if err := iso.markHandoff(); err != nil {
+		return err
+	}
 	if err := iso.openPath(real, managedRoot); err != nil {
 		return stepError(iso.step, "reach the work directory", real, err)
 	}
 	iso.workDir = real
-	iso.lexicalWork = lexical
 
 	rel, ok := iso.relativeToWork(workingDir)
 	if !ok {

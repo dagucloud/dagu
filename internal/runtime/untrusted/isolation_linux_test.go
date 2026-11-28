@@ -297,22 +297,41 @@ func TestIsolatedStepPassesTheRunFolders(t *testing.T) {
 
 // An ACL entry that End cannot remove lets the restricted user pass the run
 // folders after the step: End stops the run and keeps the marker, so that no
-// later step uses the work directory.
+// later step uses the work directory. So does a Begin that fails after the
+// entry, before the handoff, here at a working directory outside the work
+// directory.
 func TestIsolatedStepAbortsWhenAnACLStays(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
-	root, _, run := runFolders(t)
-	req := testRequest(t, run, run)
-	req.ManagedRoot = root
-	step, err := beginStep(t, ctx, req)
-	require.NoError(t, err)
-	removexattr = func(string, string) error { return unix.EIO }
-	t.Cleanup(func() { removexattr = unix.Removexattr })
+	failRemoval := func(t *testing.T) {
+		removexattr = func(string, string) error { return unix.EIO }
+		t.Cleanup(func() { removexattr = unix.Removexattr })
+	}
 
-	err = step.End(ctx)
-	require.ErrorIs(t, err, ErrRunAborted)
-	assert.ErrorContains(t, err, "remove the ACL of "+root)
-	assert.FileExists(t, run+handoffSuffix)
+	t.Run("End", func(t *testing.T) {
+		root, _, run := runFolders(t)
+		req := testRequest(t, run, run)
+		req.ManagedRoot = root
+		step, err := beginStep(t, ctx, req)
+		require.NoError(t, err)
+		failRemoval(t)
+
+		err = step.End(ctx)
+		require.ErrorIs(t, err, ErrRunAborted)
+		assert.ErrorContains(t, err, "remove the ACL of "+root)
+		assert.FileExists(t, run+handoffSuffix)
+	})
+	t.Run("Begin", func(t *testing.T) {
+		root, _, run := runFolders(t)
+		req := testRequest(t, run, "/srv")
+		req.ManagedRoot = root
+		failRemoval(t)
+
+		_, err := beginStep(t, ctx, req)
+		require.ErrorIs(t, err, ErrRunAborted)
+		assert.ErrorContains(t, err, "remove the ACL of "+root)
+		assert.FileExists(t, run+handoffSuffix)
+	})
 }
 
 // With the ACL, the group bits of a run folder show the mask, which has the

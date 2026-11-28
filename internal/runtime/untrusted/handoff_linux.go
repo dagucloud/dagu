@@ -215,12 +215,15 @@ func (iso *isolation) protectedPaths() map[string]bool {
 }
 
 // handoff gives the work directory to the restricted user. It first makes the
-// marker of the work directory, which stays until a restore makes the work
-// directory safe, so that no step of the run uses the work directory after a
-// stop of the process in between (CheckWorkDir).
+// marker of the work directory when place has not made it. The marker stays
+// until a restore makes the work directory safe, so that no step of the run
+// uses the work directory after a stop of the process in between
+// (CheckWorkDir).
 func (iso *isolation) handoff() error {
-	if err := iso.markHandoff(); err != nil {
-		return err
+	if iso.marker == "" {
+		if err := iso.markHandoff(); err != nil {
+			return err
+		}
 	}
 	if err := iso.discoverGit(); err != nil {
 		return err
