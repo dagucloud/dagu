@@ -452,7 +452,7 @@ conformance test confirms them.
 | CLI | Gateway | Removed | Model | Effort |
 | --- | --- | --- | --- | --- |
 | `claude` | `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY` | Every other `ANTHROPIC_` variable, every `CLAUDE_CODE_USE_` variable, `CLAUDE_CODE_OAUTH_TOKEN` | `--model` | `--effort`: `low` to `max` |
-| `codex` | `-c model_provider=dagu`, and `model_providers.dagu` with the relay `base_url`, `wire_api = "responses"`, and `env_key` | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `CODEX_API_KEY`. A new `CODEX_HOME` | `-m` | `model_reasoning_effort`: `low` to `xhigh` |
+| `codex` | `-c model_provider=dagu`, and `model_providers.dagu` with the relay `base_url`, `wire_api = "responses"`, and `env_key` | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `CODEX_API_KEY`. A new `CODEX_HOME` | `-m` | `model_reasoning_effort`: the levels the model lists |
 | `opencode` | A `dagu` provider in `OPENCODE_CONFIG_CONTENT`, with the relay `baseURL` and the secret as `{env:<variable>}` | `OPENCODE_AUTH_CONTENT`, `OPENCODE_API_KEY`, the project config. A new data directory | `-m dagu/<model>` | `--variant` |
 | `pi` | A `dagu` provider in a generated `models.json`, with the relay `baseUrl`, its `api`, and the secret as `$<variable>` | Project-local files, with `--no-approve`. A new `PI_CODING_AGENT_DIR` | `--provider dagu --model <model>` | `--thinking`: `low` to `xhigh` |
 

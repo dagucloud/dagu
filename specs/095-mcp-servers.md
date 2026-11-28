@@ -100,7 +100,12 @@ fixed headers.
   errors, and confirmation requests.
 - On a connection with stored values, any change of `resource` needs the
   credential again in the same request, so no one can send a stored value
-  to a URL of their choosing.
+  to a URL of their choosing. The values and `resource` change together:
+  each request uses the `resource` saved with the values it sends.
+- Wherever a step runs, a server that trusts its network instead of a
+  credential is reachable from the agent only through the gateway. The
+  deployment arranges this. [On an Agent Worker](#on-an-agent-worker)
+  states the worker case.
 - A loopback `resource` names the Dagu host. A run on a worker fails
   admission with such a connection, since the worker cannot reach it.
 
