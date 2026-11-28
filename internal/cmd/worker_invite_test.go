@@ -267,10 +267,12 @@ func TestWorkerInviteNotReady(t *testing.T) {
 		want      string
 	}{
 		{
+			// The file may hold a coordinator block already, such as one
+			// that sets the port, so the change names no block to append.
 			name:      "ConfigFile",
 			readiness: loopbackReport(nil),
-			want: "  It listens on 127.0.0.1, so only its own machine can connect. Add this to /etc/dagu/config.yaml:\n" +
-				"    coordinator:\n      host: 0.0.0.0\n" + restart,
+			want: "  It listens on 127.0.0.1, so only its own machine can connect. " +
+				"In /etc/dagu/config.yaml, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.\n" + restart,
 		},
 		{
 			name: "Env",
@@ -327,7 +329,7 @@ func TestWorkerInviteNotReady(t *testing.T) {
 			readiness: loopbackReport(func(r *coordinatorv1.GetJoinReadinessResponse) {
 				r.HostSource = &coordinatorv1.ConfigSource{Kind: coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_FILE, Name: "/etc/dagu/admin.yaml"}
 			}),
-			want: "connect. In /etc/dagu/admin.yaml, set host to 0.0.0.0 inside the coordinator block.\n" + restart,
+			want: "connect. In /etc/dagu/admin.yaml, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.\n" + restart,
 		},
 		{
 			name:      "OwnCertificates",
@@ -391,8 +393,9 @@ func TestWorkerInviteRegistryChange(t *testing.T) {
 	second := &inviteCoordinator{readiness: readyReport()}
 	addrs := []string{serveInviteCoordinator(t, first), serveInviteCoordinator(t, second)}
 	checked, late := first, second
-	// The client tries coordinators in the order of their addresses, so the
-	// late one goes first.
+	// The late coordinator comes first both in the order of addresses and
+	// in the registry's list, so a client that reads the registry again
+	// tries it first whichever order it uses.
 	if addrs[1] > addrs[0] {
 		addrs[0], addrs[1] = addrs[1], addrs[0]
 		checked, late = second, first
@@ -410,7 +413,8 @@ func TestWorkerInviteRegistryChange(t *testing.T) {
 	assert.Empty(t, late.createRequests())
 }
 
-// changingRegistry is a service registry whose coordinators a test adds to.
+// changingRegistry is a service registry whose coordinators a test adds to,
+// each ahead of the ones it lists.
 type changingRegistry struct {
 	serviceregistry.ServiceRegistry
 	mu      sync.Mutex
@@ -420,7 +424,7 @@ type changingRegistry struct {
 func (r *changingRegistry) add(member serviceregistry.HostInfo) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.members = append(r.members, member)
+	r.members = append([]serviceregistry.HostInfo{member}, r.members...)
 }
 
 func (r *changingRegistry) GetServiceMembers(context.Context, serviceregistry.ServiceName) ([]serviceregistry.HostInfo, error) {

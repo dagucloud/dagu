@@ -484,11 +484,18 @@ func sourceChange(r *coordinatorv1.GetJoinReadinessResponse) string {
 		}
 	case coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_FILE:
 		if name != "" {
-			return fmt.Sprintf("In %s, set host to %s inside the coordinator block.", name, allInterfacesHost)
+			return fileHostChange(name)
 		}
 	case coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_UNSPECIFIED, coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_DEFAULT:
 	}
-	return fmt.Sprintf("Add this to %s:\n    coordinator:\n      host: %s", r.ConfigFile, allInterfacesHost)
+	return fileHostChange(r.ConfigFile)
+}
+
+// fileHostChange is the change to coordinator.host in the config file
+// file. The file may hold a coordinator block already, such as one that
+// sets the port, so the change goes inside it rather than after it.
+func fileHostChange(file string) string {
+	return fmt.Sprintf("In %s, set host to %s inside the coordinator block, adding the block if the file has none.", file, allInterfacesHost)
 }
 
 // builtinTLSChange says why a coordinator has no built-in CA, in the words
