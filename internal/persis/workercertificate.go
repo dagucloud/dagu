@@ -74,19 +74,13 @@ type WorkerCertificateStore interface {
 
 	// MarkRemoving moves an active certificate to removing, naming workerID
 	// as the worker that holds it, at the time now gives as the record is
-	// written. With stopRuns, it also records that the removal asks the
-	// worker's runs to stop; [WorkerCertificateStore.ConfirmStop] then
-	// records when. A removing certificate keeps the time it became
-	// removing and takes workerID, and a revoked one stays as it is. It
-	// returns the record as stored, or [ErrWorkerCertificateNotFound].
+	// written. With stopRuns, it also records, in the same write, that the
+	// removal asks the worker's runs to stop, and that time. A removing
+	// certificate keeps the time it became removing and the time of its
+	// first stop request, and takes workerID; a revoked one stays as it
+	// is. It returns the record as stored, or
+	// [ErrWorkerCertificateNotFound].
 	MarkRemoving(ctx context.Context, id, workerID string, now func() time.Time, stopRuns bool) (WorkerCertificate, error)
-
-	// ConfirmStop records at as when the removal of the removing
-	// certificate id asked its runs to stop, unless a time is recorded
-	// already, in one write from the version it read. A caller passes a
-	// time read after the stop request was durable. It returns the record
-	// as stored.
-	ConfirmStop(ctx context.Context, id string, at time.Time) (WorkerCertificate, error)
 
 	// ConfirmAcceptance records an acceptance of a task with the
 	// certificate id on its removal record, when it has one that is not
@@ -149,8 +143,7 @@ type WorkerCertificate struct {
 	// empty. Heartbeats leave it as it is.
 	HolderID string
 	// StopRequested is set when its removal asks the worker's runs to
-	// stop, and StopRunsAt is when that request was known to be durable,
-	// or zero until a coordinator recorded it.
+	// stop, and StopRunsAt is when it first asked.
 	StopRequested bool
 	StopRunsAt    time.Time
 }

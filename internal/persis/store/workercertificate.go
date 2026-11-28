@@ -500,6 +500,7 @@ func (s *WorkerCertificateStore) MarkRemoving(ctx context.Context, id, workerID 
 		}
 		if stopRuns && !cert.StopRequested {
 			cert.StopRequested = true
+			cert.StopRunsAt = at
 			changed = true
 		}
 		// Unchanged, cert is the record as stored, with the worker ID of
@@ -513,39 +514,6 @@ func (s *WorkerCertificateStore) MarkRemoving(ctx context.Context, id, workerID 
 			return err
 		}
 		return createOrSwap(ctx, s.col, current, rec)
-	})
-	if err != nil {
-		return persis.WorkerCertificate{}, err
-	}
-	return result, nil
-}
-
-func (s *WorkerCertificateStore) ConfirmStop(ctx context.Context, id string, at time.Time) (persis.WorkerCertificate, error) {
-	var result persis.WorkerCertificate
-	err := retryConflict(ctx, func(ctx context.Context) error {
-		cert, current, err := s.load(ctx, id)
-		if err != nil {
-			return err
-		}
-		result = cert
-		if current == nil || cert.State != persis.WorkerCertificateRemoving || !cert.StopRequested || !cert.StopRunsAt.IsZero() {
-			return nil
-		}
-		removal, err := decodeWorkerCertificateRemovalRecord(current)
-		if err != nil {
-			return err
-		}
-		removal.StopRunsAt = at.UTC()
-		next, err := encodeRemovalRecord(cert.ID, removal)
-		if err != nil {
-			return err
-		}
-		if err := createOrSwap(ctx, s.col, current, next); err != nil {
-			return err
-		}
-		cert.StopRunsAt = removal.StopRunsAt
-		result = cert
-		return nil
 	})
 	if err != nil {
 		return persis.WorkerCertificate{}, err

@@ -302,24 +302,12 @@ func (h *Handler) startRemoval(ctx context.Context, certID, workerID string, sto
 	logger.Info(ctx, "Worker removal started",
 		tag.WorkerID(workerID), slog.String("certificate-id", cert.ID), slog.Bool("stop-runs", stop))
 	if stop {
-		h.confirmStop(ctx, cert.ID)
+		// Every coordinator counts the 2-minute wait from the time the
+		// stop request's write recorded.
+		h.wakeStopDeadlines()
 		h.cancelHeldRuns(ctx, removalOf(cert))
 	}
 	return resp, nil
-}
-
-// confirmStop records, as the stop of the removing certificate id, a time
-// read after the stop request was known to be in the store, unless a time
-// is recorded already, and arms its deadline. Every coordinator counts the
-// 2-minute wait from that one stored time.
-func (h *Handler) confirmStop(ctx context.Context, id string) {
-	cert, err := h.workerCertificates.ConfirmStop(ctx, id, h.clock())
-	if err != nil {
-		logger.Warn(ctx, "Failed to record when a removed worker's runs were asked to stop", slog.String("certificate-id", id), tag.Error(err))
-		return
-	}
-	h.removals.apply(removalOf(cert))
-	h.wakeStopDeadlines()
 }
 
 // revokeWorker revokes every certificate that names the worker workerID,
@@ -791,10 +779,9 @@ func (h *Handler) rereadRemovals(ctx context.Context) {
 	}
 }
 
-// loadRemovals reads the certificates in removal into the copy, records the
-// stop time of a stop removal that another coordinator started but did not
-// time, and wakes the stop deadlines. A failed read keeps the last copy,
-// whose deadlines still revoke, and reports false.
+// loadRemovals reads the certificates in removal into the copy and wakes
+// the stop deadlines. A failed read keeps the last copy, whose deadlines
+// still revoke, and reports false.
 func (h *Handler) loadRemovals(ctx context.Context) bool {
 	removals, err := h.workerCertificates.ListRemovals(ctx)
 	if err != nil {
@@ -802,11 +789,6 @@ func (h *Handler) loadRemovals(ctx context.Context) bool {
 		return false
 	}
 	h.removals.load(removals)
-	for _, removal := range h.removals.removing() {
-		if removal.StopRequested && removal.StopRunsAt.IsZero() {
-			h.confirmStop(ctx, removal.ID)
-		}
-	}
 	h.wakeStopDeadlines()
 	return true
 }

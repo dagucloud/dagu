@@ -1686,7 +1686,7 @@ func TestQueuedRepeatToNodeRemovedElsewhere(t *testing.T) {
 
 	_, err = f.h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: task()})
 	require.NoError(t, err)
-	_, err = certs.MarkRemoving(t.Context(), "cert-1", "node-a", time.Now)
+	_, err = certs.MarkRemoving(t.Context(), "cert-1", "node-a", time.Now, false)
 	require.NoError(t, err)
 
 	_, err = other.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: task()})
@@ -3007,18 +3007,21 @@ func TestStopDeadlineOneWriteAtATime(t *testing.T) {
 	assert.Equal(t, persis.WorkerCertificateRevoked, f.state(t, w))
 }
 
-// A stop removal's write commits a minute after it took its time. The
-// 2-minute wait counts from a time read after the write returned, so the
-// deadline does not come early (Spec 108 §Removal).
-func TestStopDeadlineFromCommit(t *testing.T) {
+// A stop removal is retried 30 seconds later, and another coordinator then
+// reads the removals. Each counts the 2-minute wait from the time that the
+// first request's write recorded (Spec 108 §Removal).
+func TestStopDeadlineFromFirstRequest(t *testing.T) {
 	f := newRemovalFixture(t)
 	w := f.enroll(t, "worker-a")
 	f.heartbeat(t, f.h, w, "run-1")
 	f.lease(t, w, "run-1")
-	f.h.workerCertificates = slowCommit{WorkerCertificateStore: f.certs, delay: func() {
-		f.now = f.now.Add(time.Minute)
-	}}
-
 	f.removeStop(t, w)
-	assert.Equal(t, map[string]time.Time{w.certID: removalStart.Add(time.Minute + stopRunsWait)}, f.h.removals.stopDeadlines())
+	f.now = removalStart.Add(30 * time.Second)
+	f.heartbeat(t, f.h, w, "run-1")
+	f.removeStop(t, w)
+	other := f.coordinator(t)
+
+	want := map[string]time.Time{w.certID: removalStart.Add(stopRunsWait)}
+	assert.Equal(t, want, f.h.removals.stopDeadlines())
+	assert.Equal(t, want, other.removals.stopDeadlines())
 }

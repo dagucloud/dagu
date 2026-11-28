@@ -128,7 +128,7 @@ func TestWorkerCertificateStore_ListRemovals(t *testing.T) {
 	assert.ElementsMatch(t, []persis.WorkerCertificateRemoval{
 		{
 			ID: "removing", KeyFingerprint: workerCertificate("removing").KeyFingerprint, State: persis.WorkerCertificateRemoving,
-			WorkerID: "worker-removing", RemovingAt: removingAt, StopRequested: true,
+			WorkerID: "worker-removing", RemovingAt: removingAt, StopRequested: true, StopRunsAt: removingAt,
 		},
 		{
 			ID: "revoked", KeyFingerprint: workerCertificate("revoked").KeyFingerprint, State: persis.WorkerCertificateRevoked,
@@ -159,13 +159,10 @@ func TestWorkerCertificateStore_MarkRemoving(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, stop.RemovingAt.Equal(first))
 	assert.True(t, stop.StopRequested)
-	assert.True(t, stop.StopRunsAt.IsZero(), "the time comes from the confirmation after the write")
-	confirmed, err := s.ConfirmStop(ctx, "cert-1", later.Add(time.Second))
+	assert.True(t, stop.StopRunsAt.Equal(later), "the stop request's write records its time")
+	again, err := s.MarkRemoving(ctx, "cert-1", "worker-restarted", clockAt(later.Add(time.Minute)), true)
 	require.NoError(t, err)
-	assert.True(t, confirmed.StopRunsAt.Equal(later.Add(time.Second)))
-	again, err := s.ConfirmStop(ctx, "cert-1", later.Add(time.Minute))
-	require.NoError(t, err)
-	assert.True(t, again.StopRunsAt.Equal(later.Add(time.Second)), "a later confirmation keeps the first time")
+	assert.True(t, again.StopRunsAt.Equal(later), "a retried stop keeps the first time")
 	assert.Equal(t, again, getCertificate(t, s, "cert-1"))
 
 	revoked := setState(t, s, "cert-1", persis.WorkerCertificateRevoked)

@@ -853,12 +853,14 @@ or `stop`:
   creates a task's lease, it reads the certificate's state again and asks
   when a removal with `stop` began, and the acceptance stands. The request
   is written on the run's lease, only while the lease names the removed
-  certificate, and the worker learns of it from its heartbeat, which returns
-  the run as cancelled, and ends the run. The coordinator does not end the
+  certificate, and the worker learns of it from its heartbeat, on any
+  coordinator, which reads the run's lease and returns the run as
+  cancelled, and ends the run. The coordinator does not end the
   attempt itself, so a stop never races an acceptance of the attempt. The 2
-  minutes of a stop count from a time a coordinator read after the stop
-  request was in the store, recorded once on the removal, so every
-  coordinator reaches the same deadline. The certificate is revoked when the
+  minutes of a stop count from the time that the stop request's write
+  recorded on the removal, which a later stop keeps, so every coordinator
+  reaches the same deadline, and the removal fails when that write
+  does. The certificate is revoked when the
   runs end, but not before 30 seconds in `removing`, when no worker that
   holds it has a fresh heartbeat, or at that deadline, whichever comes
   first. Each coordinator arms the deadline as soon as it has read the
@@ -1306,7 +1308,7 @@ The Workers page is the list of workers on System status.
 
 - A coordinator rereads the revoked and `removing` sets every 30 seconds.
   Each removal with `stop` has its own deadline, 2 minutes after the stop
-  became durable, at which the coordinator only revokes it, apart from the
+  request's write, at which the coordinator only revokes it, apart from the
   rereads, the cancel requests, and every other removal; a revocation
   write that fails is tried again at most every 5 seconds, for that
   removal alone. It prunes certificate and ended invite records once a
