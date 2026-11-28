@@ -20,9 +20,9 @@ import (
 const (
 	maxWorkers = 256
 	// maxWorkersBytes bounds the encoded workers, whose IDs and labels have
-	// no length limit. With the budgets of finished runs, runs in progress,
-	// schedules, and queues, the report stays under the 1 MiB that Dagu
-	// Console accepts.
+	// no length limit. With the budgets of finished runs, runs in progress
+	// and their steps, schedules, service DAGs, and queues, the report stays
+	// under the 2 MiB that Dagu Console accepts.
 	maxWorkersBytes = 64 << 10
 )
 
