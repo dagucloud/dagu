@@ -34,7 +34,6 @@ export const connectionMessages = defineMessages({
     'Not granted. Reconnect to ask for the missing scopes:':
       'Not granted. Reconnect to ask for the missing scopes:',
     'Granted scopes': 'Granted scopes',
-    Tools: 'Tools',
     'Remove connection': 'Remove connection',
     'Remove {name}? Its tokens and tool lists are deleted, and DAGs that name it fail when they start.':
       'Remove {name}? Its tokens and tool lists are deleted, and DAGs that name it fail when they start.',
@@ -114,7 +113,6 @@ export const connectionMessages = defineMessages({
     'Not granted. Reconnect to ask for the missing scopes:':
       '未授予。重新连接以请求缺少的权限范围：',
     'Granted scopes': '已授予的权限范围',
-    Tools: '工具',
     'Remove connection': '移除连接',
     'Remove {name}? Its tokens and tool lists are deleted, and DAGs that name it fail when they start.':
       '移除 {name}？其令牌和工具列表将被删除，引用它的 DAG 将在启动时失败。',
@@ -194,7 +192,6 @@ export const connectionMessages = defineMessages({
     'Not granted. Reconnect to ask for the missing scopes:':
       '許可されていません。再接続して不足しているスコープを要求してください:',
     'Granted scopes': '許可されたスコープ',
-    Tools: 'ツール',
     'Remove connection': '接続を削除',
     'Remove {name}? Its tokens and tool lists are deleted, and DAGs that name it fail when they start.':
       '{name} を削除しますか？トークンとツール一覧が削除され、この接続を指定する DAG は開始時に失敗します。',
@@ -277,7 +274,6 @@ export const connectionMessages = defineMessages({
     'Not granted. Reconnect to ask for the missing scopes:':
       'Nicht gewährt. Neu verbinden, um die fehlenden Scopes anzufordern:',
     'Granted scopes': 'Gewährte Scopes',
-    Tools: 'Tools',
     'Remove connection': 'Verbindung entfernen',
     'Remove {name}? Its tokens and tool lists are deleted, and DAGs that name it fail when they start.':
       '{name} entfernen? Seine Tokens und Tool-Listen werden gelöscht, und DAGs, die es nennen, schlagen beim Start fehl.',
@@ -359,7 +355,6 @@ export const connectionMessages = defineMessages({
     'Not granted. Reconnect to ask for the missing scopes:':
       'Non accordé. Reconnectez pour demander les portées manquantes :',
     'Granted scopes': 'Portées accordées',
-    Tools: 'Outils',
     'Remove connection': 'Supprimer la connexion',
     'Remove {name}? Its tokens and tool lists are deleted, and DAGs that name it fail when they start.':
       'Supprimer {name} ? Ses jetons et ses listes d’outils sont supprimés, et les DAG qui la nomment échouent au démarrage.',
