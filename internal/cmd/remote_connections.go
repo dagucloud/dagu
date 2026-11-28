@@ -112,9 +112,12 @@ const (
 	// up to 45 seconds on with the provider, within its 60-second write
 	// deadline.
 	completeTimeout = 60 * time.Second
-	// toolsTimeout bounds a tools request, which waits for the server to
-	// list a stale catalog again, for up to two minutes.
-	toolsTimeout = 2*time.Minute + 10*time.Second
+	// toolsTimeout bounds a tools request, which waits while the server
+	// lists a stale catalog again. The server's 60-second write deadline
+	// ends the answer sooner than the listing's own two-minute bound, so a
+	// longer wait would gain nothing. The listing goes on after the
+	// request ends.
+	toolsTimeout = 60 * time.Second
 )
 
 // atLeast returns c with a client timeout of at least d, for a request

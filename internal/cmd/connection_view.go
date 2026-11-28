@@ -7,8 +7,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -116,7 +118,7 @@ func (c *connectionCLI) list(ctx context.Context) error {
 	w := tabwriter.NewWriter(c.term.out, 0, 2, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "NAME\tPROVIDER\tACCOUNT\tSTATUS\tSERVICES")
 	for _, conn := range conns {
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", conn.Name, conn.Provider, orDash(derefString(conn.Account)),
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", conn.Name, conn.Provider, orDash(printable(derefString(conn.Account))),
 			conn.Status, orDash(serviceList(conn.Services)))
 	}
 	return w.Flush()
@@ -202,6 +204,11 @@ again. Fails when a service's tools could not be listed.`,
 // alone when it is set, as a table or as JSON.
 func (c *connectionCLI) tools(ctx context.Context, name, server string, asJSON bool) error {
 	resp, raw, err := c.client.connectionTools(ctx, c.workspace, name, server)
+	if netErr, ok := errors.AsType[net.Error](err); ok && netErr.Timeout() {
+		// The server goes on listing a stale catalog after the request
+		// ends, so a later request reads the new listing.
+		return fmt.Errorf("%w\nThe server may still be listing the tools. Run '%s' again shortly", err, c.command("tools", name))
+	}
 	if err != nil {
 		return err
 	}
@@ -326,13 +333,18 @@ func printLabeled(out io.Writer, indent string, rows []labeledValue) {
 
 // printable drops the control characters of text that a provider or an
 // MCP server wrote, so that it cannot move the cursor or recolor the
-// terminal.
+// terminal. A tab or line break becomes a space, which keeps words apart
+// on the one line the text gets.
 func printable(s string) string {
 	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+		switch {
+		case !unicode.IsControl(r):
+			return r
+		case unicode.IsSpace(r):
+			return ' '
+		default:
 			return -1
 		}
-		return r
 	}, s)
 }
 
