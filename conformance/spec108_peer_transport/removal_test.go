@@ -211,3 +211,78 @@ func TestRemoveConnectedWorkerFinish(t *testing.T) {
 	w.waitRemoved(t, time.Minute)
 	assert.GreaterOrEqual(t, time.Since(removalCalled), 30*time.Second, "not before 30 seconds in removing")
 }
+
+// runningHeartbeat sends the worker's heartbeat listing the run of task and
+// renews the run's lease, as a worker does, and returns the attempt keys
+// the coordinator asks it to cancel.
+func (w connectedWorker) runningHeartbeat(t *testing.T, task *coordinatorv1.Task) ([]string, error) {
+	t.Helper()
+	running := []*coordinatorv1.RunningTask{{
+		DagName: task.Target, DagRunId: task.DagRunId, AttemptKey: task.AttemptKey,
+		RootDagRunName: task.RootDagRunName, RootDagRunId: task.RootDagRunId,
+	}}
+	resp, err := w.worker.Heartbeat(callContext(t), &coordinatorv1.HeartbeatRequest{
+		WorkerId: "worker-1", Host: "host-a", Stats: &coordinatorv1.WorkerStats{RunningTasks: running},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := w.worker.RunHeartbeat(callContext(t), &coordinatorv1.RunHeartbeatRequest{WorkerId: "worker-1", RunningTasks: running}); err != nil {
+		return nil, err
+	}
+	var keys []string
+	for _, run := range resp.CancelledRuns {
+		keys = append(keys, run.AttemptKey)
+	}
+	return keys, nil
+}
+
+// A connected worker in removal with stop gets the cancel request for the
+// run it accepted, keeps reporting it, and is removed when the 2-minute
+// wait ends, with the run still held (Spec 108 §Removal).
+func TestRemoveConnectedWorkerStop(t *testing.T) {
+	t.Parallel()
+	w := startConnectedWorker(t)
+	require.NoError(t, w.heartbeat(t))
+	w.dispatch(t, "run-1", "worker-1")
+	task := poll(t, callContext(t), w.worker, "worker-1")
+	require.NotNil(t, task)
+	ack, err := w.worker.AckTaskClaim(callContext(t), &coordinatorv1.AckTaskClaimRequest{
+		WorkerId: "worker-1", ClaimToken: task.ClaimToken, AttemptKey: task.AttemptKey,
+	})
+	require.NoError(t, err)
+	require.True(t, ack.Accepted, ack.Error)
+	cancelled, err := w.runningHeartbeat(t, task)
+	require.NoError(t, err)
+	require.Empty(t, cancelled, "no cancel request before the removal")
+
+	// The deadline is bracketed by the times around the call, so a slow
+	// reply does not move it.
+	calledAt := time.Now()
+	resp, err := w.admin.RemoveWorker(w.tokenCtx, &coordinatorv1.RemoveWorkerRequest{
+		WorkerId: "worker-1", Runs: coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_STOP,
+	})
+	repliedAt := time.Now()
+	require.NoError(t, err)
+	assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING, resp.State)
+	cancelled, err = w.runningHeartbeat(t, task)
+	require.NoError(t, err, "the held run still reports")
+	assert.Contains(t, cancelled, task.AttemptKey, "the run gets the cancel request")
+
+	// The deadline wakes the coordinator at once; a heartbeat each second
+	// sees the revocation within a second of it.
+	const margin = 3 * time.Second
+	for {
+		_, err := w.runningHeartbeat(t, task)
+		refusedAt := time.Now()
+		if status.Code(err) == codes.Unauthenticated {
+			assert.Equal(t, "this worker was removed from the coordinator", status.Convert(err).Message())
+			assert.False(t, refusedAt.Before(calledAt.Add(2*time.Minute)), "held until the 2-minute wait ends")
+			assert.True(t, refusedAt.Before(repliedAt.Add(2*time.Minute+margin)), "removed by the deadline")
+			return
+		}
+		require.NoError(t, err)
+		require.True(t, refusedAt.Before(repliedAt.Add(2*time.Minute+margin)), "not removed by the deadline")
+		time.Sleep(time.Second)
+	}
+}

@@ -119,7 +119,7 @@ func TestWorkerCertificateStore_ListRemovals(t *testing.T) {
 		createCertificate(t, s, workerCertificate(id))
 	}
 	removingAt := enrolledAt.Add(time.Hour)
-	_, err := s.MarkRemoving(ctx, "removing", "worker-removing", clockAt(removingAt))
+	_, err := s.MarkRemoving(ctx, "removing", "worker-removing", clockAt(removingAt), true)
 	require.NoError(t, err)
 	setState(t, s, "revoked", persis.WorkerCertificateRevoked)
 
@@ -128,7 +128,7 @@ func TestWorkerCertificateStore_ListRemovals(t *testing.T) {
 	assert.ElementsMatch(t, []persis.WorkerCertificateRemoval{
 		{
 			ID: "removing", KeyFingerprint: workerCertificate("removing").KeyFingerprint, State: persis.WorkerCertificateRemoving,
-			WorkerID: "worker-removing", RemovingAt: removingAt,
+			WorkerID: "worker-removing", RemovingAt: removingAt, StopRequested: true, StopRunsAt: removingAt,
 		},
 		{
 			ID: "revoked", KeyFingerprint: workerCertificate("revoked").KeyFingerprint, State: persis.WorkerCertificateRevoked,
@@ -137,8 +137,9 @@ func TestWorkerCertificateStore_ListRemovals(t *testing.T) {
 	}, removals)
 }
 
-// A removal keeps the time the certificate became removing, names the
-// worker it was given, and leaves a revoked certificate as it is.
+// A removal keeps the time the certificate became removing, records a stop
+// request and the first time confirmed for it, names the worker it was
+// given, and leaves a revoked certificate as it is.
 func TestWorkerCertificateStore_MarkRemoving(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -147,24 +148,30 @@ func TestWorkerCertificateStore_MarkRemoving(t *testing.T) {
 	first := enrolledAt.Add(time.Hour)
 	later := first.Add(time.Minute)
 
-	finish, err := s.MarkRemoving(ctx, "cert-1", "worker-restarted", clockAt(first))
+	finish, err := s.MarkRemoving(ctx, "cert-1", "worker-restarted", clockAt(first), false)
 	require.NoError(t, err)
 	assert.Equal(t, persis.WorkerCertificateRemoving, finish.State)
 	assert.Equal(t, "worker-restarted", finish.HolderID)
 	assert.True(t, finish.RemovingAt.Equal(first))
+	assert.True(t, finish.StopRunsAt.IsZero())
 
-	again, err := s.MarkRemoving(ctx, "cert-1", "worker-restarted", clockAt(later))
+	stop, err := s.MarkRemoving(ctx, "cert-1", "worker-restarted", clockAt(later), true)
 	require.NoError(t, err)
-	assert.True(t, again.RemovingAt.Equal(first), "a later removal keeps the first time")
+	assert.True(t, stop.RemovingAt.Equal(first))
+	assert.True(t, stop.StopRequested)
+	assert.True(t, stop.StopRunsAt.Equal(later), "the stop request's write records its time")
+	again, err := s.MarkRemoving(ctx, "cert-1", "worker-restarted", clockAt(later.Add(time.Minute)), true)
+	require.NoError(t, err)
+	assert.True(t, again.StopRunsAt.Equal(later), "a retried stop keeps the first time")
 	assert.Equal(t, again, getCertificate(t, s, "cert-1"))
 
 	revoked := setState(t, s, "cert-1", persis.WorkerCertificateRevoked)
 	assert.True(t, revoked.RemovingAt.Equal(first), "revocation keeps the removal times")
-	got, err := s.MarkRemoving(ctx, "cert-1", "worker-other", clockAt(later.Add(time.Hour)))
+	got, err := s.MarkRemoving(ctx, "cert-1", "worker-other", clockAt(later.Add(time.Hour)), false)
 	require.NoError(t, err)
 	assert.Equal(t, revoked, got)
 
-	_, err = s.MarkRemoving(ctx, "missing", "worker-restarted", clockAt(later))
+	_, err = s.MarkRemoving(ctx, "missing", "worker-restarted", clockAt(later), false)
 	assert.ErrorIs(t, err, persis.ErrWorkerCertificateNotFound)
 }
 
@@ -179,7 +186,7 @@ func TestWorkerCertificateStore_MarkRemovingNamesHeartbeatWorker(t *testing.T) {
 	s, _ := newWorkerCertificateStore(t)
 	createCertificate(t, s, workerCertificate("cert-1"))
 	removingAt := enrolledAt.Add(time.Hour)
-	_, err := s.MarkRemoving(ctx, "cert-1", "worker-a", clockAt(removingAt))
+	_, err := s.MarkRemoving(ctx, "cert-1", "worker-a", clockAt(removingAt), false)
 	require.NoError(t, err)
 	beat := workerCertificate("cert-1")
 	beat.WorkerID = "worker-b"
@@ -192,17 +199,24 @@ func TestWorkerCertificateStore_MarkRemovingNamesHeartbeatWorker(t *testing.T) {
 		require.Len(t, removals, 1)
 		return removals[0].WorkerID
 	}
-	got, err := s.MarkRemoving(ctx, "cert-1", "worker-b", clockAt(removingAt.Add(26*time.Hour)))
+	got, err := s.MarkRemoving(ctx, "cert-1", "worker-b", clockAt(removingAt.Add(26*time.Hour)), false)
 	require.NoError(t, err)
 	assert.Equal(t, "worker-b", got.HolderID)
 	assert.Equal(t, "worker-b", named())
 
-	// The removal named worker-b. A later removal for worker-b keeps
-	// worker-b while the newer heartbeat names worker-c.
+	// The removal named worker-b. Later removals for worker-b, with or
+	// without a write for the stop time, keep worker-b while the newer
+	// heartbeat names worker-c.
 	beat.WorkerID = "worker-c"
+	beat.LastHeartbeatAt = removingAt.Add(50 * time.Hour)
+	recordHeartbeat(t, s, beat)
+	got, err = s.MarkRemoving(ctx, "cert-1", "worker-b", clockAt(removingAt.Add(51*time.Hour)), true)
+	require.NoError(t, err)
+	assert.Equal(t, "worker-b", got.HolderID)
+	assert.Equal(t, "worker-b", named(), "a stop write keeps the named worker")
 	beat.LastHeartbeatAt = removingAt.Add(77 * time.Hour)
 	recordHeartbeat(t, s, beat)
-	got, err = s.MarkRemoving(ctx, "cert-1", "worker-b", clockAt(removingAt.Add(78*time.Hour)))
+	got, err = s.MarkRemoving(ctx, "cert-1", "worker-b", clockAt(removingAt.Add(78*time.Hour)), false)
 	require.NoError(t, err)
 	assert.Equal(t, "worker-b", got.HolderID, "a call that writes nothing returns the named worker")
 	assert.Equal(t, "worker-b", named())
@@ -230,7 +244,7 @@ func TestWorkerCertificateStore_GetDuringRemovalKeepsBothWorkerIDs(t *testing.T)
 	s, _ := newWorkerCertificateStore(t)
 	createCertificate(t, s, workerCertificate("cert-1"))
 	removingAt := enrolledAt.Add(time.Hour)
-	_, err := s.MarkRemoving(t.Context(), "cert-1", "worker-a", clockAt(removingAt))
+	_, err := s.MarkRemoving(t.Context(), "cert-1", "worker-a", clockAt(removingAt), false)
 	require.NoError(t, err)
 	beat := workerCertificate("cert-1")
 	beat.WorkerID = "worker-b"
@@ -252,7 +266,7 @@ func TestWorkerCertificateStore_RevokeIfIdleKeepsHeartbeatDuringCheck(t *testing
 	s, col := newWorkerCertificateStore(t)
 	createCertificate(t, s, workerCertificate("cert-1"))
 	removingAt := enrolledAt.Add(time.Hour)
-	_, err := s.MarkRemoving(ctx, "cert-1", "worker-a", clockAt(removingAt))
+	_, err := s.MarkRemoving(ctx, "cert-1", "worker-a", clockAt(removingAt), false)
 	require.NoError(t, err)
 
 	_, revoked, err := s.RevokeIfIdle(ctx, "cert-1", func(context.Context, persis.WorkerCertificate) (bool, error) {
@@ -261,7 +275,7 @@ func TestWorkerCertificateStore_RevokeIfIdleKeepsHeartbeatDuringCheck(t *testing
 		beat.LastHeartbeatAt = removingAt.Add(time.Minute)
 		recordHeartbeat(t, s, beat)
 		return true, nil
-	})
+	}, func(persis.WorkerCertificate) bool { return true })
 	require.NoError(t, err)
 	require.True(t, revoked)
 	assert.Equal(t, []string{"worker-cert-1", "worker-a", "worker-b"}, seenIDs(getCertificate(t, s, "cert-1")))
@@ -282,7 +296,7 @@ func TestWorkerCertificateStore_RevocationKeepsBothRecordsIDs(t *testing.T) {
 	s, col := newWorkerCertificateStore(t)
 	createCertificate(t, s, workerCertificate("cert-1"))
 	removingAt := enrolledAt.Add(time.Hour)
-	_, err := s.MarkRemoving(ctx, "cert-1", "worker-holder", clockAt(removingAt))
+	_, err := s.MarkRemoving(ctx, "cert-1", "worker-holder", clockAt(removingAt), false)
 	require.NoError(t, err)
 	beat := workerCertificate("cert-1")
 	beat.WorkerID = "worker-late"
@@ -300,9 +314,9 @@ func TestWorkerCertificateStore_RevocationKeepsBothRecordsIDs(t *testing.T) {
 
 // A certificate in removal ran under eight IDs, and its worker restarted
 // under eight new ones, which push the earlier IDs out of the certificate
-// record. The certificate names all sixteen, before and after its
-// revocation, as the removal record keeps the earlier eight (Spec 108
-// §Removal).
+// record. The certificate names all sixteen, also after the removal moves
+// to stop and after its revocation, as the removal record keeps the
+// earlier eight (Spec 108 §Removal).
 func TestWorkerCertificateStore_RemovalKeepsIDsAtHistoryLimit(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -321,12 +335,16 @@ func TestWorkerCertificateStore_RemovalKeepsIDsAtHistoryLimit(t *testing.T) {
 	}
 	want = append([]string{"worker-cert-1"}, want...)
 	removingAt := enrolledAt.Add(time.Hour)
-	_, err := s.MarkRemoving(ctx, "cert-1", "before-6", clockAt(removingAt))
+	_, err := s.MarkRemoving(ctx, "cert-1", "before-6", clockAt(removingAt), false)
 	require.NoError(t, err)
 	for i := range 8 {
 		sight(fmt.Sprintf("restarted-%d", i), removingAt.Add(time.Duration(i+1)*time.Minute))
 	}
 
+	assert.Equal(t, want, seenIDs(getCertificate(t, s, "cert-1")))
+	stop, err := s.MarkRemoving(ctx, "cert-1", "before-6", clockAt(removingAt.Add(time.Hour)), true)
+	require.NoError(t, err)
+	require.True(t, stop.StopRequested)
 	assert.Equal(t, want, seenIDs(getCertificate(t, s, "cert-1")))
 	assert.Equal(t, want, seenIDs(setState(t, s, "cert-1", persis.WorkerCertificateRevoked)))
 	assert.Equal(t, want, seenIDs(getCertificate(t, s, "cert-1")))

@@ -928,6 +928,16 @@ message EnrollResponse {
 
 message RemoveWorkerRequest {
   string worker_id = 1;
+  RemoveWorkerRuns runs = 2;
+}
+
+// What a removal does with the runs the worker holds.
+enum RemoveWorkerRuns {
+  REMOVE_WORKER_RUNS_UNSPECIFIED = 0;  // As REMOVE_WORKER_RUNS_FINISH
+  REMOVE_WORKER_RUNS_FINISH = 1;       // Lets them finish
+  // Tries the cancel request for each of them; the certificate is revoked
+  // 2 minutes later at the latest, also with runs still held.
+  REMOVE_WORKER_RUNS_STOP = 2;
 }
 
 message RemoveWorkerResponse {

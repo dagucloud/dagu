@@ -278,9 +278,12 @@ type DAGRunLease struct {
 	// CertificateID is the worker certificate the claim was accepted with,
 	// or empty for a worker on the peer token or a lease that a
 	// coordinator predating it wrote.
-	CertificateID   string `json:"certificateId,omitempty"`
-	ClaimedAt       int64  `json:"claimedAt"`
-	LastHeartbeatAt int64  `json:"lastHeartbeatAt"`
+	CertificateID string `json:"certificateId,omitempty"`
+	// StopRequested is set once a removal with stop asked the attempt to
+	// stop.
+	StopRequested   bool  `json:"stopRequested,omitempty"`
+	ClaimedAt       int64 `json:"claimedAt"`
+	LastHeartbeatAt int64 `json:"lastHeartbeatAt"`
 }
 
 // MatchesClaim reports whether the lease identifies the worker claim.
@@ -313,6 +316,11 @@ type DAGRunLeaseStore interface {
 	Get(ctx context.Context, attemptKey string) (*DAGRunLease, error)
 	ListByQueue(ctx context.Context, queueName string) ([]DAGRunLease, error)
 	ListAll(ctx context.Context) ([]DAGRunLease, error)
+	// RequestStop marks the lease of attemptKey as asked to stop when, as
+	// the mark is written, it names the worker certificate certificateID,
+	// and reports whether it did. A lease that names another certificate
+	// or none, or that is gone, stays as it is.
+	RequestStop(ctx context.Context, attemptKey, certificateID string) (bool, error)
 }
 
 // ActiveDistributedRun is the durable active-set record for a remote attempt.

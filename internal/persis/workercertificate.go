@@ -74,10 +74,13 @@ type WorkerCertificateStore interface {
 
 	// MarkRemoving moves an active certificate to removing, naming workerID
 	// as the worker that holds it, at the time now gives as the record is
-	// written. A removing certificate keeps the time it became removing and
-	// takes workerID, and a revoked one stays as it is. It returns the
-	// record as stored, or [ErrWorkerCertificateNotFound].
-	MarkRemoving(ctx context.Context, id, workerID string, now func() time.Time) (WorkerCertificate, error)
+	// written. With stopRuns, it also records, in the same write, that the
+	// removal asks the worker's runs to stop, and that time. A removing
+	// certificate keeps the time it became removing and the time of its
+	// first stop request, and takes workerID; a revoked one stays as it
+	// is. It returns the record as stored, or
+	// [ErrWorkerCertificateNotFound].
+	MarkRemoving(ctx context.Context, id, workerID string, now func() time.Time, stopRuns bool) (WorkerCertificate, error)
 
 	// ConfirmAcceptance records an acceptance of a task with the
 	// certificate id on its removal record, when it has one that is not
@@ -87,11 +90,13 @@ type WorkerCertificateStore interface {
 
 	// RevokeIfIdle revokes the removing certificate id when idle, which
 	// runs after the removal record is read and gets the certificate as
-	// read, reports that it may be. The revocation is written from that
-	// version, so an acceptance recorded after the read makes it read and
-	// ask idle again. It returns the record as stored and whether it
-	// revoked.
-	RevokeIfIdle(ctx context.Context, id string, idle func(context.Context, WorkerCertificate) (bool, error)) (WorkerCertificate, bool, error)
+	// read, reports that it may be, and commit, which runs right before
+	// the write with the certificate as it is to be written, agrees. The
+	// revocation is written from the version read, in one attempt: when an
+	// acceptance recorded after the read changed the record, it returns
+	// [ErrConflict], and the caller reads and asks again. It returns the
+	// record as stored and whether it revoked.
+	RevokeIfIdle(ctx context.Context, id string, idle func(context.Context, WorkerCertificate) (bool, error), commit func(WorkerCertificate) bool) (WorkerCertificate, bool, error)
 
 	// SetState moves the certificate to state and returns the record as
 	// stored. States only move forward, from active to removing to revoked;
@@ -139,6 +144,10 @@ type WorkerCertificate struct {
 	// HolderID is the worker a removal named as holding the certificate, or
 	// empty. Heartbeats leave it as it is.
 	HolderID string
+	// StopRequested is set when its removal asks the worker's runs to
+	// stop, and StopRunsAt is when it first asked.
+	StopRequested bool
+	StopRunsAt    time.Time
 }
 
 // WorkerCertificateRemoval is a certificate in state removing or revoked.
@@ -149,8 +158,10 @@ type WorkerCertificateRemoval struct {
 	State          WorkerCertificateState
 	// WorkerID is the worker the removal named, or the certificate's
 	// [WorkerCertificate.WorkerID] when it named none.
-	WorkerID   string
-	RemovingAt time.Time
+	WorkerID      string
+	RemovingAt    time.Time
+	StopRequested bool
+	StopRunsAt    time.Time
 }
 
 // WorkerIDSeen is a worker ID a certificate's heartbeats reported, and when
