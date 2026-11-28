@@ -137,3 +137,23 @@ func TestWorkerAccessRequireTLSReason(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, apiErr.HTTPStatus)
 	assert.Equal(t, map[string]any{"reason": "require_tls"}, apiErr.Details)
 }
+
+// A coordinator of an earlier release refuses under coordinator.require_tls
+// with the message alone, and the REST answer still names require_tls.
+func TestWorkerAccessRequireTLSReasonFromOlder(t *testing.T) {
+	t.Parallel()
+
+	older := grpc.ChainUnaryInterceptor(func(context.Context, any, *grpc.UnaryServerInfo, grpc.UnaryHandler) (any, error) {
+		return nil, status.Error(codes.Unauthenticated, requireTLSRefusal)
+	})
+	registry, err := coordinator.NewStaticRegistry([]string{serveRewording(t, &rewordingCoordinator{}, older)})
+	require.NoError(t, err)
+	client := coordinator.New(registry, coordinator.DefaultConfig())
+	t.Cleanup(func() { _ = client.Cleanup(context.Background()) })
+	a, _ := rolesAPI(client)
+
+	_, err = a.CreateWorkerInvite(userContext(auth.RoleAdmin), openapiv1.CreateWorkerInviteRequestObject{})
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, map[string]any{"reason": "require_tls"}, apiErr.Details)
+}

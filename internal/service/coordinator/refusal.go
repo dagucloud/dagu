@@ -65,10 +65,19 @@ func RefusalReason(err error) string {
 		return ""
 	}
 	st := withStatus.GRPCStatus()
+	if reason := detailReason(st); reason != "" {
+		return reason
+	}
+	return refusalReasons[refusal{st.Code(), st.Message()}]
+}
+
+// detailReason returns the reason st carries as a status detail, or "" for
+// none, as in a refusal of a coordinator of an earlier release.
+func detailReason(st *status.Status) string {
 	for _, detail := range st.Details() {
 		if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Domain == refusalDomain {
 			return info.Reason
 		}
 	}
-	return refusalReasons[refusal{st.Code(), st.Message()}]
+	return ""
 }
