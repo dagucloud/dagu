@@ -153,6 +153,25 @@ func TestToDAGRunDetailsIncludesModelUsage(t *testing.T) {
 	assert.Nil(t, none.Models)
 }
 
+// A run's detail shows the connection each step used, its account, and why
+// it handed the step no token.
+func TestToDAGRunDetailsIncludesConnection(t *testing.T) {
+	details := ToDAGRunDetails(ir.DAGRunStatus{
+		Name: "test-dag", DAGRunID: "run-1",
+		Nodes: []*ir.Node{
+			{Step: ir.Step{Name: "unread"}, Connection: &ir.NodeConnection{Name: "work-google", Account: "ops@example.com", Failure: ir.ConnectionNeedsAttention}},
+			{Step: ir.Step{Name: "copy"}},
+		},
+	})
+
+	assert.Equal(t, &openapi.NodeConnection{
+		Name:    "work-google",
+		Account: ptrOf("ops@example.com"),
+		Failure: ptrOf(openapi.NodeConnectionFailureNeedsAttention),
+	}, details.Nodes[0].Connection)
+	assert.Nil(t, details.Nodes[1].Connection)
+}
+
 // A step's usage counts what the tools it ran reported, and names a tool
 // whose usage could not be read.
 func TestToDAGRunDetailsStepModelUsageSources(t *testing.T) {

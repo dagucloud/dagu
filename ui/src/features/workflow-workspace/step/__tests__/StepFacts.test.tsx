@@ -5,6 +5,7 @@ import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  NodeConnectionFailure,
   NodeStatus,
   NodeStatusLabel,
   ReusedInputVia,
@@ -316,5 +317,40 @@ describe('StepFacts of a step with nodes', () => {
       screen.getByRole('button', { name: 'Retry failed nodes (3)' })
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Retry step' })).toBeNull();
+  });
+});
+
+describe('StepFacts connection', () => {
+  it('shows the connection and account a step used', () => {
+    renderFacts(
+      node('unread', NodeStatus.Success, {
+        connection: { name: 'work-google', account: 'ops@example.com' },
+      })
+    );
+
+    expect(screen.getByTestId('ww-step-connection')).toHaveTextContent(
+      'work-google (ops@example.com)'
+    );
+    expect(screen.queryByRole('link', { name: 'Reconnect' })).toBeNull();
+  });
+
+  it('links to the connection page of the run workspace to reconnect', () => {
+    renderFacts(
+      node('unread', NodeStatus.Failed, {
+        statusLabel: NodeStatusLabel.failed,
+        connection: {
+          name: 'work-google',
+          failure: NodeConnectionFailure.needs_attention,
+        },
+      }),
+      Status.Failed,
+      { workspace: 'ops' }
+    );
+
+    expect(screen.getByText('Reconnect required')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Reconnect' })).toHaveAttribute(
+      'href',
+      '/connections/work-google?workspace=ops'
+    );
   });
 });

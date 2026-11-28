@@ -28,8 +28,8 @@ Implemented so far:
   only to workers that make them.
 - [Using a Connection](#using-a-connection),
   [Confirmation Requests](#confirmation-requests), and [Masking](#masking)
-  for `mcp.call`, in a local run and on a worker. Its
-  [Run Records](#run-records) are not written yet. Until Try it and
+  for `mcp.call`, in a local run and on a worker, with its
+  [Run Records](#run-records), shown on the run page. Until Try it and
   `http.request` with `connection` land, the `confirmation_required` error
   names only the Workspace admin's confirmation rules and `http.request`
   with a token from a `provider: connection` secret.
@@ -59,11 +59,12 @@ Implemented so far:
   [Audit](#audit) log. Notification routes offer both types, and new
   routes in the UI select them. The Reconnect URL is
   `<public URL>/connections/<name>?workspace=<project>`, a page the UI does
-  not serve yet. Runs that fail on a broken connection still send their
-  failure messages, and the notification connection's events have no rules
-  of their own yet. An admin's change of an `invalid` app's client ID or
-  secret, which returns it to `ok`, records `connection.restored`. The
-  Connections navigation badge is not built yet.
+  not serve yet. A channel that receives `connection.needs_attention`
+  skips the failure message of a run that a broken connection failed. The
+  notification connection's events have no rules of their own yet. An
+  admin's change of an `invalid` app's client ID or secret, which returns
+  it to `ok`, records `connection.restored`. The Connections navigation
+  badge is not built yet.
 
 The tests against Google also settle whether Docs, Sheets, and Slides
 answer `NOT_FOUND` rather than `PERMISSION_DENIED` for a resource ID that
@@ -1047,12 +1048,19 @@ the coordinator must be upgraded, and the run's other steps run.
 #### Run Records
 
 - A step that uses a connection records the connection's name and account
-  in its node status.
+  in its node status. On a worker, the account is known once the
+  coordinator has handed the run a token of the connection.
 - A failed run records a broken connection as its failure cause only when
   every failed step of the run failed on a connection in `needs_reconnect`
   or on an `invalid` app, the states that send
   `connection.needs_attention`. The cause names those steps' connections. A
   run with any other failed step records no connection as its cause.
+- A failed `call` or `parallel` step, or a step with nodes, counts as
+  failed on a broken connection when each of its failed sub-DAG runs
+  records a broken connection as its cause and has the parent run's
+  workspace, so the connections' messages go through the routes that the
+  parent's failure message would. Its node status records those
+  connections, and the parent run's cause names them.
 - A step that fails on a `pending` connection fails with
   `reconnect_required`, but its run records no connection as its cause, so
   every channel still sends the run's failure message.

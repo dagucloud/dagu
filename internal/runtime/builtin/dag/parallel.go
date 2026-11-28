@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,6 +34,7 @@ var _ executor.ParallelExecutor = (*parallelExecutor)(nil)
 var _ executor.NodeStatusDeterminer = (*parallelExecutor)(nil)
 var _ executor.StatusDetailsProvider = (*parallelExecutor)(nil)
 var _ executor.OutputsValueProvider = (*parallelExecutor)(nil)
+var _ executor.ConnectionCauseProvider = (*parallelExecutor)(nil)
 
 type parallelExecutor struct {
 	step          ir.Step
@@ -45,6 +47,7 @@ type parallelExecutor struct {
 
 	// Runtime state
 	results  map[string]*ir.RunStatus            // Maps DAG run ID to result
+	noResult map[string]struct{}                 // DAG run IDs whose latest attempt returned no result
 	errors   []error                             // Collects errors from failed executions
 	children map[string]*executor.SubDAGExecutor // Active child executors keyed by attempt
 
@@ -55,6 +58,9 @@ type parallelExecutor struct {
 
 	// nodes is set for a step with nodes, which runs one child per node.
 	nodes *nodeDispatch
+
+	// workspace decides which child run causes the step takes.
+	workspace causeWorkspace
 }
 
 type scheduledAttempt struct {
@@ -99,6 +105,7 @@ func newParallelExecutor(
 		errors:        make([]error, 0),
 		children:      make(map[string]*executor.SubDAGExecutor),
 		cancel:        make(chan struct{}),
+		workspace:     runCauseWorkspace(ctx),
 	}, nil
 }
 
@@ -234,11 +241,17 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 			inFlight--
 			delete(busyRuns, res.attempt.runParams.RunID)
 
+			e.lock.Lock()
 			if res.result != nil {
-				e.lock.Lock()
 				e.results[res.attempt.runParams.RunID] = res.result
-				e.lock.Unlock()
+				delete(e.noResult, res.attempt.runParams.RunID)
+			} else {
+				if e.noResult == nil {
+					e.noResult = make(map[string]struct{})
+				}
+				e.noResult[res.attempt.runParams.RunID] = struct{}{}
 			}
+			e.lock.Unlock()
 			if res.err != nil && !e.cancelled() {
 				logger.Error(ctx, "Sub DAG execution failed",
 					tag.SubRunID(res.attempt.runParams.RunID),
@@ -467,6 +480,37 @@ func (e *parallelExecutor) SetStderr(out io.Writer) {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 	e.stderr = out
+}
+
+// ConnectionCause implements executor.ConnectionCauseProvider. A child run
+// whose latest attempt returned no result failed for another reason, so it
+// leaves no cause, even when an earlier attempt's result had one.
+func (e *parallelExecutor) ConnectionCause() []string {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	if len(e.noResult) > 0 {
+		return nil
+	}
+	var names []string
+	for _, params := range e.runParamsList {
+		result, ok := e.results[params.RunID]
+		if !ok {
+			return nil
+		}
+		if result.Status.IsSuccess() || result.Status == ir.Waiting {
+			continue
+		}
+		cause := e.workspace.of(result)
+		if len(cause) == 0 {
+			return nil
+		}
+		for _, name := range cause {
+			if !slices.Contains(names, name) {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
 }
 
 // DetermineNodeStatus implements NodeStatusDeterminer.

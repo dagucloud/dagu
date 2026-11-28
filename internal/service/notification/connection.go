@@ -54,6 +54,29 @@ func (s *Service) connectionRoutes(event chatbridge.NotificationEvent) []connect
 	return routes
 }
 
+// connectionCauseChannels returns the channels that send no failure
+// message for event's run: for a run whose recorded cause is a broken
+// connection, each channel that receives connection.needs_attention
+// through the routes of the run's workspace, which the cause's connection
+// events also go through (Spec 107 §Events). The decision reads only the
+// run's record, so a run read after a reconnect is decided the same way.
+func (s *Service) connectionCauseChannels(ctx context.Context, event chatbridge.NotificationEvent) map[string]struct{} {
+	channelIDs := map[string]struct{}{}
+	if event.Type != eventstore.TypeDAGRunFailed || len(event.Status.ConnectionCause()) == 0 || !s.reusableChannelsAllowed() {
+		return channelIDs
+	}
+	routeSet := s.effectiveRouteSetForEvent(ctx, event)
+	if routeSet == nil || !routeSet.Enabled {
+		return channelIDs
+	}
+	for _, route := range routeSet.Routes {
+		if notificationmodel.IsRouteEventEnabled(routeSet, route, eventstore.TypeConnectionNeedsAttention) {
+			channelIDs[route.ChannelID] = struct{}{}
+		}
+	}
+	return channelIDs
+}
+
 // connectionDestinations returns the destinations of connectionRoutes.
 func (s *Service) connectionDestinations(event chatbridge.NotificationEvent) []string {
 	routes := s.connectionRoutes(event)

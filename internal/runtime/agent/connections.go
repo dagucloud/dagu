@@ -87,6 +87,7 @@ func (c *storeConnectionChecker) Connections(workspace string) runtime.Connectio
 		checker:   c,
 		workspace: secret.NormalizeWorkspace(workspace),
 		conns:     make(map[string]*connection.Connection),
+		accounts:  make(map[string]string),
 	}
 }
 
@@ -97,8 +98,9 @@ type storeConnections struct {
 	checker   *storeConnectionChecker
 	workspace string
 
-	mu    sync.Mutex
-	conns map[string]*connection.Connection
+	mu       sync.Mutex
+	conns    map[string]*connection.Connection
+	accounts map[string]string
 }
 
 var _ runtime.Connections = (*storeConnections)(nil)
@@ -134,6 +136,32 @@ func (s *storeConnections) Rejected(ctx context.Context, conn *connection.Connec
 		return "", 0, err
 	}
 	return tokens.Rejected(ctx, conn, resource, token, minTTL)
+}
+
+// Account reads the account from conn's token state. It keeps an account
+// it read, so a step that repeats reads it once per run.
+func (s *storeConnections) Account(ctx context.Context, conn *connection.Connection) (string, error) {
+	s.mu.Lock()
+	account, ok := s.accounts[conn.Name]
+	s.mu.Unlock()
+	if ok {
+		return account, nil
+	}
+	if err := s.checker.load(); err != nil {
+		return "", err
+	}
+	state, err := s.checker.store.TokenState(ctx, conn)
+	if err != nil {
+		return "", fmt.Errorf("connection %q: %w", conn.Name, err)
+	}
+	// A connection without an account yet may be connected later in the
+	// run, so only a known account is kept.
+	if state.Account != "" {
+		s.mu.Lock()
+		s.accounts[conn.Name] = state.Account
+		s.mu.Unlock()
+	}
+	return state.Account, nil
 }
 
 func (s *storeConnections) tokens() (*broker.Broker, error) {

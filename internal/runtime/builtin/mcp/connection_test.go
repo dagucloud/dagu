@@ -57,6 +57,10 @@ func (s *tokenSource) Connection(context.Context, string) (*connection.Connectio
 	return s.conn, nil
 }
 
+func (s *tokenSource) Account(context.Context, *connection.Connection) (string, error) {
+	return "", nil
+}
+
 func (s *tokenSource) Token(context.Context, *connection.Connection, string, time.Duration) (string, time.Duration, error) {
 	if s.err != nil {
 		return "", 0, s.err

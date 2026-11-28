@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -507,6 +508,36 @@ func (st *DAGRunStatus) ErrorText() string {
 		text = strings.Join(stepErrors, "\n")
 	}
 	return stringutil.StripANSI(text)
+}
+
+// ConnectionCause returns the connections that caused a failed run: the
+// connections of its failed steps, when each of them failed on a connection
+// that needs attention or ran sub-DAG runs that such connections failed
+// (Spec 107 §Run Records). It returns nil for any other run, including one
+// that failed before its first step.
+func (st *DAGRunStatus) ConnectionCause() []string {
+	if st == nil || st.Status != Failed {
+		return nil
+	}
+	var names []string
+	for _, node := range st.NodesInRunOrder() {
+		if node == nil || node.Status != NodeFailed {
+			continue
+		}
+		cause := node.ConnectionCause
+		if node.Connection != nil && node.Connection.Failure == ConnectionNeedsAttention {
+			cause = append(slices.Clone(cause), node.Connection.Name)
+		}
+		if len(cause) == 0 {
+			return nil
+		}
+		for _, name := range cause {
+			if !slices.Contains(names, name) {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
 }
 
 // pendingStepRetriesFromNodes extracts pending parent-managed step retries from

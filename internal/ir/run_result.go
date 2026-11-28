@@ -80,6 +80,13 @@ type RunStatus struct {
 	FailedStep string        `json:"-"`
 	StartedAt  string        `json:"-"`
 	FinishedAt string        `json:"-"`
+	// ConnectionCause is the run's DAGRunStatus.ConnectionCause, for the
+	// parent step that ran it, and CauseWorkspace is the run's workspace
+	// label value, whose routes deliver those connections' messages. A run
+	// whose workspace labels name no single workspace has no cause. They
+	// are not part of the step's output.
+	ConnectionCause []string `json:"-"`
+	CauseWorkspace  string   `json:"-"`
 }
 
 // MarshalJSON implements json.Marshaler.

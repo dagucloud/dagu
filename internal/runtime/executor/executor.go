@@ -200,6 +200,13 @@ type SubRunProvider interface {
 	GetSubRuns() []ir.SubDAGRun
 }
 
+// ConnectionCauseProvider is implemented by executors that run sub-DAG runs.
+// It reports the connections that caused the failure of those runs, when
+// each failed run had one, or nil.
+type ConnectionCauseProvider interface {
+	ConnectionCause() []string
+}
+
 // StatusDetailsProvider reports independently tracked executions within a node.
 type StatusDetailsProvider interface {
 	GetStatusDetails() []ir.NodeStatusDetail

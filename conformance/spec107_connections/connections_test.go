@@ -5,8 +5,10 @@ package spec107_connections_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,8 +102,22 @@ func TestAdmissionFailures(t *testing.T) {
 			result.ExpectNonZeroExitCode()
 			result.ExpectStderrContains(tt.stderr)
 			dagu.ExpectNoFile("executed.txt")
+			// The run status holds the reason too, so the run page shows it.
+			quoted, err := json.Marshal(tt.stderr)
+			require.NoError(t, err)
+			expectRecorded(t, strings.Trim(string(quoted), `"`), dataDir(env))
 		})
 	}
+}
+
+// dataDir returns the data directory that env points dagu at.
+func dataDir(env []string) string {
+	for _, entry := range env {
+		if dir, ok := strings.CutPrefix(entry, "DAGU_DATA_DIR="); ok {
+			return dir
+		}
+	}
+	return ""
 }
 
 // A run whose connections pass the checks reaches its first step.

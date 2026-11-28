@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -83,6 +85,7 @@ func newConnectionRun(t *testing.T) connectionRun {
 		_, err = conns.UpdateTokenState(ctx, created, func(st *connection.TokenState) error {
 			st.Status = connection.TokenStatusConnected
 			st.RefreshToken = "rt-1"
+			st.Account = "ops@example.com"
 			st.AccessTokens = map[string]connection.AccessToken{
 				"": {Token: "at-1", ExpiresAt: time.Now().Add(time.Hour), IssuedAt: time.Now()},
 			}
@@ -140,7 +143,8 @@ func (r connectionRun) resolve(req *coordinatorv1.ResolveConnectionTokenRequest)
 }
 
 // A declared connection answers its stored token with the token's lifetime
-// and the binding; a check-only request answers the binding alone.
+// and the binding with the account; a check-only request answers the binding
+// alone.
 func TestResolveConnectionToken(t *testing.T) {
 	t.Parallel()
 	run := newConnectionRun(t)
@@ -149,6 +153,7 @@ func TestResolveConnectionToken(t *testing.T) {
 		Services:         []*coordinatorv1.ConnectionService{{Name: "mail", Access: "read"}},
 		BoundHosts:       []string{"api.example.com"},
 		AllowTokenExport: true,
+		Account:          "ops@example.com",
 	}
 
 	resp, err := run.resolve(&coordinatorv1.ResolveConnectionTokenRequest{Connection: "work", MinTtlSeconds: 300})
@@ -160,6 +165,8 @@ func TestResolveConnectionToken(t *testing.T) {
 	resp, err = run.resolve(&coordinatorv1.ResolveConnectionTokenRequest{Connection: "work", CheckOnly: true})
 	require.NoError(t, err)
 	assert.Empty(t, resp.GetAccessToken())
+	// Admission reads no token state, so a check-only answer has no account.
+	wantBinding.Account = ""
 	assert.True(t, proto.Equal(wantBinding, resp.GetBinding()), resp.GetBinding())
 	assert.Zero(t, run.refreshes.Load())
 }
@@ -189,6 +196,42 @@ func TestResolveConnectionTokenCheckFails(t *testing.T) {
 	_, err := run.resolve(&coordinatorv1.ResolveConnectionTokenRequest{Connection: "work", DagName: "calendar", CheckOnly: true})
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
 	assert.ErrorContains(t, err, `server "calendar" is not one of its services`)
+}
+
+// A connection that needs reconnecting fails with a detail that a pending
+// one lacks, so the worker records only the first as a run's cause.
+func TestResolveConnectionTokenNeedsAttention(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		status         connection.TokenStatus
+		needsAttention bool
+	}{
+		{name: "Pending", status: connection.TokenStatusPending},
+		{name: "NeedsReconnect", status: connection.TokenStatusNeedsReconnect, needsAttention: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			run := newConnectionRun(t)
+			conn, err := run.conns.Get(context.Background(), connection.Key{Workspace: "ops", Name: "work"})
+			require.NoError(t, err)
+			_, err = run.conns.UpdateTokenState(context.Background(), conn, func(st *connection.TokenState) error {
+				st.Status = tt.status
+				return nil
+			})
+			require.NoError(t, err)
+
+			_, err = run.resolve(&coordinatorv1.ResolveConnectionTokenRequest{Connection: "work", MinTtlSeconds: 300})
+			st := status.Convert(err)
+			assert.Equal(t, codes.FailedPrecondition, st.Code())
+			needsAttention := slices.ContainsFunc(st.Details(), func(detail any) bool {
+				info, ok := detail.(*errdetails.ErrorInfo)
+				return ok && info.GetReason() == coordinator.ConnectionNeedsAttentionReason
+			})
+			assert.Equal(t, tt.needsAttention, needsAttention)
+		})
+	}
 }
 
 func TestResolveConnectionTokenDenied(t *testing.T) {

@@ -630,6 +630,80 @@ func TestDAGRunStatusErrorText(t *testing.T) {
 	}
 }
 
+// A failed run's cause is a broken connection only when every failed step
+// failed on a connection that needs attention (Spec 107 §Run Records).
+func TestDAGRunStatusConnectionCause(t *testing.T) {
+	t.Parallel()
+
+	failedOn := func(name, conn string, failure ir.ConnectionFailure) *ir.Node {
+		return &ir.Node{
+			Step:       ir.Step{Name: name},
+			Status:     ir.NodeFailed,
+			Connection: &ir.NodeConnection{Name: conn, Failure: failure},
+		}
+	}
+	tests := []struct {
+		name   string
+		status ir.Status
+		nodes  []*ir.Node
+		want   []string
+	}{
+		{
+			name:   "EveryFailedStepNeedsAttention",
+			status: ir.Failed,
+			nodes: []*ir.Node{
+				failedOn("unread", "work-google", ir.ConnectionNeedsAttention),
+				failedOn("send", "work-google", ir.ConnectionNeedsAttention),
+				failedOn("files", "drive", ir.ConnectionNeedsAttention),
+				{Step: ir.Step{Name: "local"}, Status: ir.NodeSucceeded},
+				{Step: ir.Step{Name: "after"}, Status: ir.NodeAborted, Error: "upstream failed"},
+			},
+			want: []string{"work-google", "drive"},
+		},
+		{
+			// A call or parallel step takes the cause of its failed sub-DAG runs.
+			name:   "SubDAGRunCause",
+			status: ir.Failed,
+			nodes: []*ir.Node{
+				failedOn("unread", "work-google", ir.ConnectionNeedsAttention),
+				{Step: ir.Step{Name: "fetch-mail"}, Status: ir.NodeFailed, ConnectionCause: []string{"work-google", "drive"}},
+			},
+			want: []string{"work-google", "drive"},
+		},
+		{
+			name:   "OtherFailedStep",
+			status: ir.Failed,
+			nodes: []*ir.Node{
+				failedOn("unread", "work-google", ir.ConnectionNeedsAttention),
+				{Step: ir.Step{Name: "local"}, Status: ir.NodeFailed, Error: "exit status 1"},
+			},
+		},
+		{
+			// A pending connection sends no connection.needs_attention.
+			name:   "PendingConnection",
+			status: ir.Failed,
+			nodes:  []*ir.Node{failedOn("unread", "work-google", ir.ConnectionReconnectRequired)},
+		},
+		{
+			name:   "FailedBeforeFirstStep",
+			status: ir.Failed,
+			nodes:  []*ir.Node{{Step: ir.Step{Name: "unread"}, Status: ir.NodeNotStarted}},
+		},
+		{
+			name:   "NotFailed",
+			status: ir.PartiallySucceeded,
+			nodes:  []*ir.Node{failedOn("unread", "work-google", ir.ConnectionNeedsAttention)},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			st := &ir.DAGRunStatus{Status: tt.status, Nodes: tt.nodes}
+			assert.Equal(t, tt.want, st.ConnectionCause())
+		})
+	}
+}
+
 // The status stores the run times as strings with millisecond precision. A
 // status file that an older version wrote has second precision and loads as it
 // is, with no migration.

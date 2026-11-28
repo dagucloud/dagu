@@ -103,6 +103,7 @@ import sv1 from './sv1';
 import rp1 from './rp1';
 import nr1 from './nr1';
 import n24 from './n24';
+import c31 from './c31';
 
 export const workspaceModules = {
   q2,
@@ -205,6 +206,7 @@ export const workspaceModules = {
   rp1,
   nr1,
   n24,
+  c31,
 } as const;
 
 export const workspaceMessages = {
@@ -309,6 +311,7 @@ export const workspaceMessages = {
     ...rp1.en,
     ...nr1.en,
     ...n24.en,
+    ...c31.en,
   },
   'zh-CN': {
     ...q2['zh-CN'],
@@ -411,6 +414,7 @@ export const workspaceMessages = {
     ...rp1['zh-CN'],
     ...nr1['zh-CN'],
     ...n24['zh-CN'],
+    ...c31['zh-CN'],
   },
   ja: {
     ...q2.ja,
@@ -513,6 +517,7 @@ export const workspaceMessages = {
     ...rp1.ja,
     ...nr1.ja,
     ...n24.ja,
+    ...c31.ja,
   },
   de: {
     ...q2.de,
@@ -615,6 +620,7 @@ export const workspaceMessages = {
     ...rp1.de,
     ...nr1.de,
     ...n24.de,
+    ...c31.de,
   },
   fr: {
     ...q2.fr,
@@ -717,5 +723,6 @@ export const workspaceMessages = {
     ...rp1.fr,
     ...nr1.fr,
     ...n24.fr,
+    ...c31.fr,
   },
 } as const;

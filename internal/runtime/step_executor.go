@@ -72,6 +72,7 @@ func (e *StepExecutor) ExecuteWithProgress(ctx context.Context, node *Node, onSe
 func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func(), onProgress func()) (retErr error) {
 	attemptStarted := time.Now()
 	node.SetStatusDetails(nil)
+	node.SetConnectionCause(nil)
 	ctx, cancel, stepTimeout := node.setupContextWithTimeout(ctx)
 	defer cancel()
 
@@ -81,6 +82,8 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 	meter := modelusage.NewMeter(node.ModelUsage())
 	ctx = modelusage.WithMeter(ctx, meter)
 	defer func() { node.SetModelUsage(meter.Snapshot()) }()
+	ctx, connectionRecord := watchConnection(ctx, node.Step())
+	defer func() { node.SetConnection(connectionRecord()) }()
 
 	if err := preRunAbortErr(ctx, node); err != nil {
 		return recordPreRunAbort(ctx, node, err, stepTimeout, attemptStarted)
@@ -374,6 +377,10 @@ func (e *StepExecutor) captureExecutorSideChannels(cmd executor.Executor, node *
 			runtimeSubRuns[i] = SubDAGRun(sr)
 		}
 		node.SetSubRuns(runtimeSubRuns)
+	}
+
+	if causeProvider, ok := cmd.(executor.ConnectionCauseProvider); ok {
+		node.SetConnectionCause(causeProvider.ConnectionCause())
 	}
 
 	if toolDefProvider, ok := cmd.(executor.ToolDefinitionProvider); ok {

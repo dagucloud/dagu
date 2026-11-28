@@ -1097,6 +1097,11 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			logger.Error(ctx, "Failed to initialize DAG execution", tag.Error(initErr))
 			st := a.Status(ctx)
 			st.Status = ir.Failed
+			// No step ran to hold the reason, so the run's error holds it.
+			st.Error = appendDAGRunError(st.Error, initErr)
+			if a.secretMasker != nil {
+				st.Error = a.secretMasker.MaskString(st.Error)
+			}
 			if st.FinishedAt == "" {
 				st.FinishedAt = stringutil.FormatTime(time.Now())
 			}
