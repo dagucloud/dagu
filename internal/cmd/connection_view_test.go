@@ -17,16 +17,19 @@ import (
 	api "github.com/dagucloud/dagu/v2/api/v1"
 )
 
-// list prints each connection of the workspace with its account and
-// status, or says that the workspace has none.
+// list prints each connection of the workspace with its account, without
+// the account's control characters, and its status, or says that the
+// workspace has none.
 func TestConnectionList(t *testing.T) {
 	t.Parallel()
 	pending := testConnection(api.ConnectionStatusPending, "")
 	pending.Name = "team"
 	pending.Services = append(pending.Services, api.ConnectionService{Name: "calendar", Access: api.ConnectionAccessWrite})
+	odd := testConnection(api.ConnectionStatusConnected, "\x1b[2Jodd@example.com")
+	odd.Name = "odd"
 	fake, client := newFakeConnectionAPI(t, map[string]any{
 		"GET /connections": api.ConnectionListResponse{Connections: []api.Connection{
-			testConnection(api.ConnectionStatusConnected, "ops@example.com"), pending,
+			testConnection(api.ConnectionStatusConnected, "ops@example.com"), pending, odd,
 		}},
 	})
 	c, out := testConnectionCLI(client, strings.NewReader(""), nil)
@@ -35,10 +38,11 @@ func TestConnectionList(t *testing.T) {
 
 	assert.Contains(t, fake.sent(), "GET /connections?workspace=ops")
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	require.Len(t, lines, 3)
+	require.Len(t, lines, 4)
 	assert.Equal(t, []string{"NAME", "PROVIDER", "ACCOUNT", "STATUS", "SERVICES"}, strings.Fields(lines[0]))
 	assert.Equal(t, []string{"work", "google", "ops@example.com", "connected", "gmail"}, strings.Fields(lines[1]))
 	assert.Equal(t, []string{"team", "google", "-", "pending", "gmail,calendar:write"}, strings.Fields(lines[2]))
+	assert.Equal(t, []string{"odd", "google", "[2Jodd@example.com", "connected", "gmail"}, strings.Fields(lines[3]))
 
 	fake.set("GET /connections", api.ConnectionListResponse{Connections: []api.Connection{}})
 	c, out = testConnectionCLI(client, strings.NewReader(""), nil)
@@ -83,14 +87,15 @@ func TestConnectionShow(t *testing.T) {
 }
 
 // tools prints each service's tools as a table without control
-// characters, and fails when a service's tools could not be listed.
+// characters, a tab becoming a space, and fails when a service's tools
+// could not be listed.
 func TestConnectionTools(t *testing.T) {
 	t.Parallel()
 	listed := time.Date(2026, 11, 28, 9, 0, 0, 0, time.UTC)
 	resp := api.ConnectionToolsResponse{Servers: []api.ConnectionToolServer{
 		{Server: "gmail", ListedAt: &listed, Tools: []api.ConnectionTool{
 			{Name: "search_threads", Description: new("Search threads.\nMore text."), Annotations: &map[string]any{"readOnlyHint": true}},
-			{Name: "send_message", Description: new("Send a \x1b[31mmessage\x1b[0m.")},
+			{Name: "send_message", Description: new("Send\ta \x1b[31mmessage\x1b[0m.")},
 		}},
 		{Server: "calendar", Tools: []api.ConnectionTool{}, Error: new("the token lacks a scope")},
 	}}
@@ -111,18 +116,22 @@ func TestConnectionTools(t *testing.T) {
 
 // tools --json prints the server's body as it was sent, so an input
 // schema keeps an integer bound that a float would round and one beyond
-// a float's range, and text keeps
-// its angle brackets. It asks only for the service --server names.
+// a float's range, and text keeps its angle brackets. It asks only for
+// the service --server names, and fails, after printing, when a
+// service's tools could not be listed.
 func TestConnectionToolsJSON(t *testing.T) {
 	t.Parallel()
 	body := `{"servers":[{"server":"gmail","tools":[{"name":"search_threads","description":"a <b> & c",` +
-		`"inputSchema":{"type":"object","properties":{"limit":{"type":"integer","maximum":9223372036854775807,"minimum":-1e400}}}}]}]}`
+		`"inputSchema":{"type":"object","properties":{"limit":{"type":"integer","maximum":9223372036854775807,"minimum":-1e400}}}}]},` +
+		`{"server":"calendar","tools":[],"error":"the token lacks a scope"}]}`
 	fake, client := newFakeConnectionAPI(t, map[string]any{"GET /connections/work/tools": rawReply(body)})
 	c, out := testConnectionCLI(client, strings.NewReader(""), nil)
 
-	require.NoError(t, c.tools(context.Background(), "work", "gmail", true))
+	err := c.tools(context.Background(), "work", "gmail", true)
 
+	require.ErrorContains(t, err, "the tools of calendar could not be listed")
 	assert.Contains(t, fake.sent(), "GET /connections/work/tools?server=gmail&workspace=ops")
+	assert.Contains(t, out.String(), `"error": "the token lacks a scope"`)
 	assert.Contains(t, out.String(), `"maximum": 9223372036854775807`)
 	assert.Contains(t, out.String(), `"minimum": -1e400`)
 	assert.Contains(t, out.String(), `"description": "a <b> & c"`)
