@@ -656,7 +656,9 @@ describe('DAGActions', () => {
     });
 
     it('keeps the plain Stop tooltip for unless-stopped', async () => {
-      renderService(unlessStopped, Status.Running);
+      renderService(unlessStopped, Status.Running, {
+        service: svc({ restartPolicy: RestartPolicy.unless_stopped }),
+      });
       await userEvent.hover(screen.getByRole('button', { name: 'Stop' }));
       expect(
         (await screen.findAllByText('Stop the latest run'))[0]
