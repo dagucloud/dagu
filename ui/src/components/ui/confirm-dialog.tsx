@@ -23,6 +23,11 @@ type ConfirmDialogProps = {
   children: React.ReactNode;
   visible: boolean;
   dismissModal: () => void;
+  /**
+   * Disables Cancel while a request that the dialog reports on is under
+   * way. The caller ignores other ways to dismiss meanwhile.
+   */
+  cancelDisabled?: boolean;
   onSubmit: () => void;
   submitDisabled?: boolean;
   fullscreen?: boolean;
@@ -34,6 +39,12 @@ type ConfirmDialogProps = {
   layer?: DialogLayer;
   /** A short second choice between Cancel and the confirm button. */
   secondary?: { text: string; onClick: () => void };
+  /**
+   * When false, Enter confirms only on the confirm button itself, never
+   * from elsewhere in the dialog. A choice that a refresh can take away
+   * passes false, so Enter cannot confirm what is no longer shown.
+   */
+  submitOnEnter?: boolean;
   /**
    * The button that has the focus when the dialog opens. 'confirm' is the
    * default: Enter confirms. A destructive question passes 'cancel'.
@@ -57,6 +68,7 @@ function ConfirmDialog({
   buttonText,
   visible,
   dismissModal,
+  cancelDisabled = false,
   onSubmit,
   submitDisabled = false,
   fullscreen = false,
@@ -66,6 +78,7 @@ function ConfirmDialog({
   footerClassName,
   layer,
   secondary,
+  submitOnEnter = true,
   initialFocus = 'confirm',
   restoreFocus = false,
   onCloseAutoFocus,
@@ -81,6 +94,8 @@ function ConfirmDialog({
       if (!visible || event.defaultPrevented || event.key !== 'Enter') {
         return;
       }
+      // The buttons still act on Enter as buttons do.
+      if (!submitOnEnter) return;
 
       const activeElement = document.activeElement;
       const isInputFocused =
@@ -120,13 +135,14 @@ function ConfirmDialog({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [visible, onSubmit, dismissModal, submitDisabled]);
+  }, [visible, onSubmit, dismissModal, submitDisabled, submitOnEnter]);
 
   return (
     <Dialog open={visible} onOpenChange={(open) => !open && dismissModal()}>
       <DialogContent
         fullscreen={fullscreen}
         layer={layer}
+        hideCloseButton={cancelDisabled}
         className={cn(
           !fullscreen && !contentClassName && 'sm:max-w-[500px]',
           contentClassName
@@ -160,7 +176,12 @@ function ConfirmDialog({
         <div className={cn('py-4', bodyClassName)}>{children}</div>
 
         <DialogFooter className={footerClassName}>
-          <Button ref={cancelButtonRef} variant="ghost" onClick={dismissModal}>
+          <Button
+            ref={cancelButtonRef}
+            variant="ghost"
+            disabled={cancelDisabled}
+            onClick={dismissModal}
+          >
             <X className="h-4 w-4" />
             <I18nText text={'Cancel'} />
           </Button>

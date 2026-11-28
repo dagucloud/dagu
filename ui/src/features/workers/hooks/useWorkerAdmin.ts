@@ -2,13 +2,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * Admin reads and changes of worker invites.
+ * Admin reads and changes of worker invites and worker certificates.
  *
  * @module features/workers/hooks
  */
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { useSWRConfig } from 'swr';
-import { WorkerAccessReason, type components } from '@/api/v1/schema';
+import {
+  WorkerAccessReason,
+  WorkerRemovalRuns,
+  WorkerRemovalState,
+  type components,
+} from '@/api/v1/schema';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
 import { addAuthSessionListener } from '@/lib/authSession';
@@ -343,12 +348,14 @@ export function useInviteDeletes() {
 }
 
 /**
- * Deletes invites. The server makes this change on its own coordinators
- * only, never on a remote node, so its audit names the admin who made it.
+ * Deletes invites and removes workers. The server makes these changes on
+ * its own coordinators only, never on a remote node, so its audit names
+ * the admin who made them.
  */
 export function useWorkerActions() {
   const client = useClient();
   const store = useInviteStore();
+  const { mutate } = useSWRConfig();
 
   // Reads the invites of a node again after a change, once the tab shows,
   // also when the list that asked is gone, as after a switch to another
@@ -358,16 +365,64 @@ export function useWorkerActions() {
     [client, store]
   );
 
+  // Reads the page's workers list again once the tab shows, so a change
+  // shows also while the page's auto refresh is off.
+  const rereadWorkers = useCallback(
+    () =>
+      readWhenVisible('workers', () => {
+        void mutate((key) => Array.isArray(key) && key[1] === '/workers');
+      }),
+    [mutate]
+  );
+
   const deleteInvite = useCallback(
     (inviteId: string) => store.delete(client, inviteId),
     [client, store]
+  );
+
+  const removeWorker = useCallback(
+    async (
+      worker: { id: string; certificateId: string },
+      runs: WorkerRemovalRuns
+    ): Promise<WorkerRemovalState> => {
+      // The certificate the admin confirmed: a worker that joined again with
+      // another one answers 409 instead of being removed.
+      // The worker ID goes in the body as it is, so any ID, such as one
+      // with a slash or one that names a route, reaches the server intact.
+      const { data, error, response } = await client.POST('/workers/removals', {
+        body: {
+          workerId: worker.id,
+          certificateId: worker.certificateId,
+          runs,
+        },
+      });
+      // Only a state the API defines counts as accepted; an answer such as
+      // `{}` is a failure, so nothing that depends on the removal follows.
+      if (!response.ok || !isRemovalState(data?.state)) {
+        throw requestError(response.status, error);
+      }
+      return data.state;
+    },
+    [client]
   );
 
   // The current auth session: what a request started in an earlier one
   // reports is dropped.
   const session = useCallback(() => store.currentSession(), [store]);
 
-  return { deleteInvite, rereadInvites, session };
+  return {
+    deleteInvite,
+    removeWorker,
+    rereadInvites,
+    rereadWorkers,
+    session,
+  };
+}
+
+function isRemovalState(state: unknown): state is WorkerRemovalState {
+  return Object.values(WorkerRemovalState).includes(
+    state as WorkerRemovalState
+  );
 }
 
 // Only a 409 and a 503 carry a worker access reason (Spec 108); the

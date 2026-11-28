@@ -3,7 +3,7 @@
 
 import { render, screen } from '@testing-library/react';
 import React from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   PlaintextReason,
   WorkerConnection,
@@ -14,6 +14,9 @@ import {
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import WorkersSummary from '../WorkersSummary';
+
+// The admin actions have their own tests in features/workers.
+vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: () => false }));
 
 type Worker = components['schemas']['Worker'];
 

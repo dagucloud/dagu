@@ -1311,20 +1311,65 @@ The Workers page is the list of workers on System status.
   `Plaintext` links to the transport security documentation. It is a
   neutral line with no alert. A worker without `connection` shows
   `Connection not reported`.
-- **Remove** is on `certificate` workers only. A worker on the peer token
-  shows how to stop it instead.
-- With running runs, the confirmation lists them and offers
+- **Remove** is on `certificate` workers with a `certificateId`. A worker
+  without `connection` gets no Remove and no line. On the local node, when
+  the list has a `tls` or `plaintext` worker, a line below the list says
+  that Remove
+  applies only to workers that joined with an invite. The same line says
+  that a `tls` or `plaintext` worker, which includes a worker on its own
+  certificates, has no Remove, and how to stop one: on its host, or by
+  changing what the coordinator accepts from it.
+- The confirmation and **Stop runs now** act on what the list showed when
+  the admin opened them: the worker's `certificateId`, the workers on that
+  certificate, and their runs. A refresh never changes what they offer. It
+  only locks them, with "This worker changed. Close and confirm again.",
+  when it shows another certificate or none, a removal started since, no
+  row for the worker, or a read that failed or carried coordinator errors.
+  A locked dialog sends nothing and stays locked.
+- A failed read of the workers list, or a list answer that carries
+  coordinator errors, shows the page's own words in the list and raises
+  no page notice. The confirmation drops the warning about
+  a reusable invite once it expires, on the same clock as the invites list.
+- After a refused request, the confirmation and **Stop runs now** take
+  no second one: they say to close and confirm again from the list. Enter
+  confirms only on the confirm button.
+- A removal answered `removing` or `removed` counts as accepted, also when
+  another admin started it or the certificate was revoked already. Any
+  other answer is a failure.
+- The confirmation and **Stop runs now** close by themselves when every
+  step they took succeeded. Otherwise only the admin closes them. While a
+  request is under way, which for the confirmation includes the invite
+  delete after the removal, the dialog shows what was submitted in place
+  of its choices, and Cancel and the close button are unavailable.
+- A removal revokes the certificate and Stop cancels its runs, so both
+  dialogs name every worker on the certificate when there are several,
+  and list their runs, each by its DAG and run ID and a child run also by
+  its root run. They say that a run the list does not show gets a cancel
+  request too. With runs, the confirmation offers
   **Remove after its runs finish** (`finish`, the default) and
-  **Stop its runs and remove** (`stop`). A `removing` worker shows
-  `Removing (<n> runs left)` and **Stop runs now**.
-- For a worker on a reusable invite, the confirmation says the invite still
-  admits new workers, names the other workers that use it, and offers to
-  delete it.
-- For a worker with `environment: kubernetes`, the confirmation says the pod
-  keeps restarting until the Deployment is scaled down. A deleted pod comes
-  back as a new pod with an empty data directory, which enrolls again
-  while its reusable invite exists, so the confirmation offers to delete
-  the invite first.
+  **Stop its runs and remove** (`stop`), which sends a cancel request to
+  each run on the certificate and removes the worker within two minutes,
+  whether or not its runs have ended. **Stop runs now** says the same. A
+  `removing` worker shows `Removing (<n> runs left)`, or
+  `Removing (1 run left)`, and **Stop runs now** while it has runs. The
+  count comes from the page's existing `/workers` refresh.
+- For a worker on a reusable invite that is still active, the confirmation
+  says the invite still admits new workers, names the other workers that
+  use it, and offers to delete it. An invite the page's list lacks is read
+  once more before the removal can start. When the invites cannot be read,
+  the confirmation says so and offers to read them again, and the removal
+  stays available; the latest read decides, so an invite from an earlier
+  read is not shown after a failed one. The invite is deleted only after the server accepted
+  the removal, never before. When that delete fails, the confirmation says
+  the removal was accepted and the invite was not deleted, and offers to
+  delete that same invite again; it closes once that delete succeeds.
+  From the accepted removal on, the confirmation shows and acts on the
+  invite recorded then, whatever the list shows later.
+- For a worker with `environment: kubernetes`, the confirmation says that
+  if a Deployment manages the pod, the pod keeps restarting until the
+  Deployment is scaled down. A replacement pod
+  can join again while its reusable invite is active, so the confirmation
+  offers to delete the invite as well.
 - **Invites** lists invites with kind, a short ID, creator, creation and
   expiry times, use count, and last use, and deletes one. The confirmation
   names the invite by its short ID, kind, and creation time. An invite that
@@ -1346,9 +1391,11 @@ The Workers page is the list of workers on System status.
   its expiry on the same clock. On a remote node, a 403 says the
   credentials this server uses for that node lack admin access there. Only
   the last read of a node shows its list or its failure.
-- On a remote node, the page lists the invites but offers no **Delete**,
-  since the server does not forward it, and says to open the Dagu UI of
-  that node to delete an invite there.
+- On a remote node, the page lists the invites and the workers but offers
+  no **Delete**, **Remove**, or **Stop runs now**, since the server refuses
+  them for a remote node. Above the invites, and below the workers when one
+  of them would have Remove or is removing, a line says to open the Dagu
+  UI of that node to use them.
 - A refused call shows its cause and the change to make, chosen by the
   `details.reason` of a 409 or a 503, else by the HTTP status. For
   `coordinator_refused` and for a reason the page does not know, whose
