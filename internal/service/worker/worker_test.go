@@ -833,6 +833,49 @@ func TestWorkerStopDeadline(t *testing.T) {
 	})
 }
 
+// A heartbeat refused as revoked stops the worker: the run it holds can no
+// longer report, so it is canceled at once, and Start returns ErrRemoved
+// once the run has exited (Spec 108 §Removed Worker).
+func TestWorkerRemoved(t *testing.T) {
+	mockCoordinatorCli := newMockCoordinatorCli()
+	var dispatched atomic.Bool
+	mockCoordinatorCli.SetPollFunc(func(ctx context.Context, _ backoff.RetryPolicy, _ *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
+		if dispatched.Swap(true) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return &coordinatorv1.Task{DagRunId: "run-1", AttemptKey: "attempt-1"}, nil
+	})
+	started := make(chan struct{})
+	mockCoordinatorCli.SetHeartbeatFunc(func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("heartbeat failed: %w", status.Error(codes.Unauthenticated, "this worker was removed from the coordinator"))
+	})
+	runErr := make(chan error, 1)
+	w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, map[string]string{}, &config.Config{})
+	w.SetHandler(&mockHandler{
+		ExecuteFunc: func(ctx context.Context, _ *coordinatorv1.Task) error {
+			close(started)
+			<-ctx.Done()
+			runErr <- ctx.Err()
+			return ctx.Err()
+		},
+	})
+
+	require.ErrorIs(t, w.Start(t.Context()), worker.ErrRemoved)
+	select {
+	case err := <-runErr:
+		assert.ErrorIs(t, err, context.Canceled)
+	default:
+		t.Fatal("Start returned before the run was stopped")
+	}
+	assert.NoError(t, w.Stop(t.Context()), "a later Stop does nothing")
+}
+
 func TestWorkerDefaultID(t *testing.T) {
 	t.Run("GeneratesDefaultIDWhenEmpty", func(t *testing.T) {
 		labels := make(map[string]string)

@@ -88,11 +88,33 @@ func (ca testCA) invite(t *testing.T) string {
 }
 
 // fakeEnroll answers Enroll for each address as results says: a CA that
-// signs the request's key, or an error. It records the requests.
+// signs the request's key, or an error. It records the requests. It answers
+// the confirmation of a kept certificate as answers says, and accepts it at
+// an address answers does not list.
 type fakeEnroll struct {
 	mu       sync.Mutex
 	results  map[string][]any
 	requests []*coordinatorv1.EnrollRequest
+	answers  map[string]error
+	confirms int
+	// kubernetes runs the worker in Kubernetes, which reads the
+	// termination message from terminationLog.
+	kubernetes     bool
+	terminationLog string
+}
+
+func (f *fakeEnroll) environment() coordinatorv1.HostEnvironment {
+	if f.kubernetes {
+		return coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES
+	}
+	return coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_HOST
+}
+
+func (f *fakeEnroll) confirm(_ context.Context, _ *coordinator.Config, address string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.confirms++
+	return f.answers[address]
 }
 
 func (f *fakeEnroll) enroll(_ context.Context, _ *coordinator.Config, address string, req *coordinatorv1.EnrollRequest) (*coordinatorv1.EnrollResponse, error) {
@@ -163,9 +185,12 @@ func open(t *testing.T, cfg *config.Config, fake *fakeEnroll) (*Membership, erro
 		fake = &fakeEnroll{}
 	}
 	m, err := openMembership(t.Context(), cfg, nil, joinOptions{
-		lock:        testLockTiming,
-		enroll:      fake.enroll,
-		retryPolicy: backoff.NewConstantBackoffPolicy(0),
+		lock:           testLockTiming,
+		enroll:         fake.enroll,
+		confirm:        fake.confirm,
+		retryPolicy:    backoff.NewConstantBackoffPolicy(0),
+		environment:    fake.environment,
+		terminationLog: fake.terminationLog,
 	})
 	if err != nil {
 		return nil, err
@@ -611,22 +636,6 @@ func testCSR(t *testing.T) []byte {
 	return csr
 }
 
-// dagu worker --check covers no invite worker yet: one with an invite, or
-// one that restarts with a kept certificate and no invite. A kept
-// certificate left unused by peer.insecure: true is no invite worker.
-func TestCheckInviteWorker(t *testing.T) {
-	ca := newTestCA(t)
-	dataDir := t.TempDir()
-	require.NoError(t, CheckInviteWorker(workerConfig(dataDir, "")))
-	require.ErrorIs(t, CheckInviteWorker(workerConfig(dataDir, ca.invite(t))), ErrCheckInviteWorker)
-
-	join(t, workerConfig(dataDir, ca.invite(t)), enrolling(ca))
-	require.ErrorIs(t, CheckInviteWorker(workerConfig(dataDir, "")), ErrCheckInviteWorker)
-	insecure := workerConfig(dataDir, "")
-	insecure.Core.Peer.InsecureUnset = false
-	require.NoError(t, CheckInviteWorker(insecure))
-}
-
 // A malformed invite stops the worker before it dials anything.
 func TestMembershipMalformedInvite(t *testing.T) {
 	ca := newTestCA(t)
@@ -867,4 +876,195 @@ func TestCertificateLock(t *testing.T) {
 	second, err := lockCertificate(t.Context(), dir, testLockTiming, cannotLock)
 	require.NoError(t, err)
 	require.NoError(t, second.Unlock())
+}
+
+const (
+	// removedMessage is the failure of a removed worker outside Kubernetes.
+	removedMessage = "This worker was removed from the coordinator\n  Get a new command from \"Add worker\" to add it again."
+	// removedKubernetesLine is the termination message of a removed worker
+	// in Kubernetes.
+	removedKubernetesLine = `This worker was removed from the coordinator. Scale its Deployment down to stop it, or get a new command from "Add worker" to add it again.`
+)
+
+// removedAnswer is a coordinator's refusal of a revoked certificate.
+var removedAnswer = status.Error(codes.Unauthenticated, "this worker was removed from the coordinator")
+
+// A worker whose certificate a coordinator refused while it ran keeps the
+// refusal with its certificate, so a restart with the same invite, or with
+// none, exits with the same message without calling a coordinator. A
+// different invite enrolls again with a new key (Spec 108 §Removed Worker,
+// §Worker Start).
+func TestMembershipRemoved(t *testing.T) {
+	ca := newTestCA(t)
+	invite := ca.invite(t)
+	dataDir := t.TempDir()
+	fake := &fakeEnroll{results: map[string][]any{coordinatorA: {ca, ca}}}
+	m, err := open(t, workerConfig(dataDir, invite), fake)
+	require.NoError(t, err)
+	require.NoError(t, connect(t.Context(), t, m))
+	assert.EqualError(t, m.Removed(t.Context()), removedMessage)
+	removedKey := m.cred.cert.Leaf.PublicKey
+	require.NoError(t, m.Close())
+
+	for name, restart := range map[string]string{"SameInvite": invite, "NoInvite": ""} {
+		t.Run(name, func(t *testing.T) {
+			_, err := open(t, workerConfig(dataDir, restart), fake)
+			assert.EqualError(t, err, removedMessage)
+		})
+	}
+	assert.Equal(t, 1, fake.calls(), "a removed worker does not enroll with its invite")
+	assert.Zero(t, fake.confirms, "a removed worker calls no coordinator")
+
+	rejoined := join(t, workerConfig(dataDir, ca.invite(t)), fake)
+	assert.Equal(t, 2, fake.calls())
+	assert.NotEqual(t, removedKey, rejoined.cred.cert.Leaf.PublicKey, "a new key")
+	restarted := join(t, workerConfig(dataDir, ""), fake)
+	assert.Equal(t, rejoined.cred.cert.Certificate, restarted.cred.cert.Certificate)
+}
+
+// A kept certificate is confirmed before the worker starts. A refusal as
+// revoked from any coordinator enrolls the worker again when it has another
+// invite than the one it enrolled with, and otherwise stops it with the
+// message, which later starts repeat without calling a coordinator (Spec 108
+// §Worker Start).
+func TestMembershipRemovedAtStart(t *testing.T) {
+	ca := newTestCA(t)
+	dataDir := t.TempDir()
+	fake := &fakeEnroll{results: map[string][]any{coordinatorA: {ca, ca}}}
+	enrolled := join(t, workerConfig(dataDir, ca.invite(t)), fake)
+	fake.answers = map[string]error{
+		coordinatorA: status.Error(codes.Unavailable, "connection refused"),
+		coordinatorB: fmt.Errorf("heartbeat failed: %w", removedAnswer),
+	}
+
+	other := ca.invite(t)
+	rejoined := join(t, workerConfig(dataDir, other), fake)
+	assert.Equal(t, 2, fake.calls(), "another invite enrolls again")
+	assert.NotEqual(t, enrolled.cred.cert.Leaf.PublicKey, rejoined.cred.cert.Leaf.PublicKey, "a new key")
+
+	m, err := open(t, workerConfig(dataDir, other), fake)
+	require.NoError(t, err)
+	assert.EqualError(t, connect(t.Context(), t, m), removedMessage)
+	require.NoError(t, m.Close())
+	confirms := fake.confirms
+
+	_, err = open(t, workerConfig(dataDir, other), fake)
+	assert.EqualError(t, err, removedMessage)
+	assert.Equal(t, confirms, fake.confirms, "the restart calls no coordinator")
+	assert.Equal(t, 2, fake.calls())
+}
+
+// A worker with a certificate stops when every coordinator that answers
+// belongs to another Dagu. It starts when one accepts its certificate, and
+// while none answers, since its calls retry (Spec 108 §Errors).
+func TestMembershipOtherDagu(t *testing.T) {
+	unavailable := status.Error(codes.Unavailable, "connection refused")
+	tests := []struct {
+		name    string
+		answers map[string]error
+		wantErr string
+	}{
+		{
+			name:    "OtherDagu",
+			answers: map[string]error{coordinatorA: unavailable, coordinatorB: coordinator.ErrOtherDagu},
+			wantErr: "coordinator-b:50055 belongs to a different Dagu than the one this worker joined\n  Get a new command from \"Add worker\" to join it.",
+		},
+		{name: "OneAccepts", answers: map[string]error{coordinatorA: coordinator.ErrOtherDagu}},
+		{name: "NoneAnswers", answers: map[string]error{coordinatorA: unavailable, coordinatorB: unavailable}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ca := newTestCA(t)
+			dataDir := t.TempDir()
+			fake := enrolling(ca)
+			join(t, workerConfig(dataDir, ca.invite(t)), fake)
+			fake.answers = tc.answers
+
+			m, err := open(t, workerConfig(dataDir, ""), fake)
+			require.NoError(t, err)
+			err = connect(t.Context(), t, m)
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.EqualError(t, err, tc.wantErr)
+		})
+	}
+}
+
+// In Kubernetes, a removed worker also writes its message to the
+// termination log, at each start, with the change that stops the pod from
+// restarting. Elsewhere it writes nothing (Spec 108 §Removed Worker).
+func TestMembershipRemovedTerminationMessage(t *testing.T) {
+	for name, kubernetes := range map[string]bool{"Kubernetes": true, "Host": false} {
+		t.Run(name, func(t *testing.T) {
+			ca := newTestCA(t)
+			dataDir := t.TempDir()
+			log := filepath.Join(t.TempDir(), "termination-log")
+			require.NoError(t, os.WriteFile(log, nil, 0o600))
+			fake := enrolling(ca)
+			fake.kubernetes, fake.terminationLog = kubernetes, log
+			m, err := open(t, workerConfig(dataDir, ca.invite(t)), fake)
+			require.NoError(t, err)
+			require.NoError(t, connect(t.Context(), t, m))
+			err = m.Removed(t.Context())
+			require.NoError(t, m.Close())
+
+			data, readErr := os.ReadFile(log)
+			require.NoError(t, readErr)
+			if !kubernetes {
+				assert.EqualError(t, err, removedMessage)
+				assert.Empty(t, data)
+				return
+			}
+			assert.EqualError(t, err, strings.Replace(removedKubernetesLine, ". ", "\n  ", 1))
+			assert.Equal(t, removedKubernetesLine, string(data))
+
+			require.NoError(t, os.WriteFile(log, nil, 0o600))
+			_, err = open(t, workerConfig(dataDir, ""), fake)
+			require.Error(t, err)
+			data, readErr = os.ReadFile(log)
+			require.NoError(t, readErr)
+			assert.Equal(t, removedKubernetesLine, string(data), "a restart writes it again")
+		})
+	}
+
+	// A missing termination log stays missing.
+	missing := filepath.Join(t.TempDir(), "termination-log")
+	writeTerminationMessage(t.Context(), missing, removedKubernetesLine)
+	assert.NoFileExists(t, missing)
+}
+
+// dagu worker --check dials as the worker starts: with its kept
+// certificate, also one a coordinator refused as revoked, or else with its
+// invite. It takes no lock, so it runs beside the worker (Spec 108
+// §dagu worker --check).
+func TestCoordinatorClientConfig(t *testing.T) {
+	ca := newTestCA(t)
+	invite := ca.invite(t)
+	dataDir := t.TempDir()
+	checkLine := func(cfg *config.Config) string {
+		t.Helper()
+		clientConfig, err := CoordinatorClientConfig(cfg, nil)
+		require.NoError(t, err)
+		line, err := clientConfig.StartTransport()
+		require.NoError(t, err)
+		return line
+	}
+	assert.Equal(t, "built-in TLS (from worker.invite)", checkLine(workerConfig(dataDir, invite)))
+
+	m, err := open(t, workerConfig(dataDir, invite), enrolling(ca))
+	require.NoError(t, err)
+	require.NoError(t, connect(t.Context(), t, m))
+	for _, restart := range []string{invite, ""} {
+		assert.Equal(t, "built-in TLS (from worker certificate)", checkLine(workerConfig(dataDir, restart)))
+	}
+	// peer.insecure: true leaves the kept certificate unused, as at start.
+	insecure := workerConfig(dataDir, "")
+	insecure.Core.Peer.InsecureUnset = false
+	assert.Equal(t, "h2c (from peer.insecure: true)", checkLine(insecure))
+
+	require.Error(t, m.Removed(t.Context()))
+	assert.Equal(t, "built-in TLS (from worker certificate)", checkLine(workerConfig(dataDir, invite)))
+	assert.Equal(t, "built-in TLS (from worker.invite)", checkLine(workerConfig(dataDir, ca.invite(t))), "another invite enrolls again")
 }

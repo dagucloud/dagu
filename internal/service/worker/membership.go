@@ -102,6 +102,32 @@ func statusMessage(err error) string {
 	return err.Error()
 }
 
+func errOtherDaguJoined(address string) failure {
+	return failure{
+		cause: address + " belongs to a different Dagu than the one this worker joined",
+		next:  `Get a new command from "Add worker" to join it.`,
+	}
+}
+
+// errRemoved is the failure of a worker whose certificate a coordinator
+// refused as revoked. In Kubernetes the pod restarts the worker, which
+// exits again, until its Deployment is scaled down.
+func errRemoved(kubernetes bool) failure {
+	f := failure{
+		cause: "This worker was removed from the coordinator",
+		next:  `Get a new command from "Add worker" to add it again.`,
+	}
+	if kubernetes {
+		f.next = `Scale its Deployment down to stop it, or get a new command from "Add worker" to add it again.`
+	}
+	return f
+}
+
+// terminationLogPath is where Kubernetes reads a container's termination
+// message, unless the pod sets another terminationMessagePath. The chart
+// keeps the default.
+const terminationLogPath = "/dev/termination-log"
+
 func errInvalidReply(address string) failure {
 	return failure{
 		cause: "Coordinator at " + address + " returned a certificate that does not match this worker's request",
@@ -132,7 +158,12 @@ type Membership struct {
 type joinOptions struct {
 	lock        lockTiming
 	enroll      func(context.Context, *coordinator.Config, string, *coordinatorv1.EnrollRequest) (*coordinatorv1.EnrollResponse, error)
+	confirm     func(context.Context, *coordinator.Config, string) error
 	retryPolicy backoff.RetryPolicy
+	// environment is where the worker runs, and terminationLog the file
+	// Kubernetes reads the termination message from.
+	environment    func() coordinatorv1.HostEnvironment
+	terminationLog string
 }
 
 // OpenMembership prepares how the worker calls its coordinators, by Spec 108
@@ -143,9 +174,12 @@ type joinOptions struct {
 // worker's data directory.
 func OpenMembership(ctx context.Context, cfg *config.Config, localRegistry serviceregistry.ServiceRegistry) (*Membership, error) {
 	return openMembership(ctx, cfg, localRegistry, joinOptions{
-		lock:        defaultLockTiming,
-		enroll:      coordinator.Enroll,
-		retryPolicy: enrollRetryPolicy(),
+		lock:           defaultLockTiming,
+		enroll:         coordinator.Enroll,
+		confirm:        coordinator.ConfirmWorkerCertificate,
+		retryPolicy:    enrollRetryPolicy(),
+		environment:    coordinator.ProcessEnvironment,
+		terminationLog: terminationLogPath,
 	})
 }
 
@@ -193,7 +227,7 @@ func (m *Membership) open(ctx context.Context) error {
 	m.config = m.config.WithInvite(invite)
 	kept, err := m.store.kept()
 	if err != nil {
-		return m.errUnreadable(err)
+		return errUnreadable(m.cfg.Paths.DataDir, err)
 	}
 	if !kept && !m.store.writable() {
 		// Nothing is kept to share, so the worker enrolls with a key in
@@ -206,21 +240,64 @@ func (m *Membership) open(ctx context.Context) error {
 	m.writable = m.store.writable()
 	cred, err := m.store.load()
 	if err != nil {
-		return m.errUnreadable(err)
+		return errUnreadable(m.cfg.Paths.DataDir, err)
+	}
+	return m.start(ctx, cred)
+}
+
+// keptUse is what a worker does at start with the credential it keeps, by
+// Spec 108 §Worker Start.
+type keptUse int
+
+const (
+	// keptUnused leaves the credential to a new enrollment with
+	// worker.invite, or, without one, the peer token.
+	keptUnused keptUse = iota
+	// keptConnect calls the coordinators with the kept certificate.
+	keptConnect
+	// keptRemoved exits, since a coordinator refused the certificate as
+	// revoked.
+	keptRemoved
+)
+
+// keptUseOf returns what a worker with worker.invite invite, nil without
+// one, does with cred, nil when it keeps none.
+func keptUseOf(cred *credential, invite *coordinator.Invite) keptUse {
+	switch {
+	case cred == nil:
+		return keptUnused
+	case invite == nil:
+	case !invite.Names(cred.ca):
+		// Another CA's certificate gives way to a new enrollment.
+		return keptUnused
+	case cred.removed && cred.inviteDigest != invite.Digest():
+		// A different invite brings a removed worker back with a new key.
+		return keptUnused
 	}
 	// A certificate from the invite's CA makes a restart keep it, so a
-	// single-use invite is not used up. Another CA's certificate gives way
-	// to a new enrollment.
-	if cred != nil && invite.Names(cred.ca) {
-		m.use(cred)
-		return nil
+	// single-use invite is not used up.
+	if cred.removed {
+		return keptRemoved
 	}
-	// A new certificate that cannot be kept would leave the old one for a
-	// restart without the invite to reuse.
-	if cred != nil && !m.writable {
-		return failure{
-			cause: "This worker cannot replace the certificate it enrolled for with one from the invite's CA",
-			next:  fmt.Sprintf("Make %s writable, then start the worker again.", m.cfg.Paths.DataDir),
+	return keptConnect
+}
+
+// start applies the kept credential cred to the worker's start.
+func (m *Membership) start(ctx context.Context, cred *credential) error {
+	switch keptUseOf(cred, m.invite) {
+	case keptConnect:
+		m.use(cred)
+	case keptRemoved:
+		m.cred = cred
+		return m.removedFailure(ctx)
+	case keptUnused:
+		// A new certificate that cannot be kept would leave the old one for
+		// a restart without the invite to reuse.
+		if cred != nil && !m.writable {
+			return failure{
+				cause: "This worker cannot replace the certificate it enrolled for with one from the invite's CA",
+				next:  fmt.Sprintf("Make %s writable, then start the worker again.", m.cfg.Paths.DataDir),
+			}
 		}
 	}
 	return nil
@@ -230,18 +307,17 @@ func (m *Membership) open(ctx context.Context) error {
 // any, unless peer.insecure: true or own TLS files leave it unused.
 func (m *Membership) openWithoutInvite(ctx context.Context) error {
 	peer := m.cfg.Core.Peer
-	switch {
-	case peer.Insecure && !peer.InsecureUnset:
-		if kept, _ := m.store.kept(); kept {
-			logger.Warn(ctx, "Worker certificate unused: peer.insecure is true, so this worker uses h2c and the peer token; remove peer.insecure: true to use it")
+	if !usesKeptCertificate(peer) {
+		if peer.Insecure && !peer.InsecureUnset {
+			if kept, _ := m.store.kept(); kept {
+				logger.Warn(ctx, "Worker certificate unused: peer.insecure is true, so this worker uses h2c and the peer token; remove peer.insecure: true to use it")
+			}
 		}
-		return nil
-	case !peer.Insecure && (peer.CertFile != "" || peer.KeyFile != "" || peer.ClientCaFile != "" || peer.SkipTLSVerify):
 		return nil
 	}
 	kept, err := m.store.kept()
 	if err != nil {
-		return m.errUnreadable(err)
+		return errUnreadable(m.cfg.Paths.DataDir, err)
 	}
 	if !kept {
 		return nil
@@ -251,12 +327,9 @@ func (m *Membership) openWithoutInvite(ctx context.Context) error {
 	}
 	cred, err := m.store.load()
 	if err != nil {
-		return m.errUnreadable(err)
+		return errUnreadable(m.cfg.Paths.DataDir, err)
 	}
-	if cred != nil {
-		m.use(cred)
-	}
-	return nil
+	return m.start(ctx, cred)
 }
 
 // takeLock locks the certificate and removes what an interrupted save left.
@@ -278,12 +351,21 @@ func (m *Membership) errCannotLock(err error) error {
 	}
 }
 
-// errUnreadable is the failure of a kept credential that cannot be read.
-// The worker stops rather than call without it.
-func (m *Membership) errUnreadable(err error) error {
+// usesKeptCertificate reports whether a worker without worker.invite uses
+// the worker certificate it keeps: not with peer.insecure: true, nor with
+// its own TLS files.
+func usesKeptCertificate(peer config.Peer) bool {
+	insecure := peer.Insecure && !peer.InsecureUnset
+	ownTLS := !peer.Insecure && (peer.CertFile != "" || peer.KeyFile != "" || peer.ClientCaFile != "" || peer.SkipTLSVerify)
+	return !insecure && !ownTLS
+}
+
+// errUnreadable is the failure of a kept credential in dataDir that cannot
+// be read. The worker stops rather than call without it.
+func errUnreadable(dataDir string, err error) error {
 	return failure{
 		cause: "This worker cannot read the certificate it enrolled for: " + reason(err),
-		next:  fmt.Sprintf("Let this user read %s, or start the worker with a new data directory and a new invite.", m.cfg.Paths.DataDir),
+		next:  fmt.Sprintf("Let this user read %s, or start the worker with a new data directory and a new invite.", dataDir),
 	}
 }
 
@@ -319,8 +401,16 @@ func (m *Membership) StartTransport() (string, error) {
 // tries each coordinator in worker.coordinators, and retries while none is
 // reachable. It fails, with the message of Spec 108 §Messages, when a
 // coordinator refuses the invite or no reachable coordinator has the
-// invite's CA.
+// invite's CA. A worker that holds a worker certificate first asks the
+// coordinators whether they accept it. It fails when one refuses it as
+// revoked, unless worker.invite is another invite, with which it enrolls
+// again, and when no reachable coordinator's CA signed it.
 func (m *Membership) Connect(ctx context.Context, workerID string) (coordinator.Client, error) {
+	if m.cred != nil {
+		if err := m.confirm(ctx); err != nil {
+			return nil, err
+		}
+	}
 	if m.invite != nil && m.cred == nil {
 		if err := m.enroll(ctx, workerID); err != nil {
 			return nil, err
@@ -454,31 +544,98 @@ func (m *Membership) enrollRound(ctx context.Context, req *coordinatorv1.EnrollR
 	return nil, last, nil
 }
 
-// ErrCheckInviteWorker is the error of dagu worker --check for a worker
-// that joins with worker.invite or a kept worker certificate, which the
-// check does not cover yet.
-var ErrCheckInviteWorker = errors.New("dagu worker --check does not check a worker that joins with worker.invite or a kept worker certificate yet: start the worker to see how it connects")
-
-// CheckInviteWorker returns ErrCheckInviteWorker for a worker whose
-// connections would use worker.invite or a kept worker certificate, and nil
-// for a worker on the peer token. It changes nothing.
-func CheckInviteWorker(cfg *config.Config) error {
-	if cfg.Worker.Invite != "" {
-		return ErrCheckInviteWorker
+// confirm asks each coordinator whether it accepts the kept certificate,
+// before the worker starts, until one answers. While none answers, the
+// worker starts, and its own calls retry.
+func (m *Membership) confirm(ctx context.Context) error {
+	var otherDagu string
+	for _, address := range m.cfg.Worker.Coordinators {
+		err := m.opts.confirm(ctx, m.config, address)
+		switch {
+		case err == nil:
+			return nil
+		case ctx.Err() != nil:
+			return ctx.Err()
+		case coordinator.IsWorkerRemoved(err):
+			return m.removedAtStart(ctx)
+		case errors.Is(err, coordinator.ErrOtherDagu):
+			if otherDagu == "" {
+				otherDagu = address
+			}
+		}
+		logger.Debug(ctx, "Worker certificate not confirmed", tag.Addr(address), tag.Error(err))
 	}
-	peer := cfg.Core.Peer
-	if (peer.Insecure && !peer.InsecureUnset) ||
-		(!peer.Insecure && (peer.CertFile != "" || peer.KeyFile != "" || peer.ClientCaFile != "" || peer.SkipTLSVerify)) {
-		return nil
-	}
-	kept, err := newCredentialStore(cfg.Paths.DataDir).kept()
-	switch {
-	case err != nil:
-		return fmt.Errorf("%w: %s", ErrCheckInviteWorker, reason(err))
-	case kept:
-		return ErrCheckInviteWorker
+	if otherDagu != "" {
+		return errOtherDaguJoined(otherDagu)
 	}
 	return nil
+}
+
+// removedAtStart handles a kept certificate that a coordinator refused as
+// revoked before the worker started. Another invite than the one it enrolled
+// with enrolls the worker again.
+func (m *Membership) removedAtStart(ctx context.Context) error {
+	m.recordRemoval(ctx)
+	if keptUseOf(m.cred, m.invite) != keptUnused {
+		return m.removedFailure(ctx)
+	}
+	logger.Info(ctx, "This worker was removed from the coordinator; it enrolls again with worker.invite")
+	m.cred = nil
+	m.config = m.config.WithInvite(*m.invite)
+	return nil
+}
+
+// Removed returns the failure a worker exits with once a coordinator refused
+// its certificate as revoked, with the message of Spec 108 §Messages. It
+// records the refusal with the kept certificate, so later starts exit with
+// the same failure without calling a coordinator. In Kubernetes, it also
+// writes the message to the container's termination message.
+func (m *Membership) Removed(ctx context.Context) error {
+	m.recordRemoval(ctx)
+	return m.removedFailure(ctx)
+}
+
+// recordRemoval marks the worker's certificate as refused as revoked, and
+// keeps the mark with the certificate when the worker keeps one.
+func (m *Membership) recordRemoval(ctx context.Context) {
+	if m.cred == nil || m.cred.removed {
+		return
+	}
+	removed := *m.cred
+	removed.removed = true
+	m.cred = &removed
+	if m.lock == nil {
+		return
+	}
+	if err := m.store.save(&removed); err != nil {
+		logger.Debug(ctx, "Failed to record the removal of the worker certificate", tag.Error(err))
+	}
+}
+
+// removedFailure is the failure of a removed worker. In Kubernetes, it is
+// also the container's termination message, which kubectl describe pod
+// shows.
+func (m *Membership) removedFailure(ctx context.Context) error {
+	kubernetes := m.opts.environment() == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES
+	f := errRemoved(kubernetes)
+	if kubernetes {
+		writeTerminationMessage(ctx, m.opts.terminationLog, f.logLine())
+	}
+	return f
+}
+
+// writeTerminationMessage replaces the content of the termination log at
+// path with message. Kubernetes creates the file in each container, so a
+// missing one is left missing.
+func writeTerminationMessage(ctx context.Context, path, message string) {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0) //nolint:gosec // The termination log path, not user input.
+	if err == nil {
+		_, err = file.WriteString(message)
+		err = errors.Join(err, file.Close())
+	}
+	if err != nil {
+		logger.Debug(ctx, "Failed to write the termination message", tag.File(path), tag.Error(err))
+	}
 }
 
 // Close releases the certificate lock.

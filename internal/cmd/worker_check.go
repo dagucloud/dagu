@@ -31,9 +31,6 @@ func isWorkerCheck(cmd *cobra.Command) bool {
 // worker.coordinators it checks the coordinators in the service registry,
 // and fails since the worker does not start without them.
 func runWorkerCheck(ctx *Context) error {
-	if err := worker.CheckInviteWorker(ctx.Config); err != nil {
-		return err
-	}
 	clientConfig, err := worker.CoordinatorClientConfig(ctx.Config, ctx.serverStores.ServiceRegistry)
 	if err != nil {
 		return err

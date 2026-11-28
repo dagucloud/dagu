@@ -32,12 +32,42 @@ func newCoordinatorClient(ctx context.Context, cfg *config.Config, clientConfig 
 }
 
 // CoordinatorClientConfig returns the configuration the worker's
-// coordinator client dials with. localRegistry is the service registry in
-// the worker's data directory.
+// coordinator client dials with at start, for dagu worker --check: with the
+// worker certificate it keeps, also one a coordinator refused as revoked,
+// or else with its worker.invite. It takes no lock and never enrolls.
+// localRegistry is the service registry in the worker's data directory.
 func CoordinatorClientConfig(cfg *config.Config, localRegistry serviceregistry.ServiceRegistry) (*coordinator.Config, error) {
-	clientConfig := clientConfigOf(cfg, localRegistry)
+	clientConfig, err := withStartCredential(cfg, clientConfigOf(cfg, localRegistry))
+	if err != nil {
+		return nil, err
+	}
 	if err := clientConfig.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid coordinator client configuration: %w", err)
+	}
+	return clientConfig, nil
+}
+
+// withStartCredential returns clientConfig with the invite or the kept
+// worker certificate that the worker starts with, by Spec 108 §Worker Start.
+func withStartCredential(cfg *config.Config, clientConfig *coordinator.Config) (*coordinator.Config, error) {
+	var invite *coordinator.Invite
+	switch {
+	case cfg.Worker.Invite != "":
+		parsed, ok := coordinator.ParseInvite(cfg.Worker.Invite)
+		if !ok {
+			return nil, errInviteRefused
+		}
+		invite = &parsed
+		clientConfig = clientConfig.WithInvite(parsed)
+	case !usesKeptCertificate(cfg.Core.Peer):
+		return clientConfig, nil
+	}
+	cred, err := newCredentialStore(cfg.Paths.DataDir).load()
+	if err != nil {
+		return nil, errUnreadable(cfg.Paths.DataDir, err)
+	}
+	if keptUseOf(cred, invite) != keptUnused {
+		clientConfig = clientConfig.WithWorkerCertificate(cred.cert, cred.ca)
 	}
 	return clientConfig, nil
 }

@@ -69,6 +69,10 @@ type Worker struct {
 	runsCtx     context.Context    // Running tasks are canceled when this is done
 	pollersDone chan struct{}      // Signals when all pollers, and so all tasks, have stopped
 	stopDone    chan struct{}      // Signals when all goroutines have stopped
+	// removed is closed once a coordinator refuses the worker's
+	// certificate as revoked.
+	removed     chan struct{}
+	removedOnce sync.Once
 
 	// For global PostgreSQL connection pool
 	poolManager  *sql.GlobalPoolManager
@@ -94,6 +98,10 @@ type TaskHandler interface {
 }
 
 var errTaskClaimRejectedBeforeExecution = errors.New("task claim rejected before execution")
+
+// ErrRemoved is the error Start returns once a coordinator refused the
+// worker's certificate as revoked. The worker has stopped its runs by then.
+var ErrRemoved = errors.New("this worker was removed from the coordinator")
 
 const (
 	ownerRunHeartbeatCallTimeout = 10 * time.Second
@@ -177,6 +185,7 @@ func NewWorker(
 		pollerTasks:    make(map[string]string),
 		cancelFuncs:    make(map[string]context.CancelFunc),
 		runSignals:     make(map[string]*runSignal),
+		removed:        make(chan struct{}),
 		healthServer:   healthcheck.NewServer("worker", healthPort),
 		openCodeHost:   opencodehost.New(context.Background(), openCodeConfig),
 	}
@@ -225,7 +234,8 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	}
 
 	defer func() {
-		if err == nil {
+		// stopRemoved has released these for ErrRemoved.
+		if err == nil || errors.Is(err, ErrRemoved) {
 			return
 		}
 
@@ -295,10 +305,15 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 		close(w.stopDone)
 	}()
 
-	// Block until all goroutines complete
-	<-w.stopDone
-
-	return nil
+	// Block until all goroutines complete, or until a coordinator refuses
+	// the worker's certificate as revoked.
+	select {
+	case <-w.stopDone:
+		return nil
+	case <-w.removed:
+	}
+	w.stopRemoved(ctx)
+	return ErrRemoved
 }
 
 // workerLabels applies the label rules to the configured labels and adds the
@@ -461,63 +476,106 @@ func (w *Worker) Stop(ctx context.Context) error {
 			}
 		}
 
-		// Cancel the internal context to signal all goroutines to stop
-		if w.stopCancel != nil {
-			w.stopCancel()
-		}
-
-		// An expired ctx would fail the remaining steps at once, and the
-		// canceled tasks still need time to report their final status.
-		var cancelWait context.CancelFunc
-		ctx, cancelWait = liveStopContext(ctx, stopCanceledRunsTimeout)
-		defer cancelWait()
-
-		// Wait for all goroutines to complete (with timeout from ctx)
-		if w.stopDone != nil {
-			select {
-			case <-w.stopDone:
-				// All goroutines have stopped
-			case <-ctx.Done():
-				logger.Warn(ctx, "Worker stop timed out waiting for goroutines",
-					tag.WorkerID(w.id))
-			}
-		}
-
-		var cancelCleanup context.CancelFunc
-		ctx, cancelCleanup = liveStopContext(ctx, stopCleanupTimeout)
-		defer cancelCleanup()
-
-		// Close the global PostgreSQL pool manager if initialized
-		if w.poolManager != nil {
-			if poolErr := w.poolManager.Close(); poolErr != nil {
-				logger.Error(ctx, "Failed to close PostgreSQL pool manager",
-					tag.WorkerID(w.id),
-					tag.Error(poolErr))
-				if err == nil {
-					err = fmt.Errorf("failed to close PostgreSQL pool manager: %w", poolErr)
-				}
-			} else {
-				logger.Info(ctx, "PostgreSQL pool manager closed", tag.WorkerID(w.id))
-			}
-		}
-
-		// Cleanup coordinator client connections
-		if cleanupErr := w.coordinatorCli.Cleanup(ctx); cleanupErr != nil {
-			if err == nil {
-				err = fmt.Errorf("failed to cleanup coordinator client: %w", cleanupErr)
-			}
-		}
-
-		if w.healthServer != nil {
-			if stopErr := w.healthServer.Stop(ctx); stopErr != nil && err == nil {
-				err = fmt.Errorf("failed to stop worker health check server: %w", stopErr)
-			}
-		}
-		if hostErr := w.openCodeHost.Close(ctx); hostErr != nil && err == nil {
-			err = fmt.Errorf("failed to stop OpenCode host: %w", hostErr)
-		}
+		err = w.halt(ctx)
 	})
 
+	return err
+}
+
+// stopRemoved stops the worker once a coordinator refused its certificate
+// as revoked. Its runs can no longer report to a coordinator, so each is
+// logged and stopped at once. The coordinator ends them as it does when a
+// worker stops sending heartbeats.
+func (w *Worker) stopRemoved(ctx context.Context) {
+	w.stopOnce.Do(func() {
+		if w.stopPolling != nil {
+			w.stopPolling()
+		}
+		w.pollersMu.Lock()
+		for _, state := range w.runningTasks {
+			if state == nil || state.task == nil {
+				continue
+			}
+			logger.Warn(ctx, "Stopping run: this worker was removed from the coordinator",
+				tag.DAG(state.task.DagName),
+				tag.RunID(state.task.DagRunId),
+				tag.AttemptKey(state.task.AttemptKey))
+		}
+		w.pollersMu.Unlock()
+		// A done context cancels the runs at once and bounds the waits.
+		done, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		cancel()
+		if err := w.halt(done); err != nil {
+			logger.Warn(ctx, "Worker stop failed", tag.WorkerID(w.id), tag.Error(err))
+		}
+	})
+}
+
+// markRemoved records that a coordinator refused the worker's certificate
+// as revoked, which ends Start.
+func (w *Worker) markRemoved() {
+	w.removedOnce.Do(func() { close(w.removed) })
+}
+
+// halt cancels the running tasks, waits for the worker's goroutines, and
+// releases its resources.
+func (w *Worker) halt(ctx context.Context) error {
+	var err error
+	// Cancel the internal context to signal all goroutines to stop
+	if w.stopCancel != nil {
+		w.stopCancel()
+	}
+
+	// An expired ctx would fail the remaining steps at once, and the
+	// canceled tasks still need time to report their final status.
+	var cancelWait context.CancelFunc
+	ctx, cancelWait = liveStopContext(ctx, stopCanceledRunsTimeout)
+	defer cancelWait()
+
+	// Wait for all goroutines to complete (with timeout from ctx)
+	if w.stopDone != nil {
+		select {
+		case <-w.stopDone:
+			// All goroutines have stopped
+		case <-ctx.Done():
+			logger.Warn(ctx, "Worker stop timed out waiting for goroutines",
+				tag.WorkerID(w.id))
+		}
+	}
+
+	var cancelCleanup context.CancelFunc
+	ctx, cancelCleanup = liveStopContext(ctx, stopCleanupTimeout)
+	defer cancelCleanup()
+
+	// Close the global PostgreSQL pool manager if initialized
+	if w.poolManager != nil {
+		if poolErr := w.poolManager.Close(); poolErr != nil {
+			logger.Error(ctx, "Failed to close PostgreSQL pool manager",
+				tag.WorkerID(w.id),
+				tag.Error(poolErr))
+			if err == nil {
+				err = fmt.Errorf("failed to close PostgreSQL pool manager: %w", poolErr)
+			}
+		} else {
+			logger.Info(ctx, "PostgreSQL pool manager closed", tag.WorkerID(w.id))
+		}
+	}
+
+	// Cleanup coordinator client connections
+	if cleanupErr := w.coordinatorCli.Cleanup(ctx); cleanupErr != nil {
+		if err == nil {
+			err = fmt.Errorf("failed to cleanup coordinator client: %w", cleanupErr)
+		}
+	}
+
+	if w.healthServer != nil {
+		if stopErr := w.healthServer.Stop(ctx); stopErr != nil && err == nil {
+			err = fmt.Errorf("failed to stop worker health check server: %w", stopErr)
+		}
+	}
+	if hostErr := w.openCodeHost.Close(ctx); hostErr != nil && err == nil {
+		err = fmt.Errorf("failed to stop OpenCode host: %w", hostErr)
+	}
 	return err
 }
 
@@ -750,6 +808,10 @@ func (w *Worker) sendHeartbeats(ctx context.Context) {
 		}
 
 		if err := w.sendHeartbeat(ctx); err != nil {
+			if coordinator.IsWorkerRemoved(err) {
+				w.markRemoved()
+				return
+			}
 			nextInterval, nextErr := retrier.Next(err)
 			if nextErr != nil {
 				logger.Error(ctx, "Failed to compute heartbeat backoff interval",

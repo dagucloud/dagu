@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -219,6 +220,9 @@ func runWorker(ctx *Context, _ []string) error {
 			return fmt.Errorf("failed to stop worker: %w", err)
 		}
 	case err := <-errCh:
+		if errors.Is(err, worker.ErrRemoved) {
+			return membership.Removed(ctx)
+		}
 		return fmt.Errorf("worker failed: %w", err)
 	}
 

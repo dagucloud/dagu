@@ -257,8 +257,11 @@ var inviteRegistry = func(ctx *Context) (serviceregistry.ServiceRegistry, error)
 // newInviteClient returns a client for the coordinators of inviteRegistry,
 // as listed when it is called.
 func newInviteClient(ctx *Context) (coordinator.Client, error) {
-	clientConfig, err := worker.CoordinatorClientConfig(ctx.Config, ctx.serverStores.ServiceRegistry)
-	if err != nil {
+	// The operator calls with the peer settings, never with a worker's
+	// invite or kept certificate.
+	clientConfig := coordinator.ConfigFromPeer(ctx.Config.Core.Peer)
+	clientConfig.LocalRegistry = ctx.serverStores.ServiceRegistry
+	if err := clientConfig.Validate(); err != nil {
 		// The error may name a credential file, so it is not repeated.
 		return nil, errInvitePeerSettings
 	}
