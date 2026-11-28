@@ -39,8 +39,8 @@ export const workerAdminMessages = defineMessages({
     uses: 'uses',
     'No new worker can join with this invite. Workers that joined with it keep their certificates.':
       'No new worker can join with this invite. Workers that joined with it keep their certificates.',
-    'Delete works on the local server only. Switch to it to delete an invite.':
-      'Delete works on the local server only. Switch to it to delete an invite.',
+    'Delete works only for the server this page belongs to. To delete an invite of the selected node, open the Dagu UI of that node.':
+      'Delete works only for the server this page belongs to. To delete an invite of the selected node, open the Dagu UI of that node.',
     'The coordinator uses its own certificates, so it has no built-in CA for invites.':
       'The coordinator uses its own certificates, so it has no built-in CA for invites.',
     'The coordinator could not create or read its CA.':
@@ -129,8 +129,8 @@ export const workerAdminMessages = defineMessages({
     uses: '次使用',
     'No new worker can join with this invite. Workers that joined with it keep their certificates.':
       '新的 Worker 将无法通过此邀请加入。已通过它加入的 Worker 保留其证书。',
-    'Delete works on the local server only. Switch to it to delete an invite.':
-      '删除仅适用于本地服务器。请切换到本地服务器后删除邀请。',
+    'Delete works only for the server this page belongs to. To delete an invite of the selected node, open the Dagu UI of that node.':
+      '删除仅适用于此页面所属的服务器。要删除所选节点的邀请，请打开该节点的 Dagu UI。',
     'The coordinator uses its own certificates, so it has no built-in CA for invites.':
       '该 Coordinator 使用自己的证书，因此没有用于邀请的内置 CA。',
     'The coordinator could not create or read its CA.':
@@ -217,8 +217,8 @@ export const workerAdminMessages = defineMessages({
     uses: '回使用',
     'No new worker can join with this invite. Workers that joined with it keep their certificates.':
       'この招待で新しいワーカーは参加できなくなります。参加済みのワーカーは証明書を保持します。',
-    'Delete works on the local server only. Switch to it to delete an invite.':
-      '削除はローカルサーバーでのみ使えます。ローカルサーバーに切り替えてから招待を削除してください。',
+    'Delete works only for the server this page belongs to. To delete an invite of the selected node, open the Dagu UI of that node.':
+      '削除はこのページのサーバーでのみ使えます。選択中のノードの招待を削除するには、そのノードの Dagu UI を開いてください。',
     'The coordinator uses its own certificates, so it has no built-in CA for invites.':
       'コーディネーターは独自の証明書を使っているため、招待用の内蔵 CA がありません。',
     'The coordinator could not create or read its CA.':
@@ -310,8 +310,8 @@ export const workerAdminMessages = defineMessages({
     uses: 'Verwendungen',
     'No new worker can join with this invite. Workers that joined with it keep their certificates.':
       'Mit dieser Einladung kann kein neuer Worker mehr beitreten. Worker, die damit beigetreten sind, behalten ihre Zertifikate.',
-    'Delete works on the local server only. Switch to it to delete an invite.':
-      'Löschen funktioniert nur auf dem lokalen Server. Wechseln Sie zu ihm, um eine Einladung zu löschen.',
+    'Delete works only for the server this page belongs to. To delete an invite of the selected node, open the Dagu UI of that node.':
+      'Löschen funktioniert nur für den Server, zu dem diese Seite gehört. Um eine Einladung des ausgewählten Knotens zu löschen, öffnen Sie die Dagu-Oberfläche dieses Knotens.',
     'The coordinator uses its own certificates, so it has no built-in CA for invites.':
       'Der Coordinator nutzt eigene Zertifikate und hat daher keine eingebaute CA für Einladungen.',
     'The coordinator could not create or read its CA.':
@@ -402,8 +402,8 @@ export const workerAdminMessages = defineMessages({
     uses: 'utilisations',
     'No new worker can join with this invite. Workers that joined with it keep their certificates.':
       'Aucun nouveau worker ne peut rejoindre avec cette invitation. Les workers qui l’ont utilisée gardent leurs certificats.',
-    'Delete works on the local server only. Switch to it to delete an invite.':
-      'La suppression ne fonctionne que sur le serveur local. Passez-y pour supprimer une invitation.',
+    'Delete works only for the server this page belongs to. To delete an invite of the selected node, open the Dagu UI of that node.':
+      'La suppression ne fonctionne que pour le serveur de cette page. Pour supprimer une invitation du nœud sélectionné, ouvrez l’interface Dagu de ce nœud.',
     'The coordinator uses its own certificates, so it has no built-in CA for invites.':
       'Le coordinateur utilise ses propres certificats, il n’a donc pas d’AC intégrée pour les invitations.',
     'The coordinator could not create or read its CA.':

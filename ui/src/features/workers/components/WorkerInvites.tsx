@@ -249,7 +249,7 @@ function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
       </h3>
       {!local && (
         <p className="border-b px-3 py-2 text-xs text-muted-foreground">
-          <I18nText text="Delete works on the local server only. Switch to it to delete an invite." />
+          <I18nText text="Delete works only for the server this page belongs to. To delete an invite of the selected node, open the Dagu UI of that node." />
         </p>
       )}
       {body}

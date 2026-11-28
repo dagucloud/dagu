@@ -309,7 +309,7 @@ describe('WorkerInvites', () => {
     ).not.toBeInTheDocument();
     expect(
       screen.getByText(
-        'Delete works on the local server only. Switch to it to delete an invite.'
+        'Delete works only for the server this page belongs to. To delete an invite of the selected node, open the Dagu UI of that node.'
       )
     ).toBeInTheDocument();
   });
@@ -879,6 +879,71 @@ describe('WorkerInvites', () => {
       )
     ).toBeInTheDocument();
     expect(screen.queryByText(/Sign in/)).not.toBeInTheDocument();
+  });
+
+  // A read that a delete superseded cannot show its failure over the newer
+  // list: only the last read publishes a list or an error.
+  it('drops a late failure of a read a delete superseded', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    const { refresh } = renderInvites();
+    await screen.findByRole('button', { name: /^Delete invite inv-1/ });
+    let fail: (answer: { status: number; body: unknown }) => void = () =>
+      undefined;
+    const answers = [
+      () =>
+        new Promise<{ status: number; body: unknown }>(
+          (resolve) => (fail = resolve)
+        ),
+      () => invitesAnswer([]),
+    ];
+    server.invites = () => answers.shift()!() as never;
+    refresh();
+    await waitFor(() => expect(reads()).toBe(2));
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Delete invite inv-1/ })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText('No invites')).toBeInTheDocument();
+    await act(async () =>
+      fail({
+        status: 503,
+        body: {
+          code: 'internal_error',
+          message: 'no coordinator',
+          details: { reason: 'no_coordinator' },
+        },
+      })
+    );
+
+    expect(screen.getByText('No invites')).toBeInTheDocument();
+    expect(
+      screen.queryByText('No coordinator is running or reachable.')
+    ).not.toBeInTheDocument();
+  });
+
+  // Only a 409 and a 503 carry a worker access reason: a 403 with details
+  // gets the advice for its status and quotes nothing.
+  it('reads no reason from a 403', async () => {
+    server.node = 'node-b';
+    server.invites = {
+      status: 403,
+      body: {
+        code: 'forbidden',
+        message: 'role developer cannot do this',
+        details: { reason: 'some_reason' },
+      },
+    };
+
+    renderInvites();
+
+    expect(
+      await screen.findByText(
+        'The credentials this server uses for the selected node lack admin access there.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Server message/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/role developer/)).not.toBeInTheDocument();
   });
 
   // Reads asked for while the tab is hidden, by two deletes and a manual

@@ -1344,10 +1344,11 @@ The Workers page is the list of workers on System status.
   node, does not answer for after it. A list whose workers could not be
   read takes an empty list as its baseline. An invite's state turns with
   its expiry on the same clock. On a remote node, a 403 says the
-  credentials this server uses for that node lack admin access there.
+  credentials this server uses for that node lack admin access there. Only
+  the last read of a node shows its list or its failure.
 - On a remote node, the page lists the invites but offers no **Delete**,
-  and says it works on the local server only, since the server does not
-  forward it.
+  since the server does not forward it, and says to open the Dagu UI of
+  that node to delete an invite there.
 - A refused call shows its cause and the change to make, chosen by the
   `details.reason` of a 409 or a 503, else by the HTTP status. For
   `coordinator_refused` and for a reason the page does not know, whose

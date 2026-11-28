@@ -80,6 +80,11 @@ const readsInFlight = new Map<
   { read: Promise<WorkerInvitesList>; generation: number }
 >();
 
+// The last read started for each node. A read that a later one superseded
+// answers with the later one's outcome, so it can neither show its old list
+// nor its failure over a newer list.
+const latestReads = new Map<string, Promise<WorkerInvitesList>>();
+
 // Counts the changes to the invites of each node. A read that started
 // before a change cannot answer for after it.
 const inviteGenerations = new Map<string, number>();
@@ -113,7 +118,7 @@ export function useWorkerInvites(enabled: boolean) {
       const generation = inviteGeneration(remoteNode);
       const running = readsInFlight.get(remoteNode);
       if (running && running.generation === generation) return running.read;
-      const read = (async () => {
+      const read: Promise<WorkerInvitesList> = (async () => {
         const { data, error, response } = await client.GET('/workers/invites', {
           params: { query: { remoteNode } },
         });
@@ -123,12 +128,19 @@ export function useWorkerInvites(enabled: boolean) {
           throw requestError(response.status, error);
         }
         return data;
-      })().finally(() => {
-        if (readsInFlight.get(remoteNode)?.read === read) {
-          readsInFlight.delete(remoteNode);
-        }
-      });
+      })()
+        .catch((err: unknown) => {
+          const latest = latestReads.get(remoteNode);
+          if (latest && latest !== read) return latest;
+          throw err;
+        })
+        .finally(() => {
+          if (readsInFlight.get(remoteNode)?.read === read) {
+            readsInFlight.delete(remoteNode);
+          }
+        });
       readsInFlight.set(remoteNode, { read, generation });
+      latestReads.set(remoteNode, read);
       return read;
     },
     {
@@ -183,7 +195,12 @@ export function useWorkerActions() {
   return { deleteInvite, rereadInvites };
 }
 
+// Only a 409 and a 503 carry a worker access reason (Spec 108); the
+// details of any other status are not read.
+const REASON_STATUSES: ReadonlySet<number> = new Set([409, 503]);
+
 function requestError(status: number, body: unknown): WorkerRequestError {
+  if (!REASON_STATUSES.has(status)) return new WorkerRequestError(status);
   const answer = body as
     | { message?: unknown; details?: { reason?: unknown } }
     | undefined;
