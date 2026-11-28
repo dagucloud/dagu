@@ -1337,6 +1337,9 @@ The Workers page is the list of workers on System status.
 - On a remote node, the page lists the invites but offers no **Delete**,
   and says it works on the local server only, since the server does not
   forward it.
+- A refused call shows its cause and the change to make, chosen by the
+  `details.reason` of a 409 or a 503. The page shows the message itself
+  only for `coordinator_refused` and for an answer without a known reason.
 - System status lists the [h2c callers](#h2c-callers) under each
   coordinator, with host, the line and change above, and the time of the
   last call. It uses its existing fetch of

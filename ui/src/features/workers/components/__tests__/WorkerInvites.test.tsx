@@ -250,15 +250,17 @@ describe('WorkerInvites', () => {
       409,
       refused(
         409,
-        'invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file'
+        'invites need the built-in CA',
+        'conflict',
+        'own_certificates'
       ),
-      'invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file',
+      'The coordinator uses its own certificates, so it has no built-in CA for invites.',
       'To use invites, remove peer.cert_file and peer.key_file from the coordinator config, then restart it.',
     ],
     [
       503,
-      refused(503, 'no coordinator is running or reachable', 'internal_error'),
-      'no coordinator is running or reachable',
+      refused(503, 'no coordinator', 'internal_error', 'no_coordinator'),
+      'No coordinator is running or reachable.',
       'Start the coordinator, or check that this server can reach it, then try again.',
     ],
   ])(
@@ -281,58 +283,99 @@ describe('WorkerInvites', () => {
     }
   );
 
+  // The API names why it refused in details.reason; the explanation follows
+  // it, not the wording of the message.
   it.each([
     [
-      refused(403, 'insufficient role', 'forbidden'),
-      'Only admins can manage workers and invites.',
+      'ca_unavailable',
+      'The coordinator could not create or read its CA.',
+      'See the coordinator start warning, fix its CA, then restart it.',
     ],
     [
-      refused(
-        409,
-        'the coordinator runs an earlier Dagu release without worker invites: upgrade it'
-      ),
-      'Nothing changed. Make the change the message names.',
+      'peer_token_missing',
+      'This server has no peer token for the coordinator.',
+      'Set peer.token on this server to the peer token of the coordinator.',
     ],
     [
-      refused(503, 'no coordinator is running or reachable', 'internal_error'),
-      'Start the coordinator, or check that this server can reach it',
+      'peer_token_mismatch',
+      'This server and the coordinator have different peer tokens.',
+      'Give the server the same peer.token as the coordinator.',
     ],
-  ])('says why the invites cannot be listed', async (answer, shown) => {
-    server.invites = answer;
+    [
+      'require_tls',
+      'The coordinator requires TLS, and this server called it over plaintext.',
+      'Remove peer.insecure: true from the server config, then restart it.',
+    ],
+    [
+      'older_coordinator',
+      'The coordinator runs an earlier Dagu release without worker invites.',
+      'Upgrade the coordinator.',
+    ],
+  ])(
+    'explains why the invites cannot be listed: %s',
+    async (reason, cause, change) => {
+      server.invites = refused(503, 'server words', 'internal_error', reason);
+
+      renderInvites();
+
+      expect(await screen.findByText(cause)).toBeInTheDocument();
+      expect(screen.getByText(change)).toBeInTheDocument();
+      expect(screen.queryByText('server words')).not.toBeInTheDocument();
+    }
+  );
+
+  it('says a non-admin cannot list the invites', async () => {
+    server.invites = refused(403, 'insufficient role', 'forbidden');
 
     renderInvites();
 
-    expect(await screen.findByText(new RegExp(shown))).toBeInTheDocument();
+    expect(
+      await screen.findByText('Only admins can manage workers and invites.')
+    ).toBeInTheDocument();
   });
 
-  // The coordinator's reason for refusing the server already names the
-  // change, such as setting peer.token.
-  it("shows the coordinator's reason for refusing the server", async () => {
-    const reason =
-      "the coordinator refused the server: set peer.token, or run the server where it reads the coordinator's data directory";
-    server.invites = refused(503, reason, 'internal_error');
+  // coordinator_refused names no fixed cause, so the coordinator's words
+  // are the cause.
+  it("shows the coordinator's words when it refused the server", async () => {
+    const words = 'the coordinator refused the server: certificate expired';
+    server.invites = refused(
+      503,
+      words,
+      'internal_error',
+      'coordinator_refused'
+    );
 
     renderInvites();
 
-    expect(await screen.findByText(reason)).toBeInTheDocument();
+    expect(await screen.findByText(words)).toBeInTheDocument();
     expect(
-      screen.getByText('Nothing changed. Make the change the message names.')
+      screen.getByText('Make the change the message names, then try again.')
     ).toBeInTheDocument();
-    expect(screen.queryByText(/Start the coordinator/)).not.toBeInTheDocument();
+  });
+
+  // Without a reason the message is only shown, never read for meaning.
+  it('shows the message of a refusal without a reason as it is', async () => {
+    const words =
+      'invites need the built-in CA: this coordinator uses peer.cert_file';
+    server.invites = refused(409, words);
+
+    renderInvites();
+
+    expect(await screen.findByText(words)).toBeInTheDocument();
+    expect(
+      screen.getByText('Please try again or check the server connection.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/To use invites/)).not.toBeInTheDocument();
   });
 
   // A failed read is not retried on its own: each retry would be a
   // coordinator call from every open tab.
   it('does not retry a failed read', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    server.invites = refused(
-      503,
-      'no coordinator is running or reachable',
-      'internal_error'
-    );
+    server.invites = refused(503, '', 'internal_error', 'no_coordinator');
 
     renderInvites();
-    await screen.findByText(/no coordinator is running/);
+    await screen.findByText('No coordinator is running or reachable.');
     await act(() => vi.advanceTimersByTimeAsync(5 * 60 * 1000));
 
     expect(reads()).toBe(1);

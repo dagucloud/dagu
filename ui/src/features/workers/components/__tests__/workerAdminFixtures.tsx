@@ -101,8 +101,17 @@ export function installServer() {
 }
 
 /** An API error answer. */
-export function refused(status: number, message = '', code = 'conflict') {
-  return { status, body: { code, message } };
+/** An API error answer, with the `details.reason` a 409 or a 503 carries. */
+export function refused(
+  status: number,
+  message = '',
+  code = 'conflict',
+  reason?: string
+) {
+  return {
+    status,
+    body: { code, message, ...(reason ? { details: { reason } } : {}) },
+  };
 }
 
 export function invitesAnswer(invites: WorkerInvite[]): Answer {

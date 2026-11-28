@@ -10,12 +10,8 @@ export const workerAdminMessages = defineMessages({
       'Only admins can manage workers and invites.',
     'Sign in with an admin account, or ask an admin.':
       'Sign in with an admin account, or ask an admin.',
-    'The coordinator refused the request.':
-      'The coordinator refused the request.',
     'To use invites, remove peer.cert_file and peer.key_file from the coordinator config, then restart it.':
       'To use invites, remove peer.cert_file and peer.key_file from the coordinator config, then restart it.',
-    'Nothing changed. Make the change the message names.':
-      'Nothing changed. Make the change the message names.',
     'No coordinator is running or reachable.':
       'No coordinator is running or reachable.',
     'Start the coordinator, or check that this server can reach it, then try again.':
@@ -48,17 +44,39 @@ export const workerAdminMessages = defineMessages({
       'No new worker can join with this invite. Workers that joined with it keep their certificates.',
     'Delete works on the local server only. Switch to it to delete an invite.':
       'Delete works on the local server only. Switch to it to delete an invite.',
+    'The coordinator uses its own certificates, so it has no built-in CA for invites.':
+      'The coordinator uses its own certificates, so it has no built-in CA for invites.',
+    'The coordinator could not create or read its CA.':
+      'The coordinator could not create or read its CA.',
+    'See the coordinator start warning, fix its CA, then restart it.':
+      'See the coordinator start warning, fix its CA, then restart it.',
+    'This server has no peer token for the coordinator.':
+      'This server has no peer token for the coordinator.',
+    'Set peer.token on this server to the peer token of the coordinator.':
+      'Set peer.token on this server to the peer token of the coordinator.',
+    'This server and the coordinator have different peer tokens.':
+      'This server and the coordinator have different peer tokens.',
+    'Give the server the same peer.token as the coordinator.':
+      'Give the server the same peer.token as the coordinator.',
+    'The coordinator requires TLS, and this server called it over plaintext.':
+      'The coordinator requires TLS, and this server called it over plaintext.',
+    'Remove {setting} from the server config, then restart it.':
+      'Remove {setting} from the server config, then restart it.',
+    'The coordinator refused the server.':
+      'The coordinator refused the server.',
+    'Make the change the message names, then try again.':
+      'Make the change the message names, then try again.',
+    'The coordinator runs an earlier Dagu release without worker invites.':
+      'The coordinator runs an earlier Dagu release without worker invites.',
+    'Upgrade the coordinator.': 'Upgrade the coordinator.',
   },
   'zh-CN': {
     'Only admins can manage workers and invites.':
       '只有管理员可以管理 Worker 和邀请。',
     'Sign in with an admin account, or ask an admin.':
       '请使用管理员账号登录，或请管理员操作。',
-    'The coordinator refused the request.': 'Coordinator 拒绝了该请求。',
     'To use invites, remove peer.cert_file and peer.key_file from the coordinator config, then restart it.':
       '要使用邀请，请从 Coordinator 配置中删除 peer.cert_file 和 peer.key_file，然后重启。',
-    'Nothing changed. Make the change the message names.':
-      '没有任何更改。请按消息所述进行修改。',
     'No coordinator is running or reachable.':
       '没有正在运行或可访问的 Coordinator。',
     'Start the coordinator, or check that this server can reach it, then try again.':
@@ -90,18 +108,38 @@ export const workerAdminMessages = defineMessages({
       '新的 Worker 将无法通过此邀请加入。已通过它加入的 Worker 保留其证书。',
     'Delete works on the local server only. Switch to it to delete an invite.':
       '删除仅适用于本地服务器。请切换到本地服务器后删除邀请。',
+    'The coordinator uses its own certificates, so it has no built-in CA for invites.':
+      '该 Coordinator 使用自己的证书，因此没有用于邀请的内置 CA。',
+    'The coordinator could not create or read its CA.':
+      'Coordinator 无法创建或读取其 CA。',
+    'See the coordinator start warning, fix its CA, then restart it.':
+      '请查看 Coordinator 启动时的警告，修复其 CA，然后重启。',
+    'This server has no peer token for the coordinator.':
+      '此服务器没有用于 Coordinator 的 peer token。',
+    'Set peer.token on this server to the peer token of the coordinator.':
+      '请在此服务器上将 peer.token 设置为 Coordinator 的 peer token。',
+    'This server and the coordinator have different peer tokens.':
+      '此服务器与 Coordinator 的 peer token 不同。',
+    'Give the server the same peer.token as the coordinator.':
+      '请为服务器设置与 Coordinator 相同的 peer.token。',
+    'The coordinator requires TLS, and this server called it over plaintext.':
+      'Coordinator 要求 TLS，而此服务器以明文调用了它。',
+    'Remove {setting} from the server config, then restart it.':
+      '请从服务器配置中删除 {setting}，然后重启。',
+    'The coordinator refused the server.': 'Coordinator 拒绝了此服务器。',
+    'Make the change the message names, then try again.':
+      '请按消息所述进行修改，然后重试。',
+    'The coordinator runs an earlier Dagu release without worker invites.':
+      'Coordinator 运行的是不支持 Worker 邀请的较早 Dagu 版本。',
+    'Upgrade the coordinator.': '请升级 Coordinator。',
   },
   ja: {
     'Only admins can manage workers and invites.':
       'ワーカーと招待を管理できるのは管理者だけです。',
     'Sign in with an admin account, or ask an admin.':
       '管理者アカウントでサインインするか、管理者に依頼してください。',
-    'The coordinator refused the request.':
-      'コーディネーターがリクエストを拒否しました。',
     'To use invites, remove peer.cert_file and peer.key_file from the coordinator config, then restart it.':
       '招待を使うには、コーディネーターの設定から peer.cert_file と peer.key_file を削除して再起動してください。',
-    'Nothing changed. Make the change the message names.':
-      '何も変更されていません。メッセージにある変更を行ってください。',
     'No coordinator is running or reachable.':
       '動作中または到達可能なコーディネーターがありません。',
     'Start the coordinator, or check that this server can reach it, then try again.':
@@ -133,18 +171,40 @@ export const workerAdminMessages = defineMessages({
       'この招待で新しいワーカーは参加できなくなります。参加済みのワーカーは証明書を保持します。',
     'Delete works on the local server only. Switch to it to delete an invite.':
       '削除はローカルサーバーでのみ使えます。ローカルサーバーに切り替えてから招待を削除してください。',
+    'The coordinator uses its own certificates, so it has no built-in CA for invites.':
+      'コーディネーターは独自の証明書を使っているため、招待用の内蔵 CA がありません。',
+    'The coordinator could not create or read its CA.':
+      'コーディネーターが CA を作成または読み込めませんでした。',
+    'See the coordinator start warning, fix its CA, then restart it.':
+      'コーディネーターの起動時の警告を確認して CA を直し、再起動してください。',
+    'This server has no peer token for the coordinator.':
+      'このサーバーにはコーディネーター用の peer token がありません。',
+    'Set peer.token on this server to the peer token of the coordinator.':
+      'このサーバーの peer.token にコーディネーターの peer token を設定してください。',
+    'This server and the coordinator have different peer tokens.':
+      'このサーバーとコーディネーターの peer token が異なります。',
+    'Give the server the same peer.token as the coordinator.':
+      'サーバーにコーディネーターと同じ peer.token を設定してください。',
+    'The coordinator requires TLS, and this server called it over plaintext.':
+      'コーディネーターは TLS を必要としますが、このサーバーは平文で呼び出しました。',
+    'Remove {setting} from the server config, then restart it.':
+      'サーバーの設定から {setting} を削除して再起動してください。',
+    'The coordinator refused the server.':
+      'コーディネーターがこのサーバーを拒否しました。',
+    'Make the change the message names, then try again.':
+      'メッセージにある変更を行ってから、もう一度お試しください。',
+    'The coordinator runs an earlier Dagu release without worker invites.':
+      'コーディネーターはワーカー招待のない以前の Dagu を動かしています。',
+    'Upgrade the coordinator.':
+      'コーディネーターをアップグレードしてください。',
   },
   de: {
     'Only admins can manage workers and invites.':
       'Nur Admins können Worker und Einladungen verwalten.',
     'Sign in with an admin account, or ask an admin.':
       'Melden Sie sich mit einem Admin-Konto an, oder fragen Sie einen Admin.',
-    'The coordinator refused the request.':
-      'Der Coordinator hat die Anfrage abgelehnt.',
     'To use invites, remove peer.cert_file and peer.key_file from the coordinator config, then restart it.':
       'Um Einladungen zu nutzen, entfernen Sie peer.cert_file und peer.key_file aus der Coordinator-Konfiguration und starten Sie ihn neu.',
-    'Nothing changed. Make the change the message names.':
-      'Nichts wurde geändert. Nehmen Sie die Änderung vor, die die Meldung nennt.',
     'No coordinator is running or reachable.':
       'Kein Coordinator läuft oder ist erreichbar.',
     'Start the coordinator, or check that this server can reach it, then try again.':
@@ -177,18 +237,39 @@ export const workerAdminMessages = defineMessages({
       'Mit dieser Einladung kann kein neuer Worker mehr beitreten. Worker, die damit beigetreten sind, behalten ihre Zertifikate.',
     'Delete works on the local server only. Switch to it to delete an invite.':
       'Löschen funktioniert nur auf dem lokalen Server. Wechseln Sie zu ihm, um eine Einladung zu löschen.',
+    'The coordinator uses its own certificates, so it has no built-in CA for invites.':
+      'Der Coordinator nutzt eigene Zertifikate und hat daher keine eingebaute CA für Einladungen.',
+    'The coordinator could not create or read its CA.':
+      'Der Coordinator konnte seine CA nicht erstellen oder lesen.',
+    'See the coordinator start warning, fix its CA, then restart it.':
+      'Lesen Sie die Startwarnung des Coordinators, beheben Sie seine CA und starten Sie ihn neu.',
+    'This server has no peer token for the coordinator.':
+      'Dieser Server hat kein Peer-Token für den Coordinator.',
+    'Set peer.token on this server to the peer token of the coordinator.':
+      'Setzen Sie peer.token auf diesem Server auf das Peer-Token des Coordinators.',
+    'This server and the coordinator have different peer tokens.':
+      'Dieser Server und der Coordinator haben verschiedene Peer-Tokens.',
+    'Give the server the same peer.token as the coordinator.':
+      'Geben Sie dem Server dasselbe peer.token wie dem Coordinator.',
+    'The coordinator requires TLS, and this server called it over plaintext.':
+      'Der Coordinator verlangt TLS, und dieser Server hat ihn im Klartext aufgerufen.',
+    'Remove {setting} from the server config, then restart it.':
+      'Entfernen Sie {setting} aus der Serverkonfiguration und starten Sie ihn neu.',
+    'The coordinator refused the server.':
+      'Der Coordinator hat den Server abgelehnt.',
+    'Make the change the message names, then try again.':
+      'Nehmen Sie die Änderung vor, die die Meldung nennt, und versuchen Sie es erneut.',
+    'The coordinator runs an earlier Dagu release without worker invites.':
+      'Der Coordinator läuft mit einer älteren Dagu-Version ohne Worker-Einladungen.',
+    'Upgrade the coordinator.': 'Aktualisieren Sie den Coordinator.',
   },
   fr: {
     'Only admins can manage workers and invites.':
       'Seuls les admins peuvent gérer les workers et les invitations.',
     'Sign in with an admin account, or ask an admin.':
       'Connectez-vous avec un compte admin, ou demandez à un admin.',
-    'The coordinator refused the request.':
-      'Le coordinateur a refusé la requête.',
     'To use invites, remove peer.cert_file and peer.key_file from the coordinator config, then restart it.':
       'Pour utiliser les invitations, retirez peer.cert_file et peer.key_file de la configuration du coordinateur, puis redémarrez-le.',
-    'Nothing changed. Make the change the message names.':
-      'Rien n’a changé. Faites la modification que le message indique.',
     'No coordinator is running or reachable.':
       'Aucun coordinateur n’est lancé ou joignable.',
     'Start the coordinator, or check that this server can reach it, then try again.':
@@ -221,5 +302,30 @@ export const workerAdminMessages = defineMessages({
       'Aucun nouveau worker ne peut rejoindre avec cette invitation. Les workers qui l’ont utilisée gardent leurs certificats.',
     'Delete works on the local server only. Switch to it to delete an invite.':
       'La suppression ne fonctionne que sur le serveur local. Passez-y pour supprimer une invitation.',
+    'The coordinator uses its own certificates, so it has no built-in CA for invites.':
+      'Le coordinateur utilise ses propres certificats, il n’a donc pas d’AC intégrée pour les invitations.',
+    'The coordinator could not create or read its CA.':
+      'Le coordinateur n’a pas pu créer ou lire son AC.',
+    'See the coordinator start warning, fix its CA, then restart it.':
+      'Consultez l’avertissement de démarrage du coordinateur, corrigez son AC, puis redémarrez-le.',
+    'This server has no peer token for the coordinator.':
+      'Ce serveur n’a pas de jeton de pair pour le coordinateur.',
+    'Set peer.token on this server to the peer token of the coordinator.':
+      'Définissez sur ce serveur peer.token avec le jeton de pair du coordinateur.',
+    'This server and the coordinator have different peer tokens.':
+      'Ce serveur et le coordinateur ont des jetons de pair différents.',
+    'Give the server the same peer.token as the coordinator.':
+      'Donnez au serveur le même peer.token que le coordinateur.',
+    'The coordinator requires TLS, and this server called it over plaintext.':
+      'Le coordinateur exige TLS, et ce serveur l’a appelé en clair.',
+    'Remove {setting} from the server config, then restart it.':
+      'Retirez {setting} de la configuration du serveur, puis redémarrez-le.',
+    'The coordinator refused the server.':
+      'Le coordinateur a refusé le serveur.',
+    'Make the change the message names, then try again.':
+      'Faites la modification que le message indique, puis réessayez.',
+    'The coordinator runs an earlier Dagu release without worker invites.':
+      'Le coordinateur exécute une version antérieure de Dagu sans invitations de workers.',
+    'Upgrade the coordinator.': 'Mettez à jour le coordinateur.',
   },
 });
