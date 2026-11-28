@@ -29,9 +29,9 @@ is not connected, the [Worker Side](#worker-side) of enrollment, the
 certificate refused as revoked, the [Worker Lock](#worker-lock), the
 [Environment](#environment) in the heartbeat and in `GetWorkers`, the rows
 of [Configuration Conflicts](#configuration-conflicts) for `worker.invite`,
-the [Messages](#messages) of an enrolling worker, and
+the [Messages](#messages) of an enrolling worker,
 [`dagu worker --check`](#dagu-worker---check) without the lines of invite
-workers. Clients that share a coordinator's data directory use built-in
+workers, and [`dagu worker invite`](#dagu-worker-invite). Clients that share a coordinator's data directory use built-in
 TLS. A worker that holds a certificate logs the message for a coordinator
 of a different Dagu, but does not exit on it yet. A removal of a connected
 worker fails with `FailedPrecondition` and says to stop the worker on its
@@ -928,14 +928,45 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
 - `--address` is required. It is stored as the invite's `address` and used
   in the printed command.
 - The command calls the coordinator with the peer token, so it runs on any
-  host whose processes have the peer token.
+  host whose processes have the peer token. It calls the coordinators of
+  `worker.coordinators` when set, else those in the service registry of its
+  data directory, as listed once when it starts. The create reaches only
+  coordinators whose join readiness it read. A `worker.coordinators` that
+  is set but holds no valid `host:port` fails the command; the service
+  registry is not used in its place.
+- `--expires` is a positive Go duration of at most `2562047h47m16s`. An
+  empty value fails like any other that is not a duration.
 - It first reads join readiness. While a coordinator is not ready, it
-  prints the change to make for each such coordinator, creates no invite,
-  and exits with code 1. For `loopbackOnly`, the change follows
-  `hostSource`, and without `builtinTLS`, it follows `builtinTLSReason`,
-  as the dialog's step 1 does.
+  prints the change to make for each such coordinator to standard error,
+  creates no invite, and exits with code 1. For `loopbackOnly`, the change
+  follows `hostSource`, and without `builtinTLS`, it follows
+  `builtinTLSReason`, as the dialog's step 1 does.
+- A failed call prints the coordinator's refusal, except that a refusal for
+  the peer token says to set the same `peer.token` on the calling host. A
+  coordinator that fails to generate, store, or delete the invite gets that
+  failure and its log as the place to look. Any other failure gets only its kind
+  and that `dagu worker --check` on the calling host shows why.
+- `--address` loses surrounding spaces, as in the Add worker dialog. It
+  must be valid UTF-8, hold no invite, and be one `host:port` without a
+  comma, which would split the printed `--worker.coordinators`. It takes
+  the addresses the Add worker dialog takes. The port is a decimal number
+  from 1 to 65535 without a sign or leading zero. The host is a hostname of
+  dot-separated labels of 1 to 63 letters, digits, hyphens, and
+  underscores, neither starting nor ending with a hyphen, at most 253
+  characters, with no trailing dot, other than `localhost` or a container
+  ID; an IPv4 address in dotted decimal; or an IPv6 address in brackets
+  without a zone. An IP address is not unspecified, loopback, link-local,
+  multicast, or broadcast.
+- When the output cannot be written, it tries to delete the invite it
+  created and exits with code 1. It says, naming the invite by its ID only,
+  that the invite was deleted, or that the delete failed and the invite
+  must be deleted before it is used.
+- It logs no peer transport line, for the start or for any coordinator,
+  even at the debug level.
 - On success it prints the invite kind and expiry, the invite, and the
-  command to run on the worker host, and exits with code 0:
+  command to run on the worker host, and exits with code 0. The command
+  quotes an address that a POSIX shell would change, such as an IPv6
+  address in brackets:
 
   ```text
   Invite (single use, expires 2026-11-28T10:00:00Z):
@@ -1255,7 +1286,7 @@ handshake error that caused the fallback.
 | An invite call or `Enroll` on a coordinator without a peer CA | `FailedPrecondition`, with the message of [Coordinator Calls](#coordinator-calls) |
 | `POST /api/v1/workers/invites` with an invalid `expiresIn` or `address` | `400`, naming the field |
 | An invite or removal endpoint called by a non-admin | `403` |
-| `dagu worker invite` without the peer token | Exits with code 1, saying to set `peer.token` or to run on a host that reads the coordinator's data directory |
+| `dagu worker invite` without the peer token | Exits with code 1, saying to set the same `peer.token` on the calling host |
 | `dagu worker invite` while a coordinator is not ready | Exits with code 1 and prints the change to make |
 
 ## Examples

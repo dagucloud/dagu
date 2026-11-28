@@ -6,11 +6,13 @@ package cmd
 import (
 	"context"
 	"net"
+	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/egress"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/spf13/cobra"
 )
 
@@ -19,6 +21,15 @@ func RestoreDAGFromStatusForTest(ctx context.Context, dag *ir.DAG, status *ir.DA
 }
 
 var WorkerFlagsForTest = workerFlags
+
+// SetInviteRegistryForTest makes dagu worker invite call the coordinators
+// of registry until the test ends.
+func SetInviteRegistryForTest(t *testing.T, registry serviceregistry.ServiceRegistry) {
+	t.Helper()
+	previous := inviteRegistry
+	inviteRegistry = func(*Context) (serviceregistry.ServiceRegistry, error) { return registry, nil }
+	t.Cleanup(func() { inviteRegistry = previous })
+}
 
 // EgressProxyForTest returns the egress-proxy command on the given listen and
 // dial functions.

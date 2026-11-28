@@ -22,7 +22,7 @@ import (
 )
 
 func CmdWorker() *cobra.Command {
-	return NewCommand(
+	command := NewCommand(
 		&cobra.Command{
 			Use:   "worker [flags]",
 			Short: "Start a worker that polls the coordinator for tasks",
@@ -42,7 +42,7 @@ Flags:
                                            keys and values are lowercased, and an invalid label stops the worker
   --worker.coordinators string             Coordinator addresses (format: host1:port1,host2:port2)
   --worker.invite string                   Invite that lets the worker join its coordinators over
-                                           built-in TLS
+                                           built-in TLS; dagu worker invite creates one
   --worker.shutdown-timeout string         How long to drain running DAG runs on SIGINT/SIGTERM before
                                            canceling them (default: 60s, 0 waits without a bound)
   --check                                  Check the connection to each coordinator and exit, without
@@ -87,6 +87,8 @@ before the canceled runs report their final status.
 `,
 		}, workerFlags, runWorker,
 	)
+	command.AddCommand(workerInviteCommand())
+	return command
 }
 
 var workerFlags = []commandLineFlag{

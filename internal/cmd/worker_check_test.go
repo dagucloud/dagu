@@ -157,7 +157,7 @@ func checkArgs(home string) []string {
 }
 
 // registerCoordinator lists the coordinator at addr in the service registry
-// of home until the test ends.
+// of home until the test ends. Each address gets its own entry.
 func registerCoordinator(t *testing.T, home, addr string) {
 	t.Helper()
 	command := cmd.CmdWorker()
@@ -172,7 +172,7 @@ func registerCoordinator(t *testing.T, home, addr string) {
 	require.NoError(t, err)
 	registry := file.NewServiceRegistry(ctx.Config)
 	require.NoError(t, registry.Register(t.Context(), serviceregistry.ServiceNameCoordinator, serviceregistry.HostInfo{
-		ID: "coordinator-test", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
+		ID: "coordinator-" + portText, Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
 	}))
 	t.Cleanup(func() { registry.Unregister(context.Background()) })
 }

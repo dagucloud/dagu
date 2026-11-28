@@ -280,13 +280,17 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	// Only a local context calls the coordinator. start-all logs the line
 	// once its coordinator has published the CA certificate, dagu worker
 	// once it knows its credential, and dagu worker --check prints the line
-	// itself.
-	if commandName != "start-all" && commandName != "worker" {
+	// itself. dagu worker invite logs none, since its output is for the
+	// operator to copy.
+	if commandName != "start-all" && !isWorkerCommand(commandName) {
 		logPeerTransport(ctx, commandName, cfg)
 	}
-	// Before any store opens v2 state.
-	if err := migrateState(ctx, cmd.Name(), scope, cfg); err != nil {
-		return nil, err
+	// Before any store opens v2 state. Worker commands open none.
+	workerCommand := isWorkerCommand(commandName)
+	if !workerCommand {
+		if err := migrateState(ctx, cmd.Name(), scope, cfg); err != nil {
+			return nil, err
+		}
 	}
 	serverStores := file.NewServerStores(cfg)
 	settings, err := file.NewProjectSettings(cfg, serverStores, project.DefaultName)
@@ -294,12 +298,13 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		return nil, err
 	}
 
-	workerCommand := cmd.Name() == "worker"
 	var eventService *eventstore.Service
 	switch cmd.Name() {
-	case "server", "scheduler", "start-all", "worker":
+	case "server", "scheduler", "start-all":
 	default:
-		eventService = newEventService(ctx, cfg, settings.Paths.EventStoreDir)
+		if !workerCommand {
+			eventService = newEventService(ctx, cfg, settings.Paths.EventStoreDir)
+		}
 	}
 	if eventService != nil {
 		ctx = eventstore.WithContext(ctx, eventService, eventstore.Source{
@@ -589,7 +594,7 @@ func serviceForCommand(cmdName string) config.Service {
 		return config.ServiceServer
 	case "scheduler":
 		return config.ServiceScheduler
-	case "worker":
+	case "worker", workerInviteCommandName:
 		return config.ServiceWorker
 	case "coordinator":
 		return config.ServiceCoordinator
@@ -599,6 +604,13 @@ func serviceForCommand(cmdName string) config.Service {
 		// For all other commands (status, stop, validate, etc.), load all config
 		return config.ServiceNone
 	}
+}
+
+// isWorkerCommand reports whether the command family runs on a worker
+// host. Such a command loads the worker's configuration and opens no run
+// or project stores, so it works on a host that only runs workers.
+func isWorkerCommand(name string) bool {
+	return name == "worker" || name == workerInviteCommandName
 }
 
 // servesProjects reports whether the command starts a process that serves

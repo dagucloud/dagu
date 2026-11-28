@@ -330,7 +330,7 @@ var (
 
 	workerInviteFlag = commandLineFlag{
 		name:      "worker.invite",
-		usage:     "Invite that lets the worker join its coordinators over built-in TLS",
+		usage:     "Invite that lets the worker join its coordinators over built-in TLS (create one with dagu worker invite)",
 		bindViper: true,
 	}
 )
