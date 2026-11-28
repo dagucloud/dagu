@@ -122,7 +122,7 @@ func testConnectionCLI(client *remoteClient, input io.Reader, browser func(strin
 	out := &syncBuffer{}
 	t := &connectionTerm{in: bufio.NewReader(input), out: out, openBrowser: browser}
 	t.readSecret = t.readAnswer
-	return &connectionCLI{client: client, workspace: "ops", term: t}, out
+	return &connectionCLI{client: client, workspace: "ops", term: t, sessionLifetime: sessionLifetime}, out
 }
 
 func testApp(clientType api.OAuthClientType) api.OAuthApp {
@@ -155,7 +155,9 @@ var (
 	testPasteStart = api.ConnectionAuthorizationStart{
 		Session: "s1", Mode: api.ConnectionRedirectModePaste, AuthorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?x=1",
 		RedirectUri: "http://127.0.0.1:1/oauth/callback", ClientId: "123-abc.apps.googleusercontent.com",
-		ExpiresAt: time.Now().Add(time.Hour),
+		// The server's clock runs behind this host's, which must not cut the
+		// paste wait short.
+		ExpiresAt: time.Now().Add(-time.Hour),
 	}
 )
 
@@ -382,7 +384,9 @@ func TestLoopbackListenerTakesOneRedirect(t *testing.T) {
 // When a sign-in fails after the redirect, the CLI says that the previous
 // tokens stay only when the cancel shows the session was still open. A
 // session the server already ended may have been confirmed, and a cancel
-// that does not arrive leaves the session to expire.
+// that does not arrive leaves the tokens on the server until a reconnect
+// or remove drops them. Failed reads are retried until the session
+// expires, which the CLI says once.
 func TestConnectionUnsettledOutcome(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -393,20 +397,21 @@ func TestConnectionUnsettledOutcome(t *testing.T) {
 	}{
 		{name: "Cancelled", cancel: nil, want: "Connection work stays pending"},
 		{name: "Ended", cancel: http.StatusConflict, want: "The sign-in may have completed", notWant: "stays pending"},
-		{name: "Unreachable", cancel: http.StatusBadGateway, want: "The session could not be cancelled", notWant: "stays pending"},
+		{
+			name: "Unreachable", cancel: http.StatusBadGateway,
+			want:    "To drop them, run 'dagu connection reconnect work --workspace ops', which replaces the session, or 'dagu connection remove work --workspace ops'",
+			notWant: "stays pending",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			replies := pasteReplies()
-			// The session expires soon, so failed reads stop being retried.
-			start := testPasteStart
-			start.ExpiresAt = time.Now().Add(2 * time.Second)
-			replies["POST /connections/work/authorization"] = start
 			replies["GET /connections/work/authorization"] = http.StatusInternalServerError
 			replies["DELETE /connections/work/authorization"] = tt.cancel
 			fake, client := newFakeConnectionAPI(t, replies)
-			c, _ := testConnectionCLI(client, strings.NewReader("http://127.0.0.1:1/oauth/callback?code=x&state=y\n"), nil)
+			c, out := testConnectionCLI(client, strings.NewReader("http://127.0.0.1:1/oauth/callback?code=x&state=y\n"), nil)
+			c.sessionLifetime = 2 * time.Second
 
 			err := c.addGoogle(context.Background(), googleAddRequest{name: "work", services: testServices, appRef: "app-1", noBrowser: true})
 
@@ -414,6 +419,7 @@ func TestConnectionUnsettledOutcome(t *testing.T) {
 			if tt.notWant != "" {
 				assert.NotContains(t, err.Error(), tt.notWant)
 			}
+			assert.Equal(t, 1, strings.Count(out.String(), "Could not reach the server"), out.String())
 			assert.Contains(t, fake.sent(), "DELETE /connections/work/authorization?session=s1&workspace=ops")
 		})
 	}
