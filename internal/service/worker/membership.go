@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -111,13 +112,13 @@ func errOtherDaguJoined(address string) failure {
 }
 
 // removedFailure is the failure of a removed worker, which errors.Is
-// matches with ErrRemoved.
+// matches with errWorkerRemoved.
 type removedFailure struct {
 	failure
 }
 
 func (removedFailure) Is(target error) bool {
-	return target == ErrRemoved
+	return target == errWorkerRemoved
 }
 
 // errRemoved is the failure of a worker whose certificate a coordinator
@@ -163,17 +164,26 @@ type Membership struct {
 	// the peer token.
 	cred *credential
 	lock *fileutil.FileLock
-	// revoked is closed once a coordinator refused the certificate of the
-	// worker's client as revoked, after the refusal is recorded.
+	// connected reports that Connect returned the worker's client, whose
+	// refusals as revoked then end the worker. Before it, a refusal only
+	// sets refusedAtStart.
+	connected      atomic.Bool
+	refusedAtStart atomic.Bool
+	// revoked is closed as soon as a coordinator refused the certificate of
+	// the worker's client as revoked, and recorded once the refusal is kept
+	// and the termination message written.
 	revoked     chan struct{}
+	recorded    chan struct{}
 	revokedOnce sync.Once
+	// client is the worker's client, which removals ties to the removal.
+	client coordinator.Client
 }
 
 // joinOptions are what a Membership waits, enrolls, and retries with.
 type joinOptions struct {
 	lock        lockTiming
 	enroll      func(context.Context, *coordinator.Config, string, *coordinatorv1.EnrollRequest) (*coordinatorv1.EnrollResponse, error)
-	confirm     func(context.Context, *coordinator.Config, string) error
+	newClient   func(context.Context, []string, *coordinator.Config, func()) (coordinator.Client, string, error)
 	retryPolicy backoff.RetryPolicy
 	// environment is where the worker runs, and terminationLog the file
 	// Kubernetes reads the termination message from.
@@ -191,7 +201,7 @@ func OpenMembership(ctx context.Context, cfg *config.Config, localRegistry servi
 	return openMembership(ctx, cfg, localRegistry, joinOptions{
 		lock:           defaultLockTiming,
 		enroll:         coordinator.Enroll,
-		confirm:        coordinator.ConfirmWorkerCertificate,
+		newClient:      coordinator.NewWorkerClient,
 		retryPolicy:    enrollRetryPolicy(),
 		environment:    coordinator.ProcessEnvironment,
 		terminationLog: terminationLogPath,
@@ -208,11 +218,12 @@ func openMembership(ctx context.Context, cfg *config.Config, localRegistry servi
 		return nil, err
 	}
 	m := &Membership{
-		cfg:     cfg,
-		opts:    opts,
-		store:   newCredentialStore(cfg.Paths.DataDir),
-		config:  clientConfigOf(cfg, localRegistry),
-		revoked: make(chan struct{}),
+		cfg:      cfg,
+		opts:     opts,
+		store:    newCredentialStore(cfg.Paths.DataDir),
+		config:   clientConfigOf(cfg, localRegistry),
+		revoked:  make(chan struct{}),
+		recorded: make(chan struct{}),
 	}
 	if err := m.open(ctx); err != nil {
 		_ = m.Close()
@@ -379,8 +390,12 @@ func usesKeptCertificate(peer config.Peer) bool {
 // errUnreadable is the failure of a kept credential that cannot be read.
 // The worker stops rather than call without it.
 func errUnreadable(err error) error {
+	why := fileReason(err)
+	if why == "" {
+		why = "it is damaged"
+	}
 	return failure{
-		cause: "This worker cannot read the certificate it keeps: " + reason(err),
+		cause: "This worker cannot read the certificate it keeps: " + why,
 		next:  "Let this user read the data directory, or start the worker with a new data directory and a new invite.",
 	}
 }
@@ -400,10 +415,25 @@ func reason(err error) string {
 	return err.Error()
 }
 
+// fileReason is the system's reason for a file error in err, without its
+// path, or "" when err is no file error.
+func fileReason(err error) string {
+	if errno, ok := errors.AsType[syscall.Errno](err); ok {
+		return errno.Error()
+	}
+	if pathErr, ok := errors.AsType[*fs.PathError](err); ok {
+		return pathErr.Err.Error()
+	}
+	if linkErr, ok := errors.AsType[*os.LinkError](err); ok {
+		return linkErr.Err.Error()
+	}
+	return ""
+}
+
 // use makes the worker's client present cred.
 func (m *Membership) use(cred *credential) {
 	m.cred = cred
-	m.config = m.config.WithWorkerCertificate(cred.cert, cred.ca, nil)
+	m.config = m.config.WithWorkerCertificate(cred.cert, cred.ca)
 }
 
 // StartTransport returns the transport the worker starts with and what
@@ -420,46 +450,77 @@ func (m *Membership) StartTransport() (string, error) {
 // invite's CA. A worker that holds a worker certificate first asks the
 // coordinators whether they accept it. It fails when one refuses it as
 // revoked, unless worker.invite is another invite, with which it enrolls
-// again, and when no reachable coordinator's CA signed it.
+// again, and when no reachable coordinator's CA signed it. NewWorker, given
+// the client, stops the worker once a coordinator refuses the certificate as
+// revoked on any later call.
 func (m *Membership) Connect(ctx context.Context, workerID string) (coordinator.Client, error) {
-	if m.cred != nil {
-		if err := m.confirm(ctx); err != nil {
-			return nil, err
+	for {
+		if m.invite != nil && m.cred == nil {
+			if err := m.enroll(ctx, workerID); err != nil {
+				return nil, err
+			}
 		}
-	}
-	if m.invite != nil && m.cred == nil {
-		if err := m.enroll(ctx, workerID); err != nil {
-			return nil, err
+		if m.cred == nil {
+			return newCoordinatorClient(ctx, m.cfg, m.config)
 		}
+		client, err := m.workerClient(ctx)
+		if err != nil || client != nil {
+			return client, err
+		}
+		// Refused as revoked with another invite: enroll again.
 	}
-	clientConfig := m.config
-	if m.cred != nil {
-		// Only the client the worker runs with reports a removal, not
-		// the confirmation above.
-		clientConfig = m.config.WithWorkerCertificate(m.cred.cert, m.cred.ca, func() { m.revoke(ctx) })
-	}
-	client, err := newCoordinatorClient(ctx, m.cfg, clientConfig)
-	if err != nil {
+}
+
+// workerClient returns the client of a worker that holds a certificate, once
+// the coordinators confirmed it, or nil when a refusal as revoked lets the
+// worker enroll again with another invite.
+func (m *Membership) workerClient(ctx context.Context) (coordinator.Client, error) {
+	logger.Info(ctx, "Using static coordinator discovery", slog.Any("coordinators", m.cfg.Worker.Coordinators))
+	client, otherDagu, err := m.opts.newClient(ctx, m.cfg.Worker.Coordinators, m.config, func() { m.refused(ctx) })
+	switch {
+	case m.refusedAtStart.Swap(false):
+		// Before the context: a refusal that arrives with a signal is still
+		// recorded.
+		return nil, m.removedAtStart(ctx)
+	case errors.Is(err, coordinator.ErrInviteCAMismatch) && m.invite != nil:
+		// The kept certificate is from the invite's CA, which that
+		// coordinator does not have.
+		return nil, errOtherDagu(otherDagu)
+	case errors.Is(err, coordinator.ErrInviteCAMismatch):
+		return nil, errOtherDaguJoined(otherDagu)
+	case err != nil:
 		return nil, err
 	}
-	// The worker that runs with the client stops on its removal.
-	return &memberClient{Client: client, revoked: m.revoked, removed: m.removed}, nil
+	m.connected.Store(true)
+	m.client = client
+	removals.Store(client, removal{revoked: m.revoked, exit: m.removed})
+	return client, nil
+}
+
+// refused handles a refusal of the worker's certificate as revoked.
+func (m *Membership) refused(ctx context.Context) {
+	if !m.connected.Load() {
+		m.refusedAtStart.Store(true)
+		return
+	}
+	m.revoke(ctx)
 }
 
 // revoke handles a refusal of the worker's certificate as revoked once: it
-// records the refusal and writes the termination message before it closes
-// revoked, so a worker that a signal or a kill ends right after it still
-// exits at its next start.
+// closes revoked at once, so the worker admits no more runs, then records the
+// refusal and writes the termination message, so a worker that a signal or a
+// kill ends after it still exits at its next start.
 func (m *Membership) revoke(ctx context.Context) {
 	m.revokedOnce.Do(func() {
+		close(m.revoked)
 		m.recordRemoval(ctx)
 		_ = m.removedFailure(ctx)
-		close(m.revoked)
+		close(m.recorded)
 	})
 }
 
 // removed returns the failure a worker exits with once a coordinator refused
-// its certificate as revoked, with the message of Spec 108 §Messages, after
+// its certificate as revoked, with the message of Spec 108 §Messages, once
 // revoke has handled the refusal.
 func (m *Membership) removed(ctx context.Context) error {
 	m.revoke(ctx)
@@ -596,45 +657,6 @@ func (m *Membership) enrollRound(ctx context.Context, req *coordinatorv1.EnrollR
 	return nil, last, nil
 }
 
-// confirm asks each coordinator whether it accepts the kept certificate,
-// before the worker starts, until one answers. While none answers, the
-// worker starts, and its own calls retry.
-func (m *Membership) confirm(ctx context.Context) error {
-	var otherDagu string
-	for _, address := range m.cfg.Worker.Coordinators {
-		err := m.opts.confirm(ctx, m.config, address)
-		switch {
-		case err == nil:
-			return nil
-		case coordinator.IsWorkerRemoved(err):
-			// Before the context: a refusal that arrives with a signal is
-			// still recorded.
-			return m.removedAtStart(ctx)
-		case ctx.Err() != nil:
-			return ctx.Err()
-		case answered(err):
-			// The coordinator accepted the handshake with the certificate
-			// and did not refuse it, so it is of this Dagu.
-			logger.Debug(ctx, "Worker certificate confirmed with an error", tag.Addr(address), tag.Error(err))
-			return nil
-		case errors.Is(err, coordinator.ErrOtherDagu):
-			if otherDagu == "" {
-				otherDagu = address
-			}
-		}
-		logger.Debug(ctx, "Worker certificate not confirmed", tag.Addr(address), tag.Error(err))
-	}
-	switch {
-	case otherDagu == "":
-		return nil
-	case m.invite != nil:
-		// The kept certificate is from the invite's CA, which that
-		// coordinator does not have.
-		return errOtherDagu(otherDagu)
-	}
-	return errOtherDaguJoined(otherDagu)
-}
-
 // removedAtStart handles a kept certificate that a coordinator refused as
 // revoked before the worker started. Another invite than the one it enrolled
 // with enrolls the worker again.
@@ -662,7 +684,11 @@ func (m *Membership) recordRemoval(ctx context.Context) {
 		return
 	}
 	if err := m.store.save(&removed); err != nil {
-		logger.Debug(ctx, "Failed to record the removal of the worker certificate", tag.Error(err))
+		why := fileReason(err)
+		if why == "" {
+			why = "the write failed"
+		}
+		logger.Debug(ctx, "Failed to record the removal of the worker certificate", slog.String("reason", why))
 	}
 }
 
@@ -692,8 +718,16 @@ func writeTerminationMessage(ctx context.Context, path, message string) {
 	}
 }
 
-// Close releases the certificate lock.
+// Close releases the certificate lock, once a removal under way is recorded.
 func (m *Membership) Close() error {
+	select {
+	case <-m.revoked:
+		<-m.recorded
+	default:
+	}
+	if m.client != nil {
+		removals.Delete(m.client)
+	}
 	if m.lock == nil {
 		return nil
 	}

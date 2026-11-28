@@ -104,9 +104,10 @@ type TaskHandler interface {
 
 var errTaskClaimRejectedBeforeExecution = errors.New("task claim rejected before execution")
 
-// ErrRemoved is the error Start returns once a coordinator refused the
-// worker's certificate as revoked. The worker has stopped its runs by then.
-var ErrRemoved = errors.New("this worker was removed from the coordinator")
+// errWorkerRemoved is the error Start and Stop return once a coordinator
+// refused the worker's certificate as revoked, for a worker whose client came
+// from no membership. A membership's failure matches it too.
+var errWorkerRemoved = errors.New("this worker was removed from the coordinator")
 
 const (
 	ownerRunHeartbeatCallTimeout = 10 * time.Second
@@ -156,7 +157,7 @@ func (w *Worker) SetAfterTaskAckHook(hook func(context.Context, *coordinatorv1.T
 // NewWorker creates a new worker instance. With a client from
 // Membership.Connect, it stops as removed once a coordinator refuses the
 // client's certificate as revoked, and Start and Stop then return the
-// removed worker's failure, which errors.Is matches with ErrRemoved.
+// removed worker's failure, which prints the message of Spec 108 §Messages.
 func NewWorker(
 	workerID string,
 	maxActiveRuns int,
@@ -199,8 +200,8 @@ func NewWorker(
 	}
 	w.healthServer.SetReadyFunc(w.ready.Load)
 	// A client from Membership.Connect stops the worker on its removal.
-	if member, ok := coordinatorClient.(*memberClient); ok {
-		w.removalSignal, w.removalExit = member.revoked, member.removed
+	if r, ok := removals.LoadAndDelete(coordinatorClient); ok {
+		w.removalSignal, w.removalExit = r.(removal).revoked, r.(removal).exit
 	}
 	return w
 }
@@ -246,8 +247,8 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	}
 
 	defer func() {
-		// stopRemoved has released these for ErrRemoved.
-		if err == nil || errors.Is(err, ErrRemoved) {
+		// stopRemoved has released these for a removal.
+		if err == nil || errors.Is(err, errWorkerRemoved) {
 			return
 		}
 
@@ -291,7 +292,7 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 				handler:     w.handler,
 			}
 			poller := NewPoller(w.id, w.coordinatorCli, wrappedHandler, pollerIndex, w.labels)
-			poller.onRemoved = w.markRemoved
+			poller.isRemoved = w.isRemoved
 			poller.Run(pollCtx)
 		}(i)
 	}
@@ -554,12 +555,12 @@ func (w *Worker) isRemoved() bool {
 }
 
 // removedError returns the failure a removed worker exits with: the
-// membership's, which handles the removal, or ErrRemoved without one.
+// membership's, which handles the removal, or errWorkerRemoved without one.
 func (w *Worker) removedError(ctx context.Context) error {
 	if w.removalExit != nil {
 		return w.removalExit(ctx)
 	}
-	return ErrRemoved
+	return errWorkerRemoved
 }
 
 // logRemovedRun logs a run that the worker stops since it was removed.
@@ -765,12 +766,6 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 
 	if task.AttemptKey != "" && owner.Host != "" {
 		cancelled, heartbeatErr := t.worker.validateClaimedTask(taskCtx, owner, runningTask)
-		if coordinator.IsWorkerRemoved(heartbeatErr) {
-			// The refusal ends the worker; the run never starts.
-			t.worker.markRemoved()
-			logRemovedRun(taskCtx, runningTask)
-			return ErrRemoved
-		}
 		if heartbeatErr != nil {
 			logger.Warn(taskCtx, "Failed to validate claimed task with owner coordinator before execution",
 				tag.WorkerID(t.worker.id),
@@ -796,7 +791,7 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 	if t.worker.isRemoved() {
 		t.worker.pollersMu.Unlock()
 		logRemovedRun(taskCtx, runningTask)
-		return ErrRemoved
+		return errWorkerRemoved
 	}
 	t.worker.runningTasks[attemptKey] = &runningTaskState{
 		task:                 runningTask,
@@ -884,10 +879,6 @@ func (w *Worker) sendHeartbeats(ctx context.Context) {
 		}
 
 		if err := w.sendHeartbeat(ctx); err != nil {
-			if coordinator.IsWorkerRemoved(err) {
-				w.markRemoved()
-				return
-			}
 			nextInterval, nextErr := retrier.Next(err)
 			if nextErr != nil {
 				logger.Error(ctx, "Failed to compute heartbeat backoff interval",

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -32,16 +33,20 @@ func newCoordinatorClient(ctx context.Context, cfg *config.Config, clientConfig 
 	return coordinator.New(registry, clientConfig), nil
 }
 
-// memberClient is the client that Membership.Connect returns. NewWorker
-// ties the worker that uses it to the membership's handling of a removal.
-type memberClient struct {
-	coordinator.Client
-	// revoked is closed once a coordinator refused the client's
-	// certificate as revoked, on any call.
+// removal is how a membership ends its worker once a coordinator refused the
+// worker's certificate as revoked: revoked is closed at once, and exit
+// returns the failure the worker exits with once the refusal is recorded.
+type removal struct {
 	revoked <-chan struct{}
-	// removed returns the failure the worker then exits with.
-	removed func(context.Context) error
+	exit    func(context.Context) error
 }
+
+// removals ties each client that Membership.Connect returns, left as the
+// coordinator package made it, to its membership's removal, for the worker
+// that NewWorker creates with that client. NewWorker takes the entry, and
+// Membership.Close drops one that no worker took, so it holds at most one
+// entry per open membership.
+var removals sync.Map
 
 // CoordinatorClientConfig returns the configuration the worker's
 // coordinator client dials with at start, for dagu worker --check: with the
@@ -67,9 +72,9 @@ func CoordinatorClientConfig(cfg *config.Config, localRegistry serviceregistry.S
 	case keptRemoved:
 		// The check still dials with it, to show what coordinators answer.
 		removed = errRemoved(coordinator.ProcessEnvironment() == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES)
-		clientConfig = clientConfig.WithWorkerCertificate(cred.cert, cred.ca, nil)
+		clientConfig = clientConfig.WithWorkerCertificate(cred.cert, cred.ca)
 	case keptConnect:
-		clientConfig = clientConfig.WithWorkerCertificate(cred.cert, cred.ca, nil)
+		clientConfig = clientConfig.WithWorkerCertificate(cred.cert, cred.ca)
 	case keptUnused:
 	}
 	if err := clientConfig.Validate(); err != nil {

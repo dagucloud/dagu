@@ -32,9 +32,9 @@ type Poller struct {
 	handler        TaskHandler
 	index          int
 	labels         map[string]string
-	// onRemoved tells the worker that a coordinator refused its certificate
-	// as revoked; nil does nothing.
-	onRemoved func()
+	// isRemoved reports that a coordinator refused the worker's
+	// certificate as revoked; nil reports nothing.
+	isRemoved func() bool
 }
 
 // NewPoller creates a new poller instance
@@ -75,8 +75,8 @@ func (p *Poller) Run(ctx context.Context) {
 				}
 				// A removed worker stops, so the poller waits for that
 				// instead of polling again.
-				if coordinator.IsWorkerRemoved(err) {
-					p.removed(ctx)
+				if p.removed() {
+					<-ctx.Done()
 					return
 				}
 				// Poll failed, but will be retried by pollForTask
@@ -106,8 +106,8 @@ func (p *Poller) Run(ctx context.Context) {
 						// Context cancelled, exit gracefully
 						return
 					}
-					if errors.Is(err, ErrRemoved) {
-						p.removed(ctx)
+					if errors.Is(err, errWorkerRemoved) {
+						<-ctx.Done()
 						return
 					}
 					if errors.Is(err, errTaskClaimRejectedBeforeExecution) {
@@ -134,13 +134,10 @@ func (p *Poller) Run(ctx context.Context) {
 	}
 }
 
-// removed tells the worker of its removal and waits until it stops the
-// poller.
-func (p *Poller) removed(ctx context.Context) {
-	if p.onRemoved != nil {
-		p.onRemoved()
-	}
-	<-ctx.Done()
+// removed reports whether a coordinator refused the worker's certificate as
+// revoked.
+func (p *Poller) removed() bool {
+	return p.isRemoved != nil && p.isRemoved()
 }
 
 func (p *Poller) ackTaskClaim(ctx context.Context, task *coordinatorv1.Task) error {
@@ -206,7 +203,7 @@ func (p *Poller) pollForTask(ctx context.Context, policy backoff.RetryPolicy) (*
 	// failures are logged here, and a stop, which cancels a poll under way
 	// in each poller, logs nothing.
 	task, err := p.coordinatorCli.Poll(backoff.WithRetryFailureLogLevel(ctx, slog.LevelDebug), policy, req)
-	if ctx.Err() != nil || coordinator.IsWorkerRemoved(err) {
+	if err != nil && (ctx.Err() != nil || p.removed()) {
 		return nil, err
 	}
 	if err != nil {

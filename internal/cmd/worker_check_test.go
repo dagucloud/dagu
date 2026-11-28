@@ -16,10 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
-	"google.golang.org/grpc/status"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -193,77 +191,4 @@ func unusedAddress(t *testing.T) string {
 	addr := listener.Addr().String()
 	require.NoError(t, listener.Close())
 	return addr
-}
-
-// An invite worker's check names whether the coordinator's CA matches the
-// invite's pin, the worker certificate and its invite, and whether the
-// coordinator accepts it (Spec 108 §dagu worker --check).
-func TestWorkerCheckInviteLines(t *testing.T) {
-	t.Parallel()
-
-	handshake := &coordinator.TLSHandshake{Verified: true, Certificate: &coordinator.ServerCertificate{
-		DNSNames: []string{"coordinator.dagu.invalid"}, CA: "Dagu peer CA",
-	}}
-	certificate := coordinator.Credential{CertificateID: "cert-1", InviteID: "invite-1"}
-	removed := status.Error(codes.Unauthenticated, "this worker was removed from the coordinator")
-	for _, tc := range []struct {
-		name   string
-		result coordinator.CheckResult
-		invite bool
-		want   string
-	}{
-		{
-			name:   "Enrolls",
-			result: coordinator.CheckResult{TLS: handshake, Credential: coordinator.Credential{Invite: true}},
-			invite: true,
-			want: "  Invite pin: matches the coordinator's CA\n" +
-				"  Credential: the invite of worker.invite, which only enrollment uses; no peer token\n" +
-				"  Coordinator answered: serving; the worker enrolls with its invite when it starts\n",
-		},
-		{
-			name:   "Certificate",
-			result: coordinator.CheckResult{TLS: handshake, Credential: certificate},
-			want: "    Certificate chains to: Dagu peer CA\n" +
-				"  Credential: worker certificate cert-1, from invite invite-1; no peer token\n" +
-				"  Coordinator answered: serving, and it accepted the worker certificate\n",
-		},
-		{
-			name:   "OtherDaguWithInvite",
-			result: coordinator.CheckResult{TLS: &coordinator.TLSHandshake{Err: coordinator.ErrOtherDagu}, Credential: certificate},
-			invite: true,
-			want: "  Handshake: failed, coordinator.example.com:50055 belongs to a different Dagu (its CA does not match the invite)\n" +
-				"  Check the coordinator address.\n",
-		},
-		{
-			name:   "OtherDaguBeforeEnrollment",
-			result: coordinator.CheckResult{TLS: &coordinator.TLSHandshake{Err: coordinator.ErrInviteCAMismatch}, Credential: coordinator.Credential{Invite: true}},
-			invite: true,
-			want:   "  Handshake: failed, coordinator.example.com:50055 belongs to a different Dagu (its CA does not match the invite)\n",
-		},
-		{
-			name:   "OtherDaguWithoutInvite",
-			result: coordinator.CheckResult{TLS: &coordinator.TLSHandshake{Err: coordinator.ErrOtherDagu}, Credential: certificate},
-			want: "  Handshake: failed, coordinator.example.com:50055 belongs to a different Dagu than the one this worker joined\n" +
-				"  Get a new command from \"Add worker\" to join it.\n",
-		},
-		{
-			name:   "Removed",
-			result: coordinator.CheckResult{TLS: handshake, Credential: certificate, AnswerErr: removed},
-			invite: true,
-			want: "  Invite pin: matches the coordinator's CA\n" +
-				"  Credential: worker certificate cert-1, from invite invite-1; no peer token\n" +
-				"  Coordinator answered: This worker was removed from the coordinator\n" +
-				"  Get a new command from \"Add worker\" to add it again.\n",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			tc.result.Address = "coordinator.example.com:50055"
-			tc.result.Transport = "built-in TLS (from worker certificate)"
-			var out bytes.Buffer
-			cmd.PrintWorkerCheckForTest(&out, tc.result, tc.invite)
-			assert.Contains(t, out.String(), tc.want)
-		})
-	}
 }

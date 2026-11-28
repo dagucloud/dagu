@@ -154,21 +154,8 @@ func printWorkerCheck(w io.Writer, result coordinator.CheckResult, invite bool) 
 	if invite && result.TLS != nil && result.TLS.Err == nil {
 		_, _ = fmt.Fprintln(w, "  Invite pin: matches the coordinator's CA")
 	}
-	credential := result.Credential
-	_, _ = fmt.Fprintf(w, "  Credential: %s\n", credentialText(credential))
-	switch {
-	case coordinator.IsWorkerRemoved(result.AnswerErr):
-		_, _ = fmt.Fprintln(w, "  Coordinator answered: This worker was removed from the coordinator")
-		_, _ = fmt.Fprintln(w, `  Get a new command from "Add worker" to add it again.`)
-	case result.AnswerErr != nil:
-		_, _ = fmt.Fprintf(w, "  Coordinator answered: %v\n", result.AnswerErr)
-	case credential.Invite:
-		_, _ = fmt.Fprintln(w, "  Coordinator answered: serving; the worker enrolls with its invite when it starts")
-	case credential.CertificateID != "":
-		_, _ = fmt.Fprintln(w, "  Coordinator answered: serving, and it accepted the worker certificate")
-	default:
-		_, _ = fmt.Fprintln(w, "  Coordinator answered: serving, and it accepted the call")
-	}
+	_, _ = fmt.Fprintf(w, "  Credential: %s\n", result.Credential)
+	_, _ = fmt.Fprintf(w, "  Coordinator answered: %s\n", result.Answer())
 }
 
 // printHandshakeFailure prints why the handshake failed, with the Spec 108
@@ -176,7 +163,7 @@ func printWorkerCheck(w io.Writer, result coordinator.CheckResult, invite bool) 
 // has one, since its certificate is from the invite's CA.
 func printHandshakeFailure(w io.Writer, result coordinator.CheckResult, invite bool) {
 	err := result.TLS.Err
-	otherDagu := errors.Is(err, coordinator.ErrInviteCAMismatch) || errors.Is(err, coordinator.ErrOtherDagu)
+	otherDagu := errors.Is(err, coordinator.ErrInviteCAMismatch)
 	switch {
 	case otherDagu && invite:
 		_, _ = fmt.Fprintf(w, "  Handshake: failed, %s belongs to a different Dagu (its CA does not match the invite)\n", result.Address)
@@ -212,31 +199,4 @@ func printServerCertificate(w io.Writer, cert *coordinator.ServerCertificate) {
 		ca += " (the certificate signs itself)"
 	}
 	_, _ = fmt.Fprintf(w, "    Certificate chains to: %s\n", ca)
-}
-
-// credentialText says what the worker presents to the coordinator.
-func credentialText(credential coordinator.Credential) string {
-	switch {
-	case credential.CertificateID != "":
-		return fmt.Sprintf("worker certificate %s, from invite %s; no peer token", credential.CertificateID, credential.InviteID)
-	case credential.Invite:
-		return "the invite of worker.invite, which only enrollment uses; no peer token"
-	}
-	var token string
-	switch credential.PeerToken {
-	case coordinator.PeerTokenConfigured:
-		token = "peer token from peer.token"
-	case coordinator.PeerTokenDataDir:
-		token = "peer token from the coordinator's data directory"
-	case coordinator.PeerTokenNone:
-		token = "no peer token"
-	}
-	switch {
-	case credential.CertFile == "":
-		return token
-	case !credential.CertSent:
-		return fmt.Sprintf("%s; client certificate %s not sent, as the coordinator did not ask for one from its CA", token, credential.CertFile)
-	default:
-		return fmt.Sprintf("client certificate %s and %s", credential.CertFile, token)
-	}
 }

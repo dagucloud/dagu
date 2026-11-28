@@ -5,7 +5,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -216,20 +215,12 @@ func runWorker(ctx *Context, _ []string) error {
 		logger.Info(ctx, "Worker shutting down", slog.Duration("timeout", shutdownTimeout))
 		stopCtx, cancel := workerStopContext(ctx.Context, shutdownTimeout)
 		defer cancel()
-		return workerEnd(w.Stop(stopCtx), "failed to stop worker")
+		// Stop and Start say what failed, and a removed worker's failure
+		// is its message.
+		return w.Stop(stopCtx)
 	case err := <-errCh:
-		return workerEnd(err, "worker failed")
-	}
-}
-
-// workerEnd returns the error dagu worker exits with when the worker ended
-// with err: a removed worker's failure as is, so it prints its message, and
-// any other error with what failed.
-func workerEnd(err error, what string) error {
-	if err == nil || errors.Is(err, worker.ErrRemoved) {
 		return err
 	}
-	return fmt.Errorf("%s: %w", what, err)
 }
 
 // workerStopContext returns the context for Worker.Stop. A positive timeout

@@ -100,9 +100,3 @@ func LoadRemoteTaskDAGForTest(ctx context.Context, cfg *config.Config, task *coo
 func CleanupErrorMessageForTest(err error) string {
 	return cleanupErrorMessage(err)
 }
-
-// MemberClientForTest returns client as Membership.Connect returns it, with
-// revoked closed once a coordinator refused its certificate as revoked.
-func MemberClientForTest(client coordinator.Client, revoked <-chan struct{}) coordinator.Client {
-	return &memberClient{Client: client, revoked: revoked}
-}

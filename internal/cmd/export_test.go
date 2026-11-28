@@ -31,10 +31,6 @@ func SetInviteRegistryForTest(t *testing.T, registry serviceregistry.ServiceRegi
 	t.Cleanup(func() { inviteRegistry = previous })
 }
 
-// PrintWorkerCheckForTest prints what dagu worker --check found at one
-// coordinator.
-var PrintWorkerCheckForTest = printWorkerCheck
-
 // EgressProxyForTest returns the egress-proxy command on the given listen and
 // dial functions.
 func EgressProxyForTest(listen func(network, address string) (net.Listener, error), dial egress.DialFunc) *cobra.Command {

@@ -540,13 +540,6 @@ func (m *mockCoordinatorCli) SetPollFunc(f func(ctx context.Context, policy back
 	m.PollFunc = f
 }
 
-// SetRunHeartbeatFunc safely sets the RunHeartbeatFunc for concurrent access.
-func (m *mockCoordinatorCli) SetRunHeartbeatFunc(f func(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error)) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.RunHeartbeatFunc = f
-}
-
 // SetHeartbeatFunc safely sets the HeartbeatFunc for concurrent access
 func (m *mockCoordinatorCli) SetHeartbeatFunc(f func(ctx context.Context, req *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)) {
 	m.mu.Lock()
