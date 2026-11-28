@@ -40,7 +40,7 @@ const BUILTIN_LABEL_KEYS = ['os', 'arch'];
 
 // A published release or prerelease tag, and the versions of builds that
 // no release is tagged with.
-const PUBLISHED_VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.-]+)?$/;
+const PUBLISHED_VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.-]*)?$/;
 const DEV_BUILD = /^0\.0\.0$|-[0-9]+-g[0-9a-f]+$|-next$/;
 const MAX_IMAGE_TAG = 128;
 
