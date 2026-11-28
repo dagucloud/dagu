@@ -18,7 +18,12 @@ const PROXIES = Object.fromEntries(
 // The Linux check runs in a shell that may hold an enrolled worker's
 // settings. A stub dagu on PATH prints the environment the check gets, so
 // the test sees what the real CLI's config loader and proxy lookup read.
-function runCheck(shell: string, env: NodeJS.ProcessEnv, stubs = {}) {
+function runCheck(
+  shell: string,
+  env: NodeJS.ProcessEnv,
+  stubs = {},
+  prefix = ''
+) {
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'dagu-check-'));
   const all: Record<string, string> = { dagu: 'echo STARTED; env', ...stubs };
   for (const [name, body] of Object.entries(all)) {
@@ -30,7 +35,7 @@ function runCheck(shell: string, env: NodeJS.ProcessEnv, stubs = {}) {
     address: '192.168.1.20:50055',
     inviteId: 'inv-1',
   })!;
-  const run = spawnSync(shell, ['-c', command], {
+  const run = spawnSync(shell, ['-c', prefix + command], {
     encoding: 'utf8',
     env: { PATH: `${bin}:/usr/bin:/bin`, HOME: '/home/worker', ...env },
   });
@@ -66,20 +71,24 @@ describe.skipIf(process.platform === 'win32')('Linux check command', () => {
     }
   });
 
-  // The new directory goes on exit, and the check's status stays.
-  it.each(['sh', 'bash'])(
-    'in %s removes its directory and keeps the status',
-    (sh) => {
-      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dagu-check-tmp-'));
-      // A mktemp stub makes the directory where the test can see it.
-      const mktemp = 'mkdir "$TMPDIR/home" && echo "$TMPDIR/home"';
-      const run = runCheck(sh, { TMPDIR: tmp }, { dagu: 'exit 3', mktemp });
-      const left = fs.readdirSync(tmp);
-      fs.rmSync(tmp, { recursive: true, force: true });
-      expect(run.status).toBe(3);
-      expect(left).toEqual([]);
-    }
-  );
+  // The new directory goes on exit, and the check's status stays, also in
+  // a shell with set -e.
+  it.each(
+    ['sh', 'bash', 'dash'].flatMap((sh) => [
+      [sh, 'by default', ''],
+      [sh, 'with set -e', 'set -e; '],
+    ])
+  )('in %s %s removes its directory and keeps the status', (sh, _, prefix) => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dagu-check-tmp-'));
+    // A mktemp stub makes the directory where the test can see it.
+    const mktemp = 'mkdir "$TMPDIR/home" && echo "$TMPDIR/home"';
+    const stubs = { dagu: 'exit 3', mktemp };
+    const run = runCheck(sh, { TMPDIR: tmp }, stubs, prefix);
+    const left = fs.readdirSync(tmp);
+    fs.rmSync(tmp, { recursive: true, force: true });
+    expect(run.status).toBe(3);
+    expect(left).toEqual([]);
+  });
 
   // Without its directory, an empty DAGU_HOME would read the usual config.
   it.each(['sh', 'bash'])('in %s never starts Dagu when mktemp fails', (sh) => {

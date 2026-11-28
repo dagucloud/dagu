@@ -1403,7 +1403,7 @@ and prints the message:
   inherited invite, data directory, or other Dagu setting stops it before
   it dials, while the shell's proxy settings stay. It starts only once
   that directory exists, and removes it on exit, keeping the check's
-  exit status.
+  exit status, also in a shell with `set -e`.
 
 #### Workers Page
 

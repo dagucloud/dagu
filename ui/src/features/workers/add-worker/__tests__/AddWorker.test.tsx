@@ -542,10 +542,12 @@ describe('AddWorker', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Outside the cluster' }));
     if (typed) typeAddress(typed);
     api.GET.mockResolvedValue(answer(200, readiness({ advertise })));
-    rerender(view(true));
-    rerender(view(false));
+    rerender(view([], true));
+    rerender(view([], false));
     await settle();
-    expect(screen.queryByRole('radio')).toBeNull();
+    expect(
+      screen.queryByRole('radio', { name: 'Outside the cluster' })
+    ).toBeNull();
     expect(screen.queryByText(/assigned node port/)).toBeNull();
     expect(screen.getByLabelText(ADDRESS)).toHaveValue(kept);
   });
@@ -955,6 +957,11 @@ describe('AddWorker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Copy the command' }));
     await settle();
     expect(writeText).toHaveBeenCalledWith(command);
+    // "Copied" names only the command it copied, not the next tab's.
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Docker' }));
+    expect(shownCommand()).toMatch(/^docker run /);
+    expect(screen.queryByRole('button', { name: 'Copied' })).toBeNull();
   });
 
   // The whole ID names the objects, so IDs that share a prefix do not.
@@ -1170,6 +1177,18 @@ describe('AddWorker', () => {
     ).toBeInTheDocument();
   });
 
+  // A label may be 255 characters; jsdom cannot lay out, so the classes that
+  // let it wrap in a narrow dialog stand in, checked at 390 px by hand.
+  it('lets a long worker ID and label wrap', async () => {
+    const { rerender } = await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    await createInvite();
+    const long = 'v' + 'x'.repeat(254);
+    rerender(view([worker({ inviteId: 'inv-1', labels: { note: long } })]));
+    expect(screen.getByText(`note=${long}`)).toHaveClass('break-all');
+    expect(screen.getByText('worker-a1')).toHaveClass('break-all');
+  });
+
   it('announces the worker that joins with the invite', async () => {
     const { rerender } = await open(readiness());
     typeAddress('192.168.1.20:50055');
@@ -1275,7 +1294,7 @@ describe('AddWorker', () => {
     // it dials after the worker joined too. checkCommand.test.ts runs it.
     [
       'Linux',
-      `d="$(mktemp -d)" && (env $(env | sed -n 's/^\\(DAGU[A-Za-z0-9_.]*\\)=.*/-u \\1/p') DAGU_HOME="$d" dagu worker --check --worker.coordinators=192.168.1.20:50055; s=$?; rm -rf "$d"; exit $s)`,
+      `d="$(mktemp -d)" && (s=0; env $(env | sed -n 's/^\\(DAGU[A-Za-z0-9_.]*\\)=.*/-u \\1/p') DAGU_HOME="$d" dagu worker --check --worker.coordinators=192.168.1.20:50055 || s=$?; rm -rf "$d"; exit $s)`,
     ],
     [
       'Docker',
@@ -1307,6 +1326,10 @@ describe('AddWorker', () => {
       screen.getByText('The worker cannot reach 192.168.1.20:50055.')
     ).toBeInTheDocument();
     expect(screen.getByText(check, { selector: 'pre' })).toBeInTheDocument();
+    // Each copy button names what it copies.
+    for (const name of ['Copy the command', 'Copy the diagnostic command']) {
+      expect(screen.getAllByRole('button', { name })).toHaveLength(1);
+    }
     // The check comes from the invite, so a label being corrected keeps it.
     fireEvent.change(screen.getByLabelText('Labels (optional)'), {
       target: { value: 'os=linux' },

@@ -90,7 +90,7 @@ export function AddWorker({ workers, refreshFailed }: AddWorkerProps) {
       {/* Invites come from the server this page is served by, never through
           a remote node, so its audit entry names the admin. */}
       {remote && (
-        <span className="text-xs text-muted-foreground">
+        <span className="min-w-0 text-xs text-muted-foreground">
           <I18nText text="Switch to the local server to add a worker." />
         </span>
       )}

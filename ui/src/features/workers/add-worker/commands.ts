@@ -314,9 +314,9 @@ export function checkCommand(
   // environment, such as its proxies, stays. Dagu runs only once the
   // directory exists, since an empty DAGU_HOME reads the usual config. A
   // subshell removes the directory and keeps the check's exit status
-  // without ending the admin's shell.
+  // without ending the admin's shell, also under set -e.
   if (tab === WorkerTab.linux) {
-    return `d="$(mktemp -d)" && (env $(env | sed -n 's/^\\(DAGU[A-Za-z0-9_.]*\\)=.*/-u \\1/p') DAGU_HOME="$d" ${shellCommand(args)}; s=$?; rm -rf "$d"; exit $s)`;
+    return `d="$(mktemp -d)" && (s=0; env $(env | sed -n 's/^\\(DAGU[A-Za-z0-9_.]*\\)=.*/-u \\1/p') DAGU_HOME="$d" ${shellCommand(args)} || s=$?; rm -rf "$d"; exit $s)`;
   }
   if (!input.image) return undefined;
   return shellCommand(['docker', 'run', '--rm', input.image, ...args]);

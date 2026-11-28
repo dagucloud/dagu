@@ -177,7 +177,10 @@ export function CommandBlock({
       <pre className="max-h-72 overflow-auto rounded-md border bg-muted px-3 py-2 pr-10 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all">
         {text}
       </pre>
+      {/* A new text gets a new button, so "Copied" never names text it
+          did not copy. */}
       <CopyButton
+        key={text}
         text={text}
         label={ts(label)}
         size="sm"

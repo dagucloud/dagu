@@ -557,10 +557,19 @@ function Arrival({
       {joined && (
         <ul className="space-y-1">
           {seen.map((w) => (
-            <li key={w.id} className="flex flex-wrap items-baseline gap-x-2">
-              <span className="font-mono font-medium">{w.id}</span>
+            // A label may be 255 characters, so each part wraps in the row.
+            <li
+              key={w.id}
+              className="flex min-w-0 flex-wrap items-baseline gap-x-2"
+            >
+              <span className="min-w-0 break-all font-mono font-medium">
+                {w.id}
+              </span>
               {Object.entries(w.labels ?? {}).map(([key, value]) => (
-                <span key={key} className="text-xs text-muted-foreground">
+                <span
+                  key={key}
+                  className="min-w-0 break-all text-xs text-muted-foreground"
+                >
                   {value ? `${key}=${value}` : key}
                 </span>
               ))}
@@ -595,7 +604,7 @@ function Arrival({
               <p>
                 <I18nText text={CHECK_HINT[tab]} />
               </p>
-              <CommandBlock text={check} label="Copy the command" />
+              <CommandBlock text={check} label="Copy the diagnostic command" />
             </>
           )}
         </>
