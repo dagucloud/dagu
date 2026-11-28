@@ -5,11 +5,15 @@ package cmd_test
 
 import (
 	"bytes"
+	"cmp"
 	"context"
-	"io"
+	"math"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,6 +27,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -112,10 +117,13 @@ func TestWorkerInvite(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name string
-		args []string
-		want *coordinatorv1.CreateInviteRequest
-		kind string
+		name    string
+		address string
+		args    []string
+		want    *coordinatorv1.CreateInviteRequest
+		kind    string
+		// command is the printed --worker.coordinators value.
+		command string
 	}{
 		{
 			name: "SingleUse",
@@ -136,16 +144,33 @@ func TestWorkerInvite(t *testing.T) {
 			want: &coordinatorv1.CreateInviteRequest{Address: testInviteAddress, Reusable: true, ExpiresInSeconds: 5401},
 			kind: "reusable, expires 2026-11-28T10:00:00Z",
 		},
+		{
+			// The longest duration rounds up to the coordinator's limit
+			// without overflowing.
+			name: "LongestExpiry",
+			args: []string{"--reusable", "--expires", "2562047h47m16s"},
+			want: &coordinatorv1.CreateInviteRequest{Address: testInviteAddress, Reusable: true, ExpiresInSeconds: math.MaxInt64 / int64(time.Second)},
+			kind: "reusable, expires 2026-11-28T10:00:00Z",
+		},
+		{
+			// A shell reads brackets as a pattern, so the address is quoted.
+			name:    "IPv6",
+			address: "[2001:db8::1]:50055",
+			want:    &coordinatorv1.CreateInviteRequest{Address: "[2001:db8::1]:50055"},
+			kind:    "single use, expires 2026-11-28T10:00:00Z",
+			command: "'[2001:db8::1]:50055'",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
+			address := cmp.Or(tc.address, testInviteAddress)
 			fake := &inviteCoordinator{readiness: readyReport()}
-			out, err := runWorkerInvite(t, startInviteCoordinators(t, fake), append([]string{"--address", testInviteAddress}, tc.args...)...)
+			out, _, err := runWorkerInvite(t, startInviteCoordinators(t, fake), append([]string{"--address", address}, tc.args...)...)
 
 			require.NoError(t, err)
 			assert.Equal(t, "Invite ("+tc.kind+"):\n  "+testInvite+"\n"+
-				"Run on the worker host:\n  dagu worker --worker.coordinators="+testInviteAddress+" --worker.invite="+testInvite+"\n", out)
+				"Run on the worker host:\n  dagu worker --worker.coordinators="+cmp.Or(tc.command, address)+" --worker.invite="+testInvite+"\n", out)
 			requests := fake.createRequests()
 			require.Len(t, requests, 1)
 			assert.Equal(t, tc.want.Address, requests[0].Address)
@@ -156,8 +181,37 @@ func TestWorkerInvite(t *testing.T) {
 	}
 }
 
-// A coordinator that is not ready gets the change to make, as the Add
-// worker dialog shows it, and no coordinator creates an invite.
+// The printed command runs in a POSIX shell as printed: the shell passes
+// the address and the invite to dagu unchanged.
+func TestWorkerInviteCommandInShell(t *testing.T) {
+	t.Parallel()
+	// Windows file names cannot hold the colon of the pattern's match.
+	if _, err := exec.LookPath("sh"); err != nil || runtime.GOOS == "windows" {
+		t.Skip("needs a POSIX shell and file system")
+	}
+
+	const address = "[2001:db8::1]:50055"
+	fake := &inviteCoordinator{readiness: readyReport()}
+	out, _, err := runWorkerInvite(t, startInviteCoordinators(t, fake), "--address", address)
+	require.NoError(t, err)
+	_, command, ok := strings.Cut(out, "Run on the worker host:\n  ")
+	require.True(t, ok, out)
+
+	// printf stands in for dagu, so the shell's words are what dagu would
+	// get. An unquoted address is a pattern that matches the file created
+	// here, so the shell would pass the file's name instead.
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "--worker.coordinators=2:50055"), nil, 0o600))
+	shell := exec.Command("sh", "-c", `dagu() { printf '%s\n' "$@"; }; `+command)
+	shell.Dir = dir
+	words, err := shell.Output()
+	require.NoError(t, err)
+	assert.Equal(t, "worker\n--worker.coordinators="+address+"\n--worker.invite="+testInvite+"\n", string(words))
+}
+
+// A coordinator that is not ready gets the change to make on standard
+// error, as the Add worker dialog shows it, and no coordinator creates an
+// invite.
 func TestWorkerInviteNotReady(t *testing.T) {
 	t.Parallel()
 
@@ -215,30 +269,77 @@ func TestWorkerInviteNotReady(t *testing.T) {
 		{
 			name: "OlderCoordinator",
 			err:  status.Error(codes.Unimplemented, "unknown method GetJoinReadiness"),
-			want: " predates worker invites: upgrade it to create invites\n",
+			want: " did not report whether it accepts workers: it predates worker invites: upgrade it to create invites\n",
 		},
 		{
 			name: "Unreachable",
 			err:  status.Error(codes.Unavailable, "connection refused"),
-			want: " did not report whether it accepts workers: connection refused\n",
-		},
-		{
-			name: "NoPeerToken",
-			err:  status.Error(codes.Unauthenticated, "the coordinator requires a peer token"),
-			want: " did not report whether it accepts workers: the coordinator requires a peer token\n",
+			want: " did not report whether it accepts workers: it could not be reached or did not answer: run dagu worker --check on this host to see why\n",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			fake := &inviteCoordinator{readiness: tc.readiness, readinessErr: tc.err}
-			out, err := runWorkerInvite(t, startInviteCoordinators(t, fake), "--address", testInviteAddress)
+			out, errOut, err := runWorkerInvite(t, startInviteCoordinators(t, fake), "--address", testInviteAddress)
 
 			require.EqualError(t, err, "no invite created: 1 of 1 coordinators cannot accept workers from other hosts")
-			assert.Contains(t, out, tc.want)
+			assert.Contains(t, errOut, tc.want)
+			assert.Empty(t, out)
 			assert.Empty(t, fake.createRequests())
 		})
 	}
+}
+
+// A coordinator that requires the peer token refuses a host without it,
+// and the CLI passes on the coordinator's remedy.
+func TestWorkerInviteNoPeerToken(t *testing.T) {
+	t.Parallel()
+
+	fake := &inviteCoordinator{readiness: readyReport()}
+	auth := coordinator.NewPeerTokenAuth("coordinator-token", true, true)
+	home := checkHome(t)
+	registerCoordinator(t, home, serveInviteCoordinator(t, fake, grpc.ChainUnaryInterceptor(auth.UnaryInterceptor())))
+
+	_, errOut, err := runWorkerInvite(t, home, "--address", testInviteAddress)
+
+	require.Error(t, err)
+	assert.Contains(t, errOut, " did not report whether it accepts workers: "+
+		"the coordinator requires a peer token: set peer.token, or let this process read the coordinator's data directory\n")
+	assert.Empty(t, fake.createRequests())
+}
+
+// A host that does not share the coordinator's data directory finds it
+// through worker.coordinators, as a worker there does.
+func TestWorkerInviteConfiguredCoordinators(t *testing.T) {
+	t.Parallel()
+
+	fake := &inviteCoordinator{readiness: readyReport()}
+	addr := serveInviteCoordinator(t, fake)
+	home := configHome(t, "worker:\n  coordinators: "+addr+"\n")
+
+	out, _, err := runWorkerInvite(t, home, "--address", testInviteAddress)
+
+	require.NoError(t, err)
+	assert.Contains(t, out, testInvite)
+	assert.Len(t, fake.createRequests(), 1)
+}
+
+// A failure raised on this host is reported without the error itself,
+// which can name a credential file.
+func TestWorkerInviteHidesLocalErrors(t *testing.T) {
+	t.Parallel()
+
+	const caFile = "/no/such/dir/peer-ca-secret.pem"
+	addr := serveInviteCoordinator(t, &inviteCoordinator{readiness: readyReport()})
+	home := configHome(t, "peer:\n  insecure: false\n  client_ca_file: "+caFile+"\nworker:\n  coordinators: "+addr+"\n")
+
+	out, errOut, err := runWorkerInvite(t, home, "--address", testInviteAddress)
+
+	require.Error(t, err)
+	assert.Empty(t, out)
+	assert.Contains(t, errOut, "the call failed on this host: run dagu worker --check here to see why")
+	assert.NotContains(t, errOut+err.Error(), "peer-ca-secret")
 }
 
 // One coordinator that is not ready keeps the others from creating an
@@ -248,32 +349,41 @@ func TestWorkerInviteOneOfTwoNotReady(t *testing.T) {
 
 	ready := &inviteCoordinator{readiness: readyReport()}
 	loopback := &inviteCoordinator{readiness: loopbackReport(nil)}
-	out, err := runWorkerInvite(t, startInviteCoordinators(t, ready, loopback), "--address", testInviteAddress)
+	_, errOut, err := runWorkerInvite(t, startInviteCoordinators(t, ready, loopback), "--address", testInviteAddress)
 
 	require.EqualError(t, err, "no invite created: 1 of 2 coordinators cannot accept workers from other hosts")
-	assert.Contains(t, out, "It listens on 127.0.0.1")
+	assert.Contains(t, errOut, "It listens on 127.0.0.1")
 	assert.Empty(t, ready.createRequests())
 	assert.Empty(t, loopback.createRequests())
 }
 
-// A refused create reaches the user with the coordinator's message.
+// A refused create reaches the user with the coordinator's message. A
+// coordinator that stops answering after join readiness gets the change to
+// make instead of the transport error.
 func TestWorkerInviteRefused(t *testing.T) {
 	t.Parallel()
 
+	const ownCertificates = "invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file"
 	for _, tc := range []struct {
 		name string
 		err  error
+		want string
 	}{
-		{name: "FailedPrecondition", err: status.Error(codes.FailedPrecondition, "invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file")},
-		{name: "InvalidArgument", err: status.Error(codes.InvalidArgument, "address must be host:port")},
+		{name: "FailedPrecondition", err: status.Error(codes.FailedPrecondition, ownCertificates), want: ownCertificates},
+		{name: "InvalidArgument", err: status.Error(codes.InvalidArgument, "address must be host:port"), want: "address must be host:port"},
+		{
+			name: "Unavailable",
+			err:  status.Error(codes.Unavailable, "connection reset"),
+			want: "it could not be reached or did not answer: run dagu worker --check on this host to see why",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			fake := &inviteCoordinator{readiness: readyReport(), createErr: tc.err}
-			out, err := runWorkerInvite(t, startInviteCoordinators(t, fake), "--address", testInviteAddress)
+			out, _, err := runWorkerInvite(t, startInviteCoordinators(t, fake), "--address", testInviteAddress)
 
-			require.EqualError(t, err, "failed to create the invite: "+status.Convert(tc.err).Message())
+			require.EqualError(t, err, "failed to create the invite: "+tc.want)
 			assert.Empty(t, out)
 		})
 	}
@@ -282,22 +392,30 @@ func TestWorkerInviteRefused(t *testing.T) {
 func TestWorkerInviteFlags(t *testing.T) {
 	t.Parallel()
 
+	const (
+		badAddress = "--address must be host:port, such as 192.168.1.20:50055 or [2001:db8::1]:50055"
+		badExpiry  = "--expires must be a positive duration, such as 24h"
+	)
 	for _, tc := range []struct {
 		name    string
 		args    []string
 		wantErr string
 	}{
 		{name: "NoAddress", wantErr: `required flag(s) "address" not set`},
-		{name: "NoPort", args: []string{"--address", "192.168.1.20"}, wantErr: "--address must be host:port, such as 192.168.1.20:50055"},
-		{name: "BadPort", args: []string{"--address", "192.168.1.20:70000"}, wantErr: "--address must be host:port, such as 192.168.1.20:50055"},
-		{name: "BadExpiry", args: []string{"--address", testInviteAddress, "--expires", "1day"}, wantErr: "--expires must be a positive duration, such as 24h"},
-		{name: "NegativeExpiry", args: []string{"--address", testInviteAddress, "--expires", "-1h"}, wantErr: "--expires must be a positive duration, such as 24h"},
+		{name: "NoPort", args: []string{"--address", "192.168.1.20"}, wantErr: badAddress},
+		{name: "BadPort", args: []string{"--address", "192.168.1.20:70000"}, wantErr: badAddress},
+		{name: "UnbracketedIPv6", args: []string{"--address", "2001:db8::1:50055"}, wantErr: badAddress},
+		{name: "BadExpiry", args: []string{"--address", testInviteAddress, "--expires", "1day"}, wantErr: badExpiry},
+		{name: "NegativeExpiry", args: []string{"--address", testInviteAddress, "--expires", "-1h"}, wantErr: badExpiry},
+		// An empty value would otherwise give a reusable invite no expiry.
+		{name: "EmptyExpiry", args: []string{"--address", testInviteAddress, "--reusable", "--expires="}, wantErr: badExpiry},
+		{name: "TooLongExpiry", args: []string{"--address", testInviteAddress, "--expires", "2562047h47m16.5s"}, wantErr: "--expires must be at most 2562047h47m16s"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			fake := &inviteCoordinator{readiness: readyReport()}
-			_, err := runWorkerInvite(t, startInviteCoordinators(t, fake), tc.args...)
+			_, _, err := runWorkerInvite(t, startInviteCoordinators(t, fake), tc.args...)
 
 			require.EqualError(t, err, tc.wantErr)
 			assert.Empty(t, fake.createRequests())
@@ -317,27 +435,35 @@ func TestWorkerInviteNotLogged(t *testing.T) {
 	os.Stderr = logFile
 	t.Cleanup(func() { os.Stderr = stderr })
 
-	out, err := runWorkerInvite(t, home, "--address", testInviteAddress)
+	out, errOut, err := runWorkerInvite(t, home, "--address", testInviteAddress)
 	require.NoError(t, err)
 	require.NoError(t, logFile.Close())
 
 	logged, err := os.ReadFile(logFile.Name())
 	require.NoError(t, err)
 	assert.Contains(t, out, testInvite)
-	assert.NotContains(t, string(logged), testInvite)
+	assert.NotContains(t, string(logged)+errOut, testInvite)
 }
 
 // runWorkerInvite runs dagu worker invite with home as DAGU_HOME and returns
-// its standard output.
-func runWorkerInvite(t *testing.T, home string, args ...string) (string, error) {
+// its standard output and standard error.
+func runWorkerInvite(t *testing.T, home string, args ...string) (string, string, error) {
 	t.Helper()
 	command := cmd.CmdWorker()
-	var out bytes.Buffer
+	var out, errOut bytes.Buffer
 	command.SetOut(&out)
-	command.SetErr(io.Discard)
+	command.SetErr(&errOut)
 	command.SetArgs(append([]string{"invite", "--dagu-home", home, "--config", filepath.Join(home, "config.yaml")}, args...))
 	err := command.ExecuteContext(t.Context())
-	return out.String(), err
+	return out.String(), errOut.String(), err
+}
+
+// configHome returns a DAGU_HOME whose config file holds config.
+func configHome(t *testing.T, config string) string {
+	t.Helper()
+	home := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(home, "config.yaml"), []byte(config), 0o600))
+	return home
 }
 
 // startInviteCoordinators serves each coordinator on h2c, lists them in the
@@ -346,16 +472,23 @@ func startInviteCoordinators(t *testing.T, coordinators ...*inviteCoordinator) s
 	t.Helper()
 	home := checkHome(t)
 	for _, c := range coordinators {
-		server := grpc.NewServer()
-		coordinatorv1.RegisterCoordinatorServiceServer(server, c)
-		healthServer := health.NewServer()
-		healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
-		grpc_health_v1.RegisterHealthServer(server, healthServer)
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		require.NoError(t, err)
-		go func() { _ = server.Serve(listener) }()
-		t.Cleanup(server.Stop)
-		registerCoordinator(t, home, listener.Addr().String())
+		registerCoordinator(t, home, serveInviteCoordinator(t, c))
 	}
 	return home
+}
+
+// serveInviteCoordinator serves c on h2c with opts until the test ends and
+// returns its address.
+func serveInviteCoordinator(t *testing.T, c *inviteCoordinator, opts ...grpc.ServerOption) string {
+	t.Helper()
+	server := grpc.NewServer(opts...)
+	coordinatorv1.RegisterCoordinatorServiceServer(server, c)
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	grpc_health_v1.RegisterHealthServer(server, healthServer)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	return listener.Addr().String()
 }

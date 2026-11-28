@@ -10,6 +10,7 @@ import (
 	"math"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,6 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -27,7 +29,25 @@ const (
 	// allInterfacesHost is the coordinator.host that accepts workers from
 	// other hosts.
 	allInterfacesHost = "0.0.0.0"
+	// maxExpirySeconds is the longest expiry a coordinator accepts.
+	maxExpirySeconds = math.MaxInt64 / int64(time.Second)
+	// shellSafeChars are the characters a POSIX shell reads as they are.
+	shellSafeChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-/=@%+,"
 )
+
+var (
+	errInvitePeerSettings  = errors.New("this host's peer settings cannot be used: run dagu worker --check here to see why")
+	errNoInviteCoordinator = errors.New("no coordinator found: set worker.coordinators to the coordinators' addresses, or run this on a host that shares their data directory")
+)
+
+// refusalCodes are the codes of a coordinator's refusal, whose message
+// names the cause and the change without any file location.
+var refusalCodes = map[codes.Code]bool{
+	codes.InvalidArgument:    true,
+	codes.FailedPrecondition: true,
+	codes.Unauthenticated:    true,
+	codes.PermissionDenied:   true,
+}
 
 var (
 	inviteAddressFlag = commandLineFlag{
@@ -58,8 +78,8 @@ type inviteCoordinator interface {
 type inviteOptions struct {
 	address  string
 	reusable bool
-	// expires is zero for the default expiry of the invite's kind.
-	expires time.Duration
+	// expiresInSeconds is zero for the default expiry of the invite's kind.
+	expiresInSeconds int64
 }
 
 func workerInviteCommand() *cobra.Command {
@@ -75,12 +95,15 @@ into the printed command. A single-use invite enrolls one worker and expires
 after 24 hours unless --expires is given. A reusable invite enrolls any number
 of workers and lasts until deleted unless --expires is given.
 
-The command calls the coordinator with the peer token, so it runs on any host
-whose processes have the peer token. The invite appears only in this output.
+The command calls the coordinators with the peer token, so it runs on any host
+whose processes have the peer token. It calls the coordinators a worker on
+this host would: those of worker.coordinators when set, else those in the
+service registry of its data directory. The invite appears only in this
+output.
 
 While a coordinator accepts connections from its own machine only, or cannot
-create invites, the command prints the change to make, creates no invite, and
-exits with code 1.`,
+create invites, the command prints the change to make to standard error,
+creates no invite, and exits with code 1.`,
 			Example: `  dagu worker invite --address 192.168.1.20:50055
   dagu worker invite --address 192.168.1.20:50055 --reusable --expires 168h`,
 			Args: cobra.NoArgs,
@@ -93,7 +116,7 @@ func runWorkerInvite(ctx *Context, _ []string) error {
 	if err != nil {
 		return err
 	}
-	client, err := ctx.coordinatorClient()
+	client, err := newInviteClient(ctx)
 	if err != nil {
 		return err
 	}
@@ -103,14 +126,13 @@ func runWorkerInvite(ctx *Context, _ []string) error {
 		return errors.New("the coordinator client cannot create invites")
 	}
 
-	out := ctx.Command.OutOrStdout()
 	reports, err := coordinators.GetJoinReadiness(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to read join readiness: %w", err)
+		return errNoInviteCoordinator
 	}
 	notReady := 0
 	for _, report := range reports {
-		if !printJoinReadiness(out, report) {
+		if !printJoinReadiness(ctx.Command.ErrOrStderr(), report) {
 			notReady++
 		}
 	}
@@ -120,53 +142,103 @@ func runWorkerInvite(ctx *Context, _ []string) error {
 
 	resp, err := coordinators.CreateInvite(ctx, &coordinatorv1.CreateInviteRequest{
 		Reusable:         opts.reusable,
-		ExpiresInSeconds: expirySeconds(opts.expires),
+		ExpiresInSeconds: opts.expiresInSeconds,
 		Address:          opts.address,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create the invite: %s", statusMessage(err))
+		return fmt.Errorf("failed to create the invite: %s", callFailure(err))
 	}
-	printInvite(out, opts.address, resp)
+	printInvite(ctx.Command.OutOrStdout(), opts.address, resp)
 	return nil
+}
+
+// newInviteClient returns a client for the coordinators a worker on this
+// host calls: those of worker.coordinators when set, else those in the
+// service registry of its data directory.
+func newInviteClient(ctx *Context) (coordinator.Client, error) {
+	clientConfig, err := worker.CoordinatorClientConfig(ctx.Config, ctx.serverStores.ServiceRegistry)
+	if err != nil {
+		// The error may name a credential file, so it is not repeated.
+		return nil, errInvitePeerSettings
+	}
+	registry := ctx.serverStores.ServiceRegistry
+	if len(ctx.Config.Worker.Coordinators) > 0 {
+		if registry, err = worker.CoordinatorRegistry(ctx.Config); err != nil {
+			return nil, err
+		}
+	}
+	return coordinator.New(registry, clientConfig), nil
 }
 
 func parseInviteOptions(cmd *cobra.Command) (inviteOptions, error) {
 	var opts inviteOptions
-	var err error
-	if opts.address, err = cmd.Flags().GetString(inviteAddressFlag.name); err != nil {
+	address, err := cmd.Flags().GetString(inviteAddressFlag.name)
+	if err != nil {
 		return opts, err
 	}
-	if !isHostPort(opts.address) {
-		return opts, fmt.Errorf("--%s must be host:port, such as 192.168.1.20:50055", inviteAddressFlag.name)
+	if opts.address, err = normalizeHostPort(address); err != nil {
+		return opts, fmt.Errorf("--%s must be host:port, such as 192.168.1.20:50055 or [2001:db8::1]:50055", inviteAddressFlag.name)
 	}
 	if opts.reusable, err = cmd.Flags().GetBool(inviteReusableFlag.name); err != nil {
 		return opts, err
 	}
+	if !cmd.Flags().Changed(inviteExpiresFlag.name) {
+		return opts, nil
+	}
 	expires, err := cmd.Flags().GetString(inviteExpiresFlag.name)
-	if err != nil || expires == "" {
+	if err != nil {
 		return opts, err
 	}
-	if opts.expires, err = time.ParseDuration(expires); err != nil || opts.expires <= 0 {
+	d, err := time.ParseDuration(expires)
+	if err != nil || d <= 0 {
 		return opts, fmt.Errorf("--%s must be a positive duration, such as 24h", inviteExpiresFlag.name)
+	}
+	if opts.expiresInSeconds = expirySeconds(d); opts.expiresInSeconds > maxExpirySeconds {
+		return opts, fmt.Errorf("--%s must be at most %s", inviteExpiresFlag.name, time.Duration(maxExpirySeconds)*time.Second)
 	}
 	return opts, nil
 }
 
-// isHostPort reports whether addr is a host and a TCP port, the address the
-// coordinator accepts for an invite.
-func isHostPort(addr string) bool {
+// normalizeHostPort returns addr as host:port, with an IPv6 host in
+// brackets, or an error when addr is not a host and a TCP port.
+func normalizeHostPort(addr string) (string, error) {
 	host, port, err := net.SplitHostPort(addr)
-	if err != nil || host == "" {
-		return false
+	if err != nil {
+		return "", err
 	}
-	n, err := strconv.Atoi(port)
-	return err == nil && n > 0 && n <= math.MaxUint16
+	if n, err := strconv.Atoi(port); host == "" || err != nil || n <= 0 || n > math.MaxUint16 {
+		return "", errors.New("not host:port")
+	}
+	return net.JoinHostPort(host, port), nil
 }
 
 // expirySeconds returns d in whole seconds, rounded up so the invite lasts at
-// least d, or 0 for the default expiry.
+// least d.
 func expirySeconds(d time.Duration) int64 {
-	return int64((d + time.Second - 1) / time.Second)
+	seconds := int64(d / time.Second)
+	if d%time.Second != 0 {
+		seconds++
+	}
+	return seconds
+}
+
+// callFailure returns the cause of a failed coordinator call and the change
+// to make. It repeats a coordinator's refusal, and otherwise only the kind
+// of failure, since an error raised on this host may name a credential
+// file.
+func callFailure(err error) string {
+	var carrier interface{ GRPCStatus() *status.Status }
+	if !errors.As(err, &carrier) {
+		return "the call failed on this host: run dagu worker --check here to see why"
+	}
+	st := carrier.GRPCStatus()
+	if refusalCodes[st.Code()] {
+		return st.Message()
+	}
+	if st.Code() == codes.Unimplemented {
+		return "it predates worker invites: upgrade it to create invites"
+	}
+	return "it could not be reached or did not answer: run dagu worker --check on this host to see why"
 }
 
 // printJoinReadiness reports whether the coordinator of report accepts
@@ -175,11 +247,7 @@ func expirySeconds(d time.Duration) int64 {
 func printJoinReadiness(w io.Writer, report coordinator.JoinReadiness) bool {
 	addr := net.JoinHostPort(report.Coordinator.Host, strconv.Itoa(report.Coordinator.Port))
 	if report.Err != nil {
-		if status.Code(report.Err) == codes.Unimplemented {
-			_, _ = fmt.Fprintf(w, "Coordinator %s predates worker invites: upgrade it to create invites\n", addr)
-		} else {
-			_, _ = fmt.Fprintf(w, "Coordinator %s did not report whether it accepts workers: %s\n", addr, statusMessage(report.Err))
-		}
+		_, _ = fmt.Fprintf(w, "Coordinator %s did not report whether it accepts workers: %s\n", addr, callFailure(report.Err))
 		return false
 	}
 	r := report.Report
@@ -235,15 +303,14 @@ func printInvite(w io.Writer, address string, resp *coordinatorv1.CreateInviteRe
 		expiry = "expires " + time.Unix(expiresAt, 0).UTC().Format(time.RFC3339)
 	}
 	_, _ = fmt.Fprintf(w, "Invite (%s, %s):\n  %s\n", kind, expiry, resp.Invite)
-	_, _ = fmt.Fprintf(w, "Run on the worker host:\n  "+workerJoinCommandFormat+"\n", address, resp.Invite)
+	_, _ = fmt.Fprintf(w, "Run on the worker host:\n  "+workerJoinCommandFormat+"\n", shellQuote(address), resp.Invite)
 }
 
-// statusMessage returns the message of the gRPC status that err carries, or
-// err itself when it carries none.
-func statusMessage(err error) string {
-	var carrier interface{ GRPCStatus() *status.Status }
-	if errors.As(err, &carrier) {
-		return carrier.GRPCStatus().Message()
+// shellQuote returns s as one word of a POSIX shell command: as it is when
+// the shell reads it unchanged, else in single quotes.
+func shellQuote(s string) string {
+	if s != "" && strings.Trim(s, shellSafeChars) == "" {
+		return s
 	}
-	return err.Error()
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
