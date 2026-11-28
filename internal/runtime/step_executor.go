@@ -72,6 +72,7 @@ func (e *StepExecutor) ExecuteWithProgress(ctx context.Context, node *Node, onSe
 func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func(), onProgress func()) (retErr error) {
 	attemptStarted := time.Now()
 	node.SetStatusDetails(nil)
+	node.SetConnectionCause(nil)
 	ctx, cancel, stepTimeout := node.setupContextWithTimeout(ctx)
 	defer cancel()
 

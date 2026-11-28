@@ -26,7 +26,9 @@ func TestParallelConnectionCause(t *testing.T) {
 	tests := []struct {
 		name    string
 		results map[string]*ir.RunStatus
-		want    []string
+		// noResult names the runs whose latest attempt returned no result.
+		noResult map[string]struct{}
+		want     []string
 	}{
 		{
 			name:    "EveryFailedRunBroken",
@@ -42,11 +44,18 @@ func TestParallelConnectionCause(t *testing.T) {
 			name:    "MissingResult",
 			results: map[string]*ir.RunStatus{"run-a": broken("work-google"), "run-b": succeeded},
 		},
+		{
+			// A retry that failed before its child run started supersedes the
+			// earlier result.
+			name:     "LatestAttemptWithoutResult",
+			results:  map[string]*ir.RunStatus{"run-a": broken("work-google"), "run-b": succeeded, "run-c": broken("work-google")},
+			noResult: map[string]struct{}{"run-c": {}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			exec := &parallelExecutor{runParamsList: runs, results: tt.results}
+			exec := &parallelExecutor{runParamsList: runs, results: tt.results, noResult: tt.noResult}
 			assert.Equal(t, tt.want, exec.ConnectionCause())
 		})
 	}

@@ -47,6 +47,7 @@ type parallelExecutor struct {
 
 	// Runtime state
 	results  map[string]*ir.RunStatus            // Maps DAG run ID to result
+	noResult map[string]struct{}                 // DAG run IDs whose latest attempt returned no result
 	errors   []error                             // Collects errors from failed executions
 	children map[string]*executor.SubDAGExecutor // Active child executors keyed by attempt
 
@@ -236,11 +237,17 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 			inFlight--
 			delete(busyRuns, res.attempt.runParams.RunID)
 
+			e.lock.Lock()
 			if res.result != nil {
-				e.lock.Lock()
 				e.results[res.attempt.runParams.RunID] = res.result
-				e.lock.Unlock()
+				delete(e.noResult, res.attempt.runParams.RunID)
+			} else {
+				if e.noResult == nil {
+					e.noResult = make(map[string]struct{})
+				}
+				e.noResult[res.attempt.runParams.RunID] = struct{}{}
 			}
+			e.lock.Unlock()
 			if res.err != nil && !e.cancelled() {
 				logger.Error(ctx, "Sub DAG execution failed",
 					tag.SubRunID(res.attempt.runParams.RunID),
@@ -472,10 +479,14 @@ func (e *parallelExecutor) SetStderr(out io.Writer) {
 }
 
 // ConnectionCause implements executor.ConnectionCauseProvider. A child run
-// without a result failed for another reason, so it leaves no cause.
+// whose latest attempt returned no result failed for another reason, so it
+// leaves no cause, even when an earlier attempt's result had one.
 func (e *parallelExecutor) ConnectionCause() []string {
 	e.lock.Lock()
 	defer e.lock.Unlock()
+	if len(e.noResult) > 0 {
+		return nil
+	}
 	var names []string
 	for _, params := range e.runParamsList {
 		result, ok := e.results[params.RunID]
