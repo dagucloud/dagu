@@ -490,7 +490,7 @@ names the setting to change:
   | `POST /api/v1/workers/invites` | Body `{"reusable": false, "expiresIn": "24h"}`. Returns `{"id", "invite", "expiresAt"}`; only this response contains the invite |
   | `GET /api/v1/workers/invites` | Lists invites without their secrets |
   | `DELETE /api/v1/workers/invites/{id}` | Deletes an invite |
-  | `DELETE /api/v1/workers/{workerId}/certificate` | Removes the worker. `?runs=finish`, the default, waits for its runs; `?runs=stop` stops them. Returns `removing` or `removed` |
+  | `POST /api/v1/workers/removals` | Removes the worker the body names, as in `{"workerId": "<worker ID>", "certificateId": "<certificate ID>", "runs": "finish"}`. `workerId` and `certificateId` are required; `certificateId` is the certificate the workers list shows. `"runs": "finish"`, the default, waits for its runs; `"stop"` stops them. Returns `removing` or `removed` |
 
 ### Join readiness
 
@@ -644,7 +644,7 @@ The existing keys keep working, with three fixes:
   them exist before this change, so no working config starts failing.
 - **CLI and API:** new commands `dagu peer init`, `dagu worker invite`, and
   `dagu worker --check`; new endpoints under `/api/v1/workers/invites`,
-  `/api/v1/workers/{workerId}/certificate`, and
+  `/api/v1/workers/removals`, and
   `/api/v1/workers/join-readiness`.
 - **Chart:** new values `peer.existingCASecret`, `coordinator.service.type`,
   and `coordinator.service.annotations`. The default Service stays

@@ -1,0 +1,178 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package api_test
+
+import (
+	"context"
+	"net"
+	"net/http"
+	"slices"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+
+	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+	"github.com/dagucloud/dagu/v2/internal/test"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
+)
+
+// An admin, by login or by API key, passes the role check and gets 503,
+// since no coordinator runs. Every other role gets 403.
+func TestWorkerAccessEndpointRoles(t *testing.T) {
+	t.Parallel()
+	server := setupBuiltinAuthServer(t)
+	adminToken := getAdminToken(t, server)
+
+	tokens := map[string]int{
+		adminToken: http.StatusServiceUnavailable,
+		createAPIKeyForRole(t, server, adminToken, "admin-key", api.UserRoleAdmin):         http.StatusServiceUnavailable,
+		createAPIKeyForRole(t, server, adminToken, "manager-key", api.UserRoleManager):     http.StatusForbidden,
+		createAPIKeyForRole(t, server, adminToken, "developer-key", api.UserRoleDeveloper): http.StatusForbidden,
+		createAPIKeyForRole(t, server, adminToken, "viewer-key", api.UserRoleViewer):       http.StatusForbidden,
+	}
+	requests := []func(token string, status int) *test.Request{
+		func(token string, status int) *test.Request {
+			return server.Client().Post("/api/v1/workers/invites", api.CreateWorkerInviteRequest{}).WithBearerToken(token).ExpectStatus(status)
+		},
+		func(token string, status int) *test.Request {
+			return server.Client().Get("/api/v1/workers/invites").WithBearerToken(token).ExpectStatus(status)
+		},
+		func(token string, status int) *test.Request {
+			return server.Client().Delete("/api/v1/workers/invites/0f8fad5b-d9cb-469f-a165-70867728950e").WithBearerToken(token).ExpectStatus(status)
+		},
+		func(token string, status int) *test.Request {
+			body := map[string]string{"workerId": "worker-1", "certificateId": "cert-1", "runs": "stop"}
+			return server.Client().Post("/api/v1/workers/removals", body).WithBearerToken(token).ExpectStatus(status)
+		},
+		func(token string, status int) *test.Request {
+			return server.Client().Get("/api/v1/workers/join-readiness").WithBearerToken(token).ExpectStatus(status)
+		},
+	}
+	for token, status := range tokens {
+		for _, request := range requests {
+			resp := request(token, status).Send(t)
+			if status == http.StatusServiceUnavailable {
+				var body api.Error
+				resp.Unmarshal(t, &body)
+				assert.Equal(t, "no_coordinator", (*body.Details)["reason"])
+			}
+		}
+	}
+}
+
+// A caller who is no admin gets 403 for a worker access request whatever
+// its input, with strict validation on and off: the role is checked before
+// the input is.
+func TestWorkerAccessRoleBeforeValidation(t *testing.T) {
+	t.Parallel()
+	for name, strict := range map[string]bool{"strict": true, "lenient": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			server := setupBuiltinAuthServer(t, func(cfg *config.Config) { cfg.Server.StrictValidation = strict })
+			adminToken := getAdminToken(t, server)
+			viewerKey := createAPIKeyForRole(t, server, adminToken, "viewer-key", api.UserRoleViewer)
+			for _, body := range []map[string]string{
+				{},
+				{"workerId": "worker-1"},
+				{"workerId": "worker-1", "certificateId": "cert-1", "runs": "later"},
+			} {
+				server.Client().Post("/api/v1/workers/removals", body).WithBearerToken(viewerKey).ExpectStatus(http.StatusForbidden).Send(t)
+			}
+			server.Client().Delete("/api/v1/workers/invites/not-an-id").WithBearerToken(viewerKey).ExpectStatus(http.StatusForbidden).Send(t)
+		})
+	}
+}
+
+func TestRemoveWorkerRunsValue(t *testing.T) {
+	t.Parallel()
+	server := setupBuiltinAuthServer(t)
+	adminToken := getAdminToken(t, server)
+	for _, body := range []map[string]string{
+		{"workerId": "worker-1", "certificateId": "cert-1", "runs": "later"},
+		{"workerId": "worker-1"},
+		{"certificateId": "cert-1"},
+	} {
+		server.Client().Post("/api/v1/workers/removals", body).
+			WithBearerToken(adminToken).
+			ExpectStatus(http.StatusBadRequest).Send(t)
+	}
+}
+
+// removalRecorder is a coordinator that records the worker ID of each
+// removal it gets.
+type removalRecorder struct {
+	coordinatorv1.UnimplementedCoordinatorServiceServer
+	mu        sync.Mutex
+	workerIDs []string
+}
+
+func (r *removalRecorder) RemoveWorker(_ context.Context, req *coordinatorv1.RemoveWorkerRequest) (*coordinatorv1.RemoveWorkerResponse, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.workerIDs = append(r.workerIDs, req.WorkerId)
+	return &coordinatorv1.RemoveWorkerResponse{
+		State:          coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING,
+		CertificateIds: []string{req.CertificateId},
+		WorkerId:       req.WorkerId,
+	}, nil
+}
+
+func (r *removalRecorder) received() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.workerIDs)
+}
+
+// serveRemovalRecorder serves a removalRecorder over gRPC and registers it
+// as the coordinator of server.
+func serveRemovalRecorder(t *testing.T, server test.Server) *removalRecorder {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	recorder := &removalRecorder{}
+	grpcServer := grpc.NewServer()
+	coordinatorv1.RegisterCoordinatorServiceServer(grpcServer, recorder)
+	go func() { _ = grpcServer.Serve(listener) }()
+	t.Cleanup(grpcServer.Stop)
+
+	registry := file.NewServiceRegistry(server.Config)
+	require.NoError(t, registry.Register(t.Context(), serviceregistry.ServiceNameCoordinator, serviceregistry.HostInfo{
+		ID:        "recorder",
+		Host:      "127.0.0.1",
+		Port:      listener.Addr().(*net.TCPAddr).Port,
+		Status:    serviceregistry.ServiceStatusActive,
+		StartedAt: time.Now(),
+	}))
+	t.Cleanup(func() { registry.Unregister(context.Background()) })
+	return recorder
+}
+
+// Through the whole server, with strict validation on and off, a removal
+// of any worker ID, also one that a path could not carry, reaches the
+// coordinator unchanged.
+func TestRemoveWorkerAnyWorkerID(t *testing.T) {
+	t.Parallel()
+	ids := []string{"invites", "join-readiness", "a/b", "a%2Fb", "literal%", "a/", ".", ".."}
+	for name, strict := range map[string]bool{"strict": true, "lenient": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			server := setupBuiltinAuthServer(t, func(cfg *config.Config) { cfg.Server.StrictValidation = strict })
+			recorder := serveRemovalRecorder(t, server)
+			adminToken := getAdminToken(t, server)
+			for _, id := range ids {
+				server.Client().Post("/api/v1/workers/removals", map[string]string{"workerId": id, "certificateId": "cert-1"}).
+					WithBearerToken(adminToken).
+					ExpectStatus(http.StatusOK).Send(t)
+			}
+			assert.Equal(t, ids, recorder.received())
+		})
+	}
+}

@@ -158,6 +158,8 @@ type WorkerHeartbeatRecord struct {
 	// CertificateID is the worker certificate the heartbeat arrived with,
 	// or empty for a worker on the peer token.
 	CertificateID string `json:"certificateId,omitempty"`
+	// InviteID is the invite that certificate names.
+	InviteID string `json:"inviteId,omitempty"`
 }
 
 // WorkerConnection is how a worker's heartbeat reaches the coordinator.

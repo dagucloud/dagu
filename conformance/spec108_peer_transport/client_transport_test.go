@@ -84,6 +84,9 @@ type listedWorker struct {
 	ID              string `json:"id"`
 	Connection      string `json:"connection"`
 	PlaintextReason string `json:"plaintextReason"`
+	CertificateID   string `json:"certificateId"`
+	InviteID        string `json:"inviteId"`
+	Removing        bool   `json:"removing"`
 }
 
 // waitForWorker waits until the server of s lists the worker id without

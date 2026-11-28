@@ -7,6 +7,7 @@ import (
 	"context"
 	"net"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -21,6 +23,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
+)
+
+// testInviteID and missingInviteID are invite IDs, as the store assigns
+// them; no invite has the second.
+const (
+	testInviteID    = "0f8fad5b-d9cb-469f-a165-70867728950e"
+	missingInviteID = "7c9e6679-7425-40de-944b-e07fc1f90ae7"
 )
 
 // inviteServer creates invites, or fails every create call with err, and
@@ -46,11 +55,15 @@ func (s *inviteServer) CreateInvite(ctx context.Context, req *coordinatorv1.Crea
 }
 
 func (s *inviteServer) ListInvites(context.Context, *coordinatorv1.ListInvitesRequest) (*coordinatorv1.ListInvitesResponse, error) {
-	return &coordinatorv1.ListInvitesResponse{Invites: []*coordinatorv1.InviteRecord{{Id: "invite-1"}}}, nil
+	return &coordinatorv1.ListInvitesResponse{Invites: []*coordinatorv1.InviteRecord{{Id: testInviteID}}}, nil
 }
 
 func (s *inviteServer) DeleteInvite(context.Context, *coordinatorv1.DeleteInviteRequest) (*coordinatorv1.DeleteInviteResponse, error) {
 	return nil, status.Error(codes.NotFound, "no invite has this ID")
+}
+
+func (s *inviteServer) RemoveWorker(_ context.Context, req *coordinatorv1.RemoveWorkerRequest) (*coordinatorv1.RemoveWorkerResponse, error) {
+	return &coordinatorv1.RemoveWorkerResponse{State: coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, CertificateIds: []string{req.WorkerId + "-cert"}}, nil
 }
 
 // memberKind starts a coordinator, or a stand-in for one, on a listener and
@@ -222,7 +235,7 @@ func TestClientListInvites(t *testing.T) {
 	invites, err := inviteClientOf(t, closed, older, serving(&inviteServer{})).ListInvites(t.Context())
 	require.NoError(t, err)
 	require.Len(t, invites, 1)
-	assert.Equal(t, "invite-1", invites[0].Id)
+	assert.Equal(t, testInviteID, invites[0].Id)
 }
 
 // A refusal reaches the caller with its status, whether the client tries an
@@ -231,7 +244,7 @@ func TestClientDeleteInviteRefused(t *testing.T) {
 	t.Parallel()
 
 	bothOrders(t, closed, serving(&inviteServer{}), func(t *testing.T, client coordinator.InviteClient) {
-		err := client.DeleteInvite(t.Context(), "missing")
+		err := client.DeleteInvite(t.Context(), missingInviteID)
 		assert.Equal(t, codes.NotFound, status.Code(err), "%v", err)
 	})
 }
@@ -272,10 +285,17 @@ type sharingCoordinator struct {
 	shared     *sharedInvites
 	loseAnswer bool
 	failFirst  bool
-	deletes    atomic.Int32
+	// failLists is how many list calls fail before one succeeds.
+	failLists atomic.Int32
+	lists     atomic.Int32
+	deletes   atomic.Int32
 }
 
 func (c *sharingCoordinator) ListInvites(context.Context, *coordinatorv1.ListInvitesRequest) (*coordinatorv1.ListInvitesResponse, error) {
+	c.lists.Add(1)
+	if c.failLists.Add(-1) >= 0 {
+		return nil, status.Error(codes.Internal, "failed to list the invites")
+	}
 	c.shared.mu.Lock()
 	defer c.shared.mu.Unlock()
 	resp := &coordinatorv1.ListInvitesResponse{}
@@ -310,32 +330,32 @@ func TestClientDeleteInviteOutcome(t *testing.T) {
 
 	t.Run("lost answer, then another coordinator", func(t *testing.T) {
 		t.Parallel()
-		shared := newSharedInvites("invite-1")
+		shared := newSharedInvites(testInviteID)
 		lost := &sharingCoordinator{shared: shared, loseAnswer: true}
-		err := inviteClientOf(t, serving(lost), serving(&sharingCoordinator{shared: shared})).DeleteInvite(t.Context(), "invite-1")
+		err := inviteClientOf(t, serving(lost), serving(&sharingCoordinator{shared: shared})).DeleteInvite(t.Context(), testInviteID)
 		require.NoError(t, err)
-		assert.False(t, shared.has("invite-1"))
+		assert.False(t, shared.has(testInviteID))
 	})
 	t.Run("lost answer, one coordinator", func(t *testing.T) {
 		t.Parallel()
-		shared := newSharedInvites("invite-1")
-		err := inviteClientOf(t, serving(&sharingCoordinator{shared: shared, loseAnswer: true})).DeleteInvite(t.Context(), "invite-1")
+		shared := newSharedInvites(testInviteID)
+		err := inviteClientOf(t, serving(&sharingCoordinator{shared: shared, loseAnswer: true})).DeleteInvite(t.Context(), testInviteID)
 		require.NoError(t, err)
-		assert.False(t, shared.has("invite-1"))
+		assert.False(t, shared.has(testInviteID))
 	})
 	t.Run("no such invite after a call that ran no delete", func(t *testing.T) {
 		t.Parallel()
 		shared := newSharedInvites()
 		failing := &sharingCoordinator{shared: shared, failFirst: true}
-		err := inviteClientOf(t, serving(failing), serving(&sharingCoordinator{shared: shared})).DeleteInvite(t.Context(), "missing")
+		err := inviteClientOf(t, serving(failing), serving(&sharingCoordinator{shared: shared})).DeleteInvite(t.Context(), missingInviteID)
 		assert.Equal(t, codes.NotFound, status.Code(err), "%v", err)
 	})
 	t.Run("one coordinator that ran no delete", func(t *testing.T) {
 		t.Parallel()
-		shared := newSharedInvites("invite-1")
-		err := inviteClientOf(t, serving(&sharingCoordinator{shared: shared, failFirst: true})).DeleteInvite(t.Context(), "invite-1")
+		shared := newSharedInvites(testInviteID)
+		err := inviteClientOf(t, serving(&sharingCoordinator{shared: shared, failFirst: true})).DeleteInvite(t.Context(), testInviteID)
 		assert.Equal(t, codes.Unavailable, status.Code(err), "%v", err)
-		assert.True(t, shared.has("invite-1"))
+		assert.True(t, shared.has(testInviteID))
 	})
 }
 
@@ -358,8 +378,112 @@ func (s invitesServer) ListInvites(context.Context, *coordinatorv1.ListInvitesRe
 func TestClientListInvitesFirstAnswer(t *testing.T) {
 	t.Parallel()
 
-	client := inviteClientOf(t, closed, serving(invitesServer{}), serving(invitesServer{ids: []string{"invite-1"}}))
+	client := inviteClientOf(t, closed, serving(invitesServer{}), serving(invitesServer{ids: []string{testInviteID}}))
 	invites, err := client.ListInvites(t.Context())
 	require.NoError(t, err)
 	assert.Empty(t, invites)
+}
+
+// An older coordinator's Unimplemented does not hide a delete that another
+// coordinator made and lost the answer of, whichever is asked first.
+func TestClientDeleteInviteLostAnswerBesideOlder(t *testing.T) {
+	t.Parallel()
+
+	older := serving(&coordinatorv1.UnimplementedCoordinatorServiceServer{})
+	for name, lostFirst := range map[string]bool{"lost first": true, "older first": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			shared := newSharedInvites(testInviteID)
+			lost := serving(&sharingCoordinator{shared: shared, loseAnswer: true})
+			kinds := []memberKind{older, lost}
+			if lostFirst {
+				kinds = []memberKind{lost, older}
+			}
+			require.NoError(t, inviteClientOf(t, kinds...).DeleteInvite(t.Context(), testInviteID))
+			assert.False(t, shared.has(testInviteID))
+		})
+	}
+}
+
+// retryLater asks to try again later, with the reason as a status detail.
+type retryLater struct {
+	coordinatorv1.UnimplementedCoordinatorServiceServer
+}
+
+func (retryLater) ListInvites(context.Context, *coordinatorv1.ListInvitesRequest) (*coordinatorv1.ListInvitesResponse, error) {
+	st, err := status.New(codes.Unavailable, "try again in a minute").
+		WithDetails(&errdetails.ErrorInfo{Reason: "retry_later", Domain: "coordinator.dagu"})
+	if err != nil {
+		return nil, err
+	}
+	return nil, st.Err()
+}
+
+// A coordinator that answered with a reason is the answer, also with
+// Unavailable, so an older coordinator asked next does not replace it.
+func TestClientInviteReasonedRefusalWins(t *testing.T) {
+	t.Parallel()
+
+	older := serving(&coordinatorv1.UnimplementedCoordinatorServiceServer{})
+	bothOrders(t, serving(retryLater{}), older, func(t *testing.T, client coordinator.InviteClient) {
+		_, err := client.ListInvites(t.Context())
+		assert.Equal(t, codes.Unavailable, status.Code(err), "%v", err)
+		assert.Equal(t, "retry_later", coordinator.RefusalReason(err))
+	})
+}
+
+// A read of the invites that fails does not stop a delete. The delete
+// succeeds when the invite is gone afterwards and a delete may have removed
+// it, also with its answer lost, and an ID that no delete could have
+// removed stays NotFound.
+func TestClientDeleteInviteAfterFailedList(t *testing.T) {
+	t.Parallel()
+
+	for name, tt := range map[string]struct {
+		ids        []string
+		loseAnswer bool
+		want       codes.Code
+	}{
+		"answered":    {ids: []string{testInviteID}, want: codes.OK},
+		"lost answer": {ids: []string{testInviteID}, loseAnswer: true, want: codes.OK},
+		"no invite":   {want: codes.NotFound},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			shared := newSharedInvites(tt.ids...)
+			c := &sharingCoordinator{shared: shared, loseAnswer: tt.loseAnswer}
+			c.failLists.Store(1)
+			err := inviteClientOf(t, serving(c)).DeleteInvite(t.Context(), testInviteID)
+			assert.Equal(t, tt.want, status.Code(err), "%v", err)
+			assert.False(t, shared.has(testInviteID))
+		})
+	}
+}
+
+// A value that is not an invite ID, such as an invite pasted in its place,
+// reaches no coordinator.
+func TestClientDeleteInviteRefusesNonID(t *testing.T) {
+	t.Parallel()
+
+	shared := newSharedInvites()
+	c := &sharingCoordinator{shared: shared}
+	client := inviteClientOf(t, serving(c))
+	for _, id := range []string{"dagu1." + strings.Repeat("A", 43) + "." + strings.Repeat("B", 43), "not-an-id"} {
+		err := client.DeleteInvite(t.Context(), id)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err), "%q: %v", id, err)
+		assert.NotContains(t, status.Convert(err).Message(), id)
+	}
+	assert.Zero(t, c.lists.Load())
+	assert.Zero(t, c.deletes.Load())
+}
+
+func TestClientRemoveWorker(t *testing.T) {
+	t.Parallel()
+
+	older := serving(&coordinatorv1.UnimplementedCoordinatorServiceServer{})
+	resp, err := inviteClientOf(t, closed, older, serving(&inviteServer{})).
+		RemoveWorker(t.Context(), &coordinatorv1.RemoveWorkerRequest{WorkerId: "worker-1"})
+	require.NoError(t, err)
+	assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, resp.State)
+	assert.Equal(t, []string{"worker-1-cert"}, resp.CertificateIds)
 }

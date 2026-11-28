@@ -15,6 +15,8 @@ import (
 	"log/slog"
 	"math"
 	"net"
+	"net/netip"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +48,10 @@ const (
 	inviteCreatorPeerToken = "peer token"
 	// maxInviteExpiresInSeconds keeps an invite's expiry within a Duration.
 	maxInviteExpiresInSeconds = int64(math.MaxInt64 / time.Second)
+	// ownCertificatesMessage and caUnavailableMessage refuse an invite or
+	// enrollment call on a coordinator without a peer CA.
+	ownCertificatesMessage = "invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file"
+	caUnavailableMessage   = "invites need the built-in CA: this coordinator could not create or read its CA; see its start warning"
 )
 
 var inviteKinds = map[persis.WorkerInviteKind]coordinatorv1.InviteKind{
@@ -56,6 +62,22 @@ var inviteKinds = map[persis.WorkerInviteKind]coordinatorv1.InviteKind{
 // inviteEncoding encodes an invite's pin and secret.
 var inviteEncoding = base64.RawURLEncoding.Strict()
 
+// invitePattern matches an invite anywhere in a text.
+var invitePattern = regexp.MustCompile(regexp.QuoteMeta(inviteVersion+".") +
+	fmt.Sprintf(`[A-Za-z0-9_-]{%d}\.[A-Za-z0-9_-]{%d}`, inviteFieldLength, inviteFieldLength))
+
+// redactedInvite takes the place of an invite that RedactInvites removes.
+const redactedInvite = "[REDACTED]"
+
+// RedactInvites returns s with every invite in it replaced, for text that
+// may reach a log line or an audit entry.
+func RedactInvites(s string) string {
+	if !strings.Contains(s, inviteVersion+".") {
+		return s
+	}
+	return invitePattern.ReplaceAllLiteralString(s, redactedInvite)
+}
+
 // CreateInvite creates an invite. Its response is the only one that holds
 // the invite.
 func (h *Handler) CreateInvite(ctx context.Context, req *coordinatorv1.CreateInviteRequest) (*coordinatorv1.CreateInviteResponse, error) {
@@ -65,8 +87,8 @@ func (h *Handler) CreateInvite(ctx context.Context, req *coordinatorv1.CreateInv
 	if req.ExpiresInSeconds < 0 || req.ExpiresInSeconds > maxInviteExpiresInSeconds {
 		return nil, status.Error(codes.InvalidArgument, "expires_in_seconds must be a positive number of seconds, or 0 for the default")
 	}
-	if req.Address != "" && !validInviteAddress(req.Address) {
-		return nil, status.Error(codes.InvalidArgument, "address must be host:port")
+	if req.Address != "" && !ValidInviteAddress(req.Address) {
+		return nil, status.Error(codes.InvalidArgument, "address must be host:port, with a hostname, an IPv4 address, or a bracketed IPv6 address as host")
 	}
 
 	now := h.clock().UTC()
@@ -130,7 +152,7 @@ func (h *Handler) DeleteInvite(ctx context.Context, req *coordinatorv1.DeleteInv
 	// An invite pasted in place of its ID never reaches the store, and the
 	// refusal does not repeat the ID, so the invite shows up in no error or
 	// log line.
-	notFound := status.Error(codes.NotFound, "no invite has this ID: list the invites to find their IDs")
+	notFound := status.Error(codes.NotFound, missingInviteMessage)
 	if strings.HasPrefix(req.Id, inviteVersion+".") {
 		return nil, notFound
 	}
@@ -153,11 +175,9 @@ func (h *Handler) requirePeerCA() error {
 		return nil
 	}
 	if h.joinReadiness.BuiltinTLSReason == coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_OWN_CERTIFICATES {
-		return status.Error(codes.FailedPrecondition,
-			"invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file")
+		return reasonedRefusal(codes.FailedPrecondition, reasonOwnCertificates, ownCertificatesMessage)
 	}
-	return status.Error(codes.FailedPrecondition,
-		"invites need the built-in CA: this coordinator could not create or read its CA; see its start warning")
+	return reasonedRefusal(codes.FailedPrecondition, reasonCAUnavailable, caUnavailableMessage)
 }
 
 // newInvite returns a new invite for the CA certificate ca, and what its
@@ -206,15 +226,55 @@ func inviteSecretHash(secret []byte) []byte {
 	return sum[:]
 }
 
-// validInviteAddress reports whether addr is host:port with a port a TCP
-// listener can have.
-func validInviteAddress(addr string) bool {
+// ValidInviteAddress reports whether addr can be an invite's address:
+// host:port, where host is one of
+//   - a hostname: dot-separated labels of 1 to 63 ASCII letters, digits,
+//     hyphens, and underscores, as in a Compose service name, neither
+//     starting nor ending with a hyphen, at most 253 characters in all,
+//     with no trailing dot;
+//   - an IPv4 address in dotted decimal;
+//   - an IPv6 address in brackets, without a zone;
+//
+// and port is a decimal number from 1 to 65535 without a sign or leading
+// zero. The host is not an invite.
+func ValidInviteAddress(addr string) bool {
 	host, port, err := net.SplitHostPort(addr)
-	if err != nil || host == "" {
+	if err != nil || !validInvitePort(port) || RedactInvites(host) != host {
+		return false
+	}
+	if strings.HasPrefix(addr, "[") {
+		ip, err := netip.ParseAddr(host)
+		return err == nil && ip.Is6() && ip.Zone() == ""
+	}
+	if ip, err := netip.ParseAddr(host); err == nil {
+		return ip.Is4()
+	}
+	return validHostname(host)
+}
+
+// validInvitePort reports whether port is a decimal TCP port from 1 to
+// 65535, written without a sign or leading zero.
+func validInvitePort(port string) bool {
+	if port == "" || port[0] == '0' || strings.Trim(port, "0123456789") != "" {
 		return false
 	}
 	n, err := strconv.Atoi(port)
-	return err == nil && n > 0 && n <= math.MaxUint16
+	return err == nil && n <= math.MaxUint16
+}
+
+// validHostname reports whether host is a hostname as
+// [ValidInviteAddress] states.
+func validHostname(host string) bool {
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	for label := range strings.SplitSeq(host, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' ||
+			strings.Trim(label, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func inviteRecord(invite persis.WorkerInvite) *coordinatorv1.InviteRecord {

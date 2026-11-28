@@ -15,13 +15,15 @@ and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
 [Coordinator Line](#coordinator-line), the
 [Coordinator Certificate](#coordinator-certificate),
 [One Port](#one-port), [Require TLS](#require-tls), the
-[h2c Reasons](#h2c-reasons), the `connection` and `plaintextReason` of the
+[h2c Reasons](#h2c-reasons), the `connection`, `plaintextReason`,
+`certificateId`, `inviteId`, and `removing` of the
 [Workers List](#workers-list), `connection` and `plaintext_reason` in its
 Dagu Cloud report, the [h2c Callers](#h2c-callers), the `Connection` column
 and the h2c callers of the [Workers Page](#workers-page), the coordinator
 call of
 [Join Readiness](#join-readiness), the [Invites](#invites) and their
 [Coordinator Calls](#coordinator-calls), the
+[REST API](#rest-api), the
 [Coordinator Side](#coordinator-side) of enrollment with the
 [Worker Certificate](#worker-certificate) and its record, the coordinator
 side of [Revocation](#revocation) and [Removal](#removal), the
@@ -758,7 +760,31 @@ The `worker_certificates` collection keeps one record per certificate:
 #### Removal
 
 A removal names a worker by its worker ID and takes `finish`, the default,
-or `stop`:
+or `stop`. It may also name the certificate the worker was listed with,
+as the REST API always does:
+
+- Only that certificate is removed. Other certificates of the same worker
+  ID, such as one enrolled again before its first heartbeat, keep working.
+- Nothing happens unless the request pairs the certificate with its
+  worker. A certificate already in removal pairs with the worker its
+  removal named, or with a worker ID that its certificate record or its
+  removal record keeps among the IDs its heartbeats reported, also one
+  reported after the removal began: a revoked one then answers `removed`,
+  so a retry of a removal whose answer was lost succeeds, also after the
+  worker took a new ID, once or more, and on another coordinator, and a
+  removing one answers with its removal,
+  which `stop` moves from `finish` to `stop`. An active certificate pairs
+  with a worker its record names, or whose fresh heartbeat carries it.
+- A request that does not pair fails with `FailedPrecondition` for a
+  worker ID a heartbeat or a certificate record knows, by any of the IDs
+  the record keeps, as when the
+  connected worker uses another certificate, and with `NotFound`
+  otherwise. A worker that joined again with a new certificate is then not
+  removed by a retry, and no audit entry is written.
+- The answer names the worker the removal names, which the removal's
+  audit entry records. A removal names its worker once, when first
+  accepted. A retry, or a `stop` that moves it from `finish`, names the
+  same worker, whatever ID the request paired with.
 
 | Worker | `finish` | `stop` |
 | --- | --- | --- |
@@ -941,6 +967,9 @@ or `stop`:
   - `plaintext`: h2c.
 - A `certificate` worker also has `certificateId`, `inviteId`, and
   `removing: true` while its certificate is `removing`.
+- A worker whose certificate the coordinator's revoked set holds is left
+  out, though its heartbeat record stays until stale cleanup, so a removed
+  worker leaves the list once it is revoked.
 - A `plaintext` worker also has `plaintextReason`: `peer.insecure`,
   `no TLS source`, `tls failed on the network path`, or `older version`.
 - The coordinator keeps `connection` and `plaintextReason` in the worker's
@@ -1003,12 +1032,31 @@ A coordinator reports, from its own host:
 | --- | --- |
 | `POST /api/v1/workers/invites` | Body `{"reusable": false, "expiresIn": "24h", "address": "192.168.1.20:50055"}`, every field optional. Returns `201` with `{"id", "invite", "expiresAt"}`. Only this response contains the invite |
 | `GET /api/v1/workers/invites` | Lists invites with `id`, `kind`, `createdBy`, `createdAt`, `expiresAt`, `useCount`, `lastUsedAt`, and `address`. No secret |
-| `DELETE /api/v1/workers/invites/{id}` | Deletes the invite. `404` when none has the ID |
-| `DELETE /api/v1/workers/{workerId}/certificate` | Removes the worker. `?runs=finish`, the default, or `?runs=stop`. Returns `{"state": "removing"}` or `{"state": "removed"}`. `404` when no worker has the ID |
+| `DELETE /api/v1/workers/invites/{id}` | Deletes the invite. `204`, also when a coordinator's answer is lost: within the same request, the server confirms from the invites that it is gone. `400` for a value that is not an invite ID, a UUID, before any coordinator call, so an invite pasted in its place reaches no log or audit entry. `404` when none has the ID, so a second delete answers `404` |
+| `POST /api/v1/workers/removals` | Removes the worker the body names, as in `{"workerId": "<worker ID>", "certificateId": "<certificate ID>", "runs": "finish"}`. `workerId` and `certificateId` are required; `certificateId` is the one the [Workers List](#workers-list) shows. The worker ID is in the body, so any worker ID works, also one with `/` or `%` or one that equals a fixed route. `"runs": "finish"`, the default, or `"stop"`. Returns `{"state": "removing"}` or `{"state": "removed"}`. `400` for another `runs` value, or without `workerId` or `certificateId`. `404` when no worker has the ID |
 | `GET /api/v1/workers/join-readiness` | Returns the reports of [Join Readiness](#join-readiness) |
 
 - Each endpoint is admin only. An API key with the admin role can call it.
-- `expiresIn` is a positive Go duration.
+  The server does not forward a create, delete, or removal to a remote
+  node, so the audit entry names the admin who made it.
+- `expiresIn` is a positive Go duration of at most 2562047h47m16s.
+- `address` is `host:port`. The host is a hostname, an IPv4 address in
+  dotted decimal, or an IPv6 address in brackets without a zone. A
+  hostname has dot-separated labels of 1 to 63 ASCII letters, digits,
+  hyphens, and underscores, as in a Compose service name such as
+  `dagu_coordinator`, none starting or ending with a hyphen, at most 253
+  characters in all, and no trailing dot. The port is a decimal number
+  from 1 to 65535 without a sign or leading zero. Any other address, as
+  one with `/`, `?`, `#`, `@`, or whitespace, answers `400` before any
+  coordinator call.
+- With several coordinators, the server sends each call except join
+  readiness to one of them, since they share the invite and certificate
+  records: the first in the registry's sorted order that answers.
+  `GET /api/v1/workers/invites` returns that coordinator's read of the
+  records. A create goes to the next coordinator only when the request
+  never reached one, so no invite is created twice.
+- No access log line or audit entry holds an invite. The server redacts an
+  invite pasted into a request path or query.
 - `POST /api/v1/workers/invites` does not check `loopbackOnly`, since
   automation may reach a loopback listener through a tunnel. It refuses
   only a coordinator without built-in TLS.
@@ -1018,8 +1066,18 @@ A coordinator reports, from its own host:
   | --- | --- |
   | A coordinator with own certificates, or one that could not create or read its CA (`FailedPrecondition`) | `409`, with the coordinator's message |
   | A worker on the peer token, for a removal | `409` |
+  | A worker that no longer connects with or holds the named certificate, for a removal | `409` |
   | No coordinator is running or reachable | `503` |
-  | The server lacks the peer token (`Unauthenticated`) | `503`, saying the server needs `peer.token` or the coordinator's data directory |
+  | The coordinator refuses the server (`Unauthenticated`) | `503`, with the coordinator's reason: for a missing peer token, that the server needs `peer.token`; for `coordinator.require_tls`, that the server must not set `peer.insecure: true` |
+- Each such answer carries `details.reason`, a name that does not change
+  with the message: `own_certificates`, `ca_unavailable`,
+  `peer_token_missing`, `peer_token_mismatch`, `require_tls`,
+  `coordinator_refused`, `coordinator_conflict`, `retry_later`,
+  `older_coordinator`, `no_coordinator`, `peer_token_worker`, or
+  `certificate_changed`. A coordinator in the join readiness report that
+  did not answer has the same name in `errorReason`. The coordinator sends
+  the name as a status detail; the server names the refusals of an earlier
+  coordinator by their messages.
 - Each create, delete, and removal writes an audit entry with the invite ID
   or the worker and certificate IDs: `worker_invite_create`,
   `worker_invite_delete`, and `worker_remove`. No audit entry holds an
@@ -1478,8 +1536,9 @@ next call opens a new connection that tries TLS again.
 
 Worker `worker-a1` holds a certificate and runs two tasks.
 
-1. `DELETE /api/v1/workers/worker-a1/certificate` returns
-   `{"state": "removing"}`. The Workers page shows `Removing (2 runs left)`.
+1. `POST /api/v1/workers/removals` with
+   `{"workerId": "worker-a1", "certificateId": "<its certificate>"}`
+   returns `{"state": "removing"}`. The Workers page shows `Removing (2 runs left)`.
 2. `Poll` gives `worker-a1` no task. Both runs finish and report their
    status.
 3. Once `worker-a1` holds no task, by the coordinator's count, and at

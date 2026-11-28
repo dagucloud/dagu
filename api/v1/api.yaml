@@ -796,6 +796,250 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /workers/invites:
+    get:
+      summary: "List worker invites"
+      description: "Lists the invites that let workers on other hosts join, without their secrets, as one coordinator reads them. The coordinators share the invite records. Admin only."
+      operationId: "listWorkerInvites"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "The invites, oldest first"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkerInvitesListResponse"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The coordinator cannot serve invites, such as one with its own certificates. `details.reason` holds a WorkerAccessReason."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: "No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token. `details.reason` holds a WorkerAccessReason."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      summary: "Create a worker invite"
+      description: "Creates an invite that lets a worker on another host join. Only this response contains the invite. A coordinator that listens on loopback only still creates it. Admin only, and not forwarded to a remote node."
+      operationId: "createWorkerInvite"
+      tags:
+        - "system"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkerInviteRequest"
+      responses:
+        "201":
+          description: "The invite was created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateWorkerInviteResponse"
+        "400":
+          description: "An invalid expiresIn or address"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The coordinator has no built-in TLS. `details.reason` holds a WorkerAccessReason."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: "No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token. `details.reason` holds a WorkerAccessReason."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /workers/invites/{inviteId}:
+    delete:
+      summary: "Delete a worker invite"
+      description: "Deletes an invite, so it lets no further worker join. Workers that joined with it keep their certificates. When a coordinator deletes the invite and its answer is lost, the server confirms from the invites, within this same request, that the invite is gone, and answers 204. A later delete of the same ID answers 404. Admin only, and not forwarded to a remote node."
+      operationId: "deleteWorkerInvite"
+      tags:
+        - "system"
+      parameters:
+        - name: inviteId
+          in: path
+          description: "ID of the invite"
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        "204":
+          description: "The invite was deleted"
+        "400":
+          description: "The ID is not an invite ID, a UUID as the invite list shows"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No invite has the ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The coordinator cannot serve invites. `details.reason` holds a WorkerAccessReason."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: "No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token. `details.reason` holds a WorkerAccessReason."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /workers/removals:
+    post:
+      summary: "Remove a worker"
+      description: "Revokes the named certificate of a worker that joined with an invite, and no other certificate of that worker. A restart with that certificate is refused, but the invites stay as they are: a reusable invite that has not expired still lets the worker join again. Delete the invite to stop that. The request names the certificate the workers list shows, so a worker that joined again with a new certificate is not removed by mistake. A worker that is not connected is removed at once. A connected one gets no new runs and is removed once the runs it holds end. Admin only, and not forwarded to a remote node."
+      operationId: "removeWorker"
+      tags:
+        - "system"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoveWorkerRequest"
+      responses:
+        "200":
+          description: "The removal started or completed. A removal of a certificate already revoked answers removed."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkerRemovalResponse"
+        "400":
+          description: "An invalid runs value, or no workerId or certificateId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No worker has the ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The worker connects with the peer token, it no longer connects with or holds the named certificate, or the coordinator has no built-in TLS. `details.reason` holds a WorkerAccessReason."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: "No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token. `details.reason` holds a WorkerAccessReason."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /workers/join-readiness:
+    get:
+      summary: "Get worker join readiness"
+      description: "Reports, for each coordinator in the registry, whether a worker on another host can join it, and the address of the newest invite made for one. Admin only."
+      operationId: "getWorkerJoinReadiness"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "The report of each coordinator"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkerJoinReadinessResponse"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "No coordinator reports join readiness, as one of an earlier release. `details.reason` holds a WorkerAccessReason."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: "No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token. `details.reason` holds a WorkerAccessReason."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /dags:
     get:
       summary: "List all available DAGs"
@@ -22963,6 +23207,17 @@ components:
           $ref: "#/components/schemas/WorkerConnection"
         plaintextReason:
           $ref: "#/components/schemas/PlaintextReason"
+        certificateId:
+          type: string
+          description: "ID of the worker certificate the worker connects with. Present only for a certificate worker."
+        inviteId:
+          type: string
+          description: "ID of the invite the worker joined with. Present only for a certificate worker."
+        removing:
+          type: boolean
+          description: "True while the worker's certificate is removing: the worker gets no new runs, and its certificate is revoked once the runs it holds end. Absent otherwise."
+        environment:
+          $ref: "#/components/schemas/HostEnvironment"
       required:
         - id
         - labels
@@ -22991,6 +23246,284 @@ components:
         - tls failed on the network path: TLS failed between it and the coordinator, so it fell back to h2c.
         - older version: its calls carry no reason, as those of a Dagu release before reasons do, or one the coordinator does not know.
       enum: ["peer.insecure", "no TLS source", "tls failed on the network path", "older version"]
+
+    CreateWorkerInviteRequest:
+      type: object
+      description: "Settings of a new worker invite. Every field is optional."
+      properties:
+        reusable:
+          type: boolean
+          description: "True for an invite that lets any number of workers join. Default false: one worker."
+        expiresIn:
+          type: string
+          description: "A positive Go duration, such as 24h, rounded up to whole seconds. Default: 24 hours for a single-use invite, none for a reusable one."
+        address:
+          type: string
+          description: "The host:port of the coordinator the invite is made for: a hostname, an IPv4 address, or an IPv6 address in brackets, then a port from 1 to 65535. Join readiness reports the newest one as lastInviteAddress."
+
+    CreateWorkerInviteResponse:
+      type: object
+      description: "A created invite. No other response contains the invite."
+      properties:
+        id:
+          type: string
+          description: "ID of the invite"
+        invite:
+          type: string
+          description: "The invite a worker joins with: dagu1.<pin>.<secret>"
+        expiresAt:
+          type: string
+          description: "RFC3339 timestamp when the invite ends. Absent for an invite without an expiry."
+      required:
+        - id
+        - invite
+
+    WorkerInvitesListResponse:
+      type: object
+      description: "The worker invites, without their secrets"
+      properties:
+        invites:
+          type: array
+          description: "The invites, oldest first"
+          items:
+            $ref: "#/components/schemas/WorkerInvite"
+      required:
+        - invites
+
+    WorkerInvite:
+      type: object
+      description: "A worker invite's record. It holds no secret."
+      properties:
+        id:
+          type: string
+          description: "ID of the invite"
+        kind:
+          $ref: "#/components/schemas/WorkerInviteKind"
+        createdBy:
+          type: string
+          description: "The user who created it, or \"peer token\" for a call that carried only the peer token"
+        createdAt:
+          type: string
+          description: "RFC3339 timestamp when it was created"
+        expiresAt:
+          type: string
+          description: "RFC3339 timestamp when it ends. Absent for an invite without an expiry."
+        useCount:
+          type: integer
+          description: "The number of workers that joined with it"
+        lastUsedAt:
+          type: string
+          description: "RFC3339 timestamp when a worker last joined with it. Absent before the first one."
+        address:
+          type: string
+          description: "The host:port it was made for. Absent when none was given."
+      required:
+        - id
+        - kind
+        - createdBy
+        - createdAt
+        - useCount
+
+    WorkerInviteKind:
+      type: string
+      description: |
+        How many workers an invite lets join:
+        - single_use: one worker. It ends at its first use.
+        - reusable: any number of workers.
+      enum: ["single_use", "reusable"]
+
+    WorkerAccessReason:
+      type: string
+      description: |
+        Why a worker invite, removal, or join readiness call failed, in `Error.details.reason` and in a coordinator's `errorReason`, for a caller that picks an explanation. The message stays human-readable and may change; these names do not.
+        - own_certificates: the coordinator uses peer.cert_file and peer.key_file, so it has no built-in CA.
+        - ca_unavailable: the coordinator could not create or read its generated CA.
+        - peer_token_missing: the server has no peer token. Set peer.token.
+        - peer_token_mismatch: the server's peer token is not the coordinator's.
+        - require_tls: the coordinator requires TLS and the server called over h2c, as with peer.insecure: true.
+        - coordinator_refused: the coordinator refused the server for another reason, given in the message.
+        - coordinator_conflict: the coordinator cannot do it in its present state, for a reason given in the message.
+        - retry_later: the coordinator answered that it cannot do it yet. Try again shortly.
+        - older_coordinator: the coordinator runs an earlier Dagu release without the call.
+        - no_coordinator: no coordinator is running or reachable.
+        - peer_token_worker: the worker connects with the peer token, so it cannot be removed.
+        - certificate_changed: the worker no longer uses or holds the certificate the removal names, as after joining again.
+      enum:
+        - own_certificates
+        - ca_unavailable
+        - peer_token_missing
+        - peer_token_mismatch
+        - require_tls
+        - coordinator_refused
+        - coordinator_conflict
+        - retry_later
+        - older_coordinator
+        - no_coordinator
+        - peer_token_worker
+        - certificate_changed
+
+    RemoveWorkerRequest:
+      type: object
+      description: "The worker to remove, and what happens to the runs it holds"
+      properties:
+        workerId:
+          type: string
+          minLength: 1
+          description: "ID of the worker"
+        certificateId:
+          type: string
+          minLength: 1
+          description: "The certificateId the workers list shows for the worker"
+        runs:
+          $ref: "#/components/schemas/WorkerRemovalRuns"
+      required:
+        - workerId
+        - certificateId
+
+    WorkerRemovalRuns:
+      type: string
+      description: |
+        What a removal does with the runs the worker holds:
+        - finish: lets them run to their end.
+        - stop: cancels each of them.
+      enum: ["finish", "stop"]
+      default: "finish"
+
+    WorkerRemovalResponse:
+      type: object
+      description: "The result of removing a worker"
+      properties:
+        state:
+          $ref: "#/components/schemas/WorkerRemovalState"
+      required:
+        - state
+
+    WorkerRemovalState:
+      type: string
+      description: |
+        Where the removal stands:
+        - removing: the worker gets no new runs, and its certificate is revoked once the runs it holds end.
+        - removed: its certificate is revoked.
+      enum: ["removing", "removed"]
+
+    WorkerJoinReadinessResponse:
+      type: object
+      description: "The join readiness of each coordinator in the registry"
+      properties:
+        coordinators:
+          type: array
+          description: "One entry per coordinator"
+          items:
+            $ref: "#/components/schemas/CoordinatorJoinReadiness"
+        lastInviteAddress:
+          type: string
+          description: "The address of the newest invite made for one. Absent when no invite has one, or the invites cannot be read."
+      required:
+        - coordinators
+
+    CoordinatorJoinReadiness:
+      type: object
+      description: "The join readiness one coordinator reports from its own host, or why it did not report"
+      properties:
+        instanceId:
+          type: string
+          description: "ID of the coordinator in the registry"
+        host:
+          type: string
+          description: "Host of the coordinator in the registry"
+        port:
+          type: integer
+          description: "Port of the coordinator in the registry"
+        report:
+          $ref: "#/components/schemas/JoinReadinessReport"
+        error:
+          type: string
+          description: "Why the coordinator did not report. Absent when report is present."
+        errorReason:
+          $ref: "#/components/schemas/WorkerAccessReason"
+      required:
+        - instanceId
+        - host
+        - port
+
+    JoinReadinessReport:
+      type: object
+      description: "Whether a worker on another host can join a coordinator, as the coordinator reports it from its own host"
+      properties:
+        listenHost:
+          type: string
+          description: "coordinator.host"
+        port:
+          type: integer
+          description: "coordinator.port"
+        configFile:
+          type: string
+          description: "The config file the coordinator read, or the default path it would read"
+        loopbackOnly:
+          type: boolean
+          description: "True when coordinator.host is localhost, an address in 127.0.0.0/8, or [::1]"
+        hostSource:
+          $ref: "#/components/schemas/ConfigSource"
+        advertise:
+          type: string
+          description: "coordinator.advertise when set explicitly. Absent otherwise."
+        environment:
+          $ref: "#/components/schemas/HostEnvironment"
+        addresses:
+          type: array
+          description: "Addresses a worker on another host may dial, when environment is host. Empty otherwise."
+          items:
+            type: string
+        builtinTLS:
+          type: boolean
+          description: "True only when the coordinator has a usable peer CA"
+        builtinTLSReason:
+          $ref: "#/components/schemas/BuiltinTLSReason"
+        ready:
+          type: boolean
+          description: "True when loopbackOnly is false and builtinTLS is true"
+      required:
+        - listenHost
+        - port
+        - configFile
+        - loopbackOnly
+        - addresses
+        - builtinTLS
+        - ready
+
+    ConfigSource:
+      type: object
+      description: "Where a configuration value came from"
+      properties:
+        kind:
+          $ref: "#/components/schemas/ConfigSourceKind"
+        name:
+          type: string
+          description: "The config file path, the environment variable, or the flag. Absent for a default."
+      required:
+        - kind
+
+    ConfigSourceKind:
+      type: string
+      description: "The kind of source a configuration value came from"
+      enum: ["default", "file", "env", "flag"]
+
+    HostEnvironment:
+      type: string
+      description: |
+        Where a Dagu process runs:
+        - host: neither of the below.
+        - container: a container.
+        - kubernetes: a pod of a cluster.
+      enum: ["host", "container", "kubernetes"]
+
+    BuiltinTLSReason:
+      type: string
+      description: |
+        Why a coordinator has no built-in TLS:
+        - ownCertificates: it uses peer.cert_file and peer.key_file.
+        - caUnavailable: it could not create or read its generated CA.
+      enum: ["ownCertificates", "caUnavailable"]
 
     WorkerVersionDrift:
       type: string

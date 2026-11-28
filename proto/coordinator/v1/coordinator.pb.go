@@ -1784,7 +1784,13 @@ type WorkerInfo struct {
 	// failed on the network path, or older version. Empty otherwise.
 	PlaintextReason string `protobuf:"bytes,12,opt,name=plaintext_reason,json=plaintextReason,proto3" json:"plaintext_reason,omitempty"`
 	// Where the worker runs, from its heartbeat; unset when it reports none.
-	Environment   HostEnvironment `protobuf:"varint,13,opt,name=environment,proto3,enum=coordinator.v1.HostEnvironment" json:"environment,omitempty"`
+	Environment HostEnvironment `protobuf:"varint,13,opt,name=environment,proto3,enum=coordinator.v1.HostEnvironment" json:"environment,omitempty"`
+	// The worker certificate the worker's last heartbeat arrived with, and
+	// the invite it names. Empty for a worker on the peer token.
+	CertificateId string `protobuf:"bytes,14,opt,name=certificate_id,json=certificateId,proto3" json:"certificate_id,omitempty"`
+	InviteId      string `protobuf:"bytes,15,opt,name=invite_id,json=inviteId,proto3" json:"invite_id,omitempty"`
+	// True while the worker's certificate is removing.
+	Removing      bool `protobuf:"varint,16,opt,name=removing,proto3" json:"removing,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1905,6 +1911,27 @@ func (x *WorkerInfo) GetEnvironment() HostEnvironment {
 	return HostEnvironment_HOST_ENVIRONMENT_UNSPECIFIED
 }
 
+func (x *WorkerInfo) GetCertificateId() string {
+	if x != nil {
+		return x.CertificateId
+	}
+	return ""
+}
+
+func (x *WorkerInfo) GetInviteId() string {
+	if x != nil {
+		return x.InviteId
+	}
+	return ""
+}
+
+func (x *WorkerInfo) GetRemoving() bool {
+	if x != nil {
+		return x.Removing
+	}
+	return false
+}
+
 func (x *WorkerInfo) SetWorkerId(v string) {
 	x.WorkerId = v
 }
@@ -1957,6 +1984,18 @@ func (x *WorkerInfo) SetEnvironment(v HostEnvironment) {
 	x.Environment = v
 }
 
+func (x *WorkerInfo) SetCertificateId(v string) {
+	x.CertificateId = v
+}
+
+func (x *WorkerInfo) SetInviteId(v string) {
+	x.InviteId = v
+}
+
+func (x *WorkerInfo) SetRemoving(v bool) {
+	x.Removing = v
+}
+
 type WorkerInfo_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -1978,6 +2017,12 @@ type WorkerInfo_builder struct {
 	PlaintextReason string
 	// Where the worker runs, from its heartbeat; unset when it reports none.
 	Environment HostEnvironment
+	// The worker certificate the worker's last heartbeat arrived with, and
+	// the invite it names. Empty for a worker on the peer token.
+	CertificateId string
+	InviteId      string
+	// True while the worker's certificate is removing.
+	Removing bool
 }
 
 func (b0 WorkerInfo_builder) Build() *WorkerInfo {
@@ -1997,6 +2042,9 @@ func (b0 WorkerInfo_builder) Build() *WorkerInfo {
 	x.Connection = b.Connection
 	x.PlaintextReason = b.PlaintextReason
 	x.Environment = b.Environment
+	x.CertificateId = b.CertificateId
+	x.InviteId = b.InviteId
+	x.Removing = b.Removing
 	return m0
 }
 
@@ -9510,9 +9558,14 @@ func (b0 EnrollResponse_builder) Build() *EnrollResponse {
 }
 
 type RemoveWorkerRequest struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	WorkerId      string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
-	Runs          RemoveWorkerRuns       `protobuf:"varint,2,opt,name=runs,proto3,enum=coordinator.v1.RemoveWorkerRuns" json:"runs,omitempty"`
+	state    protoimpl.MessageState `protogen:"hybrid.v1"`
+	WorkerId string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
+	Runs     RemoveWorkerRuns       `protobuf:"varint,2,opt,name=runs,proto3,enum=coordinator.v1.RemoveWorkerRuns" json:"runs,omitempty"`
+	// The certificate the worker was listed with. When set, only that
+	// certificate is removed. A removal of a revoked one answers REMOVED;
+	// one the worker neither connects with nor holds fails with
+	// FailedPrecondition. When empty, every certificate of the worker is.
+	CertificateId string `protobuf:"bytes,3,opt,name=certificate_id,json=certificateId,proto3" json:"certificate_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -9556,6 +9609,13 @@ func (x *RemoveWorkerRequest) GetRuns() RemoveWorkerRuns {
 	return RemoveWorkerRuns_REMOVE_WORKER_RUNS_UNSPECIFIED
 }
 
+func (x *RemoveWorkerRequest) GetCertificateId() string {
+	if x != nil {
+		return x.CertificateId
+	}
+	return ""
+}
+
 func (x *RemoveWorkerRequest) SetWorkerId(v string) {
 	x.WorkerId = v
 }
@@ -9564,11 +9624,20 @@ func (x *RemoveWorkerRequest) SetRuns(v RemoveWorkerRuns) {
 	x.Runs = v
 }
 
+func (x *RemoveWorkerRequest) SetCertificateId(v string) {
+	x.CertificateId = v
+}
+
 type RemoveWorkerRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	WorkerId string
 	Runs     RemoveWorkerRuns
+	// The certificate the worker was listed with. When set, only that
+	// certificate is removed. A removal of a revoked one answers REMOVED;
+	// one the worker neither connects with nor holds fails with
+	// FailedPrecondition. When empty, every certificate of the worker is.
+	CertificateId string
 }
 
 func (b0 RemoveWorkerRequest_builder) Build() *RemoveWorkerRequest {
@@ -9577,6 +9646,7 @@ func (b0 RemoveWorkerRequest_builder) Build() *RemoveWorkerRequest {
 	_, _ = b, x
 	x.WorkerId = b.WorkerId
 	x.Runs = b.Runs
+	x.CertificateId = b.CertificateId
 	return m0
 }
 
@@ -9590,8 +9660,11 @@ type RemoveWorkerResponse struct {
 	// include each certificate that an enrollment of the worker ID recorded
 	// while the removal ran.
 	CertificateIds []string `protobuf:"bytes,2,rep,name=certificate_ids,json=certificateIds,proto3" json:"certificate_ids,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// The worker the removed certificate's record names, for a removal that
+	// names a certificate.
+	WorkerId      string `protobuf:"bytes,3,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RemoveWorkerResponse) Reset() {
@@ -9633,12 +9706,23 @@ func (x *RemoveWorkerResponse) GetCertificateIds() []string {
 	return nil
 }
 
+func (x *RemoveWorkerResponse) GetWorkerId() string {
+	if x != nil {
+		return x.WorkerId
+	}
+	return ""
+}
+
 func (x *RemoveWorkerResponse) SetState(v WorkerRemovalState) {
 	x.State = v
 }
 
 func (x *RemoveWorkerResponse) SetCertificateIds(v []string) {
 	x.CertificateIds = v
+}
+
+func (x *RemoveWorkerResponse) SetWorkerId(v string) {
+	x.WorkerId = v
 }
 
 type RemoveWorkerResponse_builder struct {
@@ -9652,6 +9736,9 @@ type RemoveWorkerResponse_builder struct {
 	// include each certificate that an enrollment of the worker ID recorded
 	// while the removal ran.
 	CertificateIds []string
+	// The worker the removed certificate's record names, for a removal that
+	// names a certificate.
+	WorkerId string
 }
 
 func (b0 RemoveWorkerResponse_builder) Build() *RemoveWorkerResponse {
@@ -9660,6 +9747,7 @@ func (b0 RemoveWorkerResponse_builder) Build() *RemoveWorkerResponse {
 	_, _ = b, x
 	x.State = b.State
 	x.CertificateIds = b.CertificateIds
+	x.WorkerId = b.WorkerId
 	return m0
 }
 
@@ -9752,7 +9840,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x16_base_config_workspace\"\x13\n" +
 	"\x11GetWorkersRequest\"J\n" +
 	"\x12GetWorkersResponse\x124\n" +
-	"\aworkers\x18\x01 \x03(\v2\x1a.coordinator.v1.WorkerInfoR\aworkers\"\xad\x05\n" +
+	"\aworkers\x18\x01 \x03(\v2\x1a.coordinator.v1.WorkerInfoR\aworkers\"\x8d\x06\n" +
 	"\n" +
 	"WorkerInfo\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1b\n" +
@@ -9770,7 +9858,10 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"connection\x18\v \x01(\x0e2 .coordinator.v1.WorkerConnectionR\n" +
 	"connection\x12)\n" +
 	"\x10plaintext_reason\x18\f \x01(\tR\x0fplaintextReason\x12A\n" +
-	"\venvironment\x18\r \x01(\x0e2\x1f.coordinator.v1.HostEnvironmentR\venvironment\x1a9\n" +
+	"\venvironment\x18\r \x01(\x0e2\x1f.coordinator.v1.HostEnvironmentR\venvironment\x12%\n" +
+	"\x0ecertificate_id\x18\x0e \x01(\tR\rcertificateId\x12\x1b\n" +
+	"\tinvite_id\x18\x0f \x01(\tR\binviteId\x12\x1a\n" +
+	"\bremoving\x18\x10 \x01(\bR\bremoving\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x16\n" +
@@ -10190,13 +10281,15 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x11keeps_certificate\x18\x05 \x01(\bR\x10keepsCertificate\"Y\n" +
 	"\x0eEnrollResponse\x12 \n" +
 	"\vcertificate\x18\x01 \x01(\fR\vcertificate\x12%\n" +
-	"\x0eca_certificate\x18\x02 \x01(\fR\rcaCertificate\"h\n" +
+	"\x0eca_certificate\x18\x02 \x01(\fR\rcaCertificate\"\x8f\x01\n" +
 	"\x13RemoveWorkerRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x124\n" +
-	"\x04runs\x18\x02 \x01(\x0e2 .coordinator.v1.RemoveWorkerRunsR\x04runs\"y\n" +
+	"\x04runs\x18\x02 \x01(\x0e2 .coordinator.v1.RemoveWorkerRunsR\x04runs\x12%\n" +
+	"\x0ecertificate_id\x18\x03 \x01(\tR\rcertificateId\"\x96\x01\n" +
 	"\x14RemoveWorkerResponse\x128\n" +
 	"\x05state\x18\x01 \x01(\x0e2\".coordinator.v1.WorkerRemovalStateR\x05state\x12'\n" +
-	"\x0fcertificate_ids\x18\x02 \x03(\tR\x0ecertificateIds*P\n" +
+	"\x0fcertificate_ids\x18\x02 \x03(\tR\x0ecertificateIds\x12\x1b\n" +
+	"\tworker_id\x18\x03 \x01(\tR\bworkerId*P\n" +
 	"\tOperation\x12\x19\n" +
 	"\x15OPERATION_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fOPERATION_START\x10\x01\x12\x13\n" +

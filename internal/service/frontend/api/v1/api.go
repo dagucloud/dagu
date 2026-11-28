@@ -700,6 +700,10 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 	if err != nil {
 		return err
 	}
+	workerAccessAuthorization, err := a.workerAccessAuthorization(swagger)
+	if err != nil {
+		return err
+	}
 
 	r.Group(func(r chi.Router) {
 		r.Use(a.restAuditSeedMiddleware())
@@ -709,6 +713,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		r.Use(frontendauth.Middleware(authOptions))
 		r.Use(a.restAuditSubjectMiddleware())
 		r.Use(remoteNodeAuthorization)
+		r.Use(workerAccessAuthorization)
 		r.Use(humanTaskInputMiddleware(mountedAPIPath))
 		r.Use(inventoryBodyMiddleware(mountedAPIPath))
 		if a.config.Server.StrictValidation {
@@ -834,7 +839,7 @@ func (a *API) logRESTAuthDenied(r *http.Request, reason string, apiKey *auth.API
 		"result":        "denied",
 		"denial_reason": reason,
 		"resource_type": "rest_request",
-		"resource_id":   r.URL.Path,
+		"resource_id":   coordinator.RedactInvites(r.URL.Path),
 		"http_method":   r.Method,
 	})
 }

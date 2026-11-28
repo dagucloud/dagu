@@ -1282,7 +1282,44 @@ func selectAuthoritativeWorker(current, candidate *coordinatorv1.WorkerInfo) *co
 	if candidate.LastHeartbeatAt > current.LastHeartbeatAt {
 		return candidate
 	}
+	if candidate.LastHeartbeatAt == current.LastHeartbeatAt {
+		fillWorkerMetadata(current, candidate)
+	}
 	return current
+}
+
+// fillWorkerMetadata sets on worker the fields it lacks and other has. Both
+// report the same heartbeat, from coordinators that share the heartbeat
+// records, and one of them may predate a field.
+func fillWorkerMetadata(worker, other *coordinatorv1.WorkerInfo) {
+	if worker.Version == "" {
+		worker.Version = other.Version
+	}
+	if worker.Connection == coordinatorv1.WorkerConnection_WORKER_CONNECTION_UNSPECIFIED {
+		worker.Connection = other.Connection
+		worker.PlaintextReason = other.PlaintextReason
+	}
+	if worker.Environment == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_UNSPECIFIED {
+		worker.Environment = other.Environment
+	}
+	// Certificate fields belong to a certificate heartbeat only, never to
+	// one a newer coordinator reports as on the peer token.
+	certificateRow := worker.Connection == coordinatorv1.WorkerConnection_WORKER_CONNECTION_UNSPECIFIED ||
+		worker.Connection == coordinatorv1.WorkerConnection_WORKER_CONNECTION_CERTIFICATE
+	if worker.CertificateId == "" && certificateRow {
+		worker.CertificateId = other.CertificateId
+		worker.InviteId = other.InviteId
+	}
+	// A report of the same certificate may lack its invite.
+	if worker.InviteId == "" && worker.CertificateId != "" && worker.CertificateId == other.CertificateId {
+		worker.InviteId = other.InviteId
+	}
+	// Removing describes a certificate, and heartbeats in the same second
+	// may carry two. For the same one, a coordinator that has not reread
+	// the removals yet reports false.
+	if worker.CertificateId != "" && worker.CertificateId == other.CertificateId {
+		worker.Removing = worker.Removing || other.Removing
+	}
 }
 
 // Heartbeat sends a heartbeat to coordinators and returns the response

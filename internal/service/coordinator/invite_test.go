@@ -239,9 +239,57 @@ func TestCreateInviteInvalid(t *testing.T) {
 		"NoPort":         {Address: "192.168.1.20"},
 		"PortZero":       {Address: "192.168.1.20:0"},
 		"NoHost":         {Address: ":50055"},
+		// An invite pasted as the host would reach the invite records.
+		"InviteAsHost": {Address: "dagu1." + strings.Repeat("A", 43) + "." + strings.Repeat("B", 43) + ":50055"},
 	} {
 		_, err := server.tlsClient(t).CreateInvite(callContext(t), req)
 		assert.Equal(t, codes.InvalidArgument, status.Code(err), name)
+	}
+}
+
+// An invite's address is a hostname, an IPv4 address, or a bracketed IPv6
+// address, then a port. Anything a worker could not dial as such, as a
+// host with a path, is refused.
+func TestValidInviteAddress(t *testing.T) {
+	t.Parallel()
+	for _, addr := range []string{
+		"coordinator:50055",
+		"coordinator.example.com:50055",
+		"dagu-1.internal:1",
+		"dagu_coordinator:50055",
+		"_coordinator_:50055",
+		"192.168.1.20:65535",
+		"[2001:db8::1]:50055",
+		"[::ffff:192.168.1.20]:50055",
+		strings.Repeat("a", 63) + ".example.com:50055",
+	} {
+		assert.True(t, coordinator.ValidInviteAddress(addr), addr)
+	}
+	for _, addr := range []string{
+		"coordinator.example.com/path:50055",
+		"coordinator.example.com?q:50055",
+		"coordinator.example.com#f:50055",
+		"user@coordinator.example.com:50055",
+		"coordinator example.com:50055",
+		"coordinator\t:50055",
+		"coordinator.example.com.:50055",
+		"-coordinator:50055",
+		"coordinator-.example.com:50055",
+		"a..b:50055",
+		strings.Repeat("a", 64) + ".example.com:50055",
+		strings.Repeat("a.", 127) + "ab:50055",
+		"[192.168.1.20]:50055",
+		"[fe80::1%eth0]:50055",
+		"2001:db8::1:50055",
+		"coordinator:+50055",
+		"coordinator:050055",
+		"coordinator:65536",
+		"coordinator:0",
+		"coordinator:",
+		":50055",
+		"coordinator",
+	} {
+		assert.False(t, coordinator.ValidInviteAddress(addr), addr)
 	}
 }
 

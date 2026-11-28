@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
@@ -423,7 +424,17 @@ func refusalError(err error, p *peer.Peer) error {
 	if !isRequireTLSRefusal(err) {
 		return err
 	}
-	return status.Error(codes.Unauthenticated, requireTLSClientMessage(h2cInfoOf(p).source))
+	// The refusal keeps its details, and carries the reason callers act on
+	// also when an older coordinator sent only the message.
+	refusal := status.Convert(err).Proto()
+	refusal.Message = requireTLSClientMessage(h2cInfoOf(p).source)
+	rewritten := status.FromProto(refusal)
+	if detailReason(rewritten) == "" {
+		if reasoned, detailErr := rewritten.WithDetails(&errdetails.ErrorInfo{Reason: reasonRequireTLS, Domain: refusalDomain}); detailErr == nil {
+			rewritten = reasoned
+		}
+	}
+	return rewritten.Err()
 }
 
 // h2cInfoOf returns the h2c details of the connection of p, or none when
