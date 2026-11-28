@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { InlineLoadError } from '@/components/PageStates';
+import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
@@ -21,7 +22,8 @@ import Title from '@/components/ui/title';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useQuery } from '@/hooks/api';
 import { useI18n } from '@/i18n/I18nProvider';
-import React, { useContext, useEffect } from 'react';
+import { Plus } from 'lucide-react';
+import React, { useContext, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   ConnectionStatusBadge,
@@ -30,8 +32,10 @@ import {
   PROVIDER_LABELS,
   RemoteNodeNotice,
   connectionPath,
+  useConnectionAccess,
   workspaceForSelection,
 } from './shared';
+import { NewConnectionDialog } from './NewConnectionDialog';
 
 const COLUMN_COUNT = 4;
 
@@ -65,6 +69,8 @@ function ConnectionList(): React.ReactElement {
     params: { query: { workspace, remoteNode: LOCAL_NODE } },
   });
   const connections = data?.connections ?? [];
+  const { canManage } = useConnectionAccess(workspace);
+  const [adding, setAdding] = useState(false);
 
   function message(text: string): React.ReactElement {
     return (
@@ -90,23 +96,42 @@ function ConnectionList(): React.ReactElement {
             )}
           </p>
         </div>
-        <Select
-          value={workspace}
-          onValueChange={(value) => setSearchParams({ workspace: value })}
-        >
-          <SelectTrigger className="h-7 w-[180px]" aria-label={ts('Workspace')}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={GLOBAL_WORKSPACE}>{ts('Global')}</SelectItem>
-            {(appBarContext.workspaces ?? []).map((item) => (
-              <SelectItem key={item.id} value={item.name}>
-                {item.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Select
+            value={workspace}
+            onValueChange={(value) => setSearchParams({ workspace: value })}
+          >
+            <SelectTrigger
+              className="h-7 w-[180px]"
+              aria-label={ts('Workspace')}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={GLOBAL_WORKSPACE}>{ts('Global')}</SelectItem>
+              {(appBarContext.workspaces ?? []).map((item) => (
+                <SelectItem key={item.id} value={item.name}>
+                  {item.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {canManage && (
+            <Button size="sm" variant="primary" onClick={() => setAdding(true)}>
+              <Plus className="h-4 w-4" />
+              {ts('New connection')}
+            </Button>
+          )}
+        </div>
       </div>
+      {canManage && (
+        <NewConnectionDialog
+          workspace={workspace}
+          existing={connections.map((connection) => connection.name)}
+          open={adding}
+          onClose={() => setAdding(false)}
+        />
+      )}
 
       <div className="card-obsidian min-h-0 flex-1 !overflow-auto">
         <Table className="text-xs">

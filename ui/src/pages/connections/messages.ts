@@ -84,6 +84,78 @@ export const connectionMessages = defineMessages({
     'Service checks': 'Service checks',
     'Needs reconnect': 'Needs reconnect',
     Broken: 'Broken',
+    'Other automation and mail': 'Other automation and mail',
+    'Steps call Google’s REST APIs with http.request, such as the Gmail API to read and send mail.':
+      'Steps call Google’s REST APIs with http.request, such as the Gmail API to read and send mail.',
+    'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
+      'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.',
+    'This workspace already has a connection named {name}.':
+      'This workspace already has a connection named {name}.',
+    'Open it': 'Open it',
+    'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
+      'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.',
+    'This server cannot sign in through a desktop client.':
+      'This server cannot sign in through a desktop client.',
+    'The app was registered, but this server cannot sign in with it.':
+      'The app was registered, but this server cannot sign in with it.',
+    'Could not create the connection.': 'Could not create the connection.',
+    'Connect Google Workspace': 'Connect Google Workspace',
+    'The connection belongs to workspace {workspace}.':
+      'The connection belongs to workspace {workspace}.',
+    'Create and sign in': 'Create and sign in',
+    'Gmail, Calendar, Drive, Docs, and more.':
+      'Gmail, Calendar, Drive, Docs, and more.',
+    'Not available yet.': 'Not available yet.',
+    'DAGs name the connection with this. Up to 63 lowercase letters, digits, and hyphens, starting with a letter or digit.':
+      'DAGs name the connection with this. Up to 63 lowercase letters, digits, and hyphens, starting with a letter or digit.',
+    'Access for {service}': 'Access for {service}',
+    'Preview services work only for accounts in Google’s Workspace Developer Preview program.':
+      'Preview services work only for accounts in Google’s Workspace Developer Preview program.',
+    'Scopes to ask for': 'Scopes to ask for',
+    'AI agents': 'AI agents',
+    'Steps call Google’s MCP servers with mcp.call, and AI steps use their tools.':
+      'Steps call Google’s MCP servers with mcp.call, and AI steps use their tools.',
+    'Who will use this connection?': 'Who will use this connection?',
+    'Google requires separate OAuth clients for AI agents and for other automation, so each connection uses one kind. For both, add two connections.':
+      'Google requires separate OAuth clients for AI agents and for other automation, so each connection uses one kind. For both, add two connections.',
+    'OAuth app': 'OAuth app',
+    'No Google app for AI agents fits this server yet.':
+      'No Google app for AI agents fits this server yet.',
+    'No Google app for other automation fits this server yet.':
+      'No Google app for other automation fits this server yet.',
+    'Register another app': 'Register another app',
+    'DAGs that run on this server, rather than on a worker, run as Dagu’s user, so their authors can read this connection’s tokens.':
+      'DAGs that run on this server, rather than on a worker, run as Dagu’s user, so their authors can read this connection’s tokens.',
+    'Ask an admin to register a Google OAuth app with:':
+      'Ask an admin to register a Google OAuth app with:',
+    'Client type: Web application': 'Client type: Web application',
+    'Client type: Desktop app': 'Client type: Desktop app',
+    '“Use this client for an AI-powered agent” ticked':
+      '“Use this client for an AI-powered agent” ticked',
+    '“Use this client for an AI-powered agent” not ticked':
+      '“Use this client for an AI-powered agent” not ticked',
+    'Could not register the app.': 'Could not register the app.',
+    'Enable the APIs': 'Enable the APIs',
+    'Enable APIs in Google Cloud': 'Enable APIs in Google Cloud',
+    'The chosen services need no API.': 'The chosen services need no API.',
+    'Set up the consent screen': 'Set up the consent screen',
+    'Open the consent screen': 'Open the consent screen',
+    'An app in Testing status accepts only its test users, and their sign-ins end after seven days. Publish the app to Production, or make it Internal in a Workspace organization, to avoid both.':
+      'An app in Testing status accepts only its test users, and their sign-ins end after seven days. Publish the app to Production, or make it Internal in a Workspace organization, to avoid both.',
+    'An app that Google has not verified shows “Google hasn’t verified this app” at sign-in. That is expected for your own app.':
+      'An app that Google has not verified shows “Google hasn’t verified this app” at sign-in. That is expected for your own app.',
+    'Create the OAuth client': 'Create the OAuth client',
+    'Open Google Cloud clients': 'Open Google Cloud clients',
+    'Choose the application type Web application.':
+      'Choose the application type Web application.',
+    'Choose the application type Desktop app. This server has no public URL, so the sign-in ends on a page whose address you paste back.':
+      'Choose the application type Desktop app. This server has no public URL, so the sign-in ends on a page whose address you paste back.',
+    'Tick “Use this client for an AI-powered agent”.':
+      'Tick “Use this client for an AI-powered agent”.',
+    'Upload the client JSON': 'Upload the client JSON',
+    'App name': 'App name',
+    'Client JSON file': 'Client JSON file',
+    'Register app': 'Register app',
   },
   'zh-CN': {
     'Accounts that DAGs in this workspace use by name. Dagu keeps and refreshes their tokens.':
@@ -161,6 +233,77 @@ export const connectionMessages = defineMessages({
     'Service checks': '服务检查',
     'Needs reconnect': '需要重新连接',
     Broken: '已损坏',
+    'Other automation and mail': '其他自动化和邮件',
+    'Steps call Google’s REST APIs with http.request, such as the Gmail API to read and send mail.':
+      '步骤通过 http.request 调用 Google 的 REST API，例如用 Gmail API 读取和发送邮件。',
+    'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
+      '只能使用小写字母、数字和连字符，并以字母或数字开头。',
+    'This workspace already has a connection named {name}.':
+      '此工作区已有名为 {name} 的连接。',
+    'Open it': '打开',
+    'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
+      '此服务器没有公开 URL，无法通过 Web 客户端登录。请改为创建桌面应用客户端并上传其 JSON。',
+    'This server cannot sign in through a desktop client.':
+      '此服务器无法通过桌面客户端登录。',
+    'The app was registered, but this server cannot sign in with it.':
+      '应用已注册，但此服务器无法通过它登录。',
+    'Could not create the connection.': '无法创建连接。',
+    'Connect Google Workspace': '连接 Google Workspace',
+    'The connection belongs to workspace {workspace}.':
+      '该连接属于工作区 {workspace}。',
+    'Create and sign in': '创建并登录',
+    'Gmail, Calendar, Drive, Docs, and more.':
+      'Gmail、Calendar、Drive、Docs 等。',
+    'Not available yet.': '暂不可用。',
+    'DAGs name the connection with this. Up to 63 lowercase letters, digits, and hyphens, starting with a letter or digit.':
+      'DAG 用此名称引用连接。最多 63 个小写字母、数字和连字符，以字母或数字开头。',
+    'Access for {service}': '{service} 的访问权限',
+    'Preview services work only for accounts in Google’s Workspace Developer Preview program.':
+      '预览服务仅适用于加入 Google Workspace Developer Preview 计划的账号。',
+    'Scopes to ask for': '要请求的权限范围',
+    'AI agents': 'AI 智能体',
+    'Steps call Google’s MCP servers with mcp.call, and AI steps use their tools.':
+      '步骤通过 mcp.call 调用 Google 的 MCP 服务器，AI 步骤使用其工具。',
+    'Who will use this connection?': '谁将使用此连接？',
+    'Google requires separate OAuth clients for AI agents and for other automation, so each connection uses one kind. For both, add two connections.':
+      'Google 要求 AI 智能体和其他自动化使用不同的 OAuth 客户端，因此每个连接只使用一种。两者都需要时，请添加两个连接。',
+    'OAuth app': 'OAuth 应用',
+    'No Google app for AI agents fits this server yet.':
+      '尚无适用于此服务器的 AI 智能体 Google 应用。',
+    'No Google app for other automation fits this server yet.':
+      '尚无适用于此服务器的其他自动化 Google 应用。',
+    'Register another app': '注册其他应用',
+    'DAGs that run on this server, rather than on a worker, run as Dagu’s user, so their authors can read this connection’s tokens.':
+      '在此服务器上（而非 worker 上）运行的 DAG 以 Dagu 的用户身份运行，因此其作者可以读取此连接的令牌。',
+    'Ask an admin to register a Google OAuth app with:':
+      '请管理员注册具有以下设置的 Google OAuth 应用：',
+    'Client type: Web application': '客户端类型：Web 应用',
+    'Client type: Desktop app': '客户端类型：桌面应用',
+    '“Use this client for an AI-powered agent” ticked':
+      '勾选“Use this client for an AI-powered agent”',
+    '“Use this client for an AI-powered agent” not ticked':
+      '不勾选“Use this client for an AI-powered agent”',
+    'Could not register the app.': '无法注册应用。',
+    'Enable the APIs': '启用 API',
+    'Enable APIs in Google Cloud': '在 Google Cloud 中启用 API',
+    'The chosen services need no API.': '所选服务无需启用 API。',
+    'Set up the consent screen': '设置同意屏幕',
+    'Open the consent screen': '打开同意屏幕',
+    'An app in Testing status accepts only its test users, and their sign-ins end after seven days. Publish the app to Production, or make it Internal in a Workspace organization, to avoid both.':
+      '处于 Testing 状态的应用只接受其测试用户，且登录在七天后失效。将应用发布到 Production，或在 Workspace 组织中设为 Internal，即可避免这两点。',
+    'An app that Google has not verified shows “Google hasn’t verified this app” at sign-in. That is expected for your own app.':
+      '未经 Google 验证的应用在登录时会显示“Google hasn’t verified this app”。对于你自己的应用，这是正常的。',
+    'Create the OAuth client': '创建 OAuth 客户端',
+    'Open Google Cloud clients': '打开 Google Cloud 客户端',
+    'Choose the application type Web application.': '选择应用类型“Web 应用”。',
+    'Choose the application type Desktop app. This server has no public URL, so the sign-in ends on a page whose address you paste back.':
+      '选择应用类型“桌面应用”。此服务器没有公开 URL，因此登录会停在一个页面上，你需要把该页面的地址粘贴回来。',
+    'Tick “Use this client for an AI-powered agent”.':
+      '勾选“Use this client for an AI-powered agent”。',
+    'Upload the client JSON': '上传客户端 JSON',
+    'App name': '应用名称',
+    'Client JSON file': '客户端 JSON 文件',
+    'Register app': '注册应用',
   },
   ja: {
     'Accounts that DAGs in this workspace use by name. Dagu keeps and refreshes their tokens.':
@@ -241,6 +384,80 @@ export const connectionMessages = defineMessages({
     'Service checks': 'サービスのチェック',
     'Needs reconnect': '再接続が必要',
     Broken: '破損',
+    'Other automation and mail': 'その他の自動化とメール',
+    'Steps call Google’s REST APIs with http.request, such as the Gmail API to read and send mail.':
+      'ステップは http.request で Google の REST API を呼び出します。たとえば Gmail API でメールを読み書きします。',
+    'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
+      '小文字・数字・ハイフンだけを使い、英字か数字で始めてください。',
+    'This workspace already has a connection named {name}.':
+      'このワークスペースには {name} という接続がすでにあります。',
+    'Open it': '開く',
+    'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
+      'このサーバーには公開 URL がないため、ウェブクライアントではサインインできません。代わりにデスクトップ アプリのクライアントを作成し、その JSON をアップロードしてください。',
+    'This server cannot sign in through a desktop client.':
+      'このサーバーはデスクトップ クライアントではサインインできません。',
+    'The app was registered, but this server cannot sign in with it.':
+      'アプリは登録されましたが、このサーバーはそのアプリでサインインできません。',
+    'Could not create the connection.': '接続を作成できませんでした。',
+    'Connect Google Workspace': 'Google Workspace を接続',
+    'The connection belongs to workspace {workspace}.':
+      'この接続はワークスペース {workspace} に属します。',
+    'Create and sign in': '作成してサインイン',
+    'Gmail, Calendar, Drive, Docs, and more.':
+      'Gmail、Calendar、Drive、Docs など。',
+    'Not available yet.': 'まだ利用できません。',
+    'DAGs name the connection with this. Up to 63 lowercase letters, digits, and hyphens, starting with a letter or digit.':
+      'DAG はこの名前で接続を指定します。小文字・数字・ハイフンで 63 文字まで、先頭は英字か数字です。',
+    'Access for {service}': '{service} のアクセス',
+    'Preview services work only for accounts in Google’s Workspace Developer Preview program.':
+      'プレビューのサービスは、Google の Workspace Developer Preview プログラムに参加しているアカウントでのみ使えます。',
+    'Scopes to ask for': '要求するスコープ',
+    'AI agents': 'AI エージェント',
+    'Steps call Google’s MCP servers with mcp.call, and AI steps use their tools.':
+      'ステップは mcp.call で Google の MCP サーバーを呼び出し、AI ステップはそのツールを使います。',
+    'Who will use this connection?': 'この接続を使うのは？',
+    'Google requires separate OAuth clients for AI agents and for other automation, so each connection uses one kind. For both, add two connections.':
+      'Google では AI エージェントとその他の自動化に別々の OAuth クライアントが必要なため、1 つの接続はどちらか一方を使います。両方使う場合は接続を 2 つ追加してください。',
+    'OAuth app': 'OAuth アプリ',
+    'No Google app for AI agents fits this server yet.':
+      'このサーバーに合う AI エージェント用の Google アプリはまだありません。',
+    'No Google app for other automation fits this server yet.':
+      'このサーバーに合うその他の自動化用の Google アプリはまだありません。',
+    'Register another app': '別のアプリを登録',
+    'DAGs that run on this server, rather than on a worker, run as Dagu’s user, so their authors can read this connection’s tokens.':
+      'ワーカーではなくこのサーバーで動く DAG は Dagu のユーザーとして実行されるため、その作成者はこの接続のトークンを読めます。',
+    'Ask an admin to register a Google OAuth app with:':
+      '管理者に、次の設定の Google OAuth アプリの登録を依頼してください:',
+    'Client type: Web application':
+      'クライアントの種類: ウェブ アプリケーション',
+    'Client type: Desktop app': 'クライアントの種類: デスクトップ アプリ',
+    '“Use this client for an AI-powered agent” ticked':
+      '「Use this client for an AI-powered agent」をオン',
+    '“Use this client for an AI-powered agent” not ticked':
+      '「Use this client for an AI-powered agent」をオフ',
+    'Could not register the app.': 'アプリを登録できませんでした。',
+    'Enable the APIs': 'API を有効にする',
+    'Enable APIs in Google Cloud': 'Google Cloud で API を有効にする',
+    'The chosen services need no API.':
+      '選んだサービスに有効にする API はありません。',
+    'Set up the consent screen': '同意画面を設定する',
+    'Open the consent screen': '同意画面を開く',
+    'An app in Testing status accepts only its test users, and their sign-ins end after seven days. Publish the app to Production, or make it Internal in a Workspace organization, to avoid both.':
+      'Testing 状態のアプリはテストユーザーしか受け付けず、サインインは 7 日で期限切れになります。アプリを Production に公開するか、Workspace 組織で Internal にすると、どちらも避けられます。',
+    'An app that Google has not verified shows “Google hasn’t verified this app” at sign-in. That is expected for your own app.':
+      'Google が確認していないアプリでは、サインイン時に「Google hasn’t verified this app」と表示されます。自分のアプリでは想定どおりです。',
+    'Create the OAuth client': 'OAuth クライアントを作成する',
+    'Open Google Cloud clients': 'Google Cloud のクライアントを開く',
+    'Choose the application type Web application.':
+      'アプリケーションの種類で「ウェブ アプリケーション」を選びます。',
+    'Choose the application type Desktop app. This server has no public URL, so the sign-in ends on a page whose address you paste back.':
+      'アプリケーションの種類で「デスクトップ アプリ」を選びます。このサーバーには公開 URL がないため、サインインはあるページで止まり、そのアドレスを貼り付けて戻します。',
+    'Tick “Use this client for an AI-powered agent”.':
+      '「Use this client for an AI-powered agent」をオンにします。',
+    'Upload the client JSON': 'クライアント JSON をアップロードする',
+    'App name': 'アプリ名',
+    'Client JSON file': 'クライアント JSON ファイル',
+    'Register app': 'アプリを登録',
   },
   de: {
     'Accounts that DAGs in this workspace use by name. Dagu keeps and refreshes their tokens.':
@@ -324,6 +541,80 @@ export const connectionMessages = defineMessages({
     'Service checks': 'Dienstprüfungen',
     'Needs reconnect': 'Neu verbinden nötig',
     Broken: 'Defekt',
+    'Other automation and mail': 'Andere Automatisierung und E-Mail',
+    'Steps call Google’s REST APIs with http.request, such as the Gmail API to read and send mail.':
+      'Schritte rufen die REST-APIs von Google mit http.request auf, etwa die Gmail-API, um E-Mails zu lesen und zu senden.',
+    'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
+      'Verwenden Sie nur Kleinbuchstaben, Ziffern und Bindestriche, und beginnen Sie mit einem Buchstaben oder einer Ziffer.',
+    'This workspace already has a connection named {name}.':
+      'Dieser Arbeitsbereich hat bereits eine Verbindung namens {name}.',
+    'Open it': 'Öffnen',
+    'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
+      'Dieser Server hat keine öffentliche URL und kann sich daher nicht über einen Web-Client anmelden. Erstellen Sie stattdessen einen Desktop-App-Client und laden Sie dessen JSON hoch.',
+    'This server cannot sign in through a desktop client.':
+      'Dieser Server kann sich nicht über einen Desktop-Client anmelden.',
+    'The app was registered, but this server cannot sign in with it.':
+      'Die App wurde registriert, aber dieser Server kann sich damit nicht anmelden.',
+    'Could not create the connection.':
+      'Die Verbindung konnte nicht erstellt werden.',
+    'Connect Google Workspace': 'Google Workspace verbinden',
+    'The connection belongs to workspace {workspace}.':
+      'Die Verbindung gehört zum Arbeitsbereich {workspace}.',
+    'Create and sign in': 'Erstellen und anmelden',
+    'Gmail, Calendar, Drive, Docs, and more.':
+      'Gmail, Calendar, Drive, Docs und mehr.',
+    'Not available yet.': 'Noch nicht verfügbar.',
+    'DAGs name the connection with this. Up to 63 lowercase letters, digits, and hyphens, starting with a letter or digit.':
+      'DAGs nennen die Verbindung mit diesem Namen. Bis zu 63 Kleinbuchstaben, Ziffern und Bindestriche, beginnend mit einem Buchstaben oder einer Ziffer.',
+    'Access for {service}': 'Zugriff für {service}',
+    'Preview services work only for accounts in Google’s Workspace Developer Preview program.':
+      'Vorschau-Dienste funktionieren nur für Konten im Workspace Developer Preview-Programm von Google.',
+    'Scopes to ask for': 'Anzufordernde Scopes',
+    'AI agents': 'KI-Agenten',
+    'Steps call Google’s MCP servers with mcp.call, and AI steps use their tools.':
+      'Schritte rufen die MCP-Server von Google mit mcp.call auf, und KI-Schritte nutzen ihre Tools.',
+    'Who will use this connection?': 'Wer nutzt diese Verbindung?',
+    'Google requires separate OAuth clients for AI agents and for other automation, so each connection uses one kind. For both, add two connections.':
+      'Google verlangt getrennte OAuth-Clients für KI-Agenten und für andere Automatisierung, daher nutzt jede Verbindung eine Art. Für beides fügen Sie zwei Verbindungen hinzu.',
+    'OAuth app': 'OAuth-App',
+    'No Google app for AI agents fits this server yet.':
+      'Noch keine Google-App für KI-Agenten passt zu diesem Server.',
+    'No Google app for other automation fits this server yet.':
+      'Noch keine Google-App für andere Automatisierung passt zu diesem Server.',
+    'Register another app': 'Weitere App registrieren',
+    'DAGs that run on this server, rather than on a worker, run as Dagu’s user, so their authors can read this connection’s tokens.':
+      'DAGs, die auf diesem Server statt auf einem Worker laufen, laufen als Dagus Benutzer, daher können ihre Autoren die Tokens dieser Verbindung lesen.',
+    'Ask an admin to register a Google OAuth app with:':
+      'Bitten Sie einen Admin, eine Google-OAuth-App zu registrieren mit:',
+    'Client type: Web application': 'Client-Typ: Webanwendung',
+    'Client type: Desktop app': 'Client-Typ: Desktop-App',
+    '“Use this client for an AI-powered agent” ticked':
+      '„Use this client for an AI-powered agent“ angehakt',
+    '“Use this client for an AI-powered agent” not ticked':
+      '„Use this client for an AI-powered agent“ nicht angehakt',
+    'Could not register the app.': 'Die App konnte nicht registriert werden.',
+    'Enable the APIs': 'APIs aktivieren',
+    'Enable APIs in Google Cloud': 'APIs in Google Cloud aktivieren',
+    'The chosen services need no API.':
+      'Die gewählten Dienste brauchen keine API.',
+    'Set up the consent screen': 'Zustimmungsbildschirm einrichten',
+    'Open the consent screen': 'Zustimmungsbildschirm öffnen',
+    'An app in Testing status accepts only its test users, and their sign-ins end after seven days. Publish the app to Production, or make it Internal in a Workspace organization, to avoid both.':
+      'Eine App im Status Testing akzeptiert nur ihre Testnutzer, und deren Anmeldungen enden nach sieben Tagen. Veröffentlichen Sie die App in Production oder machen Sie sie in einer Workspace-Organisation Internal, um beides zu vermeiden.',
+    'An app that Google has not verified shows “Google hasn’t verified this app” at sign-in. That is expected for your own app.':
+      'Eine von Google nicht geprüfte App zeigt bei der Anmeldung „Google hasn’t verified this app“. Für Ihre eigene App ist das zu erwarten.',
+    'Create the OAuth client': 'OAuth-Client erstellen',
+    'Open Google Cloud clients': 'Google-Cloud-Clients öffnen',
+    'Choose the application type Web application.':
+      'Wählen Sie den Anwendungstyp Webanwendung.',
+    'Choose the application type Desktop app. This server has no public URL, so the sign-in ends on a page whose address you paste back.':
+      'Wählen Sie den Anwendungstyp Desktop-App. Dieser Server hat keine öffentliche URL, daher endet die Anmeldung auf einer Seite, deren Adresse Sie zurück einfügen.',
+    'Tick “Use this client for an AI-powered agent”.':
+      'Haken Sie „Use this client for an AI-powered agent“ an.',
+    'Upload the client JSON': 'Client-JSON hochladen',
+    'App name': 'App-Name',
+    'Client JSON file': 'Client-JSON-Datei',
+    'Register app': 'App registrieren',
   },
   fr: {
     'Accounts that DAGs in this workspace use by name. Dagu keeps and refreshes their tokens.':
@@ -353,16 +644,16 @@ export const connectionMessages = defineMessages({
     'Read and write': 'Lecture et écriture',
     Read: 'Lecture',
     'Not granted. Reconnect to ask for the missing scopes:':
-      'Non accordé. Reconnectez pour demander les portées manquantes :',
+      'Non accordé. Reconnectez pour demander les portées manquantes\u00a0:',
     'Granted scopes': 'Portées accordées',
     'Remove connection': 'Supprimer la connexion',
     'Remove {name}? Its tokens and tool lists are deleted, and DAGs that name it fail when they start.':
-      'Supprimer {name} ? Ses jetons et ses listes d’outils sont supprimés, et les DAG qui la nomment échouent au démarrage.',
+      'Supprimer {name}\u00a0? Ses jetons et ses listes d’outils sont supprimés, et les DAG qui la nomment échouent au démarrage.',
     'Dagu also revokes its sign-in at Google, so connections on other servers that use a client of the same Google Cloud project may lose access.':
-      'Dagu révoque aussi sa connexion chez Google : les connexions d’autres serveurs qui utilisent un client du même projet Google Cloud peuvent perdre l’accès.',
+      'Dagu révoque aussi sa connexion chez Google\u00a0: les connexions d’autres serveurs qui utilisent un client du même projet Google Cloud peuvent perdre l’accès.',
     'Dagu also revokes its sign-in at the provider, so connections on other servers that use the same client may lose access.':
-      'Dagu révoque aussi sa connexion chez le fournisseur : les connexions d’autres serveurs qui utilisent le même client peuvent perdre l’accès.',
-    'Copy {name}': 'Copier : {name}',
+      'Dagu révoque aussi sa connexion chez le fournisseur\u00a0: les connexions d’autres serveurs qui utilisent le même client peuvent perdre l’accès.',
+    'Copy {name}': 'Copier\u00a0: {name}',
     'Connections are kept on each server':
       'Les connexions sont conservées sur chaque serveur',
     'Remote nodes do not serve their connections. Select the local server to see its connections.':
@@ -375,9 +666,9 @@ export const connectionMessages = defineMessages({
     'The live tokens stay in use until you confirm the account that signed in.':
       'Les jetons actuels restent utilisés jusqu’à ce que vous confirmiez le compte connecté.',
     '{name} is connected.': '{name} est connectée.',
-    'Signing in failed: {reason}': 'La connexion a échoué : {reason}',
+    'Signing in failed: {reason}': 'La connexion a échoué\u00a0: {reason}',
     "This server has no public URL, so a web client can't receive the sign-in. Set server.public_url, or use an app with a desktop client.":
-      'Ce serveur n’a pas d’URL publique : un client web ne peut pas recevoir la connexion. Définissez server.public_url ou utilisez une application avec un client de bureau.',
+      'Ce serveur n’a pas d’URL publique\u00a0: un client web ne peut pas recevoir la connexion. Définissez server.public_url ou utilisez une application avec un client de bureau.',
     'After you consent, the popup ends on a page that fails to load. Copy that page’s address from the popup and paste it here.':
       'Après votre consentement, la fenêtre s’arrête sur une page qui ne se charge pas. Copiez l’adresse de cette page depuis la fenêtre et collez-la ici.',
     'Redirect URI to register in the client':
@@ -401,10 +692,83 @@ export const connectionMessages = defineMessages({
     'This is not {account}, the account the connection holds now. Confirming replaces it.':
       'Ce n’est pas {account}, le compte actuel de la connexion. Confirmer le remplace.',
     'Other connections in this workspace already hold this account through the same client: {names}.':
-      'D’autres connexions de cet espace de travail utilisent déjà ce compte avec le même client : {names}.',
+      'D’autres connexions de cet espace de travail utilisent déjà ce compte avec le même client\u00a0: {names}.',
     'The sign-in ends {date}.': 'La connexion prend fin le {date}.',
     'Service checks': 'Vérifications des services',
     'Needs reconnect': 'À reconnecter',
     Broken: 'Endommagée',
+    'Other automation and mail': 'Autres automatisations et e-mail',
+    'Steps call Google’s REST APIs with http.request, such as the Gmail API to read and send mail.':
+      'Les étapes appellent les API REST de Google avec http.request, par exemple l’API Gmail pour lire et envoyer des e-mails.',
+    'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
+      'Utilisez uniquement des lettres minuscules, des chiffres et des tirets, en commençant par une lettre ou un chiffre.',
+    'This workspace already has a connection named {name}.':
+      'Cet espace de travail a déjà une connexion nommée {name}.',
+    'Open it': 'L’ouvrir',
+    'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
+      'Ce serveur n’a pas d’URL publique et ne peut donc pas se connecter avec un client Web. Créez plutôt un client Application de bureau et téléversez son JSON.',
+    'This server cannot sign in through a desktop client.':
+      'Ce serveur ne peut pas se connecter avec un client de bureau.',
+    'The app was registered, but this server cannot sign in with it.':
+      'L’application a été enregistrée, mais ce serveur ne peut pas se connecter avec elle.',
+    'Could not create the connection.': 'Impossible de créer la connexion.',
+    'Connect Google Workspace': 'Connecter Google Workspace',
+    'The connection belongs to workspace {workspace}.':
+      'La connexion appartient à l’espace de travail {workspace}.',
+    'Create and sign in': 'Créer et se connecter',
+    'Gmail, Calendar, Drive, Docs, and more.':
+      'Gmail, Calendar, Drive, Docs et plus encore.',
+    'Not available yet.': 'Pas encore disponible.',
+    'DAGs name the connection with this. Up to 63 lowercase letters, digits, and hyphens, starting with a letter or digit.':
+      'Les DAG nomment la connexion ainsi. Jusqu’à 63 lettres minuscules, chiffres et tirets, commençant par une lettre ou un chiffre.',
+    'Access for {service}': 'Accès pour {service}',
+    'Preview services work only for accounts in Google’s Workspace Developer Preview program.':
+      'Les services en préversion ne fonctionnent que pour les comptes inscrits au programme Workspace Developer Preview de Google.',
+    'Scopes to ask for': 'Portées à demander',
+    'AI agents': 'Agents IA',
+    'Steps call Google’s MCP servers with mcp.call, and AI steps use their tools.':
+      'Les étapes appellent les serveurs MCP de Google avec mcp.call, et les étapes IA utilisent leurs outils.',
+    'Who will use this connection?': 'Qui utilisera cette connexion\u00a0?',
+    'Google requires separate OAuth clients for AI agents and for other automation, so each connection uses one kind. For both, add two connections.':
+      'Google exige des clients OAuth distincts pour les agents IA et pour les autres automatisations\u00a0: chaque connexion en utilise un seul type. Pour les deux, ajoutez deux connexions.',
+    'OAuth app': 'Application OAuth',
+    'No Google app for AI agents fits this server yet.':
+      'Aucune application Google pour agents IA ne convient encore à ce serveur.',
+    'No Google app for other automation fits this server yet.':
+      'Aucune application Google pour les autres automatisations ne convient encore à ce serveur.',
+    'Register another app': 'Enregistrer une autre application',
+    'DAGs that run on this server, rather than on a worker, run as Dagu’s user, so their authors can read this connection’s tokens.':
+      'Les DAG exécutés sur ce serveur, et non sur un worker, s’exécutent sous l’utilisateur de Dagu\u00a0: leurs auteurs peuvent donc lire les jetons de cette connexion.',
+    'Ask an admin to register a Google OAuth app with:':
+      'Demandez à un administrateur d’enregistrer une application OAuth Google avec\u00a0:',
+    'Client type: Web application': 'Type de client\u00a0: application Web',
+    'Client type: Desktop app': 'Type de client\u00a0: application de bureau',
+    '“Use this client for an AI-powered agent” ticked':
+      '«\u00a0Use this client for an AI-powered agent\u00a0» coché',
+    '“Use this client for an AI-powered agent” not ticked':
+      '«\u00a0Use this client for an AI-powered agent\u00a0» non coché',
+    'Could not register the app.': 'Impossible d’enregistrer l’application.',
+    'Enable the APIs': 'Activer les API',
+    'Enable APIs in Google Cloud': 'Activer les API dans Google Cloud',
+    'The chosen services need no API.':
+      'Les services choisis ne nécessitent aucune API.',
+    'Set up the consent screen': 'Configurer l’écran de consentement',
+    'Open the consent screen': 'Ouvrir l’écran de consentement',
+    'An app in Testing status accepts only its test users, and their sign-ins end after seven days. Publish the app to Production, or make it Internal in a Workspace organization, to avoid both.':
+      'Une application en statut Testing n’accepte que ses utilisateurs de test, et leurs connexions expirent après sept jours. Publiez l’application en Production, ou rendez-la Internal dans une organisation Workspace, pour éviter les deux.',
+    'An app that Google has not verified shows “Google hasn’t verified this app” at sign-in. That is expected for your own app.':
+      'Une application que Google n’a pas vérifiée affiche «\u00a0Google hasn’t verified this app\u00a0» à la connexion. C’est normal pour votre propre application.',
+    'Create the OAuth client': 'Créer le client OAuth',
+    'Open Google Cloud clients': 'Ouvrir les clients Google Cloud',
+    'Choose the application type Web application.':
+      'Choisissez le type d’application Application Web.',
+    'Choose the application type Desktop app. This server has no public URL, so the sign-in ends on a page whose address you paste back.':
+      'Choisissez le type d’application Application de bureau. Ce serveur n’a pas d’URL publique\u00a0: la connexion se termine sur une page dont vous recollez l’adresse.',
+    'Tick “Use this client for an AI-powered agent”.':
+      'Cochez «\u00a0Use this client for an AI-powered agent\u00a0».',
+    'Upload the client JSON': 'Téléverser le JSON du client',
+    'App name': 'Nom de l’application',
+    'Client JSON file': 'Fichier JSON du client',
+    'Register app': 'Enregistrer l’application',
   },
 });

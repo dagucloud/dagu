@@ -73,6 +73,7 @@ vi.mock('@/hooks/api', async () => {
 });
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({ user: { role: mocks.role } }),
+  useIsAdmin: () => mocks.role === 'admin',
 }));
 vi.mock('@/contexts/ConfigContext', () => ({
   useConfig: () => ({ authMode: 'builtin' }),
