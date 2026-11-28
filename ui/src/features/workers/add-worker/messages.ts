@@ -11,11 +11,11 @@ export const addWorkerMessages = defineMessages({
       'The coordinator now reports {address}.',
     "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it. If these settings are in order, check that the network path to the coordinator passes TLS.":
       "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it. If these settings are in order, check that the network path to the coordinator passes TLS.",
+    'Invite created. Its command is below.':
+      'Invite created. Its command is below.',
+    'Creating invite…': 'Creating invite…',
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.',
-    'Show it': 'Show it',
-    'The invite you created is on the {tab} tab.':
-      'The invite you created is on the {tab} tab.',
     "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
       "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:",
     'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':
@@ -179,11 +179,10 @@ export const addWorkerMessages = defineMessages({
       '协调器现在报告的地址为 {address}。',
     "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it. If these settings are in order, check that the network path to the coordinator passes TLS.":
       '协调器要求 TLS。请在此服务器上清除所有 peer.insecure: true 或 peer.skip_tls_verify: true，无论它由参数、变量还是配置文件设置。如果此服务器没有协调器可用的 CA 证书，请将其切换到内置 TLS：清除 peer.cert_file、peer.key_file 和 peer.client_ca_file，然后将 peer.ca_cert_file 设为协调器的 CA 证书。然后重启它。如果这些设置都没有问题，请检查到协调器的网络路径是否允许 TLS 通过。',
+    'Invite created. Its command is below.': '邀请已创建。其命令在下方。',
+    'Creating invite…': '正在创建邀请…',
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       '请确认 Worker Pod 可以访问此地址。其他命名空间中的 Worker 需要使用带命名空间的 Service 地址，例如 dagu-coordinator.<namespace>.svc:50055。',
-    'Show it': '显示',
-    'The invite you created is on the {tab} tab.':
-      '您创建的邀请在 {tab} 标签页中。',
     "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
       '请使用应用清单时相同的 kubectl 上下文和命名空间运行此命令。Worker 的日志会说明原因：',
     'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':
@@ -345,11 +344,11 @@ export const addWorkerMessages = defineMessages({
       'コーディネーターは現在 {address} を報告しています。',
     "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it. If these settings are in order, check that the network path to the coordinator passes TLS.":
       'コーディネーターは TLS を必要とします。このサーバーで peer.insecure: true と peer.skip_tls_verify: true を、フラグ、変数、設定ファイルのどれで設定されていてもすべて解除してください。このサーバーにコーディネーター用の使える CA 証明書がない場合は、組み込み TLS に切り替えてください。peer.cert_file、peer.key_file、peer.client_ca_file を解除してから、peer.ca_cert_file をコーディネーターの CA 証明書にします。その後再起動してください。これらの設定に問題がなければ、コーディネーターまでのネットワーク経路が TLS を通すか確認してください。',
+    'Invite created. Its command is below.':
+      '招待を作成しました。コマンドは下にあります。',
+    'Creating invite…': '招待を作成しています…',
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       'ワーカー Pod がこのアドレスに到達できることを確認してください。別の名前空間のワーカーには、dagu-coordinator.<namespace>.svc:50055 のような名前空間付きの Service アドレスが必要です。',
-    'Show it': '表示',
-    'The invite you created is on the {tab} tab.':
-      '作成した招待は {tab} タブにあります。',
     "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
       'マニフェストを適用したときと同じ kubectl のコンテキストと名前空間でこれを実行してください。ワーカーのログに原因が示されます:',
     'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':
@@ -515,11 +514,11 @@ export const addWorkerMessages = defineMessages({
       'Der Koordinator meldet jetzt {address}.',
     "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it. If these settings are in order, check that the network path to the coordinator passes TLS.":
       'Der Koordinator verlangt TLS. Entfernen Sie auf diesem Server jedes peer.insecure: true und peer.skip_tls_verify: true, ob ein Flag, eine Variable oder die Konfigurationsdatei es setzt. Hat dieser Server kein nutzbares CA-Zertifikat für den Koordinator, stellen Sie ihn auf eingebautes TLS um: Entfernen Sie peer.cert_file, peer.key_file und peer.client_ca_file und setzen Sie dann peer.ca_cert_file auf das CA-Zertifikat des Koordinators. Starten Sie ihn dann neu. Sind diese Einstellungen in Ordnung, prüfen Sie, ob der Netzwerkpfad zum Koordinator TLS durchlässt.',
+    'Invite created. Its command is below.':
+      'Einladung erstellt. Ihr Befehl steht unten.',
+    'Creating invite…': 'Einladung wird erstellt…',
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       'Prüfen Sie, dass Worker-Pods diese Adresse erreichen. Worker in einem anderen Namespace brauchen die Service-Adresse mit Namespace, etwa dagu-coordinator.<namespace>.svc:50055.',
-    'Show it': 'Anzeigen',
-    'The invite you created is on the {tab} tab.':
-      'Die erstellte Einladung ist im Tab {tab}.',
     "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
       'Führen Sie dies mit demselben kubectl-Kontext und Namespace aus, mit dem Sie das Manifest angewendet haben. Das Log des Workers nennt die Ursache:',
     'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':
@@ -691,11 +690,11 @@ export const addWorkerMessages = defineMessages({
       'Le coordinateur indique maintenant {address}.',
     "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it. If these settings are in order, check that the network path to the coordinator passes TLS.":
       'Le coordinateur exige TLS. Sur ce serveur, retirez tout peer.insecure : true ou peer.skip_tls_verify : true, qu’une option, une variable ou le fichier de configuration le définisse. Si ce serveur n’a pas de certificat de CA utilisable pour le coordinateur, passez-le au TLS intégré : retirez peer.cert_file, peer.key_file et peer.client_ca_file, puis définissez peer.ca_cert_file sur le certificat de CA du coordinateur. Puis redémarrez-le. Si ces réglages sont en ordre, vérifiez que le chemin réseau vers le coordinateur laisse passer TLS.',
+    'Invite created. Its command is below.':
+      'Invitation créée. Sa commande se trouve ci-dessous.',
+    'Creating invite…': 'Création de l’invitation…',
     'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.':
       'Vérifiez que les pods des workers atteignent cette adresse. Les workers d’un autre espace de noms ont besoin de l’adresse du Service qualifiée par l’espace de noms, par exemple dagu-coordinator.<namespace>.svc:50055.',
-    'Show it': 'L’afficher',
-    'The invite you created is on the {tab} tab.':
-      'L’invitation créée se trouve dans l’onglet {tab}.',
     "Run this with the same kubectl context and namespace you applied the manifest with. The worker's log names the cause:":
       'Exécutez ceci avec le même contexte kubectl et le même espace de noms que pour appliquer le manifeste. Le journal du worker indique la cause :',
     'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own and use a new invite, or a reusable one.':

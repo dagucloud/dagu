@@ -106,18 +106,12 @@ export function WorkerStep({
   const [problem, setProblem] = React.useState<RequestProblem>();
   // The Create invite button goes away with a new invite, so the focus
   // moves to the new command's copy button once, unless the admin moved it
-  // or the tab while the request ran.
+  // while the request ran.
   const [focusCopy, setFocusCopy] = React.useState(false);
   React.useEffect(() => {
     if (focusCopy) setFocusCopy(false);
   }, [focusCopy]);
-  const shownTab = React.useRef(tab);
-  shownTab.current = tab;
-  // An invite made while the admin switched tabs, until its tab shows it.
-  const [created, setCreated] = React.useState<{
-    id: string;
-    tab: WorkerTab;
-  }>();
+  const [createdId, setCreatedId] = React.useState<string>();
 
   if (!address && invites.length === 0) return null;
 
@@ -143,12 +137,10 @@ export function WorkerStep({
         }
       : undefined;
   const panelShowsInvite = !(tab !== WorkerTab.linux && !image);
-  const elsewhere = created && created.id !== invite?.id ? created : undefined;
 
   const create = async () => {
     if (!address) return;
     const from = document.activeElement;
-    const fromTab = tab;
     setCreating(true);
     onCreating(true);
     setProblem(undefined);
@@ -158,14 +150,14 @@ export function WorkerStep({
       });
       if (data) {
         onInvite({ ...data, createdAt: Date.now(), address, kind });
-        setCreated({ id: data.id, tab: fromTab });
+        setCreatedId(data.id);
         const now = document.activeElement;
         const kept =
           !now ||
           now === from ||
           now === document.body ||
           now.getAttribute('role') === 'dialog';
-        if (kept && shownTab.current === fromTab) setFocusCopy(true);
+        if (kept) setFocusCopy(true);
       } else {
         setProblem(
           requestProblem(
@@ -188,9 +180,14 @@ export function WorkerStep({
       <TabStrip
         label={ts('How the worker runs')}
         idPrefix={TAB_PREFIX}
-        tabs={TABS.map((t) => ({ ...t, controls: panelId }))}
+        // The tab sets the invite kind, so it holds while a request runs.
+        tabs={TABS.map((t) => ({
+          ...t,
+          controls: panelId,
+          disabled: creating && t.id !== tab,
+        }))}
         value={tab}
-        onChange={(id) => setTab(id as WorkerTab)}
+        onChange={(id) => !creating && setTab(id as WorkerTab)}
         touchLabels
       />
       <div
@@ -202,28 +199,21 @@ export function WorkerStep({
         tabIndex={panelShowsInvite ? undefined : 0}
         className="space-y-3"
       >
-        {elsewhere && (
-          <p
-            role="status"
-            className="flex flex-wrap items-center gap-2 text-sm"
-          >
-            <I18nText
-              text="The invite you created is on the {tab} tab."
-              values={{
-                tab: TABS.find((t) => t.id === elsewhere.tab)?.label ?? '',
-              }}
-            />
-            <Button
-              size="xs"
-              onClick={() => {
-                setTab(elsewhere.tab);
-                setCreated(undefined);
-              }}
-            >
-              <I18nText text="Show it" />
-            </Button>
-          </p>
-        )}
+        {/* One region stays mounted, so progress and completion are
+            announced as its text changes. */}
+        <p
+          role="status"
+          className="text-xs text-muted-foreground empty:sr-only"
+        >
+          {creating ? (
+            <I18nText text="Creating invite…" />
+          ) : (
+            createdId === invite?.id &&
+            createdId && (
+              <I18nText text="Invite created. Its command is below." />
+            )
+          )}
+        </p>
         {tab !== WorkerTab.linux && !image ? (
           <p className="text-sm">
             <I18nText
@@ -328,7 +318,12 @@ function WorkerCommand({
         )}
       </div>
 
-      <KindChoice tab={tab} kind={kind} onChange={onKindChange} />
+      <KindChoice
+        tab={tab}
+        kind={kind}
+        locked={creating}
+        onChange={onKindChange}
+      />
 
       {!invite ? (
         <div className="space-y-2">
@@ -404,10 +399,13 @@ function WorkerCommand({
 function KindChoice({
   tab,
   kind,
+  locked,
   onChange,
 }: {
   tab: WorkerTab;
   kind: WorkerInviteKind;
+  /** Holds the kind while a request runs. */
+  locked: boolean;
   onChange: (kind: WorkerInviteKind) => void;
 }) {
   if (tab === WorkerTab.kubernetes) {
@@ -431,7 +429,7 @@ function KindChoice({
     },
   ];
   return (
-    <fieldset className="space-y-1.5">
+    <fieldset className="space-y-1.5" disabled={locked}>
       <legend className="mb-1.5 text-sm">
         <I18nText text="Invite" />
       </legend>

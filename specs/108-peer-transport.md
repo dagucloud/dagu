@@ -1248,7 +1248,7 @@ and prints the message:
 
 #### Add Worker
 
-- **Add worker** is on the Workers page, for admins. It reads join
+- **Add worker** is in System status, in its Workers section, for admins. It reads join
   readiness and creates the invite on the server that serves the page.
   While System status shows a remote node, **Add worker** is disabled and
   says to switch to the local server.
@@ -1389,10 +1389,11 @@ and prints the message:
   readings, and replacement invites. Each tab shows the newest invite of
   its kind made for the field's address, else the newest of its kind, so
   going back to an earlier address shows that address's invite. The
-  dialog stays open while an invite request is pending. A new invite moves
-  the focus to its command's copy button only if the focus is still where
-  the request left it; one made while a tab of another kind shows is
-  announced there, with a way back to its command. At 60 seconds without a worker it reads `/workers` once
+  dialog stays open while an invite request is pending, and the tabs and
+  the invite kind hold until it ends. One status region, always mounted,
+  says that the invite is being created and then that it was. A new
+  invite moves the focus to its command's copy button only if the focus
+  is still where the request left it. At 60 seconds without a worker it reads `/workers` once
   itself, since the page's refresh may be paused; a failed or partial read
   says the list could not be read.
 - When no worker arrives within 60 seconds and a complete read of

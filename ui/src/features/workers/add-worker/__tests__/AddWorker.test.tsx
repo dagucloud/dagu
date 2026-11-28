@@ -147,6 +147,12 @@ function step(title: string) {
   return within(screen.getByRole('region', { name: title }));
 }
 
+// The wait's status region, after the invite progress region in step 3.
+function joinStatus() {
+  const regions = step('Worker').getAllByRole('status');
+  return regions[regions.length - 1];
+}
+
 const ADDRESS = 'Address and port';
 // Shaped like an invite, as an admin may paste one into the wrong field.
 const PASTED_INVITE = `dagu1.${'A'.repeat(43)}.${'B'.repeat(43)}`;
@@ -741,8 +747,8 @@ describe('AddWorker', () => {
     const { rerender } = render(view());
     fireEvent.click(screen.getByRole('button', { name: 'Add worker' }));
     api.GET.mockResolvedValueOnce(answer(200, readiness()));
-    rerender(view(true));
-    rerender(view(false));
+    rerender(view([], true));
+    rerender(view([], false));
     await settle();
     expect(screen.getByText('Ready')).toBeInTheDocument();
 
@@ -1144,28 +1150,30 @@ describe('AddWorker', () => {
     expect(document.activeElement).toBe(labels);
   });
 
-  // An invite made while the admin switched to a tab of another kind is
-  // announced there, with a way back to its command.
-  it('points to an invite made on another tab', async () => {
+  // The tab and the invite kind hold while a request runs, and one status
+  // region, mounted before the request, says how it goes.
+  it('holds the tab and kind while an invite is created', async () => {
     await open(readiness());
     typeAddress('192.168.1.20:50055');
-    fireEvent.click(screen.getByRole('tab', { name: 'Kubernetes' }));
+    const status = step('Worker').getAllByRole('status')[0];
+    expect(status).toHaveTextContent('');
     const created = deferred<unknown>();
     api.POST.mockReturnValue(created.promise);
     fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
-    fireEvent.click(screen.getByRole('tab', { name: 'Linux' }));
-    created.resolve(answer(201, { id: 'inv-1', invite: INVITE }));
-    await settle();
-    expect(
-      screen.getByText('The invite you created is on the Kubernetes tab.')
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Show it' }));
-    expect(screen.getByRole('tab', { name: 'Kubernetes' })).toHaveAttribute(
+    expect(status).toHaveTextContent('Creating invite…');
+    expect(screen.getByRole('tab', { name: 'Kubernetes' })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: /^Reusable/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('tab', { name: 'Kubernetes' }));
+    expect(screen.getByRole('tab', { name: 'Linux' })).toHaveAttribute(
       'aria-selected',
       'true'
     );
-    expect(shownCommand()).toContain('kind: Secret');
-    expect(screen.queryByText(/The invite you created/)).toBeNull();
+
+    created.resolve(answer(201, { id: 'inv-1', invite: INVITE }));
+    await settle();
+    expect(status).toHaveTextContent('Invite created. Its command is below.');
+    expect(screen.getByRole('tab', { name: 'Kubernetes' })).toBeEnabled();
+    expect(screen.getByRole('radio', { name: /^Reusable/ })).toBeEnabled();
   });
 
   // Create invite goes away with the new invite, so the keyboard focus
@@ -1271,7 +1279,7 @@ describe('AddWorker', () => {
     const { rerender } = await open(readiness());
     typeAddress('192.168.1.20:50055');
     await createInvite();
-    const status = step('Worker').getByRole('status');
+    const status = joinStatus();
     expect(status).toHaveTextContent('Waiting for the worker to join...');
 
     rerender(
@@ -1356,7 +1364,7 @@ describe('AddWorker', () => {
     await act(async () => {
       vi.advanceTimersByTime(60_000);
     });
-    expect(step('Worker').getByRole('status')).toHaveTextContent(
+    expect(joinStatus()).toHaveTextContent(
       /The workers list could not be read/
     );
     expect(screen.queryByText(/No worker has joined yet/)).toBeNull();
@@ -1395,7 +1403,7 @@ describe('AddWorker', () => {
     await act(async () => {
       vi.advanceTimersByTime(1_000);
     });
-    expect(step('Worker').getByRole('status')).toHaveTextContent(
+    expect(joinStatus()).toHaveTextContent(
       'No worker has joined yet. The usual causes:'
     );
     expect(screen.getByText(/closes port 50055/)).toBeInTheDocument();
@@ -1404,6 +1412,13 @@ describe('AddWorker', () => {
       screen.getByText('The worker cannot reach 192.168.1.20:50055.')
     ).toBeInTheDocument();
     expect(screen.getByText(check, { selector: 'pre' })).toBeInTheDocument();
+    // kubectl reads the cluster the manifest went to only from the same
+    // context and namespace.
+    if (tab === 'Kubernetes') {
+      expect(
+        screen.getByText(/same kubectl context and namespace you applied/)
+      ).toBeInTheDocument();
+    }
     // Each copy button names what it copies.
     for (const name of ['Copy the command', 'Copy the diagnostic command']) {
       fireEvent.click(screen.getByRole('button', { name }));
@@ -1458,13 +1473,16 @@ describe('AddWorker', () => {
     ).toBeDisabled();
   });
 
+  // A second container needs its own volume and an invite it can use.
   it('says to give another Docker worker its own volume', async () => {
     await open(readiness());
     typeAddress('192.168.1.20:50055');
     fireEvent.click(screen.getByRole('tab', { name: 'Docker' }));
     await createInvite();
     expect(
-      screen.getByText(/change the volume dagu-worker to one of its own/)
+      screen.getByText(
+        /change the volume dagu-worker to one of its own and use a new invite, or a reusable one\./
+      )
     ).toBeInTheDocument();
   });
 
@@ -1521,7 +1539,7 @@ describe('AddWorker', () => {
     later.resolve(answer(200, next));
     await act(async () => {});
     if (next === joinedList) {
-      expect(document.activeElement).toBe(step('Worker').getByRole('status'));
+      expect(document.activeElement).toBe(joinStatus());
       return;
     }
     expect(document.activeElement).toBe(retry);
