@@ -62,6 +62,7 @@ fixed headers.
 | `token` | Optional. Sent as `authorization: Bearer <token>` |
 | `headers` | Optional. A map from a header name to a write-only value. At most 16 entries |
 
+- A static connection has no `app`. Spec 107 lists the grant `static`.
 - A connection has `token`, `headers`, or neither. It does not have both
   `token` and a header `authorization`.
 - A header name matches `^[A-Za-z][A-Za-z0-9-]{0,63}$`, and Dagu keeps it

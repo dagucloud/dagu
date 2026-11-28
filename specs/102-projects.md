@@ -444,7 +444,9 @@ Rules:
 - Changing a project's settings needs the role in that project that
   [Roles](#roles) lists.
 - A credential that every project uses belongs in a secret provider
-  (Spec 069), which each project's DAGs reference.
+  (Spec 069), which each project's DAGs reference. A model API key that no
+  DAG reads is a shared key of
+  [Spec 093](093-model-connections.md#shared-keys) instead.
 
 #### Base Config
 
