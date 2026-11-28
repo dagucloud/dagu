@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"math"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -55,6 +56,22 @@ var inviteKinds = map[persis.WorkerInviteKind]coordinatorv1.InviteKind{
 
 // inviteEncoding encodes an invite's pin and secret.
 var inviteEncoding = base64.RawURLEncoding.Strict()
+
+// invitePattern matches an invite anywhere in a text.
+var invitePattern = regexp.MustCompile(regexp.QuoteMeta(inviteVersion+".") +
+	fmt.Sprintf(`[A-Za-z0-9_-]{%d}\.[A-Za-z0-9_-]{%d}`, inviteFieldLength, inviteFieldLength))
+
+// redactedInvite takes the place of an invite that RedactInvites removes.
+const redactedInvite = "[REDACTED]"
+
+// RedactInvites returns s with every invite in it replaced, for text that
+// may reach a log line or an audit entry.
+func RedactInvites(s string) string {
+	if !strings.Contains(s, inviteVersion+".") {
+		return s
+	}
+	return invitePattern.ReplaceAllLiteralString(s, redactedInvite)
+}
 
 // CreateInvite creates an invite. Its response is the only one that holds
 // the invite.

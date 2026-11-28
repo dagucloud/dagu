@@ -66,6 +66,20 @@ func TestLogRESTAuthDeniedLogsNonAPIKeyAuthFailures(t *testing.T) {
 	assert.Equal(t, "/api/v1/dags", entry.ResourceID)
 }
 
+// A denied request whose path holds a pasted invite is audited without it.
+func TestLogRESTAuthDeniedRedactsInvites(t *testing.T) {
+	store := &restAuditStore{}
+	api := &API{auditService: audit.New(store)}
+	req := newRequestWithRESTAuditSource("Bearer jwt-invalid")
+	req.URL.Path = "/api/v1/workers/invites/" + testInvite
+
+	api.logRESTAuthDenied(req, frontendauth.DenialReasonAuthFailed, nil)
+
+	require.Len(t, store.entries, 1)
+	assert.Equal(t, "/api/v1/workers/invites/[REDACTED]", store.entries[0].ResourceID)
+	assert.NotContains(t, store.entries[0].Details, testInvite)
+}
+
 func newRequestWithRESTAuditSource(authHeader string) *http.Request {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/dags", nil)
 	req.Header.Set("Authorization", authHeader)

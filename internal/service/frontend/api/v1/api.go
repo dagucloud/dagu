@@ -834,7 +834,7 @@ func (a *API) logRESTAuthDenied(r *http.Request, reason string, apiKey *auth.API
 		"result":        "denied",
 		"denial_reason": reason,
 		"resource_type": "rest_request",
-		"resource_id":   r.URL.Path,
+		"resource_id":   coordinator.RedactInvites(r.URL.Path),
 		"http_method":   r.Method,
 	})
 }
