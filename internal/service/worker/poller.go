@@ -89,7 +89,11 @@ func (p *Poller) Run(ctx context.Context) {
 				// returns the task to the queue.
 				ackErr := p.ackTaskClaim(ctx, task)
 				if p.removed() {
-					logger.Info(ctx, "Task left unaccepted: this worker was removed from the coordinator",
+					message := "Task left unaccepted: this worker was removed from the coordinator"
+					if ackErr == nil {
+						message = "Task execution skipped: this worker was removed from the coordinator"
+					}
+					logger.Info(ctx, message,
 						tag.WorkerID(p.workerID),
 						tag.PollerIndex(p.index),
 						tag.RunID(task.DagRunId))
@@ -171,10 +175,8 @@ func (p *Poller) ackTaskClaim(ctx context.Context, task *coordinatorv1.Task) err
 	var resp *coordinatorv1.AckTaskClaimResponse
 	retryCtx, cancel := context.WithTimeout(ctx, taskClaimAckRetryTimeout)
 	defer cancel()
-	// A removal cancels an acknowledgment under way and stops its retries.
-	if p.removal != nil {
-		defer context.AfterFunc(p.removal, cancel)()
-	}
+	// A removal ends ctx, and so an acknowledgment under way, and stops the
+	// retries.
 	err = backoff.Retry(retryCtx, func(ctx context.Context) error {
 		if p.removed() {
 			return errWorkerRemoved

@@ -321,19 +321,20 @@ func (m *Membership) start(ctx context.Context, cred *credential) error {
 		return m.removedFailure(ctx)
 	case keptUnused:
 		if cred != nil && !m.writable {
-			return m.errCannotReplace()
+			return errCannotReplace(m.cfg.Paths.DataDir)
 		}
 	}
 	return nil
 }
 
 // errCannotReplace is the failure of a worker that would replace its kept
-// certificate with one from its invite but could not keep the new one,
-// which would leave the old one for a restart without the invite to reuse.
-func (m *Membership) errCannotReplace() error {
+// certificate with one from its invite but could not keep the new one in
+// dataDir, which would leave the old one for a restart without the invite
+// to reuse.
+func errCannotReplace(dataDir string) error {
 	return failure{
 		cause: "This worker cannot replace the certificate it enrolled for with one from the invite's CA",
-		next:  fmt.Sprintf("Make %s writable, then start the worker again.", m.cfg.Paths.DataDir),
+		next:  fmt.Sprintf("Make %s writable, then start the worker again.", dataDir),
 	}
 }
 
@@ -690,7 +691,7 @@ func (m *Membership) removedAtStart(ctx context.Context) error {
 		return m.removedFailure(ctx)
 	}
 	if !m.writable {
-		return m.errCannotReplace()
+		return errCannotReplace(m.cfg.Paths.DataDir)
 	}
 	logger.Info(ctx, "This worker was removed from the coordinator; it enrolls again with worker.invite")
 	m.cred = nil

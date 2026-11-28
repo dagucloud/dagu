@@ -53,13 +53,18 @@ func CoordinatorClientConfig(cfg *config.Config, localRegistry serviceregistry.S
 		clientConfig = clientConfig.WithInvite(*invite)
 	}
 	switch keptUseOf(cred, invite) {
+	case keptUnused:
+		// The start enrolls in place of the kept certificate only when it
+		// can keep the new one.
+		if cred != nil && !newCredentialStore(cfg.Paths.DataDir).writable() {
+			return nil, nil, errCannotReplace(cfg.Paths.DataDir)
+		}
 	case keptRemoved:
 		// The check still dials with it, to show what coordinators answer.
 		removed = errRemoved(coordinator.ProcessEnvironment() == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES)
 		clientConfig = clientConfig.WithWorkerCertificate(cred.cert, cred.ca)
 	case keptConnect:
 		clientConfig = clientConfig.WithWorkerCertificate(cred.cert, cred.ca)
-	case keptUnused:
 	}
 	if err := clientConfig.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("invalid coordinator client configuration: %w", err)

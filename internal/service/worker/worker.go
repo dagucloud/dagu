@@ -65,6 +65,7 @@ type Worker struct {
 	// For graceful shutdown
 	stopOnce    sync.Once
 	stopPolling context.CancelFunc // Stops polling for new tasks
+	cancelPoll  context.CancelFunc // Ends the polls and their claim acknowledgments at once; pollersMu guards it
 	stopCancel  context.CancelFunc // Cancels the worker's internal context
 	runsCtx     context.Context    // Running tasks are canceled when this is done
 	pollersDone chan struct{}      // Signals when all pollers, and so all tasks, have stopped
@@ -284,6 +285,9 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 
 	pollCtx, cancelPoll := context.WithCancel(internalCtx)
 	context.AfterFunc(pollingStopped, cancelPoll)
+	w.pollersMu.Lock()
+	w.cancelPoll = cancelPoll
+	w.pollersMu.Unlock()
 
 	// Create a wait group to track all polling goroutines
 	var wg sync.WaitGroup
@@ -586,22 +590,33 @@ func logRemovedRun(ctx context.Context, task *coordinatorv1.RunningTask) {
 // a worker stops sending heartbeats.
 func (w *Worker) publishRemoval() {
 	w.pollersMu.Lock()
-	defer w.pollersMu.Unlock()
 	if w.isRemoved() {
+		w.pollersMu.Unlock()
 		return
 	}
-	close(w.removed)
-	w.cancelRemoval()
+	// The runs stop first, then the polls and their acknowledgments, then
+	// the removal is published, all before anything that could wait, such
+	// as a log line.
+	stopped := make([]*coordinatorv1.RunningTask, 0, len(w.runningTasks))
 	for _, state := range w.runningTasks {
 		if state == nil {
 			continue
 		}
-		if state.task != nil {
-			logRemovedRun(w.logContext(), state.task)
-		}
 		if state.stop != nil {
 			state.stop(errWorkerRemoved)
 		}
+		if state.task != nil {
+			stopped = append(stopped, state.task)
+		}
+	}
+	if w.cancelPoll != nil {
+		w.cancelPoll()
+	}
+	w.cancelRemoval()
+	close(w.removed)
+	w.pollersMu.Unlock()
+	for _, task := range stopped {
+		logRemovedRun(w.logContext(), task)
 	}
 }
 
@@ -855,7 +870,7 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 	removed := t.worker.isRemoved()
 	t.worker.pollersMu.Unlock()
 	if removed {
-		logRemovedRun(taskCtx, runningTask)
+		// The removal logged the run, which was registered by then.
 		return errWorkerRemoved
 	}
 	if t.worker.afterAdmit != nil {

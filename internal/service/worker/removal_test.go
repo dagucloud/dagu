@@ -38,6 +38,8 @@ type removalClient struct {
 	beforeTask func()
 	acks       atomic.Int32
 	ack        func() error
+	// ackHeld, when set, holds each acknowledgment with its context.
+	ackHeld func(context.Context)
 }
 
 func (c *removalClient) Poll(ctx context.Context, _ backoff.RetryPolicy, _ *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
@@ -67,8 +69,12 @@ func (c *removalClient) RunHeartbeatTo(ctx context.Context, _ serviceregistry.Ho
 	return &coordinatorv1.RunHeartbeatResponse{}, nil
 }
 
-func (c *removalClient) AckTaskClaimTo(context.Context, serviceregistry.HostInfo, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+func (c *removalClient) AckTaskClaimTo(ctx context.Context, _ serviceregistry.HostInfo, _ *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
 	c.acks.Add(1)
+	if c.ackHeld != nil {
+		c.ackHeld(ctx)
+		return nil, ctx.Err()
+	}
 	if c.ack != nil {
 		if err := c.ack(); err != nil {
 			return nil, err

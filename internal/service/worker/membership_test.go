@@ -1315,11 +1315,19 @@ func TestMembershipRemovedReplacementNeedsWritable(t *testing.T) {
 			// lock still works.
 			require.NoError(t, os.MkdirAll(filepath.Join(dataDir, credentialDirName, writeProbeName, "taken"), 0o700))
 
-			m, err := open(t, workerConfig(dataDir, ca.invite(t)), fake)
+			replace := "This worker cannot replace the certificate it enrolled for with one from the invite's CA\n  Make " + dataDir + " writable, then start the worker again."
+			invite := ca.invite(t)
+			if recorded {
+				// The check refuses what the start refuses, without the
+				// lock.
+				_, _, err := CoordinatorClientConfig(workerConfig(dataDir, invite), nil)
+				assert.EqualError(t, err, replace)
+			}
+			m, err := open(t, workerConfig(dataDir, invite), fake)
 			if err == nil {
 				err = connect(t.Context(), t, m)
 			}
-			assert.EqualError(t, err, "This worker cannot replace the certificate it enrolled for with one from the invite's CA\n  Make "+dataDir+" writable, then start the worker again.")
+			assert.EqualError(t, err, replace)
 			assert.Equal(t, 1, fake.calls(), "the worker enrolled with a certificate it cannot keep")
 		})
 	}
