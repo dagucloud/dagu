@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -85,9 +86,9 @@ func TestInviteAPI(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, code, body)
 	assert.NotContains(t, services.process.Output(), created.Invite)
 
-	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/unknown/certificate?certificateId=unknown&runs=stop", "")
+	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/unknown?certificateId=unknown&runs=stop", "")
 	assert.Equal(t, http.StatusNotFound, code, body)
-	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/unknown/certificate?certificateId=unknown&runs=later", "")
+	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/unknown?certificateId=unknown&runs=later", "")
 	assert.Equal(t, http.StatusBadRequest, code, body)
 }
 
@@ -186,7 +187,7 @@ func TestRemoveWorkerAPI(t *testing.T) {
 	}
 
 	remove := func(id, certID, runs string) (int, string) {
-		return services.call(t, http.MethodDelete, "/api/v1/workers/"+id+"/certificate?certificateId="+certID+"&runs="+runs, "")
+		return services.call(t, http.MethodDelete, "/api/v1/workers/"+url.PathEscape(id)+"?certificateId="+certID+"&runs="+runs, "")
 	}
 	code, body = remove("finish", certs["stop"], "finish")
 	assert.Equal(t, http.StatusConflict, code, body)
