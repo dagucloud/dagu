@@ -64,6 +64,7 @@ type heartbeatInfo struct {
 	version         string
 
 	connectionTokens bool
+	connection       peerConnection
 }
 
 // defaultStaleHeartbeatThreshold is the default duration after which a worker's heartbeat is considered stale.
@@ -1649,6 +1650,8 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 				LastHeartbeatAt: hb.lastHeartbeatAt.Unix(),
 				HealthStatus:    calculateHealthStatus(now.Sub(hb.lastHeartbeatAt)),
 				Version:         hb.version,
+				Connection:      convert.WorkerConnectionToProto(hb.connection.kind),
+				PlaintextReason: hb.connection.plaintextReason,
 			}
 			if hb.stats != nil {
 				workerInfo.TotalPollers = hb.stats.TotalPollers
@@ -1675,6 +1678,8 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 			LastHeartbeatAt: hb.LastHeartbeatTime().Unix(),
 			HealthStatus:    calculateHealthStatus(now.Sub(hb.LastHeartbeatTime())),
 			Version:         hb.Version,
+			Connection:      convert.WorkerConnectionToProto(hb.Connection),
+			PlaintextReason: hb.PlaintextReason,
 		}
 
 		if hb.Stats != nil {
@@ -1712,6 +1717,7 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 		return nil, status.Error(codes.InvalidArgument, "worker_id is required")
 	}
 	receivedAt := time.Now().UTC()
+	connection := callerConnection(ctx, h.peerCA)
 	h.mu.Lock()
 	h.heartbeats[req.WorkerId] = &heartbeatInfo{
 		workerID:        req.WorkerId,
@@ -1721,6 +1727,7 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 		version:         req.Version,
 
 		connectionTokens: req.ConnectionTokens,
+		connection:       connection,
 	}
 	h.mu.Unlock()
 
@@ -1735,6 +1742,8 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 			Version:         req.Version,
 
 			ConnectionTokens: req.ConnectionTokens,
+			Connection:       connection.kind,
+			PlaintextReason:  connection.plaintextReason,
 		}); err != nil {
 			return nil, status.Error(codes.Internal, "failed to persist worker heartbeat: "+err.Error())
 		}

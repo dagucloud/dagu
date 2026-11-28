@@ -171,6 +171,21 @@ func WorkerStatsToProto(stats *dispatch.WorkerStats) *coordinatorv1.WorkerStats 
 	}
 }
 
+// WorkerConnectionToProto converts a worker's connection to the coordinator
+// wire shape.
+func WorkerConnectionToProto(connection dispatch.WorkerConnection) coordinatorv1.WorkerConnection {
+	switch connection {
+	case dispatch.WorkerConnectionCertificate:
+		return coordinatorv1.WorkerConnection_WORKER_CONNECTION_CERTIFICATE
+	case dispatch.WorkerConnectionTLS:
+		return coordinatorv1.WorkerConnection_WORKER_CONNECTION_TLS
+	case dispatch.WorkerConnectionPlaintext:
+		return coordinatorv1.WorkerConnection_WORKER_CONNECTION_PLAINTEXT
+	default:
+		return coordinatorv1.WorkerConnection_WORKER_CONNECTION_UNSPECIFIED
+	}
+}
+
 // ProtoToWorkerStats converts coordinator worker stats to the domain shape.
 func ProtoToWorkerStats(stats *coordinatorv1.WorkerStats) *dispatch.WorkerStats {
 	if stats == nil {
