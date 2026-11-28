@@ -344,6 +344,13 @@ describe('WorkerInvites', () => {
       'No coordinator is running or reachable.',
       'Start the coordinator, or check that this server can reach it, then try again.',
     ],
+    // A bad ID is refused before any coordinator call; its words stay out.
+    [
+      400,
+      refused(400, 'inviteId must be a UUID', 'bad_request'),
+      'The request failed.',
+      'Please try again or check the server connection.',
+    ],
   ])(
     'announces the cause and the change of a %i on delete',
     async (_status, answer, cause, change) => {
@@ -361,6 +368,7 @@ describe('WorkerInvites', () => {
       );
       expect(alert).toHaveTextContent(cause);
       expect(alert).toHaveTextContent(change);
+      expect(alert).not.toHaveTextContent('UUID');
     }
   );
 
