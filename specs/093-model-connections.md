@@ -116,7 +116,7 @@ A model connection has the Spec 107 metadata fields `name`, `project`,
 | --- | --- |
 | `preset` | A preset ID, or `custom`. Fixed at creation |
 | `protocols` | A map from a protocol to its `base_url` and `auth`. At least one entry. A preset fills it, and a person may remove an entry. `custom` sets each entry |
-| `models_url` | `custom` only. See [Models List](#models-list) |
+| `models_url` | `custom` only. A URL and the one protocol of the connection whose auth and response form a read uses. See [Models List](#models-list) |
 | `allowed_models` | Optional. Model IDs as the provider receives them, matched exactly. Empty means every model |
 
 - `base_url` is an `https` URL with no user information, query, or
@@ -143,11 +143,8 @@ A model connection has the Spec 107 metadata fields `name`, `project`,
 | Shared key | `api_key`, `app` names a [shared key](#shared-keys) | In the app | An admin, through Share |
 | No key | `none`, no `app` | Nowhere. Valid for a local-model preset only | `manager` or above in the project |
 
-- A key is write-only. After a save, no route and no page shows it. Pages
-  show a prefix and a fingerprint. The prefix is the first characters of
-  the key: the smaller of 6 and a tenth of its length, rounded down. A key
-  shorter than 10 characters has no prefix. The fingerprint is the first
-  12 hexadecimal digits of the key's SHA-256.
+- A key is write-only. After a save, no route and no page shows it, or
+  any value derived from it. Pages show only that a key is set, and when.
 - A key is not empty, is valid UTF-8 with no control character, and has
   at most 8192 bytes. A save does not call the provider.
 - A long-lived token that a CLI prints for automation, such as the token
@@ -451,6 +448,7 @@ conformance test confirms them.
   holds only the relay secret of its attempt.
 - It forwards only the API operations of the step's protocol. No other
   method or path carries the key, so no upstream can echo it back.
+- It removes the key from every response it returns to the step.
 - The gateway removes the client headers `x-api-key`, `authorization`, and
   `proxy-authorization`, and sets the header of the protocol's `auth`.
 - It sends a request only to a bound host, and only for the step's
@@ -502,8 +500,8 @@ conformance test confirms them.
   key, with Share.
 - The key field is a password field. Dagu clears it after each request,
   and keeps its value in no state, URL, storage, or error text.
-- A row shows the key's prefix and fingerprint, or the shared key's name,
-  never the key. It also shows the status, the
+- A row shows when the key was set, or the shared key's name, never the
+  key. It also shows the status, the
   catalog's count, date, and last error, the DAGs that name the
   connection, and Works with: `chat.completion` and each CLI whose
   adapter accepts one of the connection's protocols.
@@ -554,8 +552,8 @@ This spec adds to the routes of Spec 107:
 | `POST /connections/{name}/models/reload` | Read the models now, and answer with the catalog |
 | `GET /model-choices?dag=<name>&provider=<cli>` | The connections that a step of the DAG can use, with models, display names, effort levels, aliases, and the reason a connection is disabled |
 
-- No response holds a key. A response holds `keyPrefix`,
-  `keyFingerprint`, and `keyUpdatedAt`.
+- No response holds a key or a value derived from it. A response holds
+  `keySet` and `keyUpdatedAt`.
 - A request body has a closed schema. An unknown field gives the status
   400. A body over 1 MiB gives the status 413.
 - A failed read is not an error of the reload route. The catalog in the
@@ -576,12 +574,11 @@ This spec adds to the routes of Spec 107:
 The audit log records the changes of Spec 107 for model connections and
 shared keys, and also:
 
-- the fingerprint at a create and at a rotation
 - the old and the new origin at a change of a base URL or of
   `models_url`, since the key goes there from then on
 - each Reload, and whether its read was good
 
-No entry holds a key or a prefix.
+No entry holds a key or a value derived from it.
 
 ## Errors
 
@@ -646,8 +643,7 @@ A read of it:
     "anthropic-messages": { "baseUrl": "https://api.anthropic.com", "auth": "x-api-key" }
   },
   "grant": "api_key",
-  "keyPrefix": "sk-ant",
-  "keyFingerprint": "0123456789ab",
+  "keySet": true,
   "keyUpdatedAt": "2026-11-04T10:00:00Z",
   "status": "connected",
   "models": { "count": 14, "truncated": false, "refreshedAt": "2026-11-04T10:00:05Z" }

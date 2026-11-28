@@ -967,7 +967,8 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
 #### Declared Connections
 
 - Building a DAG collects every connection it names. The sources are step
-  `with.connection`, `mail_accounts.<address>.connection` and
+  `with.connection`, except on a custom harness of Spec 067, which takes
+  it as a CLI flag, `mail_accounts.<address>.connection` and
   `smtp.connection` in the DAG or its base config, and `secrets` entries
   with `provider: connection`. RFC 026 and
   [Spec 093](093-model-connections.md#keys) add sources.

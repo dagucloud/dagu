@@ -63,8 +63,10 @@ fixed headers.
 | `headers` | Optional. A map from a header name to a write-only value. At most 16 entries |
 
 - A static connection has no `app`. Spec 107 lists the grant `static`.
-- `mcp.call` of [Spec 098](098-mcp-call.md) takes a static connection as
-  it takes an OAuth one, under the rules of this section.
+- Only `mcp_servers` and `mcp.call` of [Spec 098](098-mcp-call.md) use a
+  static connection, and only at its `resource`. An `mcp.call` URL other
+  than `resource`, and any other consumer such as `http.request`, fail
+  admission.
 - A connection has `token`, `headers`, or neither. It does not have both
   `token` and a header `authorization`.
 - A header name matches `^[A-Za-z][A-Za-z0-9-]{0,63}$`, and Dagu keeps it
