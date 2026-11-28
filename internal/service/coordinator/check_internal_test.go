@@ -132,7 +132,11 @@ func TestCheckTransport(t *testing.T) {
 		{name: "RequireTLS", serve: strict,
 			config:        func(config *Config) { *config = *DefaultConfig() },
 			wantTransport: "h2c (from peer.insecure: true)",
-			wantAnswer:    errRequireTLS},
+			wantAnswer:    requireTLSError{source: sourceInsecure}},
+		{name: "RequireTLSNoTLSSource", serve: strict,
+			config:        func(config *Config) { config.PublishedCAFile = "" },
+			wantTransport: "h2c (from no TLS source)",
+			wantAnswer:    requireTLSError{source: sourceNoTLS}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

@@ -78,9 +78,23 @@ const (
 	h2cReasonOlderVersion = "older version"
 )
 
-// requireTLSClientMessage is what a client says when coordinator.require_tls
-// refuses its call over h2c.
-const requireTLSClientMessage = "The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true."
+// requireTLSClientPrefix starts what a client says when
+// coordinator.require_tls refuses its call over h2c.
+const requireTLSClientPrefix = "The coordinator requires TLS. "
+
+// requireTLSClientMessage returns what a client says when
+// coordinator.require_tls refuses its call over h2c from source: the
+// refusal and the change that puts the client on TLS.
+func requireTLSClientMessage(source string) string {
+	switch source {
+	case sourceInsecure:
+		return requireTLSClientPrefix + "Remove peer.insecure: true."
+	case sourceNetworkPath:
+		return requireTLSClientPrefix + "Let the network path to it pass TLS."
+	default:
+		return requireTLSClientPrefix + "Set peer.ca_cert_file to the coordinator's CA certificate."
+	}
+}
 
 // transportChoice is a transport and the source that selected it.
 type transportChoice struct {
@@ -321,10 +335,12 @@ func (t *clientTransport) awaitReady(ctx context.Context, cc *grpc.ClientConn) {
 // window, and the client opens a new connection.
 func (t *clientTransport) report(ctx context.Context, link *connLink, method string, err error) {
 	refusal := isRequireTLSRefusal(err)
+	// The window is read before the refusal ends it, so the refusal can
+	// name the handshake error that opened it.
+	window, fellBack := t.windows.active(link.address, t.now())
 	if refusal && link.refuse() {
 		t.windows.end(link.address, t.now())
 	}
-	window, fellBack := t.windows.active(link.address, t.now())
 	t.mu.Lock()
 	pending := t.pending
 	t.pending = nil
@@ -347,7 +363,12 @@ func (t *clientTransport) report(ctx context.Context, link *connLink, method str
 	if fellBack && window.Source == sourceNetworkPath {
 		attrs = append(attrs, slog.String("tls-error", window.Error))
 	}
-	logger.Error(ctx, requireTLSClientMessage, attrs...)
+	// Only h2c from peer.insecure: true dials without a per-connection plan.
+	source := sourceInsecure
+	if t.config.picksTransportPerConnection() {
+		source = link.h2cSource()
+	}
+	logger.Error(ctx, requireTLSClientMessage(source), attrs...)
 }
 
 func isRequireTLSRefusal(err error) bool {
@@ -368,6 +389,8 @@ type connLink struct {
 	// picked, and windowed one that an h2c window selected.
 	h2c      bool
 	windowed bool
+	// source is what picked the transport of the current connection.
+	source string
 	// redial reports that a new connection would pick another transport.
 	redial   bool
 	checked  time.Time
@@ -384,8 +407,16 @@ func (l *connLink) connected(plan connectionPlan) {
 	defer l.mu.Unlock()
 	l.h2c = plan.roots == nil
 	l.windowed = plan.windowed
+	l.source = plan.choice.source
 	l.redial = false
 	l.checked = l.transport.now()
+}
+
+// h2cSource returns what picked h2c for the current connection.
+func (l *connLink) h2cSource() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.source
 }
 
 // refuse records a require_tls refusal and reports whether an h2c window

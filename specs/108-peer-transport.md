@@ -481,11 +481,16 @@ dagu peer init --out <dir>
 - It refuses the call and keeps the connection open, so the client can show
   the reason.
 - A refused client logs, at level error, once until one of its calls to
-  that coordinator succeeds:
+  that coordinator succeeds, the line for the
+  [h2c reason](#h2c-reasons) of its call:
 
-  ```text
-  The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true.
-  ```
+  | h2c reason | Line |
+  | --- | --- |
+  | `peer.insecure` | `The coordinator requires TLS. Remove peer.insecure: true.` |
+  | `no TLS source` | `The coordinator requires TLS. Set peer.ca_cert_file to the coordinator's CA certificate.` |
+  | `tls failed on the network path` | `The coordinator requires TLS. Let the network path to it pass TLS.` |
+
+- A Dagu that predates this spec prints the coordinator's message above.
 - `coordinator.require_tls` has no effect on a coordinator with own
   certificates, which serves no h2c.
 
@@ -1128,7 +1133,7 @@ A worker prints the cause and the next step:
 | A worker with a certificate and no `worker.invite` meets a coordinator whose CA did not sign that certificate | `<host>:<port> belongs to a different Dagu than the one this worker joined`<br>`Get a new command from "Add worker" to join it.` |
 | The worker certificate is refused as revoked | `This worker was removed from the coordinator`<br>`Get a new command from "Add worker" to add it again.` |
 | The lock is held by a live worker | `Another worker uses this data directory`<br>`Give each worker its own data directory or volume.` |
-| The coordinator refuses h2c | `The coordinator requires TLS`<br>`Upgrade this process, or remove peer.insecure: true.` |
+| The coordinator refuses h2c | `The coordinator requires TLS`<br>The change for the h2c reason, as [Require TLS](#require-tls) states |
 
 A client refused by `coordinator.require_tls` after a fallback also logs the
 handshake error that caused the fallback.

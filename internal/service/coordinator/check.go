@@ -127,15 +127,15 @@ const (
 // client on h2c.
 var errServesTLS = errors.New("it serves only TLS on this port: set peer.insecure: false with a TLS setting")
 
-// errRequireTLS is the answer of a coordinator whose coordinator.require_tls
-// refused the client's call over h2c.
-var errRequireTLS error = requireTLSError{}
+// requireTLSError is the answer of a coordinator whose
+// coordinator.require_tls refused the client's call over h2c from source. It
+// reads as the message the client logs for the refusal.
+type requireTLSError struct {
+	source string
+}
 
-// requireTLSError reads as the message the client logs for the refusal.
-type requireTLSError struct{}
-
-func (requireTLSError) Error() string {
-	return requireTLSClientMessage
+func (e requireTLSError) Error() string {
+	return requireTLSClientMessage(e.source)
 }
 
 // Passed reports whether the client has a transport for the coordinator, the
@@ -260,7 +260,7 @@ func checkAnswer(ctx context.Context, config *Config, plan connectionPlan, host,
 	// The health service takes no credential; the worker list does.
 	if _, err := coordinatorv1.NewCoordinatorServiceClient(conn).GetWorkers(ctx, &coordinatorv1.GetWorkersRequest{}); err != nil {
 		if isRequireTLSRefusal(err) {
-			return errRequireTLS
+			return requireTLSError{source: h2cSource}
 		}
 		return fmt.Errorf("serving, but %w", callError(config, err))
 	}

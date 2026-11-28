@@ -230,8 +230,39 @@ func TestClientTransportRequireTLS(t *testing.T) {
 		}
 		require.Len(t, lines, 1)
 		assert.Equal(t, "ERROR", lines[0].Level)
-		assert.Equal(t, "The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true.", lines[0].Msg)
+		assert.Equal(t, "The coordinator requires TLS. Remove peer.insecure: true.", lines[0].Msg)
 	})
+	// The refusal names the change for the reason of the client's h2c, and
+	// after a fallback the handshake error that caused it.
+	for _, tc := range []struct {
+		name         string
+		window       bool
+		want         string
+		wantTLSError string
+	}{
+		{name: "NoTLSSource", want: "The coordinator requires TLS. Set peer.ca_cert_file to the coordinator's CA certificate."},
+		{name: "NetworkPath", window: true, want: "The coordinator requires TLS. Let the network path to it pass TLS.", wantTLSError: "EOF"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := unset(*DefaultConfig())
+			if tc.window {
+				config.PublishedCAFile = publishedCA(t, ca)
+				config.FallbackFile = filepath.Join(t.TempDir(), "peer-h2c.json")
+				now := time.Now()
+				sharedH2CWindows(config.FallbackFile).open(coord.addr,
+					h2cWindow{Until: now.Add(h2cWindowLength), Source: sourceNetworkPath, Error: "EOF"}, now)
+			}
+			cli := newTestClient(t, &config, member)
+			lines := captureClientLogs(t, func(ctx context.Context) {
+				assert.Equal(t, codes.Unauthenticated, status.Code(getWorkers(ctx, t, cli, member)))
+			})
+			require.NotEmpty(t, lines)
+			refusal := lines[len(lines)-1]
+			assert.Equal(t, "ERROR", refusal.Level)
+			assert.Equal(t, tc.want, refusal.Msg)
+			assert.Equal(t, tc.wantTLSError, refusal.TLSError)
+		})
+	}
 	t.Run("BuiltinTLS", func(t *testing.T) {
 		config := unset(*DefaultConfig())
 		config.PublishedCAFile = publishedCA(t, ca)
@@ -441,6 +472,8 @@ type clientLogLine struct {
 	Msg   string `json:"msg"`
 	Addr  string `json:"addr"`
 	Error string `json:"err"`
+	// TLSError is the handshake error that caused an h2c fallback.
+	TLSError string `json:"tls-error"`
 }
 
 // captureClientLogs returns what fn logs at level info and above.
