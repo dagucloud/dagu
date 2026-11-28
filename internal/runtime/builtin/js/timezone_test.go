@@ -279,8 +279,9 @@ return {
 			for _, z := range zones {
 				wg.Go(func() {
 					got := run(t, ctxWithTZ(z.tz, nil), `return new Date(Date.UTC(2026, 0, 15, 12, 0, 0)).getTimezoneOffset()`, nil)
-					require.NoError(t, got.err)
-					assert.Equal(t, z.offset, got.stdout)
+					if assert.NoError(t, got.err) {
+						assert.Equal(t, z.offset, got.stdout)
+					}
 				})
 			}
 		}
