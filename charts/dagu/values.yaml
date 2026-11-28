@@ -122,14 +122,13 @@ coordinator:
       memory: "256Mi"
       cpu: "200m"
 
-# Peer connections in distributed mode. The coordinator keeps its CA in the
-# data volume, so the scheduler and UI, which share that volume, use TLS with
-# no value set. Worker pods do not share it, so they connect without TLS
-# until existingCASecret names a Secret in the release namespace with the CA
-# in ca.crt and ca.key, such as the files `dagu peer init` writes. Coordinator
-# pods then mount both keys; scheduler, UI, and worker pods mount ca.crt
-# only. Leave it empty when peer.cert_file supplies your own certificates.
-# Dagu releases after 2.27.0 use these files.
+# Peer connections in distributed mode. The scheduler and UI share the
+# coordinator's data volume, so they use TLS with no value set. Worker pods
+# do not share it, so they connect without TLS until existingCASecret names
+# a Secret in the release namespace with the CA in ca.crt and ca.key, such
+# as the files `dagu peer init` writes. Leave it empty when extraEnv sets
+# DAGU_PEER_CERT_FILE for your own certificates. Dagu releases after 2.27.0
+# use these files.
 peer:
   existingCASecret: ""
 
