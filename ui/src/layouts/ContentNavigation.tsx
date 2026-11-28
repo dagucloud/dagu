@@ -37,6 +37,7 @@ const STATIC_ROUTE_LABELS: Record<string, TranslationKey> = {
   '/search': 'navigation.search',
   '/base-config': 'navigation.baseConfig',
   '/calendars': 'navigation.calendars',
+  '/connections': 'navigation.connections',
   '/nodes': 'navigation.nodes',
   '/wiki': 'navigation.wiki',
   '/queues': 'navigation.queues',
@@ -146,6 +147,25 @@ export function getBreadcrumbItems(
       items.push({
         label: decodePathSegment(segments[1]),
         to: `/calendars/${segments[1]}${query}`,
+      });
+    }
+    return items;
+  }
+
+  if (segments[0] === 'connections') {
+    // A connection's name is unique only in its workspace.
+    const workspace = new URLSearchParams(search).get('workspace');
+    const query = workspace
+      ? `?workspace=${encodeURIComponent(workspace)}`
+      : '';
+    items.push({
+      label: t('navigation.connections'),
+      to: `/connections${query}`,
+    });
+    if (segments[1]) {
+      items.push({
+        label: decodePathSegment(segments[1]),
+        to: `/connections/${segments[1]}${query}`,
       });
     }
     return items;

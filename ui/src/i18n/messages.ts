@@ -141,6 +141,8 @@ export const messages = {
     'administration.apiKeysDescription': 'Issue access tokens for automation.',
     'administration.profilesDescription':
       'Manage environment profiles and DAG secret refs.',
+    'integrations.connectionsDescription':
+      'Sign in to Google and other accounts that DAGs use by name.',
     'integrations.webhooksDescription':
       'Trigger workflows from external systems.',
     'integrations.apiReferenceDescription':
@@ -311,6 +313,8 @@ export const messages = {
     'administration.usersDescription': '管理账户和角色。',
     'administration.apiKeysDescription': '为自动化签发访问令牌。',
     'administration.profilesDescription': '管理环境配置和 DAG 密钥引用。',
+    'integrations.connectionsDescription':
+      '登录 Google 等账号，供 DAG 按名称使用。',
     'integrations.webhooksDescription': '从外部系统触发工作流。',
     'integrations.apiReferenceDescription':
       '浏览需要身份认证的 REST API 端点。',
@@ -485,6 +489,8 @@ export const messages = {
       '自動化用のアクセストークンを発行します。',
     'administration.profilesDescription':
       '環境プロファイルと DAG シークレット参照を管理します。',
+    'integrations.connectionsDescription':
+      'DAG が名前で使う Google などのアカウントにサインインします。',
     'integrations.webhooksDescription':
       '外部システムからワークフローを起動します。',
     'integrations.apiReferenceDescription':
@@ -664,6 +670,8 @@ export const messages = {
       'Zugriffstoken für Automatisierung ausstellen.',
     'administration.profilesDescription':
       'Umgebungsprofile und Geheimnis-Verweise der DAGs verwalten.',
+    'integrations.connectionsDescription':
+      'Bei Google und anderen Konten anmelden, die DAGs per Namen nutzen.',
     'integrations.webhooksDescription':
       'Abläufe von externen Systemen auslösen.',
     'integrations.apiReferenceDescription':
@@ -849,6 +857,8 @@ export const messages = {
       'Émettre des jetons d’accès pour l’automatisation.',
     'administration.profilesDescription':
       'Gérer les profils d’environnement et les références de secrets des DAG.',
+    'integrations.connectionsDescription':
+      'Se connecter à Google et aux autres comptes que les DAG utilisent par leur nom.',
     'integrations.webhooksDescription':
       'Déclencher des workflows depuis des systèmes externes.',
     'integrations.apiReferenceDescription':

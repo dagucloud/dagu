@@ -23,6 +23,10 @@ describe('IntegrationsPage', () => {
     expect(
       screen.getByRole('heading', { name: /integrations/i })
     ).toBeVisible();
+    expect(screen.getByRole('link', { name: /connections/i })).toHaveAttribute(
+      'href',
+      '/connections'
+    );
     expect(screen.getByRole('link', { name: /webhooks/i })).toHaveAttribute(
       'href',
       '/webhooks'

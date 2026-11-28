@@ -23,6 +23,11 @@ export default function IntegrationsPage(): React.ReactElement {
 
   const integrationLinks: IntegrationLink[] = [
     {
+      to: '/connections',
+      label: t('navigation.connections'),
+      description: t('integrations.connectionsDescription'),
+    },
+    {
       to: '/webhooks',
       label: t('navigation.webhooks'),
       description: t('integrations.webhooksDescription'),
