@@ -38,10 +38,14 @@ import { WorkspaceDeprecationNotice } from './components/WorkspaceDeprecationNot
 import { useI18n } from './i18n/I18nProvider';
 import { useNavigationSections } from './hooks/useNavigationSections';
 import { useScrollFade } from './hooks/useScrollFade';
+import { useConnectionAttention } from '@/hooks/useConnectionAttention';
 import {
   commandPaletteShortcut,
   useCommandPalette,
 } from './components/command-palette/CommandPaletteProvider';
+
+// The Connections item shows a badge while a connection needs reconnecting.
+const CONNECTIONS_PATH = '/connections';
 
 type NavItemProps = {
   to: string;
@@ -53,6 +57,8 @@ type NavItemProps = {
   activePaths?: string | string[];
   reorderable?: boolean;
   suppressActive?: boolean;
+  /** When set, a dot marks the item, and this text tells why. */
+  badge?: string;
 };
 
 type MainListItemsProps = {
@@ -125,6 +131,7 @@ function NavItem({
   activePaths,
   reorderable = false,
   suppressActive = false,
+  badge,
 }: NavItemProps): React.ReactElement {
   const location = useLocation();
   const { t } = useI18n();
@@ -164,10 +171,21 @@ function NavItem({
           reorderable ? 'Alt+ArrowUp Alt+ArrowDown' : undefined
         }
         title={
-          isOpen ? (reorderable ? t('navigation.reorderBookmark') : '') : text
+          badge ??
+          (isOpen ? (reorderable ? t('navigation.reorderBookmark') : '') : text)
         }
       >
-        {icon && <div className={iconClassName}>{icon}</div>}
+        {icon && (
+          <div className={cn(iconClassName, 'relative')}>
+            {icon}
+            {badge && (
+              <span
+                aria-hidden="true"
+                className="absolute -right-1 -top-1 size-2 rounded-full bg-error"
+              />
+            )}
+          </div>
+        )}
         <span
           className={cn(
             'text-sm font-medium whitespace-nowrap overflow-hidden',
@@ -185,6 +203,7 @@ function NavItem({
         >
           {text}
         </span>
+        {badge && <span className="sr-only">{badge}</span>}
         {reorderable && isOpen && (
           <GripVertical
             size={14}
@@ -464,7 +483,19 @@ export const mainListItems = React.forwardRef<
     ...item,
     suppressActive: pinnedViewActive[item.to] ?? false,
   }));
-  const navSections = navigation.sections;
+  const connectionsNeedReconnect = useConnectionAttention();
+  const connectionsBadge =
+    connectionsNeedReconnect > 0
+      ? t('navigation.connectionsNeedReconnect', {
+          count: connectionsNeedReconnect,
+        })
+      : undefined;
+  const navSections = navigation.sections.map((section) => ({
+    ...section,
+    items: section.items.map((item) =>
+      item.to === CONNECTIONS_PATH ? { ...item, badge: connectionsBadge } : item
+    ),
+  }));
 
   const title = config.title || DEFAULT_TITLE;
   const titleInitial = getTitleInitial(title);

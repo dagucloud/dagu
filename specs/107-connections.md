@@ -58,13 +58,14 @@ Implemented so far:
   coordinator, whichever made the change, and written to the
   [Audit](#audit) log. Notification routes offer both types, and new
   routes in the UI select them. The Reconnect URL is
-  `<public URL>/connections/<name>?workspace=<project>`, a page the UI does
-  not serve yet. A channel that receives `connection.needs_attention`
-  skips the failure message of a run that a broken connection failed. The
-  notification connection's events have no rules of their own yet. An
-  admin's change of an `invalid` app's client ID or secret, which returns
-  it to `ok`, records `connection.restored`. The Connections navigation
-  badge is not built yet.
+  `<public URL>/connections/<name>?workspace=<project>`. A channel that
+  receives `connection.needs_attention` skips the failure message of a run
+  that a broken connection failed. The notification connection's events
+  have no rules of their own yet. An admin's change of an `invalid` app's
+  client ID or secret, which returns it to `ok`, records
+  `connection.restored`.
+- The Connections navigation badge for connections that need
+  reconnecting. Refresh tokens that expire soon do not mark it yet.
 
 The tests against Google also settle whether Docs, Sheets, and Slides
 answer `NOT_FOUND` rather than `PERMISSION_DENIED` for a resource ID that

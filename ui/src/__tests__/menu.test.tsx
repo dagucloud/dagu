@@ -29,6 +29,7 @@ const useCanManageProfilesMock = vi.fn();
 const useCanViewAuditLogsMock = vi.fn();
 const useHasFeatureMock = vi.fn();
 const useViewsMock = vi.fn();
+const useConnectionAttentionMock = vi.fn();
 
 vi.mock('@/components/LicenseBadge', () => ({ LicenseBadge: () => null }));
 vi.mock('@/components/WorkspaceDeprecationNotice', () => ({
@@ -62,6 +63,10 @@ vi.mock('@/hooks/useLicense', () => ({
 
 vi.mock('@/hooks/useViews', () => ({
   useViews: (type?: ViewSpecType) => useViewsMock(type),
+}));
+
+vi.mock('@/hooks/useConnectionAttention', () => ({
+  useConnectionAttention: () => useConnectionAttentionMock(),
 }));
 
 const config: Config = {
@@ -165,6 +170,7 @@ beforeEach(() => {
   document.documentElement.lang = 'en';
   useViewsMock.mockReset();
   useViewsMock.mockReturnValue({ views: [] });
+  useConnectionAttentionMock.mockReturnValue(0);
   useAuthMock.mockReturnValue({
     user: { id: '1', username: 'admin', role: UserRole.admin },
   });
@@ -324,6 +330,17 @@ describe('sidebar menu', () => {
     expect(
       screen.queryByRole('button', { name: 'Workflows' })
     ).not.toBeInTheDocument();
+  });
+
+  it('marks Connections while connections need reconnecting', () => {
+    useConnectionAttentionMock.mockReturnValue(2);
+    renderMenu('/cockpit', {}, {}, false);
+
+    const link = within(
+      screen.getByRole('group', { name: 'Configure' })
+    ).getByRole('link', { name: /Connections: 2 need reconnecting/ });
+    expect(link).toHaveAttribute('href', '/connections');
+    expect(link).toHaveAttribute('title', 'Connections: 2 need reconnecting');
   });
 
   it('shows Git Sync to all-workspace viewers', () => {

@@ -86,6 +86,8 @@ export const messages = {
     'navigation.notificationChannels': 'Notification Channels',
     'navigation.incidents': 'Incidents',
     'navigation.connections': 'Connections',
+    'navigation.connectionsNeedReconnect':
+      'Connections: {count} need reconnecting',
     'navigation.routing': 'Routing',
     'navigation.incidentConnections': 'Incident Connections',
     'navigation.incidentRouting': 'Incident Routing',
@@ -263,6 +265,7 @@ export const messages = {
     'navigation.notificationChannels': '通知渠道',
     'navigation.incidents': '事件响应',
     'navigation.connections': '连接',
+    'navigation.connectionsNeedReconnect': '连接：{count} 个需要重新连接',
     'navigation.routing': '路由',
     'navigation.incidentConnections': '事件连接',
     'navigation.incidentRouting': '事件路由',
@@ -436,6 +439,7 @@ export const messages = {
     'navigation.notificationChannels': '通知チャンネル',
     'navigation.incidents': 'インシデント',
     'navigation.connections': '接続',
+    'navigation.connectionsNeedReconnect': '接続: {count} 件の再接続が必要',
     'navigation.routing': 'ルーティング',
     'navigation.incidentConnections': 'インシデント接続',
     'navigation.incidentRouting': 'インシデントルーティング',
@@ -613,6 +617,8 @@ export const messages = {
     'navigation.notificationChannels': 'Benachrichtigungskanäle',
     'navigation.incidents': 'Störungen',
     'navigation.connections': 'Verbindungen',
+    'navigation.connectionsNeedReconnect':
+      'Verbindungen: {count} müssen neu verbunden werden',
     'navigation.routing': 'Weiterleitung',
     'navigation.incidentConnections': 'Störungs-Verbindungen',
     'navigation.incidentRouting': 'Störungs-Weiterleitung',
@@ -794,6 +800,8 @@ export const messages = {
     'navigation.notificationChannels': 'Canaux de notification',
     'navigation.incidents': 'Incidents',
     'navigation.connections': 'Connexions',
+    'navigation.connectionsNeedReconnect':
+      'Connexions\u00a0: {count} à reconnecter',
     'navigation.routing': 'Routage',
     'navigation.incidentConnections': 'Connexions d’incidents',
     'navigation.incidentRouting': 'Routage des incidents',
