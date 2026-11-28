@@ -6,11 +6,15 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/getkin/kin-openapi/routers/gorillamux"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -114,6 +118,39 @@ var errNoCoordinator = &Error{
 	Code:       api.ErrorCodeInternalError,
 	Message:    coordinatorUnreachableMessage,
 	Details:    reasonDetails(api.WorkerAccessReasonNoCoordinator),
+}
+
+// workerAccessOperations are the worker invite, removal, and join readiness
+// operations, which an admin alone may call.
+var workerAccessOperations = map[string]bool{
+	"CreateWorkerInvite":     true,
+	"ListWorkerInvites":      true,
+	"DeleteWorkerInvite":     true,
+	"RemoveWorker":           true,
+	"GetWorkerJoinReadiness": true,
+}
+
+// workerAccessAuthorization refuses a worker access request of a caller who
+// is no admin before the request's input is validated, so such a caller
+// gets 403 whatever the input.
+func (a *API) workerAccessAuthorization(swagger *openapi3.T) (func(http.Handler) http.Handler, error) {
+	router, err := gorillamux.NewRouter(swagger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build the worker access operation router: %w", err)
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Only worker paths can name these operations, so other requests
+			// skip the route lookup.
+			if strings.Contains(r.URL.Path, "/workers/") && workerAccessOperations[remoteNodeOperationFor(router, r)] {
+				if err := a.requireAdmin(r.Context()); err != nil {
+					WriteErrorResponse(w, err)
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}, nil
 }
 
 // CreateWorkerInvite implements the createWorkerInvite operation. Its
