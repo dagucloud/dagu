@@ -30,6 +30,9 @@ type EventKind string
 const (
 	KindDAGRun   EventKind = "dag_run"
 	KindLLMUsage EventKind = "llm_usage"
+	// KindConnection holds the status changes of connections and their
+	// OAuth apps.
+	KindConnection EventKind = "connection"
 )
 
 type EventType string
@@ -46,6 +49,13 @@ const (
 	TypeDAGRunRejected           EventType = "dag.run.rejected"
 
 	TypeLLMUsageRecorded EventType = "llm.usage.recorded"
+
+	// TypeConnectionNeedsAttention reports a connection that became
+	// needs_reconnect, or an OAuth app that became invalid.
+	TypeConnectionNeedsAttention EventType = "connection.needs_attention"
+	// TypeConnectionRestored reports a connection back to connected from
+	// needs_reconnect, or an OAuth app back to ok from invalid.
+	TypeConnectionRestored EventType = "connection.restored"
 )
 
 const (
@@ -422,7 +432,7 @@ func dagRunOccurredAt(status *ir.DAGRunStatus, eventType EventType) time.Time {
 		if t, err := stringutil.ParseTime(status.QueuedAt); err == nil && !t.IsZero() {
 			return t.UTC()
 		}
-	case TypeLLMUsageRecorded:
+	case TypeLLMUsageRecorded, TypeConnectionNeedsAttention, TypeConnectionRestored:
 		// This builder is only used for DAG-run events, but fall back safely.
 	}
 	if status.CreatedAt > 0 {

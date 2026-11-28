@@ -690,7 +690,7 @@ type monitorEventStore struct {
 }
 
 var _ eventstore.Store = (*monitorEventStore)(nil)
-var _ eventstore.DAGRunReader = (*monitorEventStore)(nil)
+var _ eventstore.NotificationReader = (*monitorEventStore)(nil)
 
 func (s *monitorEventStore) Emit(_ context.Context, event *eventstore.Event) error {
 	s.mu.Lock()
@@ -703,14 +703,14 @@ func (s *monitorEventStore) Query(context.Context, eventstore.QueryFilter) (*eve
 	return &eventstore.QueryResult{}, nil
 }
 
-func (s *monitorEventStore) DAGRunHeadCursor(context.Context) (eventstore.DAGRunCursor, error) {
+func (s *monitorEventStore) NotificationHeadCursor(context.Context) (eventstore.DAGRunCursor, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.headCalls++
 	return s.cursor(), nil
 }
 
-func (s *monitorEventStore) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
+func (s *monitorEventStore) ReadNotificationEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	index := int(cursor.Normalize().CommittedOffsets["events"])

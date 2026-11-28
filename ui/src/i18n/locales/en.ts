@@ -3,6 +3,7 @@
 
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
+import { connectionMessages } from '@/pages/connections/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
 import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
 
@@ -2316,6 +2317,8 @@ export const baseEnglish = {
   'Page {page} of {total}': 'Page {page} of {total}',
   'of {total}': 'of {total}',
   'Partially succeeded': 'Partially succeeded',
+  'Connection needs attention': 'Connection needs attention',
+  'Connection restored': 'Connection restored',
   'Processing {count} request using the existing DAG-run API.':
     'Processing {count} request using the existing DAG-run API.',
   'Processing {count} requests using the existing DAG-run API.':
@@ -3371,6 +3374,7 @@ export const english = {
   ...nodeTestMessages.en,
   ...workerNodeMessages.en,
   ...inventoryMessages.en,
+  ...connectionMessages.en,
   ...baseEnglish,
 } as const;
 

@@ -1607,6 +1607,38 @@ func TestCreateAttemptLookupError(t *testing.T) {
 	require.ErrorContains(t, err, "failed to check for an existing dag-run")
 }
 
+// A unique attempt ID is refused once an attempt of the run holds it with a
+// status, while an attempt that never wrote one leaves the ID free.
+func TestCreateAttemptUniqueAttemptID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	repository := persis.NewDAGRunRepository(NewStore(baseDir), NewWorkDirStore(filepath.Join(baseDir, ".dag-run-work"), baseDir), persis.DAGRunRepositoryOptions{})
+	dag := &ir.DAG{Name: "unique"}
+	ts := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	create := func(at time.Time, retry bool) (dagrun.Attempt, error) {
+		return repository.CreateAttempt(ctx, dag, at, "run-1", persis.DAGRunCreateAttemptOptions{
+			Retry: retry, AttemptID: "a1b2c3", UniqueAttemptID: true,
+		})
+	}
+
+	_, err := create(ts, false)
+	require.NoError(t, err)
+	attempt, err := create(ts.Add(time.Second), true)
+	require.NoError(t, err, "an attempt without a status does not hold its ID")
+
+	require.NoError(t, attempt.Open(ctx))
+	runStatus := ir.InitialStatus(dag)
+	runStatus.DAGRunID = "run-1"
+	runStatus.AttemptID = attempt.ID()
+	require.NoError(t, attempt.Write(ctx, runStatus))
+	require.NoError(t, attempt.Close(ctx))
+
+	_, err = create(ts.Add(2*time.Second), true)
+	require.ErrorIs(t, err, dagrun.ErrAttemptIDExists)
+}
+
 func mustParseLabelFilters(t *testing.T, terms ...string) []ir.LabelFilter {
 	t.Helper()
 	filters, err := ir.ParseLabelFilters(terms)

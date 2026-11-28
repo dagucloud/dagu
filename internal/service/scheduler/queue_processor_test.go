@@ -1345,6 +1345,10 @@ func (m *mockDispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attem
 	return false, nil
 }
 
+func (m *mockDispatchTaskStore) HasOutstandingAttemptUncached(ctx context.Context, attemptKey string) (bool, error) {
+	return m.HasOutstandingAttempt(ctx, attemptKey, 0)
+}
+
 func (m *mockDispatchTaskStore) ListExpiredHeld(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
 	return nil, nil
 }

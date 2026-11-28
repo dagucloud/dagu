@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -762,5 +763,43 @@ func (drt *DataRootTest) CreateTestDAGRun(t *testing.T, dagRunID string, ts pers
 		DataRootTest: *drt,
 		DAGRun:       run,
 		TB:           t,
+	}
+}
+
+// A run lock that a stopped process left is taken over once it is more than
+// 30 seconds old, as Spec 089 §Retrying a step with nodes states, and not
+// before.
+func TestDataRootLockStaleAge(t *testing.T) {
+	t.Parallel()
+
+	const specStaleAge = 30 * time.Second
+	tests := []struct {
+		name     string
+		age      time.Duration
+		takeOver bool
+	}{
+		{name: "Fresh", age: 0},
+		{name: "UnderStaleAge", age: specStaleAge - time.Second},
+		{name: "OverStaleAge", age: specStaleAge + time.Second, takeOver: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := NewDataRoot(t.TempDir(), "stopped")
+			lockPath := filepath.Join(root.dagRunsDir, dirlock.LockDirectoryName)
+			require.NoError(t, os.MkdirAll(lockPath, 0o750))
+			require.NoError(t, os.WriteFile(filepath.Join(lockPath, "owner.stopped"), []byte("stopped"), 0o600))
+			lockedAt := time.Now().Add(-tt.age)
+			require.NoError(t, os.Chtimes(lockPath, lockedAt, lockedAt))
+
+			err := root.TryLock()
+			if !tt.takeOver {
+				require.ErrorIs(t, err, dirlock.ErrLockConflict)
+				return
+			}
+			require.NoError(t, err)
+			require.NoError(t, root.Unlock())
+		})
 	}
 }

@@ -67,7 +67,7 @@ func (s *Service) sendCommand(ctx context.Context, target notificationmodel.Targ
 	}
 	publicURL := s.publicURL()
 	for _, event := range events {
-		if event.Status == nil {
+		if event.Status == nil && event.Connection == nil {
 			continue
 		}
 		if err := s.runNotificationCommand(ctx, target.Command.Command, event, publicURL); err != nil {

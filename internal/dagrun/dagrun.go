@@ -12,6 +12,7 @@ var (
 	ErrDAGRunIDNotFound    = errors.New("dag-run ID not found")
 	ErrDAGRunIDEmpty       = errors.New("dag-run ID is empty")
 	ErrDAGRunAlreadyExists = errors.New("dag-run already exists")
+	ErrAttemptIDExists     = errors.New("attempt ID already exists in the dag-run")
 	ErrDAGRunActive        = errors.New("dag-run is active")
 	ErrNoStatusData        = errors.New("no status data")
 	ErrCorruptedStatusData = errors.New("corrupted status data")

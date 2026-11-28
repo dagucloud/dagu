@@ -66,12 +66,19 @@ below.
 A tool DAG must not evaluate text that the model sets. The step fails when
 it starts if a command or a script of a tool DAG writes an input as
 `${params.NAME}`, `${env.NAME}`, `${params}`, `"${NAME}"`, or a JSON path
-such as `${NAME.field}` or `$NAME.field`, or as `$NAME` when no POSIX or Nix
-shell runs it. It also fails if a command precondition,
+such as `${NAME.field}` or `$NAME.field`, or as `$NAME` unless the command
+is that of a local command step that a POSIX or Nix shell runs. So `$NAME`
+fails the step in the command of an SSH, container or other non-local step.
+A JSON path counts only when it parses as jq, since Dagu
+leaves any other one to the shell. It also fails if a command precondition,
 or a param or precondition `eval`, reads an input in any of these forms. An
-env entry whose value reads an input counts as an input. A command that a
-POSIX or Nix shell runs reads the input as a shell variable instead, such as
-`"$CITY"`.
+env entry whose value reads an input counts as an input. When the items or
+the key of a `foreach` read an input, `${foreach.<as>}`, its fields and
+`${foreach.key}` count as inputs in its body. A local command that a POSIX
+or Nix shell runs reads the input as a shell variable instead, such as
+`"$CITY"`, and a `foreach` body reads an item through a step env entry, such as
+`VALUE: ${foreach.item}` read as `"$VALUE"`. The check reads the tool DAG as
+its YAML defines it, also when the run is queued, retried or restarted.
 
 ### Structured output
 

@@ -3,6 +3,7 @@
 
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
+import { connectionMessages } from '@/pages/connections/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
 import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
 import type { BaseStaticMessage, StaticMessage } from './en';
@@ -2342,6 +2343,8 @@ export const baseJapanese = {
   'Page {page} of {total}': '{total} ページ中 {page} ページ',
   'of {total}': '/ {total}',
   'Partially succeeded': '一部成功',
+  'Connection needs attention': '接続の確認が必要',
+  'Connection restored': '接続が復旧',
   'Processing {count} request using the existing DAG-run API.':
     '既存の DAG 実行 API で {count} 件のリクエストを処理中です。',
   'Processing {count} requests using the existing DAG-run API.':
@@ -3401,5 +3404,6 @@ export const japanese = {
   ...nodeTestMessages.ja,
   ...workerNodeMessages.ja,
   ...inventoryMessages.ja,
+  ...connectionMessages.ja,
   ...baseJapanese,
 } as const satisfies Record<StaticMessage, string>;

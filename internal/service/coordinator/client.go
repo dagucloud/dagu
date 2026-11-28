@@ -6,9 +6,11 @@ package coordinator
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -254,6 +256,11 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchReques
 	if err != nil {
 		return err
 	}
+	if protoTask.AttemptId == "" {
+		// The coordinator recognizes a retry of this call by its attempt ID,
+		// so a retry after a lost reply does not admit the run twice.
+		protoTask.AttemptId = newDispatchAttemptID()
+	}
 
 	logger.Info(ctx, "Client dispatching task",
 		slog.String("operation", task.Operation.String()),
@@ -388,6 +395,14 @@ func contextUntilAttemptStop(ctx context.Context) (context.Context, context.Canc
 		}()
 	}
 	return child, cancel
+}
+
+// newDispatchAttemptID returns a random 48-bit attempt ID, so a new attempt
+// does not take the ID of an earlier attempt of the run.
+func newDispatchAttemptID() string {
+	b := make([]byte, 6)
+	_, _ = cryptorand.Read(b) // Read never returns an error.
+	return hex.EncodeToString(b)
 }
 
 func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.DispatchTask) error {

@@ -16,7 +16,7 @@ type Config struct {
 	WorkspaceBundleDir string
 
 	// TLS configuration
-	Insecure      bool   // Use insecure connection (default: true)
+	Insecure      bool   // h2c, unless InsecureUnset and a TLS source select built-in TLS
 	CertFile      string // Client certificate
 	KeyFile       string // Client key
 	CAFile        string // CA certificate

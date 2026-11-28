@@ -59,9 +59,9 @@ Flags:
   --peer.cert-file string           Path to TLS certificate file for peer connections
   --peer.key-file string            Path to TLS key file for peer connections
   --peer.client-ca-file string      Path to CA certificate file for client verification (mTLS)
-  --peer.insecure                   Use insecure connection (h2c) instead of TLS
+  --peer.insecure                   Calls to a coordinator: true h2c; false TLS only; unset built-in TLS when its CA is known, else h2c
   --peer.skip-tls-verify            Skip TLS certificate verification (insecure)
-  --peer.ca-cert-file string        Path to the CA certificate that signs peer certificates
+  --peer.ca-cert-file string        Path to the peer CA certificate
   --peer.ca-key-file string         Path to the private key of --peer.ca-cert-file
 
 Example:

@@ -682,7 +682,10 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		apiOpts = append(apiOpts, apiv1.WithSecretStore(stores.Secret))
 	}
 	if stores.Connections != nil && stores.Connect != nil {
-		apiOpts = append(apiOpts, apiv1.WithConnections(stores.Connections, stores.Connect, stores.ToolCatalog))
+		apiOpts = append(apiOpts,
+			apiv1.WithConnections(stores.Connections, stores.Connect, stores.ToolCatalog),
+			apiv1.WithConnectionStatusRecorder(stores.RecordConnectionStatus),
+		)
 	}
 	if stores.Profile != nil {
 		apiOpts = append(apiOpts, apiv1.WithProfileStore(stores.Profile))

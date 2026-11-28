@@ -53,6 +53,16 @@ Implemented so far:
 - [CLI](#cli): `dagu connection add google`, `reconnect`, `test`, and
   `remove`, without `--notifications`, through a remote context or this
   host's server.
+- [Events](#events), recorded by the server, a local run, or the
+  coordinator, whichever made the change, and written to the
+  [Audit](#audit) log. Notification routes offer both types, and new
+  routes in the UI select them. The Reconnect URL is
+  `<public URL>/connections/<name>?workspace=<project>`, a page the UI does
+  not serve yet. Runs that fail on a broken connection still send their
+  failure messages, and the notification connection's events have no rules
+  of their own yet. An admin's change of an `invalid` app's client ID or
+  secret, which returns it to `ok`, records `connection.restored`. The
+  Connections navigation badge is not built yet.
 
 The tests against Google also settle whether Docs, Sheets, and Slides
 answer `NOT_FOUND` rather than `PERMISSION_DENIED` for a resource ID that
@@ -1128,9 +1138,15 @@ an event, so a first connect from `pending` sends none.
 - A connection's event goes through its project's notification routes. An
   app's event goes through the routes of each project with a connection on
   the app.
-- A channel gets one message per event, also when several routes reach it.
-  A connection that stays broken while many runs fail sends one message per
-  channel.
+- A channel gets at most one message per event, also when several routes
+  reach it. A connection that stays broken while many runs fail sends one
+  message per channel.
+- An app's message to a channel names only the connections of the
+  projects whose routes reach that channel.
+- A channel gets the messages of one connection or app in the order of
+  its changes. A change replaces an earlier one that the channel has not
+  received yet, also when the earlier delivery failed, so the channel's
+  last message tells the current status.
 - Messages are plain text, also on channels that format run events.
 - Both types are in the default event set for new channels. Existing
   channels keep their event lists until changed.

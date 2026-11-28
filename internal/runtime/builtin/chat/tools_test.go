@@ -5,12 +5,18 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
+	// The spec loader accepts a command for these executors only once they
+	// are registered.
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/ssh"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -245,8 +251,23 @@ func TestNewToolRegistryRefusesEvaluatedInput(t *testing.T) {
 		{"QuotedJSONPath", params + "shell: bash\nsteps:\n  - id: s\n    run: echo \"${Q.id}\"\n", `refers to ${Q.id}, which`},
 		{"BareJSONPath", params + "shell: bash\nsteps:\n  - id: s\n    run: cat /data/$Q.txt\n", `refers to $Q.txt, which`},
 		{"ParamsJSONPath", params + "shell: bash\nsteps:\n  - id: s\n    run: echo ${DAG_PARAMS_JSON.Q}\n", `refers to ${DAG_PARAMS_JSON.Q}, which`},
+		{"ForeachItem", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: ${params.Q}\n      steps:\n        - id: get\n          run: curl https://api.example.com/orders/${foreach.item}\n", `the command of step "get" refers to ${foreach.item}, which`},
+		{"ForeachItemHint", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: ${params.Q}\n      steps:\n        - run: echo ${foreach.item}\n", `copy it into an env entry of the step, such as VALUE: ${foreach.item}, and read "$VALUE"`},
+		{"ForeachItemField", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: ${params.Q}\n      as: order\n      steps:\n        - run: ./fetch.sh ${foreach.order.url}\n", `refers to ${foreach.order.url}, which`},
+		{"ForeachStaticItem", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: [\"${params.Q}\"]\n      steps:\n        - run: echo ${foreach.item}\n", `refers to ${foreach.item}, which`},
+		{"ForeachKey", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: [1]\n      key: ${params.Q}\n      steps:\n        - run: echo ${foreach.key}\n", `refers to ${foreach.key}, which`},
+		{"NestedForeachOuterItems", params + "shell: bash\nsteps:\n  - id: orders\n    foreach:\n      items: ${params.Q}\n      as: order\n      steps:\n        - id: lines\n          foreach:\n            items: ${foreach.order.lines}\n            steps:\n              - id: body\n                run: echo ${foreach.item}\n", `the command of step "body" refers to ${foreach.item}, which`},
 		{"ShellVariable", params + "shell: bash\nsteps:\n  - run: echo \"$Q\" \"$DAG_PARAMS_JSON\"\n", ""},
 		{"ShellVariableBeforeDot", params + "shell: bash\nsteps:\n  - run: cat \"/data/$Q\".txt\n", ""},
+		// Dagu fills $NAME.path only when the path parses as jq, and the
+		// text up to the next space here does not.
+		{"ShellVariableBeforeEllipsis", params + "shell: bash\nsteps:\n  - run: echo \"Looking up $Q...\"\n", ""},
+		{"ShellVariableBeforeQuote", params + "shell: bash\nsteps:\n  - run: cat \"/data/$Q.txt\"\n", ""},
+		{"ForeachItemEnvCopy", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: ${params.Q}\n      steps:\n        - env:\n            - VALUE: ${foreach.item}\n          run: echo \"$VALUE\"\n", ""},
+		{"ForeachLiteralItems", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: [a, b]\n      steps:\n        - run: echo ${foreach.item} \"$Q\"\n", ""},
+		// The item scope of an inner foreach replaces the outer one.
+		{"NestedForeachLiteralItems", params + "shell: bash\nsteps:\n  - id: orders\n    foreach:\n      items: ${params.Q}\n      steps:\n        - id: lines\n          foreach:\n            items: [a, b]\n            steps:\n              - run: echo ${foreach.item}\n", ""},
+		{"NestedForeachLiteralItemsEnvCopy", params + "shell: bash\nsteps:\n  - id: orders\n    foreach:\n      items: ${params.Q}\n      steps:\n        - id: lines\n          foreach:\n            items: [a, b]\n            steps:\n              - env:\n                  - COPY: $Q\n                run: echo ${foreach.item} \"$COPY\"\n", ""},
 		{"StepPOSIXShell", params + "shell: pwsh\nsteps:\n  - with:\n      shell: bash\n    run: echo \"$Q\"\n", ""},
 		{"EnvCopyAsVariable", params + "shell: bash\nenv:\n  - QUERY: ${params.Q}\nsteps:\n  - run: echo \"$QUERY\"\n", ""},
 		{"ValueMatch", params + "preconditions:\n  - condition: ${params.Q}\n    expected: yes\nsteps:\n  - run: echo\n", ""},
@@ -257,16 +278,67 @@ func TestNewToolRegistryRefusesEvaluatedInput(t *testing.T) {
 			t.Parallel()
 			tool, err := spec.LoadYAML(context.Background(), []byte("name: tool\n"+tc.body))
 			require.NoError(t, err)
-			parent := &ir.DAG{Name: "parent", LocalDAGs: map[string]*ir.DAG{"tool": tool}}
-			ctx := runctx.NewContext(context.Background(), parent, "run-1", "/tmp/log")
-			_, err = NewToolRegistry(ctx, []string{"tool"})
-			if tc.want == "" {
-				assert.NoError(t, err)
-				return
+			// A queued, retried or restarted run reads its local DAGs back from
+			// the run snapshot, which keeps fewer fields than a fresh load.
+			for _, form := range []struct {
+				name string
+				dag  *ir.DAG
+			}{{"Loaded", tool}, {"Snapshot", snapshotOf(t, tool)}} {
+				parent := &ir.DAG{Name: "parent", LocalDAGs: map[string]*ir.DAG{"tool": form.dag}}
+				ctx := runctx.NewContext(context.Background(), parent, "run-1", "/tmp/log")
+				_, err := NewToolRegistry(ctx, []string{"tool"})
+				if tc.want == "" {
+					assert.NoError(t, err, form.name)
+					continue
+				}
+				if assert.Error(t, err, form.name) {
+					assert.Contains(t, err.Error(), `tool DAG "tool": `, form.name)
+					assert.Contains(t, err.Error(), tc.want, form.name)
+				}
 			}
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), `tool DAG "tool": `)
-			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
+// snapshotOf returns dag as a run snapshot holds it: written as JSON and read
+// back.
+func snapshotOf(t *testing.T, dag *ir.DAG) *ir.DAG {
+	t.Helper()
+	data, err := json.Marshal(dag)
+	require.NoError(t, err)
+	var restored ir.DAG
+	require.NoError(t, json.Unmarshal(data, &restored))
+	return &restored
+}
+
+// Dagu writes $NAME into the command of a step that is not a local command,
+// such as one that a DAG-level ssh or container block runs, whatever shell
+// runs it there. The error gives no "$NAME" hint for such a step.
+func TestNewToolRegistryRefusesShellVariableOfRemoteStep(t *testing.T) {
+	t.Parallel()
+	steps := map[string]string{
+		"SSH":       "ssh:\n  user: ops\n  host: app.internal\nsteps:\n  - id: s\n    run: %s\n",
+		"SSHRun":    "steps:\n  - id: s\n    action: ssh.run\n    with:\n      user: ops\n      host: app.internal\n      command: %s\n",
+		"Container": "container:\n  image: alpine:3\nsteps:\n  - id: s\n    run: %s\n",
+	}
+	commands := map[string]string{
+		`grep "$Q" /var/log/app.log`:        `$Q`,
+		`grep ${params.Q} /var/log/app.log`: `${params.Q}`,
+	}
+	for name, step := range steps {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			for command, ref := range commands {
+				yaml := "name: logs\nparams:\n  - name: Q\n    type: string\n" + fmt.Sprintf(step, command)
+				tool, err := spec.LoadYAML(context.Background(), []byte(yaml))
+				require.NoError(t, err)
+				parent := &ir.DAG{Name: "parent", LocalDAGs: map[string]*ir.DAG{"logs": tool}}
+				ctx := runctx.NewContext(context.Background(), parent, "run-1", "/tmp/log")
+				_, err = NewToolRegistry(ctx, []string{"logs"})
+				if assert.Error(t, err, command) {
+					assert.Equal(t, `tool DAG "logs": the command of step "s" refers to `+ref+`, which holds text that the model sets, and that text would run as code`, err.Error())
+				}
+			}
 		})
 	}
 }

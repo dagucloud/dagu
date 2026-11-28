@@ -3,6 +3,7 @@
 
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
+import { connectionMessages } from '@/pages/connections/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
 import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
 import type { BaseStaticMessage, StaticMessage } from './en';
@@ -2342,6 +2343,8 @@ export const baseGerman = {
   'Page {page} of {total}': 'Seite {page} von {total}',
   'of {total}': 'von {total}',
   'Partially succeeded': 'Teilweise erfolgreich',
+  'Connection needs attention': 'Verbindung benötigt Aufmerksamkeit',
+  'Connection restored': 'Verbindung wiederhergestellt',
   'Processing {count} request using the existing DAG-run API.':
     '{count} Anfrage wird über die vorhandene Lauf-API verarbeitet.',
   'Processing {count} requests using the existing DAG-run API.':
@@ -3412,5 +3415,6 @@ export const german = {
   ...nodeTestMessages.de,
   ...workerNodeMessages.de,
   ...inventoryMessages.de,
+  ...connectionMessages.de,
   ...baseGerman,
 } as const satisfies Record<StaticMessage, string>;

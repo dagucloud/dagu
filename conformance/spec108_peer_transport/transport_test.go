@@ -38,6 +38,15 @@ func TestWorkerStartLine(t *testing.T) {
 	}
 }
 
+// A worker takes --peer.ca-cert-file and uses built-in TLS from it (Spec 108
+// §Keys, §Start Line).
+func TestWorkerCACertFileFlag(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	dagu.Run("peer", "init", "--out", "peer").ExpectExitCode(0)
+	worker := startWorker(t, dagu, "--peer.ca-cert-file=peer/ca.crt")
+	waitForOutput(t, worker, "Peer transport: built-in TLS (from peer.ca_cert_file)")
+}
+
 // A TLS file without peer.insecure: false selects no TLS, as before Spec 108,
 // and the worker says how to use it (Spec 108 §Ignored File).
 func TestWorkerIgnoredFile(t *testing.T) {

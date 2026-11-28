@@ -4,6 +4,7 @@ import {
   components,
   NotificationEventType,
   NotificationProviderType,
+  NotificationRouteEventType,
 } from '../../../../../api/v1/schema';
 import {
   authHeaders,
@@ -26,6 +27,11 @@ type UseNotificationSettingsArgs = {
 };
 
 type NotificationRouteSet = components['schemas']['NotificationRouteSet'];
+
+const CONNECTION_EVENTS = new Set<string>([
+  NotificationRouteEventType.connection_needs_attention,
+  NotificationRouteEventType.connection_restored,
+]);
 
 export type EffectiveNotificationRoute = {
   id: string;
@@ -205,9 +211,15 @@ export function useNotificationSettings({
         provider: channel?.type,
         enabled: route.enabled,
         channelEnabled: !!channel?.enabled,
+        // A DAG page lists only the run events of a route, so the
+        // connection events it may also select are left out.
         events:
           route.events && route.events.length > 0
-            ? route.events
+            ? route.events.flatMap((event) =>
+                CONNECTION_EVENTS.has(event)
+                  ? []
+                  : [event as string as NotificationEventType]
+              )
             : DEFAULT_NOTIFICATION_EVENTS,
       };
     });

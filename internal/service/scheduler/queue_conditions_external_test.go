@@ -1529,6 +1529,10 @@ func (s *queueConditionDispatchTaskStore) HasOutstandingAttempt(_ context.Contex
 	return s.attemptKey != "" && s.attemptKey == attemptKey, nil
 }
 
+func (s *queueConditionDispatchTaskStore) HasOutstandingAttemptUncached(ctx context.Context, attemptKey string) (bool, error) {
+	return s.HasOutstandingAttempt(ctx, attemptKey, 0)
+}
+
 func (s *queueConditionDispatchTaskStore) ListExpiredHeld(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
 	return nil, nil
 }

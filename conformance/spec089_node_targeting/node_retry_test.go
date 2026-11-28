@@ -5,6 +5,9 @@ package spec089_node_targeting_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +16,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -95,6 +99,55 @@ func (r *retriedRun) replaceNodes(t *testing.T, nodes []inventory.Node) {
 	inv.Nodes = nodes
 	_, err = inventories.Replace(ctx, inv, stored[0].Version)
 	require.NoError(t, err)
+}
+
+// runLockStaleAge is the age past which a DAG's run lock that a stopped
+// process left can be taken over (Spec 089 §Retrying a step with nodes).
+const runLockStaleAge = 30 * time.Second
+
+// runLockPath returns the run lock of dag in dataDir.
+func runLockPath(dataDir, dag string) string {
+	return filepath.Join(dataDir, "dag-runs", dag, "dag-runs", dirlock.LockDirectoryName)
+}
+
+// waitForStaleRunLock waits until the run lock at path is gone or older than
+// runLockStaleAge. A stale lock can stay on disk until the next operation
+// takes it over. An error other than the lock's absence counts as fresh.
+func waitForStaleRunLock(t *testing.T, path string) {
+	t.Helper()
+	require.NoError(t, awaitStaleRunLock(path, runLockStaleAge+harness.WaitTimeout(t)))
+}
+
+// awaitStaleRunLock polls the run lock at path until it is gone or older than
+// runLockStaleAge, and returns an error naming the last poll's result once
+// budget has passed.
+func awaitStaleRunLock(path string, budget time.Duration) error {
+	deadline := time.Now().Add(budget)
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		stale, err := runLockIsStale(path)
+		if stale {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("the run lock %s stayed fresh for %s (last error: %v)", path, budget, err)
+		}
+		<-ticker.C
+	}
+}
+
+// runLockIsStale reports whether the run lock at path is gone or older than
+// runLockStaleAge.
+func runLockIsStale(path string) (bool, error) {
+	info, err := fileutil.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return time.Since(info.ModTime()) > runLockStaleAge, nil
 }
 
 // changedFleet is retryFleet after web03 left it, web04 joined it, and web02
@@ -187,9 +240,83 @@ func TestNodeStepRetry(t *testing.T) {
 		run.dagu.ExpectFileContent("ran-web01", "10.0.1.11")
 	})
 
+	// A process that stopped while holding the run lock left it behind. The
+	// lock is aged around the spec's 30 seconds by its timestamp. The retry
+	// waits up to retryLockWait for the lock, so the ages straddle the
+	// boundary by that wait:
+	//   - freshAge stays under 30 seconds through the whole wait, so the
+	//     retry fails. A shorter threshold lets it through.
+	//   - nearStaleAge passes 30 seconds early in the wait, so the retry
+	//     takes the lock over and runs. A threshold well past 30 seconds
+	//     makes it fail.
+	// lockAgeMargin leaves time for the retry to start on a slow host. The
+	// wait helper starts while the lock is fresh and must end once the lock
+	// is past 30 seconds, while the stale lock is still on disk.
+	// TestDataRootLockStaleAge checks the lock code's boundary exactly.
+	t.Run("after a stopped process left its run lock", func(t *testing.T) {
+		t.Parallel()
+
+		const (
+			specStaleAge  = 30 * time.Second // Spec 089 §Retrying a step with nodes
+			retryLockWait = 10 * time.Second // attempt creation's wait for the lock
+			lockAgeMargin = 5 * time.Second
+			freshAge      = specStaleAge - retryLockWait - lockAgeMargin
+			nearStaleAge  = specStaleAge - retryLockWait + lockAgeMargin
+		)
+
+		run := newRetriedRun(t, "retry-6")
+		run.touch(t, "ok-prepare", "ok-web01", "ok-web03")
+		run.start(t, "retry.yaml").ExpectNonZeroExitCode()
+
+		lock := runLockPath(run.dataDir, "retry")
+		require.NoError(t, os.Mkdir(lock, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(lock, "owner.stopped"), []byte("stopped"), 0o600))
+		ageLock := func(age time.Duration) {
+			lockedAt := time.Now().Add(-age)
+			require.NoError(t, os.Chtimes(lock, lockedAt, lockedAt))
+		}
+		requireStale := func(want bool) {
+			stale, err := runLockIsStale(lock)
+			require.NoError(t, err)
+			require.Equal(t, want, stale)
+		}
+
+		// The wait helper's boundary is the spec's.
+		ageLock(specStaleAge - time.Second)
+		requireStale(false)
+		ageLock(specStaleAge + time.Second)
+		requireStale(true)
+
+		ageLock(freshAge)
+		budget := runLockStaleAge + harness.WaitTimeout(t)
+		waited := make(chan error, 1)
+		go func() {
+			waited <- awaitStaleRunLock(lock, budget)
+		}()
+
+		run.touch(t, "ok-web02")
+		blocked := run.retry(t, "retry")
+		blocked.ExpectNonZeroExitCode()
+		require.Contains(t, blocked.Stderr(), "failed to acquire lock for dag-run")
+		select {
+		case err := <-waited:
+			t.Fatalf("the wait ended while the lock was fresh: %v", err)
+		default:
+		}
+
+		ageLock(specStaleAge + time.Second)
+		require.NoError(t, <-waited)
+		require.DirExists(t, lock, "the wait must end on the lock's age, not its removal")
+
+		ageLock(nearStaleAge)
+		run.retry(t, "retry").ExpectExitCode(0)
+		require.Equal(t, []string{"web01=succeeded", "web02=succeeded", "web03=succeeded"}, nodeStatuses(t, run.dagu))
+	})
+
 	// The parent run dies while web02 runs. The retry keeps web01's run,
 	// reruns web02, and starts web03. A short heartbeat lets the killed run be
-	// found dead at once.
+	// found dead at once. A kill can land while the run holds its run lock,
+	// so the retry waits until that lock is gone or stale.
 	t.Run("after the parent run is killed", func(t *testing.T) {
 		t.Parallel()
 
@@ -205,6 +332,7 @@ func TestNodeStepRetry(t *testing.T) {
 			status := run.dagu.RunWithEnv(run.env, "status", "--run-id="+run.runID, "retry_killed")
 			return strings.Contains(status.Stdout(), "Result: Failed")
 		}, harness.WaitTimeout(t), 200*time.Millisecond, "the killed run never failed")
+		waitForStaleRunLock(t, runLockPath(run.dataDir, "retry_killed"))
 
 		run.remove(t, "started-web01")
 		run.touch(t, "go-web02")

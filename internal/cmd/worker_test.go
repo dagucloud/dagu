@@ -129,20 +129,36 @@ func TestWorkerCoordinatorClientRequiresAddress(t *testing.T) {
 func TestWorkerFlagSources(t *testing.T) {
 	t.Parallel()
 
+	ctx := newWorkerContext(t, "--peer.insecure", "--peer.cert-file=/etc/dagu/client.crt")
+	assert.Equal(t, config.ValueSource{Kind: config.SourceKindFlag, Name: "--peer.insecure"}, ctx.Config.Sources["peer.insecure"])
+	assert.Equal(t, config.ValueSource{Kind: config.SourceKindFlag, Name: "--peer.cert-file"}, ctx.Config.Sources["peer.cert_file"])
+	assert.Equal(t, config.SourceKindDefault, ctx.Config.Sources["peer.key_file"].Kind)
+}
+
+// A worker takes --peer.ca-cert-file to verify coordinators with built-in TLS
+// (Spec 108 §Keys).
+func TestWorkerCACertFileFlag(t *testing.T) {
+	t.Parallel()
+
+	ctx := newWorkerContext(t, "--peer.ca-cert-file=/etc/dagu/ca.crt")
+	assert.Equal(t, "/etc/dagu/ca.crt", ctx.Config.Core.Peer.CACertFile)
+	assert.Equal(t, config.ValueSource{Kind: config.SourceKindFlag, Name: "--peer.ca-cert-file"}, ctx.Config.Sources["peer.ca_cert_file"])
+}
+
+// newWorkerContext returns the context of a worker command run with args and
+// an empty config file.
+func newWorkerContext(t *testing.T, args ...string) *cmd.Context {
+	t.Helper()
+
 	home := t.TempDir()
 	configPath := filepath.Join(home, "config.yaml")
 	require.NoError(t, os.WriteFile(configPath, []byte("# empty\n"), 0o600))
 
 	command := cmd.CmdWorker()
 	command.SetContext(t.Context())
-	require.NoError(t, command.ParseFlags([]string{
-		"--dagu-home", home, "--config", configPath,
-		"--peer.insecure", "--peer.cert-file=/etc/dagu/client.crt",
-	}))
+	require.NoError(t, command.ParseFlags(append([]string{"--dagu-home", home, "--config", configPath}, args...)))
 
 	ctx, err := cmd.NewContext(command, cmd.WorkerFlagsForTest)
 	require.NoError(t, err)
-	assert.Equal(t, config.ValueSource{Kind: config.SourceKindFlag, Name: "--peer.insecure"}, ctx.Config.Sources["peer.insecure"])
-	assert.Equal(t, config.ValueSource{Kind: config.SourceKindFlag, Name: "--peer.cert-file"}, ctx.Config.Sources["peer.cert_file"])
-	assert.Equal(t, config.SourceKindDefault, ctx.Config.Sources["peer.key_file"].Kind)
+	return ctx
 }
