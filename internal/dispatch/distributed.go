@@ -147,6 +147,9 @@ type WorkerHeartbeatRecord struct {
 	Connection WorkerConnection `json:"connection,omitempty"`
 	// PlaintextReason is why a plaintext worker uses h2c.
 	PlaintextReason string `json:"plaintextReason,omitempty"`
+	// CertificateID is the worker certificate the heartbeat arrived with,
+	// or empty for a worker on the peer token.
+	CertificateID string `json:"certificateId,omitempty"`
 }
 
 // WorkerConnection is how a worker's heartbeat reaches the coordinator.

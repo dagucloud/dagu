@@ -53,6 +53,7 @@ const (
 	CoordinatorService_ListInvites_FullMethodName                 = "/coordinator.v1.CoordinatorService/ListInvites"
 	CoordinatorService_DeleteInvite_FullMethodName                = "/coordinator.v1.CoordinatorService/DeleteInvite"
 	CoordinatorService_Enroll_FullMethodName                      = "/coordinator.v1.CoordinatorService/Enroll"
+	CoordinatorService_RemoveWorker_FullMethodName                = "/coordinator.v1.CoordinatorService/RemoveWorker"
 )
 
 // CoordinatorServiceClient is the client API for CoordinatorService service.
@@ -144,6 +145,10 @@ type CoordinatorServiceClient interface {
 	// Enroll issues a worker certificate for the key of a certificate signing
 	// request, admitted by an invite. It needs built-in TLS and no peer token.
 	Enroll(ctx context.Context, in *EnrollRequest, opts ...grpc.CallOption) (*EnrollResponse, error)
+	// RemoveWorker revokes the certificate of a worker that joined with an
+	// invite, when the worker is not connected or holds no run. It takes the
+	// peer token.
+	RemoveWorker(ctx context.Context, in *RemoveWorkerRequest, opts ...grpc.CallOption) (*RemoveWorkerResponse, error)
 }
 
 type coordinatorServiceClient struct {
@@ -482,6 +487,16 @@ func (c *coordinatorServiceClient) Enroll(ctx context.Context, in *EnrollRequest
 	return out, nil
 }
 
+func (c *coordinatorServiceClient) RemoveWorker(ctx context.Context, in *RemoveWorkerRequest, opts ...grpc.CallOption) (*RemoveWorkerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveWorkerResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_RemoveWorker_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoordinatorServiceServer is the server API for CoordinatorService service.
 // All implementations must embed UnimplementedCoordinatorServiceServer
 // for forward compatibility.
@@ -571,6 +586,10 @@ type CoordinatorServiceServer interface {
 	// Enroll issues a worker certificate for the key of a certificate signing
 	// request, admitted by an invite. It needs built-in TLS and no peer token.
 	Enroll(context.Context, *EnrollRequest) (*EnrollResponse, error)
+	// RemoveWorker revokes the certificate of a worker that joined with an
+	// invite, when the worker is not connected or holds no run. It takes the
+	// peer token.
+	RemoveWorker(context.Context, *RemoveWorkerRequest) (*RemoveWorkerResponse, error)
 	mustEmbedUnimplementedCoordinatorServiceServer()
 }
 
@@ -673,6 +692,9 @@ func (UnimplementedCoordinatorServiceServer) DeleteInvite(context.Context, *Dele
 }
 func (UnimplementedCoordinatorServiceServer) Enroll(context.Context, *EnrollRequest) (*EnrollResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Enroll not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) RemoveWorker(context.Context, *RemoveWorkerRequest) (*RemoveWorkerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveWorker not implemented")
 }
 func (UnimplementedCoordinatorServiceServer) mustEmbedUnimplementedCoordinatorServiceServer() {}
 func (UnimplementedCoordinatorServiceServer) testEmbeddedByValue()                            {}
@@ -1213,6 +1235,24 @@ func _CoordinatorService_Enroll_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoordinatorService_RemoveWorker_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveWorkerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).RemoveWorker(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_RemoveWorker_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).RemoveWorker(ctx, req.(*RemoveWorkerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CoordinatorService_ServiceDesc is the grpc.ServiceDesc for CoordinatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1327,6 +1367,10 @@ var CoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Enroll",
 			Handler:    _CoordinatorService_Enroll_Handler,
+		},
+		{
+			MethodName: "RemoveWorker",
+			Handler:    _CoordinatorService_RemoveWorker_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

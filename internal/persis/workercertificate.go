@@ -50,8 +50,9 @@ type WorkerCertificateStore interface {
 	// Otherwise it writes when the stored heartbeat is more than a day
 	// older, or at least a minute older and a reported field changed. It
 	// keeps the stored state. A pruned or unreadable record is recorded
-	// again from cert.
-	RecordHeartbeat(ctx context.Context, cert WorkerCertificate) error
+	// again from cert. It returns the heartbeat fields as stored, so a
+	// caller can tell a reported change that is still to be written.
+	RecordHeartbeat(ctx context.Context, cert WorkerCertificate) (WorkerCertificate, error)
 
 	// SetState moves the certificate to state and returns the record as
 	// stored. States only move forward, from active to removing to revoked;

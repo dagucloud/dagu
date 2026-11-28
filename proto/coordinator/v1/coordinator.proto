@@ -116,6 +116,11 @@ service CoordinatorService {
   // Enroll issues a worker certificate for the key of a certificate signing
   // request, admitted by an invite. It needs built-in TLS and no peer token.
   rpc Enroll (EnrollRequest) returns (EnrollResponse);
+
+  // RemoveWorker revokes the certificate of a worker that joined with an
+  // invite, when the worker is not connected or holds no run. It takes the
+  // peer token.
+  rpc RemoveWorker (RemoveWorkerRequest) returns (RemoveWorkerResponse);
 }
 
 // Request message for polling a task.
@@ -915,4 +920,20 @@ message EnrollRequest {
 message EnrollResponse {
   bytes certificate = 1;     // DER worker certificate
   bytes ca_certificate = 2;  // DER peer CA certificate
+}
+
+message RemoveWorkerRequest {
+  string worker_id = 1;
+}
+
+message RemoveWorkerResponse {
+  WorkerRemovalState state = 1;
+  // The certificates the removal revokes: the one the worker connects
+  // with, or each one that names the worker when it is not connected.
+  repeated string certificate_ids = 2;
+}
+
+enum WorkerRemovalState {
+  WORKER_REMOVAL_STATE_UNSPECIFIED = 0;
+  WORKER_REMOVAL_STATE_REMOVED = 2;  // The certificate is revoked
 }

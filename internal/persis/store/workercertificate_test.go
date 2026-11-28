@@ -60,6 +60,13 @@ func getCertificate(t *testing.T, s *store.WorkerCertificateStore, id string) pe
 	return cert
 }
 
+func recordHeartbeat(t *testing.T, s *store.WorkerCertificateStore, cert persis.WorkerCertificate) persis.WorkerCertificate {
+	t.Helper()
+	stored, err := s.RecordHeartbeat(t.Context(), cert)
+	require.NoError(t, err)
+	return stored
+}
+
 func setState(t *testing.T, s *store.WorkerCertificateStore, id string, state persis.WorkerCertificateState) persis.WorkerCertificate {
 	t.Helper()
 	cert, err := s.SetState(t.Context(), id, state)
@@ -92,7 +99,7 @@ func TestWorkerCertificateStore_ListOldestFirst(t *testing.T) {
 	createCertificate(t, s, second)
 
 	first.LastHeartbeatAt = enrolledAt.Add(48 * time.Hour)
-	require.NoError(t, s.RecordHeartbeat(ctx, first))
+	recordHeartbeat(t, s, first)
 	first = setState(t, s, "cert-b", persis.WorkerCertificateRemoving)
 
 	certs, err := s.List(ctx)
@@ -197,7 +204,7 @@ func TestWorkerCertificateStore_RecordHeartbeatRepairsRecord(t *testing.T) {
 			require.NoError(t, os.WriteFile(path, []byte(raw), 0o600))
 
 			beat := workerCertificate("cert-1")
-			require.NoError(t, s.RecordHeartbeat(t.Context(), beat))
+			recordHeartbeat(t, s, beat)
 			assert.Equal(t, beat, getCertificate(t, s, "cert-1"))
 		})
 	}
@@ -242,7 +249,7 @@ func TestWorkerCertificateStore_GetDuringRemoval(t *testing.T) {
 	beat.LastHeartbeatAt = enrolledAt.Add(48 * time.Hour)
 	reader, err := store.NewWorkerCertificateStore(&afterFirstGet{Collection: col, hook: func() {
 		setState(t, remover, "cert-1", persis.WorkerCertificateRevoked)
-		require.NoError(t, s.RecordHeartbeat(ctx, beat))
+		recordHeartbeat(t, s, beat)
 	}})
 	require.NoError(t, err)
 
@@ -309,7 +316,6 @@ func (c *staleFirstGet) Get(ctx context.Context, id string) (*persis.Record, err
 // report stays.
 func TestWorkerCertificateStore_RecordHeartbeatRepairKeepsNewerReport(t *testing.T) {
 	t.Parallel()
-	ctx := t.Context()
 	dataDir := t.TempDir()
 	path := filepath.Join(dataDir, "worker-certificates", "certs", "cert-1.json")
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
@@ -324,10 +330,10 @@ func TestWorkerCertificateStore_RecordHeartbeatRepairKeepsNewerReport(t *testing
 
 	newer := workerCertificate("cert-1")
 	newer.LastHeartbeatAt = enrolledAt.Add(time.Hour)
-	require.NoError(t, first.RecordHeartbeat(ctx, newer))
+	recordHeartbeat(t, first, newer)
 	older := workerCertificate("cert-1")
 	older.WorkerID = "worker-older"
-	require.NoError(t, second.RecordHeartbeat(ctx, older))
+	recordHeartbeat(t, second, older)
 
 	assert.Equal(t, newer, getCertificate(t, first, "cert-1"))
 }
@@ -349,7 +355,6 @@ func (c *staleCorruptRead) Get(ctx context.Context, id string) (*persis.Record, 
 
 func TestWorkerCertificateStore_RecordHeartbeat(t *testing.T) {
 	t.Parallel()
-	ctx := t.Context()
 	s, _ := newWorkerCertificateStore(t)
 	cert := workerCertificate("cert-1")
 	createCertificate(t, s, cert)
@@ -357,25 +362,26 @@ func TestWorkerCertificateStore_RecordHeartbeat(t *testing.T) {
 	// Within a day of the stored heartbeat, the same report writes nothing.
 	beat := cert
 	beat.LastHeartbeatAt = enrolledAt.Add(24 * time.Hour)
-	require.NoError(t, s.RecordHeartbeat(ctx, beat))
+	recordHeartbeat(t, s, beat)
 	assert.Equal(t, cert, getCertificate(t, s, "cert-1"))
 
 	beat.LastHeartbeatAt = enrolledAt.Add(24*time.Hour + time.Second)
-	require.NoError(t, s.RecordHeartbeat(ctx, beat))
+	recordHeartbeat(t, s, beat)
 	assert.Equal(t, beat, getCertificate(t, s, "cert-1"))
 
 	// A changed worker ID is written a minute after the last write.
 	renamed := beat
 	renamed.WorkerID = "worker-renamed"
 	renamed.LastHeartbeatAt = beat.LastHeartbeatAt.Add(time.Minute)
-	require.NoError(t, s.RecordHeartbeat(ctx, renamed))
+	recordHeartbeat(t, s, renamed)
 	assert.Equal(t, renamed, getCertificate(t, s, "cert-1"))
 
-	// A report older than the stored heartbeat writes nothing.
+	// A report older than the stored heartbeat writes nothing, and the
+	// result says the stored worker ID differs from the reported one.
 	late := renamed
 	late.WorkerID = "worker-late"
 	late.LastHeartbeatAt = renamed.LastHeartbeatAt.Add(-time.Hour)
-	require.NoError(t, s.RecordHeartbeat(ctx, late))
+	assert.Equal(t, renamed.WorkerID, recordHeartbeat(t, s, late).WorkerID)
 	assert.Equal(t, renamed, getCertificate(t, s, "cert-1"))
 }
 
@@ -383,7 +389,6 @@ func TestWorkerCertificateStore_RecordHeartbeat(t *testing.T) {
 // every heartbeat. They write the record at most once a minute.
 func TestWorkerCertificateStore_RecordHeartbeatBoundsChanges(t *testing.T) {
 	t.Parallel()
-	ctx := t.Context()
 	_, base := newWorkerCertificateStore(t)
 	col := &countingWrites{Collection: base}
 	s, err := store.NewWorkerCertificateStore(col)
@@ -403,7 +408,7 @@ func TestWorkerCertificateStore_RecordHeartbeatBoundsChanges(t *testing.T) {
 		}
 		beat.LastHeartbeatAt = enrolledAt.Add(time.Duration(i) * time.Second)
 		before := col.writes
-		require.NoError(t, s.RecordHeartbeat(ctx, beat))
+		recordHeartbeat(t, s, beat)
 		require.LessOrEqual(t, col.writes-before, 1)
 		if col.writes > before {
 			writtenAt = append(writtenAt, beat.LastHeartbeatAt)
@@ -445,7 +450,6 @@ func (c *countingWrites) count(err error) error {
 
 func TestWorkerCertificateStore_RecordHeartbeatKeepsState(t *testing.T) {
 	t.Parallel()
-	ctx := t.Context()
 	s, _ := newWorkerCertificateStore(t)
 	cert := workerCertificate("cert-1")
 	createCertificate(t, s, cert)
@@ -453,7 +457,7 @@ func TestWorkerCertificateStore_RecordHeartbeatKeepsState(t *testing.T) {
 
 	beat := cert
 	beat.LastHeartbeatAt = enrolledAt.Add(48 * time.Hour)
-	require.NoError(t, s.RecordHeartbeat(ctx, beat))
+	recordHeartbeat(t, s, beat)
 
 	got := getCertificate(t, s, "cert-1")
 	assert.Equal(t, persis.WorkerCertificateRevoked, got.State)
@@ -473,7 +477,7 @@ func TestWorkerCertificateStore_RecordHeartbeatAfterPrune(t *testing.T) {
 
 	beat := cert
 	beat.LastHeartbeatAt = enrolledAt.Add(retention + time.Minute)
-	require.NoError(t, s.RecordHeartbeat(ctx, beat))
+	recordHeartbeat(t, s, beat)
 	assert.Equal(t, beat, getCertificate(t, s, "cert-1"))
 }
 

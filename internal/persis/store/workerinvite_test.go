@@ -173,6 +173,61 @@ func TestWorkerInviteStore_UseAfterExpiry(t *testing.T) {
 	assert.ErrorIs(t, err, persis.ErrWorkerInviteEnded)
 }
 
+// Prune deletes an invite's record 7 days after the invite was used up or
+// expired, and keeps a reusable invite without an expiry (Spec 108 §Invite
+// Records).
+func TestWorkerInviteStore_Prune(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s := newMemoryWorkerInviteStore(t)
+	const retention = 7 * 24 * time.Hour
+	usedAt := inviteCreatedAt.Add(time.Hour)
+	expiresAt := inviteCreatedAt.Add(24 * time.Hour)
+
+	used := createInvite(t, s, workerInvite("used", persis.WorkerInviteSingleUse))
+	_, err := s.Use(ctx, used.ID, usedAt)
+	require.NoError(t, err)
+	expiringSingle := workerInvite("expiring-single", persis.WorkerInviteSingleUse)
+	expiringSingle.ExpiresAt = expiresAt
+	expired := createInvite(t, s, expiringSingle)
+	expiringReusable := workerInvite("expiring-reusable", persis.WorkerInviteReusable)
+	expiringReusable.ExpiresAt = expiresAt
+	expiredReusable := createInvite(t, s, expiringReusable)
+	_, err = s.Use(ctx, expiredReusable.ID, usedAt)
+	require.NoError(t, err)
+	forever := createInvite(t, s, workerInvite("forever", persis.WorkerInviteReusable))
+	_, err = s.Use(ctx, forever.ID, usedAt)
+	require.NoError(t, err)
+
+	remaining := func() []string {
+		invites, err := s.List(ctx)
+		require.NoError(t, err)
+		ids := make([]string, 0, len(invites))
+		for _, invite := range invites {
+			ids = append(ids, invite.ID)
+		}
+		return ids
+	}
+
+	removed, err := s.Prune(ctx, usedAt.Add(retention))
+	require.NoError(t, err)
+	assert.Zero(t, removed, "an invite stays for 7 days after it ends")
+
+	removed, err = s.Prune(ctx, usedAt.Add(retention+time.Second))
+	require.NoError(t, err)
+	assert.Equal(t, 1, removed)
+	assert.ElementsMatch(t, []string{expired.ID, expiredReusable.ID, forever.ID}, remaining())
+
+	removed, err = s.Prune(ctx, expiresAt.Add(retention+time.Second))
+	require.NoError(t, err)
+	assert.Equal(t, 2, removed)
+	assert.Equal(t, []string{forever.ID}, remaining())
+
+	removed, err = s.Prune(ctx, expiresAt.Add(100*retention))
+	require.NoError(t, err)
+	assert.Zero(t, removed)
+}
+
 // Coordinators that share a data directory each open their own store, and
 // of their concurrent uses of one single-use invite exactly one succeeds.
 func TestWorkerInviteStore_SingleUseOnce(t *testing.T) {
