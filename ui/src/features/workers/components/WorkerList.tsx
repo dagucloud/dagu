@@ -10,6 +10,7 @@ import { runningTaskRoot } from '../../dag-runs/lib/dagRunUrls';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
 import { countWorkersBehind, WorkerVersion } from './WorkerVersion';
+import { WorkerConnection } from './WorkerConnection';
 
 type Worker = components['schemas']['Worker'];
 type RunningTask = components['schemas']['RunningTask'];
@@ -138,6 +139,11 @@ function WorkerList({ workers, isLoading, errors }: WorkerListProps) {
                       </span>
                     ))}
                 </div>
+              </div>
+
+              {/* Connection */}
+              <div className="w-56 min-w-0">
+                <WorkerConnection worker={worker} />
               </div>
 
               {/* Utilization */}

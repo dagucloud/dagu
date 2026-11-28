@@ -5,6 +5,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import {
+  PlaintextReason,
+  WorkerConnection,
   WorkerHealthStatus,
   WorkerVersionDrift,
   type components,
@@ -81,6 +83,52 @@ describe('WorkerList', () => {
 
     expect(screen.getByText('newer than the server')).toBeInTheDocument();
     expect(screen.queryByText(/older Dagu version/)).not.toBeInTheDocument();
+  });
+
+  it('shows how each worker connects', () => {
+    renderList([
+      { ...worker, connection: WorkerConnection.certificate },
+      { ...worker, id: 'worker-2', connection: WorkerConnection.tls },
+      { ...worker, id: 'worker-3', connection: undefined },
+    ]);
+
+    expect(screen.getByText('Certificate')).toBeInTheDocument();
+    expect(screen.getByText('TLS')).toBeInTheDocument();
+    expect(screen.getByText('Connection not reported')).toBeInTheDocument();
+  });
+
+  // Plaintext can be on purpose, as behind a service mesh, so the line names
+  // the reason and the change without a warning.
+  it('names why a plaintext worker uses h2c and what to change', () => {
+    renderList([
+      {
+        ...worker,
+        connection: WorkerConnection.plaintext,
+        plaintextReason: PlaintextReason.peer_insecure,
+      },
+      {
+        ...worker,
+        id: 'worker-2',
+        connection: WorkerConnection.plaintext,
+        plaintextReason: PlaintextReason.older_version,
+      },
+    ]);
+
+    const links = screen.getAllByRole('link', { name: 'Plaintext' });
+    expect(links).toHaveLength(2);
+    expect(links[0]).toHaveAttribute(
+      'href',
+      'https://docs.dagu.sh/server-admin/distributed/transport-security'
+    );
+    expect(
+      screen.getByText(/peer\.insecure: true in its config/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Remove peer.insecure: true to use TLS')
+    ).toBeInTheDocument();
+    expect(screen.getByText(/older version/)).toBeInTheDocument();
+    expect(screen.getByText('Upgrade it to use TLS')).toBeInTheDocument();
+    expect(links[0].closest('.text-warning')).toBeNull();
   });
 
   it('tells a worker that reports no version', () => {

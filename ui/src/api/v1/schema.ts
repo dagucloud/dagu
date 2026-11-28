@@ -7407,6 +7407,16 @@ export interface components {
             startedAt: string;
             /** @description Port number the coordinator is listening on */
             port: number;
+            /** @description Hosts, other than workers, that called this coordinator over h2c in the last 10 minutes, the latest call first. Absent when the coordinator does not report them, as one of an earlier release. */
+            h2cCallers?: components["schemas"]["H2CCaller"][];
+        };
+        /** @description A host that called a coordinator over h2c, with the reason it sent */
+        H2CCaller: {
+            /** @description Remote host of the calls, without the port */
+            host: string;
+            reason: components["schemas"]["PlaintextReason"];
+            /** @description RFC3339 timestamp of the host's last call with this reason */
+            lastCallAt: string;
         };
         /** @description Response containing tunnel service status */
         TunnelStatusResponse: {
@@ -9187,7 +9197,28 @@ export interface components {
             /** @description Dagu version the worker runs. Absent when the worker reports none, as workers of earlier releases do. */
             version?: string;
             versionDrift: components["schemas"]["WorkerVersionDrift"];
+            connection?: components["schemas"]["WorkerConnection"];
+            plaintextReason?: components["schemas"]["PlaintextReason"];
         };
+        /**
+         * @description How the worker's last heartbeat reached the coordinator. Absent when the coordinator does not report it, as one of an earlier release.
+         *     - certificate: TLS with a worker certificate.
+         *     - tls: TLS without a worker certificate.
+         *     - plaintext: h2c. plaintextReason says why.
+         *
+         * @enum {string}
+         */
+        WorkerConnection: WorkerConnection;
+        /**
+         * @description Why a process uses h2c:
+         *     - peer.insecure: its config sets peer.insecure: true.
+         *     - no TLS source: it has nothing to verify the coordinator with.
+         *     - tls failed on the network path: TLS failed between it and the coordinator, so it fell back to h2c.
+         *     - older version: it runs a Dagu release that does not send a reason.
+         *
+         * @enum {string}
+         */
+        PlaintextReason: PlaintextReason;
         /**
          * @description How the worker's Dagu version compares with the version of the server that answers:
          *     - none: the same version.
@@ -29607,6 +29638,17 @@ export enum AvailabilityWindowWindow {
 export enum RepeatMode {
     While = "while",
     Until = "until"
+}
+export enum WorkerConnection {
+    certificate = "certificate",
+    tls = "tls",
+    plaintext = "plaintext"
+}
+export enum PlaintextReason {
+    peer_insecure = "peer.insecure",
+    no_TLS_source = "no TLS source",
+    tls_failed_on_the_network_path = "tls failed on the network path",
+    older_version = "older version"
 }
 export enum WorkerVersionDrift {
     none = "none",
