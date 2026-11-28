@@ -63,7 +63,9 @@ func TestClientGetWorkers_KeepsNewerFields(t *testing.T) {
 			for i, listener := range sortedListeners(t, len(kinds)) {
 				members[i] = kinds[i](t, listener)
 			}
-			workers, err := coordinator.New(&mockServiceMonitor{members: members}, coordinator.DefaultConfig()).GetWorkers(t.Context())
+			client := coordinator.New(&mockServiceMonitor{members: members}, coordinator.DefaultConfig())
+			t.Cleanup(func() { _ = client.Cleanup(context.Background()) })
+			workers, err := client.GetWorkers(t.Context())
 			require.NoError(t, err)
 			require.Len(t, workers, 1)
 			assert.Equal(t, "2.27.0", workers[0].Version)
