@@ -130,8 +130,8 @@ export const workerAdminMessages = defineMessages({
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
       'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.',
     'Stop the runs of {worker}': 'Stop the runs of {worker}',
-    'Remove and Stop runs now work on the local server only. Switch to it to use them.':
-      'Remove and Stop runs now work on the local server only. Switch to it to use them.',
+    'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.':
+      'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.',
     'Stop runs': 'Stop runs',
     'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
       'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.',
@@ -295,8 +295,8 @@ export const workerAdminMessages = defineMessages({
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
       '无法读取它加入时使用的邀请，因此无法确定该邀请是否仍允许新的 Worker 加入。仍可以移除。',
     'Stop the runs of {worker}': '停止 {worker} 的运行',
-    'Remove and Stop runs now work on the local server only. Switch to it to use them.':
-      '移除和立即停止运行仅适用于本地服务器。请切换到本地服务器后使用。',
+    'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.':
+      '移除和立即停止运行仅适用于此页面所属的服务器。要在所选节点上使用，请打开该节点的 Dagu UI。',
     'Stop runs': '停止运行',
     'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
       '其运行会收到取消请求。无论运行是否结束，该 Worker 都会在两分钟内被移除。',
@@ -464,8 +464,8 @@ export const workerAdminMessages = defineMessages({
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
       '参加に使った招待を読み込めなかったため、その招待で今も新しいワーカーが参加できるかは分かりません。削除はできます。',
     'Stop the runs of {worker}': '{worker} の実行を停止',
-    'Remove and Stop runs now work on the local server only. Switch to it to use them.':
-      '削除と今すぐ実行を停止はローカルサーバーでのみ使えます。ローカルサーバーに切り替えてから使ってください。',
+    'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.':
+      '削除と今すぐ実行を停止は、このページのサーバーでのみ使えます。選択中のノードで使うには、そのノードの Dagu UI を開いてください。',
     'Stop runs': '実行を停止',
     'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
       '実行に取り消し要求を送ります。実行が終わったかどうかにかかわらず、2 分以内にワーカーを削除します。',
@@ -634,8 +634,8 @@ export const workerAdminMessages = defineMessages({
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
       'Die Einladung, mit der er beigetreten ist, konnte nicht gelesen werden. Daher ist unklar, ob mit ihr noch neue Worker beitreten können. Entfernen funktioniert trotzdem.',
     'Stop the runs of {worker}': 'Läufe von {worker} stoppen',
-    'Remove and Stop runs now work on the local server only. Switch to it to use them.':
-      'Entfernen und Läufe jetzt stoppen funktionieren nur auf dem lokalen Server. Wechseln Sie zu ihm, um sie zu nutzen.',
+    'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.':
+      'Entfernen und Läufe jetzt stoppen funktionieren nur für den Server, zu dem diese Seite gehört. Um sie auf dem ausgewählten Knoten zu nutzen, öffnen Sie die Dagu-Oberfläche dieses Knotens.',
     'Stop runs': 'Läufe stoppen',
     'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
       'Sein Lauf erhält eine Abbruchanfrage. Der Worker wird innerhalb von zwei Minuten entfernt, ob der Lauf geendet hat oder nicht.',
@@ -805,8 +805,8 @@ export const workerAdminMessages = defineMessages({
     'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
       'L’invitation qu’il a utilisée n’a pas pu être lue, on ne peut donc pas dire si elle laisse encore rejoindre de nouveaux workers. Le retrait reste possible.',
     'Stop the runs of {worker}': 'Arrêter les exécutions de {worker}',
-    'Remove and Stop runs now work on the local server only. Switch to it to use them.':
-      'Le retrait et l’arrêt immédiat des exécutions ne fonctionnent que sur le serveur local. Passez-y pour les utiliser.',
+    'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.':
+      'Le retrait et l’arrêt immédiat des exécutions ne fonctionnent que pour le serveur de cette page. Pour les utiliser sur le nœud sélectionné, ouvrez l’interface Dagu de ce nœud.',
     'Stop runs': 'Arrêter les exécutions',
     'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.':
       'Son exécution reçoit une demande d’annulation. Le worker est retiré dans les deux minutes, que l’exécution soit terminée ou non.',

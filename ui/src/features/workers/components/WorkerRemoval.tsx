@@ -255,7 +255,7 @@ export function WorkerActionsNote({ workers }: { workers: Worker[] }) {
       <I18nText
         text={
           remoteOnly
-            ? 'Remove and Stop runs now work on the local server only. Switch to it to use them.'
+            ? 'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.'
             : 'A worker on TLS or Plaintext has no certificate and no Remove, since it would connect again at once. To stop one, stop it on its host, or change the peer token if the coordinator requires one.'
         }
       />

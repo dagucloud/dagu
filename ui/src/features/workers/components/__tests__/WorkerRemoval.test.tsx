@@ -136,7 +136,7 @@ describe('Remove', () => {
     ).not.toBeInTheDocument();
     expect(
       screen.getByText(
-        'Remove and Stop runs now work on the local server only. Switch to it to use them.'
+        'Remove and Stop runs now work only for the server this page belongs to. To use them on the selected node, open the Dagu UI of that node.'
       )
     ).toBeInTheDocument();
   });
