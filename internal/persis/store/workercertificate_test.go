@@ -369,10 +369,21 @@ func TestWorkerCertificateStore_RecordHeartbeat(t *testing.T) {
 	recordHeartbeat(t, s, beat)
 	assert.Equal(t, beat, getCertificate(t, s, "cert-1"))
 
-	// A changed worker ID is written a minute after the last write.
-	renamed := beat
+	// A changed host is written a minute after the last write.
+	moved := beat
+	moved.Host = "host-moved"
+	moved.LastHeartbeatAt = beat.LastHeartbeatAt.Add(time.Second)
+	recordHeartbeat(t, s, moved)
+	assert.Equal(t, beat, getCertificate(t, s, "cert-1"))
+	moved.LastHeartbeatAt = beat.LastHeartbeatAt.Add(time.Minute)
+	recordHeartbeat(t, s, moved)
+	assert.Equal(t, moved, getCertificate(t, s, "cert-1"))
+
+	// A changed worker ID is written at once, so removal finds the worker
+	// by the ID it last reported.
+	renamed := moved
 	renamed.WorkerID = "worker-renamed"
-	renamed.LastHeartbeatAt = beat.LastHeartbeatAt.Add(time.Minute)
+	renamed.LastHeartbeatAt = moved.LastHeartbeatAt.Add(time.Second)
 	recordHeartbeat(t, s, renamed)
 	assert.Equal(t, renamed, getCertificate(t, s, "cert-1"))
 
@@ -385,7 +396,7 @@ func TestWorkerCertificateStore_RecordHeartbeat(t *testing.T) {
 	assert.Equal(t, renamed, getCertificate(t, s, "cert-1"))
 }
 
-// Two workers that run on one copied certificate report different fields at
+// Two workers that run on one copied certificate report different hosts at
 // every heartbeat. They write the record at most once a minute.
 func TestWorkerCertificateStore_RecordHeartbeatBoundsChanges(t *testing.T) {
 	t.Parallel()
@@ -396,7 +407,6 @@ func TestWorkerCertificateStore_RecordHeartbeatBoundsChanges(t *testing.T) {
 	cert := workerCertificate("cert-1")
 	createCertificate(t, s, cert)
 	clone := cert
-	clone.WorkerID = "worker-clone"
 	clone.Host = "host-clone"
 
 	const reports = 180

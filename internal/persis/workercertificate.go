@@ -48,7 +48,8 @@ type WorkerCertificateStore interface {
 	// cert.LastHeartbeatAt, with the worker ID, host, and environment it
 	// reported. A report not newer than the stored heartbeat writes nothing.
 	// Otherwise it writes when the stored heartbeat is more than a day
-	// older, or at least a minute older and a reported field changed. It
+	// older, when the worker ID changed, or when it is at least a minute
+	// older and the host or environment changed. It
 	// keeps the stored state. A pruned or unreadable record is recorded
 	// again from cert. It returns the heartbeat fields as stored, so a
 	// caller can tell a reported change that is still to be written.

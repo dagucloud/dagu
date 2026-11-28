@@ -59,9 +59,10 @@ const (
 	// day per certificate.
 	workerCertificateHeartbeatInterval = 24 * time.Hour
 
-	// workerCertificateChangeInterval bounds the writes of a changed worker
-	// ID, host, or environment to one a minute per certificate, so workers
-	// that share one certificate do not write at every heartbeat.
+	// workerCertificateChangeInterval bounds the writes of a changed host
+	// or environment to one a minute per certificate, so workers that share
+	// one certificate do not write at every heartbeat. A changed worker ID
+	// is written at once, since removal finds a worker by it.
 	workerCertificateChangeInterval = time.Minute
 
 	// workerCertificateRetention is how long an active certificate's
@@ -258,12 +259,15 @@ func (s *WorkerCertificateStore) RecordHeartbeat(ctx context.Context, cert persi
 }
 
 // heartbeatWriteDue reports whether the heartbeat reported in cert is to be
-// written over stored. Both conditions need a newer report, so a delayed
+// written over stored. Each condition needs a newer report, so a delayed
 // report never replaces newer fields.
 func heartbeatWriteDue(stored, cert persis.WorkerCertificate) bool {
 	age := cert.LastHeartbeatAt.Sub(stored.LastHeartbeatAt)
-	changed := cert.WorkerID != stored.WorkerID || cert.Host != stored.Host || cert.Environment != stored.Environment
-	return age > workerCertificateHeartbeatInterval || (changed && age >= workerCertificateChangeInterval)
+	if age <= 0 {
+		return false
+	}
+	changed := cert.Host != stored.Host || cert.Environment != stored.Environment
+	return age > workerCertificateHeartbeatInterval || cert.WorkerID != stored.WorkerID || (changed && age >= workerCertificateChangeInterval)
 }
 
 func (s *WorkerCertificateStore) SetState(ctx context.Context, id string, state persis.WorkerCertificateState) (persis.WorkerCertificate, error) {
