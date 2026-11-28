@@ -2,72 +2,80 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type * as React from 'react';
+import { WorkerAccessReason } from '@/api/v1/schema';
 import { CopyButton } from '@/components/ui/copy-button';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 
-/** A request that failed: what went wrong, and the server's own words. */
+const NO_COORDINATOR =
+  'No coordinator is running or reachable. Start one, such as with dagu start-all, then check again.';
+
+/** A request that failed, as the dialog's own words: the cause and the change. */
 export interface RequestProblem {
   text: string;
-  detail?: string;
-  /** The change to make, when the server's words do not name one. */
-  change?: string;
 }
 
-// The server's answer when the coordinator refused its peer token or its
-// transport. The coordinator's reason follows.
-const COORDINATOR_REFUSED = 'the coordinator refused the server: ';
-
-// The statuses the invite and join readiness endpoints answer with.
-const STATUS_TEXT: Record<number, string> = {
-  403: 'Only admins can add workers.',
-  503: 'The server cannot reach a coordinator.',
+// The dialog's words for each reason the server gives in details.reason or
+// a coordinator's errorReason. A coordinator's own message is never shown:
+// it may name where a credential is kept.
+const REASON_TEXT: Partial<Record<WorkerAccessReason, string>> = {
+  [WorkerAccessReason.own_certificates]:
+    'Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates.',
+  [WorkerAccessReason.ca_unavailable]:
+    'Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause.',
+  [WorkerAccessReason.peer_token_missing]:
+    "This server has no peer token for the coordinator. Set peer.token on this server to the coordinator's, then restart it.",
+  [WorkerAccessReason.peer_token_mismatch]:
+    "This server's peer.token is not the coordinator's. Set the same peer.token on both, then restart them.",
+  [WorkerAccessReason.require_tls]:
+    "The coordinator requires TLS. Remove the peer.insecure setting from this server's config, then restart it.",
+  [WorkerAccessReason.coordinator_refused]:
+    'The coordinator refused this server. Its log names the reason.',
+  [WorkerAccessReason.older_coordinator]:
+    'The coordinator is from an earlier Dagu release. Upgrade every coordinator to add workers.',
+  [WorkerAccessReason.no_coordinator]: NO_COORDINATOR,
 };
 
+/** The dialog's words for a reason, or undefined for one it does not know. */
+export function reasonText(reason: string | undefined): string | undefined {
+  return reason ? REASON_TEXT[reason as WorkerAccessReason] : undefined;
+}
+
 /**
- * Names the cause of a failed call. A 400 and a 409 carry the cause in the
- * server's message, so the message stands on its own.
+ * Names the cause of a failed call by its status and details.reason. A 409
+ * or 503 without a reason comes from a server that predates reasons.
  */
 export function requestProblem(
   status: number | undefined,
-  message: string | undefined,
+  error: unknown,
   conflict: string
 ): RequestProblem {
-  if (status === 400 && message) return { text: message };
-  if (status === 409) return { text: conflict, detail: message };
-  if (status === 503 && message?.startsWith(COORDINATOR_REFUSED)) {
-    const reason = message.slice(COORDINATOR_REFUSED.length);
-    // A missing token and a TLS requirement name their change; a token
-    // that differs from the coordinator's does not.
-    const change = reason.includes('does not match')
-      ? "Give this server the coordinator's peer.token, then restart it."
-      : undefined;
-    return {
-      text: 'The coordinator refused this server.',
-      detail: reason,
-      change,
-    };
+  const reason = (error as { details?: { reason?: string } } | undefined)
+    ?.details?.reason;
+  const text = reasonText(reason);
+  if (text) return { text };
+  switch (status) {
+    case 400:
+      return {
+        text: 'The server refused the address. Check it and try again.',
+      };
+    case 403:
+      return { text: 'Only admins can add workers.' };
+    case 409:
+      return { text: conflict };
+    case 503:
+      return { text: NO_COORDINATOR };
+    default:
+      return { text: 'The request failed.' };
   }
-  const text = (status && STATUS_TEXT[status]) || 'The request failed.';
-  return { text, detail: status === 403 ? undefined : message };
 }
 
 export function ProblemText({ problem }: { problem: RequestProblem }) {
   return (
-    <div role="alert" className="space-y-0.5 text-sm text-destructive">
-      <p>
-        <I18nText text={problem.text} />
-      </p>
-      {problem.detail && (
-        <p className="text-muted-foreground">{problem.detail}</p>
-      )}
-      {problem.change && (
-        <p>
-          <I18nText text={problem.change} />
-        </p>
-      )}
-    </div>
+    <p role="alert" className="text-sm text-destructive">
+      <I18nText text={problem.text} />
+    </p>
   );
 }
 
@@ -76,11 +84,14 @@ export function Step({
   number,
   title,
   state,
+  live,
   children,
 }: {
   number: number;
   title: string;
   state?: string;
+  /** Announces each change of the state, as step 1's readiness. */
+  live?: boolean;
   children?: React.ReactNode;
 }) {
   const { ts } = useI18n();
@@ -96,9 +107,13 @@ export function Step({
         <h3 className="text-sm font-medium">
           <I18nText text={title} />
         </h3>
-        {state && (
-          <span className="shrink-0 text-xs text-muted-foreground">
-            <I18nText text={state} />
+        {/* A live region stays mounted so each change is announced. */}
+        {(state || live) && (
+          <span
+            role={live ? 'status' : undefined}
+            className="shrink-0 text-xs text-muted-foreground"
+          >
+            {state && <I18nText text={state} />}
           </span>
         )}
       </div>

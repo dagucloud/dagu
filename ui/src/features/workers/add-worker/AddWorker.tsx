@@ -3,7 +3,11 @@
 
 import { Plus, RefreshCw } from 'lucide-react';
 import * as React from 'react';
-import { HostEnvironment, type components } from '@/api/v1/schema';
+import {
+  HostEnvironment,
+  WorkerAccessReason,
+  type components,
+} from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -24,11 +28,13 @@ import {
   coordinatorEnvironment,
   initialAddress,
   joinAddress,
-  suggestedHosts,
+  suggestedAddresses,
+  type AddressProblem,
   type WorkerAddress,
 } from './address';
 import {
   ProblemText,
+  reasonText,
   requestProblem,
   Step,
   type RequestProblem,
@@ -89,37 +95,47 @@ function AddWorkerDialog({
   });
   const [checking, setChecking] = React.useState(true);
   const [address, setAddress] = React.useState<WorkerAddress>();
-  const [touched, setTouched] = React.useState(false);
+  const touched = React.useRef(false);
+  // Only the latest read may change the dialog: an earlier one that ends
+  // later must not replace a newer answer.
+  const latest = React.useRef(0);
+  const checkButton = React.useRef<HTMLButtonElement>(null);
+  const hostField = React.useRef<HTMLInputElement>(null);
+  const checkHadFocus = React.useRef(false);
 
   const load = React.useCallback(async () => {
+    const id = ++latest.current;
     setChecking(true);
+    let next: Readiness;
     try {
       const { data, error, response } = await client.GET(
         '/workers/join-readiness',
         { params: { query: { remoteNode: LOCAL_NODE } } }
       );
-      if (data) {
-        setReadiness({ state: 'loaded', data });
-        // A later reading keeps what the admin typed.
-        setAddress((prev) => prev ?? initialAddress(data));
-      } else {
-        setReadiness({
-          state: 'failed',
-          problem: requestProblem(
-            response.status,
-            error?.message,
-            'The coordinator is from an earlier Dagu release. Upgrade every coordinator to add workers.'
-          ),
-        });
-      }
+      next = data
+        ? { state: 'loaded', data }
+        : {
+            state: 'failed',
+            problem: requestProblem(
+              response.status,
+              error,
+              'The coordinator is from an earlier Dagu release. Upgrade every coordinator to add workers.'
+            ),
+          };
     } catch {
-      setReadiness({
+      next = {
         state: 'failed',
         problem: { text: 'The server did not answer.' },
-      });
-    } finally {
-      setChecking(false);
+      };
     }
+    if (id !== latest.current) return;
+    setReadiness(next);
+    // A new reading resets the defaults the admin has not changed, as a
+    // port that changed in the restart.
+    if (next.state === 'loaded' && !touched.current) {
+      setAddress(initialAddress(next.data));
+    }
+    setChecking(false);
   }, [client]);
 
   React.useEffect(() => {
@@ -146,6 +162,16 @@ function AddWorkerDialog({
     window.addEventListener('focus', reload);
     return () => window.removeEventListener('focus', reload);
   }, [ready, load]);
+
+  // Check again leaves once the coordinator is ready; the focus it had moves
+  // on to the address.
+  React.useEffect(() => {
+    if (ready && checkHadFocus.current) {
+      checkHadFocus.current = false;
+      hostField.current?.focus();
+    }
+  }, [ready]);
+
   const problem = address ? addressProblem(address) : undefined;
   const validAddress =
     ready && address && !problem ? joinAddress(address) : undefined;
@@ -169,6 +195,7 @@ function AddWorkerDialog({
           number={1}
           title="Accept workers from other hosts"
           state={step1State}
+          live
         >
           {readiness.state === 'failed' && (
             <ProblemText problem={readiness.problem} />
@@ -176,16 +203,29 @@ function AddWorkerDialog({
           {data && <ReadinessBody coordinators={data.coordinators} />}
           {data && data.coordinators.length === 0 && (
             <p className="text-sm">
-              <I18nText text="No coordinator is running. Start one, such as with dagu start-all, then check again." />
+              <I18nText
+                text={reasonText(WorkerAccessReason.no_coordinator) ?? ''}
+              />
             </p>
           )}
-          {!checking && !ready && (
-            <Button size="xs" onClick={() => void load()}>
-              <RefreshCw />
+          {/* It stays while a check runs, so the focus stays on it. */}
+          {!ready && readiness.state !== 'loading' && (
+            <Button
+              ref={checkButton}
+              size="xs"
+              aria-disabled={checking || undefined}
+              onClick={() => {
+                if (checking) return;
+                checkHadFocus.current =
+                  document.activeElement === checkButton.current;
+                void load();
+              }}
+            >
+              {checking ? <Spinner /> : <RefreshCw />}
               <I18nText text="Check again" />
             </Button>
           )}
-          {checking && readiness.state === 'loading' && <Spinner />}
+          {readiness.state === 'loading' && <Spinner />}
         </Step>
 
         {data && address && (
@@ -193,9 +233,10 @@ function AddWorkerDialog({
             <AddressFields
               data={data}
               address={address}
-              problem={touched || address.host ? problem : undefined}
+              hostField={hostField}
+              problem={touched.current || address.host ? problem : undefined}
               onChange={(next) => {
-                setTouched(true);
+                touched.current = true;
                 setAddress(next);
               }}
             />
@@ -215,17 +256,20 @@ function AddWorkerDialog({
 function AddressFields({
   data,
   address,
+  hostField,
   problem,
   onChange,
 }: {
   data: JoinReadiness;
   address: WorkerAddress;
-  problem?: ReturnType<typeof addressProblem>;
+  hostField: React.Ref<HTMLInputElement>;
+  problem?: AddressProblem;
   onChange: (address: WorkerAddress) => void;
 }) {
+  const id = React.useId();
   const { ts } = useI18n();
   const environment = coordinatorEnvironment(data);
-  const hosts = suggestedHosts(data);
+  const suggestions = suggestedAddresses(data);
   let hint: string | undefined;
   if (environment === HostEnvironment.container) {
     hint =
@@ -234,6 +278,11 @@ function AddressFields({
     hint =
       'Enter the address of the coordinator Service: its load balancer, or a node for NodePort.';
   }
+  const errorId = `${id}-error`;
+  const invalid = (field: AddressProblem['field']) =>
+    problem?.field === field
+      ? { 'aria-invalid': true, 'aria-describedby': errorId }
+      : {};
   return (
     <div className="space-y-2">
       {hint && (
@@ -242,43 +291,63 @@ function AddressFields({
         </p>
       )}
       <div className="flex gap-2">
-        <Input
-          aria-label={ts('Address')}
-          placeholder={ts('IP address or DNS name')}
-          className="flex-1"
-          required
-          value={address.host}
-          aria-invalid={!!problem || undefined}
-          onChange={(e) => onChange({ ...address, host: e.target.value })}
-        />
-        <Input
-          aria-label={ts('Port')}
-          inputMode="numeric"
-          className="w-24"
-          value={address.port}
-          onChange={(e) => onChange({ ...address, port: e.target.value })}
-        />
+        <div className="min-w-0 flex-1 space-y-1">
+          <label
+            className="text-xs text-muted-foreground"
+            htmlFor={`${id}-host`}
+          >
+            <I18nText text="Address" />
+          </label>
+          <Input
+            ref={hostField}
+            id={`${id}-host`}
+            placeholder={ts('IP address or DNS name')}
+            required
+            value={address.host}
+            {...invalid('host')}
+            onChange={(e) => onChange({ ...address, host: e.target.value })}
+          />
+        </div>
+        <div className="w-24 space-y-1">
+          <label
+            className="text-xs text-muted-foreground"
+            htmlFor={`${id}-port`}
+          >
+            <I18nText text="Port" />
+          </label>
+          <Input
+            id={`${id}-port`}
+            inputMode="numeric"
+            required
+            value={address.port}
+            {...invalid('port')}
+            onChange={(e) => onChange({ ...address, port: e.target.value })}
+          />
+        </div>
       </div>
       {problem && (
-        <p className="text-xs text-destructive">
+        <p id={errorId} className="text-xs text-destructive">
           <I18nText text={problem.text} values={problem.values} />
         </p>
       )}
-      {hosts.length > 0 && (
+      {suggestions.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           <I18nText text="Addresses of this machine:" />
-          {hosts.map((host) => (
-            <Button
-              key={host}
-              size="xs"
-              variant="ghost"
-              className="font-mono"
-              aria-pressed={address.host === host}
-              onClick={() => onChange({ ...address, host })}
-            >
-              {host}
-            </Button>
-          ))}
+          {suggestions.map((suggestion) => {
+            const text = joinAddress(suggestion);
+            return (
+              <Button
+                key={text}
+                size="xs"
+                variant="ghost"
+                className="font-mono"
+                aria-pressed={joinAddress(address) === text}
+                onClick={() => onChange(suggestion)}
+              >
+                {text}
+              </Button>
+            );
+          })}
         </div>
       )}
     </div>

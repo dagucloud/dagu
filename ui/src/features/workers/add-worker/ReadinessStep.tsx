@@ -5,18 +5,20 @@ import {
   BuiltinTLSReason,
   ConfigSourceKind,
   HostEnvironment,
+  WorkerAccessReason,
   type components,
 } from '@/api/v1/schema';
 import { I18nText } from '@/i18n/I18nText';
-import { CommandBlock } from './parts';
+import { CommandBlock, reasonText } from './parts';
 
 type CoordinatorReadiness = components['schemas']['CoordinatorJoinReadiness'];
 type Report = components['schemas']['JoinReadinessReport'];
 
 const ALL_INTERFACES = '0.0.0.0';
+const DEFAULT_HOST_VARIABLE = 'DAGU_COORDINATOR_HOST';
 
 const CONFIG_LINES = `coordinator:\n  host: ${ALL_INTERFACES}`;
-const CHART_VALUES = `extraEnv:\n  - name: DAGU_COORDINATOR_HOST\n    value: "${ALL_INTERFACES}"`;
+const CHART_VALUES = `extraEnv:\n  - name: ${DEFAULT_HOST_VARIABLE}\n    value: "${ALL_INTERFACES}"`;
 
 /** Whether every coordinator reports that a worker on another host can join. */
 export function allReady(coordinators: CoordinatorReadiness[]): boolean {
@@ -48,8 +50,10 @@ export function ReadinessBody({
           ) : (
             <p>
               <I18nText
-                text="This coordinator did not report: {error}"
-                values={{ error: c.error ?? '' }}
+                text={
+                  reasonText(c.errorReason) ??
+                  'This coordinator did not report. Start or upgrade it, then check again.'
+                }
               />
             </p>
           )}
@@ -68,7 +72,7 @@ function ReportBody({ report }: { report: Report }) {
       {!report.builtinTLS && <CAChange reason={report.builtinTLSReason} />}
       {!report.ready && (
         <p className="text-muted-foreground">
-          <I18nText text="Each change needs a restart of Dagu. This dialog checks again when the server is back." />
+          <I18nText text="Each change needs a restart of Dagu. This dialog checks again when the server is back; if it does not, use Check again." />
         </p>
       )}
       {/* The container's listen change already publishes the port. */}
@@ -89,6 +93,9 @@ function ReportBody({ report }: { report: Report }) {
   );
 }
 
+// The listen change for how Dagu was started. In a container, the port
+// must be published too, and a flag or a file that sets coordinator.host
+// wins over the variable, so the change names it.
 function ListenChange({ report }: { report: Report }) {
   const port = String(report.port);
   const source = report.hostSource;
@@ -111,20 +118,44 @@ function ListenChange({ report }: { report: Report }) {
       </>
     );
   }
+  const sourceChange = <SourceChange report={report} />;
   if (report.environment === HostEnvironment.container) {
+    const variable =
+      source?.kind === ConfigSourceKind.env && source.name
+        ? source.name
+        : DEFAULT_HOST_VARIABLE;
+    const setsHost =
+      source?.kind === ConfigSourceKind.flag ||
+      source?.kind === ConfigSourceKind.file;
     return (
       <>
         {listens}
+        {setsHost && sourceChange}
         <p>
           <I18nText text="Recreate the container with these options:" />
         </p>
         <CommandBlock
-          text={`-p ${port}:${port} -e DAGU_COORDINATOR_HOST=${ALL_INTERFACES}`}
+          text={
+            setsHost
+              ? `-p ${port}:${port}`
+              : `-p ${port}:${port} -e ${variable}=${ALL_INTERFACES}`
+          }
           label="Copy the options"
         />
       </>
     );
   }
+  return (
+    <>
+      {listens}
+      {sourceChange}
+    </>
+  );
+}
+
+// Where coordinator.host came from, and the change there.
+function SourceChange({ report }: { report: Report }) {
+  const source = report.hostSource;
   if (
     source?.name &&
     (source.kind === ConfigSourceKind.env ||
@@ -132,13 +163,12 @@ function ListenChange({ report }: { report: Report }) {
   ) {
     return (
       <>
-        {listens}
         <p>
           <I18nText
             text={
               source.kind === ConfigSourceKind.env
                 ? 'The variable {name} sets coordinator.host. Set it to 0.0.0.0 where Dagu starts:'
-                : 'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:'
+                : 'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts, or remove it:'
             }
             values={{ name: source.name }}
           />
@@ -150,9 +180,23 @@ function ListenChange({ report }: { report: Report }) {
       </>
     );
   }
+  // The file that set the value wins over the default config file, as
+  // admin.yaml does over config.yaml.
+  if (source?.kind === ConfigSourceKind.file && source.name) {
+    return (
+      <>
+        <p>
+          <I18nText
+            text="{file} sets coordinator.host. Change it there to 0.0.0.0:"
+            values={{ file: source.name }}
+          />
+        </p>
+        <CommandBlock text={CONFIG_LINES} label="Copy the lines" />
+      </>
+    );
+  }
   return (
     <>
-      {listens}
       <p>
         <I18nText
           text="Add these lines to {file}:"
@@ -165,24 +209,20 @@ function ListenChange({ report }: { report: Report }) {
 }
 
 function CAChange({ reason }: { reason?: BuiltinTLSReason }) {
-  switch (reason) {
-    case BuiltinTLSReason.ownCertificates:
-      return (
-        <p>
-          <I18nText text="Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates." />
-        </p>
-      );
-    case BuiltinTLSReason.caUnavailable:
-      return (
-        <p>
-          <I18nText text="Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause." />
-        </p>
-      );
-    default:
-      return (
-        <p>
-          <I18nText text="Invites need the built-in CA, which this coordinator does not have." />
-        </p>
-      );
-  }
+  const text =
+    reason === BuiltinTLSReason.ownCertificates
+      ? reasonText(WorkerAccessReason.own_certificates)
+      : reason === BuiltinTLSReason.caUnavailable
+        ? reasonText(WorkerAccessReason.ca_unavailable)
+        : undefined;
+  return (
+    <p>
+      <I18nText
+        text={
+          text ??
+          'Invites need the built-in CA, which this coordinator does not have.'
+        }
+      />
+    </p>
+  );
 }

@@ -13,17 +13,23 @@ export interface WorkerAddress {
   port: string;
 }
 
-/** A problem with the address fields: a static message and its values. */
+/** A problem with the address fields: the field, a message and its values. */
 export interface AddressProblem {
+  field: 'host' | 'port';
   text: string;
   values?: Record<string, string>;
 }
 
-const IPV4_LOOPBACK = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-const IPV6_LOOPBACK = /^(0{0,4}:){2,7}0{0,3}1$/;
-const IPV6_UNSPECIFIED = /^(0{0,4}:){2,7}0{0,4}$/;
+// The rules of Spec 108 §Add Worker, which the MCP action applies too: one
+// IP address without a zone, or one DNS name.
+const DNS_NAME =
+  /^([A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9])?\.?$/;
+const IPV4_OCTET = '(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)';
+const IPV4 = new RegExp(`^${IPV4_OCTET}(\\.${IPV4_OCTET}){3}$`);
 // A short or full container ID, as a container's host name.
 const CONTAINER_ID = /^[0-9a-f]{12}([0-9a-f]{52})?$/;
+// "host:port" typed into the host field, bracketed or not.
+const HOST_WITH_PORT = /^(?:\[([^\]]+)\]|([^:[\]]+)):(\d*)$/;
 
 /** Splits "host:port" or "[v6]:port". A value without a port keeps it empty. */
 export function splitAddress(address: string): WorkerAddress {
@@ -46,8 +52,9 @@ export function joinAddress({ host, port }: WorkerAddress): string {
 
 /**
  * The address step 2 starts with: the last invite's address, else an
- * explicit coordinator.advertise, else an empty host. The port defaults to
- * the coordinator's. Nothing here comes from the browser's location.
+ * explicit coordinator.advertise with that coordinator's port, else an
+ * empty host and the first coordinator's port. Nothing here comes from the
+ * browser's location.
  */
 export function initialAddress(readiness: JoinReadiness): WorkerAddress {
   const reports = readiness.coordinators.flatMap((c) =>
@@ -58,8 +65,14 @@ export function initialAddress(readiness: JoinReadiness): WorkerAddress {
     const last = splitAddress(readiness.lastInviteAddress);
     return { host: last.host, port: last.port || port };
   }
-  const advertise = reports.find((r) => r.advertise)?.advertise;
-  return { host: advertise ? splitAddress(advertise).host : '', port };
+  const advertised = reports.find((r) => r.advertise);
+  if (advertised?.advertise) {
+    return {
+      host: splitAddress(advertised.advertise).host,
+      port: String(advertised.port),
+    };
+  }
+  return { host: '', port };
 }
 
 /** Where the first coordinator that reported runs. */
@@ -70,35 +83,86 @@ export function coordinatorEnvironment(
 }
 
 /**
- * The hosts step 2 suggests: the interface addresses each coordinator on a
- * host reports. A container or a pod reports none, since its own addresses
- * are not ones a worker elsewhere can dial.
+ * The addresses step 2 suggests: each interface address a coordinator on a
+ * host reports, with that coordinator's port. A container or a pod reports
+ * none, since its own addresses are not ones a worker elsewhere can dial.
  */
-export function suggestedHosts(readiness: JoinReadiness): string[] {
-  const hosts = readiness.coordinators.flatMap((c) =>
-    c.report && (c.report.environment ?? HostEnvironment.host) === 'host'
-      ? c.report.addresses
-      : []
-  );
-  return [...new Set(hosts)];
+export function suggestedAddresses(readiness: JoinReadiness): WorkerAddress[] {
+  const seen = new Set<string>();
+  const out: WorkerAddress[] = [];
+  for (const { report } of readiness.coordinators) {
+    if (!report || (report.environment ?? HostEnvironment.host) !== 'host') {
+      continue;
+    }
+    for (const host of report.addresses) {
+      const address = { host, port: String(report.port) };
+      const key = joinAddress(address);
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push(address);
+      }
+    }
+  }
+  return out;
 }
 
-// "host:port" typed into the host field, bracketed or not.
-const HOST_WITH_PORT = /^(?:\[([^\]]+)\]|([^:[\]]+)):(\d*)$/;
+const LISTEN =
+  '{host} is a listen address. Enter an address that workers can dial.';
+const LOOPBACK =
+  '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.';
+const LINK_LOCAL =
+  '{host} is a link-local address, which another network does not route. Enter another address of the machine.';
 
-// Spec 108 §Add Worker states these rules; the MCP action applies the same.
+type ParsedIP = { v4: number[] } | { v6: number[] };
+
+// Parses an IP address as Go's net.ParseIP does, without a zone. An IPv6
+// address that maps an IPv4 one parses as that IPv4 address.
+function parseIP(host: string): ParsedIP | undefined {
+  if (IPV4.test(host)) return { v4: host.split('.').map(Number) };
+  if (!host.includes(':') || host.includes('%')) return undefined;
+  let canonical: string;
+  try {
+    canonical = new URL(`http://[${host}]`).hostname.slice(1, -1);
+  } catch {
+    return undefined;
+  }
+  const [head = '', tail] = canonical.split('::');
+  const left = head ? head.split(':') : [];
+  const right = tail ? tail.split(':') : [];
+  const hextets = [
+    ...left,
+    ...Array<string>(8 - left.length - right.length).fill('0'),
+    ...right,
+  ].map((h) => parseInt(h, 16));
+  if (hextets.slice(0, 5).every((h) => h === 0) && hextets[5] === 0xffff) {
+    const [hi = 0, lo = 0] = hextets.slice(6);
+    return { v4: [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff] };
+  }
+  return { v6: hextets };
+}
+
+function ipProblem(ip: ParsedIP): string | undefined {
+  if ('v4' in ip) {
+    const [a, b] = ip.v4;
+    if (ip.v4.every((n) => n === 0)) return LISTEN;
+    if (a === 127) return LOOPBACK;
+    if (a === 169 && b === 254) return LINK_LOCAL;
+    return undefined;
+  }
+  const h = ip.v6;
+  if (h.every((n) => n === 0)) return LISTEN;
+  if (h.slice(0, 7).every((n) => n === 0) && h[7] === 1) return LOOPBACK;
+  if (((h[0] ?? 0) & 0xffc0) === 0xfe80) return LINK_LOCAL;
+  return undefined;
+}
+
 function hostProblem(host: string): string | undefined {
-  const name = host.replace(/\.$/, '').toLowerCase();
-  if (
-    name === 'localhost' ||
-    IPV4_LOOPBACK.test(host) ||
-    IPV6_LOOPBACK.test(host)
-  ) {
-    return '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.';
+  const ip = parseIP(host);
+  if (ip) return ipProblem(ip);
+  if (!DNS_NAME.test(host)) {
+    return '{host} is not one host. Enter an IP address without a zone, or a DNS name.';
   }
-  if (host === '0.0.0.0' || IPV6_UNSPECIFIED.test(host)) {
-    return '{host} is a listen address. Enter an address that workers can dial.';
-  }
+  if (host.replace(/\.$/, '').toLowerCase() === 'localhost') return LOOPBACK;
   if (CONTAINER_ID.test(host)) {
     return '{host} looks like a container ID. Enter the address of the machine that runs the container.';
   }
@@ -114,11 +178,9 @@ export function addressProblem(
 ): AddressProblem | undefined {
   const raw = address.host.trim();
   if (raw === '') {
-    return { text: 'Enter the address workers use to reach the coordinator.' };
-  }
-  if (/[\s/]/.test(raw)) {
     return {
-      text: 'Enter a host name or IP address only, without a scheme or path.',
+      field: 'host',
+      text: 'Enter the address workers use to reach the coordinator.',
     };
   }
   const withPort = HOST_WITH_PORT.exec(raw);
@@ -126,11 +188,13 @@ export function addressProblem(
     ? (withPort[1] ?? withPort[2] ?? '')
     : raw.replace(/^\[(.*)\]$/, '$1');
   const problem = hostProblem(host);
-  if (problem) return { text: problem, values: { host } };
-  if (withPort) return { text: 'Enter the port in the Port field.' };
+  if (problem) return { field: 'host', text: problem, values: { host } };
+  if (withPort) {
+    return { field: 'host', text: 'Enter the port in the Port field.' };
+  }
   const port = address.port.trim();
   if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
-    return { text: 'Enter a port from 1 to 65535.' };
+    return { field: 'port', text: 'Enter a port from 1 to 65535.' };
   }
   return undefined;
 }
