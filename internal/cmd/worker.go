@@ -14,7 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
-	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/spf13/cobra"
@@ -40,8 +39,8 @@ Flags:
   --worker.labels -l string                Worker labels for capability matching (format: key1=value1,key2=value2);
                                            keys and values are lowercased, and an invalid label stops the worker
   --worker.coordinators string             Coordinator addresses (format: host1:port1,host2:port2)
-  --worker.invite string                   Invite from "Add worker" or dagu worker invite; the worker
-                                           enrolls once and keeps its certificate in its data directory
+  --worker.invite string                   Invite from "Add worker" or dagu worker invite, to join the
+                                           coordinators over built-in TLS
   --worker.shutdown-timeout string         How long to drain running DAG runs on SIGINT/SIGTERM before
                                            canceling them (default: 60s, 0 waits without a bound)
   --check                                  Check the connection to each coordinator and exit, without
@@ -128,11 +127,25 @@ func runWorker(ctx *Context, _ []string) error {
 	maxActiveRuns := ctx.Config.Worker.MaxActiveRuns
 	labels := ctx.Config.Worker.Labels
 
-	membership, coordinatorCli, err := joinCoordinators(signalCtx, ctx, workerID)
+	// Heartbeats carry the machine's figures, which the server reports to
+	// Dagu Cloud on paid licenses. Monitoring starts before the worker
+	// joins, so its failure uses up no invite.
+	machine := resource.NewService(ctx.Config)
+	if err := machine.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start resource monitoring: %w", err)
+	}
+	defer func() { _ = machine.Stop(ctx.Context) }()
+
+	membership, err := worker.OpenMembership(signalCtx, ctx.Config, ctx.serverStores.ServiceRegistry)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = membership.Close() }()
+	logClientTransport(ctx, "worker", ctx.Config, membership.StartTransport)
+	coordinatorCli, err := membership.Connect(signalCtx, workerID)
+	if err != nil {
+		return err
+	}
 
 	w := worker.NewWorker(
 		workerID,
@@ -153,13 +166,6 @@ func runWorker(ctx *Context, _ []string) error {
 	w.SetHandler(worker.NewRemoteTaskHandler(handlerCfg))
 	logger.Info(ctx, "Using remote task handler")
 
-	// Heartbeats carry the machine's figures, which the server reports to
-	// Dagu Cloud on paid licenses.
-	machine := resource.NewService(ctx.Config)
-	if err := machine.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start resource monitoring: %w", err)
-	}
-	defer func() { _ = machine.Stop(ctx.Context) }()
 	w.SetMachine(machine)
 
 	logger.Info(ctx, "Starting worker", tag.WorkerID(workerID), tag.MaxConcurrency(maxActiveRuns), slog.Any("labels", labels))
@@ -177,30 +183,27 @@ func runWorker(ctx *Context, _ []string) error {
 		}
 	}()
 
-	// Wait for a shutdown signal, the loss of the certificate lock to
-	// another worker, or an error.
-	var stopErr error
+	// Wait for either context cancellation or an error
 	select {
 	case <-signalCtx.Done():
-	case <-membership.Lost():
-		stopErr = worker.ErrLockLost
+		// Let a second SIGINT end shutdown; SIGTERM stays absorbed.
+		stop()
+		shutdownTimeout := ctx.Config.Worker.ShutdownTimeout
+		if shutdownTimeout > 0 {
+			// Tasks may first run to their end for the drain timeout.
+			shutdownTimeout += ctx.Config.SignalHandling.DrainTimeout
+		}
+		logger.Info(ctx, "Worker shutting down", slog.Duration("timeout", shutdownTimeout))
+		stopCtx, cancel := workerStopContext(ctx.Context, shutdownTimeout)
+		defer cancel()
+		if err := w.Stop(stopCtx); err != nil {
+			return fmt.Errorf("failed to stop worker: %w", err)
+		}
 	case err := <-errCh:
 		return fmt.Errorf("worker failed: %w", err)
 	}
-	// Let a second SIGINT end shutdown; SIGTERM stays absorbed.
-	stop()
-	shutdownTimeout := ctx.Config.Worker.ShutdownTimeout
-	if shutdownTimeout > 0 {
-		// Tasks may first run to their end for the drain timeout.
-		shutdownTimeout += ctx.Config.SignalHandling.DrainTimeout
-	}
-	logger.Info(ctx, "Worker shutting down", slog.Duration("timeout", shutdownTimeout))
-	stopCtx, cancel := workerStopContext(ctx.Context, shutdownTimeout)
-	defer cancel()
-	if err := w.Stop(stopCtx); err != nil {
-		return fmt.Errorf("failed to stop worker: %w", err)
-	}
-	return stopErr
+
+	return nil
 }
 
 // workerStopContext returns the context for Worker.Stop. A positive timeout
@@ -210,25 +213,4 @@ func workerStopContext(parent context.Context, timeout time.Duration) (context.C
 		return context.WithTimeout(parent, timeout)
 	}
 	return context.WithCancel(parent)
-}
-
-// joinCoordinators prepares how the worker calls its coordinators, logs its
-// start line, enrolls with worker.invite when the worker holds no
-// certificate, and creates its client. Enrollment ends with signalCtx.
-func joinCoordinators(signalCtx context.Context, ctx *Context, workerID string) (*worker.Membership, coordinator.Client, error) {
-	membership, err := worker.OpenMembership(signalCtx, ctx.Config, ctx.serverStores.ServiceRegistry)
-	if err != nil {
-		return nil, nil, err
-	}
-	logClientTransport(ctx, "worker", ctx.Config, membership.ClientConfig())
-	if err := membership.Enroll(signalCtx, workerID); err != nil {
-		_ = membership.Close()
-		return nil, nil, err
-	}
-	client, err := worker.NewCoordinatorClient(ctx, ctx.Config, membership.ClientConfig())
-	if err != nil {
-		_ = membership.Close()
-		return nil, nil, err
-	}
-	return membership, client, nil
 }

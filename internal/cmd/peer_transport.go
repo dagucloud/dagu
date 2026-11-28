@@ -34,12 +34,13 @@ type peerSetting struct {
 // transport at level info. Other commands log both at level debug, so their
 // terminal output does not change.
 func logPeerTransport(ctx context.Context, command string, cfg *config.Config) {
-	logClientTransport(ctx, command, cfg, coordinator.ConfigFromPeer(cfg.Core.Peer))
+	logClientTransport(ctx, command, cfg, coordinator.ConfigFromPeer(cfg.Core.Peer).StartTransport)
 }
 
-// logClientTransport is logPeerTransport for a command whose client dials
-// with client, such as a worker with a worker certificate.
-func logClientTransport(ctx context.Context, command string, cfg *config.Config, client *coordinator.Config) {
+// logClientTransport is logPeerTransport for a command whose client starts
+// with the transport that start returns, such as a worker with a worker
+// certificate.
+func logClientTransport(ctx context.Context, command string, cfg *config.Config, start func() (string, error)) {
 	logIgnored, logLine := logger.Debug, logger.Debug
 	switch command {
 	case "coordinator":
@@ -53,7 +54,7 @@ func logClientTransport(ctx context.Context, command string, cfg *config.Config,
 	case "worker":
 		logIgnored, logLine = logger.Warn, logger.Info
 	}
-	line, ignored := peerTransport(cfg, client)
+	line, ignored := peerTransport(cfg, start)
 	if line == "" {
 		return
 	}
@@ -78,13 +79,13 @@ func ignoredSettingWarning(setting peerSetting) string {
 	)
 }
 
-// peerTransport returns the start line for client, the peer client
-// transport, and the TLS settings that it ignores. The line is empty when
+// peerTransport returns the start line for the transport that start
+// returns, and the TLS settings that it ignores. The line is empty when
 // peer.insecure is false without a TLS setting or a TLS source, as the
 // client then fails to start.
-func peerTransport(cfg *config.Config, client *coordinator.Config) (string, []peerSetting) {
+func peerTransport(cfg *config.Config, start func() (string, error)) (string, []peerSetting) {
 	peer := cfg.Core.Peer
-	transport, err := client.StartTransport()
+	transport, err := start()
 	if err != nil {
 		return "", nil
 	}

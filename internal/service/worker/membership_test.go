@@ -9,11 +9,14 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"fmt"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -29,7 +32,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -66,13 +68,15 @@ func newTestCA(t *testing.T) testCA {
 	return testCA{cert: cert, key: key}
 }
 
-// invite returns a new invite for the CA.
+// invite returns a new invite for the CA: its pin is the base64url SHA-256
+// of the CA certificate.
 func (ca testCA) invite(t *testing.T) string {
 	t.Helper()
 	secret := make([]byte, 32)
 	_, err := rand.Read(secret)
 	require.NoError(t, err)
-	return "dagu1." + coordinator.CAPin(ca.cert) + "." + base64.RawURLEncoding.EncodeToString(secret)
+	pin := sha256.Sum256(ca.cert.Raw)
+	return "dagu1." + base64.RawURLEncoding.EncodeToString(pin[:]) + "." + base64.RawURLEncoding.EncodeToString(secret)
 }
 
 // fakeEnroll answers Enroll for each address as results says: a CA that
@@ -123,6 +127,11 @@ func (f *fakeEnroll) calls() int {
 	return len(f.requests)
 }
 
+// enrolling returns a fake whose first coordinator enrolls with ca.
+func enrolling(ca testCA) *fakeEnroll {
+	return &fakeEnroll{results: map[string][]any{coordinatorA: {ca}}}
+}
+
 // workerConfig returns the config of a worker on dataDir with invite and
 // peer.insecure unset.
 func workerConfig(dataDir, invite string) *config.Config {
@@ -135,74 +144,101 @@ func workerConfig(dataDir, invite string) *config.Config {
 	return cfg
 }
 
-// openMembership opens the membership of cfg, enrolling through fake.
-func openMembership(t *testing.T, cfg *config.Config, fake *fakeEnroll) (*Membership, error) {
+// testLockTiming waits for a held lock briefly, so tests need not wait 30
+// seconds.
+var testLockTiming = lockTiming{wait: 300 * time.Millisecond, retry: 10 * time.Millisecond}
+
+// open opens the membership of cfg, enrolling through fake.
+func open(t *testing.T, cfg *config.Config, fake *fakeEnroll) (*Membership, error) {
 	t.Helper()
-	m, err := OpenMembership(t.Context(), cfg, nil)
+	if fake == nil {
+		fake = &fakeEnroll{}
+	}
+	m, err := openMembership(t.Context(), cfg, nil, joinOptions{
+		lock:        testLockTiming,
+		enroll:      fake.enroll,
+		retryPolicy: backoff.NewConstantBackoffPolicy(0),
+	})
 	if err != nil {
 		return nil, err
 	}
 	t.Cleanup(func() { _ = m.Close() })
-	m.enroll = fake.enroll
-	m.retryPolicy = backoff.NewConstantBackoffPolicy(0)
 	return m, nil
 }
 
-// join opens the membership of cfg and enrolls when it needs to.
+// connect connects with m, enrolling when it needs to.
+func connect(ctx context.Context, t *testing.T, m *Membership) error {
+	t.Helper()
+	client, err := m.Connect(ctx, "worker-1")
+	if err == nil {
+		t.Cleanup(func() { _ = client.Cleanup(context.Background()) })
+	}
+	return err
+}
+
+// join opens the membership of cfg, connects with it, and closes it.
 func join(t *testing.T, cfg *config.Config, fake *fakeEnroll) *Membership {
 	t.Helper()
-	m, err := openMembership(t, cfg, fake)
+	m, err := open(t, cfg, fake)
 	require.NoError(t, err)
-	require.NoError(t, m.Enroll(t.Context(), "worker-1"))
+	require.NoError(t, connect(t.Context(), t, m))
+	require.NoError(t, m.Close())
 	return m
 }
 
 func startLine(t *testing.T, m *Membership) string {
 	t.Helper()
-	line, err := m.ClientConfig().StartTransport()
+	line, err := m.StartTransport()
 	require.NoError(t, err)
 	return line
 }
 
+// credentialPath is where a worker on dataDir keeps its credential.
+func credentialPath(dataDir string) string {
+	return filepath.Join(dataDir, credentialDirName, credentialFileName)
+}
+
+// skipWithoutPermissions skips a test that needs this user to be denied
+// access, which root and Windows mode bits do not give.
+func skipWithoutPermissions(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a file this user cannot access")
+	}
+}
+
 // A worker with an invite enrolls with a new key, keeps its credential in
 // its data directory, readable by its user only and without the invite, and
-// then presents its certificate without the peer token. A restart with the
-// same invite, or with none, keeps the certificate and does not enroll
-// (Spec 108 §Worker Start, §Worker Files).
+// then presents its certificate. A restart with the same invite, or with
+// none, keeps the certificate and does not enroll (Spec 108 §Worker Start,
+// §Worker Files).
 func TestMembershipEnrolls(t *testing.T) {
 	ca := newTestCA(t)
 	invite := ca.invite(t)
-	fake := &fakeEnroll{results: map[string][]any{coordinatorA: {ca}}}
+	fake := enrolling(ca)
 	dataDir := t.TempDir()
-	cfg := workerConfig(dataDir, invite)
-	cfg.Core.Peer.Token = "peer-token"
 
-	m, err := openMembership(t, cfg, fake)
+	m, err := open(t, workerConfig(dataDir, invite), fake)
 	require.NoError(t, err)
 	assert.Equal(t, "built-in TLS (from worker.invite)", startLine(t, m))
-	require.NoError(t, m.Enroll(t.Context(), "worker-1"))
+	require.NoError(t, connect(t.Context(), t, m))
 	require.NoError(t, m.Close())
 
 	require.Len(t, fake.requests, 1)
-	req := fake.requests[0]
-	assert.Equal(t, invite, req.Invite)
-	assert.Equal(t, "worker-1", req.WorkerId)
-	assert.True(t, req.KeepsCertificate)
+	assert.Equal(t, "worker-1", fake.requests[0].WorkerId)
+	assert.True(t, fake.requests[0].KeepsCertificate)
 	assert.Equal(t, "built-in TLS (from worker certificate)", startLine(t, m))
-	assert.NotNil(t, m.ClientConfig().WorkerCertificate)
-	assert.True(t, ca.cert.Equal(m.ClientConfig().WorkerCA))
+	assert.True(t, ca.cert.Equal(m.cred.ca))
 
-	file := filepath.Join(dataDir, credentialDirName, credentialFileName)
-	data, err := os.ReadFile(file)
+	data, err := os.ReadFile(credentialPath(dataDir))
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), invite[strings.LastIndex(invite, ".")+1:])
 	if runtime.GOOS != "windows" {
-		info, err := os.Stat(file)
-		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(credentialFileMode), info.Mode().Perm())
-		info, err = os.Stat(filepath.Dir(file))
-		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(credentialDirMode), info.Mode().Perm())
+		for _, path := range []string{credentialPath(dataDir), filepath.Dir(credentialPath(dataDir))} {
+			info, err := os.Stat(path)
+			require.NoError(t, err)
+			assert.Zero(t, info.Mode().Perm()&0o077, path)
+		}
 	}
 
 	for name, restart := range map[string]string{"SameInvite": invite, "NoInvite": ""} {
@@ -210,8 +246,7 @@ func TestMembershipEnrolls(t *testing.T) {
 			restarted := join(t, workerConfig(dataDir, restart), fake)
 			assert.Equal(t, "built-in TLS (from worker certificate)", startLine(t, restarted))
 			assert.Equal(t, 1, fake.calls(), "a restart does not enroll")
-			assert.Equal(t, m.ClientConfig().WorkerCertificate.Certificate, restarted.ClientConfig().WorkerCertificate.Certificate)
-			require.NoError(t, restarted.Close())
+			assert.Equal(t, m.cred.cert.Certificate, restarted.cred.cert.Certificate)
 		})
 	}
 }
@@ -224,17 +259,32 @@ func TestMembershipInviteFromNewCA(t *testing.T) {
 	fake := &fakeEnroll{results: map[string][]any{coordinatorA: {oldCA, newCA}}}
 	dataDir := t.TempDir()
 	first := join(t, workerConfig(dataDir, oldCA.invite(t)), fake)
-	require.NoError(t, first.Close())
-
 	second := join(t, workerConfig(dataDir, newCA.invite(t)), fake)
-	require.NoError(t, second.Close())
 	assert.Equal(t, 2, fake.calls())
-	assert.True(t, newCA.cert.Equal(second.ClientConfig().WorkerCA))
+	assert.True(t, newCA.cert.Equal(second.cred.ca))
 	assert.NotEqual(t, first.cred.cert.Leaf.PublicKey, second.cred.cert.Leaf.PublicKey, "a new key")
 
 	stored, err := newCredentialStore(dataDir).load()
 	require.NoError(t, err)
 	assert.True(t, newCA.cert.Equal(stored.ca))
+}
+
+// A reply that Enroll refuses stops the worker and leaves the kept
+// credential as it was, so a restart without the invite still uses it.
+func TestMembershipInvalidReplyKeepsCredential(t *testing.T) {
+	oldCA, newCA := newTestCA(t), newTestCA(t)
+	dataDir := t.TempDir()
+	kept := join(t, workerConfig(dataDir, oldCA.invite(t)), enrolling(oldCA))
+
+	refused := &fakeEnroll{results: map[string][]any{coordinatorA: {fmt.Errorf("%w: the certificate is for another key", coordinator.ErrInvalidEnrollReply)}}}
+	m, err := open(t, workerConfig(dataDir, newCA.invite(t)), refused)
+	require.NoError(t, err)
+	require.EqualError(t, connect(t.Context(), t, m),
+		"Coordinator at coordinator-a:50055 returned a certificate that does not match this worker's request\n  Check the coordinator address.")
+	require.NoError(t, m.Close())
+
+	restarted := join(t, workerConfig(dataDir, ""), nil)
+	assert.Equal(t, kept.cred.cert.Certificate, restarted.cred.cert.Certificate)
 }
 
 // Enrollment tries each coordinator, retries while none is reachable or has
@@ -260,6 +310,11 @@ func TestMembershipEnrollFailures(t *testing.T) {
 			results: map[string][]any{coordinatorA: {coordinator.ErrNoBuiltinTLS, ca}, coordinatorB: {coordinator.ErrNoBuiltinTLS}},
 			wantLog: "Coordinator at coordinator-b:50055 does not serve built-in TLS",
 		},
+		{
+			name:    "OwnCertificatesAreUnavailable",
+			results: map[string][]any{coordinatorA: {coordinator.ErrOwnCertificates, ca}, coordinatorB: {coordinator.ErrOwnCertificates}},
+			wantLog: "Remove peer.cert_file and peer.key_file from the coordinator's config, so it serves built-in TLS.",
+		},
 		{name: "Refused", results: map[string][]any{coordinatorA: {refused}}, wantErr: errInviteRefused.Error()},
 		{
 			name:    "OtherDagu",
@@ -271,45 +326,138 @@ func TestMembershipEnrollFailures(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var logs bytes.Buffer
 			ctx := logger.WithLogger(t.Context(), logger.NewLogger(logger.WithQuiet(), logger.WithWriter(&logs)))
-			m, err := openMembership(t, workerConfig(t.TempDir(), ca.invite(t)), &fakeEnroll{results: tt.results})
+			m, err := open(t, workerConfig(t.TempDir(), ca.invite(t)), &fakeEnroll{results: tt.results})
 			require.NoError(t, err)
-			err = m.Enroll(ctx, "worker-1")
+			err = connect(ctx, t, m)
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			assert.NotNil(t, m.ClientConfig().WorkerCertificate)
+			assert.NotNil(t, m.cred)
 			assert.Contains(t, logs.String(), tt.wantLog)
 		})
 	}
 }
 
-// A worker that cannot write its data directory holds its key in memory,
-// takes no lock, and says that it is not a single-use invite's place when
-// the coordinator refuses to enroll it (Spec 108 §Worker Files,
-// §Configuration Conflicts).
+// A worker whose settings fail at start does so before it enrolls, so a
+// misconfigured worker never uses up a single-use invite.
+func TestMembershipFailsBeforeEnrolling(t *testing.T) {
+	ca := newTestCA(t)
+
+	t.Run("InvalidLabel", func(t *testing.T) {
+		fake := enrolling(ca)
+		cfg := workerConfig(t.TempDir(), ca.invite(t))
+		cfg.Worker.Labels = map[string]string{"team": "data eng"}
+		_, err := open(t, cfg, fake)
+		require.ErrorContains(t, err, "team=data eng")
+		assert.Zero(t, fake.calls())
+	})
+	t.Run("HealthPortInUse", func(t *testing.T) {
+		listener, err := net.Listen("tcp", ":0")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = listener.Close() })
+		fake := enrolling(ca)
+		cfg := workerConfig(t.TempDir(), ca.invite(t))
+		cfg.Worker.HealthPort = listener.Addr().(*net.TCPAddr).Port
+		m, err := open(t, cfg, fake)
+		require.NoError(t, err)
+		require.ErrorContains(t, connect(t.Context(), t, m), "failed to start worker health check server")
+		assert.Zero(t, fake.calls())
+	})
+}
+
+// A worker that cannot write a data directory without a kept certificate
+// enrolls with a key in memory and takes no lock, since nothing is kept to
+// share. A single-use invite then fails with the change to make (Spec 108
+// §Worker Files, §Configuration Conflicts).
 func TestMembershipUnwritableDataDir(t *testing.T) {
-	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
-		t.Skip("needs a directory this user cannot write")
-	}
+	skipWithoutPermissions(t)
 	ca := newTestCA(t)
 	dataDir := t.TempDir()
 	require.NoError(t, os.Chmod(dataDir, 0o500))
 	t.Cleanup(func() { _ = os.Chmod(dataDir, 0o700) })
 
-	fake := &fakeEnroll{results: map[string][]any{coordinatorA: {ca}}}
-	m := join(t, workerConfig(dataDir, ca.invite(t)), fake)
+	fake := enrolling(ca)
+	m, err := open(t, workerConfig(dataDir, ca.invite(t)), fake)
+	require.NoError(t, err)
+	assert.Nil(t, m.lock)
+	require.NoError(t, connect(t.Context(), t, m))
 	assert.False(t, fake.requests[0].KeepsCertificate)
-	assert.NotNil(t, m.ClientConfig().WorkerCertificate)
-	assert.Nil(t, m.Lost(), "no lock")
+	assert.NotNil(t, m.cred)
 	assert.NoDirExists(t, filepath.Join(dataDir, credentialDirName))
 
 	singleUse := &fakeEnroll{results: map[string][]any{coordinatorA: {status.Error(codes.FailedPrecondition, "single use")}}}
-	m, err := openMembership(t, workerConfig(dataDir, ca.invite(t)), singleUse)
+	m, err = open(t, workerConfig(dataDir, ca.invite(t)), singleUse)
 	require.NoError(t, err)
-	require.EqualError(t, m.Enroll(t.Context(), "worker-1"),
+	require.EqualError(t, connect(t.Context(), t, m),
 		"a single-use invite needs a writable data directory: use a reusable invite, or make "+dataDir+" writable")
+}
+
+// A kept certificate is used only under its lock. When the lock cannot be
+// taken, as on a read-only volume, the worker stops, with or without its
+// invite, instead of running beside another worker or enrolling again.
+func TestMembershipKeptCertificateNeedsLock(t *testing.T) {
+	skipWithoutPermissions(t)
+	ca := newTestCA(t)
+	invite := ca.invite(t)
+	dataDir := t.TempDir()
+	join(t, workerConfig(dataDir, invite), enrolling(ca))
+	lockFile := filepath.Join(dataDir, credentialDirName, lockFileName)
+	require.NoError(t, os.Chmod(lockFile, 0o400))
+
+	for name, restart := range map[string]string{"SameInvite": invite, "NoInvite": ""} {
+		t.Run(name, func(t *testing.T) {
+			fake := enrolling(ca)
+			_, err := open(t, workerConfig(dataDir, restart), fake)
+			require.ErrorContains(t, err, "This worker cannot lock its certificate in its data directory "+dataDir)
+			require.ErrorContains(t, err, "Make the data directory writable, so that one worker at a time uses the certificate.")
+			assert.NotContains(t, err.Error(), lockFile)
+			assert.Zero(t, fake.calls())
+		})
+	}
+}
+
+// A kept credential that cannot be read stops the worker, also when the
+// worker could start on the peer token instead (Spec 108 §Worker Start).
+func TestMembershipUnreadableCredential(t *testing.T) {
+	skipWithoutPermissions(t)
+	ca := newTestCA(t)
+	invite := ca.invite(t)
+	for name, denied := range map[string]func(dataDir string) string{
+		"File":      credentialPath,
+		"Directory": func(dataDir string) string { return filepath.Dir(credentialPath(dataDir)) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			dataDir := t.TempDir()
+			join(t, workerConfig(dataDir, invite), enrolling(ca))
+			path := denied(dataDir)
+			require.NoError(t, os.Chmod(path, 0o000))
+			t.Cleanup(func() { _ = os.Chmod(path, 0o700) })
+
+			for _, restart := range []string{invite, ""} {
+				fake := enrolling(ca)
+				_, err := open(t, workerConfig(dataDir, restart), fake)
+				require.ErrorContains(t, err, "This worker cannot read the certificate it keeps in its data directory "+dataDir)
+				assert.NotContains(t, err.Error(), credentialPath(dataDir))
+				assert.Zero(t, fake.calls())
+			}
+		})
+	}
+}
+
+// A save that a stop interrupted leaves its partial file, which the next
+// start removes, so no stray copy of the key stays behind.
+func TestMembershipRemovesInterruptedSave(t *testing.T) {
+	ca := newTestCA(t)
+	dataDir := t.TempDir()
+	join(t, workerConfig(dataDir, ca.invite(t)), enrolling(ca))
+	leftover := credentialPath(dataDir) + ".tmp.123"
+	require.NoError(t, os.WriteFile(leftover, []byte("partial"), 0o600))
+
+	join(t, workerConfig(dataDir, ""), nil)
+	assert.NoFileExists(t, leftover)
+	assert.FileExists(t, credentialPath(dataDir))
 }
 
 // Settings that contradict worker.invite stop the worker at start (Spec 108
@@ -321,16 +469,15 @@ func TestMembershipConflicts(t *testing.T) {
 
 	cfg := workerConfig(t.TempDir(), newTestCA(t).invite(t))
 	cfg.Core.Peer.CACertFile = caFile
-	_, err := OpenMembership(t.Context(), cfg, nil)
+	_, err := open(t, cfg, nil)
 	require.EqualError(t, err, "peer.ca_cert_file is not the CA that worker.invite names: remove peer.ca_cert_file or use an invite from this CA")
 
 	cfg.Worker.Invite = ca.invite(t)
-	m, err := OpenMembership(t.Context(), cfg, nil)
+	_, err = open(t, cfg, nil)
 	require.NoError(t, err)
-	require.NoError(t, m.Close())
 
 	cfg.Worker.Invite = "dagu1.not-an-invite"
-	_, err = OpenMembership(t.Context(), cfg, nil)
+	_, err = open(t, cfg, nil)
 	require.EqualError(t, err, errInviteRefused.Error())
 }
 
@@ -339,69 +486,41 @@ func TestMembershipConflicts(t *testing.T) {
 // Lock, §Worker Start).
 func TestMembershipPeerToken(t *testing.T) {
 	dataDir := t.TempDir()
-	m, err := OpenMembership(t.Context(), workerConfig(dataDir, ""), nil)
+	m, err := open(t, workerConfig(dataDir, ""), nil)
 	require.NoError(t, err)
-	assert.Nil(t, m.Lost())
+	assert.Nil(t, m.lock)
 	assert.Equal(t, "h2c (from no TLS source)", startLine(t, m))
 	require.NoError(t, m.Close())
 	assert.NoDirExists(t, filepath.Join(dataDir, credentialDirName))
 
 	ca := newTestCA(t)
-	require.NoError(t, join(t, workerConfig(dataDir, ca.invite(t)), &fakeEnroll{results: map[string][]any{coordinatorA: {ca}}}).Close())
+	join(t, workerConfig(dataDir, ca.invite(t)), enrolling(ca))
 	cfg := workerConfig(dataDir, "")
 	cfg.Core.Peer.InsecureUnset = false
-	m, err = OpenMembership(t.Context(), cfg, nil)
+	m, err = open(t, cfg, nil)
 	require.NoError(t, err)
-	assert.Nil(t, m.Lost())
-	assert.Nil(t, m.ClientConfig().WorkerCertificate)
+	assert.Nil(t, m.lock)
+	assert.Nil(t, m.cred)
 	assert.Equal(t, "h2c (from peer.insecure: true)", startLine(t, m))
 }
 
-// testLockTiming waits for a held lock briefly, so tests need not wait 30
-// seconds.
-var testLockTiming = lockTiming{staleAfter: time.Second, wait: 300 * time.Millisecond, refresh: 50 * time.Millisecond, retry: 10 * time.Millisecond}
-
-// A second worker on one data directory waits for the lock and fails while a
-// live worker keeps it, and takes it once it is released or its holder is
-// gone (Spec 108 §Worker Lock).
+// A second worker on one data directory waits for the lock and fails while
+// the first holds it, however long the first goes without doing anything,
+// as when it is paused. It takes the lock once the first releases it (Spec
+// 108 §Worker Lock).
 func TestCertificateLock(t *testing.T) {
 	dir := t.TempDir()
-	first, err := lockCertificate(t.Context(), dir, testLockTiming)
+	cannotLock := func(err error) error { return err }
+	first, err := lockCertificate(t.Context(), dir, testLockTiming, cannotLock)
 	require.NoError(t, err)
 
-	_, err = lockCertificate(t.Context(), dir, testLockTiming)
-	require.EqualError(t, err, "Another worker uses this data directory\n  Give each worker its own data directory or volume.")
-
-	require.NoError(t, first.release())
-	second, err := lockCertificate(t.Context(), dir, testLockTiming)
-	require.NoError(t, err)
-
-	// A holder that stopped without releasing leaves a lock that goes
-	// stale within the wait.
-	second.stop()
-	<-second.done
-	gone := testLockTiming
-	gone.wait = 2 * gone.staleAfter
-	third, err := lockCertificate(t.Context(), dir, gone)
-	require.NoError(t, err)
-	require.NoError(t, third.release())
-}
-
-// A worker whose lock another worker took over learns it at its next
-// refresh.
-func TestCertificateLockLost(t *testing.T) {
-	dir := t.TempDir()
-	first, err := lockCertificate(t.Context(), dir, testLockTiming)
-	require.NoError(t, err)
-	require.NoError(t, dirlock.ForceUnlock(dir))
-	second, err := lockCertificate(t.Context(), dir, testLockTiming)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = second.release() })
-
-	select {
-	case <-first.lost:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the first worker did not learn that it lost the lock")
+	for range 2 {
+		_, err = lockCertificate(t.Context(), dir, testLockTiming, cannotLock)
+		require.EqualError(t, err, "Another worker uses this data directory\n  Give each worker its own data directory or volume.")
 	}
-	assert.NoError(t, first.release())
+
+	require.NoError(t, first.Unlock())
+	second, err := lockCertificate(t.Context(), dir, testLockTiming, cannotLock)
+	require.NoError(t, err)
+	require.NoError(t, second.Unlock())
 }

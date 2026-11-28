@@ -36,7 +36,7 @@ func runWorkerCheck(ctx *Context) error {
 		return err
 	}
 	out := ctx.Command.OutOrStdout()
-	line, ignored := peerTransport(ctx.Config, clientConfig)
+	line, ignored := peerTransport(ctx.Config, clientConfig.StartTransport)
 	for _, setting := range ignored {
 		_, _ = fmt.Fprintln(out, ignoredSettingWarning(setting))
 	}

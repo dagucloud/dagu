@@ -1399,7 +1399,7 @@
         },
         "invite": {
           "type": "string",
-          "description": "Invite that lets the worker join a coordinator over built-in TLS, in the form dagu1.<pin>.<secret>. The worker enrolls once and then uses the certificate it keeps in its data directory. Cannot be combined with peer.insecure: true or own TLS certificates."
+          "description": "Invite that lets the worker join its coordinators over built-in TLS, in the form dagu1.<pin>.<secret>. Get one from Add worker or dagu worker invite. Cannot be combined with peer.insecure: true, peer.cert_file, peer.key_file, peer.client_ca_file, or peer.skip_tls_verify: true."
         },
         "postgres_pool": {
           "$ref": "#/definitions/PostgresPoolDef"

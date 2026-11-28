@@ -7,19 +7,20 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
 const (
@@ -28,10 +29,8 @@ const (
 	credentialDirName = "worker"
 	// credentialFileName is the credential file in that directory.
 	credentialFileName = "credential.json"
-	// credentialFileMode and credentialDirMode keep the credential readable
-	// by its user only.
+	// credentialFileMode keeps the credential readable by its user only.
 	credentialFileMode = 0o600
-	credentialDirMode  = 0o700
 	// writeProbeName is the file that tests whether the directory is
 	// writable.
 	writeProbeName = ".write-probe"
@@ -42,9 +41,9 @@ const (
 type credential struct {
 	cert tls.Certificate
 	ca   *x509.Certificate
-	// inviteSum is the SHA-256 of the invite it enrolled with, so a later
-	// start can tell that invite from another without keeping it.
-	inviteSum string
+	// inviteDigest identifies the invite it enrolled with, without its
+	// secret.
+	inviteDigest string
 }
 
 // credentialFile is how a credential is kept in its file.
@@ -52,10 +51,11 @@ type credentialFile struct {
 	Key           string `json:"key"`
 	Certificate   string `json:"certificate"`
 	CACertificate string `json:"caCertificate"`
-	InviteSHA256  string `json:"inviteSha256"`
+	InviteDigest  string `json:"inviteDigest"`
 }
 
-// credentialStore keeps a worker's credential in its data directory.
+// credentialStore keeps a worker's credential in its data directory, in a
+// directory its user only may use.
 type credentialStore struct {
 	dir string
 }
@@ -68,10 +68,17 @@ func (s credentialStore) path() string {
 	return filepath.Join(s.dir, credentialFileName)
 }
 
-// exists reports whether the store holds a credential file.
-func (s credentialStore) exists() bool {
+// kept reports whether the store holds a credential. An error other than
+// its absence, such as a denied access, is returned, never read as none.
+func (s credentialStore) kept() (bool, error) {
 	_, err := fileutil.Stat(s.path())
-	return err == nil
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	}
+	return false, err
 }
 
 // load returns the stored credential, or nil when there is none.
@@ -81,24 +88,30 @@ func (s credentialStore) load() (*credential, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read the worker certificate: %w", err)
+		return nil, err
 	}
 	var file credentialFile
 	if err := json.Unmarshal(data, &file); err != nil {
-		return nil, fmt.Errorf("read the worker certificate: %w", err)
+		return nil, err
 	}
 	cert, err := tls.X509KeyPair([]byte(file.Certificate), []byte(file.Key))
 	if err != nil {
-		return nil, fmt.Errorf("read the worker certificate: %w", err)
+		return nil, err
 	}
-	ca, err := parseCertificatePEM(file.CACertificate)
+	block, _ := pem.Decode([]byte(file.CACertificate))
+	if block == nil {
+		return nil, errors.New("no CA certificate")
+	}
+	ca, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("read the worker certificate's CA: %w", err)
+		return nil, err
 	}
-	return &credential{cert: cert, ca: ca, inviteSum: file.InviteSHA256}, nil
+	return &credential{cert: cert, ca: ca, inviteDigest: file.InviteDigest}, nil
 }
 
-// save replaces the stored credential with c, readable by its user only.
+// save replaces the stored credential with c. The file is written whole
+// and then renamed into place, so an interrupted save leaves the previous
+// credential or none.
 func (s credentialStore) save(c *credential) error {
 	key, err := x509.MarshalPKCS8PrivateKey(c.cert.PrivateKey)
 	if err != nil {
@@ -108,23 +121,34 @@ func (s credentialStore) save(c *credential) error {
 		Key:           string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key})),
 		Certificate:   string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.cert.Certificate[0]})),
 		CACertificate: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.ca.Raw})),
-		InviteSHA256:  c.inviteSum,
+		InviteDigest:  c.inviteDigest,
 	})
 	if err != nil {
 		return err
 	}
-	if err := fileutil.MkdirAll(s.dir, credentialDirMode); err != nil {
-		return fmt.Errorf("keep the worker certificate: %w", err)
+	if err := fileutil.MkdirPrivate(s.dir); err != nil {
+		return err
 	}
-	if err := fileutil.WriteFileAtomic(s.path(), data, credentialFileMode); err != nil {
-		return fmt.Errorf("keep the worker certificate: %w", err)
+	return fileutil.WriteFileAtomic(s.path(), data, credentialFileMode)
+}
+
+// removeLeftovers removes the partial files of saves that a stop
+// interrupted. The caller holds the lock, so no save is under way.
+func (s credentialStore) removeLeftovers() {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return
 	}
-	return nil
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), credentialFileName+".tmp.") {
+			_ = fileutil.Remove(filepath.Join(s.dir, entry.Name()))
+		}
+	}
 }
 
 // writable reports whether the worker can keep files in the store.
 func (s credentialStore) writable() bool {
-	if err := fileutil.MkdirAll(s.dir, credentialDirMode); err != nil {
+	if err := fileutil.MkdirPrivate(s.dir); err != nil {
 		return false
 	}
 	probe := filepath.Join(s.dir, writeProbeName)
@@ -133,11 +157,6 @@ func (s credentialStore) writable() bool {
 	}
 	_ = fileutil.Remove(probe)
 	return true
-}
-
-// pin returns the pin an invite carries for the CA that signed c.
-func (c *credential) pin() string {
-	return coordinator.CAPin(c.ca)
 }
 
 // newWorkerKey returns a new key for enrollment and the DER certificate
@@ -154,31 +173,31 @@ func newWorkerKey() (*ecdsa.PrivateKey, []byte, error) {
 	return key, csr, nil
 }
 
-// enrolledCredential returns the credential of key from the DER worker
-// certificate and CA certificate that enrollment with invite returned.
-func enrolledCredential(key *ecdsa.PrivateKey, certDER, caDER []byte, invite string) (*credential, error) {
-	leaf, err := x509.ParseCertificate(certDER)
+// enrolledCredential returns the credential of key from resp, the reply
+// that Enroll checked, to enrollment with invite.
+func enrolledCredential(key *ecdsa.PrivateKey, resp *coordinatorv1.EnrollResponse, invite coordinator.Invite) (*credential, error) {
+	leaf, err := x509.ParseCertificate(resp.Certificate)
 	if err != nil {
-		return nil, fmt.Errorf("read the worker certificate: %w", err)
+		return nil, err
 	}
-	ca, err := x509.ParseCertificate(caDER)
+	ca, err := x509.ParseCertificate(resp.CaCertificate)
 	if err != nil {
-		return nil, fmt.Errorf("read the CA certificate: %w", err)
+		return nil, err
 	}
 	return &credential{
-		cert:      tls.Certificate{Certificate: [][]byte{certDER}, PrivateKey: key, Leaf: leaf},
-		ca:        ca,
-		inviteSum: inviteSum(invite),
+		cert:         tls.Certificate{Certificate: [][]byte{resp.Certificate}, PrivateKey: key, Leaf: leaf},
+		ca:           ca,
+		inviteDigest: invite.Digest(),
 	}, nil
 }
 
-func inviteSum(invite string) string {
-	sum := sha256.Sum256([]byte(invite))
-	return hex.EncodeToString(sum[:])
-}
-
-func parseCertificatePEM(data string) (*x509.Certificate, error) {
-	block, _ := pem.Decode([]byte(data))
+// readCertificateFile returns the first PEM certificate in path.
+func readCertificateFile(path string) (*x509.Certificate, error) {
+	data, err := fileutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(data)
 	if block == nil || block.Type != "CERTIFICATE" {
 		return nil, errors.New("no PEM certificate")
 	}

@@ -19,10 +19,9 @@ import (
 // ErrNoCoordinators is the error of a worker without worker.coordinators.
 var ErrNoCoordinators = errors.New("worker.coordinators is required")
 
-// NewCoordinatorClient creates a client that dials the worker's configured
-// coordinators with clientConfig, such as the ClientConfig of the worker's
-// Membership.
-func NewCoordinatorClient(ctx context.Context, cfg *config.Config, clientConfig *coordinator.Config) (coordinator.Client, error) {
+// newCoordinatorClient creates a client that dials the worker's configured
+// coordinators with clientConfig.
+func newCoordinatorClient(ctx context.Context, cfg *config.Config, clientConfig *coordinator.Config) (coordinator.Client, error) {
 	registry, err := CoordinatorRegistry(cfg)
 	if err != nil {
 		return nil, err
