@@ -47,7 +47,7 @@ var (
 		name:         "format",
 		shorthand:    "f",
 		defaultValue: "text",
-		usage:        "Report format: text (default) or json",
+		usage:        "Report format: text (default), json, or junit",
 	}
 	testKeepFlag = commandLineFlag{
 		name:   "keep",
@@ -87,6 +87,8 @@ whichever exist. An argument that is not an existing path is a DAG name,
 resolved as dagu start resolves it, and runs that DAG's test files.
 
 --format json writes one JSON object to stdout once every case has ended.
+--format junit writes one JUnit XML document instead, which CI systems such
+as GitHub Actions and GitLab show as per-case results.
 --keep keeps each case directory and reports its path.
 
 --init writes the test file of the DAG file given as the one argument, with
@@ -107,6 +109,7 @@ Example:
   dagu test workflows/release.yaml
   dagu test --run 'failed build' --timeout 30s workflows/release.test.yaml
   dagu test --format json --keep workflows/
+  dagu test --format junit workflows/ > report.xml
   dagu test --init workflows/release.yaml
   dagu test --update workflows/release.test.yaml
 `,
@@ -126,6 +129,8 @@ type testOptions struct {
 	timeout time.Duration
 	// json writes the report as one JSON object.
 	json bool
+	// junit writes the report as one JUnit XML document.
+	junit bool
 	// keep keeps each case directory.
 	keep bool
 	// init writes the test file of the one DAG file argument.
@@ -159,8 +164,11 @@ func runTest(ctx *Context, args []string) error {
 	}
 
 	report := &testReport{out: ctx.Command.OutOrStdout()}
-	if opts.json {
+	switch {
+	case opts.json:
 		report.json = newJSONTestReport()
+	case opts.junit:
+		report.junit = newJUnitTestReport()
 	}
 	// A test file that --update cannot write does not stop the others.
 	var updateErrs []error
@@ -208,11 +216,19 @@ func testOptionsFromFlags(ctx *Context) (testOptions, error) {
 			return opts, fmt.Errorf("--run %q: %w", value, err)
 		}
 	}
-	format, err := outputFormatParam(ctx)
+	format, err := ctx.StringParam(testFormatFlag.name)
 	if err != nil {
 		return opts, err
 	}
-	opts.json = format == "json"
+	switch format {
+	case "", "text":
+	case "json":
+		opts.json = true
+	case "junit":
+		opts.junit = true
+	default:
+		return opts, fmt.Errorf("--format %q: use text, json, or junit", format)
+	}
 	if opts.keep, err = ctx.Command.Flags().GetBool(testKeepFlag.name); err != nil {
 		return opts, err
 	}

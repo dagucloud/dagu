@@ -168,9 +168,11 @@ func (c caseResult) result() string {
 // report is written as each case ends.
 type testReport struct {
 	out io.Writer
-	// json collects the report for --format json, which is written once
-	// every case has ended. Nil writes text.
+	// json and junit collect the report for --format json and --format
+	// junit, which is written once every case has ended. Both nil writes
+	// text.
 	json         *jsonTestReport
+	junit        *junitTestReport
 	passed       int
 	failed       int
 	invalid      int
@@ -181,6 +183,10 @@ func (r *testReport) writeInvalidFile(file string, errs []dagtest.Finding) {
 	r.invalidFiles++
 	if r.json != nil {
 		r.json.InvalidFiles = append(r.json.InvalidFiles, jsonInvalidFile{File: file, Errors: jsonErrors(errs)})
+		return
+	}
+	if r.junit != nil {
+		r.junit.addInvalidFile(file, errs)
 		return
 	}
 	r.printf("INVALID %s\n", file)
@@ -200,6 +206,10 @@ func (r *testReport) writeCase(c caseResult) {
 	}
 	if r.json != nil {
 		r.json.Cases = append(r.json.Cases, jsonCaseOf(c))
+		return
+	}
+	if r.junit != nil {
+		r.junit.addCase(c)
 		return
 	}
 	switch c.result() {
@@ -250,10 +260,13 @@ func (r *testReport) writeFix(title, fix string) {
 }
 
 // writeSummary ends the report: the text report's last line, which counts
-// the cases by outcome, or the JSON object.
+// the cases by outcome, the JSON object, or the JUnit XML document.
 func (r *testReport) writeSummary() error {
 	if r.json != nil {
 		return json.NewEncoder(r.out).Encode(r.json)
+	}
+	if r.junit != nil {
+		return r.junit.write(r.out)
 	}
 	total := r.passed + r.failed + r.invalid
 	r.printf("%d %s: %d passed, %d failed", total, plural(total, "case", "cases"), r.passed, r.failed)

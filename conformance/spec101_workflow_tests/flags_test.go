@@ -5,6 +5,7 @@ package spec101_workflow_tests_test
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"io"
 	"io/fs"
 	"os"
@@ -87,6 +88,59 @@ func TestWorkflowTestJSON(t *testing.T) {
 	require.Len(t, report.InvalidFiles, 1)
 	require.Equal(t, "workflows/smoke.test.yaml", report.InvalidFiles[0].File)
 	require.Contains(t, report.InvalidFiles[0].Errors[0]["message"], "rename")
+}
+
+// The JUnit report has one suite per test file: a failed case is a failure,
+// and an invalid case or test file an error.
+func TestWorkflowTestJUnit(t *testing.T) {
+	t.Parallel()
+
+	type problem struct {
+		Message string `xml:"message,attr"`
+		Text    string `xml:",chardata"`
+	}
+	var report struct {
+		Tests    int `xml:"tests,attr"`
+		Failures int `xml:"failures,attr"`
+		Errors   int `xml:"errors,attr"`
+		Suites   []struct {
+			Name  string `xml:"name,attr"`
+			Cases []struct {
+				Name    string   `xml:"name,attr"`
+				Time    string   `xml:"time,attr"`
+				Failure *problem `xml:"failure"`
+				Error   *problem `xml:"error"`
+			} `xml:"testcase"`
+		} `xml:"testsuite"`
+	}
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("test", "--format", "junit", "workflows/failing.test.yaml", "workflows/ship.test.yaml", "workflows/smoke.test.yaml")
+	result.ExpectExitCode(2)
+	require.True(t, strings.HasPrefix(result.Stdout(), xml.Header), result.Stdout())
+	require.NoError(t, xml.Unmarshal([]byte(result.Stdout()), &report), result.Stdout())
+
+	require.Equal(t, 4, report.Tests)
+	require.Equal(t, 1, report.Failures)
+	require.Equal(t, 2, report.Errors)
+	require.Len(t, report.Suites, 3)
+
+	failing := report.Suites[0]
+	require.Equal(t, "workflows/failing.test.yaml", failing.Name)
+	require.Equal(t, "status: expected succeeded, got failed", failing.Cases[0].Failure.Message)
+	require.Contains(t, failing.Cases[0].Failure.Text, "  step deploy: expected skipped, got aborted")
+
+	ship := report.Suites[1]
+	require.Len(t, ship.Cases, 2)
+	require.Contains(t, ship.Cases[0].Error.Message, "param build_date")
+	require.Equal(t, "0.000", ship.Cases[0].Time)
+	require.Nil(t, ship.Cases[1].Failure)
+	require.Nil(t, ship.Cases[1].Error)
+
+	smoke := report.Suites[2]
+	require.Equal(t, "workflows/smoke.test.yaml", smoke.Name)
+	require.Equal(t, "workflows/smoke.test.yaml", smoke.Cases[0].Name)
+	require.Contains(t, smoke.Cases[0].Error.Message, "rename")
 }
 
 // Each failed assertion and each list of a case that ran is in the JSON

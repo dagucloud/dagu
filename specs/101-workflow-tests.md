@@ -180,7 +180,7 @@ Flags:
 | --- | --- | --- |
 | `--run <regexp>` | none | Run only the cases whose `name` the regular expression matches. The expression uses RE2 syntax and may match anywhere in the name |
 | `--timeout <duration>` | `5m` | Longest a case may run, as a duration such as `30s` or `5m`. It must be greater than zero |
-| `--format <format>` | `text` | `text` or `json` |
+| `--format <format>` | `text` | `text`, `json`, or `junit` |
 | `--keep` | off | Keep each case directory and report its path |
 | `--init` | off | Write a test file for the DAG file given as the one argument. See [Authoring Flags](#authoring-flags) |
 | `--update` | off | Rewrite each case's `expect` from its run. See [Authoring Flags](#authoring-flags) |
@@ -1375,6 +1375,41 @@ Notification object: `kind`, which is `mail_on.failure`, `mail_on.success`,
 
 Invalid file object: `file`, and `errors`, a list of error objects.
 
+#### JUnit Report
+
+`--format junit` writes exactly one JUnit XML document to stdout, and
+nothing else, once every case has finished, so CI systems such as GitHub
+Actions and GitLab show each case as a test result:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="1" failures="1" errors="0" time="0.061">
+  <testsuite name="workflows/release.test.yaml" tests="1" failures="1" errors="0" time="0.061">
+    <testcase name="a failed build stops the deploy" classname="workflows/release.test.yaml" time="0.061">
+      <failure message="step deploy: expected skipped, got aborted">  step deploy: expected skipped, got aborted&#xA;</failure>
+    </testcase>
+  </testsuite>
+</testsuites>
+```
+
+Rules:
+
+- One `testsuite` per test file, in run order, named `<file>`. Its
+  `testcase` elements are its cases, in run order, each named after the
+  case, with `<file>` as `classname`.
+- `time` is the case's wall-clock time in seconds, with three decimal
+  places, and `0.000` for an invalid case. A suite's `time` adds up its
+  cases, and the `testsuites` element's adds up the suites.
+- `tests`, `failures`, and `errors` count the cases of the suite, or of
+  every suite on `testsuites`.
+- A failed case has one `failure` element, and an invalid case one `error`
+  element. Its `message` is the first failure or error line, and its text is
+  every line that follows the case's line in the text report, indented as
+  there, such as the fix of an invalid case. A case that passed holds those
+  lines, when it has any, in `system-out`.
+- An invalid test file is a suite with one `testcase` named `<file>`, whose
+  `error` holds the file's error lines.
+
 ### JSON Schema
 
 Dagu publishes a JSON Schema for test files beside the DAG schema, so an
@@ -1557,9 +1592,9 @@ stderr when:
   `release.yaml has no test file; write one with: dagu test --init release.yaml`.
   For a DAG name, the command names the resolved DAG file;
 - `--init` has other than one argument, or is set together with `--update`,
-  `--run`, `--keep`, or `--format json`;
+  `--run`, `--keep`, `--format json`, or `--format junit`;
 - `--run` is not a valid regular expression;
-- `--format` is neither `text` nor `json`;
+- `--format` is not `text`, `json`, or `junit`;
 - `--timeout` is not a duration greater than zero;
 - a flag is unknown.
 
