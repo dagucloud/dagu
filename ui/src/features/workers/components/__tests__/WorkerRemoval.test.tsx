@@ -190,6 +190,60 @@ describe('Remove', () => {
     );
   });
 
+  // A certificate already being removed, as by another admin, answers with
+  // that removal's state. The dialog takes it as done, deletes the chosen
+  // invite, and the list shows the removal.
+  it('takes a removal already under way as accepted', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    server.del = (request) =>
+      request.path.endsWith('/certificate')
+        ? { status: 200, body: { state: 'removing' } }
+        : { status: 204 };
+    renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
+    await screen.findByText('Reusable');
+    await waitFor(() => expect(requests('GET', '/workers')).toHaveLength(1));
+
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: /Also delete the invite/ })
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    );
+    expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(1);
+    await waitFor(() => expect(requests('GET', '/workers')).toHaveLength(2));
+  });
+
+  // A stop of a certificate the coordinator revoked meanwhile answers
+  // removed: the stop is done.
+  it('closes Stop runs now when the certificate was already revoked', async () => {
+    server.del = () => ({ status: 200, body: { state: 'removed' } });
+    renderPage([
+      worker('worker-b1', {
+        removing: true,
+        runningTasks: [task('etl', 'run-1')],
+      }),
+    ]);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop runs now on worker-b1' })
+    );
+    await userEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: 'Stop runs',
+      })
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    );
+  });
+
   // The removal names the certificate the admin confirmed. A worker that
   // joined again holds another one: it is not removed, the dialog says why,
   // the list is read again, and the explanation stays when the refreshed

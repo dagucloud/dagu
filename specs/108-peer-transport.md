@@ -1324,6 +1324,8 @@ The Workers page is the list of workers on System status.
   no second one: they say to close and confirm again from the list. Enter
   confirms only on the confirm button, and the choices hold while a
   request is under way.
+- A removal answered `removing` or `removed` counts as accepted, also when
+  another admin started it or the certificate was revoked already.
 - The confirmation and **Stop runs now** close by themselves when every
   step they took succeeded. Otherwise only the admin closes them: they keep
   their outcome when a refresh of the list changes or drops the worker's
