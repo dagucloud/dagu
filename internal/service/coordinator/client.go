@@ -1306,8 +1306,12 @@ func fillWorkerMetadata(worker, other *coordinatorv1.WorkerInfo) {
 		worker.CertificateId = other.CertificateId
 		worker.InviteId = other.InviteId
 	}
-	// A coordinator that has not reread the removals yet reports false.
-	worker.Removing = worker.Removing || other.Removing
+	// Removing describes a certificate, and heartbeats in the same second
+	// may carry two. For the same one, a coordinator that has not reread
+	// the removals yet reports false.
+	if worker.CertificateId == other.CertificateId {
+		worker.Removing = worker.Removing || other.Removing
+	}
 }
 
 // Heartbeat sends a heartbeat to coordinators and returns the response

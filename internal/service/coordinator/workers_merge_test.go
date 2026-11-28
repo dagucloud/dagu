@@ -80,3 +80,29 @@ func TestClientGetWorkers_KeepsNewerFields(t *testing.T) {
 		})
 	}
 }
+
+// Heartbeats in the same second may carry two certificates of one worker,
+// as when it joined again. The listed worker shows removing only when the
+// certificate it lists is removing, whichever coordinator is asked first.
+func TestClientGetWorkers_RemovingFollowsCertificate(t *testing.T) {
+	t.Parallel()
+
+	heartbeat := time.Now().Unix()
+	removed := workersFrom(&coordinatorv1.WorkerInfo{WorkerId: "worker-1", LastHeartbeatAt: heartbeat, CertificateId: "old-cert", Removing: true})
+	rejoined := workersFrom(&coordinatorv1.WorkerInfo{WorkerId: "worker-1", LastHeartbeatAt: heartbeat, CertificateId: "new-cert"})
+	for name, kinds := range map[string][]memberKind{"removed first": {removed, rejoined}, "rejoined first": {rejoined, removed}} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			members := make([]serviceregistry.HostInfo, len(kinds))
+			for i, listener := range sortedListeners(t, len(kinds)) {
+				members[i] = kinds[i](t, listener)
+			}
+			client := coordinator.New(&mockServiceMonitor{members: members}, coordinator.DefaultConfig())
+			t.Cleanup(func() { _ = client.Cleanup(context.Background()) })
+			workers, err := client.GetWorkers(t.Context())
+			require.NoError(t, err)
+			require.Len(t, workers, 1)
+			assert.Equal(t, workers[0].CertificateId == "old-cert", workers[0].Removing, "%s is listed", workers[0].CertificateId)
+		})
+	}
+}
