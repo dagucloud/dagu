@@ -25,6 +25,9 @@ var (
 	// isoLocalDateTimePattern matches date-times without an offset, which
 	// ECMAScript reads as local time.
 	isoLocalDateTimePattern = regexp.MustCompile(`^` + isoDatePattern + `T\d{2}:\d{2}(:\d{2}([.,]\d+)?)?$`)
+	// zoneAfterTimePattern matches a "Z" or numeric offset right after a
+	// time, as in "2026-11-13T10:00Z" or "2026-11-13 10:00:00+09:00".
+	zoneAfterTimePattern = regexp.MustCompile(`(?i)\d:\d{2}(:\d{2}([.,]\d+)?)?\s*(z\b|[+-]\d)`)
 )
 
 const (
@@ -476,10 +479,8 @@ func normPair(hi, lo, base int64) (int64, int64, bool) {
 }
 
 func hasExplicitTimezone(s string) bool {
-	if _, tail, ok := strings.Cut(s, "T"); ok {
-		if strings.HasSuffix(tail, "Z") || strings.ContainsAny(tail, "+-") {
-			return true
-		}
+	if zoneAfterTimePattern.MatchString(s) {
+		return true
 	}
 	// ISO date-only forms ("2026", "2026-11", "2026-11-13") parse as UTC per ES spec.
 	if isoDateOnlyPattern.MatchString(s) {
