@@ -461,6 +461,48 @@ func TestRemoveWorkerReplayAfterRename(t *testing.T) {
 	assert.Equal(t, "renamed", resp.WorkerId, "the answer names the holder the removal recorded, not the replay's ID")
 }
 
+// A removal, then two renames of its holder: a replay under each ID the
+// worker used pairs with the removal, before and after the revocation,
+// and the answer names the worker the removal recorded. An ID that only
+// the certificate's earlier heartbeats reported still counts as a known
+// worker when it names another certificate.
+func TestRemoveWorkerReplayAfterTwoRenames(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	key, cert, _ := server.enrolled(t)
+	_, otherCert := server.enroll(t, server.createInvite(t, &coordinatorv1.CreateInviteRequest{}).Invite)
+	server.heartbeat(t, key, cert, enrollWorkerID)
+	_, err := server.removeAs(t, enrollWorkerID, cert, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
+	require.NoError(t, err)
+	server.heartbeat(t, key, cert, "renamed")
+	server.heartbeat(t, key, cert, "renamed-again")
+
+	ids := []string{enrollWorkerID, "renamed", "renamed-again"}
+	for _, id := range ids {
+		resp, err := server.removeAs(t, id, cert, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
+		require.NoError(t, err, id)
+		assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING, resp.State, id)
+	}
+	_, err = server.shared.certs.SetState(t.Context(), cert.Subject.CommonName, persis.WorkerCertificateRevoked)
+	require.NoError(t, err)
+	record, err := server.shared.certs.Get(t.Context(), cert.Subject.CommonName)
+	require.NoError(t, err)
+	require.NotEmpty(t, record.HolderID)
+	for _, id := range ids {
+		resp, err := server.removeAs(t, id, cert, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
+		require.NoError(t, err, id)
+		assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, resp.State, id)
+		assert.Equal(t, record.HolderID, resp.WorkerId, id)
+	}
+
+	// With no heartbeat row left, only the certificate record knows the
+	// earlier ID.
+	_, err = server.shared.heartbeats.DeleteStale(t.Context(), time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	_, err = server.removeAs(t, "renamed", otherCert, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err), "%v", err)
+}
+
 // A request that does not pair a certificate in removal with its worker
 // changes nothing: a stop from another worker ID does not move a finish
 // removal to stop.

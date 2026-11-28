@@ -283,12 +283,12 @@ func (h *Handler) RemoveWorker(ctx context.Context, req *coordinatorv1.RemoveWor
 // removeCertificate removes the certificate that req names, and no other
 // certificate of its worker. Nothing happens unless the request pairs the
 // certificate with its worker:
-//   - A certificate in removal pairs with a worker ID its record or its
-//     removal names, now or among the IDs its heartbeats reported, which
-//     both keep. A revoked one then answers removed and a removing one
-//     answers by its removal, which a stop request moves from finish to
-//     stop. A retry after a lost answer thus succeeds, also after the
-//     worker took a new ID.
+//   - A certificate in removal pairs with the worker its removal named,
+//     or with a worker ID its certificate record or its removal record
+//     keeps, as pairsWith reads them. A revoked one then answers
+//     removed and a removing one answers by its removal, which a stop
+//     request moves from finish to stop. A retry after a lost answer thus
+//     succeeds, also after the worker took a new ID, once or more.
 //   - An active certificate pairs with a worker its record names, or whose
 //     fresh heartbeat carries it.
 //
@@ -310,11 +310,7 @@ func (h *Handler) removeCertificate(ctx context.Context, req *coordinatorv1.Remo
 		return nil, status.Error(codes.Internal, "failed to read the worker's heartbeat")
 	}
 	if found && cert.State != persis.WorkerCertificateActive {
-		removal, err := h.certificateRemoval(ctx, certID)
-		if err != nil {
-			return nil, status.Error(codes.Internal, "failed to remove the worker")
-		}
-		if !namesWorker(cert.WorkerID, cert.WorkerIDs, req.WorkerId) && !namesWorker(removal.WorkerID, removal.WorkerIDs, req.WorkerId) {
+		if !pairsWith(cert, req.WorkerId) {
 			return nil, h.notHeld(ctx, req.WorkerId, hb)
 		}
 		if cert.State == persis.WorkerCertificateRevoked {
@@ -323,7 +319,7 @@ func (h *Handler) removeCertificate(ctx context.Context, req *coordinatorv1.Remo
 			return &coordinatorv1.RemoveWorkerResponse{
 				State:          coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED,
 				CertificateIds: []string{certID},
-				WorkerId:       cmp.Or(removal.WorkerID, cert.WorkerID),
+				WorkerId:       cmp.Or(cert.HolderID, cert.WorkerID),
 			}, nil
 		}
 		// The removal takes the ID the request paired with, so its replay
@@ -332,7 +328,7 @@ func (h *Handler) removeCertificate(ctx context.Context, req *coordinatorv1.Remo
 		return h.startRemoval(ctx, certID, req.WorkerId, stop)
 	}
 	connected := hb != nil && dispatch.WorkerHeartbeatFresh(*hb, now, h.staleHeartbeatThreshold)
-	holds := (found && namesWorker(cert.WorkerID, cert.WorkerIDs, req.WorkerId)) || (connected && hb.CertificateID == certID)
+	holds := (found && namesWorker(cert, req.WorkerId)) || (connected && hb.CertificateID == certID)
 	switch {
 	case connected && hb.CertificateID == "":
 		if hb.Connection == dispatch.WorkerConnectionCertificate {
@@ -349,27 +345,6 @@ func (h *Handler) removeCertificate(ctx context.Context, req *coordinatorv1.Remo
 		return h.startRemoval(ctx, certID, req.WorkerId, stop)
 	}
 	return h.revokeNamed(ctx, cert, now, stop)
-}
-
-// certificateRemoval returns the removal of the certificate certID, or a zero one
-// when it has none.
-func (h *Handler) certificateRemoval(ctx context.Context, certID string) (persis.WorkerCertificateRemoval, error) {
-	if removal, ok := h.removals.get(certID); ok {
-		return removal, nil
-	}
-	// A removal another coordinator accepted reaches this copy at its next
-	// reread, so the store answers until then.
-	removals, err := h.workerCertificates.ListRemovals(ctx)
-	if err != nil {
-		logger.Error(ctx, "Failed to list worker removals", tag.Error(err))
-		return persis.WorkerCertificateRemoval{}, err
-	}
-	for _, removal := range removals {
-		if removal.ID == certID {
-			return removal, nil
-		}
-	}
-	return persis.WorkerCertificateRemoval{}, nil
 }
 
 // revokeNamed revokes cert, of a worker that is not connected under the
@@ -396,7 +371,7 @@ func (h *Handler) revokeNamed(ctx context.Context, cert persis.WorkerCertificate
 	return &coordinatorv1.RemoveWorkerResponse{
 		State:          coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED,
 		CertificateIds: []string{cert.ID},
-		WorkerId:       revoked.WorkerID,
+		WorkerId:       cmp.Or(revoked.HolderID, revoked.WorkerID),
 	}, nil
 }
 
@@ -413,7 +388,7 @@ func (h *Handler) notHeld(ctx context.Context, workerID string, hb *dispatch.Wor
 		return status.Error(codes.Internal, "failed to remove the worker")
 	}
 	for _, cert := range certs {
-		if cert.WorkerID == workerID {
+		if pairsWith(cert, workerID) {
 			return reasonedRefusal(codes.FailedPrecondition, reasonCertificateChanged, certificateChangedMessage)
 		}
 	}
@@ -442,7 +417,7 @@ func (h *Handler) startRemoval(ctx context.Context, certID, workerID string, sto
 	resp := &coordinatorv1.RemoveWorkerResponse{
 		State:          coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING,
 		CertificateIds: []string{cert.ID},
-		WorkerId:       cert.WorkerID,
+		WorkerId:       cmp.Or(cert.HolderID, cert.WorkerID),
 	}
 	if cert.State == persis.WorkerCertificateRevoked {
 		resp.State = coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED
@@ -1276,6 +1251,14 @@ func keyRemoved(removals []persis.WorkerCertificateRemoval, fingerprint []byte) 
 // namesWorker reports whether the record of cert names the worker workerID.
 func namesWorker(cert persis.WorkerCertificate, workerID string) bool {
 	return cert.WorkerID == workerID || slices.ContainsFunc(cert.WorkerIDs, func(seen persis.WorkerIDSeen) bool { return seen.ID == workerID })
+}
+
+// pairsWith reports whether a removal of cert may name the worker workerID:
+// the worker its removal named, or one its record names. For a certificate
+// in removal, the record keeps the IDs of its certificate record and of
+// its removal record.
+func pairsWith(cert persis.WorkerCertificate, workerID string) bool {
+	return cert.HolderID == workerID || namesWorker(cert, workerID)
 }
 
 // workerInRemoval reports whether the worker workerID is connected with a
