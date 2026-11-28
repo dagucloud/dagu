@@ -626,7 +626,7 @@ The entry "AI" of the sidebar opens the AI page. Its route is `/ai`. The page ha
 
 Each user sees the entry "AI". An administrator sees the three tabs, and `/ai` opens the tab Endpoints. A
 user with another role sees the tab Skills only, with no row of tabs. The API refuses the routes of the
-endpoints and of the MCP servers to such a user with the status 403.
+endpoints and of the MCP servers, except the routes of choices, to such a user with the status 403.
 
 The tab Endpoints has a list and a dialog:
 
