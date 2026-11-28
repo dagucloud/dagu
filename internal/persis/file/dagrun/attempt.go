@@ -138,14 +138,19 @@ func (att *Attempt) Dir() string {
 // ends with a newline: the status file is created when the attempt is opened, and
 // a crash during the first write can leave part of a line.
 func (att *Attempt) Exists() bool {
-	info, err := fileutil.Stat(att.file)
+	return statusFileExists(att.file)
+}
+
+// statusFileExists reports whether the status file at path holds a status.
+func statusFileExists(path string) bool {
+	info, err := fileutil.Stat(path)
 	if err != nil {
 		return !os.IsNotExist(err)
 	}
 	if info.Size() == 0 {
 		return false
 	}
-	complete, err := hasCompleteLine(att.file, info.Size())
+	complete, err := hasCompleteLine(path, info.Size())
 	return err != nil || complete
 }
 

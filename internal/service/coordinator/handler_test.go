@@ -172,7 +172,10 @@ type mockDAGRunStore struct {
 	attemptWriteErr     error
 	listStatusesCalls   int
 	compareAndSwapCalls int
-	mu                  sync.Mutex
+	// beforeCompareAndSwap runs at the start of each compare-and-swap, so a
+	// test can change the run between a caller's read and its swap.
+	beforeCompareAndSwap func()
+	mu                   sync.Mutex
 }
 
 func newMockDAGRunStore() *mockDAGRunStore {
@@ -283,9 +286,12 @@ func (m *mockDAGRunStore) CreateAttempt(_ context.Context, req persis.DAGRunCrea
 			return nil, m.createSubAttemptErr
 		}
 		key := req.RootDAGRun.ID + ":" + req.DAGRunID
+		if err := uniqueMockAttemptID(req, m.subAttempts[key]); err != nil {
+			return nil, err
+		}
 		attempt := &mockAttempt{
 			dag:        req.DAG,
-			status:     &ir.DAGRunStatus{Name: req.DAG.Name, DAGRunID: req.DAGRunID},
+			status:     &ir.DAGRunStatus{Name: req.DAG.Name, DAGRunID: req.DAGRunID, AttemptID: req.AttemptID},
 			writeError: m.attemptWriteErr,
 		}
 		m.subAttempts[key] = attempt
@@ -294,14 +300,27 @@ func (m *mockDAGRunStore) CreateAttempt(_ context.Context, req persis.DAGRunCrea
 	if m.createAttemptErr != nil {
 		return nil, m.createAttemptErr
 	}
+	if err := uniqueMockAttemptID(req, m.attempts[req.DAGRunID]); err != nil {
+		return nil, err
+	}
 	attempt := &mockAttempt{
 		dag:        req.DAG,
-		status:     &ir.DAGRunStatus{Name: req.DAG.Name, DAGRunID: req.DAGRunID},
+		status:     &ir.DAGRunStatus{Name: req.DAG.Name, DAGRunID: req.DAGRunID, AttemptID: req.AttemptID},
 		writeError: m.attemptWriteErr,
 	}
 	m.attempts[req.DAGRunID] = attempt
 	return attempt, nil
 }
+
+// uniqueMockAttemptID refuses a unique attempt ID that the run's latest
+// attempt, the only one the mock keeps, already holds.
+func uniqueMockAttemptID(req persis.DAGRunCreateAttemptRequest, latest *mockAttempt) error {
+	if req.UniqueAttemptID && req.AttemptID != "" && latest != nil && latest.status != nil && latest.status.AttemptID == req.AttemptID {
+		return dagrun.ErrAttemptIDExists
+	}
+	return nil
+}
+
 func (m *mockDAGRunStore) RecentStatuses(_ context.Context, _ string, _ int) ([]ir.DAGRunStatus, error) {
 	return nil, nil
 }
@@ -374,6 +393,9 @@ func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 ) (*ir.DAGRunStatus, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
+	}
+	if m.beforeCompareAndSwap != nil {
+		m.beforeCompareAndSwap()
 	}
 
 	m.mu.Lock()
@@ -1821,7 +1843,8 @@ func TestPrepareDispatchTaskWorkspaceUsesRuntimeParams(t *testing.T) {
 }
 
 type failingDispatchTaskStore struct {
-	enqueueErr error
+	enqueueErr     error
+	outstandingErr error
 }
 
 func (s *failingDispatchTaskStore) Enqueue(context.Context, *dispatch.DispatchTask) error {
@@ -1854,6 +1877,10 @@ func (s *failingDispatchTaskStore) CountOutstandingByQueue(context.Context, stri
 
 func (s *failingDispatchTaskStore) HasOutstandingAttempt(context.Context, string, time.Duration) (bool, error) {
 	return false, nil
+}
+
+func (s *failingDispatchTaskStore) HasOutstandingAttemptUncached(context.Context, string) (bool, error) {
+	return false, s.outstandingErr
 }
 
 func (s *failingDispatchTaskStore) ListExpiredHeld(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
@@ -6860,4 +6887,50 @@ func TestKeepLegacyLogPaths(t *testing.T) {
 	h.keepLegacyLogPaths(stored, status)
 	assert.Equal(t, filepath.Join(newDir, "scheduler.log"), status.Log)
 	assert.Equal(t, filepath.Join(newDir, "fetch%20data.stdout.log"), status.Nodes[0].Stdout)
+}
+
+// A status report that bootstraps a missing sub-DAG attempt closes the handle
+// that its cache entry held before.
+func TestReportStatusBootstrapClosesReplacedAttempt(t *testing.T) {
+	t.Parallel()
+
+	store := newMockDAGRunStore()
+	baseDir := filepath.Join(t.TempDir(), "distributed")
+	leaseStore := newTestDAGRunLeaseStore(baseDir)
+	owner := dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234}
+	h := NewHandler(HandlerConfig{
+		DAGRunRepository:          store.repository,
+		DAGRunLeaseStore:          leaseStore,
+		ActiveDistributedRunStore: newTestActiveDistributedRunStore(baseDir),
+		Owner:                     owner,
+	})
+	ctx := context.Background()
+
+	rootRef := ir.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
+	rootAttemptKey := ir.GenerateAttemptKey(rootRef.Name, rootRef.ID, rootRef.Name, rootRef.ID, "root-attempt-1")
+	store.addAttempt(rootRef, &ir.DAGRunStatus{
+		Name: rootRef.Name, DAGRunID: rootRef.ID, Root: rootRef,
+		AttemptID: "root-attempt-1", AttemptKey: rootAttemptKey, Status: ir.Running, WorkerID: "worker-1",
+	})
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+		AttemptKey: rootAttemptKey, DAGRun: rootRef, Root: rootRef,
+		AttemptID: "root-attempt-1", WorkerID: "worker-1", Owner: owner,
+	}))
+	stale := &mockAttempt{status: &ir.DAGRunStatus{AttemptID: "stale-attempt"}, isOpen: true}
+	h.attemptsMu.Lock()
+	h.openAttempts["child-run-123"] = stale
+	h.attemptsMu.Unlock()
+
+	running, err := convert.DAGRunStatusToProto(&ir.DAGRunStatus{
+		Name: "child-dag", DAGRunID: "child-run-123", Root: rootRef,
+		AttemptID: "child-attempt-1", Status: ir.Running, WorkerID: "worker-1",
+	})
+	require.NoError(t, err)
+	resp, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{
+		Status: running, WorkerId: "worker-1", OwnerCoordinatorId: "coord-a",
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Accepted)
+
+	assert.True(t, stale.WasClosed(), "the replaced cached attempt must be closed")
 }
