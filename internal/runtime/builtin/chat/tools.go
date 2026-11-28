@@ -240,11 +240,12 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 			return err
 		}
 		if step.Foreach != nil {
+			// Dagu writes each item into the body as ${foreach.<as>}. The body
+			// sees only this foreach's item scope, not that of an outer one.
 			bodyInputs := stepInputs
-			if foreachReadsInput(step.Foreach, stepInputs) {
-				// Dagu writes each item into the body as ${foreach.<as>}.
+			if reads := foreachReadsInput(step.Foreach, stepInputs); reads != stepInputs[foreachNamespace] {
 				bodyInputs = maps.Clone(stepInputs)
-				bodyInputs[foreachNamespace] = true
+				bodyInputs[foreachNamespace] = reads
 			}
 			for i := range step.Foreach.Steps {
 				queue = append(queue, pending{&step.Foreach.Steps[i], bodyInputs})

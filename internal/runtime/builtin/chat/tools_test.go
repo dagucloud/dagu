@@ -251,6 +251,7 @@ func TestNewToolRegistryRefusesEvaluatedInput(t *testing.T) {
 		{"ForeachItemField", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: ${params.Q}\n      as: order\n      steps:\n        - run: ./fetch.sh ${foreach.order.url}\n", `refers to ${foreach.order.url}, which`},
 		{"ForeachStaticItem", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: [\"${params.Q}\"]\n      steps:\n        - run: echo ${foreach.item}\n", `refers to ${foreach.item}, which`},
 		{"ForeachKey", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: [1]\n      key: ${params.Q}\n      steps:\n        - run: echo ${foreach.key}\n", `refers to ${foreach.key}, which`},
+		{"NestedForeachOuterItems", params + "shell: bash\nsteps:\n  - id: orders\n    foreach:\n      items: ${params.Q}\n      as: order\n      steps:\n        - id: lines\n          foreach:\n            items: ${foreach.order.lines}\n            steps:\n              - id: body\n                run: echo ${foreach.item}\n", `the command of step "body" refers to ${foreach.item}, which`},
 		{"ShellVariable", params + "shell: bash\nsteps:\n  - run: echo \"$Q\" \"$DAG_PARAMS_JSON\"\n", ""},
 		{"ShellVariableBeforeDot", params + "shell: bash\nsteps:\n  - run: cat \"/data/$Q\".txt\n", ""},
 		// Dagu fills $NAME.path only when the path parses as jq, and the
@@ -259,6 +260,8 @@ func TestNewToolRegistryRefusesEvaluatedInput(t *testing.T) {
 		{"ShellVariableBeforeQuote", params + "shell: bash\nsteps:\n  - run: cat \"/data/$Q.txt\"\n", ""},
 		{"ForeachItemEnvCopy", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: ${params.Q}\n      steps:\n        - env:\n            - VALUE: ${foreach.item}\n          run: echo \"$VALUE\"\n", ""},
 		{"ForeachLiteralItems", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: [a, b]\n      steps:\n        - run: echo ${foreach.item} \"$Q\"\n", ""},
+		// The item scope of an inner foreach replaces the outer one.
+		{"NestedForeachLiteralItems", params + "shell: bash\nsteps:\n  - id: orders\n    foreach:\n      items: ${params.Q}\n      steps:\n        - id: lines\n          foreach:\n            items: [a, b]\n            steps:\n              - run: echo ${foreach.item}\n", ""},
 		{"StepPOSIXShell", params + "shell: pwsh\nsteps:\n  - with:\n      shell: bash\n    run: echo \"$Q\"\n", ""},
 		{"EnvCopyAsVariable", params + "shell: bash\nenv:\n  - QUERY: ${params.Q}\nsteps:\n  - run: echo \"$QUERY\"\n", ""},
 		{"ValueMatch", params + "preconditions:\n  - condition: ${params.Q}\n    expected: yes\nsteps:\n  - run: echo\n", ""},
