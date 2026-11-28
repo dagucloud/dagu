@@ -139,8 +139,16 @@ func installDateTimezone(vm *goja.Runtime, loc *time.Location) error {
 		return time.UnixMilli(val.ToInteger()).In(loc), true, nil
 	}
 
+	// setMethod installs fn with the name and length the builtin reports.
+	setMethod := func(method string, length int, fn func(goja.FunctionCall) goja.Value) {
+		f := vm.ToValue(fn).ToObject(vm)
+		_ = f.DefineDataProperty("name", vm.ToValue(method), goja.FLAG_FALSE, goja.FLAG_TRUE, goja.FLAG_FALSE)
+		_ = f.DefineDataProperty("length", vm.ToValue(length), goja.FLAG_FALSE, goja.FLAG_TRUE, goja.FLAG_FALSE)
+		_ = proto.Set(method, f)
+	}
+
 	readField := func(method string, fn func(time.Time) goja.Value) {
-		_ = proto.Set(method, func(call goja.FunctionCall) goja.Value {
+		setMethod(method, 0, func(call goja.FunctionCall) goja.Value {
 			t, valid, err := extractTime(call.This)
 			if err != nil {
 				panic(err)
@@ -153,7 +161,7 @@ func installDateTimezone(vm *goja.Runtime, loc *time.Location) error {
 	}
 
 	readString := func(method string, layout string) {
-		_ = proto.Set(method, func(call goja.FunctionCall) goja.Value {
+		setMethod(method, 0, func(call goja.FunctionCall) goja.Value {
 			t, valid, err := extractTime(call.This)
 			if err != nil {
 				panic(err)
@@ -186,7 +194,7 @@ func installDateTimezone(vm *goja.Runtime, loc *time.Location) error {
 	readString("toLocaleTimeString", localeTimeLayout)
 
 	setFields := func(method string, maxArgs int, startFromEpochOnInvalid bool, startIdx int) {
-		_ = proto.Set(method, func(call goja.FunctionCall) goja.Value {
+		setMethod(method, maxArgs, func(call goja.FunctionCall) goja.Value {
 			t, valid, err := extractTime(call.This)
 			if err != nil {
 				panic(err)
