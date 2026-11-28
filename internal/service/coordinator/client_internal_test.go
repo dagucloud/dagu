@@ -188,6 +188,14 @@ func (c stalledHealthClient) Check(ctx context.Context, _ *grpc_health_v1.Health
 	return nil, ctx.Err()
 }
 
+// stubMember makes cli reach member through c, whose services are stubs in
+// place of a connection.
+func stubMember(cli *clientImpl, member serviceregistry.HostInfo, c *client) {
+	c.address = coordinatorAddress(member)
+	c.link = &connLink{transport: cli.transport, address: c.address}
+	cli.clients[coordinatorMemberKey(member)] = c
+}
+
 // The health check before a dispatch changes nothing, so it ends as soon as
 // the call's attempts stop, and the call returns without a dispatch. A check
 // cut off this way says nothing about the coordinator, so it is no failure.
@@ -197,10 +205,9 @@ func TestDispatchHealthCheckEndsWhenAttemptsStop(t *testing.T) {
 	stop := make(chan struct{})
 	member := serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 1}
 	cli := New(staticStateRegistry{members: []serviceregistry.HostInfo{member}}, DefaultConfig()).(*clientImpl)
-	cli.clients[coordinatorMemberKey(member)] = &client{
-		address:      coordinatorAddress(member),
+	stubMember(cli, member, &client{
 		healthClient: stalledHealthClient{stop: sync.OnceFunc(func() { close(stop) })},
-	}
+	})
 
 	// The deadline only bounds a broken cutoff; the call must end before it.
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
@@ -225,13 +232,13 @@ func (c passingStopHealthClient) Check(context.Context, *grpc_health_v1.HealthCh
 	return &grpc_health_v1.HealthCheckResponse{Status: grpc_health_v1.HealthCheckResponse_SERVING}, nil
 }
 
-// countingCoordinator counts the Dispatch requests a coordinator receives.
-type countingCoordinator struct {
+// dispatchCountingClient counts the Dispatch requests a coordinator receives.
+type dispatchCountingClient struct {
 	coordinatorv1.CoordinatorServiceClient
 	dispatches int
 }
 
-func (c *countingCoordinator) Dispatch(context.Context, *coordinatorv1.DispatchRequest, ...grpc.CallOption) (*coordinatorv1.DispatchResponse, error) {
+func (c *dispatchCountingClient) Dispatch(context.Context, *coordinatorv1.DispatchRequest, ...grpc.CallOption) (*coordinatorv1.DispatchResponse, error) {
 	c.dispatches++
 	return &coordinatorv1.DispatchResponse{}, nil
 }
@@ -244,12 +251,11 @@ func TestDispatchSendsNothingAfterAttemptsStop(t *testing.T) {
 	stop := make(chan struct{})
 	member := serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 1}
 	cli := New(staticStateRegistry{members: []serviceregistry.HostInfo{member}}, DefaultConfig()).(*clientImpl)
-	server := &countingCoordinator{}
-	cli.clients[coordinatorMemberKey(member)] = &client{
-		address:      coordinatorAddress(member),
+	server := &dispatchCountingClient{}
+	stubMember(cli, member, &client{
 		client:       server,
 		healthClient: passingStopHealthClient{stop: sync.OnceFunc(func() { close(stop) })},
-	}
+	})
 
 	err := cli.Dispatch(WithAttemptStop(t.Context(), stop), dispatch.DispatchRequest{
 		Task: &dispatch.DispatchTask{Operation: dispatch.DispatchOperationStart, Target: "deploy", DAGRunID: "run"},
@@ -271,10 +277,9 @@ func TestDispatchWorkspaceUploadEndsWhenAttemptsStop(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.WorkspaceBundleDir = t.TempDir()
 	cli := New(staticStateRegistry{members: []serviceregistry.HostInfo{member}}, cfg).(*clientImpl)
-	cli.clients[coordinatorMemberKey(member)] = &client{
-		address:      coordinatorAddress(member),
+	stubMember(cli, member, &client{
 		healthClient: stalledHealthClient{stop: sync.OnceFunc(func() { close(stop) })},
-	}
+	})
 
 	// The deadline only bounds a broken cutoff; the call must end before it.
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
