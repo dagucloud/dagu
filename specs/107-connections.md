@@ -208,7 +208,8 @@ A worker has neither.
   `connections/`, `connection-tokens/`, and `connection-catalogs/`.
 - Each collection directory is created with mode `0700`, readable only by
   the Dagu user.
-- Client secrets, service account keys, refresh tokens, access tokens, and
+- Client secrets, service account keys, the API keys and static
+  credentials of Specs 093 and 095, refresh tokens, access tokens, and
   a session's tokens are stored only encrypted, with the server's key:
   `DAGU_ENCRYPTION_KEY`, or `auth/encryption_key` in `<data_dir>`.
 - No record of this spec is stored in the secret store.
@@ -223,9 +224,9 @@ A worker has neither.
 | --- | --- |
 | `id` | Assigned on create. Never changes |
 | `name` | Shown in pickers |
-| `provider` | `google`, `microsoft`, `oauth2`, or `mcp` |
+| `provider` | `google`, `microsoft`, `oauth2`, `mcp`, or `model`. A `model` app is a shared key of [Spec 093](093-model-connections.md#shared-keys) |
 | `kind` | `byo`: a client the user registered. `cimd`: this server's Client ID Metadata Document. `dcr`: a client Dagu registered through RFC 7591. `hosted` is reserved and refused |
-| `client_id` | Required |
+| `client_id` | Required, except for a `model` app |
 | `client_secret` | Encrypted. Optional for a `public` client. For `service_account`, the service account's private key |
 | `client_type` | `web`, `desktop`, `public`, or `service_account`. Decides the grants and redirect modes that work |
 | `agent` | True when the user attests that the client has Google's "Use this client for an AI-powered agent" set |
@@ -238,7 +239,8 @@ A worker has neither.
 - A new app has `status: ok`.
 - Only the broker sets `invalid`, as [Refresh Results](#refresh-results)
   states. Only an admin's change to `client_id` or `client_secret` sets it
-  back to `ok`.
+  back to `ok`. A `model` app follows the 401 and rotation rules of
+  [Spec 093](093-model-connections.md#connection-status) instead.
 - An app that a connection uses cannot be deleted.
 - A `dcr` app belongs to the one connection that registered it. It is
   created and deleted with that connection, and no other connection may use
@@ -251,9 +253,9 @@ A worker has neither.
 | --- | --- |
 | `name` | See [Names](#names) |
 | `project` | The owning project. Empty for the notification connection |
-| `provider` | The app's provider |
-| `app` | The app's `id` |
-| `grant` | `authorization_code`, `device_code`, `client_credentials`, or `service_account` |
+| `provider` | The app's provider. A connection with no app names its own: `model` or `mcp` |
+| `app` | The app's `id`. Empty for an `api_key` connection with its own key, and for the grants `static` and `none` |
+| `grant` | `authorization_code`, `device_code`, `client_credentials`, or `service_account`. [Spec 093](093-model-connections.md#credentials) adds `api_key` and `none`, and [Spec 095](095-mcp-servers.md#static-credentials) adds `static` |
 | `services` | Presets, such as `gmail`, each with `read` or `write` |
 | `scopes` | Scopes added beyond the presets' scopes. The presets' own scopes are not stored |
 | `subject` | Service account: the impersonated user. Microsoft client credentials: the mailbox. Set only by an admin |
@@ -263,7 +265,8 @@ A worker has neither.
 | `holder` | `local`. `cloud` is reserved and refused |
 
 - A metadata change by a person never changes token state, except a
-  change of `subject`, as [Status Transitions](#status-transitions) states.
+  change of `subject`, as [Status Transitions](#status-transitions) states,
+  and a URL change that Specs 093 and 095 pair with a new credential.
   A token refresh never changes metadata.
 
 #### Token State
@@ -312,8 +315,9 @@ A worker has neither.
 | `pending` or `connected` | `connected` | An admin changes the `subject` of a `service_account` or `client_credentials` connection, and the new token fetch succeeds. `generation` increases |
 | `pending` or `connected` | `pending` | An admin changes the `subject`, and the new token fetch fails. `status_reason` holds the provider's error |
 
-- No other transition exists. Remove deletes the records and tool catalogs
-  in any status.
+- No other transition exists, except those that Spec 093 and Spec 095 add
+  for the grants `api_key`, `static`, and `none`. Remove deletes the
+  records and tool catalogs in any status.
 - A connection whose token state is missing or cannot be decoded or
   decrypted has no status of its own. The API shows it as `broken`, as
   [REST API](#rest-api) states.
@@ -331,7 +335,9 @@ A worker has neither.
   rejected, as runs do after a reconnect.
 - A `device_code` connect runs a session and needs the starter's confirm,
   as the other modes do.
-- A grant without a refresh token never becomes `needs_reconnect`.
+- A grant without a refresh token never becomes `needs_reconnect`, except
+  `api_key` and `static`, whose stored credential a provider can reject.
+  A rotation of the credential clears it, as Specs 093 and 095 state.
 - A step that uses a `pending` connection fails at once, without calling
   the provider, with `reconnect_required` and a reason saying the
   connection was never connected.
@@ -398,7 +404,9 @@ A worker has neither.
 - A service account or client credentials connection acts as one mailbox,
   its `subject`. A second mailbox needs a second connection on the same app.
 - OAuth apps are server-wide. A connection in any project may use any app
-  of its provider, except a `dcr` app of another connection.
+  of its provider, except a `dcr` app of another connection, and a `model`
+  app, which only Share of [Spec 093](093-model-connections.md#shared-keys)
+  attaches to a project.
 
 #### The Notification Connection
 
@@ -430,7 +438,8 @@ A worker has neither.
 | `google` | `authorization_code`, `service_account` | A service account uses domain-wide delegation and needs no agent flag |
 | `microsoft` | `authorization_code`, `device_code`, `client_credentials` | `tenant` on the app. Refresh tokens rotate. Each access token serves one resource |
 | `oauth2` | `authorization_code`, `client_credentials` | Endpoints, scopes, and `bound_hosts` are required. PKCE is on unless the app's `pkce` turns it off |
-| `mcp` | `authorization_code` | Discovery and client registration as [Any MCP Server](#any-mcp-server) states |
+| `mcp` | `authorization_code`, `static` | Discovery and client registration as [Any MCP Server](#any-mcp-server) states. A fixed token or headers as [Spec 095](095-mcp-servers.md#static-credentials) states |
+| `model` | `api_key`, `none` | A model API, as [Spec 093](093-model-connections.md) states |
 
 ### Service Presets
 
@@ -896,8 +905,9 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
 
 - A connection becomes `needs_reconnect`, or an app `invalid`, once per
   failure. Later failures of the same kind change nothing.
-- Only a confirmed reconnect clears `needs_reconnect`. Only an admin's
-  change to the app clears `invalid`.
+- Only a confirmed reconnect clears `needs_reconnect`, or, for `api_key`
+  and `static`, a rotation. Only an admin's change to the app clears
+  `invalid`.
 - A grant without a refresh token, `service_account` or
   `client_credentials`, never becomes `needs_reconnect`. Its permanent
   failures make the app `invalid`.
@@ -973,9 +983,11 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
 #### Declared Connections
 
 - Building a DAG collects every connection it names. The sources are step
-  `with.connection`, `mail_accounts.<address>.connection` and
+  `with.connection`, except on a custom harness of Spec 067, which takes
+  it as a CLI flag, `mail_accounts.<address>.connection` and
   `smtp.connection` in the DAG or its base config, and `secrets` entries
-  with `provider: connection`. RFC 026 adds sources.
+  with `provider: connection`. RFC 026 and
+  [Spec 093](093-model-connections.md#keys) add sources.
 - A connection name in these fields is a literal. A name taken from a
   parameter, variable, or other reference fails validation. So does a
   step's `server` beside it, which admission checks too.
@@ -1005,7 +1017,8 @@ connection. Mail accounts and `smtp` are not checked here; see
 - A run checks every declared connection and reports every failed check
   together.
 - Admission reads a connection's metadata, and its app only for the agent
-  check. It reads no token state, so a `pending` or `needs_reconnect`
+  check and for the protocols of a `model` connection on a shared key
+  (Spec 093). It reads no token state, so a `pending` or `needs_reconnect`
   connection passes, as [Checks at Use](#checks-at-use) states.
 - A DAG that declares no connection reads no connection record.
 - A DAG whose `workspace` labels are malformed or name two workspaces fails
@@ -1069,6 +1082,8 @@ The owning specs define each field. Every use follows these rules.
 - A 401 whose token is the stored one causes one refresh and one retry.
 - A 401 whose token is older than the stored one takes the stored token and
   retries once, without a refresh.
+- The grants `api_key` and `static` neither refresh nor retry. Specs 093
+  and 095 state what their 401 does.
 - An IMAP or SMTP server that refuses the token is handled as a 401.
 - A 403 with `insufficient_scope` fails with detail `insufficient_scope`
   and the missing scope, and does not refresh.

@@ -37,7 +37,7 @@ This spec does not define:
 | [090: Agent Tools](090-agent-tools.md) | The tools that an `agent.run` step selects. |
 | [091: Agent Node](091-agent-node.md) | The action `agent.run` and the tool bridge that gives Dagu tools to the CLI agent. |
 | 092: Agent Workers | This spec. |
-| [093: AI Endpoints](093-ai-endpoints.md) | Named model endpoints and their credentials. |
+| [093: Model Connections](093-model-connections.md) | Model API connections and the step keys that name them. |
 | [094: AI Gateway](094-ai-gateway.md) | The relay that sends model requests through the coordinator. |
 | [096: Skills](096-skills.md) | Skills and the workspace bundle that carries them. |
 | [103: Untrusted Steps and Step Secrets](103-untrusted-steps.md) | Per-step secrets and the restricted user. |
@@ -170,7 +170,7 @@ destinations and adds the real credential of the model API.
 | Threat | Control | What remains |
 | --- | --- | --- |
 | The agent reads a DAG secret. | The agent step gets no secret. The restricted user cannot read the memory, the environment or the files of the worker. The coordinator gives a registry secret only to the step that lists it. ([103](103-untrusted-steps.md)) | Nothing for a secret that the agent step does not list. An agent step cannot list one. |
-| The agent reads or misuses the model API key. | A `claude` step names an endpoint: the key stays in the coordinator, and the agent holds only the relay secret (Spec 094). Another CLI provider holds a placeholder, and the proxy adds the real key ([105](105-egress-proxy.md#key-injection)). | The agent can send model requests billed to the key owner. |
+| The agent reads or misuses the model API key. | A step of a CLI with an adapter names a model connection ([093](093-model-connections.md)): the key stays in the coordinator, and the agent holds only the relay secret (Spec 094). A CLI with no adapter holds a placeholder, and the proxy adds the real key ([105](105-egress-proxy.md#key-injection)). | The agent can send model requests billed to the key owner. |
 | The agent sends data out. | The worker reaches only the coordinator and the proxy, and no worker DNS query leaves the deployment ([Deployment](#deployment-requirements)). The proxy allows a list of destinations. A destination that needs the proxy credential is closed to the agent ([105](105-egress-proxy.md)). | Data can go to an allowed destination, such as the model API or the git server. |
 | The agent changes `.git` so that a later trusted step runs its code: hooks, `core.fsmonitor`, a new `.git`. | The restricted user cannot write `.git` and cannot rename or replace it ([103](103-untrusted-steps.md#isolation)). | A trusted step that runs a file of the work directory runs agent code. Authors do not do this. |
 | Agent output becomes code that Dagu or a trusted step runs. | A step may reference agent data in two forms only ([104](104-agent-output.md)). | A program that runs a value or reads a variable by name. Agent data that reaches a step without a reference, such as a file of the work directory. |
@@ -502,14 +502,14 @@ So without pools, no worker serves an agent run, and an agent run waits, then fa
 ## Model traffic
 
 ```text
-  provider claude: the step names an endpoint (required)
+  a CLI with an adapter: the step names a model connection (required)
 
-    +-----------+  ANTHROPIC_BASE_URL  +-----------+  gRPC  +-------------+  key  +----------+
+    +-----------+  relay base URL      +-----------+  gRPC  +-------------+  key  +----------+
     | CLI agent |--------------------->| relay     |------->| coordinator |------>| model    |
     |           |  relay secret        | 127.0.0.1 |        | (Spec 094)  |       | provider |
     +-----------+                      +-----------+        +-------------+       +----------+
 
-  another CLI provider
+  a CLI with no adapter
 
     +-----------+  placeholder key     +--------------+  real key                 +----------+
     | CLI agent |--------------------->| egress proxy |-------------------------->| model    |
@@ -518,17 +518,18 @@ So without pools, no worker serves an agent run, and an agent run waits, then fa
                                        +--------------+
 ```
 
-**Provider `claude`.** The step MUST give the block `endpoint`
-([Spec 091](091-agent-node.md#endpoint)) with the name of an endpoint and a model
-([Spec 091](091-agent-node.md#model)). Dagu sets `ANTHROPIC_BASE_URL` to the relay address of the
-attempt and `ANTHROPIC_API_KEY` to the relay secret. The CLI gets no other variable that starts
-with `ANTHROPIC_` or `CLAUDE_CODE_USE_`, and no `CLAUDE_CODE_OAUTH_TOKEN`, from the environment.
-Its model traffic does not go through the proxy, so the proxy needs no model route for it.
+**A CLI with an adapter.** The step MUST name a model connection: its `connection` and `model`,
+or the DAG's `llm` ([Spec 093](093-model-connections.md#keys)). The adapter points the CLI at the
+relay address of the attempt, with the relay secret as its key, and removes every other credential
+source of the CLI ([Adapters](093-model-connections.md#adapters)). For `claude`, Dagu sets
+`ANTHROPIC_BASE_URL` and `ANTHROPIC_API_KEY`, and the CLI gets no other variable that starts with
+`ANTHROPIC_` or `CLAUDE_CODE_USE_`, and no `CLAUDE_CODE_OAUTH_TOKEN`, from the environment. Its
+model traffic does not go through the proxy, so the proxy needs no model route for it.
 
-An OAuth token of a subscription goes in an endpoint of the form `anthropic-oauth` (Spec 093). The
-worker never holds it.
+A model connection holds an API key, never a subscription token (Spec 093). The worker never holds
+the key.
 
-**Other CLI providers.** A step cannot list a secret for a CLI agent
+**A CLI with no adapter.** A step cannot list a secret for a CLI agent
 ([Spec 103](103-untrusted-steps.md)). The provider gets its model credential from the deployment:
 a placeholder in its variables, which the proxy replaces with the real key on the upstream route
 ([Spec 105](105-egress-proxy.md#key-injection)).
@@ -537,12 +538,13 @@ a placeholder in its variables, which the proxy replaces with the real key on th
 worker:
 
 - The relay listens on `127.0.0.1` and a random port, for one attempt, like the tool bridge of
-  Spec 091. The CLI gets the relay secret in a variable. For a named MCP entry, the MCP config of
-  the attempt holds the secret. The restricted user owns that file, with mode `0400`.
+  Spec 091. The CLI gets the relay secret in a variable. For `mcp_servers`, the CLI gets the
+  gateway token of RFC 026 in the form its adapter takes, never in process arguments. Only the step's user
+  can read a file that holds a secret of the attempt.
 - Dagu adds `127.0.0.1` and `localhost` to `NO_PROXY` of a step that uses the relay. The deployment
   does not need to set them for this step.
-- The worker announces the capability `ai_relay.v1`. A run with a step that names an endpoint goes
-  only to a worker with this capability.
+- The worker announces the capability `ai_relay.v1`. A run with a step that names a model
+  connection goes only to a worker with this capability.
 - The gateway needs the mutual TLS that an agent worker already has. It uses the pool and lease
   checks of [Worker pools](#worker-pools) and of [Spec 103](103-untrusted-steps.md#resolution).
 - The coordinator needs outbound access to the provider. The worker still reaches only the
@@ -618,9 +620,9 @@ The deployment gives these variables to the agent worker, and the configuration 
 `bridge_unavailable`.
 
 The host of an inline `mcp` entry goes through the proxy unless `NO_PROXY` names it, so the proxy
-must allow it. A named `mcp` entry goes to the relay on `127.0.0.1`, and the coordinator calls its
-server. The proxy never sees that call. See
-[Spec 095](095-mcp-servers.md#mcp-servers-with-credentials).
+must allow it. A server of `mcp_servers` goes to the MCP gateway of the step on `127.0.0.1`. The
+gateway, in the worker process, reaches the server through the proxy with the proxy credential, so
+the proxy must allow that host too. See [Spec 095](095-mcp-servers.md#on-an-agent-worker).
 
 ## Errors
 
@@ -732,9 +734,8 @@ steps:
         Run ./scripts/test.sh and fix the code until it passes.
       system: Write small, tested changes. Never edit the files of the CI.
       provider: claude
-      endpoint:
-        name: cle1
-        model: sonnet
+      connection: cle1
+      model: sonnet
       max_tool_iterations: 40
       max_tool_calls: 50
       dags:
@@ -797,9 +798,8 @@ steps:
         Read the log, fix the code, and run ./scripts/test.sh again.
       system: Write small, tested changes. Never edit the files of the CI.
       provider: claude
-      endpoint:
-        name: cle1
-        model: sonnet
+      connection: cle1
+      model: sonnet
       max_tool_iterations: 40
       tools:
         builtin:
@@ -841,9 +841,8 @@ steps:
         Read the log, fix the code, and run ./scripts/test.sh again.
       system: Write small, tested changes. Never edit the files of the CI.
       provider: claude
-      endpoint:
-        name: cle1
-        model: sonnet
+      connection: cle1
+      model: sonnet
       max_tool_iterations: 40
       tools:
         builtin:
