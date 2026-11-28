@@ -181,6 +181,11 @@ func parseInvite(invite string) (pin string, secret []byte, ok bool) {
 	if len(parts) != 3 || parts[0] != inviteVersion || len(parts[1]) != inviteFieldLength || len(parts[2]) != inviteFieldLength {
 		return "", nil, false
 	}
+	// The pin is a SHA-256 digest, so a pin that does not decode to one
+	// names no CA.
+	if digest, err := inviteEncoding.DecodeString(parts[1]); err != nil || len(digest) != sha256.Size {
+		return "", nil, false
+	}
 	secret, err := inviteEncoding.DecodeString(parts[2])
 	if err != nil {
 		return "", nil, false

@@ -709,6 +709,14 @@ func (c *connectionCredentials) ClientHandshake(ctx context.Context, _ string, r
 	tlsConfig := &tls.Config{RootCAs: plan.roots, MinVersion: tls.VersionTLS13}
 	if plan.cert != nil {
 		tlsConfig.Certificates = []tls.Certificate{*plan.cert}
+		// The worker's CA can also sign own certificates, which are no
+		// coordinator of built-in TLS.
+		tlsConfig.VerifyConnection = func(state tls.ConnectionState) error {
+			if len(state.PeerCertificates) == 0 || !isCoordinatorCertificate(state.PeerCertificates[0]) {
+				return errNotBuiltinCertificate
+			}
+			return nil
+		}
 	}
 	if plan.pin != "" {
 		// verifyPinnedChain checks the chain against the pin instead.
@@ -793,6 +801,9 @@ func isUnknownAuthority(err error) bool {
 // coordinator certificate of built-in TLS, and own certificates for any
 // other, whatever name it covers. It returns "" when no certificate failed.
 func foreignCoordinatorFormat(err error) string {
+	if errors.Is(err, errNotBuiltinCertificate) {
+		return ownCertificatesFormat
+	}
 	verification, ok := errors.AsType[*tls.CertificateVerificationError](err)
 	switch {
 	case !ok:

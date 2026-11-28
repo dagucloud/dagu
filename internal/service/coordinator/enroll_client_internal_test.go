@@ -13,6 +13,7 @@ import (
 	"crypto/x509/pkix"
 	"math/big"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -131,7 +132,14 @@ func serveReplyingCoordinator(t *testing.T, ca *PeerCA, reply func(*coordinatorv
 // sent with the CA that signed them.
 func ownChainCredentials(t *testing.T, name string) credentials.TransportCredentials {
 	t.Helper()
-	ca := newTestCA(t)
+	return ownChainCredentialsFrom(t, newTestCA(t), name)
+}
+
+// ownChainCredentialsFrom is ownChainCredentials with certificates that ca
+// signs, such as the peer CA of a coordinator set up with own certificates
+// from it.
+func ownChainCredentialsFrom(t *testing.T, ca *PeerCA, name string) credentials.TransportCredentials {
+	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	leaf := signedBy(t, ca, key.Public(), &x509.Certificate{
@@ -184,21 +192,44 @@ func TestEnrollErrorOrder(t *testing.T) {
 // Own certificates that name coordinator.dagu.invalid and come with the CA
 // that signed them are not one of another Dagu: the worker counts the
 // coordinator as unavailable instead of stopping (Spec 108 §Worker Side).
+//
+// Own certificates from the invite's CA itself are no coordinator of
+// built-in TLS either: their profile tells them apart.
 func TestEnrollOwnChainWithBuiltinName(t *testing.T) {
-	invite, _, err := newInvite(newTestCA(t).cert)
+	inviteCA := newTestCA(t)
+	invite, _, err := newInvite(inviteCA.cert)
 	require.NoError(t, err)
 	parsed, ok := ParseInvite(invite)
 	require.True(t, ok)
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	server := grpc.NewServer(grpc.Creds(ownChainCredentials(t, coordinatorCertName)))
-	coordinatorv1.RegisterCoordinatorServiceServer(server, coordinatorv1.UnimplementedCoordinatorServiceServer{})
-	go func() { _ = server.Serve(listener) }()
-	t.Cleanup(server.Stop)
+	for name, creds := range map[string]credentials.TransportCredentials{
+		"OtherCA":  ownChainCredentials(t, coordinatorCertName),
+		"InviteCA": ownChainCredentialsFrom(t, inviteCA, coordinatorCertName),
+	} {
+		t.Run(name, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			server := grpc.NewServer(grpc.Creds(creds))
+			coordinatorv1.RegisterCoordinatorServiceServer(server, coordinatorv1.UnimplementedCoordinatorServiceServer{})
+			go func() { _ = server.Serve(listener) }()
+			t.Cleanup(server.Stop)
 
-	config := DefaultConfig()
-	config.DialTimeout = 5 * time.Second
-	_, err = Enroll(t.Context(), config.WithInvite(parsed), listener.Addr().String(), &coordinatorv1.EnrollRequest{})
-	assert.ErrorIs(t, err, ErrOwnCertificates)
+			config := DefaultConfig()
+			config.DialTimeout = 5 * time.Second
+			_, err = Enroll(t.Context(), config.WithInvite(parsed), listener.Addr().String(), &coordinatorv1.EnrollRequest{})
+			assert.ErrorIs(t, err, ErrOwnCertificates)
+		})
+	}
+}
+
+// A pin with its length that decodes to no SHA-256 digest names no CA, so
+// the invite is refused before any dial.
+func TestParseInviteMalformedPin(t *testing.T) {
+	invite, _, err := newInvite(newTestCA(t).cert)
+	require.NoError(t, err)
+	secret := invite[len(invite)-inviteFieldLength:]
+	for _, pin := range []string{strings.Repeat("!", inviteFieldLength), strings.Repeat("A", inviteFieldLength-1) + "B"} {
+		_, ok := ParseInvite(inviteVersion + "." + pin + "." + secret)
+		assert.False(t, ok, pin)
+	}
 }

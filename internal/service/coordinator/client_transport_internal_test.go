@@ -425,6 +425,7 @@ func TestClientTransportWorkerCertificateNoFallback(t *testing.T) {
 // Own certificates that name coordinator.dagu.invalid and come with their
 // CA are not one of another Dagu, and get the change to make instead.
 func TestClientTransportWorkerCertificateOtherDagu(t *testing.T) {
+	workerCA := newTestCA(t)
 	for _, tc := range []struct {
 		name  string
 		creds credentials.TransportCredentials
@@ -435,10 +436,13 @@ func TestClientTransportWorkerCertificateOtherDagu(t *testing.T) {
 		{name: "OwnCertificatesWithBuiltinName", creds: ownChainCredentials(t, coordinatorCertName), want: ownCertificatesFormat},
 		// Own certificates for an ordinary name fail on the name first.
 		{name: "OwnCertificates", creds: ownChainCredentials(t, "coordinator.test"), want: ownCertificatesFormat},
+		// Own certificates from the worker's own CA verify, and their
+		// profile tells them apart.
+		{name: "OwnCertificatesFromWorkerCA", creds: ownChainCredentialsFrom(t, workerCA, coordinatorCertName), want: ownCertificatesFormat},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			coord := serveTestCoordinator(t, tc.creds)
-			config := workerCertificateConfig(t, newTestCA(t))
+			config := workerCertificateConfig(t, workerCA)
 			member := coord.member("")
 			cli := newTestClient(t, &config, member)
 

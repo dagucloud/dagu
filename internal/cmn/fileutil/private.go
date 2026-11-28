@@ -3,7 +3,10 @@
 
 package fileutil
 
-import "fmt"
+import (
+	"errors"
+	"io/fs"
+)
 
 // privateDirMode is the mode of a directory only its owner may use.
 const privateDirMode = 0o700
@@ -17,7 +20,12 @@ func MkdirPrivate(dir string) error {
 		return err
 	}
 	if err := makePrivate(dir); err != nil {
-		return fmt.Errorf("restrict %s to its owner: %w", dir, err)
+		// A path error keeps the path apart from the cause, so a caller
+		// can report the cause alone.
+		if _, ok := errors.AsType[*fs.PathError](err); ok {
+			return err
+		}
+		return &fs.PathError{Op: "restrict to owner", Path: dir, Err: err}
 	}
 	return nil
 }

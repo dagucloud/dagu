@@ -90,6 +90,17 @@ func answered(err error) bool {
 	return code != codes.Unavailable && code != codes.DeadlineExceeded && code != codes.Canceled && code != codes.Unknown
 }
 
+// statusMessage returns the message of the gRPC status that err carries.
+func statusMessage(err error) string {
+	if s, ok := errors.AsType[interface {
+		error
+		GRPCStatus() *status.Status
+	}](err); ok {
+		return s.GRPCStatus().Message()
+	}
+	return err.Error()
+}
+
 func errInvalidReply(address string) failure {
 	return failure{
 		cause: "Coordinator at " + address + " returned a certificate that does not match this worker's request",
@@ -355,10 +366,20 @@ func (m *Membership) enrollAny(ctx context.Context, req *coordinatorv1.EnrollReq
 	}
 }
 
-// The ranks of the failures to retry after. Of a round's failures, the
-// worker reports the one of the highest rank, the last among equals: a
-// coordinator's answer says more than a coordinator without built-in TLS,
-// which says more than one it cannot reach.
+// How a round of enrollment ends, by what the coordinators gave:
+//
+//	enrolled                        enrolled, at once
+//	invite refused, reply refused,  stop, at once
+//	  single use while read-only
+//	answer of this Dagu             retry, reporting the answer, also
+//	                                  beside another Dagu
+//	another Dagu                    stop, unless an answer came
+//	no built-in TLS, own TLS        retry, reporting it
+//	unreachable                     retry, reporting it
+//
+// An answer is a status from a coordinator of the invite's CA, such as one
+// that asks to try again. The ranks order the failures to retry after: the
+// worker reports the one of the highest rank, the last among equals.
 const (
 	rankUnreachable = iota + 1
 	rankNoBuiltinTLS
@@ -401,8 +422,8 @@ func (m *Membership) enrollRound(ctx context.Context, req *coordinatorv1.EnrollR
 		case status.Code(err) == codes.FailedPrecondition && !req.KeepsCertificate:
 			// The invite is single use, and the coordinator kept it.
 			return nil, failure{}, fmt.Errorf("a single-use invite needs a writable data directory: use a reusable invite, or make %s writable", m.cfg.Paths.DataDir)
-		case answered(err):
-			note(errAnswered(address, status.Convert(err).Message()), rankAnswered)
+		case errors.Is(err, coordinator.ErrCoordinatorAnswered) || answered(err):
+			note(errAnswered(address, statusMessage(err)), rankAnswered)
 		default:
 			note(errCannotReach(address), rankUnreachable)
 		}

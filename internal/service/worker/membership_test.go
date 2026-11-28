@@ -14,7 +14,9 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io/fs"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -355,6 +357,117 @@ func TestMembershipEnrollFailures(t *testing.T) {
 			assert.NotNil(t, m.cred)
 			assert.Contains(t, logs.String(), tt.wantLog)
 		})
+	}
+}
+
+// One round of enrollment ends by the precedence that enrollRound states,
+// whichever coordinator gives which answer.
+func TestEnrollRoundPrecedence(t *testing.T) {
+	ca := newTestCA(t)
+	answer := func(code codes.Code) error {
+		return fmt.Errorf("%w: %w", coordinator.ErrCoordinatorAnswered, status.Error(code, "try again"))
+	}
+	var (
+		unreachable = status.Error(codes.Unavailable, "connection refused")
+		otherDagu   = coordinator.ErrInviteCAMismatch
+		refused     = answer(codes.PermissionDenied)
+		badReply    = coordinator.ErrInvalidEnrollReply
+	)
+	const (
+		answerA      = "Coordinator at coordinator-a:50055 could not enroll this worker: try again"
+		answerB      = "Coordinator at coordinator-b:50055 could not enroll this worker: try again"
+		otherDaguA   = "coordinator-a:50055 belongs to a different Dagu"
+		otherDaguB   = "coordinator-b:50055 belongs to a different Dagu"
+		noTLSA       = "Coordinator at coordinator-a:50055 does not serve built-in TLS"
+		noTLSB       = "Coordinator at coordinator-b:50055 does not serve built-in TLS"
+		ownA         = "Coordinator at coordinator-a:50055 serves TLS with its own certificates"
+		unreachableB = "Cannot reach coordinator at coordinator-b:50055"
+	)
+	for _, tc := range []struct {
+		name      string
+		a, b      any
+		wantStop  string
+		wantRetry string
+	}{
+		{name: "EnrolledAfterOtherDagu", a: otherDagu, b: ca},
+		{name: "EnrolledAfterUnreachable", a: unreachable, b: ca},
+		{name: "RefusedEndsAtOnce", a: refused, b: ca, wantStop: "The invite is invalid, expired, or already used"},
+		{name: "BadReplyEndsAtOnce", a: badReply, b: ca, wantStop: "returned a certificate that does not match"},
+		{name: "UnavailableAnswerBeforeOtherDagu", a: answer(codes.Unavailable), b: otherDagu, wantRetry: answerA},
+		{name: "OtherDaguBeforeUnavailableAnswer", a: otherDagu, b: answer(codes.Unavailable), wantRetry: answerB},
+		{name: "InternalAnswerBeforeOtherDagu", a: answer(codes.Internal), b: otherDagu, wantRetry: answerA},
+		{name: "AnswerBeforeUnreachable", a: answer(codes.Internal), b: unreachable, wantRetry: answerA},
+		{name: "AnswerBeforeNoBuiltinTLS", a: answer(codes.Internal), b: coordinator.ErrNoBuiltinTLS, wantRetry: answerA},
+		{name: "OtherDaguBeforeUnreachable", a: unreachable, b: otherDagu, wantStop: otherDaguB},
+		{name: "OtherDaguBeforeNoBuiltinTLS", a: otherDagu, b: coordinator.ErrNoBuiltinTLS, wantStop: otherDaguA},
+		{name: "NoBuiltinTLSBeforeUnreachable", a: coordinator.ErrNoBuiltinTLS, b: unreachable, wantRetry: noTLSA},
+		{name: "OwnCertificatesBeforeUnreachable", a: coordinator.ErrOwnCertificates, b: unreachable, wantRetry: ownA},
+		{name: "LastNoBuiltinTLS", a: coordinator.ErrNoBuiltinTLS, b: coordinator.ErrNoBuiltinTLS, wantRetry: noTLSB},
+		{name: "LastUnreachable", a: unreachable, b: unreachable, wantRetry: unreachableB},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := open(t, workerConfig(t.TempDir(), ca.invite(t)), &fakeEnroll{results: map[string][]any{coordinatorA: {tc.a}, coordinatorB: {tc.b}}})
+			require.NoError(t, err)
+			resp, retry, err := m.enrollRound(t.Context(), &coordinatorv1.EnrollRequest{Csr: testCSR(t), KeepsCertificate: true})
+			switch {
+			case tc.wantStop != "":
+				require.ErrorContains(t, err, tc.wantStop)
+			case tc.wantRetry != "":
+				require.NoError(t, err)
+				assert.Nil(t, resp)
+				assert.Contains(t, retry.logLine(), tc.wantRetry)
+			default:
+				require.NoError(t, err)
+				assert.NotNil(t, resp)
+			}
+		})
+	}
+}
+
+// testCSR returns a certificate signing request for a new key.
+func testCSR(t *testing.T) []byte {
+	t.Helper()
+	_, csr, err := newWorkerKey()
+	require.NoError(t, err)
+	return csr
+}
+
+// dagu worker --check covers no invite worker yet: one with an invite, or
+// one that restarts with a kept certificate and no invite. A kept
+// certificate left unused by peer.insecure: true is no invite worker.
+func TestCheckInviteWorker(t *testing.T) {
+	ca := newTestCA(t)
+	dataDir := t.TempDir()
+	require.NoError(t, CheckInviteWorker(workerConfig(dataDir, "")))
+	require.ErrorIs(t, CheckInviteWorker(workerConfig(dataDir, ca.invite(t))), ErrCheckInviteWorker)
+
+	join(t, workerConfig(dataDir, ca.invite(t)), enrolling(ca))
+	require.ErrorIs(t, CheckInviteWorker(workerConfig(dataDir, "")), ErrCheckInviteWorker)
+	insecure := workerConfig(dataDir, "")
+	insecure.Core.Peer.InsecureUnset = false
+	require.NoError(t, CheckInviteWorker(insecure))
+}
+
+// A malformed invite stops the worker before it dials anything.
+func TestMembershipMalformedInvite(t *testing.T) {
+	ca := newTestCA(t)
+	valid := ca.invite(t)
+	// The pin has its length but is no base64url digest.
+	malformed := "dagu1." + strings.Repeat("!", 43) + valid[strings.LastIndex(valid, "."):]
+	fake := enrolling(ca)
+	_, err := open(t, workerConfig(t.TempDir(), malformed), fake)
+	require.EqualError(t, err, errInviteRefused.Error())
+	assert.Zero(t, fake.calls())
+}
+
+// A failure to restrict the credential directory names no path inside the
+// data directory in what the worker prints.
+func TestReasonHidesPaths(t *testing.T) {
+	for _, err := range []error{
+		&fs.PathError{Op: "restrict to owner", Path: "/data/worker", Err: errors.New("access is denied")},
+		fmt.Errorf("keep it: %w", &os.LinkError{Op: "rename", Old: "/data/worker/a", New: "/data/worker/b", Err: errors.New("access is denied")}),
+	} {
+		assert.Equal(t, "access is denied", reason(err))
 	}
 }
 

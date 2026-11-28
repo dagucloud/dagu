@@ -600,6 +600,12 @@ worker                                          coordinator
   coordinator as unavailable.
 - A coordinator's refusal of `Enroll` decides over a handshake that an
   earlier connection attempt to the same address failed.
+- Own certificates are no coordinator certificate even when the invite's CA
+  signed them, so the worker counts such a coordinator as unavailable,
+  whether it enrolls or holds a worker certificate.
+- Another Dagu at one address ends enrollment only when no coordinator of
+  the invite's CA answered in the same round. An answer, also one that
+  asks to try again, keeps the worker retrying.
 - It generates an ECDSA P-256 key. The private key never leaves the host.
 - It sends `Enroll` with the invite, a certificate signing request for the
   key, its worker ID, its host name, and whether it can keep its

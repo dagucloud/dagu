@@ -14,7 +14,9 @@ import (
 	"net"
 	"strings"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
@@ -36,6 +38,10 @@ var (
 	// ErrInvalidEnrollReply is the error of a reply whose certificate does
 	// not match the request or the invite's CA.
 	ErrInvalidEnrollReply = errors.New("the coordinator's enrollment reply does not match the request")
+	// ErrCoordinatorAnswered marks the error of a request that reached a
+	// coordinator of the invite's CA, such as one that asks to try again.
+	// It wraps the coordinator's status.
+	ErrCoordinatorAnswered = errors.New("the coordinator answered")
 )
 
 // errNotBuiltinCertificate fails a handshake whose server certificate is
@@ -104,8 +110,14 @@ func Enroll(ctx context.Context, config *Config, address string, req *coordinato
 	req.Invite = config.invite.canonical()
 	callCtx, cancel := context.WithTimeout(ctx, config.DialTimeout)
 	defer cancel()
-	resp, err := c.client.Enroll(callCtx, req)
+	var reached peer.Peer
+	resp, err := c.client.Enroll(callCtx, req, grpc.Peer(&reached))
 	if err != nil {
+		// A call with a transport passed the pin check, so its status came
+		// from, or after reaching, a coordinator of this Dagu.
+		if reached.AuthInfo != nil {
+			return nil, fmt.Errorf("%w: %w", ErrCoordinatorAnswered, err)
+		}
 		return nil, enrollError(err, c.link.lastHandshakeError())
 	}
 	if err := checkEnrollReply(resp, req.Csr, *config.invite); err != nil {
@@ -149,6 +161,11 @@ func verifyPinnedChain(certs []*x509.Certificate, pin string) error {
 	leaf := certs[0]
 	for _, ca := range certs[1:] {
 		if caPin(ca) == pin {
+			// Own certificates from the same CA are no coordinator of
+			// built-in TLS.
+			if !isCoordinatorCertificate(leaf) {
+				return errNotBuiltinCertificate
+			}
 			_, err := leaf.Verify(x509.VerifyOptions{
 				Roots:     certPool(ca),
 				DNSName:   coordinatorCertName,
