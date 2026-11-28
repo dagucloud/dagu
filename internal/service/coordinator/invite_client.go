@@ -43,9 +43,13 @@ type InviteClient interface {
 	// CreateInvite creates an invite on one coordinator in the registry.
 	// Only its response holds the invite.
 	CreateInvite(ctx context.Context, req *coordinatorv1.CreateInviteRequest) (*coordinatorv1.CreateInviteResponse, error)
-	// ListInvites lists the invites, oldest first, without their secrets.
+	// ListInvites lists the invites, oldest first, without their secrets,
+	// as the first coordinator that answers reads them. The coordinators
+	// share the records, so that is the whole list.
 	ListInvites(ctx context.Context) ([]*coordinatorv1.InviteRecord, error)
-	// DeleteInvite deletes the invite with the ID id.
+	// DeleteInvite deletes the invite with the ID id. A coordinator that
+	// may have deleted it before its answer was lost counts as the answer,
+	// so NotFound from the next one is success. A first NotFound stays.
 	DeleteInvite(ctx context.Context, id string) error
 }
 
@@ -80,8 +84,16 @@ func (cli *clientImpl) ListInvites(ctx context.Context) ([]*coordinatorv1.Invite
 }
 
 func (cli *clientImpl) DeleteInvite(ctx context.Context, id string) error {
+	var mayHaveDeleted bool
 	return cli.callInviteCoordinator(ctx, true, func(ctx context.Context, client coordinatorv1.CoordinatorServiceClient, opts ...grpc.CallOption) error {
-		_, err := client.DeleteInvite(ctx, &coordinatorv1.DeleteInviteRequest{Id: id}, opts...)
+		var p peer.Peer
+		_, err := client.DeleteInvite(ctx, &coordinatorv1.DeleteInviteRequest{Id: id}, append(opts, grpc.Peer(&p))...)
+		switch code := status.Code(err); {
+		case code == codes.NotFound && mayHaveDeleted:
+			return nil
+		case p.Addr != nil && (code == codes.Unavailable || code == codes.DeadlineExceeded):
+			mayHaveDeleted = true
+		}
 		return err
 	})
 }
