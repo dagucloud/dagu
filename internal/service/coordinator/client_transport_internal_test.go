@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
@@ -240,6 +241,44 @@ func TestClientTransportRequireTLS(t *testing.T) {
 	})
 }
 
+// A client sends why it uses h2c on each call over h2c, from the same
+// choice that picked h2c, and nothing over TLS (Spec 108 §h2c Reasons).
+func TestClientTransportH2CReason(t *testing.T) {
+	ca := newTestCA(t)
+	builtin := serveTestCoordinator(t, builtinCredentials(t, ca))
+	plain := serveTestCoordinator(t, insecure.NewCredentials())
+
+	for _, tc := range []struct {
+		name      string
+		coord     *testCoordinator
+		insecure  bool
+		published bool
+		tls       string
+		want      string
+	}{
+		{name: "InsecureTrue", coord: builtin, insecure: true, published: true, tls: serviceregistry.TLSBuiltin, want: h2cReasonInsecure},
+		{name: "NoTLSSource", coord: builtin, tls: serviceregistry.TLSBuiltin, want: h2cReasonNoTLS},
+		{name: "EntryWithoutBuiltin", coord: builtin, published: true, want: h2cReasonNoTLS},
+		{name: "Fallback", coord: plain, published: true, tls: serviceregistry.TLSBuiltin, want: h2cReasonNetworkPath},
+		{name: "BuiltinTLS", coord: builtin, published: true, tls: serviceregistry.TLSBuiltin},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := *DefaultConfig()
+			if !tc.insecure {
+				config = unset(config)
+			}
+			if tc.published {
+				config.PublishedCAFile = publishedCA(t, ca)
+			}
+			member := tc.coord.member(tc.tls)
+			cli := newTestClient(t, &config, member)
+
+			healthCheck(t, cli, member)
+			assert.Equal(t, tc.want, tc.coord.lastReason.Load())
+		})
+	}
+}
+
 // testCoordinator serves the health service and an unimplemented coordinator
 // service, and records how clients reach it.
 type testCoordinator struct {
@@ -250,6 +289,8 @@ type testCoordinator struct {
 	h2cCalls atomic.Int32
 	// tlsHellos counts the connections that started with a TLS record.
 	tlsHellos atomic.Int32
+	// lastReason is the h2c reason the last call carried.
+	lastReason atomic.Value
 }
 
 func serveTestCoordinator(t *testing.T, creds credentials.TransportCredentials, opts ...grpc.ServerOption) *testCoordinator {
@@ -261,6 +302,8 @@ func serveTestCoordinator(t *testing.T, creds credentials.TransportCredentials, 
 		p, _ := peer.FromContext(ctx)
 		_, isTLS := p.AuthInfo.(credentials.TLSInfo)
 		coord.lastTLS.Store(isTLS)
+		md, _ := metadata.FromIncomingContext(ctx)
+		coord.lastReason.Store(strings.Join(md.Get(h2cReasonMetadataKey), ","))
 		if !isTLS {
 			coord.h2cCalls.Add(1)
 		}

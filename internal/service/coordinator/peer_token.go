@@ -221,7 +221,7 @@ func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
 	if strings.HasPrefix(method, grpcHealthMethodPrefix) || method == coordinatorv1.CoordinatorService_Enroll_FullMethodName {
 		return nil
 	}
-	if _, ok := a.workerCertificateID(ctx); ok {
+	if workerCertificate(ctx, a.workerCA) != nil {
 		if peerTokenOnlyMethods[method] {
 			return status.Error(codes.PermissionDenied, "this call needs the peer token; a worker certificate cannot make it")
 		}
@@ -248,27 +248,26 @@ func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
 	return nil
 }
 
-// workerCertificateID returns the certificate ID of the worker certificate
-// the call carries: a client certificate that chains to the CA that
-// AcceptWorkerCertificates gave.
-func (a *PeerTokenAuth) workerCertificateID(ctx context.Context) (string, bool) {
-	if a.workerCA == nil {
-		return "", false
+// workerCertificate returns the client certificate of a call over TLS when
+// it chains to ca, or nil.
+func workerCertificate(ctx context.Context, ca *x509.Certificate) *x509.Certificate {
+	if ca == nil {
+		return nil
 	}
 	p, ok := peer.FromContext(ctx)
 	if !ok {
-		return "", false
+		return nil
 	}
 	info, ok := p.AuthInfo.(credentials.TLSInfo)
 	if !ok {
-		return "", false
+		return nil
 	}
 	for _, chain := range info.State.VerifiedChains {
-		if len(chain) > 1 && chain[len(chain)-1].Equal(a.workerCA) {
-			return chain[0].Subject.CommonName, true
+		if len(chain) > 1 && chain[len(chain)-1].Equal(ca) {
+			return chain[0]
 		}
 	}
-	return "", false
+	return nil
 }
 
 func (a *PeerTokenAuth) warn(ctx context.Context, method string, mismatched bool) {

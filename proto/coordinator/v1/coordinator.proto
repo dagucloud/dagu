@@ -17,6 +17,9 @@ service CoordinatorService {
   rpc Dispatch (DispatchRequest) returns (DispatchResponse);
   // GetWorkers returns the list of connected workers and their pollers.
   rpc GetWorkers (GetWorkersRequest) returns (GetWorkersResponse);
+  // GetH2CCallers lists the hosts, other than workers, that called the
+  // coordinator over h2c in the last 10 minutes.
+  rpc GetH2CCallers (GetH2CCallersRequest) returns (GetH2CCallersResponse);
   // Heartbeat is called by workers to report their status.
   rpc Heartbeat (HeartbeatRequest) returns (HeartbeatResponse);
   // AckTaskClaim is called by workers after accepting a claimed task.
@@ -267,6 +270,33 @@ message WorkerInfo {
   int64 last_heartbeat_at = 8; // Unix timestamp of last heartbeat
   WorkerHealthStatus health_status = 9; // Health status based on heartbeat recency
   string version = 10; // Dagu version the worker runs; empty when it reports none
+  // How the worker's last heartbeat reached the coordinator.
+  WorkerConnection connection = 11;
+  // Why a plaintext worker uses h2c: peer.insecure, no TLS source, tls
+  // failed on the network path, or older version. Empty otherwise.
+  string plaintext_reason = 12;
+}
+
+// How a worker's heartbeat reaches the coordinator.
+enum WorkerConnection {
+  WORKER_CONNECTION_UNSPECIFIED = 0;  // Not recorded, as by an older coordinator
+  WORKER_CONNECTION_CERTIFICATE = 1;  // TLS with a worker certificate
+  WORKER_CONNECTION_TLS = 2;          // TLS without a worker certificate
+  WORKER_CONNECTION_PLAINTEXT = 3;    // h2c
+}
+
+message GetH2CCallersRequest {
+}
+
+message GetH2CCallersResponse {
+  repeated H2CCaller callers = 1;
+}
+
+// A host that called the coordinator over h2c, with one reason.
+message H2CCaller {
+  string host = 1;          // Remote host, without the port
+  string reason = 2;        // As WorkerInfo.plaintext_reason
+  int64 last_call_at = 3;   // Unix timestamp in seconds of its last call
 }
 
 // Request message for heartbeat.

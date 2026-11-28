@@ -16,6 +16,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// workerConnections maps how a worker connects from the coordinator's report.
+var workerConnections = map[coordinatorv1.WorkerConnection]api.WorkerConnection{
+	coordinatorv1.WorkerConnection_WORKER_CONNECTION_CERTIFICATE: api.WorkerConnectionCertificate,
+	coordinatorv1.WorkerConnection_WORKER_CONNECTION_TLS:         api.WorkerConnectionTls,
+	coordinatorv1.WorkerConnection_WORKER_CONNECTION_PLAINTEXT:   api.WorkerConnectionPlaintext,
+}
+
 // GetWorkers implements the getWorkers operation
 func (a *API) GetWorkers(ctx context.Context, _ api.GetWorkersRequestObject) (api.GetWorkersResponseObject, error) {
 	if err := a.requireDeveloperOrAbove(ctx); err != nil {
@@ -81,6 +88,10 @@ func (a *API) GetWorkers(ctx context.Context, _ api.GetWorkersRequestObject) (ap
 		if w.Version != "" {
 			worker.Version = &w.Version
 		}
+		if connection, ok := workerConnections[w.Connection]; ok {
+			worker.Connection = &connection
+			worker.PlaintextReason = plaintextReason(w.PlaintextReason)
+		}
 		workers = append(workers, worker)
 	}
 
@@ -105,6 +116,16 @@ func transformRunningTasks(tasks []*coordinatorv1.RunningTask) []api.RunningTask
 		}
 	}
 	return result
+}
+
+// plaintextReason returns reason as the API reports it, or nil when it is
+// empty or unknown.
+func plaintextReason(reason string) *api.PlaintextReason {
+	r := api.PlaintextReason(reason)
+	if !r.Valid() {
+		return nil
+	}
+	return &r
 }
 
 // workerVersionDrift compares the Dagu version a worker reports with the

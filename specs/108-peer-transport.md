@@ -15,14 +15,17 @@ and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
 [Coordinator Line](#coordinator-line), the
 [Coordinator Certificate](#coordinator-certificate),
 [One Port](#one-port) except the revoked set,
-[Require TLS](#require-tls), the coordinator call of
+[Require TLS](#require-tls), the [h2c Reasons](#h2c-reasons), the
+`connection` and `plaintextReason` of the [Workers List](#workers-list),
+the [h2c Callers](#h2c-callers), the `Connection` column and the h2c
+callers of the [Workers Page](#workers-page), the coordinator call of
 [Join Readiness](#join-readiness), the [Invites](#invites) and their
 [Coordinator Calls](#coordinator-calls) except removal and the daily
 deletion of ended [Invite Records](#invite-records), and the
 [Coordinator Side](#coordinator-side) of enrollment with the
 [Worker Certificate](#worker-certificate) and its record, except refusing
 the key of a revoked certificate. Clients that share a coordinator's data
-directory use built-in TLS. No client enrolls or sends an h2c reason yet.
+directory use built-in TLS. No client enrolls yet.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -355,7 +358,9 @@ A coordinator logs one line at start for what it serves:
   | `tls failed on the network path` | After a fallback |
 
 - A call over h2c without the key comes from a Dagu that predates this
-  spec, and the coordinator reports it as `older version`.
+  spec, and the coordinator reports it as `older version`. It reports a
+  value outside this table as `older version` too.
+- The coordinator ignores the key on a call over TLS.
 
 ### Peer CA
 
@@ -746,6 +751,10 @@ or `stop`:
   `removing: true` while its certificate is `removing`.
 - A `plaintext` worker also has `plaintextReason`: `peer.insecure`,
   `no TLS source`, `tls failed on the network path`, or `older version`.
+- The coordinator keeps `connection` and `plaintextReason` in the worker's
+  heartbeat record, so every coordinator that shares the records lists
+  them. A record that a coordinator predating this spec wrote has neither,
+  and the worker has no `connection`.
 - A worker whose heartbeat reports an environment also has `environment`.
 - The Dagu Cloud report adds `connection` to each entry of
   `health.workers[]`, on the plans that get the worker list today, within
@@ -754,11 +763,21 @@ or `stop`:
 #### h2c Callers
 
 - A coordinator keeps, in memory, the hosts that called it over h2c in the
-  last 10 minutes, other than workers' calls, keyed by remote host (without
-  the port) and reason, with the time of the last call. It keeps at most 64
-  entries and drops the oldest first.
-- `GET /api/v1/services/coordinator` returns them for each coordinator, with
-  host, reason, and last call time.
+  last 10 minutes, other than workers' calls and health checks, keyed by
+  remote host (without the port) and reason, with the time of the last
+  call. It keeps at most 64 entries and drops the oldest first. It drops
+  expired entries when it records or lists one, with no timer.
+- A worker's call is one that only workers and their runs make: `Poll`,
+  `Heartbeat`, `AckTaskClaim`, `RunHeartbeat`, `ReportStatus`,
+  `StreamLogs`, `StreamArtifacts`, `GetWorkspaceBundle`, `GetDAG`, the
+  state calls (`GetState`, `PutState`, `DeleteState`, `ListState`), the
+  agent session cleanup calls, the `Resolve` calls, and `Enroll`. The
+  [Workers List](#workers-list) shows how workers connect.
+- The list holds the calls that `coordinator.require_tls` refuses too.
+- `GET /api/v1/services/coordinator` returns them as `h2cCallers` for each
+  active coordinator, with `host`, `reason`, and `lastCallAt`, the latest
+  call first. A coordinator that predates this spec, or that does not
+  answer within 2 seconds, has no `h2cCallers`.
 
 ### Join Readiness
 
@@ -945,18 +964,22 @@ and prints the message:
 
 #### Workers Page
 
+The Workers page is the list of workers on System status.
+
 - The `Connection` column shows `Certificate`, `TLS`, or
-  `Plaintext · <reason>`, with these reasons:
+  `Plaintext · <reason>` with the change to make below it. A list too
+  narrow for the column shows the same line under the worker ID:
 
-  | `plaintextReason` | Shown |
-  | --- | --- |
-  | `peer.insecure` | `Plaintext · peer.insecure: true in its config` |
-  | `no TLS source` | `Plaintext · no TLS source` |
-  | `tls failed on the network path` | `Plaintext · TLS failed on the network path` |
-  | `older version` | `Plaintext · older version` |
+  | `plaintextReason` | Shown | Change |
+  | --- | --- | --- |
+  | `peer.insecure` | `Plaintext · peer.insecure: true in its config` | `Remove peer.insecure: true to use TLS` |
+  | `no TLS source` | `Plaintext · no TLS source` | `Set peer.ca_cert_file to use TLS` |
+  | `tls failed on the network path` | `Plaintext · TLS failed on the network path` | `Let its network path pass TLS` |
+  | `older version` | `Plaintext · older version` | `Upgrade it to use TLS` |
 
-  `Plaintext` links to the change to make. It is a neutral line with no
-  alert.
+  `Plaintext` links to the transport security documentation. It is a
+  neutral line with no alert. A worker without `connection` shows
+  `Connection not reported`.
 - **Remove** is on `certificate` workers only. A worker on the peer token
   shows how to stop it instead.
 - With running runs, the confirmation lists them and offers
@@ -973,7 +996,10 @@ and prints the message:
   the invite first.
 - **Invites** lists invites with kind, creator, creation and expiry times,
   use count, and last use, and deletes one.
-- System status lists the [h2c callers](#h2c-callers).
+- System status lists the [h2c callers](#h2c-callers) under each
+  coordinator, with host, the line and change above, and the time of the
+  last call. It uses its existing fetch of
+  `GET /api/v1/services/coordinator`.
 
 #### MCP Action
 

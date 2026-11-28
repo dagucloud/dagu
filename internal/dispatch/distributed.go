@@ -138,7 +138,24 @@ type WorkerHeartbeatRecord struct {
 	Version string `json:"version,omitempty"`
 	// ConnectionTokens is set when the worker asks for connection tokens.
 	ConnectionTokens bool `json:"connectionTokens,omitempty"`
+	// Connection is how the heartbeat reached the coordinator; empty when
+	// a coordinator that predates it wrote the record.
+	Connection WorkerConnection `json:"connection,omitempty"`
+	// PlaintextReason is why a plaintext worker uses h2c.
+	PlaintextReason string `json:"plaintextReason,omitempty"`
 }
+
+// WorkerConnection is how a worker's heartbeat reaches the coordinator.
+type WorkerConnection string
+
+const (
+	// WorkerConnectionCertificate is TLS with a worker certificate.
+	WorkerConnectionCertificate WorkerConnection = "certificate"
+	// WorkerConnectionTLS is TLS without a worker certificate.
+	WorkerConnectionTLS WorkerConnection = "tls"
+	// WorkerConnectionPlaintext is h2c.
+	WorkerConnectionPlaintext WorkerConnection = "plaintext"
+)
 
 // MachineSample is a reading of the resources of the machine a worker runs
 // on, or of its container when the container has limits. A part whose

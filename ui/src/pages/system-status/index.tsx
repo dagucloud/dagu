@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useConfig } from '../../contexts/ConfigContext';
 import WorkersSummary from '../../features/dashboard/components/WorkersSummary';
+import H2CCallers from '../../features/system-status/components/H2CCallers';
 import PathsCard from '../../features/system-status/components/PathsCard';
 import ResourceChart from '../../features/system-status/components/ResourceChart';
 import SchedulerPauseControl from '../../features/system-status/components/SchedulerPauseControl';
@@ -241,6 +242,9 @@ function SystemStatus() {
                 port: c.port,
                 status: c.status,
                 startedAt: c.startedAt,
+                detail: c.h2cCallers?.length ? (
+                  <H2CCallers callers={c.h2cCallers} />
+                ) : undefined,
               })) || []
             }
             icon={<Server className="h-4 w-4" />}

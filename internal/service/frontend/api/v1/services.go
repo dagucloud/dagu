@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
 )
@@ -22,6 +24,10 @@ import (
 // schedulerPauseUnavailable is returned when no pause store is configured, which
 // means the deployment cannot record or observe a scheduler pause.
 const schedulerPauseUnavailable = "Scheduler pause state not configured"
+
+// h2cCallersTimeout bounds the call that reads each coordinator's h2c
+// callers, so a coordinator that does not answer does not hold the reply.
+const h2cCallersTimeout = 2 * time.Second
 
 // maxSchedulerPauseReasonLength bounds the pause reason. It is rendered in a
 // banner that every client polls, so it is checked here rather than relying on
@@ -247,10 +253,50 @@ func (a *API) GetCoordinatorStatus(ctx context.Context, _ api.GetCoordinatorStat
 			StartedAt:  member.StartedAt.Format(time.RFC3339),
 		})
 	}
+	a.addH2CCallers(ctx, members, coordinators)
 
 	return api.GetCoordinatorStatus200JSONResponse{
 		Coordinators: coordinators,
 	}, nil
+}
+
+// addH2CCallers sets the h2c callers of each active coordinator in
+// coordinators, the entries of members. It leaves them out for a coordinator
+// that cannot answer, such as one of an earlier release.
+func (a *API) addH2CCallers(ctx context.Context, members []serviceregistry.HostInfo, coordinators []api.CoordinatorInstance) {
+	client, ok := a.coordinatorCli.(coordinator.H2CCallersClient)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, h2cCallersTimeout)
+	defer cancel()
+	var wg sync.WaitGroup
+	for i, member := range members {
+		if member.Status != serviceregistry.ServiceStatusActive {
+			continue
+		}
+		wg.Go(func() {
+			callers, err := client.GetH2CCallers(ctx, member)
+			if err != nil {
+				logger.Debug(ctx, "Failed to read a coordinator's h2c callers", tag.ID(member.ID), tag.Error(err))
+				return
+			}
+			listed := make([]api.H2CCaller, 0, len(callers))
+			for _, caller := range callers {
+				reason := plaintextReason(caller.Reason)
+				if reason == nil {
+					continue
+				}
+				listed = append(listed, api.H2CCaller{
+					Host:       caller.Host,
+					Reason:     *reason,
+					LastCallAt: time.Unix(caller.LastCallAt, 0).UTC().Format(time.RFC3339),
+				})
+			}
+			coordinators[i].H2cCallers = &listed
+		})
+	}
+	wg.Wait()
 }
 
 // GetTunnelStatus returns the status of the tunnel service

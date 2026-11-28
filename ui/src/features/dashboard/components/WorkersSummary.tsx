@@ -5,6 +5,7 @@ import RelativeTime from '@/components/ui/relative-time';
 import { cn } from '../../../lib/utils';
 import WorkerHealth from '../../workers/components/WorkerHealth';
 import { countWorkersBehind } from '../../workers/components/WorkerVersion';
+import { WorkerConnection } from '../../workers/components/WorkerConnection';
 import { useRemoteNode } from '../../../contexts/RemoteNodeContext';
 import { buildRunningTaskURL } from '../../dag-runs/lib/dagRunUrls';
 import { useOpenPage } from '../../dag-runs/lib/useOpenPage';
@@ -136,7 +137,10 @@ function WorkersSummary({ workers, isLoading, errors }: WorkersSummaryProps) {
             <I18nText text={'No workers connected'} />
           </div>
         ) : (
-          <div className="divide-y">
+          // The list is a container: the Connection column shows only where
+          // the list is wide enough, and a narrower list shows the connection
+          // under the worker ID.
+          <div className="@container divide-y">
             {workers.map((worker) => {
               const isExpanded = expandedWorkers.has(worker.id);
               const hasRunningTasks =
@@ -169,8 +173,13 @@ function WorkersSummary({ workers, isLoading, errors }: WorkersSummaryProps) {
 
                     {/* Labels take at most half of this column so the ID stays visible. */}
                     <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
-                      <div className="min-w-0 font-mono text-sm truncate sm:flex-1">
-                        {worker.id}
+                      <div className="min-w-0 sm:flex-1">
+                        <div className="font-mono text-sm truncate">
+                          {worker.id}
+                        </div>
+                        <div className="@5xl:hidden">
+                          <WorkerConnection worker={worker} />
+                        </div>
                       </div>
 
                       <div className="flex min-w-0 flex-wrap gap-1 sm:max-w-[50%] sm:justify-end">
@@ -191,6 +200,10 @@ function WorkersSummary({ workers, isLoading, errors }: WorkersSummaryProps) {
                               </span>
                             ))}
                       </div>
+                    </div>
+
+                    <div className="hidden w-56 min-w-0 @5xl:block">
+                      <WorkerConnection worker={worker} />
                     </div>
 
                     <div className="w-20 flex items-center gap-1">

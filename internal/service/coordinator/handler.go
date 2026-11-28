@@ -64,6 +64,7 @@ type heartbeatInfo struct {
 	version         string
 
 	connectionTokens bool
+	connection       peerConnection
 }
 
 // defaultStaleHeartbeatThreshold is the default duration after which a worker's heartbeat is considered stale.
@@ -193,6 +194,7 @@ type Handler struct {
 	trustedHostKeys           runctx.TrustedHostKeys             // Host keys trusted for inventory nodes
 	agentSessionCleanupQueue  *agentsession.CleanupQueue         // Deferred provider cleanup owned by workers
 	workerNodes               *workerNodeRecorder                // Records workers that set an ID as nodes
+	h2cCallers                *H2CCallers                        // Hosts that called over h2c; nil lists none
 	joinReadiness             JoinReadinessConfig                // Settings reported by GetJoinReadiness
 	hostProbe                 hostProbe                          // Where this process runs, for GetJoinReadiness
 	peerCA                    *PeerCA                            // Signs worker certificates; nil without built-in TLS
@@ -304,6 +306,10 @@ type HandlerConfig struct {
 	// JoinReadiness holds the settings that GetJoinReadiness reports.
 	JoinReadiness JoinReadinessConfig
 
+	// H2CCallers is what GetH2CCallers lists. Optional - when nil, it lists
+	// none.
+	H2CCallers *H2CCallers
+
 	// PeerCA signs the certificates Enroll issues. Without it, the invite
 	// calls and Enroll fail with FailedPrecondition, and WorkerInviteStore
 	// and WorkerCertificateStore are unused.
@@ -387,6 +393,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		trustedHostKeys:           cfg.TrustedHostKeys,
 		agentSessionCleanupQueue:  cfg.AgentSessionCleanupQueue,
 		workerNodes:               newWorkerNodeRecorder(cfg.WorkerNodeStore),
+		h2cCallers:                cfg.H2CCallers,
 		joinReadiness:             cfg.JoinReadiness,
 		hostProbe:                 systemHostProbe(),
 		peerCA:                    cfg.PeerCA,
@@ -1649,6 +1656,8 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 				LastHeartbeatAt: hb.lastHeartbeatAt.Unix(),
 				HealthStatus:    calculateHealthStatus(now.Sub(hb.lastHeartbeatAt)),
 				Version:         hb.version,
+				Connection:      convert.WorkerConnectionToProto(hb.connection.kind),
+				PlaintextReason: hb.connection.plaintextReason,
 			}
 			if hb.stats != nil {
 				workerInfo.TotalPollers = hb.stats.TotalPollers
@@ -1675,6 +1684,8 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 			LastHeartbeatAt: hb.LastHeartbeatTime().Unix(),
 			HealthStatus:    calculateHealthStatus(now.Sub(hb.LastHeartbeatTime())),
 			Version:         hb.Version,
+			Connection:      convert.WorkerConnectionToProto(hb.Connection),
+			PlaintextReason: hb.PlaintextReason,
 		}
 
 		if hb.Stats != nil {
@@ -1687,6 +1698,15 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 	}
 
 	return &coordinatorv1.GetWorkersResponse{Workers: workers}, nil
+}
+
+// GetH2CCallers lists the hosts, other than workers, that called the
+// coordinator over h2c in the last 10 minutes.
+func (h *Handler) GetH2CCallers(_ context.Context, _ *coordinatorv1.GetH2CCallersRequest) (*coordinatorv1.GetH2CCallersResponse, error) {
+	if h.h2cCallers == nil {
+		return &coordinatorv1.GetH2CCallersResponse{}, nil
+	}
+	return &coordinatorv1.GetH2CCallersResponse{Callers: h.h2cCallers.list()}, nil
 }
 
 // calculateHealthStatus determines worker health based on time since last heartbeat.
@@ -1712,6 +1732,7 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 		return nil, status.Error(codes.InvalidArgument, "worker_id is required")
 	}
 	receivedAt := time.Now().UTC()
+	connection := callerConnection(ctx, h.peerCA)
 	h.mu.Lock()
 	h.heartbeats[req.WorkerId] = &heartbeatInfo{
 		workerID:        req.WorkerId,
@@ -1721,6 +1742,7 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 		version:         req.Version,
 
 		connectionTokens: req.ConnectionTokens,
+		connection:       connection,
 	}
 	h.mu.Unlock()
 
@@ -1735,6 +1757,8 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 			Version:         req.Version,
 
 			ConnectionTokens: req.ConnectionTokens,
+			Connection:       connection.kind,
+			PlaintextReason:  connection.plaintextReason,
 		}); err != nil {
 			return nil, status.Error(codes.Internal, "failed to persist worker heartbeat: "+err.Error())
 		}

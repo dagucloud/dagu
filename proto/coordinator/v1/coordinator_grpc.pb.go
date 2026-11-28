@@ -25,6 +25,7 @@ const (
 	CoordinatorService_Poll_FullMethodName                        = "/coordinator.v1.CoordinatorService/Poll"
 	CoordinatorService_Dispatch_FullMethodName                    = "/coordinator.v1.CoordinatorService/Dispatch"
 	CoordinatorService_GetWorkers_FullMethodName                  = "/coordinator.v1.CoordinatorService/GetWorkers"
+	CoordinatorService_GetH2CCallers_FullMethodName               = "/coordinator.v1.CoordinatorService/GetH2CCallers"
 	CoordinatorService_Heartbeat_FullMethodName                   = "/coordinator.v1.CoordinatorService/Heartbeat"
 	CoordinatorService_AckTaskClaim_FullMethodName                = "/coordinator.v1.CoordinatorService/AckTaskClaim"
 	CoordinatorService_ClaimAgentSessionCleanup_FullMethodName    = "/coordinator.v1.CoordinatorService/ClaimAgentSessionCleanup"
@@ -66,6 +67,9 @@ type CoordinatorServiceClient interface {
 	Dispatch(ctx context.Context, in *DispatchRequest, opts ...grpc.CallOption) (*DispatchResponse, error)
 	// GetWorkers returns the list of connected workers and their pollers.
 	GetWorkers(ctx context.Context, in *GetWorkersRequest, opts ...grpc.CallOption) (*GetWorkersResponse, error)
+	// GetH2CCallers lists the hosts, other than workers, that called the
+	// coordinator over h2c in the last 10 minutes.
+	GetH2CCallers(ctx context.Context, in *GetH2CCallersRequest, opts ...grpc.CallOption) (*GetH2CCallersResponse, error)
 	// Heartbeat is called by workers to report their status.
 	Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error)
 	// AckTaskClaim is called by workers after accepting a claimed task.
@@ -174,6 +178,16 @@ func (c *coordinatorServiceClient) GetWorkers(ctx context.Context, in *GetWorker
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetWorkersResponse)
 	err := c.cc.Invoke(ctx, CoordinatorService_GetWorkers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coordinatorServiceClient) GetH2CCallers(ctx context.Context, in *GetH2CCallersRequest, opts ...grpc.CallOption) (*GetH2CCallersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetH2CCallersResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_GetH2CCallers_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -480,6 +494,9 @@ type CoordinatorServiceServer interface {
 	Dispatch(context.Context, *DispatchRequest) (*DispatchResponse, error)
 	// GetWorkers returns the list of connected workers and their pollers.
 	GetWorkers(context.Context, *GetWorkersRequest) (*GetWorkersResponse, error)
+	// GetH2CCallers lists the hosts, other than workers, that called the
+	// coordinator over h2c in the last 10 minutes.
+	GetH2CCallers(context.Context, *GetH2CCallersRequest) (*GetH2CCallersResponse, error)
 	// Heartbeat is called by workers to report their status.
 	Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error)
 	// AckTaskClaim is called by workers after accepting a claimed task.
@@ -572,6 +589,9 @@ func (UnimplementedCoordinatorServiceServer) Dispatch(context.Context, *Dispatch
 }
 func (UnimplementedCoordinatorServiceServer) GetWorkers(context.Context, *GetWorkersRequest) (*GetWorkersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetWorkers not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) GetH2CCallers(context.Context, *GetH2CCallersRequest) (*GetH2CCallersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetH2CCallers not implemented")
 }
 func (UnimplementedCoordinatorServiceServer) Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Heartbeat not implemented")
@@ -725,6 +745,24 @@ func _CoordinatorService_GetWorkers_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(CoordinatorServiceServer).GetWorkers(ctx, req.(*GetWorkersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoordinatorService_GetH2CCallers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetH2CCallersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).GetH2CCallers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_GetH2CCallers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).GetH2CCallers(ctx, req.(*GetH2CCallersRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1193,6 +1231,10 @@ var CoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetWorkers",
 			Handler:    _CoordinatorService_GetWorkers_Handler,
+		},
+		{
+			MethodName: "GetH2CCallers",
+			Handler:    _CoordinatorService_GetH2CCallers_Handler,
 		},
 		{
 			MethodName: "Heartbeat",
