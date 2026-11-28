@@ -22,7 +22,7 @@ import (
 )
 
 func CmdWorker() *cobra.Command {
-	return NewCommand(
+	command := NewCommand(
 		&cobra.Command{
 			Use:   "worker [flags]",
 			Short: "Start a worker that polls the coordinator for tasks",
@@ -87,6 +87,8 @@ before the canceled runs report their final status.
 `,
 		}, workerFlags, runWorker,
 	)
+	command.AddCommand(workerInviteCommand())
+	return command
 }
 
 var workerFlags = []commandLineFlag{
