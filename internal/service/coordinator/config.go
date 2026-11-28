@@ -52,7 +52,7 @@ type Config struct {
 	workerCert *tls.Certificate
 	workerCA   *x509.Certificate
 	// onRemoved, when set, is called each time a coordinator refuses
-	// workerCert as revoked, whatever the call.
+	// workerCert as revoked, whatever the call. NewWorkerClient sets it.
 	onRemoved func()
 
 	// Peer token sent on every call: Token when set, otherwise the content of
@@ -120,13 +120,11 @@ func (c *Config) WithInvite(invite Invite) *Config {
 // cert, its worker certificate and key: its connections use built-in TLS,
 // present cert in place of the peer token, verify coordinators against ca,
 // the CA certificate that enrollment returned, and never fall back to h2c.
-// The client calls onRemoved, unless nil, each time a coordinator refuses
-// cert as revoked, on any call.
-func (c *Config) WithWorkerCertificate(cert tls.Certificate, ca *x509.Certificate, onRemoved func()) *Config {
+func (c *Config) WithWorkerCertificate(cert tls.Certificate, ca *x509.Certificate) *Config {
 	clone := *c
 	clone.invite = nil
 	clone.workerCert, clone.workerCA = &cert, ca
-	clone.onRemoved = onRemoved
+	clone.onRemoved = nil
 	return &clone
 }
 

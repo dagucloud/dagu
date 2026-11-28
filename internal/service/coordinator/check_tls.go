@@ -54,7 +54,7 @@ func checkHandshake(ctx context.Context, config *Config, plan connectionPlan, co
 	if verifyErr, ok := errors.AsType[*tls.CertificateVerificationError](err); ok {
 		problem := verificationProblem(verifyErr, tlsConfig.RootCAs, verifyHost)
 		if plan.cert != nil && foreignCoordinatorFormat(err) == otherDaguFormat {
-			problem = ErrOtherDagu
+			problem = ErrInviteCAMismatch
 		}
 		return &TLSHandshake{
 			Err:         problem,

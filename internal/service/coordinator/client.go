@@ -486,7 +486,7 @@ func (cli *clientImpl) Poll(ctx context.Context, policy backoff.RetryPolicy, req
 
 			return nil
 		})
-		if IsWorkerRemoved(err) {
+		if isWorkerRemoved(err) {
 			removed = err
 			return nil
 		}
@@ -576,7 +576,7 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []serviceregistr
 			// Permanent errors (e.g. selector mismatch) should not try other coordinators.
 			// A revoked certificate is refused by each coordinator once it
 			// rereads the revoked set, so one refusal decides.
-			if errors.Is(err, backoff.ErrPermanent) || IsWorkerRemoved(err) {
+			if errors.Is(err, backoff.ErrPermanent) || isWorkerRemoved(err) {
 				return err
 			}
 			lastErr = err
@@ -1379,7 +1379,7 @@ func (cli *clientImpl) Heartbeat(ctx context.Context, req *coordinatorv1.Heartbe
 		if lastErr == nil {
 			return resp, nil
 		}
-		if IsWorkerRemoved(lastErr) {
+		if isWorkerRemoved(lastErr) {
 			return nil, lastErr
 		}
 	}

@@ -387,7 +387,7 @@ func (t *clientTransport) awaitReady(ctx context.Context, cc *grpc.ClientConn) {
 // succeeds. A refusal of a connection that an h2c window put on h2c ends the
 // window, and the client opens a new connection.
 func (t *clientTransport) report(ctx context.Context, link *connLink, method string, err error, p *peer.Peer) {
-	if t.config.onRemoved != nil && IsWorkerRemoved(err) {
+	if t.config.onRemoved != nil && isWorkerRemoved(err) {
 		t.config.onRemoved()
 	}
 	refusal := isRequireTLSRefusal(err)
@@ -663,7 +663,7 @@ func (l *connLink) streamInterceptor(ctx context.Context, desc *grpc.StreamDesc,
 		return nil, refusalError(err, &p)
 	}
 	s := &reportingStream{ClientStream: stream, link: l, ctx: ctx, method: method, serverStreams: desc.ServerStreams, peer: &p}
-	s.stop = context.AfterFunc(ctx, func() { s.finish(nil, false) })
+	s.stop = context.AfterFunc(ctx, s.release)
 	return s, nil
 }
 
@@ -678,7 +678,11 @@ type reportingStream struct {
 	// peer is the peer of the stream, which gRPC records when it ends.
 	peer *peer.Peer
 	stop func() bool
-	once sync.Once
+	// released ends the stream on its link once, when it ends or its
+	// context does; reported reports its final status once, whenever it is
+	// read, also after the context ended.
+	released sync.Once
+	reported sync.Once
 	// ended holds the response, if any, and the status that RecvMsg read
 	// after a send failed, for the caller's next RecvMsg.
 	ended    bool
@@ -723,18 +727,20 @@ func (s *reportingStream) RecvMsg(m any) error {
 		if errors.Is(err, io.EOF) {
 			final = nil
 		}
-		s.finish(final, true)
+		s.finish(final)
 	}
 	return refusalError(err, s.peer)
 }
 
-func (s *reportingStream) finish(err error, report bool) {
-	s.once.Do(func() {
-		s.link.end()
-		if report {
-			s.link.transport.report(s.ctx, s.link, s.method, err, s.peer)
-		}
+func (s *reportingStream) finish(err error) {
+	s.release()
+	s.reported.Do(func() {
+		s.link.transport.report(s.ctx, s.link, s.method, err, s.peer)
 	})
+}
+
+func (s *reportingStream) release() {
+	s.released.Do(s.link.end)
 }
 
 // connectionCredentials pick built-in TLS or h2c for each new connection of
