@@ -289,7 +289,6 @@ func TestConnectionConfirmationRequired(t *testing.T) {
 	assert.Equal(t, kindConfirmationRequired, errKind(t, err))
 	msg := decode(t, out)["error"].(map[string]any)["message"]
 	assert.Contains(t, msg, "Send the draft to ops@example.com?")
-	assert.Contains(t, msg, "Try it")
 	assert.Contains(t, msg, "Workspace admin")
-	assert.Contains(t, msg, "http.request")
+	assert.Contains(t, msg, "provider: connection")
 }

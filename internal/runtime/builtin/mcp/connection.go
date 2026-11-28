@@ -30,8 +30,8 @@ const (
 
 // confirmationWays names how a person lets an action through that the
 // server asks to confirm (Spec 107 §Confirmation Requests).
-const confirmationWays = "To let the action through, approve it once in Try it and save the approval where the provider's form offers that, " +
-	"ask the Workspace admin to change the confirmation rules, or call the API with http.request and a standard connection"
+const confirmationWays = "To let the action through, ask the Workspace admin to change the confirmation rules, " +
+	"or call the provider's API with http.request and a token from a secret with provider: connection"
 
 // stepConnection returns the connection that an mcp.call step names, or "".
 func stepConnection(step ir.Step) string {

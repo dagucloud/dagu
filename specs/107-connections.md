@@ -29,7 +29,10 @@ Implemented so far:
 - [Using a Connection](#using-a-connection),
   [Confirmation Requests](#confirmation-requests), and [Masking](#masking)
   for `mcp.call`, in a local run and on a worker. Its
-  [Run Records](#run-records) are not written yet.
+  [Run Records](#run-records) are not written yet. Until Try it and
+  `http.request` with `connection` land, the `confirmation_required` error
+  names only the Workspace admin's confirmation rules and `http.request`
+  with a token from a `provider: connection` secret.
 - The [Connect Flow](#connect-flow) for `google` inside the server: the
   authorization request, the server callback, confirmation, the
   [checks after consent](#checks-after-consent), and the

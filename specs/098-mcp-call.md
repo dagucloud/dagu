@@ -168,7 +168,7 @@ stdout still carries the kind. Kinds:
 | `protocol` | A JSON-RPC error, a lost session, an invalid response, or an HTTP 3xx redirect. Redirects are not followed; configure the final URL. |
 | `transport` | A network failure, such as a refused connection or a connection lost mid-response, or HTTP 500, 502, 503, or 504. |
 | `rate_limited` | The server answered HTTP 429. The message carries the provider's message and any `Retry-After`. |
-| `confirmation_required` | Through a connection, the server asked to confirm the action. The message names the ways to let it through: approve it once in Try it and save the approval where the provider's form offers that, ask the Workspace admin to change the confirmation rules, or use `http.request` with a standard connection. |
+| `confirmation_required` | Through a connection, the server asked to confirm the action. The message names the ways to let it through: ask the Workspace admin to change the confirmation rules, or call the provider's API with `http.request` and a token from a `provider: connection` secret. |
 | `timeout` | The step or DAG timeout elapsed. |
 | `canceled` | The run was stopped. |
 

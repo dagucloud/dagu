@@ -649,7 +649,7 @@ Image, audio, and blob resource data is base64 in the output by default. With `s
 
 Put credentials in `headers`, never in the URL. Values of headers and URL query parameters whose name contains `auth`, `key`, `token`, `secret`, `cookie`, or `password` are masked in the output. Redirects are not followed.
 
-A connection (an OAuth sign-in such as a Google Workspace account, set up by an admin or manager) takes the place of `url` and the `Authorization` header. `server` names the connection's service, such as `gmail`, whose MCP server the call uses; `url` is still allowed, but only on the connection's bound hosts over HTTPS. Both names are literals, and the run checks them before its first step. Dagu sends the token, refreshes it once when the server refuses it, and masks it in the step's logs and output. `headers` may not set `Authorization` beside `connection`.
+A connection (an OAuth sign-in such as a Google Workspace account, set up by an admin or manager through the REST API) takes the place of `url` and the `Authorization` header. `server` names the connection's service, such as `gmail`, whose MCP server the call uses; `url` is still allowed, but only on the connection's bound hosts over HTTPS. Both names are literals, and the run checks them before its first step. Dagu sends the token, refreshes it once when the server refuses it, and masks it in the step's logs and output. `headers` may not set `Authorization` beside `connection`.
 
 ```yaml
 labels:
@@ -664,7 +664,7 @@ steps:
       arguments: { query: "is:unread newer_than:1d" }
 ```
 
-Through a connection, an `auth` error carries `connection`, and `detail: reconnect_required` when the connection needs reconnecting or `detail: insufficient_scope` with the missing `scope`. A server that asks to confirm the action fails the call with `confirmation_required`; approve it once in Try it, ask the Workspace admin to change the confirmation rules, or use `http.request` with a standard connection.
+Through a connection, an `auth` error carries `connection`, and `detail: reconnect_required` when the connection needs reconnecting or `detail: insufficient_scope` with the missing `scope`. A server that asks to confirm the action fails the call with `confirmation_required`; ask the Workspace admin to change the confirmation rules, or call the provider's API with `http.request` and a token from a `provider: connection` secret.
 
 `with` fields: `url`, `tool`, `connection`, `server`, `arguments` (object, or a `${...}` reference to a JSON object), `headers`, `include_raw`, `save_binary`.
 

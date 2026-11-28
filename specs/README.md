@@ -90,17 +90,17 @@ It must not be treated as product behavior until implementation catches up.
 | [089: Node Targeting](089-node-targeting.md) | Partially implemented |
 | [092: Agent Workers](092-agent-workers.md) | Not implemented |
 | [096: Skills](096-skills.md) | Partially implemented |
-| [097: Derived Dates](097-derived-dates.md) | Partially implemented |
+| [097: Derived Dates](097-derived-dates.md) | Implemented |
 | [098: MCP Call Action](098-mcp-call.md) | Implemented |
 | [099: A2A Actions](099-a2a.md) | Implemented |
 | [100: Service Run History](100-service-run-history.md) | Implemented |
-| [101: Workflow Tests](101-workflow-tests.md) | Partially implemented |
+| [101: Workflow Tests](101-workflow-tests.md) | Implemented |
 | [102: Projects](102-projects.md) | Not implemented |
 | [103: Untrusted Steps and Step Secrets](103-untrusted-steps.md) | Partially implemented |
 | [104: References to Agent Output](104-agent-output.md) | Not implemented |
 | [105: Egress Proxy](105-egress-proxy.md) | Partially implemented |
 | [106: DAG Outputs](106-dag-outputs.md) | Implemented |
-| [107: Connections](107-connections.md) | Not implemented |
+| [107: Connections](107-connections.md) | Partially implemented |
 | [108: Peer Transport and Worker Invites](108-peer-transport.md) | Partially implemented |
 
 **Writing guidelines:**
