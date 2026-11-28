@@ -5,6 +5,9 @@ import { Button } from '@/components/ui/button';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useConfig } from '../../contexts/ConfigContext';
 import WorkersSummary from '../../features/dashboard/components/WorkersSummary';
+import WorkerInvites, {
+  inviteBaseline,
+} from '../../features/workers/components/WorkerInvites';
 import H2CCallers from '../../features/system-status/components/H2CCallers';
 import PathsCard from '../../features/system-status/components/PathsCard';
 import ResourceChart from '../../features/system-status/components/ResourceChart';
@@ -40,6 +43,8 @@ function SystemStatus() {
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [autoRefresh, setAutoRefresh] = React.useState(true);
   const [lastUpdateTime, setLastUpdateTime] = React.useState<Date>(new Date());
+  // Each manual refresh reads the invites list again.
+  const [refreshes, setRefreshes] = React.useState(0);
 
   React.useEffect(() => {
     appBarContext.setTitle('System Status');
@@ -103,6 +108,7 @@ function SystemStatus() {
   const {
     data: workersData,
     error: workersError,
+    isLoading: workersLoading,
     mutate: mutateWorkers,
   } = useQuery(
     '/workers',
@@ -138,6 +144,7 @@ function SystemStatus() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
+    setRefreshes((count) => count + 1);
     try {
       await Promise.all([
         mutateResource(),
@@ -278,6 +285,14 @@ function SystemStatus() {
           }
         />
       </div>
+      <WorkerInvites
+        workers={inviteBaseline({
+          workers: workersData?.workers,
+          settled: !workersLoading,
+        })}
+        live={autoRefresh}
+        refreshes={refreshes}
+      />
 
       {/* Resource Usage */}
       <h2 className="text-xl font-semibold mt-8 mb-4">

@@ -1325,8 +1325,39 @@ The Workers page is the list of workers on System status.
   back as a new pod with an empty data directory, which enrolls again
   while its reusable invite exists, so the confirmation offers to delete
   the invite first.
-- **Invites** lists invites with kind, creator, creation and expiry times,
-  use count, and last use, and deletes one.
+- **Invites** lists invites with kind, a short ID, creator, creation and
+  expiry times, use count, and last use, and deletes one. The confirmation
+  names the invite by its short ID, kind, and creation time. An invite that
+  was used up or expired shows as such for 7 days after it ended, then
+  leaves the list, also while the page's refresh is paused.
+- The list reads the invites once the page's first workers list arrived,
+  when the page opens or shows another node,
+  when its refresh resumes or is run by hand, after a delete, and once 5
+  seconds after the last of the workers that join. A join is a worker ID,
+  certificate, or invite the list did not show before, so a worker that
+  leaves and comes back is no join. The list reads nothing while the tab is
+  hidden, and does not retry a failed read on its own. A delete reads the
+  local invites again when it ends, also after a switch to another node
+  and back. Reads asked for while the tab is hidden run as one once it
+  shows, and reads asked for during a read share it, except that a read
+  started before a delete, a join, or a new baseline, as on a return to a
+  node, does not answer for after it. A list whose workers could not be
+  read takes an empty list as its baseline. An invite's state turns with
+  its expiry on the same clock. On a remote node, a 403 says the
+  credentials this server uses for that node lack admin access there. Only
+  the last read of a node shows its list or its failure.
+- On a remote node, the page lists the invites but offers no **Delete**,
+  since the server does not forward it, and says to open the Dagu UI of
+  that node to delete an invite there.
+- A refused call shows its cause and the change to make, chosen by the
+  `details.reason` of a 409 or a 503, else by the HTTP status. For
+  `coordinator_refused` and for a reason the page does not know, whose
+  cause only the server names, the server's message follows as a quoted
+  detail line, never as the cause. The page shows no other server message,
+  and none in a page notice. An answer other than a 2xx is a failure, and
+  so is a list read whose 2xx answer has no `invites` list; a delete
+  succeeds with its empty 204. A 404 of the list says the selected server
+  does not offer worker invites.
 - System status lists the [h2c callers](#h2c-callers) under each
   coordinator, with host, the line and change above, and the time of the
   last call. It uses its existing fetch of

@@ -406,6 +406,8 @@ Dagu supports managing workflows across multiple remote nodes. Every API endpoin
 
 Exception: the node inventory endpoints (`/nodes`, `/node-labels`, `/inventories`, `/inventory-imports`, `/node-connection-tests`, and `/node-host-keys`) serve only the server the browser talks to. They declare no `remoteNode`, and the Nodes page renders nothing while a remote node is selected (RFC 012 §API).
 
+Exception: deleting a worker invite (`DELETE /workers/invites/{inviteId}`) serves only the server the browser talks to and declares no `remoteNode`. On a remote node the invites list still reads with `remoteNode` but offers no Delete (Spec 108 §Workers Page).
+
 #### Pattern for `useQuery` hooks:
 ```tsx
 const remoteNode = appBarContext.selectedRemoteNode || 'local';

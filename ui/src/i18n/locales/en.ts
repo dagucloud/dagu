@@ -6,6 +6,7 @@ import { workspaceMessages } from '@/features/workflow-workspace/messages';
 import { connectionMessages } from '@/pages/connections/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
 import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
+import { workerAdminMessages } from '@/features/workers/messages';
 
 export const baseEnglish = {
   'Plan & features': 'Plan & features',
@@ -3373,6 +3374,7 @@ export const english = {
   ...backfillMessages.en,
   ...nodeTestMessages.en,
   ...workerNodeMessages.en,
+  ...workerAdminMessages.en,
   ...inventoryMessages.en,
   ...connectionMessages.en,
   ...baseEnglish,

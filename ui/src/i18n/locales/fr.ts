@@ -6,6 +6,7 @@ import { workspaceMessages } from '@/features/workflow-workspace/messages';
 import { connectionMessages } from '@/pages/connections/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
 import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
+import { workerAdminMessages } from '@/features/workers/messages';
 import type { BaseStaticMessage, StaticMessage } from './en';
 
 export const baseFrench = {
@@ -3472,6 +3473,7 @@ export const french = {
   ...backfillMessages.fr,
   ...nodeTestMessages.fr,
   ...workerNodeMessages.fr,
+  ...workerAdminMessages.fr,
   ...inventoryMessages.fr,
   ...connectionMessages.fr,
   ...baseFrench,
