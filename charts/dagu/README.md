@@ -153,7 +153,7 @@ coordinator:
     annotations: {}
 ```
 
-Before you expose the port outside the cluster, set Dagu's `coordinator.require_token: true` through `extraEnv` as `DAGU_COORDINATOR_REQUIRE_TOKEN`, so the coordinator accepts only calls that carry the peer token. The scheduler and UI read the token from the shared data volume, but worker pods do not, so they then need it set as `DAGU_PEER_TOKEN`. Store a token in your own Secret, such as the `token` file `dagu peer init` writes. `extraEnv` applies to every Dagu pod, so the coordinator uses the same token:
+With Dagu releases after 2.27.0, set Dagu's `coordinator.require_token: true` through `extraEnv` as `DAGU_COORDINATOR_REQUIRE_TOKEN` before you expose the port outside the cluster, so the coordinator accepts only calls that carry the peer token. Set the token for every pod as `DAGU_PEER_TOKEN` from your own Secret, such as one made from the `token` file `dagu peer init` writes. `extraEnv` applies to every Dagu pod, so the coordinator, scheduler, UI, and workers use the same token:
 
 ```bash
 kubectl --namespace dagu create secret generic dagu-peer-token \
@@ -179,8 +179,6 @@ peer:
   ca_cert_file: /etc/dagu/ca.crt
   insecure: false
 ```
-
-Dagu releases after 2.27.0 read these settings.
 
 ### Graceful Shutdown
 
@@ -472,7 +470,7 @@ auth:
   mode: "builtin"  # Options: "none", "basic", "builtin" (default)
   builtin:
     token:
-      secret: ""               # optional: auto-generated at {data_dir}/auth/token_secret
+      secret: ""               # optional: generated when empty
       ttl: "24h"
 ```
 

@@ -213,7 +213,7 @@ auth:
     passwordKey: password
   builtin:
     token:
-      secret: ""               # optional: auto-generated at {data_dir}/auth/token_secret
+      secret: ""               # optional: generated when empty
       ttl: "24h"
   oidc:
     enabled: false
