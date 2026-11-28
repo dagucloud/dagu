@@ -223,15 +223,21 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 		where := fmt.Sprintf("the command of step %q", step.Name)
 		for _, text := range commandTexts(step) {
 			if ref, variable, ok := modelRef(text, stepInputs, fills); ok {
-				return modelInputError(dag, where, ref, variable, !fills)
+				// No shell variable holds a foreach item by itself.
+				return modelInputError(dag, where, ref, variable, !fills && variable != foreachVariable)
 			}
 		}
 		if err := checkConditions(dag, fmt.Sprintf("a precondition of step %q", step.Name), step.Preconditions, stepInputs); err != nil {
 			return err
 		}
 		if step.Foreach != nil {
+			bodyInputs := stepInputs
+			if valueReadsInput(step.Foreach.ItemsExpr, stepInputs) || valueReadsInput(step.Foreach.Items, stepInputs) {
+				// Each item then holds text that the model sets.
+				bodyInputs = withInput(stepInputs, foreachVariable)
+			}
 			for i := range step.Foreach.Steps {
-				queue = append(queue, pending{&step.Foreach.Steps[i], stepInputs})
+				queue = append(queue, pending{&step.Foreach.Steps[i], bodyInputs})
 			}
 		}
 	}
@@ -276,16 +282,49 @@ func withEnvCopies(inputs map[string]bool, env []string) map[string]bool {
 			continue
 		}
 		if !copied {
-			next := make(map[string]bool, len(inputs)+1)
-			for k := range inputs {
-				next[k] = true
-			}
-			inputs = next
+			inputs = withInput(inputs, name)
 			copied = true
+			continue
 		}
 		inputs[name] = true
 	}
 	return inputs
+}
+
+// withInput returns a copy of inputs that also holds name.
+func withInput(inputs map[string]bool, name string) map[string]bool {
+	next := make(map[string]bool, len(inputs)+1)
+	for k := range inputs {
+		next[k] = true
+	}
+	next[name] = true
+	return next
+}
+
+// foreachVariable holds the current item of a foreach in its body steps.
+const foreachVariable = "foreach"
+
+// valueReadsInput reports whether a string in v, a value of foreach items,
+// reads an input.
+func valueReadsInput(v any, inputs map[string]bool) bool {
+	switch v := v.(type) {
+	case string:
+		_, _, found := modelRef(v, inputs, true)
+		return found
+	case []any:
+		for _, item := range v {
+			if valueReadsInput(item, inputs) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, item := range v {
+			if valueReadsInput(item, inputs) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // fillsShellVariables reports whether Dagu fills $NAME into the command of a
