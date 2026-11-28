@@ -24,6 +24,7 @@ import {
   addressProblem,
   goTrimSpace,
   coordinatorEnvironment,
+  inKubernetes,
   initialAddress,
   suggestedAddresses,
   type AddressProblem,
@@ -86,6 +87,7 @@ export function AddWorkerDialog({
   const latest = React.useRef(0);
   const hostField = React.useRef<HTMLTextAreaElement>(null);
   const checkButton = React.useRef<HTMLButtonElement>(null);
+  const placementField = React.useRef<HTMLInputElement>(null);
 
   const load = React.useCallback(async () => {
     const id = ++latest.current;
@@ -154,15 +156,16 @@ export function AddWorkerDialog({
   React.useEffect(() => {
     if (lastFocus.current && !lastFocus.current.isConnected) {
       lastFocus.current = null;
-      (hostField.current ?? checkButton.current)?.focus();
+      (
+        hostField.current ??
+        placementField.current ??
+        checkButton.current
+      )?.focus();
     }
   });
 
   const problem = address !== undefined ? addressProblem(address) : undefined;
-  const placed =
-    !data ||
-    coordinatorEnvironment(data) !== HostEnvironment.kubernetes ||
-    placement;
+  const placed = !data || !inKubernetes(data) || placement;
   const validAddress =
     ready && placed && address && !problem ? goTrimSpace(address) : undefined;
 
@@ -229,6 +232,7 @@ export function AddWorkerDialog({
               data={data}
               address={address}
               hostField={hostField}
+              placementField={placementField}
               placement={placement}
               onPlace={(next) => {
                 outside.current = next === Placement.outside;
@@ -259,6 +263,7 @@ function AddressFields({
   data,
   address,
   hostField,
+  placementField,
   placement,
   onPlace,
   problem,
@@ -267,6 +272,7 @@ function AddressFields({
   data: JoinReadiness;
   address: string;
   hostField: React.Ref<HTMLTextAreaElement>;
+  placementField: React.Ref<HTMLInputElement>;
   placement?: Placement;
   onPlace: (placement: Placement) => void;
   problem?: AddressProblem;
@@ -284,7 +290,7 @@ function AddressFields({
       "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.";
   }
   const errorId = `${id}-error`;
-  const kubernetes = environment === HostEnvironment.kubernetes;
+  const kubernetes = inKubernetes(data);
   return (
     <div className="space-y-2">
       {kubernetes && (
@@ -292,9 +298,10 @@ function AddressFields({
           <legend className="mb-1.5 text-sm">
             <I18nText text="Where the workers run" />
           </legend>
-          {PLACEMENTS.map(([value, text]) => (
+          {PLACEMENTS.map(([value, text], i) => (
             <label key={value} className="flex items-center gap-2 text-sm">
               <input
+                ref={i === 0 ? placementField : undefined}
                 type="radio"
                 name={`${id}-placement`}
                 checked={placement === value}

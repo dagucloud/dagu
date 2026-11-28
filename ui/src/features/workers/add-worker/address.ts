@@ -69,6 +69,13 @@ export function coordinatorEnvironment(
   return readiness.coordinators.find((c) => c.report)?.report?.environment;
 }
 
+/** Whether any coordinator that reported runs in Kubernetes. */
+export function inKubernetes(readiness: JoinReadiness): boolean {
+  return readiness.coordinators.some(
+    ({ report }) => report?.environment === HostEnvironment.kubernetes
+  );
+}
+
 /**
  * The addresses step 2 suggests: each interface address a coordinator on a
  * host reports, with that coordinator's port. A container or a pod reports

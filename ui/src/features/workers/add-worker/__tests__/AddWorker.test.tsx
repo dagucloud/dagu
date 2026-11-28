@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BuiltinTLSReason,
@@ -117,7 +118,10 @@ const writeText = vi.fn();
 beforeEach(() => {
   api.GET.mockReset();
   writeText.mockReset().mockResolvedValue(undefined);
-  Object.assign(navigator, { clipboard: { writeText } });
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText },
+    configurable: true,
+  });
 });
 
 describe('AddWorker', () => {
@@ -293,39 +297,72 @@ describe('AddWorker', () => {
 
   // A pod's advertised address is often a Service name only the cluster
   // resolves, so step 3 waits until the admin says where workers run.
-  it('asks where Kubernetes workers run before step 3', async () => {
-    await open(
-      readiness({
-        environment: HostEnvironment.kubernetes,
-        advertise: 'dagu-coordinator',
-        addresses: [],
-      })
-    );
-    const radios = screen.getAllByRole('radio');
-    expect(radios.map((r) => (r as HTMLInputElement).checked)).toEqual([
-      false,
-      false,
-    ]);
+  const pod = report({
+    environment: HostEnvironment.kubernetes,
+    advertise: 'dagu-coordinator',
+    addresses: [],
+  });
+  const host = report({ port: 50155, addresses: ['192.168.1.20'] });
+  it.each([
+    ['a pod', [pod]],
+    ['a host, then a pod', [host, pod]],
+    ['a pod, then a host', [pod, host]],
+  ])('asks where workers run before step 3 for %s', async (_, reports) => {
+    const user = userEvent.setup();
+    await open({
+      coordinators: reports.map((r, i) => ({
+        instanceId: `c${i}`,
+        host: `node-${i}`,
+        port: r.port,
+        report: r,
+      })),
+    });
+    const radio = (name: string) => screen.getByRole('radio', { name });
+    expect(radio('Inside this cluster')).not.toBeChecked();
+    expect(radio('Outside the cluster')).not.toBeChecked();
     expect(screen.queryByLabelText(ADDRESS)).toBeNull();
     const worker = () =>
       step('Worker').queryByText('Shown after steps 1 and 2');
     expect(worker()).toBeInTheDocument();
 
-    const inside = screen.getByRole('radio', { name: 'Inside this cluster' });
-    inside.focus();
-    expect(document.activeElement).toBe(inside);
-    fireEvent.click(inside);
+    radio('Inside this cluster').focus();
+    await user.keyboard(' ');
+    expect(radio('Inside this cluster')).toBeChecked();
     expect(screen.getByLabelText(ADDRESS)).toHaveValue(
       'dagu-coordinator:50055'
     );
     expect(worker()).toBeNull();
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Outside the cluster' }));
+    await user.keyboard('{ArrowDown}');
+    expect(radio('Outside the cluster')).toBeChecked();
     expect(screen.getByLabelText(ADDRESS)).toHaveValue('');
     expect(screen.getByText(/assigned node port/)).toBeInTheDocument();
     expect(worker()).toBeInTheDocument();
+    for (const refused of [' ', '127.0.0.1:30055']) {
+      typeAddress(refused);
+      expect(screen.getByLabelText(ADDRESS)).toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
+      expect(worker()).toBeInTheDocument();
+    }
     typeAddress('203.0.113.7:30055');
     expect(worker()).toBeNull();
+  });
+
+  // Check again can remove its own button before the field shows; the focus
+  // goes to the placement choice, which stays unanswered.
+  it('moves the focus of Check again to the placement choice', async () => {
+    const { environment } = pod;
+    await open(loopback({ environment }));
+    const check = screen.getByRole('button', { name: 'Check again' });
+    check.focus();
+    api.GET.mockResolvedValue(answer(200, readiness({ ...pod })));
+    fireEvent.click(check);
+    await settle();
+    const inside = screen.getByRole('radio', { name: 'Inside this cluster' });
+    expect(document.activeElement).toBe(inside);
+    expect(inside).not.toBeChecked();
   });
 
   // A ready coordinator beside ones that refused or did not report keeps
