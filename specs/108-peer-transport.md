@@ -22,6 +22,7 @@ and the h2c callers of the [Workers Page](#workers-page), the coordinator
 call of
 [Join Readiness](#join-readiness), the [Invites](#invites) and their
 [Coordinator Calls](#coordinator-calls), the
+[REST API](#rest-api) for invites and join readiness, the
 [Coordinator Side](#coordinator-side) of enrollment with the
 [Worker Certificate](#worker-certificate) and its record, the coordinator
 side of [Revocation](#revocation) and [Removal](#removal), the
