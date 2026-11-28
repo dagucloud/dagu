@@ -2288,9 +2288,7 @@ func TestClientCleanup(t *testing.T) {
 	// Make a call to establish connection
 	task := &dispatch.DispatchTask{DAGRunID: "test"}
 
-	ctx := guardedContext(t)
-
-	err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
+	err := client.Dispatch(guardedContext(t), dispatch.DispatchRequest{Task: task})
 	require.NoError(t, err)
 
 	// Cleanup should close all connections
@@ -2299,7 +2297,7 @@ func TestClientCleanup(t *testing.T) {
 		"server did not see the first connection close")
 
 	// Future calls should still work (will create new connections)
-	err = client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
+	err = client.Dispatch(guardedContext(t), dispatch.DispatchRequest{Task: task})
 	require.NoError(t, err)
 }
 
