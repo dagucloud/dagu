@@ -5,6 +5,8 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"time"
@@ -104,18 +106,30 @@ func (c *remoteClient) authorization(ctx context.Context, workspace, name, sessi
 	return &out, nil
 }
 
-// completeTimeout bounds a complete request, which the server may spend up
-// to 45 seconds on with the provider, within its 60-second write deadline.
-const completeTimeout = 60 * time.Second
+const (
+	// completeTimeout bounds a complete request, which the server may spend
+	// up to 45 seconds on with the provider, within its 60-second write
+	// deadline.
+	completeTimeout = 60 * time.Second
+	// toolsTimeout bounds a tools request, which waits for the server to
+	// list a stale catalog again, for up to two minutes.
+	toolsTimeout = 2*time.Minute + 10*time.Second
+)
+
+// atLeast returns c with a client timeout of at least d, for a request
+// that the server may take longer to answer than c allows.
+func (c *remoteClient) atLeast(d time.Duration) *remoteClient {
+	slow := *c
+	if hc := *c.client; hc.Timeout != 0 && hc.Timeout < d {
+		hc.Timeout = d
+		slow.client = &hc
+	}
+	return &slow
+}
 
 func (c *remoteClient) completeAuthorization(ctx context.Context, workspace, name, redirectURL string) error {
 	body := api.CompleteConnectionAuthorizationRequest{RedirectUrl: &redirectURL}
-	slow := *c
-	if hc := *c.client; hc.Timeout < completeTimeout {
-		hc.Timeout = completeTimeout
-		slow.client = &hc
-	}
-	return slow.do(ctx, http.MethodPost, connectionPath(name, "/authorization/complete"), body, nil, workspaceQuery(workspace))
+	return c.atLeast(completeTimeout).do(ctx, http.MethodPost, connectionPath(name, "/authorization/complete"), body, nil, workspaceQuery(workspace))
 }
 
 func (c *remoteClient) confirmAuthorization(ctx context.Context, workspace, name, session string) (*api.Connection, error) {
@@ -140,11 +154,17 @@ func (c *remoteClient) testConnection(ctx context.Context, workspace, name strin
 	return out.Services, nil
 }
 
-func (c *remoteClient) connectionTools(ctx context.Context, workspace, name, server string) (*api.ConnectionToolsResponse, error) {
-	var out api.ConnectionToolsResponse
+// connectionTools returns the tools response, and its body as the server
+// sent it, whose input schemas keep their numbers exact.
+func (c *remoteClient) connectionTools(ctx context.Context, workspace, name, server string) (*api.ConnectionToolsResponse, json.RawMessage, error) {
+	var raw json.RawMessage
 	query := map[string]string{"workspace": workspace, "server": server}
-	if err := c.do(ctx, http.MethodGet, connectionPath(name, "/tools"), nil, &out, query); err != nil {
-		return nil, err
+	if err := c.atLeast(toolsTimeout).do(ctx, http.MethodGet, connectionPath(name, "/tools"), nil, &raw, query); err != nil {
+		return nil, nil, err
 	}
-	return &out, nil
+	var out api.ConnectionToolsResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, nil, fmt.Errorf("failed to decode the tools response: %w", err)
+	}
+	return &out, raw, nil
 }

@@ -280,10 +280,16 @@ func (c *connectionCLI) command(sub, name string) string {
 	if c.workspace != "" {
 		s += " --workspace " + c.workspace
 	}
-	if c.remoteContext != "" {
-		s += " --context " + c.remoteContext
+	return s + c.contextFlag()
+}
+
+// contextFlag returns the --context flag that selects this CLI's remote
+// context, or nothing for the local context.
+func (c *connectionCLI) contextFlag() string {
+	if c.remoteContext == "" {
+		return ""
 	}
-	return s
+	return " --context " + c.remoteContext
 }
 
 func (t *connectionTerm) printf(format string, args ...any) {
@@ -484,7 +490,7 @@ func (c *connectionCLI) findApp(ctx context.Context, ref string) (*api.OAuthApp,
 	}
 	switch len(named) {
 	case 0:
-		return nil, fmt.Errorf("no OAuth app has the ID or name %q; 'dagu connection apps list' lists them", ref)
+		return nil, fmt.Errorf("no OAuth app has the ID or name %q; 'dagu connection apps list%s' lists them", ref, c.contextFlag())
 	case 1:
 		return &named[0], nil
 	default:

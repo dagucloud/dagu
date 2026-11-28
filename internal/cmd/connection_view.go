@@ -4,13 +4,16 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -106,6 +109,10 @@ func (c *connectionCLI) list(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if len(conns) == 0 {
+		c.term.printf("No connections in workspace %s. Add one with 'dagu connection add google'.\n", orGlobal(c.workspace))
+		return nil
+	}
 	w := tabwriter.NewWriter(c.term.out, 0, 2, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "NAME\tPROVIDER\tACCOUNT\tSTATUS\tSERVICES")
 	for _, conn := range conns {
@@ -133,10 +140,14 @@ func (c *connectionCLI) show(ctx context.Context, name string) error {
 		return err
 	}
 	// A viewer may read a connection but not the apps, so the app's ID
-	// stands in for its name.
+	// stands in for its name. Any other failure is shown beside the ID.
 	app := conn.App
-	if a, err := c.client.oauthApp(ctx, conn.App); err == nil {
+	a, err := c.client.oauthApp(ctx, conn.App)
+	switch {
+	case err == nil:
 		app = fmt.Sprintf("%s (%s)", a.Name, a.Id)
+	case !isRemoteStatus(err, http.StatusForbidden):
+		app = fmt.Sprintf("%s (not read: %v)", conn.App, err)
 	}
 	status := string(conn.Status)
 	if reason := derefString(conn.StatusReason); reason != "" {
@@ -190,14 +201,19 @@ again. Fails when a service's tools could not be listed.`,
 // tools prints the MCP tools of the connection's services, or of server
 // alone when it is set, as a table or as JSON.
 func (c *connectionCLI) tools(ctx context.Context, name, server string, asJSON bool) error {
-	resp, err := c.client.connectionTools(ctx, c.workspace, name, server)
+	resp, raw, err := c.client.connectionTools(ctx, c.workspace, name, server)
 	if err != nil {
 		return err
 	}
 	if asJSON {
-		enc := json.NewEncoder(c.term.out)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(resp); err != nil {
+		// The body is printed as the server sent it, so that the input
+		// schemas keep their numbers exact.
+		var indented bytes.Buffer
+		if err := json.Indent(&indented, raw, "", "  "); err != nil {
+			return err
+		}
+		indented.WriteByte('\n')
+		if _, err := indented.WriteTo(c.term.out); err != nil {
 			return err
 		}
 		return toolErrors(resp)
@@ -208,7 +224,7 @@ func (c *connectionCLI) tools(ctx context.Context, name, server string, asJSON b
 			_, _ = fmt.Fprintln(out)
 		}
 		if msg := derefString(s.Error); msg != "" {
-			_, _ = fmt.Fprintf(out, "%s: %s\n", s.Server, msg)
+			_, _ = fmt.Fprintf(out, "%s: %s\n", s.Server, printable(msg))
 			continue
 		}
 		_, _ = fmt.Fprintf(out, "%s: %d tools, listed %s\n", s.Server, len(s.Tools), formatConnectionTime(s.ListedAt))
@@ -218,7 +234,7 @@ func (c *connectionCLI) tools(ctx context.Context, name, server string, asJSON b
 			if readOnly, _ := derefMap(tool.Annotations)["readOnlyHint"].(bool); readOnly {
 				access = "read-only"
 			}
-			_, _ = fmt.Fprintf(w, "  %s\t%s\t%s\n", tool.Name, access, firstLine(derefString(tool.Description)))
+			_, _ = fmt.Fprintf(w, "  %s\t%s\t%s\n", printable(tool.Name), access, printable(firstLine(derefString(tool.Description))))
 		}
 		_ = w.Flush()
 	}
@@ -270,6 +286,10 @@ func (c *connectionCLI) listApps(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if len(apps) == 0 {
+		c.term.printf("No OAuth apps are registered. An admin registers one with 'dagu connection add google --client-file FILE'.\n")
+		return nil
+	}
 	w := tabwriter.NewWriter(c.term.out, 0, 2, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "ID\tNAME\tPROVIDER\tCLIENT TYPE\tAGENT\tSTATUS\tCLIENT ID")
 	for _, app := range apps {
@@ -298,10 +318,30 @@ func printLabeled(out io.Writer, indent string, rows []labeledValue) {
 	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
 	for _, row := range rows {
 		if row.value != "" {
-			_, _ = fmt.Fprintf(w, "%s%s:\t%s\n", indent, row.label, row.value)
+			_, _ = fmt.Fprintf(w, "%s%s:\t%s\n", indent, row.label, printable(row.value))
 		}
 	}
 	_ = w.Flush()
+}
+
+// printable drops the control characters of text that a provider or an
+// MCP server wrote, so that it cannot move the cursor or recolor the
+// terminal.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// orGlobal names the workspace that an empty --workspace selects.
+func orGlobal(workspace string) string {
+	if workspace == "" {
+		return "global"
+	}
+	return workspace
 }
 
 // serviceList prints services as --services takes them.

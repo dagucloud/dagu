@@ -426,7 +426,7 @@ func (c *connectionCLI) toolCounts(ctx context.Context, name string, app *api.OA
 	if !app.Agent {
 		return nil
 	}
-	resp, err := c.client.connectionTools(ctx, c.workspace, name, "")
+	resp, _, err := c.client.connectionTools(ctx, c.workspace, name, "")
 	if err != nil {
 		return nil
 	}
