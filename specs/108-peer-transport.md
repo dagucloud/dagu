@@ -24,7 +24,7 @@ call of
 [Coordinator Calls](#coordinator-calls), the
 [Coordinator Side](#coordinator-side) of enrollment with the
 [Worker Certificate](#worker-certificate) and its record, the coordinator
-side of [Revocation](#revocation) and [Removal](#removal) except `stop`, the
+side of [Revocation](#revocation) and [Removal](#removal), the
 [Worker Side](#worker-side) of enrollment, the
 [Worker Files](#worker-files), the [Worker Start](#worker-start) except a
 certificate refused as revoked, the [Worker Lock](#worker-lock), the
@@ -848,26 +848,28 @@ or `stop`:
   reread that succeeds. Until then, the worker's calls to it for the runs
   it held keep working, and it accepts no new task there, since the
   acceptance reads the store.
-- With `stop`, the coordinator requests the cancellation of each run, also
-  a run whose acceptance was under way when the removal began: after a
-  coordinator creates a task's lease, it reads the certificate's state
-  again and sends the request when a removal with `stop` began, and the
-  acceptance stands. The request marks the attempt for cancellation; the
-  worker that holds the lease learns of it from its heartbeat and ends the
-  run. The coordinator does not end the attempt itself, so a cancellation
-  never races an acceptance of the attempt. The certificate is revoked
-  when the runs end, but not before 30 seconds in `removing`, when no
-  worker that holds it has a fresh heartbeat, or 2 minutes after the
-  removal with `stop` was stored, whichever comes first. At the 2-minute
-  mark the certificate is revoked first, whatever the cancel requests did,
-  and each removal is revoked on its own, so one that fails to revoke
-  holds up no other. Each reread sends the requests again for the runs
-  still held while the removal waits, so a run an earlier pass missed can
-  get one too. A pass that cannot list the leases sends none, and a
-  removal past its 2-minute wait is revoked then all the same, also when
-  the reread of the removals fails, while runs may still hold their
-  leases. Runs whose worker stops reporting after the revocation end
-  through the stale-lease check.
+- With `stop`, the coordinator asks each run to stop, also a run whose
+  acceptance was under way when the removal began: after a coordinator
+  creates a task's lease, it reads the certificate's state again and asks
+  when a removal with `stop` began, and the acceptance stands. The request
+  is written on the run's lease, only while the lease names the removed
+  certificate, and the worker learns of it from its heartbeat, which returns
+  the run as cancelled, and ends the run. The coordinator does not end the
+  attempt itself, so a stop never races an acceptance of the attempt. The 2
+  minutes of a stop count from a time a coordinator read after the stop
+  request was in the store, recorded once on the removal, so every
+  coordinator reaches the same deadline. The certificate is revoked when the
+  runs end, but not before 30 seconds in `removing`, when no worker that
+  holds it has a fresh heartbeat, or at that deadline, whichever comes
+  first. Each coordinator arms the deadline as soon as it has read the
+  removals, at startup too, and at the deadline only revokes, apart from the
+  rereads, the listings, the stop requests, heartbeats, and every other
+  removal; a revocation write that fails is tried again 5 seconds later for
+  that removal alone, and no other path writes the revocation of a removal
+  past its deadline. Each reread asks again for the runs still held while
+  the removal waits, so a run an earlier pass missed is asked too. A pass
+  that cannot list the leases asks none. Runs whose worker stops reporting
+  after the revocation end through the stale-lease check.
 - A stop cancels only the attempts whose lease names the removed
   certificate, whatever a heartbeat reports. A lease of another certificate
   is never canceled, and neither is a lease that names no certificate, that
