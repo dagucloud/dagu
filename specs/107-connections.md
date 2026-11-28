@@ -394,7 +394,9 @@ A worker has neither.
 - A service account or client credentials connection acts as one mailbox,
   its `subject`. A second mailbox needs a second connection on the same app.
 - OAuth apps are server-wide. A connection in any project may use any app
-  of its provider, except a `dcr` app of another connection.
+  of its provider, except a `dcr` app of another connection, and a `model`
+  app, which only Share of [Spec 093](093-model-connections.md#shared-keys)
+  attaches to a project.
 
 #### The Notification Connection
 
@@ -427,7 +429,7 @@ A worker has neither.
 | `microsoft` | `authorization_code`, `device_code`, `client_credentials` | `tenant` on the app. Refresh tokens rotate. Each access token serves one resource |
 | `oauth2` | `authorization_code`, `client_credentials` | Endpoints, scopes, and `bound_hosts` are required. PKCE is on unless the app's `pkce` turns it off |
 | `mcp` | `authorization_code`, `static` | Discovery and client registration as [Any MCP Server](#any-mcp-server) states. A fixed token or headers as [Spec 095](095-mcp-servers.md#static-credentials) states |
-| `model` | `api_key`, `authorization_code`, `device_code`, `none` | A model API, as [Spec 093](093-model-connections.md) states |
+| `model` | `api_key`, `none` | A model API, as [Spec 093](093-model-connections.md) states |
 
 ### Service Presets
 

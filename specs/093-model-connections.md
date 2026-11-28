@@ -13,14 +13,15 @@ prefix stays reserved.
 
 **Open items.** These points are not decided:
 
-- Where the gateway that adds a static key runs for a step on an agent
-  worker: in the coordinator, as [Spec 094](094-ai-gateway.md) plans, or
-  next to the worker, such as in the egress proxy of
+- Whether the gateway of a step on an agent worker moves out of the
+  coordinator, where Specs 092 and [094](094-ai-gateway.md) place it,
+  to sit next to the worker, such as in the egress proxy of
   [Spec 105](105-egress-proxy.md). See [Model Traffic](#model-traffic).
-- Sign-in for a subscription, such as a Claude or ChatGPT plan, through
-  the connect flow of Spec 107. The terms of each provider for a token
-  used through a gateway are not checked. A long-lived token that a CLI
-  prints for automation is a key, as [Credentials](#credentials) states.
+- Sign-in, such as for a Claude or ChatGPT plan. This draft has none:
+  Spec 107 defines no OAuth app for the provider `model`, and the terms
+  of each provider for a subscription token used through a gateway are
+  not checked. A long-lived token that a CLI prints for automation is a
+  key, as [Credentials](#credentials) states.
 - Whether `agent.run` and `harness.run` become one action. Both run a CLI
   agent, and this spec gives both the same keys.
 - Whether a page sums the token counts of [Runs](#runs) per connection,
@@ -116,7 +117,7 @@ A model connection has the Spec 107 metadata fields `name`, `project`,
 | `preset` | A preset ID, or `custom`. Fixed at creation |
 | `protocols` | A map from a protocol to its `base_url` and `auth`. At least one entry. A preset fills it, and a person may remove an entry. `custom` sets each entry |
 | `models_url` | `custom` only. See [Models List](#models-list) |
-| `allowed_models` | Optional. Model IDs or CLI aliases, matched exactly. Empty means every model |
+| `allowed_models` | Optional. Model IDs as the provider receives them, matched exactly. Empty means every model |
 
 - `base_url` is an `https` URL with no user information, query, or
   fragment. A local-model preset and `custom` also accept `http`, and the
@@ -124,8 +125,7 @@ A model connection has the Spec 107 metadata fields `name`, `project`,
 - `auth` is `x-api-key`, `bearer`, or `anthropic-oauth`, the forms of
   [Key injection](105-egress-proxy.md#key-injection).
   `anthropic-oauth` is valid with `anthropic-messages` only.
-- `grant` is `api_key`, `authorization_code`, `device_code`, or `none`.
-  `app` names a shared key or the OAuth app of a sign-in, and is empty
+- `grant` is `api_key` or `none`. `app` names a shared key, and is empty
   otherwise. See [Credentials](#credentials). Spec 107 lists the provider
   `model` and these grants.
 - `services`, `scopes`, `subject`, `bound_hosts`, and `resource` do not
@@ -140,7 +140,6 @@ A model connection has the Spec 107 metadata fields `name`, `project`,
 | --- | --- | --- | --- |
 | Own key | `api_key`, no `app` | In the connection's token state, encrypted | `manager` or above in the project |
 | Shared key | `api_key`, `app` names a [shared key](#shared-keys) | In the app | An admin, through Share |
-| Sign-in | `authorization_code` or `device_code`, `app` names an OAuth app | In the token state, from the connect flow of Spec 107. The broker refreshes it | `manager` or above in the project |
 | No key | `none`, no `app` | Nowhere. Valid for a local-model preset only | `manager` or above in the project |
 
 - A key is write-only. After a save, no route and no page shows it. Pages
@@ -160,8 +159,8 @@ A model connection has the Spec 107 metadata fields `name`, `project`,
 
 ### Connection Status
 
-A sign-in connection follows the Spec 107 status transitions. This spec
-adds these for the grants `api_key` and `none`:
+This spec adds these transitions to Spec 107, for the grants `api_key` and
+`none`:
 
 | From | To | When |
 | --- | --- | --- |
@@ -185,7 +184,10 @@ adds these for the grants `api_key` and `none`:
   service account key. It has no `kind`, `client_id`, `client_type`, or
   `endpoints`. Apps are server-wide, as Spec 107 states.
 - Only an admin creates, changes, rotates, shares, or deletes a shared
-  key.
+  key. A rotation works while connections use the key. Only a delete
+  needs the key unused.
+- Only Share attaches a shared key to a project. A connection request
+  that names a `model` app is refused.
 - Share picks projects, or all projects. Dagu creates, in each picked
   project, a connection of the app's name with the grant `api_key` and
   that app. With all projects, a project created later gets one too.
@@ -244,12 +246,12 @@ serves all of them with one key.
 - The local-model presets are `ollama`, `vllm`, and `litellm`. They accept
   `http` and the grant `none`. A row with no base URL needs one from
   the person.
-- The models URL follows the base URLs. When the table's URL starts with
-  the default base URL of one of the preset's protocols, Dagu puts the
-  connection's base URL of that protocol in its place. Another URL holds
-  only while the connection keeps every default base URL. After a change,
-  such a connection has no models URL, so the key never goes to a host
-  that a person did not set.
+- The models URL belongs to the protocol of its row, and a read uses that
+  protocol's base URL and auth. When the URL starts with that protocol's
+  default base URL, Dagu puts the connection's base URL in its place.
+  Another URL holds only while that base URL keeps its default. A
+  connection that changed it that way, or removed the protocol, has no
+  models URL, so the key never goes to a host that a person did not set.
 - The contributor of #3730 checked each value not marked "To verify"
   against the provider's documentation on 2026-11-04. The native Gemini
   API is not a protocol of this spec.
@@ -316,18 +318,27 @@ serves all of them with one key.
 | `model` | A model ID of the connection, or an alias that the CLI's adapter lists. May be a `${...}` reference |
 | `effort` | `low`, `medium`, `high`, `xhigh`, or `max`. `chat.completion` keeps `thinking` of Spec 059 instead |
 
-- A step uses its own `connection` and `model` when it has `connection`.
-  Otherwise it uses `llm.connection` and `llm.model` of its DAG, when
-  `llm` has `connection`. Otherwise it uses no model connection.
+A `chat.completion` step takes the first of these that applies:
+
+1. A `model` list: each entry names its own `connection` or `provider`.
+2. `connection`: that connection.
+3. `provider`: the old keys of Spec 059, with no connection.
+4. `llm.connection` of the DAG.
+5. Spec 059 as it stands.
+
+A CLI step takes the first of these that applies:
+
+1. `connection`: that connection.
+2. When [Policy](#policy) requires a connection: `llm.connection` of the
+   DAG, when its adapter accepts one of the connection's protocols.
+3. The CLI's own sign-in. `model` and `effort` keep Spec 067 behavior.
+
+- A step that takes a connection and sets no `model` takes `llm.model`
+  when `llm.connection` names the same connection. Otherwise it fails
+  validation.
 - A project's base config sets `llm` for every DAG of the project, as
   Spec 102 [Base Config](102-projects.md#base-config) states. So
   `llm.connection` in the base config is the project's default model.
-- A CLI step takes the DAG's `llm.connection` only when its adapter
-  accepts one of the connection's protocols. Otherwise it uses no model
-  connection, and the editor says why.
-- A step with `connection` and no `model` takes `llm.model` when
-  `llm.connection` names the same connection. Otherwise it fails
-  validation.
 - `chat.completion` with `connection` rejects `provider`, `base_url`, and
   `api_key_name`. The connection's protocol decides the request. For
   `agent.run` and `harness.run`, `provider` names the CLI and stays.
@@ -366,10 +377,12 @@ admission with `protocol_mismatch`.
 - With `ai.require_connections: true`, a trusted step that would use a
   CLI's own sign-in, and a `chat.completion` step on the old keys, fail
   admission with `connection_required`.
-- On a server that runs DAGs locally, a trusted agent runs as the Dagu
-  user and can read `<data_dir>`, which holds `auth/encryption_key` by
-  default. There, a connection does not hide its key from DAG authors or
-  from a trusted agent. Creating one says so, as Spec 107 states.
+- A step that runs as the Dagu user can read `<data_dir>`, which holds
+  `auth/encryption_key` by default. That is every trusted step, and an
+  untrusted step under `untrusted.isolation: off`, which Spec 092 needs
+  when the coordinator is off. For such a step, a connection does not
+  hide its key from the agent or from DAG authors. Creating a connection
+  on such a server says so, as Spec 107 states.
 
 ## Adapters
 
@@ -413,6 +426,9 @@ conformance test confirms them.
 - An adapter lists the aliases of its CLI, such as `sonnet` and `opus` for
   `claude`. The editor offers them, and they pass the editor's model
   warning. Dagu passes an alias to the CLI unchanged.
+- The `opencode` adapter covers the CLI only. An `opencode` step with
+  `connection` runs the CLI, and with `managed: true` it fails validation
+  with `adapter_missing`.
 - Another harness provider, such as `copilot`, `cursor`, `gemini`, or
   `aider`, has no adapter. A step that gives it `connection` fails
   validation with `adapter_missing`.
@@ -426,13 +442,15 @@ conformance test confirms them.
 - It sends a request only to a bound host, and only for the step's
   connection.
 - It refuses a request whose model is not in a non-empty
-  `allowed_models`, with `model_not_allowed`. A CLI that sends some
-  requests with a second model, such as a small model for titles, needs
-  that model in the list too. The error names the model.
+  `allowed_models`, with `model_not_allowed`. The list holds the IDs that
+  reach the provider, so a CLI alias such as `sonnet` passes only when
+  the ID it resolves to is listed. A CLI that sends some requests with a
+  second model, such as a small model for titles, needs that ID too. The
+  error names the model.
 - It maps the provider's answer to an unknown model to `model_unknown`,
   and a 401 to `key_rejected`.
-- For a step on an agent worker, where the gateway runs is an open item.
-  See [Status](#status).
+- For a step on an agent worker, it runs in the coordinator, as Specs 092
+  and 094 state. See [Status](#status).
 
 ## Runs
 
@@ -441,8 +459,7 @@ conformance test confirms them.
   provider reports them. That adds a few fields to each step, and no
   file.
 - The run page shows them beside the step. A step that failed with
-  `key_rejected` or `reconnect_required` shows the connection's fix: Rotate
-  for a key, Reconnect for a sign-in.
+  `key_rejected` shows Rotate for its connection.
 
 ## Configuration
 
@@ -465,12 +482,12 @@ conformance test confirms them.
 
 - Add offers the kind Model API beside the providers of Spec 107. The
   preset fills the protocols, base URLs, and auth forms. The choices are
-  Own key, Sign in, and No key for a local-model preset. An admin also
-  sees Shared key, with Share.
+  Own key, and No key for a local-model preset. An admin also sees Shared
+  key, with Share.
 - The key field is a password field. Dagu clears it after each request,
   and keeps its value in no state, URL, storage, or error text.
-- A row shows the key's prefix and fingerprint, the shared key's name, or
-  the signed-in account, never the key. It also shows the status, the
+- A row shows the key's prefix and fingerprint, or the shared key's name,
+  never the key. It also shows the status, the
   catalog's count, date, and last error, the DAGs that name the
   connection, and Works with: `chat.completion` and each CLI whose
   adapter accepts one of the connection's protocols.
@@ -490,10 +507,10 @@ Effort      [high            v]   levels both the CLI and the model accept
 ```
 
 - The Connection select reads `GET /model-choices`. A connection that the
-  step cannot use is listed disabled, with the reason. The first items
-  are "Project default (`<name>`)" when the base config sets
-  `llm.connection`, and, on a trusted CLI step without
-  `ai.require_connections`, "The CLI's own sign-in".
+  step cannot use is listed disabled, with the reason. Its first item
+  names what the step takes with no `connection`, by
+  [Keys](#keys): "Project default (`<name>`)" or "The CLI's own
+  sign-in".
 - The Model field suggests the catalog's models by display name, and the
   adapter's aliases. A pick writes the model ID.
 - A pick of a connection on a `chat.completion` step on the old keys
@@ -514,8 +531,8 @@ This spec adds to the routes of Spec 107:
 | Method and path | Purpose |
 | --- | --- |
 | `GET /connection-providers` | Also lists the provider `model`, its presets, and their protocols |
-| `POST /connections`, `PATCH /connections/{name}` | Create or change a model connection. A `key` field sets or rotates the key. A blank `key` keeps it |
-| `POST /oauth-apps`, `PATCH /oauth-apps/{id}` | Create or change a shared key, with the provider `model` |
+| `POST /connections`, `PATCH /connections/{name}` | Create or change a model connection. A `key` field sets or rotates the key. A blank `key` keeps it. A request that names a `model` app is refused |
+| `POST /oauth-apps`, `PATCH /oauth-apps/{id}` | Create or change a shared key, with the provider `model`. `PATCH` rotates its key while connections use it |
 | `POST /oauth-apps/{id}/shares` | Share a shared key with projects, or with all projects |
 | `GET /connections/{name}/models` | The catalog. It calls no provider |
 | `POST /connections/{name}/models/reload` | Read the models now, and answer with the catalog |
@@ -575,7 +592,6 @@ A step fails at run time with:
 - `model_not_allowed`: a request's model is not in `allowed_models`
 - `model_unknown`: the provider does not know the model
 - `key_rejected`: the provider answered 401 to the stored key
-- `reconnect_required`: a sign-in connection needs a reconnect
 
 ```text
 codex cannot use connection "anthropic-main": it serves anthropic-messages, and codex needs openai-responses
