@@ -680,3 +680,22 @@ func TestHandleDAGRunEventsWakesRunChanges(t *testing.T) {
 	handleDAGRunEvents(mux, []*eventstore.Event{runEvent(eventstore.TypeDAGRunSucceeded, ir.Succeeded, "a", "r1", "")}, nil, nil)
 	require.Eventually(t, func() bool { return refreshes(topic) == 1 }, time.Second, 10*time.Millisecond)
 }
+
+// A batch of connection events wakes the attention topic once, and the
+// run events of the batch still reach the run topics.
+func TestConnectionEventsWakeAttention(t *testing.T) {
+	const topic = "connectionattention:all"
+	mux, refreshes := countingTopics(t, TopicTypeConnectionAttention, topic)
+	source := eventstore.Source{Service: eventstore.SourceServiceServer, Instance: "test"}
+	change := eventstore.ConnectionChange{Connections: []eventstore.ConnectionName{{Workspace: "ops", Name: "work"}}}
+	run := runEvent(eventstore.TypeDAGRunSucceeded, ir.Succeeded, "a", "r1", "")
+
+	remaining := wakeForConnectionEvents(mux, []*eventstore.Event{
+		eventstore.NewConnectionEvent(source, eventstore.TypeConnectionNeedsAttention, change, time.Now()),
+		run,
+		eventstore.NewConnectionEvent(source, eventstore.TypeConnectionRestored, change, time.Now()),
+	})
+
+	require.Equal(t, []*eventstore.Event{run}, remaining)
+	require.Eventually(t, func() bool { return refreshes(topic) == 1 }, time.Second, 10*time.Millisecond)
+}

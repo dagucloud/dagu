@@ -100,6 +100,9 @@ const (
 	// when no run changes: each read moves the readAt of the feed, so a list
 	// learns that its rows are still current.
 	dagRunChangesMaxInterval = time.Minute
+	// connectionAttentionMinInterval merges the wakes of a burst of
+	// connection status changes into one read of the connections.
+	connectionAttentionMinInterval = 5 * time.Second
 	// dagRunsMaxInterval bounds how stale a live run list gets when no run
 	// event wakes it, such as when a DAG gains or loses a restart policy and
 	// its runs move in or out of the lists that leave service DAG runs out.
@@ -868,6 +871,12 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			return
 		}
 		srv.wakeWikiTopics()
+	}))
+	apiOpts = append(apiOpts, apiv1.WithConnectionRemovedNotifier(func() {
+		if srv.sseMultiplexer == nil {
+			return
+		}
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeConnectionAttention)
 	}))
 	// Pass license manager to API
 	if srv.licenseManager != nil {
@@ -1828,6 +1837,11 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 		registrar.SetRefreshMode(sse.TopicTypeDAGRunChanges, sse.TopicRefreshModeOnDemand)
 		registrar.SetMinInterval(sse.TopicTypeDAGRunChanges, dagRunChangesMinInterval)
 		registrar.SetMaxInterval(sse.TopicTypeDAGRunChanges, dagRunChangesMaxInterval)
+		// Connection events and removals wake the attention topic. Without
+		// the event store it is unsupported, and the badge polls instead.
+		registrar.RegisterFetcher(sse.TopicTypeConnectionAttention, srv.apiV1.GetConnectionAttentionData)
+		registrar.SetRefreshMode(sse.TopicTypeConnectionAttention, sse.TopicRefreshModeOnDemand)
+		registrar.SetMinInterval(sse.TopicTypeConnectionAttention, connectionAttentionMinInterval)
 		if appStreamAvailable {
 			registrar.SetRefreshMode(sse.TopicTypeDAGsList, sse.TopicRefreshModeOnDemand)
 			registrar.SetPublishOnWake(sse.TopicTypeDAGsList, true)

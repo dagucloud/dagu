@@ -140,7 +140,7 @@ func StartDAGRunEventInvalidation(
 
 		for {
 			if !bootstrapped {
-				head, err := service.DAGRunHeadCursor(ctx)
+				head, err := service.NotificationHeadCursor(ctx)
 				if err != nil {
 					logger.Warn("Failed to bootstrap DAG-run event invalidation cursor", slog.String("error", err.Error()))
 				} else {
@@ -159,15 +159,35 @@ func StartDAGRunEventInvalidation(
 				continue
 			}
 
-			events, nextCursor, err := service.ReadDAGRunEvents(ctx, cursor)
+			// One pass reads the run events and the connection events.
+			events, nextCursor, err := service.ReadNotificationEvents(ctx, cursor)
 			if err != nil {
 				logger.Warn("Failed to read DAG-run events for SSE invalidation", slog.String("error", err.Error()))
 				continue
 			}
 			cursor = nextCursor
+			events = wakeForConnectionEvents(mux, events)
 			handleDAGRunEvents(mux, events, serviceDAGs, changed)
 		}
 	}()
+}
+
+// wakeForConnectionEvents wakes the connection attention topic when events
+// hold a connection event, and returns the other events.
+func wakeForConnectionEvents(mux *Multiplexer, events []*eventstore.Event) []*eventstore.Event {
+	runEvents := events[:0]
+	woken := false
+	for _, event := range events {
+		if event == nil || event.Kind != eventstore.KindConnection {
+			runEvents = append(runEvents, event)
+			continue
+		}
+		if !woken {
+			mux.WakeTopicType(TopicTypeConnectionAttention)
+			woken = true
+		}
+	}
+	return runEvents
 }
 
 // handleDAGRunEvents tells changed the root runs whose state the events

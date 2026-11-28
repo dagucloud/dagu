@@ -23,6 +23,10 @@ const dagHistoryWithBackfill = "includeBackfill=true"
 // subscription there.
 const dagRunChangesIdentifier = "all"
 
+// connectionAttentionIdentifier is the only identifier of the connection
+// attention topic, whose subscribers each see their own workspaces.
+const connectionAttentionIdentifier = "all"
+
 // ParsedTopic is the canonical representation of a topic string.
 type ParsedTopic struct {
 	Type       TopicType
@@ -96,6 +100,11 @@ func canonicalizeTopicIdentifier(topicType TopicType, identifier string) (string
 	case TopicTypeDAGRunChanges:
 		if identifier != dagRunChangesIdentifier {
 			return "", fmt.Errorf("topic %q takes only the identifier %q", topicType, dagRunChangesIdentifier)
+		}
+		return identifier, nil
+	case TopicTypeConnectionAttention:
+		if identifier != connectionAttentionIdentifier {
+			return "", fmt.Errorf("topic %q takes only the identifier %q", topicType, connectionAttentionIdentifier)
 		}
 		return identifier, nil
 	case TopicTypeDAGRun, TopicTypeSubDAGRun, TopicTypeStepLog, TopicTypeQueueItems, TopicTypeBackfill:
