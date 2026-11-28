@@ -124,6 +124,62 @@ helm upgrade --install dagu dagu/dagu \
   --wait
 ```
 
+### Peer TLS
+
+In distributed mode with Dagu releases after 2.27.0, the coordinator serves TLS and plaintext gRPC on port 50055, and the scheduler and UI, which share its data volume, connect over TLS with no setting. Earlier images connect without TLS, as before, and ignore `peer.existingCASecret`. A network path that cannot carry TLS, such as a sidecar proxy that expects plaintext gRPC, falls back to plaintext and keeps working. The chart does not generate the CA itself, so `helm template` renders the same output on every run.
+
+Worker pods do not share the data volume, so they connect without TLS until `peer.existingCASecret` is set. To move them to TLS, store a CA in a Secret with the keys `ca.crt` and `ca.key`, and name it in `peer.existingCASecret`:
+
+```bash
+dagu peer init --out ./dagu-peer
+kubectl --namespace dagu create secret generic dagu-peer-ca \
+  --from-file=ca.crt=./dagu-peer/ca.crt \
+  --from-file=ca.key=./dagu-peer/ca.key
+```
+
+```yaml
+peer:
+  existingCASecret: dagu-peer-ca
+```
+
+Keep `podSecurityContext.fsGroup` set to the Dagu user's group so the pods can read the Secret. Until the coordinator restarts with the Secret's CA, pods that already use it fail their coordinator calls. Leave the value empty when `extraEnv` sets `DAGU_PEER_CERT_FILE` for your own certificates; the chart refuses to render both.
+
+Workers outside the cluster need the coordinator's port. Set `coordinator.service.type` to `LoadBalancer` or `NodePort`; the UI Ingress does not carry this traffic. `coordinator.service.annotations` takes provider-specific settings, such as those for an internal load balancer. Clients check a fixed certificate name, so the load balancer passes TCP through and needs no certificate.
+
+```yaml
+coordinator:
+  service:
+    type: LoadBalancer
+    annotations: {}
+```
+
+With Dagu releases after 2.27.0, set Dagu's `coordinator.require_token: true` through `extraEnv` as `DAGU_COORDINATOR_REQUIRE_TOKEN` before you expose the port outside the cluster, so the coordinator accepts only calls that carry the peer token. Set `peer.existingCASecret` as well, so worker pods in the cluster send the token over TLS. To keep every pod on TLS with no fallback to plaintext, also set `DAGU_PEER_INSECURE` to `false` in `extraEnv`; a network path that cannot carry TLS then fails instead. Set the token for every pod as `DAGU_PEER_TOKEN` from your own Secret, such as one made from the `token` file `dagu peer init` writes. `extraEnv` applies to every Dagu pod, so the coordinator, scheduler, UI, and workers use the same token:
+
+```bash
+kubectl --namespace dagu create secret generic dagu-peer-token \
+  --from-file=token=./dagu-peer/token
+```
+
+```yaml
+extraEnv:
+  - name: DAGU_COORDINATOR_REQUIRE_TOKEN
+    value: "true"
+  - name: DAGU_PEER_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: dagu-peer-token
+        key: token
+```
+
+Workers outside the cluster set the same value in `peer.token`. Give them the `ca.crt` from the `peer.existingCASecret` Secret too, and set `peer.ca_cert_file` to that file with `peer.insecure: false`, so they use TLS and never fall back to plaintext:
+
+```yaml
+peer:
+  token: "<the token>"
+  ca_cert_file: /etc/dagu/ca.crt
+  insecure: false
+```
+
 ### Graceful Shutdown
 
 Stopping a pod ends the DAG runs inside it, and an upgrade stops every pod. Set `shutdown.drainTimeoutSeconds` to let them finish first: a stopping pod then starts no new runs and waits up to that long for its running runs. Runs still going at the end stop as before. Each pod's `terminationGracePeriodSeconds` becomes the drain plus room for cleanup.
@@ -414,7 +470,7 @@ auth:
   mode: "builtin"  # Options: "none", "basic", "builtin" (default)
   builtin:
     token:
-      secret: ""               # optional: auto-generated at {data_dir}/auth/token_secret
+      secret: ""               # optional: generated when empty
       ttl: "24h"
 ```
 

@@ -1,4 +1,6 @@
 {{- if eq .Values.deploymentMode "distributed" }}
+{{- /* dig keeps an upgrade that reuses an older chart's values working. */}}
+{{- $service := dig "coordinator" "service" (dict) .Values.AsMap }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -6,8 +8,12 @@ metadata:
   labels:
     {{- include "dagu.labels" . | nindent 4 }}
     app.kubernetes.io/component: coordinator
+{{- with $service.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+{{- end }}
 spec:
-  type: ClusterIP
+  type: {{ $service.type | default "ClusterIP" }}
   selector:
     {{- include "dagu.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: coordinator

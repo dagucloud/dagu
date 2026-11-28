@@ -23,6 +23,13 @@
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if include "dagu.peerCASecret" . }}
+{{- range .Values.extraEnv }}
+{{- if has .name (list "DAGU_PEER_CERT_FILE" "DAGU_PEER_KEY_FILE" "DAGU_PEER_CLIENT_CA_FILE" "DAGU_PEER_SKIP_TLS_VERIFY" "DAGU_PEER_CA_CERT_FILE" "DAGU_PEER_CA_KEY_FILE") }}
+{{- fail (printf "extraEnv entry %q must not configure peer certificates when peer.existingCASecret is set" .name) }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if .Values.auth.oidc.enabled }}
 {{- if ne .Values.auth.mode "builtin" }}
 {{- fail "auth.oidc.enabled requires auth.mode=builtin" }}
@@ -235,8 +242,8 @@ data:
 {{- end }}
 {{- end }}
 
-{{- if eq .Values.deploymentMode "distributed" }}
+{{- if include "dagu.peerCASecret" . }}
     # Peer communication
     peer:
-      insecure: true
+      ca_cert_file: {{ printf "%s/ca.crt" (include "dagu.peerCADir" .) | quote }}
 {{- end }}
