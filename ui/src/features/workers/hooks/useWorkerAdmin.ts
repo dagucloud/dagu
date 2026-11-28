@@ -85,6 +85,10 @@ const readsInFlight = new Map<
 // nor its failure over a newer list.
 const latestReads = new Map<string, Promise<WorkerInvitesList>>();
 
+// The reads of each node not settled yet. Once none is left, no older read
+// can still answer, and the node's last read is forgotten.
+const pendingReads = new Map<string, number>();
+
 // Counts the changes to the invites of each node. A read that started
 // before a change cannot answer for after it.
 const inviteGenerations = new Map<string, number>();
@@ -138,9 +142,17 @@ export function useWorkerInvites(enabled: boolean) {
           if (readsInFlight.get(remoteNode)?.read === read) {
             readsInFlight.delete(remoteNode);
           }
+          const left = (pendingReads.get(remoteNode) ?? 1) - 1;
+          if (left > 0) {
+            pendingReads.set(remoteNode, left);
+          } else {
+            pendingReads.delete(remoteNode);
+            latestReads.delete(remoteNode);
+          }
         });
       readsInFlight.set(remoteNode, { read, generation });
       latestReads.set(remoteNode, read);
+      pendingReads.set(remoteNode, (pendingReads.get(remoteNode) ?? 0) + 1);
       return read;
     },
     {
