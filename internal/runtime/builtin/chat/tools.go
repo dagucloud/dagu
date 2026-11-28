@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -165,7 +166,8 @@ var envRef = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*)`)
 
 // checkModelInputs fails when the tool DAG would evaluate text that the model
 // sets: a command that Dagu fills with an input before the shell runs it, or an
-// eval that reads an input.
+// eval that reads an input. An env entry whose value holds an input counts as
+// an input too.
 func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) error {
 	if len(params) == 0 {
 		return nil
@@ -177,6 +179,7 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 	// Both variables hold every param as JSON.
 	inputs[runenv.EnvKeyDAGParamsJSON] = true
 	inputs[runenv.EnvKeyDAGParamsJSONCompat] = true
+	inputs = withEnvCopies(inputs, dag.Env)
 
 	for _, def := range dag.ParamDefs {
 		if ref, variable, ok := modelRef(def.Eval, inputs, true); ok {
@@ -186,34 +189,68 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 	if err := checkConditions(dag, "a precondition", dag.Preconditions, inputs); err != nil {
 		return err
 	}
-	h := dag.HandlerOn
-	steps := []*ir.Step{h.Init, h.Success, h.Failure, h.Abort, h.Exit, h.Wait}
-	for i := range dag.Steps {
-		steps = append(steps, &dag.Steps[i])
+	type pending struct {
+		step   *ir.Step
+		inputs map[string]bool
 	}
-	for len(steps) > 0 {
-		step := steps[0]
-		steps = steps[1:]
+	h := dag.HandlerOn
+	var queue []pending
+	for _, step := range []*ir.Step{h.Init, h.Success, h.Failure, h.Abort, h.Exit, h.Wait} {
+		queue = append(queue, pending{step, inputs})
+	}
+	for i := range dag.Steps {
+		queue = append(queue, pending{&dag.Steps[i], inputs})
+	}
+	for len(queue) > 0 {
+		step := queue[0].step
+		stepInputs := queue[0].inputs
+		queue = queue[1:]
 		if step == nil {
 			continue
 		}
+		stepInputs = withEnvCopies(stepInputs, step.Env)
 		fills := fillsShellVariables(ctx, dag, step)
 		where := fmt.Sprintf("the command of step %q", step.Name)
 		for _, text := range commandTexts(step) {
-			if ref, variable, ok := modelRef(text, inputs, fills); ok {
+			if ref, variable, ok := modelRef(text, stepInputs, fills); ok {
 				return modelInputError(dag, where, ref, variable, !fills)
 			}
 		}
-		if err := checkConditions(dag, fmt.Sprintf("a precondition of step %q", step.Name), step.Preconditions, inputs); err != nil {
+		if err := checkConditions(dag, fmt.Sprintf("a precondition of step %q", step.Name), step.Preconditions, stepInputs); err != nil {
 			return err
 		}
 		if step.Foreach != nil {
 			for i := range step.Foreach.Steps {
-				steps = append(steps, &step.Foreach.Steps[i])
+				queue = append(queue, pending{&step.Foreach.Steps[i], stepInputs})
 			}
 		}
 	}
 	return nil
+}
+
+// withEnvCopies returns inputs with the names of the env entries whose value
+// reads an input, since Dagu copies the input into such an entry.
+func withEnvCopies(inputs map[string]bool, env []string) map[string]bool {
+	copied := false
+	for _, entry := range env {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok || inputs[name] {
+			continue
+		}
+		if _, _, found := modelRef(value, inputs, true); !found {
+			continue
+		}
+		if !copied {
+			next := make(map[string]bool, len(inputs)+1)
+			for k := range inputs {
+				next[k] = true
+			}
+			inputs = next
+			copied = true
+		}
+		inputs[name] = true
+	}
+	return inputs
 }
 
 // fillsShellVariables reports whether Dagu fills $NAME into the command of a

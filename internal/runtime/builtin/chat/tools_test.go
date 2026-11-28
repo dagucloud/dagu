@@ -236,8 +236,11 @@ func TestNewToolRegistryRefusesEvaluatedInput(t *testing.T) {
 		{"PowerShell", params + "shell: pwsh\nsteps:\n  - id: s\n    run: Write-Output \"$Q\"\n", `the command of step "s" refers to $Q, which`},
 		{"StepShell", params + "shell: bash\nsteps:\n  - id: s\n    with:\n      shell: cmd\n    run: echo $Q\n", `the command of step "s" refers to $Q, which`},
 		{"HereDoc", params + "shell: bash\nsteps:\n  - id: s\n    run: |\n      cat <<EOF\n      {\"q\": \"${Q}\"}\n      EOF\n", `refers to "${Q}", which`},
+		{"EnvCopy", params + "env:\n  - QUERY: ${params.Q}\nsteps:\n  - id: s\n    run: echo ${env.QUERY}\n", `refers to ${env.QUERY}, which`},
+		{"StepEnvCopy", params + "steps:\n  - id: s\n    env:\n      - C: $Q\n    run: echo ${env.C}\n", `refers to ${env.C}, which`},
 		{"ShellVariable", params + "shell: bash\nsteps:\n  - run: echo \"$Q\" \"$DAG_PARAMS_JSON\"\n", ""},
 		{"StepPOSIXShell", params + "shell: pwsh\nsteps:\n  - with:\n      shell: bash\n    run: echo \"$Q\"\n", ""},
+		{"EnvCopyAsVariable", params + "shell: bash\nenv:\n  - QUERY: ${params.Q}\nsteps:\n  - run: echo \"$QUERY\"\n", ""},
 		{"ValueMatch", params + "preconditions:\n  - condition: ${params.Q}\n    expected: yes\nsteps:\n  - run: echo\n", ""},
 		{"NoInputs", "steps:\n  - run: echo ${params}\n", ""},
 	}
