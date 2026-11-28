@@ -274,7 +274,7 @@ describe('AddWorker', () => {
     // The chart path names both settings helm template needs together.
     expect(
       screen.getByText(
-        /^Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload.*set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany/
+        /^Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload.*shares its storage with the scheduler and the web UI.*worker pods keep their own.*set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany/
       )
     ).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'README' })).toHaveAttribute(
@@ -303,20 +303,25 @@ describe('AddWorker', () => {
     addresses: [],
   });
   const host = report({ port: 50155, addresses: ['192.168.1.20'] });
+  const box = report({ environment: HostEnvironment.container, addresses: [] });
+  const readings = (...reports: Report[]): Readiness => ({
+    coordinators: reports.map((r, i) => ({
+      instanceId: `c${i}`,
+      host: `node-${i}`,
+      port: r.port,
+      report: r,
+    })),
+  });
   it.each([
     ['a pod', [pod]],
     ['a host, then a pod', [host, pod]],
     ['a pod, then a host', [pod, host]],
   ])('asks where workers run before step 3 for %s', async (_, reports) => {
     const user = userEvent.setup();
-    await open({
-      coordinators: reports.map((r, i) => ({
-        instanceId: `c${i}`,
-        host: `node-${i}`,
-        port: r.port,
-        report: r,
-      })),
-    });
+    await open(readings(...reports));
+    // Suggestions come with the field, after the answer.
+    const suggestion = () => screen.queryByText('Addresses of this machine:');
+    expect(suggestion()).toBeNull();
     const radio = (name: string) => screen.getByRole('radio', { name });
     expect(radio('Inside this cluster')).not.toBeChecked();
     expect(radio('Outside the cluster')).not.toBeChecked();
@@ -332,6 +337,7 @@ describe('AddWorker', () => {
       'dagu-coordinator:50055'
     );
     expect(worker()).toBeNull();
+    expect(suggestion() !== null).toBe(reports.includes(host));
 
     await user.keyboard('{ArrowDown}');
     expect(radio('Outside the cluster')).toBeChecked();
@@ -348,6 +354,37 @@ describe('AddWorker', () => {
     }
     typeAddress('203.0.113.7:30055');
     expect(worker()).toBeNull();
+  });
+
+  // The chosen placement's hint wins over a container listed before or
+  // after the pod.
+  it.each([
+    ['a container, then a pod', [box, pod]],
+    ['a pod, then a container', [pod, box]],
+  ])('shows the outside hint for %s', async (_, reports) => {
+    await open(readings(...reports));
+    fireEvent.click(screen.getByRole('radio', { name: 'Outside the cluster' }));
+    expect(screen.getByText(/assigned node port/)).toBeInTheDocument();
+    expect(screen.queryByText(/runs the container/)).toBeNull();
+  });
+
+  // Once no pod reports, the outside answer no longer applies: an untouched
+  // field takes its default again, and a typed address stays.
+  it.each([
+    ['untouched', undefined, 'coord.example.com:50055'],
+    ['typed', '203.0.113.7:30055', '203.0.113.7:30055'],
+  ])('drops the placement when no pod reports, %s', async (_, typed, kept) => {
+    const advertise = 'coord.example.com';
+    const { rerender } = await open(readiness({ ...pod, advertise }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Outside the cluster' }));
+    if (typed) typeAddress(typed);
+    api.GET.mockResolvedValue(answer(200, readiness({ advertise })));
+    rerender(view(true));
+    rerender(view(false));
+    await settle();
+    expect(screen.queryByRole('radio')).toBeNull();
+    expect(screen.queryByText(/assigned node port/)).toBeNull();
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(kept);
   });
 
   // Check again can remove its own button before the field shows; the focus

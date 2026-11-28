@@ -1254,7 +1254,9 @@ and prints the message:
   - While `loopbackOnly`, the change for how Dagu was started:
     - in Kubernetes: for `hostSource` `env` or `flag`, the change below;
       otherwise `DAGU_COORDINATOR_HOST=0.0.0.0` on the coordinator's
-      workload, which needs storage that every Dagu pod can write. With the
+      workload. A coordinator in its own pod shares its storage with the
+      scheduler and the web UI, so all three need a volume they can each
+      write; worker pods keep their own volumes. With the
       Helm chart, that is `deploymentMode: distributed`: an existing
       `ReadWriteOnce` claim cannot change its access mode, so its data moves
       to a `ReadWriteMany` claim, and `persistence.existingClaim` and
@@ -1311,10 +1313,10 @@ and prints the message:
   not one IP address without a zone or one DNS name, or is `0.0.0.0`,
   `[::]`, a loopback, link-local, multicast, or broadcast address,
   `localhost`, a container ID (12 or 64 lowercase hexadecimal
-  characters), or text shaped like an invite. `POST /api/v1/workers/invites` checks only that the
-  address is `host:port` with a port from 1 to 65535 and that its host
-  holds no invite, since automation may reach the coordinator through a
-  tunnel.
+  characters), or text shaped like an invite.
+  `POST /api/v1/workers/invites` checks only that the address is
+  `host:port` with a port from 1 to 65535 and that its host holds no
+  invite, since automation may reach the coordinator through a tunnel.
 - Step 3 shows only after steps 1 and 2. Its tab sets the invite kind:
 
   | Tab | Invite | Command |

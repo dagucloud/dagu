@@ -123,7 +123,7 @@ function ListenChange({ report }: { report: Report }) {
           // T16 sees a pod, not how it was deployed, so the chart is one
           // case. An upgrade cannot change an existing claim's access mode.
           <p>
-            <I18nText text="Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade." />{' '}
+            <I18nText text="Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod shares its storage with the scheduler and the web UI, so all three need a volume they can each write; worker pods keep their own. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade." />{' '}
             <a
               href={CHART_README_URL}
               target="_blank"

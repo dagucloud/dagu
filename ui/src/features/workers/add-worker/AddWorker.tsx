@@ -116,6 +116,11 @@ export function AddWorkerDialog({
     }
     if (id !== latest.current) return;
     setReadiness(next);
+    // The placement holds only while a pod reports.
+    if (next.state === 'loaded' && !inKubernetes(next.data)) {
+      outside.current = false;
+      setPlacement(undefined);
+    }
     // A new reading resets the defaults the admin has not changed, as a
     // port that changed in the restart.
     if (next.state === 'loaded' && !touched.current) {
@@ -282,12 +287,12 @@ function AddressFields({
   const environment = coordinatorEnvironment(data);
   const suggestions = suggestedAddresses(data);
   let hint: string | undefined;
-  if (environment === HostEnvironment.container) {
-    hint =
-      'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.';
-  } else if (placement === Placement.outside) {
+  if (placement === Placement.outside) {
     hint =
       "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.";
+  } else if (environment === HostEnvironment.container) {
+    hint =
+      'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.';
   }
   const errorId = `${id}-error`;
   const kubernetes = inKubernetes(data);
@@ -348,24 +353,24 @@ function AddressFields({
               <I18nText text={problem.text} values={problem.values} />
             </p>
           )}
+          {suggestions.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+              <I18nText text="Addresses of this machine:" />
+              {suggestions.map((suggestion) => (
+                <Button
+                  key={suggestion}
+                  size="xs"
+                  variant="ghost"
+                  className="font-mono"
+                  aria-pressed={address === suggestion}
+                  onClick={() => onChange(suggestion)}
+                >
+                  {suggestion}
+                </Button>
+              ))}
+            </div>
+          )}
         </>
-      )}
-      {suggestions.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          <I18nText text="Addresses of this machine:" />
-          {suggestions.map((suggestion) => (
-            <Button
-              key={suggestion}
-              size="xs"
-              variant="ghost"
-              className="font-mono"
-              aria-pressed={address === suggestion}
-              onClick={() => onChange(suggestion)}
-            >
-              {suggestion}
-            </Button>
-          ))}
-        </div>
       )}
     </div>
   );
