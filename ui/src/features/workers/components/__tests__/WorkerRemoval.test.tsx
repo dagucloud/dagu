@@ -316,7 +316,7 @@ describe('Remove', () => {
     );
     expect(alert).toHaveTextContent('The worker was not removed.');
     expect(screen.getByRole('dialog')).toHaveTextContent(
-      'This worker no longer connects with the certificate shown when this dialog opened.'
+      'This worker changed. Close and confirm again.'
     );
   });
 
@@ -611,7 +611,7 @@ describe('Remove', () => {
   });
 
   // The submitted choices hold while their request is under way.
-  it('locks the choices while the removal is under way', async () => {
+  it('shows the submitted removal while it is under way', async () => {
     server.invites = invitesAnswer([
       invite('inv-r', { kind: WorkerInviteKind.reusable }),
     ]);
@@ -637,10 +637,12 @@ describe('Remove', () => {
       within(dialog).getByRole('button', { name: 'Remove' })
     );
 
-    expect(checkbox).toBeDisabled();
-    for (const radio of within(dialog).getAllByRole('radio')) {
-      expect(radio).toBeDisabled();
-    }
+    expect(within(dialog).getByRole('status')).toHaveTextContent(
+      'Removing it. Its runs finish first.'
+    );
+    expect(dialog).toHaveTextContent('Invite to delete: inv-r (Reusable)');
+    expect(within(dialog).queryByRole('radio')).not.toBeInTheDocument();
+    expect(checkbox).not.toBeInTheDocument();
     await act(async () => answer({ status: 200, body: { state: 'removing' } }));
     await waitFor(() =>
       expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(1)
@@ -855,10 +857,9 @@ describe('Remove', () => {
     expect(removals()[0]?.body?.runs).toBe('stop');
   });
 
-  // The stop choice applies to the runs on screen. Once the refresh shows
-  // none, the button reads Remove, and a run handed out meanwhile must not
-  // be canceled by a stop the admin no longer sees.
-  it('sends finish once the runs the admin chose to stop are gone', async () => {
+  // The dialog offers what the list showed when it opened. A refresh that
+  // changes the runs rewrites nothing, so the chosen stop holds.
+  it('keeps the choices of the list at open through a refresh', async () => {
     const { update } = renderPage([
       worker('worker-a1', { runningTasks: [task('etl', 'run-1')] }),
     ]);
@@ -867,149 +868,113 @@ describe('Remove', () => {
       within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
     );
 
-    update([worker('worker-a1')]);
-    await userEvent.click(
-      within(screen.getByRole('dialog')).getByRole('button', {
-        name: 'Remove',
-      })
-    );
-
-    await waitFor(() => expect(removals()).toHaveLength(1));
-    expect(removals()[0]?.body?.runs).toBe('finish');
-  });
-
-  // Runs that all end take the stop choice with them. A row the list drops
-  // afterwards leaves its runs unknown, and the confirmation says so
-  // instead of claiming none, and cannot bring the stop choice back.
-  it('sends finish after the runs end and the row goes away', async () => {
-    const { update } = renderPage([
-      worker('worker-a1', { runningTasks: [task('etl', 'run-1')] }),
-    ]);
-    const dialog = await openRemove('worker-a1');
-    await userEvent.click(
-      within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
-    );
-
-    update([worker('worker-a1')]);
-    await within(dialog).findByText('It has no running runs.');
-    update([]);
-    expect(dialog).toHaveTextContent(
-      'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
-    );
-    expect(dialog).not.toHaveTextContent('It has no running runs.');
-    await userEvent.click(
-      within(dialog).getByRole('button', { name: 'Remove' })
-    );
-
-    await waitFor(() => expect(removals()).toHaveLength(1));
-    expect(removals()[0]?.body?.runs).toBe('finish');
-  });
-
-  // Runs that start after the earlier ones ended need the stop choice made
-  // again.
-  it('asks for the stop choice again for runs that start later', async () => {
-    const { update } = renderPage([
-      worker('worker-a1', { runningTasks: [task('etl', 'run-1')] }),
-    ]);
-    const dialog = await openRemove('worker-a1');
-    await userEvent.click(
-      within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
-    );
-
-    update([worker('worker-a1')]);
-    await within(dialog).findByText('It has no running runs.');
-    update([worker('worker-a1', { runningTasks: [task('etl', 'run-2')] })]);
+    update([worker('worker-a1', { runningTasks: [task('backup', 'run-9')] })]);
 
     expect(
-      await within(dialog).findByRole('radio', {
-        name: /Remove after its runs finish/,
-      })
-    ).toBeChecked();
-    expect(
-      within(dialog).getByRole('button', { name: 'Remove' })
-    ).toBeInTheDocument();
-  });
-
-  // A run is named by its DAG and its run ID; two DAGs can share a run ID.
-  it('lists the runs of two DAGs that share a run ID apart', async () => {
-    const { update } = renderPage([
-      worker('worker-a1', {
-        runningTasks: [task('etl', 'run-1'), task('report', 'run-1')],
-      }),
-    ]);
-    const dialog = await openRemove('worker-a1');
-    const runs = () =>
       within(dialog)
         .getAllByRole('listitem')
-        .map((item) => item.textContent);
-    expect(runs()).toEqual(['etlrun-1', 'reportrun-1']);
-
-    update([
-      worker('worker-a1', {
-        runningTasks: [task('backup', 'run-2')],
-      }),
-    ]);
-
-    await waitFor(() => expect(runs()).toEqual(['backuprun-2']));
+        .map((item) => item.textContent)
+    ).toEqual(['etlrun-1']);
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Stop its runs and remove' })
+    );
+    await waitFor(() => expect(removals()).toHaveLength(1));
+    expect(removals()[0]?.body?.runs).toBe('stop');
   });
 
-  // A child run is named by its root as well: two roots that share a run ID
-  // can run the same child under the same child run ID.
-  it('lists the same child run of two roots apart', async () => {
+  // While a stop is under way the dialog shows it, also after a refresh
+  // that ends the runs.
+  it('shows the submitted stop while it is under way', async () => {
+    let answer: (value: { status: number; body: unknown }) => void = () =>
+      undefined;
+    server.del = () => new Promise((resolve) => (answer = resolve));
+    const { update } = renderPage([
+      worker('worker-a1', { runningTasks: [task('etl', 'run-1')] }),
+    ]);
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Stop its runs and remove' })
+    );
+
+    update([worker('worker-a1')]);
+
+    expect(within(dialog).getByRole('status')).toHaveTextContent(
+      'Stopping the runs on its certificate and removing it.'
+    );
+    expect(
+      within(dialog).getByRole('button', { name: 'Stop its runs and remove' })
+    ).toBeDisabled();
+    await act(async () => answer({ status: 200, body: { state: 'removing' } }));
+    expect(removals()[0]?.body?.runs).toBe('stop');
+  });
+
+  // Two DAGs can share a run ID, and two roots can run the same child under
+  // the same run ID: each run is listed apart.
+  it('lists runs that share IDs apart', async () => {
     const child = (root: string) => ({
       ...task('load', 'child-1'),
       rootDagRunName: root,
       rootDagRunId: 'run-1',
     });
-    const { update } = renderPage([
-      worker('worker-a1', { runningTasks: [child('etl'), child('report')] }),
+    renderPage([
+      worker('worker-a1', {
+        runningTasks: [
+          task('etl', 'run-1'),
+          task('report', 'run-1'),
+          child('etl'),
+          child('report'),
+        ],
+      }),
     ]);
+
     const dialog = await openRemove('worker-a1');
-    const runs = () =>
+
+    expect(
       within(dialog)
         .getAllByRole('listitem')
-        .map((item) => item.textContent);
-    expect(runs()).toEqual([
+        .map((item) => item.textContent)
+    ).toEqual([
+      'etlrun-1',
+      'reportrun-1',
       'loadchild-1Root run: etl run-1',
       'loadchild-1Root run: report run-1',
     ]);
-
-    update([worker('worker-a1', { runningTasks: [child('report')] })]);
-
-    await waitFor(() =>
-      expect(runs()).toEqual(['loadchild-1Root run: report run-1'])
-    );
   });
 
-  // A run that starts before the child of the other root goes first in
-  // the list; a key without the root would keep the ended child's row.
-  it('lists the child of the right root after a run is prepended', async () => {
-    const child = (root: string) => ({
-      ...task('load', 'child-1'),
-      rootDagRunName: root,
-      rootDagRunId: 'run-1',
-    });
+  // A refresh that drops the row or shows a removal started elsewhere locks
+  // the confirmation: it says the worker changed and sends nothing.
+  it.each([
+    ['drops the row', [] as Worker[]],
+    [
+      'shows a removal started',
+      [
+        worker('worker-a1', {
+          removing: true,
+          runningTasks: [task('etl', 'run-1')],
+        }),
+      ],
+    ],
+  ])('locks Remove when a refresh %s', async (_name, next) => {
     const { update } = renderPage([
-      worker('worker-a1', { runningTasks: [child('etl'), child('report')] }),
+      worker('worker-a1', { runningTasks: [task('etl', 'run-1')] }),
     ]);
     const dialog = await openRemove('worker-a1');
-    const runs = () =>
-      within(dialog)
-        .getAllByRole('listitem')
-        .map((item) => item.textContent);
 
-    update([
-      worker('worker-a1', {
-        runningTasks: [task('backup', 'run-9'), child('report')],
-      }),
-    ]);
+    update(next);
 
-    await waitFor(() =>
-      expect(runs()).toEqual([
-        'backuprun-9',
-        'loadchild-1Root run: report run-1',
-      ])
-    );
+    expect(
+      await within(dialog).findByText(
+        'This worker changed. Close and confirm again.'
+      )
+    ).toBeInTheDocument();
+    const remove = within(dialog).getByRole('button', { name: 'Remove' });
+    expect(remove).toBeDisabled();
+    await userEvent.click(remove);
+    await act(() => Promise.resolve());
+    expect(removals()).toHaveLength(0);
   });
 
   // The count rides on the page's refresh of /workers: a new list shows the
@@ -1063,40 +1028,8 @@ describe('Remove', () => {
     expect(removals()[0]?.body?.runs).toBe('stop');
   });
 
-  // Runs that all ended leave nothing to stop: Stop runs now stays open,
-  // says so, and sends nothing, also after the row leaves the list.
-  it('offers no stop once the last run ended', async () => {
-    const { update } = renderPage([
-      worker('worker-a1', {
-        removing: true,
-        runningTasks: [task('etl', 'run-1')],
-      }),
-    ]);
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Stop runs now on worker-a1' })
-    );
-    const dialog = screen.getByRole('dialog');
-
-    update([worker('worker-a1', { removing: true })]);
-    await within(dialog).findByText(
-      'No runs remain to stop. The worker is removed as planned.'
-    );
-    update([]);
-
-    expect(screen.getByRole('dialog')).toBe(dialog);
-    expect(dialog).toHaveTextContent(
-      'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
-    );
-    const stop = within(dialog).getByRole('button', { name: 'Stop runs' });
-    expect(stop).toBeDisabled();
-    await userEvent.click(stop);
-    await act(() => Promise.resolve());
-    expect(removals()).toHaveLength(0);
-  });
-
-  // A refresh can drop the row while it still showed runs. The runs are
-  // then unknown: Stop runs now stays open, says so, and sends nothing.
-  it('offers no stop once the row leaves the list with runs', async () => {
+  // A refresh that drops the row locks Stop runs now too.
+  it('locks Stop runs now when the row leaves the list', async () => {
     const { update } = renderPage([
       worker('worker-a1', {
         removing: true,
@@ -1112,7 +1045,7 @@ describe('Remove', () => {
 
     expect(
       await within(dialog).findByText(
-        'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
+        'This worker changed. Close and confirm again.'
       )
     ).toBeInTheDocument();
     const stop = within(dialog).getByRole('button', { name: 'Stop runs' });
@@ -1122,35 +1055,8 @@ describe('Remove', () => {
     expect(removals()).toHaveLength(0);
   });
 
-  // The same for Remove: with the row gone, the stop choice is reset and
-  // locked, and the removal lets the runs finish.
-  it('sends finish once the row leaves the list with runs', async () => {
-    const { update } = renderPage([
-      worker('worker-a1', { runningTasks: [task('etl', 'run-1')] }),
-    ]);
-    const dialog = await openRemove('worker-a1');
-    await userEvent.click(
-      within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
-    );
-
-    update([]);
-
-    expect(
-      await within(dialog).findByText(
-        'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
-      )
-    ).toBeInTheDocument();
-    expect(within(dialog).queryByRole('radio')).not.toBeInTheDocument();
-    expect(dialog).not.toHaveTextContent('running run');
-    await userEvent.click(
-      within(dialog).getByRole('button', { name: 'Remove' })
-    );
-    await waitFor(() => expect(removals()).toHaveLength(1));
-    expect(removals()[0]?.body?.runs).toBe('finish');
-  });
-
-  // A failed refresh hides the rows, so no row is current: both dialogs
-  // treat the runs as unknown, as for a row the list dropped.
+  // A read that fails, or misses workers, leaves no current row: both
+  // dialogs lock, as for a row the list dropped.
   const rows = [
     worker('worker-a1', {
       removing: true,
@@ -1168,60 +1074,73 @@ describe('Remove', () => {
       'coordinator errors',
       { status: 200, body: { workers: rows, errors: ['raw words'] } },
     ],
-  ])('stops nothing after %s of the workers list', async (_name, failed) => {
-    const listed = { status: 200, body: { workers: rows, errors: [] } };
-    const answers = [listed, failed, listed, failed];
-    server.workers = () => answers.shift()! as never;
-    render(<LivePage />, { wrapper: Providers });
+  ])(
+    'locks both dialogs after %s of the workers list',
+    async (_name, failed) => {
+      const listed = { status: 200, body: { workers: rows, errors: [] } };
+      const answers = [listed, failed, listed, failed];
+      server.workers = () => answers.shift()! as never;
+      render(<LivePage />, { wrapper: Providers });
 
-    // Stop runs now on a removing worker.
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Stop runs now on worker-a1' })
-    );
-    let dialog = screen.getByRole('dialog');
-    // The open dialog blocks the pointer; this stands in for the page's refresh.
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Refresh workers', hidden: true })
-    );
-    expect(
-      await within(dialog).findByText(
-        'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
-      )
-    ).toBeInTheDocument();
-    expect(
-      within(dialog).getByRole('button', { name: 'Stop runs' })
-    ).toBeDisabled();
-    await userEvent.click(
-      within(dialog).getByRole('button', { name: 'Cancel' })
-    );
+      await userEvent.click(
+        await screen.findByRole('button', {
+          name: 'Stop runs now on worker-a1',
+        })
+      );
+      let dialog = screen.getByRole('dialog');
+      // The open dialog blocks the pointer; this stands in for the page's refresh.
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Refresh workers', hidden: true })
+      );
+      expect(
+        await within(dialog).findByText(
+          'This worker changed. Close and confirm again.'
+        )
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByRole('button', { name: 'Stop runs' })
+      ).toBeDisabled();
+      await userEvent.click(
+        within(dialog).getByRole('button', { name: 'Cancel' })
+      );
 
-    // Remove with the stop choice made before the refresh.
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Refresh workers' })
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Refresh workers' })
+      );
+      const [remove] = await screen.findAllByRole('button', {
+        name: 'Remove worker-b1',
+      });
+      await userEvent.click(remove!);
+      dialog = screen.getByRole('dialog');
+      // The open dialog blocks the pointer; this stands in for the page's refresh.
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Refresh workers', hidden: true })
+      );
+      expect(
+        await within(dialog).findByText(
+          'This worker changed. Close and confirm again.'
+        )
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByRole('button', { name: 'Remove' })
+      ).toBeDisabled();
+      expect(removals()).toHaveLength(0);
+    }
+  );
+
+  // A removal revokes the certificate, so idle workers on it are named too.
+  it('names the workers on the certificate without runs', async () => {
+    renderPage([
+      worker('worker-a1', { certificateId: 'cert-shared' }),
+      worker('worker-a2', { certificateId: 'cert-shared' }),
+    ]);
+
+    const dialog = await openRemove('worker-a1');
+
+    expect(dialog).toHaveTextContent(
+      'Workers on this certificate: worker-a1, worker-a2'
     );
-    const [remove] = await screen.findAllByRole('button', {
-      name: 'Remove worker-b1',
-    });
-    await userEvent.click(remove!);
-    dialog = screen.getByRole('dialog');
-    await userEvent.click(
-      within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
-    );
-    // The open dialog blocks the pointer; this stands in for the page's refresh.
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Refresh workers', hidden: true })
-    );
-    expect(
-      await within(dialog).findByText(
-        'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
-      )
-    ).toBeInTheDocument();
-    expect(within(dialog).queryByRole('radio')).not.toBeInTheDocument();
-    await userEvent.click(
-      within(dialog).getByRole('button', { name: 'Remove' })
-    );
-    await waitFor(() => expect(removals()).toHaveLength(1));
-    expect(removals()[0]?.body?.runs).toBe('finish');
+    expect(dialog).toHaveTextContent('It has no running runs.');
   });
 
   // Stop cancels runs by certificate. Workers that share it are named, with
@@ -1297,7 +1216,7 @@ describe('Remove', () => {
 
     expect(
       await within(dialog).findByText(
-        'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.'
+        'This worker changed. Close and confirm again.'
       )
     ).toBeInTheDocument();
     expect(
@@ -1413,7 +1332,7 @@ describe('Remove', () => {
     update([worker('worker-a1', { certificateId: 'cert-new' })]);
 
     expect(dialog).toHaveTextContent(
-      'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.'
+      'This worker changed. Close and confirm again.'
     );
     expect(
       within(dialog).getByRole('button', { name: 'Remove' })
@@ -1440,7 +1359,7 @@ describe('Remove', () => {
     update([removing('cert-2')]);
 
     expect(dialog).toHaveTextContent(
-      'This worker no longer connects with the certificate shown when this dialog opened.'
+      'This worker changed. Close and confirm again.'
     );
     expect(
       within(dialog).getByRole('button', { name: 'Stop runs' })
@@ -1701,10 +1620,12 @@ describe('Remove', () => {
     ]);
     let removal: (value: { status: number; body: unknown }) => void = () =>
       undefined;
+    let inviteDelete: (value: { status: number; body: unknown }) => void = () =>
+      undefined;
     server.del = (request) =>
-      isRemoval(request)
-        ? new Promise((resolve) => (removal = resolve))
-        : refused(503, '', 'internal_error', 'no_coordinator');
+      new Promise((resolve) =>
+        isRemoval(request) ? (removal = resolve) : (inviteDelete = resolve)
+      );
     renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
     await screen.findByText('Reusable');
     const dialog = await openRemove('worker-a1');
@@ -1717,12 +1638,26 @@ describe('Remove', () => {
 
     const cancel = within(dialog).getByRole('button', { name: 'Cancel' });
     expect(cancel).toBeDisabled();
+    expect(
+      within(dialog).queryByRole('button', { name: 'Close' })
+    ).not.toBeInTheDocument();
     await userEvent.click(cancel);
     await userEvent.keyboard('{Escape}');
     expect(screen.getByRole('dialog')).toBe(dialog);
 
     await act(async () =>
       removal({ status: 200, body: { state: 'removing' } })
+    );
+    await waitFor(() =>
+      expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(1)
+    );
+    expect(
+      within(dialog).getByRole('button', { name: 'Cancel' })
+    ).toBeDisabled();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    await act(async () =>
+      inviteDelete(refused(503, '', 'internal_error', 'no_coordinator'))
     );
 
     expect(

@@ -74,13 +74,21 @@ const SCROLLING_DIALOG =
 const SCROLLING_BODY = 'min-h-0 overflow-y-auto';
 const WRAPPING_HEADER = 'min-w-0 [overflow-wrap:anywhere]';
 
-// An open confirmation: the worker as the list showed it when the admin
-// clicked, the certificate it acts on, and its own number, so that a
-// request that ends after its dialog was closed cannot close a newer one.
-interface OpenAction {
-  kind: ActionKind;
+// What a confirmation acts on, as the list showed it when the admin
+// clicked: the row, the certificate, and the whole list, for the workers
+// on that certificate and the invite. The dialog renders its choices from
+// this alone, so a refresh can lock it but never change what it offers.
+interface Snapshot {
   worker: Worker;
   certificateId: string;
+  workers: Worker[];
+}
+
+// An open confirmation, with its own number, so that a request that ends
+// after its dialog was closed cannot close a newer one.
+interface OpenAction {
+  kind: ActionKind;
+  snapshot: Snapshot;
   request: number;
 }
 
@@ -90,11 +98,10 @@ const StartActionContext = React.createContext<
 
 /**
  * WorkerActionsHost holds the Remove and Stop runs now confirmations of the
- * workers list it wraps. A confirmation stays open, with its outcome, until
- * the admin closes it, also when a refresh drops its row, its button, or
- * the whole list. `workers` is the page's latest workers list, and
- * `available` false when the latest read of it failed: no row is current
- * then, as if the list had dropped it.
+ * workers list it wraps. A confirmation acts on the list as it was when the
+ * admin clicked, and stays open, with its outcome, until the admin closes
+ * it. `workers` is the page's latest workers list, and `available` false
+ * when its latest read failed or missed workers.
  */
 export function WorkerActionsHost({
   workers,
@@ -107,57 +114,52 @@ export function WorkerActionsHost({
 }) {
   const [open, setOpen] = React.useState<OpenAction | null>(null);
   const requests = React.useRef(0);
-  // The latest row reported for the worker, also by a read that carried
-  // errors: a replacement certificate it shows still locks the
-  // confirmation. Its runs count only when the read listed every worker.
-  const listed = open
-    ? workers.find((candidate) => candidate.id === open.worker.id)
-    : undefined;
-  const runsKnown = available && !!listed;
-  // The open confirmation keeps the row as last listed, so a row the list
-  // drops later shows its latest runs, not those from the click.
-  React.useEffect(() => {
-    if (!listed) return;
-    setOpen((current) =>
-      current && current.worker.id === listed.id && current.worker !== listed
-        ? { ...current, worker: listed }
-        : current
-    );
-  }, [listed]);
-  const start = React.useCallback((kind: ActionKind, worker: Worker) => {
-    const certificateId = worker.certificateId;
-    if (!certificateId) return;
-    setOpen({ kind, worker, certificateId, request: ++requests.current });
-  }, []);
+  const start = React.useCallback(
+    (kind: ActionKind, worker: Worker) => {
+      const certificateId = worker.certificateId;
+      if (!certificateId) return;
+      setOpen({
+        kind,
+        snapshot: { worker, certificateId, workers },
+        request: ++requests.current,
+      });
+    },
+    [workers]
+  );
   const close = React.useCallback(
     (request: number) =>
       setOpen((current) => (current?.request === request ? null : current)),
     []
   );
 
-  // The row as the latest list shows it, or as it was last listed once
-  // the list no longer has it.
-  const worker = open && (listed ?? open.worker);
+  // Whether the latest list no longer shows the worker as it was at the
+  // click: another certificate or none, a removal started since, no row,
+  // or a read that failed or missed workers.
+  const row = open
+    ? workers.find((candidate) => candidate.id === open.snapshot.worker.id)
+    : undefined;
+  const changed =
+    !!open &&
+    (!available ||
+      !row ||
+      row.certificateId !== open.snapshot.certificateId ||
+      (open.kind === 'remove' && row.removing === true));
   return (
     <StartActionContext.Provider value={start}>
       {children}
-      {open && worker && open.kind === 'remove' && (
+      {open?.kind === 'remove' && (
         <RemoveWorkerDialog
           key={open.request}
-          worker={worker}
-          listed={runsKnown}
-          certificateId={open.certificateId}
-          workers={workers}
+          snapshot={open.snapshot}
+          changed={changed}
           onClose={() => close(open.request)}
         />
       )}
-      {open && worker && open.kind === 'stop' && (
+      {open?.kind === 'stop' && (
         <StopRunsDialog
           key={open.request}
-          worker={worker}
-          listed={runsKnown}
-          certificateId={open.certificateId}
-          workers={workers}
+          snapshot={open.snapshot}
+          changed={changed}
           onClose={() => close(open.request)}
         />
       )}
@@ -360,18 +362,16 @@ function useInviteLookup(inviteId: string | undefined) {
 }
 
 /**
- * Whether a confirmation opened for `certificateId` no longer acts: the row
- * showed another certificate, or none, at any time since it opened. It
- * stays locked when the row later goes away and the page falls back to the
- * row as it was when the admin clicked.
+ * Whether a confirmation no longer acts: the list showed the worker changed
+ * while the admin could still confirm. It stays locked from then on.
  */
-function useLockedConfirmation(worker: Worker, certificateId: string): boolean {
-  const replaced = worker.certificateId !== certificateId;
-  const [locked, setLocked] = React.useState(replaced);
+function useChangedLock(changed: boolean, armed: boolean): boolean {
+  const lockNow = changed && armed;
+  const [locked, setLocked] = React.useState(lockNow);
   React.useEffect(() => {
-    if (replaced) setLocked(true);
-  }, [replaced]);
-  return replaced || locked;
+    if (lockNow) setLocked(true);
+  }, [lockNow]);
+  return locked || lockNow;
 }
 
 // Says how to try a refused request again: with a new confirmation, from
@@ -388,41 +388,31 @@ function RefusedNotice() {
   );
 }
 
-// Says that the worker joined again since the dialog opened, so the dialog
-// no longer acts: another removal needs its own confirmation.
-function ReplacedNotice() {
+// Says that the list showed the worker changed since the dialog opened, so
+// the dialog no longer acts: it needs a new confirmation.
+function ChangedNotice() {
   return (
     <p className="rounded border px-3 py-2">
-      <I18nText
-        text={
-          'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.'
-        }
-      />
+      <I18nText text="This worker changed. Close and confirm again." />
     </p>
   );
 }
 
 function RemoveWorkerDialog({
-  worker,
-  listed,
-  certificateId,
-  workers,
+  snapshot,
+  changed,
   onClose,
 }: {
-  worker: Worker;
-  /** Whether the latest list has the worker; its runs are unknown if not. */
-  listed: boolean;
-  /** The certificate the admin confirms the removal of. */
-  certificateId: string;
-  workers: Worker[];
+  snapshot: Snapshot;
+  /** Whether the list showed the worker changed since the dialog opened. */
+  changed: boolean;
   onClose: () => void;
 }) {
+  const { worker, certificateId, workers } = snapshot;
   const { ts } = useI18n();
   const { deleteInvite, removeWorker, rereadInvites, rereadWorkers } =
     useWorkerActions();
-  // The invite of the row the admin confirmed; a later row does not change
-  // what this dialog looks up or deletes.
-  const [inviteId] = React.useState(worker.inviteId);
+  const inviteId = worker.inviteId;
   // No lookup once the server accepted the removal: the retry has its
   // target already.
   const [lookupDone, setLookupDone] = React.useState(false);
@@ -440,22 +430,16 @@ function RemoveWorkerDialog({
   const [inviteToDelete, setInviteToDelete] =
     React.useState<ConfirmedInvite | null>(null);
   const [inviteError, setInviteError] = React.useState<unknown>(null);
-  const locked = useLockedConfirmation(worker, certificateId);
+  // What the admin submitted, shown in place of the choices until it ends.
+  const [submitted, setSubmitted] =
+    React.useState<SubmittedRemovalProps | null>(null);
+  const locked = useChangedLock(changed, !submitting && !accepted);
 
-  const onCertificate = listed
-    ? certificateRuns(workers, certificateId)
-    : NO_RUNS;
+  const onCertificate = certificateRuns(workers, certificateId);
   const tasks = onCertificate.runs;
-  // The choice applies only while the list shows the worker with runs.
-  // Without them, or once the list drops the row and its runs are unknown,
-  // a removal lets any run finish.
-  const hasTasks = listed && tasks.length > 0;
-  const sentRuns = hasTasks ? runs : WorkerRemovalRuns.finish;
-  // Runs that are all gone, or no longer known, take the stop choice with
-  // them; runs listed later need it chosen again.
-  React.useEffect(() => {
-    if (!hasTasks) setRuns(WorkerRemovalRuns.finish);
-  }, [hasTasks]);
+  // The choice applies only to a worker that had runs. Without them a
+  // removal lets any run handed out meanwhile finish.
+  const sentRuns = tasks.length > 0 ? runs : WorkerRemovalRuns.finish;
   const invite = lookup.invite;
   // The invite's expiry on the shared second clock, as the invites list
   // shows it: an invite that expires while the dialog is open admits no
@@ -486,6 +470,7 @@ function RemoveWorkerDialog({
           reusable && alsoDeleteInvite && invite
             ? { id: invite.id, kind: invite.kind }
             : null;
+        setSubmitted({ runs: sentRuns, invite: target });
         await removeWorker({ id: worker.id, certificateId }, sentRuns);
         setInviteToDelete(target);
         setAccepted(true);
@@ -548,6 +533,8 @@ function RemoveWorkerDialog({
       <div className="space-y-3 text-sm">
         {accepted ? (
           <AcceptedRemoval invite={inviteToDelete} />
+        ) : submitting && submitted ? (
+          <SubmittedRemoval {...submitted} />
         ) : (
           <>
             <p>
@@ -558,15 +545,8 @@ function RemoveWorkerDialog({
               />
             </p>
 
-            {!listed ? (
-              <p>
-                <I18nText
-                  text={
-                    'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
-                  }
-                />
-              </p>
-            ) : tasks.length === 0 ? (
+            <CertificateWorkers runs={onCertificate} />
+            {tasks.length === 0 ? (
               <p>
                 <I18nText text="It has no running runs." />
               </p>
@@ -582,7 +562,7 @@ function RemoveWorkerDialog({
                     values={{ count: tasks.length }}
                   />
                 </legend>
-                <CertificateRunsList runs={onCertificate} />
+                <RunsList runs={onCertificate} />
                 <RunsChoice
                   checked={runs === WorkerRemovalRuns.finish}
                   disabled={submitting}
@@ -694,7 +674,7 @@ function RemoveWorkerDialog({
               </p>
             )}
 
-            {locked && <ReplacedNotice />}
+            {locked && <ChangedNotice />}
           </>
         )}
 
@@ -726,6 +706,40 @@ function RemoveWorkerDialog({
 interface ConfirmedInvite {
   id: string;
   kind: WorkerInviteKind;
+}
+
+interface SubmittedRemovalProps {
+  runs: WorkerRemovalRuns;
+  invite: ConfirmedInvite | null;
+}
+
+// The removal under way, as the admin submitted it.
+function SubmittedRemoval({ runs, invite }: SubmittedRemovalProps) {
+  const { ts } = useI18n();
+  return (
+    <>
+      <p role="status">
+        <I18nText
+          text={
+            runs === WorkerRemovalRuns.stop
+              ? 'Stopping the runs on its certificate and removing it.'
+              : 'Removing it. Its runs finish first.'
+          }
+        />
+      </p>
+      {invite && (
+        <p>
+          <I18nText
+            text="Invite to delete: {id} ({kind})"
+            values={{
+              id: shortInviteId(invite.id),
+              kind: ts(KIND_TEXT[invite.kind]),
+            }}
+          />
+        </p>
+      )}
+    </>
+  );
 }
 
 // What an accepted removal still has to do, from what the admin confirmed
@@ -789,14 +803,13 @@ function RunsChoice({
 
 type RunningTask = NonNullable<Worker['runningTasks']>[number];
 
-// The runs on a certificate, by the listed workers that use it. Stop
-// cancels runs by certificate, so every worker on it counts.
+// The workers and runs on a certificate, as the list showed them. A removal
+// revokes the certificate, and Stop cancels its runs, so every worker on it
+// counts.
 interface CertificateRuns {
   workerIds: string[];
   runs: Array<{ workerId: string; task: RunningTask }>;
 }
-
-const NO_RUNS: CertificateRuns = { workerIds: [], runs: [] };
 
 function certificateRuns(
   workers: Worker[],
@@ -816,50 +829,49 @@ function certificateRuns(
   };
 }
 
-// The runs a stop cancels. Workers that share the certificate are named,
-// and so is the worker of each run.
-function CertificateRunsList({ runs }: { runs: CertificateRuns }) {
+// Names the workers that share the certificate, with runs or without.
+function CertificateWorkers({ runs }: { runs: CertificateRuns }) {
+  if (runs.workerIds.length < 2) return null;
+  return (
+    <p className="break-all">
+      <I18nText
+        text="Workers on this certificate: {workers}"
+        values={{ workers: runs.workerIds.join(', ') }}
+      />
+    </p>
+  );
+}
+
+// The runs on the certificate, each with its worker when several share it.
+function RunsList({ runs }: { runs: CertificateRuns }) {
   const shared = runs.workerIds.length > 1;
   return (
-    <>
-      {shared && (
-        <p className="break-all">
-          <I18nText
-            text="Workers on this certificate: {workers}"
-            values={{ workers: runs.workerIds.join(', ') }}
-          />
-        </p>
-      )}
-      <ul className="max-h-32 space-y-0.5 overflow-auto rounded border px-2 py-1 text-xs">
-        {runs.runs.map(({ workerId, task }) => (
-          <li
-            key={`${workerId}\n${runKey(task)}`}
-            className="min-w-0 break-all"
-          >
-            {shared && (
-              <div className="font-mono text-muted-foreground">{workerId}</div>
-            )}
-            <div className="flex min-w-0 flex-wrap gap-x-2">
-              <span className="font-medium">{task.dagName}</span>
-              <span className="font-mono text-muted-foreground">
-                {task.dagRunId}
-              </span>
+    <ul className="max-h-32 space-y-0.5 overflow-auto rounded border px-2 py-1 text-xs">
+      {runs.runs.map(({ workerId, task }) => (
+        <li key={`${workerId}\n${runKey(task)}`} className="min-w-0 break-all">
+          {shared && (
+            <div className="font-mono text-muted-foreground">{workerId}</div>
+          )}
+          <div className="flex min-w-0 flex-wrap gap-x-2">
+            <span className="font-medium">{task.dagName}</span>
+            <span className="font-mono text-muted-foreground">
+              {task.dagRunId}
+            </span>
+          </div>
+          {underRoot(task) && (
+            <div className="text-muted-foreground">
+              <I18nText
+                text="Root run: {dag} {run}"
+                values={{
+                  dag: task.rootDagRunName ?? '',
+                  run: task.rootDagRunId ?? '',
+                }}
+              />
             </div>
-            {underRoot(task) && (
-              <div className="text-muted-foreground">
-                <I18nText
-                  text="Root run: {dag} {run}"
-                  values={{
-                    dag: task.rootDagRunName ?? '',
-                    run: task.rootDagRunId ?? '',
-                  }}
-                />
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
-    </>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -884,35 +896,25 @@ function underRoot(task: RunningTask): boolean {
 }
 
 function StopRunsDialog({
-  worker,
-  listed,
-  certificateId,
-  workers,
+  snapshot,
+  changed,
   onClose,
 }: {
-  worker: Worker;
-  /** Whether the latest list has the worker; its runs are unknown if not. */
-  listed: boolean;
-  /** The certificate whose runs the admin confirms to stop. */
-  certificateId: string;
-  workers: Worker[];
+  snapshot: Snapshot;
+  /** Whether the list showed the worker changed since the dialog opened. */
+  changed: boolean;
   onClose: () => void;
 }) {
+  const { worker, certificateId, workers } = snapshot;
   const { ts } = useI18n();
   const { removeWorker, rereadWorkers } = useWorkerActions();
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<unknown>(null);
-  const onCertificate = listed
-    ? certificateRuns(workers, certificateId)
-    : NO_RUNS;
-  const count = onCertificate.runs.length;
-  const locked = useLockedConfirmation(worker, certificateId);
-  // Nothing to stop: the runs all ended, or the list no longer shows the
-  // worker and its runs are unknown.
-  const stoppable = listed && count > 0;
+  const onCertificate = certificateRuns(workers, certificateId);
+  const locked = useChangedLock(changed, !submitting);
 
   const submit = async () => {
-    if (submitting || locked || !stoppable) return;
+    if (submitting || locked) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -938,9 +940,8 @@ function StopRunsDialog({
       dismissModal={submitting ? () => undefined : onClose}
       cancelDisabled={submitting}
       onSubmit={() => void submit()}
-      // A refused stop needs a new confirmation with the current state, and
-      // runs that all ended leave nothing to stop.
-      submitDisabled={submitting || locked || error !== null || !stoppable}
+      // A refused stop needs a new confirmation with the current state.
+      submitDisabled={submitting || locked || error !== null}
       submitOnEnter={false}
       initialFocus="cancel"
       // A long list of runs or workers scrolls inside the dialog, so the
@@ -950,19 +951,24 @@ function StopRunsDialog({
       bodyClassName={SCROLLING_BODY}
     >
       <div className="space-y-2 text-sm">
-        <p>
-          <I18nText
-            text={
-              !listed
-                ? 'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
-                : count === 0
-                  ? 'No runs remain to stop. The worker is removed as planned.'
-                  : 'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.'
-            }
-          />
-        </p>
-        {count > 0 && <CertificateRunsList runs={onCertificate} />}
-        {locked && <ReplacedNotice />}
+        {submitting ? (
+          <p role="status">
+            <I18nText text="Stopping the runs on its certificate and removing it." />
+          </p>
+        ) : (
+          <>
+            <p>
+              <I18nText
+                text={
+                  'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.'
+                }
+              />
+            </p>
+            <CertificateWorkers runs={onCertificate} />
+            {onCertificate.runs.length > 0 && <RunsList runs={onCertificate} />}
+          </>
+        )}
+        {locked && <ChangedNotice />}
         {error !== null && (
           <WorkerError
             action

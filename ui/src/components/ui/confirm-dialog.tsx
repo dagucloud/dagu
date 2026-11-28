@@ -142,6 +142,7 @@ function ConfirmDialog({
       <DialogContent
         fullscreen={fullscreen}
         layer={layer}
+        hideCloseButton={cancelDisabled}
         className={cn(
           !fullscreen && !contentClassName && 'sm:max-w-[500px]',
           contentClassName

@@ -1319,49 +1319,40 @@ The Workers page is the list of workers on System status.
   that a `tls` or `plaintext` worker, which includes a worker on its own
   certificates, has no Remove, and how to stop one: on its host, or by
   changing what the coordinator accepts from it.
-- The confirmation and **Stop runs now** act on the `certificateId` shown
-  when the admin opened them. Once the worker connects with another
-  certificate, or none, before the admin confirms, they say so and send
-  nothing, also when that row later goes away; a new confirmation is
-  needed.
+- The confirmation and **Stop runs now** act on what the list showed when
+  the admin opened them: the worker's `certificateId`, the workers on that
+  certificate, and their runs. A refresh never changes what they offer. It
+  only locks them, with "This worker changed. Close and confirm again.",
+  when it shows another certificate or none, a removal started since, no
+  row for the worker, or a read that failed or carried coordinator errors.
+  A locked dialog sends nothing and stays locked.
 - A failed read of the workers list, or a list answer that carries
   coordinator errors, shows the page's own words in the list and raises
   no page notice. The confirmation drops the warning about
   a reusable invite once it expires, on the same clock as the invites list.
 - After a refused request, the confirmation and **Stop runs now** take
   no second one: they say to close and confirm again from the list. Enter
-  confirms only on the confirm button, and the choices hold while a
-  request is under way.
+  confirms only on the confirm button.
 - A removal answered `removing` or `removed` counts as accepted, also when
   another admin started it or the certificate was revoked already. Any
   other answer is a failure.
 - The confirmation and **Stop runs now** close by themselves when every
-  step they took succeeded. Otherwise only the admin closes them: they keep
-  their outcome when a refresh of the list changes or drops the worker's
-  row, or fails, and show a dropped row as last listed. While a request
-  is under way, which for the confirmation includes the invite delete
-  after the removal, Cancel is disabled and the dialog stays open.
-- A refresh that reports another certificate for the worker locks the
-  confirmation, also when the same read carries coordinator errors.
-- Stop cancels the runs of a certificate. The confirmation and
-  **Stop runs now** list the runs of every listed worker on the confirmed
-  certificate, naming those workers when there are several, each run by
-  its DAG and run ID and a child run also by its root run, and say that
-  a run the list does not show gets a cancel request too. With runs, the
-  confirmation offers **Remove after its runs finish** (`finish`, the
-  default) and **Stop its runs and remove** (`stop`), which sends a cancel
-  request to each run on the certificate and removes the worker within
-  two minutes, whether or not its runs have ended. Once the list shows no runs, the choice returns to
-  `finish`. **Stop runs now** says the same. A `removing` worker
-  shows
-  `Removing (<n> runs left)`, or `Removing (1 run left)`, and
-  **Stop runs now** while it has runs. Once the list shows no runs, an
-  open **Stop runs now** says none remain and sends nothing. Once the list
-  no longer shows the worker, or its latest read failed, its runs are
-  unknown: **Stop runs now** says
-  so and sends nothing, and the confirmation says so, with no runs or
-  choice, and sends `finish`. The count
-  comes from the page's existing `/workers` refresh.
+  step they took succeeded. Otherwise only the admin closes them. While a
+  request is under way, which for the confirmation includes the invite
+  delete after the removal, the dialog shows what was submitted in place
+  of its choices, and Cancel and the close button are unavailable.
+- A removal revokes the certificate and Stop cancels its runs, so both
+  dialogs name every worker on the certificate when there are several,
+  and list their runs, each by its DAG and run ID and a child run also by
+  its root run. They say that a run the list does not show gets a cancel
+  request too. With runs, the confirmation offers
+  **Remove after its runs finish** (`finish`, the default) and
+  **Stop its runs and remove** (`stop`), which sends a cancel request to
+  each run on the certificate and removes the worker within two minutes,
+  whether or not its runs have ended. **Stop runs now** says the same. A
+  `removing` worker shows `Removing (<n> runs left)`, or
+  `Removing (1 run left)`, and **Stop runs now** while it has runs. The
+  count comes from the page's existing `/workers` refresh.
 - For a worker on a reusable invite that is still active, the confirmation
   says the invite still admits new workers, names the other workers that
   use it, and offers to delete it. An invite the page's list lacks is read

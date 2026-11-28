@@ -135,8 +135,8 @@ export const workerAdminMessages = defineMessages({
     'Stop runs': 'Stop runs',
     'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.':
       'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.',
-    'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
-      'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.',
+    'This worker changed. Close and confirm again.':
+      'This worker changed. Close and confirm again.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       'The invite it joined with no longer exists, so it lets no new worker join.',
     'The coordinator runs an earlier Dagu release that cannot remove workers.':
@@ -157,10 +157,6 @@ export const workerAdminMessages = defineMessages({
       'The coordinator could not report the workers. Check the coordinator log, then refresh the page.',
     'Invite {id} was not deleted.': 'Invite {id} was not deleted.',
     'Root run: {dag} {run}': 'Root run: {dag} {run}',
-    'No runs remain to stop. The worker is removed as planned.':
-      'No runs remain to stop. The worker is removed as planned.',
-    'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.':
-      'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.',
     'The selected node has no peer token for its coordinator.':
       'The selected node has no peer token for its coordinator.',
     'Set peer.token on the selected node to the peer token of its coordinator.':
@@ -181,6 +177,10 @@ export const workerAdminMessages = defineMessages({
       'Start the coordinator, or check that the selected node can reach it, then try again.',
     'Workers on this certificate: {workers}':
       'Workers on this certificate: {workers}',
+    'Stopping the runs on its certificate and removing it.':
+      'Stopping the runs on its certificate and removing it.',
+    'Removing it. Its runs finish first.':
+      'Removing it. Its runs finish first.',
   },
   'zh-CN': {
     'Only admins can manage workers and invites.':
@@ -309,8 +309,8 @@ export const workerAdminMessages = defineMessages({
     'Stop runs': '停止运行',
     'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.':
       '其证书上的每个运行（包括列表中未显示的运行）都会收到取消请求。Worker 将在两分钟内被移除，无论这些运行是否已结束。',
-    'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
-      '此 Worker 已不再使用此对话框打开时显示的证书连接。请关闭此对话框，并为它重新确认。',
+    'This worker changed. Close and confirm again.':
+      '此 Worker 已发生变化。请关闭后重新确认。',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       '它加入时使用的邀请已不存在，因此不会再有新的 Worker 通过它加入。',
     'The coordinator runs an earlier Dagu release that cannot remove workers.':
@@ -331,10 +331,6 @@ export const workerAdminMessages = defineMessages({
       'Coordinator 无法报告 Worker。请检查 Coordinator 日志，然后刷新页面。',
     'Invite {id} was not deleted.': '邀请 {id} 未被删除。',
     'Root run: {dag} {run}': '根运行：{dag} {run}',
-    'No runs remain to stop. The worker is removed as planned.':
-      '没有可停止的运行。Worker 将按计划被移除。',
-    'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.':
-      '列表中已不再显示此 Worker，因此无法得知其运行，也无法在此停止它们。',
     'The selected node has no peer token for its coordinator.':
       '所选节点没有其 Coordinator 的 peer token。',
     'Set peer.token on the selected node to the peer token of its coordinator.':
@@ -354,6 +350,9 @@ export const workerAdminMessages = defineMessages({
     'Start the coordinator, or check that the selected node can reach it, then try again.':
       '请启动 Coordinator，或检查所选节点能否访问它，然后重试。',
     'Workers on this certificate: {workers}': '使用此证书的 Worker：{workers}',
+    'Stopping the runs on its certificate and removing it.':
+      '正在停止其证书上的运行并将其移除。',
+    'Removing it. Its runs finish first.': '正在移除。其运行会先完成。',
   },
   ja: {
     'Only admins can manage workers and invites.':
@@ -486,8 +485,8 @@ export const workerAdminMessages = defineMessages({
     'Stop runs': '実行を停止',
     'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.':
       'その証明書上の各実行（一覧に表示されないものを含む）にキャンセル要求が送られます。実行が終わったかどうかにかかわらず、ワーカーは 2 分以内に削除されます。',
-    'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
-      'このワーカーは、このダイアログを開いたときに表示した証明書で接続していません。このダイアログを閉じて、改めて確認してください。',
+    'This worker changed. Close and confirm again.':
+      'このワーカーは変更されました。閉じてから、もう一度確認してください。',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       '参加に使った招待はもう存在しないため、新しいワーカーはそれで参加できません。',
     'The coordinator runs an earlier Dagu release that cannot remove workers.':
@@ -508,10 +507,6 @@ export const workerAdminMessages = defineMessages({
       'コーディネーターがワーカーを報告できませんでした。コーディネーターのログを確認してから、ページを更新してください。',
     'Invite {id} was not deleted.': '招待 {id} は削除されませんでした。',
     'Root run: {dag} {run}': 'ルート実行: {dag} {run}',
-    'No runs remain to stop. The worker is removed as planned.':
-      '停止する実行は残っていません。ワーカーは予定どおり削除されます。',
-    'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.':
-      '一覧にこのワーカーが表示されなくなったため、その実行は不明で、ここから停止できません。',
     'The selected node has no peer token for its coordinator.':
       '選択したノードには、そのコーディネーターの peer token がありません。',
     'Set peer.token on the selected node to the peer token of its coordinator.':
@@ -532,6 +527,10 @@ export const workerAdminMessages = defineMessages({
       'コーディネーターを起動するか、選択したノードから到達できるか確認してから、もう一度お試しください。',
     'Workers on this certificate: {workers}':
       'この証明書を使うワーカー: {workers}',
+    'Stopping the runs on its certificate and removing it.':
+      'その証明書上の実行を停止し、削除しています。',
+    'Removing it. Its runs finish first.':
+      '削除しています。実行は先に完了します。',
   },
   de: {
     'Only admins can manage workers and invites.':
@@ -665,8 +664,8 @@ export const workerAdminMessages = defineMessages({
     'Stop runs': 'Läufe stoppen',
     'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.':
       'Jeder Lauf auf seinem Zertifikat erhält eine Abbruchanforderung, auch einer, den die Liste nicht zeigt. Der Worker wird innerhalb von zwei Minuten entfernt, unabhängig davon, ob sie beendet sind.',
-    'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
-      'Dieser Worker verbindet sich nicht mehr mit dem Zertifikat, das beim Öffnen dieses Dialogs angezeigt wurde. Schließen Sie diesen Dialog und bestätigen Sie für ihn erneut.',
+    'This worker changed. Close and confirm again.':
+      'Dieser Worker hat sich geändert. Schließen Sie den Dialog und bestätigen Sie erneut.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       'Die Einladung, mit der er beigetreten ist, gibt es nicht mehr, daher kann kein neuer Worker damit beitreten.',
     'The coordinator runs an earlier Dagu release that cannot remove workers.':
@@ -688,10 +687,6 @@ export const workerAdminMessages = defineMessages({
       'Der Coordinator konnte die Worker nicht melden. Prüfen Sie das Protokoll des Coordinators und laden Sie die Seite dann neu.',
     'Invite {id} was not deleted.': 'Die Einladung {id} wurde nicht gelöscht.',
     'Root run: {dag} {run}': 'Wurzellauf: {dag} {run}',
-    'No runs remain to stop. The worker is removed as planned.':
-      'Es sind keine Läufe zum Stoppen mehr übrig. Der Worker wird wie geplant entfernt.',
-    'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.':
-      'Die Liste zeigt diesen Worker nicht mehr an. Seine Läufe sind daher unbekannt und können hier nicht gestoppt werden.',
     'The selected node has no peer token for its coordinator.':
       'Der ausgewählte Knoten hat kein Peer-Token für seinen Coordinator.',
     'Set peer.token on the selected node to the peer token of its coordinator.':
@@ -712,6 +707,10 @@ export const workerAdminMessages = defineMessages({
       'Starten Sie den Coordinator, oder prüfen Sie, ob der ausgewählte Knoten ihn erreichen kann, und versuchen Sie es dann erneut.',
     'Workers on this certificate: {workers}':
       'Worker mit diesem Zertifikat: {workers}',
+    'Stopping the runs on its certificate and removing it.':
+      'Die Läufe auf seinem Zertifikat werden gestoppt, und er wird entfernt.',
+    'Removing it. Its runs finish first.':
+      'Er wird entfernt. Seine Läufe enden zuerst.',
   },
   fr: {
     'Only admins can manage workers and invites.':
@@ -845,8 +844,8 @@ export const workerAdminMessages = defineMessages({
     'Stop runs': 'Arrêter les exécutions',
     'Each run on its certificate gets a cancel request, also one the list does not show. The worker is removed within two minutes, whether or not they have ended.':
       'Chaque exécution sur son certificat reçoit une demande d’annulation, y compris une que la liste n’affiche pas. Le worker est retiré dans les deux minutes, qu’elles soient terminées ou non.',
-    'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
-      'Ce worker ne se connecte plus avec le certificat affiché à l’ouverture de cette boîte de dialogue. Fermez-la et confirmez à nouveau pour lui.',
+    'This worker changed. Close and confirm again.':
+      'Ce worker a changé. Fermez puis confirmez à nouveau.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       'L’invitation qu’il a utilisée n’existe plus, aucun nouveau worker ne peut donc rejoindre avec elle.',
     'The coordinator runs an earlier Dagu release that cannot remove workers.':
@@ -867,10 +866,6 @@ export const workerAdminMessages = defineMessages({
       'Le coordinateur n’a pas pu signaler les workers. Consultez le journal du coordinateur, puis actualisez la page.',
     'Invite {id} was not deleted.': 'L’invitation {id} n’a pas été supprimée.',
     'Root run: {dag} {run}': 'Exécution racine : {dag} {run}',
-    'No runs remain to stop. The worker is removed as planned.':
-      'Il ne reste aucune exécution à arrêter. Le worker est retiré comme prévu.',
-    'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.':
-      'La liste n’affiche plus ce worker : ses exécutions sont donc inconnues et ne peuvent pas être arrêtées d’ici.',
     'The selected node has no peer token for its coordinator.':
       'Le nœud sélectionné n’a pas de jeton de pair pour son coordinateur.',
     'Set peer.token on the selected node to the peer token of its coordinator.':
@@ -891,5 +886,9 @@ export const workerAdminMessages = defineMessages({
       'Démarrez le coordinateur, ou vérifiez que le nœud sélectionné peut le joindre, puis réessayez.',
     'Workers on this certificate: {workers}':
       'Workers sur ce certificat : {workers}',
+    'Stopping the runs on its certificate and removing it.':
+      'Arrêt des exécutions sur son certificat et retrait en cours.',
+    'Removing it. Its runs finish first.':
+      'Retrait en cours. Ses exécutions se terminent d’abord.',
   },
 });
