@@ -117,6 +117,54 @@ func (x WorkerHealthStatus) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
+// How a worker's heartbeat reaches the coordinator.
+type WorkerConnection int32
+
+const (
+	WorkerConnection_WORKER_CONNECTION_UNSPECIFIED WorkerConnection = 0 // Not recorded, as by an older coordinator
+	WorkerConnection_WORKER_CONNECTION_CERTIFICATE WorkerConnection = 1 // TLS with a worker certificate
+	WorkerConnection_WORKER_CONNECTION_TLS         WorkerConnection = 2 // TLS without a worker certificate
+	WorkerConnection_WORKER_CONNECTION_PLAINTEXT   WorkerConnection = 3 // h2c
+)
+
+// Enum value maps for WorkerConnection.
+var (
+	WorkerConnection_name = map[int32]string{
+		0: "WORKER_CONNECTION_UNSPECIFIED",
+		1: "WORKER_CONNECTION_CERTIFICATE",
+		2: "WORKER_CONNECTION_TLS",
+		3: "WORKER_CONNECTION_PLAINTEXT",
+	}
+	WorkerConnection_value = map[string]int32{
+		"WORKER_CONNECTION_UNSPECIFIED": 0,
+		"WORKER_CONNECTION_CERTIFICATE": 1,
+		"WORKER_CONNECTION_TLS":         2,
+		"WORKER_CONNECTION_PLAINTEXT":   3,
+	}
+)
+
+func (x WorkerConnection) Enum() *WorkerConnection {
+	p := new(WorkerConnection)
+	*p = x
+	return p
+}
+
+func (x WorkerConnection) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (WorkerConnection) Descriptor() protoreflect.EnumDescriptor {
+	return file_proto_coordinator_v1_coordinator_proto_enumTypes[2].Descriptor()
+}
+
+func (WorkerConnection) Type() protoreflect.EnumType {
+	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[2]
+}
+
+func (x WorkerConnection) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
 // Type of log stream.
 type LogStreamType int32
 
@@ -154,11 +202,11 @@ func (x LogStreamType) String() string {
 }
 
 func (LogStreamType) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_coordinator_v1_coordinator_proto_enumTypes[2].Descriptor()
+	return file_proto_coordinator_v1_coordinator_proto_enumTypes[3].Descriptor()
 }
 
 func (LogStreamType) Type() protoreflect.EnumType {
-	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[2]
+	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[3]
 }
 
 func (x LogStreamType) Number() protoreflect.EnumNumber {
@@ -199,11 +247,11 @@ func (x NodeKind) String() string {
 }
 
 func (NodeKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_coordinator_v1_coordinator_proto_enumTypes[3].Descriptor()
+	return file_proto_coordinator_v1_coordinator_proto_enumTypes[4].Descriptor()
 }
 
 func (NodeKind) Type() protoreflect.EnumType {
-	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[3]
+	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[4]
 }
 
 func (x NodeKind) Number() protoreflect.EnumNumber {
@@ -244,11 +292,11 @@ func (x BuiltinTLSReason) String() string {
 }
 
 func (BuiltinTLSReason) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_coordinator_v1_coordinator_proto_enumTypes[4].Descriptor()
+	return file_proto_coordinator_v1_coordinator_proto_enumTypes[5].Descriptor()
 }
 
 func (BuiltinTLSReason) Type() protoreflect.EnumType {
-	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[4]
+	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[5]
 }
 
 func (x BuiltinTLSReason) Number() protoreflect.EnumNumber {
@@ -294,11 +342,11 @@ func (x ConfigSourceKind) String() string {
 }
 
 func (ConfigSourceKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_coordinator_v1_coordinator_proto_enumTypes[5].Descriptor()
+	return file_proto_coordinator_v1_coordinator_proto_enumTypes[6].Descriptor()
 }
 
 func (ConfigSourceKind) Type() protoreflect.EnumType {
-	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[5]
+	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[6]
 }
 
 func (x ConfigSourceKind) Number() protoreflect.EnumNumber {
@@ -342,11 +390,11 @@ func (x HostEnvironment) String() string {
 }
 
 func (HostEnvironment) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_coordinator_v1_coordinator_proto_enumTypes[6].Descriptor()
+	return file_proto_coordinator_v1_coordinator_proto_enumTypes[7].Descriptor()
 }
 
 func (HostEnvironment) Type() protoreflect.EnumType {
-	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[6]
+	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[7]
 }
 
 func (x HostEnvironment) Number() protoreflect.EnumNumber {
@@ -386,11 +434,11 @@ func (x InviteKind) String() string {
 }
 
 func (InviteKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_coordinator_v1_coordinator_proto_enumTypes[7].Descriptor()
+	return file_proto_coordinator_v1_coordinator_proto_enumTypes[8].Descriptor()
 }
 
 func (InviteKind) Type() protoreflect.EnumType {
-	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[7]
+	return &file_proto_coordinator_v1_coordinator_proto_enumTypes[8]
 }
 
 func (x InviteKind) Number() protoreflect.EnumNumber {
@@ -1637,6 +1685,11 @@ type WorkerInfo struct {
 	LastHeartbeatAt int64              `protobuf:"varint,8,opt,name=last_heartbeat_at,json=lastHeartbeatAt,proto3" json:"last_heartbeat_at,omitempty"`                             // Unix timestamp of last heartbeat
 	HealthStatus    WorkerHealthStatus `protobuf:"varint,9,opt,name=health_status,json=healthStatus,proto3,enum=coordinator.v1.WorkerHealthStatus" json:"health_status,omitempty"` // Health status based on heartbeat recency
 	Version         string             `protobuf:"bytes,10,opt,name=version,proto3" json:"version,omitempty"`                                                                      // Dagu version the worker runs; empty when it reports none
+	// How the worker's last heartbeat reached the coordinator.
+	Connection WorkerConnection `protobuf:"varint,11,opt,name=connection,proto3,enum=coordinator.v1.WorkerConnection" json:"connection,omitempty"`
+	// Why a plaintext worker uses h2c: peer.insecure, no TLS source, tls
+	// failed on the network path, or older version. Empty otherwise.
+	PlaintextReason string `protobuf:"bytes,12,opt,name=plaintext_reason,json=plaintextReason,proto3" json:"plaintext_reason,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1736,6 +1789,20 @@ func (x *WorkerInfo) GetVersion() string {
 	return ""
 }
 
+func (x *WorkerInfo) GetConnection() WorkerConnection {
+	if x != nil {
+		return x.Connection
+	}
+	return WorkerConnection_WORKER_CONNECTION_UNSPECIFIED
+}
+
+func (x *WorkerInfo) GetPlaintextReason() string {
+	if x != nil {
+		return x.PlaintextReason
+	}
+	return ""
+}
+
 func (x *WorkerInfo) SetWorkerId(v string) {
 	x.WorkerId = v
 }
@@ -1776,6 +1843,14 @@ func (x *WorkerInfo) SetVersion(v string) {
 	x.Version = v
 }
 
+func (x *WorkerInfo) SetConnection(v WorkerConnection) {
+	x.Connection = v
+}
+
+func (x *WorkerInfo) SetPlaintextReason(v string) {
+	x.PlaintextReason = v
+}
+
 type WorkerInfo_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -1790,6 +1865,11 @@ type WorkerInfo_builder struct {
 	LastHeartbeatAt int64
 	HealthStatus    WorkerHealthStatus
 	Version         string
+	// How the worker's last heartbeat reached the coordinator.
+	Connection WorkerConnection
+	// Why a plaintext worker uses h2c: peer.insecure, no TLS source, tls
+	// failed on the network path, or older version. Empty otherwise.
+	PlaintextReason string
 }
 
 func (b0 WorkerInfo_builder) Build() *WorkerInfo {
@@ -1806,6 +1886,194 @@ func (b0 WorkerInfo_builder) Build() *WorkerInfo {
 	x.LastHeartbeatAt = b.LastHeartbeatAt
 	x.HealthStatus = b.HealthStatus
 	x.Version = b.Version
+	x.Connection = b.Connection
+	x.PlaintextReason = b.PlaintextReason
+	return m0
+}
+
+type GetH2CCallersRequest struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetH2CCallersRequest) Reset() {
+	*x = GetH2CCallersRequest{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetH2CCallersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetH2CCallersRequest) ProtoMessage() {}
+
+func (x *GetH2CCallersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+type GetH2CCallersRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+}
+
+func (b0 GetH2CCallersRequest_builder) Build() *GetH2CCallersRequest {
+	m0 := &GetH2CCallersRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	return m0
+}
+
+type GetH2CCallersResponse struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Callers       []*H2CCaller           `protobuf:"bytes,1,rep,name=callers,proto3" json:"callers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetH2CCallersResponse) Reset() {
+	*x = GetH2CCallersResponse{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetH2CCallersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetH2CCallersResponse) ProtoMessage() {}
+
+func (x *GetH2CCallersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GetH2CCallersResponse) GetCallers() []*H2CCaller {
+	if x != nil {
+		return x.Callers
+	}
+	return nil
+}
+
+func (x *GetH2CCallersResponse) SetCallers(v []*H2CCaller) {
+	x.Callers = v
+}
+
+type GetH2CCallersResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Callers []*H2CCaller
+}
+
+func (b0 GetH2CCallersResponse_builder) Build() *GetH2CCallersResponse {
+	m0 := &GetH2CCallersResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Callers = b.Callers
+	return m0
+}
+
+// A host that called the coordinator over h2c, with one reason.
+type H2CCaller struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Host          string                 `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`                                  // Remote host, without the port
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`                              // As WorkerInfo.plaintext_reason
+	LastCallAt    int64                  `protobuf:"varint,3,opt,name=last_call_at,json=lastCallAt,proto3" json:"last_call_at,omitempty"` // Unix timestamp in seconds of its last call
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *H2CCaller) Reset() {
+	*x = H2CCaller{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *H2CCaller) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*H2CCaller) ProtoMessage() {}
+
+func (x *H2CCaller) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *H2CCaller) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *H2CCaller) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *H2CCaller) GetLastCallAt() int64 {
+	if x != nil {
+		return x.LastCallAt
+	}
+	return 0
+}
+
+func (x *H2CCaller) SetHost(v string) {
+	x.Host = v
+}
+
+func (x *H2CCaller) SetReason(v string) {
+	x.Reason = v
+}
+
+func (x *H2CCaller) SetLastCallAt(v int64) {
+	x.LastCallAt = v
+}
+
+type H2CCaller_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Host       string
+	Reason     string
+	LastCallAt int64
+}
+
+func (b0 H2CCaller_builder) Build() *H2CCaller {
+	m0 := &H2CCaller{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Host = b.Host
+	x.Reason = b.Reason
+	x.LastCallAt = b.LastCallAt
 	return m0
 }
 
@@ -1825,7 +2093,7 @@ type HeartbeatRequest struct {
 
 func (x *HeartbeatRequest) Reset() {
 	*x = HeartbeatRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[8]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1837,7 +2105,7 @@ func (x *HeartbeatRequest) String() string {
 func (*HeartbeatRequest) ProtoMessage() {}
 
 func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[8]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1993,7 +2261,7 @@ type MachineSample struct {
 
 func (x *MachineSample) Reset() {
 	*x = MachineSample{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[9]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2005,7 +2273,7 @@ func (x *MachineSample) String() string {
 func (*MachineSample) ProtoMessage() {}
 
 func (x *MachineSample) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[9]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2214,7 +2482,7 @@ type MachineUsage struct {
 
 func (x *MachineUsage) Reset() {
 	*x = MachineUsage{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[10]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2226,7 +2494,7 @@ func (x *MachineUsage) String() string {
 func (*MachineUsage) ProtoMessage() {}
 
 func (x *MachineUsage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[10]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2337,7 +2605,7 @@ type MachineLoad struct {
 
 func (x *MachineLoad) Reset() {
 	*x = MachineLoad{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[11]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2349,7 +2617,7 @@ func (x *MachineLoad) String() string {
 func (*MachineLoad) ProtoMessage() {}
 
 func (x *MachineLoad) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[11]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2423,7 +2691,7 @@ type HeartbeatResponse struct {
 
 func (x *HeartbeatResponse) Reset() {
 	*x = HeartbeatResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[12]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2435,7 +2703,7 @@ func (x *HeartbeatResponse) String() string {
 func (*HeartbeatResponse) ProtoMessage() {}
 
 func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[12]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2484,7 +2752,7 @@ type AckTaskClaimRequest struct {
 
 func (x *AckTaskClaimRequest) Reset() {
 	*x = AckTaskClaimRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[13]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2496,7 +2764,7 @@ func (x *AckTaskClaimRequest) String() string {
 func (*AckTaskClaimRequest) ProtoMessage() {}
 
 func (x *AckTaskClaimRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[13]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2568,7 +2836,7 @@ type AckTaskClaimResponse struct {
 
 func (x *AckTaskClaimResponse) Reset() {
 	*x = AckTaskClaimResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[14]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2580,7 +2848,7 @@ func (x *AckTaskClaimResponse) String() string {
 func (*AckTaskClaimResponse) ProtoMessage() {}
 
 func (x *AckTaskClaimResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[14]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2638,7 +2906,7 @@ type ClaimAgentSessionCleanupRequest struct {
 
 func (x *ClaimAgentSessionCleanupRequest) Reset() {
 	*x = ClaimAgentSessionCleanupRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[15]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2650,7 +2918,7 @@ func (x *ClaimAgentSessionCleanupRequest) String() string {
 func (*ClaimAgentSessionCleanupRequest) ProtoMessage() {}
 
 func (x *ClaimAgentSessionCleanupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[15]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2703,7 +2971,7 @@ type ClaimAgentSessionCleanupResponse struct {
 
 func (x *ClaimAgentSessionCleanupResponse) Reset() {
 	*x = ClaimAgentSessionCleanupResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[16]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2715,7 +2983,7 @@ func (x *ClaimAgentSessionCleanupResponse) String() string {
 func (*ClaimAgentSessionCleanupResponse) ProtoMessage() {}
 
 func (x *ClaimAgentSessionCleanupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[16]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2867,7 +3135,7 @@ type CompleteAgentSessionCleanupRequest struct {
 
 func (x *CompleteAgentSessionCleanupRequest) Reset() {
 	*x = CompleteAgentSessionCleanupRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[17]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2879,7 +3147,7 @@ func (x *CompleteAgentSessionCleanupRequest) String() string {
 func (*CompleteAgentSessionCleanupRequest) ProtoMessage() {}
 
 func (x *CompleteAgentSessionCleanupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[17]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2962,7 +3230,7 @@ type CompleteAgentSessionCleanupResponse struct {
 
 func (x *CompleteAgentSessionCleanupResponse) Reset() {
 	*x = CompleteAgentSessionCleanupResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[18]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2974,7 +3242,7 @@ func (x *CompleteAgentSessionCleanupResponse) String() string {
 func (*CompleteAgentSessionCleanupResponse) ProtoMessage() {}
 
 func (x *CompleteAgentSessionCleanupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[18]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3008,7 +3276,7 @@ type RunHeartbeatRequest struct {
 
 func (x *RunHeartbeatRequest) Reset() {
 	*x = RunHeartbeatRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[19]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3020,7 +3288,7 @@ func (x *RunHeartbeatRequest) String() string {
 func (*RunHeartbeatRequest) ProtoMessage() {}
 
 func (x *RunHeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[19]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3091,7 +3359,7 @@ type RunHeartbeatResponse struct {
 
 func (x *RunHeartbeatResponse) Reset() {
 	*x = RunHeartbeatResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[20]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3103,7 +3371,7 @@ func (x *RunHeartbeatResponse) String() string {
 func (*RunHeartbeatResponse) ProtoMessage() {}
 
 func (x *RunHeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[20]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3149,7 +3417,7 @@ type CancelledRun struct {
 
 func (x *CancelledRun) Reset() {
 	*x = CancelledRun{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[21]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3161,7 +3429,7 @@ func (x *CancelledRun) String() string {
 func (*CancelledRun) ProtoMessage() {}
 
 func (x *CancelledRun) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[21]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3209,7 +3477,7 @@ type WorkerStats struct {
 
 func (x *WorkerStats) Reset() {
 	*x = WorkerStats{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[22]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3221,7 +3489,7 @@ func (x *WorkerStats) String() string {
 func (*WorkerStats) ProtoMessage() {}
 
 func (x *WorkerStats) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[22]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3300,7 +3568,7 @@ type RunningTask struct {
 
 func (x *RunningTask) Reset() {
 	*x = RunningTask{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[23]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3312,7 +3580,7 @@ func (x *RunningTask) String() string {
 func (*RunningTask) ProtoMessage() {}
 
 func (x *RunningTask) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[23]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3453,7 +3721,7 @@ type ReportStatusRequest struct {
 
 func (x *ReportStatusRequest) Reset() {
 	*x = ReportStatusRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[24]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3465,7 +3733,7 @@ func (x *ReportStatusRequest) String() string {
 func (*ReportStatusRequest) ProtoMessage() {}
 
 func (x *ReportStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[24]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3575,7 +3843,7 @@ type ReportStatusResponse struct {
 
 func (x *ReportStatusResponse) Reset() {
 	*x = ReportStatusResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[25]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3587,7 +3855,7 @@ func (x *ReportStatusResponse) String() string {
 func (*ReportStatusResponse) ProtoMessage() {}
 
 func (x *ReportStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[25]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3646,7 +3914,7 @@ type DAGRunStatusProto struct {
 
 func (x *DAGRunStatusProto) Reset() {
 	*x = DAGRunStatusProto{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[26]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3658,7 +3926,7 @@ func (x *DAGRunStatusProto) String() string {
 func (*DAGRunStatusProto) ProtoMessage() {}
 
 func (x *DAGRunStatusProto) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[26]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3722,7 +3990,7 @@ type LogChunk struct {
 
 func (x *LogChunk) Reset() {
 	*x = LogChunk{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[27]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3734,7 +4002,7 @@ func (x *LogChunk) String() string {
 func (*LogChunk) ProtoMessage() {}
 
 func (x *LogChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[27]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3970,7 +4238,7 @@ type StreamLogsResponse struct {
 
 func (x *StreamLogsResponse) Reset() {
 	*x = StreamLogsResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[28]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3982,7 +4250,7 @@ func (x *StreamLogsResponse) String() string {
 func (*StreamLogsResponse) ProtoMessage() {}
 
 func (x *StreamLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[28]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4069,7 +4337,7 @@ type ArtifactChunk struct {
 
 func (x *ArtifactChunk) Reset() {
 	*x = ArtifactChunk{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[29]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4081,7 +4349,7 @@ func (x *ArtifactChunk) String() string {
 func (*ArtifactChunk) ProtoMessage() {}
 
 func (x *ArtifactChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[29]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4279,7 +4547,7 @@ type StreamArtifactsResponse struct {
 
 func (x *StreamArtifactsResponse) Reset() {
 	*x = StreamArtifactsResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[30]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4291,7 +4559,7 @@ func (x *StreamArtifactsResponse) String() string {
 func (*StreamArtifactsResponse) ProtoMessage() {}
 
 func (x *StreamArtifactsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[30]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4367,7 +4635,7 @@ type WorkspaceBundle struct {
 
 func (x *WorkspaceBundle) Reset() {
 	*x = WorkspaceBundle{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[31]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4379,7 +4647,7 @@ func (x *WorkspaceBundle) String() string {
 func (*WorkspaceBundle) ProtoMessage() {}
 
 func (x *WorkspaceBundle) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[31]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4480,7 +4748,7 @@ type WorkspaceBundleChunk struct {
 
 func (x *WorkspaceBundleChunk) Reset() {
 	*x = WorkspaceBundleChunk{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[32]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4492,7 +4760,7 @@ func (x *WorkspaceBundleChunk) String() string {
 func (*WorkspaceBundleChunk) ProtoMessage() {}
 
 func (x *WorkspaceBundleChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[32]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4592,7 +4860,7 @@ type PutWorkspaceBundleResponse struct {
 
 func (x *PutWorkspaceBundleResponse) Reset() {
 	*x = PutWorkspaceBundleResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[33]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4604,7 +4872,7 @@ func (x *PutWorkspaceBundleResponse) String() string {
 func (*PutWorkspaceBundleResponse) ProtoMessage() {}
 
 func (x *PutWorkspaceBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[33]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4663,7 +4931,7 @@ type HasWorkspaceBundleRequest struct {
 
 func (x *HasWorkspaceBundleRequest) Reset() {
 	*x = HasWorkspaceBundleRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[34]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4675,7 +4943,7 @@ func (x *HasWorkspaceBundleRequest) String() string {
 func (*HasWorkspaceBundleRequest) ProtoMessage() {}
 
 func (x *HasWorkspaceBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[34]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4721,7 +4989,7 @@ type HasWorkspaceBundleResponse struct {
 
 func (x *HasWorkspaceBundleResponse) Reset() {
 	*x = HasWorkspaceBundleResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[35]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4733,7 +5001,7 @@ func (x *HasWorkspaceBundleResponse) String() string {
 func (*HasWorkspaceBundleResponse) ProtoMessage() {}
 
 func (x *HasWorkspaceBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[35]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4779,7 +5047,7 @@ type GetWorkspaceBundleRequest struct {
 
 func (x *GetWorkspaceBundleRequest) Reset() {
 	*x = GetWorkspaceBundleRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[36]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4791,7 +5059,7 @@ func (x *GetWorkspaceBundleRequest) String() string {
 func (*GetWorkspaceBundleRequest) ProtoMessage() {}
 
 func (x *GetWorkspaceBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[36]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4842,7 +5110,7 @@ type GetDAGRunStatusRequest struct {
 
 func (x *GetDAGRunStatusRequest) Reset() {
 	*x = GetDAGRunStatusRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[37]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4854,7 +5122,7 @@ func (x *GetDAGRunStatusRequest) String() string {
 func (*GetDAGRunStatusRequest) ProtoMessage() {}
 
 func (x *GetDAGRunStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[37]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4943,7 +5211,7 @@ type GetDAGRunStatusResponse struct {
 
 func (x *GetDAGRunStatusResponse) Reset() {
 	*x = GetDAGRunStatusResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[38]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4955,7 +5223,7 @@ func (x *GetDAGRunStatusResponse) String() string {
 func (*GetDAGRunStatusResponse) ProtoMessage() {}
 
 func (x *GetDAGRunStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[38]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5042,7 +5310,7 @@ type RequestCancelRequest struct {
 
 func (x *RequestCancelRequest) Reset() {
 	*x = RequestCancelRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[39]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5054,7 +5322,7 @@ func (x *RequestCancelRequest) String() string {
 func (*RequestCancelRequest) ProtoMessage() {}
 
 func (x *RequestCancelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[39]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5141,7 +5409,7 @@ type RequestCancelResponse struct {
 
 func (x *RequestCancelResponse) Reset() {
 	*x = RequestCancelResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[40]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5153,7 +5421,7 @@ func (x *RequestCancelResponse) String() string {
 func (*RequestCancelResponse) ProtoMessage() {}
 
 func (x *RequestCancelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[40]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5213,7 +5481,7 @@ type StateRef struct {
 
 func (x *StateRef) Reset() {
 	*x = StateRef{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[41]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5225,7 +5493,7 @@ func (x *StateRef) String() string {
 func (*StateRef) ProtoMessage() {}
 
 func (x *StateRef) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[41]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5299,7 +5567,7 @@ type StateUpdateSource struct {
 
 func (x *StateUpdateSource) Reset() {
 	*x = StateUpdateSource{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[42]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5311,7 +5579,7 @@ func (x *StateUpdateSource) String() string {
 func (*StateUpdateSource) ProtoMessage() {}
 
 func (x *StateUpdateSource) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[42]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5401,7 +5669,7 @@ type StateEntry struct {
 
 func (x *StateEntry) Reset() {
 	*x = StateEntry{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[43]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5413,7 +5681,7 @@ func (x *StateEntry) String() string {
 func (*StateEntry) ProtoMessage() {}
 
 func (x *StateEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[43]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5561,7 +5829,7 @@ type GetStateRequest struct {
 
 func (x *GetStateRequest) Reset() {
 	*x = GetStateRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[44]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5573,7 +5841,7 @@ func (x *GetStateRequest) String() string {
 func (*GetStateRequest) ProtoMessage() {}
 
 func (x *GetStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[44]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5630,7 +5898,7 @@ type GetStateResponse struct {
 
 func (x *GetStateResponse) Reset() {
 	*x = GetStateResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[45]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5642,7 +5910,7 @@ func (x *GetStateResponse) String() string {
 func (*GetStateResponse) ProtoMessage() {}
 
 func (x *GetStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[45]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5716,7 +5984,7 @@ type PutStateRequest struct {
 
 func (x *PutStateRequest) Reset() {
 	*x = PutStateRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[46]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5728,7 +5996,7 @@ func (x *PutStateRequest) String() string {
 func (*PutStateRequest) ProtoMessage() {}
 
 func (x *PutStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[46]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5863,7 +6131,7 @@ type PutStateResponse struct {
 
 func (x *PutStateResponse) Reset() {
 	*x = PutStateResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[47]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5875,7 +6143,7 @@ func (x *PutStateResponse) String() string {
 func (*PutStateResponse) ProtoMessage() {}
 
 func (x *PutStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[47]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5931,7 +6199,7 @@ type DeleteStateRequest struct {
 
 func (x *DeleteStateRequest) Reset() {
 	*x = DeleteStateRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[48]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5943,7 +6211,7 @@ func (x *DeleteStateRequest) String() string {
 func (*DeleteStateRequest) ProtoMessage() {}
 
 func (x *DeleteStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[48]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5999,7 +6267,7 @@ type DeleteStateResponse struct {
 
 func (x *DeleteStateResponse) Reset() {
 	*x = DeleteStateResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[49]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6011,7 +6279,7 @@ func (x *DeleteStateResponse) String() string {
 func (*DeleteStateResponse) ProtoMessage() {}
 
 func (x *DeleteStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[49]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6059,7 +6327,7 @@ type ListStateRequest struct {
 
 func (x *ListStateRequest) Reset() {
 	*x = ListStateRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[50]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6071,7 +6339,7 @@ func (x *ListStateRequest) String() string {
 func (*ListStateRequest) ProtoMessage() {}
 
 func (x *ListStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[50]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6155,7 +6423,7 @@ type ListStateResponse struct {
 
 func (x *ListStateResponse) Reset() {
 	*x = ListStateResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[51]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6167,7 +6435,7 @@ func (x *ListStateResponse) String() string {
 func (*ListStateResponse) ProtoMessage() {}
 
 func (x *ListStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[51]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6216,7 +6484,7 @@ type GetDAGRequest struct {
 
 func (x *GetDAGRequest) Reset() {
 	*x = GetDAGRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[52]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6228,7 +6496,7 @@ func (x *GetDAGRequest) String() string {
 func (*GetDAGRequest) ProtoMessage() {}
 
 func (x *GetDAGRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[52]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6274,7 +6542,7 @@ type GetDAGResponse struct {
 
 func (x *GetDAGResponse) Reset() {
 	*x = GetDAGResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[53]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6286,7 +6554,7 @@ func (x *GetDAGResponse) String() string {
 func (*GetDAGResponse) ProtoMessage() {}
 
 func (x *GetDAGResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[53]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6355,7 +6623,7 @@ type ResolveSecretReferenceRequest struct {
 
 func (x *ResolveSecretReferenceRequest) Reset() {
 	*x = ResolveSecretReferenceRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[54]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6367,7 +6635,7 @@ func (x *ResolveSecretReferenceRequest) String() string {
 func (*ResolveSecretReferenceRequest) ProtoMessage() {}
 
 func (x *ResolveSecretReferenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[54]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6518,7 +6786,7 @@ type ResolveSecretReferenceResponse struct {
 
 func (x *ResolveSecretReferenceResponse) Reset() {
 	*x = ResolveSecretReferenceResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[55]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6530,7 +6798,7 @@ func (x *ResolveSecretReferenceResponse) String() string {
 func (*ResolveSecretReferenceResponse) ProtoMessage() {}
 
 func (x *ResolveSecretReferenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[55]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6580,7 +6848,7 @@ type ResolveRuntimeProfileRequest struct {
 
 func (x *ResolveRuntimeProfileRequest) Reset() {
 	*x = ResolveRuntimeProfileRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[56]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6592,7 +6860,7 @@ func (x *ResolveRuntimeProfileRequest) String() string {
 func (*ResolveRuntimeProfileRequest) ProtoMessage() {}
 
 func (x *ResolveRuntimeProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[56]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6704,7 +6972,7 @@ type RuntimeProfileEntry struct {
 
 func (x *RuntimeProfileEntry) Reset() {
 	*x = RuntimeProfileEntry{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[57]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6716,7 +6984,7 @@ func (x *RuntimeProfileEntry) String() string {
 func (*RuntimeProfileEntry) ProtoMessage() {}
 
 func (x *RuntimeProfileEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[57]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6788,7 +7056,7 @@ type RuntimeProfileLayer struct {
 
 func (x *RuntimeProfileLayer) Reset() {
 	*x = RuntimeProfileLayer{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[58]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6800,7 +7068,7 @@ func (x *RuntimeProfileLayer) String() string {
 func (*RuntimeProfileLayer) ProtoMessage() {}
 
 func (x *RuntimeProfileLayer) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[58]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6859,7 +7127,7 @@ type ResolveRuntimeProfileResponse struct {
 
 func (x *ResolveRuntimeProfileResponse) Reset() {
 	*x = ResolveRuntimeProfileResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[59]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6871,7 +7139,7 @@ func (x *ResolveRuntimeProfileResponse) String() string {
 func (*ResolveRuntimeProfileResponse) ProtoMessage() {}
 
 func (x *ResolveRuntimeProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[59]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6965,7 +7233,7 @@ type ResolveConnectionTokenRequest struct {
 
 func (x *ResolveConnectionTokenRequest) Reset() {
 	*x = ResolveConnectionTokenRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[60]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6977,7 +7245,7 @@ func (x *ResolveConnectionTokenRequest) String() string {
 func (*ResolveConnectionTokenRequest) ProtoMessage() {}
 
 func (x *ResolveConnectionTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[60]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7132,7 +7400,7 @@ type ResolveConnectionTokenResponse struct {
 
 func (x *ResolveConnectionTokenResponse) Reset() {
 	*x = ResolveConnectionTokenResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[61]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7144,7 +7412,7 @@ func (x *ResolveConnectionTokenResponse) String() string {
 func (*ResolveConnectionTokenResponse) ProtoMessage() {}
 
 func (x *ResolveConnectionTokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[61]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7233,7 +7501,7 @@ type ConnectionBinding struct {
 
 func (x *ConnectionBinding) Reset() {
 	*x = ConnectionBinding{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[62]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7245,7 +7513,7 @@ func (x *ConnectionBinding) String() string {
 func (*ConnectionBinding) ProtoMessage() {}
 
 func (x *ConnectionBinding) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[62]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7343,7 +7611,7 @@ type ConnectionService struct {
 
 func (x *ConnectionService) Reset() {
 	*x = ConnectionService{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[63]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7355,7 +7623,7 @@ func (x *ConnectionService) String() string {
 func (*ConnectionService) ProtoMessage() {}
 
 func (x *ConnectionService) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[63]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7420,7 +7688,7 @@ type ResolveNodesRequest struct {
 
 func (x *ResolveNodesRequest) Reset() {
 	*x = ResolveNodesRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[64]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7432,7 +7700,7 @@ func (x *ResolveNodesRequest) String() string {
 func (*ResolveNodesRequest) ProtoMessage() {}
 
 func (x *ResolveNodesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[64]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7548,7 +7816,7 @@ type ResolveNodesResponse struct {
 
 func (x *ResolveNodesResponse) Reset() {
 	*x = ResolveNodesResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[65]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7560,7 +7828,7 @@ func (x *ResolveNodesResponse) String() string {
 func (*ResolveNodesResponse) ProtoMessage() {}
 
 func (x *ResolveNodesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[65]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7656,7 +7924,7 @@ type ResolvedNode struct {
 
 func (x *ResolvedNode) Reset() {
 	*x = ResolvedNode{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[66]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7668,7 +7936,7 @@ func (x *ResolvedNode) String() string {
 func (*ResolvedNode) ProtoMessage() {}
 
 func (x *ResolvedNode) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[66]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7950,7 +8218,7 @@ type TrustedHostKey struct {
 
 func (x *TrustedHostKey) Reset() {
 	*x = TrustedHostKey{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[67]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7962,7 +8230,7 @@ func (x *TrustedHostKey) String() string {
 func (*TrustedHostKey) ProtoMessage() {}
 
 func (x *TrustedHostKey) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[67]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8032,7 +8300,7 @@ type GetJoinReadinessRequest struct {
 
 func (x *GetJoinReadinessRequest) Reset() {
 	*x = GetJoinReadinessRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[68]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8044,7 +8312,7 @@ func (x *GetJoinReadinessRequest) String() string {
 func (*GetJoinReadinessRequest) ProtoMessage() {}
 
 func (x *GetJoinReadinessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[68]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8094,7 +8362,7 @@ type GetJoinReadinessResponse struct {
 
 func (x *GetJoinReadinessResponse) Reset() {
 	*x = GetJoinReadinessResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[69]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8106,7 +8374,7 @@ func (x *GetJoinReadinessResponse) String() string {
 func (*GetJoinReadinessResponse) ProtoMessage() {}
 
 func (x *GetJoinReadinessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[69]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8303,7 +8571,7 @@ type ConfigSource struct {
 
 func (x *ConfigSource) Reset() {
 	*x = ConfigSource{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[70]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8315,7 +8583,7 @@ func (x *ConfigSource) String() string {
 func (*ConfigSource) ProtoMessage() {}
 
 func (x *ConfigSource) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[70]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8380,7 +8648,7 @@ type CreateInviteRequest struct {
 
 func (x *CreateInviteRequest) Reset() {
 	*x = CreateInviteRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[71]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8392,7 +8660,7 @@ func (x *CreateInviteRequest) String() string {
 func (*CreateInviteRequest) ProtoMessage() {}
 
 func (x *CreateInviteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[71]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8479,7 +8747,7 @@ type CreateInviteResponse struct {
 
 func (x *CreateInviteResponse) Reset() {
 	*x = CreateInviteResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[72]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8491,7 +8759,7 @@ func (x *CreateInviteResponse) String() string {
 func (*CreateInviteResponse) ProtoMessage() {}
 
 func (x *CreateInviteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[72]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8559,7 +8827,7 @@ type ListInvitesRequest struct {
 
 func (x *ListInvitesRequest) Reset() {
 	*x = ListInvitesRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[73]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8571,7 +8839,7 @@ func (x *ListInvitesRequest) String() string {
 func (*ListInvitesRequest) ProtoMessage() {}
 
 func (x *ListInvitesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[73]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8603,7 +8871,7 @@ type ListInvitesResponse struct {
 
 func (x *ListInvitesResponse) Reset() {
 	*x = ListInvitesResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[74]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8615,7 +8883,7 @@ func (x *ListInvitesResponse) String() string {
 func (*ListInvitesResponse) ProtoMessage() {}
 
 func (x *ListInvitesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[74]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8660,7 +8928,7 @@ type DeleteInviteRequest struct {
 
 func (x *DeleteInviteRequest) Reset() {
 	*x = DeleteInviteRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[75]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8672,7 +8940,7 @@ func (x *DeleteInviteRequest) String() string {
 func (*DeleteInviteRequest) ProtoMessage() {}
 
 func (x *DeleteInviteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[75]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8716,7 +8984,7 @@ type DeleteInviteResponse struct {
 
 func (x *DeleteInviteResponse) Reset() {
 	*x = DeleteInviteResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[76]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8728,7 +8996,7 @@ func (x *DeleteInviteResponse) String() string {
 func (*DeleteInviteResponse) ProtoMessage() {}
 
 func (x *DeleteInviteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[76]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8768,7 +9036,7 @@ type InviteRecord struct {
 
 func (x *InviteRecord) Reset() {
 	*x = InviteRecord{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[77]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8780,7 +9048,7 @@ func (x *InviteRecord) String() string {
 func (*InviteRecord) ProtoMessage() {}
 
 func (x *InviteRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[77]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8922,7 +9190,7 @@ type EnrollRequest struct {
 
 func (x *EnrollRequest) Reset() {
 	*x = EnrollRequest{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[78]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8934,7 +9202,7 @@ func (x *EnrollRequest) String() string {
 func (*EnrollRequest) ProtoMessage() {}
 
 func (x *EnrollRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[78]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9037,7 +9305,7 @@ type EnrollResponse struct {
 
 func (x *EnrollResponse) Reset() {
 	*x = EnrollResponse{}
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[79]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9049,7 +9317,7 @@ func (x *EnrollResponse) String() string {
 func (*EnrollResponse) ProtoMessage() {}
 
 func (x *EnrollResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[79]
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9193,7 +9461,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x16_base_config_workspace\"\x13\n" +
 	"\x11GetWorkersRequest\"J\n" +
 	"\x12GetWorkersResponse\x124\n" +
-	"\aworkers\x18\x01 \x03(\v2\x1a.coordinator.v1.WorkerInfoR\aworkers\"\xfd\x03\n" +
+	"\aworkers\x18\x01 \x03(\v2\x1a.coordinator.v1.WorkerInfoR\aworkers\"\xea\x04\n" +
 	"\n" +
 	"WorkerInfo\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1b\n" +
@@ -9206,10 +9474,22 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x11last_heartbeat_at\x18\b \x01(\x03R\x0flastHeartbeatAt\x12G\n" +
 	"\rhealth_status\x18\t \x01(\x0e2\".coordinator.v1.WorkerHealthStatusR\fhealthStatus\x12\x18\n" +
 	"\aversion\x18\n" +
-	" \x01(\tR\aversion\x1a9\n" +
+	" \x01(\tR\aversion\x12@\n" +
+	"\n" +
+	"connection\x18\v \x01(\x0e2 .coordinator.v1.WorkerConnectionR\n" +
+	"connection\x12)\n" +
+	"\x10plaintext_reason\x18\f \x01(\tR\x0fplaintextReason\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf7\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x16\n" +
+	"\x14GetH2CCallersRequest\"L\n" +
+	"\x15GetH2CCallersResponse\x123\n" +
+	"\acallers\x18\x01 \x03(\v2\x19.coordinator.v1.H2CCallerR\acallers\"Y\n" +
+	"\tH2CCaller\x12\x12\n" +
+	"\x04host\x18\x01 \x01(\tR\x04host\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12 \n" +
+	"\flast_call_at\x18\x03 \x01(\x03R\n" +
+	"lastCallAt\"\xf7\x02\n" +
 	"\x10HeartbeatRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12D\n" +
 	"\x06labels\x18\x02 \x03(\v2,.coordinator.v1.HeartbeatRequest.LabelsEntryR\x06labels\x121\n" +
@@ -9625,7 +9905,12 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	" WORKER_HEALTH_STATUS_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cWORKER_HEALTH_STATUS_HEALTHY\x10\x01\x12 \n" +
 	"\x1cWORKER_HEALTH_STATUS_WARNING\x10\x02\x12\"\n" +
-	"\x1eWORKER_HEALTH_STATUS_UNHEALTHY\x10\x03*\x87\x01\n" +
+	"\x1eWORKER_HEALTH_STATUS_UNHEALTHY\x10\x03*\x94\x01\n" +
+	"\x10WorkerConnection\x12!\n" +
+	"\x1dWORKER_CONNECTION_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dWORKER_CONNECTION_CERTIFICATE\x10\x01\x12\x19\n" +
+	"\x15WORKER_CONNECTION_TLS\x10\x02\x12\x1f\n" +
+	"\x1bWORKER_CONNECTION_PLAINTEXT\x10\x03*\x87\x01\n" +
 	"\rLogStreamType\x12\x1f\n" +
 	"\x1bLOG_STREAM_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16LOG_STREAM_TYPE_STDOUT\x10\x01\x12\x1a\n" +
@@ -9654,12 +9939,13 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"InviteKind\x12\x1b\n" +
 	"\x17INVITE_KIND_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16INVITE_KIND_SINGLE_USE\x10\x01\x12\x18\n" +
-	"\x14INVITE_KIND_REUSABLE\x10\x022\xa5\x16\n" +
+	"\x14INVITE_KIND_REUSABLE\x10\x022\x83\x17\n" +
 	"\x12CoordinatorService\x12A\n" +
 	"\x04Poll\x12\x1b.coordinator.v1.PollRequest\x1a\x1c.coordinator.v1.PollResponse\x12M\n" +
 	"\bDispatch\x12\x1f.coordinator.v1.DispatchRequest\x1a .coordinator.v1.DispatchResponse\x12S\n" +
 	"\n" +
-	"GetWorkers\x12!.coordinator.v1.GetWorkersRequest\x1a\".coordinator.v1.GetWorkersResponse\x12P\n" +
+	"GetWorkers\x12!.coordinator.v1.GetWorkersRequest\x1a\".coordinator.v1.GetWorkersResponse\x12\\\n" +
+	"\rGetH2CCallers\x12$.coordinator.v1.GetH2CCallersRequest\x1a%.coordinator.v1.GetH2CCallersResponse\x12P\n" +
 	"\tHeartbeat\x12 .coordinator.v1.HeartbeatRequest\x1a!.coordinator.v1.HeartbeatResponse\x12Y\n" +
 	"\fAckTaskClaim\x12#.coordinator.v1.AckTaskClaimRequest\x1a$.coordinator.v1.AckTaskClaimResponse\x12}\n" +
 	"\x18ClaimAgentSessionCleanup\x12/.coordinator.v1.ClaimAgentSessionCleanupRequest\x1a0.coordinator.v1.ClaimAgentSessionCleanupResponse\x12\x86\x01\n" +
@@ -9689,218 +9975,226 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\fDeleteInvite\x12#.coordinator.v1.DeleteInviteRequest\x1a$.coordinator.v1.DeleteInviteResponse\x12G\n" +
 	"\x06Enroll\x12\x1d.coordinator.v1.EnrollRequest\x1a\x1e.coordinator.v1.EnrollResponseBAZ?github.com/dagucloud/dagu/v2/proto/coordinator/v1;coordinatorv1b\x06proto3"
 
-var file_proto_coordinator_v1_coordinator_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
-var file_proto_coordinator_v1_coordinator_proto_msgTypes = make([]protoimpl.MessageInfo, 84)
+var file_proto_coordinator_v1_coordinator_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
+var file_proto_coordinator_v1_coordinator_proto_msgTypes = make([]protoimpl.MessageInfo, 87)
 var file_proto_coordinator_v1_coordinator_proto_goTypes = []any{
 	(Operation)(0),                              // 0: coordinator.v1.Operation
 	(WorkerHealthStatus)(0),                     // 1: coordinator.v1.WorkerHealthStatus
-	(LogStreamType)(0),                          // 2: coordinator.v1.LogStreamType
-	(NodeKind)(0),                               // 3: coordinator.v1.NodeKind
-	(BuiltinTLSReason)(0),                       // 4: coordinator.v1.BuiltinTLSReason
-	(ConfigSourceKind)(0),                       // 5: coordinator.v1.ConfigSourceKind
-	(HostEnvironment)(0),                        // 6: coordinator.v1.HostEnvironment
-	(InviteKind)(0),                             // 7: coordinator.v1.InviteKind
-	(*PollRequest)(nil),                         // 8: coordinator.v1.PollRequest
-	(*PollResponse)(nil),                        // 9: coordinator.v1.PollResponse
-	(*DispatchRequest)(nil),                     // 10: coordinator.v1.DispatchRequest
-	(*DispatchResponse)(nil),                    // 11: coordinator.v1.DispatchResponse
-	(*Task)(nil),                                // 12: coordinator.v1.Task
-	(*GetWorkersRequest)(nil),                   // 13: coordinator.v1.GetWorkersRequest
-	(*GetWorkersResponse)(nil),                  // 14: coordinator.v1.GetWorkersResponse
-	(*WorkerInfo)(nil),                          // 15: coordinator.v1.WorkerInfo
-	(*HeartbeatRequest)(nil),                    // 16: coordinator.v1.HeartbeatRequest
-	(*MachineSample)(nil),                       // 17: coordinator.v1.MachineSample
-	(*MachineUsage)(nil),                        // 18: coordinator.v1.MachineUsage
-	(*MachineLoad)(nil),                         // 19: coordinator.v1.MachineLoad
-	(*HeartbeatResponse)(nil),                   // 20: coordinator.v1.HeartbeatResponse
-	(*AckTaskClaimRequest)(nil),                 // 21: coordinator.v1.AckTaskClaimRequest
-	(*AckTaskClaimResponse)(nil),                // 22: coordinator.v1.AckTaskClaimResponse
-	(*ClaimAgentSessionCleanupRequest)(nil),     // 23: coordinator.v1.ClaimAgentSessionCleanupRequest
-	(*ClaimAgentSessionCleanupResponse)(nil),    // 24: coordinator.v1.ClaimAgentSessionCleanupResponse
-	(*CompleteAgentSessionCleanupRequest)(nil),  // 25: coordinator.v1.CompleteAgentSessionCleanupRequest
-	(*CompleteAgentSessionCleanupResponse)(nil), // 26: coordinator.v1.CompleteAgentSessionCleanupResponse
-	(*RunHeartbeatRequest)(nil),                 // 27: coordinator.v1.RunHeartbeatRequest
-	(*RunHeartbeatResponse)(nil),                // 28: coordinator.v1.RunHeartbeatResponse
-	(*CancelledRun)(nil),                        // 29: coordinator.v1.CancelledRun
-	(*WorkerStats)(nil),                         // 30: coordinator.v1.WorkerStats
-	(*RunningTask)(nil),                         // 31: coordinator.v1.RunningTask
-	(*ReportStatusRequest)(nil),                 // 32: coordinator.v1.ReportStatusRequest
-	(*ReportStatusResponse)(nil),                // 33: coordinator.v1.ReportStatusResponse
-	(*DAGRunStatusProto)(nil),                   // 34: coordinator.v1.DAGRunStatusProto
-	(*LogChunk)(nil),                            // 35: coordinator.v1.LogChunk
-	(*StreamLogsResponse)(nil),                  // 36: coordinator.v1.StreamLogsResponse
-	(*ArtifactChunk)(nil),                       // 37: coordinator.v1.ArtifactChunk
-	(*StreamArtifactsResponse)(nil),             // 38: coordinator.v1.StreamArtifactsResponse
-	(*WorkspaceBundle)(nil),                     // 39: coordinator.v1.WorkspaceBundle
-	(*WorkspaceBundleChunk)(nil),                // 40: coordinator.v1.WorkspaceBundleChunk
-	(*PutWorkspaceBundleResponse)(nil),          // 41: coordinator.v1.PutWorkspaceBundleResponse
-	(*HasWorkspaceBundleRequest)(nil),           // 42: coordinator.v1.HasWorkspaceBundleRequest
-	(*HasWorkspaceBundleResponse)(nil),          // 43: coordinator.v1.HasWorkspaceBundleResponse
-	(*GetWorkspaceBundleRequest)(nil),           // 44: coordinator.v1.GetWorkspaceBundleRequest
-	(*GetDAGRunStatusRequest)(nil),              // 45: coordinator.v1.GetDAGRunStatusRequest
-	(*GetDAGRunStatusResponse)(nil),             // 46: coordinator.v1.GetDAGRunStatusResponse
-	(*RequestCancelRequest)(nil),                // 47: coordinator.v1.RequestCancelRequest
-	(*RequestCancelResponse)(nil),               // 48: coordinator.v1.RequestCancelResponse
-	(*StateRef)(nil),                            // 49: coordinator.v1.StateRef
-	(*StateUpdateSource)(nil),                   // 50: coordinator.v1.StateUpdateSource
-	(*StateEntry)(nil),                          // 51: coordinator.v1.StateEntry
-	(*GetStateRequest)(nil),                     // 52: coordinator.v1.GetStateRequest
-	(*GetStateResponse)(nil),                    // 53: coordinator.v1.GetStateResponse
-	(*PutStateRequest)(nil),                     // 54: coordinator.v1.PutStateRequest
-	(*PutStateResponse)(nil),                    // 55: coordinator.v1.PutStateResponse
-	(*DeleteStateRequest)(nil),                  // 56: coordinator.v1.DeleteStateRequest
-	(*DeleteStateResponse)(nil),                 // 57: coordinator.v1.DeleteStateResponse
-	(*ListStateRequest)(nil),                    // 58: coordinator.v1.ListStateRequest
-	(*ListStateResponse)(nil),                   // 59: coordinator.v1.ListStateResponse
-	(*GetDAGRequest)(nil),                       // 60: coordinator.v1.GetDAGRequest
-	(*GetDAGResponse)(nil),                      // 61: coordinator.v1.GetDAGResponse
-	(*ResolveSecretReferenceRequest)(nil),       // 62: coordinator.v1.ResolveSecretReferenceRequest
-	(*ResolveSecretReferenceResponse)(nil),      // 63: coordinator.v1.ResolveSecretReferenceResponse
-	(*ResolveRuntimeProfileRequest)(nil),        // 64: coordinator.v1.ResolveRuntimeProfileRequest
-	(*RuntimeProfileEntry)(nil),                 // 65: coordinator.v1.RuntimeProfileEntry
-	(*RuntimeProfileLayer)(nil),                 // 66: coordinator.v1.RuntimeProfileLayer
-	(*ResolveRuntimeProfileResponse)(nil),       // 67: coordinator.v1.ResolveRuntimeProfileResponse
-	(*ResolveConnectionTokenRequest)(nil),       // 68: coordinator.v1.ResolveConnectionTokenRequest
-	(*ResolveConnectionTokenResponse)(nil),      // 69: coordinator.v1.ResolveConnectionTokenResponse
-	(*ConnectionBinding)(nil),                   // 70: coordinator.v1.ConnectionBinding
-	(*ConnectionService)(nil),                   // 71: coordinator.v1.ConnectionService
-	(*ResolveNodesRequest)(nil),                 // 72: coordinator.v1.ResolveNodesRequest
-	(*ResolveNodesResponse)(nil),                // 73: coordinator.v1.ResolveNodesResponse
-	(*ResolvedNode)(nil),                        // 74: coordinator.v1.ResolvedNode
-	(*TrustedHostKey)(nil),                      // 75: coordinator.v1.TrustedHostKey
-	(*GetJoinReadinessRequest)(nil),             // 76: coordinator.v1.GetJoinReadinessRequest
-	(*GetJoinReadinessResponse)(nil),            // 77: coordinator.v1.GetJoinReadinessResponse
-	(*ConfigSource)(nil),                        // 78: coordinator.v1.ConfigSource
-	(*CreateInviteRequest)(nil),                 // 79: coordinator.v1.CreateInviteRequest
-	(*CreateInviteResponse)(nil),                // 80: coordinator.v1.CreateInviteResponse
-	(*ListInvitesRequest)(nil),                  // 81: coordinator.v1.ListInvitesRequest
-	(*ListInvitesResponse)(nil),                 // 82: coordinator.v1.ListInvitesResponse
-	(*DeleteInviteRequest)(nil),                 // 83: coordinator.v1.DeleteInviteRequest
-	(*DeleteInviteResponse)(nil),                // 84: coordinator.v1.DeleteInviteResponse
-	(*InviteRecord)(nil),                        // 85: coordinator.v1.InviteRecord
-	(*EnrollRequest)(nil),                       // 86: coordinator.v1.EnrollRequest
-	(*EnrollResponse)(nil),                      // 87: coordinator.v1.EnrollResponse
-	nil,                                         // 88: coordinator.v1.PollRequest.LabelsEntry
-	nil,                                         // 89: coordinator.v1.Task.WorkerSelectorEntry
-	nil,                                         // 90: coordinator.v1.WorkerInfo.LabelsEntry
-	nil,                                         // 91: coordinator.v1.HeartbeatRequest.LabelsEntry
+	(WorkerConnection)(0),                       // 2: coordinator.v1.WorkerConnection
+	(LogStreamType)(0),                          // 3: coordinator.v1.LogStreamType
+	(NodeKind)(0),                               // 4: coordinator.v1.NodeKind
+	(BuiltinTLSReason)(0),                       // 5: coordinator.v1.BuiltinTLSReason
+	(ConfigSourceKind)(0),                       // 6: coordinator.v1.ConfigSourceKind
+	(HostEnvironment)(0),                        // 7: coordinator.v1.HostEnvironment
+	(InviteKind)(0),                             // 8: coordinator.v1.InviteKind
+	(*PollRequest)(nil),                         // 9: coordinator.v1.PollRequest
+	(*PollResponse)(nil),                        // 10: coordinator.v1.PollResponse
+	(*DispatchRequest)(nil),                     // 11: coordinator.v1.DispatchRequest
+	(*DispatchResponse)(nil),                    // 12: coordinator.v1.DispatchResponse
+	(*Task)(nil),                                // 13: coordinator.v1.Task
+	(*GetWorkersRequest)(nil),                   // 14: coordinator.v1.GetWorkersRequest
+	(*GetWorkersResponse)(nil),                  // 15: coordinator.v1.GetWorkersResponse
+	(*WorkerInfo)(nil),                          // 16: coordinator.v1.WorkerInfo
+	(*GetH2CCallersRequest)(nil),                // 17: coordinator.v1.GetH2CCallersRequest
+	(*GetH2CCallersResponse)(nil),               // 18: coordinator.v1.GetH2CCallersResponse
+	(*H2CCaller)(nil),                           // 19: coordinator.v1.H2CCaller
+	(*HeartbeatRequest)(nil),                    // 20: coordinator.v1.HeartbeatRequest
+	(*MachineSample)(nil),                       // 21: coordinator.v1.MachineSample
+	(*MachineUsage)(nil),                        // 22: coordinator.v1.MachineUsage
+	(*MachineLoad)(nil),                         // 23: coordinator.v1.MachineLoad
+	(*HeartbeatResponse)(nil),                   // 24: coordinator.v1.HeartbeatResponse
+	(*AckTaskClaimRequest)(nil),                 // 25: coordinator.v1.AckTaskClaimRequest
+	(*AckTaskClaimResponse)(nil),                // 26: coordinator.v1.AckTaskClaimResponse
+	(*ClaimAgentSessionCleanupRequest)(nil),     // 27: coordinator.v1.ClaimAgentSessionCleanupRequest
+	(*ClaimAgentSessionCleanupResponse)(nil),    // 28: coordinator.v1.ClaimAgentSessionCleanupResponse
+	(*CompleteAgentSessionCleanupRequest)(nil),  // 29: coordinator.v1.CompleteAgentSessionCleanupRequest
+	(*CompleteAgentSessionCleanupResponse)(nil), // 30: coordinator.v1.CompleteAgentSessionCleanupResponse
+	(*RunHeartbeatRequest)(nil),                 // 31: coordinator.v1.RunHeartbeatRequest
+	(*RunHeartbeatResponse)(nil),                // 32: coordinator.v1.RunHeartbeatResponse
+	(*CancelledRun)(nil),                        // 33: coordinator.v1.CancelledRun
+	(*WorkerStats)(nil),                         // 34: coordinator.v1.WorkerStats
+	(*RunningTask)(nil),                         // 35: coordinator.v1.RunningTask
+	(*ReportStatusRequest)(nil),                 // 36: coordinator.v1.ReportStatusRequest
+	(*ReportStatusResponse)(nil),                // 37: coordinator.v1.ReportStatusResponse
+	(*DAGRunStatusProto)(nil),                   // 38: coordinator.v1.DAGRunStatusProto
+	(*LogChunk)(nil),                            // 39: coordinator.v1.LogChunk
+	(*StreamLogsResponse)(nil),                  // 40: coordinator.v1.StreamLogsResponse
+	(*ArtifactChunk)(nil),                       // 41: coordinator.v1.ArtifactChunk
+	(*StreamArtifactsResponse)(nil),             // 42: coordinator.v1.StreamArtifactsResponse
+	(*WorkspaceBundle)(nil),                     // 43: coordinator.v1.WorkspaceBundle
+	(*WorkspaceBundleChunk)(nil),                // 44: coordinator.v1.WorkspaceBundleChunk
+	(*PutWorkspaceBundleResponse)(nil),          // 45: coordinator.v1.PutWorkspaceBundleResponse
+	(*HasWorkspaceBundleRequest)(nil),           // 46: coordinator.v1.HasWorkspaceBundleRequest
+	(*HasWorkspaceBundleResponse)(nil),          // 47: coordinator.v1.HasWorkspaceBundleResponse
+	(*GetWorkspaceBundleRequest)(nil),           // 48: coordinator.v1.GetWorkspaceBundleRequest
+	(*GetDAGRunStatusRequest)(nil),              // 49: coordinator.v1.GetDAGRunStatusRequest
+	(*GetDAGRunStatusResponse)(nil),             // 50: coordinator.v1.GetDAGRunStatusResponse
+	(*RequestCancelRequest)(nil),                // 51: coordinator.v1.RequestCancelRequest
+	(*RequestCancelResponse)(nil),               // 52: coordinator.v1.RequestCancelResponse
+	(*StateRef)(nil),                            // 53: coordinator.v1.StateRef
+	(*StateUpdateSource)(nil),                   // 54: coordinator.v1.StateUpdateSource
+	(*StateEntry)(nil),                          // 55: coordinator.v1.StateEntry
+	(*GetStateRequest)(nil),                     // 56: coordinator.v1.GetStateRequest
+	(*GetStateResponse)(nil),                    // 57: coordinator.v1.GetStateResponse
+	(*PutStateRequest)(nil),                     // 58: coordinator.v1.PutStateRequest
+	(*PutStateResponse)(nil),                    // 59: coordinator.v1.PutStateResponse
+	(*DeleteStateRequest)(nil),                  // 60: coordinator.v1.DeleteStateRequest
+	(*DeleteStateResponse)(nil),                 // 61: coordinator.v1.DeleteStateResponse
+	(*ListStateRequest)(nil),                    // 62: coordinator.v1.ListStateRequest
+	(*ListStateResponse)(nil),                   // 63: coordinator.v1.ListStateResponse
+	(*GetDAGRequest)(nil),                       // 64: coordinator.v1.GetDAGRequest
+	(*GetDAGResponse)(nil),                      // 65: coordinator.v1.GetDAGResponse
+	(*ResolveSecretReferenceRequest)(nil),       // 66: coordinator.v1.ResolveSecretReferenceRequest
+	(*ResolveSecretReferenceResponse)(nil),      // 67: coordinator.v1.ResolveSecretReferenceResponse
+	(*ResolveRuntimeProfileRequest)(nil),        // 68: coordinator.v1.ResolveRuntimeProfileRequest
+	(*RuntimeProfileEntry)(nil),                 // 69: coordinator.v1.RuntimeProfileEntry
+	(*RuntimeProfileLayer)(nil),                 // 70: coordinator.v1.RuntimeProfileLayer
+	(*ResolveRuntimeProfileResponse)(nil),       // 71: coordinator.v1.ResolveRuntimeProfileResponse
+	(*ResolveConnectionTokenRequest)(nil),       // 72: coordinator.v1.ResolveConnectionTokenRequest
+	(*ResolveConnectionTokenResponse)(nil),      // 73: coordinator.v1.ResolveConnectionTokenResponse
+	(*ConnectionBinding)(nil),                   // 74: coordinator.v1.ConnectionBinding
+	(*ConnectionService)(nil),                   // 75: coordinator.v1.ConnectionService
+	(*ResolveNodesRequest)(nil),                 // 76: coordinator.v1.ResolveNodesRequest
+	(*ResolveNodesResponse)(nil),                // 77: coordinator.v1.ResolveNodesResponse
+	(*ResolvedNode)(nil),                        // 78: coordinator.v1.ResolvedNode
+	(*TrustedHostKey)(nil),                      // 79: coordinator.v1.TrustedHostKey
+	(*GetJoinReadinessRequest)(nil),             // 80: coordinator.v1.GetJoinReadinessRequest
+	(*GetJoinReadinessResponse)(nil),            // 81: coordinator.v1.GetJoinReadinessResponse
+	(*ConfigSource)(nil),                        // 82: coordinator.v1.ConfigSource
+	(*CreateInviteRequest)(nil),                 // 83: coordinator.v1.CreateInviteRequest
+	(*CreateInviteResponse)(nil),                // 84: coordinator.v1.CreateInviteResponse
+	(*ListInvitesRequest)(nil),                  // 85: coordinator.v1.ListInvitesRequest
+	(*ListInvitesResponse)(nil),                 // 86: coordinator.v1.ListInvitesResponse
+	(*DeleteInviteRequest)(nil),                 // 87: coordinator.v1.DeleteInviteRequest
+	(*DeleteInviteResponse)(nil),                // 88: coordinator.v1.DeleteInviteResponse
+	(*InviteRecord)(nil),                        // 89: coordinator.v1.InviteRecord
+	(*EnrollRequest)(nil),                       // 90: coordinator.v1.EnrollRequest
+	(*EnrollResponse)(nil),                      // 91: coordinator.v1.EnrollResponse
+	nil,                                         // 92: coordinator.v1.PollRequest.LabelsEntry
+	nil,                                         // 93: coordinator.v1.Task.WorkerSelectorEntry
+	nil,                                         // 94: coordinator.v1.WorkerInfo.LabelsEntry
+	nil,                                         // 95: coordinator.v1.HeartbeatRequest.LabelsEntry
 }
 var file_proto_coordinator_v1_coordinator_proto_depIdxs = []int32{
-	88, // 0: coordinator.v1.PollRequest.labels:type_name -> coordinator.v1.PollRequest.LabelsEntry
-	12, // 1: coordinator.v1.PollResponse.task:type_name -> coordinator.v1.Task
-	12, // 2: coordinator.v1.DispatchRequest.task:type_name -> coordinator.v1.Task
+	92, // 0: coordinator.v1.PollRequest.labels:type_name -> coordinator.v1.PollRequest.LabelsEntry
+	13, // 1: coordinator.v1.PollResponse.task:type_name -> coordinator.v1.Task
+	13, // 2: coordinator.v1.DispatchRequest.task:type_name -> coordinator.v1.Task
 	0,  // 3: coordinator.v1.Task.operation:type_name -> coordinator.v1.Operation
-	89, // 4: coordinator.v1.Task.worker_selector:type_name -> coordinator.v1.Task.WorkerSelectorEntry
-	34, // 5: coordinator.v1.Task.previous_status:type_name -> coordinator.v1.DAGRunStatusProto
-	15, // 6: coordinator.v1.GetWorkersResponse.workers:type_name -> coordinator.v1.WorkerInfo
-	90, // 7: coordinator.v1.WorkerInfo.labels:type_name -> coordinator.v1.WorkerInfo.LabelsEntry
-	31, // 8: coordinator.v1.WorkerInfo.running_tasks:type_name -> coordinator.v1.RunningTask
+	93, // 4: coordinator.v1.Task.worker_selector:type_name -> coordinator.v1.Task.WorkerSelectorEntry
+	38, // 5: coordinator.v1.Task.previous_status:type_name -> coordinator.v1.DAGRunStatusProto
+	16, // 6: coordinator.v1.GetWorkersResponse.workers:type_name -> coordinator.v1.WorkerInfo
+	94, // 7: coordinator.v1.WorkerInfo.labels:type_name -> coordinator.v1.WorkerInfo.LabelsEntry
+	35, // 8: coordinator.v1.WorkerInfo.running_tasks:type_name -> coordinator.v1.RunningTask
 	1,  // 9: coordinator.v1.WorkerInfo.health_status:type_name -> coordinator.v1.WorkerHealthStatus
-	91, // 10: coordinator.v1.HeartbeatRequest.labels:type_name -> coordinator.v1.HeartbeatRequest.LabelsEntry
-	30, // 11: coordinator.v1.HeartbeatRequest.stats:type_name -> coordinator.v1.WorkerStats
-	17, // 12: coordinator.v1.HeartbeatRequest.machine:type_name -> coordinator.v1.MachineSample
-	18, // 13: coordinator.v1.MachineSample.memory:type_name -> coordinator.v1.MachineUsage
-	18, // 14: coordinator.v1.MachineSample.disk:type_name -> coordinator.v1.MachineUsage
-	18, // 15: coordinator.v1.MachineSample.log_disk:type_name -> coordinator.v1.MachineUsage
-	19, // 16: coordinator.v1.MachineSample.load:type_name -> coordinator.v1.MachineLoad
-	29, // 17: coordinator.v1.HeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
-	31, // 18: coordinator.v1.RunHeartbeatRequest.running_tasks:type_name -> coordinator.v1.RunningTask
-	29, // 19: coordinator.v1.RunHeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
-	31, // 20: coordinator.v1.WorkerStats.running_tasks:type_name -> coordinator.v1.RunningTask
-	34, // 21: coordinator.v1.ReportStatusRequest.status:type_name -> coordinator.v1.DAGRunStatusProto
-	2,  // 22: coordinator.v1.LogChunk.stream_type:type_name -> coordinator.v1.LogStreamType
-	39, // 23: coordinator.v1.WorkspaceBundleChunk.bundle:type_name -> coordinator.v1.WorkspaceBundle
-	34, // 24: coordinator.v1.GetDAGRunStatusResponse.status:type_name -> coordinator.v1.DAGRunStatusProto
-	49, // 25: coordinator.v1.StateEntry.ref:type_name -> coordinator.v1.StateRef
-	50, // 26: coordinator.v1.StateEntry.updated_by:type_name -> coordinator.v1.StateUpdateSource
-	49, // 27: coordinator.v1.GetStateRequest.ref:type_name -> coordinator.v1.StateRef
-	51, // 28: coordinator.v1.GetStateResponse.entry:type_name -> coordinator.v1.StateEntry
-	49, // 29: coordinator.v1.PutStateRequest.ref:type_name -> coordinator.v1.StateRef
-	50, // 30: coordinator.v1.PutStateRequest.updated_by:type_name -> coordinator.v1.StateUpdateSource
-	51, // 31: coordinator.v1.PutStateResponse.entry:type_name -> coordinator.v1.StateEntry
-	49, // 32: coordinator.v1.DeleteStateRequest.ref:type_name -> coordinator.v1.StateRef
-	51, // 33: coordinator.v1.ListStateResponse.entries:type_name -> coordinator.v1.StateEntry
-	65, // 34: coordinator.v1.RuntimeProfileLayer.entries:type_name -> coordinator.v1.RuntimeProfileEntry
-	66, // 35: coordinator.v1.ResolveRuntimeProfileResponse.defaults:type_name -> coordinator.v1.RuntimeProfileLayer
-	66, // 36: coordinator.v1.ResolveRuntimeProfileResponse.selected:type_name -> coordinator.v1.RuntimeProfileLayer
-	70, // 37: coordinator.v1.ResolveConnectionTokenResponse.binding:type_name -> coordinator.v1.ConnectionBinding
-	71, // 38: coordinator.v1.ConnectionBinding.services:type_name -> coordinator.v1.ConnectionService
-	74, // 39: coordinator.v1.ResolveNodesResponse.nodes:type_name -> coordinator.v1.ResolvedNode
-	74, // 40: coordinator.v1.ResolveNodesResponse.bastions:type_name -> coordinator.v1.ResolvedNode
-	75, // 41: coordinator.v1.ResolveNodesResponse.trusted_host_keys:type_name -> coordinator.v1.TrustedHostKey
-	3,  // 42: coordinator.v1.ResolvedNode.kind:type_name -> coordinator.v1.NodeKind
-	78, // 43: coordinator.v1.GetJoinReadinessResponse.host_source:type_name -> coordinator.v1.ConfigSource
-	6,  // 44: coordinator.v1.GetJoinReadinessResponse.environment:type_name -> coordinator.v1.HostEnvironment
-	4,  // 45: coordinator.v1.GetJoinReadinessResponse.builtin_tls_reason:type_name -> coordinator.v1.BuiltinTLSReason
-	5,  // 46: coordinator.v1.ConfigSource.kind:type_name -> coordinator.v1.ConfigSourceKind
-	85, // 47: coordinator.v1.CreateInviteResponse.record:type_name -> coordinator.v1.InviteRecord
-	85, // 48: coordinator.v1.ListInvitesResponse.invites:type_name -> coordinator.v1.InviteRecord
-	7,  // 49: coordinator.v1.InviteRecord.kind:type_name -> coordinator.v1.InviteKind
-	8,  // 50: coordinator.v1.CoordinatorService.Poll:input_type -> coordinator.v1.PollRequest
-	10, // 51: coordinator.v1.CoordinatorService.Dispatch:input_type -> coordinator.v1.DispatchRequest
-	13, // 52: coordinator.v1.CoordinatorService.GetWorkers:input_type -> coordinator.v1.GetWorkersRequest
-	16, // 53: coordinator.v1.CoordinatorService.Heartbeat:input_type -> coordinator.v1.HeartbeatRequest
-	21, // 54: coordinator.v1.CoordinatorService.AckTaskClaim:input_type -> coordinator.v1.AckTaskClaimRequest
-	23, // 55: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:input_type -> coordinator.v1.ClaimAgentSessionCleanupRequest
-	25, // 56: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:input_type -> coordinator.v1.CompleteAgentSessionCleanupRequest
-	27, // 57: coordinator.v1.CoordinatorService.RunHeartbeat:input_type -> coordinator.v1.RunHeartbeatRequest
-	32, // 58: coordinator.v1.CoordinatorService.ReportStatus:input_type -> coordinator.v1.ReportStatusRequest
-	35, // 59: coordinator.v1.CoordinatorService.StreamLogs:input_type -> coordinator.v1.LogChunk
-	37, // 60: coordinator.v1.CoordinatorService.StreamArtifacts:input_type -> coordinator.v1.ArtifactChunk
-	40, // 61: coordinator.v1.CoordinatorService.PutWorkspaceBundle:input_type -> coordinator.v1.WorkspaceBundleChunk
-	42, // 62: coordinator.v1.CoordinatorService.HasWorkspaceBundle:input_type -> coordinator.v1.HasWorkspaceBundleRequest
-	44, // 63: coordinator.v1.CoordinatorService.GetWorkspaceBundle:input_type -> coordinator.v1.GetWorkspaceBundleRequest
-	45, // 64: coordinator.v1.CoordinatorService.GetDAGRunStatus:input_type -> coordinator.v1.GetDAGRunStatusRequest
-	47, // 65: coordinator.v1.CoordinatorService.RequestCancel:input_type -> coordinator.v1.RequestCancelRequest
-	52, // 66: coordinator.v1.CoordinatorService.GetState:input_type -> coordinator.v1.GetStateRequest
-	54, // 67: coordinator.v1.CoordinatorService.PutState:input_type -> coordinator.v1.PutStateRequest
-	56, // 68: coordinator.v1.CoordinatorService.DeleteState:input_type -> coordinator.v1.DeleteStateRequest
-	58, // 69: coordinator.v1.CoordinatorService.ListState:input_type -> coordinator.v1.ListStateRequest
-	60, // 70: coordinator.v1.CoordinatorService.GetDAG:input_type -> coordinator.v1.GetDAGRequest
-	62, // 71: coordinator.v1.CoordinatorService.ResolveSecretReference:input_type -> coordinator.v1.ResolveSecretReferenceRequest
-	64, // 72: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:input_type -> coordinator.v1.ResolveRuntimeProfileRequest
-	72, // 73: coordinator.v1.CoordinatorService.ResolveNodes:input_type -> coordinator.v1.ResolveNodesRequest
-	68, // 74: coordinator.v1.CoordinatorService.ResolveConnectionToken:input_type -> coordinator.v1.ResolveConnectionTokenRequest
-	76, // 75: coordinator.v1.CoordinatorService.GetJoinReadiness:input_type -> coordinator.v1.GetJoinReadinessRequest
-	79, // 76: coordinator.v1.CoordinatorService.CreateInvite:input_type -> coordinator.v1.CreateInviteRequest
-	81, // 77: coordinator.v1.CoordinatorService.ListInvites:input_type -> coordinator.v1.ListInvitesRequest
-	83, // 78: coordinator.v1.CoordinatorService.DeleteInvite:input_type -> coordinator.v1.DeleteInviteRequest
-	86, // 79: coordinator.v1.CoordinatorService.Enroll:input_type -> coordinator.v1.EnrollRequest
-	9,  // 80: coordinator.v1.CoordinatorService.Poll:output_type -> coordinator.v1.PollResponse
-	11, // 81: coordinator.v1.CoordinatorService.Dispatch:output_type -> coordinator.v1.DispatchResponse
-	14, // 82: coordinator.v1.CoordinatorService.GetWorkers:output_type -> coordinator.v1.GetWorkersResponse
-	20, // 83: coordinator.v1.CoordinatorService.Heartbeat:output_type -> coordinator.v1.HeartbeatResponse
-	22, // 84: coordinator.v1.CoordinatorService.AckTaskClaim:output_type -> coordinator.v1.AckTaskClaimResponse
-	24, // 85: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:output_type -> coordinator.v1.ClaimAgentSessionCleanupResponse
-	26, // 86: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:output_type -> coordinator.v1.CompleteAgentSessionCleanupResponse
-	28, // 87: coordinator.v1.CoordinatorService.RunHeartbeat:output_type -> coordinator.v1.RunHeartbeatResponse
-	33, // 88: coordinator.v1.CoordinatorService.ReportStatus:output_type -> coordinator.v1.ReportStatusResponse
-	36, // 89: coordinator.v1.CoordinatorService.StreamLogs:output_type -> coordinator.v1.StreamLogsResponse
-	38, // 90: coordinator.v1.CoordinatorService.StreamArtifacts:output_type -> coordinator.v1.StreamArtifactsResponse
-	41, // 91: coordinator.v1.CoordinatorService.PutWorkspaceBundle:output_type -> coordinator.v1.PutWorkspaceBundleResponse
-	43, // 92: coordinator.v1.CoordinatorService.HasWorkspaceBundle:output_type -> coordinator.v1.HasWorkspaceBundleResponse
-	40, // 93: coordinator.v1.CoordinatorService.GetWorkspaceBundle:output_type -> coordinator.v1.WorkspaceBundleChunk
-	46, // 94: coordinator.v1.CoordinatorService.GetDAGRunStatus:output_type -> coordinator.v1.GetDAGRunStatusResponse
-	48, // 95: coordinator.v1.CoordinatorService.RequestCancel:output_type -> coordinator.v1.RequestCancelResponse
-	53, // 96: coordinator.v1.CoordinatorService.GetState:output_type -> coordinator.v1.GetStateResponse
-	55, // 97: coordinator.v1.CoordinatorService.PutState:output_type -> coordinator.v1.PutStateResponse
-	57, // 98: coordinator.v1.CoordinatorService.DeleteState:output_type -> coordinator.v1.DeleteStateResponse
-	59, // 99: coordinator.v1.CoordinatorService.ListState:output_type -> coordinator.v1.ListStateResponse
-	61, // 100: coordinator.v1.CoordinatorService.GetDAG:output_type -> coordinator.v1.GetDAGResponse
-	63, // 101: coordinator.v1.CoordinatorService.ResolveSecretReference:output_type -> coordinator.v1.ResolveSecretReferenceResponse
-	67, // 102: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:output_type -> coordinator.v1.ResolveRuntimeProfileResponse
-	73, // 103: coordinator.v1.CoordinatorService.ResolveNodes:output_type -> coordinator.v1.ResolveNodesResponse
-	69, // 104: coordinator.v1.CoordinatorService.ResolveConnectionToken:output_type -> coordinator.v1.ResolveConnectionTokenResponse
-	77, // 105: coordinator.v1.CoordinatorService.GetJoinReadiness:output_type -> coordinator.v1.GetJoinReadinessResponse
-	80, // 106: coordinator.v1.CoordinatorService.CreateInvite:output_type -> coordinator.v1.CreateInviteResponse
-	82, // 107: coordinator.v1.CoordinatorService.ListInvites:output_type -> coordinator.v1.ListInvitesResponse
-	84, // 108: coordinator.v1.CoordinatorService.DeleteInvite:output_type -> coordinator.v1.DeleteInviteResponse
-	87, // 109: coordinator.v1.CoordinatorService.Enroll:output_type -> coordinator.v1.EnrollResponse
-	80, // [80:110] is the sub-list for method output_type
-	50, // [50:80] is the sub-list for method input_type
-	50, // [50:50] is the sub-list for extension type_name
-	50, // [50:50] is the sub-list for extension extendee
-	0,  // [0:50] is the sub-list for field type_name
+	2,  // 10: coordinator.v1.WorkerInfo.connection:type_name -> coordinator.v1.WorkerConnection
+	19, // 11: coordinator.v1.GetH2CCallersResponse.callers:type_name -> coordinator.v1.H2CCaller
+	95, // 12: coordinator.v1.HeartbeatRequest.labels:type_name -> coordinator.v1.HeartbeatRequest.LabelsEntry
+	34, // 13: coordinator.v1.HeartbeatRequest.stats:type_name -> coordinator.v1.WorkerStats
+	21, // 14: coordinator.v1.HeartbeatRequest.machine:type_name -> coordinator.v1.MachineSample
+	22, // 15: coordinator.v1.MachineSample.memory:type_name -> coordinator.v1.MachineUsage
+	22, // 16: coordinator.v1.MachineSample.disk:type_name -> coordinator.v1.MachineUsage
+	22, // 17: coordinator.v1.MachineSample.log_disk:type_name -> coordinator.v1.MachineUsage
+	23, // 18: coordinator.v1.MachineSample.load:type_name -> coordinator.v1.MachineLoad
+	33, // 19: coordinator.v1.HeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
+	35, // 20: coordinator.v1.RunHeartbeatRequest.running_tasks:type_name -> coordinator.v1.RunningTask
+	33, // 21: coordinator.v1.RunHeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
+	35, // 22: coordinator.v1.WorkerStats.running_tasks:type_name -> coordinator.v1.RunningTask
+	38, // 23: coordinator.v1.ReportStatusRequest.status:type_name -> coordinator.v1.DAGRunStatusProto
+	3,  // 24: coordinator.v1.LogChunk.stream_type:type_name -> coordinator.v1.LogStreamType
+	43, // 25: coordinator.v1.WorkspaceBundleChunk.bundle:type_name -> coordinator.v1.WorkspaceBundle
+	38, // 26: coordinator.v1.GetDAGRunStatusResponse.status:type_name -> coordinator.v1.DAGRunStatusProto
+	53, // 27: coordinator.v1.StateEntry.ref:type_name -> coordinator.v1.StateRef
+	54, // 28: coordinator.v1.StateEntry.updated_by:type_name -> coordinator.v1.StateUpdateSource
+	53, // 29: coordinator.v1.GetStateRequest.ref:type_name -> coordinator.v1.StateRef
+	55, // 30: coordinator.v1.GetStateResponse.entry:type_name -> coordinator.v1.StateEntry
+	53, // 31: coordinator.v1.PutStateRequest.ref:type_name -> coordinator.v1.StateRef
+	54, // 32: coordinator.v1.PutStateRequest.updated_by:type_name -> coordinator.v1.StateUpdateSource
+	55, // 33: coordinator.v1.PutStateResponse.entry:type_name -> coordinator.v1.StateEntry
+	53, // 34: coordinator.v1.DeleteStateRequest.ref:type_name -> coordinator.v1.StateRef
+	55, // 35: coordinator.v1.ListStateResponse.entries:type_name -> coordinator.v1.StateEntry
+	69, // 36: coordinator.v1.RuntimeProfileLayer.entries:type_name -> coordinator.v1.RuntimeProfileEntry
+	70, // 37: coordinator.v1.ResolveRuntimeProfileResponse.defaults:type_name -> coordinator.v1.RuntimeProfileLayer
+	70, // 38: coordinator.v1.ResolveRuntimeProfileResponse.selected:type_name -> coordinator.v1.RuntimeProfileLayer
+	74, // 39: coordinator.v1.ResolveConnectionTokenResponse.binding:type_name -> coordinator.v1.ConnectionBinding
+	75, // 40: coordinator.v1.ConnectionBinding.services:type_name -> coordinator.v1.ConnectionService
+	78, // 41: coordinator.v1.ResolveNodesResponse.nodes:type_name -> coordinator.v1.ResolvedNode
+	78, // 42: coordinator.v1.ResolveNodesResponse.bastions:type_name -> coordinator.v1.ResolvedNode
+	79, // 43: coordinator.v1.ResolveNodesResponse.trusted_host_keys:type_name -> coordinator.v1.TrustedHostKey
+	4,  // 44: coordinator.v1.ResolvedNode.kind:type_name -> coordinator.v1.NodeKind
+	82, // 45: coordinator.v1.GetJoinReadinessResponse.host_source:type_name -> coordinator.v1.ConfigSource
+	7,  // 46: coordinator.v1.GetJoinReadinessResponse.environment:type_name -> coordinator.v1.HostEnvironment
+	5,  // 47: coordinator.v1.GetJoinReadinessResponse.builtin_tls_reason:type_name -> coordinator.v1.BuiltinTLSReason
+	6,  // 48: coordinator.v1.ConfigSource.kind:type_name -> coordinator.v1.ConfigSourceKind
+	89, // 49: coordinator.v1.CreateInviteResponse.record:type_name -> coordinator.v1.InviteRecord
+	89, // 50: coordinator.v1.ListInvitesResponse.invites:type_name -> coordinator.v1.InviteRecord
+	8,  // 51: coordinator.v1.InviteRecord.kind:type_name -> coordinator.v1.InviteKind
+	9,  // 52: coordinator.v1.CoordinatorService.Poll:input_type -> coordinator.v1.PollRequest
+	11, // 53: coordinator.v1.CoordinatorService.Dispatch:input_type -> coordinator.v1.DispatchRequest
+	14, // 54: coordinator.v1.CoordinatorService.GetWorkers:input_type -> coordinator.v1.GetWorkersRequest
+	17, // 55: coordinator.v1.CoordinatorService.GetH2CCallers:input_type -> coordinator.v1.GetH2CCallersRequest
+	20, // 56: coordinator.v1.CoordinatorService.Heartbeat:input_type -> coordinator.v1.HeartbeatRequest
+	25, // 57: coordinator.v1.CoordinatorService.AckTaskClaim:input_type -> coordinator.v1.AckTaskClaimRequest
+	27, // 58: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:input_type -> coordinator.v1.ClaimAgentSessionCleanupRequest
+	29, // 59: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:input_type -> coordinator.v1.CompleteAgentSessionCleanupRequest
+	31, // 60: coordinator.v1.CoordinatorService.RunHeartbeat:input_type -> coordinator.v1.RunHeartbeatRequest
+	36, // 61: coordinator.v1.CoordinatorService.ReportStatus:input_type -> coordinator.v1.ReportStatusRequest
+	39, // 62: coordinator.v1.CoordinatorService.StreamLogs:input_type -> coordinator.v1.LogChunk
+	41, // 63: coordinator.v1.CoordinatorService.StreamArtifacts:input_type -> coordinator.v1.ArtifactChunk
+	44, // 64: coordinator.v1.CoordinatorService.PutWorkspaceBundle:input_type -> coordinator.v1.WorkspaceBundleChunk
+	46, // 65: coordinator.v1.CoordinatorService.HasWorkspaceBundle:input_type -> coordinator.v1.HasWorkspaceBundleRequest
+	48, // 66: coordinator.v1.CoordinatorService.GetWorkspaceBundle:input_type -> coordinator.v1.GetWorkspaceBundleRequest
+	49, // 67: coordinator.v1.CoordinatorService.GetDAGRunStatus:input_type -> coordinator.v1.GetDAGRunStatusRequest
+	51, // 68: coordinator.v1.CoordinatorService.RequestCancel:input_type -> coordinator.v1.RequestCancelRequest
+	56, // 69: coordinator.v1.CoordinatorService.GetState:input_type -> coordinator.v1.GetStateRequest
+	58, // 70: coordinator.v1.CoordinatorService.PutState:input_type -> coordinator.v1.PutStateRequest
+	60, // 71: coordinator.v1.CoordinatorService.DeleteState:input_type -> coordinator.v1.DeleteStateRequest
+	62, // 72: coordinator.v1.CoordinatorService.ListState:input_type -> coordinator.v1.ListStateRequest
+	64, // 73: coordinator.v1.CoordinatorService.GetDAG:input_type -> coordinator.v1.GetDAGRequest
+	66, // 74: coordinator.v1.CoordinatorService.ResolveSecretReference:input_type -> coordinator.v1.ResolveSecretReferenceRequest
+	68, // 75: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:input_type -> coordinator.v1.ResolveRuntimeProfileRequest
+	76, // 76: coordinator.v1.CoordinatorService.ResolveNodes:input_type -> coordinator.v1.ResolveNodesRequest
+	72, // 77: coordinator.v1.CoordinatorService.ResolveConnectionToken:input_type -> coordinator.v1.ResolveConnectionTokenRequest
+	80, // 78: coordinator.v1.CoordinatorService.GetJoinReadiness:input_type -> coordinator.v1.GetJoinReadinessRequest
+	83, // 79: coordinator.v1.CoordinatorService.CreateInvite:input_type -> coordinator.v1.CreateInviteRequest
+	85, // 80: coordinator.v1.CoordinatorService.ListInvites:input_type -> coordinator.v1.ListInvitesRequest
+	87, // 81: coordinator.v1.CoordinatorService.DeleteInvite:input_type -> coordinator.v1.DeleteInviteRequest
+	90, // 82: coordinator.v1.CoordinatorService.Enroll:input_type -> coordinator.v1.EnrollRequest
+	10, // 83: coordinator.v1.CoordinatorService.Poll:output_type -> coordinator.v1.PollResponse
+	12, // 84: coordinator.v1.CoordinatorService.Dispatch:output_type -> coordinator.v1.DispatchResponse
+	15, // 85: coordinator.v1.CoordinatorService.GetWorkers:output_type -> coordinator.v1.GetWorkersResponse
+	18, // 86: coordinator.v1.CoordinatorService.GetH2CCallers:output_type -> coordinator.v1.GetH2CCallersResponse
+	24, // 87: coordinator.v1.CoordinatorService.Heartbeat:output_type -> coordinator.v1.HeartbeatResponse
+	26, // 88: coordinator.v1.CoordinatorService.AckTaskClaim:output_type -> coordinator.v1.AckTaskClaimResponse
+	28, // 89: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:output_type -> coordinator.v1.ClaimAgentSessionCleanupResponse
+	30, // 90: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:output_type -> coordinator.v1.CompleteAgentSessionCleanupResponse
+	32, // 91: coordinator.v1.CoordinatorService.RunHeartbeat:output_type -> coordinator.v1.RunHeartbeatResponse
+	37, // 92: coordinator.v1.CoordinatorService.ReportStatus:output_type -> coordinator.v1.ReportStatusResponse
+	40, // 93: coordinator.v1.CoordinatorService.StreamLogs:output_type -> coordinator.v1.StreamLogsResponse
+	42, // 94: coordinator.v1.CoordinatorService.StreamArtifacts:output_type -> coordinator.v1.StreamArtifactsResponse
+	45, // 95: coordinator.v1.CoordinatorService.PutWorkspaceBundle:output_type -> coordinator.v1.PutWorkspaceBundleResponse
+	47, // 96: coordinator.v1.CoordinatorService.HasWorkspaceBundle:output_type -> coordinator.v1.HasWorkspaceBundleResponse
+	44, // 97: coordinator.v1.CoordinatorService.GetWorkspaceBundle:output_type -> coordinator.v1.WorkspaceBundleChunk
+	50, // 98: coordinator.v1.CoordinatorService.GetDAGRunStatus:output_type -> coordinator.v1.GetDAGRunStatusResponse
+	52, // 99: coordinator.v1.CoordinatorService.RequestCancel:output_type -> coordinator.v1.RequestCancelResponse
+	57, // 100: coordinator.v1.CoordinatorService.GetState:output_type -> coordinator.v1.GetStateResponse
+	59, // 101: coordinator.v1.CoordinatorService.PutState:output_type -> coordinator.v1.PutStateResponse
+	61, // 102: coordinator.v1.CoordinatorService.DeleteState:output_type -> coordinator.v1.DeleteStateResponse
+	63, // 103: coordinator.v1.CoordinatorService.ListState:output_type -> coordinator.v1.ListStateResponse
+	65, // 104: coordinator.v1.CoordinatorService.GetDAG:output_type -> coordinator.v1.GetDAGResponse
+	67, // 105: coordinator.v1.CoordinatorService.ResolveSecretReference:output_type -> coordinator.v1.ResolveSecretReferenceResponse
+	71, // 106: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:output_type -> coordinator.v1.ResolveRuntimeProfileResponse
+	77, // 107: coordinator.v1.CoordinatorService.ResolveNodes:output_type -> coordinator.v1.ResolveNodesResponse
+	73, // 108: coordinator.v1.CoordinatorService.ResolveConnectionToken:output_type -> coordinator.v1.ResolveConnectionTokenResponse
+	81, // 109: coordinator.v1.CoordinatorService.GetJoinReadiness:output_type -> coordinator.v1.GetJoinReadinessResponse
+	84, // 110: coordinator.v1.CoordinatorService.CreateInvite:output_type -> coordinator.v1.CreateInviteResponse
+	86, // 111: coordinator.v1.CoordinatorService.ListInvites:output_type -> coordinator.v1.ListInvitesResponse
+	88, // 112: coordinator.v1.CoordinatorService.DeleteInvite:output_type -> coordinator.v1.DeleteInviteResponse
+	91, // 113: coordinator.v1.CoordinatorService.Enroll:output_type -> coordinator.v1.EnrollResponse
+	83, // [83:114] is the sub-list for method output_type
+	52, // [52:83] is the sub-list for method input_type
+	52, // [52:52] is the sub-list for extension type_name
+	52, // [52:52] is the sub-list for extension extendee
+	0,  // [0:52] is the sub-list for field type_name
 }
 
 func init() { file_proto_coordinator_v1_coordinator_proto_init() }
@@ -9909,16 +10203,16 @@ func file_proto_coordinator_v1_coordinator_proto_init() {
 		return
 	}
 	file_proto_coordinator_v1_coordinator_proto_msgTypes[4].OneofWrappers = []any{}
-	file_proto_coordinator_v1_coordinator_proto_msgTypes[9].OneofWrappers = []any{}
-	file_proto_coordinator_v1_coordinator_proto_msgTypes[10].OneofWrappers = []any{}
-	file_proto_coordinator_v1_coordinator_proto_msgTypes[27].OneofWrappers = []any{}
+	file_proto_coordinator_v1_coordinator_proto_msgTypes[12].OneofWrappers = []any{}
+	file_proto_coordinator_v1_coordinator_proto_msgTypes[13].OneofWrappers = []any{}
+	file_proto_coordinator_v1_coordinator_proto_msgTypes[30].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_coordinator_v1_coordinator_proto_rawDesc), len(file_proto_coordinator_v1_coordinator_proto_rawDesc)),
-			NumEnums:      8,
-			NumMessages:   84,
+			NumEnums:      9,
+			NumMessages:   87,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
