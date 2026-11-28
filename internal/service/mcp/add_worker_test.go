@@ -9,7 +9,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -495,24 +496,44 @@ func TestAddWorkerChecksExpiresInFirst(t *testing.T) {
 	require.Nil(t, inputError(`{"action":"add_worker","expiresIn":"2562047h47m16s"}`))
 }
 
-// The image rule is the one the image workflow applies before it publishes
-// a tag, so a version gets an image exactly when the workflow publishes it.
+// A tag the image workflow publishes names its image, unless its version
+// reads as a development build, which no release is tagged with.
 func TestWorkerImageFollowsImageWorkflow(t *testing.T) {
 	t.Parallel()
 
 	data, err := os.ReadFile(filepath.Join("..", "..", "..", ".github", "workflows", "docker.yaml"))
 	require.NoError(t, err)
 	var workflow struct {
-		Env map[string]string `yaml:"env"`
+		On struct {
+			Push struct {
+				Tags []string `yaml:"tags"`
+			} `yaml:"push"`
+		} `yaml:"on"`
 	}
 	require.NoError(t, yaml.Unmarshal(data, &workflow))
-	require.Equal(t, publishedVersionPattern, workflow.Env["PUBLISHED_VERSION"])
-	require.Equal(t, unreleasedSuffixPattern, workflow.Env["UNRELEASED_SUFFIX"])
-	require.Equal(t, strconv.Itoa(maxImageTag), workflow.Env["MAX_TAG_LENGTH"])
+	require.NotEmpty(t, workflow.On.Push.Tags)
+	published := func(tag string) bool {
+		for _, filter := range workflow.On.Push.Tags {
+			// In a tag filter, + repeats, * matches any run, and . is literal.
+			pattern := "^" + strings.NewReplacer(".", `\.`, "*", ".*").Replace(filter) + "$"
+			if regexp.MustCompile(pattern).MatchString(tag) {
+				return true
+			}
+		}
+		return false
+	}
 
-	for _, tag := range []string{"v2.28.0-next", "v2.28.0-1-gabc1234"} {
+	devBuilds := []string{"v2.28.0-next", "v2.28.0-1-gabc1234", "v0.0.0"}
+	for _, tag := range append([]string{
+		"v2.28.0", "v2.28.0-rc.1", "v2.28.0--preview.1", "v2.28.0-preview-test.1", "v2.28.0-rc_1", "release-2.28.0",
+	}, devBuilds...) {
 		_, ok := workerImage(tag)
-		require.False(t, ok, "the workflow refuses %s, so no image exists", tag)
+		if slices.Contains(devBuilds, tag) {
+			require.True(t, published(tag), tag)
+			require.False(t, ok, "%s reads as a development build", tag)
+			continue
+		}
+		require.Equal(t, published(tag), ok, tag)
 	}
 }
 

@@ -8,14 +8,6 @@ on:
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
-  # The image is published only for a tag version, without its leading v,
-  # that matches PUBLISHED_VERSION and not UNRELEASED_SUFFIX, within
-  # MAX_TAG_LENGTH. The Add worker commands use the same rule to name the
-  # server's image (internal/service/mcp/add_worker.go), and a test there
-  # keeps the two the same.
-  PUBLISHED_VERSION: '^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.-]+)?$'
-  UNRELEASED_SUFFIX: '^0\.0\.0$|-[0-9]+-g[0-9a-f]+$|-next$'
-  MAX_TAG_LENGTH: "128"
 
 jobs:
   docker-build:
@@ -56,10 +48,6 @@ jobs:
         run: |
           # Remove 'v' prefix from tag
           VERSION=${GITHUB_REF#refs/tags/v}
-          if [[ ! "$VERSION" =~ $PUBLISHED_VERSION || "$VERSION" =~ $UNRELEASED_SUFFIX || ${#VERSION} -gt $MAX_TAG_LENGTH ]]; then
-            echo "::error::Version $VERSION is not one the image is published for"
-            exit 1
-          fi
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           # Detect prerelease (version contains '-')
           if [[ "$VERSION" == *-* ]]; then

@@ -48,12 +48,14 @@ const (
 	maxExpiresIn = time.Duration(math.MaxInt64/int64(time.Second)) * time.Second
 	// maxImageTag is the longest tag an image registry accepts.
 	maxImageTag = 128
-	// publishedVersionPattern and unreleasedSuffixPattern are the rule the
-	// image workflow applies to a tag's version, without its leading v,
-	// before it publishes the image: it publishes a version that matches the
-	// first and not the second. The workflow holds the same patterns.
+	// publishedVersionPattern matches a version, without its leading v, of
+	// a vX.Y.Z or vX.Y.Z-* tag, which the image workflow publishes as that
+	// image tag, in the characters an image tag may hold.
 	publishedVersionPattern = `^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.-]+)?$`
-	unreleasedSuffixPattern = `^0\.0\.0$|-[0-9]+-g[0-9a-f]+$|-next$`
+	// devBuildPattern matches the version of a development build, which no
+	// release is tagged with: the default 0.0.0, git describe's commit count
+	// and hash after the last tag, or a snapshot's -next.
+	devBuildPattern = `^0\.0\.0$|-[0-9]+-g[0-9a-f]+$|-next$`
 	// workerLabelRule is the rule a worker applies to its labels at start.
 	workerLabelRule = "a label is key or key=value; a key holds only letters, digits, -, _, and ., " +
 		"at most 63, and a value only those and /, at most 255, each starting with a letter or digit"
@@ -67,10 +69,7 @@ var addWorkerFields = []string{executeFieldAddress, executeFieldReusable, execut
 
 var (
 	publishedVersion = regexp.MustCompile(publishedVersionPattern)
-	// unreleasedSuffix matches the default version and what an unreleased
-	// build adds to the last tag: git describe's commit count and hash, or a
-	// snapshot's -next.
-	unreleasedSuffix = regexp.MustCompile(unreleasedSuffixPattern)
+	devBuild         = regexp.MustCompile(devBuildPattern)
 	// containerID matches a short or full container ID used as a host name.
 	containerID = regexp.MustCompile(`^[0-9a-f]{12}([0-9a-f]{52})?$`)
 	// dnsName matches one DNS name, so a list, a zone, or shell syntax is
@@ -213,7 +212,7 @@ func dialAddressProblem(addr string) string {
 // for a build that has no published image.
 func workerImage(version string) (string, bool) {
 	tag := strings.TrimPrefix(version, "v")
-	if !publishedVersion.MatchString(tag) || unreleasedSuffix.MatchString(tag) || len(tag) > maxImageTag {
+	if !publishedVersion.MatchString(tag) || devBuild.MatchString(tag) || len(tag) > maxImageTag {
 		return "", false
 	}
 	return workerImageRepository + ":" + tag, true

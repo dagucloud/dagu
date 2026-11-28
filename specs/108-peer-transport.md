@@ -1051,13 +1051,14 @@ and prints the message:
   write each `$` as `$$`, so no argument expands a variable such as
   `DAGU_WORKER_INVITE`, and only the Secret holds the invite.
 - The container commands run `ghcr.io/dagucloud/dagu:<tag>`, where `<tag>`
-  is the server's version without its leading `v`. The image workflow
-  publishes a release tag's image only when that version matches
-  `^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.-]+)?$`, does not match
-  `^0\.0\.0$|-[0-9]+-g[0-9a-f]+$|-next$`, and has at most 128 characters,
-  and refuses any other tag. Step 3 uses the same rule: a server whose
-  version fails it, such as `dev`, has no published image, so step 3 says
-  so and shows no container command.
+  is the server's version without its leading `v`. A release tagged
+  `vX.Y.Z` or `vX.Y.Z-<prerelease>` publishes that image. A version has a
+  published image when it matches `^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.-]+)?$`
+  and has at most 128 characters, unless it is a development build:
+  `0.0.0`, or a version ending in a `git describe` suffix such as
+  `-12-g1a2b3c4` or in `-next`, which no release is tagged with. A server
+  without a published image, such as one whose version is `dev`, gets no
+  container command, and step 3 says so.
 - The dialog waits on the page's existing `/workers` refresh for a worker
   with the invite's ID, and then shows its ID and labels. Closing the dialog
   keeps the invite.
