@@ -153,7 +153,7 @@ coordinator:
     annotations: {}
 ```
 
-With Dagu releases after 2.27.0, set Dagu's `coordinator.require_token: true` through `extraEnv` as `DAGU_COORDINATOR_REQUIRE_TOKEN` before you expose the port outside the cluster, so the coordinator accepts only calls that carry the peer token. Set the token for every pod as `DAGU_PEER_TOKEN` from your own Secret, such as one made from the `token` file `dagu peer init` writes. `extraEnv` applies to every Dagu pod, so the coordinator, scheduler, UI, and workers use the same token. Set `peer.existingCASecret` too, so worker pods in the cluster send the token over TLS:
+With Dagu releases after 2.27.0, set Dagu's `coordinator.require_token: true` through `extraEnv` as `DAGU_COORDINATOR_REQUIRE_TOKEN` before you expose the port outside the cluster, so the coordinator accepts only calls that carry the peer token. Set `peer.existingCASecret` as well, so worker pods in the cluster send the token over TLS. To keep every pod on TLS with no fallback to plaintext, also set `DAGU_PEER_INSECURE` to `false` in `extraEnv`; a network path that cannot carry TLS then fails instead. Set the token for every pod as `DAGU_PEER_TOKEN` from your own Secret, such as one made from the `token` file `dagu peer init` writes. `extraEnv` applies to every Dagu pod, so the coordinator, scheduler, UI, and workers use the same token:
 
 ```bash
 kubectl --namespace dagu create secret generic dagu-peer-token \
