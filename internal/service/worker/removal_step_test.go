@@ -6,8 +6,10 @@ package worker
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -52,7 +54,7 @@ func TestWorkerRemovedRealStep(t *testing.T) {
 			task := &coordinatorv1.Task{
 				Operation:      coordinatorv1.Operation_OPERATION_START,
 				Target:         "marker",
-				Definition:     fmt.Sprintf("name: marker\nsteps:\n  - name: touch\n    run: touch %s\n", marker),
+				Definition:     markerDefinition(t, marker),
 				DagRunId:       "run-" + name,
 				RootDagRunName: "marker",
 				RootDagRunId:   "run-" + name,
@@ -110,6 +112,22 @@ func TestWorkerRemovedRealStep(t *testing.T) {
 			assert.NoFileExists(t, marker, "the step started after the removal")
 		})
 	}
+}
+
+// markerDefinition returns a workflow whose step creates the file marker,
+// with sh on Unix and the default PowerShell on Windows. The path is quoted
+// for the shell, and the command for YAML, so any temporary directory works.
+func markerDefinition(t *testing.T, marker string) string {
+	t.Helper()
+	shell := "shell: sh\n"
+	command := "touch " + test.PosixQuote(marker)
+	if runtime.GOOS == "windows" {
+		shell = ""
+		command = "New-Item -ItemType File -Path " + test.PowerShellQuote(marker) + " | Out-Null"
+	}
+	run, err := json.Marshal(command)
+	require.NoError(t, err)
+	return fmt.Sprintf("name: marker\n%ssteps:\n  - name: touch\n    run: %s\n", shell, run)
 }
 
 // The removal ends a claim acknowledgment under way the moment it is
