@@ -3,6 +3,7 @@
 
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
+import { connectionMessages } from '@/pages/connections/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
 import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
 import type { BaseStaticMessage, StaticMessage } from './en';
@@ -3401,5 +3402,6 @@ export const japanese = {
   ...nodeTestMessages.ja,
   ...workerNodeMessages.ja,
   ...inventoryMessages.ja,
+  ...connectionMessages.ja,
   ...baseJapanese,
 } as const satisfies Record<StaticMessage, string>;
