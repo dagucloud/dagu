@@ -4,6 +4,7 @@
 package spec108_peer_transport_test
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -26,14 +27,22 @@ func TestWorkerInviteHoldsHealthPort(t *testing.T) {
 	dagu := harness.NewRunner(t)
 	coord := startInviteCoordinator(t, dagu)
 	invite := coord.createInvite(t, false).Invite
-	proxy, release := gatedProxy(t, coord.addr)
+	proxy, accepted, release := gatedProxy(t, coord.addr)
 	port := harness.FreePort(t)
 
 	worker := dagu.StartWithEnv(inviteWorkerEnv(dagu, "host-a", invite),
 		append(inviteWorkerArgs("worker-a", proxy), fmt.Sprintf("--worker.health-port=%d", port))...)
-	// The start line comes right before enrollment, which waits at the
-	// proxy until release.
+	// Only enrollment dials the coordinator before the worker holds a
+	// certificate, so a connection at the proxy means it is in flight. It
+	// waits there until release.
 	waitForOutput(t, worker, builtinFromInvite)
+	select {
+	case <-accepted:
+	case <-worker.Done():
+		t.Fatalf("the worker exited before it enrolled: %s", worker.FailureOutput())
+	case <-time.After(harness.WaitTimeout(t)):
+		t.Fatal("the worker did not start enrolling")
+	}
 	if other, err := net.Listen("tcp", fmt.Sprintf(":%d", port)); err == nil {
 		_ = other.Close()
 		t.Fatal("another process could bind the health check port while enrollment was in flight")
@@ -45,13 +54,14 @@ func TestWorkerInviteHoldsHealthPort(t *testing.T) {
 }
 
 // gatedProxy forwards connections to target once release is called, and
-// holds them until then.
-func gatedProxy(t *testing.T, target string) (addr string, release func()) {
+// holds them until then. accepted is closed when it accepts the first.
+func gatedProxy(t *testing.T, target string) (addr string, accepted <-chan struct{}, release func()) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	gate := make(chan struct{})
-	var once sync.Once
+	first := make(chan struct{})
+	var once, acceptOnce sync.Once
 	release = func() { once.Do(func() { close(gate) }) }
 	t.Cleanup(func() {
 		release()
@@ -63,13 +73,14 @@ func gatedProxy(t *testing.T, target string) (addr string, release func()) {
 			if err != nil {
 				return
 			}
+			acceptOnce.Do(func() { close(first) })
 			go func() {
 				<-gate
 				forward(conn, target)
 			}()
 		}
 	}()
-	return listener.Addr().String(), release
+	return listener.Addr().String(), first, release
 }
 
 // forward copies conn to target and back until either side closes.
@@ -84,13 +95,17 @@ func forward(conn net.Conn, target string) {
 	_, _ = io.Copy(conn, upstream)
 }
 
-// expectHealthy waits until the health check on port answers 200.
+// expectHealthy waits until the health check on port answers 200, within
+// the test's wait budget, each request included.
 func expectHealthy(t *testing.T, port int) {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), harness.WaitTimeout(t))
+	defer cancel()
 	url := fmt.Sprintf("http://127.0.0.1:%d/health", port)
-	deadline := time.After(harness.WaitTimeout(t))
 	for {
-		resp, err := http.Get(url) //nolint:gosec // A loopback URL the test builds.
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
@@ -98,7 +113,7 @@ func expectHealthy(t *testing.T, port int) {
 			}
 		}
 		select {
-		case <-deadline:
+		case <-ctx.Done():
 			t.Fatalf("the health check on port %d did not answer: %v", port, err)
 		case <-time.After(100 * time.Millisecond):
 		}

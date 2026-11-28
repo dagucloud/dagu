@@ -680,7 +680,7 @@ The `worker_certificates` collection keeps one record per certificate:
 #### Worker Files
 
 - An invite worker's credential is kept in its data directory, readable by
-  its user only, and a restart reuses it.
+  its user only. A restart reuses it.
 - Run processes the worker starts use the same credential.
 - A worker whose data directory is read-only and holds no credential
   enrolls again at each start.
