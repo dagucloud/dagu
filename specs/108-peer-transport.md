@@ -1012,7 +1012,7 @@ A coordinator reports, from its own host:
 | `POST /api/v1/workers/invites` | Body `{"reusable": false, "expiresIn": "24h", "address": "192.168.1.20:50055"}`, every field optional. Returns `201` with `{"id", "invite", "expiresAt"}`. Only this response contains the invite |
 | `GET /api/v1/workers/invites` | Lists invites with `id`, `kind`, `createdBy`, `createdAt`, `expiresAt`, `useCount`, `lastUsedAt`, and `address`. No secret |
 | `DELETE /api/v1/workers/invites/{id}` | Deletes the invite. `204`, also when a coordinator's answer is lost: within the same request, the server confirms from the invites that it is gone. `400` for a value that is not an invite ID, a UUID, before any coordinator call, so an invite pasted in its place reaches no log or audit entry. `404` when none has the ID, so a second delete answers `404` |
-| `DELETE /api/v1/workers/{workerId}` | Removes the worker. `?certificateId=`, required, is the `certificateId` the [Workers List](#workers-list) shows. `?runs=finish`, the default, or `?runs=stop`. Returns `{"state": "removing"}` or `{"state": "removed"}`. `400` for another `runs` value. `404` when no worker has the ID |
+| `POST /api/v1/workers/removals` | Removes the worker the body names: `{"workerId", "certificateId", "runs"}`. `workerId` and `certificateId` are required; `certificateId` is the one the [Workers List](#workers-list) shows. The worker ID is in the body, so any worker ID works, also one with `/` or `%` or one that equals a fixed route. `"runs": "finish"`, the default, or `"stop"`. Returns `{"state": "removing"}` or `{"state": "removed"}`. `400` for another `runs` value, or without `workerId` or `certificateId`. `404` when no worker has the ID |
 | `GET /api/v1/workers/join-readiness` | Returns the reports of [Join Readiness](#join-readiness) |
 
 - Each endpoint is admin only. An API key with the admin role can call it.
@@ -1506,7 +1506,8 @@ next call opens a new connection that tries TLS again.
 
 Worker `worker-a1` holds a certificate and runs two tasks.
 
-1. `DELETE /api/v1/workers/worker-a1?certificateId=<its certificate>`
+1. `POST /api/v1/workers/removals` with
+   `{"workerId": "worker-a1", "certificateId": "<its certificate>"}`
    returns `{"state": "removing"}`. The Workers page shows `Removing (2 runs left)`.
 2. `Poll` gives `worker-a1` no task. Both runs finish and report their
    status.

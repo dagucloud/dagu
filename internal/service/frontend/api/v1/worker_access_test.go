@@ -64,13 +64,14 @@ func TestWorkerAccessRoleBeforeValidation(t *testing.T) {
 			server := setupBuiltinAuthServer(t, func(cfg *config.Config) { cfg.Server.StrictValidation = strict })
 			adminToken := getAdminToken(t, server)
 			viewerKey := createAPIKeyForRole(t, server, adminToken, "viewer-key", api.UserRoleViewer)
-			for _, path := range []string{
-				"/api/v1/workers/worker-1",
-				"/api/v1/workers/worker-1?certificateId=cert-1&runs=later",
-				"/api/v1/workers/invites/not-an-id",
+			for _, body := range []map[string]string{
+				{},
+				{"workerId": "worker-1"},
+				{"workerId": "worker-1", "certificateId": "cert-1", "runs": "later"},
 			} {
-				server.Client().Delete(path).WithBearerToken(viewerKey).ExpectStatus(http.StatusForbidden).Send(t)
+				server.Client().Post("/api/v1/workers/removals", body).WithBearerToken(viewerKey).ExpectStatus(http.StatusForbidden).Send(t)
 			}
+			server.Client().Delete("/api/v1/workers/invites/not-an-id").WithBearerToken(viewerKey).ExpectStatus(http.StatusForbidden).Send(t)
 		})
 	}
 }

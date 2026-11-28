@@ -4,11 +4,11 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"math"
 	"net/http"
-	"net/url"
 	"slices"
 	"time"
 
@@ -132,11 +132,7 @@ var workerAccessOperations = map[string]bool{
 // workerAccessAuthorization refuses a worker access request of a caller who
 // is no admin before the request's input is validated, so such a caller
 // gets 403 whatever the input. It matches requests with the router of the
-// operations' own path patterns, as the serving router does.
-//
-// It also hands the serving router the escaped path of such a request,
-// which the generated handler decodes once. Routed on the decoded path, a
-// worker ID such as "literal%25" would be decoded twice.
+// operations' own path patterns, on the path the serving router routes on.
 func (a *API) workerAccessAuthorization(swagger *openapi3.T) (func(http.Handler) http.Handler, error) {
 	router := chi.NewRouter()
 	for path, item := range swagger.Paths.Map() {
@@ -149,7 +145,7 @@ func (a *API) workerAccessAuthorization(swagger *openapi3.T) (func(http.Handler)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			rctx := chi.RouteContext(r.Context())
-			if rctx == nil || !router.Match(chi.NewRouteContext(), r.Method, escapedRoutePath(rctx, r)) {
+			if rctx == nil || !router.Match(chi.NewRouteContext(), r.Method, cmp.Or(rctx.RoutePath, r.URL.Path)) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -157,24 +153,9 @@ func (a *API) workerAccessAuthorization(swagger *openapi3.T) (func(http.Handler)
 				WriteErrorResponse(w, err)
 				return
 			}
-			rctx.RoutePath = escapedRoutePath(rctx, r)
 			next.ServeHTTP(w, r)
 		})
 	}, nil
-}
-
-// escapedRoutePath returns the path the serving router routes r on, escaped
-// as the request sent it. A router routes on the decoded path when the
-// request needs no other escaping, and on its raw path otherwise.
-func escapedRoutePath(rctx *chi.Context, r *http.Request) string {
-	if rctx.RoutePath == "" {
-		return r.URL.EscapedPath()
-	}
-	if r.URL.RawPath != "" {
-		// The parent router routed on the raw path, which is escaped.
-		return rctx.RoutePath
-	}
-	return (&url.URL{Path: rctx.RoutePath}).EscapedPath()
 }
 
 // CreateWorkerInvite implements the createWorkerInvite operation. Its

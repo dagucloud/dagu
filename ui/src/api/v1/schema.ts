@@ -312,7 +312,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/workers/{workerId}": {
+    "/workers/removals": {
         parameters: {
             query?: never;
             header?: never;
@@ -321,12 +321,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post?: never;
         /**
          * Remove a worker
          * @description Revokes the certificate of a worker that joined with an invite, so it stays out across restarts until it gets a new invite. The request names the certificate the workers list shows, so a worker that joined again with a new certificate is not removed by mistake. A worker that is not connected is removed at once. A connected one gets no new runs and is removed once the runs it holds end. Admin only, and not forwarded to a remote node.
          */
-        delete: operations["removeWorker"];
+        post: operations["removeWorker"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -9558,6 +9558,14 @@ export interface components {
          * @enum {string}
          */
         WorkerAccessReason: WorkerAccessReason;
+        /** @description The worker to remove, and what happens to the runs it holds */
+        RemoveWorkerRequest: {
+            /** @description ID of the worker */
+            workerId: string;
+            /** @description The certificateId the workers list shows for the worker */
+            certificateId: string;
+            runs?: components["schemas"]["WorkerRemovalRuns"];
+        };
         /**
          * @description What a removal does with the runs the worker holds:
          *     - finish: lets them run to their end.
@@ -12669,23 +12677,16 @@ export interface operations {
     };
     removeWorker: {
         parameters: {
-            query: {
-                /** @description The certificateId the workers list shows for the worker */
-                certificateId: string;
-                /** @description What happens to the runs the worker holds:
-                 *     - finish: they run to their end. The default.
-                 *     - stop: each one is canceled.
-                 *      */
-                runs?: components["schemas"]["WorkerRemovalRuns"];
-            };
+            query?: never;
             header?: never;
-            path: {
-                /** @description ID of the worker */
-                workerId: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoveWorkerRequest"];
+            };
+        };
         responses: {
             /** @description The removal started or completed. A removal of a certificate already revoked answers removed. */
             200: {
@@ -12696,7 +12697,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkerRemovalResponse"];
                 };
             };
-            /** @description An invalid runs value, or no certificateId */
+            /** @description An invalid runs value, or no workerId or certificateId */
             400: {
                 headers: {
                     [name: string]: unknown;

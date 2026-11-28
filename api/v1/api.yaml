@@ -942,37 +942,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /workers/{workerId}:
-    delete:
+  /workers/removals:
+    post:
       summary: "Remove a worker"
       description: "Revokes the certificate of a worker that joined with an invite, so it stays out across restarts until it gets a new invite. The request names the certificate the workers list shows, so a worker that joined again with a new certificate is not removed by mistake. A worker that is not connected is removed at once. A connected one gets no new runs and is removed once the runs it holds end. Admin only, and not forwarded to a remote node."
       operationId: "removeWorker"
       tags:
         - "system"
-      parameters:
-        - name: workerId
-          in: path
-          description: "ID of the worker"
-          required: true
-          schema:
-            type: string
-            minLength: 1
-        - name: certificateId
-          in: query
-          description: "The certificateId the workers list shows for the worker"
-          required: true
-          schema:
-            type: string
-            minLength: 1
-        - name: runs
-          in: query
-          description: |
-            What happens to the runs the worker holds:
-            - finish: they run to their end. The default.
-            - stop: each one is canceled.
-          required: false
-          schema:
-            $ref: "#/components/schemas/WorkerRemovalRuns"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoveWorkerRequest"
       responses:
         "200":
           description: "The removal started or completed. A removal of a certificate already revoked answers removed."
@@ -981,7 +963,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/WorkerRemovalResponse"
         "400":
-          description: "An invalid runs value, or no certificateId"
+          description: "An invalid runs value, or no workerId or certificateId"
           content:
             application/json:
               schema:
@@ -23379,6 +23361,24 @@ components:
         - no_coordinator
         - peer_token_worker
         - certificate_changed
+
+    RemoveWorkerRequest:
+      type: object
+      description: "The worker to remove, and what happens to the runs it holds"
+      properties:
+        workerId:
+          type: string
+          minLength: 1
+          description: "ID of the worker"
+        certificateId:
+          type: string
+          minLength: 1
+          description: "The certificateId the workers list shows for the worker"
+        runs:
+          $ref: "#/components/schemas/WorkerRemovalRuns"
+      required:
+        - workerId
+        - certificateId
 
     WorkerRemovalRuns:
       type: string
