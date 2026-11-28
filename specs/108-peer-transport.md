@@ -716,15 +716,15 @@ The `worker_certificates` collection keeps one record per certificate:
   with one call to the first that answers. While none answers, it starts
   with the certificate, and its calls retry.
 - A refusal as revoked, from the start or from any call while the worker
-  runs, is kept with the certificate before the worker stops, so a later
-  start with the same invite or none exits at once, without calling a
-  coordinator. Any refusal decides: a coordinator that has not reread the
-  revoked set yet does not outweigh one that has.
-- This holds only while the data directory keeps the certificate. A worker
-  that keeps none, as on a read-only data directory, and one that starts
-  with a new data directory, such as a new pod's `emptyDir`, enrolls again
-  while its reusable invite exists. A container restarted in the same pod
-  keeps its `emptyDir`, and so exits again.
+  runs, is recorded with the worker's enrollment before the worker stops,
+  so a later start with the same invite or none exits at once, without
+  calling a coordinator. Any refusal decides: a coordinator that has not
+  reread the revoked set yet does not outweigh one that has.
+- This holds while the worker keeps its enrollment. A fresh worker
+  instance, one that kept no enrollment or starts without the one it had,
+  enrolls again while its reusable invite exists. In Kubernetes, a
+  restarted container keeps its enrollment and exits again, and a replaced
+  pod is a fresh worker instance.
 
 #### Worker Lock
 
@@ -1199,9 +1199,10 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
   settings that the start refuses with the same messages, and takes no
   lock, so it runs beside the worker. A worker without a certificate has no
   credential before it enrolls, so it gets the health check only.
-- A removal that the data directory records fails the check with the
-  removed worker's message after the coordinators are checked, whatever
-  they answer.
+- A removal that the worker recorded fails the check with the removed
+  worker's message after the coordinators are checked, whatever they
+  answer. The check decides by the same read of the enrollment that it
+  dials with.
 - A failed handshake states the names the server certificate covers, the
   address dialed, and the CA the certificate chains to. It names each
   problem in plain words: a name the certificate does not cover, an IP
