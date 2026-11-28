@@ -52,6 +52,35 @@ This spec does not define:
   holds the token, and an isolated agent never sees it.
 - The agent sees only the tools that the step allows.
 
+## Overview
+
+This section is informative. The sections after it state the rules.
+
+A manager adds an MCP server with its token or headers once, as a
+connection. A step names the connection in `mcp_servers`. The agent
+reaches the server only through the MCP gateway of its step, which adds
+the credential and offers only the tools that the step allows.
+
+```mermaid
+sequenceDiagram
+  participant A as Agent of the step
+  participant G as MCP gateway of the step
+  participant S as MCP server
+  A->>G: tools/list, gateway token
+  Note over G,S: On an agent worker, through the egress proxy
+  G->>S: tools/list, stored token or headers
+  S-->>G: every tool
+  G-->>A: only the tools that the step lists
+  A->>G: tools/call
+  alt listed, and in unattended or approved in an agent DAG
+    G->>S: tools/call, stored token or headers
+    S-->>G: result
+    G-->>A: result, stored values removed
+  else any other call
+    G-->>A: refused
+  end
+```
+
 ## Static Credentials
 
 Spec 107 gives the provider `mcp` the grant `authorization_code`. This
