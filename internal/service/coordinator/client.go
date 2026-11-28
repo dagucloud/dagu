@@ -1282,7 +1282,23 @@ func selectAuthoritativeWorker(current, candidate *coordinatorv1.WorkerInfo) *co
 	if candidate.LastHeartbeatAt > current.LastHeartbeatAt {
 		return candidate
 	}
+	if candidate.LastHeartbeatAt == current.LastHeartbeatAt {
+		fillWorkerMetadata(current, candidate)
+	}
 	return current
+}
+
+// fillWorkerMetadata sets on worker the fields it lacks and other has. Both
+// report the same heartbeat, from coordinators that share the heartbeat
+// records, and one of them may predate a field.
+func fillWorkerMetadata(worker, other *coordinatorv1.WorkerInfo) {
+	if worker.Version == "" {
+		worker.Version = other.Version
+	}
+	if worker.Connection == coordinatorv1.WorkerConnection_WORKER_CONNECTION_UNSPECIFIED {
+		worker.Connection = other.Connection
+		worker.PlaintextReason = other.PlaintextReason
+	}
 }
 
 // Heartbeat sends a heartbeat to coordinators and returns the response
