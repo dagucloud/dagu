@@ -948,11 +948,15 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
   and that `dagu worker --check` on the calling host shows why.
 - `--address` loses surrounding spaces, as in the Add worker dialog. It
   must be valid UTF-8, hold no invite, and be one `host:port` without a
-  comma, which would split the printed `--worker.coordinators`. It takes the addresses the Add
-  worker dialog takes: a port from 1 to 65535, and a host that is a DNS
-  name other than `localhost` or a container ID, or an IP address without
-  a zone that is not unspecified, loopback, link-local, multicast, or
-  broadcast. An IPv6 host is in brackets.
+  comma, which would split the printed `--worker.coordinators`. It takes
+  the addresses the Add worker dialog takes. The port is a decimal number
+  from 1 to 65535 without a sign or leading zero. The host is a hostname of
+  dot-separated labels of 1 to 63 letters, digits, hyphens, and
+  underscores, neither starting nor ending with a hyphen, at most 253
+  characters, with no trailing dot, other than `localhost` or a container
+  ID; an IPv4 address in dotted decimal; or an IPv6 address in brackets
+  without a zone. An IP address is not unspecified, loopback, link-local,
+  multicast, or broadcast.
 - When the output cannot be written, it tries to delete the invite it
   created and exits with code 1. It says, naming the invite by its ID only,
   that the invite was deleted, or that the delete failed and the invite

@@ -717,6 +717,10 @@ func TestWorkerInviteFlags(t *testing.T) {
 		badAddress = "--address must be host:port, such as 192.168.1.20:50055"
 		badExpiry  = "--expires must be a positive duration, such as 24h"
 		oneAddress = "--address must be one host:port, without commas"
+		// strictAddress refuses what the Add worker rule lets through and
+		// the invite address rule does not.
+		strictAddress = "--address must be a hostname, a dotted IPv4 address, or an IPv6 address in brackets, " +
+			"and a port from 1 to 65535 without a sign or leading zero"
 	)
 	for _, tc := range []struct {
 		name    string
@@ -727,6 +731,8 @@ func TestWorkerInviteFlags(t *testing.T) {
 		{name: "NoPort", args: []string{"--address", "192.168.1.20"}, wantErr: badAddress},
 		{name: "BadPort", args: []string{"--address", "192.168.1.20:70000"}, wantErr: "--address must have a port from 1 to 65535"},
 		{name: "MalformedIPv6", args: []string{"--address", "[not:ipv6]:50055"}, wantErr: "--address must name one host: an IP address without a zone, or a DNS name"},
+		{name: "SignedPort", args: []string{"--address", "worker.example:+50055"}, wantErr: strictAddress},
+		{name: "TrailingDot", args: []string{"--address", "worker.example.:50055"}, wantErr: strictAddress},
 		{name: "UnbracketedIPv6", args: []string{"--address", "2001:db8::1:50055"}, wantErr: badAddress},
 		// The worker would split the printed value on the comma.
 		{name: "Comma", args: []string{"--address", "missing,coordinator:50055"}, wantErr: oneAddress},
