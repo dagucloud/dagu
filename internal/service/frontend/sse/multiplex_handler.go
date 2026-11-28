@@ -4,6 +4,7 @@
 package sse
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -24,6 +25,17 @@ type TopicMutationRequest struct {
 	Add       []string `json:"add"`
 	Remove    []string `json:"remove"`
 }
+
+// localOnlyTopicTypes are the topics that a stream for a remote node refuses.
+// Their data is kept by each server for itself, and a remote node would
+// read it with the credential this server stores for it.
+var localOnlyTopicTypes = map[TopicType]bool{
+	TopicTypeConnectionAttention: true,
+}
+
+// maxTopicMutationBytes bounds the topic mutation body read before it is
+// passed to a remote node.
+const maxTopicMutationBytes = 1 << 20
 
 // MultiplexHandler serves the multiplexed SSE stream and topic mutation API.
 type MultiplexHandler struct {
@@ -47,6 +59,10 @@ func (h *MultiplexHandler) HandleStream(w http.ResponseWriter, r *http.Request) 
 
 	remoteNode := r.URL.Query().Get("remoteNode")
 	if remoteNode != "" && remoteNode != "local" {
+		if namesLocalOnlyTopic(parseInitialTopics(r.URL.Query())) {
+			writeLocalOnlyTopicError(w)
+			return
+		}
 		h.proxyStreamToRemoteNode(w, r, remoteNode)
 		return
 	}
@@ -75,6 +91,17 @@ func (h *MultiplexHandler) HandleStream(w http.ResponseWriter, r *http.Request) 
 func (h *MultiplexHandler) HandleTopicMutation(w http.ResponseWriter, r *http.Request) {
 	remoteNode := r.URL.Query().Get("remoteNode")
 	if remoteNode != "" && remoteNode != "local" {
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxTopicMutationBytes))
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid_request", "unreadable request body")
+			return
+		}
+		var req TopicMutationRequest
+		if json.Unmarshal(body, &req) == nil && namesLocalOnlyTopic(req.Add) {
+			writeLocalOnlyTopicError(w)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
 		h.proxyTopicMutationToRemoteNode(w, r, remoteNode)
 		return
 	}
@@ -113,6 +140,21 @@ func (h *MultiplexHandler) HandleTopicMutation(w http.ResponseWriter, r *http.Re
 	}
 
 	writeJSON(w, result.statusCode, result.response)
+}
+
+// namesLocalOnlyTopic reports whether raw names a topic of
+// localOnlyTopicTypes.
+func namesLocalOnlyTopic(raw []string) bool {
+	for _, topic := range raw {
+		if parsed, err := ParseTopic(topic); err == nil && localOnlyTopicTypes[parsed.Type] {
+			return true
+		}
+	}
+	return false
+}
+
+func writeLocalOnlyTopicError(w http.ResponseWriter) {
+	writeJSONError(w, http.StatusForbidden, "forbidden", "connection topics are kept by each server and cannot be read from a remote node")
 }
 
 func parseLastEventID(r *http.Request) (uint64, error) {

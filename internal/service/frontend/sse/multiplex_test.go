@@ -1014,6 +1014,34 @@ func TestMultiplexHandlerProxyStreamForwardsLastEventID(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recorder.Code)
 }
 
+// A stream or topic mutation for a remote node that names the connection
+// attention topic is refused before anything reaches the node.
+func TestMultiplexHandlerRefusesLocalTopicsForRemoteNode(t *testing.T) {
+	var reached atomic.Int32
+	remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer remoteServer.Close()
+	mux := NewMultiplexer(StreamConfig{}, nil)
+	t.Cleanup(mux.Shutdown)
+	handler := NewMultiplexHandler(mux, remotenode.NewResolver([]config.RemoteNode{
+		{Name: "remote1", APIBaseURL: remoteServer.URL},
+	}, nil))
+
+	stream := httptest.NewRecorder()
+	handler.HandleStream(stream, httptest.NewRequest(http.MethodGet,
+		"/api/v1/events/stream?remoteNode=remote1&topic=connectionattention%3Aall", nil))
+	mutation := httptest.NewRecorder()
+	handler.HandleTopicMutation(mutation, httptest.NewRequest(http.MethodPost,
+		"/api/v1/events/stream/topics?remoteNode=remote1",
+		strings.NewReader(`{"sessionID":"s1","add":["connectionattention:all"]}`)))
+
+	assert.Equal(t, http.StatusForbidden, stream.Code)
+	assert.Equal(t, http.StatusForbidden, mutation.Code)
+	assert.Zero(t, reached.Load())
+}
+
 func TestMultiplexHandlerHandleStreamAllowsUnsupportedInitialTopics(t *testing.T) {
 	mux := NewMultiplexer(StreamConfig{HeartbeatInterval: time.Hour}, nil)
 	t.Cleanup(mux.Shutdown)
