@@ -1294,6 +1294,12 @@ and prints the message:
   container, where it asks for the address of the machine that runs the
   container. It never guesses a host from the machine's name, a container
   ID, or the browser's host; an explicit `advertise` may be a DNS name.
+- In Kubernetes, step 2 first asks where the workers run, with neither
+  answer chosen, since an advertised address is often a Service name that
+  only pods in the cluster resolve. Inside this cluster keeps the starting
+  address. Outside the cluster empties the field and asks for the load
+  balancer's address, or a node's address and the assigned node port.
+  Step 3 waits for the answer.
 - The field holds `host:port`, trimmed of surrounding white space as the
   MCP action trims it, and keeps a pasted line break, which the rule below
   refuses inside the address. Its starting value and each suggestion pass the rule
@@ -1304,8 +1310,8 @@ and prints the message:
   that is not `host:port` with a port from 1 to 65535, or whose host is
   not one IP address without a zone or one DNS name, or is `0.0.0.0`,
   `[::]`, a loopback, link-local, multicast, or broadcast address,
-  `localhost`, or a container ID (12 or 64 lowercase hexadecimal
-  characters). `POST /api/v1/workers/invites` checks only that the
+  `localhost`, a container ID (12 or 64 lowercase hexadecimal
+  characters), or text shaped like an invite. `POST /api/v1/workers/invites` checks only that the
   address is `host:port` with a port from 1 to 65535 and that its host
   holds no invite, since automation may reach the coordinator through a
   tunnel.

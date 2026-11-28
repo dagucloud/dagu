@@ -277,7 +277,12 @@ describe('AddWorker', () => {
       'href',
       expect.stringContaining('charts/dagu/README.md')
     );
+    // No copyable chart values, which would skip moving the claim's data.
+    expect(
+      screen.queryByText(/deploymentMode|persistence/, { selector: 'pre' })
+    ).toBeNull();
     // A worker outside the cluster dials a node, not the Service's name.
+    fireEvent.click(screen.getByRole('radio', { name: 'Outside the cluster' }));
     expect(
       screen.getByText(/a node's address and the assigned node port/)
     ).toBeInTheDocument();
@@ -286,17 +291,60 @@ describe('AddWorker', () => {
     ).toBeInTheDocument();
   });
 
-  // One coordinator that does not answer keeps the step from being ready.
+  // A pod's advertised address is often a Service name only the cluster
+  // resolves, so step 3 waits until the admin says where workers run.
+  it('asks where Kubernetes workers run before step 3', async () => {
+    await open(
+      readiness({
+        environment: HostEnvironment.kubernetes,
+        advertise: 'dagu-coordinator',
+        addresses: [],
+      })
+    );
+    const radios = screen.getAllByRole('radio');
+    expect(radios.map((r) => (r as HTMLInputElement).checked)).toEqual([
+      false,
+      false,
+    ]);
+    expect(screen.queryByLabelText(ADDRESS)).toBeNull();
+    const worker = () =>
+      step('Worker').queryByText('Shown after steps 1 and 2');
+    expect(worker()).toBeInTheDocument();
+
+    const inside = screen.getByRole('radio', { name: 'Inside this cluster' });
+    inside.focus();
+    expect(document.activeElement).toBe(inside);
+    fireEvent.click(inside);
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(
+      'dagu-coordinator:50055'
+    );
+    expect(worker()).toBeNull();
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Outside the cluster' }));
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue('');
+    expect(screen.getByText(/assigned node port/)).toBeInTheDocument();
+    expect(worker()).toBeInTheDocument();
+    typeAddress('203.0.113.7:30055');
+    expect(worker()).toBeNull();
+  });
+
+  // A ready coordinator beside ones that refused or did not report keeps
+  // the step, and so step 3, from being ready.
   it('names each coordinator and the error of one that did not report', async () => {
     const b = { instanceId: 'c2', host: 'node-b', port: 50055 };
     const c = { ...b, instanceId: 'c3', host: 'node-c' };
     const mismatch = WorkerAccessReason.peer_token_mismatch;
     await open({
+      lastInviteAddress: '192.168.1.30:50055',
       coordinators: [
+        { instanceId: 'c1', host: 'node-a', port: 50055, report: report() },
         { ...b, error: 'read /var/lib/dagu/peer-token' },
         { ...c, error: 'no match', errorReason: mismatch },
       ],
     });
+    expect(
+      step('Worker').getByText('Shown after steps 1 and 2')
+    ).toBeInTheDocument();
 
     expect(screen.getByText('node-b:50055')).toBeInTheDocument();
     expect(
@@ -313,7 +361,7 @@ describe('AddWorker', () => {
 
   // Removing a coordinator's own certificates alone leaves clients trusting
   // the old CA, so both paths link to the docs' steps.
-  const OWN = ['Keep your certificates', 'Move to built-in TLS'];
+  const OWN = ['Server TLS', 'Mutual TLS', 'Move to built-in TLS'];
   it.each([
     [BuiltinTLSReason.ownCertificates, /no built-in CA for invites/, OWN],
     [BuiltinTLSReason.caUnavailable, /could not create or read it/, []],
@@ -326,7 +374,9 @@ describe('AddWorker', () => {
     const shown = screen.queryAllByRole('link');
     expect(shown.map((a) => a.textContent)).toEqual(links);
     expect(shown.map((a) => a.getAttribute('href')?.split('#')[1])).toEqual(
-      links.length ? ['server-tls', 'processes-on-another-host'] : []
+      links.length
+        ? ['server-tls', 'mutual-tls', 'processes-on-another-host']
+        : []
     );
   });
 
@@ -334,6 +384,7 @@ describe('AddWorker', () => {
   // server's message, which may say where a credential is kept.
   it.each([
     [403, undefined, 'Only admins can add workers.'],
+    [403, WorkerAccessReason.coordinator_refused, 'Only admins can add'],
     [409, WorkerAccessReason.older_coordinator, /Upgrade every coordinator/],
     [409, undefined, /Upgrade every coordinator/],
     [503, WorkerAccessReason.no_coordinator, /No coordinator is running/],
@@ -347,7 +398,7 @@ describe('AddWorker', () => {
     [
       503,
       WorkerAccessReason.require_tls,
-      /clear any peer.insecure: true or peer.skip_tls_verify: true.*set peer.ca_cert_file on it to the coordinator's CA certificate/,
+      /clear any peer.insecure: true or peer.skip_tls_verify: true.*clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate/,
     ],
     [503, WorkerAccessReason.coordinator_refused, /Its log names the reason/],
     [409, WorkerAccessReason.coordinator_conflict, /present state/],
@@ -464,7 +515,7 @@ describe('AddWorker', () => {
   // restart, and on window focus until ready.
   it.each(['server', 'focus'])('reads readiness again on %s', async (by) => {
     const { rerender } = await open(loopback());
-    rerender(view(true));
+    if (by === 'server') rerender(view(true));
     await settle();
     expect(api.GET).toHaveBeenCalledTimes(1);
 

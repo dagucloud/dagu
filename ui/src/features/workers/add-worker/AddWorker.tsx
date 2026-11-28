@@ -41,6 +41,19 @@ type JoinReadiness = components['schemas']['WorkerJoinReadinessResponse'];
 
 const LOCAL_NODE = 'local';
 
+// Where workers run, which a Kubernetes coordinator cannot tell: its
+// advertised address is often a Service name only pods in the cluster
+// resolve.
+enum Placement {
+  inside = 'inside',
+  outside = 'outside',
+}
+
+const PLACEMENTS: [Placement, string][] = [
+  [Placement.inside, 'Inside this cluster'],
+  [Placement.outside, 'Outside the cluster'],
+];
+
 type Readiness =
   | { state: 'loading' }
   | { state: 'loaded'; data: JoinReadiness }
@@ -65,6 +78,8 @@ export function AddWorkerDialog({
   });
   const [checking, setChecking] = React.useState(true);
   const [address, setAddress] = React.useState<string>();
+  const [placement, setPlacement] = React.useState<Placement>();
+  const outside = React.useRef(false);
   const touched = React.useRef(false);
   // Only the latest read may change the dialog: an earlier one that ends
   // later must not replace a newer answer.
@@ -102,7 +117,7 @@ export function AddWorkerDialog({
     // A new reading resets the defaults the admin has not changed, as a
     // port that changed in the restart.
     if (next.state === 'loaded' && !touched.current) {
-      setAddress(initialAddress(next.data));
+      setAddress(outside.current ? '' : initialAddress(next.data));
     }
     setChecking(false);
   }, [client]);
@@ -144,8 +159,12 @@ export function AddWorkerDialog({
   });
 
   const problem = address !== undefined ? addressProblem(address) : undefined;
+  const placed =
+    !data ||
+    coordinatorEnvironment(data) !== HostEnvironment.kubernetes ||
+    placement;
   const validAddress =
-    ready && address && !problem ? goTrimSpace(address) : undefined;
+    ready && placed && address && !problem ? goTrimSpace(address) : undefined;
 
   let step1State = 'Checking...';
   if (!checking) step1State = ready ? 'Ready' : 'Needs change';
@@ -210,6 +229,13 @@ export function AddWorkerDialog({
               data={data}
               address={address}
               hostField={hostField}
+              placement={placement}
+              onPlace={(next) => {
+                outside.current = next === Placement.outside;
+                touched.current = false;
+                setPlacement(next);
+                setAddress(outside.current ? '' : initialAddress(data));
+              }}
               problem={touched.current || address ? problem : undefined}
               onChange={(next) => {
                 touched.current = true;
@@ -233,12 +259,16 @@ function AddressFields({
   data,
   address,
   hostField,
+  placement,
+  onPlace,
   problem,
   onChange,
 }: {
   data: JoinReadiness;
   address: string;
   hostField: React.Ref<HTMLTextAreaElement>;
+  placement?: Placement;
+  onPlace: (placement: Placement) => void;
   problem?: AddressProblem;
   onChange: (address: string) => void;
 }) {
@@ -249,45 +279,69 @@ function AddressFields({
   if (environment === HostEnvironment.container) {
     hint =
       'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.';
-  } else if (environment === HostEnvironment.kubernetes) {
+  } else if (placement === Placement.outside) {
     hint =
       "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.";
   }
   const errorId = `${id}-error`;
+  const kubernetes = environment === HostEnvironment.kubernetes;
   return (
     <div className="space-y-2">
+      {kubernetes && (
+        <fieldset className="space-y-1.5">
+          <legend className="mb-1.5 text-sm">
+            <I18nText text="Where the workers run" />
+          </legend>
+          {PLACEMENTS.map(([value, text]) => (
+            <label key={value} className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name={`${id}-placement`}
+                checked={placement === value}
+                onChange={() => onPlace(value)}
+              />
+              <I18nText text={text} />
+            </label>
+          ))}
+        </fieldset>
+      )}
       {hint && (
         <p className="text-sm text-muted-foreground">
           <I18nText text={hint} />
         </p>
       )}
-      <div className="space-y-1">
-        <label
-          className="text-xs text-muted-foreground"
-          htmlFor={`${id}-address`}
-        >
-          <I18nText text="Address and port" />
-        </label>
-        {/* A one-line text area: an input would drop a pasted line break
-            that the MCP action reads, and refuses inside the address. */}
-        <Textarea
-          ref={hostField}
-          id={`${id}-address`}
-          rows={1}
-          className="min-h-9"
-          placeholder="host:port"
-          required
-          value={address}
-          aria-invalid={problem ? true : undefined}
-          aria-describedby={problem ? errorId : undefined}
-          onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      </div>
-      {problem && (
-        <p id={errorId} className="text-xs text-destructive">
-          <I18nText text={problem.text} values={problem.values} />
-        </p>
+      {(!kubernetes || placement) && (
+        <>
+          <div className="space-y-1">
+            <label
+              className="text-xs text-muted-foreground"
+              htmlFor={`${id}-address`}
+            >
+              <I18nText text="Address and port" />
+            </label>
+            {/* A one-line text area: an input would drop a pasted line
+                break that the MCP action reads, and refuses inside the
+                address. */}
+            <Textarea
+              ref={hostField}
+              id={`${id}-address`}
+              rows={1}
+              className="min-h-9"
+              placeholder="host:port"
+              required
+              value={address}
+              aria-invalid={problem ? true : undefined}
+              aria-describedby={problem ? errorId : undefined}
+              onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+              onChange={(e) => onChange(e.target.value)}
+            />
+          </div>
+          {problem && (
+            <p id={errorId} className="text-xs text-destructive">
+              <I18nText text={problem.text} values={problem.values} />
+            </p>
+          )}
+        </>
       )}
       {suggestions.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">

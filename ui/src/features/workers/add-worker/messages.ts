@@ -6,14 +6,18 @@ import { defineMessages } from '@/features/workflow-workspace/messages/define';
 /** The static messages of the Add worker dialog. */
 export const addWorkerMessages = defineMessages({
   en: {
+    'Outside the cluster': 'Outside the cluster',
+    'Inside this cluster': 'Inside this cluster',
+    'Where the workers run': 'Where the workers run',
+    'Mutual TLS': 'Mutual TLS',
+    'Server TLS': 'Server TLS',
+    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, as server TLS describes, and mutual TLS when the coordinator sets peer.client_ca_file. Or move every Dagu process to built-in TLS together.':
+      'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, as server TLS describes, and mutual TLS when the coordinator sets peer.client_ca_file. Or move every Dagu process to built-in TLS together.',
+    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
+      "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.",
     'Move to built-in TLS': 'Move to built-in TLS',
-    'Keep your certificates': 'Keep your certificates',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.",
-    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
-      "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.",
-    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, or move every Dagu process to built-in TLS together.':
-      'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, or move every Dagu process to built-in TLS together.',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.",
     'Copy the change': 'Copy the change',
@@ -93,14 +97,18 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Shown after steps 1 and 2',
   },
   'zh-CN': {
+    'Outside the cluster': '在集群外',
+    'Inside this cluster': '在此集群内',
+    'Where the workers run': 'Worker 运行的位置',
+    'Mutual TLS': '双向 TLS',
+    'Server TLS': '服务器 TLS',
+    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, as server TLS describes, and mutual TLS when the coordinator sets peer.client_ca_file. Or move every Dagu process to built-in TLS together.':
+      '此协调器使用自己的证书（peer.cert_file 和 peer.key_file），因此没有用于邀请的内置 CA。请按服务器 TLS 的说明使用您自己的证书添加 Worker，不使用邀请；协调器设置了 peer.client_ca_file 时，请按双向 TLS 的说明操作。或者将所有 Dagu 进程一起迁移到内置 TLS。',
+    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
+      '协调器要求 TLS。请在此服务器上清除所有 peer.insecure: true 或 peer.skip_tls_verify: true，无论它由参数、变量还是配置文件设置。如果此服务器没有协调器可用的 CA 证书，请将其切换到内置 TLS：清除 peer.cert_file、peer.key_file 和 peer.client_ca_file，然后将 peer.ca_cert_file 设为协调器的 CA 证书。然后重启它。',
     'Move to built-in TLS': '迁移到内置 TLS',
-    'Keep your certificates': '保留您的证书',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       '输入 Worker 可访问的协调器 Service 地址：其负载均衡器；如果使用 NodePort，则为节点地址和分配的节点端口。Service 自身的名称只在集群内有效。',
-    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
-      '协调器要求 TLS。请在此服务器上清除所有 peer.insecure: true 或 peer.skip_tls_verify: true，无论它由参数、变量还是配置文件设置。如果此服务器没有协调器可用的 CA 证书，请将其 peer.ca_cert_file 设为协调器的 CA 证书。然后重启它。',
-    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, or move every Dagu process to built-in TLS together.':
-      '此协调器使用自己的证书（peer.cert_file 和 peer.key_file），因此没有用于邀请的内置 CA。请使用您自己的证书添加 Worker，不使用邀请；或者将所有 Dagu 进程一起迁移到内置 TLS。',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       '在协调器的工作负载上将 DAGU_COORDINATOR_HOST 设为 0.0.0.0，然后重启它。在独立 Pod 中运行的协调器需要所有 Dagu Pod 都能写入的存储。使用 Helm Chart 时，请使用 deploymentMode: distributed，它会设置该变量。将数据迁移到 ReadWriteMany 声明，然后在升级前将 persistence.existingClaim 设为该声明，并将 persistence.accessMode 设为 ReadWriteMany。',
     'Copy the change': '复制修改内容',
@@ -179,14 +187,18 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': '完成步骤 1 和 2 后显示',
   },
   ja: {
+    'Outside the cluster': 'クラスターの外',
+    'Inside this cluster': 'このクラスター内',
+    'Where the workers run': 'ワーカーを動かす場所',
+    'Mutual TLS': '相互 TLS',
+    'Server TLS': 'サーバー TLS',
+    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, as server TLS describes, and mutual TLS when the coordinator sets peer.client_ca_file. Or move every Dagu process to built-in TLS together.':
+      'このコーディネーターは独自の証明書 (peer.cert_file と peer.key_file) を使っているため、招待用の組み込み CA がありません。サーバー TLS の説明に従い、招待を使わずに独自の証明書でワーカーを追加してください。コーディネーターが peer.client_ca_file を設定している場合は相互 TLS の説明に従ってください。または、すべての Dagu プロセスを一緒に組み込み TLS に移行してください。',
+    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
+      'コーディネーターは TLS を必要とします。このサーバーで peer.insecure: true と peer.skip_tls_verify: true を、フラグ、変数、設定ファイルのどれで設定されていてもすべて解除してください。このサーバーにコーディネーター用の使える CA 証明書がない場合は、組み込み TLS に切り替えてください。peer.cert_file、peer.key_file、peer.client_ca_file を解除してから、peer.ca_cert_file をコーディネーターの CA 証明書にします。その後再起動してください。',
     'Move to built-in TLS': '組み込み TLS に移行',
-    'Keep your certificates': '独自の証明書を使い続ける',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       'ワーカーが到達できるコーディネーター Service のアドレスを入力してください。ロードバランサー、または NodePort ならノードのアドレスと割り当てられたノードポートです。Service 自体の名前はクラスター内でのみ使えます。',
-    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
-      'コーディネーターは TLS を必要とします。このサーバーで peer.insecure: true と peer.skip_tls_verify: true を、フラグ、変数、設定ファイルのどれで設定されていてもすべて解除してください。このサーバーにコーディネーター用の使える CA 証明書がない場合は、peer.ca_cert_file をコーディネーターの CA 証明書にしてください。その後再起動してください。',
-    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, or move every Dagu process to built-in TLS together.':
-      'このコーディネーターは独自の証明書 (peer.cert_file と peer.key_file) を使っているため、招待用の組み込み CA がありません。招待を使わずに独自の証明書でワーカーを追加するか、すべての Dagu プロセスを一緒に組み込み TLS に移行してください。',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       'コーディネーターのワークロードで DAGU_COORDINATOR_HOST を 0.0.0.0 にし、再起動してください。独自の Pod で動くコーディネーターには、すべての Dagu Pod が書き込めるストレージが必要です。Helm チャートでは deploymentMode: distributed を使ってください。これがこの変数を設定します。データを ReadWriteMany のクレームに移し、アップグレードの前に persistence.existingClaim をそのクレームに、persistence.accessMode を ReadWriteMany にしてください。',
     'Copy the change': '変更をコピー',
@@ -267,14 +279,18 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'ステップ 1 と 2 の後に表示',
   },
   de: {
+    'Outside the cluster': 'Außerhalb des Clusters',
+    'Inside this cluster': 'In diesem Cluster',
+    'Where the workers run': 'Wo die Worker laufen',
+    'Mutual TLS': 'Mutual TLS',
+    'Server TLS': 'Server-TLS',
+    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, as server TLS describes, and mutual TLS when the coordinator sets peer.client_ca_file. Or move every Dagu process to built-in TLS together.':
+      'Dieser Koordinator nutzt eigene Zertifikate, peer.cert_file und peer.key_file, und hat daher keine eingebaute CA für Einladungen. Fügen Sie den Worker mit Ihren eigenen Zertifikaten und ohne Einladung hinzu, wie Server-TLS beschreibt, und wie Mutual TLS beschreibt, wenn der Koordinator peer.client_ca_file setzt. Oder stellen Sie alle Dagu-Prozesse gemeinsam auf eingebautes TLS um.',
+    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
+      'Der Koordinator verlangt TLS. Entfernen Sie auf diesem Server jedes peer.insecure: true und peer.skip_tls_verify: true, ob ein Flag, eine Variable oder die Konfigurationsdatei es setzt. Hat dieser Server kein nutzbares CA-Zertifikat für den Koordinator, stellen Sie ihn auf eingebautes TLS um: Entfernen Sie peer.cert_file, peer.key_file und peer.client_ca_file und setzen Sie dann peer.ca_cert_file auf das CA-Zertifikat des Koordinators. Starten Sie ihn dann neu.',
     'Move to built-in TLS': 'Auf eingebautes TLS umstellen',
-    'Keep your certificates': 'Eigene Zertifikate behalten',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       'Geben Sie die Adresse des Koordinator-Service ein, die Worker erreichen: seinen Load Balancer oder bei NodePort die Adresse eines Knotens und den zugewiesenen Knotenport. Der Name des Service selbst funktioniert nur im Cluster.',
-    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
-      'Der Koordinator verlangt TLS. Entfernen Sie auf diesem Server jedes peer.insecure: true und peer.skip_tls_verify: true, ob ein Flag, eine Variable oder die Konfigurationsdatei es setzt. Hat dieser Server kein nutzbares CA-Zertifikat für den Koordinator, setzen Sie peer.ca_cert_file auf das CA-Zertifikat des Koordinators. Starten Sie ihn dann neu.',
-    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, or move every Dagu process to built-in TLS together.':
-      'Dieser Koordinator nutzt eigene Zertifikate, peer.cert_file und peer.key_file, und hat daher keine eingebaute CA für Einladungen. Fügen Sie den Worker mit Ihren eigenen Zertifikaten und ohne Einladung hinzu, oder stellen Sie alle Dagu-Prozesse gemeinsam auf eingebautes TLS um.',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       'Setzen Sie DAGU_COORDINATOR_HOST auf dem Workload des Koordinators auf 0.0.0.0 und starten Sie ihn neu. Ein Koordinator in einem eigenen Pod braucht Speicher, in den jeder Dagu-Pod schreiben kann. Mit dem Helm-Chart nutzen Sie deploymentMode: distributed, das die Variable setzt. Verschieben Sie die Daten in einen ReadWriteMany-Claim und setzen Sie vor dem Upgrade persistence.existingClaim darauf und persistence.accessMode auf ReadWriteMany.',
     'Copy the change': 'Änderung kopieren',
@@ -356,14 +372,18 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Erscheint nach Schritt 1 und 2',
   },
   fr: {
+    'Outside the cluster': 'Hors du cluster',
+    'Inside this cluster': 'Dans ce cluster',
+    'Where the workers run': 'Où s’exécutent les workers',
+    'Mutual TLS': 'TLS mutuel',
+    'Server TLS': 'TLS serveur',
+    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, as server TLS describes, and mutual TLS when the coordinator sets peer.client_ca_file. Or move every Dagu process to built-in TLS together.':
+      'Ce coordinateur utilise ses propres certificats, peer.cert_file et peer.key_file, et n’a donc pas de CA intégrée pour les invitations. Ajoutez le worker avec vos propres certificats et sans invitation, comme le décrit TLS serveur, et TLS mutuel quand le coordinateur définit peer.client_ca_file. Ou passez tous les processus Dagu ensemble au TLS intégré.',
+    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
+      'Le coordinateur exige TLS. Sur ce serveur, retirez tout peer.insecure : true ou peer.skip_tls_verify : true, qu’une option, une variable ou le fichier de configuration le définisse. Si ce serveur n’a pas de certificat de CA utilisable pour le coordinateur, passez-le au TLS intégré : retirez peer.cert_file, peer.key_file et peer.client_ca_file, puis définissez peer.ca_cert_file sur le certificat de CA du coordinateur. Puis redémarrez-le.',
     'Move to built-in TLS': 'Passer au TLS intégré',
-    'Keep your certificates': 'Garder vos certificats',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       'Saisissez l’adresse du Service du coordinateur que les workers atteignent : son équilibreur de charge, ou pour NodePort, l’adresse d’un nœud et le port de nœud attribué. Le nom du Service ne fonctionne qu’à l’intérieur du cluster.',
-    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
-      'Le coordinateur exige TLS. Sur ce serveur, retirez tout peer.insecure : true ou peer.skip_tls_verify : true, qu’une option, une variable ou le fichier de configuration le définisse. Si ce serveur n’a pas de certificat de CA utilisable pour le coordinateur, définissez peer.ca_cert_file sur le certificat de CA du coordinateur. Puis redémarrez-le.',
-    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, or move every Dagu process to built-in TLS together.':
-      'Ce coordinateur utilise ses propres certificats, peer.cert_file et peer.key_file, et n’a donc pas de CA intégrée pour les invitations. Ajoutez le worker avec vos propres certificats et sans invitation, ou passez tous les processus Dagu ensemble au TLS intégré.',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       'Définissez DAGU_COORDINATOR_HOST à 0.0.0.0 sur la charge de travail du coordinateur, puis redémarrez-la. Un coordinateur dans son propre pod a besoin d’un stockage que chaque pod Dagu peut écrire. Avec le chart Helm, utilisez deploymentMode : distributed, qui définit la variable. Déplacez les données vers une demande ReadWriteMany, puis définissez persistence.existingClaim sur celle-ci et persistence.accessMode à ReadWriteMany avant la mise à jour.',
     'Copy the change': 'Copier la modification',

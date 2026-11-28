@@ -25,7 +25,7 @@ export interface RequestProblem {
 // it may name where a credential is kept.
 const REASON_TEXT: Partial<Record<WorkerAccessReason, string>> = {
   [WorkerAccessReason.own_certificates]:
-    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, or move every Dagu process to built-in TLS together.',
+    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, as server TLS describes, and mutual TLS when the coordinator sets peer.client_ca_file. Or move every Dagu process to built-in TLS together.',
   [WorkerAccessReason.ca_unavailable]:
     'Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause.',
   [WorkerAccessReason.peer_token_missing]:
@@ -33,7 +33,7 @@ const REASON_TEXT: Partial<Record<WorkerAccessReason, string>> = {
   [WorkerAccessReason.peer_token_mismatch]:
     "This server's peer.token is not the coordinator's. Set the same peer.token on both, then restart them.",
   [WorkerAccessReason.require_tls]:
-    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.",
+    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.",
   [WorkerAccessReason.coordinator_refused]:
     'The coordinator refused this server. Its log names the reason.',
   [WorkerAccessReason.coordinator_conflict]:
@@ -48,7 +48,8 @@ const REASON_TEXT: Partial<Record<WorkerAccessReason, string>> = {
 // Docs that carry the steps a reason's words leave out.
 const REASON_LINKS: Partial<Record<WorkerAccessReason, [string, string][]>> = {
   [WorkerAccessReason.own_certificates]: [
-    ['Keep your certificates', `${TRANSPORT_DOCS}#server-tls`],
+    ['Server TLS', `${TRANSPORT_DOCS}#server-tls`],
+    ['Mutual TLS', `${TRANSPORT_DOCS}#mutual-tls`],
     ['Move to built-in TLS', `${TRANSPORT_DOCS}#processes-on-another-host`],
   ],
 };
@@ -85,6 +86,8 @@ export function requestProblem(
 ): RequestProblem {
   const reason = (error as { details?: { reason?: string } } | undefined)
     ?.details?.reason;
+  // A non-admin gets 403 for any request, so the reason is not the cause.
+  if (status === 403) return { text: 'Only admins can add workers.' };
   const text = reasonText(reason);
   if (text) return { text, reason };
   switch (status) {
@@ -92,8 +95,6 @@ export function requestProblem(
       return {
         text: 'The server refused the address. Check it and try again.',
       };
-    case 403:
-      return { text: 'Only admins can add workers.' };
     case 409:
       return { text: conflict };
     case 503:
