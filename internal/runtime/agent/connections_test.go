@@ -64,6 +64,12 @@ steps:
 	require.ErrorContains(t, err, `connection "ops-mail" not found`)
 	require.Equal(t, ir.Failed, dagAgent.Status(th.Context).Status)
 
+	// The stored status names the connections, so the run page shows them.
+	stored, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	require.Contains(t, stored.Error, `connection "work-google" not found`)
+	require.Contains(t, stored.Error, `connection "ops-mail" not found`)
+
 	require.Equal(t, []string{"ops/work-google[gmail]", "ops/ops-mail[]"}, checker.checks)
 	for _, node := range dagAgent.Status(th.Context).Nodes {
 		require.Equal(t, ir.NodeNotStarted, node.Status, "step %q ran", node.Step.Name)
