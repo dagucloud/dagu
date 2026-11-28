@@ -155,6 +155,31 @@ func TestTrustedHomeNeedsASafeTempFolder(t *testing.T) {
 	assert.Empty(t, names, "the private HOME is removed")
 }
 
+// The private HOME and the XDG folders below it name the folder that Dagu
+// made, also when TMPDIR is relative or has a ".." after a link, so the
+// removal of the HOME removes them. It changes the folder of the process, so
+// it does not run in parallel.
+func TestTrustedHomeResolvesTheTempFolder(t *testing.T) {
+	base := t.TempDir()
+	t.Chdir(base)
+	require.NoError(t, os.MkdirAll(filepath.Join("other", "nested"), 0o700))
+	require.NoError(t, os.Mkdir(filepath.Join("other", "tmp"), 0o700))
+	require.NoError(t, os.Symlink(filepath.Join(base, "other", "nested"), "link"))
+	shared := t.TempDir()
+	require.NoError(t, os.Chmod(shared, os.ModeSticky|0o777)) //nolint:gosec // a folder that any user can write, as /tmp
+	none := func(string) (string, bool) { return "", false }
+
+	for _, tmp := range []string{filepath.Join(base, "link") + "/../tmp", filepath.Join("other", "tmp")} {
+		t.Setenv("TMPDIR", tmp)
+		entries, remove, err := TrustedHome(testUID, testGID, "", "", shared, none)
+		require.NoError(t, err, tmp)
+		assert.True(t, filepath.IsAbs(entries["HOME"]), tmp)
+		require.NoError(t, os.MkdirAll(entries["XDG_CONFIG_HOME"], 0o700))
+		require.NoError(t, remove())
+		assert.NoDirExists(t, entries["XDG_CONFIG_HOME"], tmp)
+	}
+}
+
 // An access ACL can let the restricted user write a folder whatever its mode.
 // It needs no root.
 func TestTrustedHomeACL(t *testing.T) {

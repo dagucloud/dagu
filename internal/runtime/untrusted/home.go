@@ -32,7 +32,7 @@ var homeFolders = []struct{ name, dir string }{
 // value is not set or is relative. A folder in workDir, the work directory of
 // the run, counts as one it can write. A relative path counts from
 // workingDir, the working directory of the process. It returns nil when the
-// folders are safe.
+// folders are safe. The private HOME is an absolute path without links.
 func TrustedHome(uid, gid uint32, workDir, workingDir, home string, lookup func(string) (string, bool)) (map[string]string, func() error, error) {
 	// Not filepath.Join: a cleaned path drops a ".." after a link.
 	inWorkingDir := func(path string) string {
@@ -59,17 +59,27 @@ func TrustedHome(uid, gid uint32, workDir, workingDir, home string, lookup func(
 		return nil, nil, nil
 	}
 	// A folder of the user of the worker with the mode 0700 and a random name.
-	dir, err := os.MkdirTemp("", "dagu-home-")
+	created, err := os.MkdirTemp("", "dagu-home-")
 	if err != nil {
 		return nil, nil, err
 	}
-	remove := func() error { return os.RemoveAll(dir) }
 	// A temp folder that the restricted user can write lets it replace the
 	// private HOME.
-	if writableBy(dir, uid, gid) {
-		_ = remove()
-		return nil, nil, fmt.Errorf("the restricted user can replace the private HOME %s: its temp folder is not safe", dir)
+	if writableBy(created, uid, gid) {
+		_ = os.RemoveAll(created)
+		return nil, nil, fmt.Errorf("the restricted user can replace the private HOME %s: its temp folder is not safe", created)
 	}
+	// The paths below HOME name the folder that Dagu made only when HOME has
+	// no link, no ".." and no relative part, as TMPDIR can have.
+	dir, err := filepath.EvalSymlinks(created)
+	if err == nil {
+		dir, err = filepath.Abs(dir)
+	}
+	if err != nil {
+		_ = os.RemoveAll(created)
+		return nil, nil, err
+	}
+	remove := func() error { return os.RemoveAll(dir) }
 	entries := map[string]string{"HOME": dir}
 	for _, folder := range homeFolders {
 		entries[folder.name] = filepath.Join(dir, folder.dir)
