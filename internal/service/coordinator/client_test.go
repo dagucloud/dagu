@@ -62,6 +62,23 @@ func guardedContext(t *testing.T) context.Context {
 	return ctx
 }
 
+// requireCleanup fails the test unless client.Cleanup succeeds within
+// hangGuard. Cleanup does not watch its context, so the wait happens here.
+func requireCleanup(t *testing.T, client coordinator.Client) {
+	t.Helper()
+	ctx := guardedContext(t)
+	result := make(chan error, 1)
+	go func() {
+		result <- client.Cleanup(ctx)
+	}()
+	select {
+	case err := <-result:
+		require.NoError(t, err)
+	case <-ctx.Done():
+		t.Fatal("Cleanup did not return")
+	}
+}
+
 func TestClientNew(t *testing.T) {
 	t.Parallel()
 
@@ -235,10 +252,10 @@ func TestClientDispatch(t *testing.T) {
 		t.Parallel()
 		config := coordinator.DefaultConfig()
 
+		var received atomic.Pointer[coordinatorv1.Task]
 		mockCoord := &mockCoordinatorService{
 			dispatchFunc: func(_ context.Context, req *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error) {
-				assert.Equal(t, "test-dag-run", req.Task.DagRunId)
-				assert.Equal(t, "test.yaml", req.Task.Target)
+				received.Store(req.Task)
 				return &coordinatorv1.DispatchResponse{}, nil
 			},
 		}
@@ -262,6 +279,10 @@ func TestClientDispatch(t *testing.T) {
 
 		err := client.Dispatch(guardedContext(t), dispatch.DispatchRequest{Task: task})
 		require.NoError(t, err)
+		got := received.Load()
+		require.NotNil(t, got, "coordinator did not receive the dispatch")
+		assert.Equal(t, "test-dag-run", got.DagRunId)
+		assert.Equal(t, "test.yaml", got.Target)
 	})
 
 	t.Run("SendsAdmissionReservationToken", func(t *testing.T) {
@@ -592,7 +613,9 @@ func TestClientPoll(t *testing.T) {
 		Labels:   map[string]string{"type": "test"},
 	}
 
-	// A finite retry budget ends a failing poll long before the hang guard.
+	// A finite retry budget ends a poll whose attempts fail at once. Poll
+	// passes the caller's context straight to the RPC, so only hangGuard
+	// bounds a stalled attempt.
 	policy := backoff.NewConstantBackoffPolicy(10 * time.Millisecond)
 	policy.MaxRetries = 3
 	task, err := client.Poll(guardedContext(t), policy, req)
@@ -1388,9 +1411,7 @@ func TestClientHeartbeatWithSkipTLSVerify(t *testing.T) {
 
 	ctx := t.Context()
 	client := coordinator.New(monitor, config)
-	defer func() {
-		require.NoError(t, client.Cleanup(ctx))
-	}()
+	defer requireCleanup(t, client)
 
 	_, err := client.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"})
 	require.NoError(t, err)
@@ -1937,9 +1958,10 @@ func TestClientHeartbeatHonorsCallerDeadline(t *testing.T) {
 
 	// The wait below leaves room for a loaded host and still ends long
 	// before the heartbeat timeout, so only the caller's deadline can end
-	// the call within it.
+	// the call within it. The heartbeat timeout stays under hangGuard, so a
+	// call that ignores the caller's deadline still ends.
 	config := coordinator.DefaultConfig()
-	config.HeartbeatTimeout = time.Minute
+	config.HeartbeatTimeout = 20 * time.Second
 
 	monitor := &mockServiceMonitor{
 		getMembers: func(ctx context.Context) ([]serviceregistry.HostInfo, error) {
@@ -2272,8 +2294,7 @@ func TestClientCleanup(t *testing.T) {
 	require.NoError(t, err)
 
 	// Cleanup should close all connections
-	err = client.Cleanup(ctx)
-	require.NoError(t, err)
+	requireCleanup(t, client)
 	require.Eventually(t, func() bool { return connEnds.count.Load() == 1 }, hangGuard, 10*time.Millisecond,
 		"server did not see the first connection close")
 
