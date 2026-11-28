@@ -282,6 +282,12 @@ message WorkerInfo {
   string plaintext_reason = 12;
   // Where the worker runs, from its heartbeat; unset when it reports none.
   HostEnvironment environment = 13;
+  // The worker certificate the worker's last heartbeat arrived with, and
+  // the invite it names. Empty for a worker on the peer token.
+  string certificate_id = 14;
+  string invite_id = 15;
+  // True while the worker's certificate is removing.
+  bool removing = 16;
 }
 
 // How a worker's heartbeat reaches the coordinator.

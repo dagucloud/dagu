@@ -1754,6 +1754,9 @@ type WorkerInfo struct {
 	xxx_hidden_Connection      WorkerConnection       `protobuf:"varint,11,opt,name=connection,proto3,enum=coordinator.v1.WorkerConnection"`
 	xxx_hidden_PlaintextReason string                 `protobuf:"bytes,12,opt,name=plaintext_reason,json=plaintextReason,proto3"`
 	xxx_hidden_Environment     HostEnvironment        `protobuf:"varint,13,opt,name=environment,proto3,enum=coordinator.v1.HostEnvironment"`
+	xxx_hidden_CertificateId   string                 `protobuf:"bytes,14,opt,name=certificate_id,json=certificateId,proto3"`
+	xxx_hidden_InviteId        string                 `protobuf:"bytes,15,opt,name=invite_id,json=inviteId,proto3"`
+	xxx_hidden_Removing        bool                   `protobuf:"varint,16,opt,name=removing,proto3"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
 }
@@ -1876,6 +1879,27 @@ func (x *WorkerInfo) GetEnvironment() HostEnvironment {
 	return HostEnvironment_HOST_ENVIRONMENT_UNSPECIFIED
 }
 
+func (x *WorkerInfo) GetCertificateId() string {
+	if x != nil {
+		return x.xxx_hidden_CertificateId
+	}
+	return ""
+}
+
+func (x *WorkerInfo) GetInviteId() string {
+	if x != nil {
+		return x.xxx_hidden_InviteId
+	}
+	return ""
+}
+
+func (x *WorkerInfo) GetRemoving() bool {
+	if x != nil {
+		return x.xxx_hidden_Removing
+	}
+	return false
+}
+
 func (x *WorkerInfo) SetWorkerId(v string) {
 	x.xxx_hidden_WorkerId = v
 }
@@ -1928,6 +1952,18 @@ func (x *WorkerInfo) SetEnvironment(v HostEnvironment) {
 	x.xxx_hidden_Environment = v
 }
 
+func (x *WorkerInfo) SetCertificateId(v string) {
+	x.xxx_hidden_CertificateId = v
+}
+
+func (x *WorkerInfo) SetInviteId(v string) {
+	x.xxx_hidden_InviteId = v
+}
+
+func (x *WorkerInfo) SetRemoving(v bool) {
+	x.xxx_hidden_Removing = v
+}
+
 type WorkerInfo_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -1949,6 +1985,12 @@ type WorkerInfo_builder struct {
 	PlaintextReason string
 	// Where the worker runs, from its heartbeat; unset when it reports none.
 	Environment HostEnvironment
+	// The worker certificate the worker's last heartbeat arrived with, and
+	// the invite it names. Empty for a worker on the peer token.
+	CertificateId string
+	InviteId      string
+	// True while the worker's certificate is removing.
+	Removing bool
 }
 
 func (b0 WorkerInfo_builder) Build() *WorkerInfo {
@@ -1968,6 +2010,9 @@ func (b0 WorkerInfo_builder) Build() *WorkerInfo {
 	x.xxx_hidden_Connection = b.Connection
 	x.xxx_hidden_PlaintextReason = b.PlaintextReason
 	x.xxx_hidden_Environment = b.Environment
+	x.xxx_hidden_CertificateId = b.CertificateId
+	x.xxx_hidden_InviteId = b.InviteId
+	x.xxx_hidden_Removing = b.Removing
 	return m0
 }
 
@@ -9728,7 +9773,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x16_base_config_workspace\"\x13\n" +
 	"\x11GetWorkersRequest\"J\n" +
 	"\x12GetWorkersResponse\x124\n" +
-	"\aworkers\x18\x01 \x03(\v2\x1a.coordinator.v1.WorkerInfoR\aworkers\"\xad\x05\n" +
+	"\aworkers\x18\x01 \x03(\v2\x1a.coordinator.v1.WorkerInfoR\aworkers\"\x8d\x06\n" +
 	"\n" +
 	"WorkerInfo\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1b\n" +
@@ -9746,7 +9791,10 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"connection\x18\v \x01(\x0e2 .coordinator.v1.WorkerConnectionR\n" +
 	"connection\x12)\n" +
 	"\x10plaintext_reason\x18\f \x01(\tR\x0fplaintextReason\x12A\n" +
-	"\venvironment\x18\r \x01(\x0e2\x1f.coordinator.v1.HostEnvironmentR\venvironment\x1a9\n" +
+	"\venvironment\x18\r \x01(\x0e2\x1f.coordinator.v1.HostEnvironmentR\venvironment\x12%\n" +
+	"\x0ecertificate_id\x18\x0e \x01(\tR\rcertificateId\x12\x1b\n" +
+	"\tinvite_id\x18\x0f \x01(\tR\binviteId\x12\x1a\n" +
+	"\bremoving\x18\x10 \x01(\bR\bremoving\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x16\n" +

@@ -174,3 +174,47 @@ func TestRemoveWorkerWithoutCertificate(t *testing.T) {
 	_, err = client.RemoveWorker(callContext(t), &coordinatorv1.RemoveWorkerRequest{})
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
 }
+
+// listed returns the worker id as GetWorkers lists it.
+func (s peerTLSServer) listed(t *testing.T, id string) *coordinatorv1.WorkerInfo {
+	t.Helper()
+	resp, err := s.tlsClient(t).GetWorkers(callContext(t), &coordinatorv1.GetWorkersRequest{})
+	require.NoError(t, err)
+	for _, worker := range resp.Workers {
+		if worker.WorkerId == id {
+			return worker
+		}
+	}
+	require.Failf(t, "worker not listed", "%s", id)
+	return nil
+}
+
+// GetWorkers lists the certificate a worker connects with, its invite, and
+// its removal, on every coordinator that shares the records. A worker on
+// the peer token has none (Spec 108 §Workers List).
+func TestGetWorkersListsCertificate(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	other := server.another(t)
+	key, cert, invite := server.enrolled(t)
+	worker := server.workerClient(t, cert.Raw, key)
+	_, err := worker.Heartbeat(t.Context(), &coordinatorv1.HeartbeatRequest{WorkerId: enrollWorkerID, Host: enrollHost})
+	require.NoError(t, err)
+	_, err = server.tlsClient(t).Heartbeat(callContext(t), &coordinatorv1.HeartbeatRequest{WorkerId: "token-worker"})
+	require.NoError(t, err)
+
+	for _, s := range []peerTLSServer{server, other} {
+		listed := s.listed(t, enrollWorkerID)
+		assert.Equal(t, cert.Subject.CommonName, listed.CertificateId)
+		assert.Equal(t, invite.Record.Id, listed.InviteId)
+		assert.False(t, listed.Removing)
+		token := s.listed(t, "token-worker")
+		assert.Empty(t, token.CertificateId)
+		assert.Empty(t, token.InviteId)
+	}
+
+	server.remove(t, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
+	assert.True(t, server.listed(t, enrollWorkerID).Removing)
+	coordinator.RereadRemovalsForTest(other.handler)
+	assert.True(t, other.listed(t, enrollWorkerID).Removing)
+}

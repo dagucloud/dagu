@@ -92,6 +92,16 @@ func (a *API) GetWorkers(ctx context.Context, _ api.GetWorkersRequestObject) (ap
 			worker.Connection = &connection
 			worker.PlaintextReason = plaintextReason(w.PlaintextReason)
 		}
+		if w.CertificateId != "" {
+			worker.CertificateId = &w.CertificateId
+			worker.InviteId = &w.InviteId
+		}
+		if w.Removing {
+			worker.Removing = &w.Removing
+		}
+		if environment, ok := hostEnvironments[w.Environment]; ok {
+			worker.Environment = &environment
+		}
 		workers = append(workers, worker)
 	}
 

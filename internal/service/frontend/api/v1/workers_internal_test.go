@@ -223,3 +223,47 @@ func TestAPIGetWorkers_ReturnsConnection(t *testing.T) {
 		"earlier-coordinator": "|",
 	}, got)
 }
+
+// GET /workers lists a certificate worker's certificate, invite, and
+// removal, and the environment a heartbeat reports. A worker on the peer
+// token, or one a coordinator of an earlier release lists, has none
+// (Spec 108 §Workers List).
+func TestAPIGetWorkers_ReturnsCertificate(t *testing.T) {
+	t.Parallel()
+
+	api := &API{
+		coordinatorCli: &stubCoordinatorClient{
+			workers: []*coordinatorv1.WorkerInfo{
+				{
+					WorkerId: "removing", CertificateId: "cert-1", InviteId: "invite-1", Removing: true,
+					Environment: coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES,
+				},
+				{WorkerId: "certificate", CertificateId: "cert-2", InviteId: "invite-1"},
+				{WorkerId: "earlier-coordinator"},
+			},
+		},
+	}
+
+	resp, err := api.GetWorkers(context.Background(), openapiv1.GetWorkersRequestObject{})
+	require.NoError(t, err)
+	okResp, ok := resp.(openapiv1.GetWorkers200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, okResp.Workers, 3)
+
+	removing := okResp.Workers[0]
+	assert.Equal(t, new("cert-1"), removing.CertificateId)
+	assert.Equal(t, new("invite-1"), removing.InviteId)
+	assert.Equal(t, new(true), removing.Removing)
+	assert.Equal(t, new(openapiv1.HostEnvironmentKubernetes), removing.Environment)
+
+	certificate := okResp.Workers[1]
+	assert.Equal(t, new("cert-2"), certificate.CertificateId)
+	assert.Nil(t, certificate.Removing)
+	assert.Nil(t, certificate.Environment)
+
+	earlier := okResp.Workers[2]
+	assert.Nil(t, earlier.CertificateId)
+	assert.Nil(t, earlier.InviteId)
+	assert.Nil(t, earlier.Removing)
+	assert.Nil(t, earlier.Environment)
+}

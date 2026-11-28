@@ -70,9 +70,11 @@ type heartbeatInfo struct {
 
 	host string
 	// certificateID is the worker certificate the heartbeat arrived with,
-	// and certificatePass the latest pass to its record, which the
-	// following heartbeats with that certificate and host share.
+	// inviteID the invite it names, and certificatePass the latest pass to
+	// its record, which the following heartbeats with that certificate and
+	// host share.
 	certificateID   string
+	inviteID        string
 	certificatePass *certificatePass
 }
 
@@ -2153,6 +2155,7 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 				PlaintextReason: hb.connection.plaintextReason,
 				Environment:     hb.environment,
 			}
+			h.addCertificate(workerInfo, hb.certificateID, hb.inviteID)
 			if hb.stats != nil {
 				workerInfo.TotalPollers = hb.stats.TotalPollers
 				workerInfo.BusyPollers = hb.stats.BusyPollers
@@ -2182,6 +2185,7 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 			PlaintextReason: hb.PlaintextReason,
 			Environment:     convert.HostEnvironmentToProto(hb.Environment),
 		}
+		h.addCertificate(workerInfo, hb.CertificateID, hb.InviteID)
 
 		if hb.Stats != nil {
 			workerInfo.TotalPollers = hb.Stats.TotalPollers
@@ -2193,6 +2197,19 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 	}
 
 	return &coordinatorv1.GetWorkersResponse{Workers: workers}, nil
+}
+
+// addCertificate sets, on the listed worker, the certificate certID it
+// connects with, the invite inviteID that the certificate names, and
+// whether the certificate is removing, from the copy of the removals.
+func (h *Handler) addCertificate(worker *coordinatorv1.WorkerInfo, certID, inviteID string) {
+	if certID == "" {
+		return
+	}
+	worker.CertificateId = certID
+	worker.InviteId = inviteID
+	removal, ok := h.removals.get(certID)
+	worker.Removing = ok && removal.State == persis.WorkerCertificateRemoving
 }
 
 // GetH2CCallers lists the hosts, other than workers, that called the
@@ -2246,6 +2263,7 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 	h.mu.Lock()
 	if cert != nil {
 		info.certificateID = cert.Subject.CommonName
+		info.inviteID = certificateInviteID(cert)
 		prev := h.heartbeats[req.WorkerId]
 		if prev != nil && prev.certificateID == info.certificateID && prev.host == req.Host &&
 			prev.certificatePass != nil && receivedAt.Before(prev.certificatePass.recheckAt) {
@@ -2273,6 +2291,7 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 			PlaintextReason:  connection.plaintextReason,
 			Environment:      convert.ProtoToHostEnvironment(req.Environment),
 			CertificateID:    info.certificateID,
+			InviteID:         info.inviteID,
 		}); err != nil {
 			if pass != nil {
 				// The pass this heartbeat reserved did not happen, so the

@@ -1079,12 +1079,19 @@ func certificateRecord(cert *x509.Certificate, req *coordinatorv1.HeartbeatReque
 		CreatedAt:       cert.NotBefore.Add(certBackdate).UTC(),
 		LastHeartbeatAt: at,
 	}
+	record.InviteID = certificateInviteID(cert)
+	return record
+}
+
+// certificateInviteID returns the invite the worker certificate cert names,
+// or empty when it names none.
+func certificateInviteID(cert *x509.Certificate) string {
 	for _, uri := range cert.URIs {
 		if uri.Scheme == "urn" && strings.HasPrefix(uri.Opaque, workerCertInviteURNPrefix) {
-			record.InviteID = strings.TrimPrefix(uri.Opaque, workerCertInviteURNPrefix)
+			return strings.TrimPrefix(uri.Opaque, workerCertInviteURNPrefix)
 		}
 	}
-	return record
+	return ""
 }
 
 // removalOf returns the removal of the certificate cert.
