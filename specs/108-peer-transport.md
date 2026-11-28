@@ -1311,15 +1311,27 @@ The Workers page is the list of workers on System status.
   `Plaintext` links to the transport security documentation. It is a
   neutral line with no alert. A worker without `connection` shows
   `Connection not reported`.
-- **Remove** is on `certificate` workers only. A worker on the peer token
-  shows how to stop it instead.
+- **Remove** is on `certificate` workers with a `certificateId`. A worker
+  without `connection` gets no Remove and no line. When the list has a
+  `tls` or `plaintext` worker, a line below the list says how to stop one
+  instead: on its host, or by changing the peer token.
+- The confirmation and **Stop runs now** act on the `certificateId` shown
+  when the admin opened them. When the worker connects with another
+  certificate before the admin confirms, they say so and send nothing; a
+  new confirmation is needed.
 - With running runs, the confirmation lists them and offers
   **Remove after its runs finish** (`finish`, the default) and
   **Stop its runs and remove** (`stop`). A `removing` worker shows
-  `Removing (<n> runs left)` and **Stop runs now**.
-- For a worker on a reusable invite, the confirmation says the invite still
-  admits new workers, names the other workers that use it, and offers to
-  delete it.
+  `Removing (<n> runs left)`, or `Removing (1 run left)`, and
+  **Stop runs now** while it has runs. The count comes from the page's
+  existing `/workers` refresh.
+- For a worker on a reusable invite that is still active, the confirmation
+  says the invite still admits new workers, names the other workers that
+  use it, and offers to delete it. An invite the page's list lacks is read
+  once more before the removal can start. When the invites cannot be read,
+  the confirmation says so and offers to read them again, and the removal
+  stays available. When the invite is deleted and the removal then fails,
+  the confirmation says both.
 - For a worker with `environment: kubernetes`, the confirmation says the pod
   keeps restarting until the Deployment is scaled down. A deleted pod comes
   back as a new pod with an empty data directory, which enrolls again
@@ -1346,9 +1358,9 @@ The Workers page is the list of workers on System status.
   its expiry on the same clock. On a remote node, a 403 says the
   credentials this server uses for that node lack admin access there. Only
   the last read of a node shows its list or its failure.
-- On a remote node, the page lists the invites but offers no **Delete**,
-  since the server does not forward it, and says to open the Dagu UI of
-  that node to delete an invite there.
+- On a remote node, the page lists the invites and the workers but offers
+  no **Delete**, **Remove**, or **Stop runs now**, since the server does not
+  forward them, and says to open the Dagu UI of that node to use them.
 - A refused call shows its cause and the change to make, chosen by the
   `details.reason` of a 409 or a 503, else by the HTTP status. For
   `coordinator_refused` and for a reason the page does not know, whose
