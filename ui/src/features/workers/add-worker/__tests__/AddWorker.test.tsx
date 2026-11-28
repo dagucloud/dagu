@@ -553,6 +553,7 @@ describe('AddWorker', () => {
   it.each([
     ['0.0.0.0:50055', '0.0.0.0 is a listen address'],
     ['', 'Enter the address workers use to reach the coordinator.'],
+    ['[2001:db8::20/dashboard]:50055', 'is not one host'],
     ['224.0.0.1:50055', '224.0.0.1 is a multicast or broadcast address'],
     ['255.255.255.255:50055', 'is a multicast or broadcast address'],
     ['[ff02::1]:50055', 'ff02::1 is a multicast or broadcast address'],

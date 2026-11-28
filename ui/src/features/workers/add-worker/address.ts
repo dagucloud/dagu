@@ -101,7 +101,9 @@ type ParsedIP = { v4: number[] } | { v6: number[] };
 // address that maps an IPv4 one parses as that IPv4 address.
 function parseIP(host: string): ParsedIP | undefined {
   if (IPV4.test(host)) return { v4: host.split('.').map(Number) };
-  if (!host.includes(':') || host.includes('%')) return undefined;
+  // Go reads only hex digits, colons, and dots; the URL parser would drop
+  // a path or a zone.
+  if (!host.includes(':') || !/^[0-9A-Fa-f:.]+$/.test(host)) return undefined;
   let canonical: string;
   try {
     canonical = new URL(`http://[${host}]`).hostname.slice(1, -1);
