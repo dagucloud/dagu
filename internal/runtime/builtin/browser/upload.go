@@ -77,6 +77,12 @@ func uploadReplayKey(index int, into, pageURL string) string {
 	return replayKey(index, uploadKeyPrefix+into, pageURL)
 }
 
+// uploadLiteralKey identifies an upload operation on the page it ran on, as
+// literalKey does an act.
+func uploadLiteralKey(index int, into, pageURL string) string {
+	return literalKey(index, uploadKeyPrefix+into, pageURL)
+}
+
 // uploadInstruction is what the model is asked to find for an upload into
 // the element into describes.
 func uploadInstruction(into string) string {
@@ -113,18 +119,18 @@ func (o *operator) upload(ctx context.Context, index int, spec uploadSpec, timeo
 	}
 
 	choice, recorded := o.decide(spec.AI, spec.Cache)
-	key, pageURL := "", ""
+	key, literal, pageURL := "", "", ""
 	if recorded {
 		if pageURL, err = o.eng.CurrentURL(ctx); err != nil {
 			return opResult{}, err
 		}
-		key = uploadReplayKey(index, spec.Into, pageURL)
+		key, literal = uploadReplayKey(index, spec.Into, pageURL), uploadLiteralKey(index, spec.Into, pageURL)
 	}
 	// The page before the upload identifies the element the model picks,
 	// and tells whether a recorded element is still the one recorded.
 	snap, snapErr := o.eng.Snapshot(ctx)
 	status := agentstep.StatusCompleted
-	rec, ok := o.recording(choice, key)
+	rec, ok := o.recordingAt(choice, key, literal)
 	if !ok && choice == aiNever {
 		return opResult{}, replayMiss{kind: opUpload, reason: noRecording}
 	}

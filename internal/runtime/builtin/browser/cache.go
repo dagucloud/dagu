@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
@@ -77,15 +78,70 @@ func unfit(instruction string, rec recording, values map[string]string) string {
 	return rec.Assumed.Unmet(unusedVariables(instruction, rec.Actions), values)
 }
 
-// replayKey identifies an act operation on a page. Query strings and
-// fragments are ignored so pagination or tracking parameters still hit.
+// replayKey identifies an act operation on a page in the replay cache.
+// Query strings and fragments are ignored so pagination or tracking
+// parameters still hit, and path segments that look like record IDs are
+// ignored so the same page of another record, such as /orders/4812/edit and
+// /orders/4813/edit, hits. A page without record IDs keys as literalKey does.
 func replayKey(index int, instruction, pageURL string) string {
+	return pageKey(index, instruction, pageURL, true)
+}
+
+// literalKey identifies an act operation on the page it ran on, record IDs
+// included. Commit points are keyed by it, so approving a write on one
+// record's page approves it on no other, and it finds a recording kept
+// before replayKey ignored record IDs.
+func literalKey(index int, instruction, pageURL string) string {
+	return pageKey(index, instruction, pageURL, false)
+}
+
+func pageKey(index int, instruction, pageURL string, ignoreIDs bool) string {
 	page := pageURL
 	if parsed, err := url.Parse(pageURL); err == nil {
 		parsed.RawQuery = ""
 		parsed.Fragment = ""
+		segments, changed := strings.Split(parsed.Path, "/"), false
+		for i, segment := range segments {
+			if ignoreIDs && isRecordID(segment) {
+				segments[i], changed = recordIDSegment, true
+			}
+		}
+		if changed {
+			parsed.Path, parsed.RawPath = strings.Join(segments, "/"), ""
+		}
 		page = parsed.String()
 	}
 	sum := sha256.Sum256([]byte(strconv.Itoa(index) + "\x00" + instruction + "\x00" + page))
 	return hex.EncodeToString(sum[:])
+}
+
+// recordIDSegment stands for a path segment that looks like a record ID.
+const recordIDSegment = ":id"
+
+// isRecordID reports whether a path segment looks like a record ID: digits
+// only, such as 4812, or letters, digits, hyphens, and underscores with at
+// least two digits, such as C-100231 or a UUID. A word such as edit, a
+// version such as v2 or v10, and a word with one digit such as step-1 or
+// page2 are not; step-10 has the shape of C-100231 and counts as one.
+func isRecordID(segment string) bool {
+	digits, others := 0, 0
+	for _, r := range segment {
+		switch {
+		case r >= '0' && r <= '9':
+			digits++
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '-', r == '_':
+			others++
+		default:
+			return false
+		}
+	}
+	switch {
+	case digits == 0:
+		return false
+	case others == 0:
+		return true
+	case others == 1 && (segment[0] == 'v' || segment[0] == 'V'):
+		return false
+	}
+	return digits >= 2
 }
