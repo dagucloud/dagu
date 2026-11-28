@@ -998,6 +998,7 @@ func (h *Handler) observeCertificateHeartbeat(ctx context.Context, cert *x509.Ce
 	// this heartbeat only wakes it.
 	if stopRunsDue(removal, at) {
 		h.wakeStopDeadlines()
+		return
 	}
 	// The bound keeps a revocation that keeps failing from being retried
 	// at every heartbeat.

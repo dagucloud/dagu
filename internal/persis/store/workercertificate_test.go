@@ -296,7 +296,7 @@ func TestWorkerCertificateStore_RevocationKeepsBothRecordsIDs(t *testing.T) {
 	s, col := newWorkerCertificateStore(t)
 	createCertificate(t, s, workerCertificate("cert-1"))
 	removingAt := enrolledAt.Add(time.Hour)
-	_, err := s.MarkRemoving(ctx, "cert-1", "worker-holder", clockAt(removingAt))
+	_, err := s.MarkRemoving(ctx, "cert-1", "worker-holder", clockAt(removingAt), false)
 	require.NoError(t, err)
 	beat := workerCertificate("cert-1")
 	beat.WorkerID = "worker-late"
