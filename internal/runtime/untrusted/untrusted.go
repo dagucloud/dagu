@@ -320,7 +320,8 @@ func CheckWorkDir(workDir string) error {
 }
 
 // ShareReadOnly lets the restricted user read and run the regular file at path
-// and not write it; no other user can read it. Without isolation, it does nothing.
+// and not write it; no user outside the restricted group can read it. Without
+// isolation, it does nothing.
 func (s *Step) ShareReadOnly(path string) error {
 	if !s.Isolated() {
 		return nil

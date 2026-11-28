@@ -380,7 +380,8 @@ The rules, in order:
    bridge. The restricted user owns it, with the mode `0400`. The restricted user can read and
    cannot write the skills folder (Spec 091) and the script of the step, and can run the script.
    The script keeps the worker user as owner and gets the group of the restricted user with the
-   mode `0550`, so no other user can read it. The restricted user can write the file of `DAGU_OUTPUT_FILE`.
+   mode `0550`, so only the worker user and the members of that group can read it. The restricted
+   user can write the file of `DAGU_OUTPUT_FILE`.
 
 7. **End.** The step ends after a success, a failure, a timeout or a stop. Dagu then sends
    `SIGKILL` to every process of the restricted user: every thread group that has a live task of

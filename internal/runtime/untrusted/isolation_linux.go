@@ -1020,9 +1020,9 @@ func (iso *isolation) copyOutput() error {
 
 // shareReadOnly lets the restricted user read and run the regular file at path
 // and not write it. The file keeps the worker as owner and gets the group of
-// the restricted user with the mode 0550, so that no other user reads it. The
-// changes go through a descriptor, so a link that replaces the path cannot
-// redirect them.
+// the restricted user with the mode 0550, so that no user outside that group
+// reads it. The changes go through a descriptor, so a link that replaces the
+// path cannot redirect them.
 func (iso *isolation) shareReadOnly(path string) error {
 	if err := iso.checkTraversable(path); err != nil {
 		return stepError(iso.step, "share", path, err)
