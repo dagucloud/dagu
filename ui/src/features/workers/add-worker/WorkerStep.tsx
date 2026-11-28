@@ -143,7 +143,7 @@ export function WorkerStep({
       });
       if (data) {
         onInvite({ ...data, ...made, createdAt: Date.now() });
-        onStatus('Invite created. Its command is below.');
+        onStatus('Invite created.');
         const now = document.activeElement;
         const kept =
           !now ||

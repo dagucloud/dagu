@@ -487,7 +487,11 @@ function AddressFields({
                 text="The coordinator now reports {address}."
                 values={{ address: moved }}
               />
-              <Button size="xs" onClick={() => onTakeMoved(moved)}>
+              <Button
+                size="xs"
+                disabled={locked}
+                onClick={() => onTakeMoved(moved)}
+              >
                 <I18nText text="Use this address" />
               </Button>
             </p>

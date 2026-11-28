@@ -283,8 +283,8 @@ describe('AddWorker', () => {
     const { rerender } = await open(readiness({ advertise, addresses }));
     const reread = async (r: Readiness) => {
       api.GET.mockResolvedValue(answer(200, r));
-      rerender(view(true));
-      rerender(view(false));
+      rerender(view([], true));
+      rerender(view([], false));
       await settle();
     };
     await reread(readiness({ advertise, addresses, port: 50155 }));
@@ -309,8 +309,8 @@ describe('AddWorker', () => {
     const { rerender } = await open(reading(50055));
     const reread = async (port: number) => {
       api.GET.mockResolvedValue(answer(200, reading(port)));
-      rerender(view(true));
-      rerender(view(false));
+      rerender(view([], true));
+      rerender(view([], false));
       await settle();
     };
     await reread(50155);
@@ -1167,7 +1167,7 @@ describe('AddWorker', () => {
 
     created.resolve(answer(201, { id: 'inv-1', invite: INVITE }));
     await settle();
-    expect(status).toHaveTextContent('Invite created. Its command is below.');
+    expect(status).toHaveTextContent('Invite created.');
     expect(screen.getByRole('tab', { name: 'Kubernetes' })).toBeEnabled();
     expect(screen.getByRole('radio', { name: /^Reusable/ })).toBeEnabled();
   });
@@ -1208,7 +1208,7 @@ describe('AddWorker', () => {
     [
       'created',
       answer(201, { id: 'inv-1', invite: INVITE }),
-      'Invite created. Its command is below.',
+      'Invite created.',
     ],
     ['refused', answer(503, undefined, WorkerAccessReason.no_coordinator), ''],
   ])('reports an invite %s during a reading', async (_, result, text) => {
@@ -1304,6 +1304,10 @@ describe('AddWorker', () => {
     rerender(view([], true));
     rerender(view([], false));
     await settle();
+    // The form holds during the request, the offered endpoint too.
+    expect(
+      screen.getByRole('button', { name: 'Use this address' })
+    ).toBeDisabled();
     created.resolve(answer(201, { id: 'inv-1', invite: INVITE }));
     await settle();
     expect(screen.getByLabelText(ADDRESS)).toHaveValue(
