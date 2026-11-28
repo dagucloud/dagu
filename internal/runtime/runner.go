@@ -605,8 +605,7 @@ func (r *Runner) stoppedEarly(plan *Plan) bool {
 		return true
 	}
 	for _, node := range plan.Nodes() {
-		switch node.State().Status {
-		case ir.NodeAborted, ir.NodeNotStarted:
+		if status := node.State().Status; status == ir.NodeAborted || status == ir.NodeNotStarted {
 			return true
 		}
 	}
