@@ -87,11 +87,7 @@ func (inviteRecords) DeleteInvite(context.Context, *coordinatorv1.DeleteInviteRe
 // them, in a random order.
 func inviteClient(t *testing.T) coordinator.InviteClient {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	host, closedPort := parseHostPort(listener.Addr().String())
-	require.NoError(t, listener.Close())
-	members := []serviceregistry.HostInfo{{ID: "closed", Host: host, Port: closedPort}}
+	members := []serviceregistry.HostInfo{closedMember(t)}
 	for id, server := range map[string]coordinatorv1.CoordinatorServiceServer{
 		"older":   &coordinatorv1.UnimplementedCoordinatorServiceServer{},
 		"current": inviteRecords{},
@@ -104,6 +100,16 @@ func inviteClient(t *testing.T) coordinator.InviteClient {
 	client, ok := coordinator.New(&mockServiceMonitor{members: members}, coordinator.DefaultConfig()).(coordinator.InviteClient)
 	require.True(t, ok)
 	return client
+}
+
+// closedMember returns a registry entry whose port nothing listens on.
+func closedMember(t *testing.T) serviceregistry.HostInfo {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	host, port := parseHostPort(listener.Addr().String())
+	require.NoError(t, listener.Close())
+	return serviceregistry.HostInfo{ID: "closed", Host: host, Port: port}
 }
 
 func TestClientListInvites(t *testing.T) {
@@ -122,4 +128,23 @@ func TestClientDeleteInviteRefused(t *testing.T) {
 
 	err := inviteClient(t).DeleteInvite(t.Context(), "missing")
 	assert.Equal(t, codes.NotFound, status.Code(err), "%v", err)
+}
+
+// The client tries coordinators in a random order. A refusal from one is
+// the answer whether or not the unreachable one was tried before it, so
+// repeated calls cover both orders.
+func TestClientCreateInviteRefusalBeatsUnreachable(t *testing.T) {
+	t.Parallel()
+
+	grpcServer, addr := startMockServer(t, &inviteServer{err: status.Error(codes.FailedPrecondition, "invites need the built-in CA")})
+	t.Cleanup(grpcServer.Stop)
+	host, port := parseHostPort(addr)
+	members := []serviceregistry.HostInfo{{ID: "refusing", Host: host, Port: port}, closedMember(t)}
+	client, ok := coordinator.New(&mockServiceMonitor{members: members}, coordinator.DefaultConfig()).(coordinator.InviteClient)
+	require.True(t, ok)
+
+	for range 20 {
+		_, err := client.CreateInvite(t.Context(), &coordinatorv1.CreateInviteRequest{})
+		require.Equal(t, codes.FailedPrecondition, status.Code(err), "%v", err)
+	}
 }
