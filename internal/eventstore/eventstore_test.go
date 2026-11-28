@@ -327,8 +327,10 @@ func TestNewDAGRunEventDeepClonesData(t *testing.T) {
 	assert.Equal(t, "fetch", event.Data["steps"].([]any)[0].(map[string]any)["name"])
 }
 
-// A run event keeps the connection of each step, so a reader of the event
-// tells a run that a broken connection failed.
+// A run event keeps what a reader needs to tell a run that a broken
+// connection failed: the failed connections of steps and the cause of
+// sub-DAG steps. A connection that handed out its token, and the account,
+// stay out of the event.
 func TestDAGRunEventKeepsConnectionCause(t *testing.T) {
 	t.Parallel()
 
@@ -337,18 +339,28 @@ func TestDAGRunEventKeepsConnectionCause(t *testing.T) {
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
 		Status:    ir.Failed,
-		Nodes: []*ir.Node{{
-			Step:       ir.Step{Name: "unread"},
-			Status:     ir.NodeFailed,
-			Connection: &ir.NodeConnection{Name: "work-google", Account: "ops@example.com", Failure: ir.ConnectionNeedsAttention},
-		}},
+		Nodes: []*ir.Node{
+			{
+				Step:       ir.Step{Name: "unread"},
+				Status:     ir.NodeFailed,
+				Connection: &ir.NodeConnection{Name: "work-google", Account: "ops@example.com", Failure: ir.ConnectionNeedsAttention},
+			},
+			{
+				Step:       ir.Step{Name: "calendar"},
+				Status:     ir.NodeSucceeded,
+				Connection: &ir.NodeConnection{Name: "calendar", Account: "ops@example.com"},
+			},
+			{Step: ir.Step{Name: "files"}, Status: ir.NodeFailed, ConnectionCause: []string{"drive"}},
+		},
 	}
 	event := NewDAGRunEvent(Source{Service: SourceServiceServer}, TypeDAGRunFailed, status, nil)
 	require.NotNil(t, event)
 
 	decoded, err := DAGRunStatusFromEvent(event)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"work-google"}, decoded.ConnectionCause())
+	assert.Equal(t, []string{"work-google", "drive"}, decoded.ConnectionCause())
+	assert.Equal(t, &ir.NodeConnection{Name: "work-google", Failure: ir.ConnectionNeedsAttention}, decoded.Nodes[0].Connection)
+	assert.Nil(t, decoded.Nodes[1].Connection)
 }
 
 func TestDAGRunStatusFromEventRejectsInvalidSnapshot(t *testing.T) {

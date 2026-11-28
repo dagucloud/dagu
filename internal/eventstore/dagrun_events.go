@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -69,9 +70,11 @@ type DAGRunNodeSnapshot struct {
 	RetryCount        int                   `json:"retry_count,omitempty"`
 	DoneCount         int                   `json:"done_count,omitempty"`
 	ApprovalIteration int                   `json:"approval_iteration,omitempty"`
-	// Connection is the step's connection, which decides whether a failed
-	// run was caused by a broken connection.
-	Connection *ir.NodeConnection `json:"connection,omitempty"`
+	// Connection and ConnectionCause decide whether a broken connection
+	// caused a failed run. Connection is set only for a step whose
+	// connection handed it no token, and holds no account.
+	Connection      *ir.NodeConnection `json:"connection,omitempty"`
+	ConnectionCause []string           `json:"connection_cause,omitempty"`
 }
 
 func newDAGRunNodeSnapshot(node *ir.Node) *DAGRunNodeSnapshot {
@@ -91,8 +94,19 @@ func newDAGRunNodeSnapshot(node *ir.Node) *DAGRunNodeSnapshot {
 		RetryCount:        node.RetryCount,
 		DoneCount:         node.DoneCount,
 		ApprovalIteration: node.ApprovalIteration,
-		Connection:        node.Connection.Clone(),
+		Connection:        failedConnection(node.Connection),
+		ConnectionCause:   slices.Clone(node.ConnectionCause),
 	}
+}
+
+// failedConnection returns the part of conn that a run event carries: its
+// name and failure, or nil when the connection handed out its token, so a
+// healthy run's events stay their size.
+func failedConnection(conn *ir.NodeConnection) *ir.NodeConnection {
+	if conn == nil || conn.Failure == "" {
+		return nil
+	}
+	return &ir.NodeConnection{Name: conn.Name, Failure: conn.Failure}
 }
 
 func (s *DAGRunNodeSnapshot) Node() *ir.Node {
@@ -112,6 +126,7 @@ func (s *DAGRunNodeSnapshot) Node() *ir.Node {
 		DoneCount:         s.DoneCount,
 		ApprovalIteration: s.ApprovalIteration,
 		Connection:        s.Connection.Clone(),
+		ConnectionCause:   slices.Clone(s.ConnectionCause),
 	}
 }
 
