@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"sync"
 	"syscall"
 	"time"
 
@@ -152,6 +153,10 @@ type Membership struct {
 	// the peer token.
 	cred *credential
 	lock *fileutil.FileLock
+	// revoked is closed once a coordinator refused the certificate of the
+	// worker's client as revoked, after the refusal is recorded.
+	revoked     chan struct{}
+	revokedOnce sync.Once
 }
 
 // joinOptions are what a Membership waits, enrolls, and retries with.
@@ -193,10 +198,11 @@ func openMembership(ctx context.Context, cfg *config.Config, localRegistry servi
 		return nil, err
 	}
 	m := &Membership{
-		cfg:    cfg,
-		opts:   opts,
-		store:  newCredentialStore(cfg.Paths.DataDir),
-		config: clientConfigOf(cfg, localRegistry),
+		cfg:     cfg,
+		opts:    opts,
+		store:   newCredentialStore(cfg.Paths.DataDir),
+		config:  clientConfigOf(cfg, localRegistry),
+		revoked: make(chan struct{}),
 	}
 	if err := m.open(ctx); err != nil {
 		_ = m.Close()
@@ -416,7 +422,26 @@ func (m *Membership) Connect(ctx context.Context, workerID string) (coordinator.
 			return nil, err
 		}
 	}
-	return newCoordinatorClient(ctx, m.cfg, m.config)
+	clientConfig := *m.config
+	clientConfig.OnWorkerRemoved = func() { m.revoke(ctx) }
+	return newCoordinatorClient(ctx, m.cfg, &clientConfig)
+}
+
+// Revoked is closed once a coordinator refused the certificate of the
+// client that Connect returned as revoked, on any call. By then the refusal
+// is recorded as Removed records it, so a worker that is stopped or killed
+// after it still exits at its next start.
+func (m *Membership) Revoked() <-chan struct{} {
+	return m.revoked
+}
+
+// revoke records a refusal as revoked once, then closes revoked.
+func (m *Membership) revoke(ctx context.Context) {
+	m.revokedOnce.Do(func() {
+		m.recordRemoval(ctx)
+		_ = m.removedFailure(ctx)
+		close(m.revoked)
+	})
 }
 
 func (m *Membership) enroll(ctx context.Context, workerID string) error {
@@ -565,10 +590,15 @@ func (m *Membership) confirm(ctx context.Context) error {
 		}
 		logger.Debug(ctx, "Worker certificate not confirmed", tag.Addr(address), tag.Error(err))
 	}
-	if otherDagu != "" {
-		return errOtherDaguJoined(otherDagu)
+	switch {
+	case otherDagu == "":
+		return nil
+	case m.invite != nil:
+		// The kept certificate is from the invite's CA, which that
+		// coordinator does not have.
+		return errOtherDagu(otherDagu)
 	}
-	return nil
+	return errOtherDaguJoined(otherDagu)
 }
 
 // removedAtStart handles a kept certificate that a coordinator refused as
@@ -591,7 +621,7 @@ func (m *Membership) removedAtStart(ctx context.Context) error {
 // the same failure without calling a coordinator. In Kubernetes, it also
 // writes the message to the container's termination message.
 func (m *Membership) Removed(ctx context.Context) error {
-	m.recordRemoval(ctx)
+	m.revoke(ctx)
 	return m.removedFailure(ctx)
 }
 

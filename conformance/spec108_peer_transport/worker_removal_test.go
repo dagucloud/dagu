@@ -30,8 +30,13 @@ func TestWorkerRemoved(t *testing.T) {
 	coord := startInviteCoordinator(t, dagu)
 	invite := coord.createInvite(t, true).Invite
 	args := inviteWorkerArgs("worker-a", coord.addr)
+	// The message's next step depends on Kubernetes, which an inherited
+	// variable would select.
+	env := func(invite string) []string {
+		return append(inviteWorkerEnv(dagu, "host-a", invite), "KUBERNETES_SERVICE_HOST=")
+	}
 
-	worker := dagu.StartWithEnv(inviteWorkerEnv(dagu, "host-a", invite), args...)
+	worker := dagu.StartWithEnv(env(invite), args...)
 	waitForOutput(t, worker, workerEnrolled)
 	coord.waitForWorker(t, "worker-a")
 	removal, err := coord.admin.RemoveWorker(coord.context(t), &coordinatorv1.RemoveWorkerRequest{WorkerId: "worker-a"})
@@ -46,18 +51,18 @@ func TestWorkerRemoved(t *testing.T) {
 	waitForOutput(t, worker, workerRemoved, workerRemovedNext)
 	assert.Equal(t, 1, worker.ExitCode())
 
-	restarted := dagu.RunWithEnv(inviteWorkerEnv(dagu, "host-a", invite), args...)
+	restarted := dagu.RunWithEnv(env(invite), args...)
 	restarted.ExpectExitCode(1)
 	restarted.ExpectStderrContains(workerRemoved)
 	restarted.ExpectStderrContains(workerRemovedNext)
 	assert.NotContains(t, restarted.Stdout()+restarted.Stderr(), workerEnrolled)
 
-	check := dagu.RunWithEnv(inviteWorkerEnv(dagu, "host-a", invite), "worker", "--check", "--worker.coordinators="+coord.addr)
+	check := dagu.RunWithEnv(env(invite), "worker", "--check", "--worker.coordinators="+coord.addr)
 	check.ExpectExitCode(1)
 	assert.Contains(t, check.Stdout(), "  Invite pin: matches the coordinator's CA\n")
 	assert.Contains(t, check.Stdout(), "  Coordinator answered: "+workerRemoved+"\n  "+workerRemovedNext+"\n")
 
-	rejoined := dagu.StartWithEnv(inviteWorkerEnv(dagu, "host-a", coord.createInvite(t, false).Invite), inviteWorkerArgs("worker-a-again", coord.addr)...)
+	rejoined := dagu.StartWithEnv(env(coord.createInvite(t, false).Invite), inviteWorkerArgs("worker-a-again", coord.addr)...)
 	waitForOutput(t, rejoined, workerEnrolled)
 	coord.waitForWorker(t, "worker-a-again")
 }

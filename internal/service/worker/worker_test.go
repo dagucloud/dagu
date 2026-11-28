@@ -876,6 +876,90 @@ func TestWorkerRemoved(t *testing.T) {
 	assert.NoError(t, w.Stop(t.Context()), "a later Stop does nothing")
 }
 
+// removedRefusal is a coordinator's refusal of a revoked certificate.
+var removedRefusal = status.Error(codes.Unauthenticated, "this worker was removed from the coordinator")
+
+// startRemovable starts w and returns what Start returned, failing the test
+// when the worker does not stop.
+func startRemovable(t *testing.T, w *worker.Worker) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- w.Start(t.Context()) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(10 * time.Second):
+		t.Fatal("the worker kept running after its removal")
+		return nil
+	}
+}
+
+// A refusal as revoked on any call stops the worker, also while heartbeats
+// still pass through a coordinator that has not reread the revoked set yet
+// (Spec 108 §Removed Worker).
+func TestWorkerRemovedByOtherCalls(t *testing.T) {
+	t.Run("Poll", func(t *testing.T) {
+		mockCoordinatorCli := newMockCoordinatorCli()
+		var refused atomic.Bool
+		mockCoordinatorCli.SetPollFunc(func(ctx context.Context, _ backoff.RetryPolicy, _ *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
+			if !refused.Swap(true) {
+				return nil, fmt.Errorf("failed to poll task: %w", removedRefusal)
+			}
+			<-ctx.Done()
+			return nil, ctx.Err()
+		})
+		w := worker.NewWorker("test-worker", 2, mockCoordinatorCli, map[string]string{}, &config.Config{})
+		w.SetHandler(&mockHandler{})
+		assert.ErrorIs(t, startRemovable(t, w), worker.ErrRemoved)
+	})
+
+	t.Run("ClientSignal", func(t *testing.T) {
+		removed := make(chan struct{})
+		close(removed)
+		w := worker.NewWorker("test-worker", 1, newMockCoordinatorCli(), map[string]string{}, &config.Config{})
+		w.SetHandler(&mockHandler{})
+		w.SetRemovalSignal(removed)
+		assert.ErrorIs(t, startRemovable(t, w), worker.ErrRemoved)
+	})
+}
+
+// A run that the worker accepted and was still checking with its owner
+// coordinator when the worker was removed never reaches the executor
+// (Spec 108 §Removed Worker).
+func TestWorkerRemovedDuringPreflight(t *testing.T) {
+	mockCoordinatorCli := newMockCoordinatorCli()
+	var dispatched atomic.Bool
+	mockCoordinatorCli.SetPollFunc(func(ctx context.Context, _ backoff.RetryPolicy, _ *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
+		if dispatched.Swap(true) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return &coordinatorv1.Task{
+			DagRunId: "run-1", AttemptKey: "attempt-1",
+			OwnerCoordinatorId: "coordinator-1", OwnerCoordinatorHost: "127.0.0.1", OwnerCoordinatorPort: 50055,
+		}, nil
+	})
+	removed := make(chan struct{})
+	var preflight sync.Once
+	mockCoordinatorCli.SetRunHeartbeatFunc(func(ctx context.Context, _ serviceregistry.HostInfo, _ *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
+		// The removal lands while the owner check is under way, which it
+		// cancels.
+		preflight.Do(func() { close(removed) })
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	var executed atomic.Bool
+	w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, map[string]string{}, &config.Config{})
+	w.SetHandler(&mockHandler{ExecuteFunc: func(context.Context, *coordinatorv1.Task) error {
+		executed.Store(true)
+		return nil
+	}})
+	w.SetRemovalSignal(removed)
+
+	assert.ErrorIs(t, startRemovable(t, w), worker.ErrRemoved)
+	assert.False(t, executed.Load(), "the run reached the executor after the removal")
+}
+
 func TestWorkerDefaultID(t *testing.T) {
 	t.Run("GeneratesDefaultIDWhenEmpty", func(t *testing.T) {
 		labels := make(map[string]string)

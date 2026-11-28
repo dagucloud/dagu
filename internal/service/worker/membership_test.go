@@ -962,12 +962,20 @@ func TestMembershipOtherDagu(t *testing.T) {
 	tests := []struct {
 		name    string
 		answers map[string]error
-		wantErr string
+		// sameInvite restarts the worker with the invite it enrolled with.
+		sameInvite bool
+		wantErr    string
 	}{
 		{
 			name:    "OtherDagu",
 			answers: map[string]error{coordinatorA: unavailable, coordinatorB: coordinator.ErrOtherDagu},
 			wantErr: "coordinator-b:50055 belongs to a different Dagu than the one this worker joined\n  Get a new command from \"Add worker\" to join it.",
+		},
+		{
+			name:       "OtherDaguWithInvite",
+			answers:    map[string]error{coordinatorA: unavailable, coordinatorB: coordinator.ErrOtherDagu},
+			sameInvite: true,
+			wantErr:    "coordinator-b:50055 belongs to a different Dagu (its CA does not match the invite)\n  Check the coordinator address.",
 		},
 		{name: "OneAccepts", answers: map[string]error{coordinatorA: coordinator.ErrOtherDagu}},
 		{name: "NoneAnswers", answers: map[string]error{coordinatorA: unavailable, coordinatorB: unavailable}},
@@ -977,10 +985,15 @@ func TestMembershipOtherDagu(t *testing.T) {
 			ca := newTestCA(t)
 			dataDir := t.TempDir()
 			fake := enrolling(ca)
-			join(t, workerConfig(dataDir, ca.invite(t)), fake)
+			invite := ca.invite(t)
+			join(t, workerConfig(dataDir, invite), fake)
 			fake.answers = tc.answers
 
-			m, err := open(t, workerConfig(dataDir, ""), fake)
+			restart := ""
+			if tc.sameInvite {
+				restart = invite
+			}
+			m, err := open(t, workerConfig(dataDir, restart), fake)
 			require.NoError(t, err)
 			err = connect(t.Context(), t, m)
 			if tc.wantErr == "" {
@@ -1064,7 +1077,66 @@ func TestCoordinatorClientConfig(t *testing.T) {
 	insecure.Core.Peer.InsecureUnset = false
 	assert.Equal(t, "h2c (from peer.insecure: true)", checkLine(insecure))
 
+	assert.NoError(t, RecordedRemoval(workerConfig(dataDir, invite)))
+
 	require.Error(t, m.Removed(t.Context()))
 	assert.Equal(t, "built-in TLS (from worker certificate)", checkLine(workerConfig(dataDir, invite)))
 	assert.Equal(t, "built-in TLS (from worker.invite)", checkLine(workerConfig(dataDir, ca.invite(t))), "another invite enrolls again")
+	// The check reports the removal that the start exits on, whatever a
+	// coordinator answers.
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
+	for _, restart := range []string{invite, ""} {
+		assert.EqualError(t, RecordedRemoval(workerConfig(dataDir, restart)), removedMessage)
+	}
+	assert.NoError(t, RecordedRemoval(workerConfig(dataDir, ca.invite(t))))
+}
+
+// The check refuses the settings and the kept credential that the start
+// refuses, with the same messages, and names no file of the credential
+// (Spec 108 §Configuration Conflicts, §Worker Files).
+func TestCoordinatorClientConfigRefusals(t *testing.T) {
+	ca := newTestCA(t)
+	caFile := filepath.Join(t.TempDir(), "ca.crt")
+	require.NoError(t, os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.cert.Raw}), 0o600))
+	cfg := workerConfig(t.TempDir(), newTestCA(t).invite(t))
+	cfg.Core.Peer.CACertFile = caFile
+	_, err := CoordinatorClientConfig(cfg, nil)
+	require.EqualError(t, err, "peer.ca_cert_file is not the CA that worker.invite names: remove peer.ca_cert_file or use an invite from this CA")
+
+	dataDir := t.TempDir()
+	join(t, workerConfig(dataDir, ca.invite(t)), enrolling(ca))
+	require.NoError(t, os.WriteFile(credentialPath(dataDir), []byte("not a credential"), 0o600))
+	for _, invite := range []string{ca.invite(t), ""} {
+		_, err = CoordinatorClientConfig(workerConfig(dataDir, invite), nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "This worker cannot read the certificate it keeps in its data directory "+dataDir+": ")
+		assert.NotContains(t, err.Error(), filepath.Join(dataDir, credentialDirName))
+	}
+}
+
+// A refusal as revoked on any call of the worker's client is recorded before
+// the worker stops, so a worker that a signal or a kill ends right after it
+// still exits at its next start (Spec 108 §Removed Worker).
+func TestMembershipRevoked(t *testing.T) {
+	ca := newTestCA(t)
+	invite := ca.invite(t)
+	dataDir := t.TempDir()
+	fake := enrolling(ca)
+	join(t, workerConfig(dataDir, invite), fake)
+
+	m, err := open(t, workerConfig(dataDir, invite), fake)
+	require.NoError(t, err)
+	require.NoError(t, connect(t.Context(), t, m))
+	select {
+	case <-m.Revoked():
+		t.Fatal("revoked before any refusal")
+	default:
+	}
+	m.revoke(t.Context())
+	<-m.Revoked()
+	require.NoError(t, m.Close())
+
+	_, err = open(t, workerConfig(dataDir, invite), fake)
+	assert.EqualError(t, err, removedMessage)
+	assert.EqualError(t, m.Removed(t.Context()), removedMessage, "Removed after the refusal gives the same failure")
 }

@@ -32,6 +32,9 @@ type Poller struct {
 	handler        TaskHandler
 	index          int
 	labels         map[string]string
+	// onRemoved tells the worker that a coordinator refused its certificate
+	// as revoked; nil does nothing.
+	onRemoved func()
 }
 
 // NewPoller creates a new poller instance
@@ -70,10 +73,10 @@ func (p *Poller) Run(ctx context.Context) {
 				if ctx.Err() != nil {
 					return
 				}
-				// A removed worker's heartbeat stops it, so the poller
-				// waits for that instead of polling again.
+				// A removed worker stops, so the poller waits for that
+				// instead of polling again.
 				if coordinator.IsWorkerRemoved(err) {
-					<-ctx.Done()
+					p.removed(ctx)
 					return
 				}
 				// Poll failed, but will be retried by pollForTask
@@ -103,6 +106,10 @@ func (p *Poller) Run(ctx context.Context) {
 						// Context cancelled, exit gracefully
 						return
 					}
+					if errors.Is(err, ErrRemoved) {
+						p.removed(ctx)
+						return
+					}
 					if errors.Is(err, errTaskClaimRejectedBeforeExecution) {
 						logger.Info(ctx, "Task claim rejected before execution",
 							tag.WorkerID(p.workerID),
@@ -125,6 +132,15 @@ func (p *Poller) Run(ctx context.Context) {
 			// Continue polling for the next task
 		}
 	}
+}
+
+// removed tells the worker of its removal and waits until it stops the
+// poller.
+func (p *Poller) removed(ctx context.Context) {
+	if p.onRemoved != nil {
+		p.onRemoved()
+	}
+	<-ctx.Done()
 }
 
 func (p *Poller) ackTaskClaim(ctx context.Context, task *coordinatorv1.Task) error {

@@ -187,6 +187,7 @@ func runWorker(ctx *Context, _ []string) error {
 
 	w.SetMachine(machine)
 	w.SetHealthServer(health)
+	w.SetRemovalSignal(membership.Revoked())
 
 	logger.Info(ctx, "Starting worker", tag.WorkerID(workerID), tag.MaxConcurrency(maxActiveRuns), slog.Any("labels", labels))
 	// Run status lives with the coordinator, so the worker closes waiting
@@ -217,16 +218,33 @@ func runWorker(ctx *Context, _ []string) error {
 		stopCtx, cancel := workerStopContext(ctx.Context, shutdownTimeout)
 		defer cancel()
 		if err := w.Stop(stopCtx); err != nil {
-			return fmt.Errorf("failed to stop worker: %w", err)
+			return workerExit(ctx, membership, fmt.Errorf("failed to stop worker: %w", err))
 		}
+		return workerExit(ctx, membership, nil)
 	case err := <-errCh:
-		if errors.Is(err, worker.ErrRemoved) {
-			return membership.Removed(ctx)
-		}
-		return fmt.Errorf("worker failed: %w", err)
+		return workerExit(ctx, membership, fmt.Errorf("worker failed: %w", err))
 	}
+}
 
-	return nil
+// removalSource is what decides whether a worker exits as removed.
+type removalSource interface {
+	Revoked() <-chan struct{}
+	Removed(ctx context.Context) error
+}
+
+// workerExit returns the error a worker that ended with err exits with. A
+// removal wins over a signal and any other end, so the worker always exits
+// with its message once a coordinator refused it as revoked.
+func workerExit(ctx context.Context, membership removalSource, err error) error {
+	select {
+	case <-membership.Revoked():
+		return membership.Removed(ctx)
+	default:
+	}
+	if errors.Is(err, worker.ErrRemoved) {
+		return membership.Removed(ctx)
+	}
+	return err
 }
 
 // workerStopContext returns the context for Worker.Stop. A positive timeout

@@ -73,6 +73,9 @@ type Worker struct {
 	// certificate as revoked.
 	removed     chan struct{}
 	removedOnce sync.Once
+	// removalSignal, when set, is closed once the worker's client met a
+	// refusal as revoked on any call.
+	removalSignal <-chan struct{}
 
 	// For global PostgreSQL connection pool
 	poolManager  *sql.GlobalPoolManager
@@ -131,6 +134,12 @@ func (w *Worker) SetHandler(executor TaskHandler) {
 func (w *Worker) SetHealthServer(server *healthcheck.Server) {
 	server.SetReadyFunc(w.ready.Load)
 	w.healthServer = server
+}
+
+// SetRemovalSignal makes the worker stop as removed, as Start states, once
+// removed is closed. Call it before Start.
+func (w *Worker) SetRemovalSignal(removed <-chan struct{}) {
+	w.removalSignal = removed
 }
 
 // SetMachine makes heartbeats carry the latest sample of the worker's
@@ -279,6 +288,7 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 				handler:     w.handler,
 			}
 			poller := NewPoller(w.id, w.coordinatorCli, wrappedHandler, pollerIndex, w.labels)
+			poller.onRemoved = w.markRemoved
 			poller.Run(pollCtx)
 		}(i)
 	}
@@ -298,6 +308,15 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	wg.Go(func() {
 		w.cleanupAgentSessions(pollCtx)
 	})
+	if w.removalSignal != nil {
+		wg.Go(func() {
+			select {
+			case <-w.removalSignal:
+				w.markRemoved()
+			case <-internalCtx.Done():
+			}
+		})
+	}
 
 	// Wait for all goroutines to complete, then signal done
 	go func() {
@@ -309,7 +328,13 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	// the worker's certificate as revoked.
 	select {
 	case <-w.stopDone:
-		return nil
+		// A removal that a stop overtook still ends Start as a removal.
+		select {
+		case <-w.removed:
+			return ErrRemoved
+		default:
+			return nil
+		}
 	case <-w.removed:
 	}
 	w.stopRemoved(ctx)
@@ -493,13 +518,9 @@ func (w *Worker) stopRemoved(ctx context.Context) {
 		}
 		w.pollersMu.Lock()
 		for _, state := range w.runningTasks {
-			if state == nil || state.task == nil {
-				continue
+			if state != nil && state.task != nil {
+				logRemovedRun(ctx, state.task)
 			}
-			logger.Warn(ctx, "Stopping run: this worker was removed from the coordinator",
-				tag.DAG(state.task.DagName),
-				tag.RunID(state.task.DagRunId),
-				tag.AttemptKey(state.task.AttemptKey))
 		}
 		w.pollersMu.Unlock()
 		// A done context cancels the runs at once and bounds the waits.
@@ -509,6 +530,14 @@ func (w *Worker) stopRemoved(ctx context.Context) {
 			logger.Warn(ctx, "Worker stop failed", tag.WorkerID(w.id), tag.Error(err))
 		}
 	})
+}
+
+// logRemovedRun logs a run that the worker stops since it was removed.
+func logRemovedRun(ctx context.Context, task *coordinatorv1.RunningTask) {
+	logger.Warn(ctx, "Stopping run: this worker was removed from the coordinator",
+		tag.DAG(task.DagName),
+		tag.RunID(task.DagRunId),
+		tag.AttemptKey(task.AttemptKey))
 }
 
 // markRemoved records that a coordinator refused the worker's certificate
@@ -722,6 +751,15 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 	// Register the task only after preflight validation has accepted it or
 	// failed softly. This keeps rejected claims from consuming worker capacity.
 	t.worker.pollersMu.Lock()
+	// A removal stops the runs that registered before it, and no run
+	// reaches the executor after it, also one whose preflight it canceled.
+	select {
+	case <-t.worker.removed:
+		t.worker.pollersMu.Unlock()
+		logRemovedRun(taskCtx, runningTask)
+		return ErrRemoved
+	default:
+	}
 	t.worker.runningTasks[attemptKey] = &runningTaskState{
 		task:                 runningTask,
 		owner:                owner,
