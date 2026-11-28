@@ -733,7 +733,7 @@ message ConnectionBinding {
   repeated string bound_hosts = 3; // Every host that may receive the token
   string resource = 4;             // Canonical server URL of an MCP connection
   bool allow_token_export = 5;     // A connection secret may export the token
-  string account = 6;              // Account the connection acts as; empty before its first connect
+  string account = 6;              // Account the connection acts as; empty before its first connect and in a check-only answer
 }
 
 message ConnectionService {

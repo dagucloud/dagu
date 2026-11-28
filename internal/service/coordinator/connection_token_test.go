@@ -143,7 +143,8 @@ func (r connectionRun) resolve(req *coordinatorv1.ResolveConnectionTokenRequest)
 }
 
 // A declared connection answers its stored token with the token's lifetime
-// and the binding; a check-only request answers the binding alone.
+// and the binding with the account; a check-only request answers the binding
+// alone.
 func TestResolveConnectionToken(t *testing.T) {
 	t.Parallel()
 	run := newConnectionRun(t)
@@ -164,6 +165,8 @@ func TestResolveConnectionToken(t *testing.T) {
 	resp, err = run.resolve(&coordinatorv1.ResolveConnectionTokenRequest{Connection: "work", CheckOnly: true})
 	require.NoError(t, err)
 	assert.Empty(t, resp.GetAccessToken())
+	// Admission reads no token state, so a check-only answer has no account.
+	wantBinding.Account = ""
 	assert.True(t, proto.Equal(wantBinding, resp.GetBinding()), resp.GetBinding())
 	assert.Zero(t, run.refreshes.Load())
 }

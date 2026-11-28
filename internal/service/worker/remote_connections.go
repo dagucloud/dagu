@@ -216,7 +216,10 @@ func (c *remoteConnections) call(ctx context.Context, req *coordinatorv1.Resolve
 	if binding := resp.GetBinding(); binding != nil {
 		c.mu.Lock()
 		c.bindings[req.GetConnection()] = bindingConnection(req.GetConnection(), binding)
-		c.accounts[req.GetConnection()] = binding.GetAccount()
+		// A check-only answer carries no account, so it keeps a known one.
+		if account := binding.GetAccount(); account != "" {
+			c.accounts[req.GetConnection()] = account
+		}
 		c.mu.Unlock()
 	}
 	return resp, nil

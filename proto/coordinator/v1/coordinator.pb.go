@@ -7495,7 +7495,7 @@ type ConnectionBinding struct {
 	BoundHosts       []string               `protobuf:"bytes,3,rep,name=bound_hosts,json=boundHosts,proto3" json:"bound_hosts,omitempty"`                      // Every host that may receive the token
 	Resource         string                 `protobuf:"bytes,4,opt,name=resource,proto3" json:"resource,omitempty"`                                            // Canonical server URL of an MCP connection
 	AllowTokenExport bool                   `protobuf:"varint,5,opt,name=allow_token_export,json=allowTokenExport,proto3" json:"allow_token_export,omitempty"` // A connection secret may export the token
-	Account          string                 `protobuf:"bytes,6,opt,name=account,proto3" json:"account,omitempty"`                                              // Account the connection acts as; empty before its first connect
+	Account          string                 `protobuf:"bytes,6,opt,name=account,proto3" json:"account,omitempty"`                                              // Account the connection acts as; empty before its first connect and in a check-only answer
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }

@@ -112,7 +112,6 @@ func (h *Handler) ResolveConnectionToken(ctx context.Context, req *coordinatorv1
 		return nil, connectionRPCError(fmt.Errorf("connection %q: %w", ref.Name, err), codes.Internal)
 	}
 	resp := &coordinatorv1.ResolveConnectionTokenResponse{Binding: connectionBinding(conn)}
-	resp.Binding.Account = h.connectionAccount(ctx, conn)
 	if req.GetCheckOnly() {
 		return resp, nil
 	}
@@ -129,6 +128,9 @@ func (h *Handler) ResolveConnectionToken(ctx context.Context, req *coordinatorv1
 		return nil, connectionRPCError(err, codes.Internal)
 	}
 	resp.ExpiresInSeconds = expiresInSeconds(expiresIn)
+	// Only a token answer reads the account, so admission reads no token
+	// state (Spec 107 §Admission Checks).
+	resp.Binding.Account = h.connectionAccount(ctx, conn)
 	return resp, nil
 }
 
