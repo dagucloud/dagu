@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/connection"
 	"github.com/dagucloud/dagu/v2/internal/connection/broker"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -18,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -27,7 +30,14 @@ const (
 	// connectionField is the YAML key of every field that declares a
 	// connection.
 	connectionField = "connection"
+	// connectionErrorDomain is the domain of the error details that a
+	// connection token answer carries.
+	connectionErrorDomain = "dagu.connection"
 )
+
+// ConnectionNeedsAttentionReason is the error detail reason of a token
+// answer for a connection that needs reconnecting or whose app is invalid.
+const ConnectionNeedsAttentionReason = "CONNECTION_NEEDS_ATTENTION"
 
 // ConnectionTokenClient answers, for a run on a worker, the connections its
 // DAG declares.
@@ -102,6 +112,7 @@ func (h *Handler) ResolveConnectionToken(ctx context.Context, req *coordinatorv1
 		return nil, connectionRPCError(fmt.Errorf("connection %q: %w", ref.Name, err), codes.Internal)
 	}
 	resp := &coordinatorv1.ResolveConnectionTokenResponse{Binding: connectionBinding(conn)}
+	resp.Binding.Account = h.connectionAccount(ctx, conn)
 	if req.GetCheckOnly() {
 		return resp, nil
 	}
@@ -119,6 +130,17 @@ func (h *Handler) ResolveConnectionToken(ctx context.Context, req *coordinatorv1
 	}
 	resp.ExpiresInSeconds = expiresInSeconds(expiresIn)
 	return resp, nil
+}
+
+// connectionAccount returns the account that conn acts as. A token state
+// that cannot be read leaves it empty, since the account is only shown.
+func (h *Handler) connectionAccount(ctx context.Context, conn *connection.Connection) string {
+	state, err := h.connectionStore.TokenState(ctx, conn)
+	if err != nil {
+		logger.Debug(ctx, "Failed to read the account of a connection", tag.Name(conn.Name), tag.Error(err))
+		return ""
+	}
+	return state.Account
 }
 
 // connectionLeaseError returns the error of a request whose lease check
@@ -222,5 +244,13 @@ func connectionRPCError(err error, fallback codes.Code) error {
 	case errors.Is(err, context.DeadlineExceeded):
 		code = codes.DeadlineExceeded
 	}
-	return status.Error(code, err.Error())
+	st := status.New(code, err.Error())
+	// A detail, which an older worker ignores, tells a broken connection
+	// from a pending one.
+	if errors.Is(err, broker.ErrNeedsAttention) {
+		if detailed, detailErr := st.WithDetails(&errdetails.ErrorInfo{Reason: ConnectionNeedsAttentionReason, Domain: connectionErrorDomain}); detailErr == nil {
+			st = detailed
+		}
+	}
+	return st.Err()
 }

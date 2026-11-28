@@ -178,6 +178,7 @@ func TestInvalidGrantNeedsReconnect(t *testing.T) {
 
 	_, _, err := f.process(t, changes.record).Token(f.ctx(t), f.conn, "", minTTL)
 	require.ErrorIs(t, err, broker.ErrReconnectRequired)
+	assert.ErrorIs(t, err, broker.ErrNeedsAttention)
 	assert.NotContains(t, err.Error(), "rt-1")
 	state := f.state(t)
 	assert.Equal(t, connection.TokenStatusNeedsReconnect, state.Status)
@@ -359,6 +360,7 @@ func TestInvalidClient(t *testing.T) {
 
 		_, _, err := f.process(t, changes.record).Token(f.ctx(t), f.conn, "", minTTL)
 		require.ErrorIs(t, err, broker.ErrReconnectRequired)
+		assert.ErrorIs(t, err, broker.ErrNeedsAttention)
 		assert.Equal(t, connection.AppStatusInvalid, f.app(t).Status)
 
 		_, _, err = f.process(t, changes.record).Token(f.ctx(t), f.conn, "", minTTL)
@@ -543,9 +545,11 @@ func TestRefreshKeepsAcceptedResult(t *testing.T) {
 
 func TestFailsAtOnce(t *testing.T) {
 	t.Parallel()
+	// needsAttention marks the states that send connection.needs_attention.
 	tests := []struct {
-		name  string
-		setup func(t *testing.T, f *fixture)
+		name           string
+		setup          func(t *testing.T, f *fixture)
+		needsAttention bool
 	}{
 		{
 			name: "Pending",
@@ -558,6 +562,7 @@ func TestFailsAtOnce(t *testing.T) {
 			setup: func(t *testing.T, f *fixture) {
 				f.update(t, func(st *connection.TokenState) { st.Status = connection.TokenStatusNeedsReconnect })
 			},
+			needsAttention: true,
 		},
 		{
 			name: "InvalidApp",
@@ -568,6 +573,7 @@ func TestFailsAtOnce(t *testing.T) {
 				})
 				require.NoError(t, err)
 			},
+			needsAttention: true,
 		},
 	}
 	for _, tt := range tests {
@@ -580,6 +586,7 @@ func TestFailsAtOnce(t *testing.T) {
 
 			_, _, err := f.process(t).Token(f.ctx(t), f.conn, "", minTTL)
 			assert.ErrorIs(t, err, broker.ErrReconnectRequired)
+			assert.Equal(t, tt.needsAttention, errors.Is(err, broker.ErrNeedsAttention))
 			assert.Zero(t, f.endpoint.calls())
 		})
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -187,6 +188,7 @@ func TestRemoteConnectionsKeepBinding(t *testing.T) {
 			Services:         []*coordinatorv1.ConnectionService{{Name: "gmail", Access: "read"}},
 			BoundHosts:       []string{"gmailmcp.googleapis.com"},
 			AllowTokenExport: true,
+			Account:          "ops@example.com",
 		}}, nil
 	}}
 	conns, _ := newTestConnections(coord)
@@ -201,6 +203,9 @@ func TestRemoteConnectionsKeepBinding(t *testing.T) {
 		BoundHosts:       []string{"gmailmcp.googleapis.com"},
 		AllowTokenExport: true,
 	}, conn)
+	account, err := conns.Account(ctx, conn)
+	require.NoError(t, err)
+	assert.Equal(t, "ops@example.com", account)
 	assert.Equal(t, 1, coord.calls())
 }
 
@@ -232,7 +237,18 @@ func TestRemoteConnectionsErrorKinds(t *testing.T) {
 	conns, _ := newTestConnections(failing(codes.FailedPrecondition, `reconnect required: connection "work": the connection was never connected`))
 	_, _, err := conns.Token(ctx, workConnection, "", tokenMinTTL)
 	assert.ErrorIs(t, err, broker.ErrReconnectRequired)
+	assert.NotErrorIs(t, err, broker.ErrNeedsAttention)
 	assert.EqualError(t, err, `reconnect required: connection "work": the connection was never connected`)
+
+	broken, detailErr := status.New(codes.FailedPrecondition, `reconnect required: connection "work": invalid_grant`).
+		WithDetails(&errdetails.ErrorInfo{Reason: coordinator.ConnectionNeedsAttentionReason})
+	require.NoError(t, detailErr)
+	conns, _ = newTestConnections(&tokenCoordinator{respond: func(*coordinatorv1.ResolveConnectionTokenRequest) (*coordinatorv1.ResolveConnectionTokenResponse, error) {
+		return nil, broken.Err()
+	}})
+	_, _, err = conns.Token(ctx, workConnection, "", tokenMinTTL)
+	assert.ErrorIs(t, err, broker.ErrReconnectRequired)
+	assert.ErrorIs(t, err, broker.ErrNeedsAttention)
 
 	conns, _ = newTestConnections(failing(codes.NotFound, `connection not found: "work" in workspace "ops"`))
 	err = conns.CheckConnection(ctx, "ops", ir.ConnectionRef{Name: "work"})

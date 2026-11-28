@@ -59,6 +59,11 @@ const StepMinTTL = 5 * time.Minute
 // reconnect, or its app is invalid.
 var ErrReconnectRequired = errors.New("reconnect required")
 
+// ErrNeedsAttention reports an ErrReconnectRequired connection that needs
+// reconnecting or whose app is invalid: the states that send
+// connection.needs_attention. A pending connection's error is not one.
+var ErrNeedsAttention = errors.New("connection needs attention")
+
 // ErrRefreshFailed reports a refresh that failed for a reason that may
 // pass, such as a provider error or a network failure. The error's text
 // holds the provider's error, without secrets, and the status stays.
@@ -576,7 +581,7 @@ func (b *Broker) markNeedsReconnect(
 	case !errors.Is(err, errNoChange):
 		return nil, err
 	}
-	return change, reconnectRequired(conn, reason)
+	return change, needsReconnect(conn, reason)
 }
 
 // markAppInvalid sets the app invalid once, unless an admin changed its
@@ -627,7 +632,7 @@ func (r request) settle(conn *connection.Connection, app *connection.App, state 
 	case connection.TokenStatusPending:
 		return connection.AccessToken{}, false, reconnectRequired(conn, "the connection was never connected")
 	case connection.TokenStatusNeedsReconnect:
-		return connection.AccessToken{}, false, reconnectRequired(conn, state.StatusReason)
+		return connection.AccessToken{}, false, needsReconnect(conn, state.StatusReason)
 	}
 	if at, ok := state.AccessTokens[r.resource]; ok && r.usable(at) {
 		return at, true, nil
@@ -720,11 +725,28 @@ func redact(text string, secrets ...string) string {
 }
 
 func reconnectRequired(conn *connection.Connection, reason string) error {
-	return fmt.Errorf("%w: connection %q: %s", ErrReconnectRequired, conn.Name, reason)
+	return &reconnectError{text: fmt.Sprintf("%v: connection %q: %s", ErrReconnectRequired, conn.Name, reason)}
+}
+
+func needsReconnect(conn *connection.Connection, reason string) error {
+	return &reconnectError{text: fmt.Sprintf("%v: connection %q: %s", ErrReconnectRequired, conn.Name, reason), needsAttention: true}
 }
 
 func appInvalid(conn *connection.Connection, app, reason string) error {
-	return reconnectRequired(conn, fmt.Sprintf("OAuth app %q is invalid: %s", app, reason))
+	return needsReconnect(conn, fmt.Sprintf("OAuth app %q is invalid: %s", app, reason))
+}
+
+// reconnectError is an ErrReconnectRequired, and an ErrNeedsAttention when
+// needsAttention is set.
+type reconnectError struct {
+	text           string
+	needsAttention bool
+}
+
+func (e *reconnectError) Error() string { return e.text }
+
+func (e *reconnectError) Is(target error) bool {
+	return target == ErrReconnectRequired || e.needsAttention && target == ErrNeedsAttention
 }
 
 func refreshFailed(conn *connection.Connection, reason string) error {

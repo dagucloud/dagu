@@ -7,12 +7,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/oauth2"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -55,6 +57,8 @@ type remoteConnections struct {
 	// bindings holds a connection per name; the coordinator answers only
 	// the connections the run's DAG declares.
 	bindings map[string]*connection.Connection
+	// accounts holds the account of each binding.
+	accounts map[string]string
 }
 
 // tokenKey names the token of one connection at one resource.
@@ -82,6 +86,7 @@ func newRemoteConnections(client coordinator.ConnectionTokenClient, owner servic
 		now:      time.Now,
 		gates:    make(map[tokenKey]*oauthrefresh.Gate),
 		bindings: make(map[string]*connection.Connection),
+		accounts: make(map[string]string),
 	}
 }
 
@@ -122,6 +127,17 @@ func (c *remoteConnections) CheckConnection(ctx context.Context, _ string, ref i
 // workspace.
 func (c *remoteConnections) Connections(string) runtime.Connections {
 	return c
+}
+
+// Account returns the account of the latest binding of conn. An older
+// coordinator answers none, so the account is empty.
+func (c *remoteConnections) Account(ctx context.Context, conn *connection.Connection) (string, error) {
+	if _, err := c.Connection(ctx, conn.Name); err != nil {
+		return "", err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.accounts[conn.Name], nil
 }
 
 func (c *remoteConnections) Token(ctx context.Context, conn *connection.Connection, resource string, minTTL time.Duration) (string, time.Duration, error) {
@@ -200,6 +216,7 @@ func (c *remoteConnections) call(ctx context.Context, req *coordinatorv1.Resolve
 	if binding := resp.GetBinding(); binding != nil {
 		c.mu.Lock()
 		c.bindings[req.GetConnection()] = bindingConnection(req.GetConnection(), binding)
+		c.accounts[req.GetConnection()] = binding.GetAccount()
 		c.mu.Unlock()
 	}
 	return resp, nil
@@ -237,7 +254,12 @@ func connectionTokenError(name string, err error) error {
 	case codes.NotFound:
 		return &remoteConnectionError{message: namingConnection(name, st.Message()), kind: connection.ErrNotFound}
 	case codes.FailedPrecondition:
-		return &remoteConnectionError{message: namingConnection(name, st.Message()), kind: broker.ErrReconnectRequired}
+		cerr := &remoteConnectionError{message: namingConnection(name, st.Message()), kind: broker.ErrReconnectRequired}
+		cerr.needsAttention = slices.ContainsFunc(st.Details(), func(detail any) bool {
+			info, ok := detail.(*errdetails.ErrorInfo)
+			return ok && info.GetReason() == coordinator.ConnectionNeedsAttentionReason
+		})
+		return cerr
 	default:
 		return errors.New(namingConnection(name, st.Message()))
 	}
@@ -253,12 +275,18 @@ func namingConnection(name, message string) string {
 }
 
 // remoteConnectionError is a coordinator's error message with the kind it
-// reported.
+// reported, which is also broker.ErrNeedsAttention when needsAttention is
+// set.
 type remoteConnectionError struct {
-	message string
-	kind    error
+	message        string
+	kind           error
+	needsAttention bool
 }
 
 func (e *remoteConnectionError) Error() string { return e.message }
 
 func (e *remoteConnectionError) Unwrap() error { return e.kind }
+
+func (e *remoteConnectionError) Is(target error) bool {
+	return e.needsAttention && target == broker.ErrNeedsAttention
+}
