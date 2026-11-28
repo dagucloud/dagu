@@ -275,14 +275,18 @@ func (a *API) RemoveWorker(ctx context.Context, request api.RemoveWorkerRequestO
 	if err := a.requireAdmin(ctx); err != nil {
 		return nil, err
 	}
+	body := valueOf(request.Body)
 	runs := api.WorkerRemovalRunsFinish
-	if request.Params.Runs != nil {
-		runs = *request.Params.Runs
+	if body.Runs != nil {
+		runs = *body.Runs
 	}
 	if !runs.Valid() {
 		return nil, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: "runs must be finish or stop"}
 	}
-	if request.Params.CertificateId == "" {
+	if body.WorkerId == "" {
+		return nil, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: "workerId is required"}
+	}
+	if body.CertificateId == "" {
 		return nil, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: "certificateId is required: take it from the workers list"}
 	}
 	client, err := a.workerAccess(ctx)
@@ -290,9 +294,9 @@ func (a *API) RemoveWorker(ctx context.Context, request api.RemoveWorkerRequestO
 		return nil, err
 	}
 	resp, err := client.RemoveWorker(ctx, &coordinatorv1.RemoveWorkerRequest{
-		WorkerId:      request.WorkerId,
+		WorkerId:      body.WorkerId,
 		Runs:          workerRemovalRuns[runs],
-		CertificateId: request.Params.CertificateId,
+		CertificateId: body.CertificateId,
 	})
 	if err != nil {
 		return nil, coordinatorCallError(err)
@@ -300,7 +304,7 @@ func (a *API) RemoveWorker(ctx context.Context, request api.RemoveWorkerRequestO
 	state := workerRemovalStates[resp.GetState()]
 	a.logAudit(ctx, audit.CategorySystem, "worker_remove", map[string]any{
 		// The worker the removed certificate's record names.
-		"worker_id":       cmp.Or(resp.GetWorkerId(), request.WorkerId),
+		"worker_id":       cmp.Or(resp.GetWorkerId(), body.WorkerId),
 		"certificate_ids": resp.GetCertificateIds(),
 		"runs":            string(runs),
 		"state":           string(state),

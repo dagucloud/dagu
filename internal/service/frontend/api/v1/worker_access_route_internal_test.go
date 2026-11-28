@@ -71,15 +71,18 @@ func removal(workerID string) map[string]string {
 }
 
 // A removal names the worker in its body, so any worker ID reaches the
-// removal, and the fixed routes keep their own handlers.
+// coordinator unchanged, and the fixed routes keep their own handlers.
 func TestRemoveWorkerTakesBodyWorkerIDs(t *testing.T) {
 	t.Parallel()
 	for name, strict := range validationModes {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			router := workerAccessServer(t, &inviteCoordinatorStub{}, auth.RoleAdmin, strict)
+			stub := &inviteCoordinatorStub{}
+			router := workerAccessServer(t, stub, auth.RoleAdmin, strict)
 			for _, id := range bodyWorkerIDs {
-				assert.Equal(t, http.StatusNotImplemented, serve(t, router, http.MethodPost, "/api/v1/workers/removals", removal(id)), id)
+				assert.Equal(t, http.StatusOK, serve(t, router, http.MethodPost, "/api/v1/workers/removals", removal(id)), id)
+				require.NotNil(t, stub.removed, id)
+				assert.Equal(t, id, stub.removed.WorkerId)
 			}
 			assert.Equal(t, http.StatusOK, serve(t, router, http.MethodGet, "/api/v1/workers/invites", nil))
 			assert.Equal(t, http.StatusNoContent, serve(t, router, http.MethodDelete, "/api/v1/workers/invites/"+testInviteID, nil))

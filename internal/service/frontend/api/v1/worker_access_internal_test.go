@@ -131,7 +131,7 @@ func workerAccessCalls(a *API) map[string]func(context.Context) error {
 			return err
 		},
 		"remove": func(ctx context.Context) error {
-			_, err := a.RemoveWorker(ctx, openapiv1.RemoveWorkerRequestObject{WorkerId: "worker-1", Params: openapiv1.RemoveWorkerParams{CertificateId: "cert-1"}})
+			_, err := a.RemoveWorker(ctx, removalRequest(openapiv1.RemoveWorkerRequest{WorkerId: "worker-1", CertificateId: "cert-1"}))
 			return err
 		},
 		"join readiness": func(ctx context.Context) error {
@@ -562,6 +562,10 @@ func TestGetWorkerJoinReadinessPrefersRefusal(t *testing.T) {
 	}
 }
 
+func removalRequest(body openapiv1.RemoveWorkerRequest) openapiv1.RemoveWorkerRequestObject {
+	return openapiv1.RemoveWorkerRequestObject{Body: &body}
+}
+
 func TestRemoveWorker(t *testing.T) {
 	t.Parallel()
 
@@ -575,10 +579,9 @@ func TestRemoveWorker(t *testing.T) {
 	} {
 		stub := &inviteCoordinatorStub{}
 		a, store := rolesAPI(stub)
-		resp, err := a.RemoveWorker(userContext(auth.RoleAdmin), openapiv1.RemoveWorkerRequestObject{
-			WorkerId: "worker-1",
-			Params:   openapiv1.RemoveWorkerParams{Runs: tt.runs, CertificateId: "cert-1"},
-		})
+		resp, err := a.RemoveWorker(userContext(auth.RoleAdmin), removalRequest(openapiv1.RemoveWorkerRequest{
+			WorkerId: "worker-1", Runs: tt.runs, CertificateId: "cert-1",
+		}))
 		require.NoError(t, err)
 		assert.Equal(t, openapiv1.RemoveWorker200JSONResponse{State: openapiv1.WorkerRemovalStateRemoving}, resp)
 		assert.Equal(t, &coordinatorv1.RemoveWorkerRequest{WorkerId: "worker-1", Runs: tt.want, CertificateId: "cert-1"}, stub.removed)
@@ -600,10 +603,7 @@ func TestRemoveWorkerOnPeerToken(t *testing.T) {
 
 	const message = "this worker uses the peer token, so it would connect again: stop it on its host, or change the peer token"
 	a, _ := rolesAPI(&inviteCoordinatorStub{err: status.Error(codes.FailedPrecondition, message)})
-	_, err := a.RemoveWorker(userContext(auth.RoleAdmin), openapiv1.RemoveWorkerRequestObject{
-		WorkerId: "token-worker",
-		Params:   openapiv1.RemoveWorkerParams{CertificateId: "cert-1"},
-	})
+	_, err := a.RemoveWorker(userContext(auth.RoleAdmin), removalRequest(openapiv1.RemoveWorkerRequest{WorkerId: "token-worker", CertificateId: "cert-1"}))
 	var apiErr *Error
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusConflict, apiErr.HTTPStatus)
@@ -618,16 +618,13 @@ func TestRemoveWorkerNeedsCertificate(t *testing.T) {
 
 	stub := &inviteCoordinatorStub{}
 	a, _ := rolesAPI(stub)
-	_, err := a.RemoveWorker(userContext(auth.RoleAdmin), openapiv1.RemoveWorkerRequestObject{WorkerId: "worker-1"})
+	_, err := a.RemoveWorker(userContext(auth.RoleAdmin), removalRequest(openapiv1.RemoveWorkerRequest{WorkerId: "worker-1"}))
 	assert.Equal(t, http.StatusBadRequest, httpStatus(t, err))
 	assert.Nil(t, stub.removed)
 
 	const changed = "this worker no longer uses the named certificate, as after joining again: list the workers and remove it again"
 	a, _ = rolesAPI(&inviteCoordinatorStub{err: withReason(codes.FailedPrecondition, "certificate_changed", changed)})
-	_, err = a.RemoveWorker(userContext(auth.RoleAdmin), openapiv1.RemoveWorkerRequestObject{
-		WorkerId: "worker-1",
-		Params:   openapiv1.RemoveWorkerParams{CertificateId: "old-cert"},
-	})
+	_, err = a.RemoveWorker(userContext(auth.RoleAdmin), removalRequest(openapiv1.RemoveWorkerRequest{WorkerId: "worker-1", CertificateId: "old-cert"}))
 	var apiErr *Error
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusConflict, apiErr.HTTPStatus)
@@ -640,10 +637,7 @@ func TestRemoveWorkerAuditsRecordWorker(t *testing.T) {
 	t.Parallel()
 
 	a, store := rolesAPI(&inviteCoordinatorStub{recordWorkerID: "worker-before-restart"})
-	_, err := a.RemoveWorker(userContext(auth.RoleAdmin), openapiv1.RemoveWorkerRequestObject{
-		WorkerId: "worker-1",
-		Params:   openapiv1.RemoveWorkerParams{CertificateId: "cert-1"},
-	})
+	_, err := a.RemoveWorker(userContext(auth.RoleAdmin), removalRequest(openapiv1.RemoveWorkerRequest{WorkerId: "worker-1", CertificateId: "cert-1"}))
 	require.NoError(t, err)
 	require.Len(t, store.entries, 1)
 	assert.Contains(t, store.entries[0].Details, `"worker_id":"worker-before-restart"`)
@@ -655,13 +649,14 @@ func TestRemoveWorkerInvalidWithoutCoordinator(t *testing.T) {
 	t.Parallel()
 
 	a, _ := rolesAPI(nil)
-	for name, params := range map[string]openapiv1.RemoveWorkerParams{
-		"runs":          {CertificateId: "cert-1", Runs: new(openapiv1.WorkerRemovalRuns("later"))},
-		"certificateId": {},
+	for name, body := range map[string]openapiv1.RemoveWorkerRequest{
+		"runs":          {WorkerId: "worker-1", CertificateId: "cert-1", Runs: new(openapiv1.WorkerRemovalRuns("later"))},
+		"workerId":      {CertificateId: "cert-1"},
+		"certificateId": {WorkerId: "worker-1"},
 	} {
-		_, err := a.RemoveWorker(userContext(auth.RoleAdmin), openapiv1.RemoveWorkerRequestObject{WorkerId: "worker-1", Params: params})
+		_, err := a.RemoveWorker(userContext(auth.RoleAdmin), removalRequest(body))
 		assert.Equal(t, http.StatusBadRequest, httpStatus(t, err), name)
 	}
-	_, err := a.RemoveWorker(userContext(auth.RoleViewer), openapiv1.RemoveWorkerRequestObject{WorkerId: "worker-1"})
+	_, err := a.RemoveWorker(userContext(auth.RoleViewer), removalRequest(openapiv1.RemoveWorkerRequest{WorkerId: "worker-1"}))
 	assert.Equal(t, http.StatusForbidden, httpStatus(t, err))
 }
