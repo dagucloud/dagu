@@ -206,6 +206,13 @@ func TestDAGRunLeaseStore_RequestStop(t *testing.T) {
 	requested, err = rewriting.RequestStop(ctx, "raced", "cert-a")
 	require.NoError(t, err)
 	assert.False(t, requested, "the lease lost its certificate before the mark was written")
+	ended := store.NewDAGRunLeaseStore(&rewriteBeforeSwap{Collection: col, rewrite: func() {
+		require.NoError(t, s.Delete(ctx, "ended"))
+	}})
+	require.NoError(t, s.Upsert(ctx, dispatch.DAGRunLease{AttemptKey: "ended", WorkerID: "worker-1", CertificateID: "cert-a"}))
+	requested, err = ended.RequestStop(ctx, "ended", "cert-a")
+	require.NoError(t, err, "a lease whose run ended before the mark needs none")
+	assert.False(t, requested)
 	lease, err = s.Get(ctx, "raced")
 	require.NoError(t, err)
 	assert.False(t, lease.StopRequested)

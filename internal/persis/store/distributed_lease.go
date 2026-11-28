@@ -118,8 +118,14 @@ func (s *DAGRunLeaseStore) RequestStop(ctx context.Context, attemptKey, certific
 			return err
 		}
 		// The swap fails when another write came after the read, so the
-		// mark lands only on the lease that named the certificate.
-		return s.col.CompareAndSwap(ctx, id, existing.Data, data)
+		// mark lands only on the lease that named the certificate. A lease
+		// deleted meanwhile, as when its run ended, needs no mark.
+		err = s.col.CompareAndSwap(ctx, id, existing.Data, data)
+		if errors.Is(err, persis.ErrNotFound) {
+			requested = false
+			return nil
+		}
+		return err
 	})
 	if err != nil {
 		return false, err

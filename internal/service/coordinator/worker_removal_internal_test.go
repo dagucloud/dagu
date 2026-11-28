@@ -3059,8 +3059,9 @@ func (s *onListAll) ListAll(ctx context.Context) ([]dispatch.DAGRunLease, error)
 
 // A stop removal's worker holds no run, and a reread starts its idle
 // revocation before the wait ends. The wait ends while the revocation lists
-// the leases, so the revocation leaves the certificate to the deadline,
-// which revokes it (Spec 108 §Removal).
+// the leases, and the listing hangs. The deadline revokes the certificate
+// while the listing still hangs, and the idle revocation then writes
+// nothing (Spec 108 §Removal).
 func TestIdleRevocationAcrossStopDeadline(t *testing.T) {
 	f := newRemovalFixture(t)
 	w := f.enroll(t, "worker-a")
@@ -3069,16 +3070,26 @@ func TestIdleRevocationAcrossStopDeadline(t *testing.T) {
 	f.now = removalStart.Add(removingMinimum + time.Second)
 	leases := &onListAll{DAGRunLeaseStore: f.leases}
 	f.h.dagRunLeaseStore = leases
+	reached, release := make(chan struct{}), make(chan struct{})
 	listings := 0
 	leases.hook = func() {
 		// The first listing is the reread's; the second, the revocation's.
 		if listings++; listings == 2 {
 			f.now = removalStart.Add(stopRunsWait)
+			close(reached)
+			<-release
 		}
 	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f.h.rereadRemovals(context.WithoutCancel(t.Context()))
+	}()
+	<-reached
 
-	f.h.rereadRemovals(t.Context())
-	assert.Equal(t, persis.WorkerCertificateRemoving, f.state(t, w), "the idle revocation leaves it to the deadline")
 	runStopDeadlines(t, f.h)
+	assert.Equal(t, persis.WorkerCertificateRevoked, f.state(t, w), "the deadline revokes while the listing hangs")
+	close(release)
+	<-done
 	assert.Equal(t, persis.WorkerCertificateRevoked, f.state(t, w))
 }

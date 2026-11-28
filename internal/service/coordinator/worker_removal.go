@@ -861,19 +861,24 @@ func (h *Handler) settleRemovals(ctx context.Context, removing []persis.WorkerCe
 // from listings taken after its removal record was read, in one write
 // from that version: an acceptance confirmed in between changes the
 // record, so the listings are taken again and see its lease. The holder
-// it waits for is the one that version names. It goes through the same
-// per-certificate state as the stop deadline, so the two never write at
-// once, and it leaves a stop removal whose wait ended meanwhile to the
-// deadline.
+// it waits for is the one that version names. After the listings, it takes
+// the same per-certificate state as the stop deadline for its write, so the
+// two never write at once and the listings never hold up the deadline, and
+// it leaves a stop removal whose wait ended meanwhile to the deadline.
 func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertificateRemoval, now time.Time) {
-	if !h.stops.claim(removal.ID) {
-		return
-	}
+	claimed := false
 	defer func() {
-		h.stops.release(removal.ID)
-		h.wakeStopDeadlines()
+		if claimed {
+			h.stops.release(removal.ID)
+			h.wakeStopDeadlines()
+		}
 	}()
 	cert, revoked, err := h.workerCertificates.RevokeIfIdle(ctx, removal.ID, func(ctx context.Context, read persis.WorkerCertificate) (bool, error) {
+		// A write that lost to another one lists again without the state.
+		if claimed {
+			h.stops.release(removal.ID)
+			claimed = false
+		}
 		presence, err := h.listPresence(ctx)
 		if err != nil {
 			return false, err
@@ -882,6 +887,10 @@ func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertifica
 		if err != nil {
 			return false, err
 		}
+		if !h.stops.claim(removal.ID) {
+			return false, nil
+		}
+		claimed = true
 		if stopRunsDue(removalOf(read), h.clock()) {
 			return false, nil
 		}
