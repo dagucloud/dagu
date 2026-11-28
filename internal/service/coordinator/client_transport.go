@@ -78,9 +78,23 @@ const (
 	h2cReasonOlderVersion = "older version"
 )
 
-// requireTLSClientMessage is what a client says when coordinator.require_tls
-// refuses its call over h2c.
-const requireTLSClientMessage = "The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true."
+// requireTLSClientPrefix starts what a client says when
+// coordinator.require_tls refuses its call over h2c.
+const requireTLSClientPrefix = "The coordinator requires TLS. "
+
+// requireTLSClientMessage returns what a client says when
+// coordinator.require_tls refuses its call over h2c from source: the
+// refusal and the change that puts the client on TLS.
+func requireTLSClientMessage(source string) string {
+	switch source {
+	case sourceInsecure:
+		return requireTLSClientPrefix + "Remove peer.insecure: true."
+	case sourceNetworkPath:
+		return requireTLSClientPrefix + "Let the network path to it pass TLS."
+	default:
+		return requireTLSClientPrefix + "Set peer.ca_cert_file to the coordinator's CA certificate."
+	}
+}
 
 // transportChoice is a transport and the source that selected it.
 type transportChoice struct {
@@ -195,6 +209,8 @@ type connectionPlan struct {
 	unlisted bool
 	// windowed reports h2c that an open h2c window selects.
 	windowed bool
+	// tlsError is the handshake error that opened that window.
+	tlsError string
 }
 
 // plan picks the transport of a new connection to address. A client with
@@ -202,7 +218,7 @@ type connectionPlan struct {
 func (t *clientTransport) plan(ctx context.Context, address string) (connectionPlan, error) {
 	if t.config.InsecureUnset {
 		if window, ok := t.windows.active(address, t.now()); ok {
-			return connectionPlan{choice: transportChoice{transportH2C, window.Source}, windowed: true}, nil
+			return connectionPlan{choice: transportChoice{transportH2C, window.Source}, windowed: true, tlsError: window.Error}, nil
 		}
 	}
 	if file := t.config.BuiltinCAFile; file != "" {
@@ -319,12 +335,11 @@ func (t *clientTransport) awaitReady(ctx context.Context, cc *grpc.ClientConn) {
 // coordinator.require_tls once until a call other than a health check
 // succeeds. A refusal of a connection that an h2c window put on h2c ends the
 // window, and the client opens a new connection.
-func (t *clientTransport) report(ctx context.Context, link *connLink, method string, err error) {
+func (t *clientTransport) report(ctx context.Context, link *connLink, method string, err error, p *peer.Peer) {
 	refusal := isRequireTLSRefusal(err)
 	if refusal && link.refuse() {
 		t.windows.end(link.address, t.now())
 	}
-	window, fellBack := t.windows.active(link.address, t.now())
 	t.mu.Lock()
 	pending := t.pending
 	t.pending = nil
@@ -343,11 +358,31 @@ func (t *clientTransport) report(ctx context.Context, link *connLink, method str
 	if !firstRefusal {
 		return
 	}
+	info := h2cInfoOf(p)
 	attrs := []slog.Attr{tag.Addr(link.address)}
-	if fellBack && window.Source == sourceNetworkPath {
-		attrs = append(attrs, slog.String("tls-error", window.Error))
+	if info.tlsError != "" {
+		attrs = append(attrs, slog.String("tls-error", info.tlsError))
 	}
-	logger.Error(ctx, requireTLSClientMessage, attrs...)
+	logger.Error(ctx, requireTLSClientMessage(info.source), attrs...)
+}
+
+// refusalError returns the error a call over the connection of p ends with:
+// err, or for a coordinator.require_tls refusal, the refusal with the
+// change for the h2c reason of that connection, so callers that log it
+// agree with the refusal line. It runs after report, which matches the
+// coordinator's message.
+func refusalError(err error, p *peer.Peer) error {
+	if !isRequireTLSRefusal(err) {
+		return err
+	}
+	return status.Error(codes.Unauthenticated, requireTLSClientMessage(h2cInfoOf(p).source))
+}
+
+// h2cInfoOf returns the h2c details of the connection of p, or none when
+// it is not on h2c.
+func h2cInfoOf(p *peer.Peer) h2cInfo {
+	info, _ := p.AuthInfo.(h2cInfo)
+	return info
 }
 
 func isRequireTLSRefusal(err error) bool {
@@ -529,10 +564,10 @@ func (l *connLink) unaryInterceptor(ctx context.Context, method string, req, rep
 	err := invoker(ctx, method, req, reply, cc, withPeer(opts, &p)...)
 	if l.resend(err, &p) {
 		l.transport.awaitReady(ctx, cc)
-		err = invoker(ctx, method, req, reply, cc, opts...)
+		err = invoker(ctx, method, req, reply, cc, withPeer(opts, &p)...)
 	}
-	l.transport.report(ctx, l, method, err)
-	return err
+	l.transport.report(ctx, l, method, err, &p)
+	return refusalError(err, &p)
 }
 
 func (l *connLink) streamInterceptor(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
@@ -541,14 +576,14 @@ func (l *connLink) streamInterceptor(ctx context.Context, desc *grpc.StreamDesc,
 	stream, err := streamer(ctx, desc, cc, method, withPeer(opts, &p)...)
 	if l.resend(err, &p) {
 		l.transport.awaitReady(ctx, cc)
-		stream, err = streamer(ctx, desc, cc, method, opts...)
+		stream, err = streamer(ctx, desc, cc, method, withPeer(opts, &p)...)
 	}
 	if err != nil {
 		l.end()
-		l.transport.report(ctx, l, method, err)
-		return nil, err
+		l.transport.report(ctx, l, method, err, &p)
+		return nil, refusalError(err, &p)
 	}
-	s := &reportingStream{ClientStream: stream, link: l, ctx: ctx, method: method, serverStreams: desc.ServerStreams}
+	s := &reportingStream{ClientStream: stream, link: l, ctx: ctx, method: method, serverStreams: desc.ServerStreams, peer: &p}
 	s.stop = context.AfterFunc(ctx, func() { s.finish(nil, false) })
 	return s, nil
 }
@@ -561,8 +596,10 @@ type reportingStream struct {
 	ctx           context.Context
 	method        string
 	serverStreams bool
-	stop          func() bool
-	once          sync.Once
+	// peer is the peer of the stream, which gRPC records when it ends.
+	peer *peer.Peer
+	stop func() bool
+	once sync.Once
 }
 
 func (s *reportingStream) RecvMsg(m any) error {
@@ -576,14 +613,14 @@ func (s *reportingStream) RecvMsg(m any) error {
 		}
 		s.finish(final, true)
 	}
-	return err
+	return refusalError(err, s.peer)
 }
 
 func (s *reportingStream) finish(err error, report bool) {
 	s.once.Do(func() {
 		s.link.end()
 		if report {
-			s.link.transport.report(s.ctx, s.link, s.method, err)
+			s.link.transport.report(s.ctx, s.link, s.method, err, s.peer)
 		}
 	})
 }
@@ -603,7 +640,7 @@ func (c *connectionCredentials) ClientHandshake(ctx context.Context, _ string, r
 	if plan.roots == nil {
 		c.link.connected(plan)
 		t.use(address, plan.choice)
-		return h2cCredentials{source: plan.choice.source}.ClientHandshake(ctx, address, rawConn)
+		return h2cCredentials{source: plan.choice.source, tlsError: plan.tlsError}.ClientHandshake(ctx, address, rawConn)
 	}
 	conn := &handshakeConn{Conn: rawConn}
 	creds := credentials.NewTLS(&tls.Config{RootCAs: plan.roots, MinVersion: tls.VersionTLS13})
@@ -679,6 +716,8 @@ func isUnknownAuthority(err error) bool {
 // source that chose h2c.
 type h2cCredentials struct {
 	source string
+	// tlsError is the handshake error of the h2c window that chose h2c.
+	tlsError string
 }
 
 func (c h2cCredentials) ClientHandshake(ctx context.Context, authority string, rawConn net.Conn) (net.Conn, credentials.AuthInfo, error) {
@@ -686,7 +725,7 @@ func (c h2cCredentials) ClientHandshake(ctx context.Context, authority string, r
 	if err != nil {
 		return nil, nil, err
 	}
-	return conn, h2cInfo{CommonAuthInfo: credentials.CommonAuthInfo{SecurityLevel: credentials.NoSecurity}, source: c.source}, nil
+	return conn, h2cInfo{CommonAuthInfo: credentials.CommonAuthInfo{SecurityLevel: credentials.NoSecurity}, source: c.source, tlsError: c.tlsError}, nil
 }
 
 func (h2cCredentials) ServerHandshake(net.Conn) (net.Conn, credentials.AuthInfo, error) {
@@ -708,7 +747,8 @@ func (h2cCredentials) OverrideServerName(string) error {
 // h2cInfo is the AuthInfo of a connection on h2c.
 type h2cInfo struct {
 	credentials.CommonAuthInfo
-	source string
+	source   string
+	tlsError string
 }
 
 func (h2cInfo) AuthType() string {

@@ -692,7 +692,8 @@ func (l *ConfigLoader) loadPeerConfig(def PeerDef) Peer {
 		KeyFile:       def.KeyFile,
 		ClientCaFile:  def.ClientCaFile,
 		SkipTLSVerify: def.SkipTLSVerify,
-		// Unset peer.insecure selects h2c, as true does.
+		// Insecure is true while peer.insecure is unset; InsecureUnset lets a
+		// TLS source still select built-in TLS.
 		Insecure:      def.Insecure || !l.v.IsSet("peer.insecure"),
 		InsecureUnset: !l.v.IsSet("peer.insecure"),
 		MaxRetries:    def.MaxRetries,

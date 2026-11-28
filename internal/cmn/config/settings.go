@@ -94,8 +94,8 @@ func (l *ConfigLoader) Settings(cfg *Config) []Setting {
 		if key == "auth.mode" && cfg.Server.Auth.Mode != "" {
 			value = string(cfg.Server.Auth.Mode)
 		}
-		// An unset peer.insecure selects h2c, so the row shows the value
-		// Load resolved.
+		// An unset peer.insecure resolves to true, with a TLS source still
+		// selecting built-in TLS, so the row shows the value Load resolved.
 		if key == "peer.insecure" && source == SourceDefault {
 			value = strconv.FormatBool(cfg.Core.Peer.Insecure)
 		}

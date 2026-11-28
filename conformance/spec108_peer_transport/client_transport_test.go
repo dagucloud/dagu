@@ -192,7 +192,7 @@ func TestStartAllBuiltinTLS(t *testing.T) {
 
 	plaintext := services.startSharedWorker(t, dagu, "h2c-worker", services.coordinator, "--peer.insecure")
 	waitForOutput(t, plaintext, h2cInsecure,
-		"The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true.")
+		"The coordinator requires TLS. Remove peer.insecure: true.")
 
 	client := coordinatorv1.NewCoordinatorServiceClient(dialCoordinator(t, services.coordinator, insecure.NewCredentials()))
 	_, err := client.GetWorkers(callContext(t), &coordinatorv1.GetWorkersRequest{}, grpc.WaitForReady(true))

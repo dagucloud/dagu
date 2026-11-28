@@ -64,7 +64,11 @@ func TestWorkerCheckH2C(t *testing.T) {
 		}},
 		{name: "RequireTLS", addr: strict, args: []string{"--peer.insecure"}, exitCode: 1, want: []string{
 			"  Transport: h2c (from peer.insecure: true)\n",
-			"  Coordinator answered: The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true.\n",
+			"  Coordinator answered: The coordinator requires TLS. Remove peer.insecure: true.\n",
+		}},
+		{name: "RequireTLSNoTLSSource", addr: strict, exitCode: 1, want: []string{
+			"  Transport: h2c (from no TLS source)\n",
+			"  Coordinator answered: The coordinator requires TLS. Set peer.ca_cert_file to the coordinator's CA certificate.\n",
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

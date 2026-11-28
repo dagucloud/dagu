@@ -333,7 +333,7 @@ var (
 var (
 	peerInsecureFlag = commandLineFlag{
 		name:      "peer.insecure",
-		usage:     "Use insecure connection (h2c) instead of TLS",
+		usage:     "Calls to a coordinator: true h2c; false TLS only; unset built-in TLS when its CA is known, else h2c",
 		isBool:    true,
 		bindViper: true,
 	}
@@ -369,7 +369,7 @@ var (
 
 	peerCACertFileFlag = commandLineFlag{
 		name:      "peer.ca-cert-file",
-		usage:     "Path to the CA certificate that signs peer certificates",
+		usage:     "Path to the peer CA certificate",
 		bindViper: true,
 		viperKey:  "peer.ca_cert_file",
 	}

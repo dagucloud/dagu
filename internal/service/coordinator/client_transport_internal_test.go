@@ -6,6 +6,7 @@ package coordinator
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"net"
 	"os"
@@ -220,18 +221,97 @@ func TestClientTransportRequireTLS(t *testing.T) {
 			require.NoError(t, err)
 			_, err = stream.CloseAndRecv()
 			assert.Equal(t, codes.Unauthenticated, status.Code(err))
+			assert.Equal(t, "The coordinator requires TLS. Remove peer.insecure: true.", status.Convert(err).Message())
 		})...)
 		for range 2 {
 			lines = append(lines, captureClientLogs(t, func(ctx context.Context) {
 				err := getWorkers(ctx, t, cli, member)
 				assert.Equal(t, codes.Unauthenticated, status.Code(err))
-				assert.Equal(t, requireTLSMessage, status.Convert(err).Message())
+				assert.Equal(t, "The coordinator requires TLS. Remove peer.insecure: true.", status.Convert(err).Message())
 			})...)
 		}
 		require.Len(t, lines, 1)
 		assert.Equal(t, "ERROR", lines[0].Level)
-		assert.Equal(t, "The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true.", lines[0].Msg)
+		assert.Equal(t, "The coordinator requires TLS. Remove peer.insecure: true.", lines[0].Msg)
 	})
+	// The refusal names the change for the reason of the client's h2c, and
+	// after a fallback the handshake error that caused it.
+	for _, tc := range []struct {
+		name string
+		// window is the h2c window open for the coordinator, if any.
+		window       *h2cWindow
+		want         string
+		wantTLSError string
+	}{
+		{name: "NoTLSSource", want: "The coordinator requires TLS. Set peer.ca_cert_file to the coordinator's CA certificate."},
+		{name: "NetworkPath", window: &h2cWindow{Source: sourceNetworkPath, Error: "EOF"},
+			want: "The coordinator requires TLS. Let the network path to it pass TLS.", wantTLSError: "EOF"},
+		{name: "UnlistedAddress", window: &h2cWindow{Source: sourceNoTLS, Error: "x509: certificate signed by unknown authority"},
+			want:         "The coordinator requires TLS. Set peer.ca_cert_file to the coordinator's CA certificate.",
+			wantTLSError: "x509: certificate signed by unknown authority"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := unset(*DefaultConfig())
+			if tc.window != nil {
+				config.PublishedCAFile = publishedCA(t, ca)
+				config.FallbackFile = filepath.Join(t.TempDir(), "peer-h2c.json")
+				now := time.Now()
+				window := *tc.window
+				window.Until = now.Add(h2cWindowLength)
+				sharedH2CWindows(config.FallbackFile).open(coord.addr, window, now)
+			}
+			cli := newTestClient(t, &config, member)
+			lines := captureClientLogs(t, func(ctx context.Context) {
+				err := getWorkers(ctx, t, cli, member)
+				assert.Equal(t, codes.Unauthenticated, status.Code(err))
+				assert.Equal(t, tc.want, status.Convert(err).Message(), "the call error agrees with the refusal line")
+			})
+			require.NotEmpty(t, lines)
+			refusal := lines[len(lines)-1]
+			assert.Equal(t, "ERROR", refusal.Level)
+			assert.Equal(t, tc.want, refusal.Msg)
+			assert.Equal(t, tc.wantTLSError, refusal.TLSError)
+		})
+	}
+	// A stream's refusal names the reason and the handshake error of the
+	// connection that carried it, even once its link has reconnected over
+	// built-in TLS or its h2c window has ended.
+	for _, tc := range []struct {
+		name    string
+		between func(clock *atomic.Int64, link *connLink)
+	}{
+		{name: "StreamAfterReconnect", between: func(_ *atomic.Int64, link *connLink) {
+			// What a new connection over built-in TLS records on the link.
+			link.connected(connectionPlan{choice: transportChoice{transportBuiltinTLS, sourceDataDir}, roots: x509.NewCertPool()})
+		}},
+		{name: "StreamAfterWindowEnds", between: func(clock *atomic.Int64, _ *connLink) {
+			clock.Add(int64(h2cWindowLength))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := unset(*DefaultConfig())
+			config.PublishedCAFile = publishedCA(t, ca)
+			config.FallbackFile = filepath.Join(t.TempDir(), "peer-h2c.json")
+			now := time.Now()
+			sharedH2CWindows(config.FallbackFile).open(coord.addr,
+				h2cWindow{Until: now.Add(h2cWindowLength), Source: sourceNetworkPath, Error: "EOF"}, now)
+			cli := newTestClient(t, &config, member)
+			clock := fakeClock(cli)
+			lines := captureClientLogs(t, func(ctx context.Context) {
+				client, err := cli.getOrCreateDiscoveredClient(member)
+				require.NoError(t, err)
+				stream, err := client.client.StreamLogs(ctx)
+				require.NoError(t, err)
+				tc.between(clock, client.link)
+				_, err = stream.CloseAndRecv()
+				assert.Equal(t, "The coordinator requires TLS. Let the network path to it pass TLS.", status.Convert(err).Message())
+			})
+			require.NotEmpty(t, lines)
+			refusal := lines[len(lines)-1]
+			assert.Equal(t, "The coordinator requires TLS. Let the network path to it pass TLS.", refusal.Msg)
+			assert.Equal(t, "EOF", refusal.TLSError)
+		})
+	}
 	t.Run("BuiltinTLS", func(t *testing.T) {
 		config := unset(*DefaultConfig())
 		config.PublishedCAFile = publishedCA(t, ca)
@@ -441,6 +521,8 @@ type clientLogLine struct {
 	Msg   string `json:"msg"`
 	Addr  string `json:"addr"`
 	Error string `json:"err"`
+	// TLSError is the handshake error that caused an h2c fallback.
+	TLSError string `json:"tls-error"`
 }
 
 // captureClientLogs returns what fn logs at level info and above.
