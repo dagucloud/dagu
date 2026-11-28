@@ -64,10 +64,13 @@ further tool calls. A step with `output_schema` is the exception; see
 below.
 
 A tool DAG must not evaluate text that the model sets. The step fails when
-it starts if a command, a script or a command precondition of a tool DAG
-writes an input as `${params.NAME}`, `${env.NAME}` or `${params}`, or if a
-param or precondition `eval` reads an input. A command reads the input as a
-shell variable instead, such as `"$CITY"`.
+it starts if a command or a script of a tool DAG writes an input as
+`${params.NAME}`, `${env.NAME}`, `${params}` or `"${NAME}"`, or as `$NAME`
+when no POSIX or Nix shell runs it. It also fails if a command precondition,
+or a param or precondition `eval`, reads an input in any of these forms. An
+env entry whose value reads an input counts as an input. A command that a
+POSIX or Nix shell runs reads the input as a shell variable instead, such as
+`"$CITY"`.
 
 ### Structured output
 
