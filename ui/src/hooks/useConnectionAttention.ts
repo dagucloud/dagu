@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { components } from '@/api/v1/schema';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
 import { useSSE } from '@/hooks/useSSE';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
@@ -15,14 +16,19 @@ const LOCAL_NODE = 'local';
 // is read again at this interval while the tab is visible.
 const FALLBACK_INTERVAL_MS = 60_000;
 
+const NO_ATTENTION: ConnectionAttention = { needsReconnect: 0, workspaces: [] };
+
 /**
- * Returns how many connections the user can see need reconnecting. The live
- * stream sends the count again only when a connection's status changes.
+ * Returns how many connections the user can see need reconnecting, and
+ * their workspaces. The live stream sends it again only when it changes.
+ * While another node is selected, the tab's stream is that node's, so the
+ * count is polled rather than held on a second stream.
  */
-export function useConnectionAttention(): number {
+export function useConnectionAttention(): ConnectionAttention {
+  const streamLocal = useRemoteNode() === LOCAL_NODE;
   const sse = useSSE<ConnectionAttention>(
     '/events/connection-attention',
-    true,
+    streamLocal,
     LOCAL_NODE
   );
   const { data, mutate } = useQuery(
@@ -31,5 +37,5 @@ export function useConnectionAttention(): number {
     sseFallbackOptions(sse, FALLBACK_INTERVAL_MS)
   );
   useSSECacheSync(sse, mutate);
-  return data?.needsReconnect ?? 0;
+  return data ?? NO_ATTENTION;
 }

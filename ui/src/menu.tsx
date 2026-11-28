@@ -57,8 +57,11 @@ type NavItemProps = {
   activePaths?: string | string[];
   reorderable?: boolean;
   suppressActive?: boolean;
-  /** When set, a dot marks the item, and this text tells why. */
-  badge?: string;
+  /**
+   * When set, a dot marks the item. The title tells why, and a screen
+   * reader hears the label after the item's text.
+   */
+  badge?: { title: string; label: string };
 };
 
 type MainListItemsProps = {
@@ -171,7 +174,7 @@ function NavItem({
           reorderable ? 'Alt+ArrowUp Alt+ArrowDown' : undefined
         }
         title={
-          badge ??
+          badge?.title ??
           (isOpen ? (reorderable ? t('navigation.reorderBookmark') : '') : text)
         }
       >
@@ -203,7 +206,7 @@ function NavItem({
         >
           {text}
         </span>
-        {badge && <span className="sr-only">{badge}</span>}
+        {badge && <span className="sr-only">{badge.label}</span>}
         {reorderable && isOpen && (
           <GripVertical
             size={14}
@@ -483,17 +486,27 @@ export const mainListItems = React.forwardRef<
     ...item,
     suppressActive: pinnedViewActive[item.to] ?? false,
   }));
-  const connectionsNeedReconnect = useConnectionAttention();
-  const connectionsBadge =
-    connectionsNeedReconnect > 0
-      ? t('navigation.connectionsNeedReconnect', {
-          count: connectionsNeedReconnect,
-        })
-      : undefined;
+  const attention = useConnectionAttention();
+  // The link opens a workspace that holds a connection to reconnect.
+  const connectionsItem =
+    attention.needsReconnect > 0
+      ? {
+          to: `${CONNECTIONS_PATH}?${new URLSearchParams({ workspace: attention.workspaces[0] ?? '' })}`,
+          activePaths: [CONNECTIONS_PATH],
+          badge: {
+            title: t('navigation.connectionsNeedReconnect', {
+              count: attention.needsReconnect,
+            }),
+            label: t('navigation.needReconnectSuffix', {
+              count: attention.needsReconnect,
+            }),
+          },
+        }
+      : {};
   const navSections = navigation.sections.map((section) => ({
     ...section,
     items: section.items.map((item) =>
-      item.to === CONNECTIONS_PATH ? { ...item, badge: connectionsBadge } : item
+      item.to === CONNECTIONS_PATH ? { ...item, ...connectionsItem } : item
     ),
   }));
 

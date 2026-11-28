@@ -170,7 +170,10 @@ beforeEach(() => {
   document.documentElement.lang = 'en';
   useViewsMock.mockReset();
   useViewsMock.mockReturnValue({ views: [] });
-  useConnectionAttentionMock.mockReturnValue(0);
+  useConnectionAttentionMock.mockReturnValue({
+    needsReconnect: 0,
+    workspaces: [],
+  });
   useAuthMock.mockReturnValue({
     user: { id: '1', username: 'admin', role: UserRole.admin },
   });
@@ -333,14 +336,18 @@ describe('sidebar menu', () => {
   });
 
   it('marks Connections while connections need reconnecting', () => {
-    useConnectionAttentionMock.mockReturnValue(2);
+    useConnectionAttentionMock.mockReturnValue({
+      needsReconnect: 2,
+      workspaces: ['dev', 'ops'],
+    });
     renderMenu('/cockpit', {}, {}, false);
 
     const link = within(
       screen.getByRole('group', { name: 'Configure' })
-    ).getByRole('link', { name: /Connections: 2 need reconnecting/ });
-    expect(link).toHaveAttribute('href', '/connections');
-    expect(link).toHaveAttribute('title', 'Connections: 2 need reconnecting');
+    ).getByRole('link', { name: 'Connections, needing reconnect: 2' });
+    // The link opens a workspace that holds one of the connections.
+    expect(link).toHaveAttribute('href', '/connections?workspace=dev');
+    expect(link).toHaveAttribute('title', 'Connections needing reconnect: 2');
   });
 
   it('shows Git Sync to all-workspace viewers', () => {

@@ -5285,7 +5285,7 @@ export interface paths {
         };
         /**
          * Count the connections that need attention
-         * @description Counts the connections in the workspaces where the caller is viewer or above that need reconnecting. The navigation badge reads it, and the connectionattention SSE topic streams the same body.
+         * @description Counts the connections in the workspaces where the caller is viewer or above that need reconnecting, and names their workspaces. The navigation badge reads it, and the connectionattention SSE topic streams the same body.
          */
         get: operations["getConnectionAttention"];
         put?: never;
@@ -10486,6 +10486,8 @@ export interface components {
         ConnectionAttention: {
             /** @description Connections in needs_reconnect status in the workspaces the caller can see. */
             needsReconnect: number;
+            /** @description The workspaces of those connections, sorted, with global for the connections of DAGs without a workspace label. */
+            workspaces: string[];
         };
         ConnectionListResponse: {
             connections: components["schemas"]["Connection"][];
