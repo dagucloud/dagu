@@ -395,4 +395,25 @@ describe('NewConnectionDialog', () => {
     ).toHaveAttribute('href', '/connections/work?workspace=ops');
     expect(within(dialog).getByRole('button', { name: 'Next' })).toBeDisabled();
   });
+
+  // A failed app list is not an empty one: the step offers a retry, not
+  // the request to an admin.
+  it('retries an app list that failed to load', async () => {
+    const user = userEvent.setup();
+    routes([app({})]);
+    const listed = mocks.routes['GET /oauth-apps']!;
+    delete mocks.routes['GET /oauth-apps'];
+
+    const dialog = await throughAgents(user);
+    expect(
+      await within(dialog).findByText('no route GET /oauth-apps')
+    ).toBeVisible();
+    expect(within(dialog).queryByText(/Ask an admin to register/)).toBeNull();
+
+    mocks.routes['GET /oauth-apps'] = listed;
+    await user.click(within(dialog).getByRole('button', { name: 'Try again' }));
+    expect(
+      await within(dialog).findByRole('radio', { name: /Google agents/ })
+    ).toBeVisible();
+  });
 });

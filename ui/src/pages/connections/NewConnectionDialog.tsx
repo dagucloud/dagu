@@ -799,25 +799,24 @@ function RegisterApp({
   }, []);
 
   async function upload() {
-    if (!file) return;
-    setError(null);
-    const text = await file.text();
-    const type = clientFileType(text);
-    // The server stores a client that no redirect mode of this server can
-    // use, so the browser refuses it before registering.
-    if (type && !signInRedirect(type, providers.redirects)) {
-      setError(
-        type === OAuthClientType.web
-          ? ts(
-              'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.'
-            )
-          : ts('This server cannot sign in through a desktop client.')
-      );
-      return;
-    }
+    if (!file || uploading) return;
     setUploading(true);
+    setError(null);
     const failed = ts('Could not register the app.');
     try {
+      const text = await file.text();
+      const type = clientFileType(text);
+      // The server stores a client that no redirect mode of this server can
+      // use, so the browser refuses it before registering.
+      if (type && !signInRedirect(type, providers.redirects)) {
+        throw new Error(
+          type === OAuthClientType.web
+            ? ts(
+                'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.'
+              )
+            : ts('This server cannot sign in through a desktop client.')
+        );
+      }
       const { data, error: apiError } = await client.POST('/oauth-apps', {
         params: { query: { remoteNode: LOCAL_NODE } },
         body: {
