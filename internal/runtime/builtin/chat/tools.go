@@ -8,7 +8,9 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
@@ -19,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/llm/toolschema"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/itchyny/gojq"
 )
 
 // toolParam represents a parsed parameter definition.
@@ -164,8 +167,12 @@ var substitutedRef = regexp.MustCompile(`\$\{\s*(?:params|(?:params|env)\.([A-Za
 var quotedRef = regexp.MustCompile(`"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"`)
 
 // pathRef matches ${NAME.path} and $NAME.path, which Dagu fills with a field of
-// the JSON value of NAME on every shell.
-var pathRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\.[^}]+\}|\$([A-Za-z_][A-Za-z0-9_]*)\.\S+`)
+// the JSON value of NAME on every shell when the path parses as jq.
+var pathRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(\.[^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)(\.\S+)`)
+
+// foreachNamespace stands for the item scope of a foreach body, which holds
+// text that the model sets when the items or the key read an input.
+const foreachNamespace = "foreach"
 
 // envRef matches $NAME and ${NAME}, which Dagu also expands in an eval.
 var envRef = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*)`)
@@ -185,13 +192,13 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 	// Both variables hold every param as JSON.
 	inputs[runenv.EnvKeyDAGParamsJSON] = true
 	inputs[runenv.EnvKeyDAGParamsJSONCompat] = true
-	env, err := rawEnv(ctx, dag)
+	raw, err := rawDAG(ctx, dag)
 	if err != nil {
 		return err
 	}
-	inputs = withEnvCopies(inputs, env)
+	inputs = withEnvCopies(inputs, raw.Env)
 
-	for _, def := range dag.ParamDefs {
+	for _, def := range raw.ParamDefs {
 		if ref, variable, ok := modelRef(def.Eval, inputs, true); ok {
 			return modelInputError(dag, fmt.Sprintf("the eval of param %q", def.Name), ref, variable, false)
 		}
@@ -219,9 +226,13 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 			continue
 		}
 		stepInputs = withEnvCopies(stepInputs, step.Env)
-		fills := fillsShellVariables(ctx, dag, step)
+		shell, local := localShell(ctx, dag, step)
+		// Dagu leaves $NAME to the shell only in the command of a local command
+		// step that a POSIX or Nix shell runs. It fills $NAME into any other
+		// command, such as that of an SSH or container step.
+		fills := !local || (!cmdutil.IsUnixLikeShell(shell) && !cmdutil.IsNixShell(shell))
 		where := fmt.Sprintf("the command of step %q", step.Name)
-		for _, text := range commandTexts(step) {
+		for _, text := range commandTexts(step, local && shell != "") {
 			if ref, variable, ok := modelRef(text, stepInputs, fills); ok {
 				return modelInputError(dag, where, ref, variable, !fills)
 			}
@@ -230,22 +241,32 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 			return err
 		}
 		if step.Foreach != nil {
+			// Dagu writes each item into the body as ${foreach.<as>}. The body
+			// sees only this foreach's item scope, not that of an outer one.
+			bodyInputs := stepInputs
+			if reads := foreachReadsInput(step.Foreach, stepInputs); reads != stepInputs[foreachNamespace] {
+				bodyInputs = maps.Clone(stepInputs)
+				bodyInputs[foreachNamespace] = reads
+			}
 			for i := range step.Foreach.Steps {
-				queue = append(queue, pending{&step.Foreach.Steps[i], stepInputs})
+				queue = append(queue, pending{&step.Foreach.Steps[i], bodyInputs})
 			}
 		}
 	}
 	return nil
 }
 
-// rawEnv returns the env entries of the tool DAG as written. The loaded DAG
-// holds them with the param defaults filled in, which hides a copy of an input.
-func rawEnv(ctx context.Context, dag *ir.DAG) ([]string, error) {
+// rawDAG returns the tool DAG as its YAML defines it, which the child run
+// loads. The loaded DAG holds its env with the param defaults filled in, which
+// hides a copy of an input, and a DAG read from a run snapshot has no param
+// evals.
+func rawDAG(ctx context.Context, dag *ir.DAG) (*ir.DAG, error) {
 	if len(dag.YamlData) == 0 {
-		return dag.Env, nil
+		return dag, nil
 	}
-	// Only the env is read, so the params schema is skipped. The source file
-	// keeps relative paths resolving as they did when the DAG loaded.
+	// Only the env and the param evals are read, so the params schema is
+	// skipped. The source file keeps relative paths resolving as they did when
+	// the DAG loaded.
 	opts := []spec.LoadOption{
 		spec.WithoutEval(),
 		spec.SkipSchemaValidation(),
@@ -256,9 +277,36 @@ func rawEnv(ctx context.Context, dag *ir.DAG) ([]string, error) {
 	}
 	raw, err := spec.LoadYAML(ctx, dag.YamlData, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("tool DAG %q: failed to read its env: %w", dag.Name, err)
+		return nil, fmt.Errorf("tool DAG %q: failed to read its definition: %w", dag.Name, err)
 	}
-	return raw.Env, nil
+	return raw, nil
+}
+
+// foreachReadsInput reports whether the items or the item key of a foreach
+// read an input. Dagu resolves the strings of static items too.
+func foreachReadsInput(foreach *ir.ForeachConfig, inputs map[string]bool) bool {
+	texts := appendStrings([]string{foreach.ItemsExpr, foreach.Key}, foreach.Items)
+	return slices.ContainsFunc(texts, func(text string) bool {
+		_, _, found := modelRef(text, inputs, true)
+		return found
+	})
+}
+
+// appendStrings appends the strings that value holds at any depth.
+func appendStrings(texts []string, value any) []string {
+	switch v := value.(type) {
+	case string:
+		texts = append(texts, v)
+	case []any:
+		for _, item := range v {
+			texts = appendStrings(texts, item)
+		}
+	case map[string]any:
+		for _, item := range v {
+			texts = appendStrings(texts, item)
+		}
+	}
+	return texts
 }
 
 // withEnvCopies returns inputs with the names of the env entries whose value
@@ -274,11 +322,7 @@ func withEnvCopies(inputs map[string]bool, env []string) map[string]bool {
 			continue
 		}
 		if !copied {
-			next := make(map[string]bool, len(inputs)+1)
-			for k := range inputs {
-				next[k] = true
-			}
-			inputs = next
+			inputs = maps.Clone(inputs)
 			copied = true
 		}
 		inputs[name] = true
@@ -286,12 +330,12 @@ func withEnvCopies(inputs map[string]bool, env []string) map[string]bool {
 	return inputs
 }
 
-// fillsShellVariables reports whether Dagu fills $NAME into the command of a
-// local command step, which it does unless a POSIX or Nix shell runs it. The
-// shell is the step's, else the DAG's, else the default one.
-func fillsShellVariables(ctx context.Context, dag *ir.DAG, step *ir.Step) bool {
+// localShell returns the shell that runs the command of a local command step:
+// the step's, else the DAG's, else the default one. It reports false for a
+// step of another executor.
+func localShell(ctx context.Context, dag *ir.DAG, step *ir.Step) (string, bool) {
 	if !step.ExecutorConfig.IsCommand() && step.ExecutorConfig.Type != "shell" {
-		return false
+		return "", false
 	}
 	shell := step.Shell
 	if shell == "" {
@@ -300,7 +344,7 @@ func fillsShellVariables(ctx context.Context, dag *ir.DAG, step *ir.Step) bool {
 	if shell == "" {
 		shell = cmdutil.GetShellCommand(config.GetConfig(ctx).Core.DefaultShell)
 	}
-	return !cmdutil.IsUnixLikeShell(shell) && !cmdutil.IsNixShell(shell)
+	return shell, true
 }
 
 // checkConditions checks the evals of conditions, and the conditions that run
@@ -325,11 +369,18 @@ func checkConditions(dag *ir.DAG, where string, conditions []*ir.Condition, inpu
 }
 
 // commandTexts returns the texts of a step that become a command or a script.
-func commandTexts(step *ir.Step) []string {
+// When a shell runs the command text of an entry and the step has no script,
+// the split command and args of the entry never run, and their quotes are
+// gone, so they are left out.
+func commandTexts(step *ir.Step, shellConfigured bool) []string {
 	texts := []string{step.Command, step.CmdWithArgs, step.CmdArgsSys, step.ShellCmdArgs, step.Script}
 	texts = append(texts, step.Args...)
 	for _, entry := range step.Commands {
-		texts = append(texts, entry.Command, entry.CmdWithArgs)
+		texts = append(texts, entry.CmdWithArgs)
+		if shellConfigured && entry.CmdWithArgs != "" && step.Script == "" {
+			continue
+		}
+		texts = append(texts, entry.Command)
 		texts = append(texts, entry.Args...)
 	}
 	return texts
@@ -353,7 +404,7 @@ func modelRef(text string, inputs map[string]bool, eval bool) (ref, variable str
 		}
 	}
 	for _, m := range pathRef.FindAllStringSubmatch(text, -1) {
-		if name := m[1] + m[2]; inputs[name] {
+		if name := m[1] + m[3]; inputs[name] && parsesAsPath(m[2]+m[4]) {
 			return m[0], name, true
 		}
 	}
@@ -368,13 +419,25 @@ func modelRef(text string, inputs map[string]bool, eval bool) (ref, variable str
 	return "", "", false
 }
 
+// parsesAsPath reports whether Dagu reads path as a JSON path. Dagu leaves a
+// reference whose path does not parse as jq to the shell as written.
+func parsesAsPath(path string) bool {
+	_, err := gojq.Parse(path)
+	return err == nil
+}
+
 // modelInputError names the tool DAG, the place and the reference. A command
 // run by a POSIX or Nix shell can read the input from its variable instead,
-// which the shell keeps as data.
+// which the shell keeps as data. No variable holds a foreach item, so the step
+// copies it into one.
 func modelInputError(dag *ir.DAG, where, ref, variable string, hint bool) error {
 	err := fmt.Errorf("tool DAG %q: %s refers to %s, which holds text that the model sets, and that text would run as code", dag.Name, where, ref)
-	if hint {
+	switch {
+	case !hint:
+		return err
+	case variable == foreachNamespace:
+		return fmt.Errorf("%w; copy it into an env entry of the step, such as VALUE: %s, and read \"$VALUE\" in the command, which the shell keeps as data", err, ref)
+	default:
 		return fmt.Errorf("%w; read it as \"$%s\" in the command, which the shell keeps as data", err, variable)
 	}
-	return err
 }
