@@ -305,6 +305,24 @@ jobs:
             fi
           done
 
+          # Own certificates in extraEnv conflict with the CA Secret, which
+          # Dagu refuses at start, so the render fails instead.
+          own_cert_env=(
+            --set-string 'extraEnv[0].name=DAGU_PEER_CERT_FILE'
+            --set-string 'extraEnv[0].value=/etc/peer-tls/tls.crt'
+          )
+          helm template dagu ./charts/dagu "${distributed[@]}" "${own_cert_env[@]}" >/dev/null
+          if output="$(helm template dagu ./charts/dagu "${distributed[@]}" \
+            "${ca_values[@]}" "${own_cert_env[@]}" 2>&1)"; then
+            echo "::error::Expected peer.existingCASecret with DAGU_PEER_CERT_FILE to be refused"
+            exit 1
+          fi
+          if [[ "${output}" != *'extraEnv entry "DAGU_PEER_CERT_FILE" must not configure peer certificates'* ]]; then
+            echo "::error::Peer CA rendering failed for an unexpected reason"
+            printf '%s\n' "${output}"
+            exit 1
+          fi
+
           # start-all runs no coordinator, so standalone mode mounts no CA.
           helm template dagu ./charts/dagu --namespace dagu "${ca_values[@]}" \
             >/tmp/dagu-peer-standalone-render.yaml

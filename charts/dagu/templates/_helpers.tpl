@@ -114,7 +114,7 @@ dig keeps an upgrade that reuses an older chart's values working.
 - name: peer-ca
   secret:
     secretName: {{ . | quote }}
-    # 0400. Kubernetes adds read for the pod's fsGroup, the Dagu user's group.
+    # 0400
     defaultMode: 256
     items:
       - key: ca.crt
