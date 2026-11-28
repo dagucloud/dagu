@@ -324,11 +324,7 @@ func (t *clientTransport) use(address string, choice transportChoice) {
 // unlisted address, opens an h2c window for the address. The client that
 // opens a window logs its warning.
 func (t *clientTransport) failed(address string, plan connectionPlan, conn *handshakeConn, err error) {
-	if plan.cert != nil && isUnknownAuthority(err) {
-		format := ownCertificatesFormat
-		if isOtherDagu(err) {
-			format = otherDaguFormat
-		}
+	if format := foreignCoordinatorFormat(err); plan.cert != nil && format != "" {
 		t.mu.Lock()
 		defer t.mu.Unlock()
 		t.pending = append(t.pending, func(ctx context.Context) {
@@ -792,11 +788,23 @@ func isUnknownAuthority(err error) bool {
 	return errors.As(err, &unknown)
 }
 
-// isOtherDagu reports a server certificate of built-in TLS, one that names
-// coordinatorCertName, that does not chain to the CA the client trusts.
-func isOtherDagu(err error) bool {
+// foreignCoordinatorFormat returns the message for a server certificate that
+// failed to verify, judged by its chain: one of another Dagu for a
+// coordinator certificate of built-in TLS, and own certificates for any
+// other, whatever name it covers. It returns "" when no certificate failed.
+func foreignCoordinatorFormat(err error) string {
 	verification, ok := errors.AsType[*tls.CertificateVerificationError](err)
-	return ok && isUnknownAuthority(err) && isBuiltinChain(verification.UnverifiedCertificates)
+	switch {
+	case !ok:
+		return ""
+	case isUnknownAuthority(err) && isBuiltinChain(verification.UnverifiedCertificates):
+		return otherDaguFormat
+	case isBuiltinChain(verification.UnverifiedCertificates):
+		// A coordinator certificate of this Dagu that fails for another
+		// reason, such as its expiry, gets the error alone.
+		return ""
+	}
+	return ownCertificatesFormat
 }
 
 // h2cCredentials dial h2c, and give each connection an h2cInfo with the

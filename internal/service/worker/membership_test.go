@@ -322,6 +322,17 @@ func TestMembershipEnrollFailures(t *testing.T) {
 			results: map[string][]any{coordinatorA: {status.Error(codes.Internal, "failed to record the worker certificate"), ca}},
 			wantLog: "Coordinator at coordinator-a:50055 could not enroll this worker: failed to record the worker certificate. Check the coordinator's log for the cause.",
 		},
+		{
+			// An answer from one coordinator says the worker reached its
+			// own Dagu, so another Dagu at a second address does not end
+			// the attempt.
+			name: "AnswerBeforeOtherDagu",
+			results: map[string][]any{
+				coordinatorA: {status.Error(codes.Internal, "failed to record the worker certificate"), ca},
+				coordinatorB: {coordinator.ErrInviteCAMismatch},
+			},
+			wantLog: "Coordinator at coordinator-a:50055 could not enroll this worker: failed to record the worker certificate.",
+		},
 		{name: "Refused", results: map[string][]any{coordinatorA: {refused}}, wantErr: errInviteRefused.Error()},
 		{
 			name:    "OtherDagu",
@@ -436,6 +447,21 @@ func TestMembershipUnreadableCredential(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A worker that enrolls but cannot keep its certificate says so, naming
+// the data directory as configured and no file inside it.
+func TestMembershipSaveFailure(t *testing.T) {
+	ca := newTestCA(t)
+	dataDir := t.TempDir()
+	m, err := open(t, workerConfig(dataDir, ca.invite(t)), enrolling(ca))
+	require.NoError(t, err)
+	// A directory in place of the credential fails the save's rename.
+	require.NoError(t, os.MkdirAll(filepath.Join(credentialPath(dataDir), "taken"), 0o700))
+
+	err = connect(t.Context(), t, m)
+	require.ErrorContains(t, err, "This worker enrolled but cannot keep its certificate in its data directory "+dataDir+": ")
+	assert.NotContains(t, err.Error(), filepath.Join(dataDir, credentialDirName))
 }
 
 // A save that a stop interrupted leaves its partial file, which the next

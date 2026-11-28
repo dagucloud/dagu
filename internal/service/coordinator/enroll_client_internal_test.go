@@ -127,16 +127,16 @@ func serveReplyingCoordinator(t *testing.T, ca *PeerCA, reply func(*coordinatorv
 	return listener.Addr().String()
 }
 
-// ownChainCredentials serve TLS with own certificates that name
-// coordinator.dagu.invalid and expire, sent with the CA that signed them.
-func ownChainCredentials(t *testing.T) credentials.TransportCredentials {
+// ownChainCredentials serve TLS with own certificates for name that expire,
+// sent with the CA that signed them.
+func ownChainCredentials(t *testing.T, name string) credentials.TransportCredentials {
 	t.Helper()
 	ca := newTestCA(t)
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	leaf := signedBy(t, ca, key.Public(), &x509.Certificate{
-		Subject:     pkix.Name{CommonName: coordinatorCertName},
-		DNSNames:    []string{coordinatorCertName},
+		Subject:     pkix.Name{CommonName: name},
+		DNSNames:    []string{name},
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	})
 	return credentials.NewTLS(&tls.Config{
@@ -192,7 +192,7 @@ func TestEnrollOwnChainWithBuiltinName(t *testing.T) {
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	server := grpc.NewServer(grpc.Creds(ownChainCredentials(t)))
+	server := grpc.NewServer(grpc.Creds(ownChainCredentials(t, coordinatorCertName)))
 	coordinatorv1.RegisterCoordinatorServiceServer(server, coordinatorv1.UnimplementedCoordinatorServiceServer{})
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)

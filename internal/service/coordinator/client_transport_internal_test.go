@@ -432,8 +432,9 @@ func TestClientTransportWorkerCertificateOtherDagu(t *testing.T) {
 	}{
 		{name: "OtherDagu", creds: builtinCredentials(t, newTestCA(t)),
 			want: `%s belongs to a different Dagu than the one this worker joined. Get a new command from "Add worker" to join it.`},
-		{name: "OwnCertificatesWithBuiltinName", creds: ownChainCredentials(t),
-			want: "Coordinator at %s serves TLS with its own certificates, so this worker cannot use its worker certificate there. Remove peer.cert_file and peer.key_file from the coordinator's config, so it serves built-in TLS."},
+		{name: "OwnCertificatesWithBuiltinName", creds: ownChainCredentials(t, coordinatorCertName), want: ownCertificatesFormat},
+		// Own certificates for an ordinary name fail on the name first.
+		{name: "OwnCertificates", creds: ownChainCredentials(t, "coordinator.test"), want: ownCertificatesFormat},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			coord := serveTestCoordinator(t, tc.creds)

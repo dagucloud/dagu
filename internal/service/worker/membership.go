@@ -263,10 +263,13 @@ func (m *Membership) errUnreadable(err error) error {
 	}
 }
 
-// reason is err without the path of the file it is about.
+// reason is err without the paths of the files it is about.
 func reason(err error) string {
 	if pathErr, ok := errors.AsType[*fs.PathError](err); ok {
 		return pathErr.Err.Error()
+	}
+	if linkErr, ok := errors.AsType[*os.LinkError](err); ok {
+		return linkErr.Err.Error()
 	}
 	return err.Error()
 }
@@ -319,7 +322,10 @@ func (m *Membership) enroll(ctx context.Context, workerID string) error {
 	}
 	if m.writable {
 		if err := m.store.save(cred); err != nil {
-			return fmt.Errorf("keep the worker certificate: %s", reason(err))
+			return failure{
+				cause: fmt.Sprintf("This worker enrolled but cannot keep its certificate in its data directory %s: %s", m.cfg.Paths.DataDir, reason(err)),
+				next:  `Make the data directory writable. A single-use invite is now used up: get a new command from "Add worker".`,
+			}
 		}
 	}
 	m.use(cred)
@@ -402,10 +408,39 @@ func (m *Membership) enrollRound(ctx context.Context, req *coordinatorv1.EnrollR
 		}
 		logger.Debug(ctx, "Enrollment failed", tag.Addr(address), tag.Error(err))
 	}
-	if otherDagu != "" {
+	// Another Dagu at one address ends the attempt only when no coordinator
+	// answered: an answer says the worker reached its own.
+	if otherDagu != "" && lastRank < rankAnswered {
 		return nil, failure{}, errOtherDagu(otherDagu)
 	}
 	return nil, last, nil
+}
+
+// ErrCheckInviteWorker is the error of dagu worker --check for a worker
+// that joins with worker.invite or a kept worker certificate, which the
+// check does not cover yet.
+var ErrCheckInviteWorker = errors.New("dagu worker --check does not check a worker that joins with worker.invite or a kept worker certificate yet: start the worker to see how it connects")
+
+// CheckInviteWorker returns ErrCheckInviteWorker for a worker whose
+// connections would use worker.invite or a kept worker certificate, and nil
+// for a worker on the peer token. It changes nothing.
+func CheckInviteWorker(cfg *config.Config) error {
+	if cfg.Worker.Invite != "" {
+		return ErrCheckInviteWorker
+	}
+	peer := cfg.Core.Peer
+	if (peer.Insecure && !peer.InsecureUnset) ||
+		(!peer.Insecure && (peer.CertFile != "" || peer.KeyFile != "" || peer.ClientCaFile != "" || peer.SkipTLSVerify)) {
+		return nil
+	}
+	kept, err := newCredentialStore(cfg.Paths.DataDir).kept()
+	switch {
+	case err != nil:
+		return fmt.Errorf("%w: %s", ErrCheckInviteWorker, reason(err))
+	case kept:
+		return ErrCheckInviteWorker
+	}
+	return nil
 }
 
 // Close releases the certificate lock.
