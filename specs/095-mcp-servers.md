@@ -302,6 +302,9 @@ The agent step of [Spec 094](094-ai-gateway.md#an-agent-step-with-an-endpoint) u
 
 ## Conformance
 
+No test of this spec exists yet. Each change that implements a section adds its tests to this
+section, under these rules.
+
 The tests run the Dagu binary on static fixtures in `conformance/spec095_mcp_servers/`. They use
 three fakes. The fake upstream is a local HTTP server that records each request and serves SSE. The
 fake `claude` is an executable that calls `ANTHROPIC_BASE_URL` with `ANTHROPIC_API_KEY`, and the MCP
@@ -312,18 +315,11 @@ name of a model is the subject of the test.
 
 The tests of a worker run a coordinator with mutual TLS and the pools of Spec 092. A test of an agent
 worker changes to the restricted user. It needs Linux, the user ID 0 and the flag
-no-new-privileges. It skips on another host. The table marks these tests "root". A test of a
+no-new-privileges. It skips on another host. A test of a
 general worker runs with each user ID.
 
 Each test that has a key checks that the key is in no response, no output, no log and no file of the
 worker.
-
-| Section | Tests |
-| --- | --- |
-| The MCP tab | `TestMCPCredentialsAreNeverShown`, `TestMCPScopeAndInvalidRequests`, `TestMCPRoutesNeedAuthentication`. |
-| The key tools.mcp | `TestValidateTheNamedFormOfTheMCPEntry`. |
-| The MCP relay, the key allow | `TestMCPRelayOnAnAgentWorker` (root), `TestMCPRelayLocalMode`, `TestChatNamedMCPLocalMode`, `TestChatNamedMCPOnAWorker`. Go tests of the coordinator check the limits of the relay on a MCP request. They also check the filter of the request headers and the use rule of the entries. |
-| The UI contract | Not covered here. The tests of the UI cover it. |
 
 ## Open items
 
@@ -331,15 +327,15 @@ Each item has a default. The default applies until the owner decides.
 
 ### Measured with Claude Code
 
-The author ran the real Claude Code 2.1.311 on 2026-11-04. The model was `claude-haiku-4-5`. The
+The author ran the real Claude Code 2.1.311 on 2026-11-04, on a build of this spec that no release
+of Dagu holds. The model was `claude-haiku-4-5`. The
 endpoint held an OAuth token of a subscription, with the form `anthropic-oauth`. The agent worker
-held no model key, and the proxy had no model route. The demo `examples/agent-worker-demo` holds the
-scripts and the evidence format. These facts are measured.
+held no model key, and the proxy had no model route. These facts are measured.
 
 | Subject | Fact |
 | --- | --- |
 | Named MCP server | The CLI connected to the relay path `/mcp/<name>`. It sent the methods `server/discover`, `initialize`, `notifications/initialized` and `tools/list`, then a `GET` for a stream. The server got its token on each request. The token was not in the worker. |
-| MCP tools | The CLI lists each tool of the server, also a tool that `allow` does not name. The coordinator refuses a call of such a tool. The tests with the fake CLI show this. |
+| MCP tools | The CLI lists each tool of the server, also a tool that `allow` does not name. The coordinator refuses a call of such a tool. The author showed this with a fake CLI, not with the real one. |
 
 ### Decisions to confirm
 
