@@ -59,3 +59,9 @@ func SetCheckProxyForTest(t testing.TB, proxy *url.URL) {
 	proxyFromEnvironment = func(*http.Request) (*url.URL, error) { return proxy, nil }
 	t.Cleanup(func() { proxyFromEnvironment = previous })
 }
+
+// RereadRemovalsForTest runs the 30-second reread of the certificates in
+// removal once.
+func RereadRemovalsForTest(h *Handler) {
+	h.rereadRemovals(context.Background())
+}

@@ -162,7 +162,9 @@ func TestPeerTokenAuthWorkerCertificate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			auth := NewPeerTokenAuth("token", true, true)
 			if tc.accept != nil {
-				auth.AcceptWorkerCertificates(tc.accept)
+				h := NewHandler(HandlerConfig{PeerCA: tc.accept})
+				h.removals.load(nil)
+				auth.AcceptWorkerCertificates(h)
 			}
 			assert.Equal(t, tc.wantCode, status.Code(auth.authorize(ctx, method)))
 		})

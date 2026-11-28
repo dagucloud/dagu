@@ -77,7 +77,7 @@ func (s peerTLSServer) enroll(t *testing.T, invite string) (*ecdsa.PrivateKey, *
 // inviteUses returns the use count of the invite with id.
 func (s peerTLSServer) inviteUses(t *testing.T, id string) int {
 	t.Helper()
-	invite, err := s.invites.Get(t.Context(), id)
+	invite, err := s.shared.invites.Get(t.Context(), id)
 	require.NoError(t, err)
 	return invite.UseCount
 }
@@ -118,9 +118,9 @@ func inviteSecret(invite string) string {
 	return invite[strings.LastIndex(invite, ".")+1:]
 }
 
-// The invite calls and join readiness take the peer token and refuse a
-// worker certificate, with or without the token (Spec 108 §Coordinator
-// Calls).
+// The invite calls, the removal, and join readiness take the peer token
+// and refuse a worker certificate, with or without the token (Spec 108
+// §Coordinator Calls).
 func TestInviteCallsAuth(t *testing.T) {
 	t.Parallel()
 	server := startPeerTLSServer(t, certHosts)
@@ -139,6 +139,13 @@ func TestInviteCallsAuth(t *testing.T) {
 		"DeleteInvite": func(ctx context.Context, c coordinatorv1.CoordinatorServiceClient) error {
 			_, err := c.DeleteInvite(ctx, &coordinatorv1.DeleteInviteRequest{Id: "missing"})
 			// NotFound means the call passed the credential check.
+			if status.Code(err) == codes.NotFound {
+				return nil
+			}
+			return err
+		},
+		"RemoveWorker": func(ctx context.Context, c coordinatorv1.CoordinatorServiceClient) error {
+			_, err := c.RemoveWorker(ctx, &coordinatorv1.RemoveWorkerRequest{WorkerId: "missing"})
 			if status.Code(err) == codes.NotFound {
 				return nil
 			}
@@ -319,7 +326,7 @@ func TestEnroll(t *testing.T) {
 	certID := cert.Subject.CommonName
 	assert.NotEqual(t, "coordinator.dagu.invalid", certID)
 
-	record, err := server.certs.Get(t.Context(), certID)
+	record, err := server.shared.certs.Get(t.Context(), certID)
 	require.NoError(t, err)
 	assert.Equal(t, persis.WorkerCertificateActive, record.State)
 	assert.Equal(t, created.Record.Id, record.InviteID)
@@ -328,7 +335,7 @@ func TestEnroll(t *testing.T) {
 	fingerprint := sha256.Sum256(cert.RawSubjectPublicKeyInfo)
 	assert.Equal(t, fingerprint[:], record.KeyFingerprint)
 
-	invite, err := server.invites.Get(t.Context(), created.Record.Id)
+	invite, err := server.shared.invites.Get(t.Context(), created.Record.Id)
 	require.NoError(t, err)
 	assert.Equal(t, 1, invite.UseCount)
 	assert.False(t, invite.LastUsedAt.IsZero())
@@ -354,7 +361,7 @@ func TestEnrollRefusesInvite(t *testing.T) {
 	_, err := rand.Read(expiredSecret)
 	require.NoError(t, err)
 	expiredHash := sha256.Sum256(expiredSecret)
-	_, err = server.invites.Create(t.Context(), persis.WorkerInvite{
+	_, err = server.shared.invites.Create(t.Context(), persis.WorkerInvite{
 		SecretHash: expiredHash[:],
 		Kind:       persis.WorkerInviteReusable,
 		ExpiresAt:  time.Now().Add(-time.Minute),
@@ -410,7 +417,7 @@ func TestEnrollSingleUseOnce(t *testing.T) {
 	}
 	assert.Equal(t, 1, enrolled)
 	assert.Equal(t, 1, server.inviteUses(t, created.Record.Id))
-	records, err := server.certs.List(t.Context())
+	records, err := server.shared.certs.List(t.Context())
 	require.NoError(t, err)
 	assert.Len(t, records, 1)
 }
@@ -533,7 +540,8 @@ func TestInvitesWithoutPeerCA(t *testing.T) {
 		_, listErr := handler.ListInvites(ctx, &coordinatorv1.ListInvitesRequest{})
 		_, deleteErr := handler.DeleteInvite(ctx, &coordinatorv1.DeleteInviteRequest{Id: "id"})
 		_, enrollErr := handler.Enroll(ctx, &coordinatorv1.EnrollRequest{})
-		for _, err := range []error{createErr, listErr, deleteErr, enrollErr} {
+		_, removeErr := handler.RemoveWorker(ctx, &coordinatorv1.RemoveWorkerRequest{WorkerId: "id"})
+		for _, err := range []error{createErr, listErr, deleteErr, enrollErr, removeErr} {
 			assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 			assert.Equal(t, tc.message, status.Convert(err).Message())
 		}

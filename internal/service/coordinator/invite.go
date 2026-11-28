@@ -69,7 +69,7 @@ func (h *Handler) CreateInvite(ctx context.Context, req *coordinatorv1.CreateInv
 		return nil, status.Error(codes.InvalidArgument, "address must be host:port")
 	}
 
-	now := time.Now().UTC()
+	now := h.clock().UTC()
 	record := persis.WorkerInvite{
 		Kind:      persis.WorkerInviteSingleUse,
 		Address:   req.Address,

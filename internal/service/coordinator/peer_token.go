@@ -56,6 +56,7 @@ var peerTokenOnlyMethods = map[string]bool{
 	coordinatorv1.CoordinatorService_CreateInvite_FullMethodName:     true,
 	coordinatorv1.CoordinatorService_ListInvites_FullMethodName:      true,
 	coordinatorv1.CoordinatorService_DeleteInvite_FullMethodName:     true,
+	coordinatorv1.CoordinatorService_RemoveWorker_FullMethodName:     true,
 }
 
 // LoadOrCreatePeerToken returns the peer token stored in path, generating and
@@ -178,6 +179,8 @@ type PeerTokenAuth struct {
 	// workerCA issues the worker certificates that count as the peer
 	// token, or nil when none do.
 	workerCA *x509.Certificate
+	// removals refuses the worker certificates that were revoked.
+	removals *workerRemovals
 
 	warnMu   sync.Mutex
 	lastWarn time.Time
@@ -190,11 +193,17 @@ func NewPeerTokenAuth(token string, configured, require bool) *PeerTokenAuth {
 }
 
 // AcceptWorkerCertificates makes a call over TLS with a client certificate
-// that ca issued count as a call with the peer token, also when the token is
-// required. Administration calls refuse such a call with PermissionDenied.
-// It must be called before the server serves.
-func (a *PeerTokenAuth) AcceptWorkerCertificates(ca *PeerCA) {
-	a.workerCA = ca.cert
+// that the peer CA of h issued count as a call with the peer token, also
+// when the token is required, unless h revoked the certificate.
+// Administration calls refuse such a call with PermissionDenied. It does
+// nothing when h has no peer CA, and must be called before the server
+// serves.
+func (a *PeerTokenAuth) AcceptWorkerCertificates(h *Handler) {
+	if h.peerCA == nil {
+		return
+	}
+	a.workerCA = h.peerCA.cert
+	a.removals = &h.removals
 }
 
 // UnaryInterceptor checks the peer token on unary calls.
@@ -218,10 +227,22 @@ func (a *PeerTokenAuth) StreamInterceptor() grpc.StreamServerInterceptor {
 }
 
 func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
-	if strings.HasPrefix(method, grpcHealthMethodPrefix) || method == coordinatorv1.CoordinatorService_Enroll_FullMethodName {
+	// Health probes carry no data and answer whatever credential they
+	// come with, so a removed worker learns of its removal from its real
+	// calls, not from a coordinator that looks down.
+	if strings.HasPrefix(method, grpcHealthMethodPrefix) {
 		return nil
 	}
-	if workerCertificate(ctx, a.workerCA) != nil {
+	cert := workerCertificate(ctx, a.workerCA)
+	if cert != nil {
+		if err := a.removals.refusal(cert.Subject.CommonName); err != nil {
+			return err
+		}
+	}
+	if method == coordinatorv1.CoordinatorService_Enroll_FullMethodName {
+		return nil
+	}
+	if cert != nil {
 		if peerTokenOnlyMethods[method] {
 			return status.Error(codes.PermissionDenied, "this call needs the peer token; a worker certificate cannot make it")
 		}

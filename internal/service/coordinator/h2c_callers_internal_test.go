@@ -82,6 +82,7 @@ var nonWorkerMethods = map[string]bool{
 	coordinatorv1.CoordinatorService_CreateInvite_FullMethodName:       true,
 	coordinatorv1.CoordinatorService_ListInvites_FullMethodName:        true,
 	coordinatorv1.CoordinatorService_DeleteInvite_FullMethodName:       true,
+	coordinatorv1.CoordinatorService_RemoveWorker_FullMethodName:       true,
 }
 
 // Every coordinator call is either a worker's call or another process's, so

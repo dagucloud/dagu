@@ -5,6 +5,7 @@ package coordinator
 
 import (
 	"context"
+	"crypto/x509"
 
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
@@ -20,12 +21,12 @@ type peerConnection struct {
 	plaintextReason string
 }
 
-// callerConnection returns how the call of ctx reached the coordinator with
-// the peer CA ca, nil without built-in TLS.
-func callerConnection(ctx context.Context, ca *PeerCA) peerConnection {
+// callerConnection returns how the call of ctx reached the coordinator,
+// with cert the worker certificate the call carries, or nil.
+func callerConnection(ctx context.Context, cert *x509.Certificate) peerConnection {
 	if p, ok := peer.FromContext(ctx); ok {
 		if _, isTLS := p.AuthInfo.(credentials.TLSInfo); isTLS {
-			if ca != nil && workerCertificate(ctx, ca.cert) != nil {
+			if cert != nil {
 				return peerConnection{kind: dispatch.WorkerConnectionCertificate}
 			}
 			return peerConnection{kind: dispatch.WorkerConnectionTLS}

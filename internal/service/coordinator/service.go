@@ -140,6 +140,7 @@ func (srv *Service) Start(ctx context.Context) (err error) {
 		defer cleanupCancel()
 
 		cancel()
+		srv.handler.waitPeerMaintenance()
 		if startedZombieDetector {
 			srv.handler.WaitZombieDetector()
 			srv.handler.Close(cleanupCtx)
@@ -155,6 +156,9 @@ func (srv *Service) Start(ctx context.Context) (err error) {
 	if srv.cfg != nil && srv.cfg.Scheduler.ZombieDetectionInterval > 0 {
 		zombieInterval = srv.cfg.Scheduler.ZombieDetectionInterval
 	}
+	// The removed workers are read before the coordinator serves, so it
+	// never accepts a revoked certificate.
+	srv.handler.startPeerMaintenance(internalCtx)
 	srv.handler.StartZombieDetector(internalCtx, zombieInterval)
 	startedZombieDetector = true
 	logger.Info(ctx, "Started zombie detector", tag.Interval(zombieInterval))
@@ -239,6 +243,7 @@ func (srv *Service) Stop(ctx context.Context) error {
 
 	// Wait for zombie detector to finish before closing handler
 	srv.handler.WaitZombieDetector()
+	srv.handler.waitPeerMaintenance()
 
 	// Close handler resources (open attempts, etc.)
 	srv.handler.Close(ctx)

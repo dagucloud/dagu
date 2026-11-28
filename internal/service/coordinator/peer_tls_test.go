@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
@@ -56,10 +57,22 @@ type peerTLSServer struct {
 	addr    string
 	caCert  *x509.Certificate
 	caKey   crypto.Signer
-	invites persis.WorkerInviteStore
-	certs   persis.WorkerCertificateStore
+	handler *coordinator.Handler
+	// shared is what coordinators that share a data directory share.
+	shared peerTLSShared
 	// logs holds what the coordinator logged while handling calls.
 	logs *lockedBuffer
+}
+
+// peerTLSShared is the peer CA and the stores of coordinators that share a
+// data directory.
+type peerTLSShared struct {
+	ca         *coordinator.PeerCA
+	creds      credentials.TransportCredentials
+	invites    persis.WorkerInviteStore
+	certs      persis.WorkerCertificateStore
+	heartbeats dispatch.WorkerHeartbeatStore
+	leases     dispatch.DAGRunLeaseStore
 }
 
 // startPeerTLSServer serves the coordinator and the health service with the
@@ -89,34 +102,59 @@ func startPeerTLSServerWithAuth(t *testing.T, auth *coordinator.PeerTokenAuth, h
 	require.NoError(t, err)
 	certs, err := store.NewWorkerCertificateStore(backend.Collection(persis.CollectionWorkerCertificates))
 	require.NoError(t, err)
-	auth.AcceptWorkerCertificates(ca)
-	handler := coordinator.NewHandler(coordinator.HandlerConfig{
+	server := peerTLSServer{
+		caCert: pair.Leaf,
+		caKey:  pair.PrivateKey.(crypto.Signer),
+		shared: peerTLSShared{
+			ca:         ca,
+			creds:      creds,
+			invites:    invites,
+			certs:      certs,
+			heartbeats: store.NewWorkerHeartbeatStore(backend.Collection(persis.CollectionWorkerHeartbeats)),
+			leases:     store.NewDAGRunLeaseStore(backend.Collection(persis.CollectionDAGRunLeases)),
+		},
+	}
+	server.serve(t, auth, opts...)
+	return server
+}
+
+// another serves a second coordinator that shares the server's peer CA and
+// stores, as one on the same data directory does.
+func (s peerTLSServer) another(t *testing.T) peerTLSServer {
+	t.Helper()
+	other := peerTLSServer{caCert: s.caCert, caKey: s.caKey, shared: s.shared}
+	other.serve(t, coordinator.NewPeerTokenAuth(peerTLSToken, true, false))
+	return other
+}
+
+// serve starts the server's coordinator behind auth, with the removed
+// workers read as at its start.
+func (s *peerTLSServer) serve(t *testing.T, auth *coordinator.PeerTokenAuth, opts ...grpc.ServerOption) {
+	t.Helper()
+	s.handler = coordinator.NewHandler(coordinator.HandlerConfig{
 		JoinReadiness:          coordinator.JoinReadinessConfig{ListenHost: "0.0.0.0", Port: 50055, BuiltinTLS: true},
-		PeerCA:                 ca,
-		WorkerInviteStore:      invites,
-		WorkerCertificateStore: certs,
+		PeerCA:                 s.shared.ca,
+		WorkerInviteStore:      s.shared.invites,
+		WorkerCertificateStore: s.shared.certs,
+		WorkerHeartbeatStore:   s.shared.heartbeats,
+		DAGRunLeaseStore:       s.shared.leases,
 	})
-	logs := &lockedBuffer{}
-	log := logger.NewLogger(logger.WithWriter(logs), logger.WithDebug(), logger.WithQuiet())
+	auth.AcceptWorkerCertificates(s.handler)
+	coordinator.RereadRemovalsForTest(s.handler)
+	s.logs = &lockedBuffer{}
+	log := logger.NewLogger(logger.WithWriter(s.logs), logger.WithDebug(), logger.WithQuiet())
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
-	opts = append([]grpc.ServerOption{grpc.Creds(creds)}, opts...)
+	opts = append([]grpc.ServerOption{grpc.Creds(s.shared.creds)}, opts...)
 	opts = append(opts,
 		grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(), func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 			return handler(logger.WithLogger(ctx, log), req)
 		}),
 		grpc.ChainStreamInterceptor(auth.StreamInterceptor()),
 	)
-	server, addr := startMockServerWithHealth(t, handler, healthServer, opts...)
+	server, addr := startMockServerWithHealth(t, s.handler, healthServer, opts...)
 	t.Cleanup(server.Stop)
-	return peerTLSServer{
-		addr:    addr,
-		caCert:  pair.Leaf,
-		caKey:   pair.PrivateKey.(crypto.Signer),
-		invites: invites,
-		certs:   certs,
-		logs:    logs,
-	}
+	s.addr = addr
 }
 
 // lockedBuffer is a buffer that calls may write while a test reads it.
