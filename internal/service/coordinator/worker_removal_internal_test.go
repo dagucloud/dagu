@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1791,21 +1792,56 @@ func (f *strandFixture) status(runID string) *ir.DAGRunStatus {
 	return status
 }
 
+// afterBoundList runs hook once, right after the first listing of bound
+// tasks.
+type afterBoundList struct {
+	dispatch.DispatchTaskStore
+	hook func()
+	once sync.Once
+}
+
+func (s *afterBoundList) ListBoundTo(ctx context.Context, workerIDs []string) ([]*dispatch.DispatchTask, error) {
+	tasks, err := s.DispatchTaskStore.ListBoundTo(ctx, workerIDs)
+	s.once.Do(s.hook)
+	return tasks, err
+}
+
+// shortClaims makes f's coordinator use a dispatch store whose claims time
+// out after 50 milliseconds.
+func (f *strandFixture) shortClaims() {
+	f.dispatches = store.NewDispatchTaskStore(file.NewCollection(f.baseDir),
+		store.WithDispatchAdmissionLiveness(f.leases, f.active), store.WithDispatchReservationTTL(50*time.Millisecond))
+	f.h = f.coordinator(f.dispatches)
+}
+
+// claim has node-a claim run-1 and returns the claim.
+func (f *strandFixture) claim() *dispatch.ClaimedDispatchTask {
+	f.t.Helper()
+	claimed, err := f.dispatches.ClaimNext(f.t.Context(), dispatch.DispatchTaskClaim{WorkerID: "node-a", PollerID: "poller-1"})
+	require.NoError(f.t, err)
+	require.NotNil(f.t, claimed)
+	return claimed
+}
+
 // A queue that runs one run at a time admits a run bound to node-a, and
 // node-a's certificate is revoked before it accepts the run. The next
 // reread fails the run with the removal as its reason and frees the queue's
 // place for its next run: also for a run the worker polled before the
 // removal, one that another coordinator admitted after this one read its
-// tasks, and one this coordinator finds only after a restart. A worker that
-// enrolled again as node-a keeps the run (Spec 108 §Removal).
+// tasks, one this coordinator finds only after a restart, one bound to an
+// ID the worker had before the removal named another, and one whose
+// acceptance began and died. An active certificate or a fresh heartbeat
+// that names node-a keeps the run with node-a, as does an acceptance that
+// begins after the reread listed the run (Spec 108 §Removal).
 func TestRemovalFailsAdmittedBoundRun(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		// run admits run-1, revokes cert-1, and returns the coordinator
 		// whose reread is checked.
 		run func(f *strandFixture) *Handler
-		// kept is set when the run is to stay with node-a.
-		kept bool
+		// kept is set when the run is to stay with node-a, and claimable
+		// when node-a can still claim it.
+		kept, claimable bool
 	}{
 		{name: "pending", run: func(f *strandFixture) *Handler {
 			f.admit(f.h, "run-1")
@@ -1834,10 +1870,48 @@ func TestRemovalFailsAdmittedBoundRun(t *testing.T) {
 			restartedStore, _, _ := newTestDispatchAdmissionTaskStore(f.baseDir)
 			return f.coordinator(restartedStore)
 		}},
-		{name: "enrolled again", kept: true, run: func(f *strandFixture) *Handler {
+		{name: "bound to an earlier ID", run: func(f *strandFixture) *Handler {
+			ctx := f.t.Context()
+			f.admit(f.h, "run-1")
+			require.NoError(f.t, f.certs.RecordHeartbeat(ctx, persis.WorkerCertificate{
+				ID: "cert-1", State: persis.WorkerCertificateActive, WorkerID: "node-b", LastHeartbeatAt: time.Now(),
+			}))
+			_, err := f.certs.MarkRemoving(ctx, "cert-1", "node-b", time.Now)
+			require.NoError(f.t, err)
+			f.revoke()
+			return f.h
+		}},
+		{name: "acceptance mark outlived the claim", run: func(f *strandFixture) *Handler {
+			f.shortClaims()
+			f.admit(f.h, "run-1")
+			require.NoError(f.t, f.dispatches.MarkClaimLeasing(f.t.Context(), f.claim().ClaimToken))
+			f.revoke()
+			time.Sleep(100 * time.Millisecond)
+			return f.h
+		}},
+		{name: "accepted after the listing", kept: true, run: func(f *strandFixture) *Handler {
+			f.admit(f.h, "run-1")
+			claimed := f.claim()
+			f.revoke()
+			f.h.dispatchTaskStore = &afterBoundList{DispatchTaskStore: f.dispatches, hook: func() {
+				require.NoError(f.t, f.dispatches.MarkClaimLeasing(f.t.Context(), claimed.ClaimToken))
+			}}
+			return f.h
+		}},
+		{name: "an active certificate names the ID", kept: true, claimable: true, run: func(f *strandFixture) *Handler {
 			f.admit(f.h, "run-1")
 			f.revoke()
-			f.addCertificate("cert-2")
+			require.NoError(f.t, f.certs.Create(f.t.Context(), persis.WorkerCertificate{
+				ID: "cert-2", KeyFingerprint: []byte("cert-2"), State: persis.WorkerCertificateActive, WorkerID: "node-a", CreatedAt: time.Now(),
+			}))
+			return f.h
+		}},
+		{name: "a fresh heartbeat names the ID", kept: true, claimable: true, run: func(f *strandFixture) *Handler {
+			f.admit(f.h, "run-1")
+			f.revoke()
+			require.NoError(f.t, f.beats.Upsert(f.t.Context(), dispatch.WorkerHeartbeatRecord{
+				WorkerID: "node-a", LastHeartbeatAt: time.Now().UnixMilli(),
+			}))
 			return f.h
 		}},
 	} {
@@ -1849,9 +1923,11 @@ func TestRemovalFailsAdmittedBoundRun(t *testing.T) {
 			if tc.kept {
 				assert.NotEqual(t, ir.Failed, f.status("run-1").Status)
 				assert.False(t, f.reserve("run-next").Reserved, "the run keeps its place")
-				claimed, err := f.dispatches.ClaimNext(t.Context(), dispatch.DispatchTaskClaim{WorkerID: "node-a", PollerID: "poller-2"})
-				require.NoError(t, err)
-				assert.NotNil(t, claimed, "node-a can still take the run")
+				if tc.claimable {
+					claimed, err := f.dispatches.ClaimNext(t.Context(), dispatch.DispatchTaskClaim{WorkerID: "node-a", PollerID: "poller-2"})
+					require.NoError(t, err)
+					assert.NotNil(t, claimed, "node-a can still take the run")
+				}
 				return
 			}
 			status := f.status("run-1")
@@ -1860,6 +1936,33 @@ func TestRemovalFailsAdmittedBoundRun(t *testing.T) {
 			assert.True(t, f.reserve("run-next").Reserved, "the queue's next run is admitted")
 		})
 	}
+}
+
+// countingBoundLists counts the listings of bound tasks.
+type countingBoundLists struct {
+	dispatch.DispatchTaskStore
+	calls atomic.Int32
+}
+
+func (s *countingBoundLists) ListBoundTo(ctx context.Context, workerIDs []string) ([]*dispatch.DispatchTask, error) {
+	s.calls.Add(1)
+	return s.DispatchTaskStore.ListBoundTo(ctx, workerIDs)
+}
+
+// A coordinator starts 11 minutes after the last revocation. Its reread
+// lists no dispatch, so a quiet coordinator spends nothing on old removals
+// (Spec 108 §Removal).
+func TestOldRevocationListsNoDispatch(t *testing.T) {
+	f := newStrandFixture(t)
+	f.admit(f.h, "run-1")
+	f.revoke()
+	counting := &countingBoundLists{DispatchTaskStore: f.dispatches}
+	h := f.coordinator(counting)
+	h.clock = func() time.Time { return time.Now().Add(strandedRunWindow + time.Minute) }
+
+	h.rereadRemovals(t.Context())
+	assert.Zero(t, counting.calls.Load())
+	assert.NotEqual(t, ir.Failed, f.status("run-1").Status)
 }
 
 // failingCertificateRead fails every certificate read.

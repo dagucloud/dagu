@@ -1077,6 +1077,11 @@ func (s *DispatchTaskStore) ListBoundTo(ctx context.Context, workerIDs []string)
 	if _, err := s.reconcileDispatchIndexIDs(ctx, time.Now().UTC()); err != nil {
 		return nil, err
 	}
+	// A claim whose mark outlived the claim timeout without a lease goes
+	// back to the queue first, so it is found as pending.
+	if err := s.recycleExpiredReservations(ctx); err != nil {
+		return nil, err
+	}
 	var bound []*dispatch.DispatchTask
 	for _, ids := range [][]string{s.boundEntryIDs(s.index.pending, workerIDs), s.boundEntryIDs(s.index.claims, workerIDs)} {
 		for _, id := range ids {
@@ -1116,34 +1121,62 @@ func (s *DispatchTaskStore) boundEntryIDs(entries map[string]dispatchTaskIndexEn
 	return ids
 }
 
-func (s *DispatchTaskStore) RetireClaim(ctx context.Context, claimToken string) error {
+func (s *DispatchTaskStore) RetireBound(ctx context.Context, task *dispatch.DispatchTask) error {
+	if task == nil {
+		return dispatch.ErrDispatchTaskNotFound
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	id := claimDispatchRecordID(claimToken)
-	err := retryConflict(ctx, func(ctx context.Context) error {
-		rec, err := s.col.Get(ctx, id)
-		if err != nil {
+	var ids []string
+	if task.ClaimToken != "" {
+		ids = []string{claimDispatchRecordID(task.ClaimToken)}
+	} else {
+		if err := s.ensureDispatchIndex(ctx); err != nil {
 			return err
 		}
-		payload, err := dispatchTaskPayloadFromRecord(rec)
-		if err != nil {
-			return err
+		for id, entry := range s.index.pending {
+			if entry.attemptKey == task.AttemptKey && entry.targetWorkerID == task.TargetWorkerID {
+				ids = append(ids, id)
+			}
 		}
-		if payload.Task == nil || payload.ClaimToken != claimToken || payload.LeasingAt != 0 || payload.ExpiredAt != 0 {
-			return dispatch.ErrDispatchTaskNotFound
-		}
-		return s.withClaimTransition(ctx, payload, func(ctx context.Context) error {
-			return s.col.CompareAndDelete(ctx, rec)
+	}
+	retired := false
+	for _, id := range ids {
+		err := retryConflict(ctx, func(ctx context.Context) error {
+			rec, err := s.col.Get(ctx, id)
+			if err != nil {
+				return err
+			}
+			payload, err := dispatchTaskPayloadFromRecord(rec)
+			if err != nil {
+				return err
+			}
+			if payload.Task == nil || payload.Task.TargetWorkerID != task.TargetWorkerID || payload.ClaimToken != task.ClaimToken ||
+				payload.LeasingAt != 0 || payload.ExpiredAt != 0 {
+				return dispatch.ErrDispatchTaskNotFound
+			}
+			return s.withClaimTransition(ctx, payload, func(ctx context.Context) error {
+				return s.col.CompareAndDelete(ctx, rec)
+			})
 		})
-	})
-	if errors.Is(err, persis.ErrNotFound) {
-		err = dispatch.ErrDispatchTaskNotFound
+		switch {
+		case err == nil:
+			retired = true
+			if task.ClaimToken != "" {
+				s.index.removeClaim(id)
+			} else {
+				s.index.removePending(id)
+			}
+		case errors.Is(err, persis.ErrNotFound), errors.Is(err, dispatch.ErrDispatchTaskNotFound):
+		default:
+			return err
+		}
 	}
-	if err == nil && s.index != nil {
-		s.index.removeClaim(id)
+	if !retired {
+		return dispatch.ErrDispatchTaskNotFound
 	}
-	return err
+	return nil
 }
 
 // DeletePending removes the pending tasks of an attempt. A task a worker has

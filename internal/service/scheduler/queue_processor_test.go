@@ -1365,7 +1365,7 @@ func (m *mockDispatchTaskStore) ListBoundTo(context.Context, []string) ([]*dispa
 	return nil, nil
 }
 
-func (m *mockDispatchTaskStore) RetireClaim(context.Context, string) error {
+func (m *mockDispatchTaskStore) RetireBound(context.Context, *dispatch.DispatchTask) error {
 	return nil
 }
 

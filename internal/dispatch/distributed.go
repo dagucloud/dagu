@@ -130,15 +130,18 @@ type DispatchTaskStore interface {
 	// ListBoundTo returns the tasks bound to one of workerIDs that no
 	// worker accepted: the pending ones, held ones included, and the
 	// claimed ones whose acceptance has not begun, with their claim token.
-	// It reads the shared record IDs first, so it sees the tasks that other
-	// coordinators queued or claimed. Beside that listing, it reads the
-	// record of each bound task.
+	// It first completes the expiry of the claims past their timeout, as a
+	// claim does, and reads the shared record IDs, so it sees the tasks
+	// that other coordinators queued or claimed. When their writes changed
+	// those IDs, it reads every pending and claimed record once to rebuild
+	// its index; otherwise it reads only the records of the bound tasks.
 	ListBoundTo(ctx context.Context, workerIDs []string) ([]*DispatchTask, error)
-	// RetireClaim deletes the claim claimToken, in one compare-and-delete
-	// from the version it read, unless an acceptance or expiry already
-	// decided on it. It returns [ErrDispatchTaskNotFound] when the claim is
-	// gone or no longer its to retire.
-	RetireClaim(ctx context.Context, claimToken string) error
+	// RetireBound deletes task, one that [DispatchTaskStore.ListBoundTo]
+	// returned, in one compare-and-delete from the version it reads: its
+	// claim when it has a claim token, else its pending record. It returns
+	// [ErrDispatchTaskNotFound] when the task is gone or no longer its to
+	// retire, as when a worker claimed or began to accept it meanwhile.
+	RetireBound(ctx context.Context, task *DispatchTask) error
 	// DeletePending removes the pending task of an attempt, if any. A task
 	// already claimed is left alone.
 	DeletePending(ctx context.Context, attemptKey string) error

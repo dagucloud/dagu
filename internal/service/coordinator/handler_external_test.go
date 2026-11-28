@@ -311,7 +311,7 @@ func (s *claimReleaseStore) ListBoundTo(context.Context, []string) ([]*dispatch.
 	return nil, nil
 }
 
-func (s *claimReleaseStore) RetireClaim(context.Context, string) error {
+func (s *claimReleaseStore) RetireBound(context.Context, *dispatch.DispatchTask) error {
 	return nil
 }
 
@@ -377,7 +377,7 @@ func (s *pollingDispatchStore) ListBoundTo(context.Context, []string) ([]*dispat
 	return nil, nil
 }
 
-func (s *pollingDispatchStore) RetireClaim(context.Context, string) error {
+func (s *pollingDispatchStore) RetireBound(context.Context, *dispatch.DispatchTask) error {
 	return nil
 }
 

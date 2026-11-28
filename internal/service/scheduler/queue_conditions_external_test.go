@@ -1549,7 +1549,7 @@ func (s *queueConditionDispatchTaskStore) ListBoundTo(context.Context, []string)
 	return nil, nil
 }
 
-func (s *queueConditionDispatchTaskStore) RetireClaim(context.Context, string) error {
+func (s *queueConditionDispatchTaskStore) RetireBound(context.Context, *dispatch.DispatchTask) error {
 	return nil
 }
 

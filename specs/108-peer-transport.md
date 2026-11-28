@@ -660,8 +660,8 @@ The `worker_certificates` collection keeps one record per certificate:
 | `enrolled_as` | The worker ID it enrolled as, or none for a record written before the field |
 | `enrolled_removals` | How many removals of that worker ID had begun when its enrollment started |
 
-- A record identifies its certificate's key, so `Enroll` can refuse that
-  key from the moment the certificate is `removing`. A new key enrolls.
+- `Enroll` refuses the key of a certificate from the moment it is
+  `removing`. A worker enrolls again with a new key.
 - A heartbeat with a worker certificate that is not newer than the stored
   `last_heartbeat_at` writes nothing. Otherwise it writes the record when
   the stored `last_heartbeat_at` is more than 24 hours old, or none, when
@@ -782,13 +782,14 @@ or `stop`:
   - A run bound to the worker that the worker did not accept, whether it
     waits for the worker or the worker claimed it without accepting it,
     fails with `worker <worker ID> was removed before it took the run` and
-    frees its place in its queue. This happens at the first reread, within
-    30 seconds, after the worker's certificate is revoked, on whichever
-    coordinator admitted the run, also after a restart. It does not happen
-    while an active certificate or a fresh heartbeat names the worker ID,
-    as after the worker enrolled again under it: such a worker keeps the
-    run. A coordinator looks for such runs for 10 minutes after it learns
-    of a revocation.
+    frees its place in its queue. This holds for every worker ID that the
+    removal names, and happens at the first reread, within 30 seconds,
+    after the certificate is revoked, on any coordinator, also after a
+    restart. A worker ID that an active certificate or a fresh heartbeat
+    names keeps its runs, as after the worker enrolled again under it, and
+    so does a run whose acceptance began: the coordinator retires the task
+    before it fails the run. Coordinators look for such runs for 10 minutes
+    after the revocation.
   - A worker accepts a task only while the store shows its certificate
     `active`: the coordinator that the acceptance reaches reads the
     certificate's state before it creates the task's lease. An acceptance
@@ -818,14 +819,18 @@ or `stop`:
     worker never accepted returns to the queue when its claim expires. A
     task whose acceptance was refused after its lease was written does not:
     its claim is dropped, and it ends through the stale-lease check. An
-    acceptance marks its claim before it writes the lease, and a claim
-    marked so never returns to the queue when it expires: its lease, once
-    written, is the stale-lease check's. A mark as old as the claim timeout
-    without a lease is of an acceptance that died, and the task returns to
-    the queue then. An expiry records its decision on the claim before the
-    task can be claimed again, so an acceptance that marks the claim either
-    comes first and keeps the task, or finds the claim gone and is
-    refused. A coordinator that stops between the two leaves the decision,
+    acceptance marks its claim before it writes the lease. When the claim
+    times out:
+    - a mark younger than the claim timeout keeps the claim, so the
+      acceptance can finish;
+    - a lease that the claim's acceptance wrote ends the claim without
+      returning the task, whose run the stale-lease check then owns;
+    - a mark as old as the claim timeout without a lease is of an
+      acceptance that died, and the task returns to the queue.
+
+    An expiry records its decision on the claim before the task can be
+    claimed again, so an acceptance that marks the claim either comes first
+    and keeps the task, or finds the claim gone and is refused. A coordinator that stops between the two leaves the decision,
     and the next pass returns the task. A coordinator that takes a task
     back from a worker in removal decides on the claim the same way, so it
     and the claim's expiry return the task once between them.

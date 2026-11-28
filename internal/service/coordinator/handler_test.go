@@ -1899,7 +1899,7 @@ func (s *failingDispatchTaskStore) ListBoundTo(context.Context, []string) ([]*di
 	return nil, nil
 }
 
-func (s *failingDispatchTaskStore) RetireClaim(context.Context, string) error {
+func (s *failingDispatchTaskStore) RetireBound(context.Context, *dispatch.DispatchTask) error {
 	return nil
 }
 
