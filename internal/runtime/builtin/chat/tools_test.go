@@ -250,6 +250,7 @@ func TestNewToolRegistryRefusesEvaluatedInput(t *testing.T) {
 		{"ForeachItemsList", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items:\n        - url: $Q\n      steps:\n        - id: get\n          run: curl $foreach.item.url\n", `refers to $foreach.item.url, which`},
 		{"ShellVariable", params + "shell: bash\nsteps:\n  - run: echo \"$Q\" \"$DAG_PARAMS_JSON\"\n", ""},
 		{"ShellVariableBeforeDot", params + "shell: bash\nsteps:\n  - run: cat \"/data/$Q\".txt\n", ""},
+		{"ShellVariableBeforeQuote", params + "shell: bash\nsteps:\n  - run: echo \"Looking up $Q...\" && cat \"/data/$Q.txt\"\n", ""},
 		{"ForeachFixedItems", params + "shell: bash\nsteps:\n  - foreach:\n      items: [a, b]\n      steps:\n        - run: echo ${foreach.item}\n", ""},
 		{"StepPOSIXShell", params + "shell: pwsh\nsteps:\n  - with:\n      shell: bash\n    run: echo \"$Q\"\n", ""},
 		{"EnvCopyAsVariable", params + "shell: bash\nenv:\n  - QUERY: ${params.Q}\nsteps:\n  - run: echo \"$QUERY\"\n", ""},

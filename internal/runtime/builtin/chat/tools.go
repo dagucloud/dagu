@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/llm/toolschema"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/itchyny/gojq"
 )
 
 // toolParam represents a parsed parameter definition.
@@ -164,8 +165,8 @@ var substitutedRef = regexp.MustCompile(`\$\{\s*(?:params|(?:params|env)\.([A-Za
 var quotedRef = regexp.MustCompile(`"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"`)
 
 // pathRef matches ${NAME.path} and $NAME.path, which Dagu fills with a field of
-// the JSON value of NAME on every shell.
-var pathRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\.[^}]+\}|\$([A-Za-z_][A-Za-z0-9_]*)\.\S+`)
+// the JSON value of NAME on every shell when the path parses as a jq path.
+var pathRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(\.[^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)(\.\S+)`)
 
 // envRef matches $NAME and ${NAME}, which Dagu also expands in an eval.
 var envRef = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*)`)
@@ -221,7 +222,10 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 		stepInputs = withEnvCopies(stepInputs, step.Env)
 		fills := fillsShellVariables(ctx, dag, step)
 		where := fmt.Sprintf("the command of step %q", step.Name)
-		for _, text := range commandTexts(step) {
+		// A local step under a POSIX or Nix shell hands its args to the program
+		// as they are, so no shell reads them.
+		withArgs := fills || !isLocalCommand(step)
+		for _, text := range commandTexts(step, withArgs) {
 			if ref, variable, ok := modelRef(text, stepInputs, fills); ok {
 				// No shell variable holds a foreach item by itself.
 				return modelInputError(dag, where, ref, variable, !fills && variable != foreachVariable)
@@ -331,7 +335,7 @@ func valueReadsInput(v any, inputs map[string]bool) bool {
 // local command step, which it does unless a POSIX or Nix shell runs it. The
 // shell is the step's, else the DAG's, else the default one.
 func fillsShellVariables(ctx context.Context, dag *ir.DAG, step *ir.Step) bool {
-	if !step.ExecutorConfig.IsCommand() && step.ExecutorConfig.Type != "shell" {
+	if !isLocalCommand(step) {
 		return false
 	}
 	shell := step.Shell
@@ -342,6 +346,11 @@ func fillsShellVariables(ctx context.Context, dag *ir.DAG, step *ir.Step) bool {
 		shell = cmdutil.GetShellCommand(config.GetConfig(ctx).Core.DefaultShell)
 	}
 	return !cmdutil.IsUnixLikeShell(shell) && !cmdutil.IsNixShell(shell)
+}
+
+// isLocalCommand reports whether the step runs a command on the local host.
+func isLocalCommand(step *ir.Step) bool {
+	return step.ExecutorConfig.IsCommand() || step.ExecutorConfig.Type == "shell"
 }
 
 // checkConditions checks the evals of conditions, and the conditions that run
@@ -365,13 +374,18 @@ func checkConditions(dag *ir.DAG, where string, conditions []*ir.Condition, inpu
 	return nil
 }
 
-// commandTexts returns the texts of a step that become a command or a script.
-func commandTexts(step *ir.Step) []string {
+// commandTexts returns the texts of a step that become a command or a script,
+// and its separate args when withArgs is true.
+func commandTexts(step *ir.Step, withArgs bool) []string {
 	texts := []string{step.Command, step.CmdWithArgs, step.CmdArgsSys, step.ShellCmdArgs, step.Script}
-	texts = append(texts, step.Args...)
+	if withArgs {
+		texts = append(texts, step.Args...)
+	}
 	for _, entry := range step.Commands {
 		texts = append(texts, entry.Command, entry.CmdWithArgs)
-		texts = append(texts, entry.Args...)
+		if withArgs {
+			texts = append(texts, entry.Args...)
+		}
 	}
 	return texts
 }
@@ -394,7 +408,11 @@ func modelRef(text string, inputs map[string]bool, eval bool) (ref, variable str
 		}
 	}
 	for _, m := range pathRef.FindAllStringSubmatch(text, -1) {
-		if name := m[1] + m[2]; inputs[name] {
+		name, path := m[1]+m[3], m[2]+m[4]
+		if !inputs[name] {
+			continue
+		}
+		if _, err := gojq.Parse(path); err == nil {
 			return m[0], name, true
 		}
 	}
