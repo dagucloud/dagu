@@ -9,11 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"math"
 	"os"
 	"runtime"
-	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -287,29 +285,12 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 }
 
 // workerLabels applies the label rules to the configured labels and adds the
-// built-in platform labels. Keys and values are lowercased and a label with no
-// value is kept. The error names every label that breaks the rules.
+// built-in platform labels. The error names every label that breaks the
+// rules.
 func workerLabels(configured map[string]string) (map[string]string, error) {
-	labels := make(map[string]string, len(configured)+2)
-	var errs []error
-	for _, key := range slices.Sorted(maps.Keys(configured)) {
-		// Validate the label as configured, so a key holding "=" fails instead
-		// of being reparsed as key=value.
-		configuredLabel := ir.Label{Key: key, Value: configured[key]}
-		text := configuredLabel.String()
-		if err := ir.ValidateLabel(configuredLabel); err != nil {
-			errs = append(errs, fmt.Errorf("worker label %q: %w", text, err))
-			continue
-		}
-		label := ir.ParseLabel(text)
-		if _, ok := labels[label.Key]; ok {
-			errs = append(errs, fmt.Errorf("worker label %q: key %q is set more than once", text, label.Key))
-			continue
-		}
-		labels[label.Key] = label.Value
-	}
-	if len(errs) > 0 {
-		return nil, errors.Join(errs...)
+	labels, err := ir.WorkerLabels(configured)
+	if err != nil {
+		return nil, err
 	}
 	for _, platform := range []struct {
 		key   string
