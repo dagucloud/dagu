@@ -131,9 +131,11 @@ func (c *H2CCallers) observe(ctx context.Context, method string) {
 }
 
 func (c *H2CCallers) record(caller h2cCaller) {
-	now := c.now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// The time is read under the lock, so a later store never holds an
+	// earlier time.
+	now := c.now()
 	if _, ok := c.lastCall[caller]; !ok && len(c.lastCall) >= maxH2CCallers {
 		c.expire(now)
 		if len(c.lastCall) >= maxH2CCallers {

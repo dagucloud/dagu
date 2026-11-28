@@ -150,24 +150,26 @@ func (s startAll) get(ctx context.Context, path string, body any) error {
 	return nil
 }
 
-// h2cCallers returns the h2c callers of the coordinators that the server of
-// s lists, as "<host> <reason>".
+// h2cCallers returns the h2c callers that the coordinator of s reports
+// through its server, as "<host> <reason>". It fails the test unless the
+// server lists that one coordinator with its callers.
 func (s startAll) h2cCallers(t *testing.T) []string {
 	t.Helper()
 	var body struct {
 		Coordinators []struct {
-			H2CCallers []struct {
+			H2CCallers *[]struct {
 				Host   string `json:"host"`
 				Reason string `json:"reason"`
 			} `json:"h2cCallers"`
 		} `json:"coordinators"`
 	}
 	require.NoError(t, s.get(t.Context(), "/api/v1/services/coordinator", &body))
+	require.Len(t, body.Coordinators, 1)
+	reported := body.Coordinators[0].H2CCallers
+	require.NotNil(t, reported, "the coordinator reports its h2c callers")
 	var callers []string
-	for _, coordinator := range body.Coordinators {
-		for _, caller := range coordinator.H2CCallers {
-			callers = append(callers, caller.Host+" "+caller.Reason)
-		}
+	for _, caller := range *reported {
+		callers = append(callers, caller.Host+" "+caller.Reason)
 	}
 	return callers
 }
