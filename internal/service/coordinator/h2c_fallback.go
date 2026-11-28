@@ -206,16 +206,16 @@ func (w *h2cWindows) read() (h2cRecord, bool) {
 	return record, true
 }
 
-// bounded returns windows that end at most h2cWindowLength after now, so a
-// writer whose clock ran ahead cannot hold a window longer.
+// bounded returns the windows that end at most h2cWindowLength after now.
+// A window that ends later was opened by a clock that ran ahead, so it is
+// dropped, and the next save leaves it out of the record.
 func bounded(windows map[string]h2cWindow, now time.Time) map[string]h2cWindow {
 	limit := now.Add(h2cWindowLength)
 	result := make(map[string]h2cWindow, len(windows))
 	for address, window := range windows {
-		if window.Until.After(limit) {
-			window.Until = limit
+		if !window.Until.After(limit) {
+			result[address] = window
 		}
-		result[address] = window
 	}
 	return result
 }

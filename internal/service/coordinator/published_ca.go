@@ -48,6 +48,11 @@ func (ca *PeerCA) PublishCertificate(path string) (func(), error) {
 // missing. It only creates the file, so it never replaces a certificate
 // that another coordinator published since the file went missing.
 func (ca *PeerCA) republishCertificate(path string) error {
+	// A refresh runs every 10 seconds, so it writes nothing while the file
+	// is in place.
+	if _, err := fileutil.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	if err := fileutil.MkdirAll(filepath.Dir(path), peerDirMode); err != nil {
 		return fmt.Errorf("create published CA certificate directory: %w", err)
 	}

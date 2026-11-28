@@ -4,6 +4,7 @@
 package coordinator
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -40,6 +41,27 @@ func TestPublishedCertificate(t *testing.T) {
 
 	require.NoError(t, first.republishCertificate(path))
 	assert.Equal(t, published, readPublished(t, path))
+}
+
+// A refresh with the certificate in place writes nothing in its directory.
+func TestRepublishWritesNothingInPlace(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "peer-ca.crt")
+	ca := newTestCA(t)
+	publish(t, ca, path)
+	before, err := os.Stat(dir)
+	require.NoError(t, err)
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+
+	require.NoError(t, ca.republishCertificate(path))
+
+	after, err := os.Stat(dir)
+	require.NoError(t, err)
+	assert.Equal(t, before.ModTime(), after.ModTime(), "no file was created or removed in the directory")
+	afterEntries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Len(t, afterEntries, len(entries))
 }
 
 // A coordinator that does not start removes the certificate it wrote, and

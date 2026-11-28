@@ -42,23 +42,24 @@ func TestH2CWindowsKeepUnwrittenWindows(t *testing.T) {
 	assertOpen(t, windows, later.Add(time.Minute), "a:1", "d:1")
 }
 
-// A window in the record lasts at most 10 minutes from when a process reads
-// it, whatever the clock of the process that wrote it.
-func TestH2CWindowsBoundSkewedClock(t *testing.T) {
+// A window that a clock which ran ahead opened is not used by a process
+// that reads it, however late that process starts, and the next save drops
+// it from the record.
+func TestH2CWindowsDropSkewedClock(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "peer-h2c.json")
 	now := time.Now()
 	ahead := now.AddDate(1, 0, 0)
 	require.True(t, newH2CWindows(file, "host-a").open("a:1", windowUntil(ahead), ahead))
 
-	reader := newH2CWindows(file, "host-a")
-	assertOpen(t, reader, now, "a:1")
-	_, open := reader.active("a:1", now.Add(h2cWindowLength))
-	assert.False(t, open)
+	for _, start := range []time.Time{now, now.Add(time.Hour)} {
+		_, open := newH2CWindows(file, "host-a").active("a:1", start)
+		assert.False(t, open, "reader at %s", start)
+	}
 
-	// A save by the reader does not write the far end back either.
-	require.True(t, reader.open("b:1", windowUntil(now), now))
-	_, open = newH2CWindows(file, "host-a").active("a:1", now.Add(h2cWindowLength))
-	assert.False(t, open)
+	require.True(t, newH2CWindows(file, "host-a").open("b:1", windowUntil(now), now))
+	data, err := fileutil.ReadFile(file)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "a:1")
 }
 
 // A window that one process ended stays ended when another process, which
