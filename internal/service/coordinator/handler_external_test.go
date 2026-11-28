@@ -279,6 +279,10 @@ func (s *claimReleaseStore) DeleteClaim(context.Context, string) error {
 	return nil
 }
 
+func (s *claimReleaseStore) MarkClaimLeasing(context.Context, string) error {
+	return nil
+}
+
 func (s *claimReleaseStore) ListBundleDigests(context.Context) ([]string, error) {
 	return nil, nil
 }
@@ -330,6 +334,10 @@ func (s *pollingDispatchStore) ReleaseClaim(context.Context, string) error {
 }
 
 func (s *pollingDispatchStore) DeleteClaim(context.Context, string) error {
+	return nil
+}
+
+func (s *pollingDispatchStore) MarkClaimLeasing(context.Context, string) error {
 	return nil
 }
 

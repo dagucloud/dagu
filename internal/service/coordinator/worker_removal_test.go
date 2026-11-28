@@ -139,8 +139,8 @@ func TestEnrollRefusesRemovedKey(t *testing.T) {
 	server.enroll(t, invite.Invite)
 }
 
-// A connected worker is not removed, and keeps working (Spec 108
-// §Removal).
+// A connected worker in removal keeps working until it holds no run
+// (Spec 108 §Removal).
 func TestRemoveWorkerConnected(t *testing.T) {
 	t.Parallel()
 	server := startPeerTLSServer(t, certHosts)
@@ -149,10 +149,11 @@ func TestRemoveWorkerConnected(t *testing.T) {
 	_, err := worker.Heartbeat(t.Context(), &coordinatorv1.HeartbeatRequest{WorkerId: enrollWorkerID, Host: enrollHost})
 	require.NoError(t, err)
 
-	_, err = server.tlsClient(t).RemoveWorker(callContext(t), &coordinatorv1.RemoveWorkerRequest{WorkerId: enrollWorkerID})
-	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-	assert.Equal(t, "this worker is connected: stop it on its host, then remove it", status.Convert(err).Message())
+	resp := server.remove(t)
+	assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING, resp.State)
 	assertServed(t, worker)
+	_, err = worker.Heartbeat(t.Context(), &coordinatorv1.HeartbeatRequest{WorkerId: enrollWorkerID, Host: enrollHost})
+	assert.NoError(t, err)
 }
 
 // A worker on the peer token cannot be removed, and a removal of an

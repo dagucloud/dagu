@@ -1514,6 +1514,10 @@ func (s *queueConditionDispatchTaskStore) DeleteClaim(context.Context, string) e
 	return nil
 }
 
+func (s *queueConditionDispatchTaskStore) MarkClaimLeasing(context.Context, string) error {
+	return nil
+}
+
 func (s *queueConditionDispatchTaskStore) ListBundleDigests(context.Context) ([]string, error) {
 	return nil, nil
 }

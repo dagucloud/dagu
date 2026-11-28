@@ -403,7 +403,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 			dispatchAdmissionStore = admissionStore
 		}
 	}
-	return &Handler{
+	h := &Handler{
 		waitingPollers:            make(map[string]*workerInfo),
 		heartbeats:                make(map[string]*heartbeatInfo),
 		dispatchWakeCh:            make(chan struct{}),
@@ -446,6 +446,8 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		eventService:              cfg.EventService,
 		eventSourceInstance:       cfg.EventSourceInstance,
 	}
+	h.removals.now = func() time.Time { return h.clock() }
+	return h
 }
 
 func (h *Handler) eventContext(ctx context.Context) context.Context {
@@ -583,9 +585,20 @@ func (h *Handler) Poll(ctx context.Context, req *coordinatorv1.PollRequest) (*co
 			return nil, err
 		}
 		observedGeneration, _ := h.dispatchWakeSnapshot()
-		// A revocation during the long poll ends it.
-		if cert != nil && h.removals.revoked(cert.Subject.CommonName) {
-			return nil, status.Error(codes.Unauthenticated, removedWorkerMessage)
+		if cert != nil {
+			// A revocation during the long poll ends it.
+			removal, removed := h.removals.get(cert.Subject.CommonName)
+			if removal.State == persis.WorkerCertificateRevoked {
+				return nil, status.Error(codes.Unauthenticated, removedWorkerMessage)
+			}
+			// A removing worker gets no new task, so it waits as when none
+			// is pending.
+			if removed {
+				if _, err := h.waitForDispatchPollRetry(ctx, req.PollerId, observedGeneration, h.dispatchPollMaxWait); err != nil {
+					return nil, err
+				}
+				continue
+			}
 		}
 		claimed, err := h.dispatchTaskStore.ClaimNext(ctx, dispatch.DispatchTaskClaim{
 			WorkerID:     req.WorkerId,
@@ -599,13 +612,18 @@ func (h *Handler) Poll(ctx context.Context, req *coordinatorv1.PollRequest) (*co
 		if err != nil {
 			return nil, status.Error(codes.Internal, "failed to claim task: "+err.Error())
 		}
-		// A revocation that this coordinator applied while it claimed the
-		// task takes the task back before the worker sees it.
-		if claimed != nil && claimed.Task != nil && cert != nil && h.removals.revoked(cert.Subject.CommonName) {
-			if err := h.dispatchTaskStore.ReleaseClaim(context.WithoutCancel(ctx), claimed.ClaimToken); err != nil && !errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
-				logger.Warn(ctx, "Failed to return a removed worker's task to the queue", tag.WorkerID(req.WorkerId), tag.Error(err))
+		if claimed != nil && claimed.Task != nil && cert != nil {
+			// A removal that this coordinator applied while it claimed the
+			// task takes the task back before the worker sees it.
+			if removal, removed := h.removals.get(cert.Subject.CommonName); removed {
+				if err := h.dispatchTaskStore.ReleaseClaim(context.WithoutCancel(ctx), claimed.ClaimToken); err != nil && !errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
+					logger.Warn(ctx, "Failed to return a removing worker's task to the queue", tag.WorkerID(req.WorkerId), tag.Error(err))
+				}
+				if removal.State == persis.WorkerCertificateRevoked {
+					return nil, status.Error(codes.Unauthenticated, removedWorkerMessage)
+				}
+				continue
 			}
-			return nil, status.Error(codes.Unauthenticated, removedWorkerMessage)
 		}
 		if claimed != nil && claimed.Task != nil {
 			claimed.Task.WorkerID = req.WorkerId
@@ -718,8 +736,27 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		}
 	}
 	// A run bound to a worker node fails at once while its worker is offline,
-	// or too old for the run's connections, rather than waiting for it
-	// (RFC 013 §Matching).
+	// in removal, or too old for the run's connections, rather than waiting
+	// for it (RFC 013 §Matching).
+	// The removal state comes first and is read from the store, since this
+	// coordinator's copy may not hold another coordinator's removal yet. A
+	// repeat of a dispatch admitted before the removal still goes through.
+	if req.Task.BoundNode != "" {
+		removing, readErr := h.workerInRemoval(ctx, req.Task.TargetWorkerId)
+		if removing || readErr != nil {
+			admitted, err := h.admittedRepeat(ctx, req.Task)
+			if err != nil {
+				return nil, status.Error(prepareAttemptErrorCode(err), "failed to prepare attempt: "+err.Error())
+			}
+			if admitted {
+				return &coordinatorv1.DispatchResponse{}, nil
+			}
+			if readErr != nil {
+				return nil, status.Error(codes.Unavailable, "failed to read the worker's removal state; try again")
+			}
+			return nil, status.Errorf(codes.FailedPrecondition, "worker node %q is being removed", req.Task.BoundNode)
+		}
+	}
 	if shortfall != nil && req.Task.BoundNode != "" {
 		if errors.Is(shortfall, errNoConnectionWorkers) {
 			return nil, status.Errorf(codes.FailedPrecondition, "worker node %q: %v", req.Task.BoundNode, shortfall)
@@ -2269,6 +2306,9 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 	if h.dagRunLeaseStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "dag-run lease store is not configured")
 	}
+	if resp, err := h.refuseRemovingAcceptance(ctx, req.WorkerId, req.ClaimToken); resp != nil || err != nil {
+		return resp, err
+	}
 
 	claimed, err := h.dispatchTaskStore.GetClaim(ctx, req.ClaimToken)
 	if err != nil {
@@ -2323,13 +2363,35 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 		}
 		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "attempt already finished or superseded"}, nil
 	}
-	if err := h.attemptOwnership().recordTaskClaim(ctx, task, workerID); err != nil {
+	var certificateID string
+	if cert := h.callerCertificate(ctx); cert != nil {
+		certificateID = cert.Subject.CommonName
+	}
+	// The mark keeps the claim's expiry from returning the task to the
+	// queue while this call writes the lease.
+	if err := h.dispatchTaskStore.MarkClaimLeasing(ctx, req.ClaimToken); err != nil {
+		if errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
+			return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim not found or expired"}, nil
+		}
+		return nil, status.Error(codes.Internal, "failed to mark task claim: "+err.Error())
+	}
+	if err := h.attemptOwnership().recordTaskClaim(ctx, task, workerID, certificateID); err != nil {
 		if errors.Is(err, dispatch.ErrDAGRunLeaseConflict) {
 			return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "attempt claim conflicts with the active lease"}, nil
 		}
 		return nil, status.Error(codes.Internal, "failed to create run lease: "+err.Error())
 	}
-	if err := h.dispatchTaskStore.DeleteClaim(ctx, req.ClaimToken); err != nil {
+	if err := h.settleAcceptedRun(ctx); err != nil {
+		// The lease is the stale-lease check's to end now, so the claim
+		// goes and its expiry never queues the attempt again.
+		if status.Code(err) != codes.Unavailable {
+			h.dropClaim(ctx, req.ClaimToken)
+		}
+		return nil, err
+	}
+	// A refusal of the same claim on another call may have dropped the
+	// claim already; the lease this call wrote stands.
+	if err := h.dispatchTaskStore.DeleteClaim(ctx, req.ClaimToken); err != nil && !errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
 		return nil, status.Error(codes.Internal, "failed to finalize task claim: "+err.Error())
 	}
 
@@ -2644,12 +2706,18 @@ func (h *Handler) listHealthyWorkers(ctx context.Context) ([]dispatch.WorkerHear
 		}
 	}
 
-	now := time.Now().UTC()
+	now := h.clock().UTC()
 	healthy := make([]dispatch.WorkerHeartbeatRecord, 0, len(records))
 	for _, record := range records {
-		if dispatch.WorkerHeartbeatFresh(record, now, h.staleHeartbeatThreshold) {
-			healthy = append(healthy, record)
+		if !dispatch.WorkerHeartbeatFresh(record, now, h.staleHeartbeatThreshold) {
+			continue
 		}
+		// A worker in removal takes no new task, so it cannot take a
+		// dispatch either.
+		if _, removed := h.removals.get(record.CertificateID); record.CertificateID != "" && removed {
+			continue
+		}
+		healthy = append(healthy, record)
 	}
 	return healthy, nil
 }

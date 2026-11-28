@@ -1327,6 +1327,10 @@ func (m *mockDispatchTaskStore) DeleteClaim(context.Context, string) error {
 	return nil
 }
 
+func (m *mockDispatchTaskStore) MarkClaimLeasing(context.Context, string) error {
+	return nil
+}
+
 func (m *mockDispatchTaskStore) ListBundleDigests(context.Context) ([]string, error) {
 	return nil, nil
 }
