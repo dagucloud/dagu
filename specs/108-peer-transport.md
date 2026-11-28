@@ -253,8 +253,9 @@ A client picks its transport from the first row that matches:
   directory, where processes that start later on the host read it. Only the
   client that opens a window pays the failed handshake and logs its
   warning, which names the address and the handshake error. A data
-  directory that hosts share keeps each host's windows apart, and a window
-  read there lasts at most 10 minutes from when it is read.
+  directory that hosts share keeps each host's windows apart. A process
+  ignores a window there that ends more than 10 minutes after its own
+  time, which a clock that ran ahead wrote.
 - A call whose attempt failed before it got a connection is sent once more
   over h2c while the window is open, so a fallback fails no call. A call
   that reached a coordinator is never sent again. The same holds for a call
