@@ -119,6 +119,10 @@ type dispatchTaskPayload struct {
 	// LeasingAt is when an acceptance of the claim began writing the
 	// attempt's lease, in Unix milliseconds, or zero.
 	LeasingAt int64 `json:"leasingAt,omitempty"`
+	// ExpiredAt is when the claim's expiry decided to return the task to
+	// the queue, in Unix milliseconds, or zero. A claim with it set is gone
+	// for every reader but the expiry, which finishes returning the task.
+	ExpiredAt int64 `json:"expiredAt,omitempty"`
 }
 
 type legacyDAGRunStatusProto struct {
@@ -780,7 +784,7 @@ func (s *DispatchTaskStore) GetClaim(ctx context.Context, claimToken string) (*d
 	if err != nil {
 		return nil, err
 	}
-	if payload.Task == nil || payload.ClaimToken == "" || payload.ClaimToken != claimToken || payload.ClaimedAt == 0 {
+	if payload.Task == nil || payload.ClaimToken == "" || payload.ClaimToken != claimToken || payload.ClaimedAt == 0 || payload.ExpiredAt != 0 {
 		return nil, dispatch.ErrDispatchTaskNotFound
 	}
 	return &dispatch.ClaimedDispatchTask{
@@ -808,7 +812,7 @@ func (s *DispatchTaskStore) ReleaseClaim(ctx context.Context, claimToken string)
 	if err != nil {
 		return err
 	}
-	if payload.Task == nil || payload.ClaimToken == "" || payload.ClaimToken != claimToken || payload.ClaimedAt == 0 {
+	if payload.Task == nil || payload.ClaimToken == "" || payload.ClaimToken != claimToken || payload.ClaimedAt == 0 || payload.ExpiredAt != 0 {
 		return dispatch.ErrDispatchTaskNotFound
 	}
 	return s.releaseClaim(ctx, rec, payload, time.Now().UTC())
@@ -1163,15 +1167,69 @@ func (s *DispatchTaskStore) recycleExpiredClaims(ctx context.Context) error {
 			}
 		}
 
-		if err := s.releaseClaim(ctx, rec, payload, now); err != nil {
-			if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
+		if err := s.withClaimTransition(ctx, payload, func(ctx context.Context) error {
+			return s.expireClaim(ctx, rec, payload, now)
+		}); err != nil {
+			switch {
+			case errors.Is(err, persis.ErrNotFound):
 				s.index.removeClaim(id)
+				continue
+			case errors.Is(err, persis.ErrConflict):
+				// The claim changed since the read, as when an acceptance
+				// marked it; a later pass reads it again.
 				continue
 			}
 			return err
 		}
 	}
 	return nil
+}
+
+// expireClaim returns the task of the expired claim rec to the queue. It
+// first records the decision on the claim, in one compare-and-swap from
+// the version read, so an acceptance that marks the claim either comes
+// first and keeps it, or finds it gone. Only then is the task claimable
+// again, and the claim is deleted. A claim that already holds the decision
+// is of an expiry that stopped after it, and this finishes that expiry.
+// The queued record and its enqueue time come from the decision, so a
+// repeat writes the same record. A repeat after another worker claimed
+// that record queues the task again behind that claim, which the pass that
+// removes pending records of live claims then drops.
+func (s *DispatchTaskStore) expireClaim(ctx context.Context, rec *persis.Record, payload dispatchTaskPayload, now time.Time) error {
+	if payload.ExpiredAt == 0 {
+		payload.ExpiredAt = now.UnixMilli()
+		expired, err := s.newDispatchRecord(rec.ID, payload, rec.CreatedAt, now)
+		if err != nil {
+			return err
+		}
+		if err := s.col.CompareAndSwap(ctx, rec.ID, rec.Data, expired.Data); err != nil {
+			return err
+		}
+		rec = expired
+	}
+	pendingRec, queued, err := s.requeuedRecord(payload, time.UnixMilli(payload.ExpiredAt).UTC())
+	if err != nil {
+		return err
+	}
+	if err := s.col.Create(ctx, pendingRec); err != nil && !errors.Is(err, persis.ErrConflict) {
+		return err
+	}
+	if err := s.col.CompareAndDelete(ctx, rec); err != nil && !errors.Is(err, persis.ErrNotFound) {
+		return err
+	}
+	if s.index != nil {
+		s.index.replaceClaimWithPending(rec.ID, pendingRec, queued)
+	}
+	return nil
+}
+
+// withClaimTransition runs transition, under the transition lock when the
+// claim's task carries a workspace bundle.
+func (s *DispatchTaskStore) withClaimTransition(ctx context.Context, payload dispatchTaskPayload, transition func(context.Context) error) error {
+	if payload.Task == nil || payload.Task.WorkspaceBundleDigest == "" {
+		return transition(ctx)
+	}
+	return s.withTransitionLock(ctx, transition)
 }
 
 // MarkClaimLeasing marks the claim claimToken as having an acceptance that
@@ -1192,6 +1250,9 @@ func (s *DispatchTaskStore) MarkClaimLeasing(ctx context.Context, claimToken str
 		payload, err := dispatchTaskPayloadFromRecord(rec)
 		if err != nil {
 			return err
+		}
+		if payload.ExpiredAt != 0 {
+			return dispatch.ErrDispatchTaskNotFound
 		}
 		if payload.LeasingAt != 0 {
 			return nil
@@ -1232,16 +1293,14 @@ func (s *DispatchTaskStore) releaseClaim(
 	payload dispatchTaskPayload,
 	now time.Time,
 ) error {
-	transition := func(lockCtx context.Context) error {
+	return s.withClaimTransition(ctx, payload, func(lockCtx context.Context) error {
 		return s.releaseClaimRecord(lockCtx, rec, payload, now)
-	}
-	if payload.Task == nil || payload.Task.WorkspaceBundleDigest == "" {
-		return transition(ctx)
-	}
-	return s.withTransitionLock(ctx, transition)
+	})
 }
 
-func (s *DispatchTaskStore) releaseClaimRecord(ctx context.Context, rec *persis.Record, payload dispatchTaskPayload, now time.Time) error {
+// requeuedRecord returns the pending record that queues the task of the
+// claim in payload again at now, and its payload.
+func (s *DispatchTaskStore) requeuedRecord(payload dispatchTaskPayload, now time.Time) (*persis.Record, dispatchTaskPayload, error) {
 	releasedAt := now
 	enqueuedAt := now.UnixMilli()
 	if payload.ClaimedAt >= enqueuedAt {
@@ -1254,13 +1313,23 @@ func (s *DispatchTaskStore) releaseClaimRecord(ctx context.Context, rec *persis.
 	payload.WorkerID = ""
 	payload.PollerID = ""
 	payload.Owner = dispatch.CoordinatorEndpoint{}
+	payload.LeasingAt = 0
+	payload.ExpiredAt = 0
 	payload.Task = clearDispatchTaskClaim(payload.Task)
 
 	pendingID, err := pendingDispatchRecordID(payload.TaskFileName)
 	if err != nil {
-		return err
+		return nil, dispatchTaskPayload{}, err
 	}
 	pendingRec, err := s.newDispatchRecord(pendingID, payload, releasedAt, releasedAt)
+	if err != nil {
+		return nil, dispatchTaskPayload{}, err
+	}
+	return pendingRec, payload, nil
+}
+
+func (s *DispatchTaskStore) releaseClaimRecord(ctx context.Context, rec *persis.Record, payload dispatchTaskPayload, now time.Time) error {
+	pendingRec, payload, err := s.requeuedRecord(payload, now)
 	if err != nil {
 		return err
 	}

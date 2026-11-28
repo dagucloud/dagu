@@ -812,7 +812,11 @@ or `stop`:
     marked so never returns to the queue when it expires: its lease, once
     written, is the stale-lease check's. A mark as old as the claim timeout
     without a lease is of an acceptance that died, and the task returns to
-    the queue then.
+    the queue then. An expiry records its decision on the claim before the
+    task can be claimed again, so an acceptance that marks the claim either
+    comes first and keeps the task, or finds the claim gone and is
+    refused. A coordinator that stops between the two leaves the decision,
+    and the next pass returns the task.
   - The certificate is held by the worker the removal names and by each
     worker whose fresh heartbeat carries it, so a worker ID that changes at
     a restart is still waited for.

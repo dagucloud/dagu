@@ -534,20 +534,120 @@ func TestActiveDistributedRunStore_ListAllRemovesStaleCorruptRecord(t *testing.T
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
-// markBeforeDelete marks the claim leasing through another store right
-// before the first compare-and-delete, as an acceptance on another
+// markBeforeExpiry marks the claim leasing through another store right
+// before the first compare-and-swap, as an acceptance on another
 // coordinator that begins its lease write after the expiry read the claim.
-type markBeforeDelete struct {
+type markBeforeExpiry struct {
 	persis.Collection
 	mark  func()
 	armed atomic.Bool
 }
 
-func (c *markBeforeDelete) CompareAndDelete(ctx context.Context, rec *persis.Record) error {
+func (c *markBeforeExpiry) CompareAndSwap(ctx context.Context, id string, expected, next []byte) error {
 	if c.armed.CompareAndSwap(true, false) {
 		c.mark()
 	}
-	return c.Collection.CompareAndDelete(ctx, rec)
+	return c.Collection.CompareAndSwap(ctx, id, expected, next)
+}
+
+// afterRequeue runs hook once, right after the first pending record is
+// written.
+type afterRequeue struct {
+	persis.Collection
+	hook  func()
+	armed atomic.Bool
+	// failCreate fails the first creation of a pending record once set,
+	// as when a coordinator stops before it.
+	failCreate atomic.Bool
+}
+
+func (c *afterRequeue) Create(ctx context.Context, rec *persis.Record) error {
+	if strings.HasPrefix(rec.ID, "pending/") && c.failCreate.CompareAndSwap(true, false) {
+		return errors.New("stopped")
+	}
+	err := c.Collection.Create(ctx, rec)
+	c.requeued(rec, err)
+	return err
+}
+
+func (c *afterRequeue) Put(ctx context.Context, rec *persis.Record) error {
+	err := c.Collection.Put(ctx, rec)
+	c.requeued(rec, err)
+	return err
+}
+
+func (c *afterRequeue) requeued(rec *persis.Record, err error) {
+	if err == nil && strings.HasPrefix(rec.ID, "pending/") && c.armed.CompareAndSwap(true, false) {
+		c.hook()
+	}
+}
+
+// expiringStore returns a dispatch store with a short claim timeout over
+// col, and a task of run-a that worker-1 claimed through it.
+func expiringStore(t *testing.T, col persis.Collection) (*store.DispatchTaskStore, *dispatch.ClaimedDispatchTask) {
+	t.Helper()
+	ctx := t.Context()
+	leases := store.NewDAGRunLeaseStore(testutil.NewMemoryBackend().Collection("dag_run_leases"))
+	active := store.NewActiveDistributedRunStore(testutil.NewMemoryBackend().Collection("active_runs"))
+	s := store.NewDispatchTaskStore(col, store.WithDispatchAdmissionLiveness(leases, active), store.WithDispatchReservationTTL(50*time.Millisecond))
+	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{DAGRunID: "run-a", Target: "dag-a", AttemptID: "attempt-a", AttemptKey: "attempt-key-a"}))
+	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-1", PollerID: "poller-1"})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	return s, claimed
+}
+
+// A claim expires, and the moment its task is queued again, another
+// coordinator takes the task for worker-2 while a late acceptance of the
+// expired claim tries to mark it. The acceptance finds the claim gone, so
+// only worker-2 runs the task (Spec 108 §Removal).
+func TestDispatchTaskStore_ExpiryDecidedBeforeRequeue(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	base := testutil.NewMemoryBackend().Collection("dispatch_tasks")
+	col := &afterRequeue{Collection: base}
+	s, claimed := expiringStore(t, col)
+	other := store.NewDispatchTaskStore(base)
+	var taken *dispatch.ClaimedDispatchTask
+	col.hook = func() {
+		var err error
+		taken, err = other.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-2", PollerID: "poller-2"})
+		require.NoError(t, err)
+		assert.ErrorIs(t, other.MarkClaimLeasing(ctx, claimed.ClaimToken), dispatch.ErrDispatchTaskNotFound)
+	}
+	col.armed.Store(true)
+	time.Sleep(100 * time.Millisecond)
+
+	_, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-3", PollerID: "poller-3"})
+	require.NoError(t, err)
+	require.NotNil(t, taken, "the queued task was claimable")
+	assert.Equal(t, "run-a", taken.Task.DAGRunID)
+	_, err = s.GetClaim(ctx, claimed.ClaimToken)
+	assert.ErrorIs(t, err, dispatch.ErrDispatchTaskNotFound)
+	claims, err := base.List(ctx, persis.ListQuery{Prefix: "claims/"})
+	require.NoError(t, err)
+	assert.Len(t, claims.Records, 1)
+}
+
+// A claim's expiry records its decision and stops before it queues the
+// task again. A later pass queues the task, so it is not lost (Spec 108
+// §Removal).
+func TestDispatchTaskStore_ExpiryFinishedAfterStop(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	col := &afterRequeue{Collection: testutil.NewMemoryBackend().Collection("dispatch_tasks")}
+	s, claimed := expiringStore(t, col)
+	col.failCreate.Store(true)
+	time.Sleep(100 * time.Millisecond)
+	_, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-2", PollerID: "poller-2"})
+	require.Error(t, err)
+
+	again, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-2", PollerID: "poller-2"})
+	require.NoError(t, err)
+	require.NotNil(t, again)
+	assert.Equal(t, "run-a", again.Task.DAGRunID)
+	_, err = s.GetClaim(ctx, claimed.ClaimToken)
+	assert.ErrorIs(t, err, dispatch.ErrDispatchTaskNotFound)
 }
 
 // failingLeaseGet fails every lease read of one attempt.
@@ -564,8 +664,8 @@ func (s failingLeaseGet) Get(ctx context.Context, attemptKey string) (*dispatch.
 }
 
 // A claim's expiry read the claim before an acceptance marked it leasing.
-// The requeue deletes the claim from that read's version, so it fails, and
-// another worker does not get the task (Spec 108 §Removal).
+// The expiry writes its decision from that read's version, so it fails,
+// and another worker does not get the task (Spec 108 §Removal).
 func TestDispatchTaskStore_LeasingClaimNotRequeued(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -574,7 +674,7 @@ func TestDispatchTaskStore_LeasingClaimNotRequeued(t *testing.T) {
 	active := store.NewActiveDistributedRunStore(testutil.NewMemoryBackend().Collection("active_runs"))
 	marker := store.NewDispatchTaskStore(base, store.WithDispatchAdmissionLiveness(leases, active))
 	var token string
-	col := &markBeforeDelete{Collection: base, mark: func() { require.NoError(t, marker.MarkClaimLeasing(ctx, token)) }}
+	col := &markBeforeExpiry{Collection: base, mark: func() { require.NoError(t, marker.MarkClaimLeasing(ctx, token)) }}
 	s := store.NewDispatchTaskStore(col, store.WithDispatchAdmissionLiveness(leases, active), store.WithDispatchReservationTTL(50*time.Millisecond))
 	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{DAGRunID: "run-a", Target: "dag-a", AttemptID: "attempt-a", AttemptKey: "attempt-key-a"}))
 	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-1", PollerID: "poller-1"})
