@@ -1124,6 +1124,46 @@ func TestReplayKeyIsStable(t *testing.T) {
 		replayKey(0, "Click the Sign in button", "http://127.0.0.1:19742/login?x=1#f"))
 }
 
+// A page whose path carries a record ID is the same page for every record,
+// so an act recorded on one record replays on the next.
+func TestReplayAcrossRecordIDs(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"url": %q, "do": [{"act": "Click the save button"}]}`
+	run := newTestRun(t, pageModel(nil))
+	require.NoError(t, run.execute(fmt.Sprintf(steps, "https://crm.example.com/customer/C-100231/address"), nil).err)
+
+	other := run.execute(fmt.Sprintf(steps, "https://crm.example.com/customer/C-100232/address"), nil)
+	require.NoError(t, other.err)
+	assert.Equal(t, []string{"goto:completed", "act:cache-hit"}, eventNames(other.exec.GetAgentSession()))
+
+	different := run.execute(fmt.Sprintf(steps, "https://crm.example.com/customer/C-100232/notes"), nil)
+	require.NoError(t, different.err)
+	assert.Equal(t, []string{"goto:completed", "act:completed"}, eventNames(different.exec.GetAgentSession()))
+}
+
+func TestReplayKeyPathIDs(t *testing.T) {
+	t.Parallel()
+
+	same := [][2]string{
+		{"https://shop.example.com/orders/4812/edit", "https://shop.example.com/orders/77/edit"},
+		{"https://shop.example.com/runs/0b9e6a7c-3f1d-4c2a-9e8b-5d6f7a8b9c0d", "https://shop.example.com/runs/123e4567-e89b-12d3-a456-426614174000"},
+		{"https://shop.example.com/customer/C-100231", "https://shop.example.com/customer/x9_k2"},
+	}
+	for _, pair := range same {
+		assert.Equal(t, replayKey(0, "Save", pair[0]), replayKey(0, "Save", pair[1]), pair)
+	}
+	different := [][2]string{
+		{"https://shop.example.com/orders/4812/edit", "https://shop.example.com/orders/new/edit"},
+		{"https://shop.example.com/orders/4812/edit", "https://shop.example.com/orders/4812/view"},
+		{"https://shop.example.com/report.pdf", "https://shop.example.com/report2.pdf"},
+		{"https://a.example.com/orders/1", "https://b.example.com/orders/1"},
+	}
+	for _, pair := range different {
+		assert.NotEqual(t, replayKey(0, "Save", pair[0]), replayKey(0, "Save", pair[1]), pair)
+	}
+}
+
 // A step's recordings are kept only when the step succeeds, and a replay the
 // page then contradicts is dropped, so the next run asks the model again.
 func TestReplayKeptOnlyWhenStepSucceeds(t *testing.T) {

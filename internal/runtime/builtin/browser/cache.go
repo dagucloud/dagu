@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
@@ -78,14 +79,47 @@ func unfit(instruction string, rec recording, values map[string]string) string {
 }
 
 // replayKey identifies an act operation on a page. Query strings and
-// fragments are ignored so pagination or tracking parameters still hit.
+// fragments are ignored so pagination or tracking parameters still hit, and
+// path segments that look like record IDs are ignored so the same page of
+// another record, such as /orders/4812/edit and /orders/4813/edit, hits.
 func replayKey(index int, instruction, pageURL string) string {
 	page := pageURL
 	if parsed, err := url.Parse(pageURL); err == nil {
 		parsed.RawQuery = ""
 		parsed.Fragment = ""
+		segments, changed := strings.Split(parsed.Path, "/"), false
+		for i, segment := range segments {
+			if isRecordID(segment) {
+				segments[i], changed = recordIDSegment, true
+			}
+		}
+		// A page without record IDs keeps the key it had before IDs were
+		// ignored, so its recordings still hit.
+		if changed {
+			parsed.Path, parsed.RawPath = strings.Join(segments, "/"), ""
+		}
 		page = parsed.String()
 	}
 	sum := sha256.Sum256([]byte(strconv.Itoa(index) + "\x00" + instruction + "\x00" + page))
 	return hex.EncodeToString(sum[:])
+}
+
+// recordIDSegment stands for a path segment that looks like a record ID.
+const recordIDSegment = ":id"
+
+// isRecordID reports whether a path segment looks like a record ID: letters,
+// digits, hyphens, and underscores with at least one digit, such as 4812,
+// C-100231, or a UUID. A word such as edit or new is not one.
+func isRecordID(segment string) bool {
+	digit := false
+	for _, r := range segment {
+		switch {
+		case r >= '0' && r <= '9':
+			digit = true
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '-', r == '_':
+		default:
+			return false
+		}
+	}
+	return digit
 }
