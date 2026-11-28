@@ -10,7 +10,6 @@ import { runningTaskRoot } from '../../dag-runs/lib/dagRunUrls';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
 import { countWorkersBehind, WorkerVersion } from './WorkerVersion';
-import { WorkerConnection } from './WorkerConnection';
 
 type Worker = components['schemas']['Worker'];
 type RunningTask = components['schemas']['RunningTask'];
@@ -74,10 +73,8 @@ function WorkerList({ workers, isLoading, errors }: WorkerListProps) {
 
   const behind = countWorkersBehind(workers);
 
-  // The list is a container, so the Connection column shows only where the
-  // list is wide enough; a narrower list shows it under the worker ID.
   return (
-    <div className="@container divide-y">
+    <div className="divide-y">
       {behind > 0 && (
         <div className="px-3 py-2 flex items-center gap-2 text-xs text-warning">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
@@ -126,9 +123,6 @@ function WorkerList({ workers, isLoading, errors }: WorkerListProps) {
               <div className="flex-1 min-w-0">
                 <div className="font-mono text-sm truncate">{worker.id}</div>
                 <WorkerVersion worker={worker} />
-                <div className="@4xl:hidden">
-                  <WorkerConnection worker={worker} />
-                </div>
               </div>
 
               {/* Labels */}
@@ -144,11 +138,6 @@ function WorkerList({ workers, isLoading, errors }: WorkerListProps) {
                       </span>
                     ))}
                 </div>
-              </div>
-
-              {/* Connection */}
-              <div className="hidden w-56 min-w-0 @4xl:block">
-                <WorkerConnection worker={worker} />
               </div>
 
               {/* Utilization */}

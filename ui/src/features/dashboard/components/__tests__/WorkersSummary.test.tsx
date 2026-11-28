@@ -5,6 +5,8 @@ import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 import {
+  PlaintextReason,
+  WorkerConnection,
   WorkerHealthStatus,
   WorkerVersionDrift,
   type components,
@@ -79,4 +81,51 @@ describe('WorkersSummary', () => {
 
     expect(screen.queryByText(/on an older version/)).not.toBeInTheDocument();
   });
+
+  it('shows how each worker connects', () => {
+    renderSummary([
+      { ...worker({}), connection: WorkerConnection.certificate },
+      { ...worker({}), id: 'worker-2', connection: WorkerConnection.tls },
+      { ...worker({}), id: 'worker-3' },
+    ]);
+
+    expectConnection('Certificate');
+    expectConnection('TLS');
+    expectConnection('Connection not reported');
+  });
+
+  // Plaintext can be on purpose, as behind a service mesh, so the line names
+  // the reason and the change to make, linked to the docs.
+  it('names why a plaintext worker uses h2c and what to change', () => {
+    renderSummary([
+      {
+        ...worker({}),
+        connection: WorkerConnection.plaintext,
+        plaintextReason: PlaintextReason.peer_insecure,
+      },
+      {
+        ...worker({}),
+        id: 'worker-2',
+        connection: WorkerConnection.plaintext,
+        plaintextReason: PlaintextReason.older_version,
+      },
+    ]);
+
+    for (const link of screen.getAllByRole('link', { name: 'Plaintext' })) {
+      expect(link).toHaveAttribute(
+        'href',
+        'https://docs.dagu.sh/server-admin/distributed/transport-security'
+      );
+    }
+    expectConnection(/peer\.insecure: true in its config/);
+    expectConnection('Remove peer.insecure: true to use TLS');
+    expectConnection(/older version/);
+    expectConnection('Upgrade it to use TLS');
+  });
 });
+
+// The list renders each connection line twice, in the Connection column and
+// under the worker ID, and its width shows one of them.
+function expectConnection(text: string | RegExp) {
+  expect(screen.getAllByText(text)).toHaveLength(2);
+}

@@ -964,8 +964,11 @@ and prints the message:
 
 #### Workers Page
 
+The Workers page is the list of workers on System status.
+
 - The `Connection` column shows `Certificate`, `TLS`, or
-  `Plaintext · <reason>` with the change to make below it:
+  `Plaintext · <reason>` with the change to make below it. A list too
+  narrow for the column shows the same line under the worker ID:
 
   | `plaintextReason` | Shown | Change |
   | --- | --- | --- |
