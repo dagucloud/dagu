@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 )
@@ -54,6 +55,10 @@ func (c *remoteClient) createOAuthApp(ctx context.Context, body api.CreateOAuthA
 	return &out, nil
 }
 
+func (c *remoteClient) deleteOAuthApp(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/oauth-apps/"+url.PathEscape(id), nil, nil, nil)
+}
+
 func (c *remoteClient) connection(ctx context.Context, workspace, name string) (*api.Connection, error) {
 	var out api.Connection
 	if err := c.do(ctx, http.MethodGet, connectionPath(name, ""), nil, &out, workspaceQuery(workspace)); err != nil {
@@ -91,9 +96,18 @@ func (c *remoteClient) authorization(ctx context.Context, workspace, name, sessi
 	return &out, nil
 }
 
+// completeTimeout bounds a complete request, which the server may spend up
+// to 45 seconds on with the provider, within its 60-second write deadline.
+const completeTimeout = 60 * time.Second
+
 func (c *remoteClient) completeAuthorization(ctx context.Context, workspace, name, redirectURL string) error {
 	body := api.CompleteConnectionAuthorizationRequest{RedirectUrl: &redirectURL}
-	return c.do(ctx, http.MethodPost, connectionPath(name, "/authorization/complete"), body, nil, workspaceQuery(workspace))
+	slow := *c
+	if hc := *c.client; hc.Timeout < completeTimeout {
+		hc.Timeout = completeTimeout
+		slow.client = &hc
+	}
+	return slow.do(ctx, http.MethodPost, connectionPath(name, "/authorization/complete"), body, nil, workspaceQuery(workspace))
 }
 
 func (c *remoteClient) confirmAuthorization(ctx context.Context, workspace, name, session string) (*api.Connection, error) {
