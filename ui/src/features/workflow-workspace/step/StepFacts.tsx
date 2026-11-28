@@ -53,6 +53,7 @@ import { isActiveNodeStatus, nodeStatusText } from '@/lib/status-utils';
 import { statusClasses, toneClasses } from '@/lib/statusPalette';
 import { nodesToRetry } from '@/lib/nodeRuns';
 import { cn } from '@/lib/utils';
+import { connectionPath, GLOBAL_WORKSPACE } from '@/pages/connections/shared';
 import type { ApiDAGRunDetails, ApiNode } from '../contracts';
 import { useWorkspaceData } from '../data/context';
 import { useDockCommands } from '../dock/DockContext';
@@ -257,6 +258,42 @@ function ManualAudit({ node }: { node: ApiNode }) {
         </AuditLine>
       )}
     </>
+  );
+}
+
+/**
+ * The connection the step used and its account, with Reconnect when the
+ * connection handed the step no token.
+ */
+function ConnectionFacts({
+  node,
+  workspace,
+}: {
+  node: ApiNode;
+  workspace?: string;
+}) {
+  const { ts } = useI18n();
+  const conn = node.connection;
+  if (!conn) return null;
+  return (
+    <AuditLine label={ts('Connection:')}>
+      <span data-testid="ww-step-connection" className="text-foreground/80">
+        {conn.name}
+        {conn.account && ` (${conn.account})`}
+      </span>
+      {conn.failure && (
+        <>
+          <span className={cn('ml-1.5', warning.text)}>
+            {ts('Reconnect required')}
+          </span>
+          <Button asChild variant="outline" size="xs" className="ml-1.5">
+            <Link to={connectionPath(conn.name, workspace || GLOBAL_WORKSPACE)}>
+              {ts('Reconnect')}
+            </Link>
+          </Button>
+        </>
+      )}
+    </AuditLine>
   );
 }
 
@@ -618,6 +655,7 @@ export function StepFacts({
       )}
 
       <ErrorCards node={node} />
+      <ConnectionFacts node={node} workspace={holder.workspace} />
       <TimingFacts node={node} />
       {full && <RepeatPolicy node={node} />}
       <ManualAudit node={node} />

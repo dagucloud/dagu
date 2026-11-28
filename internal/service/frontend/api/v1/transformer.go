@@ -700,6 +700,13 @@ func toNode(node *ir.Node) api.Node {
 		result.AgentSession = toAgentSession(node.AgentSession)
 	}
 	result.ModelUsage = toStepModelUsage(node.ModelUsage)
+	if conn := node.Connection; conn != nil {
+		result.Connection = &api.NodeConnection{
+			Name:    conn.Name,
+			Account: ptrOf(conn.Account),
+			Failure: ptrOf(api.NodeConnectionFailure(conn.Failure)),
+		}
+	}
 	if node.Build != nil {
 		result.Build = &api.BuildExecution{
 			Decision:           api.BuildExecutionDecision(node.Build.Decision),

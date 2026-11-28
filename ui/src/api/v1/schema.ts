@@ -8483,6 +8483,7 @@ export interface components {
             pushBackHistory?: components["schemas"]["PushBackHistoryEntry"][];
             agentSession?: components["schemas"]["AgentSession"];
             modelUsage?: components["schemas"]["StepModelUsage"];
+            connection?: components["schemas"]["NodeConnection"];
         };
         /** @description Durable state for a managed coding-agent session */
         AgentSession: {
@@ -8559,6 +8560,18 @@ export interface components {
              * @description Number of calls whose cost the provider reported; cost is whole only when it equals calls
              */
             costReportedCalls?: number;
+        };
+        /** @description The connection a step's latest attempt used */
+        NodeConnection: {
+            /** @description Name of the connection */
+            name: string;
+            /** @description Account the connection acts as, such as an email address; empty before its first connect */
+            account?: string;
+            /**
+             * @description Why the connection handed the step no token. Both values need the connection reconnected; needs_attention also sent connection.needs_attention
+             * @enum {string}
+             */
+            failure?: NodeConnectionFailure;
         };
         /** @description What a step's calls to models used, over every attempt of the step in its run */
         StepModelUsage: {
@@ -30129,6 +30142,10 @@ export enum AgentSessionState {
     failed = "failed",
     aborted = "aborted",
     unavailable = "unavailable"
+}
+export enum NodeConnectionFailure {
+    reconnect_required = "reconnect_required",
+    needs_attention = "needs_attention"
 }
 export enum AgentInteractionKind {
     permission = "permission",

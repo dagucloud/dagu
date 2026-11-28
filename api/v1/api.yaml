@@ -21212,6 +21212,8 @@ components:
           $ref: "#/components/schemas/AgentSession"
         modelUsage:
           $ref: "#/components/schemas/StepModelUsage"
+        connection:
+          $ref: "#/components/schemas/NodeConnection"
       required:
         - step
         - stdout
@@ -21335,6 +21337,25 @@ components:
         - provider
         - model
         - calls
+
+    NodeConnection:
+      type: object
+      description: "The connection a step's latest attempt used"
+      properties:
+        name:
+          type: string
+          description: "Name of the connection"
+        account:
+          type: string
+          description: "Account the connection acts as, such as an email address; empty before its first connect"
+        failure:
+          type: string
+          description: "Why the connection handed the step no token. Both values need the connection reconnected; needs_attention also sent connection.needs_attention"
+          enum:
+            - reconnect_required
+            - needs_attention
+      required:
+        - name
 
     StepModelUsage:
       type: object
