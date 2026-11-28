@@ -179,9 +179,9 @@ function WorkersSummary({ workers, isLoading, errors }: WorkersSummaryProps) {
                     {/* Labels take at most half of this column so the ID stays visible. */}
                     <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
                       <div className="min-w-0 sm:flex-1">
-                        {/* A phone-width list has no room for a long ID on
-                            one line, so it wraps there instead of cutting. */}
-                        <div className="font-mono text-sm break-all @xl:truncate">
+                        {/* A long ID wraps instead of being cut, also with
+                            Remove under it. */}
+                        <div className="font-mono text-sm break-all">
                           {worker.id}
                         </div>
                         <div className="@5xl:hidden">
