@@ -2,8 +2,7 @@
 
 ## Status
 
-Partially implemented. The scheduler records the history of service DAGs,
-and the API serves it. The UI that reads it is not implemented yet.
+Implemented.
 
 `conformance/spec100_service_run_history` checks the behavior of this spec with a local scheduler.
 A run that a distributed worker executes has no conformance test. The scheduler records its sample
