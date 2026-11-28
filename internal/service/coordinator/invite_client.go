@@ -103,11 +103,12 @@ func (cli *clientImpl) DeleteInvite(ctx context.Context, id string) error {
 		_, err := client.DeleteInvite(ctx, &coordinatorv1.DeleteInviteRequest{Id: id}, opts...)
 		return err
 	})
-	switch code := status.Code(err); {
-	case code == codes.NotFound:
+	code := status.Code(err)
+	if code == codes.NotFound {
 		// The invite was listed a moment ago, so it is gone.
 		return nil
-	case code == codes.Unavailable || code == codes.DeadlineExceeded:
+	}
+	if code == codes.Unavailable || code == codes.DeadlineExceeded {
 		// No coordinator answered. The invites show whether one deleted it.
 		if listed, listErr := cli.inviteListed(ctx, id); listErr == nil && !listed {
 			return nil
