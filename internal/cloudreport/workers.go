@@ -41,6 +41,11 @@ type workerHealth struct {
 	BusyPollers     int32             `json:"busy_pollers"`
 	LastHeartbeatAt string            `json:"last_heartbeat_at"`
 	Resources       *resources        `json:"resources,omitempty"`
+	// Connection is how the worker's heartbeat reaches the coordinator, left
+	// out while the coordinator does not record it. PlaintextReason says why
+	// a plaintext worker uses h2c. Both take the values of GET /workers.
+	Connection      dispatch.WorkerConnection `json:"connection,omitempty"`
+	PlaintextReason string                    `json:"plaintext_reason,omitempty"`
 }
 
 // readWorkers returns the workers whose last heartbeat is fresh, by ID and at
@@ -71,7 +76,8 @@ func (r *Reporter) readWorkers(ctx context.Context, now time.Time, services []se
 	size := 0
 	for _, rec := range live[:min(total, maxWorkers)] {
 		w := workerHealth{ID: rec.WorkerID, Host: rec.Host, Labels: rec.Labels,
-			LastHeartbeatAt: formatTime(rec.LastHeartbeatTime()), Resources: workerResourcesOf(rec.Machine)}
+			LastHeartbeatAt: formatTime(rec.LastHeartbeatTime()), Resources: workerResourcesOf(rec.Machine),
+			Connection: rec.Connection, PlaintextReason: rec.PlaintextReason}
 		if s := rec.Stats; s != nil {
 			w.TotalPollers, w.BusyPollers = s.TotalPollers, s.BusyPollers
 		}
