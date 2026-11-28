@@ -590,10 +590,27 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 	wg.Wait()
 	// When the deadline and the end of the last node are ready together, the
 	// select above may take the node and end the loop without the deadline.
-	// A run whose nodes all succeeded keeps that outcome.
-	if !r.isSucceed(plan) {
+	// Only a run the deadline could have stopped records it: one that
+	// succeeded, waits for a person, or waits for a step retry keeps its
+	// outcome.
+	if r.stoppedEarly(plan) {
 		r.recordDeadline(ctx)
 	}
+}
+
+// stoppedEarly reports whether the run was stopped before its end: it was
+// canceled, or a node ended aborted or never started.
+func (r *Runner) stoppedEarly(plan *Plan) bool {
+	if r.isCanceled() {
+		return true
+	}
+	for _, node := range plan.Nodes() {
+		switch node.State().Status {
+		case ir.NodeAborted, ir.NodeNotStarted:
+			return true
+		}
+	}
+	return false
 }
 
 // recordDeadline records the passed deadline of ctx as the run's error,

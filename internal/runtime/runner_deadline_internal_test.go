@@ -17,9 +17,10 @@ import (
 
 // The run loop can end on the last node without taking its context's
 // deadline, as when the agent stops a run on that deadline and the node ends
-// with it. The run still reports the deadline, unless all its nodes
-// succeeded. Each case starts the loop with the deadline passed and the node
-// done, so the loop never selects.
+// with it. The run still reports the deadline when the deadline could have
+// stopped it, and keeps the outcome of a run that succeeded or waits. Each
+// case starts the loop with the deadline passed and the node in its final
+// state, so the loop never selects.
 func TestRunGraphLoopDeadlineAfterLastNode(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -29,6 +30,8 @@ func TestRunGraphLoopDeadlineAfterLastNode(t *testing.T) {
 	}{
 		{name: "AbortedNode", nodeStatus: ir.NodeAborted, wantErr: context.DeadlineExceeded, wantStatus: ir.Aborted},
 		{name: "SucceededNode", nodeStatus: ir.NodeSucceeded, wantStatus: ir.Succeeded},
+		{name: "WaitingNode", nodeStatus: ir.NodeWaiting, wantStatus: ir.Waiting},
+		{name: "RetryingNode", nodeStatus: ir.NodeRetrying, wantStatus: ir.Queued},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			plan, err := NewPlan(ir.Step{Name: "1"})
