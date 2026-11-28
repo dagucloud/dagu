@@ -247,30 +247,38 @@ func TestConnectionInterruptCancels(t *testing.T) {
 	c, out := testConnectionCLI(client, input, nil)
 	ctx, interrupt := context.WithCancel(context.Background())
 	defer interrupt()
+	asked := make(chan bool, 1)
 	go func() {
+		// The deadline only unblocks the command when the question never
+		// shows.
 		deadline := time.Now().Add(5 * time.Second)
 		for !strings.Contains(out.String(), "Is this the right account?") && time.Now().Before(deadline) {
 			time.Sleep(10 * time.Millisecond)
 		}
+		asked <- strings.Contains(out.String(), "Is this the right account?")
 		interrupt()
 	}()
 
 	err := c.addGoogle(ctx, googleAddRequest{name: "work", services: testServices, appRef: "app-1", noBrowser: true})
 
+	require.True(t, <-asked, out.String())
 	require.ErrorIs(t, err, context.Canceled)
+	assert.ErrorContains(t, err, "Connection work stays pending")
 	assert.Contains(t, fake.sent(), "DELETE /connections/work/authorization?session=s1&workspace=ops")
 	assert.NotContains(t, fake.sent(), "POST /connections/work/authorization/confirm?workspace=ops")
 }
 
 // A reconnect on this host listens on 127.0.0.1 for the browser's redirect
-// and expects the account the connection holds. The listener refuses a
-// request without the session's state and keeps waiting. A session that
-// the expected account confirms at once is checked with a test, and shows
-// no duplicates warning (Spec 107 §Confirmation).
+// and expects the account the connection holds. A session that the
+// expected account confirms at once is checked with a test, shows no
+// duplicates warning (Spec 107 §Confirmation), and shows the refresh
+// token's limit that the connection reports.
 func TestConnectionReconnectLoopback(t *testing.T) {
 	t.Parallel()
+	conn := testConnection(api.ConnectionStatusNeedsReconnect, "ops@example.com")
+	conn.RefreshTokenExpiresAt = new(time.Date(2027, 1, 8, 9, 0, 0, 0, time.UTC))
 	fake, client := newFakeConnectionAPI(t, map[string]any{
-		"GET /connections/work":                         testConnection(api.ConnectionStatusNeedsReconnect, "ops@example.com"),
+		"GET /connections/work":                         conn,
 		"GET /oauth-apps/app-1":                         testApp(api.OAuthClientTypeDesktop),
 		"GET /connection-providers":                     testProviders,
 		"POST /connections/work/authorization/complete": nil,
@@ -284,36 +292,21 @@ func TestConnectionReconnectLoopback(t *testing.T) {
 	fake.set("GET /connections/work/authorization", completedSession{fake: fake, status: api.ConnectionAuthorization{
 		Phase: api.ConnectionAuthorizationPhaseConnected, Duplicates: &[]string{"work-google"},
 	}})
-	var mu sync.Mutex
-	var strayStatus int
-	var browserPage string
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	pages := make(chan string, 1)
 	browser := func(raw string) error {
 		u, err := url.Parse(raw)
 		if err != nil {
 			return err
 		}
-		listener := u.Query().Get("redirect_uri")
-		go func() {
-			if resp, err := http.Get(listener + "?code=stray&state=other"); err == nil { //nolint:gosec,noctx // the CLI's own listener
-				_ = resp.Body.Close()
-				mu.Lock()
-				strayStatus = resp.StatusCode
-				mu.Unlock()
-			}
-			resp, err := http.Get(listener + "?code=" + url.QueryEscape(fakeCode) + "&state=" + fakeState) //nolint:gosec,noctx // the CLI's own listener
-			if err == nil {
-				page, _ := io.ReadAll(resp.Body)
-				_ = resp.Body.Close()
-				mu.Lock()
-				browserPage = string(page)
-				mu.Unlock()
-			}
-		}()
+		redirect := u.Query().Get("redirect_uri") + "?code=" + url.QueryEscape(fakeCode) + "&state=" + fakeState
+		go func() { pages <- getPage(ctx, redirect) }()
 		return nil
 	}
 	c, out := testConnectionCLI(client, strings.NewReader(""), browser)
 
-	err := c.reconnect(context.Background(), "work", false)
+	err := c.reconnect(ctx, "work", false)
 
 	require.NoError(t, err, out.String())
 	var start api.StartConnectionAuthorizationRequest
@@ -329,14 +322,7 @@ func TestConnectionReconnectLoopback(t *testing.T) {
 	fake.body(t, "POST /connections/work/authorization/complete", &complete)
 	assert.Contains(t, *complete.RedirectUrl, "code="+url.QueryEscape(fakeCode))
 	assert.Contains(t, fake.sent(), "POST /connections/work/test?workspace=ops")
-	assert.Eventually(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return strings.Contains(browserPage, "Signed in")
-	}, 5*time.Second, 10*time.Millisecond)
-	mu.Lock()
-	assert.Equal(t, http.StatusBadRequest, strayStatus)
-	mu.Unlock()
+	assert.Contains(t, <-pages, "Signed in")
 
 	printed := out.String()
 	assert.Contains(t, printed, "Opening the sign-in page in your browser")
@@ -345,7 +331,92 @@ func TestConnectionReconnectLoopback(t *testing.T) {
 	assert.NotContains(t, printed, "Is this the right account?")
 	assert.NotContains(t, printed, "Warning")
 	assert.Contains(t, printed, "gmail  read  ok  (2 MCP tools)")
+	assert.Contains(t, printed, "The refresh token expires "+formatConnectionTime(conn.RefreshTokenExpiresAt)+". Reconnect before then.")
 	assert.NotContains(t, printed, fakeCode)
+}
+
+// getPage returns the status and body that a GET of raw answers, or the
+// error.
+func getPage(ctx context.Context, raw string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
+	if err != nil {
+		return err.Error()
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err.Error()
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	return strconv.Itoa(resp.StatusCode) + " " + string(body)
+}
+
+// The loopback listener hands on only the redirect that carries the
+// session's state, and only once: a stray request gets 400 and a repeated
+// one 409, while the first still gets its result.
+func TestLoopbackListenerTakesOneRedirect(t *testing.T) {
+	t.Parallel()
+	l, err := listenLoopback()
+	require.NoError(t, err)
+	t.Cleanup(l.close)
+	l.expect(fakeState)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	redirect := l.uri + "?code=x&state=" + fakeState
+
+	assert.True(t, strings.HasPrefix(getPage(ctx, l.uri+"?code=x&state=other"), "400 "))
+	first := make(chan string, 1)
+	go func() { first <- getPage(ctx, redirect) }()
+	var r consentRedirect
+	select {
+	case r = <-l.redirects:
+	case <-ctx.Done():
+		t.Fatal("the redirect never reached the connect flow")
+	}
+	assert.Equal(t, redirect, r.url)
+	assert.True(t, strings.HasPrefix(getPage(ctx, redirect), "409 "))
+	r.done(nil)
+	assert.Contains(t, <-first, "200 Signed in")
+}
+
+// When a sign-in fails after the redirect, the CLI says that the previous
+// tokens stay only when the cancel shows the session was still open. A
+// session the server already ended may have been confirmed, and a cancel
+// that does not arrive leaves the session to expire.
+func TestConnectionUnsettledOutcome(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		cancel  any
+		want    string
+		notWant string
+	}{
+		{name: "Cancelled", cancel: nil, want: "Connection work stays pending"},
+		{name: "Ended", cancel: http.StatusConflict, want: "The sign-in may have completed", notWant: "stays pending"},
+		{name: "Unreachable", cancel: http.StatusBadGateway, want: "The session could not be cancelled", notWant: "stays pending"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			replies := pasteReplies()
+			// The session expires soon, so failed reads stop being retried.
+			start := testPasteStart
+			start.ExpiresAt = time.Now().Add(2 * time.Second)
+			replies["POST /connections/work/authorization"] = start
+			replies["GET /connections/work/authorization"] = http.StatusInternalServerError
+			replies["DELETE /connections/work/authorization"] = tt.cancel
+			fake, client := newFakeConnectionAPI(t, replies)
+			c, _ := testConnectionCLI(client, strings.NewReader("http://127.0.0.1:1/oauth/callback?code=x&state=y\n"), nil)
+
+			err := c.addGoogle(context.Background(), googleAddRequest{name: "work", services: testServices, appRef: "app-1", noBrowser: true})
+
+			require.ErrorContains(t, err, tt.want)
+			if tt.notWant != "" {
+				assert.NotContains(t, err.Error(), tt.notWant)
+			}
+			assert.Contains(t, fake.sent(), "DELETE /connections/work/authorization?session=s1&workspace=ops")
+		})
+	}
 }
 
 // A web client's session takes the mode the server picks.

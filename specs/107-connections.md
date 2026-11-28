@@ -1251,8 +1251,11 @@ dagu connection apps remove APP
   loopback mode needs a browser on the CLI's host. Another client takes
   the server's choice.
 - Until the account is confirmed, an interrupt, a declined account, or a
-  failure that ends the CLI's wait cancels the session, so its tokens are
-  discarded at once.
+  failure that ends the CLI's wait cancels the session. The server
+  discards its tokens when the cancel arrives, and otherwise when the
+  session expires. The CLI says that the previous tokens stay only when
+  the cancel shows the session was still open, since a session that
+  already ended may have been confirmed.
 - `remove` asks before it removes, and without a terminal needs `--yes`.
 - `--client-file` registers an app and needs `admin`. A manager names an
   existing app with `--app`.
