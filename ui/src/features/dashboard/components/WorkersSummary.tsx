@@ -11,6 +11,7 @@ import {
   WorkerRemovalProgress,
   WorkerRemoveAction,
 } from '../../workers/components/WorkerRemoval';
+import { AddWorker } from '../../workers/add-worker/AddWorker';
 import { useRemoteNode } from '../../../contexts/RemoteNodeContext';
 import { buildRunningTaskURL } from '../../dag-runs/lib/dagRunUrls';
 import { useOpenPage } from '../../dag-runs/lib/useOpenPage';
@@ -122,6 +123,9 @@ function WorkersSummary({ workers, isLoading, errors }: WorkersSummaryProps) {
               {ts('{count} on an older version', { count: metrics.behind })}
             </span>
           )}
+        </div>
+        <div className="ml-auto shrink-0">
+          <AddWorker workers={workers} refreshFailed={!!errors?.length} />
         </div>
       </div>
 

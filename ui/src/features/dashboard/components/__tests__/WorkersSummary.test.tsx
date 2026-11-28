@@ -20,6 +20,9 @@ vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: () => false }));
 
 type Worker = components['schemas']['Worker'];
 
+// The list renders without a signed-in user; Add worker is for admins only.
+vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: () => false }));
+
 function worker(
   labels: Record<string, string>,
   versionDrift = WorkerVersionDrift.none
