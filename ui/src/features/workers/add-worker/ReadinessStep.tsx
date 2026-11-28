@@ -17,8 +17,7 @@ type Report = components['schemas']['JoinReadinessReport'];
 const ALL_INTERFACES = '0.0.0.0';
 const DEFAULT_HOST_VARIABLE = 'DAGU_COORDINATOR_HOST';
 
-const CONFIG_LINES = `coordinator:\n  host: ${ALL_INTERFACES}`;
-const CHART_VALUES = `extraEnv:\n  - name: ${DEFAULT_HOST_VARIABLE}\n    value: "${ALL_INTERFACES}"`;
+const CHART_VALUES = 'deploymentMode: distributed';
 
 /** Whether every coordinator reports that a worker on another host can join. */
 export function allReady(coordinators: CoordinatorReadiness[]): boolean {
@@ -93,9 +92,9 @@ function ReportBody({ report }: { report: Report }) {
   );
 }
 
-// The listen change for how Dagu was started. In a container, the port
-// must be published too, and a flag or a file that sets coordinator.host
-// wins over the variable, so the change names it.
+// The listen change for how Dagu was started. coordinator.host comes from
+// a flag, else a variable, else a config file, so a container's -e wins
+// over a file but not over a flag.
 function ListenChange({ report }: { report: Report }) {
   const port = String(report.port);
   const source = report.hostSource;
@@ -108,11 +107,13 @@ function ListenChange({ report }: { report: Report }) {
     </p>
   );
   if (report.environment === HostEnvironment.kubernetes) {
+    // The chart's coordinator Deployment sets DAGU_COORDINATOR_HOST to
+    // 0.0.0.0 in distributed mode.
     return (
       <>
         {listens}
         <p>
-          <I18nText text="Set coordinator.host to 0.0.0.0 through the chart's values, then upgrade the release:" />
+          <I18nText text="Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:" />
         </p>
         <CommandBlock text={CHART_VALUES} label="Copy the values" />
       </>
@@ -120,23 +121,21 @@ function ListenChange({ report }: { report: Report }) {
   }
   const sourceChange = <SourceChange report={report} />;
   if (report.environment === HostEnvironment.container) {
+    const flag = source?.kind === ConfigSourceKind.flag;
     const variable =
       source?.kind === ConfigSourceKind.env && source.name
         ? source.name
         : DEFAULT_HOST_VARIABLE;
-    const setsHost =
-      source?.kind === ConfigSourceKind.flag ||
-      source?.kind === ConfigSourceKind.file;
     return (
       <>
         {listens}
-        {setsHost && sourceChange}
+        {flag && sourceChange}
         <p>
           <I18nText text="Recreate the container with these options:" />
         </p>
         <CommandBlock
           text={
-            setsHost
+            flag
               ? `-p ${port}:${port}`
               : `-p ${port}:${port} -e ${variable}=${ALL_INTERFACES}`
           }
@@ -168,7 +167,7 @@ function SourceChange({ report }: { report: Report }) {
             text={
               source.kind === ConfigSourceKind.env
                 ? 'The variable {name} sets coordinator.host. Set it to 0.0.0.0 where Dagu starts:'
-                : 'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts, or remove it:'
+                : 'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:'
             }
             values={{ name: source.name }}
           />
@@ -180,31 +179,20 @@ function SourceChange({ report }: { report: Report }) {
       </>
     );
   }
-  // The file that set the value wins over the default config file, as
-  // admin.yaml does over config.yaml.
-  if (source?.kind === ConfigSourceKind.file && source.name) {
-    return (
-      <>
-        <p>
-          <I18nText
-            text="{file} sets coordinator.host. Change it there to 0.0.0.0:"
-            values={{ file: source.name }}
-          />
-        </p>
-        <CommandBlock text={CONFIG_LINES} label="Copy the lines" />
-      </>
-    );
-  }
+  // The file that set the value, such as admin.yaml over config.yaml, else
+  // the config file Dagu reads. The key goes into its coordinator block, so
+  // nothing is offered to append.
+  const file =
+    source?.kind === ConfigSourceKind.file && source.name
+      ? source.name
+      : report.configFile;
   return (
-    <>
-      <p>
-        <I18nText
-          text="Add these lines to {file}:"
-          values={{ file: report.configFile }}
-        />
-      </p>
-      <CommandBlock text={CONFIG_LINES} label="Copy the lines" />
-    </>
+    <p>
+      <I18nText
+        text="In {file}, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none."
+        values={{ file }}
+      />
+    </p>
   );
 }
 

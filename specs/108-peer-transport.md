@@ -1255,19 +1255,20 @@ and prints the message:
 - Step 1 shows each coordinator whose join readiness is not ready. `<port>`
   below is the reported `port`:
   - While `loopbackOnly`, the change for how Dagu was started:
-    - in Kubernetes: set `coordinator.host` to `0.0.0.0` through the
-      chart's values
+    - in Kubernetes: the chart's `deploymentMode: distributed`, whose
+      coordinator Deployment sets `DAGU_COORDINATOR_HOST` to `0.0.0.0`,
+      and no `DAGU_COORDINATOR_HOST` in `extraEnv`
     - in a container: recreate it with `-p <port>:<port>`, and with
       `-e <variable>=0.0.0.0`, where `<variable>` is the `hostSource`
-      variable or `DAGU_COORDINATOR_HOST`. When a flag or a file sets the
-      host, which wins over a variable, the change for that flag or file
-      replaces `-e`
+      variable or `DAGU_COORDINATOR_HOST`. A flag wins over a variable, and
+      a variable over a config file, so for `hostSource` `flag` the change
+      to that flag replaces `-e`
     - for `hostSource` `env` or `flag`: that variable or flag with the
-      value `0.0.0.0`, or for a flag, its removal
-    - for `hostSource` `file`: that file, whose `coordinator.host` to change
-      to `0.0.0.0`, since it may be one applied after `configFile`
-    - otherwise: `configFile` and the lines `coordinator:` and
-      `  host: 0.0.0.0` to add to it
+      value `0.0.0.0`
+    - otherwise: the file `hostSource` names, else `configFile`, and to set
+      `host: 0.0.0.0` inside its `coordinator:` block, adding the block if
+      the file has none. It offers no block to append, which could repeat
+      the key
   - Without `builtinTLS`, that invites need the built-in CA, and for
     `builtinTLSReason` `ownCertificates`, that the coordinator uses
     `peer.cert_file` and `peer.key_file`, or for `caUnavailable`, that it
@@ -1293,16 +1294,16 @@ and prints the message:
   container, where it asks for the address of the machine that runs the
   container. It never fills in a host name, a container ID, or the
   browser's host.
-- The port sits beside the address and starts with the port of
-  `lastInviteAddress`, else the `port` of the coordinator whose `advertise`
-  or `addresses` it uses, since a published port or a `NodePort` can differ
-  from it. Each suggestion sets both. A new reading resets the address and
-  port while the admin has not changed them.
+- The field holds `host:port`. Its starting value and each suggestion pass
+  the rule below, and an advertised address takes the `port` of the
+  coordinator that reported it. A new reading resets the field while the
+  admin has not changed it.
 - Step 2 refuses an address that a worker on another host cannot dial: one
   that is not `host:port` with a port from 1 to 65535, or whose host is
   not one IP address without a zone or one DNS name, or is `0.0.0.0`,
-  `[::]`, a loopback or link-local address, `localhost`, or a container ID
-  (12 or 64 lowercase hexadecimal characters). `POST /api/v1/workers/invites`
+  `[::]`, a loopback, link-local, multicast, or broadcast address,
+  `localhost`, or a container ID (12 or 64 lowercase hexadecimal
+  characters). `POST /api/v1/workers/invites`
   checks only the `host:port` form, since automation may reach the
   coordinator through a tunnel.
 - Step 3 shows only after steps 1 and 2. Its tab sets the invite kind:

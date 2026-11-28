@@ -106,15 +106,14 @@ function step(title: string) {
   return within(screen.getByRole('region', { name: title }));
 }
 
-function typeAddress(host: string, port?: string) {
-  fireEvent.change(screen.getByLabelText('Address'), {
-    target: { value: host },
+const ADDRESS = 'Address and port';
+// Shaped like an invite, as an admin may paste one into the wrong field.
+const PASTED_INVITE = `dagu1.${'A'.repeat(43)}.${'B'.repeat(43)}`;
+
+function typeAddress(address: string) {
+  fireEvent.change(screen.getByLabelText(ADDRESS), {
+    target: { value: address },
   });
-  if (port !== undefined) {
-    fireEvent.change(screen.getByLabelText('Port'), {
-      target: { value: port },
-    });
-  }
 }
 
 const writeText = vi.fn();
@@ -150,7 +149,7 @@ describe('AddWorker', () => {
     expect(
       step('Accept workers from other hosts').getByText('Checking...')
     ).toBeInTheDocument();
-    expect(screen.queryByLabelText('Address')).toBeNull();
+    expect(screen.queryByLabelText(ADDRESS)).toBeNull();
     expect(api.GET).toHaveBeenCalledWith('/workers/join-readiness', {
       params: { query: { remoteNode: 'local' } },
     });
@@ -162,10 +161,9 @@ describe('AddWorker', () => {
     expect(
       step('Accept workers from other hosts').getByText('Ready')
     ).toBeInTheDocument();
-    expect(screen.getByLabelText('Address')).toHaveValue('192.168.1.30');
-    expect(screen.getByLabelText('Port')).toHaveValue('50055');
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue('192.168.1.30:50055');
     fireEvent.click(screen.getByRole('button', { name: '10.0.0.5:50055' }));
-    expect(screen.getByLabelText('Address')).toHaveValue('10.0.0.5');
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue('10.0.0.5:50055');
   });
 
   // Each suggestion carries the port of the coordinator that reported it.
@@ -183,8 +181,7 @@ describe('AddWorker', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '10.0.0.9:51055' }));
 
-    expect(screen.getByLabelText('Address')).toHaveValue('10.0.0.9');
-    expect(screen.getByLabelText('Port')).toHaveValue('51055');
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue('10.0.0.9:51055');
   });
 
   // A restart can change the port; a default the admin did not touch
@@ -193,16 +190,20 @@ describe('AddWorker', () => {
     const { rerender } = await open(
       loopback({ advertise: 'coord.example.com' })
     );
-    expect(screen.getByLabelText('Port')).toHaveValue('50055');
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(
+      'coord.example.com:50055'
+    );
 
     api.GET.mockResolvedValue(
       answer(200, readiness({ advertise: 'coord.example.com', port: 50155 }))
     );
     fireEvent.focus(window);
     await settle();
-    expect(screen.getByLabelText('Port')).toHaveValue('50155');
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(
+      'coord.example.com:50155'
+    );
 
-    typeAddress('192.168.1.40');
+    typeAddress('192.168.1.40:50055');
     api.GET.mockResolvedValue(
       answer(200, readiness({ advertise: 'coord.example.com', port: 50255 }))
     );
@@ -210,13 +211,14 @@ describe('AddWorker', () => {
     rerender(view(false));
     await settle();
     expect(api.GET).toHaveBeenCalledTimes(3);
-    expect(screen.getByLabelText('Address')).toHaveValue('192.168.1.40');
-    expect(screen.getByLabelText('Port')).toHaveValue('50155');
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue('192.168.1.40:50055');
   });
 
   it('starts with an explicit advertise, else empty and never the browser host', async () => {
     await open(readiness({ advertise: 'coord.example.com' }));
-    expect(screen.getByLabelText('Address')).toHaveValue('coord.example.com');
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(
+      'coord.example.com:50055'
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     await settle();
 
@@ -225,7 +227,7 @@ describe('AddWorker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add worker' }));
     await settle();
     expect(window.location.host).not.toBe('');
-    expect(screen.getByLabelText('Address')).toHaveValue('');
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue('');
     expect(
       step('Worker').getByText('Shown after steps 1 and 2')
     ).toBeInTheDocument();
@@ -244,10 +246,29 @@ describe('AddWorker', () => {
     );
     expect(
       screen.getByText(
-        '/home/me/.config/dagu/admin.yaml sets coordinator.host. Change it there to 0.0.0.0:'
+        'In /home/me/.config/dagu/admin.yaml, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.'
       )
     ).toBeInTheDocument();
-    expect(screen.queryByText(/config\.yaml:$/)).toBeNull();
+    // A block to append could repeat the file's coordinator key.
+    expect(screen.queryByText(/coordinator:/, { selector: 'pre' })).toBeNull();
+  });
+
+  // A variable wins over a config file, so a container's -e still works.
+  it('sets the variable for a container whose file pins loopback', async () => {
+    await open(
+      loopback({
+        environment: HostEnvironment.container,
+        hostSource: {
+          kind: ConfigSourceKind.file,
+          name: '/etc/dagu/dagu.yaml',
+        },
+      })
+    );
+    expect(
+      screen.getByText('-p 50055:50055 -e DAGU_COORDINATOR_HOST=0.0.0.0', {
+        selector: 'pre',
+      })
+    ).toBeInTheDocument();
   });
 
   // A flag wins over the variable, so a container started with one is told
@@ -267,7 +288,7 @@ describe('AddWorker', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows the config file lines for a coordinator on loopback only', async () => {
+  it('says where to set the host for a coordinator on loopback only', async () => {
     await open(loopback());
 
     const step1 = step('Accept workers from other hosts');
@@ -278,11 +299,10 @@ describe('AddWorker', () => {
       )
     ).toBeInTheDocument();
     expect(
-      step1.getByText('Add these lines to /home/me/.config/dagu/config.yaml:')
+      step1.getByText(
+        /^In \/home\/me\/\.config\/dagu\/config\.yaml, set host to 0\.0\.0\.0/
+      )
     ).toBeInTheDocument();
-    fireEvent.click(step1.getByRole('button', { name: 'Copy the lines' }));
-    await settle();
-    expect(writeText).toHaveBeenCalledWith('coordinator:\n  host: 0.0.0.0');
     expect(
       step('Worker').getByText('Shown after steps 1 and 2')
     ).toBeInTheDocument();
@@ -328,10 +348,11 @@ describe('AddWorker', () => {
   it('states the Service requirement in Kubernetes', async () => {
     await open(loopback({ environment: HostEnvironment.kubernetes }));
     expect(
-      screen.getByText(
-        /Set coordinator.host to 0.0.0.0 through the chart's values/
-      )
+      screen.getByText(/Run the chart in distributed mode/)
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy the values' }));
+    await settle();
+    expect(writeText).toHaveBeenCalledWith('deploymentMode: distributed');
     expect(
       screen.getByText(/type LoadBalancer or NodePort/)
     ).toBeInTheDocument();
@@ -432,6 +453,46 @@ describe('AddWorker', () => {
 
   // Check again keeps the focus while it checks, hands it to the address
   // when it leaves, and the step's state is announced.
+  // A read the admin did not start can remove Check again; the focus it
+  // held moves to the address field, and a focus elsewhere stays.
+  it('moves a focus that Check again held when a background read removes it', async () => {
+    await open(loopback());
+    screen.getByRole('button', { name: 'Check again' }).focus();
+    api.GET.mockResolvedValue(answer(200, readiness()));
+    fireEvent.focus(window);
+    await settle();
+    expect(document.activeElement).toBe(screen.getByLabelText(ADDRESS));
+  });
+
+  it('leaves the focus where the admin put it on a new reading', async () => {
+    const { rerender } = await open(readiness());
+    const field = screen.getByLabelText(ADDRESS);
+    field.focus();
+    rerender(view(true));
+    rerender(view(false));
+    await settle();
+    expect(document.activeElement).toBe(field);
+  });
+
+  // Only an address that passes the rule is offered or filled in.
+  it('skips an unusable last invite address and suggestion', async () => {
+    await open(
+      readiness(
+        {
+          advertise: 'coord.example.com',
+          addresses: ['192.168.1.20', '169.254.1.1'],
+        },
+        '127.0.0.1:50055'
+      )
+    );
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(
+      'coord.example.com:50055'
+    );
+    expect(
+      screen.queryByRole('button', { name: '169.254.1.1:50055' })
+    ).toBeNull();
+  });
+
   it('keeps the focus on Check again and announces Ready', async () => {
     await open(loopback());
     const check = screen.getByRole('button', { name: 'Check again' });
@@ -450,7 +511,7 @@ describe('AddWorker', () => {
     expect(
       step('Accept workers from other hosts').getByRole('status')
     ).toHaveTextContent('Ready');
-    expect(document.activeElement).toBe(screen.getByLabelText('Address'));
+    expect(document.activeElement).toBe(screen.getByLabelText(ADDRESS));
   });
 
   // The workers refresh fails while Dagu restarts; its recovery is the only
@@ -482,64 +543,27 @@ describe('AddWorker', () => {
     expect(api.GET).toHaveBeenCalledTimes(2);
   });
 
-  // The cases of the MCP action's TestAddWorkerRefusesAddress, with the
-  // host and the port in their own fields.
+  // The shared vectors in vectors.test.ts hold every address case; these
+  // show how the dialog reacts to a refused and an accepted one.
   it.each([
-    ['0.0.0.0', '', '0.0.0.0 is a listen address'],
-    ['[::]', '', ':: is a listen address'],
-    ['127.0.0.1', '', '127.0.0.1 reaches only the machine it runs on'],
-    ['[::1]', '', '::1 reaches only the machine it runs on'],
-    ['localhost', '', 'localhost reaches only the machine it runs on'],
-    ['192.168.1.20', '0', 'Enter a port from 1 to 65535.'],
-    ['3f4e5a6b7c8d', '', '3f4e5a6b7c8d looks like a container ID'],
-    ['[::1%lo0]', '', '::1%lo0 is not one host'],
-    ['[fe80::1%eth0]', '', 'fe80::1%eth0 is not one host'],
-    ['[fe80::1]', '', 'fe80::1 is a link-local address'],
-    ['169.254.10.20', '', '169.254.10.20 is a link-local address'],
-    ['host1,host2', '', 'host1,host2 is not one host'],
-    ['$(DAGU_WORKER_INVITE)', '', '$(DAGU_WORKER_INVITE) is not one host'],
-    ['::ffff:127.0.0.1', '', '::ffff:127.0.0.1 reaches only the machine'],
-    ['bad:name', '', 'bad:name is not one host'],
-    ['worker..example', '', 'worker..example is not one host'],
-    ['http://192.168.1.20', '', 'is not one host'],
-    ['0.0.0.0:50055', '', '0.0.0.0 is a listen address'],
-    ['192.168.1.20:50055', '', 'Enter the port in the Port field.'],
-    ['localhost.', '', 'localhost. reaches only the machine it runs on'],
-    ['192.168.1.20', '70000', 'Enter a port from 1 to 65535.'],
-  ])('refuses the address %s %s', async (host, port, problem) => {
+    ['0.0.0.0:50055', '0.0.0.0 is a listen address'],
+    ['224.0.0.1:50055', '224.0.0.1 is a multicast or broadcast address'],
+    ['255.255.255.255:50055', 'is a multicast or broadcast address'],
+    ['[ff02::1]:50055', 'ff02::1 is a multicast or broadcast address'],
+    ['192.168.1.20:70000', 'Enter a port from 1 to 65535.'],
+    ['192.168.1.20', 'Enter host:port, such as 192.168.1.20:50055.'],
+    [`${PASTED_INVITE}:50055`, 'The address holds an invite.'],
+  ])('refuses the address %s', async (address, problem) => {
     await open(readiness());
-    typeAddress(host, port || undefined);
+    typeAddress(address);
 
-    expect(screen.getByText(problem, { exact: false })).toBeInTheDocument();
+    const field = screen.getByLabelText(ADDRESS);
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveAccessibleDescription(expect.stringContaining(problem));
+    expect(screen.queryByText(/AAAAAAAAAA/)).toBeNull();
     expect(
       step('Worker').getByText('Shown after steps 1 and 2')
     ).toBeInTheDocument();
-  });
-
-  it('marks the field that is wrong and links it to the problem', async () => {
-    await open(readiness());
-    typeAddress('192.168.1.20', '70000');
-
-    const port = screen.getByLabelText('Port');
-    expect(port).toHaveAttribute('aria-invalid', 'true');
-    expect(port).toHaveAccessibleDescription('Enter a port from 1 to 65535.');
-    expect(screen.getByLabelText('Address')).not.toHaveAttribute(
-      'aria-invalid'
-    );
-  });
-
-  it.each([
-    '192.168.1.20',
-    'fd00::20',
-    '[fd00::20]',
-    'coord.example.com',
-    'laptop',
-    'worker_1.example',
-  ])('accepts the address %s and moves on to step 3', async (host) => {
-    await open(readiness());
-    typeAddress(host, '30055');
-
-    expect(screen.queryByText('Shown after steps 1 and 2')).toBeNull();
   });
 
   it('requires the address once it is cleared', async () => {

@@ -7,72 +7,49 @@ type JoinReadiness = components['schemas']['WorkerJoinReadinessResponse'];
 
 export const DEFAULT_COORDINATOR_PORT = 50055;
 
-/** The address a worker dials, as the host and port fields hold it. */
-export interface WorkerAddress {
-  host: string;
-  port: string;
-}
-
-/** A problem with the address fields: the field, a message and its values. */
+/** A problem with the address: a static message and its values. */
 export interface AddressProblem {
-  field: 'host' | 'port';
   text: string;
   values?: Record<string, string>;
 }
 
-// The rules of Spec 108 §Add Worker, which the MCP action applies too: one
-// IP address without a zone, or one DNS name.
+// The rule of Spec 108 §Add Worker, which the MCP action applies with Go's
+// net.SplitHostPort and net.ParseIP; the shared vectors in __fixtures__
+// hold both to it. The host is one IP address without a zone, or one DNS
+// name.
 const DNS_NAME =
   /^([A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9])?\.?$/;
 const IPV4_OCTET = '(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)';
 const IPV4 = new RegExp(`^${IPV4_OCTET}(\\.${IPV4_OCTET}){3}$`);
 // A short or full container ID, as a container's host name.
 const CONTAINER_ID = /^[0-9a-f]{12}([0-9a-f]{52})?$/;
-// "host:port" typed into the host field, bracketed or not.
-const HOST_WITH_PORT = /^(?:\[([^\]]+)\]|([^:[\]]+)):(\d*)$/;
+// An invite anywhere in a text: dagu1.<pin>.<secret>.
+const INVITE = /dagu1\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}/;
 
-/** Splits "host:port" or "[v6]:port". A value without a port keeps it empty. */
-export function splitAddress(address: string): WorkerAddress {
-  const bracketed = /^\[([^\]]+)\](?::(\d*))?$/.exec(address);
-  if (bracketed) {
-    return { host: bracketed[1] ?? '', port: bracketed[2] ?? '' };
-  }
-  const colon = address.lastIndexOf(':');
-  if (colon < 0 || address.indexOf(':') !== colon) {
-    return { host: address, port: '' };
-  }
-  return { host: address.slice(0, colon), port: address.slice(colon + 1) };
+/** Whether a text holds an invite, which belongs only in the commands. */
+export function holdsInvite(text: string): boolean {
+  return INVITE.test(text);
 }
 
-/** Joins a host and a port, bracketing an IPv6 address. */
-export function joinAddress({ host, port }: WorkerAddress): string {
-  const h = host.trim().replace(/^\[(.*)\]$/, '$1');
-  return `${h.includes(':') ? `[${h}]` : h}:${port.trim()}`;
+/** Joins a host and a port as Go's net.JoinHostPort does. */
+export function joinHostPort(host: string, port: number | string): string {
+  return `${host.includes(':') ? `[${host}]` : host}:${port}`;
 }
 
 /**
  * The address step 2 starts with: the last invite's address, else an
- * explicit coordinator.advertise with that coordinator's port, else an
- * empty host and the first coordinator's port. Nothing here comes from the
- * browser's location.
+ * explicit coordinator.advertise with that coordinator's port, else empty.
+ * Only an address that passes addressProblem counts, and nothing here comes
+ * from the browser's location.
  */
-export function initialAddress(readiness: JoinReadiness): WorkerAddress {
-  const reports = readiness.coordinators.flatMap((c) =>
-    c.report ? [c.report] : []
-  );
-  const port = String(reports[0]?.port ?? DEFAULT_COORDINATOR_PORT);
-  if (readiness.lastInviteAddress) {
-    const last = splitAddress(readiness.lastInviteAddress);
-    return { host: last.host, port: last.port || port };
-  }
-  const advertised = reports.find((r) => r.advertise);
-  if (advertised?.advertise) {
-    return {
-      host: splitAddress(advertised.advertise).host,
-      port: String(advertised.port),
-    };
-  }
-  return { host: '', port };
+export function initialAddress(readiness: JoinReadiness): string {
+  const candidates = [
+    readiness.lastInviteAddress ?? '',
+    ...readiness.coordinators.flatMap(({ report }) =>
+      report?.advertise ? [joinHostPort(report.advertise, report.port)] : []
+    ),
+  ];
+  return candidates.find((a) => a && !addressProblem(a)) ?? '';
 }
 
 /** Where the first coordinator that reported runs. */
@@ -87,31 +64,36 @@ export function coordinatorEnvironment(
  * host reports, with that coordinator's port. A container or a pod reports
  * none, since its own addresses are not ones a worker elsewhere can dial.
  */
-export function suggestedAddresses(readiness: JoinReadiness): WorkerAddress[] {
-  const seen = new Set<string>();
-  const out: WorkerAddress[] = [];
+export function suggestedAddresses(readiness: JoinReadiness): string[] {
+  const out = new Set<string>();
   for (const { report } of readiness.coordinators) {
     if (!report || (report.environment ?? HostEnvironment.host) !== 'host') {
       continue;
     }
     for (const host of report.addresses) {
-      const address = { host, port: String(report.port) };
-      const key = joinAddress(address);
-      if (!seen.has(key)) {
-        seen.add(key);
-        out.push(address);
-      }
+      out.add(joinHostPort(host, report.port));
     }
   }
-  return out;
+  return [...out].filter((a) => !addressProblem(a));
 }
 
-const LISTEN =
-  '{host} is a listen address. Enter an address that workers can dial.';
-const LOOPBACK =
-  '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.';
-const LINK_LOCAL =
-  '{host} is a link-local address, which another network does not route. Enter another address of the machine.';
+// Splits host:port as Go's net.SplitHostPort does, or returns undefined.
+function splitHostPort(address: string): [string, string] | undefined {
+  const colon = address.lastIndexOf(':');
+  if (colon < 0) return undefined;
+  let host = address.slice(0, colon);
+  if (address.startsWith('[')) {
+    const end = address.indexOf(']');
+    if (end < 0 || end + 1 !== colon) return undefined;
+    host = address.slice(1, end);
+  } else if (host.includes(':')) {
+    return undefined;
+  }
+  if (/[[\]]/.test(host) || /[[\]]/.test(address.slice(colon + 1))) {
+    return undefined;
+  }
+  return [host, address.slice(colon + 1)];
+}
 
 type ParsedIP = { v4: number[] } | { v6: number[] };
 
@@ -141,18 +123,30 @@ function parseIP(host: string): ParsedIP | undefined {
   return { v6: hextets };
 }
 
+const LISTEN =
+  '{host} is a listen address. Enter an address that workers can dial.';
+const LOOPBACK =
+  '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.';
+const NOT_ONE_MACHINE =
+  '{host} is a multicast or broadcast address. Enter the address of one machine.';
+const LINK_LOCAL =
+  '{host} is a link-local address, which another network does not route. Enter another address of the machine.';
+
 function ipProblem(ip: ParsedIP): string | undefined {
   if ('v4' in ip) {
     const [a, b] = ip.v4;
     if (ip.v4.every((n) => n === 0)) return LISTEN;
     if (a === 127) return LOOPBACK;
     if (a === 169 && b === 254) return LINK_LOCAL;
+    if ((a ?? 0) >= 224 && (a ?? 0) <= 239) return NOT_ONE_MACHINE;
+    if (ip.v4.every((n) => n === 255)) return NOT_ONE_MACHINE;
     return undefined;
   }
   const h = ip.v6;
   if (h.every((n) => n === 0)) return LISTEN;
   if (h.slice(0, 7).every((n) => n === 0) && h[7] === 1) return LOOPBACK;
   if (((h[0] ?? 0) & 0xffc0) === 0xfe80) return LINK_LOCAL;
+  if (((h[0] ?? 0) & 0xff00) === 0xff00) return NOT_ONE_MACHINE;
   return undefined;
 }
 
@@ -170,31 +164,27 @@ function hostProblem(host: string): string | undefined {
 }
 
 /**
- * What is wrong with the address fields, or undefined when a worker on
- * another machine can dial them.
+ * What is wrong with an address, or undefined when a worker on another
+ * machine can dial it. A problem never repeats an invite pasted into it.
  */
-export function addressProblem(
-  address: WorkerAddress
-): AddressProblem | undefined {
-  const raw = address.host.trim();
-  if (raw === '') {
+export function addressProblem(address: string): AddressProblem | undefined {
+  if (address === '') {
+    return { text: 'Enter the address workers use to reach the coordinator.' };
+  }
+  if (holdsInvite(address)) {
     return {
-      field: 'host',
-      text: 'Enter the address workers use to reach the coordinator.',
+      text: 'The address holds an invite. The invite goes only into the commands.',
     };
   }
-  const withPort = HOST_WITH_PORT.exec(raw);
-  const host = withPort
-    ? (withPort[1] ?? withPort[2] ?? '')
-    : raw.replace(/^\[(.*)\]$/, '$1');
+  const parts = splitHostPort(address);
+  if (!parts || parts[0] === '') {
+    return { text: 'Enter host:port, such as 192.168.1.20:50055.' };
+  }
+  const [host, port] = parts;
+  // Go's strconv.Atoi takes a sign.
+  if (!/^[+-]?\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
+    return { text: 'Enter a port from 1 to 65535.' };
+  }
   const problem = hostProblem(host);
-  if (problem) return { field: 'host', text: problem, values: { host } };
-  if (withPort) {
-    return { field: 'host', text: 'Enter the port in the Port field.' };
-  }
-  const port = address.port.trim();
-  if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
-    return { field: 'port', text: 'Enter a port from 1 to 65535.' };
-  }
-  return undefined;
+  return problem ? { text: problem, values: { host } } : undefined;
 }

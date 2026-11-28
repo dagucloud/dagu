@@ -6,14 +6,23 @@ import { defineMessages } from '@/features/workflow-workspace/messages/define';
 /** The static messages of the Add worker dialog. */
 export const addWorkerMessages = defineMessages({
   en: {
+    '{host} is a multicast or broadcast address. Enter the address of one machine.':
+      '{host} is a multicast or broadcast address. Enter the address of one machine.',
+    'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
+      'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:',
+    'In {file}, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.':
+      'In {file}, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:':
+      'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:',
+    'Enter host:port, such as 192.168.1.20:50055.':
+      'Enter host:port, such as 192.168.1.20:50055.',
+    'The address holds an invite. The invite goes only into the commands.':
+      'The address holds an invite. The invite goes only into the commands.',
+    'Address and port': 'Address and port',
     '{host} is not one host. Enter an IP address without a zone, or a DNS name.':
       '{host} is not one host. Enter an IP address without a zone, or a DNS name.',
     '{host} is a link-local address, which another network does not route. Enter another address of the machine.':
       '{host} is a link-local address, which another network does not route. Enter another address of the machine.',
-    '{file} sets coordinator.host. Change it there to 0.0.0.0:':
-      '{file} sets coordinator.host. Change it there to 0.0.0.0:',
-    'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts, or remove it:':
-      'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts, or remove it:',
     'Each change needs a restart of Dagu. This dialog checks again when the server is back; if it does not, use Check again.':
       'Each change needs a restart of Dagu. This dialog checks again when the server is back; if it does not, use Check again.',
     'This coordinator did not report. Start or upgrade it, then check again.':
@@ -34,7 +43,6 @@ export const addWorkerMessages = defineMessages({
       'Switch to the local server to add a worker.',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} looks like a container ID. Enter the address of the machine that runs the container.',
-    'IP address or DNS name': 'IP address or DNS name',
     'Add worker': 'Add worker',
     'Run a worker on another machine. It joins this Dagu with an invite.':
       'Run a worker on another machine. It joins this Dagu with an invite.',
@@ -48,13 +56,10 @@ export const addWorkerMessages = defineMessages({
       'The coordinator is from an earlier Dagu release. Upgrade every coordinator to add workers.',
     'The coordinator listens on {host}, so only this machine can connect.':
       'The coordinator listens on {host}, so only this machine can connect.',
-    "Set coordinator.host to 0.0.0.0 through the chart's values, then upgrade the release:":
-      "Set coordinator.host to 0.0.0.0 through the chart's values, then upgrade the release:",
     'Recreate the container with these options:':
       'Recreate the container with these options:',
     'The variable {name} sets coordinator.host. Set it to 0.0.0.0 where Dagu starts:':
       'The variable {name} sets coordinator.host. Set it to 0.0.0.0 where Dagu starts:',
-    'Add these lines to {file}:': 'Add these lines to {file}:',
     'Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates.':
       'Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates.',
     'Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause.':
@@ -68,10 +73,8 @@ export const addWorkerMessages = defineMessages({
     'Copy the values': 'Copy the values',
     'Copy the options': 'Copy the options',
     'Copy the setting': 'Copy the setting',
-    'Copy the lines': 'Copy the lines',
     'Address workers use to reach the coordinator':
       'Address workers use to reach the coordinator',
-    Address: 'Address',
     'Addresses of this machine:': 'Addresses of this machine:',
     'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.':
       'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.',
@@ -79,7 +82,6 @@ export const addWorkerMessages = defineMessages({
       'Enter the address of the coordinator Service: its load balancer, or a node for NodePort.',
     'Enter the address workers use to reach the coordinator.':
       'Enter the address workers use to reach the coordinator.',
-    'Enter the port in the Port field.': 'Enter the port in the Port field.',
     '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.':
       '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.',
     '{host} is a listen address. Enter an address that workers can dial.':
@@ -88,14 +90,23 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Shown after steps 1 and 2',
   },
   'zh-CN': {
+    '{host} is a multicast or broadcast address. Enter the address of one machine.':
+      '{host} 是多播或广播地址。请输入一台机器的地址。',
+    'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
+      '参数 {name} 设置了 coordinator.host。在启动 Dagu 的地方将其设为 0.0.0.0：',
+    'In {file}, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.':
+      '在 {file} 中，于 coordinator 块内将 host 设为 0.0.0.0；如果文件中没有该块，请添加。',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:':
+      '以分布式模式运行 Chart（其协调器监听 0.0.0.0），并从 extraEnv 中删除任何 DAGU_COORDINATOR_HOST。然后升级 Release：',
+    'Enter host:port, such as 192.168.1.20:50055.':
+      '请输入 host:port，例如 192.168.1.20:50055。',
+    'The address holds an invite. The invite goes only into the commands.':
+      '地址中包含邀请。邀请只应放在命令中。',
+    'Address and port': '地址和端口',
     '{host} is not one host. Enter an IP address without a zone, or a DNS name.':
       '{host} 不是单个主机。请输入不带区域的 IP 地址或 DNS 名称。',
     '{host} is a link-local address, which another network does not route. Enter another address of the machine.':
       '{host} 是链路本地地址，其他网络不会路由到它。请输入该机器的其他地址。',
-    '{file} sets coordinator.host. Change it there to 0.0.0.0:':
-      '{file} 设置了 coordinator.host。请在该文件中将其改为 0.0.0.0：',
-    'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts, or remove it:':
-      '参数 {name} 设置了 coordinator.host。在启动 Dagu 的地方将其设为 0.0.0.0，或删除它：',
     'Each change needs a restart of Dagu. This dialog checks again when the server is back; if it does not, use Check again.':
       '每项修改都需要重启 Dagu。服务器恢复后此对话框会重新检查；如果没有，请点击“重新检查”。',
     'This coordinator did not report. Start or upgrade it, then check again.':
@@ -116,7 +127,6 @@ export const addWorkerMessages = defineMessages({
       '切换到本地服务器以添加 Worker。',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} 看起来是容器 ID。请输入运行该容器的机器的地址。',
-    'IP address or DNS name': 'IP 地址或 DNS 名称',
     'Add worker': '添加 Worker',
     'Run a worker on another machine. It joins this Dagu with an invite.':
       '在另一台机器上运行 Worker。它通过邀请加入此 Dagu。',
@@ -130,12 +140,9 @@ export const addWorkerMessages = defineMessages({
       '协调器来自较早的 Dagu 版本。升级所有协调器后才能添加 Worker。',
     'The coordinator listens on {host}, so only this machine can connect.':
       '协调器监听 {host}，因此只有本机可以连接。',
-    "Set coordinator.host to 0.0.0.0 through the chart's values, then upgrade the release:":
-      '通过 Chart 的 values 将 coordinator.host 设为 0.0.0.0，然后升级 Release：',
     'Recreate the container with these options:': '使用以下选项重新创建容器：',
     'The variable {name} sets coordinator.host. Set it to 0.0.0.0 where Dagu starts:':
       '变量 {name} 设置了 coordinator.host。在启动 Dagu 的地方将其设为 0.0.0.0：',
-    'Add these lines to {file}:': '将以下内容添加到 {file}：',
     'Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates.':
       '邀请需要内置 CA，但此协调器使用 peer.cert_file 和 peer.key_file。删除这两项即可使用邀请，或使用你自己的证书连接每个 Worker。',
     'Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause.':
@@ -149,10 +156,8 @@ export const addWorkerMessages = defineMessages({
     'Copy the values': '复制 values',
     'Copy the options': '复制选项',
     'Copy the setting': '复制设置',
-    'Copy the lines': '复制内容',
     'Address workers use to reach the coordinator':
       'Worker 用于连接协调器的地址',
-    Address: '地址',
     'Addresses of this machine:': '本机地址：',
     'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.':
       '输入运行该容器的机器的地址。Dagu 在容器内无法看到它。',
@@ -160,7 +165,6 @@ export const addWorkerMessages = defineMessages({
       '输入协调器 Service 的地址：其负载均衡器，或 NodePort 所用的节点。',
     'Enter the address workers use to reach the coordinator.':
       '输入 Worker 用于连接协调器的地址。',
-    'Enter the port in the Port field.': '请在“端口”字段中输入端口。',
     '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.':
       '{host} 只能访问其所在的机器。请输入其他主机上的 Worker 可以访问的地址。',
     '{host} is a listen address. Enter an address that workers can dial.':
@@ -169,14 +173,23 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': '完成步骤 1 和 2 后显示',
   },
   ja: {
+    '{host} is a multicast or broadcast address. Enter the address of one machine.':
+      '{host} はマルチキャストまたはブロードキャストのアドレスです。1 台のマシンのアドレスを入力してください。',
+    'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
+      'フラグ {name} が coordinator.host を設定しています。Dagu を起動する場所で 0.0.0.0 を指定してください:',
+    'In {file}, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.':
+      '{file} の coordinator ブロック内で host を 0.0.0.0 にしてください。ブロックがなければ追加してください。',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:':
+      'チャートを分散モードで実行し (そのコーディネーターは 0.0.0.0 で待ち受けます)、extraEnv から DAGU_COORDINATOR_HOST を削除してください。その後リリースをアップグレードしてください:',
+    'Enter host:port, such as 192.168.1.20:50055.':
+      '192.168.1.20:50055 のように host:port を入力してください。',
+    'The address holds an invite. The invite goes only into the commands.':
+      'アドレスに招待が含まれています。招待はコマンドにだけ入れます。',
+    'Address and port': 'アドレスとポート',
     '{host} is not one host. Enter an IP address without a zone, or a DNS name.':
       '{host} は 1 つのホストではありません。ゾーンなしの IP アドレスか DNS 名を入力してください。',
     '{host} is a link-local address, which another network does not route. Enter another address of the machine.':
       '{host} はリンクローカルアドレスで、他のネットワークからはルーティングされません。マシンの別のアドレスを入力してください。',
-    '{file} sets coordinator.host. Change it there to 0.0.0.0:':
-      '{file} が coordinator.host を設定しています。そのファイルで 0.0.0.0 に変更してください:',
-    'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts, or remove it:':
-      'フラグ {name} が coordinator.host を設定しています。Dagu を起動する場所で 0.0.0.0 を指定するか、削除してください:',
     'Each change needs a restart of Dagu. This dialog checks again when the server is back; if it does not, use Check again.':
       'どの変更も Dagu の再起動が必要です。サーバーが戻るとこのダイアログが再確認します。そうならない場合は「再確認」を使ってください。',
     'This coordinator did not report. Start or upgrade it, then check again.':
@@ -197,7 +210,6 @@ export const addWorkerMessages = defineMessages({
       'ワーカーを追加するにはローカルサーバーに切り替えてください。',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} はコンテナ ID のようです。コンテナを実行しているマシンのアドレスを入力してください。',
-    'IP address or DNS name': 'IP アドレスまたは DNS 名',
     'Add worker': 'ワーカーを追加',
     'Run a worker on another machine. It joins this Dagu with an invite.':
       '別のマシンでワーカーを実行します。ワーカーは招待でこの Dagu に参加します。',
@@ -211,13 +223,10 @@ export const addWorkerMessages = defineMessages({
       'コーディネーターが以前の Dagu リリースです。ワーカーを追加するにはすべてのコーディネーターをアップグレードしてください。',
     'The coordinator listens on {host}, so only this machine can connect.':
       'コーディネーターは {host} で待ち受けているため、このマシンからしか接続できません。',
-    "Set coordinator.host to 0.0.0.0 through the chart's values, then upgrade the release:":
-      'チャートの values で coordinator.host を 0.0.0.0 にし、リリースをアップグレードしてください:',
     'Recreate the container with these options:':
       '次のオプションでコンテナを作り直してください:',
     'The variable {name} sets coordinator.host. Set it to 0.0.0.0 where Dagu starts:':
       '変数 {name} が coordinator.host を設定しています。Dagu を起動する場所で 0.0.0.0 にしてください:',
-    'Add these lines to {file}:': '{file} に次の行を追加してください:',
     'Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates.':
       '招待には組み込み CA が必要ですが、このコーディネーターは peer.cert_file と peer.key_file を使っています。招待を使うには両方を削除するか、各ワーカーを独自の証明書で接続してください。',
     'Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause.':
@@ -231,10 +240,8 @@ export const addWorkerMessages = defineMessages({
     'Copy the values': 'values をコピー',
     'Copy the options': 'オプションをコピー',
     'Copy the setting': '設定をコピー',
-    'Copy the lines': '行をコピー',
     'Address workers use to reach the coordinator':
       'ワーカーがコーディネーターに接続するアドレス',
-    Address: 'アドレス',
     'Addresses of this machine:': 'このマシンのアドレス:',
     'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.':
       'コンテナを実行しているマシンのアドレスを入力してください。Dagu はコンテナ内からそれを確認できません。',
@@ -242,7 +249,6 @@ export const addWorkerMessages = defineMessages({
       'コーディネーター Service のアドレスを入力してください: ロードバランサー、または NodePort の場合はノード。',
     'Enter the address workers use to reach the coordinator.':
       'ワーカーがコーディネーターに接続するアドレスを入力してください。',
-    'Enter the port in the Port field.': 'ポートはポート欄に入力してください。',
     '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.':
       '{host} は自身のマシンにしか届きません。他のホストのワーカーが届くアドレスを入力してください。',
     '{host} is a listen address. Enter an address that workers can dial.':
@@ -252,14 +258,23 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'ステップ 1 と 2 の後に表示',
   },
   de: {
+    '{host} is a multicast or broadcast address. Enter the address of one machine.':
+      '{host} ist eine Multicast- oder Broadcast-Adresse. Geben Sie die Adresse eines einzelnen Rechners ein.',
+    'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
+      'Das Flag {name} setzt coordinator.host. Geben Sie ihm dort, wo Dagu startet, 0.0.0.0:',
+    'In {file}, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.':
+      'Setzen Sie in {file} host innerhalb des coordinator-Blocks auf 0.0.0.0, und fügen Sie den Block hinzu, falls die Datei keinen hat.',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:':
+      'Betreiben Sie das Chart im verteilten Modus, dessen Koordinator auf 0.0.0.0 lauscht, und entfernen Sie jedes DAGU_COORDINATOR_HOST aus extraEnv. Aktualisieren Sie dann das Release:',
+    'Enter host:port, such as 192.168.1.20:50055.':
+      'Geben Sie host:port ein, etwa 192.168.1.20:50055.',
+    'The address holds an invite. The invite goes only into the commands.':
+      'Die Adresse enthält eine Einladung. Die Einladung gehört nur in die Befehle.',
+    'Address and port': 'Adresse und Port',
     '{host} is not one host. Enter an IP address without a zone, or a DNS name.':
       '{host} ist kein einzelner Host. Geben Sie eine IP-Adresse ohne Zone oder einen DNS-Namen ein.',
     '{host} is a link-local address, which another network does not route. Enter another address of the machine.':
       '{host} ist eine Link-Local-Adresse, die ein anderes Netz nicht routet. Geben Sie eine andere Adresse des Rechners ein.',
-    '{file} sets coordinator.host. Change it there to 0.0.0.0:':
-      '{file} setzt coordinator.host. Ändern Sie es dort auf 0.0.0.0:',
-    'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts, or remove it:':
-      'Das Flag {name} setzt coordinator.host. Geben Sie ihm dort, wo Dagu startet, 0.0.0.0, oder entfernen Sie es:',
     'Each change needs a restart of Dagu. This dialog checks again when the server is back; if it does not, use Check again.':
       'Jede Änderung erfordert einen Neustart von Dagu. Dieser Dialog prüft erneut, sobald der Server wieder da ist; sonst nutzen Sie Erneut prüfen.',
     'This coordinator did not report. Start or upgrade it, then check again.':
@@ -280,7 +295,6 @@ export const addWorkerMessages = defineMessages({
       'Wechseln Sie zum lokalen Server, um einen Worker hinzuzufügen.',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} sieht nach einer Container-ID aus. Geben Sie die Adresse des Rechners ein, auf dem der Container läuft.',
-    'IP address or DNS name': 'IP-Adresse oder DNS-Name',
     'Add worker': 'Worker hinzufügen',
     'Run a worker on another machine. It joins this Dagu with an invite.':
       'Einen Worker auf einem anderen Rechner ausführen. Er tritt diesem Dagu mit einer Einladung bei.',
@@ -295,13 +309,10 @@ export const addWorkerMessages = defineMessages({
       'Der Koordinator stammt aus einer früheren Dagu-Version. Aktualisieren Sie jeden Koordinator, um Worker hinzuzufügen.',
     'The coordinator listens on {host}, so only this machine can connect.':
       'Der Koordinator lauscht auf {host}, daher kann sich nur dieser Rechner verbinden.',
-    "Set coordinator.host to 0.0.0.0 through the chart's values, then upgrade the release:":
-      'Setzen Sie coordinator.host über die Values des Charts auf 0.0.0.0 und aktualisieren Sie dann das Release:',
     'Recreate the container with these options:':
       'Erstellen Sie den Container mit diesen Optionen neu:',
     'The variable {name} sets coordinator.host. Set it to 0.0.0.0 where Dagu starts:':
       'Die Variable {name} setzt coordinator.host. Setzen Sie sie dort, wo Dagu startet, auf 0.0.0.0:',
-    'Add these lines to {file}:': 'Fügen Sie diese Zeilen zu {file} hinzu:',
     'Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates.':
       'Einladungen brauchen die eingebaute CA, aber dieser Koordinator nutzt peer.cert_file und peer.key_file. Entfernen Sie beide, um Einladungen zu nutzen, oder verbinden Sie jeden Worker mit Ihren eigenen Zertifikaten.',
     'Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause.':
@@ -315,10 +326,8 @@ export const addWorkerMessages = defineMessages({
     'Copy the values': 'Values kopieren',
     'Copy the options': 'Optionen kopieren',
     'Copy the setting': 'Einstellung kopieren',
-    'Copy the lines': 'Zeilen kopieren',
     'Address workers use to reach the coordinator':
       'Adresse, über die Worker den Koordinator erreichen',
-    Address: 'Adresse',
     'Addresses of this machine:': 'Adressen dieses Rechners:',
     'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.':
       'Geben Sie die Adresse des Rechners ein, auf dem der Container läuft. Dagu sieht sie nicht aus dem Container heraus.',
@@ -326,7 +335,6 @@ export const addWorkerMessages = defineMessages({
       'Geben Sie die Adresse des Koordinator-Service ein: seinen Load Balancer oder bei NodePort einen Knoten.',
     'Enter the address workers use to reach the coordinator.':
       'Geben Sie die Adresse ein, über die Worker den Koordinator erreichen.',
-    'Enter the port in the Port field.': 'Geben Sie den Port im Feld Port ein.',
     '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.':
       '{host} erreicht nur den eigenen Rechner. Geben Sie eine Adresse ein, die Worker auf anderen Hosts erreichen.',
     '{host} is a listen address. Enter an address that workers can dial.':
@@ -336,14 +344,23 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Erscheint nach Schritt 1 und 2',
   },
   fr: {
+    '{host} is a multicast or broadcast address. Enter the address of one machine.':
+      '{host} est une adresse multicast ou de diffusion. Saisissez l’adresse d’une seule machine.',
+    'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
+      'L’option {name} définit coordinator.host. Donnez-lui 0.0.0.0 là où Dagu démarre :',
+    'In {file}, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.':
+      'Dans {file}, définissez host à 0.0.0.0 dans le bloc coordinator, en ajoutant le bloc si le fichier n’en a pas.',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:':
+      'Exécutez le chart en mode distribué, dont le coordinateur écoute sur 0.0.0.0, et retirez tout DAGU_COORDINATOR_HOST d’extraEnv. Puis mettez à jour la release :',
+    'Enter host:port, such as 192.168.1.20:50055.':
+      'Saisissez host:port, par exemple 192.168.1.20:50055.',
+    'The address holds an invite. The invite goes only into the commands.':
+      'L’adresse contient une invitation. L’invitation va seulement dans les commandes.',
+    'Address and port': 'Adresse et port',
     '{host} is not one host. Enter an IP address without a zone, or a DNS name.':
       '{host} n’est pas un hôte unique. Saisissez une adresse IP sans zone, ou un nom DNS.',
     '{host} is a link-local address, which another network does not route. Enter another address of the machine.':
       '{host} est une adresse lien-local qu’un autre réseau ne route pas. Saisissez une autre adresse de la machine.',
-    '{file} sets coordinator.host. Change it there to 0.0.0.0:':
-      '{file} définit coordinator.host. Changez-le dans ce fichier en 0.0.0.0 :',
-    'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts, or remove it:':
-      'L’option {name} définit coordinator.host. Donnez-lui 0.0.0.0 là où Dagu démarre, ou retirez-la :',
     'Each change needs a restart of Dagu. This dialog checks again when the server is back; if it does not, use Check again.':
       'Chaque modification nécessite un redémarrage de Dagu. Cette boîte de dialogue vérifie à nouveau quand le serveur revient ; sinon, utilisez Vérifier à nouveau.',
     'This coordinator did not report. Start or upgrade it, then check again.':
@@ -364,7 +381,6 @@ export const addWorkerMessages = defineMessages({
       'Passez au serveur local pour ajouter un worker.',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} ressemble à un ID de conteneur. Saisissez l’adresse de la machine qui exécute le conteneur.',
-    'IP address or DNS name': 'Adresse IP ou nom DNS',
     'Add worker': 'Ajouter un worker',
     'Run a worker on another machine. It joins this Dagu with an invite.':
       'Exécutez un worker sur une autre machine. Il rejoint ce Dagu avec une invitation.',
@@ -379,13 +395,10 @@ export const addWorkerMessages = defineMessages({
       'Le coordinateur provient d’une version antérieure de Dagu. Mettez à jour chaque coordinateur pour ajouter des workers.',
     'The coordinator listens on {host}, so only this machine can connect.':
       'Le coordinateur écoute sur {host}, donc seule cette machine peut se connecter.',
-    "Set coordinator.host to 0.0.0.0 through the chart's values, then upgrade the release:":
-      'Définissez coordinator.host sur 0.0.0.0 dans les values du chart, puis mettez à jour la release :',
     'Recreate the container with these options:':
       'Recréez le conteneur avec ces options :',
     'The variable {name} sets coordinator.host. Set it to 0.0.0.0 where Dagu starts:':
       'La variable {name} définit coordinator.host. Donnez-lui la valeur 0.0.0.0 là où Dagu démarre :',
-    'Add these lines to {file}:': 'Ajoutez ces lignes à {file} :',
     'Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates.':
       'Les invitations nécessitent la CA intégrée, mais ce coordinateur utilise peer.cert_file et peer.key_file. Supprimez les deux pour utiliser les invitations, ou connectez chaque worker avec vos propres certificats.',
     'Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause.':
@@ -399,10 +412,8 @@ export const addWorkerMessages = defineMessages({
     'Copy the values': 'Copier les values',
     'Copy the options': 'Copier les options',
     'Copy the setting': 'Copier le réglage',
-    'Copy the lines': 'Copier les lignes',
     'Address workers use to reach the coordinator':
       'Adresse que les workers utilisent pour joindre le coordinateur',
-    Address: 'Adresse',
     'Addresses of this machine:': 'Adresses de cette machine :',
     'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.':
       'Saisissez l’adresse de la machine qui exécute le conteneur. Dagu ne la voit pas depuis le conteneur.',
@@ -410,8 +421,6 @@ export const addWorkerMessages = defineMessages({
       'Saisissez l’adresse du Service du coordinateur : son load balancer, ou un nœud pour NodePort.',
     'Enter the address workers use to reach the coordinator.':
       'Saisissez l’adresse que les workers utilisent pour joindre le coordinateur.',
-    'Enter the port in the Port field.':
-      'Saisissez le port dans le champ Port.',
     '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.':
       '{host} ne joint que sa propre machine. Saisissez une adresse que les workers d’autres hôtes peuvent joindre.',
     '{host} is a listen address. Enter an address that workers can dial.':

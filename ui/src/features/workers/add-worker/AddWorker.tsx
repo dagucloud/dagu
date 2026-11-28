@@ -22,15 +22,12 @@ import { useIsAdmin } from '@/contexts/AuthContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
 import { I18nText } from '@/i18n/I18nText';
-import { useI18n } from '@/i18n/I18nProvider';
 import {
   addressProblem,
   coordinatorEnvironment,
   initialAddress,
-  joinAddress,
   suggestedAddresses,
   type AddressProblem,
-  type WorkerAddress,
 } from './address';
 import {
   ProblemText,
@@ -94,12 +91,11 @@ function AddWorkerDialog({
     state: 'loading',
   });
   const [checking, setChecking] = React.useState(true);
-  const [address, setAddress] = React.useState<WorkerAddress>();
+  const [address, setAddress] = React.useState<string>();
   const touched = React.useRef(false);
   // Only the latest read may change the dialog: an earlier one that ends
   // later must not replace a newer answer.
   const latest = React.useRef(0);
-  const checkButton = React.useRef<HTMLButtonElement>(null);
   const hostField = React.useRef<HTMLInputElement>(null);
   const checkHadFocus = React.useRef(false);
 
@@ -163,8 +159,8 @@ function AddWorkerDialog({
     return () => window.removeEventListener('focus', reload);
   }, [ready, load]);
 
-  // Check again leaves once the coordinator is ready; the focus it had moves
-  // on to the address.
+  // Check again leaves once the coordinator is ready, whatever read found
+  // it so. A focus it held moves on to the address field, which stays.
   React.useEffect(() => {
     if (ready && checkHadFocus.current) {
       checkHadFocus.current = false;
@@ -172,9 +168,8 @@ function AddWorkerDialog({
     }
   }, [ready]);
 
-  const problem = address ? addressProblem(address) : undefined;
-  const validAddress =
-    ready && address && !problem ? joinAddress(address) : undefined;
+  const problem = address !== undefined ? addressProblem(address) : undefined;
+  const validAddress = ready && address && !problem ? address : undefined;
 
   let step1State = 'Checking...';
   if (!checking) step1State = ready ? 'Ready' : 'Needs change';
@@ -211,14 +206,12 @@ function AddWorkerDialog({
           {/* It stays while a check runs, so the focus stays on it. */}
           {!ready && readiness.state !== 'loading' && (
             <Button
-              ref={checkButton}
               size="xs"
               aria-disabled={checking || undefined}
+              onFocus={() => (checkHadFocus.current = true)}
+              onBlur={() => (checkHadFocus.current = false)}
               onClick={() => {
-                if (checking) return;
-                checkHadFocus.current =
-                  document.activeElement === checkButton.current;
-                void load();
+                if (!checking) void load();
               }}
             >
               {checking ? <Spinner /> : <RefreshCw />}
@@ -228,13 +221,13 @@ function AddWorkerDialog({
           {readiness.state === 'loading' && <Spinner />}
         </Step>
 
-        {data && address && (
+        {data && address !== undefined && (
           <Step number={2} title="Address workers use to reach the coordinator">
             <AddressFields
               data={data}
               address={address}
               hostField={hostField}
-              problem={touched.current || address.host ? problem : undefined}
+              problem={touched.current || address ? problem : undefined}
               onChange={(next) => {
                 touched.current = true;
                 setAddress(next);
@@ -261,13 +254,12 @@ function AddressFields({
   onChange,
 }: {
   data: JoinReadiness;
-  address: WorkerAddress;
+  address: string;
   hostField: React.Ref<HTMLInputElement>;
   problem?: AddressProblem;
-  onChange: (address: WorkerAddress) => void;
+  onChange: (address: string) => void;
 }) {
   const id = React.useId();
-  const { ts } = useI18n();
   const environment = coordinatorEnvironment(data);
   const suggestions = suggestedAddresses(data);
   let hint: string | undefined;
@@ -279,10 +271,6 @@ function AddressFields({
       'Enter the address of the coordinator Service: its load balancer, or a node for NodePort.';
   }
   const errorId = `${id}-error`;
-  const invalid = (field: AddressProblem['field']) =>
-    problem?.field === field
-      ? { 'aria-invalid': true, 'aria-describedby': errorId }
-      : {};
   return (
     <div className="space-y-2">
       {hint && (
@@ -290,40 +278,23 @@ function AddressFields({
           <I18nText text={hint} />
         </p>
       )}
-      <div className="flex gap-2">
-        <div className="min-w-0 flex-1 space-y-1">
-          <label
-            className="text-xs text-muted-foreground"
-            htmlFor={`${id}-host`}
-          >
-            <I18nText text="Address" />
-          </label>
-          <Input
-            ref={hostField}
-            id={`${id}-host`}
-            placeholder={ts('IP address or DNS name')}
-            required
-            value={address.host}
-            {...invalid('host')}
-            onChange={(e) => onChange({ ...address, host: e.target.value })}
-          />
-        </div>
-        <div className="w-24 space-y-1">
-          <label
-            className="text-xs text-muted-foreground"
-            htmlFor={`${id}-port`}
-          >
-            <I18nText text="Port" />
-          </label>
-          <Input
-            id={`${id}-port`}
-            inputMode="numeric"
-            required
-            value={address.port}
-            {...invalid('port')}
-            onChange={(e) => onChange({ ...address, port: e.target.value })}
-          />
-        </div>
+      <div className="space-y-1">
+        <label
+          className="text-xs text-muted-foreground"
+          htmlFor={`${id}-address`}
+        >
+          <I18nText text="Address and port" />
+        </label>
+        <Input
+          ref={hostField}
+          id={`${id}-address`}
+          placeholder="host:port"
+          required
+          value={address}
+          aria-invalid={problem ? true : undefined}
+          aria-describedby={problem ? errorId : undefined}
+          onChange={(e) => onChange(e.target.value)}
+        />
       </div>
       {problem && (
         <p id={errorId} className="text-xs text-destructive">
@@ -333,21 +304,18 @@ function AddressFields({
       {suggestions.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           <I18nText text="Addresses of this machine:" />
-          {suggestions.map((suggestion) => {
-            const text = joinAddress(suggestion);
-            return (
-              <Button
-                key={text}
-                size="xs"
-                variant="ghost"
-                className="font-mono"
-                aria-pressed={joinAddress(address) === text}
-                onClick={() => onChange(suggestion)}
-              >
-                {text}
-              </Button>
-            );
-          })}
+          {suggestions.map((suggestion) => (
+            <Button
+              key={suggestion}
+              size="xs"
+              variant="ghost"
+              className="font-mono"
+              aria-pressed={address === suggestion}
+              onClick={() => onChange(suggestion)}
+            >
+              {suggestion}
+            </Button>
+          ))}
         </div>
       )}
     </div>
