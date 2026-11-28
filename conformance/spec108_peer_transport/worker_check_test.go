@@ -33,7 +33,7 @@ func TestWorkerCheckBuiltinTLS(t *testing.T) {
 		ignoredFileCA + "\n" + builtinFromDataDir + "\nCoordinator " + addr + "\n",
 		"  Transport: built-in TLS (from the coordinator's data directory)\n  Reachable: yes\n  Handshake: TLS\n",
 		"DNS:" + coordinatorCertName,
-		"  Credential: peer token from the coordinator's data directory\n",
+		"  Credential: the peer token that the coordinator generated\n",
 		"  Coordinator answered: serving, and it accepted the call\n",
 	} {
 		assert.Contains(t, result.Stdout(), want)

@@ -65,10 +65,19 @@ type Worker struct {
 	// For graceful shutdown
 	stopOnce    sync.Once
 	stopPolling context.CancelFunc // Stops polling for new tasks
+	cancelPoll  context.CancelFunc // Ends the polls and their claim acknowledgments at once; pollersMu guards it
 	stopCancel  context.CancelFunc // Cancels the worker's internal context
 	runsCtx     context.Context    // Running tasks are canceled when this is done
 	pollersDone chan struct{}      // Signals when all pollers, and so all tasks, have stopped
 	stopDone    chan struct{}      // Signals when all goroutines have stopped
+	// removed is closed, and removal canceled, once a coordinator refuses
+	// the worker's certificate as revoked. publishRemoval does both under
+	// pollersMu. removalExit returns the failure the worker then exits
+	// with; nil for a worker of no membership.
+	removed       chan struct{}
+	removal       context.Context
+	cancelRemoval context.CancelFunc
+	removalExit   func(context.Context) error
 
 	// For global PostgreSQL connection pool
 	poolManager  *sql.GlobalPoolManager
@@ -80,12 +89,19 @@ type Worker struct {
 	// ready reports that a heartbeat has reached a coordinator, so the
 	// worker can take runs. Its health server answers readiness from it.
 	ready atomic.Bool
+	// beforeExecute and afterAdmit, when set, run between a run's
+	// registration and its move into execution, and between that move and
+	// the executor. Tests set them.
+	beforeExecute func()
+	afterAdmit    func(context.Context)
 }
 
 type runningTaskState struct {
 	task                 *coordinatorv1.RunningTask
 	owner                serviceregistry.HostInfo
 	lastOwnerHeartbeatAt time.Time
+	// stop ends the run's context with a cause.
+	stop context.CancelCauseFunc
 }
 
 // TaskHandler defines the interface for executing tasks.
@@ -94,6 +110,11 @@ type TaskHandler interface {
 }
 
 var errTaskClaimRejectedBeforeExecution = errors.New("task claim rejected before execution")
+
+// errWorkerRemoved is the error Start and Stop return once a coordinator
+// refused the worker's certificate as revoked, for a worker whose client came
+// from no membership. A membership's failure matches it too.
+var errWorkerRemoved = errors.New("this worker was removed from the coordinator")
 
 const (
 	ownerRunHeartbeatCallTimeout = 10 * time.Second
@@ -140,13 +161,18 @@ func (w *Worker) SetAfterTaskAckHook(hook func(context.Context, *coordinatorv1.T
 	w.afterTaskAckHook = hook
 }
 
-// NewWorker creates a new worker instance.
+// NewWorker creates a new worker instance. With membership, the one whose
+// Connect returned coordinatorClient, the worker stops as removed once a
+// coordinator refuses that client's certificate as revoked, on any call, and
+// Start and Stop then return the removed worker's failure. Without one, nil,
+// the worker runs as before Spec 108.
 func NewWorker(
 	workerID string,
 	maxActiveRuns int,
 	coordinatorClient coordinator.Client,
 	labels map[string]string,
 	cfg *config.Config,
+	membership *Membership,
 ) *Worker {
 	host, err := os.Hostname()
 	if err != nil {
@@ -177,10 +203,16 @@ func NewWorker(
 		pollerTasks:    make(map[string]string),
 		cancelFuncs:    make(map[string]context.CancelFunc),
 		runSignals:     make(map[string]*runSignal),
+		removed:        make(chan struct{}),
 		healthServer:   healthcheck.NewServer("worker", healthPort),
 		openCodeHost:   opencodehost.New(context.Background(), openCodeConfig),
 	}
 	w.healthServer.SetReadyFunc(w.ready.Load)
+	w.removal, w.cancelRemoval = context.WithCancel(context.Background())
+	if membership != nil {
+		w.removalExit = membership.removed
+		membership.bindWorker(w.publishRemoval)
+	}
 	return w
 }
 
@@ -225,7 +257,8 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	}
 
 	defer func() {
-		if err == nil {
+		// stopRemoved has released these for a removal.
+		if err == nil || errors.Is(err, errWorkerRemoved) {
 			return
 		}
 
@@ -252,6 +285,9 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 
 	pollCtx, cancelPoll := context.WithCancel(internalCtx)
 	context.AfterFunc(pollingStopped, cancelPoll)
+	w.pollersMu.Lock()
+	w.cancelPoll = cancelPoll
+	w.pollersMu.Unlock()
 
 	// Create a wait group to track all polling goroutines
 	var wg sync.WaitGroup
@@ -269,6 +305,7 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 				handler:     w.handler,
 			}
 			poller := NewPoller(w.id, w.coordinatorCli, wrappedHandler, pollerIndex, w.labels)
+			poller.removal = w.removal
 			poller.Run(pollCtx)
 		}(i)
 	}
@@ -288,17 +325,25 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	wg.Go(func() {
 		w.cleanupAgentSessions(pollCtx)
 	})
-
 	// Wait for all goroutines to complete, then signal done
 	go func() {
 		wg.Wait()
 		close(w.stopDone)
 	}()
 
-	// Block until all goroutines complete
-	<-w.stopDone
-
-	return nil
+	// Block until all goroutines complete, or until a coordinator refuses
+	// the worker's certificate as revoked.
+	select {
+	case <-w.stopDone:
+		// A removal that a stop overtook still ends Start as a removal.
+		if w.isRemoved() {
+			return w.removedError(ctx)
+		}
+		return nil
+	case <-w.removed:
+	}
+	w.stopRemoved(ctx)
+	return w.removedError(ctx)
 }
 
 // workerLabels applies the label rules to the configured labels and adds the
@@ -450,86 +495,203 @@ func (w *Worker) Stop(ctx context.Context) error {
 		if w.stopPolling != nil {
 			w.stopPolling()
 		}
-		w.drain(ctx)
-		w.signalRunningTasks(syscall.SIGTERM)
-		if w.pollersDone != nil {
+		// A removal during the waits stops the runs at once instead.
+		if !w.drain(ctx) {
+			w.signalRunningTasks(syscall.SIGTERM)
+		}
+		if w.pollersDone != nil && !w.isRemoved() {
 			select {
 			case <-w.pollersDone:
+			case <-w.removed:
 			case <-ctx.Done():
 				logger.Warn(ctx, "Worker stop timed out waiting for running tasks",
 					tag.WorkerID(w.id))
 			}
 		}
-
-		// Cancel the internal context to signal all goroutines to stop
-		if w.stopCancel != nil {
-			w.stopCancel()
+		if w.isRemoved() {
+			w.haltRemoved(ctx)
+			return
 		}
-
-		// An expired ctx would fail the remaining steps at once, and the
-		// canceled tasks still need time to report their final status.
-		var cancelWait context.CancelFunc
-		ctx, cancelWait = liveStopContext(ctx, stopCanceledRunsTimeout)
-		defer cancelWait()
-
-		// Wait for all goroutines to complete (with timeout from ctx)
-		if w.stopDone != nil {
-			select {
-			case <-w.stopDone:
-				// All goroutines have stopped
-			case <-ctx.Done():
-				logger.Warn(ctx, "Worker stop timed out waiting for goroutines",
-					tag.WorkerID(w.id))
-			}
-		}
-
-		var cancelCleanup context.CancelFunc
-		ctx, cancelCleanup = liveStopContext(ctx, stopCleanupTimeout)
-		defer cancelCleanup()
-
-		// Close the global PostgreSQL pool manager if initialized
-		if w.poolManager != nil {
-			if poolErr := w.poolManager.Close(); poolErr != nil {
-				logger.Error(ctx, "Failed to close PostgreSQL pool manager",
-					tag.WorkerID(w.id),
-					tag.Error(poolErr))
-				if err == nil {
-					err = fmt.Errorf("failed to close PostgreSQL pool manager: %w", poolErr)
-				}
-			} else {
-				logger.Info(ctx, "PostgreSQL pool manager closed", tag.WorkerID(w.id))
-			}
-		}
-
-		// Cleanup coordinator client connections
-		if cleanupErr := w.coordinatorCli.Cleanup(ctx); cleanupErr != nil {
-			if err == nil {
-				err = fmt.Errorf("failed to cleanup coordinator client: %w", cleanupErr)
-			}
-		}
-
-		if w.healthServer != nil {
-			if stopErr := w.healthServer.Stop(ctx); stopErr != nil && err == nil {
-				err = fmt.Errorf("failed to stop worker health check server: %w", stopErr)
-			}
-		}
-		if hostErr := w.openCodeHost.Close(ctx); hostErr != nil && err == nil {
-			err = fmt.Errorf("failed to stop OpenCode host: %w", hostErr)
-		}
+		err = w.halt(ctx)
 	})
+	// A removal decides how the worker ends, whatever stopped it.
+	if w.isRemoved() {
+		return w.removedError(ctx)
+	}
+	return err
+}
 
+// stopRemoved stops the worker once a coordinator refused its certificate
+// as revoked.
+func (w *Worker) stopRemoved(ctx context.Context) {
+	w.stopOnce.Do(func() {
+		if w.stopPolling != nil {
+			w.stopPolling()
+		}
+		w.haltRemoved(ctx)
+	})
+}
+
+// haltRemoved stops a removed worker and releases what it holds, once
+// publishRemoval stopped its runs.
+func (w *Worker) haltRemoved(ctx context.Context) {
+	w.publishRemoval()
+	// A done context bounds the waits.
+	done, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	cancel()
+	if err := w.halt(done); err != nil {
+		logger.Warn(ctx, "Worker stop failed", tag.WorkerID(w.id), tag.Error(err))
+	}
+}
+
+// logContext is the context the worker logs with outside a call: the one
+// of its runs once it started.
+func (w *Worker) logContext() context.Context {
+	if w.runsCtx != nil {
+		return w.runsCtx
+	}
+	return context.Background()
+}
+
+// isRemoved reports whether a coordinator refused the worker's certificate
+// as revoked.
+func (w *Worker) isRemoved() bool {
+	select {
+	case <-w.removed:
+		return true
+	default:
+		return false
+	}
+}
+
+// removedError returns the failure a removed worker exits with: the
+// membership's, which handles the removal, or errWorkerRemoved without one.
+func (w *Worker) removedError(ctx context.Context) error {
+	if w.removalExit != nil {
+		return w.removalExit(ctx)
+	}
+	return errWorkerRemoved
+}
+
+// logRemovedRun logs a run that the worker stops since it was removed.
+func logRemovedRun(ctx context.Context, task *coordinatorv1.RunningTask) {
+	logger.Warn(ctx, "Stopping run: this worker was removed from the coordinator",
+		tag.DAG(task.DagName),
+		tag.RunID(task.DagRunId),
+		tag.AttemptKey(task.AttemptKey))
+}
+
+// publishRemoval records, the moment a refusal as revoked arrives, that the
+// worker was removed, which ends Start, and stops what may no longer run:
+// under the lock that admission takes, it ends the context of each
+// registered run, with the removal as its cause, and cancels the claim
+// acknowledgments under way. Its runs can no longer report to a
+// coordinator, so each is logged. The coordinator ends them as it does when
+// a worker stops sending heartbeats.
+func (w *Worker) publishRemoval() {
+	w.pollersMu.Lock()
+	if w.isRemoved() {
+		w.pollersMu.Unlock()
+		return
+	}
+	// The runs stop first, then the polls and their acknowledgments, then
+	// the removal is published, all before anything that could wait, such
+	// as a log line.
+	stopped := make([]*coordinatorv1.RunningTask, 0, len(w.runningTasks))
+	for _, state := range w.runningTasks {
+		if state == nil {
+			continue
+		}
+		if state.stop != nil {
+			state.stop(errWorkerRemoved)
+		}
+		if state.task != nil {
+			stopped = append(stopped, state.task)
+		}
+	}
+	if w.cancelPoll != nil {
+		w.cancelPoll()
+	}
+	w.cancelRemoval()
+	close(w.removed)
+	w.pollersMu.Unlock()
+	for _, task := range stopped {
+		logRemovedRun(w.logContext(), task)
+	}
+}
+
+// halt cancels the running tasks, waits for the worker's goroutines, and
+// releases its resources.
+func (w *Worker) halt(ctx context.Context) error {
+	var err error
+	// Cancel the internal context to signal all goroutines to stop
+	if w.stopCancel != nil {
+		w.stopCancel()
+	}
+
+	// An expired ctx would fail the remaining steps at once, and the
+	// canceled tasks still need time to report their final status.
+	var cancelWait context.CancelFunc
+	ctx, cancelWait = liveStopContext(ctx, stopCanceledRunsTimeout)
+	defer cancelWait()
+
+	// Wait for all goroutines to complete (with timeout from ctx)
+	if w.stopDone != nil {
+		select {
+		case <-w.stopDone:
+			// All goroutines have stopped
+		case <-ctx.Done():
+			logger.Warn(ctx, "Worker stop timed out waiting for goroutines",
+				tag.WorkerID(w.id))
+		}
+	}
+
+	var cancelCleanup context.CancelFunc
+	ctx, cancelCleanup = liveStopContext(ctx, stopCleanupTimeout)
+	defer cancelCleanup()
+
+	// Close the global PostgreSQL pool manager if initialized
+	if w.poolManager != nil {
+		if poolErr := w.poolManager.Close(); poolErr != nil {
+			logger.Error(ctx, "Failed to close PostgreSQL pool manager",
+				tag.WorkerID(w.id),
+				tag.Error(poolErr))
+			if err == nil {
+				err = fmt.Errorf("failed to close PostgreSQL pool manager: %w", poolErr)
+			}
+		} else {
+			logger.Info(ctx, "PostgreSQL pool manager closed", tag.WorkerID(w.id))
+		}
+	}
+
+	// Cleanup coordinator client connections
+	if cleanupErr := w.coordinatorCli.Cleanup(ctx); cleanupErr != nil {
+		if err == nil {
+			err = fmt.Errorf("failed to cleanup coordinator client: %w", cleanupErr)
+		}
+	}
+
+	if w.healthServer != nil {
+		if stopErr := w.healthServer.Stop(ctx); stopErr != nil && err == nil {
+			err = fmt.Errorf("failed to stop worker health check server: %w", stopErr)
+		}
+	}
+	if hostErr := w.openCodeHost.Close(ctx); hostErr != nil && err == nil {
+		err = fmt.Errorf("failed to stop OpenCode host: %w", hostErr)
+	}
 	return err
 }
 
 // drain waits up to signal_handling.drain_timeout, or until ctx is done, for
-// the running tasks to finish without a signal.
-func (w *Worker) drain(ctx context.Context) {
+// the running tasks to finish without a signal. It reports whether a removal
+// ended the wait.
+func (w *Worker) drain(ctx context.Context) bool {
 	if w.cfg == nil || w.cfg.SignalHandling.DrainTimeout <= 0 || w.pollersDone == nil {
-		return
+		return w.isRemoved()
 	}
 	select {
 	case <-w.pollersDone:
-		return
+		return w.isRemoved()
 	default:
 	}
 	timeout := w.cfg.SignalHandling.DrainTimeout
@@ -544,8 +706,10 @@ func (w *Worker) drain(ctx context.Context) {
 		logger.Info(ctx, "Worker tasks finished", tag.WorkerID(w.id))
 	case <-timer.C:
 		logger.Warn(ctx, "Worker tasks still running after the drain timeout", tag.WorkerID(w.id))
+	case <-w.removed:
 	case <-ctx.Done():
 	}
+	return w.isRemoved()
 }
 
 // liveStopContext returns ctx while it is live. Once ctx is done, it returns a
@@ -623,7 +787,8 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 
 	// Create a cancellable context for this task. It outlives the poll
 	// context so a graceful stop can finish; Stop cancels it through runsCtx.
-	taskCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	taskCtx, stop := context.WithCancelCause(context.WithoutCancel(ctx))
+	cancel := func() { stop(nil) }
 	defer cancel()
 	if t.worker.runsCtx != nil {
 		defer context.AfterFunc(t.worker.runsCtx, cancel)()
@@ -664,10 +829,18 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 	// Register the task only after preflight validation has accepted it or
 	// failed softly. This keeps rejected claims from consuming worker capacity.
 	t.worker.pollersMu.Lock()
+	// A removal stops the runs that registered before it, and no run
+	// reaches the executor after it, also one whose preflight it canceled.
+	if t.worker.isRemoved() {
+		t.worker.pollersMu.Unlock()
+		logRemovedRun(taskCtx, runningTask)
+		return errWorkerRemoved
+	}
 	t.worker.runningTasks[attemptKey] = &runningTaskState{
 		task:                 runningTask,
 		owner:                owner,
 		lastOwnerHeartbeatAt: time.Now().UTC(),
+		stop:                 stop,
 	}
 	t.worker.pollerTasks[pollerID] = attemptKey
 	t.worker.cancelFuncs[attemptKey] = cancel
@@ -684,6 +857,24 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 	}()
 	if stopping {
 		signal.send(taskCtx, syscall.SIGTERM)
+	}
+	if t.worker.beforeExecute != nil {
+		t.worker.beforeExecute()
+	}
+	// The move into execution and a removal's stop of the registered runs
+	// take the same lock. A run the removal finds first never starts. A run
+	// that moved first is one the removal stops: it ends the run's context
+	// under that lock, so the run enters the executor stopped if it has not
+	// entered yet.
+	t.worker.pollersMu.Lock()
+	removed := t.worker.isRemoved()
+	t.worker.pollersMu.Unlock()
+	if removed {
+		// The removal logged the run, which was registered by then.
+		return errWorkerRemoved
+	}
+	if t.worker.afterAdmit != nil {
+		t.worker.afterAdmit(taskCtx)
 	}
 
 	// Execute the task with cancellable context

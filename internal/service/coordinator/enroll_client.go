@@ -26,8 +26,9 @@ import (
 
 // The failures of Enroll that a worker reports each in its own words.
 var (
-	// ErrInviteCAMismatch is the error of a coordinator on built-in TLS
-	// whose CA does not have the invite's pin: one of another Dagu.
+	// ErrInviteCAMismatch is the error of a coordinator on built-in TLS of
+	// another Dagu: its CA does not have the invite's pin, or did not sign
+	// the worker's certificate.
 	ErrInviteCAMismatch = errors.New("the coordinator's CA does not match the invite")
 	// ErrOwnCertificates is the error of a coordinator that serves TLS with
 	// its own certificates, peer.cert_file and peer.key_file, and so no

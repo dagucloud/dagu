@@ -345,6 +345,7 @@ func TestWorkerWithLabels(t *testing.T) {
 			coord.GetCoordinatorClient(t),
 			map[string]string{"type": "special", "region": "us-east", "extra": "value"},
 			th.Config,
+			nil,
 		)
 		var w2Executed atomic.Bool
 		w2.SetHandler(&mockHandler{
@@ -413,7 +414,7 @@ func TestWorkerLowercasesLabels(t *testing.T) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	})
-	w := worker.NewWorker("lowercase", 1, cli, map[string]string{"Zone": "US-East", "GPU": ""}, &config.Config{})
+	w := worker.NewWorker("lowercase", 1, cli, map[string]string{"Zone": "US-East", "GPU": ""}, &config.Config{}, nil)
 	w.SetHandler(&mockHandler{})
 	go func() { _ = w.Start(context.Background()) }()
 
@@ -452,7 +453,7 @@ func TestWorkerRejectsInvalidLabels(t *testing.T) {
 
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
-			w := worker.NewWorker("invalid-labels", 1, newMockCoordinatorCli(), tt.labels, &config.Config{})
+			w := worker.NewWorker("invalid-labels", 1, newMockCoordinatorCli(), tt.labels, &config.Config{}, nil)
 			w.SetHandler(&mockHandler{})
 
 			require.ErrorContains(t, w.Start(ctx), tt.want)
@@ -561,7 +562,7 @@ func TestWorkerHeartbeatCarriesMachine(t *testing.T) {
 				}
 				return &coordinatorv1.HeartbeatResponse{}, nil
 			})
-			w := worker.NewWorker("machine-worker", 1, cli, map[string]string{}, &config.Config{})
+			w := worker.NewWorker("machine-worker", 1, cli, map[string]string{}, &config.Config{}, nil)
 			w.SetHandler(&mockHandler{})
 			if tc.machine != nil {
 				w.SetMachine(tc.machine)
@@ -619,7 +620,7 @@ func TestWorkerReadiness(t *testing.T) {
 				cfg.Worker.HealthPort = freeTCPPort(t)
 				base = fmt.Sprintf("http://127.0.0.1:%d", cfg.Worker.HealthPort)
 			}
-			w := worker.NewWorker("ready-worker", 1, cli, map[string]string{}, cfg)
+			w := worker.NewWorker("ready-worker", 1, cli, map[string]string{}, cfg, nil)
 			w.SetHandler(&mockHandler{})
 			if supplied {
 				health := healthcheck.NewServerWithAddr("worker", "127.0.0.1:0")
@@ -710,7 +711,7 @@ func TestWorkerStopWithoutStart(t *testing.T) {
 
 		// Create a mock coordinator client that doesn't connect
 		mockCoordinatorCli := newMockCoordinatorCli()
-		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, labels, &config.Config{})
+		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, labels, &config.Config{}, nil)
 		w.SetHandler(&mockHandler{ExecutionTime: 0})
 
 		// Stop should work without error even if not started
@@ -735,7 +736,7 @@ func TestWorkerStopDeadline(t *testing.T) {
 		})
 
 		started := make(chan struct{})
-		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, map[string]string{}, cfg)
+		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, map[string]string{}, cfg, nil)
 		w.SetHandler(&mockHandler{
 			ExecuteFunc: func(ctx context.Context, _ *coordinatorv1.Task) error {
 				close(started)
@@ -841,7 +842,7 @@ func TestWorkerDefaultID(t *testing.T) {
 		mockCoordinatorCli := newMockCoordinatorCli()
 
 		// Create worker with empty ID
-		w := worker.NewWorker("", 1, mockCoordinatorCli, labels, &config.Config{})
+		w := worker.NewWorker("", 1, mockCoordinatorCli, labels, &config.Config{}, nil)
 		require.NotNil(t, w)
 
 		// Worker should have generated a default ID (hostname@pid format)
@@ -972,7 +973,7 @@ func TestWorkerConnectionFailure(t *testing.T) {
 		}
 
 		labels := make(map[string]string)
-		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, labels, &config.Config{})
+		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, labels, &config.Config{}, nil)
 		w.SetHandler(&mockHandler{})
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1043,7 +1044,7 @@ func createTestWorker(t *testing.T, workerID string, maxActiveRuns int, coord *t
 	coordinatorClient := coord.GetCoordinatorClient(t)
 
 	labels := make(map[string]string)
-	w := worker.NewWorker(workerID, maxActiveRuns, coordinatorClient, labels, &config.Config{})
+	w := worker.NewWorker(workerID, maxActiveRuns, coordinatorClient, labels, &config.Config{}, nil)
 	w.SetHandler(&mockHandler{})
 	return w
 }
@@ -1086,7 +1087,7 @@ func TestWorkerCancellation(t *testing.T) {
 			}, nil
 		}
 
-		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, map[string]string{}, &config.Config{})
+		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, map[string]string{}, &config.Config{}, nil)
 
 		w.SetHandler(&mockHandler{
 			ExecuteFunc: func(_ context.Context, task *coordinatorv1.Task) error {
@@ -1156,7 +1157,7 @@ func TestWorkerCancellation(t *testing.T) {
 			return nil, errors.New("owner unavailable")
 		}
 
-		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, map[string]string{}, &config.Config{})
+		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, map[string]string{}, &config.Config{}, nil)
 		executed := make(chan struct{}, 1)
 		w.SetHandler(&mockHandler{
 			ExecuteFunc: func(_ context.Context, _ *coordinatorv1.Task) error {
@@ -1223,7 +1224,7 @@ func TestWorkerCancellation(t *testing.T) {
 		}
 
 		labels := make(map[string]string)
-		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, labels, &config.Config{})
+		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, labels, &config.Config{}, nil)
 
 		// Track if task was cancelled via context
 		taskCancelled := make(chan bool, 1)
@@ -1292,7 +1293,7 @@ func TestWorkerCancellation(t *testing.T) {
 		}
 
 		labels := make(map[string]string)
-		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, labels, &config.Config{})
+		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, labels, &config.Config{}, nil)
 
 		taskExecuted := make(chan bool, 1)
 
@@ -1361,7 +1362,7 @@ func TestWorkerCancellation(t *testing.T) {
 		}
 
 		labels := make(map[string]string)
-		w := worker.NewWorker("test-worker", 3, mockCoordinatorCli, labels, &config.Config{})
+		w := worker.NewWorker("test-worker", 3, mockCoordinatorCli, labels, &config.Config{}, nil)
 
 		// Track cancelled tasks
 		cancelledTasks := make(chan string, 3)

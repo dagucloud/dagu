@@ -171,6 +171,7 @@ func runWorker(ctx *Context, _ []string) error {
 		coordinatorCli,
 		labels,
 		ctx.Config,
+		membership,
 	)
 
 	handlerCfg := worker.RemoteTaskHandlerConfig{
@@ -215,14 +216,12 @@ func runWorker(ctx *Context, _ []string) error {
 		logger.Info(ctx, "Worker shutting down", slog.Duration("timeout", shutdownTimeout))
 		stopCtx, cancel := workerStopContext(ctx.Context, shutdownTimeout)
 		defer cancel()
-		if err := w.Stop(stopCtx); err != nil {
-			return fmt.Errorf("failed to stop worker: %w", err)
-		}
+		// Stop and Start say what failed, and a removed worker's failure
+		// is its message.
+		return w.Stop(stopCtx)
 	case err := <-errCh:
-		return fmt.Errorf("worker failed: %w", err)
+		return err
 	}
-
-	return nil
 }
 
 // workerStopContext returns the context for Worker.Stop. A positive timeout

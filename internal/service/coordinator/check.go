@@ -48,7 +48,9 @@ type CheckResult struct {
 	// Credential is what the client presents to the coordinator.
 	Credential Credential
 	// AnswerErr is why the coordinator did not serve the client's call; nil
-	// when it did. It is nil as well when the check stopped earlier.
+	// when it did. It is nil as well when the check stopped earlier. A
+	// refusal of a revoked worker certificate reads as the removed worker's
+	// message.
 	AnswerErr error
 }
 
@@ -61,7 +63,9 @@ type H2CFallback struct {
 
 // TLSHandshake is what a TLS handshake with a coordinator showed.
 type TLSHandshake struct {
-	// Err says why the handshake failed; nil when it succeeded.
+	// Err says why the handshake failed; nil when it succeeded. It is
+	// ErrInviteCAMismatch for a coordinator of another Dagu than the one the
+	// worker's invite or certificate names.
 	Err error
 	// Fallback is the source of the h2c the client falls back to after the
 	// failed handshake, such as "tls failed on the network path"; empty when
@@ -98,6 +102,41 @@ type Credential struct {
 	CertSent bool
 	// PeerToken is where the peer token comes from.
 	PeerToken PeerTokenSource
+
+	// certificateID and inviteID name the worker certificate the client
+	// presents and the invite it enrolled with; empty without one.
+	certificateID string
+	inviteID      string
+	// enrolls reports a worker that enrolls with worker.invite, so its
+	// calls carry no credential before it enrolls.
+	enrolls bool
+}
+
+// credentialText says what the client presents to the coordinator.
+func credentialText(c Credential) string {
+	switch {
+	case c.certificateID != "":
+		return fmt.Sprintf("worker certificate %s, from invite %s; no peer token", c.certificateID, c.inviteID)
+	case c.enrolls:
+		return "the invite of worker.invite, which only enrollment uses; no peer token"
+	}
+	var token string
+	switch c.PeerToken {
+	case PeerTokenConfigured:
+		token = "peer token from peer.token"
+	case PeerTokenDataDir:
+		token = "the peer token that the coordinator generated"
+	case PeerTokenNone:
+		token = "no peer token"
+	}
+	switch {
+	case c.CertFile == "":
+		return token
+	case !c.CertSent:
+		return fmt.Sprintf("%s; client certificate %s not sent, as the coordinator did not ask for one from its CA", token, c.CertFile)
+	default:
+		return fmt.Sprintf("client certificate %s and %s", c.CertFile, token)
+	}
 }
 
 // PeerTokenSource is where a client's peer token comes from.
@@ -146,6 +185,32 @@ func (r CheckResult) Passed() bool {
 		(r.TLS == nil || r.TLS.Err == nil || r.TLS.Fallback != "") && r.AnswerErr == nil
 }
 
+// Removed reports whether the coordinator refused the client's worker
+// certificate as revoked.
+func (r CheckResult) Removed() bool {
+	return errors.Is(r.AnswerErr, removedWorkerError{})
+}
+
+// Describe returns the check's lines about the client's credential: what
+// the client presents to the coordinator, and what the coordinator answered
+// its calls, once the check reached them.
+func (r CheckResult) Describe() (credential, answer string) {
+	return credentialText(r.Credential), answerText(r)
+}
+
+// answerText says what the coordinator answered the client's calls.
+func answerText(r CheckResult) string {
+	switch {
+	case r.AnswerErr != nil:
+		return r.AnswerErr.Error()
+	case r.Credential.enrolls:
+		return "serving; the worker enrolls with its invite when it starts"
+	case r.Credential.certificateID != "":
+		return "serving, and it accepted the worker certificate"
+	}
+	return "serving, and it accepted the call"
+}
+
 // Check dials the coordinator that member names with config, as a worker
 // does: it picks the transport as the worker's client does, and calls with
 // the worker's credential. It never enrolls, registers no worker, takes no
@@ -179,7 +244,7 @@ func Check(ctx context.Context, config *Config, member serviceregistry.HostInfo)
 	// h2cSource is the source of h2c, which the calls send as their reason;
 	// empty on TLS.
 	var h2cSource string
-	if plan.roots == nil && (config.Insecure || config.picksTransportPerConnection()) {
+	if plan.h2c() && (config.Insecure || config.picksTransportPerConnection()) {
 		h2cSource = plan.choice.source
 	} else {
 		result.TLS, result.Credential.CertSent = checkHandshake(connectCtx, config, plan, conn, member.Host)
@@ -218,7 +283,8 @@ func checkPlan(ctx context.Context, config *Config, address string) (connectionP
 
 // checkAnswer asks the coordinator for its health and its worker list with
 // the client's credential, over h2c from h2cSource or, when it is empty,
-// over the TLS of plan.
+// over the TLS of plan. A worker that enrolls has no credential yet, so it
+// gets the health check only.
 func checkAnswer(ctx context.Context, config *Config, plan connectionPlan, host, address, h2cSource string) error {
 	opts, err := getDialOptions(config)
 	if err != nil {
@@ -230,13 +296,7 @@ func checkAnswer(ctx context.Context, config *Config, plan connectionPlan, host,
 	case h2c:
 		opts = append(opts, grpc.WithTransportCredentials(h2cCredentials{source: h2cSource}))
 	default:
-		// Built-in TLS checks the name every coordinator certificate
-		// carries, not the dialed address.
-		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
-			RootCAs:    plan.roots,
-			MinVersion: tls.VersionTLS13,
-			ServerName: coordinatorCertName,
-		})))
+		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(builtinTLSConfig(plan))))
 	}
 	conn, err := grpc.NewClient(address, opts...)
 	if err != nil {
@@ -257,10 +317,16 @@ func checkAnswer(ctx context.Context, config *Config, plan connectionPlan, host,
 	if health.Status != grpc_health_v1.HealthCheckResponse_SERVING {
 		return fmt.Errorf("the coordinator is not serving (%s), %s", strings.ToLower(health.Status.String()), credentialedCallSkipped)
 	}
+	if plan.pin != "" {
+		return nil
+	}
 	// The health service takes no credential; the worker list does.
 	if _, err := coordinatorv1.NewCoordinatorServiceClient(conn).GetWorkers(ctx, &coordinatorv1.GetWorkersRequest{}); err != nil {
 		if isRequireTLSRefusal(err) {
 			return requireTLSError{source: h2cSource}
+		}
+		if isWorkerRemoved(err) {
+			return removedWorkerError{}
 		}
 		return fmt.Errorf("serving, but %w", callError(config, err))
 	}
@@ -315,6 +381,17 @@ func noAnswer(config *Config) error {
 // clientCredential returns what a client with config presents.
 func clientCredential(config *Config) Credential {
 	var credential Credential
+	switch {
+	case config.workerCert != nil:
+		// An invite worker sends neither the peer token nor TLS files.
+		if leaf := config.workerCert.Leaf; leaf != nil {
+			credential.certificateID, credential.inviteID = leaf.Subject.CommonName, inviteIDOf(leaf)
+		}
+		return credential
+	case config.invite != nil:
+		credential.enrolls = true
+		return credential
+	}
 	if !config.Insecure && config.CertFile != "" && config.KeyFile != "" {
 		credential.CertFile = config.CertFile
 	}

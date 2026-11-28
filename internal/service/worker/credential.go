@@ -43,6 +43,9 @@ type credential struct {
 	// inviteDigest identifies the invite it enrolled with, without its
 	// secret.
 	inviteDigest string
+	// removed reports that a coordinator refused the certificate as
+	// revoked, so later starts exit without calling one.
+	removed bool
 }
 
 // credentialFile is how a credential is kept in its file.
@@ -51,6 +54,7 @@ type credentialFile struct {
 	Certificate   string `json:"certificate"`
 	CACertificate string `json:"caCertificate"`
 	InviteDigest  string `json:"inviteDigest"`
+	Removed       bool   `json:"removed,omitempty"`
 }
 
 // credentialStore keeps a worker's credential in its data directory, in a
@@ -105,7 +109,7 @@ func (s credentialStore) load() (*credential, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &credential{cert: cert, ca: ca, inviteDigest: file.InviteDigest}, nil
+	return &credential{cert: cert, ca: ca, inviteDigest: file.InviteDigest, removed: file.Removed}, nil
 }
 
 // save replaces the stored credential with c. The file is written whole
@@ -121,6 +125,7 @@ func (s credentialStore) save(c *credential) error {
 		Certificate:   string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.cert.Certificate[0]})),
 		CACertificate: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.ca.Raw})),
 		InviteDigest:  c.inviteDigest,
+		Removed:       c.removed,
 	})
 	if err != nil {
 		return err

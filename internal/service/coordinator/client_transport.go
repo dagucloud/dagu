@@ -26,6 +26,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -385,6 +387,9 @@ func (t *clientTransport) awaitReady(ctx context.Context, cc *grpc.ClientConn) {
 // succeeds. A refusal of a connection that an h2c window put on h2c ends the
 // window, and the client opens a new connection.
 func (t *clientTransport) report(ctx context.Context, link *connLink, method string, err error, p *peer.Peer) {
+	if t.config.onRemoved != nil && isWorkerRemoved(err) {
+		t.config.onRemoved()
+	}
 	refusal := isRequireTLSRefusal(err)
 	if refusal && link.refuse() {
 		t.windows.end(link.address, t.now())
@@ -658,7 +663,7 @@ func (l *connLink) streamInterceptor(ctx context.Context, desc *grpc.StreamDesc,
 		return nil, refusalError(err, &p)
 	}
 	s := &reportingStream{ClientStream: stream, link: l, ctx: ctx, method: method, serverStreams: desc.ServerStreams, peer: &p}
-	s.stop = context.AfterFunc(ctx, func() { s.finish(nil, false) })
+	s.stop = context.AfterFunc(ctx, s.release)
 	return s, nil
 }
 
@@ -673,10 +678,47 @@ type reportingStream struct {
 	// peer is the peer of the stream, which gRPC records when it ends.
 	peer *peer.Peer
 	stop func() bool
-	once sync.Once
+	// released ends the stream on its link once, when it ends or its
+	// context does; reported reports its final status once, whenever it is
+	// read, also after the context ended.
+	released sync.Once
+	reported sync.Once
+	// ended holds the response, if any, and the status that RecvMsg read
+	// after a send failed, for the caller's next RecvMsg.
+	ended    bool
+	reply    []byte
+	endedErr error
+}
+
+// SendMsg reads the status of a stream that the coordinator ended while the
+// client still sends, as on a refusal of the call: gRPC then returns io.EOF,
+// and callers that stop on a failed send would never read why.
+func (s *reportingStream) SendMsg(m any) error {
+	err := s.ClientStream.SendMsg(m)
+	if !errors.Is(err, io.EOF) || s.serverStreams || s.ended {
+		return err
+	}
+	var reply emptypb.Empty
+	s.ended, s.endedErr = true, s.RecvMsg(&reply)
+	if s.endedErr == nil {
+		// Empty keeps the fields it does not know, so the response
+		// reaches the caller's message whole.
+		s.reply, s.endedErr = proto.Marshal(&reply)
+	}
+	return err
 }
 
 func (s *reportingStream) RecvMsg(m any) error {
+	if s.ended {
+		if s.endedErr != nil {
+			return s.endedErr
+		}
+		msg, ok := m.(proto.Message)
+		if !ok {
+			return fmt.Errorf("unexpected response type %T", m)
+		}
+		return proto.Unmarshal(s.reply, msg)
+	}
 	err := s.ClientStream.RecvMsg(m)
 	// A stream with one response ends with it.
 	if err != nil || !s.serverStreams {
@@ -685,18 +727,20 @@ func (s *reportingStream) RecvMsg(m any) error {
 		if errors.Is(err, io.EOF) {
 			final = nil
 		}
-		s.finish(final, true)
+		s.finish(final)
 	}
 	return refusalError(err, s.peer)
 }
 
-func (s *reportingStream) finish(err error, report bool) {
-	s.once.Do(func() {
-		s.link.end()
-		if report {
-			s.link.transport.report(s.ctx, s.link, s.method, err, s.peer)
-		}
+func (s *reportingStream) finish(err error) {
+	s.release()
+	s.reported.Do(func() {
+		s.link.transport.report(s.ctx, s.link, s.method, err, s.peer)
 	})
+}
+
+func (s *reportingStream) release() {
+	s.released.Do(s.link.end)
 }
 
 // connectionCredentials pick built-in TLS or h2c for each new connection of
@@ -717,26 +761,7 @@ func (c *connectionCredentials) ClientHandshake(ctx context.Context, _ string, r
 		return h2cCredentials{source: plan.choice.source, tlsError: plan.tlsError}.ClientHandshake(ctx, address, rawConn)
 	}
 	conn := &handshakeConn{Conn: rawConn}
-	tlsConfig := &tls.Config{RootCAs: plan.roots, MinVersion: tls.VersionTLS13}
-	if plan.cert != nil {
-		tlsConfig.Certificates = []tls.Certificate{*plan.cert}
-		// The worker's CA can also sign own certificates, which are no
-		// coordinator of built-in TLS.
-		tlsConfig.VerifyConnection = func(state tls.ConnectionState) error {
-			if len(state.PeerCertificates) == 0 || !isCoordinatorCertificate(state.PeerCertificates[0]) {
-				return errNotBuiltinCertificate
-			}
-			return nil
-		}
-	}
-	if plan.pin != "" {
-		// verifyPinnedChain checks the chain against the pin instead.
-		tlsConfig.InsecureSkipVerify = true //nolint:gosec
-		tlsConfig.VerifyConnection = func(state tls.ConnectionState) error {
-			return verifyPinnedChain(state.PeerCertificates, plan.pin)
-		}
-	}
-	creds := credentials.NewTLS(tlsConfig)
+	creds := credentials.NewTLS(builtinTLSConfig(plan))
 	// The authority sets the name to verify: built-in TLS checks the name
 	// every coordinator certificate carries, not the dialed address.
 	tlsConn, info, err := creds.ClientHandshake(ctx, coordinatorCertName, conn)

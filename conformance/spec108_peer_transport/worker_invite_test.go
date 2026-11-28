@@ -36,6 +36,8 @@ type inviteCoordinator struct {
 	addr  string
 	admin coordinatorv1.CoordinatorServiceClient
 	token string
+	// env starts a coordinator of the same peer CA.
+	env []string
 }
 
 func startInviteCoordinator(t *testing.T, dagu *harness.Runner) inviteCoordinator {
@@ -46,6 +48,7 @@ func startInviteCoordinator(t *testing.T, dagu *harness.Runner) inviteCoordinato
 		addr:  addr,
 		admin: coordinatorv1.NewCoordinatorServiceClient(dialCoordinator(t, addr, peer.builtinTLS())),
 		token: peer.token,
+		env:   peer.env,
 	}
 }
 

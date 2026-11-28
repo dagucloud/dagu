@@ -32,6 +32,9 @@ type Poller struct {
 	handler        TaskHandler
 	index          int
 	labels         map[string]string
+	// removal is canceled once a coordinator refused the worker's
+	// certificate as revoked; nil is never canceled.
+	removal context.Context
 }
 
 // NewPoller creates a new poller instance
@@ -70,31 +73,55 @@ func (p *Poller) Run(ctx context.Context) {
 				if ctx.Err() != nil {
 					return
 				}
+				// A removed worker stops, so the poller waits for that
+				// instead of polling again.
+				if p.removed() {
+					<-ctx.Done()
+					return
+				}
 				// Poll failed, but will be retried by pollForTask
 				continue
 			}
 
 			// If we got a task, execute it
 			if task != nil {
-				logger.Info(ctx, "Task received, starting execution",
-					tag.WorkerID(p.workerID),
-					tag.PollerIndex(p.index),
-					tag.RunID(task.DagRunId))
-
-				if err := p.ackTaskClaim(ctx, task); err != nil {
+				// A removed worker accepts no task: the claim expires and
+				// returns the task to the queue.
+				ackErr := p.ackTaskClaim(ctx, task)
+				if p.removed() {
+					message := "Task left unaccepted: this worker was removed from the coordinator"
+					if ackErr == nil {
+						message = "Task execution skipped: this worker was removed from the coordinator"
+					}
+					logger.Info(ctx, message,
+						tag.WorkerID(p.workerID),
+						tag.PollerIndex(p.index),
+						tag.RunID(task.DagRunId))
+					<-ctx.Done()
+					return
+				}
+				if ackErr != nil {
 					logger.Error(ctx, "Failed to acknowledge claimed task",
 						tag.WorkerID(p.workerID),
 						tag.PollerIndex(p.index),
 						tag.RunID(task.DagRunId),
-						tag.Error(err))
+						tag.Error(ackErr))
 					continue
 				}
+				logger.Info(ctx, "Task received, starting execution",
+					tag.WorkerID(p.workerID),
+					tag.PollerIndex(p.index),
+					tag.RunID(task.DagRunId))
 
 				// Execute the task using the TaskHandler
 				err := p.handler.Handle(ctx, task)
 				if err != nil {
 					if ctx.Err() != nil {
 						// Context cancelled, exit gracefully
+						return
+					}
+					if errors.Is(err, errWorkerRemoved) {
+						<-ctx.Done()
 						return
 					}
 					if errors.Is(err, errTaskClaimRejectedBeforeExecution) {
@@ -121,6 +148,12 @@ func (p *Poller) Run(ctx context.Context) {
 	}
 }
 
+// removed reports whether a coordinator refused the worker's certificate as
+// revoked.
+func (p *Poller) removed() bool {
+	return p.removal != nil && p.removal.Err() != nil
+}
+
 func (p *Poller) ackTaskClaim(ctx context.Context, task *coordinatorv1.Task) error {
 	if task == nil || task.ClaimToken == "" {
 		return nil
@@ -142,7 +175,12 @@ func (p *Poller) ackTaskClaim(ctx context.Context, task *coordinatorv1.Task) err
 	var resp *coordinatorv1.AckTaskClaimResponse
 	retryCtx, cancel := context.WithTimeout(ctx, taskClaimAckRetryTimeout)
 	defer cancel()
+	// A removal ends ctx, and so an acknowledgment under way, and stops the
+	// retries.
 	err = backoff.Retry(retryCtx, func(ctx context.Context) error {
+		if p.removed() {
+			return errWorkerRemoved
+		}
 		var callErr error
 		resp, callErr = p.coordinatorCli.AckTaskClaimTo(ctx, owner, req)
 		return callErr
@@ -180,7 +218,13 @@ func (p *Poller) pollForTask(ctx context.Context, policy backoff.RetryPolicy) (*
 	}
 
 	// Use coordinator client's Poll method which handles retries and failover
-	task, err := p.coordinatorCli.Poll(ctx, policy, req)
+	// The poll retries until it succeeds or the poller stops, so its
+	// failures are logged here, and a stop, which cancels a poll under way
+	// in each poller, logs nothing.
+	task, err := p.coordinatorCli.Poll(backoff.WithRetryFailureLogLevel(ctx, slog.LevelDebug), policy, req)
+	if err != nil && (ctx.Err() != nil || p.removed()) {
+		return nil, err
+	}
 	if err != nil {
 		// Get updated metrics after failure
 		afterMetrics := p.coordinatorCli.Metrics()

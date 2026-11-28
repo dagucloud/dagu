@@ -459,13 +459,16 @@ func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.
 // Poll implements Client.
 func (cli *clientImpl) Poll(ctx context.Context, policy backoff.RetryPolicy, req *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
 	var task *coordinatorv1.Task
+	// A refusal as revoked is final, so it ends the retry without the
+	// retry's own logs and is returned as is.
+	var removed error
 	err := backoff.Retry(ctx, func(ctx context.Context) error {
 		members, err := cli.getCoordinatorMembers(ctx)
 		if err != nil {
 			return err
 		}
 
-		return cli.attemptCall(ctx, members, func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
+		err = cli.attemptCall(ctx, members, func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
 			resp, err := client.client.Poll(ctx, req)
 			if err != nil {
 				return fmt.Errorf("failed to poll task from coordinator %s: %w", member.ID, err)
@@ -483,8 +486,15 @@ func (cli *clientImpl) Poll(ctx context.Context, policy backoff.RetryPolicy, req
 
 			return nil
 		})
-
+		if isWorkerRemoved(err) {
+			removed = err
+			return nil
+		}
+		return err
 	}, policy, nil)
+	if removed != nil {
+		return nil, removed
+	}
 
 	return task, err
 }
@@ -564,7 +574,9 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []serviceregistr
 			cli.recordFailure(err)
 
 			// Permanent errors (e.g. selector mismatch) should not try other coordinators.
-			if errors.Is(err, backoff.ErrPermanent) {
+			// A revoked certificate is refused by each coordinator once it
+			// rereads the revoked set, so one refusal decides.
+			if errors.Is(err, backoff.ErrPermanent) || isWorkerRemoved(err) {
 				return err
 			}
 			lastErr = err
@@ -1366,6 +1378,9 @@ func (cli *clientImpl) Heartbeat(ctx context.Context, req *coordinatorv1.Heartbe
 		cancel()
 		if lastErr == nil {
 			return resp, nil
+		}
+		if isWorkerRemoved(lastErr) {
+			return nil, lastErr
 		}
 	}
 	return nil, heartbeatContextError(ctx, lastErr)

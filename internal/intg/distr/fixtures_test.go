@@ -297,7 +297,7 @@ func (f *testFixture) setupWorkerMode(
 		handlerCfg.ServiceRegistry = f.coord.ServiceRegistry
 	}
 
-	w := worker.NewWorker(workerID, f.workerMaxActiveRuns, f.coordinatorClient, labels, workerConfig)
+	w := worker.NewWorker(workerID, f.workerMaxActiveRuns, f.coordinatorClient, labels, workerConfig, nil)
 	w.SetHandler(worker.NewRemoteTaskHandler(handlerCfg))
 	if afterAckHook != nil {
 		w.SetAfterTaskAckHook(afterAckHook)
