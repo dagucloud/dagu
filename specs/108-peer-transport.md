@@ -679,18 +679,18 @@ The `worker_certificates` collection keeps one record per certificate:
 
 #### Worker Files
 
-- An invite worker keeps its credential in its data directory, readable by
-  its user only, and reuses it across restarts. It holds its
-  [lock](#worker-lock) there too.
+- An invite worker's credential is kept in its data directory, readable by
+  its user only, and a restart reuses it.
 - Run processes the worker starts use the same credential.
-- A worker that cannot write a data directory that holds no credential
-  takes no lock and enrolls again at each start.
-- A restart that uses a kept credential takes the lock first, with or
-  without `worker.invite`. When the lock cannot be taken, as on a read-only
-  volume, the worker exits with code 1 and says to make the data directory
-  writable.
-- A kept credential that cannot be read stops the worker with code 1. The
-  worker never falls back to the peer token in its place.
+- A worker whose data directory is read-only and holds no credential
+  enrolls again at each start.
+- A restart that uses a kept credential takes the [lock](#worker-lock)
+  first, with or without `worker.invite`. When the lock cannot be taken,
+  as on a read-only volume, the worker exits with code 1 and names the
+  data directory to make writable.
+- A kept credential that cannot be read stops the worker with code 1, and
+  the message names the data directory. The worker never falls back to the
+  peer token in its place.
 
 #### Worker Start
 
