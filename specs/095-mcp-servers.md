@@ -16,7 +16,9 @@ credential for an `mcp` connection yet.
   a server: through the egress proxy with the proxy credential, as
   [On an Agent Worker](#on-an-agent-worker) states, or through the
   coordinator.
-- An adapter for the `opencode` CLI outside ACP.
+- An adapter for the `opencode` CLI outside ACP, and one for pi.
+- Whether `mcp.call` takes a static connection, which needs Spec 098 to
+  state the static rules beside its OAuth ones.
 
 This spec extends the provider `mcp` of
 [Spec 107: Connections](107-connections.md). Steps use an MCP server
@@ -63,10 +65,9 @@ fixed headers.
 | `headers` | Optional. A map from a header name to a write-only value. At most 16 entries |
 
 - A static connection has no `app`. Spec 107 lists the grant `static`.
-- Only `mcp_servers` and `mcp.call` of [Spec 098](098-mcp-call.md) use a
-  static connection, and only at its `resource`. An `mcp.call` URL other
-  than `resource`, and any other consumer such as `http.request`, fail
-  admission.
+- Only `mcp_servers` uses a static connection, at its `resource`. Any
+  other consumer, such as `mcp.call` of [Spec 098](098-mcp-call.md) or
+  `http.request`, fails admission.
 - A connection has `token`, `headers`, or neither. It does not have both
   `token` and a header `authorization`.
 - A header name matches `^[A-Za-z][A-Za-z0-9-]{0,63}$`, and Dagu keeps it
@@ -85,7 +86,8 @@ fixed headers.
   header that the new set lacks is deleted.
 - The bound host is the host of `resource`. The gateway sends the values
   only there, and follows no redirect. It removes them from every tool
-  result and error before an agent or a step output gets one.
+  listing, tool result, and error before Dagu stores one, or an agent or
+  a step output gets one.
 - `resource` is write-only past its host, since its query can hold a
   secret. Dagu stores it encrypted, as the values. Responses, errors, and
   audit entries show only the host.
@@ -149,14 +151,14 @@ mcp_servers:
 | `codex` | `-c mcp_servers` overrides, with `bearer_token_env_var`, as RFC 026 states |
 | An ACP agent, such as `opencode acp` | HTTP MCP entries in `session/new`, as RFC 026 states |
 | `opencode`, outside ACP | No adapter yet. See [Status](#status). An `opencode` step with a model connection runs the CLI (Spec 093), so it cannot use `mcp_servers` yet |
-| `pi` | None. pi has no MCP support by design |
+| `pi` | No adapter yet. See [Status](#status) |
 | Another provider | None until it gains an adapter, as RFC 026 states |
 
 `dagu validate` rejects `mcp_servers` on a step whose CLI has no MCP
 adapter:
 
 ```text
-step "triage": harness provider "pi" cannot use mcp_servers: pi has no MCP support; remove mcp_servers, or use claude, codex, or an ACP agent
+step "triage": harness provider "pi" cannot use mcp_servers: Dagu has no MCP adapter for pi; remove mcp_servers, or use claude, codex, or an ACP agent
 ```
 
 ### On an Agent Worker

@@ -211,8 +211,9 @@ This spec adds these transitions to Spec 107, for the grants `api_key` and
 - A change that adds or changes a base URL or a models URL needs the key
   again in the same request, so no one can send a stored key to a URL of
   their choosing.
-- A custom `models_url` is write-only past its origin, since its path or
-  query can hold a secret. Reads, catalog errors, and audit entries show
+- The base URLs and `models_url` of a `custom` connection are write-only
+  past their origin, since a path or query can hold a secret. Reads,
+  catalog errors, and audit entries show
   only the origin.
 
 ### Presets
@@ -342,7 +343,8 @@ A CLI step takes the first of these that applies:
 3. The CLI's own sign-in. `model` and `effort` keep Spec 067 behavior.
 
 - A step that takes a connection and sets no `model` takes `llm.model`
-  when `llm.connection` names the same connection. Otherwise it fails
+  when it is one model and `llm.connection` names the same connection.
+  Otherwise it fails
   validation.
 - A project's base config sets `llm` for every DAG of the project, as
   Spec 102 [Base Config](102-projects.md#base-config) states. So
