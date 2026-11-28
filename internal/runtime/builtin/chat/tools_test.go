@@ -9,6 +9,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -209,4 +210,47 @@ func TestNewToolRegistry_LocalDAGs(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Nil(t, registry)
 	})
+}
+
+// A tool DAG that would run text of the model as code is refused when the
+// step starts: a command that Dagu fills with an input, or an eval that reads
+// one. Reading the input as a shell variable is accepted.
+func TestNewToolRegistryRefusesEvaluatedInput(t *testing.T) {
+	t.Parallel()
+	const params = "params:\n  - name: Q\n    type: string\n"
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"ParamsRef", params + "steps:\n  - id: s\n    run: echo ${params.Q}\n", `the command of step "s" refers to ${params.Q}`},
+		{"EnvRef", params + "steps:\n  - id: s\n    run: echo ${env.Q}\n", `refers to ${env.Q}`},
+		{"WholeParams", params + "steps:\n  - id: s\n    run: printf '%s' '${params}'\n", `read it as "$DAG_PARAMS_JSON"`},
+		{"Script", params + "steps:\n  - id: s\n    script: |\n      echo ${params.Q}\n", `refers to ${params.Q}`},
+		{"Handler", params + "handler_on:\n  exit:\n    run: echo ${params.Q}\nsteps:\n  - run: echo\n", `refers to ${params.Q}`},
+		{"Foreach", params + "steps:\n  - id: s\n    foreach:\n      items: [1]\n      steps:\n        - id: body\n          run: echo ${params.Q}\n", `step "body"`},
+		{"ParamEval", params + "  - name: X\n    type: string\n    eval: \"`echo $Q`\"\nsteps:\n  - run: echo\n", `the eval of param "X" refers to $Q`},
+		{"PreconditionCommand", params + "preconditions:\n  - condition: test -n ${params.Q}\nsteps:\n  - run: echo\n", `a precondition refers to ${params.Q}`},
+		{"PreconditionEval", params + "steps:\n  - id: s\n    preconditions:\n      - eval: \"`echo $Q`\"\n        expected: x\n    run: echo\n", `a precondition of step "s" refers to $Q`},
+		{"ShellVariable", params + "steps:\n  - run: echo \"$Q\" \"$DAG_PARAMS_JSON\"\n", ""},
+		{"ValueMatch", params + "preconditions:\n  - condition: ${params.Q}\n    expected: yes\nsteps:\n  - run: echo\n", ""},
+		{"NoInputs", "steps:\n  - run: echo ${params}\n", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tool, err := spec.LoadYAML(context.Background(), []byte("name: tool\n"+tc.body))
+			require.NoError(t, err)
+			parent := &ir.DAG{Name: "parent", LocalDAGs: map[string]*ir.DAG{"tool": tool}}
+			ctx := runctx.NewContext(context.Background(), parent, "run-1", "/tmp/log")
+			_, err = NewToolRegistry(ctx, []string{"tool"})
+			if tc.want == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), `tool DAG "tool": `)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
 }
