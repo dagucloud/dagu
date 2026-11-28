@@ -15,9 +15,14 @@ and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
 [Coordinator Line](#coordinator-line) except its
 `coordinator.require_tls` row, the
 [Coordinator Certificate](#coordinator-certificate),
-[One Port](#one-port) except worker certificates, and the coordinator call
-of [Join Readiness](#join-readiness). The coordinator serves built-in TLS,
-but no client uses it yet.
+[One Port](#one-port) except the revoked set, the coordinator call of
+[Join Readiness](#join-readiness), the [Invites](#invites) and their
+[Coordinator Calls](#coordinator-calls) except removal and the daily
+deletion of ended [Invite Records](#invite-records), and the
+[Coordinator Side](#coordinator-side) of enrollment with the
+[Worker Certificate](#worker-certificate) and its record, except refusing
+the key of a revoked certificate. The coordinator serves built-in TLS and
+enrollment, but no client uses them yet.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -472,7 +477,10 @@ The `worker_invites` collection keeps one record per invite:
 
 - No record holds the invite or its secret.
 - Two coordinators never both accept one single-use invite.
-- Records stay until the invite is deleted.
+- An invite ends when it is used up or expires. Once a day, each
+  coordinator deletes the records of invites that ended more than 7 days
+  ago. A reusable invite without an expiry never ends, and its record stays
+  until the invite is deleted.
 
 ### Coordinator Calls
 
@@ -530,6 +538,7 @@ worker                                          coordinator
 
 - it arrives over TLS
 - the secret matches an invite that has not ended
+- the certificate signing request verifies and holds an ECDSA P-256 key
 - the invite is reusable, or the worker can keep its certificate
 - the request's key is not the key of a revoked certificate
 
@@ -961,9 +970,9 @@ and prints the message:
 ## Constraints
 
 - A coordinator rereads the revoked and `removing` sets every 30 seconds and
-  prunes certificate records once a day. A worker with a certificate
-  refreshes its lock at an interval shorter than 30 seconds. Nothing else in
-  this spec runs on a timer.
+  prunes certificate and ended invite records once a day. A worker with a
+  certificate refreshes its lock at an interval shorter than 30 seconds.
+  Nothing else in this spec runs on a timer.
 - The reread reads the records of `removing` and `revoked` certificates
   only, so its cost grows with removed workers, not with enrollments.
 - A client that uses the published CA certificate reads it and the registry
@@ -1018,12 +1027,13 @@ handshake error that caused the fallback.
 | `Enroll` over h2c | `Unauthenticated`: `enrollment needs TLS` |
 | `Enroll` with an invite that has ended or does not exist | `PermissionDenied`: `the invite is invalid, expired, or already used` |
 | `Enroll` with a single-use invite from a worker that cannot keep its certificate | `FailedPrecondition`; the invite is not consumed |
+| `Enroll` with a certificate signing request that cannot be read, whose signature does not verify, or whose key is not ECDSA P-256 | `InvalidArgument`; the invite is not consumed |
 | `Enroll` with the key of a revoked certificate | `PermissionDenied`: `this key belongs to a removed worker` |
 | A call with a revoked worker certificate | `Unauthenticated`: `this worker was removed from the coordinator` |
 | A call over h2c with `coordinator.require_tls: true` | `Unauthenticated`, with the message of [Require TLS](#require-tls) |
 | An invite, removal, or join readiness call without the peer token | `Unauthenticated` |
 | An invite, removal, or join readiness call with a worker certificate | `PermissionDenied` |
-| An invite call on a coordinator without a peer CA | `FailedPrecondition`, with the message of [Coordinator Calls](#coordinator-calls) |
+| An invite call or `Enroll` on a coordinator without a peer CA | `FailedPrecondition`, with the message of [Coordinator Calls](#coordinator-calls) |
 | `POST /api/v1/workers/invites` with an invalid `expiresIn` or `address` | `400`, naming the field |
 | An invite or removal endpoint called by a non-admin | `403` |
 | `dagu worker invite` without the peer token | Exits with code 1, saying to set `peer.token` or to run on a host that reads the coordinator's data directory |

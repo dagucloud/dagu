@@ -156,6 +156,16 @@ func (s *ServerStores) WorkerNodeStore() (*store.WorkerNodeStore, error) {
 	return store.NewWorkerNodeStore(s.backend.Collection(persis.CollectionWorkerNodes), s.WorkerHeartbeatStore)
 }
 
+// WorkerInviteStore opens the invites that admit worker enrollments.
+func (s *ServerStores) WorkerInviteStore() (*store.WorkerInviteStore, error) {
+	return store.NewWorkerInviteStore(s.backend.Collection(persis.CollectionWorkerInvites))
+}
+
+// WorkerCertificateStore opens the records of issued worker certificates.
+func (s *ServerStores) WorkerCertificateStore() (*store.WorkerCertificateStore, error) {
+	return store.NewWorkerCertificateStore(s.backend.Collection(persis.CollectionWorkerCertificates))
+}
+
 // UpgradeCheckStore opens the cache of upgrade checks, creating its
 // directory.
 func (s *ServerStores) UpgradeCheckStore() (upgrade.CacheStore, error) {

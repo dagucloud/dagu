@@ -4,6 +4,7 @@
 package coordinator_test
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/ecdsa"
@@ -17,9 +18,14 @@ import (
 	"math/big"
 	"net"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test/peercert"
@@ -47,15 +53,27 @@ var certHosts = []string{"127.0.0.1", "dagu.example.com", ""}
 
 // peerTLSServer is a coordinator that serves built-in TLS and h2c on addr.
 type peerTLSServer struct {
-	addr   string
-	caCert *x509.Certificate
-	caKey  crypto.Signer
+	addr    string
+	caCert  *x509.Certificate
+	caKey   crypto.Signer
+	invites persis.WorkerInviteStore
+	certs   persis.WorkerCertificateStore
+	// logs holds what the coordinator logged while handling calls.
+	logs *lockedBuffer
 }
 
-// startPeerTLSServer serves join readiness and the health service with the
-// peer transport credentials of a new peer CA, behind the peer token. The
-// coordinator certificate names hosts.
+// startPeerTLSServer serves the coordinator and the health service with the
+// peer transport credentials of a new peer CA, behind the peer token, and
+// accepts the worker certificates the CA issues. The coordinator certificate
+// names hosts.
 func startPeerTLSServer(t *testing.T, hosts []string, opts ...grpc.ServerOption) peerTLSServer {
+	t.Helper()
+	return startPeerTLSServerWithAuth(t, coordinator.NewPeerTokenAuth(peerTLSToken, true, false), hosts, opts...)
+}
+
+// startPeerTLSServerWithAuth is startPeerTLSServer with the peer token check
+// auth.
+func startPeerTLSServerWithAuth(t *testing.T, auth *coordinator.PeerTokenAuth, hosts []string, opts ...grpc.ServerOption) peerTLSServer {
 	t.Helper()
 	files, err := coordinator.WritePeerInit(filepath.Join(t.TempDir(), "peer"))
 	require.NoError(t, err)
@@ -66,20 +84,57 @@ func startPeerTLSServer(t *testing.T, hosts []string, opts ...grpc.ServerOption)
 	pair, err := tls.LoadX509KeyPair(files[0], files[1])
 	require.NoError(t, err)
 
-	auth := coordinator.NewPeerTokenAuth(peerTLSToken, true, false)
+	backend := testutil.NewMemoryBackend()
+	invites, err := store.NewWorkerInviteStore(backend.Collection(persis.CollectionWorkerInvites))
+	require.NoError(t, err)
+	certs, err := store.NewWorkerCertificateStore(backend.Collection(persis.CollectionWorkerCertificates))
+	require.NoError(t, err)
+	auth.AcceptWorkerCertificates(ca)
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
-		JoinReadiness: coordinator.JoinReadinessConfig{ListenHost: "0.0.0.0", Port: 50055, BuiltinTLS: true},
+		JoinReadiness:          coordinator.JoinReadinessConfig{ListenHost: "0.0.0.0", Port: 50055, BuiltinTLS: true},
+		PeerCA:                 ca,
+		WorkerInviteStore:      invites,
+		WorkerCertificateStore: certs,
 	})
+	logs := &lockedBuffer{}
+	log := logger.NewLogger(logger.WithWriter(logs), logger.WithDebug(), logger.WithQuiet())
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 	opts = append([]grpc.ServerOption{grpc.Creds(creds)}, opts...)
 	opts = append(opts,
-		grpc.ChainUnaryInterceptor(auth.UnaryInterceptor()),
+		grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(), func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+			return handler(logger.WithLogger(ctx, log), req)
+		}),
 		grpc.ChainStreamInterceptor(auth.StreamInterceptor()),
 	)
 	server, addr := startMockServerWithHealth(t, handler, healthServer, opts...)
 	t.Cleanup(server.Stop)
-	return peerTLSServer{addr: addr, caCert: pair.Leaf, caKey: pair.PrivateKey.(crypto.Signer)}
+	return peerTLSServer{
+		addr:    addr,
+		caCert:  pair.Leaf,
+		caKey:   pair.PrivateKey.(crypto.Signer),
+		invites: invites,
+		certs:   certs,
+		logs:    logs,
+	}
+}
+
+// lockedBuffer is a buffer that calls may write while a test reads it.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // tlsConfig verifies the coordinator as a client on built-in TLS does.
@@ -205,8 +260,8 @@ func TestPeerTransportClientCertificate(t *testing.T) {
 			config.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 				return &tc.cert, nil
 			}
-			client, _ := server.dial(t, credentials.NewTLS(config))
-			_, err := client.GetJoinReadiness(callContext(t), &coordinatorv1.GetJoinReadinessRequest{})
+			_, healthClient := server.dial(t, credentials.NewTLS(config))
+			_, err := healthClient.Check(callContext(t), &grpc_health_v1.HealthCheckRequest{})
 			assert.Equal(t, tc.wantCode, status.Code(err), "%v", err)
 		})
 	}

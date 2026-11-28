@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
@@ -47,9 +49,13 @@ const (
 )
 
 // peerTokenOnlyMethods take the peer token whatever coordinator.require_token
-// says, since they serve administration rather than workers.
+// says, and refuse worker certificates, since they serve administration
+// rather than workers.
 var peerTokenOnlyMethods = map[string]bool{
 	coordinatorv1.CoordinatorService_GetJoinReadiness_FullMethodName: true,
+	coordinatorv1.CoordinatorService_CreateInvite_FullMethodName:     true,
+	coordinatorv1.CoordinatorService_ListInvites_FullMethodName:      true,
+	coordinatorv1.CoordinatorService_DeleteInvite_FullMethodName:     true,
 }
 
 // LoadOrCreatePeerToken returns the peer token stored in path, generating and
@@ -163,11 +169,15 @@ func (c *peerTokenCredentials) current() string {
 // differ between coordinators that do not share a data directory. A call
 // without a token fails only when the token is required; otherwise it passes
 // and the coordinator logs a warning. Administration calls, such as
-// GetJoinReadiness, always require the token.
+// GetJoinReadiness, always require the token. Enroll needs none, since its
+// invite admits it.
 type PeerTokenAuth struct {
 	token      string
 	configured bool
 	require    bool
+	// workerCA issues the worker certificates that count as the peer
+	// token, or nil when none do.
+	workerCA *x509.Certificate
 
 	warnMu   sync.Mutex
 	lastWarn time.Time
@@ -177,6 +187,14 @@ type PeerTokenAuth struct {
 // token came from peer.token, and require whether calls must carry it.
 func NewPeerTokenAuth(token string, configured, require bool) *PeerTokenAuth {
 	return &PeerTokenAuth{token: token, configured: configured, require: require}
+}
+
+// AcceptWorkerCertificates makes a call over TLS with a client certificate
+// that ca issued count as a call with the peer token, also when the token is
+// required. Administration calls refuse such a call with PermissionDenied.
+// It must be called before the server serves.
+func (a *PeerTokenAuth) AcceptWorkerCertificates(ca *PeerCA) {
+	a.workerCA = ca.cert
 }
 
 // UnaryInterceptor checks the peer token on unary calls.
@@ -200,7 +218,13 @@ func (a *PeerTokenAuth) StreamInterceptor() grpc.StreamServerInterceptor {
 }
 
 func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
-	if strings.HasPrefix(method, grpcHealthMethodPrefix) {
+	if strings.HasPrefix(method, grpcHealthMethodPrefix) || method == coordinatorv1.CoordinatorService_Enroll_FullMethodName {
+		return nil
+	}
+	if _, ok := a.workerCertificateID(ctx); ok {
+		if peerTokenOnlyMethods[method] {
+			return status.Error(codes.PermissionDenied, "this call needs the peer token; a worker certificate cannot make it")
+		}
 		return nil
 	}
 	var got string
@@ -222,6 +246,29 @@ func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
 	}
 	a.warn(ctx, method, got != "")
 	return nil
+}
+
+// workerCertificateID returns the certificate ID of the worker certificate
+// the call carries: a client certificate that chains to the CA that
+// AcceptWorkerCertificates gave.
+func (a *PeerTokenAuth) workerCertificateID(ctx context.Context) (string, bool) {
+	if a.workerCA == nil {
+		return "", false
+	}
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return "", false
+	}
+	info, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok {
+		return "", false
+	}
+	for _, chain := range info.State.VerifiedChains {
+		if len(chain) > 1 && chain[len(chain)-1].Equal(a.workerCA) {
+			return chain[0].Subject.CommonName, true
+		}
+	}
+	return "", false
 }
 
 func (a *PeerTokenAuth) warn(ctx context.Context, method string, mismatched bool) {
