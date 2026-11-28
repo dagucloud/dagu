@@ -204,6 +204,14 @@ func TestWorkerInvite(t *testing.T) {
 			kind:    "single use, expires 2026-11-28T10:00:00Z",
 			command: "'[2001:db8::1]:50055'",
 		},
+		{
+			// A label may end with an underscore, as in a Compose service
+			// name; only a hyphen may not end it.
+			name:    "TrailingUnderscore",
+			address: "worker_.example:50055",
+			want:    &coordinatorv1.CreateInviteRequest{Address: "worker_.example:50055"},
+			kind:    "single use, expires 2026-11-28T10:00:00Z",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -714,13 +722,10 @@ func TestWorkerInviteFlags(t *testing.T) {
 	t.Parallel()
 
 	const (
-		badAddress = "--address must be host:port, such as 192.168.1.20:50055"
+		badAddress = "--address must be host:port, such as 192.168.1.20:50055: a hostname, a dotted IPv4 address, " +
+			"or an IPv6 address in brackets, and a port from 1 to 65535 without a sign or leading zero"
 		badExpiry  = "--expires must be a positive duration, such as 24h"
 		oneAddress = "--address must be one host:port, without commas"
-		// strictAddress refuses what the Add worker rule lets through and
-		// the invite address rule does not.
-		strictAddress = "--address must be a hostname, a dotted IPv4 address, or an IPv6 address in brackets, " +
-			"and a port from 1 to 65535 without a sign or leading zero"
 	)
 	for _, tc := range []struct {
 		name    string
@@ -729,10 +734,10 @@ func TestWorkerInviteFlags(t *testing.T) {
 	}{
 		{name: "NoAddress", wantErr: `required flag(s) "address" not set`},
 		{name: "NoPort", args: []string{"--address", "192.168.1.20"}, wantErr: badAddress},
-		{name: "BadPort", args: []string{"--address", "192.168.1.20:70000"}, wantErr: "--address must have a port from 1 to 65535"},
-		{name: "MalformedIPv6", args: []string{"--address", "[not:ipv6]:50055"}, wantErr: "--address must name one host: an IP address without a zone, or a DNS name"},
-		{name: "SignedPort", args: []string{"--address", "worker.example:+50055"}, wantErr: strictAddress},
-		{name: "TrailingDot", args: []string{"--address", "worker.example.:50055"}, wantErr: strictAddress},
+		{name: "BadPort", args: []string{"--address", "192.168.1.20:70000"}, wantErr: badAddress},
+		{name: "MalformedIPv6", args: []string{"--address", "[not:ipv6]:50055"}, wantErr: badAddress},
+		{name: "SignedPort", args: []string{"--address", "worker.example:+50055"}, wantErr: badAddress},
+		{name: "TrailingDot", args: []string{"--address", "worker.example.:50055"}, wantErr: badAddress},
 		{name: "UnbracketedIPv6", args: []string{"--address", "2001:db8::1:50055"}, wantErr: badAddress},
 		// The worker would split the printed value on the comma.
 		{name: "Comma", args: []string{"--address", "missing,coordinator:50055"}, wantErr: oneAddress},

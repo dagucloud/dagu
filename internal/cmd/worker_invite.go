@@ -85,9 +85,6 @@ var coordinatorFailures = map[string]bool{
 var (
 	// containerID matches the short and the full ID of a container.
 	containerID = regexp.MustCompile(`^[0-9a-f]{12}([0-9a-f]{52})?$`)
-	// dnsName matches one DNS name, so a list, a zone, or shell syntax is
-	// not taken for a host.
-	dnsName = regexp.MustCompile(`^([A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9])?\.?$`)
 	// invitePattern matches text shaped like an invite: dagu1.<pin>.<secret>.
 	invitePattern = regexp.MustCompile(`dagu1\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}`)
 )
@@ -316,12 +313,12 @@ func parseInviteOptions(cmd *cobra.Command) (inviteOptions, error) {
 	if invitePattern.MatchString(address) {
 		return opts, fmt.Errorf("--%s holds an invite; the invite goes only into the printed command", inviteAddressFlag.name)
 	}
+	if !validInviteAddress(address) {
+		return opts, fmt.Errorf("--%s must be host:port, such as 192.168.1.20:50055: a hostname, a dotted IPv4 address, "+
+			"or an IPv6 address in brackets, and a port from 1 to 65535 without a sign or leading zero", inviteAddressFlag.name)
+	}
 	if problem := dialAddressProblem(address); problem != "" {
 		return opts, fmt.Errorf("--%s %s", inviteAddressFlag.name, problem)
-	}
-	if !validInviteAddress(address) {
-		return opts, fmt.Errorf("--%s must be a hostname, a dotted IPv4 address, or an IPv6 address in brackets, "+
-			"and a port from 1 to 65535 without a sign or leading zero", inviteAddressFlag.name)
 	}
 	opts.address = address
 	if opts.reusable, err = cmd.Flags().GetBool(inviteReusableFlag.name); err != nil {
@@ -344,17 +341,12 @@ func parseInviteOptions(cmd *cobra.Command) (inviteOptions, error) {
 	return opts, nil
 }
 
-// dialAddressProblem says why a worker on another host cannot dial addr, or
-// returns "" when it can. It is the address rule of Spec 108 §Add Worker,
-// which the Add worker dialog and the MCP action apply too.
+// dialAddressProblem says why a worker on another host cannot dial addr, an
+// address validInviteAddress accepts, or returns "" when it can. It is the
+// rest of the address rule of Spec 108 §Add Worker, which the Add worker
+// dialog and the MCP action apply too.
 func dialAddressProblem(addr string) string {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil || host == "" {
-		return "must be host:port, such as 192.168.1.20:50055"
-	}
-	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > math.MaxUint16 {
-		return "must have a port from 1 to 65535"
-	}
+	host, _, _ := net.SplitHostPort(addr)
 	if ip := net.ParseIP(host); ip != nil {
 		switch {
 		case ip.IsUnspecified():
@@ -369,9 +361,7 @@ func dialAddressProblem(addr string) string {
 		return ""
 	}
 	switch {
-	case !dnsName.MatchString(host):
-		return "must name one host: an IP address without a zone, or a DNS name"
-	case strings.EqualFold(strings.TrimSuffix(host, "."), "localhost"):
+	case strings.EqualFold(host, "localhost"):
 		return "must not be localhost, which reaches only the worker's own machine"
 	case containerID.MatchString(host):
 		return "must not be a container ID; give the address of the machine that runs the container"
