@@ -64,6 +64,10 @@ export function inviteState(
   return { state: 'active' };
 }
 
+function expiryPassed(invite: WorkerInvite, now: number): boolean {
+  return !!invite.expiresAt && Date.parse(invite.expiresAt) <= now;
+}
+
 function shownInvites(invites: WorkerInvite[], now: number): WorkerInvite[] {
   return invites.filter((invite) => {
     const { endedAt } = inviteState(invite, now);
@@ -139,11 +143,16 @@ function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
     []
   );
 
-  // Rerenders when an invite expires or leaves the list, also while the
-  // page's refresh is paused. The list itself is not read again for it.
+  // Rerenders when an invite's state changes, its expiry passes, or it
+  // leaves the list, also while the page's refresh is paused. A used invite
+  // keeps its state when its expiry passes, so the expiry is a boundary of
+  // its own. The list itself is not read again for it.
   useClock(STATE_CLOCK_MS, (nowMs) =>
     shownInvites(invites ?? [], nowMs)
-      .map((invite) => `${invite.id}:${inviteState(invite, nowMs).state}`)
+      .map(
+        (invite) =>
+          `${invite.id}:${inviteState(invite, nowMs).state}:${expiryPassed(invite, nowMs)}`
+      )
       .join()
   );
   const now = Date.now();
@@ -345,7 +354,7 @@ function InviteRow({
 }) {
   const { ts } = useI18n();
   const { state } = inviteState(invite, now);
-  const expired = !!invite.expiresAt && Date.parse(invite.expiresAt) <= now;
+  const expired = expiryPassed(invite, now);
   const id = shortInviteId(invite.id);
   const deleteLabel = ts('Delete invite {id} ({kind})', {
     id,

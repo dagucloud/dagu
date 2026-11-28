@@ -198,6 +198,28 @@ describe('WorkerInvites', () => {
     expect(reads()).toBe(1);
   });
 
+  // A used invite keeps its state when its expiry passes; its expiry still
+  // reads as past once it is, also while the page's refresh is paused.
+  it('shows a passed expiry of a used invite as past', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    server.invites = invitesAnswer([
+      invite('used', {
+        useCount: 1,
+        lastUsedAt: hoursFromNow(-1),
+        expiresAt: new Date(Date.now() + 30e3).toISOString(),
+      }),
+    ]);
+    renderInvites([], false);
+    const [row] = await rows();
+    expect(row).toHaveTextContent('Expiry in 30s');
+
+    await act(() => vi.advanceTimersByTimeAsync(2 * 60 * 1000));
+
+    expect(row).toHaveTextContent(/Expiry 2m ago/);
+    expect(row).toHaveTextContent('Used');
+    expect(reads()).toBe(1);
+  });
+
   it('deletes the invite it names after one confirmation', async () => {
     server.invites = invitesAnswer([
       invite('a4611fb6-951a', { kind: WorkerInviteKind.reusable }),
@@ -686,6 +708,40 @@ describe('WorkerInvites', () => {
     act(() => setTabVisible(true));
 
     await waitFor(() => expect(reads()).toBe(2));
+  });
+
+  // A read that started before a delete cannot answer for after it: the
+  // delete reads afresh, and the older answer is dropped.
+  it('drops a read that started before a delete', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    const { refresh } = renderInvites();
+    await screen.findByRole('button', { name: /^Delete invite inv-1/ });
+    let stale: (answer: { status: number; body: unknown }) => void = () =>
+      undefined;
+    const answers = [
+      () =>
+        new Promise<{ status: number; body: unknown }>(
+          (resolve) => (stale = resolve)
+        ),
+      () => invitesAnswer([]),
+    ];
+    server.invites = () => answers.shift()!() as never;
+    refresh();
+    await waitFor(() => expect(reads()).toBe(2));
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Delete invite inv-1/ })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(reads()).toBe(3));
+    await act(async () =>
+      stale({ status: 200, body: { invites: [invite('inv-1')] } })
+    );
+
+    expect(await screen.findByText('No invites')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^Delete invite inv-1/ })
+    ).not.toBeInTheDocument();
   });
 
   // Reads asked for while the tab is hidden, by two deletes and a manual

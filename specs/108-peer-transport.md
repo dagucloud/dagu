@@ -1339,7 +1339,8 @@ The Workers page is the list of workers on System status.
   hidden, and does not retry a failed read on its own. A delete reads the
   local invites again when it ends, also after a switch to another node
   and back. Reads asked for while the tab is hidden run as one once it
-  shows, and reads asked for during a read share it.
+  shows, and reads asked for during a read share it, except that a read
+  started before a delete does not answer for after it.
 - On a remote node, the page lists the invites but offers no **Delete**,
   and says it works on the local server only, since the server does not
   forward it.
@@ -1348,9 +1349,10 @@ The Workers page is the list of workers on System status.
   `coordinator_refused` and for a reason the page does not know, whose
   cause only the server names, the server's message follows as a quoted
   detail line, never as the cause. The page shows no other server message,
-  and none in a page notice. An answer other than a 2xx, or a 2xx without
-  an `invites` list, is a failure. A 404 of the list says the selected
-  server does not offer worker invites.
+  and none in a page notice. An answer other than a 2xx is a failure, and
+  so is a list read whose 2xx answer has no `invites` list; a delete
+  succeeds with its empty 204. A 404 of the list says the selected server
+  does not offer worker invites.
 - System status lists the [h2c callers](#h2c-callers) under each
   coordinator, with host, the line and change above, and the time of the
   last call. It uses its existing fetch of

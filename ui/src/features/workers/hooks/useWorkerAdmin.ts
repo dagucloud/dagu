@@ -74,15 +74,35 @@ export function readWhenVisible(key: string, run: () => void) {
 }
 
 // The invite reads in flight, by node: reads asked for while one is under
-// way share its answer.
-const readsInFlight = new Map<string, Promise<WorkerInvitesList>>();
+// way share its answer, unless the invites changed after it started.
+const readsInFlight = new Map<
+  string,
+  { read: Promise<WorkerInvitesList>; generation: number }
+>();
+
+// Counts the changes to the invites of each node. A read that started
+// before a change cannot answer for after it.
+const inviteGenerations = new Map<string, number>();
+
+function inviteGeneration(node: string): number {
+  return inviteGenerations.get(node) ?? 0;
+}
+
+/**
+ * Marks the invites of a node as changed, as by a delete: the next read
+ * starts afresh instead of sharing one that started before the change.
+ */
+export function invitesChanged(node: string) {
+  inviteGenerations.set(node, inviteGeneration(node) + 1);
+}
 
 /**
  * Reads the invites of the selected node. Nothing reads them on its own: no
  * read on mount, no retry, and no read on focus or reconnect. The caller
  * decides when to read with `mutate`, and explains a failed read itself:
  * the page's notice of a failed background read would show the server's
- * words. Any answer other than a 2xx with a list is a failure.
+ * words. Any answer other than a 2xx with a list is a failure. When reads
+ * overlap, the one that started last wins.
  */
 export function useWorkerInvites(enabled: boolean) {
   const client = useClient();
@@ -90,8 +110,9 @@ export function useWorkerInvites(enabled: boolean) {
   const { data, error, mutate } = useSWR<WorkerInvitesList, unknown>(
     enabled ? invitesKey(remoteNode) : null,
     () => {
+      const generation = inviteGeneration(remoteNode);
       const running = readsInFlight.get(remoteNode);
-      if (running) return running;
+      if (running && running.generation === generation) return running.read;
       const read = (async () => {
         const { data, error, response } = await client.GET('/workers/invites', {
           params: { query: { remoteNode } },
@@ -102,8 +123,12 @@ export function useWorkerInvites(enabled: boolean) {
           throw requestError(response.status, error);
         }
         return data;
-      })().finally(() => readsInFlight.delete(remoteNode));
-      readsInFlight.set(remoteNode, read);
+      })().finally(() => {
+        if (readsInFlight.get(remoteNode)?.read === read) {
+          readsInFlight.delete(remoteNode);
+        }
+      });
+      readsInFlight.set(remoteNode, { read, generation });
       return read;
     },
     {
@@ -131,13 +156,16 @@ export function useWorkerActions() {
   const client = useClient();
   const { mutate } = useSWRConfig();
 
-  // Reads the invites of a node again once the tab shows, also when the
-  // list that asked is gone, as after a switch to another node and back.
+  // Reads the invites of a node again after a change, once the tab shows,
+  // also when the list that asked is gone, as after a switch to another
+  // node and back. A read that started before the change does not count.
   const rereadInvites = useCallback(
-    (node: string) =>
+    (node: string) => {
+      invitesChanged(node);
       readWhenVisible(invitesKey(node).join(':'), () => {
         void mutate(invitesKey(node));
-      }),
+      });
+    },
     [mutate]
   );
 
@@ -170,13 +198,15 @@ function requestError(status: number, body: unknown): WorkerRequestError {
 
 type Translate = (source: string, values?: StaticTranslationValues) => string;
 
-/** The advice for each reason, by the reason the API names. */
-export type ReasonAdvice = Partial<
-  Record<WorkerAccessReason, (ts: Translate) => WorkerErrorAdvice>
->;
+type Advise = (ts: Translate) => WorkerErrorAdvice;
+
+/** Advice that replaces the shared text of some reasons for one call. */
+export type ReasonAdvice = Partial<Record<WorkerAccessReason, Advise>>;
 
 // The reasons any worker access call can fail with.
-const ACCESS_REASONS: ReasonAdvice = {
+// Every reason has its own text; a reason the API adds fails the type check
+// until it has one.
+const ACCESS_REASONS: Record<WorkerAccessReason, Advise> = {
   [WorkerAccessReason.own_certificates]: (ts) => ({
     cause: ts(
       'The coordinator uses its own certificates, so it has no built-in CA for invites.'
@@ -238,6 +268,20 @@ const ACCESS_REASONS: ReasonAdvice = {
     cause: ts('No coordinator is running or reachable.'),
     change: ts(
       'Start the coordinator, or check that this server can reach it, then try again.'
+    ),
+  }),
+  [WorkerAccessReason.peer_token_worker]: (ts) => ({
+    cause: ts(
+      'This worker connects with the peer token, so it would connect again at once.'
+    ),
+    change: ts('Stop it on its host, or change the peer token.'),
+  }),
+  [WorkerAccessReason.certificate_changed]: (ts) => ({
+    cause: ts(
+      'This worker no longer holds the certificate the list showed, as after it joined again.'
+    ),
+    change: ts(
+      'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.'
     ),
   }),
 };

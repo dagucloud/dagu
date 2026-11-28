@@ -38,7 +38,10 @@ interface Request {
  * each request.
  */
 export const server = {
-  invites: { status: 200, body: { invites: [] } } as Answer,
+  /** Answers the invites list; a function answers each read in turn. */
+  invites: { status: 200, body: { invites: [] } } as
+    | Answer
+    | (() => Answer | Promise<Answer>),
   /** Answers a DELETE; a promise holds the answer until the test settles it. */
   del: ((): Answer => ({ status: 204 })) as (
     request: Request
@@ -91,7 +94,9 @@ export function installServer() {
         method === 'DELETE'
           ? await server.del(request)
           : url.pathname === '/api/v1/workers/invites'
-            ? server.invites
+            ? await (typeof server.invites === 'function'
+                ? server.invites()
+                : server.invites)
             : { status: 404, body: { code: 'not_found', message: 'none' } };
       // An answer without a body, such as a 204 or a bare 502 from a proxy.
       return answer.body === undefined

@@ -81,6 +81,14 @@ export const workerAdminMessages = defineMessages({
     'The coordinator answered but cannot do this yet.':
       'The coordinator answered but cannot do this yet.',
     'Wait a moment, then try again.': 'Wait a moment, then try again.',
+    'This worker connects with the peer token, so it would connect again at once.':
+      'This worker connects with the peer token, so it would connect again at once.',
+    'Stop it on its host, or change the peer token.':
+      'Stop it on its host, or change the peer token.',
+    'This worker no longer holds the certificate the list showed, as after it joined again.':
+      'This worker no longer holds the certificate the list showed, as after it joined again.',
+    'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.':
+      'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.',
   },
   'zh-CN': {
     'Only admins can manage workers and invites.':
@@ -155,6 +163,14 @@ export const workerAdminMessages = defineMessages({
     'The coordinator answered but cannot do this yet.':
       'Coordinator 已响应，但暂时无法执行此操作。',
     'Wait a moment, then try again.': '请稍候，然后重试。',
+    'This worker connects with the peer token, so it would connect again at once.':
+      '此 Worker 使用 peer token 连接，因此会立即重新连接。',
+    'Stop it on its host, or change the peer token.':
+      '请在其主机上停止它，或更换 peer token。',
+    'This worker no longer holds the certificate the list showed, as after it joined again.':
+      '此 Worker 已不再持有列表中显示的证书，例如它重新加入之后。',
+    'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.':
+      '该 Worker 未被移除。列表现在显示该 Worker 的当前状态：请检查后，如有需要再次移除。',
   },
   ja: {
     'Only admins can manage workers and invites.':
@@ -233,6 +249,14 @@ export const workerAdminMessages = defineMessages({
       'コーディネーターは応答しましたが、まだこの操作を行えません。',
     'Wait a moment, then try again.':
       'しばらく待ってから、もう一度お試しください。',
+    'This worker connects with the peer token, so it would connect again at once.':
+      'このワーカーは peer token で接続しているため、すぐに再接続します。',
+    'Stop it on its host, or change the peer token.':
+      'そのホストで停止するか、peer token を変更してください。',
+    'This worker no longer holds the certificate the list showed, as after it joined again.':
+      'このワーカーは、一覧に表示した証明書をもう持っていません。再参加した後などに起こります。',
+    'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.':
+      'ワーカーは削除されていません。一覧にワーカーの現在の状態が表示されます。確認して、必要なら削除し直してください。',
   },
   de: {
     'Only admins can manage workers and invites.':
@@ -311,6 +335,14 @@ export const workerAdminMessages = defineMessages({
       'Der Coordinator hat geantwortet, kann dies aber noch nicht ausführen.',
     'Wait a moment, then try again.':
       'Warten Sie einen Moment und versuchen Sie es dann erneut.',
+    'This worker connects with the peer token, so it would connect again at once.':
+      'Dieser Worker verbindet sich mit dem Peer-Token und würde sich daher sofort wieder verbinden.',
+    'Stop it on its host, or change the peer token.':
+      'Stoppen Sie ihn auf seinem Host, oder ändern Sie das Peer-Token.',
+    'This worker no longer holds the certificate the list showed, as after it joined again.':
+      'Dieser Worker hat das Zertifikat aus der Liste nicht mehr, etwa nachdem er erneut beigetreten ist.',
+    'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.':
+      'Der Worker wurde nicht entfernt. Die Liste zeigt den Worker jetzt, wie er ist: Prüfen Sie ihn und entfernen Sie ihn bei Bedarf erneut.',
   },
   fr: {
     'Only admins can manage workers and invites.':
@@ -388,5 +420,13 @@ export const workerAdminMessages = defineMessages({
     'The coordinator answered but cannot do this yet.':
       'Le coordinateur a répondu mais ne peut pas encore le faire.',
     'Wait a moment, then try again.': 'Patientez un instant, puis réessayez.',
+    'This worker connects with the peer token, so it would connect again at once.':
+      'Ce worker se connecte avec le jeton de pair, il se reconnecterait donc aussitôt.',
+    'Stop it on its host, or change the peer token.':
+      'Arrêtez-le sur son hôte, ou changez le jeton de pair.',
+    'This worker no longer holds the certificate the list showed, as after it joined again.':
+      'Ce worker n’a plus le certificat que la liste montrait, par exemple après avoir rejoint à nouveau.',
+    'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.':
+      'Le worker n’a pas été retiré. La liste montre maintenant le worker tel qu’il est : vérifiez-le, puis retirez-le à nouveau si besoin.',
   },
 });
