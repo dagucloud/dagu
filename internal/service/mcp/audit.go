@@ -184,6 +184,9 @@ func mergeToolOutputAuditDetails(details map[string]any, output any) {
 	if valid, ok := out["valid"].(bool); ok {
 		details["valid"] = valid
 	}
+	if inviteID, ok := out["inviteId"].(string); ok && inviteID != "" {
+		details["invite_id"] = inviteID
+	}
 }
 
 func readAuditMetadata(input readInput) toolAuditMetadata {
@@ -302,6 +305,9 @@ func changeAuditMetadata(input changeInput) toolAuditMetadata {
 
 func executeAuditMetadata(input executeInput) toolAuditMetadata {
 	action := strings.TrimSpace(input.Action)
+	if action == executeActionAddWorker {
+		return addWorkerAuditMetadata(input)
+	}
 	targetType := strings.TrimSpace(input.TargetType)
 	if targetType == "" {
 		switch {
@@ -353,6 +359,22 @@ func executeAuditMetadata(input executeInput) toolAuditMetadata {
 		ResourceID:   resourceID,
 		Attributes:   attrs,
 	}
+}
+
+// addWorkerAuditMetadata records the invite options of an add_worker call.
+func addWorkerAuditMetadata(input executeInput) toolAuditMetadata {
+	attrs := map[string]any{
+		"action":      executeActionAddWorker,
+		"reusable":    input.AddWorker.Reusable,
+		"label_count": len(input.Labels),
+	}
+	if input.AddWorker.Address != "" {
+		attrs["address"] = input.AddWorker.Address
+	}
+	if input.AddWorker.ExpiresIn != "" {
+		attrs["expires_in"] = input.AddWorker.ExpiresIn
+	}
+	return toolAuditMetadata{Action: executeActionAddWorker, ResourceType: "worker_invite", Attributes: attrs}
 }
 
 func queryKeys(raw string) []string {

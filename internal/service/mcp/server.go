@@ -220,7 +220,7 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 		Meta:        runInspectorToolMeta(),
 		Name:        toolExecute,
 		Title:       "Execute DAG-runs and decide waiting steps",
-		Description: "Run control entry point. action=start or enqueue launches a DAG or inline spec; action=retry retries a DAG-run; action=stop terminates a DAG-run. When dagu_read target=run shows a step waiting for a person (approval or humanTask), action=approve, reject, or push_back decides that step; pass the run's attemptId from that read so a decision based on a stale read is refused. Set wait=true to wait for the run result.",
+		Description: "Run control entry point. action=start or enqueue launches a DAG or inline spec; action=retry retries a DAG-run; action=stop terminates a DAG-run. action=add_worker, admin only, walks through Add worker: it reports what to change until the coordinators accept workers from other hosts, and with address creates a worker invite and the commands that join a worker. When dagu_read target=run shows a step waiting for a person (approval or humanTask), action=approve, reject, or push_back decides that step; pass the run's attemptId from that read so a decision based on a stale read is refused. Set wait=true to wait for the run result.",
 		InputSchema: executeToolInputSchema(),
 		Annotations: &mcpsdk.ToolAnnotations{
 			DestructiveHint: truePtr,
