@@ -1394,9 +1394,11 @@ Actions and GitLab show each case as a test result:
 
 Rules:
 
-- One `testsuite` per test file, in run order, named `<file>`. Its
-  `testcase` elements are its cases, in run order, each named after the
-  case, with `<file>` as `classname`.
+- One `testsuite` per test file that reports a case or is invalid, in
+  run order, named `<file>`. Its `testcase` elements are its cases, in run
+  order, each named after the case, with `<file>` as `classname`. A file
+  whose cases `--run` all leaves out has no suite, as it has no case in
+  the JSON report.
 - `time` is the case's wall-clock time in seconds, with three decimal
   places, and `0.000` for an invalid case. A suite's `time` adds up its
   cases, and the `testsuites` element's adds up the suites.

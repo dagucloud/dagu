@@ -92,10 +92,17 @@ func (r *junitTestReport) addInvalidFile(file string, errs []dagtest.Finding) {
 func (r *junitTestReport) addCase(c caseResult) {
 	s := r.suite(c.file)
 	s.Tests++
-	s.duration += c.duration
-	tc := junitTestCase{Name: c.name, Classname: c.file, Time: junitSeconds(c.duration)}
+	result := c.result()
+	// An invalid case did not run, though its duration holds the time
+	// spent preparing it.
+	var duration time.Duration
+	if result != resultInvalid {
+		duration = c.duration
+	}
+	s.duration += duration
+	tc := junitTestCase{Name: c.name, Classname: c.file, Time: junitSeconds(duration)}
 	details := caseDetails(c)
-	switch c.result() {
+	switch result {
 	case resultInvalid:
 		s.Errors++
 		tc.Error = &junitProblem{Message: firstLine(c.errors), Text: details}

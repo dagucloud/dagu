@@ -36,7 +36,7 @@ func TestJUnitReport(t *testing.T) {
 		defaultMocked: []string{"build"},
 	})
 	report.writeCase(caseResult{
-		file: "ship.test.yaml", name: "ships",
+		file: "ship.test.yaml", name: "ships", duration: 5 * time.Millisecond,
 		errors: []dagtest.Finding{{Source: "param build_date", Message: "reads the host clock"}},
 		fix:    "params:\n  build_date: 2026-01-01\n",
 	})
