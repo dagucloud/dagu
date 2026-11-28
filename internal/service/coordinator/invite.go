@@ -86,7 +86,7 @@ func (h *Handler) CreateInvite(ctx context.Context, req *coordinatorv1.CreateInv
 	if req.ExpiresInSeconds < 0 || req.ExpiresInSeconds > maxInviteExpiresInSeconds {
 		return nil, status.Error(codes.InvalidArgument, "expires_in_seconds must be a positive number of seconds, or 0 for the default")
 	}
-	if req.Address != "" && !validInviteAddress(req.Address) {
+	if req.Address != "" && !ValidInviteAddress(req.Address) {
 		return nil, status.Error(codes.InvalidArgument, "address must be host:port")
 	}
 
@@ -225,9 +225,10 @@ func inviteSecretHash(secret []byte) []byte {
 	return sum[:]
 }
 
-// validInviteAddress reports whether addr is host:port with a port a TCP
-// listener can have.
-func validInviteAddress(addr string) bool {
+// ValidInviteAddress reports whether addr can be an invite's address:
+// host:port with a port a TCP listener can have, and a host that is not an
+// invite.
+func ValidInviteAddress(addr string) bool {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil || host == "" || RedactInvites(host) != host {
 		return false

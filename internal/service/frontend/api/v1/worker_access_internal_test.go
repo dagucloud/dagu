@@ -490,8 +490,9 @@ func TestCreateWorkerInviteInvalidWithoutCoordinator(t *testing.T) {
 
 	a, _ := rolesAPI(nil)
 	for name, body := range map[string]*openapiv1.CreateWorkerInviteRequest{
-		"invite as address": {Address: new(testInvite + ":50055")},
-		"expiresIn":         {ExpiresIn: new("soon")},
+		"invite as address":    {Address: new(testInvite + ":50055")},
+		"address without port": {Address: new("192.168.1.20")},
+		"expiresIn":            {ExpiresIn: new("soon")},
 	} {
 		_, err := a.CreateWorkerInvite(userContext(auth.RoleAdmin), openapiv1.CreateWorkerInviteRequestObject{Body: body})
 		assert.Equal(t, http.StatusBadRequest, httpStatus(t, err), name)

@@ -139,6 +139,13 @@ func (a *API) CreateWorkerInvite(ctx context.Context, request api.CreateWorkerIn
 				Message:    "address must be the coordinator's host:port, not an invite",
 			}
 		}
+		if req.Address != "" && !coordinator.ValidInviteAddress(req.Address) {
+			return nil, &Error{
+				HTTPStatus: http.StatusBadRequest,
+				Code:       api.ErrorCodeBadRequest,
+				Message:    "address must be host:port",
+			}
+		}
 		if body.ExpiresIn != nil {
 			seconds, err := expiresInSeconds(*body.ExpiresIn)
 			if err != nil {
