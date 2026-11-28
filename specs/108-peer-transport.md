@@ -1288,9 +1288,10 @@ and prints the message:
 - The dialog reads join readiness when it opens, again when the server is
   back after a restart, and when the admin asks to check again. It does not
   poll. The server is back when System status's `/workers` refresh succeeds
-  after it failed. While a coordinator is not ready, the dialog also reads
-  join readiness when its window regains focus, since a restart can be
-  quicker than that refresh.
+  after it failed. The dialog also reads join readiness when its window
+  regains focus or its page becomes visible, also when ready, since a
+  restart can be quicker than that refresh and change the port. Step 3
+  waits for each reading.
 - Step 2 is a required address field. It starts with `lastInviteAddress`, or
   with `advertise`, or empty. It suggests `addresses`, and none in a
   container, where it asks for the address of the machine that runs the
@@ -1299,9 +1300,10 @@ and prints the message:
 - In Kubernetes, step 2 first asks where the workers run, with neither
   answer chosen, since an advertised address is often a Service name that
   only pods in the cluster resolve. Inside this cluster starts with the
-  address a pod advertises, or empty when none does, and says that workers
-  in another namespace need the Service's namespace-qualified name, such
-  as `dagu-coordinator.<namespace>.svc:50055`.
+  address a pod advertises, or empty when none does. It asks the admin to
+  check that worker pods can reach the address, and says that workers in
+  another namespace need the namespace-qualified Service address, such as
+  `dagu-coordinator.<namespace>.svc:50055`.
   Outside the cluster empties the field and asks for the load balancer's
   address, or a node's address and the assigned node port. Either answer's
   hint replaces the container hint of a container that reports beside the

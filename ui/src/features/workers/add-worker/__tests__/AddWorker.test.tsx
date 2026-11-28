@@ -396,30 +396,33 @@ describe('AddWorker', () => {
   });
 
   // Inside starts with the pod's advertised address, never a last invite
-  // address made for outside, and keeps it on a new reading. Without one,
+  // address made for outside, and follows it on a new reading. Without one,
   // the field starts empty and the hint asks for the address.
+  const qualified = 'coordinator.ops.svc.cluster.local';
+  const reach = /^Check that worker pods can reach this address/;
+  const ask = /^Enter the coordinator Service's address and port/;
   it.each([
-    ['advertises', pod, 'dagu-coordinator:50055', /short name below/],
-    [
-      'does not advertise',
-      { ...pod, advertise: undefined },
-      '',
-      /^Enter the coordinator Service's address and port/,
-    ],
-  ])('fills Inside from the pod when it %s', async (_, r, value, hint) => {
-    const data = {
-      ...readings(r),
+    ['a short name', 'dagu-coordinator', 'dagu-coordinator-b', reach],
+    ['a qualified name', qualified, `b.${qualified}`, reach],
+    ['nothing', undefined, undefined, ask],
+  ])('fills Inside from a pod advertising %s', async (_, first, next, hint) => {
+    const data = (advertise?: string) => ({
+      ...readings({ ...pod, advertise }),
       lastInviteAddress: 'outside.example.test:30055',
-    };
-    const { rerender } = await open(data);
+    });
+    const { rerender } = await open(data(first));
     fireEvent.click(screen.getByRole('radio', { name: 'Inside this cluster' }));
-    expect(screen.getByLabelText(ADDRESS)).toHaveValue(value);
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(
+      first ? `${first}:50055` : ''
+    );
     expect(screen.getByText(hint)).toBeInTheDocument();
-    api.GET.mockResolvedValue(answer(200, data));
+    api.GET.mockResolvedValue(answer(200, data(next)));
     rerender(view(true));
     rerender(view(false));
     await settle();
-    expect(screen.getByLabelText(ADDRESS)).toHaveValue(value);
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(
+      next ? `${next}:50055` : ''
+    );
   });
 
   // The field's description carries the placement hint and any refusal,
@@ -432,10 +435,10 @@ describe('AddWorker', () => {
     await user.tab();
     const field = screen.getByLabelText(ADDRESS);
     expect(document.activeElement).toBe(field);
-    expect(field).toHaveAccessibleDescription(/namespace-qualified name/);
+    expect(field).toHaveAccessibleDescription(/namespace-qualified Service address/);
     typeAddress('localhost:50055');
     expect(field).toHaveAccessibleDescription(
-      /namespace-qualified name.*localhost/
+      /namespace-qualified Service address.*localhost/
     );
   });
 
@@ -564,14 +567,15 @@ describe('AddWorker', () => {
     ).toBeInTheDocument();
   });
 
-  // A focus read can answer before the read that opened the dialog; the
+  // A later read can answer before the read that opened the dialog; the
   // earlier read must not replace the newer answer.
   it('keeps the newest reading when answers arrive out of order', async () => {
     const first = deferred<unknown>();
     api.GET.mockReturnValueOnce(first.promise);
-    render(view());
+    const { rerender } = render(view());
     api.GET.mockResolvedValueOnce(answer(200, readiness()));
-    fireEvent.focus(window);
+    rerender(view(true));
+    rerender(view(false));
     await settle();
     expect(screen.getByText('Ready')).toBeInTheDocument();
 
@@ -656,7 +660,7 @@ describe('AddWorker', () => {
   });
 
   // Readiness is read again when the workers refresh recovers, as after a
-  // restart, and on window focus until ready.
+  // restart, and on window focus.
   it.each(['server', 'focus'])('reads readiness again on %s', async (by) => {
     const { rerender } = await open(loopback());
     if (by === 'server') rerender(view(true));
@@ -669,11 +673,32 @@ describe('AddWorker', () => {
     await settle();
     expect(api.GET).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Ready')).toBeInTheDocument();
-
-    fireEvent.focus(window);
-    await settle();
-    expect(api.GET).toHaveBeenCalledTimes(2);
   });
+
+  // A restart can change the port while the dialog shows Ready. Coming back
+  // to the window reads again, holds step 3 meanwhile, and takes the port.
+  it.each(['focus', 'visibility'])(
+    'rereads a ready dialog on %s',
+    async (by) => {
+      const advertise = 'coord.example.com';
+      await open(readiness({ advertise }));
+      expect(screen.getByLabelText(ADDRESS)).toHaveValue(`${advertise}:50055`);
+      const locked = () =>
+        step('Worker').queryByText('Shown after steps 1 and 2');
+      expect(locked()).toBeNull();
+
+      const later = deferred<unknown>();
+      api.GET.mockReturnValue(later.promise);
+      if (by === 'focus') fireEvent.focus(window);
+      else fireEvent(document, new Event('visibilitychange'));
+      await settle();
+      expect(locked()).toBeInTheDocument();
+      later.resolve(answer(200, readiness({ advertise, port: 50155 })));
+      await settle();
+      expect(screen.getByLabelText(ADDRESS)).toHaveValue(`${advertise}:50155`);
+      expect(locked()).toBeNull();
+    }
+  );
 
   // The shared vectors in vectors.test.ts hold every address case; these
   // show how the dialog reacts to a refused and an accepted one.

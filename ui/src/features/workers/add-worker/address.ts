@@ -5,8 +5,6 @@ import { HostEnvironment, type components } from '@/api/v1/schema';
 
 type JoinReadiness = components['schemas']['WorkerJoinReadinessResponse'];
 
-export const DEFAULT_COORDINATOR_PORT = 50055;
-
 /** A problem with the address: a static message and its values. */
 export interface AddressProblem {
   text: string;

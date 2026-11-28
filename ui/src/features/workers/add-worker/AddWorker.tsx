@@ -95,12 +95,14 @@ export function AddWorkerDialog({
   // Only the latest read may change the dialog: an earlier one that ends
   // later must not replace a newer answer.
   const latest = React.useRef(0);
+  const reading = React.useRef(false);
   const hostField = React.useRef<HTMLTextAreaElement>(null);
   const checkButton = React.useRef<HTMLButtonElement>(null);
   const placementField = React.useRef<HTMLInputElement>(null);
 
   const load = React.useCallback(async () => {
     const id = ++latest.current;
+    reading.current = true;
     setChecking(true);
     let next: Readiness;
     try {
@@ -136,6 +138,7 @@ export function AddWorkerDialog({
     if (next.state === 'loaded' && !touched.current) {
       setAddress(defaultAddress(next.data, placed.current));
     }
+    reading.current = false;
     setChecking(false);
   }, [client]);
 
@@ -155,14 +158,23 @@ export function AddWorkerDialog({
   const data = readiness.state === 'loaded' ? readiness.data : undefined;
   const ready = data ? allReady(data.coordinators) : false;
 
-  // A restart quicker than the workers refresh leaves no failed request, but
-  // the admin who restarted Dagu elsewhere comes back to this window.
+  // A restart quicker than the workers refresh leaves no failed request,
+  // and can leave a Ready reading stale, as with a new port. The admin who
+  // restarted Dagu elsewhere comes back to this window, so its return reads
+  // readiness again, once while no read runs.
   React.useEffect(() => {
-    if (ready) return;
-    const reload = () => void load();
+    const reload = () => {
+      if (document.visibilityState !== 'hidden' && !reading.current) {
+        void load();
+      }
+    };
     window.addEventListener('focus', reload);
-    return () => window.removeEventListener('focus', reload);
-  }, [ready, load]);
+    document.addEventListener('visibilitychange', reload);
+    return () => {
+      window.removeEventListener('focus', reload);
+      document.removeEventListener('visibilitychange', reload);
+    };
+  }, [load]);
 
   // A reading or a read can remove the control that has the focus, such as
   // Check again, a suggestion, or a copy button. The focus then moves to the
@@ -306,7 +318,7 @@ function AddressFields({
       "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.";
   } else if (placement === Placement.inside) {
     hint = podAddress(data)
-      ? "Workers in the coordinator's namespace can use the Service's short name below. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055."
+      ? 'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.'
       : "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.";
   } else if (environment === HostEnvironment.container) {
     hint =
