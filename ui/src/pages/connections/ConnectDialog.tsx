@@ -106,7 +106,7 @@ export function ConnectDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && close()}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[90dvh] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
@@ -116,7 +116,7 @@ export function ConnectDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 text-sm">
+        <div className="min-h-0 space-y-3 overflow-y-auto text-sm">
           {flow.error && (
             <div
               role="alert"
@@ -181,7 +181,7 @@ export function ConnectDialog({
                     authorizationUrl={flow.session.authorizationUrl}
                     expiresAt={flow.session.expiresAt}
                     popupBlocked={flow.popupBlocked}
-                    shareable={!isPaste}
+                    shareable={mode === ConnectionRedirectMode.server_callback}
                   />
                 )}
               {isPaste && phase === ConnectionAuthorizationPhase.waiting && (
@@ -232,7 +232,10 @@ export function ConnectDialog({
             <Button
               variant="primary"
               disabled={flow.busy || unavailable}
-              onClick={() => void flow.start()}
+              onClick={() => {
+                setPasted('');
+                void flow.start();
+              }}
             >
               {flow.busy && <Loader2 className="h-4 w-4 animate-spin" />}
               {phase === ConnectionAuthorizationPhase.failed

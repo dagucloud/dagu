@@ -145,10 +145,15 @@ function ConnectionView({
 
   async function remove() {
     setActionError(null);
-    const { error } = await client.DELETE('/connections/{name}', { params });
-    if (error) {
+    const failed = ts('Could not remove the connection.');
+    try {
+      const { error } = await client.DELETE('/connections/{name}', { params });
+      if (error) throw new Error(error.message || failed);
+    } catch (err) {
       setRemoving(false);
-      setActionError(error.message || ts('Could not remove the connection.'));
+      setActionError(
+        err instanceof Error && err.message ? err.message : failed
+      );
       return;
     }
     navigate(connectionsPath(connection.workspace));

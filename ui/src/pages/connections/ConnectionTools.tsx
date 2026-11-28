@@ -75,7 +75,9 @@ export function ConnectionTools({
               {server.tools.map((tool) => (
                 <li key={tool.name} className="px-2 py-1.5">
                   <div className="flex items-center gap-2">
-                    <code className="text-xs font-medium">{tool.name}</code>
+                    <code className="min-w-0 whitespace-normal break-words text-xs font-medium">
+                      {tool.name}
+                    </code>
                     {tool.annotations?.readOnlyHint === true && (
                       <Badge size="sm">{ts('Read only')}</Badge>
                     )}

@@ -94,7 +94,10 @@ export function ConnectionStatusBadge({
   status: ConnectionStatus;
 }): React.ReactElement {
   const { ts } = useI18n();
-  const badge = STATUS_BADGES[status];
+  const badge: (typeof STATUS_BADGES)[ConnectionStatus] | undefined =
+    STATUS_BADGES[status];
+  // A status that a newer server adds shows as it is named.
+  if (!badge) return <Badge>{status}</Badge>;
   return <Badge variant={badge.variant}>{ts(badge.label)}</Badge>;
 }
 
