@@ -766,12 +766,13 @@ as the REST API always does:
 - Only that certificate is removed. Other certificates of the same worker
   ID, such as one enrolled again before its first heartbeat, keep working.
 - Nothing happens unless the request pairs the certificate with its
-  worker. A certificate already in removal pairs with the worker ID its
-  removal was accepted with, or the one its record names now: a revoked
-  one then answers `removed`, so a retry of a removal whose answer was lost
-  succeeds, and a removing one answers with its removal, which `stop`
-  moves from `finish` to `stop`. An active certificate pairs with a worker
-  its record names, or whose fresh heartbeat carries it.
+  worker. A certificate already in removal pairs with a worker ID that its
+  record or its removal names, now or among the worker IDs its heartbeats
+  reported: a revoked one then answers `removed`, so a retry of a removal
+  whose answer was lost succeeds, also after the worker took a new ID and
+  on another coordinator, and a removing one answers with its removal,
+  which `stop` moves from `finish` to `stop`. An active certificate pairs
+  with a worker its record names, or whose fresh heartbeat carries it.
 - A request that does not pair fails with `FailedPrecondition` for a
   worker ID a heartbeat or a certificate record knows, as when the
   connected worker uses another certificate, and with `NotFound`
