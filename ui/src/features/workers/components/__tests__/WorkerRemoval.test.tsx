@@ -934,6 +934,34 @@ describe('Remove', () => {
     await waitFor(() => expect(runs()).toEqual(['backuprun-2']));
   });
 
+  // A child run is named by its root as well: two roots that share a run ID
+  // can run the same child under the same child run ID.
+  it('lists the same child run of two roots apart', async () => {
+    const child = (root: string) => ({
+      ...task('load', 'child-1'),
+      rootDagRunName: root,
+      rootDagRunId: 'run-1',
+    });
+    const { update } = renderPage([
+      worker('worker-a1', { runningTasks: [child('etl'), child('report')] }),
+    ]);
+    const dialog = await openRemove('worker-a1');
+    const runs = () =>
+      within(dialog)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent);
+    expect(runs()).toEqual([
+      'loadchild-1Root run: etl run-1',
+      'loadchild-1Root run: report run-1',
+    ]);
+
+    update([worker('worker-a1', { runningTasks: [child('report')] })]);
+
+    await waitFor(() =>
+      expect(runs()).toEqual(['loadchild-1Root run: report run-1'])
+    );
+  });
+
   // The count rides on the page's refresh of /workers: a new list shows the
   // new count with no reload and no request of its own.
   it('shows the runs left while removing', async () => {
@@ -983,6 +1011,35 @@ describe('Remove', () => {
     await waitFor(() => expect(removals()).toHaveLength(1));
     expect(removals()[0]?.path).toBe('/api/v1/workers/worker-a1/certificate');
     expect(removals()[0]?.query.get('runs')).toBe('stop');
+  });
+
+  // Runs that all ended leave nothing to stop: Stop runs now stays open,
+  // says so, and sends nothing, also after the row leaves the list.
+  it('offers no stop once the last run ended', async () => {
+    const { update } = renderPage([
+      worker('worker-a1', {
+        removing: true,
+        runningTasks: [task('etl', 'run-1')],
+      }),
+    ]);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop runs now on worker-a1' })
+    );
+    const dialog = screen.getByRole('dialog');
+
+    update([worker('worker-a1', { removing: true })]);
+    await within(dialog).findByText(
+      'No runs remain to stop. The worker is removed as planned.'
+    );
+    update([]);
+
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(dialog).toHaveTextContent('No runs remain to stop.');
+    const stop = within(dialog).getByRole('button', { name: 'Stop runs' });
+    expect(stop).toBeDisabled();
+    await userEvent.click(stop);
+    await act(() => Promise.resolve());
+    expect(removals()).toHaveLength(0);
   });
 
   // A reusable invite still lets new hosts join, so the confirmation says

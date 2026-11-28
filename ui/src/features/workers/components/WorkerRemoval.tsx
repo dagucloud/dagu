@@ -48,9 +48,11 @@ function canRemove(worker: Worker): boolean {
   );
 }
 
-// A worker that reported TLS or plaintext has no certificate. One without a
-// connection runs against an older coordinator, which says nothing either way.
-function withoutCertificate(worker: Worker): boolean {
+// A worker that reported TLS, one on its own certificates included, or
+// plaintext did not join with an invite, so the server has no certificate of
+// it to revoke. One without a connection runs against an older coordinator,
+// which says nothing either way.
+function onTlsOrPlaintext(worker: Worker): boolean {
   return (
     worker.connection === WorkerConnection.tls ||
     worker.connection === WorkerConnection.plaintext
@@ -253,8 +255,7 @@ export function WorkerRemovalProgress({ worker }: { worker: Worker }) {
 /**
  * WorkerActionsNote explains, for admins, a Remove the list does not offer:
  * on a remote node, where the server removes nothing, and for a worker that
- * reported a connection without a certificate, since it would connect again
- * at once.
+ * reported a TLS or plaintext connection, which did not join with an invite.
  */
 export function WorkerActionsNote({ workers }: { workers: Worker[] }) {
   const isAdmin = useIsAdmin();
@@ -262,8 +263,8 @@ export function WorkerActionsNote({ workers }: { workers: Worker[] }) {
   if (!isAdmin) return null;
   const remoteOnly =
     !local && workers.some((worker) => canRemove(worker) || worker.removing);
-  const peerToken = local && workers.some(withoutCertificate);
-  if (!remoteOnly && !peerToken) return null;
+  const notInvited = local && workers.some(onTlsOrPlaintext);
+  if (!remoteOnly && !notInvited) return null;
   return (
     <p className="px-3 py-2 text-xs text-muted-foreground">
       <I18nText
@@ -555,16 +556,26 @@ function RemoveWorkerDialog({
                 </legend>
                 <ul className="max-h-32 space-y-0.5 overflow-auto rounded border px-2 py-1 text-xs">
                   {tasks.map((task) => (
-                    <li
-                      key={`${task.dagName}\n${task.dagRunId}`}
-                      className="flex min-w-0 gap-2"
-                    >
-                      <span className="truncate font-medium">
-                        {task.dagName}
-                      </span>
-                      <span className="truncate font-mono text-muted-foreground">
-                        {task.dagRunId}
-                      </span>
+                    <li key={runKey(task)} className="min-w-0">
+                      <div className="flex min-w-0 gap-2">
+                        <span className="truncate font-medium">
+                          {task.dagName}
+                        </span>
+                        <span className="truncate font-mono text-muted-foreground">
+                          {task.dagRunId}
+                        </span>
+                      </div>
+                      {underRoot(task) && (
+                        <div className="truncate text-muted-foreground">
+                          <I18nText
+                            text="Root run: {dag} {run}"
+                            values={{
+                              dag: task.rootDagRunName ?? '',
+                              run: task.rootDagRunId ?? '',
+                            }}
+                          />
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -772,6 +783,28 @@ function RunsChoice({
   );
 }
 
+type RunningTask = NonNullable<Worker['runningTasks']>[number];
+
+// A run is named by its root run as well: a child DAG run of one root can
+// share its DAG and run ID with that of another root.
+function runKey(task: RunningTask): string {
+  return [
+    task.rootDagRunName ?? '',
+    task.rootDagRunId ?? '',
+    task.dagName,
+    task.dagRunId,
+  ].join('\n');
+}
+
+// Whether a run is a child of another run, whose root it names.
+function underRoot(task: RunningTask): boolean {
+  return (
+    !!task.rootDagRunId &&
+    (task.rootDagRunId !== task.dagRunId ||
+      task.rootDagRunName !== task.dagName)
+  );
+}
+
 function StopRunsDialog({
   worker,
   certificateId,
@@ -814,8 +847,9 @@ function StopRunsDialog({
       visible
       dismissModal={onClose}
       onSubmit={() => void submit()}
-      // A refused stop needs a new confirmation with the current state.
-      submitDisabled={submitting || locked || error !== null}
+      // A refused stop needs a new confirmation with the current state, and
+      // runs that all ended leave nothing to stop.
+      submitDisabled={submitting || locked || error !== null || count === 0}
       submitOnEnter={false}
       initialFocus="cancel"
       // A long list of runs or workers scrolls inside the dialog, so the
@@ -828,9 +862,11 @@ function StopRunsDialog({
         <p>
           <I18nText
             text={
-              count === 1
-                ? 'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.'
-                : 'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.'
+              count === 0
+                ? 'No runs remain to stop. The worker is removed as planned.'
+                : count === 1
+                  ? 'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.'
+                  : 'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.'
             }
             values={{ count }}
           />

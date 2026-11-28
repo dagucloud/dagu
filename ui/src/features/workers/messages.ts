@@ -158,6 +158,9 @@ export const workerAdminMessages = defineMessages({
     'The coordinator could not report the workers. Check the coordinator log, then refresh the page.':
       'The coordinator could not report the workers. Check the coordinator log, then refresh the page.',
     'Invite {id} was not deleted.': 'Invite {id} was not deleted.',
+    'Root run: {dag} {run}': 'Root run: {dag} {run}',
+    'No runs remain to stop. The worker is removed as planned.':
+      'No runs remain to stop. The worker is removed as planned.',
     'The selected node has no peer token for its coordinator.':
       'The selected node has no peer token for its coordinator.',
     'Set peer.token on the selected node to the peer token of its coordinator.':
@@ -327,6 +330,9 @@ export const workerAdminMessages = defineMessages({
     'The coordinator could not report the workers. Check the coordinator log, then refresh the page.':
       'Coordinator 无法报告 Worker。请检查 Coordinator 日志，然后刷新页面。',
     'Invite {id} was not deleted.': '邀请 {id} 未被删除。',
+    'Root run: {dag} {run}': '根运行：{dag} {run}',
+    'No runs remain to stop. The worker is removed as planned.':
+      '没有可停止的运行。Worker 将按计划被移除。',
     'The selected node has no peer token for its coordinator.':
       '所选节点没有其 Coordinator 的 peer token。',
     'Set peer.token on the selected node to the peer token of its coordinator.':
@@ -500,6 +506,9 @@ export const workerAdminMessages = defineMessages({
     'The coordinator could not report the workers. Check the coordinator log, then refresh the page.':
       'コーディネーターがワーカーを報告できませんでした。コーディネーターのログを確認してから、ページを更新してください。',
     'Invite {id} was not deleted.': '招待 {id} は削除されませんでした。',
+    'Root run: {dag} {run}': 'ルート実行: {dag} {run}',
+    'No runs remain to stop. The worker is removed as planned.':
+      '停止する実行は残っていません。ワーカーは予定どおり削除されます。',
     'The selected node has no peer token for its coordinator.':
       '選択したノードには、そのコーディネーターの peer token がありません。',
     'Set peer.token on the selected node to the peer token of its coordinator.':
@@ -675,6 +684,9 @@ export const workerAdminMessages = defineMessages({
     'The coordinator could not report the workers. Check the coordinator log, then refresh the page.':
       'Der Coordinator konnte die Worker nicht melden. Prüfen Sie das Protokoll des Coordinators und laden Sie die Seite dann neu.',
     'Invite {id} was not deleted.': 'Die Einladung {id} wurde nicht gelöscht.',
+    'Root run: {dag} {run}': 'Wurzellauf: {dag} {run}',
+    'No runs remain to stop. The worker is removed as planned.':
+      'Es sind keine Läufe zum Stoppen mehr übrig. Der Worker wird wie geplant entfernt.',
     'The selected node has no peer token for its coordinator.':
       'Der ausgewählte Knoten hat kein Peer-Token für seinen Coordinator.',
     'Set peer.token on the selected node to the peer token of its coordinator.':
@@ -849,6 +861,9 @@ export const workerAdminMessages = defineMessages({
     'The coordinator could not report the workers. Check the coordinator log, then refresh the page.':
       'Le coordinateur n’a pas pu signaler les workers. Consultez le journal du coordinateur, puis actualisez la page.',
     'Invite {id} was not deleted.': 'L’invitation {id} n’a pas été supprimée.',
+    'Root run: {dag} {run}': 'Exécution racine : {dag} {run}',
+    'No runs remain to stop. The worker is removed as planned.':
+      'Il ne reste aucune exécution à arrêter. Le worker est retiré comme prévu.',
     'The selected node has no peer token for its coordinator.':
       'Le nœud sélectionné n’a pas de jeton de pair pour son coordinateur.',
     'Set peer.token on the selected node to the peer token of its coordinator.':

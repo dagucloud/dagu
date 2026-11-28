@@ -1338,7 +1338,8 @@ The Workers page is the list of workers on System status.
   their outcome when a refresh of the list changes or drops the worker's
   row, or fails, and show a dropped row as last listed, and a request that ends after its dialog was closed
   leaves a newer one open.
-- With running runs, the confirmation lists them and offers
+- With running runs, the confirmation lists them, each by its DAG and run
+  ID and a child run also by its root run, and offers
   **Remove after its runs finish** (`finish`, the default) and
   **Stop its runs and remove** (`stop`), which sends a cancel request to
   each run and removes the worker within two minutes, whether or not its
@@ -1346,8 +1347,9 @@ The Workers page is the list of workers on System status.
   `finish`. **Stop runs now** says the same. A `removing` worker
   shows
   `Removing (<n> runs left)`, or `Removing (1 run left)`, and
-  **Stop runs now** while it has runs. The count comes from the page's
-  existing `/workers` refresh.
+  **Stop runs now** while it has runs. Once the list shows no runs, an
+  open **Stop runs now** says none remain and sends nothing. The count
+  comes from the page's existing `/workers` refresh.
 - For a worker on a reusable invite that is still active, the confirmation
   says the invite still admits new workers, names the other workers that
   use it, and offers to delete it. An invite the page's list lacks is read
