@@ -217,7 +217,7 @@ func TestConnectionAddPaste(t *testing.T) {
 	assert.Contains(t, printed, "Signed in as ops@example.com. Is this the right account? [Y/n]")
 	assert.Contains(t, printed, "Warning: work-google in ops already holds ops@example.com on this client.")
 	assert.Contains(t, printed, "gmail  read  ok  (2 MCP tools)")
-	assert.Contains(t, printed, "Connection work is ready.")
+	assert.Contains(t, printed, "Connection work is ready. Try: dagu connection tools work --workspace ops")
 	assert.NotContains(t, printed, fakeCode)
 	assert.NotContains(t, printed, fakeState)
 }

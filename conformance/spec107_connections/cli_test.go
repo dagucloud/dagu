@@ -28,8 +28,9 @@ const (
 // browser, add registers the client file, creates the connection, and
 // shows the redirect URI to register and the client ID before consent. A
 // sign-in that gets no pasted address is cancelled on the server, and the
-// connection stays pending until remove deletes it. No output holds the
-// client secret.
+// connection stays pending, as list and show report, until remove deletes
+// it. The app it registered can be removed once no connection uses it. No
+// output holds the client secret.
 func TestConnectionCLI(t *testing.T) {
 	t.Parallel()
 
@@ -67,6 +68,28 @@ func TestConnectionCLI(t *testing.T) {
 	require.Equal(t, connection.SessionPhaseFailed, state.Session.Phase)
 	require.Equal(t, "cancelled", state.Session.Reason)
 
+	// The read commands show the pending connection and its app, and the
+	// redirect modes the server offers, without the secret.
+	for _, read := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"connection", "list"}, []string{"work", "google", "pending", "gmail"}},
+		{[]string{"connection", "show", "work"}, []string{"Status:", "pending", "App:", "work ("}},
+		{[]string{"connection", "apps", "list"}, []string{cliClientID, "desktop"}},
+		{[]string{"connection", "providers"}, []string{"paste", "http://127.0.0.1:1/oauth/callback", "gmail"}},
+	} {
+		result := dagu.RunWithEnv(env, read.args...)
+		result.ExpectExitCode(0)
+		for _, want := range read.want {
+			require.Contains(t, result.Stdout(), want, read.args)
+		}
+		result.ExpectStdoutNotContains(cliClientSecret)
+	}
+
+	// An app in use cannot be removed.
+	dagu.RunWithEnv(env, "connection", "apps", "remove", "work").ExpectNonZeroExitCode()
+
 	remove := dagu.RunWithEnv(env, "connections", "remove", "work", "--yes")
 	remove.ExpectExitCode(0)
 	require.Contains(t, remove.Stdout(), "Connection work was removed.")
@@ -74,6 +97,10 @@ func TestConnectionCLI(t *testing.T) {
 	reconnect := dagu.RunWithEnv(env, "connection", "reconnect", "work")
 	reconnect.ExpectNonZeroExitCode()
 	reconnect.ExpectStderrContains("Connection not found")
+
+	removeApp := dagu.RunWithEnv(env, "connection", "apps", "remove", "work")
+	removeApp.ExpectExitCode(0)
+	require.Contains(t, removeApp.Stdout(), "OAuth app work (")
 }
 
 func waitForListener(t *testing.T, process *harness.Process, address string) {
