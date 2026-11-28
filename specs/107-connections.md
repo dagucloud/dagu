@@ -1247,6 +1247,12 @@ dagu connection apps remove APP
 - `reconnect` names the connection's account as the expected account, so
   a session of the same account is confirmed without asking, as
   [Confirmation](#confirmation) states.
+- `add` and `reconnect` name the mode only for a desktop client, whose
+  loopback mode needs a browser on the CLI's host. Another client takes
+  the server's choice.
+- Until the account is confirmed, an interrupt, a declined account, or a
+  failure that ends the CLI's wait cancels the session, so its tokens are
+  discarded at once.
 - `remove` asks before it removes, and without a terminal needs `--yes`.
 - `--client-file` registers an app and needs `admin`. A manager names an
   existing app with `--app`.
