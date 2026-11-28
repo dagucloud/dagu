@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"math"
 	"net"
-	"net/netip"
 	"os/signal"
 	"regexp"
 	"slices"
@@ -50,12 +49,6 @@ const (
 	allInterfacesHost = "0.0.0.0"
 	// maxExpirySeconds is the longest expiry a coordinator accepts.
 	maxExpirySeconds = math.MaxInt64 / int64(time.Second)
-	// maxHostnameLength and maxLabelLength bound a hostname and each of its
-	// labels.
-	maxHostnameLength = 253
-	maxLabelLength    = 63
-	// hostnameChars are the characters of a hostname label.
-	hostnameChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
 	// shellSafeChars are the characters a POSIX shell reads as they are.
 	shellSafeChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-/=@%+,"
 )
@@ -313,7 +306,7 @@ func parseInviteOptions(cmd *cobra.Command) (inviteOptions, error) {
 	if invitePattern.MatchString(address) {
 		return opts, fmt.Errorf("--%s holds an invite; the invite goes only into the printed command", inviteAddressFlag.name)
 	}
-	if !validInviteAddress(address) {
+	if !coordinator.ValidInviteAddress(address) {
 		return opts, fmt.Errorf("--%s must be host:port, such as 192.168.1.20:50055: a hostname, a dotted IPv4 address, "+
 			"or an IPv6 address in brackets, and a port from 1 to 65535 without a sign or leading zero", inviteAddressFlag.name)
 	}
@@ -342,9 +335,9 @@ func parseInviteOptions(cmd *cobra.Command) (inviteOptions, error) {
 }
 
 // dialAddressProblem says why a worker on another host cannot dial addr, an
-// address validInviteAddress accepts, or returns "" when it can. It is the
-// rest of the address rule of Spec 108 §Add Worker, which the Add worker
-// dialog and the MCP action apply too.
+// address coordinator.ValidInviteAddress accepts, or returns "" when it can.
+// It is the rest of the address rule of Spec 108 §Add Worker, which the Add
+// worker dialog and the MCP action apply too.
 func dialAddressProblem(addr string) string {
 	host, _, _ := net.SplitHostPort(addr)
 	if ip := net.ParseIP(host); ip != nil {
@@ -367,53 +360,6 @@ func dialAddressProblem(addr string) string {
 		return "must not be a container ID; give the address of the machine that runs the container"
 	}
 	return ""
-}
-
-// validInviteAddress reports whether addr can be an invite's address, by the
-// rule coordinators apply from the next release: host:port, where host is a
-// hostname of dot-separated labels of 1 to 63 ASCII letters, digits,
-// hyphens, and underscores, neither starting nor ending with a hyphen, at
-// most 253 characters in all, with no trailing dot; an IPv4 address in
-// dotted decimal; or an IPv6 address in brackets without a zone. The port
-// is a decimal number from 1 to 65535 without a sign or leading zero.
-func validInviteAddress(addr string) bool {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil || !validInvitePort(port) {
-		return false
-	}
-	if strings.HasPrefix(addr, "[") {
-		ip, err := netip.ParseAddr(host)
-		return err == nil && ip.Is6() && ip.Zone() == ""
-	}
-	if ip, err := netip.ParseAddr(host); err == nil {
-		return ip.Is4()
-	}
-	return validHostname(host)
-}
-
-// validInvitePort reports whether port is a decimal TCP port from 1 to
-// 65535, written without a sign or leading zero.
-func validInvitePort(port string) bool {
-	if port == "" || port[0] == '0' || strings.Trim(port, "0123456789") != "" {
-		return false
-	}
-	n, err := strconv.Atoi(port)
-	return err == nil && n <= math.MaxUint16
-}
-
-// validHostname reports whether host is a hostname as validInviteAddress
-// states.
-func validHostname(host string) bool {
-	if host == "" || len(host) > maxHostnameLength {
-		return false
-	}
-	for label := range strings.SplitSeq(host, ".") {
-		if label == "" || len(label) > maxLabelLength || label[0] == '-' || label[len(label)-1] == '-' ||
-			strings.Trim(label, hostnameChars) != "" {
-			return false
-		}
-	}
-	return true
 }
 
 // expirySeconds returns d in whole seconds, rounded up so the invite lasts at
