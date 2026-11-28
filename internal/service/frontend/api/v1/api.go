@@ -118,6 +118,7 @@ type API struct {
 	connectEngine        *connect.Engine
 	toolCatalog          *toolcatalog.Reader
 	connectionStatus     func(context.Context, broker.StatusChange)
+	attention            attentionCounts
 	publicURL            func() string // The server's usable public URL, or empty
 	profileStore         profilepkg.Store
 	viewStore            view.Store
@@ -142,6 +143,7 @@ type API struct {
 	selfUpgrader         SelfUpgrader
 	dagMutationNotifier  func(fileName string)
 	wikiMutationNotifier func()
+	connectionRemoved    func()
 	baseConfigProvider   dagsettings.BaseConfigProvider
 	oidcRoleMapping      func() config.OIDCRoleMapping
 	openCodeHost         *opencodehost.Host
@@ -557,6 +559,15 @@ func WithPeriodStore(store schedulerstate.PeriodStore) APIOption {
 func WithDAGMutationNotifier(fn func(fileName string)) APIOption {
 	return func(a *API) {
 		a.dagMutationNotifier = fn
+	}
+}
+
+// WithConnectionRemovedNotifier returns an APIOption that is called after a
+// connection is removed, which changes what needs reconnecting without a
+// connection event.
+func WithConnectionRemovedNotifier(fn func()) APIOption {
+	return func(a *API) {
+		a.connectionRemoved = fn
 	}
 }
 

@@ -134,6 +134,10 @@ export function endpointToTopic(endpoint: string): string {
   if (segments.length === 2 && segments[1] === 'dag-run-activity') {
     return buildTopic('dagrunactivity', query);
   }
+  if (segments.length === 2 && segments[1] === 'connection-attention') {
+    // Each subscriber sees its own workspaces under the one identifier.
+    return buildTopic('connectionattention', 'all');
+  }
   if (segments.length === 2 && segments[1] === 'dag-run-changes') {
     // The change feed has one topic, with a fixed identifier.
     return buildTopic('dagrunchanges', 'all');

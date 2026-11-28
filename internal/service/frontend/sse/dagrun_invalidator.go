@@ -110,12 +110,15 @@ type DAGRunsChanged func(changes []*eventstore.DAGRunStatusSnapshot)
 // DAG-run events. serviceDAGs tells which events concern a service DAG;
 // when it is nil or does not know them, every event counts as one that may.
 // changed, when set, is told the DAGs whose runs changed after each read.
+// connectionsChanged, when set, is told of connection events before the
+// connection attention topic wakes.
 func StartDAGRunEventInvalidation(
 	ctx context.Context,
 	service *eventstore.Service,
 	mux *Multiplexer,
 	serviceDAGs ServiceDAGNames,
 	changed DAGRunsChanged,
+	connectionsChanged func(),
 	logger *slog.Logger,
 	pollInterval time.Duration,
 ) {
@@ -140,7 +143,7 @@ func StartDAGRunEventInvalidation(
 
 		for {
 			if !bootstrapped {
-				head, err := service.DAGRunHeadCursor(ctx)
+				head, err := service.NotificationHeadCursor(ctx)
 				if err != nil {
 					logger.Warn("Failed to bootstrap DAG-run event invalidation cursor", slog.String("error", err.Error()))
 				} else {
@@ -159,15 +162,38 @@ func StartDAGRunEventInvalidation(
 				continue
 			}
 
-			events, nextCursor, err := service.ReadDAGRunEvents(ctx, cursor)
+			// One pass reads the run events and the connection events.
+			events, nextCursor, err := service.ReadNotificationEvents(ctx, cursor)
 			if err != nil {
 				logger.Warn("Failed to read DAG-run events for SSE invalidation", slog.String("error", err.Error()))
 				continue
 			}
 			cursor = nextCursor
+			events = wakeForConnectionEvents(mux, events, connectionsChanged)
 			handleDAGRunEvents(mux, events, serviceDAGs, changed)
 		}
 	}()
+}
+
+// wakeForConnectionEvents tells changed of the connection events in events,
+// then wakes the connection attention topic, and returns the other events.
+func wakeForConnectionEvents(mux *Multiplexer, events []*eventstore.Event, changed func()) []*eventstore.Event {
+	runEvents := events[:0]
+	woken := false
+	for _, event := range events {
+		if event == nil || event.Kind != eventstore.KindConnection {
+			runEvents = append(runEvents, event)
+			continue
+		}
+		if !woken {
+			if changed != nil {
+				changed()
+			}
+			mux.WakeTopicType(TopicTypeConnectionAttention)
+			woken = true
+		}
+	}
+	return runEvents
 }
 
 // handleDAGRunEvents tells changed the root runs whose state the events

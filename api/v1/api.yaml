@@ -14698,6 +14698,25 @@ paths:
         default:
           $ref: "#/components/responses/ConnectionError"
 
+  /connection-attention:
+    get:
+      summary: "Count the connections that need attention"
+      description: "Counts the connections in the workspaces where the caller is viewer or above that need reconnecting, and names their workspaces. The navigation badge reads it, and the connectionattention SSE topic streams the same body."
+      operationId: "getConnectionAttention"
+      tags:
+        - "connections"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Connections that need attention"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionAttention"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+
   /connection-providers:
     get:
       summary: "List connection providers"
@@ -25070,6 +25089,21 @@ components:
         updatedAt:
           type: string
           format: date-time
+
+    ConnectionAttention:
+      type: object
+      required:
+        - needsReconnect
+        - workspaces
+      properties:
+        needsReconnect:
+          type: integer
+          description: "Connections in needs_reconnect status in the workspaces the caller can see."
+        workspaces:
+          type: array
+          description: "The workspaces of those connections, sorted, with global for the connections of DAGs without a workspace label."
+          items:
+            type: string
 
     ConnectionListResponse:
       type: object

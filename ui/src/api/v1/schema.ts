@@ -5276,6 +5276,26 @@ export interface paths {
         patch: operations["updateConnection"];
         trace?: never;
     };
+    "/connection-attention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count the connections that need attention
+         * @description Counts the connections in the workspaces where the caller is viewer or above that need reconnecting, and names their workspaces. The navigation badge reads it, and the connectionattention SSE topic streams the same body.
+         */
+        get: operations["getConnectionAttention"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/connection-providers": {
         parameters: {
             query?: never;
@@ -10462,6 +10482,12 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        ConnectionAttention: {
+            /** @description Connections in needs_reconnect status in the workspaces the caller can see. */
+            needsReconnect: number;
+            /** @description The workspaces of those connections, sorted, with global for the connections of DAGs without a workspace label. */
+            workspaces: string[];
         };
         ConnectionListResponse: {
             connections: components["schemas"]["Connection"][];
@@ -29213,6 +29239,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Connection"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    getConnectionAttention: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connections that need attention */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionAttention"];
                 };
             };
             default: components["responses"]["ConnectionError"];

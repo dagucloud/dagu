@@ -70,6 +70,7 @@ type TopicType string
 //   - TopicTypeWikiPage: Wiki page path (e.g., "runbooks/deployment")
 //   - TopicTypeWikiTree: URL query string (e.g., "page=1&perPage=200")
 //   - TopicTypeBackfill: backfill ID
+//   - TopicTypeConnectionAttention: "all", its only identifier
 const (
 	TopicTypeDAGRun     TopicType = "dagrun"
 	TopicTypeSubDAGRun  TopicType = "subdagrun"
@@ -95,6 +96,9 @@ const (
 	// TopicTypeBackfill streams one backfill: its status, the slots in each
 	// state, and why it waits.
 	TopicTypeBackfill TopicType = "backfill"
+	// TopicTypeConnectionAttention streams how many of the connections the
+	// subscriber can see need reconnecting.
+	TopicTypeConnectionAttention TopicType = "connectionattention"
 	// TopicTypeLegacyDoc is the deprecated alias for TopicTypeWikiPage.
 	TopicTypeLegacyDoc TopicType = "doc"
 	// TopicTypeLegacyDocTree is the deprecated alias for TopicTypeWikiTree.

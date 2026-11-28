@@ -15,6 +15,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -679,4 +680,48 @@ func TestHandleDAGRunEventsWakesRunChanges(t *testing.T) {
 
 	handleDAGRunEvents(mux, []*eventstore.Event{runEvent(eventstore.TypeDAGRunSucceeded, ir.Succeeded, "a", "r1", "")}, nil, nil)
 	require.Eventually(t, func() bool { return refreshes(topic) == 1 }, time.Second, 10*time.Millisecond)
+}
+
+// A batch of connection events tells of a change once, and the run
+// events of the batch still reach the run topics.
+func TestConnectionEventsTellChangeOnce(t *testing.T) {
+	mux, _ := countingTopics(t, TopicTypeConnectionAttention, "connectionattention:all")
+	source := eventstore.Source{Service: eventstore.SourceServiceServer, Instance: "test"}
+	change := eventstore.ConnectionChange{Connections: []eventstore.ConnectionName{{Workspace: "ops", Name: "work"}}}
+	run := runEvent(eventstore.TypeDAGRunSucceeded, ir.Succeeded, "a", "r1", "")
+	var told int
+
+	remaining := wakeForConnectionEvents(mux, []*eventstore.Event{
+		eventstore.NewConnectionEvent(source, eventstore.TypeConnectionNeedsAttention, change, time.Now()),
+		run,
+		eventstore.NewConnectionEvent(source, eventstore.TypeConnectionRestored, change, time.Now()),
+	}, func() { told++ })
+
+	require.Equal(t, []*eventstore.Event{run}, remaining)
+	require.Equal(t, 1, told)
+}
+
+// The invalidator reads connection events from the event store and wakes
+// the attention topic after telling of the change.
+func TestInvalidatorWakesConnectionAttention(t *testing.T) {
+	const topic = "connectionattention:all"
+	mux, refreshes := countingTopics(t, TopicTypeConnectionAttention, topic)
+	store, err := fileeventstore.New(t.TempDir())
+	require.NoError(t, err)
+	service := eventstore.New(store)
+	var told atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	StartDAGRunEventInvalidation(ctx, service, mux, nil, nil, func() { told.Add(1) }, nil, 10*time.Millisecond)
+
+	source := eventstore.Source{Service: eventstore.SourceServiceServer, Instance: "test"}
+	change := eventstore.ConnectionChange{Connections: []eventstore.ConnectionName{{Workspace: "ops", Name: "work"}}}
+	// The invalidator starts at the head of the store, so an event recorded
+	// before it bootstraps is not read; record until one is.
+	require.Eventually(t, func() bool {
+		require.NoError(t, service.Emit(context.Background(),
+			eventstore.NewConnectionEvent(source, eventstore.TypeConnectionNeedsAttention, change, time.Now())))
+		return refreshes(topic) > 0
+	}, 2*time.Second, 50*time.Millisecond)
+	require.Positive(t, told.Load())
 }

@@ -100,6 +100,14 @@ const (
 	// when no run changes: each read moves the readAt of the feed, so a list
 	// learns that its rows are still current.
 	dagRunChangesMaxInterval = time.Minute
+	// connectionAttentionMinInterval merges the wakes of a burst of
+	// connection status changes into one read of the connections.
+	connectionAttentionMinInterval = 5 * time.Second
+	// connectionAttentionMaxInterval bounds how long a badge goes stale
+	// after a change that no wake reported, such as a removal through
+	// another server on shared storage: this interval plus the age of the
+	// API's shared read, 15 minutes in all.
+	connectionAttentionMaxInterval = 10 * time.Minute
 	// dagRunsMaxInterval bounds how stale a live run list gets when no run
 	// event wakes it, such as when a DAG gains or loses a restart policy and
 	// its runs move in or out of the lists that leave service DAG runs out.
@@ -869,6 +877,12 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		}
 		srv.wakeWikiTopics()
 	}))
+	apiOpts = append(apiOpts, apiv1.WithConnectionRemovedNotifier(func() {
+		if srv.sseMultiplexer == nil {
+			return
+		}
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeConnectionAttention)
+	}))
 	// Pass license manager to API
 	if srv.licenseManager != nil {
 		apiOpts = append(apiOpts, apiv1.WithLicenseManager(srv.licenseManager))
@@ -1631,7 +1645,7 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 		if srv.dagRepository != nil {
 			serviceDAGs = srv.dagRepository.SavedServiceDAGNames
 		}
-		sse.StartDAGRunEventInvalidation(srv.sseMultiplexer.Context(), srv.eventService, srv.sseMultiplexer, serviceDAGs, srv.apiV1.DAGRunsChanged, slog.Default(), time.Second)
+		sse.StartDAGRunEventInvalidation(srv.sseMultiplexer.Context(), srv.eventService, srv.sseMultiplexer, serviceDAGs, srv.apiV1.DAGRunsChanged, srv.apiV1.ConnectionsChanged, slog.Default(), time.Second)
 	}
 
 	multiplexHandler := sse.NewMultiplexHandler(srv.sseMultiplexer, srv.remoteNodeResolver)
@@ -1828,6 +1842,12 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 		registrar.SetRefreshMode(sse.TopicTypeDAGRunChanges, sse.TopicRefreshModeOnDemand)
 		registrar.SetMinInterval(sse.TopicTypeDAGRunChanges, dagRunChangesMinInterval)
 		registrar.SetMaxInterval(sse.TopicTypeDAGRunChanges, dagRunChangesMaxInterval)
+		// Connection events and removals wake the attention topic. Without
+		// the event store it is unsupported, and the badge polls instead.
+		registrar.RegisterFetcher(sse.TopicTypeConnectionAttention, srv.apiV1.GetConnectionAttentionData)
+		registrar.SetRefreshMode(sse.TopicTypeConnectionAttention, sse.TopicRefreshModeOnDemand)
+		registrar.SetMinInterval(sse.TopicTypeConnectionAttention, connectionAttentionMinInterval)
+		registrar.SetMaxInterval(sse.TopicTypeConnectionAttention, connectionAttentionMaxInterval)
 		if appStreamAvailable {
 			registrar.SetRefreshMode(sse.TopicTypeDAGsList, sse.TopicRefreshModeOnDemand)
 			registrar.SetPublishOnWake(sse.TopicTypeDAGsList, true)
