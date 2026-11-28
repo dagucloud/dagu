@@ -198,15 +198,17 @@ export function hasActiveServiceRun(
 }
 
 /**
- * The seconds after which a stopped run restarts, or null when no run follows
- * a stop: `always` starts the next run after the wait, `unless-stopped` does
- * not, and neither does a DAG that is suspended or whose restarts are on hold.
+ * The seconds after which a stopped run restarts, or null when no run is known
+ * to follow a stop: `always` starts the next run after the wait,
+ * `unless-stopped` does not, and neither does a DAG that is suspended or whose
+ * restarts are on hold. Without the service DAG its state is unknown, so no
+ * restart is promised.
  */
 export function getRestartAfterStopSec(
   dag: RestartPolicyFields | undefined,
-  service?: ServiceRestartFields
+  service: ServiceRestartFields | undefined
 ): number | null {
-  if (service?.suspended || service?.restartHold) {
+  if (!service || service.suspended || service.restartHold) {
     return null;
   }
   return dag?.restartPolicy === RestartPolicy.always && dag.restartWaitSec
