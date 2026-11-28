@@ -50,7 +50,7 @@ func TestManager(t *testing.T) {
 		stopSocket := startStatusSocketServer(
 			t,
 			ctx,
-			procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)),
+			procctrl.DAGSocketAddr(th.Config.Paths.DataDir, ir.NewDAGRunRef(dag.Name, dagRunID)),
 			status,
 		)
 
@@ -82,7 +82,7 @@ func TestManager(t *testing.T) {
 		stopSocket := startStatusSocketServer(
 			t,
 			ctx,
-			procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)),
+			procctrl.DAGSocketAddr(th.Config.Paths.DataDir, ir.NewDAGRunRef(dag.Name, dagRunID)),
 			liveStatus,
 		)
 		defer stopSocket()
@@ -93,6 +93,9 @@ func TestManager(t *testing.T) {
 		require.Equal(t, ir.Waiting, latest.Status)
 		require.Equal(t, attempt.ID(), latest.AttemptID)
 	})
+	// A run of this install that an earlier version started listens at an
+	// address that names no data directory, and stays reachable after an
+	// upgrade: its stored Running status leads the lookup there.
 	t.Run("GetCurrentStatusFallsBackToLegacyRootSocket", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
@@ -100,16 +103,66 @@ func TestManager(t *testing.T) {
 `)
 		ctx := th.Context
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		legacyStatus := testNewStatus(dag.DAG, dagRunID, ir.Waiting, ir.NodeWaiting)
-		legacyStatus.Error = "legacy"
-		stopSocket := startStatusSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), legacyStatus)
+		createLiveRootAttempt(t, th, dag.DAG, dagRunID)
+		for _, addr := range []string{sock.LegacyAddr(dag.Name, dagRunID), sock.LegacyAddr(dag.Location, dagRunID)} {
+			legacyStatus := testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)
+			legacyStatus.Error = "legacy " + addr
+			stopSocket := startStatusSocketServer(t, ctx, addr, legacyStatus)
+
+			current, err := th.DAGRunMgr.GetCurrentStatus(ctx, dag.DAG, dagRunID)
+			running := th.DAGRunMgr.IsRunning(ctx, dag.DAG, dagRunID)
+			stopSocket()
+
+			require.NoError(t, err, addr)
+			require.Equal(t, "legacy "+addr, current.Error)
+			require.True(t, running, addr)
+		}
+	})
+	// Another install on the host, on an earlier version, can run a DAG of
+	// the same name under the same run ID at an address that names no data
+	// directory. Without a run of its own, this install does not take that
+	// run for its own.
+	t.Run("LegacySocketOfAnotherInstallIsIgnored", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		otherStatus := testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)
+		otherStatus.Error = "other install"
+		stopSocket := startStatusSocketServer(t, ctx, sock.LegacyAddr(dag.Name, dagRunID), otherStatus)
 		defer stopSocket()
 
-		current, err := th.DAGRunMgr.GetCurrentStatus(ctx, dag.DAG, dagRunID)
+		require.False(t, th.DAGRunMgr.IsRunning(ctx, dag.DAG, dagRunID))
+		_, err := th.DAGRunMgr.GetCurrentStatus(ctx, dag.DAG, dagRunID)
+		require.Error(t, err)
+	})
+	// Two installs on one host run a DAG of the same name under the same run ID,
+	// as a service DAG does on its first run: neither reaches the other's run.
+	t.Run("GetCurrentStatusReachesOnlyItsInstallSocket", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		otherConfig := *th.Config
+		otherConfig.Paths.DataDir = filepath.Join(t.TempDir(), "data")
+		other := runtime.NewManager(th.DAGRunRepository, th.ProcRepository, &otherConfig)
+		otherStatus := testNewStatus(dag.DAG, dagRunID, ir.Waiting, ir.NodeWaiting)
+		otherStatus.Error = "other install"
+		stopSocket := startStatusSocketServer(t, ctx,
+			procctrl.DAGSocketAddr(otherConfig.Paths.DataDir, ir.NewDAGRunRef(dag.Name, dagRunID)), otherStatus)
+		defer stopSocket()
 
+		current, err := other.GetCurrentStatus(ctx, dag.DAG, dagRunID)
 		require.NoError(t, err)
-		require.Equal(t, ir.Waiting, current.Status)
-		require.Equal(t, "legacy", current.Error)
+		require.Equal(t, "other install", current.Error)
+
+		_, err = th.DAGRunMgr.GetCurrentStatus(ctx, dag.DAG, dagRunID)
+		require.Error(t, err, "a Manager does not reach the run of another install")
+		require.False(t, th.DAGRunMgr.IsRunning(ctx, dag.DAG, dagRunID))
 	})
 	t.Run("GetCurrentStatusReachesOnlyItsProjectSocket", func(t *testing.T) {
 		// Runs of DAGs of one name in two projects, which share a slot seed
@@ -125,7 +178,7 @@ func TestManager(t *testing.T) {
 		weatherStatus := testNewStatus(dag.DAG, dagRunID, ir.Waiting, ir.NodeWaiting)
 		weatherStatus.Error = "weather"
 		stopSocket := startStatusSocketServer(t, ctx,
-			procctrl.ProjectDAGSocketAddr("weather", ir.NewDAGRunRef(dag.Name, dagRunID)), weatherStatus)
+			procctrl.ProjectDAGSocketAddr(th.Config.Paths.DataDir, "weather", ir.NewDAGRunRef(dag.Name, dagRunID)), weatherStatus)
 		defer stopSocket()
 
 		current, err := weather.GetCurrentStatus(ctx, dag.DAG, dagRunID)
@@ -138,7 +191,7 @@ func TestManager(t *testing.T) {
 		// The address of an older version belongs to the default project.
 		stopSocket()
 		legacyStatus := testNewStatus(dag.DAG, dagRunID, ir.Waiting, ir.NodeWaiting)
-		stopLegacy := startStatusSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), legacyStatus)
+		stopLegacy := startStatusSocketServer(t, ctx, sock.LegacyAddr(dag.Location, dagRunID), legacyStatus)
 		defer stopLegacy()
 		_, err = weather.GetCurrentStatus(ctx, dag.DAG, dagRunID)
 		require.Error(t, err, "another project's Manager does not reach the default project's run")
@@ -150,13 +203,15 @@ func TestManager(t *testing.T) {
 `)
 		ctx := th.Context
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		canonicalAddr := procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID))
+		// An earlier version of this install started the run.
+		createLiveRootAttempt(t, th, dag.DAG, dagRunID)
+		canonicalAddr := procctrl.DAGSocketAddr(th.Config.Paths.DataDir, ir.NewDAGRunRef(dag.Name, dagRunID))
 		require.NoError(t, os.WriteFile(canonicalAddr, nil, 0o600))
 		t.Cleanup(func() { _ = os.Remove(canonicalAddr) })
 
 		legacyStatus := testNewStatus(dag.DAG, dagRunID, ir.Waiting, ir.NodeWaiting)
 		legacyStatus.Error = "legacy"
-		stopSocket := startStatusSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), legacyStatus)
+		stopSocket := startStatusSocketServer(t, ctx, sock.LegacyAddr(dag.Location, dagRunID), legacyStatus)
 		defer stopSocket()
 
 		current, err := th.DAGRunMgr.GetCurrentStatus(ctx, dag.DAG, dagRunID)
@@ -179,11 +234,11 @@ func TestManager(t *testing.T) {
 		stopCanonical := startStatusSocketServer(
 			t,
 			ctx,
-			procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)),
+			procctrl.DAGSocketAddr(th.Config.Paths.DataDir, ir.NewDAGRunRef(dag.Name, dagRunID)),
 			canonicalStatus,
 		)
 		defer stopCanonical()
-		stopLegacy := startStatusSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), legacyStatus)
+		stopLegacy := startStatusSocketServer(t, ctx, sock.LegacyAddr(dag.Location, dagRunID), legacyStatus)
 		defer stopLegacy()
 
 		current, err := th.DAGRunMgr.GetCurrentStatus(ctx, dag.DAG, dagRunID)
@@ -223,11 +278,11 @@ func TestManager(t *testing.T) {
 				stopCanonical := startSocketServer(
 					t,
 					ctx,
-					procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)),
+					procctrl.DAGSocketAddr(th.Config.Paths.DataDir, ir.NewDAGRunRef(dag.Name, dagRunID)),
 					tc.handler,
 				)
 				defer stopCanonical()
-				stopLegacy := startStatusSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), legacyStatus)
+				stopLegacy := startStatusSocketServer(t, ctx, sock.LegacyAddr(dag.Location, dagRunID), legacyStatus)
 				defer stopLegacy()
 
 				require.False(t, mgr.IsRunning(ctx, dag.DAG, dagRunID))
@@ -247,7 +302,7 @@ func TestManager(t *testing.T) {
 		stopSocket := startSocketServer(
 			t,
 			ctx,
-			procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)),
+			procctrl.DAGSocketAddr(th.Config.Paths.DataDir, ir.NewDAGRunRef(dag.Name, dagRunID)),
 			func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost || r.URL.Path != "/stop" {
 					w.WriteHeader(http.StatusNotFound)
@@ -347,7 +402,7 @@ func TestManager(t *testing.T) {
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		attempt := createLiveRootAttempt(t, th, dag.DAG, dagRunID)
 		stopRequested := make(chan struct{}, 1)
-		stopSocket := startSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), func(w http.ResponseWriter, r *http.Request) {
+		stopSocket := startSocketServer(t, ctx, sock.LegacyAddr(dag.Location, dagRunID), func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost || r.URL.Path != "/stop" {
 				w.WriteHeader(http.StatusNotFound)
 				return
@@ -368,7 +423,10 @@ func TestManager(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, aborting)
 	})
-	t.Run("StopContinuesToLegacySocketAfterCanonicalHTTPError", func(t *testing.T) {
+	// An address of an earlier version names no data directory, so another
+	// install can listen there: a stop goes to it only when this install's
+	// own address is missing.
+	t.Run("StopSkipsLegacySocketWhileOwnSocketExists", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
     run: "exit 0"
@@ -382,14 +440,14 @@ func TestManager(t *testing.T) {
 		stopCanonical := startSocketServer(
 			t,
 			ctx,
-			procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)),
+			procctrl.DAGSocketAddr(th.Config.Paths.DataDir, ir.NewDAGRunRef(dag.Name, dagRunID)),
 			func(w http.ResponseWriter, _ *http.Request) {
 				canonicalRequested <- struct{}{}
 				w.WriteHeader(http.StatusInternalServerError)
 			},
 		)
 		defer stopCanonical()
-		stopLegacy := startSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), func(w http.ResponseWriter, _ *http.Request) {
+		stopLegacy := startSocketServer(t, ctx, sock.LegacyAddr(dag.Name, dagRunID), func(w http.ResponseWriter, _ *http.Request) {
 			legacyRequested <- struct{}{}
 			w.WriteHeader(http.StatusOK)
 		})
@@ -402,6 +460,29 @@ func TestManager(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			require.FailNow(t, "canonical socket stop request was not received")
 		}
+		select {
+		case <-legacyRequested:
+			require.FailNow(t, "the stop reached the address of an earlier version")
+		default:
+		}
+	})
+	t.Run("StopFallsBackToLegacySocketWithoutOwnSocket", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		createLiveRootAttempt(t, th, dag.DAG, dagRunID)
+		legacyRequested := make(chan struct{}, 1)
+		stopLegacy := startSocketServer(t, ctx, sock.LegacyAddr(dag.Name, dagRunID), func(w http.ResponseWriter, _ *http.Request) {
+			legacyRequested <- struct{}{}
+			w.WriteHeader(http.StatusOK)
+		})
+		defer stopLegacy()
+
+		require.NoError(t, th.DAGRunMgr.Stop(ctx, dag.DAG, dagRunID))
+
 		select {
 		case <-legacyRequested:
 		case <-time.After(5 * time.Second):
@@ -688,7 +769,7 @@ steps:
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
 
-		stopSocket := startStatusSocketServer(t, ctx, procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)), ir.NewStatusBuilder(dag.DAG).Create(
+		stopSocket := startStatusSocketServer(t, ctx, procctrl.DAGSocketAddr(th.Config.Paths.DataDir, ir.NewDAGRunRef(dag.Name, dagRunID)), ir.NewStatusBuilder(dag.DAG).Create(
 			dagRunID, ir.Running, 0, time.Now(),
 		))
 		defer stopSocket()
@@ -1009,7 +1090,7 @@ steps:
 		runningStatus.WorkerID = "worker-1"
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
-		stopSocket := startStatusSocketServer(t, ctx, procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)), ir.NewStatusBuilder(dag.DAG).Create(
+		stopSocket := startStatusSocketServer(t, ctx, procctrl.DAGSocketAddr(th.Config.Paths.DataDir, ir.NewDAGRunRef(dag.Name, dagRunID)), ir.NewStatusBuilder(dag.DAG).Create(
 			dagRunID, ir.Failed, 0, time.Now(),
 		))
 		defer stopSocket()
@@ -1039,7 +1120,7 @@ steps:
 		runningStatus.WorkerID = "worker-1"
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
-		stopSocket := startStatusSocketServer(t, ctx, procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)), ir.NewStatusBuilder(dag.DAG).Create(
+		stopSocket := startStatusSocketServer(t, ctx, procctrl.DAGSocketAddr(th.Config.Paths.DataDir, ir.NewDAGRunRef(dag.Name, dagRunID)), ir.NewStatusBuilder(dag.DAG).Create(
 			dagRunID, ir.Failed, 0, time.Now(),
 		))
 		defer stopSocket()

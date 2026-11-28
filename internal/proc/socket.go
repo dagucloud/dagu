@@ -13,21 +13,22 @@ import (
 )
 
 // DAGSocketAddr returns the control socket address for a DAG run of the
-// default project.
-func DAGSocketAddr(dagRun ir.DAGRunRef) string {
-	return ProjectDAGSocketAddr("", dagRun)
+// default project of the install whose data lives in dataDir.
+func DAGSocketAddr(dataDir string, dagRun ir.DAGRunRef) string {
+	return ProjectDAGSocketAddr(dataDir, "", dagRun)
 }
 
 // ProjectDAGSocketAddr returns the control socket address for a DAG run of
-// the named project. The default project, and an empty name, keep the
-// address of DAGSocketAddr, so runs of DAGs of the same name in two
-// projects never share an address.
-func ProjectDAGSocketAddr(projectName string, dagRun ir.DAGRunRef) string {
+// the named project of the install whose data lives in dataDir. The default
+// project, and an empty name, keep the address of DAGSocketAddr. Runs of DAGs
+// of the same name never share an address across two projects or two
+// installs.
+func ProjectDAGSocketAddr(dataDir, projectName string, dagRun ir.DAGRunRef) string {
 	identity := dagRun.Name
 	if projectName != "" && !strings.EqualFold(projectName, project.DefaultName) {
 		// A DAG name holds no "/", so no run of the default project has
 		// this identity.
 		identity = projectName + "/" + dagRun.Name
 	}
-	return sock.Addr(identity, dagRun.ID)
+	return sock.Addr(dataDir, identity, dagRun.ID)
 }

@@ -502,9 +502,12 @@ Rules:
   the server's, so the child reads the same `config.yaml`.
 - `dagu server`, `dagu scheduler`, `dagu coordinator`, `dagu start-all`,
   and `dagu worker` serve every project and refuse `--project`.
-- The control socket of a run is addressed by its project, its DAG name,
-  and its run ID, so runs of DAGs of the same name in two projects never
-  share one. A run of the default project keeps the address v2 uses.
+- The control socket of a run is addressed by `<data_dir>`, its project,
+  its DAG name, and its run ID, so runs of DAGs of the same name in two
+  projects, or in two installs on one host, never share one. A lookup for a
+  run that `<data_dir>` holds as running also tries the addresses that
+  earlier versions used, which name no `<data_dir>`, so a run that such a
+  version started stays reachable.
 - `dagu project create <name>` creates a project, `dagu project delete
   <name>` deletes one, and `dagu project list` lists the registered
   projects with each one's display name, DAG directory, and state:

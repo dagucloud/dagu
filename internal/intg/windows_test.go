@@ -190,7 +190,7 @@ func TestWindowsSocketHandling(t *testing.T) {
 
 	t.Run("SocketPathGeneration", func(t *testing.T) {
 		// Test Windows-specific socket path handling
-		socketPath := sock.Addr("windows-test", "test-run")
+		socketPath := sock.Addr(t.TempDir(), "windows-test", "test-run")
 		assert.NotEmpty(t, socketPath, "Socket path should not be empty")
 
 		// On Windows, socket paths have different constraints
