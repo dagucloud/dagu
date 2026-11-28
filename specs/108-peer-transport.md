@@ -14,21 +14,23 @@ Partially implemented. Implemented: the unset default of `peer.insecure`,
 and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
 [Coordinator Line](#coordinator-line), the
 [Coordinator Certificate](#coordinator-certificate),
-[One Port](#one-port) except the revoked set,
-[Require TLS](#require-tls), the [h2c Reasons](#h2c-reasons), the
-`connection` and `plaintextReason` of the [Workers List](#workers-list),
-`connection` and `plaintext_reason` in its Dagu Cloud report, the
-[h2c Callers](#h2c-callers), the `Connection` column and the h2c
-callers of the [Workers Page](#workers-page), the coordinator call of
-[Join Readiness](#join-readiness), the [Invites](#invites) and their
-[Coordinator Calls](#coordinator-calls) except removal and the daily
-deletion of ended [Invite Records](#invite-records), the
+[One Port](#one-port), [Require TLS](#require-tls), the
+[h2c Reasons](#h2c-reasons), the `connection` and `plaintextReason` of the
+[Workers List](#workers-list), `connection` and `plaintext_reason` in its
+Dagu Cloud report, the [h2c Callers](#h2c-callers), the `Connection` column
+and the h2c callers of the [Workers Page](#workers-page), the coordinator
+call of [Join Readiness](#join-readiness), the [Invites](#invites) and
+their [Coordinator Calls](#coordinator-calls), the
 [Coordinator Side](#coordinator-side) of enrollment with the
-[Worker Certificate](#worker-certificate) and its record, except refusing
-the key of a revoked certificate, and
+[Worker Certificate](#worker-certificate) and its record, the coordinator
+side of [Revocation](#revocation), and [Removal](#removal) of a worker that
+is not connected, and
 [`dagu worker --check`](#dagu-worker---check) without the lines of invite
 workers. Clients that share a coordinator's data directory use built-in
-TLS. No client enrolls yet.
+TLS. No client enrolls yet. A removal of a connected worker fails with
+`FailedPrecondition` and says to stop the worker on its host first, and a
+worker does not yet act on its removal as
+[Removed Worker](#removed-worker) states.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -700,12 +702,18 @@ The `worker_certificates` collection keeps one record per certificate:
 - Revoking a certificate sets its record's state to `revoked` and adds its
   ID to the revoked set.
 - Every call with a worker certificate is checked against the revoked set,
-  so calls on open connections are refused too. A refused call fails with
-  `Unauthenticated` and the message
-  `this worker was removed from the coordinator`.
+  so calls on open connections are refused too, `Enroll` among them: a
+  revoked certificate cannot enroll again by presenting itself. A refused
+  call fails with `Unauthenticated` and the message
+  `this worker was removed from the coordinator`. The gRPC health service
+  is the one exception: it answers whatever certificate a call carries, so
+  a removed worker learns of its removal from its own calls, not from a
+  coordinator that looks down.
 - The coordinator that revokes applies it at once. Every other coordinator
   rereads the revoked set, and the set of `removing` certificates, every 30
-  seconds, also when idle.
+  seconds, also when idle. A coordinator reads them before it serves, and
+  until a read succeeds it refuses every call with a worker certificate
+  with `Unavailable`.
 - `Enroll` refuses a request whose key is the key of a revoked certificate.
 
 #### Removal
@@ -715,7 +723,7 @@ or `stop`:
 
 | Worker | `finish` | `stop` |
 | --- | --- | --- |
-| Not connected: its last heartbeat is stale | Revoked at once | Revoked at once |
+| Not connected: its last heartbeat is stale, and no worker connects with its certificate | Revoked at once | Revoked at once |
 | Connected, no running tasks | `removing` | `removing` |
 | Connected, with running tasks | `removing` | `removing`, and each run is canceled |
 
@@ -789,7 +797,9 @@ or `stop`:
   `StreamLogs`, `StreamArtifacts`, `GetWorkspaceBundle`, `GetDAG`, the
   state calls (`GetState`, `PutState`, `DeleteState`, `ListState`), the
   agent session cleanup calls, the `Resolve` calls, and `Enroll`. The
-  [Workers List](#workers-list) shows how workers connect.
+  [Workers List](#workers-list) shows how workers connect. The
+  [Coordinator Calls](#coordinator-calls), worker removal among them, are
+  not workers' calls, so the list holds them.
 - The list holds the calls that `coordinator.require_tls` refuses too.
 - `GET /api/v1/services/coordinator` returns them as `h2cCallers` for each
   active coordinator, with `host`, `reason`, and `lastCallAt`, the latest
@@ -1162,6 +1172,9 @@ handshake error that caused the fallback.
 | `Enroll` with a certificate signing request that cannot be read, whose signature does not verify, or whose key is not ECDSA P-256 | `InvalidArgument`; the invite is not consumed |
 | `Enroll` with the key of a revoked certificate | `PermissionDenied`: `this key belongs to a removed worker` |
 | A call with a revoked worker certificate | `Unauthenticated`: `this worker was removed from the coordinator` |
+| A call with a worker certificate to a coordinator that could not yet read the revoked set | `Unavailable`, so the worker tries again or tries the next coordinator |
+| A removal of a worker on the peer token | `FailedPrecondition`, saying to stop the worker on its host or to change the peer token |
+| A removal of a worker ID that no heartbeat or certificate names | `NotFound` |
 | A call over h2c with `coordinator.require_tls: true` | `Unauthenticated`, with the message of [Require TLS](#require-tls) |
 | An invite, removal, or join readiness call without the peer token | `Unauthenticated` |
 | An invite, removal, or join readiness call with a worker certificate | `PermissionDenied` |
