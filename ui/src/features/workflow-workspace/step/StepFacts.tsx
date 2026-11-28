@@ -277,7 +277,10 @@ function ConnectionFacts({
   if (!conn) return null;
   return (
     <AuditLine label={ts('Connection:')}>
-      <span data-testid="ww-step-connection" className="text-foreground/80">
+      <span
+        data-testid="ww-step-connection"
+        className="whitespace-normal break-words text-foreground/80"
+      >
         {conn.name}
         {conn.account && ` (${conn.account})`}
       </span>
