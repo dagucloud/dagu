@@ -8,6 +8,12 @@ This spec describes planned behavior. No version of Dagu serves the MCP routes, 
 entry in a step or runs the MCP relay yet. The reserved prefix `ai/`, which covers the refs
 `ai/mcp/`, is already enforced, as Spec 093 states.
 
+**Open items.** These points are not decided. They are open items, not rules:
+
+- The scope `workspace:<name>` of an entry, as for an endpoint. [Spec 102](102-projects.md)
+  replaces workspaces with projects, so an entry may become server-wide only. See the Status of
+  [Spec 093](093-ai-endpoints.md#status).
+
 This spec is the companion of [Spec 059: Chat Completion](059-chat-completion.md), [Spec 090: Agent
 Tools](090-agent-tools.md), [Spec 091: Agent Node](091-agent-node.md), [Spec 092: Agent
 Workers](092-agent-workers.md), [Spec 093: AI Endpoints](093-ai-endpoints.md), [Spec 094: AI

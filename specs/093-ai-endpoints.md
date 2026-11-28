@@ -8,6 +8,13 @@ This spec describes planned behavior. No version of Dagu serves the AI routes, r
 or accepts an endpoint in a step yet. One rule is already enforced: the reserved prefix `ai/` of
 [Storage](#storage), as Spec 069 and Spec 103 state.
 
+**Open items.** These points are not decided. They are open items, not rules:
+
+- The scope `workspace:<name>` of an endpoint, and the lookup of a name in the workspace first and
+  then in the global scope ([Scope and name](#scope-and-name)). [Spec 102](102-projects.md)
+  replaces workspaces with projects and gives a project no server-wide layer of secrets, so an
+  endpoint may become server-wide only, as a notification channel is.
+
 This spec is the companion of [Spec 059: Chat Completion](059-chat-completion.md), [Spec 090: Agent
 Tools](090-agent-tools.md), [Spec 091: Agent Node](091-agent-node.md), [Spec 092: Agent
 Workers](092-agent-workers.md), [Spec 094: AI Gateway](094-ai-gateway.md), [Spec 095: MCP
@@ -135,6 +142,8 @@ The coordinator resolves the host when it makes a request. A host name of a loca
 Local model repeats this.
 
 ### Scope and name
+
+The scope `workspace:<name>` is an open item. See [Status](#status).
 
 The scope of an endpoint is `global` or `workspace:<name>`. The person who adds the key chooses the
 scope. It follows the layers of the runtime profiles: `_global` and `_workspaces` (Spec 070).
