@@ -94,3 +94,25 @@ func TestRemoveWorkerRunsValue(t *testing.T) {
 			ExpectStatus(http.StatusBadRequest).Send(t)
 	}
 }
+
+// Through the whole server, with strict validation on and off, a removal
+// of any worker ID reaches the handler, which answers 503 as no
+// coordinator runs.
+func TestRemoveWorkerAnyWorkerID(t *testing.T) {
+	t.Parallel()
+	for name, strict := range map[string]bool{"strict": true, "lenient": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			server := setupBuiltinAuthServer(t, func(cfg *config.Config) { cfg.Server.StrictValidation = strict })
+			adminToken := getAdminToken(t, server)
+			for _, id := range []string{"invites", "join-readiness", "a/b", "a%2Fb", "literal%", "a/", ".", ".."} {
+				resp := server.Client().Post("/api/v1/workers/removals", map[string]string{"workerId": id, "certificateId": "cert-1"}).
+					WithBearerToken(adminToken).
+					ExpectStatus(http.StatusServiceUnavailable).Send(t)
+				var body api.Error
+				resp.Unmarshal(t, &body)
+				assert.Equal(t, "no_coordinator", (*body.Details)["reason"], id)
+			}
+		})
+	}
+}

@@ -92,6 +92,14 @@ func TestInviteAPI(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, code, body)
 	code, body = services.call(t, http.MethodPost, "/api/v1/workers/removals", `{"workerId": "unknown", "certificateId": "unknown", "runs": "later"}`)
 	assert.Equal(t, http.StatusBadRequest, code, body)
+	// The worker ID rides in the body, so the coordinator gets any ID, also
+	// one a path could not carry, and knows no worker with it.
+	for _, id := range []string{"invites", "join-readiness", "a/b", "a%2Fb", "literal%", "a/", ".", ".."} {
+		request, err := json.Marshal(map[string]string{"workerId": id, "certificateId": "unknown"})
+		require.NoError(t, err)
+		code, body = services.call(t, http.MethodPost, "/api/v1/workers/removals", string(request))
+		assert.Equal(t, http.StatusNotFound, code, "%s: %s", id, body)
+	}
 }
 
 // call sends method to path on the server of s with the JSON body, and
