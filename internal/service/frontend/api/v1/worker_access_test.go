@@ -4,13 +4,24 @@
 package api_test
 
 import (
+	"context"
+	"net"
 	"net/http"
+	"slices"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test"
-	"github.com/stretchr/testify/assert"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
 // An admin, by login or by API key, passes the role check and gets 503,
@@ -95,24 +106,73 @@ func TestRemoveWorkerRunsValue(t *testing.T) {
 	}
 }
 
+// removalRecorder is a coordinator that records the worker ID of each
+// removal it gets.
+type removalRecorder struct {
+	coordinatorv1.UnimplementedCoordinatorServiceServer
+	mu        sync.Mutex
+	workerIDs []string
+}
+
+func (r *removalRecorder) RemoveWorker(_ context.Context, req *coordinatorv1.RemoveWorkerRequest) (*coordinatorv1.RemoveWorkerResponse, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.workerIDs = append(r.workerIDs, req.WorkerId)
+	return &coordinatorv1.RemoveWorkerResponse{
+		State:          coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING,
+		CertificateIds: []string{req.CertificateId},
+		WorkerId:       req.WorkerId,
+	}, nil
+}
+
+func (r *removalRecorder) received() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.workerIDs)
+}
+
+// serveRemovalRecorder serves a removalRecorder over gRPC and registers it
+// as the coordinator of server.
+func serveRemovalRecorder(t *testing.T, server test.Server) *removalRecorder {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	recorder := &removalRecorder{}
+	grpcServer := grpc.NewServer()
+	coordinatorv1.RegisterCoordinatorServiceServer(grpcServer, recorder)
+	go func() { _ = grpcServer.Serve(listener) }()
+	t.Cleanup(grpcServer.Stop)
+
+	registry := file.NewServiceRegistry(server.Config)
+	require.NoError(t, registry.Register(t.Context(), serviceregistry.ServiceNameCoordinator, serviceregistry.HostInfo{
+		ID:        "recorder",
+		Host:      "127.0.0.1",
+		Port:      listener.Addr().(*net.TCPAddr).Port,
+		Status:    serviceregistry.ServiceStatusActive,
+		StartedAt: time.Now(),
+	}))
+	t.Cleanup(func() { registry.Unregister(context.Background()) })
+	return recorder
+}
+
 // Through the whole server, with strict validation on and off, a removal
-// of any worker ID reaches the handler, which answers 503 as no
-// coordinator runs.
+// of any worker ID, also one that a path could not carry, reaches the
+// coordinator unchanged.
 func TestRemoveWorkerAnyWorkerID(t *testing.T) {
 	t.Parallel()
+	ids := []string{"invites", "join-readiness", "a/b", "a%2Fb", "literal%", "a/", ".", ".."}
 	for name, strict := range map[string]bool{"strict": true, "lenient": false} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			server := setupBuiltinAuthServer(t, func(cfg *config.Config) { cfg.Server.StrictValidation = strict })
+			recorder := serveRemovalRecorder(t, server)
 			adminToken := getAdminToken(t, server)
-			for _, id := range []string{"invites", "join-readiness", "a/b", "a%2Fb", "literal%", "a/", ".", ".."} {
-				resp := server.Client().Post("/api/v1/workers/removals", map[string]string{"workerId": id, "certificateId": "cert-1"}).
+			for _, id := range ids {
+				server.Client().Post("/api/v1/workers/removals", map[string]string{"workerId": id, "certificateId": "cert-1"}).
 					WithBearerToken(adminToken).
-					ExpectStatus(http.StatusServiceUnavailable).Send(t)
-				var body api.Error
-				resp.Unmarshal(t, &body)
-				assert.Equal(t, "no_coordinator", (*body.Details)["reason"], id)
+					ExpectStatus(http.StatusOK).Send(t)
 			}
+			assert.Equal(t, ids, recorder.received())
 		})
 	}
 }
