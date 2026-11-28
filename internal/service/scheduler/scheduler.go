@@ -455,7 +455,8 @@ func newScheduler(
 			NewestEnd: samples.NewestEnd,
 			Clock:     defaultClock,
 		}),
-		Clock: defaultClock,
+		Clock:     defaultClock,
+		runIDSeed: cfg.Paths.DataDir,
 	})
 
 	retryScanner, err := NewRetryScanner(
@@ -499,6 +500,7 @@ func newScheduler(
 		IsSuspended: isSuspended,
 		Enqueue:     s.enqueueFileRun,
 		Clock:       func() time.Time { return s.clock() },
+		RunIDSeed:   cfg.Paths.DataDir,
 	})
 	return s, nil
 }

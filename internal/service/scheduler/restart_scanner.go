@@ -153,6 +153,8 @@ type RestartScannerConfig struct {
 	History *ServiceHistory
 	// Clock returns the current time.
 	Clock Clock
+	// runIDSeed is the seed of each restart's run ID; see GenerateRestartRunID.
+	runIDSeed string
 }
 
 // RestartScanner keeps one run of every DAG that sets restart_policy alive: it
@@ -441,7 +443,7 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 		}
 	}
 
-	runID := GenerateRestartRunID(dag.Name, status.DAGRunID, decision.previousEnd)
+	runID := GenerateRestartRunID(s.cfg.runIDSeed, dag.Name, status.DAGRunID, decision.previousEnd)
 	// Logged after the enqueue, so a DAG that cannot be queued adds one rate
 	// limited error to the log instead of a line at every scan.
 	if err := s.cfg.Enqueue(ctx, entry, runID, ir.TriggerTypeRestart, now, ""); err != nil {

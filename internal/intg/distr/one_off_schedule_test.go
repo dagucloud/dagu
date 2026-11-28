@@ -50,7 +50,7 @@ steps:
 
 	require.Equal(
 		t,
-		scheduler.GenerateOneOffRunID(f.dagWrapper.Name, oneOffSchedule.Fingerprint(), scheduledAt),
+		scheduler.GenerateOneOffRunID(f.coord.Config.Paths.DataDir, f.dagWrapper.Name, oneOffSchedule.Fingerprint(), scheduledAt),
 		status.DAGRunID,
 	)
 	require.Equal(t, stringutil.FormatTime(scheduledAt), status.ScheduleTime)

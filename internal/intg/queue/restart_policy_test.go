@@ -138,7 +138,10 @@ func TestRestartPolicyKeepsOneRun(t *testing.T) {
 		return len(runs) >= 1 && runs[0].Status == ir.Running
 	})
 	time.Sleep(restartQuiet)
-	assert.Len(t, f.runs(), 1, "no run starts while one is running")
+	runs := f.runs()
+	assert.Len(t, runs, 1, "no run starts while one is running")
+	// The scheduler seeds the ID with its data directory.
+	assert.Equal(t, scheduler.GenerateRestartRunID(f.th.Config.Paths.DataDir, f.dag.Name, "", time.Time{}), runs[0].DAGRunID)
 
 	require.NoError(t, os.WriteFile(release, nil, 0600))
 	f.waitForRuns("a run after the first one ended", 20*time.Second, func(runs []ir.DAGRunStatus) bool {
@@ -250,7 +253,7 @@ func TestRestartPolicyResumesDroppedRestart(t *testing.T) {
 func TestRestartPolicyFailsLostQueuedRun(t *testing.T) {
 	f := newFixture(t, serviceDAGYAML("restart-lost-queued", "always", "echo ok"))
 	created := time.Now().Add(-time.Hour)
-	runID := scheduler.GenerateRestartRunID(f.dag.Name, "", time.Time{})
+	runID := scheduler.GenerateRestartRunID(f.th.Config.Paths.DataDir, f.dag.Name, "", time.Time{})
 	attempt, err := f.th.DAGRunRepository.CreateAttempt(f.th.Context, f.dag, created, runID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(f.th.Context))

@@ -202,7 +202,7 @@ func TestTickPlanner_PlanPendingOneOffRun(t *testing.T) {
 
 	runs := tp.Plan(context.Background(), time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))
 	require.Len(t, runs, 1)
-	assert.Equal(t, GenerateOneOffRunID(dag.Name, schedule.Fingerprint(), time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)), runs[0].RunID)
+	assert.Equal(t, GenerateOneOffRunID("", dag.Name, schedule.Fingerprint(), time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)), runs[0].RunID)
 	assert.Equal(t, schedule.Fingerprint(), runs[0].Fingerprint)
 	assert.True(t, runs[0].Schedule.IsOneOff())
 }
@@ -249,52 +249,68 @@ func TestTickPlanner_DispatchRun_ExistingOneOffAttemptConsumesState(t *testing.T
 	assert.Equal(t, schedulerstate.OneOffStatusConsumed, state.DAGs[dag.Name].OneOffs[schedule.Fingerprint()].Status)
 }
 
-func TestTickPlanner_DispatchRun_LegacyOneOffAttemptConsumesState(t *testing.T) {
+// A one-off that an earlier release ran, under the ID that release gave it,
+// does not run again after an upgrade.
+func TestTickPlanner_DispatchRun_EarlierOneOffAttemptConsumesState(t *testing.T) {
 	t.Parallel()
 
 	scheduledTime := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	schedule := mustOneOffSchedule(t, "2026-02-07T12:00:00Z")
 	dag := &ir.DAG{Name: "one.off-dag", Schedule: []ir.Schedule{schedule}}
 	legacyRunID := generateLegacyOneOffRunID(dag.Name, schedule.Fingerprint(), scheduledTime)
+	unseededRunID := generateScheduledRunID(oneOffPrefix, dag.Name+":"+schedule.Fingerprint(), scheduledTime)
 
-	store := &mockStateStore{}
-	var checkedRunIDs []string
-	tp := NewTickPlanner(TickPlannerConfig{
-		StateStore: store,
-		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error {
-			t.Fatal("dispatch should not be called when the legacy run already exists")
-			return nil
-		},
-		RunExists: func(_ context.Context, _ *ir.DAG, runID string) (bool, error) {
-			checkedRunIDs = append(checkedRunIDs, runID)
-			return runID == legacyRunID, nil
-		},
-		Clock: func() time.Time {
-			return scheduledTime
-		},
-	})
+	for name, tt := range map[string]struct {
+		ranID   string
+		checked []string
+	}{
+		"legacy":   {ranID: legacyRunID, checked: []string{legacyRunID}},
+		"unseeded": {ranID: unseededRunID, checked: []string{legacyRunID, unseededRunID}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	store.state = &schedulerstate.State{
-		DAGs: map[string]schedulerstate.DAGWatermark{
-			dag.Name: {
-				OneOffs: map[string]schedulerstate.OneOffScheduleState{
-					schedule.Fingerprint(): {
-						ScheduledTime: scheduledTime,
-						Status:        schedulerstate.OneOffStatusPending,
+			store := &mockStateStore{}
+			var checkedRunIDs []string
+			tp := NewTickPlanner(TickPlannerConfig{
+				StateStore: store,
+				Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error {
+					t.Fatal("dispatch should not be called when the earlier run already exists")
+					return nil
+				},
+				RunExists: func(_ context.Context, _ *ir.DAG, runID string) (bool, error) {
+					checkedRunIDs = append(checkedRunIDs, runID)
+					return runID == tt.ranID, nil
+				},
+				Clock: func() time.Time {
+					return scheduledTime
+				},
+				SlotSeed: "/data",
+			})
+
+			store.state = &schedulerstate.State{
+				DAGs: map[string]schedulerstate.DAGWatermark{
+					dag.Name: {
+						OneOffs: map[string]schedulerstate.OneOffScheduleState{
+							schedule.Fingerprint(): {
+								ScheduledTime: scheduledTime,
+								Status:        schedulerstate.OneOffStatusPending,
+							},
+						},
 					},
 				},
-			},
-		},
+			}
+			require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
+
+			run := tp.createPlannedRun(DAGEntry{DAG: dag}, schedule, scheduledTime, ir.TriggerTypeScheduler)
+			tp.DispatchRun(context.Background(), run)
+
+			assert.Equal(t, append([]string{run.RunID}, tt.checked...), checkedRunIDs)
+			state := store.lastSaved()
+			require.NotNil(t, state)
+			assert.Equal(t, schedulerstate.OneOffStatusConsumed, state.DAGs[dag.Name].OneOffs[schedule.Fingerprint()].Status)
+		})
 	}
-	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
-
-	run := tp.createPlannedRun(DAGEntry{DAG: dag}, schedule, scheduledTime, ir.TriggerTypeScheduler)
-	tp.DispatchRun(context.Background(), run)
-
-	assert.Equal(t, []string{run.RunID, legacyRunID}, checkedRunIDs)
-	state := store.lastSaved()
-	require.NotNil(t, state)
-	assert.Equal(t, schedulerstate.OneOffStatusConsumed, state.DAGs[dag.Name].OneOffs[schedule.Fingerprint()].Status)
 }
 
 func TestTickPlanner_DispatchRun_OneOffFailureLeavesPendingState(t *testing.T) {
