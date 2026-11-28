@@ -5974,3 +5974,40 @@ func TestWaitStep(t *testing.T) {
 		result.assertNodeStatus(t, "final", ir.NodeNotStarted)
 	})
 }
+
+// Each inline retry is reported, so that its count is persisted before the
+// step finishes.
+func TestRunner_ReportsEachRetry(t *testing.T) {
+	t.Parallel()
+
+	helper := setupRunner(t)
+	plan := helper.newPlan(t, newStep("fail",
+		withCommand("false"),
+		withRetryPolicy(3, 0),
+	))
+	dag := &ir.DAG{Name: "test_dag", WorkingDir: plan.workDir}
+	logFile := filepath.Join(helper.cfg.LogDir, dag.Name+".log")
+	ctx := runtime.NewContext(helper.Context, dag, helper.cfg.DAGRunID, logFile)
+
+	progressCh := make(chan runtime.ProgressUpdate)
+	drained := make(chan []int, 1)
+	go func() {
+		var counts []int
+		for update := range progressCh {
+			// Read before the ack, while the runner waits for it.
+			if state := update.Node.State(); state.Status == ir.NodeRunning {
+				counts = append(counts, state.RetryCount)
+			}
+			update.Ack(nil)
+		}
+		drained <- counts
+	}()
+	err := helper.runner.Run(ctx, plan.Plan, progressCh)
+	close(progressCh)
+
+	require.Error(t, err)
+	counts := <-drained
+	for retry := 1; retry <= 3; retry++ {
+		require.Contains(t, counts, retry)
+	}
+}
