@@ -228,6 +228,25 @@ func TestWorkerCheckInviteLines(t *testing.T) {
 				"  Coordinator answered: serving, and it accepted the worker certificate\n",
 		},
 		{
+			name:   "OtherDaguWithInvite",
+			result: coordinator.CheckResult{TLS: &coordinator.TLSHandshake{Err: coordinator.ErrOtherDagu}, Credential: certificate},
+			invite: true,
+			want: "  Handshake: failed, coordinator.example.com:50055 belongs to a different Dagu (its CA does not match the invite)\n" +
+				"  Check the coordinator address.\n",
+		},
+		{
+			name:   "OtherDaguBeforeEnrollment",
+			result: coordinator.CheckResult{TLS: &coordinator.TLSHandshake{Err: coordinator.ErrInviteCAMismatch}, Credential: coordinator.Credential{Invite: true}},
+			invite: true,
+			want:   "  Handshake: failed, coordinator.example.com:50055 belongs to a different Dagu (its CA does not match the invite)\n",
+		},
+		{
+			name:   "OtherDaguWithoutInvite",
+			result: coordinator.CheckResult{TLS: &coordinator.TLSHandshake{Err: coordinator.ErrOtherDagu}, Credential: certificate},
+			want: "  Handshake: failed, coordinator.example.com:50055 belongs to a different Dagu than the one this worker joined\n" +
+				"  Get a new command from \"Add worker\" to join it.\n",
+		},
+		{
 			name:   "Removed",
 			result: coordinator.CheckResult{TLS: handshake, Credential: certificate, AnswerErr: removed},
 			invite: true,

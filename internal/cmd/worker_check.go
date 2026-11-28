@@ -55,6 +55,12 @@ func runWorkerCheck(ctx *Context) error {
 			failed++
 		}
 	}
+	// The worker exits at start on a recorded removal, whatever a
+	// coordinator that has not reread the revoked set yet answers.
+	if err := worker.RecordedRemoval(ctx.Config); err != nil {
+		_, _ = fmt.Fprintln(out, "This worker's data directory records that a coordinator refused its certificate as revoked, so the worker exits at start")
+		return err
+	}
 	switch {
 	case len(ctx.Config.Worker.Coordinators) == 0 && failed == len(members):
 		return fmt.Errorf("%w, and no coordinator in the service registry passed the check", worker.ErrNoCoordinators)
@@ -120,7 +126,7 @@ func printWorkerCheck(w io.Writer, result coordinator.CheckResult, invite bool) 
 	case result.TLS == nil:
 		_, _ = fmt.Fprintln(w, "  Handshake: none, the worker uses h2c")
 	case result.TLS.Err != nil:
-		_, _ = fmt.Fprintf(w, "  Handshake: failed, %v\n", result.TLS.Err)
+		printHandshakeFailure(w, result, invite)
 		_, _ = fmt.Fprintf(w, "    Address dialed: %s\n", result.Address)
 		printServerCertificate(w, result.TLS.Certificate)
 		if result.TLS.Fallback == "" {
@@ -155,6 +161,24 @@ func printWorkerCheck(w io.Writer, result coordinator.CheckResult, invite bool) 
 		_, _ = fmt.Fprintln(w, "  Coordinator answered: serving, and it accepted the worker certificate")
 	default:
 		_, _ = fmt.Fprintln(w, "  Coordinator answered: serving, and it accepted the call")
+	}
+}
+
+// printHandshakeFailure prints why the handshake failed, with the Spec 108
+// message for a coordinator of another Dagu: the invite's when the worker
+// has one, since its certificate is from the invite's CA.
+func printHandshakeFailure(w io.Writer, result coordinator.CheckResult, invite bool) {
+	err := result.TLS.Err
+	otherDagu := errors.Is(err, coordinator.ErrInviteCAMismatch) || errors.Is(err, coordinator.ErrOtherDagu)
+	switch {
+	case otherDagu && invite:
+		_, _ = fmt.Fprintf(w, "  Handshake: failed, %s belongs to a different Dagu (its CA does not match the invite)\n", result.Address)
+		_, _ = fmt.Fprintln(w, "  Check the coordinator address.")
+	case otherDagu:
+		_, _ = fmt.Fprintf(w, "  Handshake: failed, %s belongs to a different Dagu than the one this worker joined\n", result.Address)
+		_, _ = fmt.Fprintln(w, `  Get a new command from "Add worker" to join it.`)
+	default:
+		_, _ = fmt.Fprintf(w, "  Handshake: failed, %v\n", err)
 	}
 }
 
