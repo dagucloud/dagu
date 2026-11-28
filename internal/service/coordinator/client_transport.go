@@ -360,7 +360,7 @@ func (t *clientTransport) report(ctx context.Context, link *connLink, method str
 	}
 	info := h2cInfoOf(p)
 	attrs := []slog.Attr{tag.Addr(link.address)}
-	if info.source == sourceNetworkPath && info.tlsError != "" {
+	if info.tlsError != "" {
 		attrs = append(attrs, slog.String("tls-error", info.tlsError))
 	}
 	logger.Error(ctx, requireTLSClientMessage(info.source), attrs...)

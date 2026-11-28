@@ -237,22 +237,28 @@ func TestClientTransportRequireTLS(t *testing.T) {
 	// The refusal names the change for the reason of the client's h2c, and
 	// after a fallback the handshake error that caused it.
 	for _, tc := range []struct {
-		name         string
-		window       bool
+		name string
+		// window is the h2c window open for the coordinator, if any.
+		window       *h2cWindow
 		want         string
 		wantTLSError string
 	}{
 		{name: "NoTLSSource", want: "The coordinator requires TLS. Set peer.ca_cert_file to the coordinator's CA certificate."},
-		{name: "NetworkPath", window: true, want: "The coordinator requires TLS. Let the network path to it pass TLS.", wantTLSError: "EOF"},
+		{name: "NetworkPath", window: &h2cWindow{Source: sourceNetworkPath, Error: "EOF"},
+			want: "The coordinator requires TLS. Let the network path to it pass TLS.", wantTLSError: "EOF"},
+		{name: "UnlistedAddress", window: &h2cWindow{Source: sourceNoTLS, Error: "x509: certificate signed by unknown authority"},
+			want:         "The coordinator requires TLS. Set peer.ca_cert_file to the coordinator's CA certificate.",
+			wantTLSError: "x509: certificate signed by unknown authority"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			config := unset(*DefaultConfig())
-			if tc.window {
+			if tc.window != nil {
 				config.PublishedCAFile = publishedCA(t, ca)
 				config.FallbackFile = filepath.Join(t.TempDir(), "peer-h2c.json")
 				now := time.Now()
-				sharedH2CWindows(config.FallbackFile).open(coord.addr,
-					h2cWindow{Until: now.Add(h2cWindowLength), Source: sourceNetworkPath, Error: "EOF"}, now)
+				window := *tc.window
+				window.Until = now.Add(h2cWindowLength)
+				sharedH2CWindows(config.FallbackFile).open(coord.addr, window, now)
 			}
 			cli := newTestClient(t, &config, member)
 			lines := captureClientLogs(t, func(ctx context.Context) {
