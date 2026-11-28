@@ -50,7 +50,7 @@ func runWorkerCheck(ctx *Context) error {
 	failed := 0
 	for _, member := range members {
 		result := coordinator.Check(ctx, clientConfig, member)
-		printWorkerCheck(out, result)
+		printWorkerCheck(out, result, ctx.Config.Worker.Invite != "")
 		if !result.Passed() {
 			failed++
 		}
@@ -91,8 +91,8 @@ func workerCheckMembers(ctx *Context) ([]serviceregistry.HostInfo, error) {
 }
 
 // printWorkerCheck prints what one coordinator showed, with the messages of
-// Spec 108.
-func printWorkerCheck(w io.Writer, result coordinator.CheckResult) {
+// Spec 108. invite reports a worker with worker.invite.
+func printWorkerCheck(w io.Writer, result coordinator.CheckResult, invite bool) {
 	_, _ = fmt.Fprintf(w, "Coordinator %s\n", result.Address)
 	if result.TransportErr != nil {
 		_, _ = fmt.Fprintf(w, "  Transport: none (%v)\n", result.TransportErr)
@@ -135,12 +135,27 @@ func printWorkerCheck(w io.Writer, result coordinator.CheckResult) {
 		printServerCertificate(w, result.TLS.Certificate)
 	}
 
-	_, _ = fmt.Fprintf(w, "  Credential: %s\n", credentialText(result.Credential))
-	if result.AnswerErr != nil {
-		_, _ = fmt.Fprintf(w, "  Coordinator answered: %v\n", result.AnswerErr)
-		return
+	// A built-in TLS handshake of an invite worker passes only with the CA
+	// the invite pins: the invite's pin, or the CA of the certificate kept
+	// from it.
+	if invite && result.TLS != nil && result.TLS.Err == nil {
+		_, _ = fmt.Fprintln(w, "  Invite pin: matches the coordinator's CA")
 	}
-	_, _ = fmt.Fprintln(w, "  Coordinator answered: serving, and it accepted the call")
+	credential := result.Credential
+	_, _ = fmt.Fprintf(w, "  Credential: %s\n", credentialText(credential))
+	switch {
+	case coordinator.IsWorkerRemoved(result.AnswerErr):
+		_, _ = fmt.Fprintln(w, "  Coordinator answered: This worker was removed from the coordinator")
+		_, _ = fmt.Fprintln(w, `  Get a new command from "Add worker" to add it again.`)
+	case result.AnswerErr != nil:
+		_, _ = fmt.Fprintf(w, "  Coordinator answered: %v\n", result.AnswerErr)
+	case credential.Invite:
+		_, _ = fmt.Fprintln(w, "  Coordinator answered: serving; the worker enrolls with its invite when it starts")
+	case credential.CertificateID != "":
+		_, _ = fmt.Fprintln(w, "  Coordinator answered: serving, and it accepted the worker certificate")
+	default:
+		_, _ = fmt.Fprintln(w, "  Coordinator answered: serving, and it accepted the call")
+	}
 }
 
 // printServerCertificate prints the names a certificate covers, marked as
@@ -170,6 +185,12 @@ func printServerCertificate(w io.Writer, cert *coordinator.ServerCertificate) {
 
 // credentialText says what the worker presents to the coordinator.
 func credentialText(credential coordinator.Credential) string {
+	switch {
+	case credential.CertificateID != "":
+		return fmt.Sprintf("worker certificate %s, from invite %s; no peer token", credential.CertificateID, credential.InviteID)
+	case credential.Invite:
+		return "the invite of worker.invite, which only enrollment uses; no peer token"
+	}
 	var token string
 	switch credential.PeerToken {
 	case coordinator.PeerTokenConfigured:
