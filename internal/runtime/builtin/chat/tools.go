@@ -227,9 +227,10 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 		}
 		stepInputs = withEnvCopies(stepInputs, step.Env)
 		shell, local := localShell(ctx, dag, step)
-		// Dagu fills $NAME into the command of a local command step unless a
-		// POSIX or Nix shell runs it.
-		fills := local && !cmdutil.IsUnixLikeShell(shell) && !cmdutil.IsNixShell(shell)
+		// Dagu leaves $NAME to the shell only in the command of a local command
+		// step that a POSIX or Nix shell runs. It fills $NAME into any other
+		// command, such as that of an SSH or container step.
+		fills := !local || (!cmdutil.IsUnixLikeShell(shell) && !cmdutil.IsNixShell(shell))
 		where := fmt.Sprintf("the command of step %q", step.Name)
 		for _, text := range commandTexts(step, local && shell != "") {
 			if ref, variable, ok := modelRef(text, stepInputs, fills); ok {

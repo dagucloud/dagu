@@ -6,12 +6,17 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
+	// The spec loader accepts a command for these executors only once they
+	// are registered.
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/ssh"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -304,6 +309,38 @@ func snapshotOf(t *testing.T, dag *ir.DAG) *ir.DAG {
 	var restored ir.DAG
 	require.NoError(t, json.Unmarshal(data, &restored))
 	return &restored
+}
+
+// Dagu writes $NAME into the command of a step that is not a local command,
+// such as one that a DAG-level ssh or container block runs, whatever shell
+// runs it there. The error gives no "$NAME" hint for such a step.
+func TestNewToolRegistryRefusesShellVariableOfRemoteStep(t *testing.T) {
+	t.Parallel()
+	steps := map[string]string{
+		"SSH":       "ssh:\n  user: ops\n  host: app.internal\nsteps:\n  - id: s\n    run: %s\n",
+		"SSHRun":    "steps:\n  - id: s\n    action: ssh.run\n    with:\n      user: ops\n      host: app.internal\n      command: %s\n",
+		"Container": "container:\n  image: alpine:3\nsteps:\n  - id: s\n    run: %s\n",
+	}
+	commands := map[string]string{
+		`grep "$Q" /var/log/app.log`:        `$Q`,
+		`grep ${params.Q} /var/log/app.log`: `${params.Q}`,
+	}
+	for name, step := range steps {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			for command, ref := range commands {
+				yaml := "name: logs\nparams:\n  - name: Q\n    type: string\n" + fmt.Sprintf(step, command)
+				tool, err := spec.LoadYAML(context.Background(), []byte(yaml))
+				require.NoError(t, err)
+				parent := &ir.DAG{Name: "parent", LocalDAGs: map[string]*ir.DAG{"logs": tool}}
+				ctx := runctx.NewContext(context.Background(), parent, "run-1", "/tmp/log")
+				_, err = NewToolRegistry(ctx, []string{"logs"})
+				if assert.Error(t, err, command) {
+					assert.Equal(t, `tool DAG "logs": the command of step "s" refers to `+ref+`, which holds text that the model sets, and that text would run as code`, err.Error())
+				}
+			}
+		})
+	}
 }
 
 // A params schema next to the tool DAG file resolves without a working_dir.
