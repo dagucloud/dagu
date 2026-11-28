@@ -99,7 +99,7 @@ func requireTLS(ctx context.Context, method string) error {
 			return nil
 		}
 	}
-	return refusalError(codes.Unauthenticated, reasonRequireTLS, requireTLSMessage)
+	return reasonedRefusal(codes.Unauthenticated, reasonRequireTLS, requireTLSMessage)
 }
 
 // peerTransportCredentials picks TLS or h2c from the first byte of each

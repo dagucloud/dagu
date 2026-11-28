@@ -48,7 +48,7 @@ func TestRefusalReason(t *testing.T) {
 func TestRefusalReasonDetail(t *testing.T) {
 	t.Parallel()
 
-	reworded := refusalError(codes.FailedPrecondition, reasonOwnCertificates, "a reworded message")
+	reworded := reasonedRefusal(codes.FailedPrecondition, reasonOwnCertificates, "a reworded message")
 	assert.Equal(t, reasonOwnCertificates, RefusalReason(reworded))
 	assert.Equal(t, reasonCAUnavailable, RefusalReason(status.Error(codes.FailedPrecondition, caUnavailableMessage)))
 	assert.Empty(t, RefusalReason(status.Error(codes.FailedPrecondition, "a reworded message")))
