@@ -1064,6 +1064,8 @@ The owning specs define each field. Every use follows these rules.
 - A 401 whose token is the stored one causes one refresh and one retry.
 - A 401 whose token is older than the stored one takes the stored token and
   retries once, without a refresh.
+- The grants `api_key` and `static` neither refresh nor retry. Specs 093
+  and 095 state what their 401 does.
 - An IMAP or SMTP server that refuses the token is handled as a 401.
 - A 403 with `insufficient_scope` fails with detail `insufficient_scope`
   and the missing scope, and does not refresh.

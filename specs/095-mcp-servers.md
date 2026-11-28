@@ -58,11 +58,13 @@ fixed headers.
 
 | Field | Values and rules |
 | --- | --- |
-| `resource` | The server's URL, as in Spec 107. `https`, or `http` to a loopback address that an admin entered, as Spec 107 states. A query is valid. No user information and no fragment |
+| `resource` | The server's URL, as in Spec 107. `https` only. A query is valid. No user information and no fragment |
 | `token` | Optional. Sent as `authorization: Bearer <token>` |
 | `headers` | Optional. A map from a header name to a write-only value. At most 16 entries |
 
 - A static connection has no `app`. Spec 107 lists the grant `static`.
+- `mcp.call` of [Spec 098](098-mcp-call.md) takes a static connection as
+  it takes an OAuth one, under the rules of this section.
 - A connection has `token`, `headers`, or neither. It does not have both
   `token` and a header `authorization`.
 - A header name matches `^[A-Za-z][A-Za-z0-9-]{0,63}$`, and Dagu keeps it
@@ -72,9 +74,9 @@ fixed headers.
   hop-by-hop header.
 - A value is not empty, has no control character, and has at most 8192
   bytes.
-- The values are write-only. Pages show each header name, and a prefix and
-  a fingerprint for each value, by the rule of Spec 093
-  [Credentials](093-model-connections.md#credentials).
+- The values are write-only. Pages show whether a token is set, and each
+  header name. They show no prefix or fingerprint, since a short value
+  could be guessed from one.
 - The values are stored as Spec 107 token state: encrypted, and never in
   the secret store. `allow_token_export` is always off.
 - A rotation replaces the whole set, since no route returns a value. A
@@ -84,9 +86,9 @@ fixed headers.
 - `resource` is write-only past its host, since its query can hold a
   secret. Dagu stores it encrypted, as the values. Responses, errors, and
   audit entries show only the host.
-- A change of `resource` to another host needs the credential again in
-  the same request, so no one can send a stored value to a host of their
-  choosing.
+- A change of the host or port of `resource` needs the credential again
+  in the same request, so no one can send a stored value to an origin of
+  their choosing.
 - A loopback `resource` names the Dagu host. A run on a worker fails
   admission with such a connection, since the worker cannot reach it.
 
@@ -144,7 +146,7 @@ mcp_servers:
 | `claude` | A temporary `--mcp-config` file, as RFC 026 states |
 | `codex` | `-c mcp_servers` overrides, with `bearer_token_env_var`, as RFC 026 states |
 | An ACP agent, such as `opencode acp` | HTTP MCP entries in `session/new`, as RFC 026 states |
-| `opencode`, outside ACP | No adapter yet. See [Status](#status) |
+| `opencode`, outside ACP | No adapter yet. See [Status](#status). An `opencode` step with a model connection runs the CLI (Spec 093), so it cannot use `mcp_servers` yet |
 | `pi` | None. pi has no MCP support by design |
 | Another provider | None until it gains an adapter, as RFC 026 states |
 
@@ -172,16 +174,14 @@ step "triage": harness provider "pi" cannot use mcp_servers: pi has no MCP suppo
 - Add offers MCP server. After the URL, the credential choice is Sign in
   (Spec 107), Token, Headers, or None. A token is one password field.
   Headers are rows of a name and a password field, at most 16.
-- An `http` URL shows a warning.
 - The password fields are not controlled. Dagu clears them after each
   request, and keeps no value in a state, a URL, a storage, or an error
   text.
 - A create lists the tools at once, and the row shows their count or the
   error.
-- A row shows the name, the host of the URL, the credential (each header
-  name, prefix, and fingerprint), the status, the tool count, and the DAGs
-  that name the connection. The list never shows a full URL, since a
-  query can hold a secret.
+- A row shows the name, the host of the URL, whether a token is set or
+  each header name, the status, the tool count, and the DAGs that name
+  the connection.
 - Rotate credentials asks for every value again, with the names of the
   current headers.
 
@@ -236,7 +236,7 @@ A read of it:
   "grant": "static",
   "host": "docs.example.com",
   "headers": [
-    { "name": "x-api-key", "keyPrefix": "sk-doc", "keyFingerprint": "a1b2c3d4e5f6", "keyUpdatedAt": "2026-11-04T10:00:00Z" }
+    { "name": "x-api-key", "updatedAt": "2026-11-04T10:00:00Z" }
   ],
   "status": "connected",
   "tools": 12

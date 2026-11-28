@@ -209,9 +209,9 @@ This spec adds these transitions to Spec 107, for the grants `api_key` and
   and to the models reader, with one exception: a local-model preset or
   `custom` sends the key over `http` to a base URL that a person entered.
 - A redirect from a request that carries the key fails the request.
-- A change that moves a base URL or the models URL to another host needs
-  the key again in the same request, so no one can send a stored key to a
-  host of their choosing.
+- A change that adds a base URL or a models URL, or changes the scheme,
+  host, or port of one, needs the key again in the same request, so no
+  one can send a stored key to an origin of their choosing.
 
 ### Presets
 
@@ -320,7 +320,7 @@ serves all of them with one key.
 
 | Key | Rule |
 | --- | --- |
-| `connection` | The name of a model connection of the run's project. A literal: a reference fails validation. `with.connection`, the `connection` of each model entry, and `llm.connection` are sources of Spec 107 [Declared Connections](107-connections.md#declared-connections) |
+| `connection` | The name of a model connection of the run's project. A literal: a reference fails validation. `with.connection`, the `connection` of each model entry and of each `fallback` entry, and `llm.connection` are sources of Spec 107 [Declared Connections](107-connections.md#declared-connections) |
 | `model` | A model ID of the connection, or an alias that the CLI's adapter lists. May be a `${...}` reference |
 | `effort` | `low`, `medium`, `high`, `xhigh`, or `max`. `chat.completion` keeps `thinking` of Spec 059 instead |
 
@@ -441,7 +441,7 @@ conformance test confirms them.
 - The `opencode` adapter covers the CLI only. An `opencode` step with
   `connection` runs the CLI, and with `managed: true` it fails validation
   with `adapter_missing`.
-- Another harness provider, such as `copilot`, `cursor`, `gemini`, or
+- Another built-in harness provider, such as `copilot`, `cursor`, `gemini`, or
   `aider`, has no adapter. A step that gives it `connection` fails
   validation with `adapter_missing`.
 
@@ -449,6 +449,8 @@ conformance test confirms them.
 
 - The gateway of Spec 094 adds the key to each request of a step. The step
   holds only the relay secret of its attempt.
+- It forwards only the API operations of the step's protocol. No other
+  method or path carries the key, so no upstream can echo it back.
 - The gateway removes the client headers `x-api-key`, `authorization`, and
   `proxy-authorization`, and sets the header of the protocol's `auth`.
 - It sends a request only to a bound host, and only for the step's
@@ -575,8 +577,8 @@ The audit log records the changes of Spec 107 for model connections and
 shared keys, and also:
 
 - the fingerprint at a create and at a rotation
-- the old and the new URL, without its query, at a change of a base URL
-  or of `models_url`, since the key goes to the new host from then on
+- the old and the new origin at a change of a base URL or of
+  `models_url`, since the key goes there from then on
 - each Reload, and whether its read was good
 
 No entry holds a key or a prefix.
@@ -589,7 +591,9 @@ No entry holds a key or a prefix.
 - `connection` with `provider`, `base_url`, or `api_key_name` on a
   `chat.completion` step or model entry
 - `connection` with no model, when `llm` gives none for that connection
-- `connection` on a CLI with no adapter: `adapter_missing`
+- `connection` on a built-in CLI with no adapter: `adapter_missing`. A
+  custom harness keeps `connection` as a flag, and no rule of this spec
+  applies to it
 - an effort level that the CLI does not accept: `effort_unsupported`
 - with `connection`, a CLI option that changes the CLI's provider, base
   URL, credential, or server: `option_conflict`
