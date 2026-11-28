@@ -42,7 +42,8 @@ This spec does not define:
   095](095-mcp-servers.md).
 - the keys of `agent.run`, the typed result and the failure kinds of an attempt. See Spec 091.
 - the key `dags`, the tool map, the skills and the key `allow`. See Spec 090.
-- the agent worker, the pools, the restricted user and the egress proxy. See Spec 092.
+- the agent worker and the pools. See Spec 092. The restricted user: see [Spec
+  103](103-untrusted-steps.md). The egress proxy: see [Spec 105](105-egress-proxy.md).
 - the secret providers and the runtime profiles. See Spec 069 and Spec 070.
 - the keys of the `harness.run` action. See [Spec 067](067-harness.md).
 - the skills of the server and the tab Skills. See Spec 096.
@@ -110,7 +111,8 @@ The JSON of the API writes the names in camelCase, as the other routes do: `base
 `keyPrefix`, `keyFingerprint` and `keyUpdatedAt`. The text of this spec uses the snake_case names of
 the fields. The field `allow` is an object with the lists `workspaces` and `dags`.
 
-The authentication forms are the forms of Spec 092:
+The authentication forms are the forms of [Key injection](105-egress-proxy.md#key-injection) of Spec
+105:
 
 | Form | Header that the coordinator sets |
 | --- | --- |
