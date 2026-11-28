@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"math"
 	"net/http"
 	"slices"
@@ -67,18 +68,24 @@ type coordinatorAnswer struct {
 	code       api.ErrorCode
 	// message returns the answer's message from the coordinator's.
 	message func(coordinatorMessage string) string
+	// reason is the answer's reason when the coordinator names none.
+	reason api.WorkerAccessReason
 }
 
 // coordinatorAnswers maps each coordinator refusal to its answer, as Spec
 // 108 §REST API states. Other codes answer 500.
 var coordinatorAnswers = map[codes.Code]coordinatorAnswer{
-	codes.InvalidArgument:    {http.StatusBadRequest, api.ErrorCodeBadRequest, asSent},
-	codes.NotFound:           {http.StatusNotFound, api.ErrorCodeNotFound, asSent},
-	codes.FailedPrecondition: {http.StatusConflict, api.ErrorCodeConflict, asSent},
-	codes.Unimplemented:      {http.StatusConflict, api.ErrorCodeConflict, func(string) string { return olderCoordinatorMessage }},
-	codes.Unauthenticated:    {http.StatusServiceUnavailable, api.ErrorCodeInternalError, prefixed(coordinatorRefusedPrefix)},
-	codes.Unavailable:        {http.StatusServiceUnavailable, api.ErrorCodeInternalError, prefixed(coordinatorUnreachableMessage + ": ")},
-	codes.DeadlineExceeded:   {http.StatusServiceUnavailable, api.ErrorCodeInternalError, prefixed(coordinatorUnreachableMessage + ": ")},
+	codes.InvalidArgument:    {http.StatusBadRequest, api.ErrorCodeBadRequest, asSent, ""},
+	codes.NotFound:           {http.StatusNotFound, api.ErrorCodeNotFound, asSent, ""},
+	codes.FailedPrecondition: {http.StatusConflict, api.ErrorCodeConflict, asSent, ""},
+	codes.Unimplemented: {http.StatusConflict, api.ErrorCodeConflict,
+		func(string) string { return olderCoordinatorMessage }, api.WorkerAccessReasonOlderCoordinator},
+	codes.Unauthenticated: {http.StatusServiceUnavailable, api.ErrorCodeInternalError,
+		prefixed(coordinatorRefusedPrefix), api.WorkerAccessReasonCoordinatorRefused},
+	codes.Unavailable: {http.StatusServiceUnavailable, api.ErrorCodeInternalError,
+		prefixed(coordinatorUnreachableMessage + ": "), api.WorkerAccessReasonNoCoordinator},
+	codes.DeadlineExceeded: {http.StatusServiceUnavailable, api.ErrorCodeInternalError,
+		prefixed(coordinatorUnreachableMessage + ": "), api.WorkerAccessReasonNoCoordinator},
 }
 
 // asSent answers with the coordinator's message.
@@ -93,6 +100,7 @@ var errNoCoordinator = &Error{
 	HTTPStatus: http.StatusServiceUnavailable,
 	Code:       api.ErrorCodeInternalError,
 	Message:    coordinatorUnreachableMessage,
+	Details:    reasonDetails(api.WorkerAccessReasonNoCoordinator),
 }
 
 // CreateWorkerInvite implements the createWorkerInvite operation. Its
@@ -203,7 +211,9 @@ func (a *API) GetWorkerJoinReadiness(ctx context.Context, _ api.GetWorkerJoinRea
 			if firstErr == nil {
 				firstErr = report.Err
 			}
-			entry.Error = &coordinatorCallError(report.Err).Message
+			answer := coordinatorCallError(report.Err)
+			entry.Error = &answer.Message
+			entry.ErrorReason = errorReason(answer)
 		} else {
 			entry.Report = joinReadinessReport(report.Report)
 		}
@@ -238,18 +248,49 @@ func (a *API) workerAccess(ctx context.Context) (coordinator.InviteClient, error
 // coordinatorCallError maps a refused or failed coordinator call to the
 // answer of Spec 108 §REST API.
 func coordinatorCallError(err error) *Error {
-	st, ok := status.FromError(err)
-	if !ok {
+	// The status itself, not one that FromError builds around the message
+	// of an error that wraps it.
+	var withStatus interface{ GRPCStatus() *status.Status }
+	if !errors.As(err, &withStatus) {
 		return errNoCoordinator
 	}
-	if answer, ok := coordinatorAnswers[st.Code()]; ok {
-		return &Error{HTTPStatus: answer.httpStatus, Code: answer.code, Message: answer.message(st.Message())}
+	st := withStatus.GRPCStatus()
+	answer, ok := coordinatorAnswers[st.Code()]
+	if !ok {
+		return &Error{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       api.ErrorCodeInternalError,
+			Message:    "the coordinator failed: " + st.Message(),
+		}
+	}
+	reason := api.WorkerAccessReason(coordinator.RefusalReason(err))
+	if !reason.Valid() {
+		reason = answer.reason
 	}
 	return &Error{
-		HTTPStatus: http.StatusInternalServerError,
-		Code:       api.ErrorCodeInternalError,
-		Message:    "the coordinator failed: " + st.Message(),
+		HTTPStatus: answer.httpStatus,
+		Code:       answer.code,
+		Message:    answer.message(st.Message()),
+		Details:    reasonDetails(reason),
 	}
+}
+
+// reasonDetails returns the details of an answer with reason, or nil for
+// none.
+func reasonDetails(reason api.WorkerAccessReason) map[string]any {
+	if reason == "" {
+		return nil
+	}
+	return map[string]any{"reason": string(reason)}
+}
+
+// errorReason returns the reason of the answer e, or nil for none.
+func errorReason(e *Error) *api.WorkerAccessReason {
+	reason, ok := e.Details["reason"].(string)
+	if !ok {
+		return nil
+	}
+	return new(api.WorkerAccessReason(reason))
 }
 
 // expiresInSeconds returns the seconds of the duration expiresIn, rounded

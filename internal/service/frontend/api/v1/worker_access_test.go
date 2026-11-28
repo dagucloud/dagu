@@ -9,6 +9,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/stretchr/testify/assert"
 )
 
 // An admin, by login or by API key, passes the role check and gets 503,
@@ -41,7 +42,12 @@ func TestWorkerAccessEndpointRoles(t *testing.T) {
 	}
 	for token, status := range tokens {
 		for _, request := range requests {
-			request(token, status).Send(t)
+			resp := request(token, status).Send(t)
+			if status == http.StatusServiceUnavailable {
+				var body api.Error
+				resp.Unmarshal(t, &body)
+				assert.Equal(t, "no_coordinator", (*body.Details)["reason"])
+			}
 		}
 	}
 }

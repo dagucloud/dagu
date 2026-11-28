@@ -47,6 +47,10 @@ const (
 	inviteCreatorPeerToken = "peer token"
 	// maxInviteExpiresInSeconds keeps an invite's expiry within a Duration.
 	maxInviteExpiresInSeconds = int64(math.MaxInt64 / time.Second)
+	// ownCertificatesMessage and caUnavailableMessage refuse an invite or
+	// enrollment call on a coordinator without a peer CA.
+	ownCertificatesMessage = "invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file"
+	caUnavailableMessage   = "invites need the built-in CA: this coordinator could not create or read its CA; see its start warning"
 )
 
 var inviteKinds = map[persis.WorkerInviteKind]coordinatorv1.InviteKind{
@@ -170,11 +174,9 @@ func (h *Handler) requirePeerCA() error {
 		return nil
 	}
 	if h.joinReadiness.BuiltinTLSReason == coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_OWN_CERTIFICATES {
-		return status.Error(codes.FailedPrecondition,
-			"invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file")
+		return status.Error(codes.FailedPrecondition, ownCertificatesMessage)
 	}
-	return status.Error(codes.FailedPrecondition,
-		"invites need the built-in CA: this coordinator could not create or read its CA; see its start warning")
+	return status.Error(codes.FailedPrecondition, caUnavailableMessage)
 }
 
 // newInvite returns a new invite for the CA certificate ca, and what its

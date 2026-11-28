@@ -9523,6 +9523,22 @@ export interface components {
          */
         WorkerInviteKind: WorkerInviteKind;
         /**
+         * @description Why a worker invite, removal, or join readiness call failed, in `Error.details.reason` and in a coordinator's `errorReason`, for a caller that picks an explanation. The message stays human-readable and may change; these names do not.
+         *     - own_certificates: the coordinator uses peer.cert_file and peer.key_file, so it has no built-in CA.
+         *     - ca_unavailable: the coordinator could not create or read its generated CA.
+         *     - peer_token_missing: the server has no peer token. Set peer.token, or run the server where it reads the coordinator's data directory.
+         *     - peer_token_mismatch: the server's peer token is not the coordinator's.
+         *     - require_tls: the coordinator requires TLS and the server called over h2c, as with peer.insecure: true.
+         *     - coordinator_refused: the coordinator refused the server for another reason, given in the message.
+         *     - older_coordinator: the coordinator runs an earlier Dagu release without the call.
+         *     - no_coordinator: no coordinator is running or reachable.
+         *     - peer_token_worker: the worker connects with the peer token, so it cannot be removed.
+         *     - certificate_changed: the worker no longer uses or holds the certificate the removal names, as after joining again.
+         *
+         * @enum {string}
+         */
+        WorkerAccessReason: WorkerAccessReason;
+        /**
          * @description What a removal does with the runs the worker holds:
          *     - finish: lets them run to their end.
          *     - stop: cancels each of them.
@@ -9561,6 +9577,7 @@ export interface components {
             report?: components["schemas"]["JoinReadinessReport"];
             /** @description Why the coordinator did not report. Absent when report is present. */
             error?: string;
+            errorReason?: components["schemas"]["WorkerAccessReason"];
         };
         /** @description Whether a worker on another host can join a coordinator, as the coordinator reports it from its own host */
         JoinReadinessReport: {
@@ -12457,7 +12474,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The coordinator cannot serve invites, such as one with its own certificates */
+            /** @description The coordinator cannot serve invites, such as one with its own certificates. `details.reason` holds a WorkerAccessReason. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12466,7 +12483,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token */
+            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token. `details.reason` holds a WorkerAccessReason. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12526,7 +12543,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The coordinator has no built-in TLS */
+            /** @description The coordinator has no built-in TLS. `details.reason` holds a WorkerAccessReason. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12535,7 +12552,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token */
+            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token. `details.reason` holds a WorkerAccessReason. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12592,7 +12609,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The coordinator cannot serve invites */
+            /** @description The coordinator cannot serve invites. `details.reason` holds a WorkerAccessReason. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12601,7 +12618,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token */
+            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token. `details.reason` holds a WorkerAccessReason. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12677,7 +12694,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The worker connects with the peer token, it no longer connects with or holds the named certificate, or the coordinator has no built-in TLS */
+            /** @description The worker connects with the peer token, it no longer connects with or holds the named certificate, or the coordinator has no built-in TLS. `details.reason` holds a WorkerAccessReason. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12686,7 +12703,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token */
+            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token. `details.reason` holds a WorkerAccessReason. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12736,7 +12753,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No coordinator reports join readiness, as one of an earlier release */
+            /** @description No coordinator reports join readiness, as one of an earlier release. `details.reason` holds a WorkerAccessReason. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12745,7 +12762,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token */
+            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token. `details.reason` holds a WorkerAccessReason. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -30754,6 +30771,18 @@ export enum PlaintextReason {
 export enum WorkerInviteKind {
     single_use = "single_use",
     reusable = "reusable"
+}
+export enum WorkerAccessReason {
+    own_certificates = "own_certificates",
+    ca_unavailable = "ca_unavailable",
+    peer_token_missing = "peer_token_missing",
+    peer_token_mismatch = "peer_token_mismatch",
+    require_tls = "require_tls",
+    coordinator_refused = "coordinator_refused",
+    older_coordinator = "older_coordinator",
+    no_coordinator = "no_coordinator",
+    peer_token_worker = "peer_token_worker",
+    certificate_changed = "certificate_changed"
 }
 export enum WorkerRemovalRuns {
     finish = "finish",
