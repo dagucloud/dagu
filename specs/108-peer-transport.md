@@ -786,7 +786,8 @@ or `stop`:
     removal names, on any coordinator, also after a restart. It happens at
     the first reread after the revocation that finds the task taken by no
     worker: for a claim whose acceptance began and died, that is the first
-    reread after the claim timeout. A worker ID that an active certificate
+    reread once a full claim timeout has passed since the acceptance
+    marked the claim. A worker ID that an active certificate
     or a fresh heartbeat names keeps its runs, as after the worker
     enrolled again under it, and so does a run whose acceptance began
     first. The coordinator marks the task before it fails the run, so no

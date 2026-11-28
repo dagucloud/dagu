@@ -782,7 +782,7 @@ func (s *DispatchTaskStore) deleteAdmissionReservationRecords(
 	attemptRecordID string,
 ) error {
 	if attempt.SlotID != "" {
-		if err := s.deleteAdmissionRecordIfPresent(ctx, attempt.SlotID); err != nil {
+		if err := s.deleteAdmissionSlotOf(ctx, attempt.SlotID, attempt.ReservationToken); err != nil {
 			return err
 		}
 	}
@@ -795,6 +795,31 @@ func (s *DispatchTaskStore) deleteAdmissionReservationRecords(
 		if err := s.deleteAdmissionRecordIfPresent(ctx, attemptRecordID); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// deleteAdmissionSlotOf deletes the slot slotID, in one compare-and-delete
+// from the version it reads, while it still holds the reservation token. A
+// slot that another reservation took since, as after another finalizer
+// freed it, stays.
+func (s *DispatchTaskStore) deleteAdmissionSlotOf(ctx context.Context, slotID, token string) error {
+	rec, err := s.col.Get(ctx, slotID)
+	if errors.Is(err, persis.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var slot dispatchAdmissionSlotPayload
+	if err := persis.Decode(rec, &slot); err != nil {
+		return fmt.Errorf("dispatch admission slot: decode %q: %w", rec.ID, err)
+	}
+	if slot.ReservationToken != token {
+		return nil
+	}
+	if err := s.col.CompareAndDelete(ctx, rec); err != nil && !errors.Is(err, persis.ErrNotFound) && !errors.Is(err, persis.ErrConflict) {
+		return err
 	}
 	return nil
 }

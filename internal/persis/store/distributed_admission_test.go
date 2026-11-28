@@ -5,7 +5,9 @@ package store_test
 
 import (
 	"context"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 )
@@ -340,6 +343,58 @@ type dispatchAdmissionTestStores struct {
 	second      *store.DispatchTaskStore
 	leaseStore  *store.DAGRunLeaseStore
 	activeStore *store.ActiveDistributedRunStore
+}
+
+// pauseAfterAttemptRead pauses right after the first read of an
+// admission attempt record, once armed, until release closes.
+type pauseAfterAttemptRead struct {
+	persis.Collection
+	armed   atomic.Bool
+	reached chan struct{}
+	release chan struct{}
+}
+
+func (c *pauseAfterAttemptRead) Get(ctx context.Context, id string) (*persis.Record, error) {
+	rec, err := c.Collection.Get(ctx, id)
+	if strings.HasPrefix(id, "admissions/attempts/") && c.armed.CompareAndSwap(true, false) {
+		close(c.reached)
+		<-c.release
+	}
+	return rec, err
+}
+
+// Two coordinators finalize the same attempt of a queue that admits one
+// run at a time. The first frees the queue's place and a second run takes
+// it before the other finalizer deletes. That finalizer leaves the second
+// run's place, so a third run is refused.
+func TestDispatchAdmissionStore_FinalizeTwiceKeepsReusedSlot(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	backend := testutil.NewMemoryBackend()
+	dispatchCol := backend.Collection("dispatch_tasks")
+	leases := store.NewDAGRunLeaseStore(backend.Collection("dag_run_leases"))
+	active := store.NewActiveDistributedRunStore(backend.Collection("active_runs"))
+	first := store.NewDispatchTaskStore(dispatchCol, store.WithDispatchAdmissionLiveness(leases, active))
+	paused := &pauseAfterAttemptRead{Collection: dispatchCol, reached: make(chan struct{}), release: make(chan struct{})}
+	late := store.NewDispatchTaskStore(paused, store.WithDispatchAdmissionLiveness(leases, active))
+	reserved := reserveAdmission(ctx, first, dispatchAdmissionRequest("queue-a", "attempt-key-a", "attempt-a", 1))
+	require.NoError(t, reserved.err)
+	require.True(t, reserved.decision.Reserved)
+
+	paused.armed.Store(true)
+	done := make(chan error, 1)
+	go func() { done <- late.FinalizeAdmissionAttempt(ctx, "attempt-key-a") }()
+	<-paused.reached
+	require.NoError(t, first.FinalizeAdmissionAttempt(ctx, "attempt-key-a"))
+	second := reserveAdmission(ctx, first, dispatchAdmissionRequest("queue-a", "attempt-key-b", "attempt-b", 1))
+	require.NoError(t, second.err)
+	require.True(t, second.decision.Reserved)
+	close(paused.release)
+	require.NoError(t, <-done)
+
+	third := reserveAdmission(ctx, first, dispatchAdmissionRequest("queue-a", "attempt-key-c", "attempt-c", 1))
+	require.NoError(t, third.err)
+	assert.False(t, third.decision.Reserved, "the second run keeps the queue's place")
 }
 
 func newDispatchAdmissionTestStores(t *testing.T) dispatchAdmissionTestStores {

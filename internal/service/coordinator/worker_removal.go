@@ -762,22 +762,24 @@ func (h *Handler) failRetiredRun(ctx context.Context, task *dispatch.DispatchTas
 }
 
 // workerIdentified reports whether an active certificate or a fresh
-// heartbeat names the worker ID workerID now.
+// heartbeat names the worker ID workerID now. It reads the heartbeat after
+// the certificates, so a worker that enrolled and reported meanwhile is
+// seen by one of the two reads.
 func (h *Handler) workerIdentified(ctx context.Context, workerID string, now time.Time) (bool, error) {
-	hb, err := h.workerPresence(ctx, workerID)
-	if err != nil {
-		return false, err
-	}
-	if hb != nil && dispatch.WorkerHeartbeatFresh(*hb, now, h.staleHeartbeatThreshold) {
-		return true, nil
-	}
 	certs, err := h.workerCertificates.List(ctx)
 	if err != nil {
 		return false, err
 	}
-	return slices.ContainsFunc(certs, func(cert persis.WorkerCertificate) bool {
+	if slices.ContainsFunc(certs, func(cert persis.WorkerCertificate) bool {
 		return cert.State == persis.WorkerCertificateActive && namesWorker(cert, workerID)
-	}), nil
+	}) {
+		return true, nil
+	}
+	hb, err := h.workerPresence(ctx, workerID)
+	if err != nil {
+		return false, err
+	}
+	return hb != nil && dispatch.WorkerHeartbeatFresh(*hb, now, h.staleHeartbeatThreshold), nil
 }
 
 // removalDue reports whether the removing certificate removal is to be

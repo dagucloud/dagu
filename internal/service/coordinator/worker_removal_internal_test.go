@@ -1807,8 +1807,8 @@ func (s *afterBoundList) ListBoundTo(ctx context.Context, workerIDs []string) ([
 	return tasks, err
 }
 
-// shortClaims makes f's coordinator use a dispatch store whose claims time
-// out after 50 milliseconds.
+// shortClaims makes f's coordinator use a new dispatch store whose claims
+// time out after 50 milliseconds.
 func (f *strandFixture) shortClaims() {
 	f.dispatches = store.NewDispatchTaskStore(file.NewCollection(f.baseDir),
 		store.WithDispatchAdmissionLiveness(f.leases, f.active), store.WithDispatchReservationTTL(50*time.Millisecond))
@@ -1883,10 +1883,12 @@ func TestRemovalFailsAdmittedBoundRun(t *testing.T) {
 			return f.h
 		}},
 		{name: "acceptance mark outlived the claim", run: func(f *strandFixture) *Handler {
-			f.shortClaims()
 			f.admit(f.h, "run-1")
 			require.NoError(f.t, f.dispatches.MarkClaimLeasing(f.t.Context(), f.claim().ClaimToken))
 			f.revoke()
+			// Only the reread sees claims time out after 50 milliseconds, so
+			// the admission above keeps the usual timeout.
+			f.shortClaims()
 			time.Sleep(100 * time.Millisecond)
 			return f.h
 		}},
@@ -1937,6 +1939,16 @@ func TestRemovalFailsAdmittedBoundRun(t *testing.T) {
 			require.NoError(f.t, f.certs.Create(f.t.Context(), persis.WorkerCertificate{
 				ID: "cert-2", KeyFingerprint: []byte("cert-2"), State: persis.WorkerCertificateActive, WorkerID: "node-a", CreatedAt: time.Now(),
 			}))
+			return f.h
+		}},
+		{name: "a heartbeat during the certificate listing", kept: true, claimable: true, run: func(f *strandFixture) *Handler {
+			f.admit(f.h, "run-1")
+			f.revoke()
+			f.h.workerCertificates = &onCertificateList{WorkerCertificateStore: f.certs, hook: func() {
+				require.NoError(f.t, f.beats.Upsert(f.t.Context(), dispatch.WorkerHeartbeatRecord{
+					WorkerID: "node-a", LastHeartbeatAt: time.Now().UnixMilli(),
+				}))
+			}}
 			return f.h
 		}},
 		{name: "a fresh heartbeat names the ID", kept: true, claimable: true, run: func(f *strandFixture) *Handler {
@@ -2016,6 +2028,20 @@ func TestStrandedRunPassSparesUnrelatedPoll(t *testing.T) {
 	require.NotNil(t, task, "the poll keeps the run it claimed")
 	_, err := peer.GetClaim(t.Context(), task.ClaimToken)
 	assert.NoError(t, err)
+}
+
+// onCertificateList runs hook once, right after the first certificate
+// listing.
+type onCertificateList struct {
+	persis.WorkerCertificateStore
+	hook func()
+	once sync.Once
+}
+
+func (s *onCertificateList) List(ctx context.Context) ([]persis.WorkerCertificate, error) {
+	certs, err := s.WorkerCertificateStore.List(ctx)
+	s.once.Do(s.hook)
+	return certs, err
 }
 
 // countingBoundLists counts the listings of bound tasks.
