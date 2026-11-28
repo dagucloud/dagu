@@ -421,8 +421,9 @@ func TestRemoveWorkerReplayOnOtherCoordinatorAfterRename(t *testing.T) {
 	assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, resp.State)
 }
 
-// A stop under the worker's new ID upgrades a finish removal, and its
-// immediate replay pairs with the removal it left.
+// A stop under the worker's new ID upgrades a finish removal without
+// changing the holder the removal named, and its immediate replay pairs
+// with the removal it left.
 func TestRemoveWorkerStopReplayAfterRename(t *testing.T) {
 	t.Parallel()
 	server := startPeerTLSServer(t, certHosts)
@@ -436,23 +437,33 @@ func TestRemoveWorkerStopReplayAfterRename(t *testing.T) {
 		resp, err := server.removeAs(t, "renamed", cert, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_STOP)
 		require.NoError(t, err)
 		assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING, resp.State)
+		assert.Equal(t, enrollWorkerID, resp.WorkerId)
 	}
 	record, err := server.shared.certs.Get(t.Context(), cert.Subject.CommonName)
 	require.NoError(t, err)
 	assert.False(t, record.StopRunsAt.IsZero(), "the stop moved the removal to stop")
+	assert.Equal(t, enrollWorkerID, record.HolderID)
 }
 
-// A retry with the ID the removal was accepted with pairs with it after the
-// holder took a new ID and the certificate was revoked. The answer names
-// the worker the removal recorded, as the audit does.
+// A removal through the record's earlier ID names the holder that
+// connects under a new ID. An identical retry, while removing and after
+// the revocation, pairs with it and names that holder again, as the audit
+// does.
 func TestRemoveWorkerReplayAfterRename(t *testing.T) {
 	t.Parallel()
 	server := startPeerTLSServer(t, certHosts)
 	key, cert, _ := server.enrolled(t)
 	server.renameHolder(t, key, cert)
-	_, err := server.removeCertificate(t, cert.Subject.CommonName)
-	require.NoError(t, err)
-	_, err = server.shared.certs.SetState(t.Context(), cert.Subject.CommonName, persis.WorkerCertificateRevoked)
+	for _, want := range []coordinatorv1.WorkerRemovalState{
+		coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING,
+		coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING,
+	} {
+		resp, err := server.removeCertificate(t, cert.Subject.CommonName)
+		require.NoError(t, err)
+		assert.Equal(t, want, resp.State)
+		assert.Equal(t, "renamed", resp.WorkerId)
+	}
+	_, err := server.shared.certs.SetState(t.Context(), cert.Subject.CommonName, persis.WorkerCertificateRevoked)
 	require.NoError(t, err)
 
 	resp, err := server.removeCertificate(t, cert.Subject.CommonName)
@@ -482,17 +493,15 @@ func TestRemoveWorkerReplayAfterTwoRenames(t *testing.T) {
 		resp, err := server.removeAs(t, id, cert, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
 		require.NoError(t, err, id)
 		assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING, resp.State, id)
+		assert.Equal(t, enrollWorkerID, resp.WorkerId, id)
 	}
 	_, err = server.shared.certs.SetState(t.Context(), cert.Subject.CommonName, persis.WorkerCertificateRevoked)
 	require.NoError(t, err)
-	record, err := server.shared.certs.Get(t.Context(), cert.Subject.CommonName)
-	require.NoError(t, err)
-	require.NotEmpty(t, record.HolderID)
 	for _, id := range ids {
 		resp, err := server.removeAs(t, id, cert, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
 		require.NoError(t, err, id)
 		assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, resp.State, id)
-		assert.Equal(t, record.HolderID, resp.WorkerId, id)
+		assert.Equal(t, enrollWorkerID, resp.WorkerId, "%s: the holder stays as the removal named it", id)
 	}
 
 	// With no heartbeat row left, only the certificate record knows the

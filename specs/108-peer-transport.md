@@ -782,7 +782,9 @@ as the REST API always does:
   otherwise. A worker that joined again with a new certificate is then not
   removed by a retry, and no audit entry is written.
 - The answer names the worker the removal names, which the removal's
-  audit entry records.
+  audit entry records. A removal names its worker once, when first
+  accepted. A retry, or a `stop` that moves it from `finish`, names the
+  same worker, whatever ID the request paired with.
 
 | Worker | `finish` | `stop` |
 | --- | --- | --- |

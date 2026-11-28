@@ -288,7 +288,8 @@ func (h *Handler) RemoveWorker(ctx context.Context, req *coordinatorv1.RemoveWor
 //     keeps, as pairsWith reads them. A revoked one then answers
 //     removed and a removing one answers by its removal, which a stop
 //     request moves from finish to stop. A retry after a lost answer thus
-//     succeeds, also after the worker took a new ID, once or more.
+//     succeeds, also after the worker took a new ID, once or more. The
+//     holder the removal first named stays, and every answer names it.
 //   - An active certificate pairs with a worker its record names, or whose
 //     fresh heartbeat carries it.
 //
@@ -322,10 +323,9 @@ func (h *Handler) removeCertificate(ctx context.Context, req *coordinatorv1.Remo
 				WorkerId:       cmp.Or(cert.HolderID, cert.WorkerID),
 			}, nil
 		}
-		// The removal takes the ID the request paired with, so its replay
-		// pairs again, as a later heartbeat may not have reached the IDs
-		// the record keeps.
-		return h.startRemoval(ctx, certID, req.WorkerId, stop)
+		// The holder stays as the removal first named it: the request's ID
+		// only had to pair, and a stop changes the mode alone.
+		return h.startRemoval(ctx, certID, cmp.Or(cert.HolderID, cert.WorkerID), stop)
 	}
 	connected := hb != nil && dispatch.WorkerHeartbeatFresh(*hb, now, h.staleHeartbeatThreshold)
 	holds := (found && namesWorker(cert, req.WorkerId)) || (connected && hb.CertificateID == certID)
