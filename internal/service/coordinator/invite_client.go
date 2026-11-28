@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
@@ -16,9 +17,13 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
-// missingInviteMessage refuses a delete of an ID that no invite has. It
-// does not repeat the ID, which may be an invite pasted in its place.
-const missingInviteMessage = "no invite has this ID: list the invites to find their IDs"
+// missingInviteMessage refuses a delete of an ID that no invite has, and
+// invalidInviteIDMessage one of a value that is no invite ID. Neither
+// repeats the value, which may be an invite pasted in place of its ID.
+const (
+	missingInviteMessage   = "no invite has this ID: list the invites to find their IDs"
+	invalidInviteIDMessage = "this is not an invite ID: list the invites to find their IDs"
+)
 
 // inviteCallTimeout bounds an invite call across the coordinators, so a
 // coordinator that accepts the connection but does not answer does not hold
@@ -52,7 +57,8 @@ type InviteClient interface {
 	// as the first coordinator that answers reads them. The coordinators
 	// share the records, so that is the whole list.
 	ListInvites(ctx context.Context) ([]*coordinatorv1.InviteRecord, error)
-	// DeleteInvite deletes the invite with the ID id. It fails with
+	// DeleteInvite deletes the invite with the ID id. A value that is not
+	// an invite ID fails with InvalidArgument before any call. It fails with
 	// NotFound only when no invite has the ID before the delete, and
 	// succeeds when the invite is gone afterwards, also when the answer of
 	// the coordinator that deleted it was lost during this call. Its read
@@ -92,6 +98,11 @@ func (cli *clientImpl) ListInvites(ctx context.Context) ([]*coordinatorv1.Invite
 }
 
 func (cli *clientImpl) DeleteInvite(ctx context.Context, id string) error {
+	// Invite IDs are UUIDs. Anything else, such as an invite pasted in
+	// place of its ID, reaches no coordinator and no later read.
+	if uuid.Validate(id) != nil {
+		return status.Error(codes.InvalidArgument, invalidInviteIDMessage)
+	}
 	// Reading the invites before the delete tells an ID that no invite has
 	// from an invite that a delete with a lost answer removed. A failed
 	// read does not stop the delete; it only leaves that unknown.
