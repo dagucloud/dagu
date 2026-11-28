@@ -4,6 +4,7 @@
 package fileutil
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -197,6 +198,12 @@ func ReplaceFileWithRetry(source, target string) error {
 
 // retryWindowsFileOp retries transient Windows file operation failures.
 func retryWindowsFileOp(op func() error) error {
+	return retryWindowsFileOpContext(context.Background(), op)
+}
+
+// retryWindowsFileOpContext is retryWindowsFileOp that stops retrying when
+// ctx ends, and then returns the last error of op.
+func retryWindowsFileOpContext(ctx context.Context, op func() error) error {
 	err := op()
 	if err == nil || !IsTransientFileError(err) {
 		return err
@@ -204,7 +211,13 @@ func retryWindowsFileOp(op func() error) error {
 
 	wait := windowsFileRetryInitialWait
 	for range windowsFileRetryAttempts {
-		time.Sleep(wait)
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return err
+		case <-timer.C:
+		}
 		err = op()
 		if err == nil || !IsTransientFileError(err) {
 			return err

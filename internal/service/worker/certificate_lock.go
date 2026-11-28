@@ -43,37 +43,40 @@ var errAnotherWorker = failure{
 // cannotLock when the lock cannot be taken at all, such as on a read-only
 // filesystem.
 func lockCertificate(ctx context.Context, dir string, timing lockTiming, cannotLock func(error) error) (*fileutil.FileLock, error) {
+	// One deadline bounds the whole wait, the retries of an open included.
+	waitCtx, cancel := context.WithTimeout(ctx, timing.wait)
+	defer cancel()
 	path := filepath.Join(dir, lockFileName)
 	try := func() (*fileutil.FileLock, error) {
-		if err := mkdirPrivate(dir); err != nil {
+		if err := fileutil.MkdirPrivate(dir); err != nil {
 			return nil, cannotLock(err)
 		}
-		lock, err := fileutil.TryLockFile(path, credentialFileMode)
-		if err != nil && !errors.Is(err, fileutil.ErrLocked) {
-			return nil, cannotLock(err)
+		lock, err := fileutil.TryLockFile(waitCtx, path, credentialFileMode)
+		switch {
+		case err == nil, errors.Is(err, fileutil.ErrLocked):
+			return lock, err
+		case waitCtx.Err() != nil && ctx.Err() == nil:
+			// Another process still held the file when the wait ended.
+			return nil, fileutil.ErrLocked
 		}
-		return lock, err
+		return nil, cannotLock(err)
 	}
-	lock, err := try()
-	if !errors.Is(err, fileutil.ErrLocked) {
-		return lock, err
-	}
-	logger.Info(ctx, "Another worker holds the certificate of this data directory; waiting for it", tag.Timeout(timing.wait))
-	deadline := time.NewTimer(timing.wait)
-	defer deadline.Stop()
 	ticker := time.NewTicker(timing.retry)
 	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-deadline.C:
-			return nil, errAnotherWorker
-		case <-ticker.C:
-		}
+	for waited := false; ; waited = true {
 		lock, err := try()
 		if !errors.Is(err, fileutil.ErrLocked) {
 			return lock, err
+		}
+		if !waited {
+			logger.Info(ctx, "Another worker holds the certificate of this data directory; waiting for it", tag.Timeout(timing.wait))
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-waitCtx.Done():
+			return nil, errAnotherWorker
+		case <-ticker.C:
 		}
 	}
 }

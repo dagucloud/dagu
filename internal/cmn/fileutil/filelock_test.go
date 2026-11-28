@@ -16,14 +16,14 @@ import (
 func TestTryLockFile(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "lock")
-	first, err := TryLockFile(path, 0o600)
+	first, err := TryLockFile(t.Context(), path, 0o600)
 	require.NoError(t, err)
 
-	_, err = TryLockFile(path, 0o600)
+	_, err = TryLockFile(t.Context(), path, 0o600)
 	assert.ErrorIs(t, err, ErrLocked)
 
 	require.NoError(t, first.Unlock())
-	second, err := TryLockFile(path, 0o600)
+	second, err := TryLockFile(t.Context(), path, 0o600)
 	require.NoError(t, err)
 	require.NoError(t, second.Unlock())
 }

@@ -114,9 +114,10 @@ func Enroll(ctx context.Context, config *Config, address string, req *coordinato
 	var reached peer.Peer
 	resp, err := c.client.Enroll(callCtx, req, grpc.Peer(&reached))
 	if err != nil {
-		// A call with a transport passed the pin check, so its status came
-		// from, or after reaching, a coordinator of this Dagu.
-		if reached.AuthInfo != nil && status.Code(err) != codes.Unimplemented {
+		// A call with a transport passed the pin check, so a status it got
+		// before its own deadline came from a coordinator of this Dagu. One
+		// its deadline ended came from no coordinator.
+		if reached.AuthInfo != nil && callCtx.Err() == nil && status.Code(err) != codes.Unimplemented {
 			return nil, fmt.Errorf("%w: %w", ErrCoordinatorAnswered, err)
 		}
 		return nil, enrollError(err, c.link.lastHandshakeError())

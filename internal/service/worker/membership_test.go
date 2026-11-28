@@ -378,6 +378,9 @@ var (
 	roundUnreachable = roundCoordinator{kind: "unreachable"}
 	roundH2COnly     = roundCoordinator{kind: "h2c only"}
 	roundOwnTLS      = roundCoordinator{kind: "own TLS"}
+	// roundSilent is a coordinator of the invite's CA that holds its reply
+	// past the call's deadline.
+	roundSilent = roundCoordinator{kind: "silent"}
 )
 
 // roundAnswer is a coordinator of the invite's CA that answers Enroll with
@@ -390,9 +393,15 @@ func roundAnswer(code codes.Code) roundCoordinator {
 type answeringCoordinator struct {
 	coordinatorv1.UnimplementedCoordinatorServiceServer
 	code codes.Code
+	// silent holds the reply until the call ends.
+	silent bool
 }
 
-func (c answeringCoordinator) Enroll(context.Context, *coordinatorv1.EnrollRequest) (*coordinatorv1.EnrollResponse, error) {
+func (c answeringCoordinator) Enroll(ctx context.Context, _ *coordinatorv1.EnrollRequest) (*coordinatorv1.EnrollResponse, error) {
+	if c.silent {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	return nil, status.Error(c.code, "try again")
 }
 
@@ -457,7 +466,7 @@ func (r roundServers) address(c roundCoordinator) string {
 	}
 	var opts []grpc.ServerOption
 	switch c.kind {
-	case "answer":
+	case "answer", "silent":
 		opts = append(opts, grpc.Creds(r.ours))
 	case "other Dagu":
 		opts = append(opts, grpc.Creds(r.other))
@@ -468,7 +477,7 @@ func (r roundServers) address(c roundCoordinator) string {
 		opts = append(opts, grpc.Creds(credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS13})))
 	}
 	server := grpc.NewServer(opts...)
-	coordinatorv1.RegisterCoordinatorServiceServer(server, answeringCoordinator{code: c.code})
+	coordinatorv1.RegisterCoordinatorServiceServer(server, answeringCoordinator{code: c.code, silent: c.kind == "silent"})
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
 	return listener.Addr().String()
@@ -508,6 +517,9 @@ func TestEnrollRoundPrecedence(t *testing.T) {
 		{name: "AnswerBeforeH2COnly", a: roundAnswer(codes.Internal), b: roundH2COnly, wantRetry: answerA},
 		{name: "OlderCoordinatorIsNoBuiltinTLS", a: roundAnswer(codes.Unimplemented), b: roundUnreachable, wantRetry: noTLSA},
 		{name: "OtherDaguBeforeUnreachable", a: roundUnreachable, b: roundOtherDagu, wantStop: otherDaguB},
+		// A reply the worker gave up waiting for is no answer.
+		{name: "OtherDaguBeforeSilent", a: roundSilent, b: roundOtherDagu, wantStop: otherDaguB},
+		{name: "SilentIsUnreachable", a: roundSilent, b: roundUnreachable, wantRetry: unreachable},
 		{name: "OtherDaguBeforeH2COnly", a: roundOtherDagu, b: roundH2COnly, wantStop: otherDaguA},
 		{name: "H2COnlyBeforeUnreachable", a: roundH2COnly, b: roundUnreachable, wantRetry: noTLSA},
 		{name: "OwnTLSBeforeUnreachable", a: roundOwnTLS, b: roundUnreachable, wantRetry: ownA},
@@ -520,6 +532,8 @@ func TestEnrollRoundPrecedence(t *testing.T) {
 			cfg.Worker.Coordinators = []string{addrA, addrB}
 			m, err := open(t, cfg, nil)
 			require.NoError(t, err)
+			// A silent coordinator holds each call this long.
+			m.config.DialTimeout = time.Second
 			fake := &fakeEnroll{results: map[string][]any{addrA: {servers.ca}, addrB: {servers.ca}}}
 			m.opts.enroll = func(ctx context.Context, config *coordinator.Config, address string, req *coordinatorv1.EnrollRequest) (*coordinatorv1.EnrollResponse, error) {
 				if (address == addrA && tc.a == roundEnrolled) || (address == addrB && tc.b == roundEnrolled) {
@@ -593,23 +607,34 @@ func TestReasonHidesPaths(t *testing.T) {
 }
 
 // When the system refuses to restrict the credential directory, as an
-// access list can on Windows, a restart says so naming only the data
-// directory as configured.
+// access list can on Windows, a restart says so with the system's cause,
+// naming only the data directory as configured.
 func TestMembershipRestrictFailure(t *testing.T) {
 	ca := newTestCA(t)
 	dataDir := t.TempDir()
 	join(t, workerConfig(dataDir, ca.invite(t)), enrolling(ca))
-	previous := mkdirPrivate
-	mkdirPrivate = func(dir string) error {
-		// The shape of a failure that wraps the system's error with the
-		// directory, as the access list call's can.
-		return fmt.Errorf("restrict %s to its owner: %w", dir, syscall.EACCES)
-	}
-	t.Cleanup(func() { mkdirPrivate = previous })
+	t.Cleanup(fileutil.SetRestrictToOwnerForTest(func(string) error { return syscall.EACCES }))
 
 	_, err := open(t, workerConfig(dataDir, ""), nil)
-	require.ErrorContains(t, err, "This worker cannot lock its certificate in its data directory "+dataDir+": "+syscall.EACCES.Error())
-	assert.NotContains(t, err.Error(), filepath.Join(dataDir, credentialDirName))
+	require.EqualError(t, err, "This worker cannot lock its certificate: "+syscall.EACCES.Error()+
+		"\n  Make "+dataDir+" writable, so that one worker at a time uses the certificate.")
+}
+
+// A worker that must replace a certificate from another CA, and could not
+// keep the new one, stops before it enrolls, so a restart without the
+// invite cannot fall back to the old one.
+func TestMembershipReplacementNeedsWritable(t *testing.T) {
+	oldCA, newCA := newTestCA(t), newTestCA(t)
+	dataDir := t.TempDir()
+	join(t, workerConfig(dataDir, oldCA.invite(t)), enrolling(oldCA))
+	// A directory in place of the write probe fails it, while the lock
+	// still works.
+	require.NoError(t, os.MkdirAll(filepath.Join(dataDir, credentialDirName, writeProbeName, "taken"), 0o700))
+
+	fake := enrolling(newCA)
+	_, err := open(t, workerConfig(dataDir, newCA.invite(t)), fake)
+	require.EqualError(t, err, "This worker cannot replace the certificate it enrolled for with one from the invite's CA\n  Make "+dataDir+" writable, then start the worker again.")
+	assert.Zero(t, fake.calls())
 }
 
 // A worker whose settings fail at start does so before it enrolls, so a
@@ -667,8 +692,8 @@ func TestMembershipKeptCertificateNeedsLock(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fake := enrolling(ca)
 			_, err := open(t, workerConfig(dataDir, restart), fake)
-			require.ErrorContains(t, err, "This worker cannot lock its certificate in its data directory "+dataDir)
-			require.ErrorContains(t, err, "Make the data directory writable, so that one worker at a time uses the certificate.")
+			require.ErrorContains(t, err, "This worker cannot lock its certificate: ")
+			require.ErrorContains(t, err, "Make "+dataDir+" writable, so that one worker at a time uses the certificate.")
 			assert.NotContains(t, err.Error(), lockFile)
 			assert.Zero(t, fake.calls())
 		})
@@ -695,7 +720,8 @@ func TestMembershipUnreadableCredential(t *testing.T) {
 			for _, restart := range []string{invite, ""} {
 				fake := enrolling(ca)
 				_, err := open(t, workerConfig(dataDir, restart), fake)
-				require.ErrorContains(t, err, "This worker cannot read the certificate it keeps in its data directory "+dataDir)
+				require.ErrorContains(t, err, "This worker cannot read the certificate it enrolled for: ")
+				require.ErrorContains(t, err, "Let this user read "+dataDir+", or start the worker with a new data directory and a new invite.")
 				assert.NotContains(t, err.Error(), credentialPath(dataDir))
 				assert.Zero(t, fake.calls())
 			}
@@ -714,7 +740,8 @@ func TestMembershipSaveFailure(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(credentialPath(dataDir), "taken"), 0o700))
 
 	err = connect(t.Context(), t, m)
-	require.ErrorContains(t, err, "This worker enrolled but cannot keep its certificate in its data directory "+dataDir+": ")
+	require.ErrorContains(t, err, "This worker enrolled but cannot keep its certificate: ")
+	require.ErrorContains(t, err, "Make "+dataDir+" writable.")
 	assert.NotContains(t, err.Error(), filepath.Join(dataDir, credentialDirName))
 }
 

@@ -38,9 +38,7 @@ func TestMkdirPrivate(t *testing.T) {
 // can report the system's cause apart from the path.
 func TestMkdirPrivateFailure(t *testing.T) {
 	cause := syscall.EACCES
-	previous := restrictToOwner
-	restrictToOwner = func(string) error { return cause }
-	t.Cleanup(func() { restrictToOwner = previous })
+	t.Cleanup(SetRestrictToOwnerForTest(func(string) error { return cause }))
 
 	dir := filepath.Join(t.TempDir(), "private")
 	err := MkdirPrivate(dir)

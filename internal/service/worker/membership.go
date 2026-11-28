@@ -213,6 +213,15 @@ func (m *Membership) open(ctx context.Context) error {
 	// to a new enrollment.
 	if cred != nil && invite.Names(cred.ca) {
 		m.use(cred)
+		return nil
+	}
+	// A new certificate that cannot be kept would leave the old one for a
+	// restart without the invite to reuse.
+	if cred != nil && !m.writable {
+		return failure{
+			cause: "This worker cannot replace the certificate it enrolled for with one from the invite's CA",
+			next:  fmt.Sprintf("Make %s writable, then start the worker again.", m.cfg.Paths.DataDir),
+		}
 	}
 	return nil
 }
@@ -254,8 +263,8 @@ func (m *Membership) openWithoutInvite(ctx context.Context) error {
 func (m *Membership) takeLock(ctx context.Context) error {
 	lock, err := lockCertificate(ctx, m.store.dir, m.opts.lock, func(err error) error {
 		return failure{
-			cause: fmt.Sprintf("This worker cannot lock its certificate in its data directory %s: %s", m.cfg.Paths.DataDir, reason(err)),
-			next:  "Make the data directory writable, so that one worker at a time uses the certificate.",
+			cause: "This worker cannot lock its certificate: " + reason(err),
+			next:  fmt.Sprintf("Make %s writable, so that one worker at a time uses the certificate.", m.cfg.Paths.DataDir),
 		}
 	})
 	if err != nil {
@@ -270,8 +279,8 @@ func (m *Membership) takeLock(ctx context.Context) error {
 // The worker stops rather than call without it.
 func (m *Membership) errUnreadable(err error) error {
 	return failure{
-		cause: fmt.Sprintf("This worker cannot read the certificate it keeps in its data directory %s: %s", m.cfg.Paths.DataDir, reason(err)),
-		next:  "Let this user read the data directory, or start the worker with a new data directory and a new invite.",
+		cause: "This worker cannot read the certificate it enrolled for: " + reason(err),
+		next:  fmt.Sprintf("Let this user read %s, or start the worker with a new data directory and a new invite.", m.cfg.Paths.DataDir),
 	}
 }
 
@@ -339,8 +348,8 @@ func (m *Membership) enroll(ctx context.Context, workerID string) error {
 	if m.writable {
 		if err := m.store.save(cred); err != nil {
 			return failure{
-				cause: fmt.Sprintf("This worker enrolled but cannot keep its certificate in its data directory %s: %s", m.cfg.Paths.DataDir, reason(err)),
-				next:  `Make the data directory writable. A single-use invite is now used up: get a new command from "Add worker".`,
+				cause: "This worker enrolled but cannot keep its certificate: " + reason(err),
+				next:  fmt.Sprintf(`Make %s writable. A single-use invite is now used up: get a new command from "Add worker".`, m.cfg.Paths.DataDir),
 			}
 		}
 	}

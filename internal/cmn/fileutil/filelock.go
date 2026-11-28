@@ -4,6 +4,7 @@
 package fileutil
 
 import (
+	"context"
 	"errors"
 	"os"
 )
@@ -20,13 +21,12 @@ type FileLock struct {
 }
 
 // TryLockFile creates path with perm when it is missing and locks it without
-// waiting. It returns ErrLocked while another holder, in this process or
-// another, has the lock.
-func TryLockFile(path string, perm os.FileMode) (*FileLock, error) {
-	// Windows can refuse the open while another process briefly holds the
-	// file, such as a scanner, so a transient failure is retried.
+// waiting for another holder. It returns ErrLocked while another holder, in
+// this process or another, has the lock. On Windows it retries an open that
+// another process briefly refuses, until ctx ends.
+func TryLockFile(ctx context.Context, path string, perm os.FileMode) (*FileLock, error) {
 	var file *os.File
-	err := retryWindowsFileOp(func() error {
+	err := retryWindowsFileOpContext(ctx, func() error {
 		// #nosec G304 -- path is chosen by the caller.
 		opened, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, perm)
 		file = opened

@@ -606,10 +606,9 @@ worker                                          coordinator
 - Another Dagu at one address ends enrollment only when no coordinator of
   the invite's CA answered in the same round. An answer, also one that
   asks to try again, keeps the worker retrying.
-- It generates an ECDSA P-256 key. The private key never leaves the host.
-- It sends `Enroll` with the invite, a certificate signing request for the
-  key, its worker ID, its host name, and whether it can keep its
-  certificate. It can keep it when its data directory is writable.
+- It sends `Enroll` with the invite, a certificate signing request for a new
+  ECDSA P-256 key, its worker ID, its host name, and whether it can keep its
+  certificate for later starts.
 - On built-in TLS with a worker certificate, it does not send the peer
   token. A worker with `worker.invite` and `peer.token` logs this once at
   start.
@@ -687,24 +686,27 @@ The `worker_certificates` collection keeps one record per certificate:
 
 - A restart reuses the credential the worker enrolled for.
 - Run processes the worker starts use the same credential.
-- A worker whose data directory is read-only and holds no credential
-  enrolls again at each start.
-- A restart that uses a kept credential takes the [lock](#worker-lock)
-  first, with or without `worker.invite`. When the lock cannot be taken,
-  as on a read-only volume, the worker exits with code 1 and names the
-  data directory to make writable.
-- A kept credential that cannot be read stops the worker with code 1, and
-  the message names the data directory. The worker never falls back to the
-  peer token in its place.
+- A worker that cannot keep a credential, and has none from an earlier
+  start, enrolls again at each start.
+- A restart that reuses a credential takes the [lock](#worker-lock) first,
+  with or without `worker.invite`. When the lock cannot be taken, as on a
+  read-only volume, the worker exits with code 1 and says to make its
+  `paths.data_dir` writable.
+- A worker that must replace its credential with one from the invite's CA,
+  and could not keep the new one, exits with code 1 before it enrolls and
+  says to make its `paths.data_dir` writable.
+- A credential from an earlier start that cannot be read stops the worker
+  with code 1, and the message says how to recover. The worker never falls
+  back to the peer token in its place.
 
 #### Worker Start
 
-| Data directory at start | Behavior |
+| At start | Behavior |
 | --- | --- |
-| No certificate | Enrolls with `worker.invite` |
+| No certificate from an earlier start | Enrolls with `worker.invite` |
 | A certificate whose CA has the pin of `worker.invite`, or no `worker.invite` | Connects with it and ignores `worker.invite`, so a restart does not use up a single-use invite |
-| A certificate whose CA does not have the pin of `worker.invite` | Generates a new key, enrolls with the invite, and replaces its files. A restart with the same invite then keeps the new certificate |
-| A certificate the coordinator refuses as revoked, and an invite other than the one it enrolled with | Generates a new key, enrolls with the new invite, and replaces its files |
+| A certificate whose CA does not have the pin of `worker.invite` | Enrolls again with the invite and uses the new certificate from then on. A restart with the same invite then keeps the new certificate |
+| A certificate the coordinator refuses as revoked, and an invite other than the one it enrolled with | Enrolls again with the new invite and uses the new certificate from then on |
 | A certificate the coordinator refuses as revoked, and the same invite or none | Exits with the message of [Messages](#messages) |
 | A certificate, and `peer.insecure: true` | Row 1 of [Client Transport](#client-transport) applies: the worker uses h2c and the peer token, and warns at start that its certificate is unused |
 
@@ -814,7 +816,7 @@ or `stop`:
 #### Removed Worker
 
 - A worker whose certificate is refused as revoked stops the runs it holds,
-  since it can no longer report them, keeps its files, and exits with code
+  since it can no longer report them, keeps its certificate, and exits with code
   1 and the message of [Messages](#messages).
 - In Kubernetes, it also writes the message to `/dev/termination-log`.
 - Its runs end on the coordinator as they do when a worker stops sending
@@ -1318,7 +1320,7 @@ next call opens a new connection that tries TLS again.
 1. `dagu worker invite --address 192.168.1.20:50055` prints an invite.
 2. `dagu worker --worker.coordinators=192.168.1.20:50055 --worker.invite=<invite>`
    on host A logs `Peer transport: built-in TLS (from worker.invite)`,
-   enrolls, and keeps its certificate in its data directory. The invite's
+   enrolls, and keeps its certificate for later starts. The invite's
    `use_count` is 1.
 3. Host A restarts the worker. It logs
    `Peer transport: built-in TLS (from worker certificate)` and does not

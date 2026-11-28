@@ -35,10 +35,6 @@ const (
 	writeProbeName = ".write-probe"
 )
 
-// mkdirPrivate creates the credential directory for its user only. Tests
-// replace it to fail as the system can.
-var mkdirPrivate = fileutil.MkdirPrivate
-
 // credential is the key and worker certificate of an invite worker, the CA
 // certificate that enrollment returned, and the invite it enrolled with.
 type credential struct {
@@ -129,7 +125,7 @@ func (s credentialStore) save(c *credential) error {
 	if err != nil {
 		return err
 	}
-	if err := mkdirPrivate(s.dir); err != nil {
+	if err := fileutil.MkdirPrivate(s.dir); err != nil {
 		return err
 	}
 	return fileutil.WriteFileAtomic(s.path(), data, credentialFileMode)
@@ -151,7 +147,7 @@ func (s credentialStore) removeLeftovers() {
 
 // writable reports whether the worker can keep files in the store.
 func (s credentialStore) writable() bool {
-	if err := mkdirPrivate(s.dir); err != nil {
+	if err := fileutil.MkdirPrivate(s.dir); err != nil {
 		return false
 	}
 	probe := filepath.Join(s.dir, writeProbeName)
