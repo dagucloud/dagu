@@ -14,6 +14,11 @@ or accepts an endpoint in a step yet. One rule is already enforced: the reserved
   then in the global scope ([Scope and name](#scope-and-name)). [Spec 102](102-projects.md)
   replaces workspaces with projects and gives a project no server-wide layer of secrets, so an
   endpoint may become server-wide only, as a notification channel is.
+- A global endpoint serves the DAGs of every workspace in `allow.workspaces`. A `.global`
+  connection of [Spec 107](107-connections.md#ownership) serves only DAGs with no workspace label.
+- The form `anthropic-oauth` keeps the OAuth token of a subscription as a static key in the secret
+  store. Spec 107 and [RFC 025](../rfcs/025-connections.md) keep OAuth credentials in connections,
+  and static API keys in the secret store.
 
 This spec is the companion of [Spec 059: Chat Completion](059-chat-completion.md), [Spec 090: Agent
 Tools](090-agent-tools.md), [Spec 091: Agent Node](091-agent-node.md), [Spec 092: Agent

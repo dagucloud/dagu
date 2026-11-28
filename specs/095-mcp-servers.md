@@ -13,6 +13,11 @@ entry in a step or runs the MCP relay yet. The reserved prefix `ai/`, which cove
 - The scope `workspace:<name>` of an entry, as for an endpoint. [Spec 102](102-projects.md)
   replaces workspaces with projects, so an entry may become server-wide only. See the Status of
   [Spec 093](093-ai-endpoints.md#status).
+- A named entry keeps the static token or headers of a remote MCP server in the secret store, and a
+  step names it in `tools.mcp`. [Spec 107](107-connections.md#any-mcp-server) connects a remote MCP
+  server as an `mcp` connection with OAuth. [RFC 026](../rfcs/026-mcp-tools-for-ai-steps.md) gives
+  AI steps the MCP tools of connections through the key `mcp_servers`, with its own allow list. How
+  the two forms relate is not decided.
 
 This spec is the companion of [Spec 059: Chat Completion](059-chat-completion.md), [Spec 090: Agent
 Tools](090-agent-tools.md), [Spec 091: Agent Node](091-agent-node.md), [Spec 092: Agent
