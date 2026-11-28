@@ -84,14 +84,14 @@ export const connectionMessages = defineMessages({
     'Service checks': 'Service checks',
     'Needs reconnect': 'Needs reconnect',
     Broken: 'Broken',
+    'Other automation and mail': 'Other automation and mail',
+    'Steps call Google’s REST APIs with http.request, such as the Gmail API to read and send mail.':
+      'Steps call Google’s REST APIs with http.request, such as the Gmail API to read and send mail.',
     'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
       'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.',
     'This workspace already has a connection named {name}.':
       'This workspace already has a connection named {name}.',
     'Open it': 'Open it',
-    'Other automation': 'Other automation',
-    'Steps call Google’s REST APIs with http.request.':
-      'Steps call Google’s REST APIs with http.request.',
     'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
       'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.',
     'This server cannot sign in through a desktop client.':
@@ -233,14 +233,14 @@ export const connectionMessages = defineMessages({
     'Service checks': '服务检查',
     'Needs reconnect': '需要重新连接',
     Broken: '已损坏',
+    'Other automation and mail': '其他自动化和邮件',
+    'Steps call Google’s REST APIs with http.request, such as the Gmail API to read and send mail.':
+      '步骤通过 http.request 调用 Google 的 REST API，例如用 Gmail API 读取和发送邮件。',
     'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
       '只能使用小写字母、数字和连字符，并以字母或数字开头。',
     'This workspace already has a connection named {name}.':
       '此工作区已有名为 {name} 的连接。',
     'Open it': '打开',
-    'Other automation': '其他自动化',
-    'Steps call Google’s REST APIs with http.request.':
-      '步骤通过 http.request 调用 Google 的 REST API。',
     'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
       '此服务器没有公开 URL，无法通过 Web 客户端登录。请改为创建桌面应用客户端并上传其 JSON。',
     'This server cannot sign in through a desktop client.':
@@ -384,14 +384,14 @@ export const connectionMessages = defineMessages({
     'Service checks': 'サービスのチェック',
     'Needs reconnect': '再接続が必要',
     Broken: '破損',
+    'Other automation and mail': 'その他の自動化とメール',
+    'Steps call Google’s REST APIs with http.request, such as the Gmail API to read and send mail.':
+      'ステップは http.request で Google の REST API を呼び出します。たとえば Gmail API でメールを読み書きします。',
     'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
       '小文字・数字・ハイフンだけを使い、英字か数字で始めてください。',
     'This workspace already has a connection named {name}.':
       'このワークスペースには {name} という接続がすでにあります。',
     'Open it': '開く',
-    'Other automation': 'その他の自動化',
-    'Steps call Google’s REST APIs with http.request.':
-      'ステップは http.request で Google の REST API を呼び出します。',
     'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
       'このサーバーには公開 URL がないため、ウェブクライアントではサインインできません。代わりにデスクトップ アプリのクライアントを作成し、その JSON をアップロードしてください。',
     'This server cannot sign in through a desktop client.':
@@ -541,14 +541,14 @@ export const connectionMessages = defineMessages({
     'Service checks': 'Dienstprüfungen',
     'Needs reconnect': 'Neu verbinden nötig',
     Broken: 'Defekt',
+    'Other automation and mail': 'Andere Automatisierung und E-Mail',
+    'Steps call Google’s REST APIs with http.request, such as the Gmail API to read and send mail.':
+      'Schritte rufen die REST-APIs von Google mit http.request auf, etwa die Gmail-API, um E-Mails zu lesen und zu senden.',
     'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
       'Verwenden Sie nur Kleinbuchstaben, Ziffern und Bindestriche, und beginnen Sie mit einem Buchstaben oder einer Ziffer.',
     'This workspace already has a connection named {name}.':
       'Dieser Arbeitsbereich hat bereits eine Verbindung namens {name}.',
     'Open it': 'Öffnen',
-    'Other automation': 'Andere Automatisierung',
-    'Steps call Google’s REST APIs with http.request.':
-      'Schritte rufen die REST-APIs von Google mit http.request auf.',
     'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
       'Dieser Server hat keine öffentliche URL und kann sich daher nicht über einen Web-Client anmelden. Erstellen Sie stattdessen einen Desktop-App-Client und laden Sie dessen JSON hoch.',
     'This server cannot sign in through a desktop client.':
@@ -697,14 +697,14 @@ export const connectionMessages = defineMessages({
     'Service checks': 'Vérifications des services',
     'Needs reconnect': 'À reconnecter',
     Broken: 'Endommagée',
+    'Other automation and mail': 'Autres automatisations et e-mail',
+    'Steps call Google’s REST APIs with http.request, such as the Gmail API to read and send mail.':
+      'Les étapes appellent les API REST de Google avec http.request, par exemple l’API Gmail pour lire et envoyer des e-mails.',
     'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
       'Utilisez uniquement des lettres minuscules, des chiffres et des tirets, en commençant par une lettre ou un chiffre.',
     'This workspace already has a connection named {name}.':
       'Cet espace de travail a déjà une connexion nommée {name}.',
     'Open it': 'L’ouvrir',
-    'Other automation': 'Autres automatisations',
-    'Steps call Google’s REST APIs with http.request.':
-      'Les étapes appellent les API REST de Google avec http.request.',
     'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
       'Ce serveur n’a pas d’URL publique et ne peut donc pas se connecter avec un client Web. Créez plutôt un client Application de bureau et téléversez son JSON.',
     'This server cannot sign in through a desktop client.':

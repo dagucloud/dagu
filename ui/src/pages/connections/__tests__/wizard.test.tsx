@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -415,5 +415,34 @@ describe('NewConnectionDialog', () => {
     expect(
       await within(dialog).findByRole('radio', { name: /Google agents/ })
     ).toBeVisible();
+  });
+
+  // The browser reads a hand-edited file as the server's decoder does: a
+  // null "web" is absent, and keys match regardless of case.
+  it('accepts a desktop client file with a null web key', async () => {
+    const user = userEvent.setup();
+    mocks.role = UserRole.admin;
+    routes([], DESKTOP_ONLY);
+    mocks.routes['POST /oauth-apps'] = () =>
+      app({ id: 'desk', clientType: OAuthClientType.desktop });
+
+    const dialog = await throughAgents(user);
+    const json = '{"web":null,"Installed":{"client_id":"x"}}';
+    await user.upload(
+      within(dialog).getByLabelText('Client JSON file'),
+      new File([json], 'client.json', { type: 'application/json' })
+    );
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Register app' })
+    );
+
+    await waitFor(() =>
+      expect(mocks.bodies['POST /oauth-apps']).toMatchObject({
+        clientFile: json,
+      })
+    );
+    expect(
+      within(dialog).queryByText(/cannot sign in through a web client/)
+    ).toBeNull();
   });
 });

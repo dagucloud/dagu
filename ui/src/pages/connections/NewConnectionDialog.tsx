@@ -134,18 +134,33 @@ function fits(app: OAuthApp, agent: boolean, providers: ProviderList): boolean {
   );
 }
 
-/** The client type a Google client JSON describes, or null if unreadable. */
+/**
+ * The client type a Google client JSON describes, or null when the server
+ * is left to report what is wrong with the file. Keys match regardless of
+ * case, and a null or non-object value counts as absent, as the server's
+ * JSON decoder reads the file.
+ */
 function clientFileType(text: string): OAuthClientType | null {
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(text);
-    if (parsed && typeof parsed === 'object') {
-      if ('web' in parsed) return OAuthClientType.web;
-      if ('installed' in parsed) return OAuthClientType.desktop;
-    }
+    parsed = JSON.parse(text);
   } catch {
-    // The server reports what is wrong with the file.
+    return null;
   }
-  return null;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
+  }
+  const describes = (kind: string) =>
+    Object.entries(parsed).some(
+      ([key, value]) =>
+        key.toLowerCase() === kind &&
+        !!value &&
+        typeof value === 'object' &&
+        !Array.isArray(value)
+    );
+  const web = describes('web');
+  if (web === describes('installed')) return null;
+  return web ? OAuthClientType.web : OAuthClientType.desktop;
 }
 
 /**
@@ -195,9 +210,7 @@ export function NewConnectionDialog({
     setStep(to);
   }
 
-  function close() {
-    // A create in flight owns the dialog until it answers.
-    if (creating) return;
+  function reset() {
     setStep('gallery');
     setName('');
     setChosen({});
@@ -205,6 +218,12 @@ export function NewConnectionDialog({
     setAppId(null);
     setError(null);
     onClose();
+  }
+
+  function close() {
+    // A create in flight owns the dialog until it answers.
+    if (creating) return;
+    reset();
   }
 
   async function create() {
@@ -229,7 +248,7 @@ export function NewConnectionDialog({
         );
       }
       const target = connectionPath(name, workspace);
-      close();
+      reset();
       navigate(target, { state: { connect: true } as ConnectionPageState });
     } catch (err) {
       setError(
@@ -564,8 +583,10 @@ function AgentsStep({
     },
     {
       value: false,
-      label: ts('Other automation'),
-      description: ts('Steps call Google’s REST APIs with http.request.'),
+      label: ts('Other automation and mail'),
+      description: ts(
+        'Steps call Google’s REST APIs with http.request, such as the Gmail API to read and send mail.'
+      ),
     },
   ];
   return (
