@@ -52,4 +52,14 @@ func TestRefusalReasonDetail(t *testing.T) {
 	assert.Equal(t, reasonOwnCertificates, RefusalReason(reworded))
 	assert.Equal(t, reasonCAUnavailable, RefusalReason(status.Error(codes.FailedPrecondition, caUnavailableMessage)))
 	assert.Empty(t, RefusalReason(status.Error(codes.FailedPrecondition, "a reworded message")))
+	assert.Equal(t, reasonPeerAuthMissing, RefusalReason(status.Error(codes.Unauthenticated, legacyPeerTokenMissing)))
+}
+
+// A call without the peer token is told the setting to change, and nothing
+// about where the coordinator keeps its generated token.
+func TestPeerTokenMissingGuidance(t *testing.T) {
+	t.Parallel()
+
+	err := NewPeerTokenAuth("token", true, false).authorize(context.Background(), coordinatorv1.CoordinatorService_CreateInvite_FullMethodName)
+	assert.Equal(t, "the coordinator requires a peer token: set peer.token", status.Convert(err).Message())
 }
