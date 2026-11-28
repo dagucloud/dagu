@@ -50,6 +50,9 @@ Implemented so far:
   connection only for the `authorization_code` grant. A server callback
   connect confirmed at once is audited only at its start, since the
   callback has no Dagu user.
+- [CLI](#cli): `dagu connection add google`, `reconnect`, `test`, and
+  `remove`, without `--notifications`, through a remote context or this
+  host's server.
 - [Events](#events), recorded by the server, a local run, or the
   coordinator, whichever made the change, and written to the
   [Audit](#audit) log. Notification routes offer both types, and new
@@ -1231,7 +1234,7 @@ dagu connection list
 dagu connection show NAME
 dagu connection test NAME
 dagu connection reconnect NAME
-dagu connection remove NAME
+dagu connection remove NAME [--yes]
 dagu connection tools NAME [--server S] [--json]
 dagu connection call NAME --server S --tool T --args JSON [--yes]
 dagu connection apps list
@@ -1241,14 +1244,40 @@ dagu connection apps remove APP
 - `connections` is an alias of `connection`.
 - A command acts in the context's workspace, or in the one `--workspace`
   names. `--notifications` acts on the notification connection.
-- The group works against a remote server through a context.
+- The group works against a remote server through a context. With the
+  local context it calls the REST API of the server that the host's
+  configuration describes, at `localhost` when that server binds every
+  address, and sends the configured basic auth credentials. With builtin
+  or OIDC auth the local context has no credential, and the CLI says to
+  add a context with an API key.
 - `add` without enough flags runs an interactive wizard on a terminal, and
-  reads secrets without echo.
+  reads secrets without echo. Without a terminal it fails, naming what is
+  missing. The pasted redirect URL, which holds the authorization code, is
+  read without echo.
 - `add` and `reconnect` pick the redirect mode as the UI does. They open a
   browser when they can, and print the authorization URL. With
   `--no-browser` they only print it. In paste mode they ask for the pasted
   redirect URL. They wait for the session and ask the user to confirm the
-  account.
+  account. Before consent they print the redirect URI to register and the
+  client ID that a Workspace admin may have to trust.
+- `reconnect` names the connection's account as the expected account, so
+  a session of the same account is confirmed without asking, as
+  [Confirmation](#confirmation) states.
+- `add` and `reconnect` name the mode only for a desktop client, whose
+  loopback mode needs a browser on the CLI's host. Another client takes
+  the server's choice.
+- Until the account is confirmed, an interrupt, a declined account, or a
+  failure that ends the CLI's wait cancels the session, which discards
+  its tokens. A cancel that does not arrive leaves them until a request
+  reads or replaces the session, as [Token Cleanup](#token-cleanup)
+  states, and the CLI names `reconnect`, and `remove` for a pending
+  connection, as the ways to drop them. The CLI says that the previous
+  tokens stay only when the cancel shows the session was still open,
+  since a session that already ended may have been confirmed.
+- The CLI measures a session's 10 minutes on its own clock, from before
+  the start, since the server's clock may differ. While a request fails
+  for a reason that may pass, it says so once and keeps waiting.
+- `remove` asks before it removes, and without a terminal needs `--yes`.
 - `--client-file` registers an app and needs `admin`. A manager names an
   existing app with `--app`.
 - `call` shows a server's confirmation form on a terminal and sends the

@@ -1309,12 +1309,23 @@ func TestService_SendTestHideChannelErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Normalize writes into the target's provider config, which
+			// the cases share, so each case normalizes its own copy.
+			target := tt.target
+			if target.Webhook != nil {
+				webhook := *target.Webhook
+				target.Webhook = &webhook
+			}
+			if target.Telegram != nil {
+				telegram := *target.Telegram
+				target.Telegram = &telegram
+			}
 			svc := New(
 				newMemoryStore(mustNormalizeSettings(t, &notificationmodel.Settings{
 					DAGName: "daily-report",
 					Enabled: true,
 					Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
-					Targets: []notificationmodel.Target{tt.target},
+					Targets: []notificationmodel.Target{target},
 				})),
 				nil,
 				WithProjectsEnabled(tt.projectsOn),

@@ -80,6 +80,7 @@ func init() {
 	rootCmd.AddCommand(cmd.Profile())
 	rootCmd.AddCommand(cmd.Project())
 	rootCmd.AddCommand(cmd.Nodes())
+	rootCmd.AddCommand(cmd.Connection())
 	rootCmd.AddCommand(cmd.HumanTask())
 	rootCmd.AddCommand(cmd.Secret())
 	rootCmd.AddCommand(cmd.Browser())

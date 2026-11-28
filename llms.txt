@@ -2529,6 +2529,24 @@ dagu nodes export [--inventory <name|id>]
 - `--inventory` — Names an inventory by ID, or by name compared without case
 - Credentials appear as `{"secret": <ref>}` or `{"file": <path>}`, never as values; `password` and `passphrase` take only secret refs
 
+### dagu connection
+
+Add and manage connections: named OAuth sign-ins, such as a Google Workspace account, that a workspace's DAGs name from `mcp.call` (Spec 107). `connections` is an alias. Every subcommand calls the server's REST API: a remote context's server, or, with the local context, the server this host's configuration describes (`localhost` when it binds every address), which must be running; with builtin auth, the local context has no API key, so use a remote context. No command prints a client secret, refresh token, or access token.
+
+```sh
+dagu connection add google [<name>] --services gmail,calendar:write [--agent] [--app <id|name> | --client-file <file>] [--no-browser] [--workspace <name>]
+dagu connection reconnect <name> [--no-browser] [--workspace <name>]
+dagu connection test <name> [--workspace <name>]
+dagu connection remove <name> [--yes/-y] [--workspace <name>]
+```
+
+- `add google` — Creates the connection on an OAuth app and signs in its account. `--app` names an app an admin registered; `--client-file` registers Google's client JSON as a new app named after the connection, which needs admin. Without either, it uses the one Google app whose agent flag matches `--agent`, or asks. `--agent` is for AI agents through `mcp.call`: Google requires a separate client with its agent setting. Without a name or `--services` it asks on a terminal, and fails without one
+- Sign-in: a web client uses the mode the server picks, the server callback; a desktop client uses a listener on `127.0.0.1` when a browser opens on this host, else paste mode, where the person pastes the address the browser lands on (read without echo). `--no-browser`, and SSH, print the URL instead of opening it. Before consent it prints the redirect URI to register in the client and the client ID a Workspace admin may have to trust. It then waits, asks to confirm the account, warns about another connection of the workspace on the same account and client, and prints each service with its access and check. Ctrl-C, or a failure, at any point before the confirm cancels the session. The cancel discards the unconfirmed tokens; when it cannot reach the server, the tokens stay until a later sign-in or remove touches the session, and the CLI names the command to run. While the server is unreachable for a moment, the CLI says so once and keeps waiting until the 10-minute session ends. A new connection whose sign-in fails stays `pending`. Hints for the next command keep `--workspace` and `--context`
+- `reconnect` — Signs the account in again; the previous tokens stay live until the confirm. It expects the account the connection holds, so the same account is confirmed without asking, and its services are then tested
+- `test` — Probes each service with the live token; fails when any service fails
+- `remove` — Removes the connection with its tokens and revokes its refresh token, unless another connection on the server holds the same account and client. Connections on other servers that use the same client, for Google any client of the same Google Cloud project, may lose access. Asks first; without a terminal it needs `--yes`
+- `--workspace` — The workspace that owns the connection; default `global`, the connections of DAGs without a workspace label
+
 ## Server & Scheduling
 
 To operate a running server (MCP, REST, remote contexts), see `server-operations.md`.

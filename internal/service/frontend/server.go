@@ -1410,6 +1410,16 @@ func HealthPath(ctx context.Context, cfg *config.Config) (string, error) {
 	return pathutil.BuildMountedAPIEndpointPath(basePath, cfg.Server.APIBasePath, "health"), nil
 }
 
+// APIPath returns the path under which a server with cfg serves its REST
+// API.
+func APIPath(ctx context.Context, cfg *config.Config) (string, error) {
+	basePath, err := evaluateConfiguredBasePath(ctx, cfg.Server.BasePath)
+	if err != nil {
+		return "", err
+	}
+	return pathutil.BuildMountedAPIPath(basePath, cfg.Server.APIBasePath), nil
+}
+
 func evaluateConfiguredBasePath(ctx context.Context, basePath string) (string, error) {
 	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{})
 	evaluated, err := resolver.String(ctx, basePath, cmnvalue.ServerBasePathField("server.base_path"))
