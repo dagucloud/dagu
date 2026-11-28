@@ -1017,8 +1017,9 @@ func TestMembershipOtherDagu(t *testing.T) {
 
 // The client that Connect returns is the coordinator package's own, so the
 // worker keeps every capability of it, such as workspace bundles and state,
-// on the peer token and with a certificate alike. NewWorker takes the
-// removal of its membership with it (Spec 108 §Removed Worker).
+// on the peer token and with a certificate alike. A worker given the
+// membership stops on a refusal from any call of that client (Spec 108
+// §Removed Worker).
 func TestMembershipConnectKeepsClient(t *testing.T) {
 	ca := newTestCA(t)
 	dataDir := t.TempDir()
@@ -1040,11 +1041,11 @@ func TestMembershipConnectKeepsClient(t *testing.T) {
 			}
 
 			w := NewWorker("worker-1", 1, client, nil, &config.Config{})
+			w.SetMembership(m)
+			assert.False(t, w.isRemoved())
 			if invite == "" {
-				assert.Nil(t, w.removalSignal, "a worker on the peer token has no removal")
 				return
 			}
-			assert.False(t, w.isRemoved())
 			fake.onRemoved()
 			assert.True(t, w.isRemoved(), "a refusal on any call of the client reaches the worker at once")
 			assert.ErrorIs(t, w.removedError(t.Context()), errWorkerRemoved)
@@ -1261,4 +1262,34 @@ func TestMembershipRemovalRecordFailure(t *testing.T) {
 	assert.EqualError(t, m.removed(ctx), removedMessage)
 	assert.Contains(t, logs.String(), "Failed to record the removal of the worker certificate")
 	assert.NotContains(t, logs.String(), dataDir)
+}
+
+// valueClient is a client whose value holds a slice, as a valid client may.
+type valueClient struct {
+	coordinator.Client
+	addresses []string
+}
+
+// The membership reaches the worker whatever client the worker runs with,
+// and a second membership binds its own worker only (Spec 108 §Removed
+// Worker).
+func TestWorkerSetMembership(t *testing.T) {
+	ca := newTestCA(t)
+	first, second := enrolling(ca), enrolling(ca)
+	a, err := open(t, workerConfig(t.TempDir(), ca.invite(t)), first)
+	require.NoError(t, err)
+	require.NoError(t, connect(t.Context(), t, a))
+	b, err := open(t, workerConfig(t.TempDir(), ca.invite(t)), second)
+	require.NoError(t, err)
+	require.NoError(t, connect(t.Context(), t, b))
+
+	client := valueClient{addresses: []string{coordinatorA}}
+	wa := NewWorker("worker-a", 1, client, nil, &config.Config{})
+	wa.SetMembership(a)
+	wb := NewWorker("worker-b", 1, client, nil, &config.Config{})
+	wb.SetMembership(b)
+
+	second.onRemoved()
+	assert.False(t, wa.isRemoved())
+	assert.True(t, wb.isRemoved())
 }

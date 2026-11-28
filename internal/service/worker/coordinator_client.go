@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -32,21 +31,6 @@ func newCoordinatorClient(ctx context.Context, cfg *config.Config, clientConfig 
 		slog.Any("coordinators", cfg.Worker.Coordinators))
 	return coordinator.New(registry, clientConfig), nil
 }
-
-// removal is how a membership ends its worker once a coordinator refused the
-// worker's certificate as revoked: revoked is closed at once, and exit
-// returns the failure the worker exits with once the refusal is recorded.
-type removal struct {
-	revoked <-chan struct{}
-	exit    func(context.Context) error
-}
-
-// removals ties each client that Membership.Connect returns, left as the
-// coordinator package made it, to its membership's removal, for the worker
-// that NewWorker creates with that client. NewWorker takes the entry, and
-// Membership.Close drops one that no worker took, so it holds at most one
-// entry per open membership.
-var removals sync.Map
 
 // CoordinatorClientConfig returns the configuration the worker's
 // coordinator client dials with at start, for dagu worker --check: with the

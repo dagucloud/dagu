@@ -175,8 +175,6 @@ type Membership struct {
 	revoked     chan struct{}
 	recorded    chan struct{}
 	revokedOnce sync.Once
-	// client is the worker's client, which removals ties to the removal.
-	client coordinator.Client
 }
 
 // joinOptions are what a Membership waits, enrolls, and retries with.
@@ -492,8 +490,6 @@ func (m *Membership) workerClient(ctx context.Context) (coordinator.Client, erro
 		return nil, err
 	}
 	m.connected.Store(true)
-	m.client = client
-	removals.Store(client, removal{revoked: m.revoked, exit: m.removed})
 	return client, nil
 }
 
@@ -719,15 +715,10 @@ func writeTerminationMessage(ctx context.Context, path, message string) {
 }
 
 // Close releases the certificate lock, once a removal under way is recorded.
+// A refusal that arrives after Close is not recorded.
 func (m *Membership) Close() error {
-	select {
-	case <-m.revoked:
-		<-m.recorded
-	default:
-	}
-	if m.client != nil {
-		removals.Delete(m.client)
-	}
+	// A revoke under way holds the Once until it has recorded the refusal.
+	m.revokedOnce.Do(func() {})
 	if m.lock == nil {
 		return nil
 	}

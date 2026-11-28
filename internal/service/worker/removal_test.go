@@ -232,3 +232,20 @@ func TestWorkerRemovedWithoutMembership(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, errWorkerRemoved))
 }
+
+// A removal that arrives after a run registered but before it moved into
+// execution stops the run: it never reaches the executor (Spec 108 §Removed
+// Worker).
+func TestWorkerRemovedBeforeExecution(t *testing.T) {
+	removed := make(chan struct{})
+	client := &removalClient{task: &coordinatorv1.Task{DagRunId: "run-1", AttemptKey: "attempt-1"}}
+	var executed atomic.Bool
+	w := newRemovableWorker(client, 1, &config.Config{}, removed, func(context.Context, *coordinatorv1.Task) error {
+		executed.Store(true)
+		return nil
+	})
+	w.beforeExecute = func() { close(removed) }
+
+	assert.Equal(t, errRemovedForTest, startRemovable(t, w))
+	assert.False(t, executed.Load(), "the run reached the executor after the removal")
+}

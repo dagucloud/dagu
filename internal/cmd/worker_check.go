@@ -154,8 +154,9 @@ func printWorkerCheck(w io.Writer, result coordinator.CheckResult, invite bool) 
 	if invite && result.TLS != nil && result.TLS.Err == nil {
 		_, _ = fmt.Fprintln(w, "  Invite pin: matches the coordinator's CA")
 	}
-	_, _ = fmt.Fprintf(w, "  Credential: %s\n", result.Credential)
-	_, _ = fmt.Fprintf(w, "  Coordinator answered: %s\n", result.Answer())
+	credential, answer := result.Describe()
+	_, _ = fmt.Fprintf(w, "  Credential: %s\n", credential)
+	_, _ = fmt.Fprintf(w, "  Coordinator answered: %s\n", answer)
 }
 
 // printHandshakeFailure prints why the handshake failed, with the Spec 108

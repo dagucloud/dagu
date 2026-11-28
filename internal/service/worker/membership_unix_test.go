@@ -14,6 +14,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
 // A refusal as revoked closes the worker's admission at once, before the
@@ -42,12 +44,31 @@ func TestMembershipRevokeSignalsFirst(t *testing.T) {
 		t.Fatal("recorded before the termination message was written")
 	default:
 	}
-	closed := make(chan error, 1)
-	go func() { closed <- m.Close() }()
+	// Close returns only once the removal is recorded, so recorded is
+	// closed by then.
+	started := make(chan struct{})
+	closed := make(chan bool, 1)
+	go func() {
+		close(started)
+		assert.NoError(t, m.Close())
+		select {
+		case <-m.recorded:
+			closed <- true
+		default:
+			closed <- false
+		}
+	}()
+	<-started
+	// While the recording waits, the lock stays held.
+	lockPath := filepath.Join(dataDir, credentialDirName, lockFileName)
+	_, err = fileutil.TryLockFile(lockPath, credentialFileMode)
+	require.ErrorIs(t, err, fileutil.ErrLocked)
 
 	data, err := os.ReadFile(log)
 	require.NoError(t, err)
 	assert.Equal(t, removedKubernetesLine, string(data))
-	require.NoError(t, <-closed)
-	<-m.recorded
+	assert.True(t, <-closed, "Close returned before the removal was recorded")
+	lock, err := fileutil.TryLockFile(lockPath, credentialFileMode)
+	require.NoError(t, err, "Close released the lock once the removal was recorded")
+	require.NoError(t, lock.Unlock())
 }

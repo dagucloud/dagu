@@ -186,6 +186,7 @@ func runWorker(ctx *Context, _ []string) error {
 
 	w.SetMachine(machine)
 	w.SetHealthServer(health)
+	w.SetMembership(membership)
 
 	logger.Info(ctx, "Starting worker", tag.WorkerID(workerID), tag.MaxConcurrency(maxActiveRuns), slog.Any("labels", labels))
 	// Run status lives with the coordinator, so the worker closes waiting
