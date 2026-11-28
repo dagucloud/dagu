@@ -242,11 +242,10 @@ function DAGRunActions({
     !!service?.dag &&
     isServiceDAG(service.dag) &&
     restartsByItself(service.serviceDAG);
-  // Only the state of the service tells whether a run follows the stop: a
-  // suspended DAG or one on hold does not restart.
-  const restartAfterSec = service?.serviceDAG
-    ? getRestartAfterStopSec(service.dag, service.serviceDAG)
-    : null;
+  const restartAfterSec = getRestartAfterStopSec(
+    service?.dag,
+    service?.serviceDAG
+  );
   const offersStopAll = Boolean(stopAll) && terminateDetails.offersStopAll;
   const stopsAll = offersStopAll && stopAllRunning;
   const hasManagedAgentSession = Boolean(

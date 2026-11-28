@@ -127,14 +127,20 @@ describe('active run of a service DAG', () => {
   });
 
   it('gives the restart wait of a stop only for the policy always', () => {
-    expect(getRestartAfterStopSec(service)).toBe(5);
+    const running = { state: ServiceDAGState.running };
+    expect(getRestartAfterStopSec(service, running)).toBe(5);
     expect(
-      getRestartAfterStopSec({
-        restartPolicy: RestartPolicy.unless_stopped,
-        restartWaitSec: 5,
-      })
+      getRestartAfterStopSec(
+        { restartPolicy: RestartPolicy.unless_stopped, restartWaitSec: 5 },
+        running
+      )
     ).toBeNull();
-    expect(getRestartAfterStopSec({})).toBeNull();
+    expect(getRestartAfterStopSec({}, running)).toBeNull();
+  });
+
+  // No restart is known to follow a stop before the state of the DAG is read.
+  it('gives no restart wait without the state of the service', () => {
+    expect(getRestartAfterStopSec(service, undefined)).toBeNull();
   });
 
   // Start stays offered while the scheduler starts no run.

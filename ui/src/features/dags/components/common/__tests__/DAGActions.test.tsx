@@ -646,7 +646,7 @@ describe('DAGActions', () => {
     });
 
     it('shows the restart wait in the Stop tooltip for always', async () => {
-      renderService(always, Status.Running);
+      renderService(always, Status.Running, { service: svc({}) });
       await userEvent.hover(screen.getByRole('button', { name: 'Stop' }));
       expect(
         (await screen.findAllByText(/It restarts after 5 s/))[0]
@@ -664,20 +664,22 @@ describe('DAGActions', () => {
       expect(screen.queryByText(/It restarts after/)).toBeNull();
     });
 
-    // The scheduler starts no run after the stop of such a DAG.
-    it.each<[string, Partial<ServiceDAG>]>([
-      ['suspended', { state: ServiceDAGState.running, suspended: true }],
+    // The scheduler starts no run after the stop of such a DAG, or none is
+    // known to follow it before GET /service-dags answers or after it fails.
+    it.each<[string, ServiceDAG | undefined]>([
+      ['with no known state', undefined],
+      ['suspended', svc({ state: ServiceDAGState.running, suspended: true })],
       [
         'on hold',
-        {
+        svc({
           state: ServiceDAGState.restarting,
           restartHold: ServiceDAGRestartHold.paused,
-        },
+        }),
       ],
     ])(
-      'keeps the plain Stop tooltip for an always DAG that is %s',
-      async (_, fields) => {
-        renderService(always, Status.Running, { service: svc(fields) });
+      'keeps the plain Stop tooltip for an always DAG %s',
+      async (_, service) => {
+        renderService(always, Status.Running, { service });
         await userEvent.hover(screen.getByRole('button', { name: 'Stop' }));
         expect(
           (await screen.findAllByText('Stop the latest run'))[0]
