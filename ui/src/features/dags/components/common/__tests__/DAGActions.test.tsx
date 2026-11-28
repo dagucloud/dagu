@@ -668,9 +668,12 @@ describe('DAGActions', () => {
     // known to follow it before GET /service-dags answers or after it fails.
     it.each<[string, ServiceDAG | undefined]>([
       ['with no known state', undefined],
-      ['suspended', svc({ state: ServiceDAGState.running, suspended: true })],
       [
-        'on hold',
+        'that is suspended',
+        svc({ state: ServiceDAGState.running, suspended: true }),
+      ],
+      [
+        'that is on hold',
         svc({
           state: ServiceDAGState.restarting,
           restartHold: ServiceDAGRestartHold.paused,
