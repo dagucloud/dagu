@@ -224,7 +224,7 @@ func inviteSecretHash(secret []byte) []byte {
 // listener can have.
 func validInviteAddress(addr string) bool {
 	host, port, err := net.SplitHostPort(addr)
-	if err != nil || host == "" {
+	if err != nil || host == "" || RedactInvites(host) != host {
 		return false
 	}
 	n, err := strconv.Atoi(port)

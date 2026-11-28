@@ -465,3 +465,21 @@ func withReason(code codes.Code, reason, message string) error {
 	}
 	return st.Err()
 }
+
+// An invite pasted as the address is refused before any coordinator sees
+// it, and the answer does not repeat it.
+func TestCreateWorkerInviteInviteAsAddress(t *testing.T) {
+	t.Parallel()
+
+	stub := &inviteCoordinatorStub{}
+	a, store := rolesAPI(stub)
+	_, err := a.CreateWorkerInvite(userContext(auth.RoleAdmin), openapiv1.CreateWorkerInviteRequestObject{
+		Body: &openapiv1.CreateWorkerInviteRequest{Address: new(testInvite + ":50055")},
+	})
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
+	assert.NotContains(t, apiErr.Message, testInvite)
+	assert.Nil(t, stub.created)
+	assert.Empty(t, store.entries)
+}
