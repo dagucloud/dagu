@@ -17,11 +17,12 @@ prefix stays reserved.
   coordinator, where Specs 092 and [094](094-ai-gateway.md) place it,
   to sit next to the worker, such as in the egress proxy of
   [Spec 105](105-egress-proxy.md). See [Model Traffic](#model-traffic).
-- Sign-in, such as for a Claude or ChatGPT plan. This draft has none:
-  Spec 107 defines no OAuth app for the provider `model`, and the terms
-  of each provider for a subscription token used through a gateway are
-  not checked. A long-lived token that a CLI prints for automation is a
-  key, as [Credentials](#credentials) states.
+- Subscriptions, such as a Claude or ChatGPT plan. This draft stores no
+  subscription credential: Spec 107 defines no OAuth app for the
+  provider `model`, and Anthropic's terms restrict storing or relaying a
+  subscription token in another product. A trusted step uses the CLI's
+  own sign-in for a subscription. An untrusted step has no path for one
+  yet.
 - Whether `agent.run` and `harness.run` become one action. Both run a CLI
   agent, and this spec gives both the same keys.
 - Whether a page sums the token counts of [Runs](#runs) per connection,
@@ -122,9 +123,9 @@ A model connection has the Spec 107 metadata fields `name`, `project`,
 - `base_url` is an `https` URL with no user information, query, or
   fragment. A local-model preset and `custom` also accept `http`, and the
   UI warns that the key crosses the network unencrypted.
-- `auth` is `x-api-key`, `bearer`, or `anthropic-oauth`, the forms of
-  [Key injection](105-egress-proxy.md#key-injection).
-  `anthropic-oauth` is valid with `anthropic-messages` only.
+- `auth` is `x-api-key` or `bearer`, forms of
+  [Key injection](105-egress-proxy.md#key-injection). A model connection
+  has no `anthropic-oauth`, since it holds no subscription token.
 - `grant` is `api_key` or `none`. `app` names a shared key, and is empty
   otherwise. See [Credentials](#credentials). Spec 107 lists the provider
   `model` and these grants.
@@ -147,8 +148,9 @@ A model connection has the Spec 107 metadata fields `name`, `project`,
   any value derived from it. Pages show only that a key is set, and when.
 - A key is not empty, is valid UTF-8 with no control character, and has
   at most 8192 bytes. A save does not call the provider.
-- A long-lived token that a CLI prints for automation, such as the token
-  of `claude setup-token`, is an own key with the auth `anthropic-oauth`.
+- A key is a provider's API key. A subscription token, such as the token
+  of `claude setup-token`, is not a key of this spec. See
+  [Status](#status).
 - A rotation replaces the key in one place: the connection for an own key,
   the app for a shared key. Every connection on a shared key sends the new key
   from its next request.

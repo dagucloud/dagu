@@ -526,8 +526,8 @@ source of the CLI ([Adapters](093-model-connections.md#adapters)). For `claude`,
 `ANTHROPIC_` or `CLAUDE_CODE_USE_`, and no `CLAUDE_CODE_OAUTH_TOKEN`, from the environment. Its
 model traffic does not go through the proxy, so the proxy needs no model route for it.
 
-A long-lived subscription token, such as the token of `claude setup-token`, is the key of a model
-connection with the auth `anthropic-oauth` (Spec 093). The worker never holds it.
+A model connection holds an API key, never a subscription token (Spec 093). The worker never holds
+the key.
 
 **A CLI with no adapter.** A step cannot list a secret for a CLI agent
 ([Spec 103](103-untrusted-steps.md)). The provider gets its model credential from the deployment:

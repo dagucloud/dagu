@@ -48,8 +48,8 @@ This spec does not define:
 
 - A workflow author names an MCP server the same way in every AI step and
   for every CLI that supports MCP.
-- A manager adds a server that takes a static token once. No DAG, file, or
-  agent holds the token.
+- A manager adds a server that takes a static token once. No DAG or file
+  holds the token, and an isolated agent never sees it.
 - The agent sees only the tools that the step allows.
 
 ## Static Credentials
@@ -85,7 +85,11 @@ fixed headers.
 - A rotation replaces the whole set, since no route returns a value. A
   header that the new set lacks is deleted.
 - The bound host is the host of `resource`. The gateway sends the values
-  only there, and follows no redirect.
+  only there. The gateway, Test, and catalog reads send them only to
+  `resource` itself, and follow no redirect.
+- A step that runs as the Dagu user can read the values, as Spec 093
+  [Policy](093-model-connections.md#policy) states for keys. Creating a
+  connection on such a server says so.
 - `resource` is a credential past its host, since its path or query can
   hold a secret. Dagu stores it encrypted, as the values. Responses,
   errors, audit entries, and the check-only reply of a worker's admission
@@ -172,8 +176,10 @@ step "triage": harness provider "pi" cannot use mcp_servers: Dagu has no MCP ada
   token of its step.
 - The gateway takes the values from the coordinator, as RFC 026 takes a
   token on a worker. It reaches the server through the egress proxy, with
-  the proxy credential, so the proxy MUST allow the server's host. The
-  agent cannot use the proxy credential.
+  the proxy credential, so the proxy MUST allow the server's host only
+  with that credential (`--allow-with-credential` of Spec 105). The agent
+  cannot use the proxy credential, so it cannot reach the server past
+  the gateway.
 
 ## User Interface
 
