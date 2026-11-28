@@ -153,7 +153,8 @@ func TestClientTransportRetiredConnectionGrace(t *testing.T) {
 }
 
 // A stream in flight on a replaced connection finishes on it, and Cleanup
-// closes that connection with the current ones.
+// closes that connection with the current ones, also while a stream is
+// still in flight on it.
 func TestClientTransportCleanupClosesRetired(t *testing.T) {
 	ca := newTestCA(t)
 	coord := serveTestCoordinator(t, builtinCredentials(t, ca))
@@ -176,8 +177,14 @@ func TestClientTransportCleanupClosesRetired(t *testing.T) {
 	_, err = stream.CloseAndRecv()
 	assert.Equal(t, codes.Unimplemented, status.Code(err), "the stream finished on its connection")
 	assert.NotEqual(t, connectivity.Shutdown, taken.conn.GetState())
+
+	// A second stream stays in flight on the replaced connection: the
+	// client has not received its end.
+	inFlight, err := taken.client.StreamLogs(t.Context())
+	require.NoError(t, err)
 	require.NoError(t, cli.Cleanup(t.Context()))
 	assert.Equal(t, connectivity.Shutdown, taken.conn.GetState())
+	_, _ = inFlight.CloseAndRecv()
 }
 
 // peer.insecure: false never uses h2c: a connection without a TLS source
