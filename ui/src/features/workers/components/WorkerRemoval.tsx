@@ -137,6 +137,7 @@ export function WorkerActionsHost({
         <RemoveWorkerDialog
           key={open.request}
           worker={worker}
+          listed={!!listed}
           certificateId={open.certificateId}
           workers={workers}
           onClose={() => close(open.request)}
@@ -146,6 +147,7 @@ export function WorkerActionsHost({
         <StopRunsDialog
           key={open.request}
           worker={worker}
+          listed={!!listed}
           certificateId={open.certificateId}
           onClose={() => close(open.request)}
         />
@@ -393,11 +395,14 @@ function ReplacedNotice() {
 
 function RemoveWorkerDialog({
   worker,
+  listed,
   certificateId,
   workers,
   onClose,
 }: {
   worker: Worker;
+  /** Whether the latest list has the worker; its runs are unknown if not. */
+  listed: boolean;
   /** The certificate the admin confirms the removal of. */
   certificateId: string;
   workers: Worker[];
@@ -429,12 +434,13 @@ function RemoveWorkerDialog({
   const locked = useLockedConfirmation(worker, certificateId);
 
   const tasks = worker.runningTasks ?? [];
-  // The choice applies only while the worker has runs. Without them a
-  // removal lets any run handed out meanwhile finish.
-  const sentRuns = tasks.length > 0 ? runs : WorkerRemovalRuns.finish;
-  // Runs that are all gone take the stop choice with them; runs that start
-  // later need it chosen again.
-  const hasTasks = tasks.length > 0;
+  // The choice applies only while the list shows the worker with runs.
+  // Without them, or once the list drops the row and its runs are unknown,
+  // a removal lets any run finish.
+  const hasTasks = listed && tasks.length > 0;
+  const sentRuns = hasTasks ? runs : WorkerRemovalRuns.finish;
+  // Runs that are all gone, or no longer known, take the stop choice with
+  // them; runs listed later need it chosen again.
   React.useEffect(() => {
     if (!hasTasks) setRuns(WorkerRemovalRuns.finish);
   }, [hasTasks]);
@@ -543,7 +549,7 @@ function RemoveWorkerDialog({
                 <I18nText text="It has no running runs." />
               </p>
             ) : (
-              <fieldset className="space-y-2">
+              <fieldset className="min-w-0 space-y-2">
                 <legend className="mb-1">
                   <I18nText
                     text={
@@ -556,17 +562,15 @@ function RemoveWorkerDialog({
                 </legend>
                 <ul className="max-h-32 space-y-0.5 overflow-auto rounded border px-2 py-1 text-xs">
                   {tasks.map((task) => (
-                    <li key={runKey(task)} className="min-w-0">
-                      <div className="flex min-w-0 gap-2">
-                        <span className="truncate font-medium">
-                          {task.dagName}
-                        </span>
-                        <span className="truncate font-mono text-muted-foreground">
+                    <li key={runKey(task)} className="min-w-0 break-all">
+                      <div className="flex min-w-0 flex-wrap gap-x-2">
+                        <span className="font-medium">{task.dagName}</span>
+                        <span className="font-mono text-muted-foreground">
                           {task.dagRunId}
                         </span>
                       </div>
                       {underRoot(task) && (
-                        <div className="truncate text-muted-foreground">
+                        <div className="text-muted-foreground">
                           <I18nText
                             text="Root run: {dag} {run}"
                             values={{
@@ -588,11 +592,20 @@ function RemoveWorkerDialog({
                 />
                 <RunsChoice
                   checked={runs === WorkerRemovalRuns.stop}
-                  disabled={submitting}
+                  disabled={submitting || !listed}
                   onChange={() => setRuns(WorkerRemovalRuns.stop)}
                   label="Stop its runs and remove"
                   detail="Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended."
                 />
+                {!listed && (
+                  <p className="text-muted-foreground">
+                    <I18nText
+                      text={
+                        'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
+                      }
+                    />
+                  </p>
+                )}
               </fieldset>
             )}
 
@@ -807,10 +820,13 @@ function underRoot(task: RunningTask): boolean {
 
 function StopRunsDialog({
   worker,
+  listed,
   certificateId,
   onClose,
 }: {
   worker: Worker;
+  /** Whether the latest list has the worker; its runs are unknown if not. */
+  listed: boolean;
   /** The certificate whose runs the admin confirms to stop. */
   certificateId: string;
   onClose: () => void;
@@ -821,9 +837,12 @@ function StopRunsDialog({
   const [error, setError] = React.useState<unknown>(null);
   const count = worker.runningTasks?.length ?? 0;
   const locked = useLockedConfirmation(worker, certificateId);
+  // Nothing to stop: the runs all ended, or the list no longer shows the
+  // worker and its runs are unknown.
+  const stoppable = listed && count > 0;
 
   const submit = async () => {
-    if (submitting || locked) return;
+    if (submitting || locked || !stoppable) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -849,7 +868,7 @@ function StopRunsDialog({
       onSubmit={() => void submit()}
       // A refused stop needs a new confirmation with the current state, and
       // runs that all ended leave nothing to stop.
-      submitDisabled={submitting || locked || error !== null || count === 0}
+      submitDisabled={submitting || locked || error !== null || !stoppable}
       submitOnEnter={false}
       initialFocus="cancel"
       // A long list of runs or workers scrolls inside the dialog, so the
@@ -862,11 +881,13 @@ function StopRunsDialog({
         <p>
           <I18nText
             text={
-              count === 0
-                ? 'No runs remain to stop. The worker is removed as planned.'
-                : count === 1
-                  ? 'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.'
-                  : 'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.'
+              !listed
+                ? 'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
+                : count === 0
+                  ? 'No runs remain to stop. The worker is removed as planned.'
+                  : count === 1
+                    ? 'Its run gets a cancel request. The worker is removed within two minutes, whether or not the run has ended.'
+                    : 'Each of its {count} runs gets a cancel request. The worker is removed within two minutes, whether or not they have ended.'
             }
             values={{ count }}
           />

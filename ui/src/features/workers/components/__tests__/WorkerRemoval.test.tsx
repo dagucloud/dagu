@@ -107,11 +107,17 @@ async function openRemove(workerId: string) {
   return screen.getByRole('dialog');
 }
 
-function removals() {
-  return server.requests.filter(
-    (request) =>
-      request.method === 'DELETE' && request.path.endsWith('/certificate')
+// A removal is a DELETE of the worker itself; an invite delete names an
+// invite under /workers/invites/.
+function isRemoval(request: { method: string; path: string }) {
+  return (
+    request.method === 'DELETE' &&
+    /^\/api\/v1\/workers\/[^/]+$/.test(request.path)
   );
+}
+
+function removals() {
+  return server.requests.filter(isRemoval);
 }
 
 describe('Remove', () => {
@@ -198,7 +204,7 @@ describe('Remove', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     );
     expect(removals()).toHaveLength(1);
-    expect(removals()[0]?.path).toBe('/api/v1/workers/worker-a1/certificate');
+    expect(removals()[0]?.path).toBe('/api/v1/workers/worker-a1');
     expect(removals()[0]?.query.get('certificateId')).toBe('cert-worker-a1');
     expect(removals()[0]?.query.get('runs')).toBe('finish');
     expect(removals()[0]?.query.has('remoteNode')).toBe(false);
@@ -228,7 +234,7 @@ describe('Remove', () => {
       invite('inv-r', { kind: WorkerInviteKind.reusable }),
     ]);
     server.del = (request) =>
-      request.path.endsWith('/certificate')
+      isRemoval(request)
         ? { status: 200, body: { state: 'removing' } }
         : { status: 204 };
     renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
@@ -309,7 +315,7 @@ describe('Remove', () => {
       invite('inv-r', { kind: WorkerInviteKind.reusable }),
     ]);
     server.del = (request) =>
-      request.path.endsWith('/certificate')
+      isRemoval(request)
         ? refused(409, 'certificate changed', 'conflict', 'certificate_changed')
         : { status: 204 };
     renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
@@ -336,9 +342,7 @@ describe('Remove', () => {
       invite('inv-r', { kind: WorkerInviteKind.reusable }),
     ]);
     server.del = (request) =>
-      request.path.endsWith('/certificate')
-        ? { status: 200, body: {} }
-        : { status: 204 };
+      isRemoval(request) ? { status: 200, body: {} } : { status: 204 };
     renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
     await screen.findByText('Reusable');
 
@@ -366,7 +370,7 @@ describe('Remove', () => {
     ]);
     let inviteAnswer = refused(503, '', 'internal_error', 'no_coordinator');
     server.del = (request) =>
-      request.path.endsWith('/certificate')
+      isRemoval(request)
         ? { status: 200, body: { state: 'removing' } }
         : inviteAnswer;
     renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
@@ -415,7 +419,7 @@ describe('Remove', () => {
       { status: 204 },
     ];
     server.del = (request) =>
-      request.path.endsWith('/certificate')
+      isRemoval(request)
         ? { status: 200, body: { state: 'removing' } }
         : (inviteAnswers.shift() as never);
     const { update } = renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
@@ -476,7 +480,7 @@ describe('Remove', () => {
       { status: 204 },
     ];
     server.del = (request) =>
-      request.path.endsWith('/certificate')
+      isRemoval(request)
         ? { status: 200, body: { state: 'removing' } }
         : (inviteAnswers.shift() as never);
     const { update } = renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
@@ -602,7 +606,7 @@ describe('Remove', () => {
     let answer: (value: { status: number; body: unknown }) => void = () =>
       undefined;
     server.del = (request) =>
-      request.path.endsWith('/certificate')
+      isRemoval(request)
         ? new Promise((resolve) => (answer = resolve))
         : { status: 204 };
     renderPage([
@@ -638,7 +642,7 @@ describe('Remove', () => {
       invite('inv-r', { kind: WorkerInviteKind.reusable }),
     ]);
     server.del = (request) =>
-      request.path.endsWith('/certificate')
+      isRemoval(request)
         ? { status: 200, body: { state: 'removing' } }
         : refused(503, '', 'internal_error', 'no_coordinator');
     renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
@@ -962,6 +966,37 @@ describe('Remove', () => {
     );
   });
 
+  // A run that starts before the child of the other root goes first in
+  // the list; a key without the root would keep the ended child's row.
+  it('lists the child of the right root after a run is prepended', async () => {
+    const child = (root: string) => ({
+      ...task('load', 'child-1'),
+      rootDagRunName: root,
+      rootDagRunId: 'run-1',
+    });
+    const { update } = renderPage([
+      worker('worker-a1', { runningTasks: [child('etl'), child('report')] }),
+    ]);
+    const dialog = await openRemove('worker-a1');
+    const runs = () =>
+      within(dialog)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent);
+
+    update([
+      worker('worker-a1', {
+        runningTasks: [task('backup', 'run-9'), child('report')],
+      }),
+    ]);
+
+    await waitFor(() =>
+      expect(runs()).toEqual([
+        'backuprun-9',
+        'loadchild-1Root run: report run-1',
+      ])
+    );
+  });
+
   // The count rides on the page's refresh of /workers: a new list shows the
   // new count with no reload and no request of its own.
   it('shows the runs left while removing', async () => {
@@ -1009,7 +1044,7 @@ describe('Remove', () => {
     );
 
     await waitFor(() => expect(removals()).toHaveLength(1));
-    expect(removals()[0]?.path).toBe('/api/v1/workers/worker-a1/certificate');
+    expect(removals()[0]?.path).toBe('/api/v1/workers/worker-a1');
     expect(removals()[0]?.query.get('runs')).toBe('stop');
   });
 
@@ -1034,13 +1069,101 @@ describe('Remove', () => {
     update([]);
 
     expect(screen.getByRole('dialog')).toBe(dialog);
-    expect(dialog).toHaveTextContent('No runs remain to stop.');
+    expect(dialog).toHaveTextContent(
+      'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
+    );
     const stop = within(dialog).getByRole('button', { name: 'Stop runs' });
     expect(stop).toBeDisabled();
     await userEvent.click(stop);
     await act(() => Promise.resolve());
     expect(removals()).toHaveLength(0);
   });
+
+  // A refresh can drop the row while it still showed runs. The runs are
+  // then unknown: Stop runs now stays open, says so, and sends nothing.
+  it('offers no stop once the row leaves the list with runs', async () => {
+    const { update } = renderPage([
+      worker('worker-a1', {
+        removing: true,
+        runningTasks: [task('etl', 'run-1')],
+      }),
+    ]);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop runs now on worker-a1' })
+    );
+    const dialog = screen.getByRole('dialog');
+
+    update([]);
+
+    expect(
+      await within(dialog).findByText(
+        'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
+      )
+    ).toBeInTheDocument();
+    const stop = within(dialog).getByRole('button', { name: 'Stop runs' });
+    expect(stop).toBeDisabled();
+    await userEvent.click(stop);
+    await act(() => Promise.resolve());
+    expect(removals()).toHaveLength(0);
+  });
+
+  // The same for Remove: with the row gone, the stop choice is reset and
+  // locked, and the removal lets the runs finish.
+  it('sends finish once the row leaves the list with runs', async () => {
+    const { update } = renderPage([
+      worker('worker-a1', { runningTasks: [task('etl', 'run-1')] }),
+    ]);
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
+    );
+
+    update([]);
+
+    expect(
+      await within(dialog).findByText(
+        'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
+    ).toBeDisabled();
+    expect(
+      within(dialog).getByRole('radio', {
+        name: /Remove after its runs finish/,
+      })
+    ).toBeChecked();
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+    await waitFor(() => expect(removals()).toHaveLength(1));
+    expect(removals()[0]?.query.get('runs')).toBe('finish');
+  });
+
+  // A worker ID can match a fixed route under /workers; the removal names
+  // the worker, not the invites or the join readiness.
+  it.each(['invites', 'join-readiness'])(
+    'removes a worker named %s',
+    async (id) => {
+      renderPage([worker(id)]);
+      const dialog = await openRemove(id);
+
+      await userEvent.click(
+        within(dialog).getByRole('button', { name: 'Remove' })
+      );
+
+      await waitFor(() =>
+        expect(
+          server.requests.filter((request) => request.method === 'DELETE')
+        ).toHaveLength(1)
+      );
+      const [removal] = server.requests.filter(
+        (request) => request.method === 'DELETE'
+      );
+      expect(removal?.path).toBe(`/api/v1/workers/${id}`);
+      expect(removal?.query.get('certificateId')).toBe(`cert-${id}`);
+    }
+  );
 
   // A reusable invite still lets new hosts join, so the confirmation says
   // so, names the workers that share it, and deletes it once the server
@@ -1077,10 +1200,7 @@ describe('Remove', () => {
       server.requests
         .filter((request) => request.method === 'DELETE')
         .map((request) => request.path)
-    ).toEqual([
-      '/api/v1/workers/worker-a1/certificate',
-      '/api/v1/workers/invites/inv-r',
-    ]);
+    ).toEqual(['/api/v1/workers/worker-a1', '/api/v1/workers/invites/inv-r']);
   });
 
   // The invites list already read the invites; the confirmation uses them
@@ -1485,7 +1605,7 @@ describe('Remove', () => {
       invite('inv-r', { kind: WorkerInviteKind.reusable }),
     ]);
     server.del = (request) =>
-      request.path.endsWith('/certificate')
+      isRemoval(request)
         ? refused(503, '', 'internal_error', 'no_coordinator')
         : { status: 204 };
     const { update } = renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);

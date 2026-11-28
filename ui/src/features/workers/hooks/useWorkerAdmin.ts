@@ -388,7 +388,7 @@ export function useWorkerActions() {
       // The certificate the admin confirmed: a worker that joined again with
       // another one answers 409 instead of being removed.
       const { data, error, response } = await client.DELETE(
-        '/workers/{workerId}/certificate',
+        '/workers/{workerId}',
         {
           params: {
             path: { workerId: worker.id },

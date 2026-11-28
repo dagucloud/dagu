@@ -161,6 +161,8 @@ export const workerAdminMessages = defineMessages({
     'Root run: {dag} {run}': 'Root run: {dag} {run}',
     'No runs remain to stop. The worker is removed as planned.':
       'No runs remain to stop. The worker is removed as planned.',
+    'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.':
+      'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.',
     'The selected node has no peer token for its coordinator.':
       'The selected node has no peer token for its coordinator.',
     'Set peer.token on the selected node to the peer token of its coordinator.':
@@ -333,6 +335,8 @@ export const workerAdminMessages = defineMessages({
     'Root run: {dag} {run}': '根运行：{dag} {run}',
     'No runs remain to stop. The worker is removed as planned.':
       '没有可停止的运行。Worker 将按计划被移除。',
+    'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.':
+      '列表中已不再显示此 Worker，因此无法得知其运行，也无法在此停止它们。',
     'The selected node has no peer token for its coordinator.':
       '所选节点没有其 Coordinator 的 peer token。',
     'Set peer.token on the selected node to the peer token of its coordinator.':
@@ -509,6 +513,8 @@ export const workerAdminMessages = defineMessages({
     'Root run: {dag} {run}': 'ルート実行: {dag} {run}',
     'No runs remain to stop. The worker is removed as planned.':
       '停止する実行は残っていません。ワーカーは予定どおり削除されます。',
+    'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.':
+      '一覧にこのワーカーが表示されなくなったため、その実行は不明で、ここから停止できません。',
     'The selected node has no peer token for its coordinator.':
       '選択したノードには、そのコーディネーターの peer token がありません。',
     'Set peer.token on the selected node to the peer token of its coordinator.':
@@ -687,6 +693,8 @@ export const workerAdminMessages = defineMessages({
     'Root run: {dag} {run}': 'Wurzellauf: {dag} {run}',
     'No runs remain to stop. The worker is removed as planned.':
       'Es sind keine Läufe zum Stoppen mehr übrig. Der Worker wird wie geplant entfernt.',
+    'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.':
+      'Die Liste zeigt diesen Worker nicht mehr an. Seine Läufe sind daher unbekannt und können hier nicht gestoppt werden.',
     'The selected node has no peer token for its coordinator.':
       'Der ausgewählte Knoten hat kein Peer-Token für seinen Coordinator.',
     'Set peer.token on the selected node to the peer token of its coordinator.':
@@ -864,6 +872,8 @@ export const workerAdminMessages = defineMessages({
     'Root run: {dag} {run}': 'Exécution racine : {dag} {run}',
     'No runs remain to stop. The worker is removed as planned.':
       'Il ne reste aucune exécution à arrêter. Le worker est retiré comme prévu.',
+    'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.':
+      'La liste n’affiche plus ce worker : ses exécutions sont donc inconnues et ne peuvent pas être arrêtées d’ici.',
     'The selected node has no peer token for its coordinator.':
       'Le nœud sélectionné n’a pas de jeton de pair pour son coordinateur.',
     'Set peer.token on the selected node to the peer token of its coordinator.':

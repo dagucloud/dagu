@@ -1314,8 +1314,9 @@ The Workers page is the list of workers on System status.
 - **Remove** is on `certificate` workers with a `certificateId`. A worker
   without `connection` gets no Remove and no line. When the list has a
   `tls` or `plaintext` worker, a line below the list says that Remove
-  applies only to workers that joined with an invite, a worker on its own
-  certificates included, and how to stop one instead: on its host, or by
+  applies only to workers that joined with an invite. The same line says
+  that a `tls` or `plaintext` worker, which includes a worker on its own
+  certificates, has no Remove, and how to stop one: on its host, or by
   changing what the coordinator accepts from it.
 - The confirmation and **Stop runs now** act on the `certificateId` shown
   when the admin opened them. Once the worker connects with another
@@ -1348,7 +1349,9 @@ The Workers page is the list of workers on System status.
   shows
   `Removing (<n> runs left)`, or `Removing (1 run left)`, and
   **Stop runs now** while it has runs. Once the list shows no runs, an
-  open **Stop runs now** says none remain and sends nothing. The count
+  open **Stop runs now** says none remain and sends nothing. Once the list
+  no longer shows the worker, its runs are unknown: **Stop runs now** says
+  so and sends nothing, and the confirmation sends `finish`. The count
   comes from the page's existing `/workers` refresh.
 - For a worker on a reusable invite that is still active, the confirmation
   says the invite still admits new workers, names the other workers that
