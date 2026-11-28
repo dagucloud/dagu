@@ -45,7 +45,7 @@ can share the folder.
 - Spec 090: Agent Tools
 - Spec 091: Agent Node
 - Spec 092: Agent Workers
-- Spec 093: AI Endpoints
+- Spec 093: Model Connections
 
 ## Terms
 

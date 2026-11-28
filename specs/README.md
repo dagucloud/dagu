@@ -89,7 +89,7 @@ It must not be treated as product behavior until implementation catches up.
 | [088: Node Inventory](088-node-inventory.md) | Partially implemented |
 | [089: Node Targeting](089-node-targeting.md) | Partially implemented |
 | [092: Agent Workers](092-agent-workers.md) | Not implemented |
-| [093: AI Endpoints](093-ai-endpoints.md) | Not implemented |
+| [093: Model Connections](093-model-connections.md) | Not implemented |
 | [095: MCP Servers](095-mcp-servers.md) | Not implemented |
 | [096: Skills](096-skills.md) | Partially implemented |
 | [097: Derived Dates](097-derived-dates.md) | Partially implemented |
