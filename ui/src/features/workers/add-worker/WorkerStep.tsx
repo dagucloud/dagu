@@ -104,6 +104,12 @@ export function WorkerStep({
   );
   const [creating, setCreating] = React.useState(false);
   const [problem, setProblem] = React.useState<RequestProblem>();
+  // The Create invite button goes away with a new invite, so the focus
+  // moves to the new command's copy button once.
+  const [focusCopy, setFocusCopy] = React.useState(false);
+  React.useEffect(() => {
+    if (focusCopy) setFocusCopy(false);
+  }, [focusCopy]);
 
   if (!address && invites.length === 0) return null;
 
@@ -141,6 +147,7 @@ export function WorkerStep({
       });
       if (data) {
         onInvite({ ...data, createdAt: Date.now(), address, kind });
+        setFocusCopy(true);
       } else {
         setProblem(
           requestProblem(
@@ -197,6 +204,7 @@ export function WorkerStep({
             problem={problem}
             onCreate={() => void create()}
             input={invite && inputFor(invite)}
+            focusCopy={focusCopy}
           />
         )}
         {/* Every invite keeps its wait for the life of the dialog, so a
@@ -228,6 +236,7 @@ function WorkerCommand({
   problem,
   onCreate,
   input,
+  focusCopy,
 }: {
   tab: WorkerTab;
   labelsInput: string;
@@ -241,6 +250,7 @@ function WorkerCommand({
   problem?: RequestProblem;
   onCreate: () => void;
   input?: CommandInput;
+  focusCopy: boolean;
 }) {
   const labels = normalizeLabels(labelsInput);
   const command = input && workerCommand(tab, input);
@@ -317,11 +327,17 @@ function WorkerCommand({
                   </>
                 )}
               </p>
-              <CommandBlock text={command} label="Copy the command" />
+              <CommandBlock
+                text={command}
+                label="Copy the command"
+                copiedLabel="Command copied"
+                autoFocus={focusCopy}
+              />
             </>
           )}
+          {/* A host name may be 253 characters without a space. */}
           {address && address !== invite.address && (
-            <div className="space-y-2 text-sm">
+            <div className="space-y-2 text-sm break-words">
               <p>
                 <I18nText
                   text="This invite was made for {address}. To use {next}, create another invite."
@@ -516,7 +532,7 @@ function Arrival({
   const address = invite.address;
   const port = address.slice(address.lastIndexOf(':') + 1);
   return (
-    <div hidden={hidden} className="space-y-2 text-sm">
+    <div hidden={hidden} className="space-y-2 text-sm break-words">
       {/* One status region stays mounted, so the join is announced. */}
       <p
         ref={status}
@@ -604,7 +620,11 @@ function Arrival({
               <p>
                 <I18nText text={CHECK_HINT[tab]} />
               </p>
-              <CommandBlock text={check} label="Copy the diagnostic command" />
+              <CommandBlock
+                text={check}
+                label="Copy the diagnostic command"
+                copiedLabel="Diagnostic command copied"
+              />
             </>
           )}
         </>

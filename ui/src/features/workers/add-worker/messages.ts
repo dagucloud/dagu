@@ -15,6 +15,8 @@ export const addWorkerMessages = defineMessages({
       'Check that worker pods can reach this address. Workers in another namespace need the namespace-qualified Service address, such as dagu-coordinator.<namespace>.svc:50055.',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.",
+    'Diagnostic command copied': 'Diagnostic command copied',
+    'Command copied': 'Command copied',
     'Copy the diagnostic command': 'Copy the diagnostic command',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod shares its storage with the scheduler and the web UI, so all three need a volume they can each write; worker pods keep their own. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod shares its storage with the scheduler and the web UI, so all three need a volume they can each write; worker pods keep their own. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.",
@@ -178,6 +180,8 @@ export const addWorkerMessages = defineMessages({
       '请确认 Worker Pod 可以访问此地址。其他命名空间中的 Worker 需要使用带命名空间的 Service 地址，例如 dagu-coordinator.<namespace>.svc:50055。',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       '输入协调器 Service 的地址和端口。其他命名空间中的 Worker 需要使用带命名空间的名称，例如 dagu-coordinator.<namespace>.svc:50055。',
+    'Diagnostic command copied': '诊断命令已复制',
+    'Command copied': '命令已复制',
     'Copy the diagnostic command': '复制诊断命令',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod shares its storage with the scheduler and the web UI, so all three need a volume they can each write; worker pods keep their own. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       '在协调器的工作负载上将 DAGU_COORDINATOR_HOST 设为 0.0.0.0，然后重启它。在独立 Pod 中运行的协调器与调度器和 Web UI 共享存储，因此三者都需要各自可写的卷；Worker Pod 使用自己的卷。使用 Helm Chart 时，请使用 deploymentMode: distributed，它会设置该变量。将数据迁移到 ReadWriteMany 声明，然后在升级前将 persistence.existingClaim 设为该声明，并将 persistence.accessMode 设为 ReadWriteMany。',
@@ -339,6 +343,8 @@ export const addWorkerMessages = defineMessages({
       'ワーカー Pod がこのアドレスに到達できることを確認してください。別の名前空間のワーカーには、dagu-coordinator.<namespace>.svc:50055 のような名前空間付きの Service アドレスが必要です。',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       'コーディネーター Service のアドレスとポートを入力してください。別の名前空間のワーカーには、dagu-coordinator.<namespace>.svc:50055 のような名前空間付きの名前が必要です。',
+    'Diagnostic command copied': '診断コマンドをコピーしました',
+    'Command copied': 'コマンドをコピーしました',
     'Copy the diagnostic command': '診断コマンドをコピー',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod shares its storage with the scheduler and the web UI, so all three need a volume they can each write; worker pods keep their own. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       'コーディネーターのワークロードで DAGU_COORDINATOR_HOST を 0.0.0.0 にし、再起動してください。独自の Pod で動くコーディネーターはスケジューラーおよび Web UI とストレージを共有するため、3 つとも書き込めるボリュームが必要です。ワーカー Pod は自分のボリュームを使います。Helm チャートでは deploymentMode: distributed を使ってください。これがこの変数を設定します。データを ReadWriteMany のクレームに移し、アップグレードの前に persistence.existingClaim をそのクレームに、persistence.accessMode を ReadWriteMany にしてください。',
@@ -504,6 +510,8 @@ export const addWorkerMessages = defineMessages({
       'Prüfen Sie, dass Worker-Pods diese Adresse erreichen. Worker in einem anderen Namespace brauchen die Service-Adresse mit Namespace, etwa dagu-coordinator.<namespace>.svc:50055.',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       'Geben Sie Adresse und Port des Koordinator-Service ein. Worker in einem anderen Namespace brauchen seinen Namen mit Namespace, etwa dagu-coordinator.<namespace>.svc:50055.',
+    'Diagnostic command copied': 'Diagnosebefehl kopiert',
+    'Command copied': 'Befehl kopiert',
     'Copy the diagnostic command': 'Diagnosebefehl kopieren',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod shares its storage with the scheduler and the web UI, so all three need a volume they can each write; worker pods keep their own. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       'Setzen Sie DAGU_COORDINATOR_HOST auf dem Workload des Koordinators auf 0.0.0.0 und starten Sie ihn neu. Ein Koordinator in einem eigenen Pod teilt seinen Speicher mit dem Scheduler und der Web-UI, daher brauchen alle drei ein Volume, in das jeder schreiben kann; Worker-Pods behalten ihr eigenes. Mit dem Helm-Chart nutzen Sie deploymentMode: distributed, das die Variable setzt. Verschieben Sie die Daten in einen ReadWriteMany-Claim und setzen Sie vor dem Upgrade persistence.existingClaim darauf und persistence.accessMode auf ReadWriteMany.',
@@ -675,6 +683,8 @@ export const addWorkerMessages = defineMessages({
       'Vérifiez que les pods des workers atteignent cette adresse. Les workers d’un autre espace de noms ont besoin de l’adresse du Service qualifiée par l’espace de noms, par exemple dagu-coordinator.<namespace>.svc:50055.',
     "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.":
       'Saisissez l’adresse et le port du Service du coordinateur. Les workers d’un autre espace de noms ont besoin de son nom qualifié par l’espace de noms, par exemple dagu-coordinator.<namespace>.svc:50055.',
+    'Diagnostic command copied': 'Commande de diagnostic copiée',
+    'Command copied': 'Commande copiée',
     'Copy the diagnostic command': 'Copier la commande de diagnostic',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod shares its storage with the scheduler and the web UI, so all three need a volume they can each write; worker pods keep their own. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       'Définissez DAGU_COORDINATOR_HOST à 0.0.0.0 sur la charge de travail du coordinateur, puis redémarrez-la. Un coordinateur dans son propre pod partage son stockage avec le planificateur et l’interface web, donc tous trois ont besoin d’un volume où chacun peut écrire ; les pods des workers gardent le leur. Avec le chart Helm, utilisez deploymentMode : distributed, qui définit la variable. Déplacez les données vers une demande ReadWriteMany, puis définissez persistence.existingClaim sur celle-ci et persistence.accessMode à ReadWriteMany avant la mise à jour.',

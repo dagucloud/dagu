@@ -165,10 +165,16 @@ export function Step({
 export function CommandBlock({
   text,
   label,
+  copiedLabel,
+  autoFocus,
   className,
 }: {
   text: string;
   label: string;
+  /** The button's name for a moment after it copied; else "Copied". */
+  copiedLabel?: string;
+  /** Focuses the copy button when it mounts. */
+  autoFocus?: boolean;
   className?: string;
 }) {
   const { ts } = useI18n();
@@ -183,6 +189,8 @@ export function CommandBlock({
         key={text}
         text={text}
         label={ts(label)}
+        copiedLabel={copiedLabel && ts(copiedLabel)}
+        autoFocus={autoFocus}
         size="sm"
         className="absolute right-1.5 top-1.5"
       />

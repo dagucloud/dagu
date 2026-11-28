@@ -958,10 +958,12 @@ describe('AddWorker', () => {
     await settle();
     expect(writeText).toHaveBeenCalledWith(command);
     // "Copied" names only the command it copied, not the next tab's.
-    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Command copied' })
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Docker' }));
     expect(shownCommand()).toMatch(/^docker run /);
-    expect(screen.queryByRole('button', { name: 'Copied' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Command copied' })).toBeNull();
   });
 
   // The whole ID names the objects, so IDs that share a prefix do not.
@@ -1119,9 +1121,27 @@ describe('AddWorker', () => {
     created.resolve(answer(201, { id: 'inv-1', invite: INVITE }));
     await settle();
     expect(shownCommand()).toContain(INVITE);
-    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
-    await settle();
+    // The first Escape closes the focused copy button's tooltip.
+    for (let i = 0; i < 2; i++) {
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+      await settle();
+    }
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // Create invite goes away with the new invite, so the keyboard focus
+  // moves to the command's copy button, not back to the address.
+  it('moves the focus to the new command', async () => {
+    const user = userEvent.setup();
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    api.POST.mockResolvedValue(answer(201, { id: 'inv-1', invite: INVITE }));
+    screen.getByRole('button', { name: 'Create invite' }).focus();
+    await user.keyboard('{Enter}');
+    await settle();
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: 'Copy the command' })
+    );
   });
 
   // A replacement invite for a new address keeps the first one and its
@@ -1179,6 +1199,25 @@ describe('AddWorker', () => {
 
   // A label may be 255 characters; jsdom cannot lay out, so the classes that
   // let it wrap in a narrow dialog stand in, checked at 390 px by hand.
+  it('lets a long host name wrap in the notice and the details', async () => {
+    vi.useFakeTimers();
+    const host = `${'h'.repeat(63)}.example`;
+    await open(readiness());
+    typeAddress(`${host}:50055`);
+    await createInvite();
+    api.GET.mockResolvedValue(answer(200, { workers: [], errors: [] }));
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    typeAddress('192.168.1.20:50055');
+    expect(
+      screen.getByText(/This invite was made for/).closest('div')
+    ).toHaveClass('break-words');
+    expect(
+      screen.getByText(`The worker cannot reach ${host}:50055.`).closest('div')
+    ).toHaveClass('break-words');
+  });
+
   it('lets a long worker ID and label wrap', async () => {
     const { rerender } = await open(readiness());
     typeAddress('192.168.1.20:50055');
@@ -1328,6 +1367,10 @@ describe('AddWorker', () => {
     expect(screen.getByText(check, { selector: 'pre' })).toBeInTheDocument();
     // Each copy button names what it copies.
     for (const name of ['Copy the command', 'Copy the diagnostic command']) {
+      fireEvent.click(screen.getByRole('button', { name }));
+    }
+    await settle();
+    for (const name of ['Command copied', 'Diagnostic command copied']) {
       expect(screen.getAllByRole('button', { name })).toHaveLength(1);
     }
     // The check comes from the invite, so a label being corrected keeps it.
