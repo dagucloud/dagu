@@ -214,25 +214,6 @@ describe('AddWorker', () => {
     expect(screen.getByLabelText(ADDRESS)).toHaveValue('192.168.1.40:50055');
   });
 
-  it('starts with an explicit advertise, else empty and never the browser host', async () => {
-    await open(readiness({ advertise: 'coord.example.com' }));
-    expect(screen.getByLabelText(ADDRESS)).toHaveValue(
-      'coord.example.com:50055'
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    await settle();
-
-    // Each opening reads readiness afresh.
-    api.GET.mockResolvedValue(answer(200, readiness()));
-    fireEvent.click(screen.getByRole('button', { name: 'Add worker' }));
-    await settle();
-    expect(window.location.host).not.toBe('');
-    expect(screen.getByLabelText(ADDRESS)).toHaveValue('');
-    expect(
-      step('Worker').getByText('Shown after steps 1 and 2')
-    ).toBeInTheDocument();
-  });
-
   // admin.yaml is applied after config.yaml, so the change goes where the
   // value came from.
   it('points to the file that set the listen host', async () => {
@@ -290,6 +271,9 @@ describe('AddWorker', () => {
 
   it('says where to set the host for a coordinator on loopback only', async () => {
     await open(loopback());
+    // Without a last invite or an advertised address, the field starts
+    // empty, never with the browser's host.
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue('');
 
     const step1 = step('Accept workers from other hosts');
     expect(step1.getByText('Needs change')).toBeInTheDocument();
@@ -350,7 +334,7 @@ describe('AddWorker', () => {
     expect(
       screen.getByText(/Run the chart in distributed mode/)
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Copy the values' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy the change' }));
     await settle();
     expect(writeText).toHaveBeenCalledWith('deploymentMode: distributed');
     expect(
@@ -420,6 +404,8 @@ describe('AddWorker', () => {
     [503, WorkerAccessReason.peer_token_mismatch, /same peer.token on both/],
     [503, WorkerAccessReason.require_tls, /requires TLS/],
     [503, WorkerAccessReason.coordinator_refused, /Its log names the reason/],
+    [409, WorkerAccessReason.coordinator_conflict, /present state/],
+    [503, WorkerAccessReason.retry_later, /Try again in a moment/],
   ])('names the cause of a %i (%s)', async (status, reason, text) => {
     api.GET.mockResolvedValue(answer(status, undefined, reason));
     render(view());

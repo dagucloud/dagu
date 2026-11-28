@@ -115,7 +115,7 @@ function ListenChange({ report }: { report: Report }) {
         <p>
           <I18nText text="Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:" />
         </p>
-        <CommandBlock text={CHART_VALUES} label="Copy the values" />
+        <CommandBlock text={CHART_VALUES} label="Copy the change" />
       </>
     );
   }
@@ -139,7 +139,7 @@ function ListenChange({ report }: { report: Report }) {
               ? `-p ${port}:${port}`
               : `-p ${port}:${port} -e ${variable}=${ALL_INTERFACES}`
           }
-          label="Copy the options"
+          label="Copy the change"
         />
       </>
     );
@@ -174,7 +174,7 @@ function SourceChange({ report }: { report: Report }) {
         </p>
         <CommandBlock
           text={`${source.name}=${ALL_INTERFACES}`}
-          label="Copy the setting"
+          label="Copy the change"
         />
       </>
     );

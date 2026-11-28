@@ -32,6 +32,10 @@ const REASON_TEXT: Partial<Record<WorkerAccessReason, string>> = {
     "The coordinator requires TLS. Remove the peer.insecure setting from this server's config, then restart it.",
   [WorkerAccessReason.coordinator_refused]:
     'The coordinator refused this server. Its log names the reason.',
+  [WorkerAccessReason.coordinator_conflict]:
+    'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.',
+  [WorkerAccessReason.retry_later]:
+    'The coordinator cannot do this yet. Try again in a moment.',
   [WorkerAccessReason.older_coordinator]:
     'The coordinator is from an earlier Dagu release. Upgrade every coordinator to add workers.',
   [WorkerAccessReason.no_coordinator]: NO_COORDINATOR,

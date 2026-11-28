@@ -6,6 +6,11 @@ import { defineMessages } from '@/features/workflow-workspace/messages/define';
 /** The static messages of the Add worker dialog. */
 export const addWorkerMessages = defineMessages({
   en: {
+    'Copy the change': 'Copy the change',
+    'The coordinator cannot do this yet. Try again in a moment.':
+      'The coordinator cannot do this yet. Try again in a moment.',
+    'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
+      'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.',
     'Shown after step 1': 'Shown after step 1',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} is a multicast or broadcast address. Enter the address of one machine.',
@@ -70,9 +75,6 @@ export const addWorkerMessages = defineMessages({
       'Publish port {port} for the container, as with -p {port}:{port}. Dagu cannot see which ports a container publishes.',
     "Workers outside the cluster need the coordinator Service to be of type LoadBalancer or NodePort, as the chart's coordinator.service.type sets.":
       "Workers outside the cluster need the coordinator Service to be of type LoadBalancer or NodePort, as the chart's coordinator.service.type sets.",
-    'Copy the values': 'Copy the values',
-    'Copy the options': 'Copy the options',
-    'Copy the setting': 'Copy the setting',
     'Address workers use to reach the coordinator':
       'Address workers use to reach the coordinator',
     'Addresses of this machine:': 'Addresses of this machine:',
@@ -90,6 +92,11 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Shown after steps 1 and 2',
   },
   'zh-CN': {
+    'Copy the change': '复制修改内容',
+    'The coordinator cannot do this yet. Try again in a moment.':
+      '协调器暂时无法执行此操作。请稍后重试。',
+    'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
+      '协调器在当前状态下无法执行此操作。其日志说明了原因；修复后请重试。',
     'Shown after step 1': '完成步骤 1 后显示',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} 是多播或广播地址。请输入一台机器的地址。',
@@ -153,9 +160,6 @@ export const addWorkerMessages = defineMessages({
       '为容器发布端口 {port}，例如使用 -p {port}:{port}。Dagu 无法看到容器发布了哪些端口。',
     "Workers outside the cluster need the coordinator Service to be of type LoadBalancer or NodePort, as the chart's coordinator.service.type sets.":
       '集群外的 Worker 需要协调器 Service 的类型为 LoadBalancer 或 NodePort，可通过 Chart 的 coordinator.service.type 设置。',
-    'Copy the values': '复制 values',
-    'Copy the options': '复制选项',
-    'Copy the setting': '复制设置',
     'Address workers use to reach the coordinator':
       'Worker 用于连接协调器的地址',
     'Addresses of this machine:': '本机地址：',
@@ -173,6 +177,11 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': '完成步骤 1 和 2 后显示',
   },
   ja: {
+    'Copy the change': '変更をコピー',
+    'The coordinator cannot do this yet. Try again in a moment.':
+      'コーディネーターはまだこれを実行できません。少し待ってからもう一度試してください。',
+    'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
+      'コーディネーターは現在の状態ではこれを実行できません。理由はそのログにあります。修正してからもう一度試してください。',
     'Shown after step 1': 'ステップ 1 の後に表示',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} はマルチキャストまたはブロードキャストのアドレスです。1 台のマシンのアドレスを入力してください。',
@@ -237,9 +246,6 @@ export const addWorkerMessages = defineMessages({
       '-p {port}:{port} のように、コンテナのポート {port} を公開してください。Dagu はコンテナが公開するポートを確認できません。',
     "Workers outside the cluster need the coordinator Service to be of type LoadBalancer or NodePort, as the chart's coordinator.service.type sets.":
       'クラスター外のワーカーには、タイプが LoadBalancer または NodePort のコーディネーター Service が必要です。チャートの coordinator.service.type で設定します。',
-    'Copy the values': 'values をコピー',
-    'Copy the options': 'オプションをコピー',
-    'Copy the setting': '設定をコピー',
     'Address workers use to reach the coordinator':
       'ワーカーがコーディネーターに接続するアドレス',
     'Addresses of this machine:': 'このマシンのアドレス:',
@@ -258,6 +264,11 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'ステップ 1 と 2 の後に表示',
   },
   de: {
+    'Copy the change': 'Änderung kopieren',
+    'The coordinator cannot do this yet. Try again in a moment.':
+      'Der Koordinator kann dies noch nicht tun. Versuchen Sie es gleich noch einmal.',
+    'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
+      'Der Koordinator kann dies in seinem jetzigen Zustand nicht tun. Sein Log nennt den Grund; beheben Sie ihn und versuchen Sie es erneut.',
     'Shown after step 1': 'Erscheint nach Schritt 1',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} ist eine Multicast- oder Broadcast-Adresse. Geben Sie die Adresse eines einzelnen Rechners ein.',
@@ -323,9 +334,6 @@ export const addWorkerMessages = defineMessages({
       'Veröffentlichen Sie Port {port} für den Container, etwa mit -p {port}:{port}. Dagu sieht nicht, welche Ports ein Container veröffentlicht.',
     "Workers outside the cluster need the coordinator Service to be of type LoadBalancer or NodePort, as the chart's coordinator.service.type sets.":
       'Worker außerhalb des Clusters brauchen einen Koordinator-Service vom Typ LoadBalancer oder NodePort, wie ihn coordinator.service.type des Charts setzt.',
-    'Copy the values': 'Values kopieren',
-    'Copy the options': 'Optionen kopieren',
-    'Copy the setting': 'Einstellung kopieren',
     'Address workers use to reach the coordinator':
       'Adresse, über die Worker den Koordinator erreichen',
     'Addresses of this machine:': 'Adressen dieses Rechners:',
@@ -344,6 +352,11 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Erscheint nach Schritt 1 und 2',
   },
   fr: {
+    'Copy the change': 'Copier la modification',
+    'The coordinator cannot do this yet. Try again in a moment.':
+      'Le coordinateur ne peut pas encore le faire. Réessayez dans un instant.',
+    'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
+      'Le coordinateur ne peut pas le faire dans son état actuel. Son journal en donne la raison ; corrigez-la, puis réessayez.',
     'Shown after step 1': 'Affiché après l’étape 1',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} est une adresse multicast ou de diffusion. Saisissez l’adresse d’une seule machine.',
@@ -409,9 +422,6 @@ export const addWorkerMessages = defineMessages({
       'Publiez le port {port} du conteneur, par exemple avec -p {port}:{port}. Dagu ne voit pas quels ports un conteneur publie.',
     "Workers outside the cluster need the coordinator Service to be of type LoadBalancer or NodePort, as the chart's coordinator.service.type sets.":
       'Les workers hors du cluster ont besoin d’un Service de coordinateur de type LoadBalancer ou NodePort, comme le définit coordinator.service.type du chart.',
-    'Copy the values': 'Copier les values',
-    'Copy the options': 'Copier les options',
-    'Copy the setting': 'Copier le réglage',
     'Address workers use to reach the coordinator':
       'Adresse que les workers utilisent pour joindre le coordinateur',
     'Addresses of this machine:': 'Adresses de cette machine :',
