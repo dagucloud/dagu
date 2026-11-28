@@ -778,7 +778,11 @@ or `stop`:
     dispatch admitted before the removal still succeeds, also one admitted
     through another coordinator, which the check looks up in the store, and
     a dispatch whose check cannot read the store fails with `Unavailable`,
-    so the caller tries again.
+    so the caller tries again. A run dispatched to the worker before the
+    removal that the worker has not taken yet fails within 30 seconds, at
+    the next reread, or at once when the removal revokes the worker, with
+    `worker <worker ID> was removed before it took the run`, and frees its
+    place in its queue.
   - A worker accepts a task only while the store shows its certificate
     `active`: the coordinator that the acceptance reaches reads the
     certificate's state before it creates the task's lease. An acceptance

@@ -1961,40 +1961,12 @@ func (h *Handler) expireHeldDispatches(ctx context.Context, now time.Time) {
 }
 
 // failHeldDispatch fails the run of one held task that no worker claimed in
-// time, then drops the task. A run that is no longer queued, was claimed after
-// all, or no longer exists only loses the stale task. A run that cannot be read
-// keeps its task, so the next pass tries again instead of leaving the run
-// queued with nothing behind it.
+// time, then drops the task.
 func (h *Handler) failHeldDispatch(ctx context.Context, task *dispatch.DispatchTask, now time.Time) {
 	if task == nil {
 		return
 	}
-	held := h.runLocks.lock(task.DAGRunID)
-	defer h.runLocks.unlock(task.DAGRunID, held)
-
-	storeCtx := context.WithoutCancel(ctx)
-	rootRef := ir.DAGRunRef{Name: task.RootDAGRunName, ID: task.RootDAGRunID}
-	attempt, runStatus, err := h.resolveLatestAttempt(storeCtx, task.Target, task.DAGRunID, rootRef)
-	switch {
-	case errors.Is(err, dagrun.ErrDAGRunIDNotFound), errors.Is(err, dagrun.ErrNoStatusData):
-		// Nothing is left to fail; only the task remains.
-	case err != nil:
-		logger.Warn(ctx, "Failed to read the run of a held dispatch past its wait",
-			tag.RunID(task.DAGRunID), tag.Error(err))
-		return
-	case runStatus != nil && runStatus.Status == ir.Queued && runStatus.WorkerID == "" &&
-		(task.AttemptID == "" || runStatus.AttemptID == task.AttemptID):
-		// runStatus may be the cached status other readers share.
-		failed := *runStatus
-		failed.Status = ir.Failed
-		failed.FinishedAt = stringutil.FormatTime(now)
-		failed.Error = heldDispatchFailure(task, h.workerWaitTimeout)
-		if writeErr := h.writeHeldAttemptStatus(storeCtx, task.DAGRunID, attempt, failed); writeErr != nil {
-			logger.Warn(ctx, "Failed to fail the run of a held dispatch past its wait",
-				tag.RunID(task.DAGRunID), tag.Error(writeErr))
-			return
-		}
-		h.finalizeAdmissionForStatus(storeCtx, &failed, attempt.ID())
+	if h.failPendingDispatch(ctx, task, now, heldDispatchFailure(task, h.workerWaitTimeout)) {
 		logger.Warn(ctx, "No worker took a held dispatch within its wait; the run failed",
 			tag.RunID(task.DAGRunID),
 			tag.AttemptKey(task.AttemptKey),
@@ -2002,10 +1974,49 @@ func (h *Handler) failHeldDispatch(ctx context.Context, task *dispatch.DispatchT
 			slog.Duration("wait", h.workerWaitTimeout),
 		)
 	}
+}
+
+// failPendingDispatch fails the run of one pending task that no worker can
+// take with reason, releases its admission, and drops the task. It reports
+// whether it failed the run. A run that is no longer waiting, was claimed
+// after all, or no longer exists only loses the stale task. A run that
+// cannot be read keeps its task, so the next pass tries again instead of
+// leaving the run waiting with nothing behind it.
+func (h *Handler) failPendingDispatch(ctx context.Context, task *dispatch.DispatchTask, now time.Time, reason string) bool {
+	held := h.runLocks.lock(task.DAGRunID)
+	defer h.runLocks.unlock(task.DAGRunID, held)
+
+	storeCtx := context.WithoutCancel(ctx)
+	rootRef := ir.DAGRunRef{Name: task.RootDAGRunName, ID: task.RootDAGRunID}
+	attempt, runStatus, err := h.resolveLatestAttempt(storeCtx, task.Target, task.DAGRunID, rootRef)
+	failedRun := false
+	switch {
+	case errors.Is(err, dagrun.ErrDAGRunIDNotFound), errors.Is(err, dagrun.ErrNoStatusData):
+		// Nothing is left to fail; only the task remains.
+	case err != nil:
+		logger.Warn(ctx, "Failed to read the run of a pending dispatch that no worker can take",
+			tag.RunID(task.DAGRunID), tag.Error(err))
+		return false
+	case runStatus != nil && (runStatus.Status == ir.Queued || runStatus.Status == ir.NotStarted) && runStatus.WorkerID == "" &&
+		(task.AttemptID == "" || runStatus.AttemptID == task.AttemptID):
+		// runStatus may be the cached status other readers share.
+		failed := *runStatus
+		failed.Status = ir.Failed
+		failed.FinishedAt = stringutil.FormatTime(now)
+		failed.Error = reason
+		if writeErr := h.writeHeldAttemptStatus(storeCtx, task.DAGRunID, attempt, failed); writeErr != nil {
+			logger.Warn(ctx, "Failed to fail the run of a pending dispatch that no worker can take",
+				tag.RunID(task.DAGRunID), tag.Error(writeErr))
+			return false
+		}
+		h.finalizeAdmissionForStatus(storeCtx, &failed, attempt.ID())
+		failedRun = true
+	}
 	if err := h.dispatchTaskStore.DeletePending(storeCtx, task.AttemptKey); err != nil {
-		logger.Warn(ctx, "Failed to drop a held dispatch past its wait",
+		logger.Warn(ctx, "Failed to drop a pending dispatch that no worker can take",
 			tag.RunID(task.DAGRunID), tag.AttemptKey(task.AttemptKey), tag.Error(err))
 	}
+	return failedRun
 }
 
 // dropOrphanedDispatches removes the pending tasks that have waited a lease

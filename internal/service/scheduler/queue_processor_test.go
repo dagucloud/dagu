@@ -1361,6 +1361,10 @@ func (m *mockDispatchTaskStore) ListStalePending(context.Context, time.Time) ([]
 	return nil, nil
 }
 
+func (m *mockDispatchTaskStore) ListPendingFor(context.Context, []string) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
 func (m *mockDispatchTaskStore) DeletePending(context.Context, string) error {
 	return nil
 }

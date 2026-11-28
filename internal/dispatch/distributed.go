@@ -127,6 +127,9 @@ type DispatchTaskStore interface {
 	// before cutoff. They stay claimable; the coordinator removes, with
 	// DeletePending, the ones whose runs no longer await them.
 	ListStalePending(ctx context.Context, cutoff time.Time) ([]*DispatchTask, error)
+	// ListPendingFor returns the pending tasks, held ones included, bound to
+	// one of workerIDs. Its cost grows with those tasks only.
+	ListPendingFor(ctx context.Context, workerIDs []string) ([]*DispatchTask, error)
 	// DeletePending removes the pending task of an attempt, if any. A task
 	// already claimed is left alone.
 	DeletePending(ctx context.Context, attemptKey string) error

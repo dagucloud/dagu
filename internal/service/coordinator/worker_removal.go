@@ -10,7 +10,9 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -353,6 +355,7 @@ func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatc
 	}
 	resp.CertificateIds = append(resp.CertificateIds, more...)
 	h.warnReconnected(ctx, workerID, unheld)
+	h.failTasksBoundTo(ctx, map[string]bool{workerID: true}, h.clock())
 	return resp, nil
 }
 
@@ -597,6 +600,14 @@ func (h *Handler) settleRemovals(ctx context.Context, removing []persis.WorkerCe
 		logger.Warn(ctx, "Failed to list worker heartbeats or run leases for removing workers", tag.Error(err))
 		return
 	}
+	workerIDs := make(map[string]bool)
+	for _, removal := range removing {
+		workerIDs[removal.WorkerID] = true
+		for _, hb := range h.removalHolders(removal, presence, now) {
+			workerIDs[hb.WorkerID] = true
+		}
+	}
+	h.failTasksBoundTo(ctx, workerIDs, now)
 	for _, removal := range removing {
 		if h.removalDue(removal, presence, leases, now) {
 			h.revokeIdle(ctx, removal, now)
@@ -628,6 +639,26 @@ func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertifica
 	h.removals.apply(removalOf(cert))
 	if revoked {
 		logger.Info(ctx, "Worker certificate revoked", slog.String("certificate-id", cert.ID), tag.WorkerID(removal.WorkerID))
+	}
+}
+
+// failTasksBoundTo fails the run of each pending task bound to one of
+// workerIDs, whose removal lets no worker take it, and releases its place
+// in its queue, so the queue's next run can start.
+func (h *Handler) failTasksBoundTo(ctx context.Context, workerIDs map[string]bool, now time.Time) {
+	if h.dispatchTaskStore == nil || h.dagRunRepository == nil || len(workerIDs) == 0 {
+		return
+	}
+	tasks, err := h.dispatchTaskStore.ListPendingFor(ctx, slices.Collect(maps.Keys(workerIDs)))
+	if err != nil {
+		logger.Warn(ctx, "Failed to list the pending tasks of removed workers", tag.Error(err))
+		return
+	}
+	for _, task := range tasks {
+		reason := fmt.Sprintf("worker %s was removed before it took the run", task.TargetWorkerID)
+		if h.failPendingDispatch(ctx, task, now, reason) {
+			logger.Warn(ctx, "A run bound to a removed worker failed", tag.RunID(task.DAGRunID), tag.WorkerID(task.TargetWorkerID))
+		}
 	}
 }
 

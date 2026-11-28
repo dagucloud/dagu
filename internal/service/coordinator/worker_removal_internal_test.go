@@ -1672,6 +1672,62 @@ func TestQueuedRepeatToNodeRemovedElsewhere(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// A queue that runs one run at a time admits a run bound to node-a, and
+// another coordinator removes node-a before it takes the run. The next
+// reread fails the run with the removal as its reason and frees the
+// queue's place, so the queue's next run is admitted (Spec 108 §Removal).
+func TestRemovalFailsAdmittedBoundRun(t *testing.T) {
+	registerCommandExecutorCapsForCoordinatorTest()
+	ctx := t.Context()
+	baseDir := t.TempDir()
+	dispatches, leases, active := newTestDispatchAdmissionTaskStore(baseDir)
+	heartbeats := newTestWorkerHeartbeatStore(baseDir)
+	runs := newMockDAGRunStore()
+	certs, err := store.NewWorkerCertificateStore(testutil.NewMemoryBackend().Collection(persis.CollectionWorkerCertificates))
+	require.NoError(t, err)
+	require.NoError(t, certs.Create(ctx, persis.WorkerCertificate{
+		ID: "cert-1", KeyFingerprint: make([]byte, 32), State: persis.WorkerCertificateActive, WorkerID: "node-a", CreatedAt: time.Now(),
+	}))
+	require.NoError(t, heartbeats.Upsert(ctx, dispatch.WorkerHeartbeatRecord{
+		WorkerID: "node-a", LastHeartbeatAt: time.Now().UnixMilli(), CertificateID: "cert-1",
+	}))
+	h := NewHandler(HandlerConfig{
+		DAGRunRepository:          runs.repository,
+		DispatchTaskStore:         dispatches,
+		WorkerHeartbeatStore:      heartbeats,
+		DAGRunLeaseStore:          leases,
+		ActiveDistributedRunStore: active,
+	})
+	t.Cleanup(func() { h.Close(context.Background()) })
+	h.workerCertificates = certs
+	reserve := func(runID string) *dispatch.DispatchAdmissionDecision {
+		t.Helper()
+		decision, err := dispatches.ReserveAdmission(ctx, dispatch.DispatchAdmissionRequest{
+			QueueName: "queue-1", MaxConcurrency: 1, StaleThreshold: time.Minute,
+			AttemptKey: ir.GenerateAttemptKey("routed", runID, "routed", runID, repeatAttemptID),
+			AttemptID:  repeatAttemptID, DAGRun: ir.NewDAGRunRef("routed", runID),
+		})
+		require.NoError(t, err)
+		return decision
+	}
+	admitted := reserve("run-1")
+	require.True(t, admitted.Reserved)
+	task := boundRepeatTask("run-1")
+	task.QueueName = "queue-1"
+	_, err = h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: task, AdmissionReservationToken: admitted.ReservationToken})
+	require.NoError(t, err)
+	require.False(t, reserve("run-2").Reserved, "the queue is full")
+	_, err = certs.MarkRemoving(ctx, "cert-1", "node-a", time.Now)
+	require.NoError(t, err)
+
+	h.rereadRemovals(ctx)
+	status, err := runs.attempts["run-1"].ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Failed, status.Status)
+	assert.Contains(t, status.Error, "node-a was removed")
+	assert.True(t, reserve("run-2").Reserved, "the queue's next run is admitted")
+}
+
 // failingCertificateRead fails every certificate read.
 type failingCertificateRead struct {
 	persis.WorkerCertificateStore
@@ -1892,7 +1948,7 @@ type recordHook struct {
 	once sync.Once
 }
 
-func (s *recordHook) RecordHeartbeat(ctx context.Context, cert persis.WorkerCertificate) (persis.WorkerCertificate, error) {
+func (s *recordHook) RecordHeartbeat(ctx context.Context, cert persis.WorkerCertificate) error {
 	s.once.Do(s.hook)
 	return s.WorkerCertificateStore.RecordHeartbeat(ctx, cert)
 }
