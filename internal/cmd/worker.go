@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
+	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/spf13/cobra"
@@ -136,6 +137,14 @@ func runWorker(ctx *Context, _ []string) error {
 	}
 	defer func() { _ = machine.Stop(ctx.Context) }()
 
+	// The health check port is held from before the worker joins until
+	// the worker serves on it, so a busy port uses up no invite.
+	health := healthcheck.NewServer("worker", ctx.Config.Worker.HealthPort)
+	if err := health.Listen(); err != nil {
+		return fmt.Errorf("failed to start worker health check server: %w", err)
+	}
+	defer func() { _ = health.Stop(ctx.Context) }()
+
 	membership, err := worker.OpenMembership(signalCtx, ctx.Config, ctx.serverStores.ServiceRegistry)
 	if err != nil {
 		return err
@@ -167,6 +176,7 @@ func runWorker(ctx *Context, _ []string) error {
 	logger.Info(ctx, "Using remote task handler")
 
 	w.SetMachine(machine)
+	w.SetHealthServer(health)
 
 	logger.Info(ctx, "Starting worker", tag.WorkerID(workerID), tag.MaxConcurrency(maxActiveRuns), slog.Any("labels", labels))
 	// Run status lives with the coordinator, so the worker closes waiting

@@ -24,9 +24,11 @@ const Path = "/health"
 
 // Server represents a lightweight HTTP health check server for a service.
 type Server struct {
-	mu         sync.Mutex
-	server     *http.Server
-	listener   net.Listener
+	mu       sync.Mutex
+	server   *http.Server
+	listener net.Listener
+	// held is the listener Listen bound before Start.
+	held       net.Listener
 	port       int
 	listenAddr string
 	boundAddr  string
@@ -84,9 +86,34 @@ func (h *Server) URL() string {
 	return "http://" + h.boundAddr
 }
 
-// Start starts the health check server.
+// Listen binds the server's port and holds it until Start serves on it or
+// Stop releases it, so a process can fail on a busy port before work it
+// cannot undo. It does nothing for a disabled server.
+func (h *Server) Listen() error {
+	if h.disabled() {
+		return nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.held != nil || h.server != nil {
+		return nil
+	}
+	listener, err := net.Listen("tcp", h.listenAddr)
+	if err != nil {
+		return err
+	}
+	h.held = listener
+	return nil
+}
+
+func (h *Server) disabled() bool {
+	return h.listenAddr == "" || (h.port == 0 && h.listenAddr == ":0")
+}
+
+// Start starts the health check server, on the port Listen holds if it
+// was called.
 func (h *Server) Start(ctx context.Context) error {
-	if h.listenAddr == "" || (h.port == 0 && h.listenAddr == ":0") {
+	if h.disabled() {
 		logger.Info(ctx, "Health check server disabled",
 			slog.String("service", h.serviceName()),
 			tag.Port(h.port),
@@ -105,9 +132,15 @@ func (h *Server) Start(ctx context.Context) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	listener, err := net.Listen("tcp", h.listenAddr)
-	if err != nil {
-		return err
+	h.mu.Lock()
+	listener := h.held
+	h.held = nil
+	h.mu.Unlock()
+	if listener == nil {
+		var err error
+		if listener, err = net.Listen("tcp", h.listenAddr); err != nil {
+			return err
+		}
 	}
 	boundAddr := listener.Addr().String()
 
@@ -144,7 +177,12 @@ func (h *Server) Stop(ctx context.Context) error {
 	server := h.server
 	listener := h.listener
 	if server == nil {
+		held := h.held
+		h.held = nil
 		h.mu.Unlock()
+		if held != nil {
+			return held.Close()
+		}
 		return nil
 	}
 	h.mu.Unlock()

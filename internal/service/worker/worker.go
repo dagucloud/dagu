@@ -112,6 +112,12 @@ func (w *Worker) SetHandler(executor TaskHandler) {
 	w.handler = executor
 }
 
+// SetHealthServer makes the worker serve its health check on server, such
+// as one whose port Listen already holds. Call it before Start.
+func (w *Worker) SetHealthServer(server *healthcheck.Server) {
+	w.healthServer = server
+}
+
 // SetMachine makes heartbeats carry the latest sample of the worker's
 // machine. Call it before Start.
 func (w *Worker) SetMachine(machine Machine) {

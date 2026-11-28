@@ -277,9 +277,6 @@ func (m *Membership) StartTransport() (string, error) {
 // invite's CA.
 func (m *Membership) Connect(ctx context.Context, workerID string) (coordinator.Client, error) {
 	if m.invite != nil && m.cred == nil {
-		if err := checkHealthPort(m.cfg.Worker.HealthPort); err != nil {
-			return nil, err
-		}
 		if err := m.enroll(ctx, workerID); err != nil {
 			return nil, err
 		}
@@ -413,19 +410,6 @@ func enrollRetryPolicy() backoff.RetryPolicy {
 	policy.MaxInterval = 15 * time.Second
 	policy.MaxRetries = 0
 	return backoff.WithJitter(policy, backoff.Jitter)
-}
-
-// checkHealthPort fails, as the worker's start would, when the health
-// check port cannot be bound.
-func checkHealthPort(port int) error {
-	if port <= 0 {
-		return nil
-	}
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return fmt.Errorf("failed to start worker health check server: %w", err)
-	}
-	return listener.Close()
 }
 
 func portOf(address string) string {

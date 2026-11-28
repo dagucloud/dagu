@@ -16,7 +16,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
-	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -32,6 +31,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -230,7 +230,7 @@ func TestMembershipEnrolls(t *testing.T) {
 	assert.Equal(t, "built-in TLS (from worker certificate)", startLine(t, m))
 	assert.True(t, ca.cert.Equal(m.cred.ca))
 
-	data, err := os.ReadFile(credentialPath(dataDir))
+	data, err := fileutil.ReadFile(credentialPath(dataDir))
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), invite[strings.LastIndex(invite, ".")+1:])
 	if runtime.GOOS != "windows" {
@@ -344,27 +344,12 @@ func TestMembershipEnrollFailures(t *testing.T) {
 // misconfigured worker never uses up a single-use invite.
 func TestMembershipFailsBeforeEnrolling(t *testing.T) {
 	ca := newTestCA(t)
-
-	t.Run("InvalidLabel", func(t *testing.T) {
-		fake := enrolling(ca)
-		cfg := workerConfig(t.TempDir(), ca.invite(t))
-		cfg.Worker.Labels = map[string]string{"team": "data eng"}
-		_, err := open(t, cfg, fake)
-		require.ErrorContains(t, err, "team=data eng")
-		assert.Zero(t, fake.calls())
-	})
-	t.Run("HealthPortInUse", func(t *testing.T) {
-		listener, err := net.Listen("tcp", ":0")
-		require.NoError(t, err)
-		t.Cleanup(func() { _ = listener.Close() })
-		fake := enrolling(ca)
-		cfg := workerConfig(t.TempDir(), ca.invite(t))
-		cfg.Worker.HealthPort = listener.Addr().(*net.TCPAddr).Port
-		m, err := open(t, cfg, fake)
-		require.NoError(t, err)
-		require.ErrorContains(t, connect(t.Context(), t, m), "failed to start worker health check server")
-		assert.Zero(t, fake.calls())
-	})
+	fake := enrolling(ca)
+	cfg := workerConfig(t.TempDir(), ca.invite(t))
+	cfg.Worker.Labels = map[string]string{"team": "data eng"}
+	_, err := open(t, cfg, fake)
+	require.ErrorContains(t, err, "team=data eng")
+	assert.Zero(t, fake.calls())
 }
 
 // A worker that cannot write a data directory without a kept certificate

@@ -28,7 +28,7 @@ const (
 	// holds an invite worker's credential and its lock.
 	credentialDirName = "worker"
 	// credentialFileName is the credential file in that directory.
-	credentialFileName = "credential.json"
+	credentialFileName = "credential.json" //nolint:gosec // A file name, not a credential.
 	// credentialFileMode keeps the credential readable by its user only.
 	credentialFileMode = 0o600
 	// writeProbeName is the file that tests whether the directory is

@@ -5,6 +5,8 @@ package spec108_peer_transport_test
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -143,6 +145,17 @@ func TestWorkerInviteBadLabel(t *testing.T) {
 	bad := dagu.RunWithEnv(inviteWorkerEnv(dagu, "host-a", invite), append(inviteWorkerArgs("worker-a", coord.addr), "--worker.labels=team=data eng")...)
 	bad.ExpectExitCode(1)
 	assert.NotContains(t, bad.Stdout()+bad.Stderr(), workerEnrolled)
+
+	// A health check port that another process holds stops the worker
+	// before it enrolls too.
+	busy, err := net.Listen("tcp", ":0")
+	require.NoError(t, err)
+	busyPort := fmt.Sprintf("--worker.health-port=%d", busy.Addr().(*net.TCPAddr).Port)
+	held := dagu.RunWithEnv(inviteWorkerEnv(dagu, "host-a", invite), append(inviteWorkerArgs("worker-a", coord.addr), busyPort)...)
+	require.NoError(t, busy.Close())
+	held.ExpectExitCode(1)
+	held.ExpectStderrContains("failed to start worker health check server")
+	assert.NotContains(t, held.Stdout()+held.Stderr(), workerEnrolled)
 
 	worker := dagu.StartWithEnv(inviteWorkerEnv(dagu, "host-a", invite), inviteWorkerArgs("worker-a", coord.addr)...)
 	waitForOutput(t, worker, workerEnrolled)
