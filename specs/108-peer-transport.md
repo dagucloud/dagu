@@ -1320,6 +1320,9 @@ The Workers page is the list of workers on System status.
   certificate, or none, before the admin confirms, they say so and send
   nothing, also when that row later goes away; a new confirmation is
   needed.
+- A failed read of the workers list shows the page's own words in the
+  list and raises no page notice. The confirmation drops the warning about
+  a reusable invite once it expires, on the same clock as the invites list.
 - After a refused request, the confirmation and **Stop runs now** take
   no second one: they say to close and confirm again from the list. Enter
   confirms only on the confirm button, and the choices hold while a

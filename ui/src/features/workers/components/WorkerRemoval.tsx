@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import { useIsAdmin } from '@/contexts/AuthContext';
+import { useClock } from '@/hooks/useClock';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -415,9 +416,13 @@ function RemoveWorkerDialog({
   // removal lets any run handed out meanwhile finish.
   const sentRuns = tasks.length > 0 ? runs : WorkerRemovalRuns.finish;
   const invite = lookup.invite;
-  const reusable =
-    invite?.kind === WorkerInviteKind.reusable &&
-    inviteState(invite, Date.now()).state === 'active';
+  // The invite's expiry on the shared second clock, as the invites list
+  // shows it: an invite that expires while the dialog is open admits no
+  // worker, also while the page's refresh is paused.
+  const inviteExpired = useClock(invite?.expiresAt ? 1000 : null, (now) =>
+    invite ? inviteState(invite, now).state !== 'active' : false
+  );
+  const reusable = invite?.kind === WorkerInviteKind.reusable && !inviteExpired;
   const others = reusable
     ? workers
         .filter((other) => other.id !== worker.id)

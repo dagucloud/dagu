@@ -9,6 +9,7 @@ import WorkerInvites, {
   inviteBaseline,
 } from '../../features/workers/components/WorkerInvites';
 import { WorkerActionsHost } from '../../features/workers/components/WorkerRemoval';
+import { useWorkersList } from '../../features/workers/hooks/useWorkersList';
 import H2CCallers from '../../features/system-status/components/H2CCallers';
 import PathsCard from '../../features/system-status/components/PathsCard';
 import ResourceChart from '../../features/system-status/components/ResourceChart';
@@ -106,23 +107,9 @@ function SystemStatus() {
     }
   );
 
-  const {
-    data: workersData,
-    error: workersError,
-    isLoading: workersLoading,
-    mutate: mutateWorkers,
-  } = useQuery(
-    '/workers',
-    {
-      params: {
-        query: {
-          remoteNode: appBarContext.selectedRemoteNode || 'local',
-        },
-      },
-    },
-    {
-      refreshInterval: autoRefresh ? 2000 : 0,
-    }
+  const workersList = useWorkersList(
+    appBarContext.selectedRemoteNode || 'local',
+    autoRefresh
   );
 
   const {
@@ -151,7 +138,7 @@ function SystemStatus() {
         mutateResource(),
         mutateScheduler(),
         mutateCoordinator(),
-        mutateWorkers(),
+        workersList.mutate(),
         mutateTunnel(),
       ]);
       setLastUpdateTime(new Date());
@@ -278,21 +265,16 @@ function SystemStatus() {
         className="card-obsidian flex max-h-[60vh] flex-col overflow-hidden"
         style={{ minHeight: '200px' }}
       >
-        <WorkerActionsHost workers={workersData?.workers || []}>
+        <WorkerActionsHost workers={workersList.workers || []}>
           <WorkersSummary
-            workers={workersData?.workers || []}
-            isLoading={!workersData && !workersError}
-            errors={
-              workersError ? [errorText(workersError)!] : workersData?.errors
-            }
+            workers={workersList.workers || []}
+            isLoading={workersList.isLoading}
+            errors={workersList.errors}
           />
         </WorkerActionsHost>
       </div>
       <WorkerInvites
-        workers={inviteBaseline({
-          workers: workersData?.workers,
-          settled: !workersLoading,
-        })}
+        workers={inviteBaseline(workersList)}
         live={autoRefresh}
         refreshes={refreshes}
       />

@@ -15,6 +15,7 @@ import { QueryFeedback } from '@/components/QueryFeedback';
 import { useIsAdmin } from '@/contexts/AuthContext';
 import WorkersSummary from '@/features/dashboard/components/WorkersSummary';
 import { useQuery } from '@/hooks/api';
+import { useWorkersList } from '../../hooks/useWorkersList';
 import WorkerInvites from '../WorkerInvites';
 import { WorkerActionsHost } from '../WorkerRemoval';
 import {
@@ -51,6 +52,20 @@ function Page({ workers, errors }: { workers: Worker[]; errors?: string[] }) {
       </WorkerActionsHost>
       <WorkerInvites workers={workers} live refreshes={0} />
     </QueryFeedback>
+  );
+}
+
+// System status as it reads its workers itself, with its refresh paused.
+function LivePage() {
+  const list = useWorkersList('local', false);
+  return (
+    <WorkerActionsHost workers={list.workers || []}>
+      <WorkersSummary
+        workers={list.workers || []}
+        isLoading={list.isLoading}
+        errors={list.errors}
+      />
+    </WorkerActionsHost>
   );
 }
 
@@ -600,6 +615,74 @@ describe('Remove', () => {
     );
 
     expect(requests('GET', '/workers/invites')).toHaveLength(2);
+  });
+
+  // A refused removal reads the workers again, also while the refresh is
+  // paused. A failed read shows the page's words in the list, with no page
+  // notice of the server's.
+  it('shows a failed workers refresh in the list, not a notice', async () => {
+    const answers = [
+      () => ({
+        status: 200,
+        body: { workers: [worker('worker-a1')], errors: [] },
+      }),
+      () => ({
+        status: 503,
+        body: { code: 'internal_error', message: 'raw server words' },
+      }),
+    ];
+    server.workers = () => answers.shift()!();
+    server.del = () => refused(503, '', 'internal_error', 'no_coordinator');
+    render(
+      <QueryFeedback>
+        <LivePage />
+      </QueryFeedback>,
+      { wrapper: Providers }
+    );
+    const dialog = await (async () => {
+      const [button] = await screen.findAllByRole('button', {
+        name: 'Remove worker-a1',
+      });
+      await userEvent.click(button!);
+      return screen.getByRole('dialog');
+    })();
+
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+
+    expect(
+      await screen.findByText(
+        'The workers list could not be read. Refresh the page, or check the server connection.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(screen.queryByText(/raw server words/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Background request failed')
+    ).not.toBeInTheDocument();
+  });
+
+  // The invite can expire while the confirmation is open with the refresh
+  // paused: the warning and the delete option go away with it.
+  it('drops the invite warning when the invite expires', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    server.invites = invitesAnswer([
+      invite('inv-r', {
+        kind: WorkerInviteKind.reusable,
+        expiresAt: new Date(Date.now() + 20e3).toISOString(),
+      }),
+    ]);
+    renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
+    await screen.findByText('Reusable');
+    const dialog = await openRemove('worker-a1');
+    expect(dialog).toHaveTextContent('It joined with a reusable invite');
+
+    await act(() => vi.advanceTimersByTimeAsync(30e3));
+
+    expect(dialog).not.toHaveTextContent('It joined with a reusable invite');
+    expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   // The stop choice says what the server does: a cancel request to each
