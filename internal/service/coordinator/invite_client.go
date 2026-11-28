@@ -5,6 +5,7 @@ package coordinator
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"google.golang.org/grpc"
@@ -14,6 +15,10 @@ import (
 
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
+
+// missingInviteMessage refuses a delete of an ID that no invite has. It
+// does not repeat the ID, which may be an invite pasted in its place.
+const missingInviteMessage = "no invite has this ID: list the invites to find their IDs"
 
 // inviteCallTimeout bounds an invite call across the coordinators, so a
 // coordinator that accepts the connection but does not answer does not hold
@@ -47,9 +52,10 @@ type InviteClient interface {
 	// as the first coordinator that answers reads them. The coordinators
 	// share the records, so that is the whole list.
 	ListInvites(ctx context.Context) ([]*coordinatorv1.InviteRecord, error)
-	// DeleteInvite deletes the invite with the ID id. A coordinator that
-	// may have deleted it before its answer was lost counts as the answer,
-	// so NotFound from the next one is success. A first NotFound stays.
+	// DeleteInvite deletes the invite with the ID id. It fails with
+	// NotFound only when no invite has the ID before the delete, and
+	// succeeds when the invite is gone afterwards, also when the answer of
+	// the coordinator that deleted it was lost.
 	DeleteInvite(ctx context.Context, id string) error
 }
 
@@ -84,18 +90,39 @@ func (cli *clientImpl) ListInvites(ctx context.Context) ([]*coordinatorv1.Invite
 }
 
 func (cli *clientImpl) DeleteInvite(ctx context.Context, id string) error {
-	var mayHaveDeleted bool
-	return cli.callInviteCoordinator(ctx, true, func(ctx context.Context, client coordinatorv1.CoordinatorServiceClient, opts ...grpc.CallOption) error {
-		var p peer.Peer
-		_, err := client.DeleteInvite(ctx, &coordinatorv1.DeleteInviteRequest{Id: id}, append(opts, grpc.Peer(&p))...)
-		switch code := status.Code(err); {
-		case code == codes.NotFound && mayHaveDeleted:
-			return nil
-		case p.Addr != nil && (code == codes.Unavailable || code == codes.DeadlineExceeded):
-			mayHaveDeleted = true
-		}
+	// Reading the invites before the delete tells an ID that no invite has
+	// from an invite that a delete with a lost answer removed.
+	listed, err := cli.inviteListed(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !listed {
+		return status.Error(codes.NotFound, missingInviteMessage)
+	}
+	err = cli.callInviteCoordinator(ctx, true, func(ctx context.Context, client coordinatorv1.CoordinatorServiceClient, opts ...grpc.CallOption) error {
+		_, err := client.DeleteInvite(ctx, &coordinatorv1.DeleteInviteRequest{Id: id}, opts...)
 		return err
 	})
+	switch code := status.Code(err); {
+	case code == codes.NotFound:
+		// The invite was listed a moment ago, so it is gone.
+		return nil
+	case code == codes.Unavailable || code == codes.DeadlineExceeded:
+		// No coordinator answered. The invites show whether one deleted it.
+		if listed, listErr := cli.inviteListed(ctx, id); listErr == nil && !listed {
+			return nil
+		}
+	}
+	return err
+}
+
+// inviteListed reports whether the invites list one with the ID id.
+func (cli *clientImpl) inviteListed(ctx context.Context, id string) (bool, error) {
+	invites, err := cli.ListInvites(ctx)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(invites, func(invite *coordinatorv1.InviteRecord) bool { return invite.Id == id }), nil
 }
 
 // callInviteCoordinator makes call on the coordinators of the registry in
