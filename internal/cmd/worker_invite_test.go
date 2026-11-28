@@ -52,6 +52,9 @@ type inviteCoordinator struct {
 	readiness    *coordinatorv1.GetJoinReadinessResponse
 	readinessErr error
 	createErr    error
+	deleteErr    error
+	// onReadiness runs before join readiness answers, when set.
+	onReadiness func()
 
 	mu      sync.Mutex
 	created []*coordinatorv1.CreateInviteRequest
@@ -59,6 +62,9 @@ type inviteCoordinator struct {
 }
 
 func (c *inviteCoordinator) GetJoinReadiness(context.Context, *coordinatorv1.GetJoinReadinessRequest) (*coordinatorv1.GetJoinReadinessResponse, error) {
+	if c.onReadiness != nil {
+		c.onReadiness()
+	}
 	return c.readiness, c.readinessErr
 }
 
@@ -66,6 +72,9 @@ func (c *inviteCoordinator) DeleteInvite(_ context.Context, req *coordinatorv1.D
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.deleted = append(c.deleted, req.Id)
+	if c.deleteErr != nil {
+		return nil, c.deleteErr
+	}
 	return &coordinatorv1.DeleteInviteResponse{}, nil
 }
 
@@ -75,7 +84,7 @@ func (c *inviteCoordinator) ListInvites(context.Context, *coordinatorv1.ListInvi
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	resp := &coordinatorv1.ListInvitesResponse{}
-	if len(c.created) > 0 && len(c.deleted) == 0 {
+	if len(c.created) > 0 && (len(c.deleted) == 0 || c.deleteErr != nil) {
 		resp.Invites = append(resp.Invites, &coordinatorv1.InviteRecord{Id: "invite-1"})
 	}
 	return resp, nil
@@ -342,11 +351,10 @@ func TestWorkerInviteNoPeerToken(t *testing.T) {
 	assert.Empty(t, fake.createRequests())
 }
 
-// A coordinator the registry lists only after the client was made gets no
-// create, even one that comes first in the order the client tries.
+// A coordinator the registry lists while join readiness is read gets no
+// create, even one that comes first in the order the client tries. The test
+// replaces the command's registry, so it does not run in parallel.
 func TestWorkerInviteRegistryChange(t *testing.T) {
-	t.Parallel()
-
 	first := &inviteCoordinator{readiness: readyReport()}
 	second := &inviteCoordinator{readiness: readyReport()}
 	addrs := []string{serveInviteCoordinator(t, first), serveInviteCoordinator(t, second)}
@@ -359,20 +367,11 @@ func TestWorkerInviteRegistryChange(t *testing.T) {
 	}
 	late.readiness = loopbackReport(nil)
 	registry := &changingRegistry{members: []serviceregistry.HostInfo{hostInfo(t, addrs[0])}}
-	client, err := cmd.SnapshotClientForTest(t.Context(), registry, coordinator.DefaultConfig())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = client.Cleanup(context.Background()) })
-	registry.add(hostInfo(t, addrs[1]))
+	lateInfo := hostInfo(t, addrs[1])
+	checked.onReadiness = func() { registry.add(lateInfo) }
+	cmd.SetInviteRegistryForTest(t, registry)
 
-	invites, ok := client.(interface {
-		coordinator.JoinReadinessClient
-		coordinator.InviteClient
-	})
-	require.True(t, ok)
-	reports, err := invites.GetJoinReadiness(t.Context())
-	require.NoError(t, err)
-	require.Len(t, reports, 1)
-	_, err = invites.CreateInvite(t.Context(), &coordinatorv1.CreateInviteRequest{Address: testInviteAddress})
+	_, _, err := runWorkerInvite(t, checkHome(t), "--address", testInviteAddress)
 
 	require.NoError(t, err)
 	assert.Len(t, checked.createRequests(), 1)
@@ -497,21 +496,55 @@ func TestWorkerInviteAddressVectors(t *testing.T) {
 }
 
 // An invite whose output fails is deleted, since no one may have its
-// secret, and the command fails naming it by its ID only.
+// secret, and the command fails naming it by its ID only. A delete the
+// coordinator fails points to its log.
 func TestWorkerInviteOutputFails(t *testing.T) {
 	t.Parallel()
 
+	for _, tc := range []struct {
+		name      string
+		deleteErr error
+		want      string
+	}{
+		{name: "Deleted", want: "failed to print invite invite-1, so it was deleted: run the command again"},
+		{
+			name:      "DeleteFailed",
+			deleteErr: status.Error(codes.Internal, "failed to delete the invite"),
+			want: "failed to print invite invite-1, and failed to delete it: " +
+				"the coordinator failed to delete the invite: see its log for the cause; delete it before it is used",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := &inviteCoordinator{readiness: readyReport(), deleteErr: tc.deleteErr}
+			home := startInviteCoordinators(t, fake)
+			command := daguRoot()
+			command.SetOut(failingWriter{})
+			command.SetErr(io.Discard)
+			command.SetArgs([]string{"worker", "invite", "--dagu-home", home, "--config", filepath.Join(home, "config.yaml"), "--address", testInviteAddress})
+
+			err := command.ExecuteContext(t.Context())
+
+			require.EqualError(t, err, tc.want)
+			assert.Equal(t, []string{"invite-1"}, fake.deletedIDs())
+		})
+	}
+}
+
+// Surrounding spaces leave the address, as the Add worker dialog drops
+// them, so the printed command and the invite's address have none.
+func TestWorkerInviteTrimsAddress(t *testing.T) {
+	t.Parallel()
+
 	fake := &inviteCoordinator{readiness: readyReport()}
-	home := startInviteCoordinators(t, fake)
-	command := daguRoot()
-	command.SetOut(failingWriter{})
-	command.SetErr(io.Discard)
-	command.SetArgs([]string{"worker", "invite", "--dagu-home", home, "--config", filepath.Join(home, "config.yaml"), "--address", testInviteAddress})
+	out, _, err := runWorkerInvite(t, startInviteCoordinators(t, fake), "--address", "\t"+testInviteAddress+" \n")
 
-	err := command.ExecuteContext(t.Context())
-
-	require.EqualError(t, err, "failed to print invite invite-1, so it was deleted: run the command again")
-	assert.Equal(t, []string{"invite-1"}, fake.deletedIDs())
+	require.NoError(t, err)
+	assert.Contains(t, out, "--worker.coordinators="+testInviteAddress+" ")
+	requests := fake.createRequests()
+	require.Len(t, requests, 1)
+	assert.Equal(t, testInviteAddress, requests[0].Address)
 }
 
 // A host that does not share the coordinator's data directory finds it
@@ -618,7 +651,7 @@ func TestWorkerInviteFlags(t *testing.T) {
 	const (
 		badAddress = "--address must be host:port, such as 192.168.1.20:50055"
 		badExpiry  = "--expires must be a positive duration, such as 24h"
-		oneAddress = "--address must be one host:port, without commas or surrounding spaces"
+		oneAddress = "--address must be one host:port, without commas"
 	)
 	for _, tc := range []struct {
 		name    string
@@ -632,7 +665,6 @@ func TestWorkerInviteFlags(t *testing.T) {
 		{name: "UnbracketedIPv6", args: []string{"--address", "2001:db8::1:50055"}, wantErr: badAddress},
 		// The worker would split the printed value on the comma.
 		{name: "Comma", args: []string{"--address", "missing,coordinator:50055"}, wantErr: oneAddress},
-		{name: "SurroundingSpace", args: []string{"--address", " 192.168.1.20:50055"}, wantErr: oneAddress},
 		// The request could not carry it, so it fails before any call.
 		{name: "InvalidUTF8", args: []string{"--address", "host\xff:50055"}, wantErr: "--address must be valid UTF-8 text"},
 		{name: "BadExpiry", args: []string{"--address", testInviteAddress, "--expires", "1day"}, wantErr: badExpiry},

@@ -280,8 +280,9 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	// Only a local context calls the coordinator. start-all logs the line
 	// once its coordinator has published the CA certificate, dagu worker
 	// once it knows its credential, and dagu worker --check prints the line
-	// itself.
-	if commandName != "start-all" && commandName != "worker" {
+	// itself. dagu worker invite logs none, since its output is for the
+	// operator to copy.
+	if commandName != "start-all" && !isWorkerCommand(commandName) {
 		logPeerTransport(ctx, commandName, cfg)
 	}
 	// Before any store opens v2 state. Worker commands open none.

@@ -63,6 +63,7 @@ var connectionCodes = map[codes.Code]bool{
 var coordinatorFailures = map[string]bool{
 	"failed to generate the invite": true,
 	"failed to store the invite":    true,
+	"failed to delete the invite":   true,
 }
 
 var (
@@ -208,27 +209,30 @@ func discardUnprinted(ctx *Context, invites coordinator.InviteClient, id string)
 	return fmt.Errorf("failed to print invite %s, so it was deleted: run the command again", id)
 }
 
-// newInviteClient returns a client for the coordinators of
-// worker.coordinators when set, else those in the service registry of the
-// data directory, as listed when it is called.
+// inviteRegistry returns the registry of the coordinators to call: those of
+// worker.coordinators when set, else the service registry of the data
+// directory. Tests replace it to change the coordinators during a call.
+var inviteRegistry = func(ctx *Context) (serviceregistry.ServiceRegistry, error) {
+	if len(ctx.Config.Worker.Coordinators) == 0 {
+		return ctx.serverStores.ServiceRegistry, nil
+	}
+	return worker.CoordinatorRegistry(ctx.Config)
+}
+
+// newInviteClient returns a client for the coordinators of inviteRegistry,
+// as listed when it is called.
 func newInviteClient(ctx *Context) (coordinator.Client, error) {
 	clientConfig, err := worker.CoordinatorClientConfig(ctx.Config, ctx.serverStores.ServiceRegistry)
 	if err != nil {
 		// The error may name a credential file, so it is not repeated.
 		return nil, errInvitePeerSettings
 	}
-	registry := ctx.serverStores.ServiceRegistry
-	if len(ctx.Config.Worker.Coordinators) > 0 {
-		if registry, err = worker.CoordinatorRegistry(ctx.Config); err != nil {
-			return nil, err
-		}
+	registry, err := inviteRegistry(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return snapshotClient(ctx, registry, clientConfig)
-}
-
-// snapshotClient returns a client for the coordinators registry lists when
-// it is called, so join readiness and the create reach the same ones.
-func snapshotClient(ctx context.Context, registry serviceregistry.ServiceRegistry, clientConfig *coordinator.Config) (coordinator.Client, error) {
+	// One read of the registry, so join readiness and the create reach the
+	// same coordinators.
 	members, err := registry.GetServiceMembers(ctx, serviceregistry.ServiceNameCoordinator)
 	if err != nil || len(members) == 0 {
 		return nil, errNoInviteCoordinator
@@ -258,10 +262,11 @@ func parseInviteOptions(cmd *cobra.Command) (inviteOptions, error) {
 	if !utf8.ValidString(address) {
 		return opts, fmt.Errorf("--%s must be valid UTF-8 text", inviteAddressFlag.name)
 	}
-	// The printed --worker.coordinators value is a comma-separated list
-	// whose entries lose surrounding spaces.
-	if strings.Contains(address, ",") || strings.TrimSpace(address) != address {
-		return opts, fmt.Errorf("--%s must be one host:port, without commas or surrounding spaces", inviteAddressFlag.name)
+	// Surrounding spaces are dropped, as the Add worker dialog drops them.
+	// A comma would split the printed --worker.coordinators value.
+	address = strings.TrimSpace(address)
+	if strings.Contains(address, ",") {
+		return opts, fmt.Errorf("--%s must be one host:port, without commas", inviteAddressFlag.name)
 	}
 	if invitePattern.MatchString(address) {
 		return opts, fmt.Errorf("--%s holds an invite; the invite goes only into the printed command", inviteAddressFlag.name)
