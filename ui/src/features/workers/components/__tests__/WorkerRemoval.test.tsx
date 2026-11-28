@@ -404,6 +404,150 @@ describe('Remove', () => {
     expect(requests('DELETE', '/workers/invites/inv-new')).toHaveLength(0);
   });
 
+  // A refused removal says how to try again and takes no second request
+  // from the stale dialog, also when the refresh no longer lists the row.
+  it.each(['certificate_changed', 'peer_token_worker'])(
+    'locks the confirmation after a %s refusal',
+    async (reason) => {
+      server.invites = invitesAnswer([
+        invite('inv-r', { kind: WorkerInviteKind.reusable }),
+      ]);
+      server.del = () => refused(409, 'refused', 'conflict', reason);
+      const { update } = renderPage([
+        worker('worker-a1', { inviteId: 'inv-r' }),
+      ]);
+      await screen.findByText('Reusable');
+      const dialog = await openRemove('worker-a1');
+      await userEvent.click(
+        within(dialog).getByRole('checkbox', { name: /Also delete the invite/ })
+      );
+      await userEvent.click(
+        within(dialog).getByRole('button', { name: 'Remove' })
+      );
+      await within(dialog).findByRole('alert');
+
+      update([]);
+
+      expect(dialog).toHaveTextContent(
+        'To try again, close this dialog and confirm again from the list.'
+      );
+      const remove = within(dialog).getByRole('button', { name: 'Remove' });
+      expect(remove).toBeDisabled();
+      await userEvent.click(remove);
+      expect(removals()).toHaveLength(1);
+      expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(0);
+    }
+  );
+
+  it('locks Stop runs now after a refusal', async () => {
+    server.del = () => refused(503, '', 'internal_error', 'no_coordinator');
+    renderPage([
+      worker('worker-b1', {
+        removing: true,
+        runningTasks: [task('etl', 'run-1')],
+      }),
+    ]);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop runs now on worker-b1' })
+    );
+    const dialog = screen.getByRole('dialog');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Stop runs' })
+    );
+    await within(dialog).findByRole('alert');
+
+    expect(
+      within(dialog).getByRole('button', { name: 'Stop runs' })
+    ).toBeDisabled();
+  });
+
+  // Enter confirms only on the confirm button: a choice that a refresh took
+  // away cannot send the removal.
+  it('sends nothing on Enter after a refresh takes the focused choice away', async () => {
+    const { update } = renderPage([
+      worker('worker-a1', { runningTasks: [task('etl', 'run-1')] }),
+    ]);
+    const dialog = await openRemove('worker-a1');
+    within(dialog)
+      .getByRole('radio', { name: /Stop its runs and remove/ })
+      .focus();
+
+    update([worker('worker-a1')]);
+    await userEvent.keyboard('{Enter}');
+
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(removals()).toHaveLength(0);
+  });
+
+  // The submitted choices hold while their request is under way.
+  it('locks the choices while the removal is under way', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    let answer: (value: { status: number; body: unknown }) => void = () =>
+      undefined;
+    server.del = (request) =>
+      request.path.endsWith('/certificate')
+        ? new Promise((resolve) => (answer = resolve))
+        : { status: 204 };
+    renderPage([
+      worker('worker-a1', {
+        inviteId: 'inv-r',
+        runningTasks: [task('etl', 'run-1')],
+      }),
+    ]);
+    await screen.findByText('Reusable');
+    const dialog = await openRemove('worker-a1');
+    const checkbox = within(dialog).getByRole('checkbox', {
+      name: /Also delete the invite/,
+    });
+    await userEvent.click(checkbox);
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+
+    expect(checkbox).toBeDisabled();
+    for (const radio of within(dialog).getAllByRole('radio')) {
+      expect(radio).toBeDisabled();
+    }
+    await act(async () => answer({ status: 200, body: { state: 'removing' } }));
+    await waitFor(() =>
+      expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(1)
+    );
+  });
+
+  // Once the server accepted the removal, the dialog reads no invites for
+  // its own sake: the retry has its target.
+  it('reads no invites after the removal is accepted', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    server.del = (request) =>
+      request.path.endsWith('/certificate')
+        ? { status: 200, body: { state: 'removing' } }
+        : refused(503, '', 'internal_error', 'no_coordinator');
+    renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
+    await screen.findByText('Reusable');
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: /Also delete the invite/ })
+    );
+    // The refresh after the delete leaves the invite out.
+    server.invites = invitesAnswer([]);
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+    await within(dialog).findByText('The invite was not deleted.');
+    await waitFor(() =>
+      expect(requests('GET', '/workers/invites')).toHaveLength(2)
+    );
+    await act(
+      () => new Promise((resolve) => queueMicrotask(() => resolve(undefined)))
+    );
+
+    expect(requests('GET', '/workers/invites')).toHaveLength(2);
+  });
+
   // The stop choice says what the server does: a cancel request to each
   // run, and the worker removed within two minutes either way.
   it('says the stop choice removes the worker within two minutes', async () => {

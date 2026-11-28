@@ -1320,6 +1320,10 @@ The Workers page is the list of workers on System status.
   certificate, or none, before the admin confirms, they say so and send
   nothing, also when that row later goes away; a new confirmation is
   needed.
+- After a refused request, the confirmation and **Stop runs now** take
+  no second one: they say to close and confirm again from the list. Enter
+  confirms only on the confirm button, and the choices hold while a
+  request is under way.
 - The confirmation and **Stop runs now** close by themselves when every
   step they took succeeded. Otherwise only the admin closes them: they keep
   their outcome when a refresh of the list changes or drops the worker's

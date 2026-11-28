@@ -35,6 +35,12 @@ type ConfirmDialogProps = {
   /** A short second choice between Cancel and the confirm button. */
   secondary?: { text: string; onClick: () => void };
   /**
+   * When false, Enter confirms only on the confirm button itself, never
+   * from elsewhere in the dialog. A choice that a refresh can take away
+   * passes false, so Enter cannot confirm what is no longer shown.
+   */
+  submitOnEnter?: boolean;
+  /**
    * The button that has the focus when the dialog opens. 'confirm' is the
    * default: Enter confirms. A destructive question passes 'cancel'.
    */
@@ -66,6 +72,7 @@ function ConfirmDialog({
   footerClassName,
   layer,
   secondary,
+  submitOnEnter = true,
   initialFocus = 'confirm',
   restoreFocus = false,
   onCloseAutoFocus,
@@ -81,6 +88,8 @@ function ConfirmDialog({
       if (!visible || event.defaultPrevented || event.key !== 'Enter') {
         return;
       }
+      // The buttons still act on Enter as buttons do.
+      if (!submitOnEnter) return;
 
       const activeElement = document.activeElement;
       const isInputFocused =
@@ -120,7 +129,7 @@ function ConfirmDialog({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [visible, onSubmit, dismissModal, submitDisabled]);
+  }, [visible, onSubmit, dismissModal, submitDisabled, submitOnEnter]);
 
   return (
     <Dialog open={visible} onOpenChange={(open) => !open && dismissModal()}>

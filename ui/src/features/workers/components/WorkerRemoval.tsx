@@ -345,6 +345,20 @@ function useLockedConfirmation(worker: Worker, certificateId: string): boolean {
   return replaced || locked;
 }
 
+// Says how to try a refused request again: with a new confirmation, from
+// the current state of the list.
+function RefusedNotice() {
+  return (
+    <p className="text-muted-foreground">
+      <I18nText
+        text={
+          'To try again, close this dialog and confirm again from the list.'
+        }
+      />
+    </p>
+  );
+}
+
 // Says that the worker joined again since the dialog opened, so the dialog
 // no longer acts: another removal needs its own confirmation.
 function ReplacedNotice() {
@@ -377,7 +391,10 @@ function RemoveWorkerDialog({
   // The invite of the row the admin confirmed; a later row does not change
   // what this dialog looks up or deletes.
   const [inviteId] = React.useState(worker.inviteId);
-  const lookup = useInviteLookup(inviteId);
+  // No lookup once the server accepted the removal: the retry has its
+  // target already.
+  const [lookupDone, setLookupDone] = React.useState(false);
+  const lookup = useInviteLookup(lookupDone ? undefined : inviteId);
   const [runs, setRuns] = React.useState(WorkerRemovalRuns.finish);
   const [alsoDeleteInvite, setAlsoDeleteInvite] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
@@ -424,6 +441,7 @@ function RemoveWorkerDialog({
         await removeWorker({ id: worker.id, certificateId }, sentRuns);
         setInviteToDelete(target);
         setAccepted(true);
+        setLookupDone(true);
       }
     } catch (err) {
       setError(err);
@@ -464,7 +482,12 @@ function RemoveWorkerDialog({
       dismissModal={onClose}
       onSubmit={() => void submit()}
       // The invite warning must be on screen before the removal can start.
-      submitDisabled={submitting || (!accepted && (lookup.reading || locked))}
+      // A refused removal needs a new confirmation with the current state.
+      submitDisabled={
+        submitting ||
+        (!accepted && (lookup.reading || locked || error !== null))
+      }
+      submitOnEnter={false}
       initialFocus="cancel"
       // A long list of runs or workers scrolls inside the dialog, so the
       // buttons stay on screen.
@@ -514,12 +537,14 @@ function RemoveWorkerDialog({
                 </ul>
                 <RunsChoice
                   checked={runs === WorkerRemovalRuns.finish}
+                  disabled={submitting}
                   onChange={() => setRuns(WorkerRemovalRuns.finish)}
                   label="Remove after its runs finish"
                   detail="It gets no new runs, and is removed when its last run ends."
                 />
                 <RunsChoice
                   checked={runs === WorkerRemovalRuns.stop}
+                  disabled={submitting}
                   onChange={() => setRuns(WorkerRemovalRuns.stop)}
                   label="Stop its runs and remove"
                   detail="Each run gets a cancel request, and the worker is removed within two minutes, whether or not its runs have ended."
@@ -568,6 +593,8 @@ function RemoveWorkerDialog({
                   <Checkbox
                     className="mt-0.5"
                     checked={alsoDeleteInvite}
+                    // The submitted choice holds until its request ends.
+                    disabled={submitting}
                     onCheckedChange={(value) =>
                       setAlsoDeleteInvite(value === true)
                     }
@@ -629,6 +656,7 @@ function RemoveWorkerDialog({
             advice={describeWorkerError(error, removalAdvice(ts), ts)}
           />
         )}
+        {error !== null && <RefusedNotice />}
 
         {inviteError !== null && (
           <WorkerError
@@ -678,11 +706,13 @@ function AcceptedRemoval({ invite }: { invite: ConfirmedInvite | null }) {
 
 function RunsChoice({
   checked,
+  disabled,
   onChange,
   label,
   detail,
 }: {
   checked: boolean;
+  disabled: boolean;
   onChange: () => void;
   label: string;
   detail: string;
@@ -694,6 +724,7 @@ function RunsChoice({
         name="worker-removal-runs"
         className="mt-1"
         checked={checked}
+        disabled={disabled}
         onChange={onChange}
       />
       <span>
@@ -750,7 +781,9 @@ function StopRunsDialog({
       visible
       dismissModal={onClose}
       onSubmit={() => void submit()}
-      submitDisabled={submitting || locked}
+      // A refused stop needs a new confirmation with the current state.
+      submitDisabled={submitting || locked || error !== null}
+      submitOnEnter={false}
       initialFocus="cancel"
       // A long list of runs or workers scrolls inside the dialog, so the
       // buttons stay on screen.
@@ -775,6 +808,7 @@ function StopRunsDialog({
             advice={describeWorkerError(error, removalAdvice(ts), ts)}
           />
         )}
+        {error !== null && <RefusedNotice />}
       </div>
     </ConfirmModal>
   );

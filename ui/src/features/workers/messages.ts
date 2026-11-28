@@ -151,6 +151,8 @@ export const workerAdminMessages = defineMessages({
     'Stop the worker on its host, or change the peer token.':
       'Stop the worker on its host, or change the peer token.',
     'Invite to delete: {id} ({kind})': 'Invite to delete: {id} ({kind})',
+    'To try again, close this dialog and confirm again from the list.':
+      'To try again, close this dialog and confirm again from the list.',
     'Invite {id} was not deleted.': 'Invite {id} was not deleted.',
     'The selected node has no peer token for its coordinator.':
       'The selected node has no peer token for its coordinator.',
@@ -314,6 +316,8 @@ export const workerAdminMessages = defineMessages({
     'Stop the worker on its host, or change the peer token.':
       '请在其主机上停止该 Worker，或更换 peer token。',
     'Invite to delete: {id} ({kind})': '要删除的邀请：{id}（{kind}）',
+    'To try again, close this dialog and confirm again from the list.':
+      '如需重试，请关闭此对话框，并从列表中重新确认。',
     'Invite {id} was not deleted.': '邀请 {id} 未被删除。',
     'The selected node has no peer token for its coordinator.':
       '所选节点没有其 Coordinator 的 peer token。',
@@ -481,6 +485,8 @@ export const workerAdminMessages = defineMessages({
     'Stop the worker on its host, or change the peer token.':
       'そのホストでワーカーを停止するか、peer token を変更してください。',
     'Invite to delete: {id} ({kind})': '削除する招待：{id}（{kind}）',
+    'To try again, close this dialog and confirm again from the list.':
+      'やり直すには、このダイアログを閉じて一覧から改めて確認してください。',
     'Invite {id} was not deleted.': '招待 {id} は削除されませんでした。',
     'The selected node has no peer token for its coordinator.':
       '選択したノードには、そのコーディネーターの peer token がありません。',
@@ -650,6 +656,8 @@ export const workerAdminMessages = defineMessages({
     'Stop the worker on its host, or change the peer token.':
       'Stoppen Sie den Worker auf seinem Host, oder ändern Sie das Peer-Token.',
     'Invite to delete: {id} ({kind})': 'Zu löschende Einladung: {id} ({kind})',
+    'To try again, close this dialog and confirm again from the list.':
+      'Um es erneut zu versuchen, schließen Sie diesen Dialog und bestätigen Sie erneut aus der Liste.',
     'Invite {id} was not deleted.': 'Die Einladung {id} wurde nicht gelöscht.',
     'The selected node has no peer token for its coordinator.':
       'Der ausgewählte Knoten hat kein Peer-Token für seinen Coordinator.',
@@ -818,6 +826,8 @@ export const workerAdminMessages = defineMessages({
     'Stop the worker on its host, or change the peer token.':
       'Arrêtez le worker sur son hôte, ou changez le jeton de pair.',
     'Invite to delete: {id} ({kind})': 'Invitation à supprimer : {id} ({kind})',
+    'To try again, close this dialog and confirm again from the list.':
+      'Pour réessayer, fermez cette boîte de dialogue et confirmez à nouveau depuis la liste.',
     'Invite {id} was not deleted.': 'L’invitation {id} n’a pas été supprimée.',
     'The selected node has no peer token for its coordinator.':
       'Le nœud sélectionné n’a pas de jeton de pair pour son coordinateur.',
