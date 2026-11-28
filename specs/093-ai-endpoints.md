@@ -489,8 +489,8 @@ true:
 - the step names an endpoint, and the check of the endpoint passed
 - the model of the step is a literal string after resolution. A `${...}` reference is resolved at the
   start of the step, and the check uses the result.
-- the endpoint has a list that a read made. It has a models URL, one read was good, and the list has a
-  name
+- the endpoint has a list that a read made. It has a models URL, one read was good, the list has a
+  name, and the read that made it did not stop at a limit
 
 The model MUST be in the list. The match is exact: Dagu does not change the case, a prefix or a suffix.
 A model that the list lacks fails the step before the CLI starts and before the first request. The
@@ -791,7 +791,7 @@ These cases stop a process at start with the exit code 1:
 These cases fail a step at run time, with the reasons of [Failure kinds](094-ai-gateway.md#failure-kinds):
 
 - a literal model that the models list of the endpoint lacks, at the start check, after one refresh on
-  demand: the reason is `model_unknown`
+  demand, unless the read that made the list stopped at a limit: the reason is `model_unknown`
 
 The errors of the block `endpoint` and of the relay are in [Spec 094](094-ai-gateway.md#errors). The
 errors of the MCP server entries are in [Spec 095](095-mcp-servers.md#errors).
