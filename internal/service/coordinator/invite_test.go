@@ -248,6 +248,9 @@ func TestInviteSecretOnlyInCreateResponse(t *testing.T) {
 	server.enroll(t, created.Invite)
 	_, enrollErr := server.tlsClient(t).Enroll(t.Context(), enrollRequest(t, created.Invite, newWorkerKey(t)))
 	require.Error(t, enrollErr)
+	// An invite pasted in place of its ID.
+	_, deleteErr := server.tlsClient(t).DeleteInvite(callContext(t), &coordinatorv1.DeleteInviteRequest{Id: created.Invite})
+	assert.Equal(t, codes.NotFound, status.Code(deleteErr))
 
 	listed, err := server.tlsClient(t).ListInvites(callContext(t), &coordinatorv1.ListInvitesRequest{})
 	require.NoError(t, err)
@@ -256,6 +259,7 @@ func TestInviteSecretOnlyInCreateResponse(t *testing.T) {
 	assert.Equal(t, int32(1), listed.Invites[0].UseCount)
 	assert.NotContains(t, listed.String(), secret)
 	assert.NotContains(t, enrollErr.Error(), secret)
+	assert.NotContains(t, deleteErr.Error(), secret)
 	logs := server.logs.String()
 	assert.Contains(t, logs, created.Record.Id)
 	assert.NotContains(t, logs, secret)
@@ -363,6 +367,7 @@ func TestEnrollRefusesInvite(t *testing.T) {
 		"WrongSecret": "dagu1." + pin + "." + otherSecret,
 		"OtherCA":     "dagu1." + otherPin + "." + inviteSecret(created.Invite),
 		"Malformed":   "dagu1." + pin,
+		"Oversized":   "dagu1." + strings.Repeat(".", 1<<20),
 		"Expired":     "dagu1." + pin + "." + base64.RawURLEncoding.EncodeToString(expiredSecret),
 	} {
 		_, err := server.tlsClient(t).Enroll(t.Context(), enrollRequest(t, invite, newWorkerKey(t)))

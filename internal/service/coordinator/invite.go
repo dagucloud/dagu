@@ -36,6 +36,8 @@ const (
 	// inviteFieldLength is the length of the pin and of the secret: 32 bytes
 	// in base64url without padding.
 	inviteFieldLength = 43
+	// inviteLength is the length of a whole invite.
+	inviteLength = len(inviteVersion) + 2*(1+inviteFieldLength)
 	// singleUseInviteExpiry is when a single-use invite created without an
 	// expiry ends.
 	singleUseInviteExpiry = 24 * time.Hour
@@ -125,12 +127,19 @@ func (h *Handler) DeleteInvite(ctx context.Context, req *coordinatorv1.DeleteInv
 	if err := h.requirePeerCA(); err != nil {
 		return nil, err
 	}
+	// An invite pasted in place of its ID never reaches the store, and the
+	// refusal does not repeat the ID, so the invite shows up in no error or
+	// log line.
+	notFound := status.Error(codes.NotFound, "no invite has this ID: list the invites to find their IDs")
+	if strings.HasPrefix(req.Id, inviteVersion+".") {
+		return nil, notFound
+	}
 	err := h.workerInvites.Delete(ctx, req.Id)
 	if errors.Is(err, persis.ErrWorkerInviteNotFound) {
-		return nil, status.Errorf(codes.NotFound, "invite %q not found", req.Id)
+		return nil, notFound
 	}
 	if err != nil {
-		logger.Error(ctx, "Failed to delete a worker invite", slog.String("invite-id", req.Id), tag.Error(err))
+		logger.Error(ctx, "Failed to delete a worker invite", tag.Error(err))
 		return nil, status.Error(codes.Internal, "failed to delete the invite")
 	}
 	logger.Info(ctx, "Worker invite deleted", slog.String("invite-id", req.Id))
@@ -165,6 +174,9 @@ func newInvite(ca *x509.Certificate) (invite string, secretHash []byte, err erro
 // parseInvite returns the pin and the secret of invite, or false when it is
 // not of the form dagu1.<pin>.<secret>.
 func parseInvite(invite string) (pin string, secret []byte, ok bool) {
+	if len(invite) != inviteLength {
+		return "", nil, false
+	}
 	parts := strings.Split(invite, ".")
 	if len(parts) != 3 || parts[0] != inviteVersion || len(parts[1]) != inviteFieldLength || len(parts[2]) != inviteFieldLength {
 		return "", nil, false

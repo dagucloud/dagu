@@ -15,9 +15,13 @@ and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
 [Coordinator Line](#coordinator-line) except its
 `coordinator.require_tls` row, the
 [Coordinator Certificate](#coordinator-certificate),
-[One Port](#one-port) except worker certificates, and the coordinator call
-of [Join Readiness](#join-readiness). The coordinator serves built-in TLS,
-but no client uses it yet.
+[One Port](#one-port) except the revoked set, the coordinator call of
+[Join Readiness](#join-readiness), the [Invites](#invites) and their
+[Coordinator Calls](#coordinator-calls) except removal, and the
+[Coordinator Side](#coordinator-side) of enrollment with the
+[Worker Certificate](#worker-certificate) and its record, except refusing
+the key of a revoked certificate. The coordinator serves built-in TLS and
+enrollment, but no client uses them yet.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
