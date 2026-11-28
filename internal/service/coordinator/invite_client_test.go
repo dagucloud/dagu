@@ -6,6 +6,7 @@ package coordinator_test
 import (
 	"context"
 	"fmt"
+	"net"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,4 +67,84 @@ func TestClientCreateInviteRefused(t *testing.T) {
 
 	_, err := client.CreateInvite(t.Context(), &coordinatorv1.CreateInviteRequest{})
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err), "%v", err)
+}
+
+// inviteRecords lists one invite and deletes none.
+type inviteRecords struct {
+	coordinatorv1.UnimplementedCoordinatorServiceServer
+}
+
+func (inviteRecords) ListInvites(context.Context, *coordinatorv1.ListInvitesRequest) (*coordinatorv1.ListInvitesResponse, error) {
+	return &coordinatorv1.ListInvitesResponse{Invites: []*coordinatorv1.InviteRecord{{Id: "invite-1"}}}, nil
+}
+
+func (inviteRecords) DeleteInvite(context.Context, *coordinatorv1.DeleteInviteRequest) (*coordinatorv1.DeleteInviteResponse, error) {
+	return nil, status.Error(codes.NotFound, "no invite has this ID")
+}
+
+// inviteClient returns a client whose registry lists a coordinator that
+// does not answer, one that predates the invite calls, and one that serves
+// them, in a random order.
+func inviteClient(t *testing.T) coordinator.InviteClient {
+	t.Helper()
+	members := []serviceregistry.HostInfo{closedMember(t)}
+	for id, server := range map[string]coordinatorv1.CoordinatorServiceServer{
+		"older":   &coordinatorv1.UnimplementedCoordinatorServiceServer{},
+		"current": inviteRecords{},
+	} {
+		grpcServer, addr := startMockServer(t, server)
+		t.Cleanup(grpcServer.Stop)
+		host, port := parseHostPort(addr)
+		members = append(members, serviceregistry.HostInfo{ID: id, Host: host, Port: port})
+	}
+	client, ok := coordinator.New(&mockServiceMonitor{members: members}, coordinator.DefaultConfig()).(coordinator.InviteClient)
+	require.True(t, ok)
+	return client
+}
+
+// closedMember returns a registry entry whose port nothing listens on.
+func closedMember(t *testing.T) serviceregistry.HostInfo {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	host, port := parseHostPort(listener.Addr().String())
+	require.NoError(t, listener.Close())
+	return serviceregistry.HostInfo{ID: "closed", Host: host, Port: port}
+}
+
+func TestClientListInvites(t *testing.T) {
+	t.Parallel()
+
+	invites, err := inviteClient(t).ListInvites(t.Context())
+	require.NoError(t, err)
+	require.Len(t, invites, 1)
+	assert.Equal(t, "invite-1", invites[0].Id)
+}
+
+// A refusal reaches the caller with its status, whichever coordinator the
+// client asks first.
+func TestClientDeleteInviteRefused(t *testing.T) {
+	t.Parallel()
+
+	err := inviteClient(t).DeleteInvite(t.Context(), "missing")
+	assert.Equal(t, codes.NotFound, status.Code(err), "%v", err)
+}
+
+// The client tries coordinators in a random order. A refusal from one is
+// the answer whether or not the unreachable one was tried before it, so
+// repeated calls cover both orders.
+func TestClientCreateInviteRefusalBeatsUnreachable(t *testing.T) {
+	t.Parallel()
+
+	grpcServer, addr := startMockServer(t, &inviteServer{err: status.Error(codes.FailedPrecondition, "invites need the built-in CA")})
+	t.Cleanup(grpcServer.Stop)
+	host, port := parseHostPort(addr)
+	members := []serviceregistry.HostInfo{{ID: "refusing", Host: host, Port: port}, closedMember(t)}
+	client, ok := coordinator.New(&mockServiceMonitor{members: members}, coordinator.DefaultConfig()).(coordinator.InviteClient)
+	require.True(t, ok)
+
+	for range 20 {
+		_, err := client.CreateInvite(t.Context(), &coordinatorv1.CreateInviteRequest{})
+		require.Equal(t, codes.FailedPrecondition, status.Code(err), "%v", err)
+	}
 }
