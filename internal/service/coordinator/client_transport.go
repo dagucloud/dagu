@@ -722,6 +722,7 @@ func (c *connectionCredentials) ClientHandshake(ctx context.Context, _ string, r
 		t.failed(address, plan, conn, err)
 		return nil, nil, err
 	}
+	c.link.handshakeFailed(nil)
 	c.link.connected(plan)
 	t.use(address, plan.choice)
 	return tlsConn, info, nil

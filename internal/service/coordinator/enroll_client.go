@@ -116,17 +116,22 @@ func Enroll(ctx context.Context, config *Config, address string, req *coordinato
 
 // enrollError classifies the error of an Enroll call by why its handshake
 // failed, if it did.
+// The most specific answer wins: a coordinator's own refusal, then why the
+// last handshake failed, then the transport error.
 func enrollError(err, handshakeErr error) error {
-	switch {
+	switch code := status.Code(err); {
+	case code == codes.Unimplemented:
+		// A coordinator that predates enrollment.
+		return fmt.Errorf("%w: %v", ErrNoBuiltinTLS, err)
+	case code != codes.Unavailable && code != codes.DeadlineExceeded && code != codes.Canceled:
+		// A coordinator answered, whatever an earlier attempt met.
+		return err
 	case errors.Is(handshakeErr, ErrInviteCAMismatch):
 		return ErrInviteCAMismatch
 	case errors.Is(handshakeErr, errNotBuiltinCertificate):
 		return ErrOwnCertificates
 	case handshakeErr != nil && !isTimeout(handshakeErr):
 		return fmt.Errorf("%w: %v", ErrNoBuiltinTLS, handshakeErr)
-	case status.Code(err) == codes.Unimplemented:
-		// A coordinator that predates enrollment.
-		return fmt.Errorf("%w: %v", ErrNoBuiltinTLS, err)
 	}
 	return err
 }
@@ -134,15 +139,15 @@ func enrollError(err, handshakeErr error) error {
 // verifyPinnedChain checks that a CA certificate in certs, the chain a
 // coordinator sent, has pin, and that the server certificate, certs[0],
 // chains to it, names coordinatorCertName, and allows server
-// authentication. A chain of built-in TLS from another CA fails with
-// ErrInviteCAMismatch, and any other certificate with
-// errNotBuiltinCertificate.
+// authentication. A coordinator certificate of built-in TLS from another CA
+// fails with ErrInviteCAMismatch, and any other certificate, such as own
+// certificates that name coordinatorCertName, with errNotBuiltinCertificate.
 func verifyPinnedChain(certs []*x509.Certificate, pin string) error {
 	if len(certs) == 0 {
 		return errNotBuiltinCertificate
 	}
 	leaf := certs[0]
-	builtin := false
+	signed := false
 	for _, ca := range certs[1:] {
 		if caPin(ca) == pin {
 			_, err := leaf.Verify(x509.VerifyOptions{
@@ -154,12 +159,23 @@ func verifyPinnedChain(certs []*x509.Certificate, pin string) error {
 		}
 		// A coordinator of built-in TLS sends the CA that signed its
 		// certificate.
-		builtin = builtin || (ca.IsCA && leaf.CheckSignatureFrom(ca) == nil)
+		signed = signed || (ca.IsCA && leaf.CheckSignatureFrom(ca) == nil)
 	}
-	if builtin && leaf.VerifyHostname(coordinatorCertName) == nil {
+	if signed && isCoordinatorCertificate(leaf) {
 		return ErrInviteCAMismatch
 	}
 	return errNotBuiltinCertificate
+}
+
+// isCoordinatorCertificate reports whether cert is one a coordinator issues
+// itself for built-in TLS, by Spec 108 §Coordinator Certificate: it names
+// coordinatorCertName, has no expiry date, and allows server authentication
+// only. Own certificates can name coordinatorCertName, but not have all
+// three.
+func isCoordinatorCertificate(cert *x509.Certificate) bool {
+	return cert.VerifyHostname(coordinatorCertName) == nil &&
+		cert.NotAfter.Equal(peerCANoExpiry) &&
+		len(cert.ExtKeyUsage) == 1 && cert.ExtKeyUsage[0] == x509.ExtKeyUsageServerAuth
 }
 
 // checkEnrollReply checks that the worker certificate in resp is for the

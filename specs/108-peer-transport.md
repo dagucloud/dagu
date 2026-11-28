@@ -591,6 +591,15 @@ worker                                          coordinator
   the coordinator only when the CA certificate in the handshake has the
   invite's pin and the server certificate chains to it, names
   `coordinator.dagu.invalid`, and allows server authentication.
+- A coordinator whose CA does not have the pin belongs to a different Dagu
+  only when its server certificate is a
+  [coordinator certificate](#coordinator-certificate): it names
+  `coordinator.dagu.invalid`, has the `notAfter` of no expiry date, allows
+  server authentication only, and a CA in the handshake signed it. Any
+  other certificate is own certificates, and the worker counts that
+  coordinator as unavailable.
+- A coordinator's refusal of `Enroll` decides over a handshake that an
+  earlier connection attempt to the same address failed.
 - It generates an ECDSA P-256 key. The private key never leaves the host.
 - It sends `Enroll` with the invite, a certificate signing request for the
   key, its worker ID, its host name, and whether it can keep its
@@ -670,19 +679,17 @@ The `worker_certificates` collection keeps one record per certificate:
 
 #### Worker Files
 
-- An invite worker keeps its key, its worker certificate, the CA
-  certificate from `Enroll`, and which invite it enrolled with in its data
-  directory, readable by its user only, and reuses them across restarts.
-  It holds its [lock](#worker-lock) there too.
-- Run processes the worker starts use the same key and certificate.
-- A worker that cannot write a data directory without a kept certificate
-  holds its key and certificate in memory only, takes no lock, and enrolls
-  again at each start. Run processes it starts use the same credentials.
-- A worker that uses a kept certificate takes its lock first, with or
+- An invite worker keeps its credential in its data directory, readable by
+  its user only, and reuses it across restarts. It holds its
+  [lock](#worker-lock) there too.
+- Run processes the worker starts use the same credential.
+- A worker that cannot write a data directory that holds no credential
+  takes no lock and enrolls again at each start.
+- A restart that uses a kept credential takes the lock first, with or
   without `worker.invite`. When the lock cannot be taken, as on a read-only
-  volume, it exits with code 1 and says to make the data directory
+  volume, the worker exits with code 1 and says to make the data directory
   writable.
-- A kept certificate that cannot be read stops the worker with code 1. The
+- A kept credential that cannot be read stops the worker with code 1. The
   worker never falls back to the peer token in its place.
 
 #### Worker Start

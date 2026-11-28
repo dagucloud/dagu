@@ -8,6 +8,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"math/big"
@@ -18,6 +19,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
@@ -132,4 +136,62 @@ func signedBy(t *testing.T, ca *PeerCA, key any, template *x509.Certificate) []b
 	der, err := x509.CreateCertificate(rand.Reader, template, ca.cert, key, ca.key)
 	require.NoError(t, err)
 	return der
+}
+
+// A coordinator that answered decides the outcome over a handshake that an
+// earlier connection attempt failed, as when an address resolves to more
+// than one coordinator.
+func TestEnrollErrorOrder(t *testing.T) {
+	refused := status.Error(codes.PermissionDenied, invalidInviteMessage)
+	unavailable := status.Error(codes.Unavailable, "connection error")
+	for _, tc := range []struct {
+		name      string
+		err       error
+		handshake error
+		want      error
+	}{
+		{name: "RefusalAfterOtherCA", err: refused, handshake: ErrInviteCAMismatch, want: refused},
+		{name: "RefusalAfterOwnCertificates", err: refused, handshake: errNotBuiltinCertificate, want: refused},
+		{name: "OtherCA", err: unavailable, handshake: ErrInviteCAMismatch, want: ErrInviteCAMismatch},
+		{name: "OwnCertificates", err: unavailable, handshake: errNotBuiltinCertificate, want: ErrOwnCertificates},
+		{name: "Unreachable", err: unavailable, want: unavailable},
+		{name: "OlderCoordinator", err: status.Error(codes.Unimplemented, "unknown method"), want: ErrNoBuiltinTLS},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.ErrorIs(t, enrollError(tc.err, tc.handshake), tc.want)
+		})
+	}
+}
+
+// Own certificates that name coordinator.dagu.invalid and come with the CA
+// that signed them are not one of another Dagu: the worker counts the
+// coordinator as unavailable instead of stopping (Spec 108 §Worker Side).
+func TestEnrollOwnChainWithBuiltinName(t *testing.T) {
+	ca, other := newTestCA(t), newTestCA(t)
+	invite, _, err := newInvite(other.cert)
+	require.NoError(t, err)
+	parsed, ok := ParseInvite(invite)
+	require.True(t, ok)
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	leaf := signedBy(t, ca, key.Public(), &x509.Certificate{
+		Subject:     pkix.Name{CommonName: coordinatorCertName},
+		DNSNames:    []string{coordinatorCertName},
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	})
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{
+		Certificates: []tls.Certificate{{Certificate: [][]byte{leaf, ca.cert.Raw}, PrivateKey: key}},
+		MinVersion:   tls.VersionTLS13,
+	})))
+	coordinatorv1.RegisterCoordinatorServiceServer(server, coordinatorv1.UnimplementedCoordinatorServiceServer{})
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+
+	config := DefaultConfig()
+	config.DialTimeout = 5 * time.Second
+	_, err = Enroll(t.Context(), config.WithInvite(parsed), listener.Addr().String(), &coordinatorv1.EnrollRequest{})
+	assert.ErrorIs(t, err, ErrOwnCertificates)
 }
