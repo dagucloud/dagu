@@ -8,7 +8,9 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
@@ -167,6 +169,10 @@ var quotedRef = regexp.MustCompile(`"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"`)
 // the JSON value of NAME on every shell.
 var pathRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\.[^}]+\}|\$([A-Za-z_][A-Za-z0-9_]*)\.\S+`)
 
+// foreachNamespace stands for the item scope of a foreach body, which holds
+// text that the model sets when the items or the key read an input.
+const foreachNamespace = "foreach"
+
 // envRef matches $NAME and ${NAME}, which Dagu also expands in an eval.
 var envRef = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*)`)
 
@@ -230,8 +236,14 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 			return err
 		}
 		if step.Foreach != nil {
+			bodyInputs := stepInputs
+			if foreachReadsInput(step.Foreach, stepInputs) {
+				// Dagu writes each item into the body as ${foreach.<as>}.
+				bodyInputs = maps.Clone(stepInputs)
+				bodyInputs[foreachNamespace] = true
+			}
 			for i := range step.Foreach.Steps {
-				queue = append(queue, pending{&step.Foreach.Steps[i], stepInputs})
+				queue = append(queue, pending{&step.Foreach.Steps[i], bodyInputs})
 			}
 		}
 	}
@@ -262,6 +274,33 @@ func rawDAG(ctx context.Context, dag *ir.DAG) (*ir.DAG, error) {
 		return nil, fmt.Errorf("tool DAG %q: failed to read its definition: %w", dag.Name, err)
 	}
 	return raw, nil
+}
+
+// foreachReadsInput reports whether the items or the item key of a foreach
+// read an input. Dagu resolves the strings of static items too.
+func foreachReadsInput(foreach *ir.ForeachConfig, inputs map[string]bool) bool {
+	texts := appendStrings([]string{foreach.ItemsExpr, foreach.Key}, foreach.Items)
+	return slices.ContainsFunc(texts, func(text string) bool {
+		_, _, found := modelRef(text, inputs, true)
+		return found
+	})
+}
+
+// appendStrings appends the strings that value holds at any depth.
+func appendStrings(texts []string, value any) []string {
+	switch v := value.(type) {
+	case string:
+		texts = append(texts, v)
+	case []any:
+		for _, item := range v {
+			texts = appendStrings(texts, item)
+		}
+	case map[string]any:
+		for _, item := range v {
+			texts = appendStrings(texts, item)
+		}
+	}
+	return texts
 }
 
 // withEnvCopies returns inputs with the names of the env entries whose value
@@ -373,11 +412,16 @@ func modelRef(text string, inputs map[string]bool, eval bool) (ref, variable str
 
 // modelInputError names the tool DAG, the place and the reference. A command
 // run by a POSIX or Nix shell can read the input from its variable instead,
-// which the shell keeps as data.
+// which the shell keeps as data. No variable holds a foreach item, so the step
+// copies it into one.
 func modelInputError(dag *ir.DAG, where, ref, variable string, hint bool) error {
 	err := fmt.Errorf("tool DAG %q: %s refers to %s, which holds text that the model sets, and that text would run as code", dag.Name, where, ref)
-	if hint {
+	switch {
+	case !hint:
+		return err
+	case variable == foreachNamespace:
+		return fmt.Errorf("%w; copy it into an env entry of the step, such as VALUE: %s, and read \"$VALUE\" in the command, which the shell keeps as data", err, ref)
+	default:
 		return fmt.Errorf("%w; read it as \"$%s\" in the command, which the shell keeps as data", err, variable)
 	}
-	return err
 }
