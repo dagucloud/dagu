@@ -23,8 +23,15 @@ type FileLock struct {
 // waiting. It returns ErrLocked while another holder, in this process or
 // another, has the lock.
 func TryLockFile(path string, perm os.FileMode) (*FileLock, error) {
-	// #nosec G304 -- path is chosen by the caller.
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, perm)
+	// Windows can refuse the open while another process briefly holds the
+	// file, such as a scanner, so a transient failure is retried.
+	var file *os.File
+	err := retryWindowsFileOp(func() error {
+		// #nosec G304 -- path is chosen by the caller.
+		opened, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, perm)
+		file = opened
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}

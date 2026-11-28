@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"syscall"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -274,8 +275,12 @@ func (m *Membership) errUnreadable(err error) error {
 	}
 }
 
-// reason is err without the paths of the files it is about.
+// reason is err without the paths of the files it is about: the system
+// error alone when there is one.
 func reason(err error) string {
+	if errno, ok := errors.AsType[syscall.Errno](err); ok {
+		return errno.Error()
+	}
 	if pathErr, ok := errors.AsType[*fs.PathError](err); ok {
 		return pathErr.Err.Error()
 	}

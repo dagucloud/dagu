@@ -45,7 +45,7 @@ var errAnotherWorker = failure{
 func lockCertificate(ctx context.Context, dir string, timing lockTiming, cannotLock func(error) error) (*fileutil.FileLock, error) {
 	path := filepath.Join(dir, lockFileName)
 	try := func() (*fileutil.FileLock, error) {
-		if err := fileutil.MkdirPrivate(dir); err != nil {
+		if err := mkdirPrivate(dir); err != nil {
 			return nil, cannotLock(err)
 		}
 		lock, err := fileutil.TryLockFile(path, credentialFileMode)

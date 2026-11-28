@@ -10,6 +10,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
@@ -18,17 +19,21 @@ import (
 	"fmt"
 	"io/fs"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
@@ -36,6 +41,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/test/peercert"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -360,62 +366,177 @@ func TestMembershipEnrollFailures(t *testing.T) {
 	}
 }
 
-// One round of enrollment ends by the precedence that enrollRound states,
-// whichever coordinator gives which answer.
-func TestEnrollRoundPrecedence(t *testing.T) {
-	ca := newTestCA(t)
-	answer := func(code codes.Code) error {
-		return fmt.Errorf("%w: %w", coordinator.ErrCoordinatorAnswered, status.Error(code, "try again"))
+// roundCoordinator is what one address gives in an enrollment round.
+type roundCoordinator struct {
+	kind string
+	code codes.Code
+}
+
+var (
+	roundEnrolled    = roundCoordinator{kind: "enrolled"}
+	roundOtherDagu   = roundCoordinator{kind: "other Dagu"}
+	roundUnreachable = roundCoordinator{kind: "unreachable"}
+	roundH2COnly     = roundCoordinator{kind: "h2c only"}
+	roundOwnTLS      = roundCoordinator{kind: "own TLS"}
+)
+
+// roundAnswer is a coordinator of the invite's CA that answers Enroll with
+// code.
+func roundAnswer(code codes.Code) roundCoordinator {
+	return roundCoordinator{kind: "answer", code: code}
+}
+
+// answeringCoordinator answers Enroll with its code.
+type answeringCoordinator struct {
+	coordinatorv1.UnimplementedCoordinatorServiceServer
+	code codes.Code
+}
+
+func (c answeringCoordinator) Enroll(context.Context, *coordinatorv1.EnrollRequest) (*coordinatorv1.EnrollResponse, error) {
+	return nil, status.Error(c.code, "try again")
+}
+
+// roundServers serve the coordinators of an enrollment round over real
+// connections: ones of the invite's CA, of another CA, with own
+// certificates, and on h2c only.
+type roundServers struct {
+	t      *testing.T
+	invite string
+	ours   credentials.TransportCredentials
+	other  credentials.TransportCredentials
+	ca     testCA
+}
+
+func newRoundServers(t *testing.T) roundServers {
+	t.Helper()
+	ours, oursCert := peerCredentials(t)
+	other, _ := peerCredentials(t)
+	secret := make([]byte, 32)
+	_, err := rand.Read(secret)
+	require.NoError(t, err)
+	pin := sha256.Sum256(oursCert.Raw)
+	return roundServers{
+		t:      t,
+		invite: "dagu1." + base64.RawURLEncoding.EncodeToString(pin[:]) + "." + base64.RawURLEncoding.EncodeToString(secret),
+		ours:   ours,
+		other:  other,
+		ca:     newTestCA(t),
 	}
-	var (
-		unreachable = status.Error(codes.Unavailable, "connection refused")
-		otherDagu   = coordinator.ErrInviteCAMismatch
-		refused     = answer(codes.PermissionDenied)
-		badReply    = coordinator.ErrInvalidEnrollReply
-	)
+}
+
+// peerCredentials returns the credentials of a coordinator with a new peer
+// CA, and the CA certificate.
+func peerCredentials(t *testing.T) (credentials.TransportCredentials, *x509.Certificate) {
+	t.Helper()
+	dir := t.TempDir()
+	ca, err := coordinator.LoadOrCreatePeerCA(filepath.Join(dir, "ca.pem"))
+	require.NoError(t, err)
+	creds, err := coordinator.NewPeerTransportCredentials(t.Context(), ca)
+	require.NoError(t, err)
+	published := filepath.Join(dir, "ca.crt")
+	_, err = ca.PublishCertificate(published)
+	require.NoError(t, err)
+	data, err := fileutil.ReadFile(published)
+	require.NoError(t, err)
+	block, _ := pem.Decode(data)
+	require.NotNil(t, block)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err)
+	return creds, cert
+}
+
+// address serves c and returns its address.
+func (r roundServers) address(c roundCoordinator) string {
+	t := r.t
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	if c.kind == "unreachable" {
+		require.NoError(t, listener.Close())
+		return listener.Addr().String()
+	}
+	var opts []grpc.ServerOption
+	switch c.kind {
+	case "answer":
+		opts = append(opts, grpc.Creds(r.ours))
+	case "other Dagu":
+		opts = append(opts, grpc.Creds(r.other))
+	case "own TLS":
+		certFile, keyFile := peercert.Write(t, t.TempDir(), peercert.Options{Name: "server", DNSNames: []string{"coordinator.test"}})
+		pair, err := tls.LoadX509KeyPair(certFile, keyFile)
+		require.NoError(t, err)
+		opts = append(opts, grpc.Creds(credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS13})))
+	}
+	server := grpc.NewServer(opts...)
+	coordinatorv1.RegisterCoordinatorServiceServer(server, answeringCoordinator{code: c.code})
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	return listener.Addr().String()
+}
+
+// One round of enrollment ends by the precedence that enrollRound states,
+// whichever coordinator gives which reply. Each reply but an enrollment
+// comes from a real coordinator over a real connection.
+func TestEnrollRoundPrecedence(t *testing.T) {
+	servers := newRoundServers(t)
 	const (
-		answerA      = "Coordinator at coordinator-a:50055 could not enroll this worker: try again"
-		answerB      = "Coordinator at coordinator-b:50055 could not enroll this worker: try again"
-		otherDaguA   = "coordinator-a:50055 belongs to a different Dagu"
-		otherDaguB   = "coordinator-b:50055 belongs to a different Dagu"
-		noTLSA       = "Coordinator at coordinator-a:50055 does not serve built-in TLS"
-		noTLSB       = "Coordinator at coordinator-b:50055 does not serve built-in TLS"
-		ownA         = "Coordinator at coordinator-a:50055 serves TLS with its own certificates"
-		unreachableB = "Cannot reach coordinator at coordinator-b:50055"
+		answerA     = "Coordinator at %[1]s could not enroll this worker: try again"
+		answerB     = "Coordinator at %[2]s could not enroll this worker: try again"
+		otherDaguA  = "%[1]s belongs to a different Dagu"
+		otherDaguB  = "%[2]s belongs to a different Dagu"
+		noTLSA      = "Coordinator at %[1]s does not serve built-in TLS"
+		noTLSB      = "Coordinator at %[2]s does not serve built-in TLS"
+		ownA        = "Coordinator at %[1]s serves TLS with its own certificates"
+		unreachable = "Cannot reach coordinator at %[2]s"
 	)
 	for _, tc := range []struct {
 		name      string
-		a, b      any
+		a, b      roundCoordinator
+		readOnly  bool
 		wantStop  string
 		wantRetry string
 	}{
-		{name: "EnrolledAfterOtherDagu", a: otherDagu, b: ca},
-		{name: "EnrolledAfterUnreachable", a: unreachable, b: ca},
-		{name: "RefusedEndsAtOnce", a: refused, b: ca, wantStop: "The invite is invalid, expired, or already used"},
-		{name: "BadReplyEndsAtOnce", a: badReply, b: ca, wantStop: "returned a certificate that does not match"},
-		{name: "UnavailableAnswerBeforeOtherDagu", a: answer(codes.Unavailable), b: otherDagu, wantRetry: answerA},
-		{name: "OtherDaguBeforeUnavailableAnswer", a: otherDagu, b: answer(codes.Unavailable), wantRetry: answerB},
-		{name: "InternalAnswerBeforeOtherDagu", a: answer(codes.Internal), b: otherDagu, wantRetry: answerA},
-		{name: "AnswerBeforeUnreachable", a: answer(codes.Internal), b: unreachable, wantRetry: answerA},
-		{name: "AnswerBeforeNoBuiltinTLS", a: answer(codes.Internal), b: coordinator.ErrNoBuiltinTLS, wantRetry: answerA},
-		{name: "OtherDaguBeforeUnreachable", a: unreachable, b: otherDagu, wantStop: otherDaguB},
-		{name: "OtherDaguBeforeNoBuiltinTLS", a: otherDagu, b: coordinator.ErrNoBuiltinTLS, wantStop: otherDaguA},
-		{name: "NoBuiltinTLSBeforeUnreachable", a: coordinator.ErrNoBuiltinTLS, b: unreachable, wantRetry: noTLSA},
-		{name: "OwnCertificatesBeforeUnreachable", a: coordinator.ErrOwnCertificates, b: unreachable, wantRetry: ownA},
-		{name: "LastNoBuiltinTLS", a: coordinator.ErrNoBuiltinTLS, b: coordinator.ErrNoBuiltinTLS, wantRetry: noTLSB},
-		{name: "LastUnreachable", a: unreachable, b: unreachable, wantRetry: unreachableB},
+		{name: "EnrolledAfterOtherDagu", a: roundOtherDagu, b: roundEnrolled},
+		{name: "EnrolledAfterUnreachable", a: roundUnreachable, b: roundEnrolled},
+		{name: "RefusedEndsAtOnce", a: roundAnswer(codes.PermissionDenied), b: roundEnrolled, wantStop: "The invite is invalid, expired, or already used"},
+		{name: "SingleUseWhileReadOnlyEndsAtOnce", a: roundAnswer(codes.FailedPrecondition), b: roundEnrolled, readOnly: true, wantStop: "a single-use invite needs a writable data directory"},
+		{name: "FailedPreconditionWhileWritableIsAnswer", a: roundAnswer(codes.FailedPrecondition), b: roundOtherDagu, wantRetry: answerA},
+		{name: "UnavailableAnswerBeforeOtherDagu", a: roundAnswer(codes.Unavailable), b: roundOtherDagu, wantRetry: answerA},
+		{name: "OtherDaguBeforeUnavailableAnswer", a: roundOtherDagu, b: roundAnswer(codes.Unavailable), wantRetry: answerB},
+		{name: "InternalAnswerBeforeOtherDagu", a: roundAnswer(codes.Internal), b: roundOtherDagu, wantRetry: answerA},
+		{name: "AnswerBeforeUnreachable", a: roundAnswer(codes.Internal), b: roundUnreachable, wantRetry: answerA},
+		{name: "AnswerBeforeH2COnly", a: roundAnswer(codes.Internal), b: roundH2COnly, wantRetry: answerA},
+		{name: "OlderCoordinatorIsNoBuiltinTLS", a: roundAnswer(codes.Unimplemented), b: roundUnreachable, wantRetry: noTLSA},
+		{name: "OtherDaguBeforeUnreachable", a: roundUnreachable, b: roundOtherDagu, wantStop: otherDaguB},
+		{name: "OtherDaguBeforeH2COnly", a: roundOtherDagu, b: roundH2COnly, wantStop: otherDaguA},
+		{name: "H2COnlyBeforeUnreachable", a: roundH2COnly, b: roundUnreachable, wantRetry: noTLSA},
+		{name: "OwnTLSBeforeUnreachable", a: roundOwnTLS, b: roundUnreachable, wantRetry: ownA},
+		{name: "LastH2COnly", a: roundH2COnly, b: roundH2COnly, wantRetry: noTLSB},
+		{name: "LastUnreachable", a: roundUnreachable, b: roundUnreachable, wantRetry: unreachable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m, err := open(t, workerConfig(t.TempDir(), ca.invite(t)), &fakeEnroll{results: map[string][]any{coordinatorA: {tc.a}, coordinatorB: {tc.b}}})
+			addrA, addrB := servers.address(tc.a), servers.address(tc.b)
+			cfg := workerConfig(t.TempDir(), servers.invite)
+			cfg.Worker.Coordinators = []string{addrA, addrB}
+			m, err := open(t, cfg, nil)
 			require.NoError(t, err)
-			resp, retry, err := m.enrollRound(t.Context(), &coordinatorv1.EnrollRequest{Csr: testCSR(t), KeepsCertificate: true})
+			fake := &fakeEnroll{results: map[string][]any{addrA: {servers.ca}, addrB: {servers.ca}}}
+			m.opts.enroll = func(ctx context.Context, config *coordinator.Config, address string, req *coordinatorv1.EnrollRequest) (*coordinatorv1.EnrollResponse, error) {
+				if (address == addrA && tc.a == roundEnrolled) || (address == addrB && tc.b == roundEnrolled) {
+					return fake.enroll(ctx, config, address, req)
+				}
+				return coordinator.Enroll(ctx, config, address, req)
+			}
+
+			addresses := strings.NewReplacer("%[1]s", addrA, "%[2]s", addrB)
+			resp, retry, err := m.enrollRound(t.Context(), &coordinatorv1.EnrollRequest{Csr: testCSR(t), KeepsCertificate: !tc.readOnly})
 			switch {
 			case tc.wantStop != "":
-				require.ErrorContains(t, err, tc.wantStop)
+				require.ErrorContains(t, err, addresses.Replace(tc.wantStop))
 			case tc.wantRetry != "":
 				require.NoError(t, err)
 				assert.Nil(t, resp)
-				assert.Contains(t, retry.logLine(), tc.wantRetry)
+				assert.Contains(t, retry.logLine(), addresses.Replace(tc.wantRetry))
 			default:
 				require.NoError(t, err)
 				assert.NotNil(t, resp)
@@ -469,6 +590,26 @@ func TestReasonHidesPaths(t *testing.T) {
 	} {
 		assert.Equal(t, "access is denied", reason(err))
 	}
+}
+
+// When the system refuses to restrict the credential directory, as an
+// access list can on Windows, a restart says so naming only the data
+// directory as configured.
+func TestMembershipRestrictFailure(t *testing.T) {
+	ca := newTestCA(t)
+	dataDir := t.TempDir()
+	join(t, workerConfig(dataDir, ca.invite(t)), enrolling(ca))
+	previous := mkdirPrivate
+	mkdirPrivate = func(dir string) error {
+		// The shape of a failure that wraps the system's error with the
+		// directory, as the access list call's can.
+		return fmt.Errorf("restrict %s to its owner: %w", dir, syscall.EACCES)
+	}
+	t.Cleanup(func() { mkdirPrivate = previous })
+
+	_, err := open(t, workerConfig(dataDir, ""), nil)
+	require.ErrorContains(t, err, "This worker cannot lock its certificate in its data directory "+dataDir+": "+syscall.EACCES.Error())
+	assert.NotContains(t, err.Error(), filepath.Join(dataDir, credentialDirName))
 }
 
 // A worker whose settings fail at start does so before it enrolls, so a

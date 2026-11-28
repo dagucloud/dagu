@@ -439,6 +439,8 @@ func TestClientTransportWorkerCertificateOtherDagu(t *testing.T) {
 		// Own certificates from the worker's own CA verify, and their
 		// profile tells them apart.
 		{name: "OwnCertificatesFromWorkerCA", creds: ownChainCredentialsFrom(t, workerCA, coordinatorCertName), want: ownCertificatesFormat},
+		{name: "WildcardNameFromWorkerCA", creds: profileCredentials(t, workerCA, notCoordinatorProfiles["WildcardName"]), want: ownCertificatesFormat},
+		{name: "ExtraUsageFromWorkerCA", creds: profileCredentials(t, workerCA, notCoordinatorProfiles["ExtraUsage"]), want: ownCertificatesFormat},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			coord := serveTestCoordinator(t, tc.creds)

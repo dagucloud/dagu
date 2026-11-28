@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 
 	"google.golang.org/grpc"
@@ -115,7 +116,7 @@ func Enroll(ctx context.Context, config *Config, address string, req *coordinato
 	if err != nil {
 		// A call with a transport passed the pin check, so its status came
 		// from, or after reaching, a coordinator of this Dagu.
-		if reached.AuthInfo != nil {
+		if reached.AuthInfo != nil && status.Code(err) != codes.Unimplemented {
 			return nil, fmt.Errorf("%w: %w", ErrCoordinatorAnswered, err)
 		}
 		return nil, enrollError(err, c.link.lastHandshakeError())
@@ -196,14 +197,15 @@ func isBuiltinChain(certs []*x509.Certificate) bool {
 }
 
 // isCoordinatorCertificate reports whether cert is one a coordinator issues
-// itself for built-in TLS, by Spec 108 §Coordinator Certificate: it names
-// coordinatorCertName, has no expiry date, and allows server authentication
-// only. Own certificates can name coordinatorCertName, but not have all
-// three.
+// itself for built-in TLS, by Spec 108 §Coordinator Certificate: it lists
+// coordinatorCertName itself as a DNS name, not through a wildcard, has no
+// expiry date, and allows server authentication and nothing else. Own
+// certificates can name coordinatorCertName, but not have all three.
 func isCoordinatorCertificate(cert *x509.Certificate) bool {
-	return cert.VerifyHostname(coordinatorCertName) == nil &&
+	return slices.Contains(cert.DNSNames, coordinatorCertName) &&
 		cert.NotAfter.Equal(peerCANoExpiry) &&
-		len(cert.ExtKeyUsage) == 1 && cert.ExtKeyUsage[0] == x509.ExtKeyUsageServerAuth
+		len(cert.ExtKeyUsage) == 1 && cert.ExtKeyUsage[0] == x509.ExtKeyUsageServerAuth &&
+		len(cert.UnknownExtKeyUsage) == 0
 }
 
 // checkEnrollReply checks that the worker certificate in resp is for the

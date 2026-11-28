@@ -41,8 +41,8 @@ Flags:
   --worker.labels -l string                Worker labels for capability matching (format: key1=value1,key2=value2);
                                            keys and values are lowercased, and an invalid label stops the worker
   --worker.coordinators string             Coordinator addresses (format: host1:port1,host2:port2)
-  --worker.invite string                   Invite from "Add worker" or dagu worker invite, to join the
-                                           coordinators over built-in TLS
+  --worker.invite string                   Invite that lets the worker join its coordinators over
+                                           built-in TLS
   --worker.shutdown-timeout string         How long to drain running DAG runs on SIGINT/SIGTERM before
                                            canceling them (default: 60s, 0 waits without a bound)
   --check                                  Check the connection to each coordinator and exit, without

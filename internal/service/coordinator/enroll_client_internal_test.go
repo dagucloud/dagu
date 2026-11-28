@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"math/big"
 	"net"
 	"strings"
@@ -153,12 +154,85 @@ func ownChainCredentialsFrom(t *testing.T, ca *PeerCA, name string) credentials.
 	})
 }
 
+// profileCredentials serve TLS with a certificate from ca that has the
+// profile of a coordinator certificate, changed by change.
+func profileCredentials(t *testing.T, ca *PeerCA, change func(*x509.Certificate)) credentials.TransportCredentials {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		Subject:     pkix.Name{CommonName: coordinatorCertName},
+		DNSNames:    []string{coordinatorCertName},
+		NotAfter:    peerCANoExpiry,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	change(template)
+	leaf := signedBy(t, ca, key.Public(), template)
+	return credentials.NewTLS(&tls.Config{
+		Certificates: []tls.Certificate{{Certificate: [][]byte{leaf, ca.cert.Raw}, PrivateKey: key}},
+		MinVersion:   tls.VersionTLS13,
+	})
+}
+
+// notCoordinatorProfiles change a coordinator certificate into one that only
+// resembles it.
+var notCoordinatorProfiles = map[string]func(*x509.Certificate){
+	// A wildcard covers the built-in name without listing it.
+	"WildcardName": func(c *x509.Certificate) { c.DNSNames = []string{"*.dagu.invalid"} },
+	"ExtraUsage": func(c *x509.Certificate) {
+		c.UnknownExtKeyUsage = []asn1.ObjectIdentifier{{1, 3, 6, 1, 4, 1, 99999, 1}}
+	},
+}
+
+// Only a certificate with the profile of a coordinator certificate is one
+// of built-in TLS during enrollment; one that only resembles it, from the
+// invite's CA, is own certificates. A coordinator certificate whose
+// coordinator does not know Enroll is one that predates it.
+func TestEnrollCoordinatorProfile(t *testing.T) {
+	ca := newTestCA(t)
+	invite, _, err := newInvite(ca.cert)
+	require.NoError(t, err)
+	parsed, ok := ParseInvite(invite)
+	require.True(t, ok)
+
+	cases := map[string]struct {
+		creds credentials.TransportCredentials
+		want  error
+	}{
+		"Coordinator": {creds: profileCredentials(t, ca, func(*x509.Certificate) {}), want: ErrNoBuiltinTLS},
+	}
+	for name, change := range notCoordinatorProfiles {
+		cases[name] = struct {
+			creds credentials.TransportCredentials
+			want  error
+		}{creds: profileCredentials(t, ca, change), want: ErrOwnCertificates}
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			server := grpc.NewServer(grpc.Creds(tc.creds))
+			coordinatorv1.RegisterCoordinatorServiceServer(server, coordinatorv1.UnimplementedCoordinatorServiceServer{})
+			go func() { _ = server.Serve(listener) }()
+			t.Cleanup(server.Stop)
+
+			config := DefaultConfig()
+			config.DialTimeout = 5 * time.Second
+			_, err = Enroll(t.Context(), config.WithInvite(parsed), listener.Addr().String(), &coordinatorv1.EnrollRequest{})
+			assert.ErrorIs(t, err, tc.want)
+			assert.NotErrorIs(t, err, ErrCoordinatorAnswered)
+		})
+	}
+}
+
 // signedBy returns a DER certificate from template for key, signed by ca.
 func signedBy(t *testing.T, ca *PeerCA, key any, template *x509.Certificate) []byte {
 	t.Helper()
 	template.SerialNumber = big.NewInt(time.Now().UnixNano())
 	template.NotBefore = time.Now().Add(-time.Hour)
-	template.NotAfter = time.Now().Add(time.Hour)
+	if template.NotAfter.IsZero() {
+		template.NotAfter = time.Now().Add(time.Hour)
+	}
 	der, err := x509.CreateCertificate(rand.Reader, template, ca.cert, key, ca.key)
 	require.NoError(t, err)
 	return der
