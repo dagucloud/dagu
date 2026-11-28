@@ -92,6 +92,7 @@ func newNodesExecutor(ctx context.Context, step ir.Step) (executor.Executor, err
 		results:       make(map[string]*ir.RunStatus),
 		children:      make(map[string]*executor.SubDAGExecutor),
 		cancel:        make(chan struct{}),
+		workspace:     runCauseWorkspace(ctx),
 		nodes: &nodeDispatch{
 			keepGoing:     step.Nodes.KeepGoing,
 			started:       make(map[string]time.Time),

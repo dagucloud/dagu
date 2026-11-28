@@ -39,6 +39,8 @@ type dagExecutor struct {
 	result    *ir.RunStatus
 	outputs   map[string]any
 	cancel    context.CancelFunc
+	// workspace decides which child run causes the step takes.
+	workspace causeWorkspace
 }
 
 // declaredChildOutputs returns the outputs a child run published explicitly,
@@ -124,9 +126,10 @@ func newDAGExecutor(ctx context.Context, step ir.Step) (executor.Executor, error
 	}
 
 	return &dagExecutor{
-		child:   child,
-		workDir: dir,
-		step:    step,
+		child:     child,
+		workDir:   dir,
+		step:      step,
+		workspace: runCauseWorkspace(ctx),
 	}, nil
 }
 
@@ -200,10 +203,7 @@ func (e *dagExecutor) Run(ctx context.Context) error {
 func (e *dagExecutor) ConnectionCause() []string {
 	e.lock.Lock()
 	defer e.lock.Unlock()
-	if e.result == nil {
-		return nil
-	}
-	return e.result.ConnectionCause
+	return e.workspace.of(e.result)
 }
 
 // DetermineNodeStatus implements NodeStatusDeterminer.

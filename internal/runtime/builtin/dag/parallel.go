@@ -58,6 +58,9 @@ type parallelExecutor struct {
 
 	// nodes is set for a step with nodes, which runs one child per node.
 	nodes *nodeDispatch
+
+	// workspace decides which child run causes the step takes.
+	workspace causeWorkspace
 }
 
 type scheduledAttempt struct {
@@ -102,6 +105,7 @@ func newParallelExecutor(
 		errors:        make([]error, 0),
 		children:      make(map[string]*executor.SubDAGExecutor),
 		cancel:        make(chan struct{}),
+		workspace:     runCauseWorkspace(ctx),
 	}, nil
 }
 
@@ -496,10 +500,11 @@ func (e *parallelExecutor) ConnectionCause() []string {
 		if result.Status.IsSuccess() || result.Status == ir.Waiting {
 			continue
 		}
-		if len(result.ConnectionCause) == 0 {
+		cause := e.workspace.of(result)
+		if len(cause) == 0 {
 			return nil
 		}
-		for _, name := range result.ConnectionCause {
+		for _, name := range cause {
 			if !slices.Contains(names, name) {
 				names = append(names, name)
 			}

@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 var (
@@ -639,6 +640,11 @@ func statusToRunStatus(status *ir.DAGRunStatus, runID string) *ir.RunStatus {
 	}
 	if failed := lastFailedNode(status); failed != nil {
 		result.FailedStep = failed.Step.Name
+	}
+	if ws, state := workspace.WorkspaceLabelFromLabels(ir.NewLabels(status.Labels)); state == workspace.WorkspaceLabelInvalid {
+		result.ConnectionCause = nil
+	} else {
+		result.CauseWorkspace = ws
 	}
 	return result
 }

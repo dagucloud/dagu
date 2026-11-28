@@ -1056,7 +1056,9 @@ the coordinator must be upgraded, and the run's other steps run.
   run with any other failed step records no connection as its cause.
 - A failed `call` or `parallel` step, or a step with nodes, counts as
   failed on a broken connection when each of its failed sub-DAG runs
-  records a broken connection as its cause. Its node status records those
+  records a broken connection as its cause and has the parent run's
+  workspace, so the connections' messages go through the routes that the
+  parent's failure message would. Its node status records those
   connections, and the parent run's cause names them.
 - A step that fails on a `pending` connection fails with
   `reconnect_required`, but its run records no connection as its cause, so
