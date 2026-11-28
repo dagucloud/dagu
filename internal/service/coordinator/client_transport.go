@@ -102,10 +102,6 @@ func requireTLSClientMessage(source string) string {
 // coordinator on built-in TLS whose CA did not sign the certificate.
 const otherDaguFormat = "%s belongs to a different Dagu than the one this worker joined. Get a new command from \"Add worker\" to join it."
 
-// errNotEnrolled fails a connection of an invite worker that holds no
-// worker certificate. Only Enroll calls such a coordinator.
-var errNotEnrolled = errors.New("the worker has no worker certificate yet: it enrolls with worker.invite first")
-
 // transportChoice is a transport and the source that selected it.
 type transportChoice struct {
 	transport string
@@ -131,15 +127,17 @@ func (c *Config) StartTransport() (string, error) {
 // Transport. The published CA certificate counts when this process can read
 // it; whether a coordinator serves built-in TLS is known per connection.
 func (c *Config) startTransport() (transportChoice, error) {
+	// A worker's settings that contradict its invite stop it at start, so
+	// an invite or a worker certificate decides alone.
 	switch {
+	case c.workerCert != nil:
+		return transportChoice{transportBuiltinTLS, sourceWorkerCert}, nil
+	case c.invite != nil:
+		return transportChoice{transportBuiltinTLS, sourceInvite}, nil
 	case c.Insecure && !c.InsecureUnset:
 		return transportChoice{transportH2C, sourceInsecure}, nil
 	case !c.Insecure && c.hasTLSSettings():
 		return transportChoice{transportTLS, sourceTLSSettings}, nil
-	case c.WorkerCertificate != nil:
-		return transportChoice{transportBuiltinTLS, sourceWorkerCert}, nil
-	case c.Invite != "":
-		return transportChoice{transportBuiltinTLS, sourceInvite}, nil
 	case c.BuiltinCAFile != "":
 		return transportChoice{transportBuiltinTLS, sourceCACertFile}, nil
 	case c.canReadPublishedCA():
@@ -153,7 +151,7 @@ func (c *Config) startTransport() (transportChoice, error) {
 // inviteWorker reports an invite worker, which has no credential other than
 // its invite or worker certificate and so never falls back to h2c.
 func (c *Config) inviteWorker() bool {
-	return c.Invite != "" || c.WorkerCertificate != nil
+	return c.invite != nil || c.workerCert != nil
 }
 
 func (c *Config) hasTLSSettings() bool {
@@ -163,7 +161,7 @@ func (c *Config) hasTLSSettings() bool {
 // picksTransportPerConnection reports whether the client picks the transport
 // for each connection, rows 3 to 5 of Spec 108 §Client Transport.
 func (c *Config) picksTransportPerConnection() bool {
-	return c.InsecureUnset || (!c.Insecure && !c.hasTLSSettings())
+	return c.inviteWorker() || c.InsecureUnset || (!c.Insecure && !c.hasTLSSettings())
 }
 
 func (c *Config) canReadPublishedCA() bool {
@@ -226,6 +224,9 @@ type connectionPlan struct {
 	roots  *x509.CertPool
 	// cert is the worker certificate the connection presents, or nil.
 	cert *tls.Certificate
+	// pin is the pin of an invite, which verifies the coordinator in place
+	// of roots during enrollment.
+	pin string
 	// unlisted reports an address that no live registry entry lists, with
 	// the published CA certificate as the only TLS source.
 	unlisted bool
@@ -235,16 +236,21 @@ type connectionPlan struct {
 	tlsError string
 }
 
+// h2c reports a plan for h2c.
+func (p connectionPlan) h2c() bool {
+	return p.roots == nil && p.pin == ""
+}
+
 // plan picks the transport of a new connection to address. A client with
 // peer.insecure: false never gets h2c.
 func (t *clientTransport) plan(ctx context.Context, address string) (connectionPlan, error) {
 	switch {
-	case t.config.WorkerCertificate != nil:
+	case t.config.workerCert != nil:
 		roots := x509.NewCertPool()
-		roots.AddCert(t.config.WorkerCA)
-		return connectionPlan{choice: transportChoice{transportBuiltinTLS, sourceWorkerCert}, roots: roots, cert: t.config.WorkerCertificate}, nil
-	case t.config.Invite != "":
-		return connectionPlan{}, errNotEnrolled
+		roots.AddCert(t.config.workerCA)
+		return connectionPlan{choice: transportChoice{transportBuiltinTLS, sourceWorkerCert}, roots: roots, cert: t.config.workerCert}, nil
+	case t.config.invite != nil:
+		return connectionPlan{choice: transportChoice{transportBuiltinTLS, sourceInvite}, pin: t.config.invite.pin}, nil
 	}
 	if t.config.InsecureUnset {
 		if window, ok := t.windows.active(address, t.now()); ok {
@@ -446,6 +452,9 @@ type connLink struct {
 	checked  time.Time
 	inflight int
 	retired  bool
+	// handshakeErr is why the last TLS handshake failed, which gRPC
+	// reports only as Unavailable.
+	handshakeErr error
 	// lastUsed is when the connection was retired, or when a call on it
 	// ended since.
 	lastUsed time.Time
@@ -455,10 +464,22 @@ type connLink struct {
 func (l *connLink) connected(plan connectionPlan) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.h2c = plan.roots == nil
+	l.h2c = plan.h2c()
 	l.windowed = plan.windowed
 	l.redial = false
 	l.checked = l.transport.now()
+}
+
+func (l *connLink) handshakeFailed(err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.handshakeErr = err
+}
+
+func (l *connLink) lastHandshakeError() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.handshakeErr
 }
 
 // refuse records a require_tls refusal and reports whether an h2c window
@@ -675,7 +696,7 @@ func (c *connectionCredentials) ClientHandshake(ctx context.Context, _ string, r
 	if err != nil {
 		return nil, nil, err
 	}
-	if plan.roots == nil {
+	if plan.h2c() {
 		c.link.connected(plan)
 		t.use(address, plan.choice)
 		return h2cCredentials{source: plan.choice.source, tlsError: plan.tlsError}.ClientHandshake(ctx, address, rawConn)
@@ -685,11 +706,19 @@ func (c *connectionCredentials) ClientHandshake(ctx context.Context, _ string, r
 	if plan.cert != nil {
 		tlsConfig.Certificates = []tls.Certificate{*plan.cert}
 	}
+	if plan.pin != "" {
+		// verifyPinnedChain checks the chain against the pin instead.
+		tlsConfig.InsecureSkipVerify = true //nolint:gosec
+		tlsConfig.VerifyConnection = func(state tls.ConnectionState) error {
+			return verifyPinnedChain(state.PeerCertificates, plan.pin)
+		}
+	}
 	creds := credentials.NewTLS(tlsConfig)
 	// The authority sets the name to verify: built-in TLS checks the name
 	// every coordinator certificate carries, not the dialed address.
 	tlsConn, info, err := creds.ClientHandshake(ctx, coordinatorCertName, conn)
 	if err != nil {
+		c.link.handshakeFailed(err)
 		t.failed(address, plan, conn, err)
 		return nil, nil, err
 	}

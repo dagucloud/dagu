@@ -41,15 +41,16 @@ type Config struct {
 	// while it lists a coordinator that serves built-in TLS.
 	LocalRegistry serviceregistry.ServiceRegistry
 
-	// Invite is the worker.invite of an invite worker that holds no worker
-	// certificate yet. Such a worker never falls back to h2c.
-	Invite string
-	// WorkerCertificate is the worker certificate and key of an invite
-	// worker. The client presents it on built-in TLS in place of the peer
-	// token, verifies coordinators against WorkerCA, the CA certificate
-	// that enrollment returned, and never falls back to h2c.
-	WorkerCertificate *tls.Certificate
-	WorkerCA          *x509.Certificate
+	// invite is the worker.invite of an invite worker that holds no worker
+	// certificate yet. Its connections verify coordinators against the
+	// invite's pin, and serve enrollment only.
+	invite *Invite
+	// workerCert is the worker certificate and key of an invite worker.
+	// Its connections present it in place of the peer token and verify
+	// coordinators against workerCA, the CA certificate that enrollment
+	// returned.
+	workerCert *tls.Certificate
+	workerCA   *x509.Certificate
 
 	// Peer token sent on every call: Token when set, otherwise the content of
 	// TokenFile when this process can read it.
@@ -99,6 +100,28 @@ func ConfigFromPeer(peer appconfig.Peer) *Config {
 		cfg.RetryInterval = peer.RetryInterval
 	}
 	return cfg
+}
+
+// WithInvite returns a copy of c for an invite worker that holds no worker
+// certificate: its connections use built-in TLS verified against the pin of
+// invite, never fall back to h2c, and send no peer token. Such a client only
+// enrolls, through Enroll.
+func (c *Config) WithInvite(invite Invite) *Config {
+	clone := *c
+	clone.invite = &invite
+	clone.workerCert, clone.workerCA = nil, nil
+	return &clone
+}
+
+// WithWorkerCertificate returns a copy of c for an invite worker that holds
+// cert, its worker certificate and key: its connections use built-in TLS,
+// present cert in place of the peer token, verify coordinators against ca,
+// the CA certificate that enrollment returned, and never fall back to h2c.
+func (c *Config) WithWorkerCertificate(cert tls.Certificate, ca *x509.Certificate) *Config {
+	clone := *c
+	clone.invite = nil
+	clone.workerCert, clone.workerCA = &cert, ca
+	return &clone
 }
 
 // Validate checks if the configuration is valid

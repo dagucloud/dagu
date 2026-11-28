@@ -55,10 +55,10 @@ func TestStartTransport(t *testing.T) {
 		{name: "SkipTLSVerify", config: Config{SkipTLSVerify: true}, want: "TLS (from peer.insecure: false)"},
 		// TLS files without peer.insecure: false select no TLS.
 		{name: "UnsetIgnoresTLSFiles", config: unset(Config{CAFile: "ca.crt"}), want: "h2c (from no TLS source)"},
-		{name: "WorkerCertificate", config: unset(Config{WorkerCertificate: &tls.Certificate{}, BuiltinCAFile: "ca.crt", PublishedCAFile: published}), want: "built-in TLS (from worker certificate)"},
-		{name: "InsecureFalseWorkerCertificate", config: Config{WorkerCertificate: &tls.Certificate{}}, want: "built-in TLS (from worker certificate)"},
-		{name: "Invite", config: unset(Config{Invite: "dagu1.pin.secret", PublishedCAFile: published}), want: "built-in TLS (from worker.invite)"},
-		{name: "InsecureFalseInvite", config: Config{Invite: "dagu1.pin.secret"}, want: "built-in TLS (from worker.invite)"},
+		{name: "WorkerCertificate", config: unset(Config{workerCert: &tls.Certificate{}, BuiltinCAFile: "ca.crt", PublishedCAFile: published}), want: "built-in TLS (from worker certificate)"},
+		{name: "InsecureFalseWorkerCertificate", config: Config{workerCert: &tls.Certificate{}}, want: "built-in TLS (from worker certificate)"},
+		{name: "Invite", config: unset(Config{invite: &Invite{}, PublishedCAFile: published}), want: "built-in TLS (from worker.invite)"},
+		{name: "InsecureFalseInvite", config: Config{invite: &Invite{}}, want: "built-in TLS (from worker.invite)"},
 		{name: "CACertFile", config: unset(Config{BuiltinCAFile: "ca.crt", PublishedCAFile: published}), want: "built-in TLS (from peer.ca_cert_file)"},
 		{name: "PublishedCA", config: unset(Config{PublishedCAFile: published}), want: "built-in TLS (from the coordinator's data directory)"},
 		{name: "InsecureFalsePublishedCA", config: Config{PublishedCAFile: published}, want: "built-in TLS (from the coordinator's data directory)"},
@@ -376,8 +376,8 @@ func workerCertificateConfig(t *testing.T, ca *PeerCA) Config {
 	der, err := ca.issueWorkerCertificate(key.Public(), "cert-1", "invite-1")
 	require.NoError(t, err)
 	config := unset(*DefaultConfig())
-	config.WorkerCertificate = &tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
-	config.WorkerCA = ca.cert
+	config.workerCert = &tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+	config.workerCA = ca.cert
 	config.Token = "peer-token"
 	config.DialTimeout = time.Second
 	return config
