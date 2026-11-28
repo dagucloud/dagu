@@ -39,6 +39,9 @@ const (
 	invalidInviteMessage = "the invite is invalid, expired, or already used"
 	// removedKeyMessage refuses the key of a revoked certificate.
 	removedKeyMessage = "this key belongs to a removed worker"
+	// removedDuringEnrollMessage refuses an enrollment of a worker ID that
+	// a removal ran for alongside it.
+	removedDuringEnrollMessage = "this worker was removed while it enrolled; enroll it again"
 )
 
 // Enroll issues a worker certificate for the key of the request's
@@ -73,12 +76,12 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 	}
 
 	fingerprint := sha256.Sum256(csr.RawSubjectPublicKeyInfo)
-	revoked, err := h.keyRevoked(ctx, fingerprint[:])
+	removals, err := h.workerCertificates.ListRemovals(ctx)
 	if err != nil {
 		logger.Error(ctx, "Failed to read the removed workers", tag.Error(err))
 		return nil, status.Error(codes.Internal, "failed to check the key")
 	}
-	if revoked {
+	if keyRevoked(removals, fingerprint[:]) {
 		return nil, status.Error(codes.PermissionDenied, removedKeyMessage)
 	}
 
@@ -113,17 +116,23 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 		)
 		return nil, status.Error(codes.Internal, "failed to record the worker certificate")
 	}
-	// A removal that revoked the key while the certificate was issued
-	// refuses the enrollment, and the certificate is never handed out. The
-	// invite stays used, as when recording the certificate fails.
-	revoked, err = h.keyRevoked(ctx, fingerprint[:])
+	// A removal that revoked the key, or the worker, while the certificate
+	// was issued refuses the enrollment, and the certificate is never handed
+	// out. A removal whose last listing of the certificates came after the
+	// record revokes it itself. The invite stays used, as when recording
+	// the certificate fails.
+	after, err := h.workerCertificates.ListRemovals(ctx)
 	if err != nil {
 		logger.Error(ctx, "Failed to read the removed workers", slog.String("certificate-id", certID), tag.Error(err))
 		return nil, status.Error(codes.Internal, "failed to check the key")
 	}
-	if revoked {
+	if keyRevoked(after, fingerprint[:]) {
 		_ = h.revoke(ctx, certID)
 		return nil, status.Error(codes.PermissionDenied, removedKeyMessage)
+	}
+	if workerRevokedSince(removals, after, req.WorkerId) {
+		_ = h.revoke(ctx, certID)
+		return nil, status.Error(codes.PermissionDenied, removedDuringEnrollMessage)
 	}
 	logger.Info(ctx, "Worker enrolled",
 		slog.String("certificate-id", certID),

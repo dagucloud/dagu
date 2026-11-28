@@ -94,6 +94,8 @@ type WorkerCertificateRemoval struct {
 	// KeyFingerprint is the certificate's [WorkerCertificate.KeyFingerprint].
 	KeyFingerprint []byte
 	State          WorkerCertificateState
+	// WorkerID is the certificate's [WorkerCertificate.WorkerID].
+	WorkerID string
 }
 
 // WorkerCertificateState is where a certificate is in its removal.

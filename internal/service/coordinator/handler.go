@@ -598,6 +598,14 @@ func (h *Handler) Poll(ctx context.Context, req *coordinatorv1.PollRequest) (*co
 		if err != nil {
 			return nil, status.Error(codes.Internal, "failed to claim task: "+err.Error())
 		}
+		// A revocation that this coordinator applied while it claimed the
+		// task takes the task back before the worker sees it.
+		if claimed != nil && claimed.Task != nil && cert != nil && h.removals.revoked(cert.Subject.CommonName) {
+			if err := h.dispatchTaskStore.ReleaseClaim(context.WithoutCancel(ctx), claimed.ClaimToken); err != nil && !errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
+				logger.Warn(ctx, "Failed to return a removed worker's task to the queue", tag.WorkerID(req.WorkerId), tag.Error(err))
+			}
+			return nil, status.Error(codes.Unauthenticated, removedWorkerMessage)
+		}
 		if claimed != nil && claimed.Task != nil {
 			claimed.Task.WorkerID = req.WorkerId
 			task, err := convert.DispatchTaskToProto(claimed.Task)
@@ -2201,6 +2209,14 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 			// and host, a heartbeat passes again a minute later.
 			pass = &certificatePass{recheckAt: receivedAt.Add(certificateChangeRecheck)}
 			info.certificatePass = pass
+			// This pass may write another worker ID to the record, so a
+			// worker under an earlier ID with the same certificate passes
+			// again at its next heartbeat.
+			for _, other := range h.heartbeats {
+				if other.workerID != req.WorkerId && other.certificateID == info.certificateID && other.certificatePass != nil {
+					other.certificatePass.recheckAt = time.Time{}
+				}
+			}
 		}
 	}
 	h.heartbeats[req.WorkerId] = info

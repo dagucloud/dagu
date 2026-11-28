@@ -179,7 +179,9 @@ func (s *WorkerCertificateStore) ListRemovals(ctx context.Context) ([]persis.Wor
 	}
 	removals := make([]persis.WorkerCertificateRemoval, 0, len(removed))
 	for _, cert := range removed {
-		removals = append(removals, persis.WorkerCertificateRemoval{ID: cert.ID, KeyFingerprint: cert.KeyFingerprint, State: cert.State})
+		removals = append(removals, persis.WorkerCertificateRemoval{
+			ID: cert.ID, KeyFingerprint: cert.KeyFingerprint, State: cert.State, WorkerID: cert.WorkerID,
+		})
 	}
 	return removals, nil
 }

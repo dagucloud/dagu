@@ -619,3 +619,126 @@ func TestScheduledRereadDuringPrune(t *testing.T) {
 		return status.Code(f.h.removals.refusal(w.certID)) == codes.Unauthenticated
 	}, 5*time.Second, 10*time.Millisecond)
 }
+
+// beforeCreate runs hook once, before the first certificate record is
+// created.
+type beforeCreate struct {
+	persis.WorkerCertificateStore
+	hook func()
+}
+
+func (s *beforeCreate) Create(ctx context.Context, cert persis.WorkerCertificate) error {
+	if hook := s.hook; hook != nil {
+		s.hook = nil
+		hook()
+	}
+	return s.WorkerCertificateStore.Create(ctx, cert)
+}
+
+// An enrollment of the worker ID with a new key on another coordinator
+// reads the removals, and the whole removal runs before it records its
+// certificate. The enrollment sees the removal afterwards, revokes its
+// certificate, and fails, so the removed worker keeps no active
+// certificate. A later enrollment succeeds (Spec 108 §Removal).
+func TestEnrollmentAcrossRemoval(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	other := f.coordinator(t)
+	other.workerCertificates = &beforeCreate{WorkerCertificateStore: f.certs, hook: func() {
+		f.remove(t, w)
+	}}
+	req, tlsCtx := f.enrollCall(t, "worker-a")
+
+	_, err := other.Enroll(tlsCtx, req)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+	assert.Equal(t, removedDuringEnrollMessage, status.Convert(err).Message())
+	certs, err := f.certs.List(t.Context())
+	require.NoError(t, err)
+	require.Len(t, certs, 2)
+	for _, cert := range certs {
+		assert.Equal(t, persis.WorkerCertificateRevoked, cert.State, cert.ID)
+	}
+	again, tlsCtx := f.enrollCall(t, "worker-a")
+	_, err = other.Enroll(tlsCtx, again)
+	assert.NoError(t, err)
+}
+
+// Two certificates share a key under different worker IDs. Removing the
+// worker that is not connected leaves the certificate of the connected one
+// active (Spec 108 §Removal).
+func TestRemovalSparesSharedKey(t *testing.T) {
+	f := newRemovalFixture(t)
+	offline := f.enroll(t, "worker-a")
+	stored, err := f.certs.Get(t.Context(), offline.certID)
+	require.NoError(t, err)
+	require.NoError(t, f.certs.Create(t.Context(), persis.WorkerCertificate{
+		ID: "cert-shared", InviteID: "invite-1", KeyFingerprint: stored.KeyFingerprint, State: persis.WorkerCertificateActive,
+		WorkerID: "worker-b", Host: "host-worker-b", CreatedAt: f.now,
+	}))
+	require.NoError(t, f.heartbeats.Upsert(t.Context(), dispatch.WorkerHeartbeatRecord{
+		WorkerID: "worker-b", Host: "host-worker-b", LastHeartbeatAt: f.now.UnixMilli(),
+		Connection: dispatch.WorkerConnectionCertificate, CertificateID: "cert-shared",
+	}))
+
+	resp := f.remove(t, offline)
+	assert.Equal(t, []string{offline.certID}, resp.CertificateIds)
+	shared, err := f.certs.Get(t.Context(), "cert-shared")
+	require.NoError(t, err)
+	assert.Equal(t, persis.WorkerCertificateActive, shared.State)
+}
+
+// A worker's ID goes from A to B and back to A within seconds, and the
+// worker then stops. The record names A, so a removal by A finds the
+// certificate after the heartbeats are cleaned up (Spec 108 §Removal).
+func TestRemoveWorkerBackToEarlierID(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	f.heartbeat(t, f.h, w)
+	renamed := w
+	renamed.id = "worker-b"
+	f.now = removalStart.Add(time.Second)
+	f.heartbeat(t, f.h, renamed)
+	f.now = removalStart.Add(2 * time.Second)
+	f.heartbeat(t, f.h, w)
+	f.now = removalStart.Add(time.Hour)
+	_, err := f.heartbeats.DeleteStale(t.Context(), f.now)
+	require.NoError(t, err)
+
+	resp := f.remove(t, w)
+	assert.Equal(t, []string{w.certID}, resp.CertificateIds)
+}
+
+// revokeOnClaim revokes the worker's certificate right after a task is
+// claimed, as a removal that lands while a poll claims does.
+type revokeOnClaim struct {
+	dispatch.DispatchTaskStore
+	revoke func()
+}
+
+func (s revokeOnClaim) ClaimNext(ctx context.Context, claim dispatch.DispatchTaskClaim) (*dispatch.ClaimedDispatchTask, error) {
+	claimed, err := s.DispatchTaskStore.ClaimNext(ctx, claim)
+	if claimed != nil {
+		s.revoke()
+	}
+	return claimed, err
+}
+
+// A removal revokes the worker while its poll claims a task. The poll is
+// refused and the task goes back to the queue at once, so another worker
+// takes it (Spec 108 §Revocation).
+func TestPollRevokedDuringClaim(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	require.NoError(t, f.dispatches.Enqueue(t.Context(), &dispatch.DispatchTask{
+		DAGRunID: "run-3", Target: "dag", AttemptID: "attempt-1",
+	}))
+	f.h.dispatchTaskStore = revokeOnClaim{DispatchTaskStore: f.dispatches, revoke: func() { f.remove(t, w) }}
+
+	_, err := f.poll(t, f.h, w)
+	assert.Equal(t, codes.Unauthenticated, status.Code(err))
+	f.h.dispatchTaskStore = f.dispatches
+	task, err := f.poll(t, f.h, f.enroll(t, "worker-b"))
+	require.NoError(t, err)
+	require.NotNil(t, task, "the task is back in the queue")
+	assert.Equal(t, "run-3", task.DagRunId)
+}

@@ -120,8 +120,8 @@ func TestWorkerCertificateStore_ListRemovals(t *testing.T) {
 	removals, err := s.ListRemovals(ctx)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []persis.WorkerCertificateRemoval{
-		{ID: "removing", KeyFingerprint: workerCertificate("removing").KeyFingerprint, State: persis.WorkerCertificateRemoving},
-		{ID: "revoked", KeyFingerprint: workerCertificate("revoked").KeyFingerprint, State: persis.WorkerCertificateRevoked},
+		{ID: "removing", KeyFingerprint: workerCertificate("removing").KeyFingerprint, State: persis.WorkerCertificateRemoving, WorkerID: "worker-removing"},
+		{ID: "revoked", KeyFingerprint: workerCertificate("revoked").KeyFingerprint, State: persis.WorkerCertificateRevoked, WorkerID: "worker-revoked"},
 	}, removals)
 }
 
