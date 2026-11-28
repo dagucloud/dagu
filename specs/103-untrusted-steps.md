@@ -316,12 +316,14 @@ The rules, in order:
    untrusted step "verify": the working directory /srv is not in the work directory of the run
    ```
 
-   The restricted user MUST be able to pass each folder above the work directory (the bit x for
-   others, or an ACL entry of the user). A folder of the worker user at `paths.dag_run_work_dir`
-   or below it that it cannot pass, and that has no access ACL, gets the access ACL entry
-   `user:<uid>:--x` until the step ends. Then the ACL is removed and the folder gets its mode back.
-   No other user can pass these folders during the step. Dagu makes them with the mode `0750`. A
-   file system without POSIX ACLs fails the step. Any other folder that the restricted user cannot
+   The restricted user MUST be able to pass each folder above the work directory, by its mode and
+   its access ACL, as the kernel checks them. A folder of the worker user at
+   `paths.dag_run_work_dir` or below it that it cannot pass, and that has no access ACL, gets an
+   access ACL until the step ends. The ACL keeps the permissions of the owner, the group and
+   others, and adds the entry `user:<uid>:--x`, so only the restricted user gains access. When the
+   step ends, the folder gets its mode back, and then the ACL is removed. Dagu makes these folders
+   with the mode `0750`, which the restricted user cannot pass. A file system without POSIX ACLs
+   fails the step when a folder needs the entry. Any other folder that the restricted user cannot
    pass fails the step:
 
    ```text
@@ -396,9 +398,10 @@ The rules, in order:
    runs or starts, Dagu also sends `SIGKILL` to every process of the restricted user, as at the
    end, and waits until no live task of that user is left. So a process that the root process left
    cannot keep the output of the step open, and the step ends. This happens before the next root
-   process of the step starts, as between the commands of a step with several commands. A root process of the step starts only when Dagu can watch it, and,
-   when no other root process of the step runs, only once no process of the restricted user is
-   left. Otherwise its start fails.
+   process of the step starts, as between the commands of a step with several commands. A root
+   process of the step starts only when Dagu can watch it, and, when no other root process of the
+   step runs or starts, only once no process of the restricted user is left. Otherwise its start
+   fails.
 
 8. **Checks at the end.** Dagu checks the work directory before it gives it back. It fails the step
    and removes the entry for each of these entries of the restricted user:
