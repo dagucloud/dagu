@@ -84,13 +84,13 @@ fixed headers.
 - A rotation replaces the whole set, since no route returns a value. A
   header that the new set lacks is deleted.
 - The bound host is the host of `resource`. The gateway sends the values
-  only there, and follows no redirect.
+  only there, and follows no redirect. It removes them from every tool
+  result and error before an agent or a step output gets one.
 - `resource` is write-only past its host, since its query can hold a
   secret. Dagu stores it encrypted, as the values. Responses, errors, and
   audit entries show only the host.
-- A change of the host or port of `resource` needs the credential again
-  in the same request, so no one can send a stored value to an origin of
-  their choosing.
+- Any change of `resource` needs the credential again in the same
+  request, so no one can send a stored value to a URL of their choosing.
 - A loopback `resource` names the Dagu host. A run on a worker fails
   admission with such a connection, since the worker cannot reach it.
 

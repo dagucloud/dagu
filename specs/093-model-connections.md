@@ -191,6 +191,8 @@ This spec adds these transitions to Spec 107, for the grants `api_key` and
 - Share picks projects, or all projects. Dagu creates, in each picked
   project, a connection of the app's name with the grant `api_key` and
   that app. With all projects, a project created later gets one too.
+  Share refuses a project that already has a connection of that name, and
+  the error names the project.
 - A connection on a shared key holds no key. It takes `preset`,
   `protocols`, and `models_url` from the app. A manager of its project
   may set its `allowed_models`, or remove it. Removing it leaves the
@@ -206,9 +208,12 @@ This spec adds these transitions to Spec 107, for the grants `api_key` and
   and to the models reader, with one exception: a local-model preset or
   `custom` sends the key over `http` to a base URL that a person entered.
 - A redirect from a request that carries the key fails the request.
-- A change that adds a base URL or a models URL, or changes the scheme,
-  host, or port of one, needs the key again in the same request, so no
-  one can send a stored key to an origin of their choosing.
+- A change that adds or changes a base URL or a models URL needs the key
+  again in the same request, so no one can send a stored key to a URL of
+  their choosing.
+- A custom `models_url` is write-only past its origin, since its path or
+  query can hold a secret. Reads, catalog errors, and audit entries show
+  only the origin.
 
 ### Presets
 
@@ -317,7 +322,7 @@ serves all of them with one key.
 
 | Key | Rule |
 | --- | --- |
-| `connection` | The name of a model connection of the run's project. A literal: a reference fails validation. `with.connection`, the `connection` of each model entry and of each `fallback` entry, and `llm.connection` are sources of Spec 107 [Declared Connections](107-connections.md#declared-connections) |
+| `connection` | The name of a model connection of the run's project. A literal: a reference fails validation. `with.connection`, the `connection` of each model entry and of each `fallback` entry, and `llm.connection` when the DAG has a step that can use it, are sources of Spec 107 [Declared Connections](107-connections.md#declared-connections) |
 | `model` | A model ID of the connection, or an alias that the CLI's adapter lists. May be a `${...}` reference |
 | `effort` | `low`, `medium`, `high`, `xhigh`, or `max`. `chat.completion` keeps `thinking` of Spec 059 instead |
 
@@ -353,7 +358,8 @@ A CLI step takes the first of these that applies:
   flag, as Spec 067 states. With `connection`, the adapter handles
   `model` and `effort`, and passes neither as a flag of its own name.
   Without it, both keep their Spec 067 behavior. Each `fallback` entry
-  takes the same keys.
+  takes the same keys. A step whose `provider` is a reference cannot
+  have `connection`, since its meaning depends on the provider.
 - With `connection`, a CLI option that would change the CLI's provider,
   base URL, credential, or server, such as `attach` for `opencode`, fails
   validation with `option_conflict`. Each adapter lists such options.
