@@ -637,6 +637,8 @@ The `worker_certificates` collection keeps one record per certificate:
 | `environment` | `host`, `container`, or `kubernetes`, from the worker's heartbeat |
 | `created_at` | The enrollment time |
 | `last_heartbeat_at` | The time of its last recorded heartbeat, or none before the first |
+| `enrolled_as` | The worker ID it enrolled as, or none for a record written before the field |
+| `enrolled_removals` | How many removals of that worker ID had begun when its enrollment started |
 
 - A record identifies its certificate's key, so `Enroll` can refuse that
   key after revocation.
@@ -775,7 +777,9 @@ or `stop`:
   `PermissionDenied` and the message
   `this worker was removed while it enrolled; enroll it again`, and its
   certificate is revoked. An enrollment that starts after the removal began
-  is a new one and succeeds.
+  is a new one and succeeds, and the removal leaves its certificate active
+  unless it carries a key the removal revoked. The removal tells the two
+  apart by `enrolled_as` and `enrolled_removals`.
 - The removal decides from the heartbeats as it reads them. A worker that
   connects again while the removal runs is removed all the same: its next
   call is refused, and the coordinator logs that it connected.
@@ -1158,9 +1162,9 @@ The Workers page is the list of workers on System status.
   when it reports a worker ID that `worker_ids` lacks, and at most once a
   minute for a returning worker ID or while the host or environment it
   reports changes. `worker_ids` holds at most 8 IDs. A coordinator passes
-  each worker's heartbeat to the record at most once an hour, or once a
-  minute while the record lacks what the worker reports or the worker ID
-  returns after another one on the same certificate.
+  each worker's heartbeat to the record at most once a minute, which reads
+  the record and writes only as above, so the record orders worker IDs by
+  when any coordinator last saw them.
 - Each worker ID that a removal named or that enrolled keeps one small
   record that orders its enrollments and removals.
 - Invites are read only at enrollment and when listed.

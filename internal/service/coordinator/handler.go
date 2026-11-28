@@ -79,9 +79,7 @@ type heartbeatInfo struct {
 // heartbeats that follow share it, so a failed pass is retried by the next
 // of them, and a newer pass is another value.
 type certificatePass struct {
-	// startedAt is when the pass was made, and recheckAt when the next
-	// heartbeat passes again. h.mu guards recheckAt.
-	startedAt time.Time
+	// recheckAt is when the next heartbeat passes again. h.mu guards it.
 	recheckAt time.Time
 }
 
@@ -196,10 +194,7 @@ type Handler struct {
 	mu             sync.Mutex
 	waitingPollers map[string]*workerInfo    // pollerID -> worker info
 	heartbeats     map[string]*heartbeatInfo // workerID -> heartbeat info
-	// certificateHolders holds the worker ID of the latest heartbeat with
-	// each certificate. h.mu guards it.
-	certificateHolders map[string]string
-	owner              dispatch.CoordinatorEndpoint
+	owner          dispatch.CoordinatorEndpoint
 
 	dispatchWakeMu          sync.Mutex
 	dispatchWakeCh          chan struct{}
@@ -410,7 +405,6 @@ func NewHandler(cfg HandlerConfig) *Handler {
 	return &Handler{
 		waitingPollers:            make(map[string]*workerInfo),
 		heartbeats:                make(map[string]*heartbeatInfo),
-		certificateHolders:        make(map[string]string),
 		dispatchWakeCh:            make(chan struct{}),
 		dispatchPollInitialWait:   defaultDispatchPollInitialWait,
 		dispatchPollMaxWait:       defaultDispatchPollMaxWait,
@@ -2207,20 +2201,11 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 	if cert != nil {
 		info.certificateID = cert.Subject.CommonName
 		prev := h.heartbeats[req.WorkerId]
-		// A worker ID that returns after another one on the certificate
-		// passes again once its pass is a minute old, so the record sees
-		// it as recently seen; workers that share a certificate pass at
-		// most once a minute each.
-		returned := h.certificateHolders[info.certificateID] != req.WorkerId
-		h.certificateHolders[info.certificateID] = req.WorkerId
 		if prev != nil && prev.certificateID == info.certificateID && prev.host == req.Host &&
-			prev.certificatePass != nil && receivedAt.Before(prev.certificatePass.recheckAt) &&
-			(!returned || receivedAt.Sub(prev.certificatePass.startedAt) < certificateChangeRecheck) {
+			prev.certificatePass != nil && receivedAt.Before(prev.certificatePass.recheckAt) {
 			info.certificatePass = prev.certificatePass
 		} else {
-			// Until the pass reports that the record holds this worker ID
-			// and host, a heartbeat passes again a minute later.
-			pass = &certificatePass{startedAt: receivedAt, recheckAt: receivedAt.Add(certificateChangeRecheck)}
+			pass = &certificatePass{recheckAt: receivedAt.Add(certificateHeartbeatPass)}
 			info.certificatePass = pass
 		}
 	}
@@ -2797,9 +2782,6 @@ func (h *Handler) collectAndRemoveStaleHeartbeats() []*heartbeatInfo {
 		if info.lastHeartbeatAt.Before(staleThreshold) {
 			stale = append(stale, info)
 			delete(h.heartbeats, workerID)
-			if h.certificateHolders[info.certificateID] == workerID {
-				delete(h.certificateHolders, info.certificateID)
-			}
 		}
 	}
 	return stale

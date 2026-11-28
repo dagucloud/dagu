@@ -512,6 +512,30 @@ func TestRemovalDuringEnrollment(t *testing.T) {
 	}
 }
 
+// A removal of A counts itself on A's fence, and another coordinator then
+// enrolls A with a new key before the removal's last listing. The
+// enrollment started after the removal began, so both succeed and the new
+// certificate stays active (Spec 108 §Removal).
+func TestEnrollmentAfterRemovalBegan(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	other := f.coordinator(t)
+	var enrolled *coordinatorv1.EnrollResponse
+	f.h.workerCertificates = &beforeRevoke{WorkerCertificateStore: f.certs, hook: func() {
+		req, tlsCtx := f.enrollCall(t, w.id)
+		var err error
+		enrolled, err = other.Enroll(tlsCtx, req)
+		require.NoError(t, err)
+	}}
+
+	resp := f.remove(t, w)
+	assert.Equal(t, []string{w.certID}, resp.CertificateIds)
+	require.NotNil(t, enrolled)
+	issued, err := x509.ParseCertificate(enrolled.Certificate)
+	require.NoError(t, err)
+	assert.Equal(t, persis.WorkerCertificateActive, f.state(t, removalWorker{certID: issued.Subject.CommonName}))
+}
+
 // A coordinator that predates the certificate ID in heartbeats records a
 // certificate connection without it. Such a fresh heartbeat counts as
 // connected, under the removed worker's ID or under another ID on the
@@ -832,10 +856,17 @@ func TestSharedCertificateHeartbeatsBounded(t *testing.T) {
 // heartbeatAs sends a heartbeat for w under the worker ID id at the time at.
 func (f *removalFixture) heartbeatAs(t *testing.T, w removalWorker, id string, at time.Time) {
 	t.Helper()
+	f.heartbeatOn(t, f.h, w, id, at)
+}
+
+// heartbeatOn sends a heartbeat for w on h under the worker ID id at the
+// time at.
+func (f *removalFixture) heartbeatOn(t *testing.T, h *Handler, w removalWorker, id string, at time.Time) {
+	t.Helper()
 	f.now = at
 	renamed := w
 	renamed.id = id
-	f.heartbeat(t, f.h, renamed)
+	f.heartbeat(t, h, renamed)
 }
 
 // A worker enrolled as A ran under eight more IDs, so the record no longer
@@ -899,24 +930,36 @@ func TestEnrollmentAfterRemovalBesideRefusedOne(t *testing.T) {
 }
 
 // A worker ran under eight IDs, A first, then came back as A more than a
-// minute later, and a ninth ID joined. The record keeps A, the most
-// recently seen but one, so a removal by A finds the certificate after the
-// heartbeats are cleaned up (Spec 108 §Removal).
+// minute later, and a ninth ID joined. The other IDs reach the record
+// through the same coordinator as A or through another one. The record
+// keeps A, the most recently seen but one, so a removal by A finds the
+// certificate after the heartbeats are cleaned up (Spec 108 §Removal).
 func TestRemoveWorkerReturnedAtCapacity(t *testing.T) {
-	f := newRemovalFixture(t)
-	w := f.enroll(t, "worker-a")
-	f.heartbeat(t, f.h, w)
-	for i := range 7 {
-		f.heartbeatAs(t, w, fmt.Sprintf("worker-%d", i), removalStart.Add(time.Duration(i+1)*time.Second))
-	}
-	f.heartbeatAs(t, w, w.id, removalStart.Add(2*time.Minute))
-	f.heartbeatAs(t, w, "worker-8", removalStart.Add(2*time.Minute+time.Second))
-	f.now = removalStart.Add(time.Hour)
-	_, err := f.heartbeats.DeleteStale(t.Context(), f.now)
-	require.NoError(t, err)
+	for _, tc := range []struct {
+		name   string
+		others func(f *removalFixture, t *testing.T) *Handler
+	}{
+		{"one coordinator", func(f *removalFixture, _ *testing.T) *Handler { return f.h }},
+		{"two coordinators", func(f *removalFixture, t *testing.T) *Handler { return f.coordinator(t) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRemovalFixture(t)
+			others := tc.others(f, t)
+			w := f.enroll(t, "worker-a")
+			f.heartbeat(t, f.h, w)
+			for i := range 7 {
+				f.heartbeatOn(t, others, w, fmt.Sprintf("worker-%d", i), removalStart.Add(time.Duration(i+1)*time.Second))
+			}
+			f.heartbeatOn(t, f.h, w, w.id, removalStart.Add(2*time.Minute))
+			f.heartbeatOn(t, others, w, "worker-8", removalStart.Add(2*time.Minute+time.Second))
+			f.now = removalStart.Add(time.Hour)
+			_, err := f.heartbeats.DeleteStale(t.Context(), f.now)
+			require.NoError(t, err)
 
-	resp := f.remove(t, w)
-	assert.Equal(t, []string{w.certID}, resp.CertificateIds)
+			resp := f.remove(t, w)
+			assert.Equal(t, []string{w.certID}, resp.CertificateIds)
+		})
+	}
 }
 
 // The record lists A and B. A coordinator that predates the certificate ID

@@ -4,6 +4,7 @@
 package coordinator
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
@@ -32,14 +33,11 @@ const (
 	// recordPruneInterval is how often a coordinator prunes the certificate
 	// and invite records.
 	recordPruneInterval = 24 * time.Hour
-	// certificateHeartbeatInterval bounds how often a coordinator passes a
-	// worker's heartbeat to its certificate record, which the store writes
-	// at most once a day.
-	certificateHeartbeatInterval = time.Hour
-	// certificateChangeRecheck is how soon a coordinator passes a heartbeat
-	// again while the record lacks the worker ID or host the worker
-	// reports, which the store writes at most once a minute.
-	certificateChangeRecheck = time.Minute
+	// certificateHeartbeatPass bounds how often a coordinator passes a
+	// worker's heartbeat to its certificate record. The store writes only
+	// what is due by the record, so the record orders worker IDs by when
+	// any coordinator last saw them.
+	certificateHeartbeatPass = time.Minute
 	// removedWorkerMessage refuses a call with a revoked worker certificate.
 	removedWorkerMessage = "this worker was removed from the coordinator"
 	// peerTokenWorkerMessage refuses the removal of a worker on the peer
@@ -155,7 +153,9 @@ func (h *Handler) RemoveWorker(ctx context.Context, req *coordinatorv1.RemoveWor
 // restart, keeps it connected, so the removal is refused. The removal
 // counts itself on the worker ID's fence before its last listing, so an
 // enrollment of the worker that runs alongside either records its
-// certificate before that listing, which revokes it, or fails.
+// certificate before that listing, which revokes it, or fails. An
+// enrollment that started after the count is a new one, and keeps its
+// certificate unless it carries a revoked key.
 func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatch.WorkerHeartbeatRecord, now time.Time) (*coordinatorv1.RemoveWorkerResponse, error) {
 	certs, err := h.workerCertificates.List(ctx)
 	if err != nil {
@@ -184,7 +184,8 @@ func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatc
 			return nil, status.Error(codes.FailedPrecondition, connectedWorkerMessage)
 		}
 	}
-	if err := h.workerCertificates.BeginWorkerRemoval(ctx, workerID); err != nil {
+	removals, err := h.workerCertificates.BeginWorkerRemoval(ctx, workerID)
+	if err != nil {
 		logger.Error(ctx, "Failed to begin a worker's removal", tag.WorkerID(workerID), tag.Error(err))
 		return nil, status.Error(codes.Internal, "failed to remove the worker")
 	}
@@ -203,7 +204,8 @@ func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatc
 	}
 	var enrolled []persis.WorkerCertificate
 	for _, cert := range certs {
-		if cert.State != persis.WorkerCertificateRevoked && namesWorker(cert, workerID) {
+		if cert.State != persis.WorkerCertificateRevoked && namesWorker(cert, workerID) &&
+			(enrolledBefore(cert, workerID, removals) || sharesKey(cert, named)) {
 			enrolled = append(enrolled, cert)
 		}
 	}
@@ -216,6 +218,21 @@ func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatc
 		State:          coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED,
 		CertificateIds: append(ids, more...),
 	}, nil
+}
+
+// enrolledBefore reports whether cert enrolled before the removal of
+// workerID that brought its removals to removals began. A certificate that
+// enrolled as another worker ID, or whose record predates the enrollment
+// fields, counts as enrolled before.
+func enrolledBefore(cert persis.WorkerCertificate, workerID string, removals int64) bool {
+	return cert.EnrolledAs != workerID || cert.EnrolledRemovals < removals
+}
+
+// sharesKey reports whether cert has the key of one of certs.
+func sharesKey(cert persis.WorkerCertificate, certs []persis.WorkerCertificate) bool {
+	return slices.ContainsFunc(certs, func(other persis.WorkerCertificate) bool {
+		return bytes.Equal(other.KeyFingerprint, cert.KeyFingerprint)
+	})
 }
 
 // warnReconnected logs each of the revoked certs that a worker connected
@@ -354,17 +371,8 @@ func (h *Handler) observeCertificateHeartbeat(ctx context.Context, cert *x509.Ce
 	if pass == nil {
 		return
 	}
-	stored, err := h.workerCertificates.RecordHeartbeat(ctx, certificateRecord(cert, req, at))
-	if err != nil {
+	if _, err := h.workerCertificates.RecordHeartbeat(ctx, certificateRecord(cert, req, at)); err != nil {
 		logger.Warn(ctx, "Failed to record a worker certificate's heartbeat", slog.String("certificate-id", cert.Subject.CommonName), tag.Error(err))
-		return
-	}
-	if namesWorker(stored, req.WorkerId) && stored.Host == req.Host {
-		// The record holds what the worker reports, so the next pass waits
-		// the full interval.
-		h.mu.Lock()
-		pass.recheckAt = at.Add(certificateHeartbeatInterval)
-		h.mu.Unlock()
 	}
 }
 

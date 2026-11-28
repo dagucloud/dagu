@@ -43,8 +43,9 @@ type WorkerCertificateStore interface {
 	WorkerRemovals(ctx context.Context, workerID string) (int64, error)
 
 	// BeginWorkerRemoval counts one more removal of the worker ID
-	// workerID, before the removal looks for its certificates.
-	BeginWorkerRemoval(ctx context.Context, workerID string) error
+	// workerID, before the removal looks for its certificates, and returns
+	// how many removals of it began, this one included.
+	BeginWorkerRemoval(ctx context.Context, workerID string) (int64, error)
 
 	// ConfirmEnrollment reports whether the removals of the worker ID
 	// workerID still number removals, and records an enrollment of it if
@@ -108,6 +109,12 @@ type WorkerCertificate struct {
 	CreatedAt time.Time
 	// LastHeartbeatAt is zero before the first recorded heartbeat.
 	LastHeartbeatAt time.Time
+	// EnrolledAs is the worker ID the certificate enrolled as, and
+	// EnrolledRemovals the [WorkerCertificateStore.WorkerRemovals] of it
+	// when the enrollment started. A record written before the fields has
+	// neither.
+	EnrolledAs       string
+	EnrolledRemovals int64
 }
 
 // WorkerCertificateRemoval is a certificate in state removing or revoked.

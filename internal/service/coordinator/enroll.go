@@ -115,6 +115,9 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 		WorkerID:       req.WorkerId,
 		Host:           req.Host,
 		CreatedAt:      issuedAt,
+
+		EnrolledAs:       req.WorkerId,
+		EnrolledRemovals: workerRemovals,
 	}); err != nil {
 		logger.Error(ctx, "Failed to record a worker certificate",
 			slog.String("certificate-id", certID),

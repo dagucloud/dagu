@@ -33,16 +33,18 @@ type WorkerCertificateStore struct {
 
 type workerCertificateStoredRecord struct {
 	// SchemaVersion is the record's format.
-	SchemaVersion   int                      `json:"schema_version"`
-	ID              string                   `json:"id"`
-	InviteID        string                   `json:"invite_id"`
-	KeyFingerprint  []byte                   `json:"key_fingerprint"`
-	WorkerID        string                   `json:"worker_id,omitempty"`
-	WorkerIDs       []workerIDSeenRecord     `json:"worker_ids,omitempty"`
-	Host            string                   `json:"host,omitempty"`
-	Environment     persis.WorkerEnvironment `json:"environment,omitempty"`
-	CreatedAt       time.Time                `json:"created_at"`
-	LastHeartbeatAt time.Time                `json:"last_heartbeat_at,omitzero"`
+	SchemaVersion    int                      `json:"schema_version"`
+	ID               string                   `json:"id"`
+	InviteID         string                   `json:"invite_id"`
+	KeyFingerprint   []byte                   `json:"key_fingerprint"`
+	WorkerID         string                   `json:"worker_id,omitempty"`
+	WorkerIDs        []workerIDSeenRecord     `json:"worker_ids,omitempty"`
+	Host             string                   `json:"host,omitempty"`
+	Environment      persis.WorkerEnvironment `json:"environment,omitempty"`
+	CreatedAt        time.Time                `json:"created_at"`
+	LastHeartbeatAt  time.Time                `json:"last_heartbeat_at,omitzero"`
+	EnrolledAs       string                   `json:"enrolled_as,omitempty"`
+	EnrolledRemovals int64                    `json:"enrolled_removals,omitempty"`
 }
 
 type workerIDSeenRecord struct {
@@ -254,6 +256,8 @@ func (s *WorkerCertificateStore) RecordHeartbeat(ctx context.Context, cert persi
 			next.InviteID = stored.InviteID
 			next.KeyFingerprint = stored.KeyFingerprint
 			next.CreatedAt = stored.CreatedAt
+			next.EnrolledAs = stored.EnrolledAs
+			next.EnrolledRemovals = stored.EnrolledRemovals
 			next.WorkerIDs = seeWorkerID(knownWorkerIDs(stored), cert.WorkerID, cert.LastHeartbeatAt)
 		case errors.Is(err, persis.ErrWorkerCertificateNotFound):
 			next.WorkerIDs = seeWorkerID(nil, cert.WorkerID, cert.LastHeartbeatAt)
@@ -350,19 +354,21 @@ func (s *WorkerCertificateStore) WorkerRemovals(ctx context.Context, workerID st
 	return fence.Removals, err
 }
 
-func (s *WorkerCertificateStore) BeginWorkerRemoval(ctx context.Context, workerID string) error {
+func (s *WorkerCertificateStore) BeginWorkerRemoval(ctx context.Context, workerID string) (int64, error) {
+	var removals int64
 	err := retryConflict(ctx, func(ctx context.Context) error {
 		current, fence, err := s.getFence(ctx, workerID)
 		if err != nil {
 			return err
 		}
 		fence.Removals++
+		removals = fence.Removals
 		return s.putFence(ctx, current, fence)
 	})
 	if err != nil {
-		return fmt.Errorf("worker certificate store: begin the removal of %q: %w", workerID, err)
+		return 0, fmt.Errorf("worker certificate store: begin the removal of %q: %w", workerID, err)
 	}
-	return nil
+	return removals, nil
 }
 
 func (s *WorkerCertificateStore) ConfirmEnrollment(ctx context.Context, workerID string, removals int64) (bool, error) {
@@ -558,31 +564,35 @@ func decodeWorkerCertificate(rec *persis.Record) (persis.WorkerCertificate, erro
 
 func storedWorkerCertificate(cert persis.WorkerCertificate) workerCertificateStoredRecord {
 	return workerCertificateStoredRecord{
-		SchemaVersion:   workerCertificateSchemaVersion,
-		ID:              cert.ID,
-		InviteID:        cert.InviteID,
-		KeyFingerprint:  cert.KeyFingerprint,
-		WorkerID:        cert.WorkerID,
-		WorkerIDs:       storedWorkerIDs(cert.WorkerIDs),
-		Host:            cert.Host,
-		Environment:     cert.Environment,
-		CreatedAt:       cert.CreatedAt.UTC(),
-		LastHeartbeatAt: cert.LastHeartbeatAt.UTC(),
+		SchemaVersion:    workerCertificateSchemaVersion,
+		ID:               cert.ID,
+		InviteID:         cert.InviteID,
+		KeyFingerprint:   cert.KeyFingerprint,
+		WorkerID:         cert.WorkerID,
+		WorkerIDs:        storedWorkerIDs(cert.WorkerIDs),
+		Host:             cert.Host,
+		Environment:      cert.Environment,
+		CreatedAt:        cert.CreatedAt.UTC(),
+		LastHeartbeatAt:  cert.LastHeartbeatAt.UTC(),
+		EnrolledAs:       cert.EnrolledAs,
+		EnrolledRemovals: cert.EnrolledRemovals,
 	}
 }
 
 func (r workerCertificateStoredRecord) certificate(state persis.WorkerCertificateState) persis.WorkerCertificate {
 	return persis.WorkerCertificate{
-		ID:              r.ID,
-		InviteID:        r.InviteID,
-		KeyFingerprint:  r.KeyFingerprint,
-		State:           state,
-		WorkerID:        r.WorkerID,
-		WorkerIDs:       r.workerIDs(),
-		Host:            r.Host,
-		Environment:     r.Environment,
-		CreatedAt:       r.CreatedAt,
-		LastHeartbeatAt: r.LastHeartbeatAt,
+		ID:               r.ID,
+		InviteID:         r.InviteID,
+		KeyFingerprint:   r.KeyFingerprint,
+		State:            state,
+		WorkerID:         r.WorkerID,
+		WorkerIDs:        r.workerIDs(),
+		Host:             r.Host,
+		Environment:      r.Environment,
+		CreatedAt:        r.CreatedAt,
+		LastHeartbeatAt:  r.LastHeartbeatAt,
+		EnrolledAs:       r.EnrolledAs,
+		EnrolledRemovals: r.EnrolledRemovals,
 	}
 }
 

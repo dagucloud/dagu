@@ -424,6 +424,34 @@ func TestWorkerCertificateStore_RecordHeartbeat(t *testing.T) {
 	assert.Equal(t, renamed, getCertificate(t, s, "cert-1"))
 }
 
+// Each removal of a worker ID returns the removals counted so far, and a
+// heartbeat that writes the record keeps how the certificate enrolled,
+// which removals compare with (Spec 108 §Removal).
+func TestWorkerCertificateStore_EnrollmentOrder(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, _ := newWorkerCertificateStore(t)
+	for want := range int64(2) {
+		removals, err := s.BeginWorkerRemoval(ctx, "worker-cert-1")
+		require.NoError(t, err)
+		assert.Equal(t, want+1, removals)
+	}
+	removals, err := s.WorkerRemovals(ctx, "worker-cert-1")
+	require.NoError(t, err)
+	cert := workerCertificate("cert-1")
+	cert.EnrolledAs, cert.EnrolledRemovals = cert.WorkerID, removals
+	createCertificate(t, s, cert)
+
+	beat := workerCertificate("cert-1")
+	beat.WorkerID = "worker-renamed"
+	beat.LastHeartbeatAt = enrolledAt.Add(time.Minute)
+	recordHeartbeat(t, s, beat)
+	stored := getCertificate(t, s, "cert-1")
+	assert.Equal(t, "worker-renamed", stored.WorkerID)
+	assert.Equal(t, "worker-cert-1", stored.EnrolledAs)
+	assert.Equal(t, int64(2), stored.EnrolledRemovals)
+}
+
 // Two workers that run on one copied certificate report different hosts at
 // every heartbeat. They write the record at most once a minute.
 func TestWorkerCertificateStore_RecordHeartbeatBoundsChanges(t *testing.T) {
