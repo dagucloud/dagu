@@ -684,8 +684,9 @@ func (h *Handler) startPeerMaintenance(ctx context.Context) {
 // each revocation runs on its own, so no listing, cancel request, reread,
 // or other certificate's revocation holds one up. A revocation that fails is
 // tried again heartbeatSettleInterval later, and only that certificate
-// waits. A store write that stalls while it holds the store's lock can
-// still delay the revocations behind it.
+// waits. The revocation's write still shares the store's collection lock,
+// so a slow write or scan of that collection, such as a prune, can delay
+// it.
 func (h *Handler) runStopDeadlines(ctx context.Context) {
 	timer := time.NewTimer(recordPruneInterval)
 	defer timer.Stop()
