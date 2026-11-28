@@ -40,6 +40,7 @@ type inviteCoordinator struct {
 	coordinatorv1.UnimplementedCoordinatorServiceServer
 	readiness    *coordinatorv1.GetJoinReadinessResponse
 	readinessErr error
+	createErr    error
 
 	mu      sync.Mutex
 	created []*coordinatorv1.CreateInviteRequest
@@ -53,6 +54,9 @@ func (c *inviteCoordinator) CreateInvite(_ context.Context, req *coordinatorv1.C
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.created = append(c.created, req)
+	if c.createErr != nil {
+		return nil, c.createErr
+	}
 	kind := coordinatorv1.InviteKind_INVITE_KIND_SINGLE_USE
 	var expiresAt int64
 	if req.Reusable {
@@ -214,6 +218,11 @@ func TestWorkerInviteNotReady(t *testing.T) {
 			want: " predates worker invites: upgrade it to create invites\n",
 		},
 		{
+			name: "Unreachable",
+			err:  status.Error(codes.Unavailable, "connection refused"),
+			want: " did not report whether it accepts workers: connection refused\n",
+		},
+		{
 			name: "NoPeerToken",
 			err:  status.Error(codes.Unauthenticated, "the coordinator requires a peer token"),
 			want: " did not report whether it accepts workers: the coordinator requires a peer token\n",
@@ -245,6 +254,29 @@ func TestWorkerInviteOneOfTwoNotReady(t *testing.T) {
 	assert.Contains(t, out, "It listens on 127.0.0.1")
 	assert.Empty(t, ready.createRequests())
 	assert.Empty(t, loopback.createRequests())
+}
+
+// A refused create reaches the user with the coordinator's message.
+func TestWorkerInviteRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "FailedPrecondition", err: status.Error(codes.FailedPrecondition, "invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file")},
+		{name: "InvalidArgument", err: status.Error(codes.InvalidArgument, "address must be host:port")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := &inviteCoordinator{readiness: readyReport(), createErr: tc.err}
+			out, err := runWorkerInvite(t, startInviteCoordinators(t, fake), "--address", testInviteAddress)
+
+			require.EqualError(t, err, "failed to create the invite: "+status.Convert(tc.err).Message())
+			assert.Empty(t, out)
+		})
+	}
 }
 
 func TestWorkerInviteFlags(t *testing.T) {
