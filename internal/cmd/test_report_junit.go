@@ -85,7 +85,7 @@ func (r *junitTestReport) addInvalidFile(file string, errs []dagtest.Finding) {
 		Name:      file,
 		Classname: file,
 		Time:      junitSeconds(0),
-		Error:     &junitProblem{Message: firstLine(errs), Text: text.String()},
+		Error:     &junitProblem{Message: firstMessage(errs), Text: text.String()},
 	})
 }
 
@@ -105,10 +105,10 @@ func (r *junitTestReport) addCase(c caseResult) {
 	switch result {
 	case resultInvalid:
 		s.Errors++
-		tc.Error = &junitProblem{Message: firstLine(c.errors), Text: details}
+		tc.Error = &junitProblem{Message: firstMessage(c.errors), Text: details}
 	case resultFail:
 		s.Failures++
-		tc.Failure = &junitProblem{Message: firstLine(c.failures), Text: details}
+		tc.Failure = &junitProblem{Message: firstMessage(c.failures), Text: details}
 	default:
 		tc.SystemOut = details
 	}
@@ -147,7 +147,7 @@ func caseDetails(c caseResult) string {
 	return text.String()
 }
 
-func firstLine[T fmt.Stringer](items []T) string {
+func firstMessage[T fmt.Stringer](items []T) string {
 	if len(items) == 0 {
 		return ""
 	}
