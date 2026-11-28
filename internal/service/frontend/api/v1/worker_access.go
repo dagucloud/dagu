@@ -129,6 +129,15 @@ func (a *API) CreateWorkerInvite(ctx context.Context, request api.CreateWorkerIn
 	if body := request.Body; body != nil {
 		req.Reusable = valueOf(body.Reusable)
 		req.Address = valueOf(body.Address)
+		// An invite pasted as the address would reach the audit entry and
+		// every later listing, so it never leaves this server.
+		if coordinator.RedactInvites(req.Address) != req.Address {
+			return nil, &Error{
+				HTTPStatus: http.StatusBadRequest,
+				Code:       api.ErrorCodeBadRequest,
+				Message:    "address must be the coordinator's host:port, not an invite",
+			}
+		}
 		if body.ExpiresIn != nil {
 			if req.ExpiresInSeconds, err = expiresInSeconds(*body.ExpiresIn); err != nil {
 				return nil, err

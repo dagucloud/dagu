@@ -239,6 +239,8 @@ func TestCreateInviteInvalid(t *testing.T) {
 		"NoPort":         {Address: "192.168.1.20"},
 		"PortZero":       {Address: "192.168.1.20:0"},
 		"NoHost":         {Address: ":50055"},
+		// An invite pasted as the host would reach the invite records.
+		"InviteAsHost": {Address: "dagu1." + strings.Repeat("A", 43) + "." + strings.Repeat("B", 43) + ":50055"},
 	} {
 		_, err := server.tlsClient(t).CreateInvite(callContext(t), req)
 		assert.Equal(t, codes.InvalidArgument, status.Code(err), name)
