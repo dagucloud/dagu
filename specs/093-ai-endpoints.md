@@ -46,7 +46,8 @@ This spec does not define:
   103](103-untrusted-steps.md). The egress proxy: see [Spec 105](105-egress-proxy.md).
 - the secret providers and the runtime profiles. See Spec 069 and Spec 070.
 - the keys of the `harness.run` action. See [Spec 067](067-harness.md).
-- the skills of the server and the tab Skills. See Spec 096.
+- the skills of the server. See Spec 096. This spec gives only the place of the tab Skills on the AI
+  page.
 
 ## Goal
 
@@ -180,14 +181,14 @@ has no key, and the coordinator sets no credential header. A rotation can add a 
 
 ### Storage
 
-The key is a managed secret of the secret store of Spec 069. It has the provider type
+The key is a managed secret of the secret store. It has the provider type
 `dagu-managed`, the workspace of the scope (`.global` for the global scope) and the ref
 `ai/endpoint/<name>`. The store encrypts the value. This spec adds no second store for keys.
 
 The other fields are not secret. They are a record of a collection of the persistence layer, as a
 runtime profile is. The record holds the ID of the secret. A delete removes the record and the secret.
 
-The secret routes of Spec 069 show the metadata of the key secret, and never the value. Only an
+The secret routes show the metadata of the key secret, and never the value. Only an
 administrator can create, change, enable, disable or delete a secret with a ref that starts with `ai/`.
 
 The prefix `ai/` is reserved. No DAG can read a secret with this prefix. `dagu validate` rejects a
@@ -296,7 +297,7 @@ of endpoint.
 The column Consumers names the clients that can use the row. The CLI `claude` needs the protocol
 `anthropic`. The CLI `codex` needs the protocol `openai`, and `agent.run` does not run it yet (Spec
 091). The action `chat.completion` has the provider types `openai`, `anthropic`, `gemini`,
-`openrouter`, `zai`, `local` and `openai-codex`, and `opencode`. The column Chat type gives the type
+`openrouter`, `zai`, `local` and `opencode`. The column Chat type gives the type
 that an endpoint of the row selects.
 
 | Preset | Protocol | Base URL | Auth | Models URL | Consumers | Chat type |
@@ -368,8 +369,7 @@ Rules of the table:
   `anthropic-oauth` is valid with the protocol `anthropic` only.
 - An endpoint of the protocol `anthropic` has the type `anthropic` for `chat.completion`. An endpoint
   of the protocol `openai` has the type of its row, or `openai` for Custom.
-- The type `openai-codex` (the subscription of ChatGPT) and the type `opencode` have no row. They need
-  no endpoint in this version.
+- The type `opencode` has no row. It needs no endpoint in this version.
 
 ## The models list
 
@@ -494,7 +494,7 @@ An entry on the old method has no endpoint, so it has no check.
 A provider can release a model after the last read. A miss therefore starts one refresh before the step
 fails:
 
-1. The coordinator reads the list again, with `RefreshModels`. A local run does it in its own process.
+1. The coordinator reads the list again. A local run does it in its own process.
    The read ends with `ai.models_timeout_sec`.
 2. The check runs again on the new list. A model that the new list has passes.
 3. A model that the new list lacks fails the step. The date of the message is the date of the new read.
@@ -528,7 +528,7 @@ The CLI `claude` accepts model names that the models API does not list. For `age
 The match of the name of an alias ignores the case. The suffix `[1m]` is in lower case. A listed model
 with the suffix `[1m]` also passes.
 
-The list is data in one place of the code: `CLIModelAliases` of `internal/aiendpoint`. It comes from Claude Code
+The list is data in one place of the code. It comes from Claude Code
 version 2.1.311: its `--model` option and its table of aliases. Dagu does not translate an alias. It
 passes the value to the CLI.
 
@@ -594,7 +594,7 @@ config: the environment variable DAGU_AI is not read: set the block ai in the co
 
 `dagu config` prints each key of the block with its value and its source (`file` or `default`). The
 coordinator and the server log the same values at start. The table of keys in the code gives the
-schema, the defaults and the printed values, as for the block `agent_tools`. The schema file
+schema, the defaults and the printed values, as for the block `agent_tools` of Spec 090. The schema file
 `config.schema.json` describes the block. A test checks the table of this spec, the schema file and
 the table of the code against each other.
 
@@ -881,7 +881,7 @@ scripts and the evidence format. These facts are measured.
 | A local model with no key. The auth forms have no value `none`. | The preset Local model accepts an empty key and sets no header. |
 | A workspace endpoint hides a global endpoint of the same name. | As in this spec. |
 | A limit of models for an endpoint (`allow.models`), so that an agent cannot use an expensive model. | Not added. The agent can use each model that the key allows. |
-| The native `gemini` type of `chat.completion` and the type `openai-codex` as endpoints. | Not endpoint protocols. |
+| The native `gemini` type of `chat.completion` as an endpoint. | Not an endpoint protocol. |
 | No route reads one endpoint: the list gives all the fields. | Not added. The routes of the table are the routes of the spec. |
 | A role other than admin needs a license. The suite cannot test the refusal of a role at the binary level. | A Go test of the handlers covers the roles. The suite checks the refusal with no token. |
 | The audit log needs a license. The suite cannot read the audit lines at the binary level. | A Go test of the handlers covers the lines. |

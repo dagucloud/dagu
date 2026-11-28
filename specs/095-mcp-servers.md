@@ -37,7 +37,7 @@ This spec does not define:
 - the allow rules of the CLI and the tool bridge. See Spec 091.
 - the agent worker and the pools. See Spec 092. The restricted user: see [Spec
   103](103-untrusted-steps.md). The egress proxy: see [Spec 105](105-egress-proxy.md).
-- the secret store. See [Spec 069](069-secrets-providers.md).
+- the secret store.
 
 ## Goal
 
