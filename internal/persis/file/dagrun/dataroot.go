@@ -84,6 +84,12 @@ func dagDirName(dagName string) string {
 	return name + "-" + hex.EncodeToString(hash[:])[:4]
 }
 
+// DAGDirName returns the name of the directory in dir that holds the runs
+// of the DAG called dagName.
+func DAGDirName(dir, dagName string) string {
+	return existingDAGDirName(dir, dagName)
+}
+
 // existingDAGDirName returns the directory in dir that holds a DAG's data.
 // Earlier versions kept a Windows device name such as con as written, which
 // Windows 11 stores, so a directory under that name is still used.

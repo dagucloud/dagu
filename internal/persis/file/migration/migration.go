@@ -49,8 +49,13 @@ const (
 	// planVersion identifies the moves that this release plans. A release
 	// that plans moves an earlier one did not make raises it, so the
 	// migration runs again where the earlier one finished. Version 1 planned
-	// no moves; version 2 moves the default project's state.
-	planVersion = 2
+	// no moves; version 2 moves the default project's state; version 3
+	// makes each workspace a project and moves its DAGs' state on into it.
+	planVersion = 3
+	// firstPlanVersion is the first version that plans moves. Each version
+	// from it to planVersion is planned in turn, once the one before it is
+	// finished, since each moves state that the one before placed.
+	firstPlanVersion = 2
 )
 
 // Phase is a stage of the migration.
@@ -104,9 +109,9 @@ type Migrator struct {
 	// stopRuns cancels each run whose process is live, once per run, and
 	// returns the runs whose process has not exited yet.
 	stopRuns func(context.Context) ([]string, error)
-	// planMoves returns the moves of the v2 state. It runs once, under the
-	// lock, before the first move.
-	planMoves func(context.Context) ([]move, error)
+	// planMoves returns the moves of a plan version. It runs once per
+	// version, under the lock, before the first move of that version.
+	planMoves func(ctx context.Context, version int) ([]move, error)
 	// pollTicks returns the ticks on which a waiting process checks again,
 	// and a function that stops them.
 	pollTicks func() (<-chan time.Time, func())
@@ -119,6 +124,9 @@ type Migrator struct {
 	// beforeRecordCopy, when set by tests, runs before the journal records
 	// a copy as installing.
 	beforeRecordCopy func(index int) error
+	// finished is the last plan version that the journal records as
+	// finished. Only the process that holds the lock sets it.
+	finished int
 
 	mu       sync.Mutex
 	progress Progress
@@ -142,7 +150,7 @@ func New(
 	stopRuns func(context.Context) ([]string, error),
 ) *Migrator {
 	dir := filepath.Join(cfg.Paths.DataDir, dirName)
-	return &Migrator{
+	m := &Migrator{
 		journal: journal{dir: dir},
 		lock: dirlock.New(dir, &dirlock.LockOptions{
 			StaleThreshold:   lockStaleThreshold,
@@ -151,11 +159,14 @@ func New(
 		services:  services,
 		mover:     newMover(),
 		stopRuns:  stopRuns,
-		planMoves: stateMovePlanner(cfg),
 		pollTicks: newPollTicker,
 		now:       time.Now,
 		progress:  Progress{Phase: phaseStarting},
 	}
+	// The planner asks the mover, which tests replace, which paths share a
+	// file system.
+	m.planMoves = versionPlanner(cfg, func(a, b string) (bool, error) { return m.mover.sameFileSystem(a, b) })
+	return m
 }
 
 func newPollTicker() (<-chan time.Time, func()) {
@@ -236,6 +247,11 @@ func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) er
 	if done, err := m.checkDone(); err != nil || done {
 		return err
 	}
+	status, _, err := m.journal.readStatus()
+	if err != nil {
+		return err
+	}
+	m.finished = status.Version
 	if err := m.waitForV2(ctx, ticks, held); err != nil {
 		return err
 	}
@@ -243,7 +259,7 @@ func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) er
 		return err
 	}
 	for {
-		plan, err := m.loadOrPlan(ctx, held)
+		plan, err := m.loadOrPlan(ctx, max(m.finished+1, firstPlanVersion), held)
 		if err != nil {
 			return err
 		}
@@ -251,18 +267,21 @@ func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) er
 		if err != nil {
 			return err
 		}
+		m.finished = plan.Version
 		if plan.Version >= planVersion {
 			progress.Phase = phaseDone
-			if err := m.publishStatus(statusFile{Progress: progress, Version: plan.Version}, held); err != nil {
+			if err := m.publishHeld(progress, held); err != nil {
 				return err
 			}
 			logger.Info(ctx, "Migrated state to projects", slog.Int("moves", len(plan.Moves)))
 			return nil
 		}
-		// The plan of an earlier release is finished; plan this release's.
-		logger.Info(ctx, "Planning the moves that this release adds to the migration",
+		// A plan of an earlier version is finished; plan the next one. The
+		// status records the finished version before its plan goes, so a
+		// crash in between plans the next version, not this one again.
+		logger.Info(ctx, "Planning the next moves of the migration",
 			slog.Int("from-version", plan.Version), slog.Int("version", planVersion))
-		if err := held(); err != nil {
+		if err := m.publishHeld(progress, held); err != nil {
 			return err
 		}
 		if err := m.journal.reset(); err != nil {
@@ -473,14 +492,14 @@ func (m *Migrator) liveV2(ctx context.Context) ([]string, error) {
 }
 
 // loadOrPlan returns the plan of an earlier attempt, which an earlier
-// release may have made, or plans the moves and records them before the
-// first one.
-func (m *Migrator) loadOrPlan(ctx context.Context, held func() error) (planFile, error) {
+// release may have made, or plans the moves of version and records them
+// before the first one.
+func (m *Migrator) loadOrPlan(ctx context.Context, version int, held func() error) (planFile, error) {
 	plan, found, err := m.journal.readPlan()
 	if err != nil || found {
 		return plan, err
 	}
-	moves, err := m.planMoves(ctx)
+	moves, err := m.planMoves(ctx, version)
 	if err != nil {
 		return planFile{}, fmt.Errorf("plan the migration: %w", err)
 	}
@@ -490,7 +509,7 @@ func (m *Migrator) loadOrPlan(ctx context.Context, held func() error) (planFile,
 	if err := held(); err != nil {
 		return planFile{}, err
 	}
-	plan = planFile{Version: planVersion, Moves: moves}
+	plan = planFile{Version: version, Moves: moves}
 	if err := m.journal.writePlan(plan); err != nil {
 		return planFile{}, err
 	}
@@ -633,21 +652,15 @@ func (m *Migrator) publishShortage(progress Progress, shortage *SpaceShortage, h
 }
 
 // publishHeld records progress for this process and, while it holds the
-// lock, writes it for the processes that wait. A process that lost the lock
-// writes nothing, so it never replaces the status of the one that took the
-// lock over.
+// lock, writes it for the processes that wait, with the last finished plan
+// version. A process that lost the lock writes nothing, so it never
+// replaces the status of the one that took the lock over.
 func (m *Migrator) publishHeld(progress Progress, held func() error) error {
-	return m.publishStatus(statusFile{Progress: progress}, held)
-}
-
-// publishStatus is publishHeld for a status that also names the version a
-// finished migration made.
-func (m *Migrator) publishStatus(status statusFile, held func() error) error {
 	if err := held(); err != nil {
 		return err
 	}
-	m.setProgress(status.Progress)
-	return m.journal.writeStatus(status)
+	m.setProgress(progress)
+	return m.journal.writeStatus(statusFile{Progress: progress, Version: m.finished})
 }
 
 func (m *Migrator) setProgress(progress Progress) {

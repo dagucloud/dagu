@@ -100,13 +100,13 @@ func (w *watcher) check(ctx context.Context) {
 	if w.hasReported && bytes.Equal(data, w.reported) {
 		return
 	}
-	projects, err := decode(data)
+	entries, err := decode(data)
 	if err != nil {
 		logger.Warn(ctx, "Failed to read the project registry", tag.Error(err))
 		return
 	}
 	w.reported, w.hasReported = data, true
-	w.onChange(projects)
+	w.onChange(projectsOf(entries))
 }
 
 func (r *Registry) stat() (fileStamp, error) {

@@ -34,8 +34,9 @@ const (
 
 	// schemaVersion is the file format this version writes. A newer format
 	// is refused on read, so the file is never written back without the
-	// fields this version does not know.
-	schemaVersion = 1
+	// fields this version does not know. Version 2 adds the records that
+	// migration writes.
+	schemaVersion = 2
 
 	// lockStaleThreshold frees the lock of a process that died holding it.
 	lockStaleThreshold = 30 * time.Second
@@ -73,9 +74,20 @@ type storedProject struct {
 	DisplayName  string        `json:"display_name"`
 	CreatedAt    time.Time     `json:"created_at"`
 	MigratedFrom string        `json:"migrated_from,omitempty"`
+	MigratedDAGs []string      `json:"migrated_dags,omitempty"`
+	InPlaceFiles []string      `json:"in_place_files,omitempty"`
 	SlotSeed     string        `json:"slot_seed"`
 	Binding      storedBinding `json:"binding,omitzero"`
 	Deleting     bool          `json:"deleting,omitempty"`
+}
+
+// entry is a registered project with the records the registry keeps for
+// it.
+type entry struct {
+	project.Project
+	// inPlace holds the paths of the files that run in place as the
+	// project's, ended records included.
+	inPlace []string
 }
 
 type storedBinding struct {
@@ -97,39 +109,92 @@ func New(dataDir string) *Registry {
 
 // List returns every registered project, ordered by name.
 func (r *Registry) List(_ context.Context) ([]project.Project, error) {
-	return r.load()
+	entries, err := r.load()
+	if err != nil {
+		return nil, err
+	}
+	return projectsOf(entries), nil
 }
 
 // Get returns the project whose name matches name without regard to case.
 func (r *Registry) Get(_ context.Context, name string) (project.Project, error) {
-	projects, err := r.load()
+	entries, err := r.load()
 	if err != nil {
 		return project.Project{}, err
 	}
-	i := indexByName(projects, name)
+	i := indexByName(entries, name)
 	if i < 0 {
 		return project.Project{}, fmt.Errorf("%w: %q", project.ErrNotFound, name)
 	}
-	return projects[i], nil
+	return entries[i].Project, nil
 }
 
 // GetByID returns the project with the given ID.
 func (r *Registry) GetByID(_ context.Context, id string) (project.Project, error) {
-	projects, err := r.load()
+	entries, err := r.load()
 	if err != nil {
 		return project.Project{}, err
 	}
-	i, err := indexByID(projects, id)
+	i, err := indexByID(entries, id)
 	if err != nil {
 		return project.Project{}, err
 	}
-	return projects[i], nil
+	return entries[i].Project, nil
 }
 
 // Create registers a project under a new ID.
 func (r *Registry) Create(ctx context.Context, in project.CreateInput) (project.Project, error) {
-	if err := project.ValidateName(in.Name); err != nil {
+	created, err := r.newEntry(in)
+	if err != nil {
 		return project.Project{}, err
+	}
+	err = r.update(ctx, func(entries []entry) ([]entry, bool, error) {
+		if i := indexByName(entries, in.Name); i >= 0 {
+			return nil, false, fmt.Errorf("%w: %q", project.ErrNameTaken, entries[i].Name)
+		}
+		return append(entries, created), true, nil
+	})
+	if err != nil {
+		return project.Project{}, err
+	}
+	return created.Project, nil
+}
+
+// RegisterMigrated registers the project that the v2 workspace
+// in.MigratedFrom becomes, as Create does. When a project of that workspace
+// is registered, it keeps that project's ID and name, replaces its
+// MigratedDAGs and files that run in place with in's, and returns it.
+func (r *Registry) RegisterMigrated(ctx context.Context, in project.CreateInput) (project.Project, error) {
+	if in.MigratedFrom == "" {
+		return project.Project{}, errors.New("project registry: a migrated project names its workspace")
+	}
+	created, err := r.newEntry(in)
+	if err != nil {
+		return project.Project{}, err
+	}
+	var result project.Project
+	err = r.update(ctx, func(entries []entry) ([]entry, bool, error) {
+		i := slices.IndexFunc(entries, func(e entry) bool { return e.MigratedFrom == in.MigratedFrom })
+		if i >= 0 {
+			entries[i].MigratedDAGs = created.MigratedDAGs
+			entries[i].inPlace = created.inPlace
+			result = entries[i].Project
+			return entries, true, nil
+		}
+		if j := indexByName(entries, in.Name); j >= 0 {
+			return nil, false, fmt.Errorf("%w: %q", project.ErrNameTaken, entries[j].Name)
+		}
+		result = created.Project
+		return append(entries, created), true, nil
+	})
+	return result, err
+}
+
+// newEntry returns the entry of a project to register from in, under a new
+// ID. It returns an error when in breaks the name rules.
+func (r *Registry) newEntry(in project.CreateInput) (entry, error) {
+	if err := project.ValidateName(in.Name); err != nil {
+		return entry{}, err
 	}
 	id := uuid.NewString()
 	created := project.Project{
@@ -138,33 +203,44 @@ func (r *Registry) Create(ctx context.Context, in project.CreateInput) (project.
 		DisplayName:  cmp.Or(in.DisplayName, in.Name),
 		CreatedAt:    r.now().UTC(),
 		MigratedFrom: in.MigratedFrom,
+		MigratedDAGs: slices.Clone(in.MigratedDAGs),
 		SlotSeed:     id,
 	}
 	if in.MigratedFrom != "" {
 		created.SlotSeed = r.dirSeed
 	}
 	if err := project.ValidateDisplayName(created.DisplayName); err != nil {
-		return project.Project{}, err
+		return entry{}, err
 	}
-	err := r.update(ctx, func(projects []project.Project) ([]project.Project, bool, error) {
-		if i := indexByName(projects, in.Name); i >= 0 {
-			return nil, false, fmt.Errorf("%w: %q", project.ErrNameTaken, projects[i].Name)
+	return entry{Project: created, inPlace: slices.Clone(in.InPlaceFiles)}, nil
+}
+
+// endInPlace removes the records of ended, files that ran in place as the
+// project with the given ID, unless the registry no longer holds them.
+func (r *Registry) endInPlace(ctx context.Context, id string, ended []string) error {
+	return r.update(ctx, func(entries []entry) ([]entry, bool, error) {
+		i := slices.IndexFunc(entries, func(e entry) bool { return e.ID == id })
+		if i < 0 {
+			return nil, false, nil
 		}
-		return append(projects, created), true, nil
+		kept := slices.DeleteFunc(slices.Clone(entries[i].inPlace), func(file string) bool {
+			return slices.Contains(ended, file)
+		})
+		if len(kept) == len(entries[i].inPlace) {
+			return nil, false, nil
+		}
+		entries[i].inPlace = kept
+		return entries, true, nil
 	})
-	if err != nil {
-		return project.Project{}, err
-	}
-	return created, nil
 }
 
 // EnsureDefault returns the default project, registering it first when the
 // registry lacks it.
 func (r *Registry) EnsureDefault(ctx context.Context) (project.Project, error) {
 	var result project.Project
-	err := r.update(ctx, func(projects []project.Project) ([]project.Project, bool, error) {
-		if i := indexByName(projects, project.DefaultName); i >= 0 {
-			result = projects[i]
+	err := r.update(ctx, func(entries []entry) ([]entry, bool, error) {
+		if i := indexByName(entries, project.DefaultName); i >= 0 {
+			result = entries[i].Project
 			return nil, false, nil
 		}
 		result = project.Project{
@@ -174,7 +250,7 @@ func (r *Registry) EnsureDefault(ctx context.Context) (project.Project, error) {
 			CreatedAt:   r.now().UTC(),
 			SlotSeed:    r.dirSeed,
 		}
-		return append(projects, result), true, nil
+		return append(entries, entry{Project: result}), true, nil
 	})
 	return result, err
 }
@@ -182,19 +258,19 @@ func (r *Registry) EnsureDefault(ctx context.Context) (project.Project, error) {
 // SetDisplayName changes a project's display name.
 func (r *Registry) SetDisplayName(ctx context.Context, id, displayName string) (project.Project, error) {
 	var result project.Project
-	err := r.update(ctx, func(projects []project.Project) ([]project.Project, bool, error) {
-		i, err := indexByID(projects, id)
+	err := r.update(ctx, func(entries []entry) ([]entry, bool, error) {
+		i, err := indexByID(entries, id)
 		if err != nil {
 			return nil, false, err
 		}
-		next := cmp.Or(displayName, projects[i].Name)
+		next := cmp.Or(displayName, entries[i].Name)
 		if err := project.ValidateDisplayName(next); err != nil {
 			return nil, false, err
 		}
-		changed := projects[i].DisplayName != next
-		projects[i].DisplayName = next
-		result = projects[i]
-		return projects, changed, nil
+		changed := entries[i].DisplayName != next
+		entries[i].DisplayName = next
+		result = entries[i].Project
+		return entries, changed, nil
 	})
 	return result, err
 }
@@ -202,39 +278,39 @@ func (r *Registry) SetDisplayName(ctx context.Context, id, displayName string) (
 // SetDeleting marks or unmarks a project as being deleted.
 func (r *Registry) SetDeleting(ctx context.Context, id string, deleting bool) (project.Project, error) {
 	var result project.Project
-	err := r.update(ctx, func(projects []project.Project) ([]project.Project, bool, error) {
-		i, err := indexByID(projects, id)
+	err := r.update(ctx, func(entries []entry) ([]entry, bool, error) {
+		i, err := indexByID(entries, id)
 		if err != nil {
 			return nil, false, err
 		}
-		if deleting && projects[i].Name == project.DefaultName {
+		if deleting && entries[i].Name == project.DefaultName {
 			return nil, false, project.ErrDefaultProject
 		}
-		changed := projects[i].Deleting != deleting
-		projects[i].Deleting = deleting
-		result = projects[i]
-		return projects, changed, nil
+		changed := entries[i].Deleting != deleting
+		entries[i].Deleting = deleting
+		result = entries[i].Project
+		return entries, changed, nil
 	})
 	return result, err
 }
 
 // Delete removes a project from the registry.
 func (r *Registry) Delete(ctx context.Context, id string) error {
-	return r.update(ctx, func(projects []project.Project) ([]project.Project, bool, error) {
-		i, err := indexByID(projects, id)
+	return r.update(ctx, func(entries []entry) ([]entry, bool, error) {
+		i, err := indexByID(entries, id)
 		if err != nil {
 			return nil, false, err
 		}
-		if projects[i].Name == project.DefaultName {
+		if entries[i].Name == project.DefaultName {
 			return nil, false, project.ErrDefaultProject
 		}
-		return slices.Delete(projects, i, i+1), true, nil
+		return slices.Delete(entries, i, i+1), true, nil
 	})
 }
 
-// update runs change on the registered projects while holding the registry
-// lock, and stores the projects it returns when it reports a change.
-func (r *Registry) update(ctx context.Context, change func([]project.Project) ([]project.Project, bool, error)) error {
+// update runs change on the registry's entries while holding the registry
+// lock, and stores the entries it returns when it reports a change.
+func (r *Registry) update(ctx context.Context, change func([]entry) ([]entry, bool, error)) error {
 	lock := dirlock.New(r.lockDir, &dirlock.LockOptions{
 		StaleThreshold: lockStaleThreshold,
 		// Hosts that share the data directory can disagree on the time.
@@ -246,11 +322,11 @@ func (r *Registry) update(ctx context.Context, change func([]project.Project) ([
 	}
 	defer func() { _ = lock.Unlock() }()
 
-	projects, err := r.load()
+	entries, err := r.load()
 	if err != nil {
 		return err
 	}
-	next, changed, err := change(projects)
+	next, changed, err := change(entries)
 	if err != nil || !changed {
 		return err
 	}
@@ -291,9 +367,9 @@ func (r *Registry) acquire(ctx context.Context, lock dirlock.DirLock) (time.Time
 	}
 }
 
-// load reads the registered projects, ordered by name. A missing file holds
+// load reads the registry's entries, ordered by name. A missing file holds
 // no projects.
-func (r *Registry) load() ([]project.Project, error) {
+func (r *Registry) load() ([]entry, error) {
 	data, err := r.readFile()
 	if err != nil {
 		return nil, err
@@ -313,13 +389,13 @@ func (r *Registry) readFile() ([]byte, error) {
 	return data, nil
 }
 
-func (r *Registry) store(projects []project.Project) error {
+func (r *Registry) store(entries []entry) error {
 	content := registryFile{
 		SchemaVersion: schemaVersion,
-		Projects:      make([]storedProject, len(projects)),
+		Projects:      make([]storedProject, len(entries)),
 	}
-	for i, p := range projects {
-		content.Projects[i] = toStored(p)
+	for i, e := range entries {
+		content.Projects[i] = toStored(e)
 	}
 	data, err := json.MarshalIndent(content, "", "  ")
 	if err != nil {
@@ -331,7 +407,7 @@ func (r *Registry) store(projects []project.Project) error {
 	return nil
 }
 
-func decode(data []byte) ([]project.Project, error) {
+func decode(data []byte) ([]entry, error) {
 	if data == nil {
 		return nil, nil
 	}
@@ -343,52 +419,67 @@ func decode(data []byte) ([]project.Project, error) {
 		return nil, fmt.Errorf("project registry: %s has schema version %d, newer than %d, which this version of Dagu reads",
 			fileName, content.SchemaVersion, schemaVersion)
 	}
-	projects := make([]project.Project, len(content.Projects))
+	entries := make([]entry, len(content.Projects))
 	for i, p := range content.Projects {
-		projects[i] = p.toProject()
+		entries[i] = p.toEntry()
 	}
-	slices.SortFunc(projects, func(a, b project.Project) int {
+	slices.SortFunc(entries, func(a, b entry) int {
 		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 	})
-	return projects, nil
+	return entries, nil
 }
 
-func indexByName(projects []project.Project, name string) int {
-	return slices.IndexFunc(projects, func(p project.Project) bool {
-		return strings.EqualFold(p.Name, name)
+func projectsOf(entries []entry) []project.Project {
+	projects := make([]project.Project, len(entries))
+	for i, e := range entries {
+		projects[i] = e.Project
+	}
+	return projects
+}
+
+func indexByName(entries []entry, name string) int {
+	return slices.IndexFunc(entries, func(e entry) bool {
+		return strings.EqualFold(e.Name, name)
 	})
 }
 
-func indexByID(projects []project.Project, id string) (int, error) {
-	i := slices.IndexFunc(projects, func(p project.Project) bool { return p.ID == id })
+func indexByID(entries []entry, id string) (int, error) {
+	i := slices.IndexFunc(entries, func(e entry) bool { return e.ID == id })
 	if i < 0 {
 		return -1, fmt.Errorf("%w: ID %q", project.ErrNotFound, id)
 	}
 	return i, nil
 }
 
-func toStored(p project.Project) storedProject {
+func toStored(e entry) storedProject {
+	p := e.Project
 	return storedProject{
 		ID:           p.ID,
 		Name:         p.Name,
 		DisplayName:  p.DisplayName,
 		CreatedAt:    p.CreatedAt,
 		MigratedFrom: p.MigratedFrom,
+		MigratedDAGs: p.MigratedDAGs,
+		InPlaceFiles: e.inPlace,
 		SlotSeed:     p.SlotSeed,
 		Binding:      storedBinding{CloudProjectID: p.Binding.CloudProjectID},
 		Deleting:     p.Deleting,
 	}
 }
 
-func (s storedProject) toProject() project.Project {
-	return project.Project{
-		ID:           s.ID,
-		Name:         s.Name,
-		DisplayName:  s.DisplayName,
-		CreatedAt:    s.CreatedAt,
-		MigratedFrom: s.MigratedFrom,
-		SlotSeed:     s.SlotSeed,
-		Binding:      project.Binding{CloudProjectID: s.Binding.CloudProjectID},
-		Deleting:     s.Deleting,
+func (s storedProject) toEntry() entry {
+	return entry{
+		Project: project.Project{
+			ID:           s.ID,
+			Name:         s.Name,
+			DisplayName:  s.DisplayName,
+			CreatedAt:    s.CreatedAt,
+			MigratedFrom: s.MigratedFrom,
+			MigratedDAGs: s.MigratedDAGs,
+			SlotSeed:     s.SlotSeed,
+			Binding:      project.Binding{CloudProjectID: s.Binding.CloudProjectID},
+			Deleting:     s.Deleting,
+		},
+		inPlace: s.InPlaceFiles,
 	}
 }

@@ -199,6 +199,13 @@ func RunSuffix(dagRunID string) string {
 	return hex.EncodeToString(sum[:])[:SuffixLen]
 }
 
+// DAGNameSegment returns the DAG name segment of the run directory names
+// of the DAG called name. DAGs whose names share a segment share it, so a
+// match is confirmed against the sidecar.
+func DAGNameSegment(name string) string {
+	return safeDAGName(name)
+}
+
 // safeDAGName reduces a DAG name to characters that are safe in a path segment
 // on every supported platform. Names accepted by DAG validation pass through
 // unchanged.

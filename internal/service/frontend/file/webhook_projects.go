@@ -5,12 +5,16 @@ package file
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"slices"
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -62,10 +66,25 @@ func (w *webhookProjects) Get(ctx context.Context, name string) (*apiv1.WebhookP
 	return w.target(ctx, p)
 }
 
-// Migrated returns nil: migration does not yet record which DAGs it
-// placed in a project under their v2 webhook URLs, so every such URL
-// reaches the default project.
-func (w *webhookProjects) Migrated(context.Context, string) (*apiv1.WebhookProject, error) {
+func (w *webhookProjects) Migrated(ctx context.Context, dagName string) (*apiv1.WebhookProject, error) {
+	projects, err := w.registry.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range projects {
+		if !slices.Contains(p.MigratedDAGs, dagName) {
+			continue
+		}
+		target, err := w.target(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		// A DAG that fails to load still exists; the trigger reports why.
+		_, err = target.DAGRepository.GetMetadata(ctx, dagName)
+		if !errors.Is(err, persis.ErrDAGNotFound) && !errors.Is(err, os.ErrNotExist) {
+			return target, nil
+		}
+	}
 	return nil, nil
 }
 

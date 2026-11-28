@@ -332,7 +332,7 @@ func TestUnreadableFileIsKept(t *testing.T) {
 	t.Parallel()
 
 	for name, content := range map[string]string{
-		"NewerSchema": `{"schema_version": 2, "projects": []}`,
+		"NewerSchema": `{"schema_version": 3, "projects": []}`,
 		"Corrupt":     `{"schema_version": 1, "projects": [`,
 	} {
 		t.Run(name, func(t *testing.T) {

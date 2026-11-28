@@ -40,7 +40,7 @@ type planFile struct {
 // statusFile is what status.json holds.
 type statusFile struct {
 	Progress
-	// Version is the version of the plan that a finished migration made.
+	// Version is the last plan version whose moves are all made.
 	Version int `json:"version,omitempty"`
 }
 

@@ -66,6 +66,7 @@ func NewServerStores(cfg *config.Config) *ServerStores {
 		workspacebundle.DefaultLimits(),
 	)
 	pauses := store.NewSchedulerPauseStore(backend.Collection(persis.CollectionSchedulerProcess))
+	projects := projectregistry.New(cfg.Paths.DataDir)
 	return &ServerStores{
 		ServiceRegistry: registry,
 		ProjectReleases: registry,
@@ -87,7 +88,7 @@ func NewServerStores(cfg *config.Config) *ServerStores {
 			DAGsDir:     cfg.Paths.DAGsDir,
 			ProjectsDir: cfg.Paths.ProjectsDir,
 			Library:     cfg.Paths.AltDAGsDir,
-		}, projectregistry.New(cfg.Paths.DataDir), nil),
+		}, projects, projects.InPlace(cfg.Paths.ProjectsDir)),
 	}
 }
 

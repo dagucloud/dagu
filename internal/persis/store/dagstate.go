@@ -265,6 +265,12 @@ func dagStateRefFromRecordID(id string) (dagrun.StateRef, error) {
 	return ref, ref.Validate()
 }
 
+// DAGStateNamespaceIDPrefix returns the prefix of the IDs of the DAG state
+// records of namespace in scope, ending in "/".
+func DAGStateNamespaceIDPrefix(scope dagrun.StateScope, namespace string) string {
+	return dagStateRecordIDVersion + "/" + string(scope) + "/" + encodeDAGStateRecordIDPart(namespace) + "/"
+}
+
 func dagStateRecordIDPrefix(opts dagrun.StateListOptions) (string, error) {
 	if err := opts.Validate(); err != nil {
 		return "", err

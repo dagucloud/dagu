@@ -21,6 +21,22 @@ import (
 // set apart, relative to that path.
 var setApartDefaultDir = filepath.Join(".projects", "default")
 
+// versionPlanner returns the planner of the moves of each plan version.
+// sameFileSystem reports whether two paths lie on one file system.
+func versionPlanner(cfg *config.Config, sameFileSystem func(a, b string) (bool, error)) func(context.Context, int) ([]move, error) {
+	planners := map[int]func(context.Context) ([]move, error){
+		2: stateMovePlanner(cfg),
+		3: workspaceMovePlanner(cfg, sameFileSystem),
+	}
+	return func(ctx context.Context, version int) ([]move, error) {
+		plan, ok := planners[version]
+		if !ok {
+			return nil, fmt.Errorf("no moves are planned for version %d", version)
+		}
+		return plan(ctx)
+	}
+}
+
 // stateMovePlanner returns the planner of the moves of the default project's
 // state out of the directories where v2 keeps it.
 func stateMovePlanner(cfg *config.Config) func(context.Context) ([]move, error) {
