@@ -91,6 +91,42 @@ func TestHeartbeatConnectionShared(t *testing.T) {
 	}, got)
 }
 
+// GetWorkers returns the environment a worker's heartbeat reports, from the
+// in-memory list and from a shared record (Spec 108 §Workers List).
+func TestHeartbeatEnvironment(t *testing.T) {
+	t.Parallel()
+	heartbeats := store.NewWorkerHeartbeatStore(testutil.NewMemoryBackend().Collection(persis.CollectionWorkerHeartbeats))
+	for name, handler := range map[string]*coordinator.Handler{
+		"InMemory": coordinator.NewHandler(coordinator.HandlerConfig{}),
+		"Shared":   coordinator.NewHandler(coordinator.HandlerConfig{WorkerHeartbeatStore: heartbeats}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			for id, environment := range map[string]coordinatorv1.HostEnvironment{
+				"kubernetes": coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES,
+				"container":  coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_CONTAINER,
+				"host":       coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_HOST,
+				"older":      coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_UNSPECIFIED,
+			} {
+				_, err := handler.Heartbeat(t.Context(), &coordinatorv1.HeartbeatRequest{WorkerId: name + "-" + id, Environment: environment})
+				require.NoError(t, err)
+			}
+			resp, err := handler.GetWorkers(t.Context(), &coordinatorv1.GetWorkersRequest{})
+			require.NoError(t, err)
+			got := map[string]coordinatorv1.HostEnvironment{}
+			for _, worker := range resp.Workers {
+				got[worker.WorkerId] = worker.Environment
+			}
+			assert.Equal(t, map[string]coordinatorv1.HostEnvironment{
+				name + "-kubernetes": coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES,
+				name + "-container":  coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_CONTAINER,
+				name + "-host":       coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_HOST,
+				name + "-older":      coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_UNSPECIFIED,
+			}, got)
+		})
+	}
+}
+
 // findWorker returns the worker with id that client lists.
 func findWorker(ctx context.Context, t *testing.T, client coordinatorv1.CoordinatorServiceClient, id string) *coordinatorv1.WorkerInfo {
 	t.Helper()

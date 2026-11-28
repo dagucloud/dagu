@@ -11,10 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
-	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/spf13/cobra"
@@ -40,6 +41,8 @@ Flags:
   --worker.labels -l string                Worker labels for capability matching (format: key1=value1,key2=value2);
                                            keys and values are lowercased, and an invalid label stops the worker
   --worker.coordinators string             Coordinator addresses (format: host1:port1,host2:port2)
+  --worker.invite string                   Invite that lets the worker join its coordinators over
+                                           built-in TLS
   --worker.shutdown-timeout string         How long to drain running DAG runs on SIGINT/SIGTERM before
                                            canceling them (default: 60s, 0 waits without a bound)
   --check                                  Check the connection to each coordinator and exit, without
@@ -92,6 +95,7 @@ var workerFlags = []commandLineFlag{
 	workerHealthPortFlag,
 	workerLabelsFlag,
 	workerCoordinatorsFlag,
+	workerInviteFlag,
 	workerShutdownTimeoutFlag,
 	workerCheckFlag,
 	// Peer configuration flags for TLS
@@ -125,10 +129,39 @@ func runWorker(ctx *Context, _ []string) error {
 	maxActiveRuns := ctx.Config.Worker.MaxActiveRuns
 	labels := ctx.Config.Worker.Labels
 
-	coordinatorCli, err := createCoordinatorClient(ctx)
+	// Nothing the worker starts, such as a workflow's subprocess, needs
+	// the invite, so it leaves the environment once loaded.
+	config.ClearWorkerInviteEnv(ctx.Config)
+
+	// The health check serves from before the worker joins, so a busy port
+	// uses up no invite and a liveness probe sees the worker alive while
+	// it waits for a coordinator to enroll it. It is not ready until the
+	// worker it hands the server to reaches a coordinator.
+	health := healthcheck.NewServer("worker", ctx.Config.Worker.HealthPort)
+	health.SetReadyFunc(func() bool { return false })
+	if err := health.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start worker health check server: %w", err)
+	}
+	defer func() { _ = health.Stop(ctx.Context) }()
+
+	membership, err := worker.OpenMembership(signalCtx, ctx.Config, ctx.serverStores.ServiceRegistry)
 	if err != nil {
 		return err
 	}
+	defer func() { _ = membership.Close() }()
+	logClientTransport(ctx, "worker", ctx.Config, membership.StartTransport)
+	coordinatorCli, err := membership.Connect(signalCtx, workerID)
+	if err != nil {
+		return err
+	}
+
+	// Heartbeats carry the machine's figures, which the server reports to
+	// Dagu Cloud on paid licenses.
+	machine := resource.NewService(ctx.Config)
+	if err := machine.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start resource monitoring: %w", err)
+	}
+	defer func() { _ = machine.Stop(ctx.Context) }()
 
 	w := worker.NewWorker(
 		workerID,
@@ -149,14 +182,8 @@ func runWorker(ctx *Context, _ []string) error {
 	w.SetHandler(worker.NewRemoteTaskHandler(handlerCfg))
 	logger.Info(ctx, "Using remote task handler")
 
-	// Heartbeats carry the machine's figures, which the server reports to
-	// Dagu Cloud on paid licenses.
-	machine := resource.NewService(ctx.Config)
-	if err := machine.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start resource monitoring: %w", err)
-	}
-	defer func() { _ = machine.Stop(ctx.Context) }()
 	w.SetMachine(machine)
+	w.SetHealthServer(health)
 
 	logger.Info(ctx, "Starting worker", tag.WorkerID(workerID), tag.MaxConcurrency(maxActiveRuns), slog.Any("labels", labels))
 	// Run status lives with the coordinator, so the worker closes waiting
@@ -203,9 +230,4 @@ func workerStopContext(parent context.Context, timeout time.Duration) (context.C
 		return context.WithTimeout(parent, timeout)
 	}
 	return context.WithCancel(parent)
-}
-
-// createCoordinatorClient creates the worker coordinator client.
-func createCoordinatorClient(ctx *Context) (coordinator.Client, error) {
-	return worker.NewCoordinatorClient(ctx.Context, ctx.Config, ctx.serverStores.ServiceRegistry)
 }

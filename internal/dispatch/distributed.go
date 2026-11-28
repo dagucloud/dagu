@@ -147,6 +147,9 @@ type WorkerHeartbeatRecord struct {
 	Connection WorkerConnection `json:"connection,omitempty"`
 	// PlaintextReason is why a plaintext worker uses h2c.
 	PlaintextReason string `json:"plaintextReason,omitempty"`
+	// Environment is where the worker runs: host, container, or
+	// kubernetes. Empty when the worker reports none.
+	Environment string `json:"environment,omitempty"`
 	// CertificateID is the worker certificate the heartbeat arrived with,
 	// or empty for a worker on the peer token.
 	CertificateID string `json:"certificateId,omitempty"`

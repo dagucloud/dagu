@@ -6,8 +6,13 @@ package coordinator
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -51,6 +56,10 @@ func TestStartTransport(t *testing.T) {
 		{name: "SkipTLSVerify", config: Config{SkipTLSVerify: true}, want: "TLS (from peer.insecure: false)"},
 		// TLS files without peer.insecure: false select no TLS.
 		{name: "UnsetIgnoresTLSFiles", config: unset(Config{CAFile: "ca.crt"}), want: "h2c (from no TLS source)"},
+		{name: "WorkerCertificate", config: unset(Config{workerCert: &tls.Certificate{}, BuiltinCAFile: "ca.crt", PublishedCAFile: published}), want: "built-in TLS (from worker certificate)"},
+		{name: "InsecureFalseWorkerCertificate", config: Config{workerCert: &tls.Certificate{}}, want: "built-in TLS (from worker certificate)"},
+		{name: "Invite", config: unset(Config{invite: &Invite{}, PublishedCAFile: published}), want: "built-in TLS (from worker.invite)"},
+		{name: "InsecureFalseInvite", config: Config{invite: &Invite{}}, want: "built-in TLS (from worker.invite)"},
 		{name: "CACertFile", config: unset(Config{BuiltinCAFile: "ca.crt", PublishedCAFile: published}), want: "built-in TLS (from peer.ca_cert_file)"},
 		{name: "PublishedCA", config: unset(Config{PublishedCAFile: published}), want: "built-in TLS (from the coordinator's data directory)"},
 		{name: "InsecureFalsePublishedCA", config: Config{PublishedCAFile: published}, want: "built-in TLS (from the coordinator's data directory)"},
@@ -359,6 +368,100 @@ func TestClientTransportH2CReason(t *testing.T) {
 	}
 }
 
+// workerCertificateConfig returns the config of a worker that holds a
+// worker certificate from ca, with a peer token it must not send.
+func workerCertificateConfig(t *testing.T, ca *PeerCA) Config {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	der, err := ca.issueWorkerCertificate(key.Public(), "cert-1", "invite-1", time.Now())
+	require.NoError(t, err)
+	config := unset(*DefaultConfig())
+	config.workerCert = &tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+	config.workerCA = ca.cert
+	config.Token = "peer-token"
+	config.DialTimeout = time.Second
+	return config
+}
+
+// A worker with a worker certificate presents it on built-in TLS, verifies
+// the coordinator against the CA it stored, and sends no peer token (Spec
+// 108 §Worker Side).
+func TestClientTransportWorkerCertificate(t *testing.T) {
+	ca := newTestCA(t)
+	coord := serveTestCoordinator(t, builtinCredentials(t, ca))
+	config := workerCertificateConfig(t, ca)
+	member := coord.member("")
+	cli := newTestClient(t, &config, member)
+
+	assert.Empty(t, transportLines(healthCheck(t, cli, member)), "the start line already says worker certificate")
+	assert.True(t, coord.lastTLS.Load())
+	assert.True(t, coord.lastCert.Load())
+	assert.Empty(t, coord.lastToken.Load())
+}
+
+// An invite worker never falls back to h2c, also not through a window that
+// another process on the host opened (Spec 108 §Fallback to h2c).
+func TestClientTransportWorkerCertificateNoFallback(t *testing.T) {
+	coord := serveTestCoordinator(t, insecure.NewCredentials())
+	config := workerCertificateConfig(t, newTestCA(t))
+	member := coord.member(serviceregistry.TLSBuiltin)
+	cli := newTestClient(t, &config, member)
+	now := time.Now()
+	require.True(t, sharedH2CWindows(config.FallbackFile).open(coord.addr, h2cWindow{Until: now.Add(h2cWindowLength), Source: sourceNetworkPath}, now))
+
+	for range 2 {
+		client, err := cli.getOrCreateDiscoveredClient(member)
+		require.NoError(t, err)
+		require.Error(t, cli.isHealthy(t.Context(), client))
+	}
+	assert.Zero(t, coord.h2cCalls.Load())
+}
+
+// A worker certificate client says which coordinator belongs to another
+// Dagu: one on built-in TLS whose CA did not sign the certificate (Spec 108
+// §Messages).
+//
+// Own certificates that name coordinator.dagu.invalid and come with their
+// CA are not one of another Dagu, and get the change to make instead.
+func TestClientTransportWorkerCertificateOtherDagu(t *testing.T) {
+	workerCA := newTestCA(t)
+	for _, tc := range []struct {
+		name  string
+		creds credentials.TransportCredentials
+		want  string
+	}{
+		{name: "OtherDagu", creds: builtinCredentials(t, newTestCA(t)),
+			want: `%s belongs to a different Dagu than the one this worker joined. Get a new command from "Add worker" to join it.`},
+		{name: "OwnCertificatesWithBuiltinName", creds: ownChainCredentials(t, coordinatorCertName), want: ownCertificatesFormat},
+		// Own certificates for an ordinary name fail on the name first.
+		{name: "OwnCertificates", creds: ownChainCredentials(t, "coordinator.test"), want: ownCertificatesFormat},
+		// Own certificates from the worker's own CA verify, and their
+		// profile tells them apart.
+		{name: "OwnCertificatesFromWorkerCA", creds: ownChainCredentialsFrom(t, workerCA, coordinatorCertName), want: ownCertificatesFormat},
+		{name: "WildcardNameFromWorkerCA", creds: profileCredentials(t, workerCA, notCoordinatorProfiles["WildcardName"]), want: ownCertificatesFormat},
+		{name: "ExtraUsageFromWorkerCA", creds: profileCredentials(t, workerCA, notCoordinatorProfiles["ExtraUsage"]), want: ownCertificatesFormat},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			coord := serveTestCoordinator(t, tc.creds)
+			config := workerCertificateConfig(t, workerCA)
+			member := coord.member("")
+			cli := newTestClient(t, &config, member)
+
+			lines := captureClientLogs(t, func(ctx context.Context) {
+				client, err := cli.getOrCreateDiscoveredClient(member)
+				require.NoError(t, err)
+				require.Error(t, cli.isHealthy(ctx, client))
+				// The line comes with the context of the next call.
+				_ = cli.isHealthy(ctx, client)
+			})
+			require.NotEmpty(t, lines)
+			assert.Equal(t, "ERROR", lines[0].Level)
+			assert.Equal(t, fmt.Sprintf(tc.want, coord.addr), lines[0].Msg)
+		})
+	}
+}
+
 // testCoordinator serves the health service and an unimplemented coordinator
 // service, and records how clients reach it.
 type testCoordinator struct {
@@ -371,6 +474,10 @@ type testCoordinator struct {
 	tlsHellos atomic.Int32
 	// lastReason is the h2c reason the last call carried.
 	lastReason atomic.Value
+	// lastToken is the peer token the last call carried, and lastCert
+	// reports whether its connection presented a client certificate.
+	lastToken atomic.Value
+	lastCert  atomic.Bool
 }
 
 func serveTestCoordinator(t *testing.T, creds credentials.TransportCredentials, opts ...grpc.ServerOption) *testCoordinator {
@@ -380,10 +487,12 @@ func serveTestCoordinator(t *testing.T, creds credentials.TransportCredentials, 
 	coord := &testCoordinator{addr: listener.Addr().String(), port: listener.Addr().(*net.TCPAddr).Port}
 	record := func(ctx context.Context) {
 		p, _ := peer.FromContext(ctx)
-		_, isTLS := p.AuthInfo.(credentials.TLSInfo)
+		info, isTLS := p.AuthInfo.(credentials.TLSInfo)
 		coord.lastTLS.Store(isTLS)
+		coord.lastCert.Store(isTLS && len(info.State.PeerCertificates) > 0)
 		md, _ := metadata.FromIncomingContext(ctx)
 		coord.lastReason.Store(strings.Join(md.Get(h2cReasonMetadataKey), ","))
+		coord.lastToken.Store(strings.Join(md.Get(peerTokenMetadataKey), ","))
 		if !isTLS {
 			coord.h2cCalls.Add(1)
 		}

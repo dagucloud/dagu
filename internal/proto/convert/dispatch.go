@@ -186,6 +186,31 @@ func WorkerConnectionToProto(connection dispatch.WorkerConnection) coordinatorv1
 	}
 }
 
+// hostEnvironments names each environment a worker reports, as the
+// heartbeat record keeps it.
+var hostEnvironments = map[coordinatorv1.HostEnvironment]string{
+	coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_HOST:       "host",
+	coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_CONTAINER:  "container",
+	coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES: "kubernetes",
+}
+
+// ProtoToHostEnvironment returns the name of a reported environment, or ""
+// for none.
+func ProtoToHostEnvironment(environment coordinatorv1.HostEnvironment) string {
+	return hostEnvironments[environment]
+}
+
+// HostEnvironmentToProto returns the wire value of an environment name, or
+// unspecified for none.
+func HostEnvironmentToProto(name string) coordinatorv1.HostEnvironment {
+	for environment, n := range hostEnvironments {
+		if n == name {
+			return environment
+		}
+	}
+	return coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_UNSPECIFIED
+}
+
 // ProtoToWorkerStats converts coordinator worker stats to the domain shape.
 func ProtoToWorkerStats(stats *coordinatorv1.WorkerStats) *dispatch.WorkerStats {
 	if stats == nil {

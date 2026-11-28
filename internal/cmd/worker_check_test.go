@@ -74,6 +74,15 @@ func TestWorkerCheck(t *testing.T) {
 	}
 }
 
+// The check does not cover a worker that joins with an invite yet, so it
+// says so instead of reporting another transport than the worker uses.
+func TestWorkerCheckInviteWorker(t *testing.T) {
+	t.Parallel()
+
+	_, err := runWorkerCheck(t, "--worker.coordinators="+unusedAddress(t), "--worker.invite=dagu1.pin.secret")
+	require.EqualError(t, err, "dagu worker --check does not check a worker that joins with worker.invite or a kept worker certificate yet: start the worker to see how it connects")
+}
+
 // Without worker.coordinators, the check dials the coordinators in the
 // service registry, then fails since the worker does not start without
 // worker.coordinators. With an empty registry it fails as the worker does.

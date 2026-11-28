@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -75,6 +76,10 @@ type Worker struct {
 	openCodeHost *opencodehost.Host
 
 	afterTaskAckHook func(context.Context, *coordinatorv1.Task) bool
+
+	// ready reports that a heartbeat has reached a coordinator, so the
+	// worker can take runs. Its health server answers readiness from it.
+	ready atomic.Bool
 }
 
 type runningTaskState struct {
@@ -110,6 +115,14 @@ const machineCPUWindow = time.Minute
 // SetHandler sets a custom task executor for testing or custom execution logic
 func (w *Worker) SetHandler(executor TaskHandler) {
 	w.handler = executor
+}
+
+// SetHealthServer makes the worker serve its health check on server, such
+// as one already started, which reports the worker ready once a heartbeat
+// reaches a coordinator. Call it before Start.
+func (w *Worker) SetHealthServer(server *healthcheck.Server) {
+	server.SetReadyFunc(w.ready.Load)
+	w.healthServer = server
 }
 
 // SetMachine makes heartbeats carry the latest sample of the worker's
@@ -152,7 +165,7 @@ func NewWorker(
 	}
 	labels, labelErr := workerLabels(labels)
 
-	return &Worker{
+	w := &Worker{
 		id:             workerID,
 		maxActiveRuns:  maxActiveRuns,
 		coordinatorCli: coordinatorClient,
@@ -167,6 +180,8 @@ func NewWorker(
 		healthServer:   healthcheck.NewServer("worker", healthPort),
 		openCodeHost:   opencodehost.New(context.Background(), openCodeConfig),
 	}
+	w.healthServer.SetReadyFunc(w.ready.Load)
+	return w
 }
 
 // Start begins the worker's operation, launching multiple polling goroutines.
@@ -753,6 +768,7 @@ func (w *Worker) sendHeartbeats(ctx context.Context) {
 		}
 
 		// Successful heartbeat; reset backoff and schedule healthy interval
+		w.ready.Store(true)
 		retrier.Reset()
 		nextDelay = healthyInterval
 	}
@@ -887,6 +903,7 @@ func (w *Worker) sendHeartbeat(ctx context.Context) error {
 		// The remote task handler asks the coordinator for connection
 		// tokens, so the worker may run a DAG that declares connections.
 		ConnectionTokens: true,
+		Environment:      coordinator.ProcessEnvironment(),
 	}
 
 	resp, err := w.coordinatorCli.Heartbeat(ctx, req)

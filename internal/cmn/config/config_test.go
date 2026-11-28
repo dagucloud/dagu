@@ -391,6 +391,38 @@ func TestConfig_Validate(t *testing.T) {
 		}
 	})
 
+	t.Run("WorkerInviteConflicts", func(t *testing.T) {
+		t.Parallel()
+		tests := []struct {
+			name    string
+			peer    Peer
+			wantErr string
+		}{
+			{name: "InsecureTrue", peer: Peer{Insecure: true}, wantErr: "worker.invite needs TLS: remove peer.insecure: true"},
+			{name: "CertFile", peer: Peer{Insecure: true, InsecureUnset: true, CertFile: "peer.crt"}, wantErr: "worker.invite needs the built-in CA: remove peer.cert_file or the invite"},
+			{name: "KeyFile", peer: Peer{KeyFile: "peer.key"}, wantErr: "worker.invite needs the built-in CA: remove peer.key_file or the invite"},
+			{name: "ClientCAFile", peer: Peer{ClientCaFile: "ca.crt"}, wantErr: "worker.invite needs the built-in CA: remove peer.client_ca_file or the invite"},
+			{name: "SkipTLSVerify", peer: Peer{SkipTLSVerify: true}, wantErr: "worker.invite needs the built-in CA: remove peer.skip_tls_verify: true or the invite"},
+			{name: "InsecureUnset", peer: Peer{Insecure: true, InsecureUnset: true}},
+			{name: "InsecureFalse", peer: Peer{}},
+			{name: "PeerToken", peer: Peer{Insecure: true, InsecureUnset: true, Token: "token"}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+				cfg := validBaseConfig()
+				cfg.Core.Peer = tt.peer
+				cfg.Worker.Invite = "dagu1.pin.secret"
+				err := cfg.Validate()
+				if tt.wantErr == "" {
+					require.NoError(t, err)
+					return
+				}
+				require.EqualError(t, err, tt.wantErr)
+			})
+		}
+	})
+
 	t.Run("BuiltinAuth_TokenTTLAboveMaximum", func(t *testing.T) {
 		t.Parallel()
 		cfg := validBaseConfig()

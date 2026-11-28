@@ -1397,6 +1397,10 @@
           ],
           "description": "Coordinator address(es) for the worker command. Required when running `dagu worker`. Accepts a single string or an array."
         },
+        "invite": {
+          "type": "string",
+          "description": "Invite that lets the worker join its coordinators over built-in TLS, in the form dagu1.<pin>.<secret>. Cannot be combined with peer.insecure: true, peer.cert_file, peer.key_file, peer.client_ca_file, or peer.skip_tls_verify: true."
+        },
         "postgres_pool": {
           "$ref": "#/definitions/PostgresPoolDef"
         }

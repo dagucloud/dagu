@@ -3,8 +3,8 @@
 ## Status
 
 Partially implemented. Implemented: the unset default of `peer.insecure`,
-[Client Transport](#client-transport) and the
-[Start Line](#start-line) except worker invites and certificates, the
+[Client Transport](#client-transport), the
+[Start Line](#start-line), the
 [Per Coordinator](#per-coordinator) line, the warnings of
 [Ignored Settings](#ignored-settings),
 [Bring Your Own Certificates](#bring-your-own-certificates), the
@@ -24,12 +24,18 @@ their [Coordinator Calls](#coordinator-calls), the
 [Coordinator Side](#coordinator-side) of enrollment with the
 [Worker Certificate](#worker-certificate) and its record, the coordinator
 side of [Revocation](#revocation), and [Removal](#removal) of a worker that
-is not connected, and
+is not connected, the [Worker Side](#worker-side) of enrollment, the
+[Worker Files](#worker-files), the [Worker Start](#worker-start) except a
+certificate refused as revoked, the [Worker Lock](#worker-lock), the
+[Environment](#environment) in the heartbeat and in `GetWorkers`, the rows
+of [Configuration Conflicts](#configuration-conflicts) for `worker.invite`,
+the [Messages](#messages) of an enrolling worker, and
 [`dagu worker --check`](#dagu-worker---check) without the lines of invite
 workers. Clients that share a coordinator's data directory use built-in
-TLS. No client enrolls yet. A removal of a connected worker fails with
-`FailedPrecondition` and says to stop the worker on its host first, and a
-worker does not yet act on its removal as
+TLS. A worker that holds a certificate logs the message for a coordinator
+of a different Dagu, but does not exit on it yet. A removal of a connected
+worker fails with `FailedPrecondition` and says to stop the worker on its
+host first, and a worker does not yet act on its removal as
 [Removed Worker](#removed-worker) states.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
@@ -585,10 +591,25 @@ worker                                          coordinator
   the coordinator only when the CA certificate in the handshake has the
   invite's pin and the server certificate chains to it, names
   `coordinator.dagu.invalid`, and allows server authentication.
-- It generates an ECDSA P-256 key. The private key never leaves the host.
-- It sends `Enroll` with the invite, a certificate signing request for the
-  key, its worker ID, its host name, and whether it can keep its
-  certificate. It can keep it when its data directory is writable.
+- A coordinator whose CA does not have the pin belongs to a different Dagu
+  only when its server certificate is a
+  [coordinator certificate](#coordinator-certificate): it names
+  `coordinator.dagu.invalid`, has the `notAfter` of no expiry date, allows
+  server authentication only, and a CA in the handshake signed it. Any
+  other certificate is own certificates, and the worker counts that
+  coordinator as unavailable.
+- A coordinator's refusal of `Enroll` decides over a handshake that an
+  earlier connection attempt to the same address failed.
+- Own certificates are no coordinator certificate even when the invite's CA
+  signed them, so the worker counts such a coordinator as unavailable,
+  whether it enrolls or holds a worker certificate.
+- Another Dagu at one address ends enrollment only when no coordinator of
+  the invite's CA answered in the same round. An answer, also one that
+  asks to try again, keeps the worker retrying.
+- It sends `Enroll` with the invite, a certificate signing request, its
+  worker ID, its host name, and whether it can keep its certificate for
+  later starts. Once enrolled, it calls the coordinator with the
+  certificate it got.
 - On built-in TLS with a worker certificate, it does not send the peer
   token. A worker with `worker.invite` and `peer.token` logs this once at
   start.
@@ -664,41 +685,53 @@ The `worker_certificates` collection keeps one record per certificate:
 
 #### Worker Files
 
-- An invite worker keeps its key, its worker certificate, the CA
-  certificate from `Enroll`, and which invite it enrolled with in its data
-  directory, readable by its user only, and reuses them across restarts.
-  It holds its [lock](#worker-lock) there too.
-- Run processes the worker starts use the same key and certificate.
-- A worker that cannot write its data directory holds its key and
-  certificate in memory only, takes no lock, and enrolls again at each
-  start. Run processes it starts use the same credentials.
+- A restart reuses the credential the worker enrolled for.
+- Run processes the worker starts use the same credential.
+- A worker that cannot keep a credential, and has none from an earlier
+  start, enrolls again at each start.
+- A restart that reuses a credential takes the [lock](#worker-lock) first,
+  with or without `worker.invite`. When the lock cannot be taken, as on a
+  read-only volume, the worker exits with code 1 and says to make its
+  `paths.data_dir` writable.
+- A worker that must replace its credential with one from the invite's CA,
+  and could not keep the new one, exits with code 1 before it enrolls and
+  says to make its `paths.data_dir` writable.
+- A credential from an earlier start that cannot be read stops the worker
+  with code 1, and the message says how to recover. The worker never falls
+  back to the peer token in its place.
 
 #### Worker Start
 
-| Data directory at start | Behavior |
+| At start | Behavior |
 | --- | --- |
-| No certificate | Enrolls with `worker.invite` |
+| No certificate from an earlier start | Enrolls with `worker.invite` |
 | A certificate whose CA has the pin of `worker.invite`, or no `worker.invite` | Connects with it and ignores `worker.invite`, so a restart does not use up a single-use invite |
-| A certificate whose CA does not have the pin of `worker.invite` | Generates a new key, enrolls with the invite, and replaces its files. A restart with the same invite then keeps the new certificate |
-| A certificate the coordinator refuses as revoked, and an invite other than the one it enrolled with | Generates a new key, enrolls with the new invite, and replaces its files |
+| A certificate whose CA does not have the pin of `worker.invite` | Enrolls again with the invite and uses the new certificate from then on. A restart with the same invite then keeps the new certificate |
+| A certificate the coordinator refuses as revoked, and an invite other than the one it enrolled with | Enrolls again with the new invite and uses the new certificate from then on |
 | A certificate the coordinator refuses as revoked, and the same invite or none | Exits with the message of [Messages](#messages) |
 | A certificate, and `peer.insecure: true` | Row 1 of [Client Transport](#client-transport) applies: the worker uses h2c and the peer token, and warns at start that its certificate is unused |
 
 #### Worker Lock
 
-- Only a worker that holds or obtains a worker certificate takes the lock.
-  Workers that share a data directory on the peer token, as in
-  shared-filesystem mode, take none.
-- The worker takes the lock before it enrolls or connects, holds it while
-  it runs, and refreshes it at an interval shorter than 30 seconds.
-- A lock not refreshed for 30 seconds is stale.
-- A worker that finds the lock held waits at most 30 seconds. When the
-  lock is released or goes stale within that wait, the worker takes it, so
-  a restarted container whose previous process held the lock starts within
-  30 seconds.
-- When the 30 seconds pass with the lock still refreshed by another holder,
+- Only a worker that reuses a certificate from an earlier start, or
+  enrolls for one it keeps for later starts, takes the lock. A worker that
+  cannot keep its certificate enrolls at each start and takes none, and so
+  do workers that share a data directory on the peer token, as in
+  shared-filesystem mode.
+- The worker takes the lock before it enrolls or connects and holds it
+  while it runs. The lock is a file lock of the operating system, which
+  holds it while the process lives, also while the process is paused, and
+  releases it when the process exits, however it exits. Nothing refreshes
+  it.
+- A worker that finds the lock held waits at most 30 seconds, for a
+  previous process that is still stopping. When the lock is released within
+  that wait, the worker takes it, so a restarted container whose previous
+  process held the lock starts at once.
+- When the 30 seconds pass with the lock still held by another process,
   the worker exits with code 1 and the message of [Messages](#messages).
   It never waits longer.
+- On a network filesystem, a host that stops without its processes
+  exiting keeps the lock until the filesystem's lease for it ends.
 
 #### Environment
 
@@ -786,7 +819,7 @@ or `stop`:
 #### Removed Worker
 
 - A worker whose certificate is refused as revoked stops the runs it holds,
-  since it can no longer report them, keeps its files, and exits with code
+  since it can no longer report them, keeps its certificate, and exits with code
   1 and the message of [Messages](#messages).
 - In Kubernetes, it also writes the message to `/dev/termination-log`.
 - Its runs end on the coordinator as they do when a worker stops sending
@@ -1138,9 +1171,8 @@ The Workers page is the list of workers on System status.
 ## Constraints
 
 - A coordinator rereads the revoked and `removing` sets every 30 seconds and
-  prunes certificate and ended invite records once a day. A worker with a
-  certificate refreshes its lock at an interval shorter than 30 seconds.
-  Nothing else in this spec runs on a timer.
+  prunes certificate and ended invite records once a day. Nothing else in
+  this spec runs on a timer. A worker's certificate lock needs no refresh.
 - The reread reads the records of `removing` and `revoked` certificates
   only, so its cost grows with removed workers, not with enrollments.
 - A client that uses the published CA certificate reads it and the registry
@@ -1179,6 +1211,9 @@ A worker prints the cause and the next step:
 | --- | --- |
 | The address does not answer | `Cannot reach coordinator at <host>:<port>`<br>`Check that the coordinator accepts workers from other hosts, that port <port> is open on the way, and that the address is right.` |
 | `Enroll` refuses the invite | `The invite is invalid, expired, or already used`<br>`Get a new command from "Add worker". For several hosts, use a reusable invite.` |
+| A coordinator with own certificates, for a worker that enrolls | `Coordinator at <host>:<port> serves TLS with its own certificates, so this worker cannot join it with an invite`<br>`Remove peer.cert_file and peer.key_file from the coordinator's config, so it serves built-in TLS.` |
+| A reply to `Enroll` whose certificate is not for the request's key, does not chain to the invite's CA, allows more than client authentication, or names no certificate ID or invite ID | `Coordinator at <host>:<port> returned a certificate that does not match this worker's request`<br>`Check the coordinator address.` |
+| A coordinator without built-in TLS, for a worker that enrolls | `Coordinator at <host>:<port> does not serve built-in TLS, so this worker cannot join it`<br>`Upgrade the coordinator, and check that its start line reads "Coordinator transport: built-in TLS".` |
 | The CA in the handshake does not have the invite's pin | `<host>:<port> belongs to a different Dagu (its CA does not match the invite)`<br>`Check the coordinator address.` |
 | A worker with a certificate and no `worker.invite` meets a coordinator whose CA did not sign that certificate | `<host>:<port> belongs to a different Dagu than the one this worker joined`<br>`Get a new command from "Add worker" to join it.` |
 | The worker certificate is refused as revoked | `This worker was removed from the coordinator`<br>`Get a new command from "Add worker" to add it again.` |
@@ -1202,6 +1237,7 @@ handshake error that caused the fallback.
 | A coordinator that cannot create or read its generated CA | A warning, and the coordinator serves h2c only, as [Peer CA](#peer-ca) states. With `coordinator.require_tls: true`, it exits with code 1 at start |
 | No coordinator reachable for an invite worker | The worker keeps retrying as it does today, logging the message of the last failure |
 | `Enroll` refuses the invite, no reachable coordinator has the invite's pin, or no reachable coordinator's CA signed the worker's certificate | The worker exits with code 1 and the message of [Messages](#messages) |
+| A worker setting that stops the worker at start, such as an invalid label, a health check port in use, or a lock that cannot be taken | The worker exits with code 1 before it enrolls, so it uses up no invite |
 | `peer.insecure: false` without a TLS setting or a TLS source | The process exits with code 1 at start with `TLS enabled but no certificates provided`, as before this spec |
 | `Enroll` over h2c | `Unauthenticated`: `enrollment needs TLS` |
 | `Enroll` with an invite that has ended or does not exist | `PermissionDenied`: `the invite is invalid, expired, or already used` |
@@ -1287,7 +1323,7 @@ next call opens a new connection that tries TLS again.
 1. `dagu worker invite --address 192.168.1.20:50055` prints an invite.
 2. `dagu worker --worker.coordinators=192.168.1.20:50055 --worker.invite=<invite>`
    on host A logs `Peer transport: built-in TLS (from worker.invite)`,
-   enrolls, and keeps its certificate in its data directory. The invite's
+   enrolls, and keeps its certificate for later starts. The invite's
    `use_count` is 1.
 3. Host A restarts the worker. It logs
    `Peer transport: built-in TLS (from worker certificate)` and does not
@@ -1314,7 +1350,7 @@ Worker `worker-a1` holds a certificate and runs two tasks.
 
 Two containers mount `dagu-worker:/var/lib/dagu`, with one reusable invite.
 The first enrolls and holds the lock. The second waits 30 seconds while the
-first keeps refreshing the lock, then exits with code 1 and
+first holds the lock, also while it is paused, then exits with code 1 and
 `Another worker uses this data directory`.
 
 ### Configuration Conflicts

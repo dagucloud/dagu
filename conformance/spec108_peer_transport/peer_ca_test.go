@@ -83,6 +83,17 @@ func TestPeerCAConflicts(t *testing.T) {
 			want: "peer.skip_tls_verify turns off the check that peer.ca_cert_file makes: remove one",
 		},
 		{
+			name: "InviteWithInsecure",
+			args: []string{"worker", "--worker.coordinators=127.0.0.1:1", "--worker.invite=dagu1.pin.secret", "--peer.insecure=true"},
+			want: "worker.invite needs TLS: remove peer.insecure: true",
+		},
+		{
+			name: "InviteWithOwnCertificate",
+			env:  []string{"DAGU_WORKER_INVITE=dagu1.pin.secret"},
+			args: []string{"worker", "--worker.coordinators=127.0.0.1:1", "--peer.cert-file=client.crt"},
+			want: "worker.invite needs the built-in CA: remove peer.cert_file or the invite",
+		},
+		{
 			name: "CAKeyWithoutCert",
 			args: []string{"coordinator", "--peer.ca-key-file=peer/ca.key"},
 			want: "peer.ca_key_file needs peer.ca_cert_file",

@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"runtime"
 	"strings"
@@ -19,6 +21,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -575,8 +579,119 @@ func TestWorkerHeartbeatCarriesMachine(t *testing.T) {
 			}
 			assert.Equal(t, host, req.Host)
 			assert.Equal(t, config.Version, req.Version)
+			assert.Equal(t, coordinator.ProcessEnvironment(), req.Environment)
+			assert.NotEqual(t, coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_UNSPECIFIED, req.Environment)
 			assert.True(t, proto.Equal(tc.want, req.Machine), "machine sample: %v", req.Machine)
 		})
+	}
+}
+
+// A worker's health check is live from its start, and its readiness waits
+// until a heartbeat reaches a coordinator, whether the worker serves its own
+// health check or one it was given.
+func TestWorkerReadiness(t *testing.T) {
+	t.Parallel()
+	for _, supplied := range []bool{false, true} {
+		t.Run(map[bool]string{false: "Own", true: "Supplied"}[supplied], func(t *testing.T) {
+			t.Parallel()
+			entered := make(chan struct{})
+			release := make(chan struct{})
+			var once sync.Once
+			cli := newMockCoordinatorCli()
+			cli.SetPollFunc(func(ctx context.Context, _ backoff.RetryPolicy, _ *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			})
+			cli.SetHeartbeatFunc(func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+				// The first heartbeat waits until the test releases it.
+				once.Do(func() { close(entered) })
+				select {
+				case <-release:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+				return &coordinatorv1.HeartbeatResponse{}, nil
+			})
+
+			cfg := &config.Config{}
+			var base string
+			if !supplied {
+				cfg.Worker.HealthPort = freeTCPPort(t)
+				base = fmt.Sprintf("http://127.0.0.1:%d", cfg.Worker.HealthPort)
+			}
+			w := worker.NewWorker("ready-worker", 1, cli, map[string]string{}, cfg)
+			w.SetHandler(&mockHandler{})
+			if supplied {
+				health := healthcheck.NewServerWithAddr("worker", "127.0.0.1:0")
+				require.NoError(t, health.Start(t.Context()))
+				w.SetHealthServer(health)
+				base = health.URL()
+			}
+			go func() { _ = w.Start(context.Background()) }()
+			t.Cleanup(func() { _ = w.Stop(context.Background()) })
+
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("no heartbeat sent")
+			}
+			waitForStatus(t, base+"/health", http.StatusOK)
+			assert.Equal(t, http.StatusServiceUnavailable, httpStatus(t, base+"/ready"), "not ready while the first heartbeat waits")
+
+			close(release)
+			waitForStatus(t, base+"/ready", http.StatusOK)
+		})
+	}
+}
+
+// freeTCPPort returns a loopback port that nothing listens on.
+func freeTCPPort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	require.NoError(t, listener.Close())
+	return port
+}
+
+// readinessWait bounds how long the readiness test waits for an answer,
+// each request included.
+const readinessWait = 5 * time.Second
+
+// httpStatus returns the status that url answers now.
+func httpStatus(t *testing.T, url string) int {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), readinessWait)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	return resp.StatusCode
+}
+
+// waitForStatus waits until url answers want.
+func waitForStatus(t *testing.T, url string, want int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), readinessWait)
+	defer cancel()
+	for {
+		got := 0
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+			if got = resp.StatusCode; got == want {
+				return
+			}
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("%s did not answer %d (last %d): %v", url, want, got, err)
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 }
 

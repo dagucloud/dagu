@@ -41,3 +41,18 @@ func TestWorktreeRepositoryLockWaitIsCancelable(t *testing.T) {
 	}
 	require.Nil(t, waiter.repoLock)
 }
+
+// Git runs for a workflow, so it gets neither Git plumbing variables that
+// redirect it nor any spelling of Dagu's own credentials.
+func TestSanitizedGitEnvironment(t *testing.T) {
+	for _, name := range []string{"GIT_DIR", "DAGU_PEER_TOKEN", "DAGU_WORKER_INVITE", "DAGU_WORKER.INVITE"} {
+		t.Setenv(name, "hidden")
+	}
+	t.Setenv("DAGU_CONFORMANCE_SETTING", "visible")
+
+	env := sanitizedGitEnvironment()
+	require.Contains(t, env, "DAGU_CONFORMANCE_SETTING=visible")
+	for _, entry := range env {
+		require.NotContains(t, entry, "hidden")
+	}
+}

@@ -22,6 +22,9 @@ import (
 // Path is the path of the health endpoint a Server serves.
 const Path = "/health"
 
+// readyPath is the path of the readiness endpoint a Server serves.
+const readyPath = "/ready"
+
 // Server represents a lightweight HTTP health check server for a service.
 type Server struct {
 	mu         sync.Mutex
@@ -32,6 +35,7 @@ type Server struct {
 	boundAddr  string
 	service    string
 	roleFunc   func() string
+	readyFunc  func() bool
 }
 
 // Response represents the health check response.
@@ -68,6 +72,15 @@ func (h *Server) SetRoleFunc(fn func() string) {
 	h.roleFunc = fn
 }
 
+// SetReadyFunc makes the server answer /ready with 503 while ready reports
+// false, as for a process that is alive but cannot take work yet. Without
+// it, /ready answers 200 whenever the server runs.
+func (h *Server) SetReadyFunc(ready func() bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.readyFunc = ready
+}
+
 // URL returns the currently bound HTTP base URL for the health server.
 // It is primarily intended for tests and diagnostics.
 func (h *Server) URL() string {
@@ -84,7 +97,8 @@ func (h *Server) URL() string {
 	return "http://" + h.boundAddr
 }
 
-// Start starts the health check server.
+// Start starts the health check server. It does nothing while the server
+// runs.
 func (h *Server) Start(ctx context.Context) error {
 	if h.listenAddr == "" || (h.port == 0 && h.listenAddr == ":0") {
 		logger.Info(ctx, "Health check server disabled",
@@ -93,11 +107,18 @@ func (h *Server) Start(ctx context.Context) error {
 		)
 		return nil
 	}
+	h.mu.Lock()
+	running := h.server != nil
+	h.mu.Unlock()
+	if running {
+		return nil
+	}
 
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
 	router.Get(Path, h.healthHandler)
+	router.Get(readyPath, h.readyHandler)
 
 	server := &http.Server{
 		Addr:              h.listenAddr,
@@ -194,6 +215,24 @@ func (h *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(code)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		logger.Error(context.Background(), "Failed to encode health response",
+			slog.String("service", h.serviceName()),
+			tag.Error(err),
+		)
+	}
+}
+
+func (h *Server) readyHandler(w http.ResponseWriter, _ *http.Request) {
+	h.mu.Lock()
+	ready := h.readyFunc
+	h.mu.Unlock()
+	response, code := Response{Status: "ready"}, http.StatusOK
+	if ready != nil && !ready() {
+		response, code = Response{Status: "starting"}, http.StatusServiceUnavailable
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logger.Error(context.Background(), "Failed to encode readiness response",
 			slog.String("service", h.serviceName()),
 			tag.Error(err),
 		)

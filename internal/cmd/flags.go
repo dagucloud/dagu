@@ -327,6 +327,12 @@ var (
 		usage:     "Required coordinator addresses (format: host1:port1,host2:port2)",
 		bindViper: true,
 	}
+
+	workerInviteFlag = commandLineFlag{
+		name:      "worker.invite",
+		usage:     "Invite that lets the worker join its coordinators over built-in TLS",
+		bindViper: true,
+	}
 )
 
 // Peer TLS flags

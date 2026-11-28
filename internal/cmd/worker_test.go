@@ -119,10 +119,10 @@ func TestWorkerShutdownTimeout(t *testing.T) {
 func TestWorkerCoordinatorClientRequiresAddress(t *testing.T) {
 	t.Parallel()
 
-	client, err := worker.NewCoordinatorClient(t.Context(), &config.Config{}, nil)
+	membership, err := worker.OpenMembership(t.Context(), &config.Config{}, nil)
 
 	require.ErrorContains(t, err, "worker.coordinators is required")
-	assert.Nil(t, client)
+	assert.Nil(t, membership)
 }
 
 // Config.Sources names the flag that set a key, in its command-line form.
