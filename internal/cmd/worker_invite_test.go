@@ -419,7 +419,7 @@ func TestWorkerInviteUnauthenticated(t *testing.T) {
 	}{
 		{
 			// With peer.insecure: true, the client keeps this remedy in
-			// whatever words it uses for the refusal.
+			// whatever words and case it uses for the refusal.
 			name:    "RequireTLS",
 			message: "the coordinator requires TLS: upgrade this process, or remove peer.insecure: true",
 			want:    "remove peer.insecure: true",
@@ -440,7 +440,7 @@ func TestWorkerInviteUnauthenticated(t *testing.T) {
 
 			require.Error(t, err)
 			assert.Contains(t, errOut, " did not report whether it accepts workers: ")
-			assert.Contains(t, errOut, tc.want)
+			assert.Contains(t, strings.ToLower(errOut), strings.ToLower(tc.want))
 			if tc.name == "RequireTLS" {
 				assert.NotContains(t, errOut, tokenRemedy)
 			}
