@@ -9464,6 +9464,13 @@ export interface components {
             versionDrift: components["schemas"]["WorkerVersionDrift"];
             connection?: components["schemas"]["WorkerConnection"];
             plaintextReason?: components["schemas"]["PlaintextReason"];
+            /** @description ID of the worker certificate the worker connects with. Present only for a certificate worker. */
+            certificateId?: string;
+            /** @description ID of the invite the worker joined with. Present only for a certificate worker. */
+            inviteId?: string;
+            /** @description True while the worker's certificate is removing: the worker gets no new runs, and its certificate is revoked once the runs it holds end. Absent otherwise. */
+            removing?: boolean;
+            environment?: components["schemas"]["HostEnvironment"];
         };
         /**
          * @description How the worker's last heartbeat reached the coordinator. Absent when the coordinator does not report it, as one of an earlier release.

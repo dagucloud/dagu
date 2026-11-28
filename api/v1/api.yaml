@@ -23210,6 +23210,17 @@ components:
           $ref: "#/components/schemas/WorkerConnection"
         plaintextReason:
           $ref: "#/components/schemas/PlaintextReason"
+        certificateId:
+          type: string
+          description: "ID of the worker certificate the worker connects with. Present only for a certificate worker."
+        inviteId:
+          type: string
+          description: "ID of the invite the worker joined with. Present only for a certificate worker."
+        removing:
+          type: boolean
+          description: "True while the worker's certificate is removing: the worker gets no new runs, and its certificate is revoked once the runs it holds end. Absent otherwise."
+        environment:
+          $ref: "#/components/schemas/HostEnvironment"
       required:
         - id
         - labels
