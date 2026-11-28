@@ -5,6 +5,11 @@ package spec108_peer_transport_test
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -13,8 +18,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
 // The server creates, lists, and deletes invites, reports join readiness,
@@ -75,9 +85,9 @@ func TestInviteAPI(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, code, body)
 	assert.NotContains(t, services.process.Output(), created.Invite)
 
-	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/unknown/certificate?runs=stop", "")
+	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/unknown/certificate?certificateId=unknown&runs=stop", "")
 	assert.Equal(t, http.StatusNotFound, code, body)
-	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/unknown/certificate?runs=later", "")
+	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/unknown/certificate?certificateId=unknown&runs=later", "")
 	assert.Equal(t, http.StatusBadRequest, code, body)
 }
 
@@ -100,4 +110,90 @@ func (s startAll) call(t *testing.T, method, path, body string) (int, string) {
 	data, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	return resp.StatusCode, string(data)
+}
+
+// enrollWorker enrolls a new key as the worker id at the coordinator addr
+// with invite, and returns a client on its certificate and the
+// certificate's ID.
+func (f peerFixture) enrollWorker(t *testing.T, addr, invite, id string) (coordinatorv1.CoordinatorServiceClient, string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, key)
+	require.NoError(t, err)
+	admin := coordinatorv1.NewCoordinatorServiceClient(dialCoordinator(t, addr, f.builtinTLS()))
+	enrolled, err := admin.Enroll(callContext(t), &coordinatorv1.EnrollRequest{
+		Invite: invite, Csr: csr, WorkerId: id, Host: "host-" + id, KeepsCertificate: true,
+	}, grpc.WaitForReady(true))
+	require.NoError(t, err)
+	cert, err := x509.ParseCertificate(enrolled.Certificate)
+	require.NoError(t, err)
+	worker := coordinatorv1.NewCoordinatorServiceClient(dialCoordinator(t, addr, credentials.NewTLS(&tls.Config{
+		RootCAs:      f.roots,
+		ServerName:   coordinatorCertName,
+		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{{Certificate: [][]byte{enrolled.Certificate}, PrivateKey: key}},
+	})))
+	return worker, cert.Subject.CommonName
+}
+
+// The server lists workers that joined with an invite with their
+// certificate and invite, and removes them through its coordinator: a
+// connected worker becomes removing, with finish or stop, and one that is
+// not connected is removed at once. A removal that names another
+// certificate is refused (Spec 108 §REST API, §Removal).
+func TestRemoveWorkerAPI(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	peer := newPeerFixture(t, dagu)
+	services := startStartAll(t, dagu, append(peer.env, "DAGU_AUTH_MODE=none")...)
+	defer services.process.Stop()
+
+	code, body := services.call(t, http.MethodPost, "/api/v1/workers/invites", `{"reusable": true}`)
+	require.Equal(t, http.StatusCreated, code, body)
+	var created struct {
+		ID     string `json:"id"`
+		Invite string `json:"invite"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &created))
+
+	certs := map[string]string{}
+	workers := map[string]coordinatorv1.CoordinatorServiceClient{}
+	for _, id := range []string{"finish", "stop", "offline"} {
+		workers[id], certs[id] = peer.enrollWorker(t, services.coordinator, created.Invite, id)
+	}
+	for _, id := range []string{"finish", "stop"} {
+		_, err := workers[id].Heartbeat(callContext(t), &coordinatorv1.HeartbeatRequest{WorkerId: id, Host: "host-" + id})
+		require.NoError(t, err)
+	}
+	for _, id := range []string{"finish", "stop"} {
+		listed := services.waitForWorker(t, id)
+		assert.Equal(t, "certificate", listed.Connection, id)
+		assert.Equal(t, certs[id], listed.CertificateID, id)
+		assert.Equal(t, created.ID, listed.InviteID, id)
+		assert.False(t, listed.Removing, id)
+	}
+
+	remove := func(id, certID, runs string) (int, string) {
+		return services.call(t, http.MethodDelete, "/api/v1/workers/"+id+"/certificate?certificateId="+certID+"&runs="+runs, "")
+	}
+	code, body = remove("finish", certs["stop"], "finish")
+	assert.Equal(t, http.StatusConflict, code, body)
+	for _, tt := range []struct{ id, runs, state string }{
+		{"finish", "finish", "removing"},
+		{"stop", "stop", "removing"},
+		{"offline", "finish", "removed"},
+	} {
+		code, body = remove(tt.id, certs[tt.id], tt.runs)
+		require.Equal(t, http.StatusOK, code, body)
+		assert.JSONEq(t, `{"state": "`+tt.state+`"}`, body, tt.id)
+	}
+	for _, id := range []string{"finish", "stop"} {
+		assert.True(t, services.waitForWorker(t, id).Removing, id)
+	}
+	_, err := workers["offline"].GetWorkers(callContext(t), &coordinatorv1.GetWorkersRequest{})
+	assert.Equal(t, codes.Unauthenticated, status.Code(err), "%v", err)
+
+	code, body = remove("offline", certs["offline"], "finish")
+	assert.Equal(t, http.StatusOK, code, body)
+	assert.JSONEq(t, `{"state": "removed"}`, body, "a retried removal answers removed")
 }

@@ -935,9 +935,10 @@ message EnrollResponse {
 message RemoveWorkerRequest {
   string worker_id = 1;
   RemoveWorkerRuns runs = 2;
-  // The certificate the worker was listed with, or empty for any. A
-  // removal of a revoked one answers REMOVED; one the worker neither
-  // connects with nor holds fails with FailedPrecondition.
+  // The certificate the worker was listed with. When set, only that
+  // certificate is removed. A removal of a revoked one answers REMOVED;
+  // one the worker neither connects with nor holds fails with
+  // FailedPrecondition. When empty, every certificate of the worker is.
   string certificate_id = 3;
 }
 
@@ -959,6 +960,9 @@ message RemoveWorkerResponse {
   // include each certificate that an enrollment of the worker ID recorded
   // while the removal ran.
   repeated string certificate_ids = 2;
+  // The worker the removed certificate's record names, for a removal that
+  // names a certificate.
+  string worker_id = 3;
 }
 
 enum WorkerRemovalState {

@@ -760,14 +760,20 @@ The `worker_certificates` collection keeps one record per certificate:
 #### Removal
 
 A removal names a worker by its worker ID and takes `finish`, the default,
-or `stop`. It may also name the certificate the worker was listed with:
+or `stop`. It may also name the certificate the worker was listed with,
+as the REST API always does:
 
-- A removal of a certificate that is already revoked answers `removed`, so
-  a retry of a removal whose answer was lost succeeds.
-- A removal fails with `FailedPrecondition` when the named certificate is
-  neither the one the connected worker uses nor, for a worker that is not
-  connected, one that names the worker. A worker that joined again with a
-  new certificate is then not removed by a retry.
+- Only that certificate is removed. Other certificates of the same worker
+  ID, such as one enrolled again before its first heartbeat, keep working.
+- The worker must hold it: the certificate's record names the worker, or
+  the worker's fresh heartbeat carries it. Otherwise the removal fails with
+  `FailedPrecondition`, as it does when the connected worker uses another
+  certificate. A worker that joined again with a new certificate is then
+  not removed by a retry.
+- A removal of a held certificate that is already revoked answers
+  `removed`, so a retry of a removal whose answer was lost succeeds.
+- The answer names the worker the certificate's record names, which the
+  removal's audit entry records.
 
 | Worker | `finish` | `stop` |
 | --- | --- | --- |

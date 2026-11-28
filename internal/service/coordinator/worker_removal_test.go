@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
@@ -217,4 +219,180 @@ func TestGetWorkersListsCertificate(t *testing.T) {
 	assert.True(t, server.listed(t, enrollWorkerID).Removing)
 	coordinator.RereadRemovalsForTest(other.handler)
 	assert.True(t, other.listed(t, enrollWorkerID).Removing)
+}
+
+// removeCertificate removes the enrolled worker, naming the certificate
+// certID, with the peer token.
+func (s peerTLSServer) removeCertificate(t *testing.T, certID string) (*coordinatorv1.RemoveWorkerResponse, error) {
+	t.Helper()
+	return s.tlsClient(t).RemoveWorker(callContext(t), &coordinatorv1.RemoveWorkerRequest{WorkerId: enrollWorkerID, CertificateId: certID})
+}
+
+// A retried removal names the certificate the worker was listed with, so
+// it leaves alone the new certificate the worker joined again with under
+// the same ID, and still answers removed (Spec 108 §Removal).
+func TestRemoveWorkerRetryAfterRejoin(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	_, old, invite := server.enrolled(t)
+
+	resp, err := server.removeCertificate(t, old.Subject.CommonName)
+	require.NoError(t, err)
+	assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, resp.State)
+
+	key, replacement := server.enroll(t, invite.Invite)
+	worker := server.workerClient(t, replacement.Raw, key)
+	_, err = worker.Heartbeat(t.Context(), &coordinatorv1.HeartbeatRequest{WorkerId: enrollWorkerID, Host: enrollHost})
+	require.NoError(t, err)
+
+	resp, err = server.removeCertificate(t, old.Subject.CommonName)
+	require.NoError(t, err)
+	assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, resp.State)
+	assert.Equal(t, []string{old.Subject.CommonName}, resp.CertificateIds)
+	assertServed(t, worker)
+	assert.False(t, server.listed(t, enrollWorkerID).Removing)
+}
+
+// A removal that names a certificate the worker neither connects with nor
+// holds is refused (Spec 108 §Removal).
+func TestRemoveWorkerOtherCertificate(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	key, cert, _ := server.enrolled(t)
+
+	_, err := server.removeCertificate(t, "another-certificate")
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err), "not connected: %v", err)
+
+	worker := server.workerClient(t, cert.Raw, key)
+	_, err = worker.Heartbeat(t.Context(), &coordinatorv1.HeartbeatRequest{WorkerId: enrollWorkerID, Host: enrollHost})
+	require.NoError(t, err)
+	_, err = server.removeCertificate(t, "another-certificate")
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err), "connected: %v", err)
+	assertServed(t, worker)
+}
+
+// A removal that names one of two certificates of a worker that is not
+// connected revokes that one only, so a replacement enrolled under the
+// same ID before its first heartbeat keeps working (Spec 108 §Removal).
+func TestRemoveWorkerNamedCertificateOnly(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	oldKey, old, invite := server.enrolled(t)
+	newKey, replacement := server.enroll(t, invite.Invite)
+
+	resp, err := server.removeCertificate(t, old.Subject.CommonName)
+	require.NoError(t, err)
+	assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, resp.State)
+	assert.Equal(t, []string{old.Subject.CommonName}, resp.CertificateIds)
+	assert.Equal(t, enrollWorkerID, resp.WorkerId)
+	assertRemoved(t, server.workerClient(t, old.Raw, oldKey))
+	assertServed(t, server.workerClient(t, replacement.Raw, newKey))
+}
+
+// A removal of a revoked certificate answers by the certificate: removed,
+// naming the worker its record names, so the audit names that worker and
+// not the one the request named.
+func TestRemoveWorkerOtherWorkersCertificate(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	_, _, invite := server.enrolled(t)
+	otherReq := enrollRequest(t, invite.Invite, newWorkerKey(t))
+	otherReq.WorkerId = "other-worker"
+	enrolled, err := server.tlsClient(t).Enroll(t.Context(), otherReq)
+	require.NoError(t, err)
+	other, err := x509.ParseCertificate(enrolled.Certificate)
+	require.NoError(t, err)
+	_, err = server.tlsClient(t).RemoveWorker(callContext(t), &coordinatorv1.RemoveWorkerRequest{WorkerId: "other-worker", CertificateId: other.Subject.CommonName})
+	require.NoError(t, err)
+
+	resp, err := server.removeCertificate(t, other.Subject.CommonName)
+	require.NoError(t, err)
+	assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, resp.State)
+	assert.Equal(t, "other-worker", resp.WorkerId)
+}
+
+// A retried removal with the original worker ID answers removed after the
+// holder, renamed meanwhile, lost the certificate: the replay resolves by
+// the certificate first.
+func TestRemoveWorkerReplayAfterRename(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	key, cert, _ := server.enrolled(t)
+	_, err := server.workerClient(t, cert.Raw, key).Heartbeat(t.Context(), &coordinatorv1.HeartbeatRequest{WorkerId: "renamed", Host: enrollHost})
+	require.NoError(t, err)
+	_, err = server.shared.certs.SetState(t.Context(), cert.Subject.CommonName, persis.WorkerCertificateRevoked)
+	require.NoError(t, err)
+
+	resp, err := server.removeCertificate(t, cert.Subject.CommonName)
+	require.NoError(t, err)
+	assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, resp.State)
+	assert.Equal(t, "renamed", resp.WorkerId)
+}
+
+// The refusals of a removal carry their reasons as status details.
+func TestRemoveWorkerRefusalReasons(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	client := server.tlsClient(t)
+	_, err := client.Heartbeat(callContext(t), &coordinatorv1.HeartbeatRequest{WorkerId: "token-worker"})
+	require.NoError(t, err)
+	_, err = client.RemoveWorker(callContext(t), &coordinatorv1.RemoveWorkerRequest{WorkerId: "token-worker", CertificateId: "any"})
+	assert.Equal(t, "peer_token_worker", coordinator.RefusalReason(err), "%v", err)
+
+	server.enrolled(t)
+	_, err = server.removeCertificate(t, "another-certificate")
+	assert.Equal(t, "certificate_changed", coordinator.RefusalReason(err), "%v", err)
+}
+
+// A retried removal of a revoked certificate answers removed, also after
+// the worker ID came back on the peer token, which it leaves alone.
+func TestRemoveWorkerReplayAfterPeerTokenReturn(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	_, cert, _ := server.enrolled(t)
+	_, err := server.removeCertificate(t, cert.Subject.CommonName)
+	require.NoError(t, err)
+	_, err = server.tlsClient(t).Heartbeat(callContext(t), &coordinatorv1.HeartbeatRequest{WorkerId: enrollWorkerID, Host: enrollHost})
+	require.NoError(t, err)
+
+	resp, err := server.removeCertificate(t, cert.Subject.CommonName)
+	require.NoError(t, err)
+	assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, resp.State)
+	assert.Empty(t, server.listed(t, enrollWorkerID).CertificateId, "the peer token worker keeps connecting")
+}
+
+// A worker ID that nothing knows answers NotFound, also with the
+// certificate of another worker.
+func TestRemoveWorkerUnknownWorker(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	_, cert, _ := server.enrolled(t)
+
+	_, err := server.tlsClient(t).RemoveWorker(callContext(t), &coordinatorv1.RemoveWorkerRequest{WorkerId: "nobody", CertificateId: cert.Subject.CommonName})
+	assert.Equal(t, codes.NotFound, status.Code(err), "%v", err)
+}
+
+// When the certificate's fresh holder connects under a new worker ID, the
+// removal names that ID, as the certificate's record does after it.
+func TestRemoveWorkerNamesHolderAfterRename(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	key, cert, _ := server.enrolled(t)
+	_, err := server.workerClient(t, cert.Raw, key).Heartbeat(t.Context(), &coordinatorv1.HeartbeatRequest{WorkerId: "renamed", Host: enrollHost})
+	require.NoError(t, err)
+	// The record still names the earlier ID, as before the heartbeat's
+	// record update reaches it.
+	record, err := server.shared.certs.Get(t.Context(), cert.Subject.CommonName)
+	require.NoError(t, err)
+	record.WorkerID = enrollWorkerID
+	record.LastHeartbeatAt = record.LastHeartbeatAt.Add(2 * time.Minute)
+	_, err = server.shared.certs.RecordHeartbeat(t.Context(), record)
+	require.NoError(t, err)
+
+	resp, err := server.removeCertificate(t, cert.Subject.CommonName)
+	require.NoError(t, err)
+	assert.Equal(t, "renamed", resp.WorkerId)
+	record, err = server.shared.certs.Get(t.Context(), cert.Subject.CommonName)
+	require.NoError(t, err)
+	assert.Equal(t, "renamed", record.WorkerID)
 }

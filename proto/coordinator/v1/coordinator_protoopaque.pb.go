@@ -9608,9 +9608,10 @@ type RemoveWorkerRequest_builder struct {
 
 	WorkerId string
 	Runs     RemoveWorkerRuns
-	// The certificate the worker was listed with, or empty for any. A
-	// removal of a revoked one answers REMOVED; one the worker neither
-	// connects with nor holds fails with FailedPrecondition.
+	// The certificate the worker was listed with. When set, only that
+	// certificate is removed. A removal of a revoked one answers REMOVED;
+	// one the worker neither connects with nor holds fails with
+	// FailedPrecondition. When empty, every certificate of the worker is.
 	CertificateId string
 }
 
@@ -9628,6 +9629,7 @@ type RemoveWorkerResponse struct {
 	state                     protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_State          WorkerRemovalState     `protobuf:"varint,1,opt,name=state,proto3,enum=coordinator.v1.WorkerRemovalState"`
 	xxx_hidden_CertificateIds []string               `protobuf:"bytes,2,rep,name=certificate_ids,json=certificateIds,proto3"`
+	xxx_hidden_WorkerId       string                 `protobuf:"bytes,3,opt,name=worker_id,json=workerId,proto3"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -9671,12 +9673,23 @@ func (x *RemoveWorkerResponse) GetCertificateIds() []string {
 	return nil
 }
 
+func (x *RemoveWorkerResponse) GetWorkerId() string {
+	if x != nil {
+		return x.xxx_hidden_WorkerId
+	}
+	return ""
+}
+
 func (x *RemoveWorkerResponse) SetState(v WorkerRemovalState) {
 	x.xxx_hidden_State = v
 }
 
 func (x *RemoveWorkerResponse) SetCertificateIds(v []string) {
 	x.xxx_hidden_CertificateIds = v
+}
+
+func (x *RemoveWorkerResponse) SetWorkerId(v string) {
+	x.xxx_hidden_WorkerId = v
 }
 
 type RemoveWorkerResponse_builder struct {
@@ -9690,6 +9703,9 @@ type RemoveWorkerResponse_builder struct {
 	// include each certificate that an enrollment of the worker ID recorded
 	// while the removal ran.
 	CertificateIds []string
+	// The worker the removed certificate's record names, for a removal that
+	// names a certificate.
+	WorkerId string
 }
 
 func (b0 RemoveWorkerResponse_builder) Build() *RemoveWorkerResponse {
@@ -9698,6 +9714,7 @@ func (b0 RemoveWorkerResponse_builder) Build() *RemoveWorkerResponse {
 	_, _ = b, x
 	x.xxx_hidden_State = b.State
 	x.xxx_hidden_CertificateIds = b.CertificateIds
+	x.xxx_hidden_WorkerId = b.WorkerId
 	return m0
 }
 
@@ -10235,10 +10252,11 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x13RemoveWorkerRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x124\n" +
 	"\x04runs\x18\x02 \x01(\x0e2 .coordinator.v1.RemoveWorkerRunsR\x04runs\x12%\n" +
-	"\x0ecertificate_id\x18\x03 \x01(\tR\rcertificateId\"y\n" +
+	"\x0ecertificate_id\x18\x03 \x01(\tR\rcertificateId\"\x96\x01\n" +
 	"\x14RemoveWorkerResponse\x128\n" +
 	"\x05state\x18\x01 \x01(\x0e2\".coordinator.v1.WorkerRemovalStateR\x05state\x12'\n" +
-	"\x0fcertificate_ids\x18\x02 \x03(\tR\x0ecertificateIds*P\n" +
+	"\x0fcertificate_ids\x18\x02 \x03(\tR\x0ecertificateIds\x12\x1b\n" +
+	"\tworker_id\x18\x03 \x01(\tR\bworkerId*P\n" +
 	"\tOperation\x12\x19\n" +
 	"\x15OPERATION_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fOPERATION_START\x10\x01\x12\x13\n" +

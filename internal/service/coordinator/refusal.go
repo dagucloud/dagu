@@ -16,11 +16,14 @@ const refusalDomain = "coordinator.dagu"
 
 // The reasons of the refusals that a caller acts on.
 const (
-	reasonOwnCertificates  = "own_certificates"
-	reasonCAUnavailable    = "ca_unavailable"
-	reasonPeerAuthMissing  = "peer_token_missing"
-	reasonPeerAuthMismatch = "peer_token_mismatch"
-	reasonRequireTLS       = "require_tls"
+	reasonOwnCertificates    = "own_certificates"
+	reasonCAUnavailable      = "ca_unavailable"
+	reasonPeerAuthMissing    = "peer_token_missing"
+	reasonPeerAuthMismatch   = "peer_token_mismatch"
+	reasonRequireTLS         = "require_tls"
+	reasonPeerAuthWorker     = "peer_token_worker"
+	reasonCertificateChanged = "certificate_changed"
+	reasonRetryLater         = "retry_later"
 )
 
 // legacyPeerTokenMissing is how coordinators of an earlier release refuse
@@ -42,6 +45,7 @@ var refusalReasons = map[refusal]string{
 	{codes.Unauthenticated, legacyPeerTokenMissing}:    reasonPeerAuthMissing,
 	{codes.Unauthenticated, peerTokenMismatchMessage}:  reasonPeerAuthMismatch,
 	{codes.Unauthenticated, requireTLSMessage}:         reasonRequireTLS,
+	{codes.FailedPrecondition, peerTokenWorkerMessage}: reasonPeerAuthWorker,
 }
 
 // reasonedRefusal returns a refusal with code and message that carries reason,

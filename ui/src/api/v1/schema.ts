@@ -323,7 +323,7 @@ export interface paths {
         put?: never;
         /**
          * Remove a worker
-         * @description Revokes the certificate of a worker that joined with an invite, so it stays out across restarts until it gets a new invite. The request names the certificate the workers list shows, so a worker that joined again with a new certificate is not removed by mistake. A worker that is not connected is removed at once. A connected one gets no new runs and is removed once the runs it holds end. Admin only, and not forwarded to a remote node.
+         * @description Revokes the named certificate of a worker that joined with an invite, and no other certificate of that worker, so it stays out across restarts until it gets a new invite. The request names the certificate the workers list shows, so a worker that joined again with a new certificate is not removed by mistake. A worker that is not connected is removed at once. A connected one gets no new runs and is removed once the runs it holds end. Admin only, and not forwarded to a remote node.
          */
         post: operations["removeWorker"];
         delete?: never;
