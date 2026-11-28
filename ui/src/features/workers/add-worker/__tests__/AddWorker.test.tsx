@@ -917,6 +917,7 @@ describe('AddWorker', () => {
     expect(
       step('Worker').getByText('Shown after steps 1 and 2')
     ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create invite' })).toBeNull();
   });
 
   it.each(['192.168.1.20:30055', '[fd00::20]:50055', 'laptop:50055'])(
@@ -1219,7 +1220,7 @@ describe('AddWorker', () => {
     // it dials after the worker joined too. checkCommand.test.ts runs it.
     [
       'Linux',
-      `env $(env | sed -n 's/^\\(DAGU[A-Za-z0-9_.]*\\)=.*/-u \\1/p') DAGU_HOME="$(mktemp -d)" dagu worker --check --worker.coordinators=192.168.1.20:50055`,
+      `d="$(mktemp -d)" && env $(env | sed -n 's/^\\(DAGU[A-Za-z0-9_.]*\\)=.*/-u \\1/p') DAGU_HOME="$d" dagu worker --check --worker.coordinators=192.168.1.20:50055`,
     ],
     [
       'Docker',
@@ -1250,6 +1251,11 @@ describe('AddWorker', () => {
     expect(
       screen.getByText('The worker cannot reach 192.168.1.20:50055.')
     ).toBeInTheDocument();
+    expect(screen.getByText(check, { selector: 'pre' })).toBeInTheDocument();
+    // The check comes from the invite, so a label being corrected keeps it.
+    fireEvent.change(screen.getByLabelText('Labels (optional)'), {
+      target: { value: 'os=linux' },
+    });
     expect(screen.getByText(check, { selector: 'pre' })).toBeInTheDocument();
   });
 

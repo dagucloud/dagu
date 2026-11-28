@@ -1387,12 +1387,15 @@ and prints the message:
   and readings. At 60 seconds without a worker it reads `/workers` once
   itself, since the page's refresh may be paused; a failed or partial read
   says the list could not be read.
-- When no worker arrives within 60 seconds, it lists the usual causes (a
-  firewall or security group closes the port, a container does not
-  publish it, the address is not reachable from the worker) and suggests
-  `dagu worker --check` on the worker host. On Linux it runs with each
+- When no worker arrives within 60 seconds and a complete read of
+  `/workers` finds none, it lists the usual causes (a firewall or security
+  group closes the port, a container does not publish it, the address is
+  not reachable from the worker) and a diagnostic for the tab, built from
+  the invite's address and ID: `dagu worker --check` on the worker host
+  for Linux and Docker, and `kubectl logs` for the invite's Deployment in
+  Kubernetes. On Linux the check runs with each
   inherited `DAGU*` variable removed by `env -u` and a new empty
-  `DAGU_HOME`, so no inherited invite, data directory, or other Dagu
+  `DAGU_HOME`, and starts only once that directory exists, so no inherited invite, data directory, or other Dagu
   setting stops it before it dials, while the shell's proxy settings
   stay.
 

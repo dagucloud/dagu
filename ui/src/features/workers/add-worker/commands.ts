@@ -290,7 +290,7 @@ spec:
  */
 export function checkCommand(
   tab: WorkerTab,
-  input: CommandInput
+  input: Pick<CommandInput, 'address' | 'inviteId' | 'image'>
 ): string | undefined {
   if (tab === WorkerTab.kubernetes) {
     return `kubectl logs deployment/dagu-worker-${manifestSuffix(input.inviteId)}`;
@@ -301,12 +301,13 @@ export function checkCommand(
     '--check',
     `--worker.coordinators=${input.address}`,
   ];
-  // An empty data directory and no inherited DAGU* variable, such as
+  // A new empty data directory and no inherited DAGU* variable, such as
   // either spelling of the invite or a data directory, so the check dials
   // on a host where the worker already joined. The rest of the shell's
-  // environment, such as its proxies, stays.
+  // environment, such as its proxies, stays. Dagu runs only once the
+  // directory exists, since an empty DAGU_HOME reads the usual config.
   if (tab === WorkerTab.linux) {
-    return `env $(env | sed -n 's/^\\(DAGU[A-Za-z0-9_.]*\\)=.*/-u \\1/p') DAGU_HOME="$(mktemp -d)" ${shellCommand(args)}`;
+    return `d="$(mktemp -d)" && env $(env | sed -n 's/^\\(DAGU[A-Za-z0-9_.]*\\)=.*/-u \\1/p') DAGU_HOME="$d" ${shellCommand(args)}`;
   }
   if (!input.image) return undefined;
   return shellCommand(['docker', 'run', '--rm', input.image, ...args]);

@@ -197,7 +197,7 @@ export function WorkerStep({
             hidden={!panelShowsInvite || made.id !== invite?.id}
             invite={made}
             tab={tab}
-            input={inputFor(made)}
+            image={image}
             workers={workers}
           />
         ))}
@@ -425,13 +425,13 @@ function Arrival({
   hidden,
   invite,
   tab,
-  input,
+  image,
   workers,
 }: {
   hidden: boolean;
   invite: CreatedInvite;
   tab: WorkerTab;
-  input?: CommandInput;
+  image?: string;
   workers: Worker[];
 }) {
   const client = useClient();
@@ -497,7 +497,12 @@ function Arrival({
     return () => clearTimeout(timer);
   }, [invite.createdAt, joined, readWorkers]);
 
-  const check = input && checkCommand(tab, input);
+  // From the invite alone, so a label being corrected does not hide it.
+  const check = checkCommand(tab, {
+    address: invite.address,
+    inviteId: invite.id,
+    image,
+  });
   const address = invite.address;
   const port = address.slice(address.lastIndexOf(':') + 1);
   return (

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,37 +18,41 @@ const PROXIES = Object.fromEntries(
 // The Linux check runs in a shell that may hold an enrolled worker's
 // settings. A stub dagu on PATH prints the environment the check gets, so
 // the test sees what the real CLI's config loader and proxy lookup read.
+function runCheck(shell: string, env: NodeJS.ProcessEnv, stubs = {}) {
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'dagu-check-'));
+  const all: Record<string, string> = { dagu: 'echo STARTED; env', ...stubs };
+  for (const [name, body] of Object.entries(all)) {
+    fs.writeFileSync(path.join(bin, name), `#!/bin/sh\n${body}\n`, {
+      mode: 0o755,
+    });
+  }
+  const command = checkCommand(WorkerTab.linux, {
+    address: '192.168.1.20:50055',
+    inviteId: 'inv-1',
+  })!;
+  const run = spawnSync(shell, ['-c', command], {
+    encoding: 'utf8',
+    env: { PATH: `${bin}:/usr/bin:/bin`, HOME: '/home/worker', ...env },
+  });
+  fs.rmSync(bin, { recursive: true, force: true });
+  return run;
+}
+
 describe.skipIf(process.platform === 'win32')('Linux check command', () => {
   it.each(
     ['sh', 'bash'].flatMap((sh) => [[sh, true] as const, [sh, false] as const])
   )('in %s with proxies %s keeps them and no DAGU*', (shell, proxied) => {
-    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'dagu-check-'));
-    fs.writeFileSync(path.join(bin, 'dagu'), '#!/bin/sh\nenv\n', {
-      mode: 0o755,
+    const { stdout } = runCheck(shell, {
+      DAGU_HOME: '/home/worker/.dagu',
+      DAGU_WORKER_INVITE: 'inherited',
+      'DAGU_WORKER.INVITE': 'inherited',
+      DAGU_DATA_DIR: '/var/lib/dagu',
+      'DAGU_PATHS.DATA_DIR': '/var/lib/dagu',
+      DAGU__DATA: '/var/lib/dagu',
+      ...(proxied ? PROXIES : {}),
     });
-    const command = checkCommand(WorkerTab.linux, {
-      address: '192.168.1.20:50055',
-      labels: '',
-      inviteId: 'inv-1',
-      invite: 'unused',
-    })!;
-    const out = execFileSync(shell, ['-c', command], {
-      encoding: 'utf8',
-      env: {
-        PATH: `${bin}:/usr/bin:/bin`,
-        HOME: '/home/worker',
-        DAGU_HOME: '/home/worker/.dagu',
-        DAGU_WORKER_INVITE: 'inherited',
-        'DAGU_WORKER.INVITE': 'inherited',
-        DAGU_DATA_DIR: '/var/lib/dagu',
-        'DAGU_PATHS.DATA_DIR': '/var/lib/dagu',
-        DAGU__DATA: '/var/lib/dagu',
-        ...(proxied ? PROXIES : {}),
-      },
-    });
-    fs.rmSync(bin, { recursive: true, force: true });
     const vars = new Map(
-      out
+      stdout
         .trim()
         .split('\n')
         .map((line) => [line.slice(0, line.indexOf('=')), line] as const)
@@ -60,5 +64,12 @@ describe.skipIf(process.platform === 'win32')('Linux check command', () => {
     for (const [name, value] of Object.entries(PROXIES)) {
       expect(vars.get(name)).toBe(proxied ? `${name}=${value}` : undefined);
     }
+  });
+
+  // Without its directory, an empty DAGU_HOME would read the usual config.
+  it.each(['sh', 'bash'])('in %s never starts Dagu when mktemp fails', (sh) => {
+    const run = runCheck(sh, {}, { mktemp: 'exit 1' });
+    expect(run.status).not.toBe(0);
+    expect(run.stdout).not.toContain('STARTED');
   });
 });
