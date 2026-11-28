@@ -120,6 +120,47 @@ func TestIncidentManagement_ProjectsAdminOnlyProviders(t *testing.T) {
 	}
 }
 
+// A developer's test send to a provider reports a failed delivery by the
+// provider's name and type, since the transport error names the provider's
+// webhook URL. The report keeps the cause with a URL preview. An admin still
+// gets the error itself. With projects on, only admins test a provider.
+func TestIncidentManagement_HideProviderTestErrors(t *testing.T) {
+	t.Parallel()
+
+	server := setupWebhookTestServer(t)
+	adminToken := getWebhookAdminToken(t, server)
+	developerToken := createRuntimeProfileUserToken(t, server, adminToken, "developer-user", "developer1", api.UserRoleDeveloper)
+	// Nothing listens on port 1, so the delivery fails in transport.
+	input := api.IncidentProviderInput{}
+	require.NoError(t, input.FromIncidentSolarWindsProviderInputEnvelope(api.IncidentSolarWindsProviderInputEnvelope{
+		Name:    "On-call",
+		Type:    api.IncidentSolarWindsProviderInputEnvelopeTypeSolarwindsIncidentResponse,
+		Enabled: true,
+		SolarWinds: api.IncidentSolarWindsProviderInput{
+			WebhookUrl:          new("http://127.0.0.1:1/hooks/secret-token"),
+			AllowInsecureHttp:   new(true),
+			AllowPrivateNetwork: new(true),
+		},
+	}))
+	var provider api.IncidentProvider
+	server.Client().Post("/api/v1/incident-providers", input).
+		WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t).Unmarshal(t, &provider)
+
+	for token, hidden := range map[string]bool{developerToken: true, adminToken: false} {
+		var resp api.TestIncidentProviderResponse
+		server.Client().Post("/api/v1/incident-providers/"+provider.Id+"/test", nil).
+			WithBearerToken(token).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &resp)
+		require.False(t, resp.Result.Delivered)
+		require.NotNil(t, resp.Result.Error)
+		message := *resp.Result.Error
+		assert.Equal(t, !hidden, strings.Contains(message, "secret-token"), message)
+		if hidden {
+			assert.True(t, strings.HasPrefix(message, `delivery to solarwinds_incident_response provider "On-call" failed: Post "http...oken": dial tcp 127.0.0.1:1: `), message)
+			assert.True(t, strings.HasSuffix(message, "; see the server log"), message)
+		}
+	}
+}
+
 func TestIncidentManagement_GlobalWorkspaceAndDAGPolicySets(t *testing.T) {
 	t.Parallel()
 

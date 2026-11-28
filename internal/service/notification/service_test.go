@@ -11,12 +11,15 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/mail"
+	"net/textproto"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -1229,6 +1232,113 @@ func TestService_SendTestTelegramUsesCustomMessageTemplate(t *testing.T) {
 	assert.Contains(t, body, `"chat_id":"12345"`)
 	assert.Contains(t, body, `"message_thread_id":67890`)
 	assert.Contains(t, body, `"text":"DAG daily-report failed"`)
+}
+
+// A hidden test error of a DAG's own target keeps only the parts of the cause
+// that hold no secret: Telegram puts its bot token in the request path, and a
+// failed response can echo it in the body. A target without a name is named
+// by its ID. While projects are on, no part of the cause is kept.
+func TestService_SendTestHideChannelErrors(t *testing.T) {
+	t.Parallel()
+
+	const token = "123456:telegram-secret-token"
+	telegram := notificationmodel.Target{
+		ID:       "telegram-1",
+		Name:     "Ops Telegram",
+		Type:     notificationmodel.ProviderTelegram,
+		Enabled:  true,
+		Telegram: &notificationmodel.TelegramTarget{BotToken: token, ChatID: "12345"},
+	}
+	// The address is public, so the template fails before any request.
+	badTemplate := notificationmodel.Target{
+		ID:      "hook-1",
+		Type:    notificationmodel.ProviderWebhook,
+		Enabled: true,
+		Webhook: &notificationmodel.WebhookTarget{URL: "https://93.184.216.34/hook", BodyTemplate: "not json"},
+	}
+	refused := func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("connection refused")
+	}
+	tests := []struct {
+		name       string
+		target     notificationmodel.Target
+		projectsOn bool
+		respond    func(*http.Request) (*http.Response, error)
+		want       string
+	}{
+		{
+			name:    "RequestFailed",
+			target:  telegram,
+			respond: refused,
+			want:    `delivery to telegram target "Ops Telegram" failed: Post "http...sage": connection refused; see the server log`,
+		},
+		{
+			name:   "HTTPStatus",
+			target: telegram,
+			respond: func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusUnauthorized,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("bad token " + token)),
+					Request:    req,
+				}, nil
+			},
+			want: `delivery to telegram target "Ops Telegram" failed: notification endpoint returned HTTP 401; see the server log`,
+		},
+		{
+			name:    "BodyTemplate",
+			target:  badTemplate,
+			respond: refused,
+			want:    `delivery to webhook target "hook-1" failed: webhook body template did not render valid JSON; see the server log`,
+		},
+		{
+			name:       "ProjectsOn",
+			target:     badTemplate,
+			projectsOn: true,
+			respond:    refused,
+			want:       `delivery to webhook target "hook-1" failed; see the server log`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			svc := New(
+				newMemoryStore(mustNormalizeSettings(t, &notificationmodel.Settings{
+					DAGName: "daily-report",
+					Enabled: true,
+					Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+					Targets: []notificationmodel.Target{tt.target},
+				})),
+				nil,
+				WithProjectsEnabled(tt.projectsOn),
+				WithDeliveryRetry(DeliveryRetryConfig{MaxAttempts: 1}),
+				WithHTTPClient(&http.Client{Transport: roundTripFunc(tt.respond)}),
+			)
+
+			results, err := svc.SendTest(context.Background(), "daily-report", "", eventstore.TypeDAGRunFailed, HideChannelErrors())
+			require.NoError(t, err)
+			require.Len(t, results, 1)
+			assert.False(t, results[0].Delivered)
+			assert.Equal(t, tt.want, results[0].Error)
+			assert.NotContains(t, results[0].Error, token)
+		})
+	}
+}
+
+// An SMTP reply keeps only its code, since its text can echo the AUTH
+// payload. A failed DNS lookup of a webhook host keeps the host, as a failed
+// request does.
+func TestSafeDeliveryCause(t *testing.T) {
+	t.Parallel()
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	reply := fmt.Errorf("authentication failed: %w", &textproto.Error{Code: 535, Msg: "bad credentials AHVzZXIAcGFzcw=="})
+	assert.Equal(t, "SMTP server replied 535", safeDeliveryCause(reply))
+	lookup := validateOutboundURL(canceled, "https://hooks.example.com/T000/secret", false, false)
+	assert.True(t, strings.HasPrefix(safeDeliveryCause(lookup), "resolve webhook host: lookup hooks.example.com"), safeDeliveryCause(lookup))
+	assert.Empty(t, safeDeliveryCause(errors.New("dial tcp smtp.example.com:587: i/o timeout")))
 }
 
 func TestService_SendTestEmailRequiresWorkspaceSMTP(t *testing.T) {

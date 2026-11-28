@@ -423,7 +423,7 @@ func (a *API) TestDAGNotifications(ctx context.Context, request api.TestDAGNotif
 	if commandErr != nil {
 		opts = append(opts, notificationservice.DenyCommandChannels())
 	}
-	if !a.deliveryDetailsVisible(ctx) {
+	if !a.deliveryErrorsVisible(ctx) {
 		opts = append(opts, notificationservice.HideChannelErrors())
 	}
 	results, err := a.notificationService.SendTest(ctx, request.FileName, targetID, eventType, opts...)
@@ -471,7 +471,11 @@ func (a *API) TestNotificationChannel(ctx context.Context, request api.TestNotif
 			return nil, err
 		}
 	}
-	results, err := a.notificationService.SendChannelTest(ctx, request.ChannelId)
+	var opts []notificationservice.TestOption
+	if !a.deliveryErrorsVisible(ctx) {
+		opts = append(opts, notificationservice.HideChannelErrors())
+	}
+	results, err := a.notificationService.SendChannelTest(ctx, request.ChannelId, opts...)
 	if err != nil {
 		if errors.Is(err, notificationmodel.ErrChannelNotFound) {
 			return nil, notificationNotFound(err.Error())
@@ -511,6 +515,13 @@ func (a *API) requireChannelManagement(ctx context.Context) error {
 // admins do; other users see its name and type.
 func (a *API) deliveryDetailsVisible(ctx context.Context) bool {
 	return a.config == nil || !a.config.ProjectsEnabled || a.requireAdmin(ctx) == nil
+}
+
+// deliveryErrorsVisible reports whether the caller sees the error of a failed
+// test send to a saved channel or an incident provider. Only admins do, since
+// the error can name the channel's or the provider's URL.
+func (a *API) deliveryErrorsVisible(ctx context.Context) bool {
+	return a.requireAdmin(ctx) == nil
 }
 
 // requireCommandChannelAccess guards saving or test-sending a command channel,

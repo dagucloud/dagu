@@ -146,7 +146,11 @@ func (a *API) TestIncidentProvider(ctx context.Context, request api.TestIncident
 	if err := a.requireProviderManagement(ctx); err != nil {
 		return nil, err
 	}
-	result, err := a.incidentService.SendProviderTest(ctx, request.ProviderId)
+	var opts []incidentservice.TestOption
+	if !a.deliveryErrorsVisible(ctx) {
+		opts = append(opts, incidentservice.HideProviderErrors())
+	}
+	result, err := a.incidentService.SendProviderTest(ctx, request.ProviderId, opts...)
 	if err != nil {
 		switch {
 		case errors.Is(err, incidentmodel.ErrProviderNotFound):

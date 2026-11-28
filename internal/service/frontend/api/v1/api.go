@@ -179,7 +179,7 @@ type NotificationService interface {
 	GetChannel(ctx context.Context, channelID string) (*notificationmodel.Channel, error)
 	SaveChannel(ctx context.Context, channel *notificationmodel.Channel, updatedBy string) (*notificationmodel.Channel, error)
 	DeleteChannel(ctx context.Context, channelID string) error
-	SendChannelTest(ctx context.Context, channelID string) ([]notificationservice.TestResult, error)
+	SendChannelTest(ctx context.Context, channelID string, opts ...notificationservice.TestOption) ([]notificationservice.TestResult, error)
 	SendTest(ctx context.Context, dagName, targetID string, eventType eventstore.EventType, opts ...notificationservice.TestOption) ([]notificationservice.TestResult, error)
 	CommandChannelsEnabled() bool
 }
@@ -193,7 +193,7 @@ type IncidentService interface {
 	ListPolicySets(ctx context.Context) ([]*incidentmodel.PolicySet, error)
 	SavePolicySet(ctx context.Context, policySet *incidentmodel.PolicySet, updatedBy string) (*incidentmodel.PolicySet, error)
 	DeletePolicySet(ctx context.Context, scope incidentmodel.PolicyScope, workspaceName, dagName string) error
-	SendProviderTest(ctx context.Context, providerID string) (*incidentservice.TestResult, error)
+	SendProviderTest(ctx context.Context, providerID string, opts ...incidentservice.TestOption) (*incidentservice.TestResult, error)
 }
 
 // CloudReportService lets administrators see and choose what the server

@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/textproto"
 	"net/url"
 	"regexp"
 	"slices"
@@ -747,8 +748,13 @@ func (s *Service) ShouldDeliverNotificationBatch(chatbridge.NotificationBatch) b
 }
 
 // SendChannelTest sends a sample failure notification to a saved channel,
-// regardless of its enabled state or configured routes.
-func (s *Service) SendChannelTest(ctx context.Context, channelID string) ([]TestResult, error) {
+// regardless of its enabled state or configured routes. Of opts, only
+// HideChannelErrors applies.
+func (s *Service) SendChannelTest(ctx context.Context, channelID string, opts ...TestOption) ([]TestResult, error) {
+	var options testOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	channel, err := s.GetChannel(ctx, channelID)
 	if err != nil {
 		return nil, err
@@ -758,18 +764,20 @@ func (s *Service) SendChannelTest(ctx context.Context, channelID string) ([]Test
 		Status:     testStatus("channel-test", eventstore.TypeDAGRunFailed),
 		ObservedAt: time.Now().UTC(),
 	}
-	return s.deliverTestTargets(ctx, []resolvedTarget{{
+	targets := []resolvedTarget{{
 		ResultID:   channel.ID,
 		ResultName: channel.Name,
+		Provider:   channel.Type,
 		Target:     channel.ToTarget(),
-	}}, event), nil
+	}}
+	return s.deliverTestTargets(ctx, "", targets, event, options), nil
 }
 
 // ErrCommandTestDenied is returned by SendTest, before anything is sent, when
 // DenyCommandChannels is set and the test would run a command channel.
 var ErrCommandTestDenied = errors.New("test send would run a command channel")
 
-// TestOption configures SendTest.
+// TestOption configures SendTest and SendChannelTest.
 type TestOption func(*testOptions)
 
 type testOptions struct {
@@ -782,9 +790,10 @@ func DenyCommandChannels() TestOption {
 	return func(o *testOptions) { o.denyCommand = true }
 }
 
-// HideChannelErrors reports a failed delivery to a saved channel by the
-// channel's name and type alone and logs its error, which can name the
-// channel's URL. Errors of a DAG's own targets are reported as they are.
+// HideChannelErrors logs the error of each failed delivery, which can name
+// the destination's URL or the SMTP host, and reports the delivery by the
+// channel's or target's type and name instead. The report keeps the parts
+// of the cause that hold no secret, except while projects are on.
 func HideChannelErrors() TestOption {
 	return func(o *testOptions) { o.hideChannelErrors = true }
 }
@@ -824,29 +833,74 @@ func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventT
 		return nil, ErrCommandTestDenied
 	}
 
-	results := s.deliverTestTargets(ctx, targets, event)
-	if options.hideChannelErrors {
-		s.hideChannelErrors(dagName, targets, results)
-	}
-	return results, nil
+	return s.deliverTestTargets(ctx, dagName, targets, event, options), nil
 }
 
-// hideChannelErrors replaces the error of each failed delivery to a saved
-// channel in results, which follow targets, with one that names the
-// channel, and logs the error it replaces.
-func (s *Service) hideChannelErrors(dagName string, targets []resolvedTarget, results []TestResult) {
-	for i, target := range targets {
-		// Only a saved channel's target carries the channel's provider.
-		if target.Provider == "" || results[i].Error == "" {
-			continue
-		}
-		s.logger.Warn("Notification test delivery failed",
-			slog.String("dag", dagName),
-			slog.String("channel", target.ResultName),
-			slog.String("error", results[i].Error),
-		)
-		results[i].Error = fmt.Sprintf("delivery to %s channel %q failed; see the server log", target.Provider, target.ResultName)
+// hiddenTestError logs err, the failed test delivery to target, and returns
+// the error reported in its place. dagName is empty for a test of a channel
+// itself.
+func (s *Service) hiddenTestError(dagName string, target resolvedTarget, provider notificationmodel.ProviderType, err error) string {
+	s.logger.Warn("Notification test delivery failed",
+		slog.String("dag", dagName),
+		slog.String("target", target.ResultName),
+		slog.String("error", err.Error()),
+	)
+	// Only a saved channel's target carries the channel's provider.
+	kind := "target"
+	if target.Provider != "" {
+		kind = "channel"
 	}
+	name := target.ResultName
+	if name == "" {
+		name = target.ResultID
+	}
+	cause := ""
+	// While projects are on, users see no channel's URL or the SMTP host,
+	// so no part of the cause is kept.
+	if !s.projectsEnabled {
+		if c := safeDeliveryCause(err); c != "" {
+			cause = ": " + c
+		}
+	}
+	return fmt.Sprintf("delivery to %s %s %q failed%s; see the server log", provider, kind, name, cause)
+}
+
+// safeDeliveryCause describes err by its parts that hold no secret of the
+// destination: the status of a failed response; the operation, a URL
+// preview, and the cause of a failed request; the code of an SMTP reply; or
+// the whole of a safeError. It returns "" for other errors.
+func safeDeliveryCause(err error) string {
+	if status, ok := errors.AsType[httpStatusError](err); ok {
+		return fmt.Sprintf("notification endpoint returned HTTP %d", status.code)
+	}
+	if urlErr, ok := errors.AsType[*url.Error](err); ok {
+		return fmt.Sprintf("%s %q: %v", urlErr.Op, notificationmodel.PreviewSecret(urlErr.URL), urlErr.Err)
+	}
+	if safe, ok := errors.AsType[safeError](err); ok {
+		return safe.Error()
+	}
+	// The text of an SMTP reply is the server's own and can echo the AUTH
+	// payload, so only its code is kept.
+	if reply, ok := errors.AsType[*textproto.Error](err); ok {
+		return fmt.Sprintf("SMTP server replied %d", reply.Code)
+	}
+	return ""
+}
+
+// safeError marks an error whose message holds no secret of the
+// destination, so a hidden test error can keep it.
+type safeError struct {
+	err error
+}
+
+func (e safeError) Error() string { return e.err.Error() }
+
+func (e safeError) Unwrap() error { return e.err }
+
+// safeErrorf formats an error as fmt.Errorf does and marks it safeError.
+// Arguments must hold no secret.
+func safeErrorf(format string, args ...any) error {
+	return safeError{err: fmt.Errorf(format, args...)}
 }
 
 func (s *Service) testTargetsForDAGSettings(ctx context.Context, dagName, targetID string, eventType eventstore.EventType) ([]resolvedTarget, error) {
@@ -946,7 +1000,7 @@ func (s *Service) testTargetsForRoutes(ctx context.Context, event chatbridge.Not
 	return targets, nil
 }
 
-func (s *Service) deliverTestTargets(ctx context.Context, targets []resolvedTarget, event chatbridge.NotificationEvent) []TestResult {
+func (s *Service) deliverTestTargets(ctx context.Context, dagName string, targets []resolvedTarget, event chatbridge.NotificationEvent, options testOptions) []TestResult {
 	results := make([]TestResult, 0, len(targets))
 	for _, target := range targets {
 		err := s.deliverTarget(ctx, target.Target, []chatbridge.NotificationEvent{event})
@@ -960,7 +1014,10 @@ func (s *Service) deliverTestTargets(ctx context.Context, targets []resolvedTarg
 			Provider:   provider,
 			Delivered:  err == nil,
 		}
-		if err != nil {
+		switch {
+		case err != nil && options.hideChannelErrors:
+			result.Error = s.hiddenTestError(dagName, target, provider, err)
+		case err != nil:
 			result.Error = err.Error()
 		}
 		results = append(results, result)
@@ -1401,14 +1458,14 @@ func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target
 		return err
 	}
 	if workspaceSettings == nil || workspaceSettings.SMTP == nil {
-		return errors.New("SMTP is not configured for notification email")
+		return safeErrorf("SMTP is not configured for notification email")
 	}
 	from := target.Email.From
 	if from == "" {
 		from = workspaceSettings.SMTP.From
 	}
 	if from == "" {
-		return errors.New("email sender is not configured")
+		return safeErrorf("email sender is not configured")
 	}
 	subject := emailSubjectForEvents(target.Email, events, s.publicURL())
 	attachments := []string{}
@@ -1512,7 +1569,7 @@ func (s *Service) sendWebhookBodyTemplate(
 		message := messageForEvents(target.Webhook.MessageTemplate, single, publicURL, nil)
 		body := []byte(renderWebhookBodyTemplate(target.Webhook.BodyTemplate, event, message, publicURL))
 		if !json.Valid(body) {
-			return errors.New("webhook body template did not render valid JSON")
+			return safeErrorf("webhook body template did not render valid JSON")
 		}
 		bodies = append(bodies, body)
 	}
@@ -1594,7 +1651,7 @@ func teamsThrottleError(body string) error {
 
 func (s *Service) sendTelegram(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {
 	if target.Telegram == nil || target.Telegram.BotToken == "" || target.Telegram.ChatID == "" {
-		return errors.New("telegram bot token or chat id is not configured")
+		return safeErrorf("telegram bot token or chat id is not configured")
 	}
 	payload := map[string]any{
 		"chat_id": target.Telegram.ChatID,
@@ -1653,8 +1710,7 @@ func (s *Service) deliverRequest(req *http.Request, checkBody func(body string) 
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body := limitedResponseBody(resp.Body)
-		err := fmt.Errorf("notification endpoint returned HTTP %d%s", resp.StatusCode, body)
+		err := httpStatusError{code: resp.StatusCode, body: limitedResponseBody(resp.Body)}
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			return temporaryDeliveryError{err: err}
 		}
@@ -1664,6 +1720,17 @@ func (s *Service) deliverRequest(req *http.Request, checkBody func(body string) 
 		return checkBody(readLimitedBody(resp.Body))
 	}
 	return nil
+}
+
+// httpStatusError reports a response outside 2xx. Its body can echo the
+// request, so safeDeliveryCause keeps only the status.
+type httpStatusError struct {
+	code int
+	body string
+}
+
+func (e httpStatusError) Error() string {
+	return fmt.Sprintf("notification endpoint returned HTTP %d%s", e.code, e.body)
 }
 
 type temporaryDeliveryError struct {
@@ -1742,27 +1809,27 @@ func validateOutboundURL(ctx context.Context, rawURL string, allowInsecureHTTP, 
 		return err
 	}
 	if req.URL.Scheme == "http" && !allowInsecureHTTP {
-		return errors.New("webhook url must use https unless allowInsecureHttp is enabled")
+		return safeErrorf("webhook url must use https unless allowInsecureHttp is enabled")
 	}
 	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-		return errors.New("webhook url must use http or https")
+		return safeErrorf("webhook url must use http or https")
 	}
 	host := req.URL.Hostname()
 	if host == "" {
-		return errors.New("webhook url host is required")
+		return safeErrorf("webhook url host is required")
 	}
 	if allowPrivateNetwork {
 		return nil
 	}
 	if isPrivateHostLiteral(host) {
-		return errors.New("webhook url targets loopback or private network")
+		return safeErrorf("webhook url targets loopback or private network")
 	}
 	if addr, err := netip.ParseAddr(host); err == nil {
 		return rejectPrivateAddress(addr)
 	}
 	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
-		return fmt.Errorf("resolve webhook host: %w", err)
+		return safeErrorf("resolve webhook host: %w", err)
 	}
 	for _, addr := range addrs {
 		if parsed, ok := netip.AddrFromSlice(addr.IP); ok {
@@ -1781,7 +1848,7 @@ func isPrivateHostLiteral(host string) bool {
 
 func rejectPrivateAddress(addr netip.Addr) error {
 	if netutil.IsPrivateAddr(addr) {
-		return errors.New("webhook url resolves to loopback or private network")
+		return safeErrorf("webhook url resolves to loopback or private network")
 	}
 	return nil
 }
