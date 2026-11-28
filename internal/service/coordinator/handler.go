@@ -1394,6 +1394,16 @@ func (h *Handler) admittedRepeat(ctx context.Context, task *coordinatorv1.Task) 
 	if task.AttemptId == "" && queued == nil {
 		return false, nil
 	}
+	if queued != nil && task.ParentDagRunId == "" {
+		// The scheduler re-dispatches a queued run on every scan while no
+		// worker can take it. Its admission is bound in the shared store, so
+		// the cached index rules a repeat out before the run is looked up.
+		attemptKey := ir.GenerateAttemptKey(task.Target, task.DagRunId, task.Target, task.DagRunId, queued.AttemptID)
+		outstanding, err := h.dispatchOutstanding(ctx, attemptKey, false)
+		if err != nil || !outstanding {
+			return false, err
+		}
+	}
 	held := h.runLocks.lock(task.DagRunId)
 	defer h.runLocks.unlock(task.DagRunId, held)
 
@@ -1448,11 +1458,9 @@ func (h *Handler) admittedRepeat(ctx context.Context, task *coordinatorv1.Task) 
 		return false, fmt.Errorf("failed to read existing attempt: %w", err)
 	}
 	if queued != nil && task.ParentDagRunId == "" {
-		// The queued attempt keeps the definition it was queued with.
-		if runStatus == nil || runStatus.Status != ir.Queued {
-			return false, nil
-		}
-		return h.dispatchOutstanding(ctx, probe.AttemptKey, true)
+		// The queued attempt keeps the definition it was queued with, and its
+		// task was found outstanding above.
+		return runStatus != nil && runStatus.Status == ir.Queued, nil
 	}
 	admitted, _, err := h.repeatAdmitted(ctx, probe, attempt, runStatus, dag)
 	return admitted, err
