@@ -1101,7 +1101,12 @@ func TestRestartScannerHistory(t *testing.T) {
 		h.scan()
 		assert.Empty(t, store.samples, "a run in progress has no sample")
 
+		// The lease of the worker stays live for a while after the run ends.
 		h.latest.Status, h.latest.FinishedAt = ir.Succeeded, h.now.Format(time.RFC3339)
+		h.scan()
+		assert.Len(t, store.samples, 1, "the sample does not wait for the lease")
+		assert.Empty(t, h.enqueued)
+
 		h.onWorker = false
 		for ended := h.now; len(h.enqueued) == 0; {
 			require.Less(t, h.now.Sub(ended), time.Minute, "no restart within a minute")
