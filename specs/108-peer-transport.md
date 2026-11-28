@@ -23,6 +23,7 @@ callers of the [Workers Page](#workers-page), the coordinator call of
 [Join Readiness](#join-readiness), the [Invites](#invites) and their
 [Coordinator Calls](#coordinator-calls) except removal and the daily
 deletion of ended [Invite Records](#invite-records), the
+[REST API](#rest-api) for invites and join readiness, the
 [Coordinator Side](#coordinator-side) of enrollment with the
 [Worker Certificate](#worker-certificate) and its record, except refusing
 the key of a revoked certificate, and
