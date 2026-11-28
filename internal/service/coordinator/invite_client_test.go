@@ -239,3 +239,50 @@ func TestClientInviteNoCoordinators(t *testing.T) {
 	_, err := inviteClientOf(t).ListInvites(t.Context())
 	assert.Error(t, err)
 }
+
+// lostDelete deletes the invite and loses the answer.
+type lostDelete struct {
+	coordinatorv1.UnimplementedCoordinatorServiceServer
+	calls atomic.Int32
+}
+
+func (s *lostDelete) DeleteInvite(context.Context, *coordinatorv1.DeleteInviteRequest) (*coordinatorv1.DeleteInviteResponse, error) {
+	s.calls.Add(1)
+	return nil, status.Error(codes.Unavailable, "connection reset")
+}
+
+// A coordinator that deleted the invite and lost its answer leaves the next
+// one to find no invite, which is the delete succeeding.
+func TestClientDeleteInviteLostAnswer(t *testing.T) {
+	t.Parallel()
+
+	lost := &lostDelete{}
+	err := inviteClientOf(t, serving(lost), serving(&inviteServer{})).DeleteInvite(t.Context(), "invite-1")
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), lost.calls.Load())
+}
+
+// invitesServer lists the invites with the IDs ids.
+type invitesServer struct {
+	coordinatorv1.UnimplementedCoordinatorServiceServer
+	ids []string
+}
+
+func (s invitesServer) ListInvites(context.Context, *coordinatorv1.ListInvitesRequest) (*coordinatorv1.ListInvitesResponse, error) {
+	resp := &coordinatorv1.ListInvitesResponse{}
+	for _, id := range s.ids {
+		resp.Invites = append(resp.Invites, &coordinatorv1.InviteRecord{Id: id})
+	}
+	return resp, nil
+}
+
+// The list is the first answering coordinator's, even when another one
+// would list other invites.
+func TestClientListInvitesFirstAnswer(t *testing.T) {
+	t.Parallel()
+
+	client := inviteClientOf(t, closed, serving(invitesServer{}), serving(invitesServer{ids: []string{"invite-1"}}))
+	invites, err := client.ListInvites(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, invites)
+}
