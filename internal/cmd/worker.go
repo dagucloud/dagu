@@ -71,7 +71,7 @@ Example:
   dagu worker --worker.coordinators=coordinator-1:50055 --peer.insecure=false --peer.client-ca-file=ca.crt
   dagu worker --worker.coordinators=coordinator-1:50055 --peer.insecure=false --peer.skip-tls-verify  # For self-signed certificates
 
-  # For built-in TLS, verified against the peer CA certificate:
+  # For built-in TLS, verified against the peer CA certificate, with peer.insecure unset:
   dagu worker --worker.coordinators=coordinator-1:50055 --peer.ca-cert-file=ca.crt
 
 This process runs continuously in the foreground until terminated. On SIGINT or
