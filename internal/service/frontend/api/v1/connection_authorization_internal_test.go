@@ -41,6 +41,8 @@ func TestLocalhostPublicURL(t *testing.T) {
 	assert.Empty(t, publicURL(a, "dagu.internal:8080", local, nil))
 	assert.Equal(t, "http://localhost:8080/dagu", publicURL(a, "localhost:8080", "172.17.0.1:50000", nil), "a published container port")
 	assert.Empty(t, publicURL(a, "127.0.0.1:8080", local, map[string]string{"X-Forwarded-For": "192.0.2.10"}), "a proxy that says so")
+	assert.Empty(t, publicURL(a, "127.0.0.1:8080", local, map[string]string{"X-Forwarded-Server": "proxy.example.com"}), "any X-Forwarded- header")
+	assert.Empty(t, publicURL(a, "127.0.0.1:8080", local, map[string]string{"X-Real-IP": "192.0.2.10"}), "a proxy that names the client")
 	assert.Empty(t, publicURL(a, "127.0.0.1:8080", local, map[string]string{"Referer": "https://dagu.example.com/connections"}), "a proxy that rewrote Host")
 	assert.Empty(t, publicURL(a, "127.0.0.1:8080", local, map[string]string{"Origin": "https://dagu.example.com"}), "a proxy that rewrote Host")
 

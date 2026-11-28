@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
@@ -22,8 +23,11 @@ import (
 
 const localhostHost = "localhost"
 
-// forwardingHeaders mark a request that a proxy passed on.
-var forwardingHeaders = []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP"}
+// forwardingHeaders, and any header that starts with forwardingPrefix, mark
+// a request that a proxy passed on. Keys are in canonical form.
+var forwardingHeaders = []string{http.CanonicalHeaderKey("Forwarded"), http.CanonicalHeaderKey("X-Real-IP")}
+
+const forwardingPrefix = "X-Forwarded-"
 
 // errConnectionAppMissing reports a connection whose app was deleted while
 // a connection was being created on it.
@@ -209,8 +213,8 @@ func localOrigin(r *http.Request) string {
 	if !isLocalhost((&url.URL{Host: r.Host}).Hostname()) {
 		return ""
 	}
-	for _, header := range forwardingHeaders {
-		if r.Header.Get(header) != "" {
+	for key := range r.Header {
+		if strings.HasPrefix(key, forwardingPrefix) || slices.Contains(forwardingHeaders, key) {
 			return ""
 		}
 	}
