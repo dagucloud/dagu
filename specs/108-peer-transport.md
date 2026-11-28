@@ -17,7 +17,8 @@ and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
 [Coordinator Certificate](#coordinator-certificate),
 [One Port](#one-port) except the revoked set, the coordinator call of
 [Join Readiness](#join-readiness), the [Invites](#invites) and their
-[Coordinator Calls](#coordinator-calls) except removal, and the
+[Coordinator Calls](#coordinator-calls) except removal and the daily
+deletion of ended [Invite Records](#invite-records), and the
 [Coordinator Side](#coordinator-side) of enrollment with the
 [Worker Certificate](#worker-certificate) and its record, except refusing
 the key of a revoked certificate. The coordinator serves built-in TLS and
@@ -476,7 +477,10 @@ The `worker_invites` collection keeps one record per invite:
 
 - No record holds the invite or its secret.
 - Two coordinators never both accept one single-use invite.
-- Records stay until the invite is deleted.
+- An invite ends when it is used up or expires. Once a day, each
+  coordinator deletes the records of invites that ended more than 7 days
+  ago. A reusable invite without an expiry never ends, and its record stays
+  until the invite is deleted.
 
 ### Coordinator Calls
 
@@ -966,9 +970,9 @@ and prints the message:
 ## Constraints
 
 - A coordinator rereads the revoked and `removing` sets every 30 seconds and
-  prunes certificate records once a day. A worker with a certificate
-  refreshes its lock at an interval shorter than 30 seconds. Nothing else in
-  this spec runs on a timer.
+  prunes certificate and ended invite records once a day. A worker with a
+  certificate refreshes its lock at an interval shorter than 30 seconds.
+  Nothing else in this spec runs on a timer.
 - The reread reads the records of `removing` and `revoked` certificates
   only, so its cost grows with removed workers, not with enrollments.
 - A client that uses the published CA certificate reads it and the registry
