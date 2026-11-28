@@ -40,6 +40,9 @@ import (
 const (
 	testInvite        = "dagu1.pinpinpinpinpinpinpinpinpinpinpinpinpinpinp.secretsecretsecretsecretsecretsecretsecr"
 	testInviteAddress = "192.168.1.20:50055"
+	// testInviteID is the ID the fake coordinator gives its invite, a UUID
+	// as coordinators assign.
+	testInviteID = "7c2a9f31-5b0e-4d6a-9a1e-2f3b4c5d6e7f"
 )
 
 // testInviteExpiry is the expiry the fake coordinator reports.
@@ -85,7 +88,7 @@ func (c *inviteCoordinator) ListInvites(context.Context, *coordinatorv1.ListInvi
 	defer c.mu.Unlock()
 	resp := &coordinatorv1.ListInvitesResponse{}
 	if len(c.created) > 0 && (len(c.deleted) == 0 || c.deleteErr != nil) {
-		resp.Invites = append(resp.Invites, &coordinatorv1.InviteRecord{Id: "invite-1"})
+		resp.Invites = append(resp.Invites, &coordinatorv1.InviteRecord{Id: testInviteID})
 	}
 	return resp, nil
 }
@@ -113,7 +116,7 @@ func (c *inviteCoordinator) CreateInvite(_ context.Context, req *coordinatorv1.C
 	}
 	return &coordinatorv1.CreateInviteResponse{
 		Invite: testInvite,
-		Record: &coordinatorv1.InviteRecord{Id: "invite-1", Kind: kind, ExpiresAt: expiresAt, Address: req.Address},
+		Record: &coordinatorv1.InviteRecord{Id: testInviteID, Kind: kind, ExpiresAt: expiresAt, Address: req.Address},
 	}, nil
 }
 
@@ -509,11 +512,11 @@ func TestWorkerInviteOutputFails(t *testing.T) {
 		deleteErr error
 		want      string
 	}{
-		{name: "Deleted", want: "failed to print invite invite-1, so it was deleted: run the command again"},
+		{name: "Deleted", want: "failed to print invite " + testInviteID + ", so it was deleted: run the command again"},
 		{
 			name:      "DeleteFailed",
 			deleteErr: status.Error(codes.Internal, "failed to delete the invite"),
-			want: "failed to print invite invite-1, and failed to delete it: " +
+			want: "failed to print invite " + testInviteID + ", and failed to delete it: " +
 				"the coordinator failed to delete the invite: see its log for the cause; delete it before it is used",
 		},
 	} {
@@ -530,7 +533,7 @@ func TestWorkerInviteOutputFails(t *testing.T) {
 			err := command.ExecuteContext(t.Context())
 
 			require.EqualError(t, err, tc.want)
-			assert.Equal(t, []string{"invite-1"}, fake.deletedIDs())
+			assert.Equal(t, []string{testInviteID}, fake.deletedIDs())
 		})
 	}
 }
