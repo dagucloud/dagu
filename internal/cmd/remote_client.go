@@ -17,6 +17,7 @@ import (
 	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 )
@@ -35,7 +36,9 @@ const maxRemoteErrorBodyBytes = 64 * 1024
 type remoteClient struct {
 	baseURL string
 	apiKey  string
-	client  *http.Client
+	// basicAuth, when set, authenticates in place of the API key.
+	basicAuth *config.AuthBasic
+	client    *http.Client
 }
 
 type remoteError struct {
@@ -310,7 +313,12 @@ func (c *remoteClient) doWithQueryValues(ctx context.Context, method, path strin
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	switch {
+	case c.basicAuth != nil:
+		req.SetBasicAuth(c.basicAuth.Username, c.basicAuth.Password)
+	case c.apiKey != "":
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
