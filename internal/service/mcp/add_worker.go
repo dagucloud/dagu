@@ -46,6 +46,9 @@ const (
 	// maxExpiresIn is the longest expiresIn the invite API accepts: its whole
 	// seconds, rounded up, fit the coordinator's expiry.
 	maxExpiresIn = time.Duration(math.MaxInt64/int64(time.Second)) * time.Second
+	// manifestSuffixLength is how much of an invite ID names its manifest's
+	// objects: the first group of a UUID.
+	manifestSuffixLength = 8
 	// maxImageTag is the longest tag an image registry accepts.
 	maxImageTag = 128
 	// publishedVersionPattern matches a version, without its leading v, of
@@ -194,6 +197,8 @@ func dialAddressProblem(addr string) string {
 			return "must not be a loopback address, which reaches only the worker's own machine"
 		case ip.IsLinkLocalUnicast():
 			return "must not be a link-local address, which another network does not route"
+		case ip.IsMulticast(), ip.Equal(net.IPv4bcast):
+			return "must be one machine's address, not a multicast or broadcast address"
 		}
 		return ""
 	}
@@ -276,7 +281,7 @@ func (svc *Service) addWorker(ctx context.Context, input executeInput) (*mcpsdk.
 		output["expiresAt"] = *invite.ExpiresAt
 	}
 	image, published := workerImage(config.Version)
-	output["commands"] = workerCommands(in.Address, input.Labels, invite.Invite, image, in.Reusable)
+	output["commands"] = workerCommands(in.Address, input.Labels, invite.Id, invite.Invite, image, in.Reusable)
 	message := "Invite " + invite.Id + " created. Show the user one of commands; no other result contains the invite. " +
 		"A worker that joins with it lists inviteId " + invite.Id + "."
 	switch {
@@ -433,7 +438,7 @@ func addressOptions(readiness daguapi.GetWorkerJoinReadiness200JSONResponse) map
 // workerCommands returns the command that joins a worker with invite for
 // each way to run one. Without image, it has no container commands.
 // Kubernetes takes only a reusable invite.
-func workerCommands(address string, labels []string, invite, image string, reusable bool) map[string]string {
+func workerCommands(address string, labels []string, inviteID, invite, image string, reusable bool) map[string]string {
 	args := []string{"dagu", "worker", "--worker.coordinators=" + address}
 	if len(labels) > 0 {
 		args = append(args, "--worker.labels="+strings.Join(labels, ","))
@@ -446,9 +451,25 @@ func workerCommands(address string, labels []string, invite, image string, reusa
 		"-e", workerInviteEnv + "=" + invite, image}
 	commands["docker"] = shellCommand(append(docker, args...)...)
 	if reusable {
-		commands["kubernetes"] = kubernetesManifest(args, invite, image)
+		commands["kubernetes"] = kubernetesManifest(args, inviteID, invite, image)
 	}
 	return commands
+}
+
+// manifestSuffix returns the part of inviteID that names its manifest's
+// objects: its first 8 lowercase letters and digits, which a Kubernetes
+// name and label value may hold.
+func manifestSuffix(inviteID string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(inviteID) {
+		if b.Len() == manifestSuffixLength {
+			break
+		}
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // shellCommand joins args into a POSIX shell command, quoting each argument
@@ -466,9 +487,13 @@ func shellCommand(args ...string) string {
 }
 
 // kubernetesManifest returns a Secret with invite and a Deployment that runs
-// image with args and takes the invite from the Secret. The data directory
-// is an emptyDir, so a new pod enrolls again with the reusable invite.
-func kubernetesManifest(args []string, invite, image string) string {
+// image with args and takes the invite from the Secret. Both are named for
+// the invite, so another invite's manifest in the same namespace adds a
+// worker instead of replacing this one. The data directory is an emptyDir,
+// so a new pod enrolls again with the reusable invite.
+func kubernetesManifest(args []string, inviteID, invite, image string) string {
+	name := "dagu-worker-" + manifestSuffix(inviteID)
+	secret := "dagu-worker-invite-" + manifestSuffix(inviteID)
 	quoted := make([]string, 0, len(args))
 	for _, arg := range args {
 		// $$ keeps a $ from expanding a variable reference such as
@@ -478,23 +503,23 @@ func kubernetesManifest(args []string, invite, image string) string {
 	return `apiVersion: v1
 kind: Secret
 metadata:
-  name: dagu-worker-invite
+  name: ` + secret + `
 stringData:
   invite: ` + invite + `
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: dagu-worker
+  name: ` + name + `
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: dagu-worker
+      app: ` + name + `
   template:
     metadata:
       labels:
-        app: dagu-worker
+        app: ` + name + `
     spec:
       containers:
         - name: worker
@@ -504,7 +529,7 @@ spec:
             - name: ` + workerInviteEnv + `
               valueFrom:
                 secretKeyRef:
-                  name: dagu-worker-invite
+                  name: ` + secret + `
                   key: invite
           volumeMounts:
             - name: data

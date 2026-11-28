@@ -405,6 +405,7 @@ func TestAddWorkerRefusesAddress(t *testing.T) {
 		"192.168.1.20", "192.168.1.20:0", "3f4e5a6b7c8d:50055",
 		"[::1%lo0]:50055", "[fe80::1%eth0]:50055", "[fe80::1]:50055", "169.254.10.20:50055",
 		"host1,host2:50055", "$(DAGU_WORKER_INVITE):50055",
+		"224.0.0.1:50055", "[ff02::1]:50055", "255.255.255.255:50055",
 	} {
 		stub := &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}}
 		svc, _ := newAddWorkerService(stub)
@@ -568,20 +569,37 @@ func TestWorkerImage(t *testing.T) {
 func TestWorkerContainerCommands(t *testing.T) {
 	t.Parallel()
 
-	commands := workerCommands("[2001:db8::1]:50055", []string{"team=data-eng"}, testWorkerInvite, "ghcr.io/dagucloud/dagu:2.28.0", true)
+	commands := workerCommands("[2001:db8::1]:50055", []string{"team=data-eng"}, "invite-1", testWorkerInvite, "ghcr.io/dagucloud/dagu:2.28.0", true)
 	require.Equal(t, "docker run -d --restart unless-stopped -v dagu-worker:/var/lib/dagu -e DAGU_WORKER_INVITE="+testWorkerInvite+
 		` ghcr.io/dagucloud/dagu:2.28.0 dagu worker '--worker.coordinators=[2001:db8::1]:50055' --worker.labels=team=data-eng`,
 		commands["docker"])
 
-	commands = workerCommands("$(DAGU_WORKER_INVITE):50055", nil, testWorkerInvite, "ghcr.io/dagucloud/dagu:2.28.0", true)
+	commands = workerCommands("$(DAGU_WORKER_INVITE):50055", nil, "invite-1", testWorkerInvite, "ghcr.io/dagucloud/dagu:2.28.0", true)
 	manifest := commands["kubernetes"]
 	require.Contains(t, manifest, `args: ["dagu", "worker", "--worker.coordinators=$$(DAGU_WORKER_INVITE):50055"]`)
 	require.Contains(t, manifest, "image: ghcr.io/dagucloud/dagu:2.28.0")
 	require.Equal(t, 1, strings.Count(manifest, testWorkerInvite), "only the Secret holds the invite")
 
-	commands = workerCommands("192.168.1.20:50055", nil, testWorkerInvite, "ghcr.io/dagucloud/dagu:2.28.0", false)
+	commands = workerCommands("192.168.1.20:50055", nil, "invite-1", testWorkerInvite, "ghcr.io/dagucloud/dagu:2.28.0", false)
 	require.Equal(t, map[string]string{
 		"linux":  "dagu worker --worker.coordinators=192.168.1.20:50055 --worker.invite=" + testWorkerInvite,
 		"docker": "docker run -d --restart unless-stopped -v dagu-worker:/var/lib/dagu -e DAGU_WORKER_INVITE=" + testWorkerInvite + " ghcr.io/dagucloud/dagu:2.28.0 dagu worker --worker.coordinators=192.168.1.20:50055",
 	}, commands, "a single-use invite gets no manifest")
+}
+
+// Each invite's manifest names its own Secret and Deployment, so applying a
+// second one in the same namespace adds a worker instead of replacing the
+// first one's invite.
+func TestKubernetesManifestNamesPerInvite(t *testing.T) {
+	t.Parallel()
+
+	first := workerCommands("192.168.1.20:50055", nil, "3f2a9c1e-7b4d-4e8a-9c0f-1a2b3c4d5e6f", testWorkerInvite, "ghcr.io/dagucloud/dagu:2.28.0", true)["kubernetes"]
+	second := workerCommands("192.168.1.20:50055", nil, "8d0b6e42-1c3a-4f5e-8a7b-9c0d1e2f3a4b", testWorkerInvite, "ghcr.io/dagucloud/dagu:2.28.0", true)["kubernetes"]
+
+	for _, name := range []string{"name: dagu-worker-3f2a9c1e\n", "name: dagu-worker-invite-3f2a9c1e\n", "app: dagu-worker-3f2a9c1e\n"} {
+		require.Contains(t, first, name)
+		require.NotContains(t, second, name)
+	}
+	require.Equal(t, 2, strings.Count(first, "name: dagu-worker-invite-3f2a9c1e\n"), "the Secret and its reference")
+	require.Equal(t, 2, strings.Count(first, "app: dagu-worker-3f2a9c1e\n"), "the selector and the pod label")
 }

@@ -1026,8 +1026,9 @@ and prints the message:
 - Step 2 refuses an address that a worker on another host cannot dial: one
   that is not `host:port` with a port from 1 to 65535, or whose host is
   not one IP address without a zone or one DNS name, or is `0.0.0.0`,
-  `[::]`, a loopback or link-local address, `localhost`, or a container ID
-  (12 or 64 lowercase hexadecimal characters). `POST /api/v1/workers/invites`
+  `[::]`, a loopback, link-local, multicast, or broadcast address,
+  `localhost`, or a container ID (12 or 64 lowercase hexadecimal
+  characters). `POST /api/v1/workers/invites`
   checks only the `host:port` form, since automation may reach the
   coordinator through a tunnel.
 - Step 3 and the MCP action refuse a worker label that a worker would
@@ -1050,6 +1051,10 @@ and prints the message:
   IPv6 address keeps its brackets. The manifest's container arguments
   write each `$` as `$$`, so no argument expands a variable such as
   `DAGU_WORKER_INVITE`, and only the Secret holds the invite.
+- The manifest names its Secret `dagu-worker-invite-<id>` and its
+  Deployment and pod label `dagu-worker-<id>`, where `<id>` is the first 8
+  lowercase letters and digits of the invite ID, so another invite's
+  manifest in the same namespace adds a worker instead of replacing one.
 - The container commands run `ghcr.io/dagucloud/dagu:<tag>`, where `<tag>`
   is the server's version without its leading `v`. A release tagged
   `vX.Y.Z` or `vX.Y.Z-<prerelease>` publishes that image. A version has a
