@@ -143,6 +143,67 @@ func TestDAGRunLeaseStore_PreservesCertificateID(t *testing.T) {
 	assert.Equal(t, initial.WorkerID, older.WorkerID)
 }
 
+// rewriteBeforeSwap writes the lease again without its certificate just
+// before the first compare-and-swap, as an older coordinator that refreshes
+// the lease does.
+type rewriteBeforeSwap struct {
+	persis.Collection
+	rewrite func()
+	done    bool
+}
+
+func (c *rewriteBeforeSwap) CompareAndSwap(ctx context.Context, id string, expected, next []byte) error {
+	if !c.done {
+		c.done = true
+		c.rewrite()
+	}
+	return c.Collection.CompareAndSwap(ctx, id, expected, next)
+}
+
+// A stop request marks a lease only while it names the certificate, also
+// when a write takes the certificate off the lease between the request's
+// read and its write.
+func TestDAGRunLeaseStore_RequestStop(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("dag_run_leases")
+	s := store.NewDAGRunLeaseStore(col)
+	named := dispatch.DAGRunLease{AttemptKey: "named", WorkerID: "worker-1", CertificateID: "cert-a"}
+	require.NoError(t, s.Upsert(ctx, named))
+	require.NoError(t, s.Upsert(ctx, dispatch.DAGRunLease{AttemptKey: "unnamed", WorkerID: "worker-1"}))
+
+	requested, err := s.RequestStop(ctx, "named", "cert-b")
+	require.NoError(t, err)
+	assert.False(t, requested, "another certificate")
+	requested, err = s.RequestStop(ctx, "unnamed", "cert-a")
+	require.NoError(t, err)
+	assert.False(t, requested, "no certificate")
+	requested, err = s.RequestStop(ctx, "missing", "cert-a")
+	require.NoError(t, err)
+	assert.False(t, requested, "no lease")
+	requested, err = s.RequestStop(ctx, "named", "cert-a")
+	require.NoError(t, err)
+	assert.True(t, requested)
+	lease, err := s.Get(ctx, "named")
+	require.NoError(t, err)
+	assert.True(t, lease.StopRequested)
+
+	raced := dispatch.DAGRunLease{AttemptKey: "raced", WorkerID: "worker-1", CertificateID: "cert-a"}
+	require.NoError(t, s.Upsert(ctx, raced))
+	rewriting := store.NewDAGRunLeaseStore(&rewriteBeforeSwap{Collection: col, rewrite: func() {
+		unnamed := raced
+		unnamed.CertificateID = ""
+		require.NoError(t, s.Delete(ctx, raced.AttemptKey))
+		require.NoError(t, s.Upsert(ctx, unnamed))
+	}})
+	requested, err = rewriting.RequestStop(ctx, "raced", "cert-a")
+	require.NoError(t, err)
+	assert.False(t, requested, "the lease lost its certificate before the mark was written")
+	lease, err = s.Get(ctx, "raced")
+	require.NoError(t, err)
+	assert.False(t, lease.StopRequested)
+}
+
 func TestDAGRunLeaseStore_PinsProfileName(t *testing.T) {
 	t.Parallel()
 

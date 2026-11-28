@@ -89,6 +89,44 @@ func (s *DAGRunLeaseStore) Upsert(ctx context.Context, lease dispatch.DAGRunLeas
 	})
 }
 
+func (s *DAGRunLeaseStore) RequestStop(ctx context.Context, attemptKey, certificateID string) (bool, error) {
+	id := distributedRecordKey(attemptKey)
+	var requested bool
+	err := retryConflict(ctx, func(ctx context.Context) error {
+		requested = false
+		existing, err := s.col.Get(ctx, id)
+		if errors.Is(err, persis.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		var lease dispatch.DAGRunLease
+		if err := persis.Decode(existing, &lease); err != nil {
+			return fmt.Errorf("dag-run lease store: decode %q: %w", attemptKey, err)
+		}
+		if lease.CertificateID == "" || lease.CertificateID != certificateID {
+			return nil
+		}
+		requested = true
+		if lease.StopRequested {
+			return nil
+		}
+		lease.StopRequested = true
+		data, err := persis.Encode(lease)
+		if err != nil {
+			return err
+		}
+		// The swap fails when another write came after the read, so the
+		// mark lands only on the lease that named the certificate.
+		return s.col.CompareAndSwap(ctx, id, existing.Data, data)
+	})
+	if err != nil {
+		return false, err
+	}
+	return requested, nil
+}
+
 // Touch sets LastHeartbeatAt = observedAt. Returns ErrDAGRunLeaseNotFound
 // when the lease is gone (initially or via concurrent delete).
 func (s *DAGRunLeaseStore) Touch(ctx context.Context, attemptKey string, observedAt time.Time) error {
@@ -173,6 +211,7 @@ func mergeDAGRunLease(current, incoming dispatch.DAGRunLease) (dispatch.DAGRunLe
 	if current.ClaimedAt == 0 {
 		current.ClaimedAt = incoming.ClaimedAt
 	}
+	current.StopRequested = current.StopRequested || incoming.StopRequested
 	current.LastHeartbeatAt = max(current.LastHeartbeatAt, incoming.LastHeartbeatAt)
 	return current, nil
 }

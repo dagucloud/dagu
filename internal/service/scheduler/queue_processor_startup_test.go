@@ -55,6 +55,9 @@ func (m *mockLeaseStore) ListByQueue(ctx context.Context, queueName string) ([]d
 }
 
 func (m *mockLeaseStore) ListAll(context.Context) ([]dispatch.DAGRunLease, error) { return nil, nil }
+func (m *mockLeaseStore) RequestStop(context.Context, string, string) (bool, error) {
+	return false, nil
+}
 
 func TestQueueDispatcher_CheckStartupStatus_WithinGraceSkipsAttemptLookup(t *testing.T) {
 	dagRunRepository := &mockDAGRunStore{}
