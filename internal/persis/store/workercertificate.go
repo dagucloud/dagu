@@ -549,7 +549,7 @@ func (s *WorkerCertificateStore) ConfirmAcceptance(ctx context.Context, id strin
 	return result, nil
 }
 
-func (s *WorkerCertificateStore) RevokeIfIdle(ctx context.Context, id string, idle func(context.Context, persis.WorkerCertificate) (bool, error)) (persis.WorkerCertificate, bool, error) {
+func (s *WorkerCertificateStore) RevokeIfIdle(ctx context.Context, id string, idle func(context.Context, persis.WorkerCertificate) (bool, error), commit func(persis.WorkerCertificate) bool) (persis.WorkerCertificate, bool, error) {
 	var result persis.WorkerCertificate
 	revoked := false
 	err := func() error {
@@ -573,6 +573,9 @@ func (s *WorkerCertificateStore) RevokeIfIdle(ctx context.Context, id string, id
 		removal, err := decodeWorkerCertificateRemovalRecord(current)
 		if err != nil {
 			return err
+		}
+		if !commit(cert) {
+			return nil
 		}
 		// The revoked record is the last write of the removal, so it keeps
 		// the IDs of both records, at most 16.

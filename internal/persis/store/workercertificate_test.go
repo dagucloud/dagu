@@ -275,7 +275,7 @@ func TestWorkerCertificateStore_RevokeIfIdleKeepsHeartbeatDuringCheck(t *testing
 		beat.LastHeartbeatAt = removingAt.Add(time.Minute)
 		recordHeartbeat(t, s, beat)
 		return true, nil
-	})
+	}, func(persis.WorkerCertificate) bool { return true })
 	require.NoError(t, err)
 	require.True(t, revoked)
 	assert.Equal(t, []string{"worker-cert-1", "worker-a", "worker-b"}, seenIDs(getCertificate(t, s, "cert-1")))

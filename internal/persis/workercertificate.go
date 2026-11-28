@@ -90,12 +90,13 @@ type WorkerCertificateStore interface {
 
 	// RevokeIfIdle revokes the removing certificate id when idle, which
 	// runs after the removal record is read and gets the certificate as
-	// read, reports that it may be. The revocation is written from that
-	// version, in one attempt: when an acceptance recorded after the read
-	// changed the record, it returns [ErrConflict], and the caller reads
-	// and asks idle again. It returns the record as stored and whether it
-	// revoked.
-	RevokeIfIdle(ctx context.Context, id string, idle func(context.Context, WorkerCertificate) (bool, error)) (WorkerCertificate, bool, error)
+	// read, reports that it may be, and commit, which runs right before
+	// the write with the certificate as it is to be written, agrees. The
+	// revocation is written from the version read, in one attempt: when an
+	// acceptance recorded after the read changed the record, it returns
+	// [ErrConflict], and the caller reads and asks again. It returns the
+	// record as stored and whether it revoked.
+	RevokeIfIdle(ctx context.Context, id string, idle func(context.Context, WorkerCertificate) (bool, error), commit func(WorkerCertificate) bool) (WorkerCertificate, bool, error)
 
 	// SetState moves the certificate to state and returns the record as
 	// stored. States only move forward, from active to removing to revoked;

@@ -47,15 +47,17 @@ func attemptKeyOf(runID string) string {
 // removalFixture is a coordinator over the shared stores, with a clock the
 // test moves.
 type removalFixture struct {
-	h          *Handler
-	now        time.Time
-	ca         *PeerCA
-	runs       *mockDAGRunStore
-	certs      persis.WorkerCertificateStore
-	invites    persis.WorkerInviteStore
-	heartbeats dispatch.WorkerHeartbeatStore
-	leases     dispatch.DAGRunLeaseStore
-	dispatches dispatch.DispatchTaskStore
+	h     *Handler
+	now   time.Time
+	ca    *PeerCA
+	runs  *mockDAGRunStore
+	certs persis.WorkerCertificateStore
+	// certRecords is the collection that certs keeps its records in.
+	certRecords persis.Collection
+	invites     persis.WorkerInviteStore
+	heartbeats  dispatch.WorkerHeartbeatStore
+	leases      dispatch.DAGRunLeaseStore
+	dispatches  dispatch.DispatchTaskStore
 }
 
 // removalWorker is a worker on a worker certificate.
@@ -72,20 +74,22 @@ func newRemovalFixture(t *testing.T) *removalFixture {
 	ca, err := LoadOrCreatePeerCA(filepath.Join(t.TempDir(), "peer", "ca.pem"))
 	require.NoError(t, err)
 	backend := testutil.NewMemoryBackend()
-	certs, err := store.NewWorkerCertificateStore(backend.Collection(persis.CollectionWorkerCertificates))
+	certRecords := backend.Collection(persis.CollectionWorkerCertificates)
+	certs, err := store.NewWorkerCertificateStore(certRecords)
 	require.NoError(t, err)
 	invites, err := store.NewWorkerInviteStore(backend.Collection(persis.CollectionWorkerInvites))
 	require.NoError(t, err)
 	baseDir := t.TempDir()
 	f := &removalFixture{
-		now:        removalStart,
-		ca:         ca,
-		runs:       newMockDAGRunStore(),
-		certs:      certs,
-		invites:    invites,
-		heartbeats: newTestWorkerHeartbeatStore(baseDir),
-		leases:     newTestDAGRunLeaseStore(baseDir),
-		dispatches: newTestDispatchTaskStore(baseDir),
+		now:         removalStart,
+		ca:          ca,
+		runs:        newMockDAGRunStore(),
+		certs:       certs,
+		certRecords: certRecords,
+		invites:     invites,
+		heartbeats:  newTestWorkerHeartbeatStore(baseDir),
+		leases:      newTestDAGRunLeaseStore(baseDir),
+		dispatches:  newTestDispatchTaskStore(baseDir),
 	}
 	f.h = f.coordinator(t)
 	return f
@@ -1821,12 +1825,12 @@ type afterIdleCheck struct {
 	once sync.Once
 }
 
-func (s *afterIdleCheck) RevokeIfIdle(ctx context.Context, id string, idle func(context.Context, persis.WorkerCertificate) (bool, error)) (persis.WorkerCertificate, bool, error) {
+func (s *afterIdleCheck) RevokeIfIdle(ctx context.Context, id string, idle func(context.Context, persis.WorkerCertificate) (bool, error), commit func(persis.WorkerCertificate) bool) (persis.WorkerCertificate, bool, error) {
 	return s.WorkerCertificateStore.RevokeIfIdle(ctx, id, func(ctx context.Context, read persis.WorkerCertificate) (bool, error) {
 		ok, err := idle(ctx, read)
 		s.once.Do(s.hook)
 		return ok, err
-	})
+	}, commit)
 }
 
 // An acceptance that read the certificate active stalls before its lease.
@@ -3090,6 +3094,63 @@ func TestIdleRevocationAcrossStopDeadline(t *testing.T) {
 	runStopDeadlines(t, f.h)
 	assert.Equal(t, persis.WorkerCertificateRevoked, f.state(t, w), "the deadline revokes while the listing hangs")
 	close(release)
+	<-done
+	assert.Equal(t, persis.WorkerCertificateRevoked, f.state(t, w))
+}
+
+// stallRecordRead holds the next read of the record id, once armed, until
+// release closes.
+type stallRecordRead struct {
+	persis.Collection
+	id      string
+	armed   atomic.Bool
+	reached chan struct{}
+	release chan struct{}
+}
+
+func (c *stallRecordRead) Get(ctx context.Context, id string) (*persis.Record, error) {
+	if id == c.id && c.armed.CompareAndSwap(true, false) {
+		close(c.reached)
+		<-c.release
+	}
+	return c.Collection.Get(ctx, id)
+}
+
+// A stop removal's worker holds no run, and an idle revocation reads the
+// certificate record again after its listings, when the stop's wait has
+// just ended, and the read hangs. The deadline revokes the certificate
+// while the read still hangs (Spec 108 §Removal).
+func TestIdleRevocationReadAcrossStopDeadline(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	f.heartbeat(t, f.h, w)
+	f.removeStop(t, w)
+	f.now = removalStart.Add(removingMinimum + time.Second)
+	records := &stallRecordRead{Collection: f.certRecords, id: "certs/" + w.certID, reached: make(chan struct{}), release: make(chan struct{})}
+	stalled, err := store.NewWorkerCertificateStore(records)
+	require.NoError(t, err)
+	f.h.workerCertificates = stalled
+	leases := &onListAll{DAGRunLeaseStore: f.leases}
+	f.h.dagRunLeaseStore = leases
+	listings := 0
+	leases.hook = func() {
+		// The first listing is the reread's; the second, the revocation's,
+		// after which it reads the certificate record again.
+		if listings++; listings == 2 {
+			f.now = removalStart.Add(stopRunsWait)
+			records.armed.Store(true)
+		}
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f.h.rereadRemovals(context.WithoutCancel(t.Context()))
+	}()
+	<-records.reached
+
+	runStopDeadlines(t, f.h)
+	assert.Equal(t, persis.WorkerCertificateRevoked, f.state(t, w), "the deadline revokes while the read hangs")
+	close(records.release)
 	<-done
 	assert.Equal(t, persis.WorkerCertificateRevoked, f.state(t, w))
 }

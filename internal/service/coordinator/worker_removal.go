@@ -863,10 +863,11 @@ func (h *Handler) settleRemovals(ctx context.Context, removing []persis.WorkerCe
 // from listings taken after its removal record was read, in one write
 // from that version: an acceptance confirmed in between changes the
 // record, so the listings are taken again and see its lease. The holder
-// it waits for is the one that version names. After the listings, it takes
-// the same per-certificate state as the stop deadline for its write, so the
-// two never write at once and the listings never hold up the deadline, and
-// it leaves a stop removal whose wait ended meanwhile to the deadline.
+// it waits for is the one that version names. Right before its write, after
+// the listings and reads, it takes the same per-certificate state as the
+// stop deadline, so the two never write at once and no listing or read
+// holds up the deadline, and it leaves a stop removal whose wait ended
+// meanwhile to the deadline.
 func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertificateRemoval, now time.Time) {
 	claimed := false
 	idle := func(ctx context.Context, read persis.WorkerCertificate) (bool, error) {
@@ -878,14 +879,14 @@ func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertifica
 		if err != nil {
 			return false, err
 		}
+		return h.removalDue(removalOf(read), presence, leases, now), nil
+	}
+	commit := func(read persis.WorkerCertificate) bool {
 		if !h.stops.claim(removal.ID) {
-			return false, nil
+			return false
 		}
 		claimed = true
-		if stopRunsDue(removalOf(read), h.clock()) {
-			return false, nil
-		}
-		return h.removalDue(removalOf(read), presence, leases, now), nil
+		return !stopRunsDue(removalOf(read), h.clock())
 	}
 	var (
 		cert    persis.WorkerCertificate
@@ -896,7 +897,7 @@ func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertifica
 	// attempt lets the state go once it ends, and a later settle takes up
 	// one that keeps losing.
 	for range idleRevokeAttempts {
-		cert, revoked, err = h.workerCertificates.RevokeIfIdle(ctx, removal.ID, idle)
+		cert, revoked, err = h.workerCertificates.RevokeIfIdle(ctx, removal.ID, idle, commit)
 		if claimed {
 			h.stops.release(removal.ID)
 			claimed = false
