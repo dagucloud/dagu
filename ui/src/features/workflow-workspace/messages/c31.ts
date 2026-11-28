@@ -26,7 +26,7 @@ export default defineMessages({
     Reconnect: 'Neu verbinden',
   },
   fr: {
-    'Connection:': 'Connexion :',
+    'Connection:': 'Connexion :',
     'Reconnect required': 'Reconnexion requise',
     Reconnect: 'Reconnecter',
   },
