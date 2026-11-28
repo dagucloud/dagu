@@ -2567,7 +2567,29 @@ Start gRPC coordinator: `dagu coordinator [--coordinator.host/-H <host>] [--coor
 
 ### dagu worker
 
-Start distributed worker: `dagu worker --worker.coordinators <host:port,...> [--worker.id/-w <id>] [--worker.max-active-runs/-m <n>] [--worker.labels/-l <k=v,...>] [--peer.*]`. Coordinator addresses are required. Every worker advertises immutable `os` and `arch` platform labels in addition to configured labels. `worker.labels` takes a comma-separated string, a list of `key=value` entries, or a map. Worker labels follow the DAG label rules: keys and values are lowercased, a label with no value (`gpu`) is kept, and a worker with an invalid label, or with one key given twice in different case, does not start and names the label. `worker_selector` and `--worker-label` match worker labels without case. A worker whose `worker.id` is a valid node name (a letter or digit, then letters, digits, `-`, `_`, or `.`) is a node of kind `worker` that `dagu nodes list` shows with its labels, `online` or `offline` with its last-seen time; without `worker.id` it gets a new `hostname@pid` ID on every start and is not a node.
+Start distributed worker: `dagu worker --worker.coordinators <host:port,...> [--worker.id/-w <id>] [--worker.max-active-runs/-m <n>] [--worker.labels/-l <k=v,...>] [--worker.invite <invite>] [--peer.*]`. Coordinator addresses are required. Every worker advertises immutable `os` and `arch` platform labels in addition to configured labels. `worker.labels` takes a comma-separated string, a list of `key=value` entries, or a map. Worker labels follow the DAG label rules: keys and values are lowercased, a label with no value (`gpu`) is kept, and a worker with an invalid label, or with one key given twice in different case, does not start and names the label. `worker_selector` and `--worker-label` match worker labels without case. A worker whose `worker.id` is a valid node name (a letter or digit, then letters, digits, `-`, `_`, or `.`) is a node of kind `worker` that `dagu nodes list` shows with its labels, `online` or `offline` with its last-seen time; without `worker.id` it gets a new `hostname@pid` ID on every start and is not a node.
+
+A worker on another host joins with `worker.invite` (`--worker.invite`, `DAGU_WORKER_INVITE`), an invite from **Add worker** on System Status or `dagu worker invite`. It checks the coordinator against the CA the invite names, enrolls for its own worker certificate, and from then on connects over built-in TLS with it, with no `peer.ca_cert_file` or `peer.token`. A restart reuses the certificate, so it does not use up a single-use invite. One worker uses one data directory, and a single-use invite needs a writable one. The coordinator must serve built-in TLS (no `peer.cert_file`/`peer.key_file`) and listen on an address other hosts reach (`coordinator.host: 0.0.0.0`, port published and open). `worker.invite` with `peer.insecure: true`, own certificate settings, `peer.skip_tls_verify: true`, or a `peer.ca_cert_file` of another CA exits at start. A worker removed from System Status (**Remove**) stops its runs and exits with `This worker was removed from the coordinator`; it joins again only with a new invite.
+
+`dagu worker --check` loads the worker's configuration, dials each coordinator the worker would use, and prints `Transport`, `Reachable`, `Handshake`, `Credential` (the client certificate and where the peer token comes from, never the token), and `Coordinator answered`; an invite worker also gets `Invite pin`. It registers no worker and takes no task. Exits 0 when every coordinator passes, 1 otherwise. Use it on the worker host when a worker does not connect or join.
+
+### dagu worker invite
+
+Create an invite and print the command to run on the worker host. Needs the coordinator's peer token: run it on a host that shares the coordinator's data directory, or with the same `peer.token`. It checks first that each coordinator can accept workers from other hosts; otherwise it prints the change to make on stderr, creates no invite, and exits 1. The invite appears only in this output; never log or store it.
+
+```sh
+dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
+```
+
+`--address` is the address workers dial, not `localhost`, a loopback or unspecified address, or a container ID. Without `--reusable` the invite is single use and expires after 24 hours; a reusable invite has no expiry unless `--expires` is given. REST (admin): `GET /api/v1/workers/join-readiness`, `POST /api/v1/workers/invites` `{"reusable", "expiresIn", "address"}`, `GET /api/v1/workers/invites`, `DELETE /api/v1/workers/invites/{id}`.
+
+### dagu peer init
+
+Write a peer CA certificate, its key, and a peer token into `<dir>` and print their paths, for coordinators that share one CA, as in the Helm chart's `peer.existingCASecret`. Give coordinators the certificate as `peer.ca_cert_file`, the key as `peer.ca_key_file`, and the token as `peer.token`; give other processes the certificate and the token. Writes nothing and exits 1 when any of the files exists.
+
+```sh
+dagu peer init --out <dir>
+```
 
 ## Git Sync
 
@@ -3443,6 +3465,9 @@ Setting `DAGU_HOME` or `DAGU_DAGS_DIR` only points a local CLI at the server's f
 | Run status, history, logs | `dagu_read` (`runs`, `run`, `run_logs`) | `GET /dag-runs`, `GET /dag-runs/{name}/{id}` | `history`, `status` |
 | List or read nodes and inventories | `dagu_read` (`nodes`, `node`, `inventories`) | `GET /nodes`, `GET /nodes/{name}`, `GET /inventories` | nodes: `dagu nodes list`, `show`; inventories: `dagu nodes export` prints them with their nodes |
 | Forget an offline worker node (admin; ask first) | not supported | `DELETE /nodes/{name}` | `dagu nodes forget` |
+| Add a worker on another host (admin) | not supported | `GET /workers/join-readiness`, then `POST /workers/invites` | not supported; `dagu worker invite` runs on a host with the coordinator's peer token |
+| List or delete worker invites (admin; ask before deleting) | not supported | `GET /workers/invites`, `DELETE /workers/invites/{id}` | no |
+| Remove a worker that joined with an invite (admin; ask first) | not supported | `DELETE /workers/{workerId}/certificate?certificateId=<id>&runs=finish\|stop` | no |
 | Approve, reject, push back a waiting step | `dagu_execute` | where supported | not supported |
 | Schedule | `schedule:` via `dagu_change` | edit the DAG spec | no separate command |
 
@@ -3454,10 +3479,11 @@ The live MCP `tools/list` schema and the server's OpenAPI document are authorita
 - For create and update, preview, check `valid`, apply, then read the DAG back.
 - Report a run's `statusLabel` (such as `succeeded`), not the numeric `status`.
 - Pass the key to `curl` through a config file on stdin (`-K -`) so it stays out of argv and output.
+- An invite from `POST /workers/invites` appears only in that response. Hand it to the user for the worker host; never log, store, or repeat it. Take `certificateId` for a removal from `GET /workers`.
 
 ## Ask first
 
-Deleting DAGs, purging run history, editing the DAG directory by hand, or an unclear target. Otherwise proceed without asking which context to use.
+Deleting DAGs, purging run history, deleting worker invites, removing workers, editing the DAG directory by hand, or an unclear target. Otherwise proceed without asking which context to use.
 
 ## Local-only fallback
 
