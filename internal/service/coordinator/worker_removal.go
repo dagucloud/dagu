@@ -281,10 +281,19 @@ func (h *Handler) RemoveWorker(ctx context.Context, req *coordinatorv1.RemoveWor
 }
 
 // removeCertificate removes the certificate that req names, and no other
-// certificate of its worker. A certificate already in removal answers by
-// its own state, so a retry after a lost answer succeeds whatever connects
-// under the worker ID now. Otherwise the worker must hold it: its record
-// names the worker, or the worker's fresh heartbeat carries it.
+// certificate of its worker. Nothing happens unless the request pairs the
+// certificate with its worker:
+//   - A certificate in removal pairs with a worker ID its record or its
+//     removal names, now or among the IDs its heartbeats reported, which
+//     both keep. A revoked one then answers removed and a removing one
+//     answers by its removal, which a stop request moves from finish to
+//     stop. A retry after a lost answer thus succeeds, also after the
+//     worker took a new ID.
+//   - An active certificate pairs with a worker its record names, or whose
+//     fresh heartbeat carries it.
+//
+// Otherwise a known worker gets FailedPrecondition and an unknown one
+// NotFound.
 func (h *Handler) removeCertificate(ctx context.Context, req *coordinatorv1.RemoveWorkerRequest) (*coordinatorv1.RemoveWorkerResponse, error) {
 	certID := req.CertificateId
 	cert, err := h.workerCertificates.Get(ctx, certID)
@@ -295,25 +304,33 @@ func (h *Handler) removeCertificate(ctx context.Context, req *coordinatorv1.Remo
 	}
 	now := h.clock()
 	stop := req.Runs == coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_STOP
-	switch {
-	case found && cert.State == persis.WorkerCertificateRevoked:
-		return &coordinatorv1.RemoveWorkerResponse{
-			State:          coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED,
-			CertificateIds: []string{certID},
-			WorkerId:       cert.WorkerID,
-		}, nil
-	case found && cert.State == persis.WorkerCertificateRemoving:
-		// The removal names the worker its record names, which may have
-		// changed its ID since; with stop, it stops the runs as well.
-		return h.startRemoval(ctx, certID, cert.WorkerID, stop)
-	}
 	hb, err := h.workerPresence(ctx, req.WorkerId)
 	if err != nil {
 		logger.Error(ctx, "Failed to read a worker's heartbeat", tag.WorkerID(req.WorkerId), tag.Error(err))
 		return nil, status.Error(codes.Internal, "failed to read the worker's heartbeat")
 	}
+	if found && cert.State != persis.WorkerCertificateActive {
+		removal, err := h.certificateRemoval(ctx, certID)
+		if err != nil {
+			return nil, status.Error(codes.Internal, "failed to remove the worker")
+		}
+		if !namesWorker(cert.WorkerID, cert.WorkerIDs, req.WorkerId) && !namesWorker(removal.WorkerID, removal.WorkerIDs, req.WorkerId) {
+			return nil, h.notHeld(ctx, req.WorkerId, hb)
+		}
+		if cert.State == persis.WorkerCertificateRevoked {
+			return &coordinatorv1.RemoveWorkerResponse{
+				State:          coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED,
+				CertificateIds: []string{certID},
+				WorkerId:       req.WorkerId,
+			}, nil
+		}
+		// The removal takes the ID the request paired with, so its replay
+		// pairs again, as a later heartbeat may not have reached the IDs
+		// the record keeps.
+		return h.startRemoval(ctx, certID, req.WorkerId, stop)
+	}
 	connected := hb != nil && dispatch.WorkerHeartbeatFresh(*hb, now, h.staleHeartbeatThreshold)
-	holds := (found && cert.WorkerID == req.WorkerId) || (connected && hb.CertificateID == certID)
+	holds := (found && namesWorker(cert.WorkerID, cert.WorkerIDs, req.WorkerId)) || (connected && hb.CertificateID == certID)
 	switch {
 	case connected && hb.CertificateID == "":
 		if hb.Connection == dispatch.WorkerConnectionCertificate {
@@ -332,10 +349,31 @@ func (h *Handler) removeCertificate(ctx context.Context, req *coordinatorv1.Remo
 	return h.revokeNamed(ctx, cert, now, stop)
 }
 
+// certificateRemoval returns the removal of the certificate certID, or a zero one
+// when it has none.
+func (h *Handler) certificateRemoval(ctx context.Context, certID string) (persis.WorkerCertificateRemoval, error) {
+	if removal, ok := h.removals.get(certID); ok {
+		return removal, nil
+	}
+	// A removal another coordinator accepted reaches this copy at its next
+	// reread, so the store answers until then.
+	removals, err := h.workerCertificates.ListRemovals(ctx)
+	if err != nil {
+		logger.Error(ctx, "Failed to list worker removals", tag.Error(err))
+		return persis.WorkerCertificateRemoval{}, err
+	}
+	for _, removal := range removals {
+		if removal.ID == certID {
+			return removal, nil
+		}
+	}
+	return persis.WorkerCertificateRemoval{}, nil
+}
+
 // revokeNamed revokes cert, of a worker that is not connected under the
-// ID its record names. A worker under another ID that still connects
-// with it, as after a restart, makes it removing for that worker instead,
-// and one that may connect with it through a coordinator predating the
+// ID its record names. A worker under another ID that still connects with
+// it, as after a restart, makes it removing for that worker instead, and
+// one that may connect with it through a coordinator predating the
 // certificate ID in heartbeats refuses the removal.
 func (h *Handler) revokeNamed(ctx context.Context, cert persis.WorkerCertificate, now time.Time, stop bool) (*coordinatorv1.RemoveWorkerResponse, error) {
 	presence, err := h.listPresence(ctx)

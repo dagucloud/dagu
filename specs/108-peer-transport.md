@@ -765,15 +765,20 @@ as the REST API always does:
 
 - Only that certificate is removed. Other certificates of the same worker
   ID, such as one enrolled again before its first heartbeat, keep working.
-- The worker must hold it: the certificate's record names the worker, or
-  the worker's fresh heartbeat carries it. Otherwise the removal fails with
-  `FailedPrecondition`, as it does when the connected worker uses another
-  certificate. A worker that joined again with a new certificate is then
-  not removed by a retry.
-- A removal of a held certificate that is already revoked answers
-  `removed`, so a retry of a removal whose answer was lost succeeds.
-- The answer names the worker the certificate's record names, which the
-  removal's audit entry records.
+- Nothing happens unless the request pairs the certificate with its
+  worker. A certificate already in removal pairs with the worker ID its
+  removal was accepted with, or the one its record names now: a revoked
+  one then answers `removed`, so a retry of a removal whose answer was lost
+  succeeds, and a removing one answers with its removal, which `stop`
+  moves from `finish` to `stop`. An active certificate pairs with a worker
+  its record names, or whose fresh heartbeat carries it.
+- A request that does not pair fails with `FailedPrecondition` for a
+  worker ID a heartbeat or a certificate record knows, as when the
+  connected worker uses another certificate, and with `NotFound`
+  otherwise. A worker that joined again with a new certificate is then not
+  removed by a retry, and no audit entry is written.
+- The answer names the worker the removal names, which the removal's
+  audit entry records.
 
 | Worker | `finish` | `stop` |
 | --- | --- | --- |

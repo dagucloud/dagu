@@ -202,6 +202,10 @@ func TestRemoveWorkerAPI(t *testing.T) {
 	for _, id := range []string{"finish", "stop"} {
 		assert.True(t, services.waitForWorker(t, id).Removing, id)
 	}
+	// A stop that pairs the finish worker's certificate with another worker
+	// changes nothing.
+	code, body = remove("stop", certs["finish"], "stop")
+	assert.Equal(t, http.StatusConflict, code, body)
 	// Only stop asks the worker to cancel the run it holds.
 	assert.Empty(t, heartbeat("finish").CancelledRuns)
 	cancelled := heartbeat("stop").CancelledRuns
