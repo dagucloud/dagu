@@ -6,6 +6,12 @@ import { defineMessages } from '@/features/workflow-workspace/messages/define';
 /** The static messages of the Add worker dialog. */
 export const addWorkerMessages = defineMessages({
   en: {
+    'Switch to the local server to add a worker.':
+      'Switch to the local server to add a worker.',
+    "Give this server the coordinator's peer.token, then restart it.":
+      "Give this server the coordinator's peer.token, then restart it.",
+    'The coordinator refused this server.':
+      'The coordinator refused this server.',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} looks like a container ID. Enter the address of the machine that runs the container.',
     'IP address or DNS name': 'IP address or DNS name',
@@ -16,8 +22,6 @@ export const addWorkerMessages = defineMessages({
     Ready: 'Ready',
     'Needs change': 'Needs change',
     'Only admins can add workers.': 'Only admins can add workers.',
-    'This server is from an earlier Dagu release. Upgrade it to add workers.':
-      'This server is from an earlier Dagu release. Upgrade it to add workers.',
     'The server cannot reach a coordinator.':
       'The server cannot reach a coordinator.',
     'The request failed.': 'The request failed.',
@@ -76,6 +80,11 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Shown after steps 1 and 2',
   },
   'zh-CN': {
+    'Switch to the local server to add a worker.':
+      '切换到本地服务器以添加 Worker。',
+    "Give this server the coordinator's peer.token, then restart it.":
+      '为此服务器设置协调器的 peer.token，然后重启它。',
+    'The coordinator refused this server.': '协调器拒绝了此服务器。',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} 看起来是容器 ID。请输入运行该容器的机器的地址。',
     'IP address or DNS name': 'IP 地址或 DNS 名称',
@@ -86,8 +95,6 @@ export const addWorkerMessages = defineMessages({
     Ready: '就绪',
     'Needs change': '需要修改',
     'Only admins can add workers.': '只有管理员可以添加 Worker。',
-    'This server is from an earlier Dagu release. Upgrade it to add workers.':
-      '此服务器来自较早的 Dagu 版本。升级后才能添加 Worker。',
     'The server cannot reach a coordinator.': '服务器无法连接到协调器。',
     'The request failed.': '请求失败。',
     'The server did not answer.': '服务器没有响应。',
@@ -143,6 +150,12 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': '完成步骤 1 和 2 后显示',
   },
   ja: {
+    'Switch to the local server to add a worker.':
+      'ワーカーを追加するにはローカルサーバーに切り替えてください。',
+    "Give this server the coordinator's peer.token, then restart it.":
+      'このサーバーにコーディネーターの peer.token を設定し、再起動してください。',
+    'The coordinator refused this server.':
+      'コーディネーターがこのサーバーを拒否しました。',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} はコンテナ ID のようです。コンテナを実行しているマシンのアドレスを入力してください。',
     'IP address or DNS name': 'IP アドレスまたは DNS 名',
@@ -153,8 +166,6 @@ export const addWorkerMessages = defineMessages({
     Ready: '準備完了',
     'Needs change': '変更が必要',
     'Only admins can add workers.': 'ワーカーを追加できるのは管理者だけです。',
-    'This server is from an earlier Dagu release. Upgrade it to add workers.':
-      'このサーバーは以前の Dagu リリースです。ワーカーを追加するにはアップグレードしてください。',
     'The server cannot reach a coordinator.':
       'サーバーがコーディネーターに接続できません。',
     'The request failed.': 'リクエストに失敗しました。',
@@ -214,6 +225,12 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'ステップ 1 と 2 の後に表示',
   },
   de: {
+    'Switch to the local server to add a worker.':
+      'Wechseln Sie zum lokalen Server, um einen Worker hinzuzufügen.',
+    "Give this server the coordinator's peer.token, then restart it.":
+      'Geben Sie diesem Server das peer.token des Koordinators und starten Sie ihn neu.',
+    'The coordinator refused this server.':
+      'Der Koordinator hat diesen Server abgewiesen.',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} sieht nach einer Container-ID aus. Geben Sie die Adresse des Rechners ein, auf dem der Container läuft.',
     'IP address or DNS name': 'IP-Adresse oder DNS-Name',
@@ -225,8 +242,6 @@ export const addWorkerMessages = defineMessages({
     'Needs change': 'Änderung nötig',
     'Only admins can add workers.':
       'Nur Administratoren können Worker hinzufügen.',
-    'This server is from an earlier Dagu release. Upgrade it to add workers.':
-      'Dieser Server stammt aus einer früheren Dagu-Version. Aktualisieren Sie ihn, um Worker hinzuzufügen.',
     'The server cannot reach a coordinator.':
       'Der Server erreicht keinen Koordinator.',
     'The request failed.': 'Die Anfrage ist fehlgeschlagen.',
@@ -286,6 +301,12 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Erscheint nach Schritt 1 und 2',
   },
   fr: {
+    'Switch to the local server to add a worker.':
+      'Passez au serveur local pour ajouter un worker.',
+    "Give this server the coordinator's peer.token, then restart it.":
+      'Donnez à ce serveur le peer.token du coordinateur, puis redémarrez-le.',
+    'The coordinator refused this server.':
+      'Le coordinateur a refusé ce serveur.',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} ressemble à un ID de conteneur. Saisissez l’adresse de la machine qui exécute le conteneur.',
     'IP address or DNS name': 'Adresse IP ou nom DNS',
@@ -297,8 +318,6 @@ export const addWorkerMessages = defineMessages({
     'Needs change': 'Modification requise',
     'Only admins can add workers.':
       'Seuls les administrateurs peuvent ajouter des workers.',
-    'This server is from an earlier Dagu release. Upgrade it to add workers.':
-      'Ce serveur provient d’une version antérieure de Dagu. Mettez-le à jour pour ajouter des workers.',
     'The server cannot reach a coordinator.':
       'Le serveur ne peut joindre aucun coordinateur.',
     'The request failed.': 'La requête a échoué.',

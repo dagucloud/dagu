@@ -37,6 +37,8 @@ import { allReady, ReadinessBody } from './ReadinessStep';
 
 type JoinReadiness = components['schemas']['WorkerJoinReadinessResponse'];
 
+const LOCAL_NODE = 'local';
+
 type Readiness =
   | { state: 'loading' }
   | { state: 'loaded'; data: JoinReadiness }
@@ -50,11 +52,19 @@ interface AddWorkerProps {
 /** The Add worker button of the Workers section, for admins. */
 export function AddWorker({ refreshFailed }: AddWorkerProps) {
   const isAdmin = useIsAdmin();
+  const remote = useRemoteNode() !== LOCAL_NODE;
   const [open, setOpen] = React.useState(false);
   if (!isAdmin) return null;
   return (
     <>
-      <Button size="xs" onClick={() => setOpen(true)}>
+      {/* Invites come from the server this page is served by, never through
+          a remote node, so its audit entry names the admin. */}
+      {remote && (
+        <span className="text-xs text-muted-foreground">
+          <I18nText text="Switch to the local server to add a worker." />
+        </span>
+      )}
+      <Button size="xs" disabled={remote} onClick={() => setOpen(true)}>
         <Plus />
         <I18nText text="Add worker" />
       </Button>
@@ -74,7 +84,6 @@ function AddWorkerDialog({
   onClose,
 }: AddWorkerProps & { onClose: () => void }) {
   const client = useClient();
-  const remoteNode = useRemoteNode();
   const [readiness, setReadiness] = React.useState<Readiness>({
     state: 'loading',
   });
@@ -87,7 +96,7 @@ function AddWorkerDialog({
     try {
       const { data, error, response } = await client.GET(
         '/workers/join-readiness',
-        { params: { query: { remoteNode } } }
+        { params: { query: { remoteNode: LOCAL_NODE } } }
       );
       if (data) {
         setReadiness({ state: 'loaded', data });
@@ -111,7 +120,7 @@ function AddWorkerDialog({
     } finally {
       setChecking(false);
     }
-  }, [client, remoteNode]);
+  }, [client]);
 
   React.useEffect(() => {
     void load();

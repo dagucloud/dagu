@@ -11,12 +11,17 @@ import { cn } from '@/lib/utils';
 export interface RequestProblem {
   text: string;
   detail?: string;
+  /** The change to make, when the server's words do not name one. */
+  change?: string;
 }
+
+// The server's answer when the coordinator refused its peer token or its
+// transport. The coordinator's reason follows.
+const COORDINATOR_REFUSED = 'the coordinator refused the server: ';
 
 // The statuses the invite and join readiness endpoints answer with.
 const STATUS_TEXT: Record<number, string> = {
   403: 'Only admins can add workers.',
-  404: 'This server is from an earlier Dagu release. Upgrade it to add workers.',
   503: 'The server cannot reach a coordinator.',
 };
 
@@ -31,6 +36,19 @@ export function requestProblem(
 ): RequestProblem {
   if (status === 400 && message) return { text: message };
   if (status === 409) return { text: conflict, detail: message };
+  if (status === 503 && message?.startsWith(COORDINATOR_REFUSED)) {
+    const reason = message.slice(COORDINATOR_REFUSED.length);
+    // A missing token and a TLS requirement name their change; a token
+    // that differs from the coordinator's does not.
+    const change = reason.includes('does not match')
+      ? "Give this server the coordinator's peer.token, then restart it."
+      : undefined;
+    return {
+      text: 'The coordinator refused this server.',
+      detail: reason,
+      change,
+    };
+  }
   const text = (status && STATUS_TEXT[status]) || 'The request failed.';
   return { text, detail: status === 403 ? undefined : message };
 }
@@ -43,6 +61,11 @@ export function ProblemText({ problem }: { problem: RequestProblem }) {
       </p>
       {problem.detail && (
         <p className="text-muted-foreground">{problem.detail}</p>
+      )}
+      {problem.change && (
+        <p>
+          <I18nText text={problem.change} />
+        </p>
       )}
     </div>
   );

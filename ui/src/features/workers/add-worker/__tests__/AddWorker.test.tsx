@@ -9,6 +9,7 @@ import {
   HostEnvironment,
   type components,
 } from '@/api/v1/schema';
+import { RemoteNodeProvider } from '@/contexts/RemoteNodeContext';
 import { AddWorker } from '../AddWorker';
 
 type Readiness = components['schemas']['WorkerJoinReadinessResponse'];
@@ -115,6 +116,15 @@ describe('AddWorker', () => {
     auth.admin = false;
     render(view());
     expect(screen.queryByRole('button', { name: 'Add worker' })).toBeNull();
+  });
+
+  // Invites come only from the server the page is served by.
+  it('offers Add worker only on the local server', () => {
+    render(<RemoteNodeProvider remoteNode="prod">{view()}</RemoteNodeProvider>);
+    expect(screen.getByRole('button', { name: 'Add worker' })).toBeDisabled();
+    expect(
+      screen.getByText('Switch to the local server to add a worker.')
+    ).toBeInTheDocument();
   });
 
   it('checks the coordinator while join readiness loads', () => {
@@ -246,8 +256,19 @@ describe('AddWorker', () => {
     [409, undefined, /Upgrade every coordinator to add workers/],
     [
       503,
-      'the server needs peer.token or the data directory',
-      'the server needs peer.token or the data directory',
+      'no coordinator is running or reachable',
+      'The server cannot reach a coordinator.no coordinator is running or reachable',
+    ],
+    [
+      503,
+      "the coordinator refused the server: the coordinator requires a peer token: set peer.token, or let this process read the coordinator's data directory",
+      'The coordinator refused this server.the coordinator requires a peer token: set peer.token',
+    ],
+    [
+      503,
+      "the coordinator refused the server: the peer token does not match the coordinator's peer token",
+      "does not match the coordinator's peer token" +
+        "Give this server the coordinator's peer.token, then restart it.",
     ],
   ])('names the cause of a %i', async (status, message, text) => {
     api.GET.mockResolvedValue(answer(status, undefined, message));

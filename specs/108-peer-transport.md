@@ -1248,7 +1248,10 @@ and prints the message:
 
 #### Add Worker
 
-- **Add worker** is on the Workers page, for admins.
+- **Add worker** is on the Workers page, for admins. It reads join
+  readiness and creates the invite on the server that serves the page.
+  While System status shows a remote node, **Add worker** is disabled and
+  says to switch to the local server.
 - Step 1 shows each coordinator whose join readiness is not ready. `<port>`
   below is the reported `port`:
   - While `loopbackOnly`, the change for how Dagu was started:
