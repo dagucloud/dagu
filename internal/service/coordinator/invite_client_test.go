@@ -110,7 +110,9 @@ func inviteClientOf(t *testing.T, kinds ...memberKind) coordinator.InviteClient 
 	for i, kind := range kinds {
 		members[i] = kind(t, listeners[i])
 	}
-	client, ok := coordinator.New(&mockServiceMonitor{members: members}, coordinator.DefaultConfig()).(coordinator.InviteClient)
+	cli := coordinator.New(&mockServiceMonitor{members: members}, coordinator.DefaultConfig())
+	t.Cleanup(func() { _ = cli.Cleanup(context.Background()) })
+	client, ok := cli.(coordinator.InviteClient)
 	require.True(t, ok)
 	return client
 }
