@@ -84,17 +84,18 @@ var refusalCodes = map[codes.Code]bool{
 	codes.InvalidArgument:    true,
 	codes.FailedPrecondition: true,
 	codes.PermissionDenied:   true,
-	// A refusal for TLS, or one for the peer token outside
-	// peerTokenRefusals.
+	// A refusal for TLS, or one for the peer token without a
+	// peerTokenRefusals prefix.
 	codes.Unauthenticated: true,
 }
 
-// peerTokenRefusals are the messages a coordinator refuses a missing or
-// wrong peer token with. Other refusals with the same code, such as the one
-// for coordinator.require_tls, keep their own remedy.
-var peerTokenRefusals = map[string]bool{
-	"the coordinator requires a peer token: set peer.token, or let this process read the coordinator's data directory": true,
-	"the peer token does not match the coordinator's peer token":                                                       true,
+// peerTokenRefusals start the messages a coordinator refuses a missing or
+// wrong peer token with, in this release and the next. Other refusals with
+// the same code, such as the one for coordinator.require_tls, keep their
+// own remedy.
+var peerTokenRefusals = []string{
+	"the coordinator requires a peer token",
+	"the peer token does not match the coordinator's peer token",
 }
 
 var (
@@ -376,7 +377,9 @@ func callFailure(subject string, err error) string {
 	st := carrier.GRPCStatus()
 	code := st.Code()
 	switch {
-	case code == codes.Unauthenticated && peerTokenRefusals[st.Message()]:
+	case code == codes.Unauthenticated && slices.ContainsFunc(peerTokenRefusals, func(prefix string) bool {
+		return strings.HasPrefix(st.Message(), prefix)
+	}):
 		// The coordinator's own words also cover processes on its host.
 		return "the coordinator refused this host's peer token, or its lack of one: set the same peer.token on this host"
 	case refusalCodes[code]:
