@@ -110,7 +110,7 @@ func (c *connectionCLI) list(ctx context.Context) error {
 		return err
 	}
 	if len(conns) == 0 {
-		c.term.printf("No connections in workspace %s. Add one with 'dagu connection add google'.\n", orGlobal(c.workspace))
+		c.term.printf("No connections in workspace %s. Add one with '%s'.\n", orGlobal(c.workspace), c.command("add", "google"))
 		return nil
 	}
 	w := tabwriter.NewWriter(c.term.out, 0, 2, 2, ' ', 0)
@@ -287,7 +287,7 @@ func (c *connectionCLI) listApps(ctx context.Context) error {
 		return err
 	}
 	if len(apps) == 0 {
-		c.term.printf("No OAuth apps are registered. An admin registers one with 'dagu connection add google --client-file FILE'.\n")
+		c.term.printf("No OAuth apps are registered. An admin registers one with '%s --client-file FILE'.\n", c.command("add", "google"))
 		return nil
 	}
 	w := tabwriter.NewWriter(c.term.out, 0, 2, 2, ' ', 0)

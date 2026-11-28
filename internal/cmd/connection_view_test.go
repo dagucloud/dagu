@@ -42,9 +42,9 @@ func TestConnectionList(t *testing.T) {
 
 	fake.set("GET /connections", api.ConnectionListResponse{Connections: []api.Connection{}})
 	c, out = testConnectionCLI(client, strings.NewReader(""), nil)
-	c.workspace = ""
+	c.remoteContext = "production"
 	require.NoError(t, c.list(context.Background()))
-	assert.Equal(t, "No connections in workspace global. Add one with 'dagu connection add google'.\n", out.String())
+	assert.Equal(t, "No connections in workspace ops. Add one with 'dagu connection add google --workspace ops --context production'.\n", out.String())
 }
 
 // show prints the connection with its app's name when the caller may read
@@ -110,12 +110,13 @@ func TestConnectionTools(t *testing.T) {
 }
 
 // tools --json prints the server's body as it was sent, so an input
-// schema keeps an integer bound that a float would round, and text keeps
+// schema keeps an integer bound that a float would round and one beyond
+// a float's range, and text keeps
 // its angle brackets. It asks only for the service --server names.
 func TestConnectionToolsJSON(t *testing.T) {
 	t.Parallel()
 	body := `{"servers":[{"server":"gmail","tools":[{"name":"search_threads","description":"a <b> & c",` +
-		`"inputSchema":{"type":"object","properties":{"limit":{"type":"integer","maximum":9223372036854775807}}}}]}]}`
+		`"inputSchema":{"type":"object","properties":{"limit":{"type":"integer","maximum":9223372036854775807,"minimum":-1e400}}}}]}]}`
 	fake, client := newFakeConnectionAPI(t, map[string]any{"GET /connections/work/tools": rawReply(body)})
 	c, out := testConnectionCLI(client, strings.NewReader(""), nil)
 
@@ -123,6 +124,7 @@ func TestConnectionToolsJSON(t *testing.T) {
 
 	assert.Contains(t, fake.sent(), "GET /connections/work/tools?server=gmail&workspace=ops")
 	assert.Contains(t, out.String(), `"maximum": 9223372036854775807`)
+	assert.Contains(t, out.String(), `"minimum": -1e400`)
 	assert.Contains(t, out.String(), `"description": "a <b> & c"`)
 	assert.True(t, json.Valid([]byte(out.String())))
 }

@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -162,8 +163,11 @@ func (c *remoteClient) connectionTools(ctx context.Context, workspace, name, ser
 	if err := c.atLeast(toolsTimeout).do(ctx, http.MethodGet, connectionPath(name, "/tools"), nil, &raw, query); err != nil {
 		return nil, nil, err
 	}
+	// Numbers stay literal, since a schema bound may not fit a float64.
 	var out api.ConnectionToolsResponse
-	if err := json.Unmarshal(raw, &out); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&out); err != nil {
 		return nil, nil, fmt.Errorf("failed to decode the tools response: %w", err)
 	}
 	return &out, raw, nil
