@@ -551,6 +551,30 @@ describe('WorkerInvites', () => {
     ).not.toBeInTheDocument();
   });
 
+  // An older delete of an invite that a newer one deleted cannot fail it
+  // afterwards.
+  it('drops the late failure of an invite a retry deleted', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    const pending = heldDeletes();
+    renderInvites();
+    await startDelete('inv-1');
+    await userEvent.keyboard('{Escape}');
+    server.invites = invitesAnswer([]);
+    await startDelete('inv-1');
+
+    await act(async () => pending[1]!({ status: 204 }));
+    await screen.findByText('No invites');
+    await act(async () =>
+      pending[0]!(refused(503, '', 'internal_error', 'no_coordinator'))
+    );
+    await act(() => Promise.resolve());
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Invite inv-1 was not deleted.')
+    ).not.toBeInTheDocument();
+  });
+
   // A bad ID is refused before any coordinator call. The words of that
   // refusal appear nowhere, in the dialog or in a page notice.
   it('keeps the words of a refused bad ID off the page', async () => {
@@ -1159,6 +1183,76 @@ describe('WorkerInvites', () => {
     await waitFor(async () =>
       expect((await rows())[0]).toHaveTextContent('Used')
     );
+  });
+
+  // The first read can fail after a join made it stale. With nothing shown
+  // yet, the list keeps loading until the read for the join answers.
+  it('keeps loading when the first read fails after a join', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let first: (answer: { status: number; body: unknown }) => void = () =>
+      undefined;
+    const answers = [
+      () =>
+        new Promise<{ status: number; body: unknown }>(
+          (resolve) => (first = resolve)
+        ),
+      () => invitesAnswer([invite('inv-1')]),
+    ];
+    server.invites = () => answers.shift()!() as never;
+    const { update } = renderInvites([worker('worker-a')]);
+    await waitFor(() => expect(reads()).toBe(1));
+
+    update([worker('worker-a'), worker('worker-b', { inviteId: 'inv-1' })]);
+    await act(async () =>
+      first(refused(503, '', 'internal_error', 'no_coordinator'))
+    );
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    expect(screen.getByText('Loading invites...')).toBeInTheDocument();
+    expect(
+      screen.queryByText('No coordinator is running or reachable.')
+    ).not.toBeInTheDocument();
+
+    await act(() => vi.advanceTimersByTimeAsync(JOIN_REREAD_DELAY_MS));
+    expect(await rows()).toHaveLength(1);
+    expect(reads()).toBe(2);
+  });
+
+  // A read that started before a delete cannot answer after it, also while
+  // the tab is hidden and the read for the delete waits for it to show.
+  it('drops a read from before a delete in a hidden tab', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    const { refresh } = renderInvites();
+    expect(await rows()).toHaveLength(1);
+    let stale: (answer: { status: number; body: unknown }) => void = () =>
+      undefined;
+    const answers = [
+      () =>
+        new Promise<{ status: number; body: unknown }>(
+          (resolve) => (stale = resolve)
+        ),
+      () => invitesAnswer([]),
+    ];
+    server.invites = () => answers.shift()!() as never;
+    refresh();
+    await waitFor(() => expect(reads()).toBe(2));
+    const pending = heldDeletes();
+    await startDelete('inv-1');
+
+    act(() => setTabVisible(false));
+    await act(async () => pending[0]!({ status: 204 }));
+    await act(async () =>
+      stale({
+        status: 200,
+        body: { invites: [invite('inv-1'), invite('inv-old')] },
+      })
+    );
+    await act(() => Promise.resolve());
+    expect(reads()).toBe(2);
+    expect(screen.queryByText(/inv-old/)).not.toBeInTheDocument();
+
+    act(() => setTabVisible(true));
+    expect(await screen.findByText('No invites')).toBeInTheDocument();
+    expect(screen.queryByText(/inv-old/)).not.toBeInTheDocument();
   });
 
   // A read under way when the list left a node cannot answer for the

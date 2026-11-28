@@ -7,7 +7,7 @@
  * @module features/workers/hooks
  */
 import { useCallback } from 'react';
-import useSWR, { unstable_serialize, useSWRConfig } from 'swr';
+import useSWR, { useSWRConfig } from 'swr';
 import { WorkerAccessReason, type components } from '@/api/v1/schema';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
@@ -89,6 +89,24 @@ const latestReads = new Map<string, Promise<WorkerInvitesList>>();
 // can still answer, and the node's last read is forgotten.
 const pendingReads = new Map<string, number>();
 
+// The reads that wait, by node, for the next read to start.
+const readWaiters = new Map<
+  string,
+  Array<(read: Promise<WorkerInvitesList>) => void>
+>();
+
+function nextRead(node: string): Promise<WorkerInvitesList> {
+  return new Promise((resolve) => {
+    readWaiters.set(node, [...(readWaiters.get(node) ?? []), resolve]);
+  });
+}
+
+function startedRead(node: string, read: Promise<WorkerInvitesList>) {
+  const waiting = readWaiters.get(node);
+  readWaiters.delete(node);
+  waiting?.forEach((resolve) => resolve(read));
+}
+
 // Counts the changes to the invites of each node. A read that started
 // before a change cannot answer for after it.
 const inviteGenerations = new Map<string, number>();
@@ -115,7 +133,6 @@ export function invitesChanged(node: string) {
  */
 export function useWorkerInvites(enabled: boolean) {
   const client = useClient();
-  const { cache } = useSWRConfig();
   const remoteNode = useRemoteNode();
   const { data, error, mutate } = useSWR<WorkerInvitesList, unknown>(
     enabled ? invitesKey(remoteNode) : null,
@@ -123,6 +140,14 @@ export function useWorkerInvites(enabled: boolean) {
       const generation = inviteGeneration(remoteNode);
       const running = readsInFlight.get(remoteNode);
       if (running && running.generation === generation) return running.read;
+      // A read the invites changed under, as by a join or a delete, cannot
+      // answer at all: it takes the outcome of a later read, waiting for one
+      // to start if none has, also while the tab is hidden.
+      const changed = () => inviteGeneration(remoteNode) !== generation;
+      const later = () => {
+        const latest = latestReads.get(remoteNode);
+        return latest && latest !== read ? latest : nextRead(remoteNode);
+      };
       const read: Promise<WorkerInvitesList> = (async () => {
         const { data, error, response } = await client.GET('/workers/invites', {
           params: { query: { remoteNode } },
@@ -134,18 +159,15 @@ export function useWorkerInvites(enabled: boolean) {
         }
         return data;
       })()
-        .catch((err: unknown) => {
-          const latest = latestReads.get(remoteNode);
-          if (latest && latest !== read) return latest;
-          // A read the invites changed under, as by a join, cannot show its
-          // failure over the list either: the list stays until the next read.
-          const shown = cache.get(unstable_serialize(invitesKey(remoteNode)))
-            ?.data as WorkerInvitesList | undefined;
-          if (shown && inviteGeneration(remoteNode) !== generation) {
-            return shown;
+        .then(
+          (list) => (changed() ? later() : list),
+          (err: unknown) => {
+            const latest = latestReads.get(remoteNode);
+            if (latest && latest !== read) return latest;
+            if (changed()) return later();
+            throw err;
           }
-          throw err;
-        })
+        )
         .finally(() => {
           if (readsInFlight.get(remoteNode)?.read === read) {
             readsInFlight.delete(remoteNode);
@@ -160,6 +182,7 @@ export function useWorkerInvites(enabled: boolean) {
         });
       readsInFlight.set(remoteNode, { read, generation });
       latestReads.set(remoteNode, read);
+      startedRead(remoteNode, read);
       pendingReads.set(remoteNode, (pendingReads.get(remoteNode) ?? 0) + 1);
       return read;
     },

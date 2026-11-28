@@ -138,21 +138,25 @@ interface DeleteOutcomes {
   /** The late failures, one per invite. */
   failures: LateFailure[];
   failed: (failure: LateFailure) => void;
-  /** The invite is gone, so a failure to delete it no longer holds. */
+  /** The invite is gone, so no failure to delete it holds, then or later. */
   deleted: (inviteId: string) => void;
+  /** The admin no longer needs to see the failure. */
+  dismiss: (inviteId: string) => void;
 }
 
 function useDeleteOutcomes(): DeleteOutcomes {
   const [failures, setFailures] = React.useState<LateFailure[]>([]);
-  const failed = React.useCallback(
-    (failure: LateFailure) =>
-      setFailures((current) => [
-        ...current.filter((other) => other.invite.id !== failure.invite.id),
-        failure,
-      ]),
-    []
-  );
-  const deleted = React.useCallback(
+  // The invites known to be gone. A delete of one that was still under way
+  // when another deleted it cannot fail it afterwards.
+  const gone = React.useRef(new Set<string>());
+  const failed = React.useCallback((failure: LateFailure) => {
+    if (gone.current.has(failure.invite.id)) return;
+    setFailures((current) => [
+      ...current.filter((other) => other.invite.id !== failure.invite.id),
+      failure,
+    ]);
+  }, []);
+  const dismiss = React.useCallback(
     (inviteId: string) =>
       setFailures((current) =>
         current.some((failure) => failure.invite.id === inviteId)
@@ -161,7 +165,14 @@ function useDeleteOutcomes(): DeleteOutcomes {
       ),
     []
   );
-  return { failures, failed, deleted };
+  const deleted = React.useCallback(
+    (inviteId: string) => {
+      gone.current.add(inviteId);
+      dismiss(inviteId);
+    },
+    [dismiss]
+  );
+  return { failures, failed, deleted, dismiss };
 }
 
 // A confirmation, with its own number so that a delete that ends after its
@@ -192,12 +203,12 @@ function InviteList({
       }),
     [mutate, remoteNode]
   );
-  // A read under way when workers join may predate the join. Its answer is
-  // dropped from now on, not only once the read for the join starts.
-  const joinedWorkers = React.useCallback(() => {
-    invitesChanged(remoteNode);
-    void mutate((current) => current, { revalidate: false });
-  }, [mutate, remoteNode]);
+  // A read under way when workers join may predate the join, so it cannot
+  // answer for after it.
+  const joinedWorkers = React.useCallback(
+    () => invitesChanged(remoteNode),
+    [remoteNode]
+  );
   useInviteReads({ workers, live, refreshes, read, joinedWorkers });
   const closeDialog = React.useCallback(
     (request: number) =>
@@ -319,7 +330,7 @@ function InviteList({
             <Button
               size="xs"
               variant="outline"
-              onClick={() => outcomes.deleted(failure.invite.id)}
+              onClick={() => outcomes.dismiss(failure.invite.id)}
             >
               <I18nText text="Dismiss" />
             </Button>
