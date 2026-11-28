@@ -315,6 +315,34 @@ func TestIsolatedStepAbortsWhenAnACLStays(t *testing.T) {
 	assert.FileExists(t, run+handoffSuffix)
 }
 
+// With the ACL, the group bits of a run folder show the mask, which has the
+// bit x. End gives the folder its mode back before it removes the ACL, so the
+// group of a folder with the mode 0700 cannot pass it at any point.
+func TestIsolatedStepRestoresTheModeFirst(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	root, _, run := runFolders(t)
+	require.NoError(t, os.Chmod(root, 0o700))
+	req := testRequest(t, run, run)
+	req.ManagedRoot = root
+	step, err := beginStep(t, ctx, req)
+	require.NoError(t, err)
+	rootInfo, err := os.Stat(root)
+	require.NoError(t, err)
+	var atRemoval fs.FileMode
+	removexattr = func(path, name string) error {
+		if info, err := os.Stat(path); err == nil && os.SameFile(info, rootInfo) {
+			atRemoval = info.Mode().Perm()
+		}
+		return unix.Removexattr(path, name)
+	}
+	t.Cleanup(func() { removexattr = unix.Removexattr })
+
+	require.NoError(t, step.End(ctx))
+	assert.Equal(t, fs.FileMode(0o700), atRemoval, "the group could pass the folder while its ACL went")
+	assertRunFolders(t, fs.FileMode(0o700), unix.ENODATA, root)
+}
+
 // assertRunFolders checks the mode of each folder, and the error of the read
 // of its access ACL: nil while it has one.
 func assertRunFolders(t *testing.T, mode fs.FileMode, aclErr error, dirs ...string) {

@@ -502,18 +502,23 @@ func (iso *isolation) passDir(dir string, managed bool) error {
 	return nil
 }
 
-// restorePassDirs removes the access ACL that each folder above the work
-// directory got, and gives the folder its mode back. An ACL that stays lets
-// the restricted user pass the folder, so its error wraps ErrRunAborted.
+// restorePassDirs gives each folder above the work directory its mode back,
+// and then removes the access ACL that the folder got. The mode comes first:
+// with the ACL, it sets the mask, which the group bits keep once the ACL is
+// gone. An ACL or a mode that stays lets a user pass the folder, so either
+// error wraps ErrRunAborted.
 func (iso *isolation) restorePassDirs() error {
 	var errs []error
 	for path, dir := range iso.passDirs {
-		err := removexattr("/proc/self/fd/"+strconv.Itoa(dir.fd), aclNames[0])
-		if err != nil && !errors.Is(err, unix.ENODATA) {
+		if err := chmodFDPath(dir.fd, path, dir.mode); err != nil {
+			errs = append(errs, fmt.Errorf("%w: %w", ErrRunAborted, stepError(iso.step, "change the mode of", path, err)))
+		} else if err := removexattr("/proc/self/fd/"+strconv.Itoa(dir.fd), aclNames[0]); err != nil && !errors.Is(err, unix.ENODATA) {
 			errs = append(errs, fmt.Errorf("%w: %w", ErrRunAborted, stepError(iso.step, "remove the ACL of", path, err)))
 		}
+		_ = unix.Close(dir.fd)
+		delete(iso.passDirs, path)
 	}
-	return errors.Join(append(errs, iso.restoreDirModes(iso.passDirs))...)
+	return errors.Join(errs...)
 }
 
 // The tags and the version of the xattr format of a POSIX ACL.
