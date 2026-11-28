@@ -153,9 +153,9 @@ func (l *ConfigLoader) settingSource(key string) string {
 }
 
 // valueSourceKeys returns the keys that Config.Sources reports: each key of
-// PeerDef and coordinator.host.
+// PeerDef, coordinator.host, and worker.coordinators.
 func valueSourceKeys() []string {
-	keys := []string{"coordinator.host"}
+	keys := []string{"coordinator.host", "worker.coordinators"}
 	peer := reflect.TypeFor[PeerDef]()
 	for field := range peer.Fields() {
 		name, _, _ := strings.Cut(field.Tag.Get("mapstructure"), ",")

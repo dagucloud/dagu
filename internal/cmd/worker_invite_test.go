@@ -298,7 +298,36 @@ func TestWorkerInviteNotReady(t *testing.T) {
 			readiness: loopbackReport(func(r *coordinatorv1.GetJoinReadinessResponse) {
 				r.Environment = coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES
 			}),
-			want: "connect. Set coordinator.host to 0.0.0.0 through the chart's values.\n" + restart,
+			want: "connect. Set DAGU_COORDINATOR_HOST=0.0.0.0 on the coordinator's workload, then restart it. " +
+				"With the Helm chart, deploymentMode: distributed sets it.\n" + restart,
+		},
+		{
+			// A flag wins over the container's -e, so the flag changes and
+			// the port still needs publishing.
+			name: "ContainerFlag",
+			readiness: loopbackReport(func(r *coordinatorv1.GetJoinReadinessResponse) {
+				r.Environment = coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_CONTAINER
+				r.HostSource = &coordinatorv1.ConfigSource{Kind: coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_FLAG, Name: "--coordinator.host"}
+			}),
+			want: "connect. Start it with --coordinator.host=0.0.0.0. Recreate its container with -p 50055:50055.\n" + restart,
+		},
+		{
+			// A variable the pod sets wins over the chart's default.
+			name: "KubernetesEnv",
+			readiness: loopbackReport(func(r *coordinatorv1.GetJoinReadinessResponse) {
+				r.Environment = coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES
+				r.HostSource = &coordinatorv1.ConfigSource{Kind: coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_ENV, Name: "DAGU_COORDINATOR_HOST"}
+			}),
+			want: "connect. Set DAGU_COORDINATOR_HOST=0.0.0.0.\n" + restart,
+		},
+		{
+			// admin.yaml set the value over config.yaml, so it is the file
+			// to change.
+			name: "AdminFile",
+			readiness: loopbackReport(func(r *coordinatorv1.GetJoinReadinessResponse) {
+				r.HostSource = &coordinatorv1.ConfigSource{Kind: coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_FILE, Name: "/etc/dagu/admin.yaml"}
+			}),
+			want: "connect. In /etc/dagu/admin.yaml, set host to 0.0.0.0 inside the coordinator block.\n" + restart,
 		},
 		{
 			name:      "OwnCertificates",
@@ -426,6 +455,17 @@ func TestWorkerInviteUnauthenticated(t *testing.T) {
 			name:    "RequireTLS",
 			message: "the coordinator requires TLS: upgrade this process, or remove peer.insecure: true",
 			want:    "remove peer.insecure: true",
+		},
+		{
+			name:    "TokenMissing",
+			message: "the coordinator requires a peer token: set peer.token, or let this process read the coordinator's data directory",
+			want:    "the coordinator refused this host's peer token, or its lack of one: " + tokenRemedy,
+		},
+		{
+			// The wording of the next release.
+			name:    "TokenMissingShort",
+			message: "the coordinator requires a peer token: set peer.token",
+			want:    "the coordinator refused this host's peer token, or its lack of one: " + tokenRemedy,
 		},
 		{
 			name:    "TokenMismatch",
@@ -567,6 +607,21 @@ func TestWorkerInviteConfiguredCoordinators(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, testInvite)
 	assert.Len(t, fake.createRequests(), 1)
+}
+
+// A worker.coordinators that holds no usable address fails, and the
+// coordinator in the service registry gets no create in its place.
+func TestWorkerInviteInvalidCoordinators(t *testing.T) {
+	t.Parallel()
+
+	local := &inviteCoordinator{readiness: readyReport()}
+	home := configHome(t, "worker:\n  coordinators: mistyped.example:not-a-port\n")
+	registerCoordinator(t, home, serveInviteCoordinator(t, local))
+
+	_, _, err := runWorkerInvite(t, home, "--address", testInviteAddress)
+
+	require.EqualError(t, err, "worker.coordinators holds no valid host:port: fix it, or unset it to use the coordinators in the service registry")
+	assert.Empty(t, local.createRequests())
 }
 
 // A failure raised on this host is reported without the error itself,

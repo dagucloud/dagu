@@ -931,7 +931,9 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
   host whose processes have the peer token. It calls the coordinators of
   `worker.coordinators` when set, else those in the service registry of its
   data directory, as listed once when it starts. The create reaches only
-  coordinators whose join readiness it read.
+  coordinators whose join readiness it read. A `worker.coordinators` that
+  is set but holds no valid `host:port` fails the command; the service
+  registry is not used in its place.
 - `--expires` is a positive Go duration of at most `2562047h47m16s`. An
   empty value fails like any other that is not a duration.
 - It first reads join readiness. While a coordinator is not ready, it

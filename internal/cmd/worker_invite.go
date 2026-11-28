@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
@@ -38,6 +39,11 @@ const (
 	// workerInviteCommandName is the command family name of dagu worker
 	// invite.
 	workerInviteCommandName = "worker invite"
+	// workerCoordinatorsKey is the setting that names the coordinators to
+	// call.
+	workerCoordinatorsKey = "worker.coordinators"
+	// coordinatorHostVariable is the variable that sets coordinator.host.
+	coordinatorHostVariable = "DAGU_COORDINATOR_HOST"
 	// allInterfacesHost is the coordinator.host that accepts workers from
 	// other hosts.
 	allInterfacesHost = "0.0.0.0"
@@ -49,6 +55,7 @@ const (
 
 var (
 	errInvitePeerSettings  = errors.New("this host's peer settings cannot be used: run dagu worker --check here to see why")
+	errInvalidCoordinators = errors.New("worker.coordinators holds no valid host:port: fix it, or unset it to use the coordinators in the service registry")
 	errNoInviteCoordinator = errors.New("no coordinator found: set worker.coordinators to the coordinators' addresses, or run this on a host that shares their data directory")
 )
 
@@ -238,10 +245,16 @@ func discardUnprinted(ctx *Context, invites coordinator.InviteClient, id string)
 // worker.coordinators when set, else the service registry of the data
 // directory. Tests replace it to change the coordinators during a call.
 var inviteRegistry = func(ctx *Context) (serviceregistry.ServiceRegistry, error) {
-	if len(ctx.Config.Worker.Coordinators) == 0 {
-		return ctx.serverStores.ServiceRegistry, nil
+	if len(ctx.Config.Worker.Coordinators) > 0 {
+		return worker.CoordinatorRegistry(ctx.Config)
 	}
-	return worker.CoordinatorRegistry(ctx.Config)
+	// The loader drops an address it cannot use, so a worker.coordinators
+	// that is set and empty held none. The registry is not used in its
+	// place, since the operator named the coordinators to call.
+	if source := ctx.Config.Sources[workerCoordinatorsKey]; source.Kind != config.SourceKindDefault {
+		return nil, errInvalidCoordinators
+	}
+	return ctx.serverStores.ServiceRegistry, nil
 }
 
 // newInviteClient returns a client for the coordinators of inviteRegistry,
@@ -426,20 +439,56 @@ func printJoinReadiness(w io.Writer, report coordinator.JoinReadiness) bool {
 }
 
 // listenChange is the change that makes a coordinator listening on loopback
-// only accept workers from other hosts, for how it was started.
+// only accept workers from other hosts, for how it was started, as the Add
+// worker dialog gives it. coordinator.host comes from a flag, else a
+// variable, else a config file, so the change goes where the value came
+// from: a container's -e wins over a file but not over a flag.
 func listenChange(r *coordinatorv1.GetJoinReadinessResponse) string {
-	switch {
-	case r.Environment == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES:
-		return fmt.Sprintf("Set coordinator.host to %s through the chart's values.", allInterfacesHost)
-	case r.Environment == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_CONTAINER:
-		return fmt.Sprintf("Recreate its container with -p %d:%d -e DAGU_COORDINATOR_HOST=%s.", r.Port, r.Port, allInterfacesHost)
-	case r.HostSource.GetKind() == coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_ENV:
-		return fmt.Sprintf("Set %s=%s.", r.HostSource.GetName(), allInterfacesHost)
-	case r.HostSource.GetKind() == coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_FLAG:
-		return fmt.Sprintf("Start it with %s=%s.", r.HostSource.GetName(), allInterfacesHost)
-	default:
-		return fmt.Sprintf("Add this to %s:\n    coordinator:\n      host: %s", r.ConfigFile, allInterfacesHost)
+	kind := r.HostSource.GetKind()
+	pinned := r.HostSource.GetName() != "" &&
+		(kind == coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_FLAG || kind == coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_ENV)
+	switch r.Environment {
+	case coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES:
+		if pinned {
+			return sourceChange(r)
+		}
+		return fmt.Sprintf("Set %s=%s on the coordinator's workload, then restart it. With the Helm chart, deploymentMode: distributed sets it.",
+			coordinatorHostVariable, allInterfacesHost)
+	case coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_CONTAINER:
+		if kind == coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_FLAG && pinned {
+			return fmt.Sprintf("%s Recreate its container with -p %d:%d.", sourceChange(r), r.Port, r.Port)
+		}
+		variable := coordinatorHostVariable
+		if kind == coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_ENV && pinned {
+			variable = r.HostSource.GetName()
+		}
+		return fmt.Sprintf("Recreate its container with -p %d:%d -e %s=%s.", r.Port, r.Port, variable, allInterfacesHost)
+	case coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_UNSPECIFIED, coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_HOST:
 	}
+	return sourceChange(r)
+}
+
+// sourceChange is the change to coordinator.host where its value came from:
+// the flag or variable that set it, the config file that set it, such as
+// admin.yaml over config.yaml, or else the config file Dagu reads.
+func sourceChange(r *coordinatorv1.GetJoinReadinessResponse) string {
+	name := r.HostSource.GetName()
+	switch r.HostSource.GetKind() {
+	case coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_ENV:
+		if name != "" {
+			return fmt.Sprintf("Set %s=%s.", name, allInterfacesHost)
+		}
+	case coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_FLAG:
+		if name != "" {
+			return fmt.Sprintf("Start it with %s=%s.", name, allInterfacesHost)
+		}
+	case coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_FILE:
+		if name != "" {
+			return fmt.Sprintf("In %s, set host to %s inside the coordinator block.", name, allInterfacesHost)
+		}
+	case coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_UNSPECIFIED, coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_DEFAULT:
+	}
+	return fmt.Sprintf("Add this to %s:\n    coordinator:\n      host: %s", r.ConfigFile, allInterfacesHost)
 }
 
 // builtinTLSChange says why a coordinator has no built-in CA, in the words
