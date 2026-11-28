@@ -1188,7 +1188,7 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
     to. A handshake that `peer.skip_tls_verify: true` let pass says that
     the certificate was not verified.
   - the credential the worker would use: a client certificate, and the peer
-    token from `peer.token`, from the coordinator's data directory, or none
+    token from `peer.token`, the one the coordinator generated, or none
   - what the coordinator answered to a health check and to a call that
     needs the credential
 - Without `worker.coordinators`, it checks each live coordinator in the
