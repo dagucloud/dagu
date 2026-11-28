@@ -55,6 +55,14 @@ func (c *remoteClient) createOAuthApp(ctx context.Context, body api.CreateOAuthA
 	return &out, nil
 }
 
+func (c *remoteClient) connections(ctx context.Context, workspace string) ([]api.Connection, error) {
+	var out api.ConnectionListResponse
+	if err := c.do(ctx, http.MethodGet, "/connections", nil, &out, workspaceQuery(workspace)); err != nil {
+		return nil, err
+	}
+	return out.Connections, nil
+}
+
 func (c *remoteClient) deleteOAuthApp(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/oauth-apps/"+url.PathEscape(id), nil, nil, nil)
 }
