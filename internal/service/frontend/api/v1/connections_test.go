@@ -5,16 +5,19 @@ package api_test
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/oauth2"
 
 	apigen "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
@@ -35,6 +38,7 @@ const (
 	testClientSecret = "client-secret-value"
 	testRefreshToken = "refresh-token-value"
 	testAccessToken  = "access-token-value"
+	testAccount      = "user@example.com"
 )
 
 // Every response and audit entry of the apps and connections API reports
@@ -366,7 +370,8 @@ type connectionsFixture struct {
 	api        *apiv1.API
 	store      connection.Store
 	workspaces workspace.Store
-	provider   *revokingProvider
+	provider   *fakeGoogle
+	tokens     *failingTokens
 	audit      *recordingAuditStore
 	dataDir    string
 }
@@ -390,17 +395,21 @@ func newConnectionsFixture(t *testing.T, opts ...apiv1.APIOption) *connectionsFi
 	googleProvider, err := google.New(google.Config{Catalog: catalog})
 	require.NoError(t, err)
 
-	f := &connectionsFixture{store: store, workspaces: workspaces, provider: &revokingProvider{Provider: googleProvider}, audit: &recordingAuditStore{}, dataDir: dataDir}
+	f := &connectionsFixture{
+		store: store, workspaces: workspaces, provider: &fakeGoogle{Provider: googleProvider},
+		tokens: &failingTokens{Source: tokens}, audit: &recordingAuditStore{}, dataDir: dataDir,
+	}
 	engine, err := connect.New(connect.Config{
 		Store:     store,
 		Locks:     stores.ConnectionLocks(),
 		Encryptor: enc,
+		Tokens:    f.tokens,
 		Providers: map[connection.Provider]connect.Provider{connection.ProviderGoogle: f.provider},
 		OnRevoke:  func(ctx context.Context, r connect.Revocation) { f.api.AuditRevocation(ctx, r) },
 	})
 	require.NoError(t, err)
 	opts = append([]apiv1.APIOption{
-		apiv1.WithConnections(store, engine),
+		apiv1.WithConnections(store, engine, catalog),
 		apiv1.WithWorkspaceStore(workspaces),
 		apiv1.WithAuditService(audit.New(f.audit)),
 	}, opts...)
@@ -494,18 +503,58 @@ func requireStatus(t *testing.T, status int, err error) {
 	assert.Equal(t, status, apiErr.HTTPStatus)
 }
 
-// revokingProvider is the Google provider with a revocation that records
-// each refresh token it is given instead of calling Google.
-type revokingProvider struct {
-	connect.Provider
-	revoked []string
+// failingTokens is the broker, whose Token fails with err once it is set.
+type failingTokens struct {
+	broker.Source
+	err error
 }
 
-func (p *revokingProvider) RevokeScope() connect.RevokeScope { return connect.RevokesToken }
+func (s *failingTokens) Token(ctx context.Context, conn *connection.Connection, resource string, minTTL time.Duration) (string, time.Duration, error) {
+	if s.err != nil {
+		return "", 0, s.err
+	}
+	return s.Source.Token(ctx, conn, resource, minTTL)
+}
 
-func (p *revokingProvider) Revoke(_ context.Context, _ *connection.App, refreshToken string) error {
+// fakeGoogle is the Google provider with a consent, an identity, probes,
+// and a revocation that never call Google. Each consent returns a new
+// refresh token, and each probe and revocation is recorded.
+type fakeGoogle struct {
+	*google.Provider
+	revoked  []string
+	consents int
+	// probed holds the access token of each probe.
+	probed []string
+}
+
+func (p *fakeGoogle) RevokeScope() connect.RevokeScope { return connect.RevokesToken }
+
+func (p *fakeGoogle) Revoke(_ context.Context, _ *connection.App, refreshToken string) error {
 	p.revoked = append(p.revoked, refreshToken)
 	return nil
+}
+
+func (p *fakeGoogle) Exchange(_ context.Context, cfg *oauth2.Config, _ *connection.Connection, _ string, _ ...oauth2.AuthCodeOption) (*oauth2.Token, error) {
+	p.consents++
+	token := &oauth2.Token{
+		AccessToken:  testAccessToken,
+		RefreshToken: fmt.Sprintf("%s-%d", testRefreshToken, p.consents),
+		Expiry:       time.Now().Add(time.Hour),
+	}
+	return token.WithExtra(map[string]any{"scope": strings.Join(cfg.Scopes, " ")}), nil
+}
+
+func (p *fakeGoogle) Identity(context.Context, *connection.App, *oauth2.Token) (connect.Identity, error) {
+	return connect.Identity{Account: testAccount, AccountID: "sub-1", VouchedEmail: testAccount}, nil
+}
+
+func (p *fakeGoogle) Probe(_ context.Context, _ *connection.App, conn *connection.Connection, token *oauth2.Token) []connection.Probe {
+	p.probed = append(p.probed, token.AccessToken)
+	probes := make([]connection.Probe, len(conn.Services))
+	for i, svc := range conn.Services {
+		probes[i] = connection.Probe{Service: svc.Name}
+	}
+	return probes
 }
 
 func auditActions(store *recordingAuditStore) []string {

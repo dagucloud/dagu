@@ -267,6 +267,15 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"GetConnection":    remoteNodeAccessDenied,
 	"UpdateConnection": remoteNodeAccessDenied,
 	"DeleteConnection": remoteNodeAccessDenied,
+
+	"ListConnectionProviders":         remoteNodeAccessDenied,
+	"StartConnectionAuthorization":    remoteNodeAccessDenied,
+	"GetConnectionAuthorization":      remoteNodeAccessDenied,
+	"CancelConnectionAuthorization":   remoteNodeAccessDenied,
+	"CompleteConnectionAuthorization": remoteNodeAccessDenied,
+	"ConfirmConnectionAuthorization":  remoteNodeAccessDenied,
+	"TestConnection":                  remoteNodeAccessDenied,
+	"ListConnectionTools":             remoteNodeAccessDenied,
 }
 
 // remoteNodeProfileOperations take a runtime profile in the request body.

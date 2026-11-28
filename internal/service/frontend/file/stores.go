@@ -272,7 +272,7 @@ func initEncryptedStores(
 	}
 
 	connectEvents := &frontend.ConnectEvents{}
-	connections, connectEngine, err := newConnectEngine(cfg, server, encryptor, connectEvents)
+	connections, connectEngine, err := newConnectEngine(cfg, server, encryptor, connectEvents, stores)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create connect engine", tag.Error(err))
 	} else {
@@ -311,12 +311,14 @@ func initEncryptedStores(
 
 // newConnectEngine returns the server's connection store and an engine
 // that runs connect sessions over it and reports to events. Providers
-// register as they are added.
+// register as they are added. It sets the process's one tool catalog
+// reader, which the engine's probes save through, in stores.
 func newConnectEngine(
 	cfg *config.Config,
 	server *persisfile.ServerStores,
 	encryptor *crypto.Encryptor,
 	events *frontend.ConnectEvents,
+	stores *frontend.Stores,
 ) (connection.Store, *connect.Engine, error) {
 	connections, err := server.ConnectionStore()
 	if err != nil {
@@ -347,12 +349,14 @@ func newConnectEngine(
 			connection.ProviderGoogle: googleProvider,
 		},
 		Encryptor:       encryptor,
+		Tokens:          tokens,
 		AnyUserConfirms: cfg.Server.Auth.Mode == config.AuthModeNone,
 		OnRevoke:        events.Revoked,
 	})
 	if err != nil {
 		return nil, nil, err
 	}
+	stores.ToolCatalog = catalog
 	return connections, engine, nil
 }
 

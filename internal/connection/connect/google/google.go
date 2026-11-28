@@ -112,6 +112,7 @@ var (
 	_ connect.Advisor     = (*Provider)(nil)
 	_ connect.Revoker     = (*Provider)(nil)
 	_ connect.GrantSharer = (*Provider)(nil)
+	_ connect.Guide       = (*Provider)(nil)
 )
 
 // Config is what a Provider needs.
@@ -380,6 +381,21 @@ func (p *Provider) RefreshTokenFix(remaining time.Duration) string {
 	return fix
 }
 
+// SetupLinks returns the Google Cloud console's pages for clients and
+// their audience, and the Admin console's API controls.
+func (p *Provider) SetupLinks() connect.SetupLinks {
+	return connect.SetupLinks{Clients: clientsPage, ConsentScreen: audiencePage, AdminTrust: apiControlsPage}
+}
+
+// EnableAPIsLink returns the Google Cloud console's page that enables apis
+// in the project that the admin picks.
+func (p *Provider) EnableAPIsLink(apis []string) string {
+	if len(apis) == 0 {
+		return ""
+	}
+	return enableAPIsLink(apis)
+}
+
 // RevokeScope reports that revoking a Google refresh token may end the
 // account's whole grant, as Google documents for its revocation endpoint:
 // the tokens of every client in the client's project.
@@ -563,7 +579,11 @@ func (e apiError) disabled(apis []string) string {
 		apis = []string{e.service}
 	}
 	return fmt.Sprintf("Enable %s in the client's Google Cloud project on %s. Google says: %s",
-		strings.Join(apis, " and "), enableAPIsPage+strings.Join(apis, ","), e.message)
+		strings.Join(apis, " and "), enableAPIsLink(apis), e.message)
+}
+
+func enableAPIsLink(apis []string) string {
+	return enableAPIsPage + strings.Join(apis, ",")
 }
 
 // httpError reports an unexpected answer of what, with Google's message.

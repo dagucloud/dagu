@@ -33,15 +33,20 @@ Implemented so far:
 - The [Connect Flow](#connect-flow) for `google` inside the server: the
   authorization request, the server callback, confirmation, the
   [checks after consent](#checks-after-consent), and the
-  [consent errors](#consent-errors). No route starts a session until the
-  REST API lands.
-- [REST API](#rest-api): `/oauth-apps` and `/connections`, with their
+  [consent errors](#consent-errors), in server callback, loopback, and
+  paste modes.
+- [REST API](#rest-api): `/connection-providers`, `/oauth-apps`,
+  `/connections`, `/connections/{name}/authorization` with its complete,
+  confirm, and cancel, `POST /connections/{name}/test`, and
+  `GET /connections/{name}/tools`, with their
   [Permissions](#permissions) and [Audit](#audit), the audit of
   revocations, and [Deleting a Project](#deleting-a-project) for a
   workspace, which also cannot be renamed while it owns connections. The
   API takes only `google` and `microsoft` apps, since no request sets an
   app's `endpoints` or a connection's `resource` yet, and creates a
-  connection only for the `authorization_code` grant.
+  connection only for the `authorization_code` grant. A server callback
+  connect confirmed at once is audited only at its start, since the
+  callback has no Dagu user.
 
 The tests against Google also settle whether Docs, Sheets, and Slides
 answer `NOT_FOUND` rather than `PERMISSION_DENIED` for a resource ID that
@@ -616,7 +621,13 @@ starter (UI or CLI)          Dagu server                       provider
 | Device code | Microsoft only, when the caller asks for it | None. The CLI shows a code to enter on another device | `public` |
 
 - The usable public URL is `server.public_url`, else the tunnel URL, else
-  the UI's origin when the browser reaches Dagu at `localhost`.
+  the UI's origin when the browser reaches Dagu at `localhost` or a
+  loopback address, which Google accepts over HTTP. The server reads that
+  origin from the request's host, so a CLI that reaches Dagu at
+  `localhost`, and a browser at a published container port, get the same
+  URL. A request with a forwarding header, or whose `Origin` or `Referer`
+  names another origin, does not count, so a server behind a proxy needs
+  `server.public_url`.
 - Unless the caller names a mode, the UI and the CLI pick the first of
   server callback, Cloud relay, loopback, and paste that works for the
   server's public URL, its license, and the app's client type.
@@ -1167,6 +1178,12 @@ an event, so a first connect from `pending` sends none.
   status `broken` and a reason that says to remove it and add it again. It
   is still listed and can be removed. Any other failure to read the token
   state fails the request.
+- `POST .../authorization` also returns the redirect mode, the exact
+  redirect URI to register, and the app's client ID, which the UI and the
+  CLI show before consent. `GET /connection-providers` lists each redirect
+  mode the server offers with its client type and redirect URI.
+- `GET .../tools` without `server` reads the catalog of every MCP service
+  of the connection, and reports a listing that fails per service.
 - `GET .../authorization` with a session handle returns `waiting`, or
   `confirm` with the account, while that session is in progress. After it
   ends, it returns `connected` when the session was confirmed, and

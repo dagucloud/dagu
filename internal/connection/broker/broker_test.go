@@ -116,6 +116,7 @@ func TestConcurrentRefresh(t *testing.T) {
 			callersPerProcess: 1,
 			respond:           func(w http.ResponseWriter) { w.WriteHeader(http.StatusServiceUnavailable) },
 			check: func(t *testing.T, _ string, err error) {
+				assert.ErrorIs(t, err, broker.ErrRefreshFailed)
 				assert.ErrorContains(t, err, "status 503")
 			},
 		},

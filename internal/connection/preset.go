@@ -151,14 +151,36 @@ var userScopes = map[Provider][]string{
 func LookupPreset(provider Provider, service string) (Preset, bool) {
 	for _, p := range presets {
 		if p.Provider == provider && p.Name == service {
-			p.RESTHosts = slices.Clone(p.RESTHosts)
-			p.ReadScopes = slices.Clone(p.ReadScopes)
-			p.WriteScopes = slices.Clone(p.WriteScopes)
-			p.APIs = slices.Clone(p.APIs)
-			return p, true
+			return p.clone(), true
 		}
 	}
 	return Preset{}, false
+}
+
+// Presets returns copies of the presets of provider.
+func Presets(provider Provider) []Preset {
+	var out []Preset
+	for _, p := range presets {
+		if p.Provider == provider {
+			out = append(out, p.clone())
+		}
+	}
+	return out
+}
+
+// UserScopes returns the scopes that every connection of provider that
+// signs in a user asks for, whatever its services.
+func UserScopes(provider Provider) []string {
+	return slices.Clone(userScopes[provider])
+}
+
+func (p *Preset) clone() Preset {
+	c := *p
+	c.RESTHosts = slices.Clone(p.RESTHosts)
+	c.ReadScopes = slices.Clone(p.ReadScopes)
+	c.WriteScopes = slices.Clone(p.WriteScopes)
+	c.APIs = slices.Clone(p.APIs)
+	return c
 }
 
 // Scopes returns the scopes p asks for with access.

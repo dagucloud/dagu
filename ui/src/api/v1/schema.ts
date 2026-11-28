@@ -5276,6 +5276,169 @@ export interface paths {
         patch: operations["updateConnection"];
         trace?: never;
     };
+    "/connection-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List connection providers
+         * @description Lists the providers this server connects, with their services, scopes, and setup pages, and the redirect modes the server offers with the redirect URI to register for each. Needs a signed-in user.
+         */
+        get: operations["listConnectionProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/{name}/authorization": {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a connect session
+         * @description Returns waiting, or confirm with the account, while the session is in progress. After it ends, connected when it is the connection's last confirmed session, and otherwise failed with a reason. An earlier confirmed session reads failed with reason replaced once a later one is confirmed, so the status is not a history of confirms. Needs viewer or above in the workspace.
+         */
+        get: operations["getConnectionAuthorization"];
+        put?: never;
+        /**
+         * Start a connect or reconnect
+         * @description Starts a connect session, which replaces an earlier one. The live tokens stay until the starter confirms. A redirect mode that does not work for the server or the app's client type is refused with 400. Needs manager or above in the workspace.
+         */
+        post: operations["startConnectionAuthorization"];
+        /**
+         * Cancel a connect session
+         * @description Fails a session that has not ended. The live tokens stay. Needs manager or above in the workspace.
+         */
+        delete: operations["cancelConnectionAuthorization"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/{name}/authorization/complete": {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete a loopback or paste session
+         * @description Completes a loopback or paste session from the provider's redirect: the URL the browser landed on, or its code and state. The session moves to confirm, or to connected when the expected account signed in with the account ID the connection already has, if any. Read the session afterwards to learn which. A consent that the provider refused fails the session and returns 400 with the provider's error. A redirect for a session that no longer waits is refused with 409. Needs manager or above in the workspace.
+         */
+        post: operations["completeConnectionAuthorization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/{name}/authorization/confirm": {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm the account of a connect session
+         * @description Makes the session's tokens live. Only the user who started the session may confirm it; another user gets 403 and the session stays in confirm. Needs manager or above in the workspace.
+         */
+        post: operations["confirmConnectionAuthorization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/{name}/test": {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a connection
+         * @description Probes each service with the connection's live token. With an app that has the agent flag, a service with an MCP server runs tools/list, which refreshes its tool catalog. Any other service reads its REST profile, which checks neither MCP access nor the catalog. A connection that needs a reconnect is refused with 409, and a refresh that fails for a reason that may pass returns 502 with the provider's error. Needs developer or above in the workspace.
+         */
+        post: operations["testConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/{name}/tools": {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a connection's MCP tools
+         * @description Reads the tool catalog of each MCP service, or of the one that server names. A catalog older than 10 minutes is listed again. At most one listing of a catalog runs at a time on a host, however many callers ask. A server that is not one of the connection's MCP services is refused with 400. Needs developer or above in the workspace.
+         */
+        get: operations["listConnectionTools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workspaces": {
         parameters: {
             query?: never;
@@ -10303,6 +10466,140 @@ export interface components {
             allowTokenExport?: boolean;
         };
         /**
+         * @description server_callback redirects to this server's public callback, loopback to the CLI's listener on 127.0.0.1, and paste to a loopback URL that fails to load, which the user pastes. loopback needs loopbackRedirectUri, so a client without a listener, such as a browser, omits mode or skips loopback.
+         * @enum {string}
+         */
+        ConnectionRedirectMode: ConnectionRedirectMode;
+        ConnectionRedirect: {
+            mode: components["schemas"]["ConnectionRedirectMode"];
+            clientType: components["schemas"]["OAuthClientType"];
+            /** @description The redirect URI to register in the client. Absent for loopback, whose URI is the CLI's listener on a port it picks. */
+            redirectUri?: string;
+        };
+        ConnectionProviderSetupLinks: {
+            /** @description Lists the provider's clients, and creates one. */
+            clients?: string;
+            /** @description Sets who may consent, such as the test users of an app in Testing status. */
+            consentScreen?: string;
+            /** @description Where an organization's admin trusts a client that its policy blocks. */
+            adminTrust?: string;
+        };
+        ConnectionPreset: {
+            name: string;
+            /** @description The service's MCP server. Absent for a service without one. */
+            mcpUrl?: string;
+            /** @description Scopes asked for with read and write access. */
+            readScopes: string[];
+            /** @description Scopes asked for with write access, beyond readScopes. */
+            writeScopes: string[];
+            /** @description The provider's API IDs to enable in the client's project. */
+            apis: string[];
+            /** @description The page that enables apis in the client's project. */
+            enableApisUrl?: string;
+            /** @description True for a service that works only for members of the provider's developer preview program. */
+            preview: boolean;
+        };
+        ConnectionProvider: {
+            name: components["schemas"]["ConnectionProviderName"];
+            /** @description Scopes every connection that signs in a user asks for, whatever its services. */
+            userScopes: string[];
+            setupLinks?: components["schemas"]["ConnectionProviderSetupLinks"];
+            services: components["schemas"]["ConnectionPreset"][];
+        };
+        ConnectionProviderListResponse: {
+            /** @description The server's usable public URL, with its base path: server.public_url, else the tunnel URL, else the origin of this request when it reached localhost or a loopback address such as 127.0.0.1 without a proxy: it has no Forwarded, X-Forwarded-*, or X-Real-IP header, and its Origin or Referer, when present, has the same origin. Absent when it has none. A server behind a proxy needs server.public_url. */
+            publicUrl?: string;
+            /** @description The redirect modes the server offers, in the order the server picks the first that works for the app's client type when mode is omitted. loopback works only for a client that listens on 127.0.0.1, such as the CLI. */
+            redirects: components["schemas"]["ConnectionRedirect"][];
+            providers: components["schemas"]["ConnectionProvider"][];
+        };
+        StartConnectionAuthorizationRequest: {
+            mode?: components["schemas"]["ConnectionRedirectMode"];
+            /** @description The http://127.0.0.1 URL with a port that the CLI listens on, for loopback mode. */
+            loopbackRedirectUri?: string;
+            /** @description The email address expected to sign in. A session whose account the provider vouches for with this address, and whose account ID matches the connection's, if it has one, is confirmed without asking. Otherwise it waits in confirm. */
+            expectedAccount?: string;
+        };
+        ConnectionAuthorizationStart: {
+            /** @description The session handle, which reads, confirms, and cancels the session. It is not the OAuth state: complete takes the provider's redirect. */
+            session: string;
+            /** @description Opens the provider's consent page. In server_callback mode it may be given to the account's owner, whose browser then reaches this server's callback. In loopback and paste modes the redirect lands on the browser's own machine, so the starter consents there. */
+            authorizationUrl: string;
+            mode: components["schemas"]["ConnectionRedirectMode"];
+            /** @description The exact redirect URI the client must list. */
+            redirectUri: string;
+            /** @description The app's client ID, which an organization admin may have to trust before consent. */
+            clientId: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        ConnectionProbe: {
+            service: string;
+            ok: boolean;
+            /** @description What failed and how to fix it. Absent when the service answered. */
+            error?: string;
+        };
+        ConnectionAuthorization: {
+            /** @enum {string} */
+            phase: ConnectionAuthorizationPhase;
+            /** @description The account that signed in, in confirm. */
+            account?: string;
+            /** @description The provider's immutable ID of the account, in confirm. */
+            accountId?: string;
+            grantedScopes?: string[];
+            /** Format: date-time */
+            refreshTokenExpiresAt?: string;
+            /** @description What to do about the end of the refresh token, when the provider reports one. */
+            refreshTokenFix?: string;
+            /** @description Each service's check after consent, in confirm. */
+            probes?: components["schemas"]["ConnectionProbe"][];
+            /** @description Other connections of the workspace that hold the same account through the same client. */
+            duplicates?: string[];
+            /** @description Why the session failed: the provider's error, expired, cancelled, or replaced. */
+            reason?: string;
+            /** Format: date-time */
+            expiresAt?: string;
+        };
+        /** @description Either redirectUrl, or state with code or error. */
+        CompleteConnectionAuthorizationRequest: {
+            /** @description The URL the browser landed on after consent, with its query. */
+            redirectUrl?: string;
+            state?: string;
+            code?: string;
+            error?: string;
+            errorDescription?: string;
+        };
+        ConfirmConnectionAuthorizationRequest: {
+            session: string;
+        };
+        ConnectionTestResponse: {
+            services: components["schemas"]["ConnectionProbe"][];
+        };
+        ConnectionTool: {
+            name: string;
+            description?: string;
+            /** @description The tool's input as a JSON Schema. */
+            inputSchema: {
+                [key: string]: unknown;
+            };
+            /** @description The tool's MCP annotations, such as readOnlyHint. */
+            annotations?: {
+                [key: string]: unknown;
+            };
+        };
+        ConnectionToolServer: {
+            /** @description The service, or empty for an mcp connection. */
+            server: string;
+            /** Format: date-time */
+            listedAt?: string;
+            tools: components["schemas"]["ConnectionTool"][];
+            /** @description Why the tools could not be listed. tools is then empty. */
+            error?: string;
+        };
+        ConnectionToolsResponse: {
+            servers: components["schemas"]["ConnectionToolServer"][];
+        };
+        /**
          * @description A status column available in a Kanban view.
          * @enum {string}
          */
@@ -10825,6 +11122,8 @@ export interface components {
         ConnectionWorkspace: string;
         ConnectionName: string;
         OAuthAppId: string;
+        /** @description The session handle that starting the session returned. */
+        ConnectionSession: string;
         /** @description Filter entries after this time (ISO 8601 format) */
         LogStartTime: string;
         /** @description Filter entries before this time (ISO 8601 format) */
@@ -28901,6 +29200,240 @@ export interface operations {
             default: components["responses"]["ConnectionError"];
         };
     };
+    listConnectionProviders: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connection providers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionProviderListResponse"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    getConnectionAuthorization: {
+        parameters: {
+            query: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description The session handle that starting the session returned. */
+                session: components["parameters"]["ConnectionSession"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionAuthorization"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    startConnectionAuthorization: {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["StartConnectionAuthorizationRequest"];
+            };
+        };
+        responses: {
+            /** @description Session started */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionAuthorizationStart"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    cancelConnectionAuthorization: {
+        parameters: {
+            query: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description The session handle that starting the session returned. */
+                session: components["parameters"]["ConnectionSession"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session cancelled */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    completeConnectionAuthorization: {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteConnectionAuthorizationRequest"];
+            };
+        };
+        responses: {
+            /** @description Session completed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    confirmConnectionAuthorization: {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmConnectionAuthorizationRequest"];
+            };
+        };
+        responses: {
+            /** @description Connection connected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Connection"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    testConnection: {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One result per service */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionTestResponse"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    listConnectionTools: {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description The service whose tools to list. Omitted, every MCP service of the connection. */
+                server?: string;
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tools per MCP service */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionToolsResponse"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
     listWorkspaces: {
         parameters: {
             query?: {
@@ -29852,6 +30385,17 @@ export enum ConnectionStatus {
     connected = "connected",
     needs_reconnect = "needs_reconnect",
     broken = "broken"
+}
+export enum ConnectionRedirectMode {
+    server_callback = "server_callback",
+    loopback = "loopback",
+    paste = "paste"
+}
+export enum ConnectionAuthorizationPhase {
+    waiting = "waiting",
+    confirm = "confirm",
+    connected = "connected",
+    failed = "failed"
 }
 export enum ViewColumn {
     queued = "queued",

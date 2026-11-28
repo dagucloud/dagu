@@ -247,13 +247,17 @@ func TestCompleteServesItsModes(t *testing.T) {
 	assert.ErrorIs(t, f.engine.Callback(context.Background(), params), connect.ErrCallbackRefused)
 	other := *f.conn
 	other.ID = "other"
-	assert.ErrorIs(t, f.engine.Complete(context.Background(), &other, params), connect.ErrCallbackRefused)
-	require.NoError(t, f.engine.Complete(context.Background(), f.conn, params))
+	_, err := f.engine.Complete(context.Background(), &other, params)
+	assert.ErrorIs(t, err, connect.ErrCallbackRefused)
+	confirmed, err := f.engine.Complete(context.Background(), f.conn, params)
+	require.NoError(t, err)
+	assert.False(t, confirmed)
 	assert.Equal(t, connection.SessionPhaseConfirm, f.state(t).Session.Phase)
 
 	f.useClientType(t, connection.ClientTypeWeb)
 	auth = f.start(t, connect.StartOptions{User: starter, Redirect: serverCallback})
-	assert.ErrorIs(t, f.engine.Complete(context.Background(), f.conn, f.provider.consent(t, auth)), connect.ErrCallbackRefused)
+	_, err = f.engine.Complete(context.Background(), f.conn, f.provider.consent(t, auth))
+	assert.ErrorIs(t, err, connect.ErrCallbackRefused)
 	assert.Equal(t, 1, f.provider.exchanges())
 }
 

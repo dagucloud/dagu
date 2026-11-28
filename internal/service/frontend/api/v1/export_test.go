@@ -46,3 +46,9 @@ func WithRunSortDAGLimitForTest(limit int) APIOption {
 		a.runSortDAGLimit = limit
 	}
 }
+
+// WithLocalhostOrigin returns ctx as the API's middleware leaves it for a
+// request that reached the server directly at origin.
+func WithLocalhostOrigin(ctx context.Context, origin string) context.Context {
+	return context.WithValue(ctx, localhostOriginKey{}, origin)
+}

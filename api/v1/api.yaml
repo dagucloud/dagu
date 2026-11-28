@@ -14698,6 +14698,181 @@ paths:
         default:
           $ref: "#/components/responses/ConnectionError"
 
+  /connection-providers:
+    get:
+      summary: "List connection providers"
+      description: "Lists the providers this server connects, with their services, scopes, and setup pages, and the redirect modes the server offers with the redirect URI to register for each. Needs a signed-in user."
+      operationId: "listConnectionProviders"
+      tags:
+        - "connections"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Connection providers"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionProviderListResponse"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+
+  /connections/{name}/authorization:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionName"
+      - $ref: "#/components/parameters/ConnectionWorkspace"
+      - $ref: "#/components/parameters/RemoteNode"
+    post:
+      summary: "Start a connect or reconnect"
+      description: "Starts a connect session, which replaces an earlier one. The live tokens stay until the starter confirms. A redirect mode that does not work for the server or the app's client type is refused with 400. Needs manager or above in the workspace."
+      operationId: "startConnectionAuthorization"
+      tags:
+        - "connections"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartConnectionAuthorizationRequest"
+      responses:
+        "200":
+          description: "Session started"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionAuthorizationStart"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+    get:
+      summary: "Read a connect session"
+      description: "Returns waiting, or confirm with the account, while the session is in progress. After it ends, connected when it is the connection's last confirmed session, and otherwise failed with a reason. An earlier confirmed session reads failed with reason replaced once a later one is confirmed, so the status is not a history of confirms. Needs viewer or above in the workspace."
+      operationId: "getConnectionAuthorization"
+      tags:
+        - "connections"
+      parameters:
+        - $ref: "#/components/parameters/ConnectionSession"
+      responses:
+        "200":
+          description: "Session status"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionAuthorization"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+    delete:
+      summary: "Cancel a connect session"
+      description: "Fails a session that has not ended. The live tokens stay. Needs manager or above in the workspace."
+      operationId: "cancelConnectionAuthorization"
+      tags:
+        - "connections"
+      parameters:
+        - $ref: "#/components/parameters/ConnectionSession"
+      responses:
+        "204":
+          description: "Session cancelled"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+
+  /connections/{name}/authorization/complete:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionName"
+      - $ref: "#/components/parameters/ConnectionWorkspace"
+      - $ref: "#/components/parameters/RemoteNode"
+    post:
+      summary: "Complete a loopback or paste session"
+      description: "Completes a loopback or paste session from the provider's redirect: the URL the browser landed on, or its code and state. The session moves to confirm, or to connected when the expected account signed in with the account ID the connection already has, if any. Read the session afterwards to learn which. A consent that the provider refused fails the session and returns 400 with the provider's error. A redirect for a session that no longer waits is refused with 409. Needs manager or above in the workspace."
+      operationId: "completeConnectionAuthorization"
+      tags:
+        - "connections"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteConnectionAuthorizationRequest"
+      responses:
+        "204":
+          description: "Session completed"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+
+  /connections/{name}/authorization/confirm:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionName"
+      - $ref: "#/components/parameters/ConnectionWorkspace"
+      - $ref: "#/components/parameters/RemoteNode"
+    post:
+      summary: "Confirm the account of a connect session"
+      description: "Makes the session's tokens live. Only the user who started the session may confirm it; another user gets 403 and the session stays in confirm. Needs manager or above in the workspace."
+      operationId: "confirmConnectionAuthorization"
+      tags:
+        - "connections"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmConnectionAuthorizationRequest"
+      responses:
+        "200":
+          description: "Connection connected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Connection"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+
+  /connections/{name}/test:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionName"
+      - $ref: "#/components/parameters/ConnectionWorkspace"
+      - $ref: "#/components/parameters/RemoteNode"
+    post:
+      summary: "Test a connection"
+      description: "Probes each service with the connection's live token. With an app that has the agent flag, a service with an MCP server runs tools/list, which refreshes its tool catalog. Any other service reads its REST profile, which checks neither MCP access nor the catalog. A connection that needs a reconnect is refused with 409, and a refresh that fails for a reason that may pass returns 502 with the provider's error. Needs developer or above in the workspace."
+      operationId: "testConnection"
+      tags:
+        - "connections"
+      responses:
+        "200":
+          description: "One result per service"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionTestResponse"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+
+  /connections/{name}/tools:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionName"
+      - $ref: "#/components/parameters/ConnectionWorkspace"
+      - $ref: "#/components/parameters/RemoteNode"
+    get:
+      summary: "List a connection's MCP tools"
+      description: "Reads the tool catalog of each MCP service, or of the one that server names. A catalog older than 10 minutes is listed again. At most one listing of a catalog runs at a time on a host, however many callers ask. A server that is not one of the connection's MCP services is refused with 400. Needs developer or above in the workspace."
+      operationId: "listConnectionTools"
+      tags:
+        - "connections"
+      parameters:
+        - name: server
+          in: query
+          description: "The service whose tools to list. Omitted, every MCP service of the connection."
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Tools per MCP service"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionToolsResponse"
+        default:
+          $ref: "#/components/responses/ConnectionError"
+
   /workspaces:
     get:
       summary: "List all workspaces"
@@ -15199,6 +15374,14 @@ components:
     OAuthAppId:
       name: appId
       in: path
+      required: true
+      schema:
+        type: string
+
+    ConnectionSession:
+      name: session
+      in: query
+      description: "The session handle that starting the session returned."
       required: true
       schema:
         type: string
@@ -24912,6 +25095,305 @@ components:
             type: string
         allowTokenExport:
           type: boolean
+
+    ConnectionRedirectMode:
+      type: string
+      description: "server_callback redirects to this server's public callback, loopback to the CLI's listener on 127.0.0.1, and paste to a loopback URL that fails to load, which the user pastes. loopback needs loopbackRedirectUri, so a client without a listener, such as a browser, omits mode or skips loopback."
+      enum:
+        - server_callback
+        - loopback
+        - paste
+
+    ConnectionRedirect:
+      type: object
+      required:
+        - mode
+        - clientType
+      properties:
+        mode:
+          $ref: "#/components/schemas/ConnectionRedirectMode"
+        clientType:
+          $ref: "#/components/schemas/OAuthClientType"
+        redirectUri:
+          type: string
+          description: "The redirect URI to register in the client. Absent for loopback, whose URI is the CLI's listener on a port it picks."
+
+    ConnectionProviderSetupLinks:
+      type: object
+      properties:
+        clients:
+          type: string
+          description: "Lists the provider's clients, and creates one."
+        consentScreen:
+          type: string
+          description: "Sets who may consent, such as the test users of an app in Testing status."
+        adminTrust:
+          type: string
+          description: "Where an organization's admin trusts a client that its policy blocks."
+
+    ConnectionPreset:
+      type: object
+      required:
+        - name
+        - readScopes
+        - writeScopes
+        - apis
+        - preview
+      properties:
+        name:
+          type: string
+        mcpUrl:
+          type: string
+          description: "The service's MCP server. Absent for a service without one."
+        readScopes:
+          type: array
+          description: "Scopes asked for with read and write access."
+          items:
+            type: string
+        writeScopes:
+          type: array
+          description: "Scopes asked for with write access, beyond readScopes."
+          items:
+            type: string
+        apis:
+          type: array
+          description: "The provider's API IDs to enable in the client's project."
+          items:
+            type: string
+        enableApisUrl:
+          type: string
+          description: "The page that enables apis in the client's project."
+        preview:
+          type: boolean
+          description: "True for a service that works only for members of the provider's developer preview program."
+
+    ConnectionProvider:
+      type: object
+      required:
+        - name
+        - userScopes
+        - services
+      properties:
+        name:
+          $ref: "#/components/schemas/ConnectionProviderName"
+        userScopes:
+          type: array
+          description: "Scopes every connection that signs in a user asks for, whatever its services."
+          items:
+            type: string
+        setupLinks:
+          $ref: "#/components/schemas/ConnectionProviderSetupLinks"
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectionPreset"
+
+    ConnectionProviderListResponse:
+      type: object
+      required:
+        - providers
+        - redirects
+      properties:
+        publicUrl:
+          type: string
+          description: "The server's usable public URL, with its base path: server.public_url, else the tunnel URL, else the origin of this request when it reached localhost or a loopback address such as 127.0.0.1 without a proxy: it has no Forwarded, X-Forwarded-*, or X-Real-IP header, and its Origin or Referer, when present, has the same origin. Absent when it has none. A server behind a proxy needs server.public_url."
+        redirects:
+          type: array
+          description: "The redirect modes the server offers, in the order the server picks the first that works for the app's client type when mode is omitted. loopback works only for a client that listens on 127.0.0.1, such as the CLI."
+          items:
+            $ref: "#/components/schemas/ConnectionRedirect"
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectionProvider"
+
+    StartConnectionAuthorizationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        mode:
+          $ref: "#/components/schemas/ConnectionRedirectMode"
+        loopbackRedirectUri:
+          type: string
+          description: "The http://127.0.0.1 URL with a port that the CLI listens on, for loopback mode."
+        expectedAccount:
+          type: string
+          description: "The email address expected to sign in. A session whose account the provider vouches for with this address, and whose account ID matches the connection's, if it has one, is confirmed without asking. Otherwise it waits in confirm."
+
+    ConnectionAuthorizationStart:
+      type: object
+      required:
+        - session
+        - authorizationUrl
+        - mode
+        - redirectUri
+        - clientId
+        - expiresAt
+      properties:
+        session:
+          type: string
+          description: "The session handle, which reads, confirms, and cancels the session. It is not the OAuth state: complete takes the provider's redirect."
+        authorizationUrl:
+          type: string
+          description: "Opens the provider's consent page. In server_callback mode it may be given to the account's owner, whose browser then reaches this server's callback. In loopback and paste modes the redirect lands on the browser's own machine, so the starter consents there."
+        mode:
+          $ref: "#/components/schemas/ConnectionRedirectMode"
+        redirectUri:
+          type: string
+          description: "The exact redirect URI the client must list."
+        clientId:
+          type: string
+          description: "The app's client ID, which an organization admin may have to trust before consent."
+        expiresAt:
+          type: string
+          format: date-time
+
+    ConnectionProbe:
+      type: object
+      required:
+        - service
+        - ok
+      properties:
+        service:
+          type: string
+        ok:
+          type: boolean
+        error:
+          type: string
+          description: "What failed and how to fix it. Absent when the service answered."
+
+    ConnectionAuthorization:
+      type: object
+      required:
+        - phase
+      properties:
+        phase:
+          type: string
+          enum:
+            - waiting
+            - confirm
+            - connected
+            - failed
+        account:
+          type: string
+          description: "The account that signed in, in confirm."
+        accountId:
+          type: string
+          description: "The provider's immutable ID of the account, in confirm."
+        grantedScopes:
+          type: array
+          items:
+            type: string
+        refreshTokenExpiresAt:
+          type: string
+          format: date-time
+        refreshTokenFix:
+          type: string
+          description: "What to do about the end of the refresh token, when the provider reports one."
+        probes:
+          type: array
+          description: "Each service's check after consent, in confirm."
+          items:
+            $ref: "#/components/schemas/ConnectionProbe"
+        duplicates:
+          type: array
+          description: "Other connections of the workspace that hold the same account through the same client."
+          items:
+            type: string
+        reason:
+          type: string
+          description: "Why the session failed: the provider's error, expired, cancelled, or replaced."
+        expiresAt:
+          type: string
+          format: date-time
+
+    CompleteConnectionAuthorizationRequest:
+      type: object
+      additionalProperties: false
+      description: "Either redirectUrl, or state with code or error."
+      properties:
+        redirectUrl:
+          type: string
+          writeOnly: true
+          description: "The URL the browser landed on after consent, with its query."
+        state:
+          type: string
+          writeOnly: true
+        code:
+          type: string
+          writeOnly: true
+        error:
+          type: string
+        errorDescription:
+          type: string
+
+    ConfirmConnectionAuthorizationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - session
+      properties:
+        session:
+          type: string
+
+    ConnectionTestResponse:
+      type: object
+      required:
+        - services
+      properties:
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectionProbe"
+
+    ConnectionTool:
+      type: object
+      required:
+        - name
+        - inputSchema
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        inputSchema:
+          type: object
+          additionalProperties: true
+          description: "The tool's input as a JSON Schema."
+        annotations:
+          type: object
+          additionalProperties: true
+          description: "The tool's MCP annotations, such as readOnlyHint."
+
+    ConnectionToolServer:
+      type: object
+      required:
+        - server
+        - tools
+      properties:
+        server:
+          type: string
+          description: "The service, or empty for an mcp connection."
+        listedAt:
+          type: string
+          format: date-time
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectionTool"
+        error:
+          type: string
+          description: "Why the tools could not be listed. tools is then empty."
+
+    ConnectionToolsResponse:
+      type: object
+      required:
+        - servers
+      properties:
+        servers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectionToolServer"
 
     ViewColumn:
       type: string
