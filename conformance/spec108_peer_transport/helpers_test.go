@@ -22,6 +22,11 @@ func waitForOutput(t *testing.T, process *harness.Process, want ...string) strin
 		}
 		select {
 		case <-process.Done():
+			// The process may have written the output just before it
+			// exited.
+			if output := process.Output(); containsAll(output, want) {
+				return output
+			}
 			t.Fatalf("process exited before writing %q: %s", want, process.FailureOutput())
 		case <-time.After(50 * time.Millisecond):
 		}

@@ -28,16 +28,14 @@ call of
 [Worker Certificate](#worker-certificate) and its record, the coordinator
 side of [Revocation](#revocation) and [Removal](#removal), the
 [Worker Side](#worker-side) of enrollment, the
-[Worker Files](#worker-files), the [Worker Start](#worker-start) except a
-certificate refused as revoked, the [Worker Lock](#worker-lock), the
-[Environment](#environment) in the heartbeat and in `GetWorkers`, the rows
-of [Configuration Conflicts](#configuration-conflicts) for `worker.invite`,
-the [Messages](#messages) of an enrolling worker,
-[`dagu worker --check`](#dagu-worker---check) without the lines of invite
-workers, and [`dagu worker invite`](#dagu-worker-invite). Clients that share a coordinator's data directory use built-in
-TLS. A worker that holds a certificate logs the message for a coordinator
-of a different Dagu, but does not exit on it yet. A worker does not
-yet act on its removal as [Removed Worker](#removed-worker) states.
+[Worker Files](#worker-files), the [Worker Start](#worker-start), the
+[Worker Lock](#worker-lock), the [Environment](#environment) in the
+heartbeat and in `GetWorkers`, the [Removed Worker](#removed-worker), the
+rows of [Configuration Conflicts](#configuration-conflicts) for
+`worker.invite`, the worker's [Messages](#messages),
+[`dagu worker --check`](#dagu-worker---check), and
+[`dagu worker invite`](#dagu-worker-invite). Clients that share a
+coordinator's data directory use built-in TLS.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
 section of this spec updates this status and adds conformance tests for what
@@ -710,7 +708,18 @@ The `worker_certificates` collection keeps one record per certificate:
 | A certificate whose CA does not have the pin of `worker.invite` | Enrolls again with the invite and uses the new certificate from then on. A restart with the same invite then keeps the new certificate |
 | A certificate the coordinator refuses as revoked, and an invite other than the one it enrolled with | Enrolls again with the new invite and uses the new certificate from then on |
 | A certificate the coordinator refuses as revoked, and the same invite or none | Exits with the message of [Messages](#messages) |
+| A certificate no reachable coordinator's CA signed, and no invite of another CA | Exits with the message of [Messages](#messages) |
 | A certificate, and `peer.insecure: true` | Row 1 of [Client Transport](#client-transport) applies: the worker uses h2c and the peer token, and warns at start that its certificate is unused |
+
+- A worker that keeps a certificate asks the coordinators in
+  `worker.coordinators`, in order, whether they accept it before it starts,
+  with one call to the first that answers. While none answers, it starts
+  with the certificate, and its calls retry.
+- A refusal as revoked, from the start or while the worker runs, is kept
+  with the certificate, so a later start with the same invite or none exits
+  at once, without calling a coordinator. Any refusal decides: a
+  coordinator that has not reread the revoked set yet does not outweigh
+  one that has.
 
 #### Worker Lock
 
@@ -952,8 +961,17 @@ as the REST API always does:
 
 - A worker whose certificate is refused as revoked stops the runs it holds,
   since it can no longer report them, keeps its certificate, and exits with code
-  1 and the message of [Messages](#messages).
-- In Kubernetes, it also writes the message to `/dev/termination-log`.
+  1 and the message of [Messages](#messages). It logs each run it stops,
+  with its DAG, run ID, and attempt. With `finish`, the coordinator revokes
+  once the worker holds no run, so the worker stops none unless its
+  heartbeats stopped reaching the coordinator. With `stop`, it stops the
+  runs that did not end in time.
+- It learns of the refusal from its heartbeat, which runs every second, and
+  stops polling for tasks at the first refusal.
+- In Kubernetes, it also writes the message, on one line, to
+  `/dev/termination-log`, the default `terminationMessagePath`, which the
+  chart keeps, so `kubectl describe pod` shows it. It writes the file only
+  when it exists. Elsewhere it writes no file.
 - Its runs end on the coordinator as they do when a worker stops sending
   heartbeats.
 
@@ -1167,7 +1185,10 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
 - It reports an h2c worker whose address serves only TLS as such.
 - An invite worker also gets whether the coordinator's CA matches the
   invite's pin, and, with a worker certificate, its certificate ID, invite
-  ID, and whether the coordinator accepts it.
+  ID, and whether the coordinator accepts it. It uses the credential the
+  worker would start with, by [Worker Start](#worker-start), and takes no
+  lock, so it runs beside the worker. A worker without a certificate has no
+  credential before it enrolls, so it gets the health check only.
 - A failed handshake states the names the server certificate covers, the
   address dialed, and the CA the certificate chains to. It names each
   problem in plain words: a name the certificate does not cover, an IP
@@ -1202,6 +1223,30 @@ Coordinator 127.0.0.1:50055
     Certificate chains to: Example CA
 Error: 1 of 1 coordinators did not pass the check
 ```
+
+A worker that was removed:
+
+```text
+$ dagu worker --check --worker.coordinators=coord.example.com:50055 --worker.invite=dagu1.<pin>.<secret>
+Peer transport: built-in TLS (from worker certificate)
+Coordinator coord.example.com:50055
+  Transport: built-in TLS (from worker certificate)
+  Reachable: yes
+  Handshake: TLS
+    Certificate covers: DNS:coordinator.dagu.invalid
+    Certificate chains to: Dagu peer CA
+  Invite pin: matches the coordinator's CA
+  Credential: worker certificate 6c1f..., from invite 3f0c...; no peer token
+  Coordinator answered: This worker was removed from the coordinator
+  Get a new command from "Add worker" to add it again.
+Error: 1 of 1 coordinators did not pass the check
+```
+
+The other answers to an invite worker are
+`serving, and it accepted the worker certificate`, and, before it enrolls,
+`serving; the worker enrolls with its invite when it starts`. A coordinator
+whose CA does not have the invite's pin fails the handshake with
+`the coordinator belongs to a different Dagu: its CA does not match the invite`.
 
 ### Configuration Conflicts
 
@@ -1448,6 +1493,7 @@ A worker prints the cause and the next step:
 | The CA in the handshake does not have the invite's pin | `<host>:<port> belongs to a different Dagu (its CA does not match the invite)`<br>`Check the coordinator address.` |
 | A worker with a certificate and no `worker.invite` meets a coordinator whose CA did not sign that certificate | `<host>:<port> belongs to a different Dagu than the one this worker joined`<br>`Get a new command from "Add worker" to join it.` |
 | The worker certificate is refused as revoked | `This worker was removed from the coordinator`<br>`Get a new command from "Add worker" to add it again.` |
+| The same, in Kubernetes | `This worker was removed from the coordinator`<br>`Scale its Deployment down to stop it, or get a new command from "Add worker" to add it again.` |
 | The lock is held by a live worker | `Another worker uses this data directory`<br>`Give each worker its own data directory or volume.` |
 | The coordinator refuses h2c | `The coordinator requires TLS`<br>The change for the h2c reason, as [Require TLS](#require-tls) states |
 
