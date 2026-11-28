@@ -270,31 +270,34 @@ func installDateTimezone(vm *goja.Runtime, loc *time.Location) error {
 	}
 
 	factoryVal, err := vm.RunString(`(function(OrigDate, nowStr, makeLocalMs, parseLocalMs) {
+  // Captured so scripts that reassign Reflect keep a working Date.
+  var construct = Reflect.construct;
   function Date(year, month, day, hours, minutes, seconds, ms) {
-    if (!(this instanceof Date)) {
+    if (new.target === undefined) {
       return nowStr();
     }
+    // Constructing through new.target keeps subclass prototypes.
     var len = arguments.length;
     if (len === 0) {
-      return new OrigDate();
+      return construct(OrigDate, [], new.target);
     }
     if (len === 1) {
       var arg = arguments[0];
       if (arg instanceof OrigDate) {
-        return new OrigDate(arg);
+        return construct(OrigDate, [arg], new.target);
       }
       if (typeof arg === 'string') {
-        return new OrigDate(parseLocalMs(arg));
+        return construct(OrigDate, [parseLocalMs(arg)], new.target);
       }
       if (typeof arg === 'object' && arg !== null) {
         var prim = arg.valueOf();
         if (typeof prim === 'string') {
-          return new OrigDate(parseLocalMs(prim));
+          return construct(OrigDate, [parseLocalMs(prim)], new.target);
         }
       }
-      return new OrigDate(arg);
+      return construct(OrigDate, [arg], new.target);
     }
-    return new OrigDate(makeLocalMs(Array.prototype.slice.call(arguments)));
+    return construct(OrigDate, [makeLocalMs(Array.prototype.slice.call(arguments))], new.target);
   }
   Date.prototype = OrigDate.prototype;
   Object.defineProperty(OrigDate.prototype, 'constructor', {

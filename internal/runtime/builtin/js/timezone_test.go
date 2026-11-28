@@ -168,6 +168,18 @@ return {
 }`, got.stdout)
 	})
 
+	t.Run("Subclass", func(t *testing.T) {
+		t.Parallel()
+		got := run(t, ctxWithTZ("Asia/Tokyo", nil), `
+class Stamp extends Date {
+  label() { return "h" + this.getHours(); }
+}
+const s = new Stamp(Date.UTC(2026, 10, 12, 17, 14, 0));
+return [s instanceof Stamp, s instanceof Date, s.label(), s.toISOString()]`, nil)
+		require.NoError(t, got.err)
+		assert.JSONEq(t, `[true, true, "h2", "2026-11-12T17:14:00.000Z"]`, got.stdout)
+	})
+
 	t.Run("POSIXFixedOffsetSign", func(t *testing.T) {
 		t.Parallel()
 		// POSIX TZ=UTC+9 means 9h west of UTC (+540 JS offset); TZ=UTC-9 means 9h east (-540).
