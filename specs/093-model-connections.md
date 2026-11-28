@@ -419,7 +419,8 @@ For a step with a model connection, an adapter:
 1. Points the CLI at the gateway of its step for the chosen protocol: the
    relay address as the base URL, and the relay secret as the credential.
    The relay secret never appears in process arguments. It goes in an
-   environment variable or in a file of mode `0600`.
+   environment variable or in a file of mode `0600`, and step logs mask
+   it, as RFC 026 masks the gateway token.
 2. Removes every other credential source of the CLI: its provider
    variables, its stored login, and its project config files that can
    change the provider. The CLI runs with a home or config directory
@@ -452,6 +453,9 @@ conformance test confirms them.
 - An adapter lists the aliases of its CLI, such as `sonnet` and `opus` for
   `claude`. The editor offers them, and they pass the editor's model
   warning. Dagu passes an alias to the CLI unchanged.
+- A harness step with `container` (Spec 067) cannot use a model
+  connection yet, as RFC 026 refuses `mcp_servers` there. Such a step
+  fails admission with `option_conflict`.
 - The `opencode` adapter covers the CLI only. An `opencode` step that
   uses a model connection runs the CLI, never the managed server.
 - Another built-in harness provider, such as `copilot`, `cursor`, `gemini`, or

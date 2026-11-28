@@ -85,7 +85,7 @@ fixed headers.
 - A rotation replaces the whole set, since no route returns a value. A
   header that the new set lacks is deleted.
 - The bound host is the host of `resource`. The gateway sends the values
-  only there. The gateway, Test, and catalog reads send them only to
+  only there. The gateway, Test, Try it, and catalog reads send them only to
   `resource` itself, and follow no redirect.
 - A step that runs as the Dagu user can read the values, as Spec 093
   [Policy](093-model-connections.md#policy) states for keys. Creating a
@@ -179,7 +179,8 @@ step "triage": harness provider "pi" cannot use mcp_servers: Dagu has no MCP ada
   the proxy credential, so the proxy MUST allow the server's host only
   with that credential (`--allow-with-credential` of Spec 105). The agent
   cannot use the proxy credential, so it cannot reach the server past
-  the gateway.
+  the gateway. The deployment keeps MCP servers off the proxy's
+  `--upstream` route, which needs no proxy credential.
 
 ## User Interface
 
