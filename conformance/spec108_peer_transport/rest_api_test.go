@@ -17,10 +17,10 @@ import (
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
 
-// The server creates, lists, and deletes invites and reports join
-// readiness through its coordinator, which uses the CA it generates. Only
-// the create response contains the invite (Spec 108 §REST API, §Secrets in
-// Output).
+// The server creates, lists, and deletes invites, reports join readiness,
+// and removes workers through its coordinator, which uses the CA it
+// generates. Only the create response contains the invite (Spec 108 §REST
+// API, §Secrets in Output).
 func TestInviteAPI(t *testing.T) {
 	dagu := harness.NewRunner(t)
 	services := startStartAll(t, dagu, "DAGU_AUTH_MODE=none")
@@ -74,6 +74,11 @@ func TestInviteAPI(t *testing.T) {
 	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/invites/"+created.ID, "")
 	assert.Equal(t, http.StatusNotFound, code, body)
 	assert.NotContains(t, services.process.Output(), created.Invite)
+
+	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/unknown/certificate?runs=stop", "")
+	assert.Equal(t, http.StatusNotFound, code, body)
+	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/unknown/certificate?runs=later", "")
+	assert.Equal(t, http.StatusBadRequest, code, body)
 }
 
 // call sends method to path on the server of s with the JSON body, and

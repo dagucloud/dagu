@@ -15,14 +15,15 @@ and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
 [Coordinator Line](#coordinator-line), the
 [Coordinator Certificate](#coordinator-certificate),
 [One Port](#one-port), [Require TLS](#require-tls), the
-[h2c Reasons](#h2c-reasons), the `connection` and `plaintextReason` of the
+[h2c Reasons](#h2c-reasons), the `connection`, `plaintextReason`,
+`certificateId`, `inviteId`, and `removing` of the
 [Workers List](#workers-list), `connection` and `plaintext_reason` in its
 Dagu Cloud report, the [h2c Callers](#h2c-callers), the `Connection` column
 and the h2c callers of the [Workers Page](#workers-page), the coordinator
 call of
 [Join Readiness](#join-readiness), the [Invites](#invites) and their
 [Coordinator Calls](#coordinator-calls), the
-[REST API](#rest-api) for invites and join readiness, the
+[REST API](#rest-api), the
 [Coordinator Side](#coordinator-side) of enrollment with the
 [Worker Certificate](#worker-certificate) and its record, the coordinator
 side of [Revocation](#revocation) and [Removal](#removal), the

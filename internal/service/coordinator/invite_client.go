@@ -39,9 +39,9 @@ var failureRanks = map[codes.Code]int{
 	codes.Unimplemented:    3,
 }
 
-// InviteClient creates, lists, and deletes invites. Each call reaches one
-// coordinator in the registry, since the coordinators share the invite
-// records. It tries the coordinators in a fixed order and moves to the next
+// InviteClient creates, lists, and deletes invites, and removes workers.
+// Each call reaches one coordinator in the registry, since the coordinators
+// share the invite and certificate records. It tries the coordinators in a fixed order and moves to the next
 // only when one cannot be reached, does not answer, or predates the call. A
 // create moves on after a coordinator that does not answer only when the
 // request cannot have reached it, so no invite is created twice. A refusal
@@ -65,6 +65,9 @@ type InviteClient interface {
 	// of the invites before the delete, the delete, and its read after each
 	// have their own 10-second budget.
 	DeleteInvite(ctx context.Context, id string) error
+	// RemoveWorker removes a worker that joined with an invite. Removing a
+	// worker again changes nothing, so it moves on as ListInvites does.
+	RemoveWorker(ctx context.Context, req *coordinatorv1.RemoveWorkerRequest) (*coordinatorv1.RemoveWorkerResponse, error)
 }
 
 var _ InviteClient = (*clientImpl)(nil)
@@ -147,6 +150,18 @@ func (cli *clientImpl) inviteListed(ctx context.Context, id string) (bool, error
 		return false, err
 	}
 	return slices.ContainsFunc(invites, func(invite *coordinatorv1.InviteRecord) bool { return invite.Id == id }), nil
+}
+
+func (cli *clientImpl) RemoveWorker(ctx context.Context, req *coordinatorv1.RemoveWorkerRequest) (*coordinatorv1.RemoveWorkerResponse, error) {
+	var resp *coordinatorv1.RemoveWorkerResponse
+	err := cli.callInviteCoordinator(ctx, true, func(ctx context.Context, client coordinatorv1.CoordinatorServiceClient, opts ...grpc.CallOption) (err error) {
+		resp, err = client.RemoveWorker(ctx, req, opts...)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // callInviteCoordinator makes call on the coordinators of the registry in

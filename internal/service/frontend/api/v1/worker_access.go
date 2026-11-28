@@ -51,6 +51,16 @@ var workerInviteKinds = map[coordinatorv1.InviteKind]api.WorkerInviteKind{
 	coordinatorv1.InviteKind_INVITE_KIND_REUSABLE:   api.WorkerInviteKindReusable,
 }
 
+var workerRemovalRuns = map[api.WorkerRemovalRuns]coordinatorv1.RemoveWorkerRuns{
+	api.WorkerRemovalRunsFinish: coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH,
+	api.WorkerRemovalRunsStop:   coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_STOP,
+}
+
+var workerRemovalStates = map[coordinatorv1.WorkerRemovalState]api.WorkerRemovalState{
+	coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING: api.WorkerRemovalStateRemoving,
+	coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED:  api.WorkerRemovalStateRemoved,
+}
+
 var configSourceKinds = map[coordinatorv1.ConfigSourceKind]api.ConfigSourceKind{
 	coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_DEFAULT: api.ConfigSourceKindDefault,
 	coordinatorv1.ConfigSourceKind_CONFIG_SOURCE_KIND_FILE:    api.ConfigSourceKindFile,
@@ -261,12 +271,33 @@ func (a *API) DeleteWorkerInvite(ctx context.Context, request api.DeleteWorkerIn
 }
 
 // RemoveWorker implements the removeWorker operation.
-func (a *API) RemoveWorker(context.Context, api.RemoveWorkerRequestObject) (api.RemoveWorkerResponseObject, error) {
-	return nil, &Error{
-		HTTPStatus: http.StatusNotImplemented,
-		Code:       api.ErrorCodeInternalError,
-		Message:    "not implemented",
+func (a *API) RemoveWorker(ctx context.Context, request api.RemoveWorkerRequestObject) (api.RemoveWorkerResponseObject, error) {
+	client, err := a.workerAccess(ctx)
+	if err != nil {
+		return nil, err
 	}
+	runs := api.WorkerRemovalRunsFinish
+	if request.Params.Runs != nil {
+		runs = *request.Params.Runs
+	}
+	if !runs.Valid() {
+		return nil, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: "runs must be finish or stop"}
+	}
+	resp, err := client.RemoveWorker(ctx, &coordinatorv1.RemoveWorkerRequest{
+		WorkerId: request.WorkerId,
+		Runs:     workerRemovalRuns[runs],
+	})
+	if err != nil {
+		return nil, coordinatorCallError(err)
+	}
+	state := workerRemovalStates[resp.GetState()]
+	a.logAudit(ctx, audit.CategorySystem, "worker_remove", map[string]any{
+		"worker_id":       request.WorkerId,
+		"certificate_ids": resp.GetCertificateIds(),
+		"runs":            string(runs),
+		"state":           string(state),
+	})
+	return api.RemoveWorker200JSONResponse{State: state}, nil
 }
 
 // GetWorkerJoinReadiness implements the getWorkerJoinReadiness operation. It

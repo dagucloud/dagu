@@ -53,6 +53,7 @@ type inviteCoordinatorStub struct {
 
 	created *coordinatorv1.CreateInviteRequest
 	deleted string
+	removed *coordinatorv1.RemoveWorkerRequest
 }
 
 func (s *inviteCoordinatorStub) CreateInvite(_ context.Context, req *coordinatorv1.CreateInviteRequest) (*coordinatorv1.CreateInviteResponse, error) {
@@ -79,6 +80,17 @@ func (s *inviteCoordinatorStub) ListInvites(context.Context) ([]*coordinatorv1.I
 func (s *inviteCoordinatorStub) DeleteInvite(_ context.Context, id string) error {
 	s.deleted = id
 	return s.err
+}
+
+func (s *inviteCoordinatorStub) RemoveWorker(_ context.Context, req *coordinatorv1.RemoveWorkerRequest) (*coordinatorv1.RemoveWorkerResponse, error) {
+	s.removed = req
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &coordinatorv1.RemoveWorkerResponse{
+		State:          coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING,
+		CertificateIds: []string{"cert-1"},
+	}, nil
 }
 
 func (s *inviteCoordinatorStub) GetJoinReadiness(context.Context) ([]coordinator.JoinReadiness, error) {
@@ -113,6 +125,10 @@ func workerAccessCalls(a *API) map[string]func(context.Context) error {
 		},
 		"delete": func(ctx context.Context) error {
 			_, err := a.DeleteWorkerInvite(ctx, openapiv1.DeleteWorkerInviteRequestObject{InviteId: testInviteID})
+			return err
+		},
+		"remove": func(ctx context.Context) error {
+			_, err := a.RemoveWorker(ctx, openapiv1.RemoveWorkerRequestObject{WorkerId: "worker-1"})
 			return err
 		},
 		"join readiness": func(ctx context.Context) error {
@@ -541,4 +557,49 @@ func TestGetWorkerJoinReadinessPrefersRefusal(t *testing.T) {
 		require.ErrorAs(t, err, &apiErr, name)
 		assert.Equal(t, map[string]any{"reason": "peer_token_missing"}, apiErr.Details, name)
 	}
+}
+
+func TestRemoveWorker(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		runs *openapiv1.WorkerRemovalRuns
+		want coordinatorv1.RemoveWorkerRuns
+	}{
+		{nil, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH},
+		{new(openapiv1.WorkerRemovalRunsFinish), coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH},
+		{new(openapiv1.WorkerRemovalRunsStop), coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_STOP},
+	} {
+		stub := &inviteCoordinatorStub{}
+		a, store := rolesAPI(stub)
+		resp, err := a.RemoveWorker(userContext(auth.RoleAdmin), openapiv1.RemoveWorkerRequestObject{
+			WorkerId: "worker-1",
+			Params:   openapiv1.RemoveWorkerParams{Runs: tt.runs},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, openapiv1.RemoveWorker200JSONResponse{State: openapiv1.WorkerRemovalStateRemoving}, resp)
+		assert.Equal(t, &coordinatorv1.RemoveWorkerRequest{WorkerId: "worker-1", Runs: tt.want}, stub.removed)
+
+		require.Len(t, store.entries, 1)
+		entry := store.entries[0]
+		assert.Equal(t, "worker_remove", entry.Action)
+		var details map[string]any
+		require.NoError(t, json.Unmarshal([]byte(entry.Details), &details))
+		assert.Equal(t, "worker-1", details["worker_id"])
+		assert.Equal(t, []any{"cert-1"}, details["certificate_ids"])
+		assert.Equal(t, "removing", details["state"])
+	}
+}
+
+// A worker on the peer token cannot be removed (Spec 108 §REST API).
+func TestRemoveWorkerOnPeerToken(t *testing.T) {
+	t.Parallel()
+
+	const message = "this worker connects with the peer token: stop it on its host, or change the peer token"
+	a, _ := rolesAPI(&inviteCoordinatorStub{err: status.Error(codes.FailedPrecondition, message)})
+	_, err := a.RemoveWorker(userContext(auth.RoleAdmin), openapiv1.RemoveWorkerRequestObject{WorkerId: "token-worker"})
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusConflict, apiErr.HTTPStatus)
+	assert.Equal(t, message, apiErr.Message)
 }

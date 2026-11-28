@@ -38,6 +38,9 @@ func TestWorkerAccessEndpointRoles(t *testing.T) {
 			return server.Client().Delete("/api/v1/workers/invites/0f8fad5b-d9cb-469f-a165-70867728950e").WithBearerToken(token).ExpectStatus(status)
 		},
 		func(token string, status int) *test.Request {
+			return server.Client().Delete("/api/v1/workers/worker-1/certificate?runs=stop").WithBearerToken(token).ExpectStatus(status)
+		},
+		func(token string, status int) *test.Request {
 			return server.Client().Get("/api/v1/workers/join-readiness").WithBearerToken(token).ExpectStatus(status)
 		},
 	}
@@ -74,4 +77,12 @@ func TestWorkerAccessRoleBeforeValidation(t *testing.T) {
 			server.Client().Delete("/api/v1/workers/invites/not-an-id").WithBearerToken(viewerKey).ExpectStatus(http.StatusForbidden).Send(t)
 		})
 	}
+}
+
+func TestRemoveWorkerRunsValue(t *testing.T) {
+	t.Parallel()
+	server := setupBuiltinAuthServer(t)
+	server.Client().Delete("/api/v1/workers/worker-1/certificate?runs=later").
+		WithBearerToken(getAdminToken(t, server)).
+		ExpectStatus(http.StatusBadRequest).Send(t)
 }

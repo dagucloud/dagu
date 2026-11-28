@@ -62,6 +62,10 @@ func (s *inviteServer) DeleteInvite(context.Context, *coordinatorv1.DeleteInvite
 	return nil, status.Error(codes.NotFound, "no invite has this ID")
 }
 
+func (s *inviteServer) RemoveWorker(_ context.Context, req *coordinatorv1.RemoveWorkerRequest) (*coordinatorv1.RemoveWorkerResponse, error) {
+	return &coordinatorv1.RemoveWorkerResponse{State: coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, CertificateIds: []string{req.WorkerId + "-cert"}}, nil
+}
+
 // memberKind starts a coordinator, or a stand-in for one, on a listener and
 // returns its registry entry.
 type memberKind func(t *testing.T, listener net.Listener) serviceregistry.HostInfo
@@ -471,4 +475,15 @@ func TestClientDeleteInviteRefusesNonID(t *testing.T) {
 	}
 	assert.Zero(t, c.lists.Load())
 	assert.Zero(t, c.deletes.Load())
+}
+
+func TestClientRemoveWorker(t *testing.T) {
+	t.Parallel()
+
+	older := serving(&coordinatorv1.UnimplementedCoordinatorServiceServer{})
+	resp, err := inviteClientOf(t, closed, older, serving(&inviteServer{})).
+		RemoveWorker(t.Context(), &coordinatorv1.RemoveWorkerRequest{WorkerId: "worker-1"})
+	require.NoError(t, err)
+	assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, resp.State)
+	assert.Equal(t, []string{"worker-1-cert"}, resp.CertificateIds)
 }
