@@ -6,7 +6,8 @@ Implemented.
 
 `conformance/spec100_service_run_history` checks the behavior of this spec with a local scheduler.
 A run that a distributed worker executes has no conformance test. The scheduler records its sample
-from the status that the coordinator writes, as for a local run.
+from the status that the coordinator writes, as for a local run, and a scheduler unit test checks
+it.
 
 This spec defines the long-term history of the runs of a service DAG. The history keeps one sample
 for each run, also after the retention of the run records removed the run.
@@ -47,12 +48,12 @@ and the pages stay small, also at tens of thousands of runs a day.
 A service DAG starts a run each time its previous run ends. With `restart_wait_sec: 1` and a step of
 a few milliseconds, one DAG starts a run each 3 or 6 seconds. This is 14 000 to 29 000 runs a day.
 Each run writes a full run record: 11 files and directories, and 40 KiB on disk. The retention
-keeps the latest 100 runs, which is 5 to 10 minutes of runs. After that time, the server has no
-record of a run: no count, no failure and no duration.
+keeps the latest 100 runs, which is 5 to 10 minutes of runs. Before this spec, the server had no
+record of a run after that time: no count, no failure and no duration.
 
-The DAG list reads up to 60 full run records of each service DAG for each response. It draws them as
-if they were spread over the last day, but they are the runs of the last few minutes. The Activity
-panel shows the latest 30 runs, also in a window of a day or a week.
+The DAG list read up to 60 full run records of each service DAG for each response. It drew them as
+if they were spread over the last day, but they were the runs of the last few minutes. The Activity
+panel showed the latest 30 runs, also in a window of a day or a week.
 
 ## Related Specs
 
@@ -391,8 +392,9 @@ Activity panel. The tooltip and the accessible name give the whole count.
 
 For a service DAG, the Activity panel shows the run history:
 
-- the uptime and the success rate of each window, as two rows, the current streak, the last failure
-  and the compact count of all the runs. A window with no uptime shows a dash for it.
+- the uptime and the success rate of each window, the current streak, the last failure and the
+  compact count of all the runs. A window with no uptime shows a dash for it. The figures take as
+  many rows as the width of the page needs.
 - a chart of the run history for a time window. The user chooses a window from one hour to three
   years, or zooms in the chart. A bar is a bucket of the tier of the window. The height of a bar
   shows the duration of the runs. A bucket with failed runs shows them in red. A click on a bucket
@@ -428,9 +430,11 @@ Rules:
   sends changes, but the panel does not read the runs again for each change.
 - While the stream of the DAG is connected, the panel takes the newest runs from the stream. It does
   not read them again for each event.
-- The panel reads the retained runs of a service DAG when it opens, when the user changes the window,
-  and after an event of the stream, at most once in 30 seconds. Without the stream, it reads them
-  each 30 seconds.
+- The panel reads the retained runs of a service DAG when it opens. It reads them again when the
+  user changes the window, at most once in 10 seconds, and after an event of the stream, at most
+  once in 30 seconds. Without the stream, it reads them each 30 seconds.
+- A suspended DAG, and an `unless-stopped` DAG whose latest run was stopped, get no new run. The
+  panel does not poll their run history or their retained runs, until a run starts.
 
 #### Workflows List
 
@@ -467,9 +471,9 @@ Rules:
   without the event store that answers `501` for the feed, draws no strip and no placeholder.
 - The Last Run column of a service DAG shows the state of the service in a chip:
   Healthy for the states running and restarting, because a service that restarts as designed is
-  well. Pending, failing, suspended and stopped keep their names. A DAG that is not a service DAG
-  keeps its time. A running run of such a DAG that has a continuous step reads Running, not
-  Healthy. Only a service DAG reads Healthy.
+  well. Pending, waiting, failing, suspended and stopped keep their names. A DAG that is not a
+  service DAG keeps its time. A running run of such a DAG that has a continuous step reads Running,
+  not Healthy. Only a service DAG reads Healthy.
 - The states come from `GET /service-dags` and from its live topic. The table reads them once for
   all rows. A DAG with no known state shows the time of its last run.
 - A row and a card of any workflow show Start, Retry and Stop in fixed places, in that order. While
@@ -546,6 +550,8 @@ Rules:
 - The page makes no request of its own for each card. The strips come from `GET /dag-list-activity`
   requests that name the cards, read again as in the Workflows list.
 - The page reads the service DAGs once, and the live topic updates them at most every two seconds.
+  While the stream is not available, the page reads them each 5 seconds instead. It stops when the
+  stream connects again, and it reads nothing while the tab is hidden.
   When the read fails, the section of the cards shows its error, so the list does not look like
   one without a service DAG.
 - The strip of a card draws no element for each run.
@@ -686,3 +692,7 @@ succeeds, and a service DAG whose runs fail when a file exists.
 It also checks the gap after a stop of the scheduler, and the three queries and their
 errors. It checks `upMs` in the buckets, and the live part of the run in progress. It checks a window of three years and the activity of a service DAG that a request names. Each
 test starts a scheduler and a server with static fixtures.
+
+No conformance test runs a worker. `TestRestartScannerHistory/RunOnWorker` in
+`internal/service/scheduler` checks that the scheduler records the sample of a run on a worker from
+its status, before it queues the next run.
