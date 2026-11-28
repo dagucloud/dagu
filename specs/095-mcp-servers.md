@@ -81,6 +81,8 @@ fixed headers.
   header that the new set lacks is deleted.
 - The bound host is the host of `resource`. The gateway sends the values
   only there, and follows no redirect.
+- `resource` is write-only past its host, since its query can hold a
+  secret. Responses, errors, and audit entries show only the host.
 
 ### Connection Status
 
@@ -119,10 +121,11 @@ mcp_servers:
   every listed tool when `tools` is left out. It refuses a call of another
   tool. The agent never sees a tool that `tools` leaves out.
 - A server of a static connection is not a preset, so RFC 026 counts each
-  of its tools as a write tool. A write tool waits for a person unless
-  `unattended` names it. A `harness.run` step does not wait in RFC 026: it
-  refuses a write tool that `unattended` does not name, and the editor
-  warns about it.
+  of its tools as a write tool. Only an agent DAG waits for a person before
+  a write tool. `chat.completion` and `harness.run` refuse a write tool
+  that `unattended` does not name, as RFC 026 states, and so does
+  `agent.run`, whose agent worker cannot wait for a person (Spec 092). The
+  editor warns about such a tool.
 - A step never names an MCP credential in `tools.mcp`. The inline form of
   `tools.mcp`, with `url`, stays for a server that needs no credential, as
   Spec 090 states. A header value of an inline entry is visible to the
