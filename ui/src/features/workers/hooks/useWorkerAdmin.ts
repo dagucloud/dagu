@@ -17,22 +17,28 @@ type WorkerInvitesList = components['schemas']['WorkerInvitesListResponse'];
 
 /**
  * A failed worker admin request: its HTTP status, 0 when no answer came,
- * and, for a 409 or a 503, the reason the API names in `details.reason`.
- * The server's message is kept out: the page never shows it.
+ * for a 409 or a 503 the reason the API names in `details.reason`, and the
+ * server's message, which the page shows only as a detail of a refusal it
+ * cannot explain itself.
  */
 export class WorkerRequestError extends Error {
   constructor(
     readonly status: number,
-    readonly reason?: string
+    readonly reason?: string,
+    readonly serverMessage?: string
   ) {
     super(`worker admin request failed with ${status}`);
   }
 }
 
-/** What went wrong, and what the admin can change about it. */
+/**
+ * What went wrong, and what the admin can change about it. `detail` is the
+ * server's message, for a refusal whose cause only the server names.
+ */
 export interface WorkerErrorAdvice {
   cause: string;
   change: string;
+  detail?: string;
 }
 
 /** The cache key of the invites of one node. */
@@ -40,20 +46,36 @@ export function invitesKey(node: string): readonly [string, string] {
   return ['worker-invites', node];
 }
 
-// Runs a read now, or once the tab shows when it is hidden, so that no read
-// leaves a hidden tab.
-function whenVisible(run: () => void) {
+// The reads waiting for the tab to show, by cache key: the reads asked for
+// one key while the tab was hidden become one read.
+const waitingReads = new Map<string, () => void>();
+
+/**
+ * Runs a read of `key` now, or once the tab shows when it is hidden, so that
+ * no read leaves a hidden tab. Reads of one key asked for while hidden run
+ * once.
+ */
+export function readWhenVisible(key: string, run: () => void) {
   if (document.visibilityState !== 'hidden') {
     run();
     return;
   }
+  const queued = waitingReads.has(key);
+  waitingReads.set(key, run);
+  if (queued) return;
   const onShow = () => {
     if (document.visibilityState === 'hidden') return;
     document.removeEventListener('visibilitychange', onShow);
-    run();
+    const next = waitingReads.get(key);
+    waitingReads.delete(key);
+    next?.();
   };
   document.addEventListener('visibilitychange', onShow);
 }
+
+// The invite reads in flight, by node: reads asked for while one is under
+// way share its answer.
+const readsInFlight = new Map<string, Promise<WorkerInvitesList>>();
 
 /**
  * Reads the invites of the selected node. Nothing reads them on its own: no
@@ -67,12 +89,22 @@ export function useWorkerInvites(enabled: boolean) {
   const remoteNode = useRemoteNode();
   const { data, error, mutate } = useSWR<WorkerInvitesList, unknown>(
     enabled ? invitesKey(remoteNode) : null,
-    async () => {
-      const { data, error, response } = await client.GET('/workers/invites', {
-        params: { query: { remoteNode } },
-      });
-      if (!response.ok || !data) throw requestError(response.status, error);
-      return data;
+    () => {
+      const running = readsInFlight.get(remoteNode);
+      if (running) return running;
+      const read = (async () => {
+        const { data, error, response } = await client.GET('/workers/invites', {
+          params: { query: { remoteNode } },
+        });
+        // An answer that is not a list, such as `{}` or a bare 502, is a
+        // failure, not an empty list.
+        if (!response.ok || !Array.isArray(data?.invites)) {
+          throw requestError(response.status, error);
+        }
+        return data;
+      })().finally(() => readsInFlight.delete(remoteNode));
+      readsInFlight.set(remoteNode, read);
+      return read;
     },
     {
       shouldRetryOnError: false,
@@ -102,7 +134,10 @@ export function useWorkerActions() {
   // Reads the invites of a node again once the tab shows, also when the
   // list that asked is gone, as after a switch to another node and back.
   const rereadInvites = useCallback(
-    (node: string) => whenVisible(() => void mutate(invitesKey(node))),
+    (node: string) =>
+      readWhenVisible(invitesKey(node).join(':'), () => {
+        void mutate(invitesKey(node));
+      }),
     [mutate]
   );
 
@@ -121,11 +156,15 @@ export function useWorkerActions() {
 }
 
 function requestError(status: number, body: unknown): WorkerRequestError {
-  const reason = (body as { details?: { reason?: unknown } } | undefined)
-    ?.details?.reason;
+  const answer = body as
+    | { message?: unknown; details?: { reason?: unknown } }
+    | undefined;
+  const reason = answer?.details?.reason;
+  const message = answer?.message;
   return new WorkerRequestError(
     status,
-    typeof reason === 'string' ? reason : undefined
+    typeof reason === 'string' ? reason : undefined,
+    typeof message === 'string' && message ? message : undefined
   );
 }
 
@@ -195,7 +234,9 @@ const ACCESS_REASONS: ReasonAdvice = {
 /**
  * The cause of a failed request and the change that fixes it, chosen by the
  * reason the API names, else by the HTTP status. `reasons` adds the reasons
- * of one call, such as a removal's. The server's message is never shown.
+ * of one call, such as a removal's. The server's message is never the
+ * cause; it is the detail of a coordinator refusal and of a reason the page
+ * does not know, whose cause only the server names.
  */
 export function describeWorkerError(
   error: unknown,
@@ -207,16 +248,27 @@ export function describeWorkerError(
   const known = reason
     ? (ownAdvice(advice.reasons, reason) ?? ownAdvice(ACCESS_REASONS, reason))
     : undefined;
-  if (known) return known(ts);
+  const detail =
+    reason && (!known || reason === WorkerAccessReason.coordinator_refused)
+      ? failure?.serverMessage
+      : undefined;
+  if (known) return { ...known(ts), detail };
+  return { ...statusAdvice(failure?.status, advice.notFound, ts), detail };
+}
 
-  switch (failure?.status) {
+function statusAdvice(
+  status: number | undefined,
+  notFound: WorkerErrorAdvice,
+  ts: Translate
+): WorkerErrorAdvice {
+  switch (status) {
     case 403:
       return {
         cause: ts('Only admins can manage workers and invites.'),
         change: ts('Sign in with an admin account, or ask an admin.'),
       };
     case 404:
-      return advice.notFound;
+      return notFound;
     case 409:
       return {
         cause: ts('The coordinator refused the request.'),

@@ -350,9 +350,9 @@ describe('WorkerInvites', () => {
     ).toBeInTheDocument();
   });
 
-  // The page never shows the server's words. A coordinator refusal names no
-  // fixed cause, so the advice says where to look.
-  it('explains a coordinator refusal without its words', async () => {
+  // A coordinator refusal names its cause only in the server's message: the
+  // page explains it in its own words, with the message quoted below.
+  it('quotes the server message below a coordinator refusal', async () => {
     const words = 'the coordinator refused the server: certificate expired';
     server.invites = refused(
       503,
@@ -371,13 +371,14 @@ describe('WorkerInvites', () => {
         'Check the coordinator log for the reason, or run dagu worker --check on this host, then try again.'
       )
     ).toBeInTheDocument();
+    expect(screen.getByText(`Server message: “${words}”`)).toBeInTheDocument();
     expect(screen.queryByText(words)).not.toBeInTheDocument();
   });
 
   // A reason the page does not know, even one named like a built-in
-  // property, is treated as no reason: the advice follows the status.
+  // property, is explained by the status, with the message quoted below.
   it.each(['toString', 'constructor', 'some_new_reason'])(
-    'treats the unknown reason %s as no reason',
+    'explains the unknown reason %s by its status',
     async (reason) => {
       server.invites = refused(503, 'server words', 'internal_error', reason);
 
@@ -389,9 +390,30 @@ describe('WorkerInvites', () => {
       expect(
         screen.getByText('Please try again or check the server connection.')
       ).toBeInTheDocument();
-      expect(screen.queryByText('server words')).not.toBeInTheDocument();
+      expect(
+        screen.getByText('Server message: “server words”')
+      ).toBeInTheDocument();
     }
   );
+
+  // A known reason has the page's own words only.
+  it('shows no server message for a known reason', async () => {
+    server.invites = refused(
+      503,
+      'run the server where it reads the data directory',
+      'internal_error',
+      'peer_token_missing'
+    );
+
+    renderInvites();
+
+    expect(
+      await screen.findByText(
+        'This server has no peer token for the coordinator.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Server message/)).not.toBeInTheDocument();
+  });
 
   // The list explains a failed read itself; the page's notice of a failed
   // background read would repeat the server's words.
@@ -435,6 +457,32 @@ describe('WorkerInvites', () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(words)).not.toBeInTheDocument();
     expect(screen.queryByText(/To use invites/)).not.toBeInTheDocument();
+  });
+
+  // Only a list is a list: a 200 without one is a failure, not No invites.
+  it('treats a 200 without a list as a failure', async () => {
+    server.invites = { status: 200, body: {} };
+
+    renderInvites();
+
+    expect(await screen.findByText('The request failed.')).toBeInTheDocument();
+    expect(screen.queryByText('No invites')).not.toBeInTheDocument();
+  });
+
+  // The list read names no invite: its 404 means the server has no such
+  // endpoint, as one of an earlier release.
+  it('says when the server does not offer invites', async () => {
+    server.node = 'node-b';
+    server.invites = refused(404, 'not found', 'not_found');
+
+    renderInvites();
+
+    expect(
+      await screen.findByText(
+        'The selected server does not offer worker invites.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/already gone/)).not.toBeInTheDocument();
   });
 
   // A proxy can answer with a bare status and no body; that is a failure,
@@ -578,11 +626,11 @@ describe('WorkerInvites', () => {
   // its invites are read once.
   it('reads once for the node it switches to', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    const { update, rerender } = renderInvites([worker('worker-a')]);
+    const { update } = renderInvites([worker('worker-a')]);
     await screen.findByText('No invites');
 
+    // System status shows the new node with its workers not read yet.
     server.node = 'node-b';
-    rerender();
     update(undefined);
     update([worker('worker-x'), worker('worker-y')]);
     await act(() => vi.advanceTimersByTimeAsync(JOIN_REREAD_DELAY_MS + 100));
@@ -628,6 +676,38 @@ describe('WorkerInvites', () => {
     act(() => setTabVisible(true));
 
     await waitFor(() => expect(reads()).toBe(2));
+  });
+
+  // Reads asked for while the tab is hidden, by two deletes and a manual
+  // refresh, run as one read once it shows.
+  it('reads once for all that asked while the tab was hidden', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    server.invites = invitesAnswer([invite('inv-1'), invite('inv-2')]);
+    const answers: ((value: { status: number }) => void)[] = [];
+    server.del = () => new Promise((resolve) => answers.push(resolve));
+    const { refresh } = renderInvites();
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Delete invite inv-1/ })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Delete invite inv-2/ })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(reads()).toBe(1);
+
+    act(() => setTabVisible(false));
+    await act(async () => answers.forEach((answer) => answer({ status: 204 })));
+    refresh();
+    await act(() => Promise.resolve());
+    expect(reads()).toBe(1);
+
+    act(() => setTabVisible(true));
+
+    await waitFor(() => expect(reads()).toBe(2));
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    expect(reads()).toBe(2);
   });
 
   // Each confirmation owns its delete: one that ends after its dialog was

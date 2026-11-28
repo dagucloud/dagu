@@ -37,9 +37,6 @@ export const workerAdminMessages = defineMessages({
     By: 'By',
     use: 'use',
     uses: 'uses',
-    'This invite no longer exists.': 'This invite no longer exists.',
-    'It was deleted, or it ended more than 7 days ago.':
-      'It was deleted, or it ended more than 7 days ago.',
     'No new worker can join with this invite. Workers that joined with it keep their certificates.':
       'No new worker can join with this invite. Workers that joined with it keep their certificates.',
     'Delete works on the local server only. Switch to it to delete an invite.':
@@ -74,6 +71,11 @@ export const workerAdminMessages = defineMessages({
       'The list is read again. Close this dialog.',
     'The coordinator refused the request.':
       'The coordinator refused the request.',
+    'The selected server does not offer worker invites.':
+      'The selected server does not offer worker invites.',
+    'Check that it runs a Dagu release with worker invites.':
+      'Check that it runs a Dagu release with worker invites.',
+    'Server message: “{message}”': 'Server message: “{message}”',
   },
   'zh-CN': {
     'Only admins can manage workers and invites.':
@@ -106,9 +108,6 @@ export const workerAdminMessages = defineMessages({
     By: '创建者',
     use: '次使用',
     uses: '次使用',
-    'This invite no longer exists.': '此邀请已不存在。',
-    'It was deleted, or it ended more than 7 days ago.':
-      '它已被删除，或已结束超过 7 天。',
     'No new worker can join with this invite. Workers that joined with it keep their certificates.':
       '新的 Worker 将无法通过此邀请加入。已通过它加入的 Worker 保留其证书。',
     'Delete works on the local server only. Switch to it to delete an invite.':
@@ -141,6 +140,11 @@ export const workerAdminMessages = defineMessages({
     'The list is read again. Close this dialog.':
       '列表将重新读取。请关闭此对话框。',
     'The coordinator refused the request.': 'Coordinator 拒绝了该请求。',
+    'The selected server does not offer worker invites.':
+      '所选服务器不提供 Worker 邀请。',
+    'Check that it runs a Dagu release with worker invites.':
+      '请确认它运行的 Dagu 版本支持 Worker 邀请。',
+    'Server message: “{message}”': '服务器消息：“{message}”',
   },
   ja: {
     'Only admins can manage workers and invites.':
@@ -173,9 +177,6 @@ export const workerAdminMessages = defineMessages({
     By: '作成者',
     use: '回使用',
     uses: '回使用',
-    'This invite no longer exists.': 'この招待はもう存在しません。',
-    'It was deleted, or it ended more than 7 days ago.':
-      '削除されたか、終了から 7 日以上たっています。',
     'No new worker can join with this invite. Workers that joined with it keep their certificates.':
       'この招待で新しいワーカーは参加できなくなります。参加済みのワーカーは証明書を保持します。',
     'Delete works on the local server only. Switch to it to delete an invite.':
@@ -211,6 +212,11 @@ export const workerAdminMessages = defineMessages({
       '一覧を読み直します。このダイアログを閉じてください。',
     'The coordinator refused the request.':
       'コーディネーターがリクエストを拒否しました。',
+    'The selected server does not offer worker invites.':
+      '選択中のサーバーはワーカー招待に対応していません。',
+    'Check that it runs a Dagu release with worker invites.':
+      'ワーカー招待に対応した Dagu を動かしているか確認してください。',
+    'Server message: “{message}”': 'サーバーのメッセージ：「{message}」',
   },
   de: {
     'Only admins can manage workers and invites.':
@@ -244,9 +250,6 @@ export const workerAdminMessages = defineMessages({
     By: 'Von',
     use: 'Verwendung',
     uses: 'Verwendungen',
-    'This invite no longer exists.': 'Diese Einladung existiert nicht mehr.',
-    'It was deleted, or it ended more than 7 days ago.':
-      'Sie wurde gelöscht oder ist vor mehr als 7 Tagen abgelaufen.',
     'No new worker can join with this invite. Workers that joined with it keep their certificates.':
       'Mit dieser Einladung kann kein neuer Worker mehr beitreten. Worker, die damit beigetreten sind, behalten ihre Zertifikate.',
     'Delete works on the local server only. Switch to it to delete an invite.':
@@ -281,6 +284,11 @@ export const workerAdminMessages = defineMessages({
       'Die Liste wird neu gelesen. Schließen Sie diesen Dialog.',
     'The coordinator refused the request.':
       'Der Coordinator hat die Anfrage abgelehnt.',
+    'The selected server does not offer worker invites.':
+      'Der ausgewählte Server bietet keine Worker-Einladungen an.',
+    'Check that it runs a Dagu release with worker invites.':
+      'Prüfen Sie, ob er eine Dagu-Version mit Worker-Einladungen ausführt.',
+    'Server message: “{message}”': 'Servermeldung: „{message}“',
   },
   fr: {
     'Only admins can manage workers and invites.':
@@ -314,9 +322,6 @@ export const workerAdminMessages = defineMessages({
     By: 'Par',
     use: 'utilisation',
     uses: 'utilisations',
-    'This invite no longer exists.': 'Cette invitation n’existe plus.',
-    'It was deleted, or it ended more than 7 days ago.':
-      'Elle a été supprimée, ou elle a pris fin il y a plus de 7 jours.',
     'No new worker can join with this invite. Workers that joined with it keep their certificates.':
       'Aucun nouveau worker ne peut rejoindre avec cette invitation. Les workers qui l’ont utilisée gardent leurs certificats.',
     'Delete works on the local server only. Switch to it to delete an invite.':
@@ -351,5 +356,10 @@ export const workerAdminMessages = defineMessages({
       'La liste est relue. Fermez cette boîte de dialogue.',
     'The coordinator refused the request.':
       'Le coordinateur a refusé la requête.',
+    'The selected server does not offer worker invites.':
+      'Le serveur sélectionné ne propose pas d’invitations de workers.',
+    'Check that it runs a Dagu release with worker invites.':
+      'Vérifiez qu’il exécute une version de Dagu avec les invitations de workers.',
+    'Server message: “{message}”': 'Message du serveur : « {message} »',
   },
 });

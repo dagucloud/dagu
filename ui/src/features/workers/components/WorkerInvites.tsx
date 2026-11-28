@@ -10,7 +10,6 @@ import RelativeTime from '@/components/ui/relative-time';
 import { useIsAdmin } from '@/contexts/AuthContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClock } from '@/hooks/useClock';
-import { usePageVisible } from '@/hooks/usePageVisible';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
@@ -18,6 +17,8 @@ import { cn } from '@/lib/utils';
 import {
   WorkerRequestError,
   describeWorkerError,
+  invitesKey,
+  readWhenVisible,
   type WorkerErrorAdvice,
   useWorkerActions,
   useWorkerInvites,
@@ -124,7 +125,13 @@ function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
   // The server deletes invites on its own coordinators only, never on a
   // remote node, which still lists them.
   const local = remoteNode === 'local';
-  const read = React.useCallback(() => void mutate(), [mutate]);
+  const read = React.useCallback(
+    () =>
+      readWhenVisible(invitesKey(remoteNode).join(':'), () => {
+        void mutate();
+      }),
+    [mutate, remoteNode]
+  );
   useInviteReads({ workers, live, refreshes, read });
   const closeDialog = React.useCallback(
     (request: number) =>
@@ -150,7 +157,11 @@ function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
       <WorkerError
         className="px-3 py-4"
         action={false}
-        advice={describeWorkerError(error, { notFound: inviteGone(ts) }, ts)}
+        advice={describeWorkerError(
+          error,
+          { notFound: listUnavailable(ts) },
+          ts
+        )}
       />
     );
   } else if (shown.length === 0) {
@@ -235,7 +246,8 @@ function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
  * an invite. A join is a worker ID, certificate, or invite not listed
  * before, so a worker that leaves and comes back is no join. Joins within
  * JOIN_REREAD_DELAY_MS cost one read. Nothing is read while the tab is
- * hidden; a read that falls due then waits until it shows.
+ * hidden; a read that falls due then waits until it shows, and reads asked
+ * for meanwhile, such as by a delete, run once with it.
  */
 function useInviteReads({
   workers,
@@ -248,7 +260,6 @@ function useInviteReads({
   refreshes: number;
   read: () => void;
 }) {
-  const visible = usePageVisible();
   const [due, setDue] = React.useState<{ delay: number } | null>({
     delay: 0,
   });
@@ -292,20 +303,30 @@ function useInviteReads({
   }, [refreshes, requestRead]);
 
   React.useEffect(() => {
-    if (!due || !visible || !ready) return;
+    if (!due || !ready) return;
+    if (due.delay === 0) {
+      setDue(null);
+      read();
+      return;
+    }
     const timer = setTimeout(() => {
       setDue(null);
       read();
     }, due.delay);
     return () => clearTimeout(timer);
-  }, [due, visible, ready, read]);
+  }, [due, ready, read]);
 }
 
-/** The advice for an invite ID that the coordinator does not know. */
-export function inviteGone(ts: (source: string) => string): WorkerErrorAdvice {
+/**
+ * The advice for a 404 of the invites list: the selected server has no such
+ * endpoint, as one of an earlier release.
+ */
+export function listUnavailable(
+  ts: (source: string) => string
+): WorkerErrorAdvice {
   return {
-    cause: ts('This invite no longer exists.'),
-    change: ts('It was deleted, or it ended more than 7 days ago.'),
+    cause: ts('The selected server does not offer worker invites.'),
+    change: ts('Check that it runs a Dagu release with worker invites.'),
   };
 }
 
@@ -344,8 +365,12 @@ function InviteRow({
         <div className="font-medium">
           <I18nText text={KIND_TEXT[invite.kind]} />
         </div>
-        <div className="truncate font-mono text-xs text-muted-foreground">
-          {invite.address ? `${id} · ${invite.address}` : id}
+        {/* The address moves to its own line before it is broken. */}
+        <div className="flex flex-wrap gap-x-1 font-mono text-xs text-muted-foreground">
+          <span>{id}</span>{' '}
+          {invite.address && (
+            <span className="min-w-0 break-words">· {invite.address}</span>
+          )}
         </div>
       </div>
       <div className="row-span-2 self-center @3xl:order-last @3xl:row-span-1">
