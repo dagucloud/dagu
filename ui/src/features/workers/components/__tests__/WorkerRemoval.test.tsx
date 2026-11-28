@@ -1329,6 +1329,24 @@ describe('Remove', () => {
     }
   );
 
+  // A non-admin gets 403 before the request is checked. The page shows its
+  // own admin text and never the server's words.
+  it('shows only the admin text for a 403 on removal', async () => {
+    server.del = () => refused(403, 'Insufficient permissions', 'forbidden');
+    renderPage([worker('worker-a1')]);
+
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Only admins can manage workers and invites.'
+    );
+    expect(document.body).not.toHaveTextContent('Insufficient permissions');
+    expect(screen.queryByText(/Server message/)).not.toBeInTheDocument();
+  });
+
   // A request that ends after its dialog was closed leaves a newer
   // confirmation of the same row open.
   it('keeps a newer confirmation open when an older removal ends', async () => {
