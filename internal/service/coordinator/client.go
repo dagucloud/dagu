@@ -1861,7 +1861,8 @@ func getDialOptions(config *Config) ([]grpc.DialOption, error) {
 		grpc.MaxCallRecvMsgSize(grpcMaxMsgSize),
 		grpc.MaxCallSendMsgSize(grpcMaxMsgSize),
 	))
-	if config.Token != "" || config.TokenFile != "" {
+	// A worker certificate takes the place of the peer token.
+	if config.WorkerCertificate == nil && (config.Token != "" || config.TokenFile != "") {
 		opts = append(opts, grpc.WithPerRPCCredentials(newPeerTokenCredentials(config.Token, config.TokenFile)))
 	}
 	opts = append(opts, grpc.WithPerRPCCredentials(h2cReasonCredentials{}))

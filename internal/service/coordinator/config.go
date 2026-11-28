@@ -4,6 +4,8 @@
 package coordinator
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"time"
 
 	appconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -38,6 +40,16 @@ type Config struct {
 	// directory. The published CA certificate selects built-in TLS only
 	// while it lists a coordinator that serves built-in TLS.
 	LocalRegistry serviceregistry.ServiceRegistry
+
+	// Invite is the worker.invite of an invite worker that holds no worker
+	// certificate yet. Such a worker never falls back to h2c.
+	Invite string
+	// WorkerCertificate is the worker certificate and key of an invite
+	// worker. The client presents it on built-in TLS in place of the peer
+	// token, verifies coordinators against WorkerCA, the CA certificate
+	// that enrollment returned, and never falls back to h2c.
+	WorkerCertificate *tls.Certificate
+	WorkerCA          *x509.Certificate
 
 	// Peer token sent on every call: Token when set, otherwise the content of
 	// TokenFile when this process can read it.
