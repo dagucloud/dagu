@@ -38,45 +38,6 @@ type YAMLFileMeta struct {
 // SuspendFlags is the set of suspend flag filenames present in flagsBaseDir.
 type SuspendFlags map[string]struct{}
 
-// Load reads and validates the index against the current filesystem state.
-// Returns nil if the index is missing, corrupt, version-mismatched, or stale.
-func Load(indexPath string, yamlFiles []YAMLFileMeta, flags SuspendFlags) []*indexv1.DAGIndexEntry {
-	entries, ok := ReadEntries(indexPath)
-	if !ok {
-		return nil
-	}
-
-	if len(entries) != len(yamlFiles) {
-		return nil
-	}
-
-	// Build lookup by file_path for O(n) comparison.
-	entryMap := make(map[string]*indexv1.DAGIndexEntry, len(entries))
-	for _, e := range entries {
-		entryMap[e.FilePath] = e
-	}
-
-	for _, f := range yamlFiles {
-		e, ok := entryMap[f.Name]
-		if !ok {
-			return nil
-		}
-		if e.FileSize != f.Size || e.ModTime != f.ModTime || e.LoadPath != f.LoadPath {
-			return nil
-		}
-	}
-
-	// Validate suspend flags.
-	for _, e := range entries {
-		_, flagged := flags[SuspendFlagName(entryFileName(e.FilePath))]
-		if e.Suspended != flagged {
-			return nil
-		}
-	}
-
-	return entries
-}
-
 // ReadEntries returns the entries of the index without checking them against
 // the DAG files. It reports false if the index is missing, corrupt, or of
 // another version.
@@ -85,16 +46,96 @@ func ReadEntries(indexPath string) ([]*indexv1.DAGIndexEntry, bool) {
 	if err != nil {
 		return nil, false
 	}
+	entries, _, ok := Decode(data)
+	return entries, ok
+}
 
+// Decode returns the entries of a marshaled index and when the scan that
+// checked them against the DAG files began. It reports false if data is not
+// an index of this version.
+func Decode(data []byte) ([]*indexv1.DAGIndexEntry, time.Time, bool) {
 	var idx indexv1.DAGIndex
 	if err := proto.Unmarshal(data, &idx); err != nil {
-		return nil, false
+		return nil, time.Time{}, false
+	}
+	if idx.Version != IndexVersion {
+		return nil, time.Time{}, false
+	}
+	// An older Dagu recorded when it built the index, after its scan.
+	return idx.Entries, time.Unix(idx.BuiltAtUnix, 0), true
+}
+
+// Refresh returns an entry for each of yamlFiles, in order. It keeps the
+// entry of saved for a file whose size, modification time, and load path are
+// unchanged, with the suspension that flags record, and loads every other
+// file. It also loads a file whose saved entry records a load error, since
+// the error may come from an older parser, or that was modified after
+// trustBefore, since a later write may have kept its size and modification
+// time. Refresh reports whether the entries differ from saved. It returns the
+// error of ctx when ctx ends before every file that needs a load is loaded.
+func Refresh(
+	ctx context.Context,
+	dagDir string,
+	saved []*indexv1.DAGIndexEntry,
+	trustBefore time.Time,
+	yamlFiles []YAMLFileMeta,
+	flags SuspendFlags,
+	loadOpts ...spec.LoadOption,
+) ([]*indexv1.DAGIndexEntry, bool, error) {
+	savedByPath := make(map[string]*indexv1.DAGIndexEntry, len(saved))
+	for _, entry := range saved {
+		savedByPath[entry.FilePath] = entry
 	}
 
-	if idx.Version != IndexVersion {
-		return nil, false
+	entries := make([]*indexv1.DAGIndexEntry, 0, len(yamlFiles))
+	changed := len(saved) != len(yamlFiles)
+	for _, file := range yamlFiles {
+		old := savedByPath[file.Name]
+		if old != nil && old.LoadError == "" && !modifiedAfter(old, trustBefore) && describes(old, file) {
+			entry := withSuspension(old, flags)
+			changed = changed || entry != old
+			entries = append(entries, entry)
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
+		entry := newEntry(ctx, dagDir, file, flags, loadOpts...)
+		// A load that the end of ctx cut short records that as a load error.
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
+		changed = changed || old == nil || !proto.Equal(old, entry)
+		entries = append(entries, entry)
 	}
-	return idx.Entries, true
+	return entries, changed, nil
+}
+
+// modifiedAfter reports whether the file of entry was modified after t.
+func modifiedAfter(entry *indexv1.DAGIndexEntry, t time.Time) bool {
+	return time.Unix(0, entry.ModTime).After(t)
+}
+
+// describes reports whether entry was made from file as it is now.
+func describes(entry *indexv1.DAGIndexEntry, file YAMLFileMeta) bool {
+	return entry.FileSize == file.Size && entry.ModTime == file.ModTime && entry.LoadPath == file.LoadPath
+}
+
+// withSuspension returns entry with the suspension that flags record, as a
+// copy when that differs.
+func withSuspension(entry *indexv1.DAGIndexEntry, flags SuspendFlags) *indexv1.DAGIndexEntry {
+	suspended := isSuspended(entry.FilePath, flags)
+	if entry.Suspended == suspended {
+		return entry
+	}
+	updated := proto.CloneOf(entry)
+	updated.Suspended = suspended
+	return updated
+}
+
+func isSuspended(filePath string, flags SuspendFlags) bool {
+	_, flagged := flags[SuspendFlagName(entryFileName(filePath))]
+	return flagged
 }
 
 // Build constructs a fresh index by loading every YAML file with metadata-only semantics.
@@ -116,17 +157,28 @@ func Build(
 			break
 		}
 
-		entry := &indexv1.DAGIndexEntry{
-			FilePath: f.Name,
-			FileSize: f.Size,
-			ModTime:  f.ModTime,
-			LoadPath: f.LoadPath,
-		}
-		buildEntry(ctx, yamlFilePath(dagDir, f), entry, flags, loadOpts...)
-		idx.Entries = append(idx.Entries, entry)
+		idx.Entries = append(idx.Entries, newEntry(ctx, dagDir, f, flags, loadOpts...))
 	}
 
 	return idx
+}
+
+// newEntry loads one DAG file into a new entry.
+func newEntry(
+	ctx context.Context,
+	dagDir string,
+	file YAMLFileMeta,
+	flags SuspendFlags,
+	loadOpts ...spec.LoadOption,
+) *indexv1.DAGIndexEntry {
+	entry := &indexv1.DAGIndexEntry{
+		FilePath: file.Name,
+		FileSize: file.Size,
+		ModTime:  file.ModTime,
+		LoadPath: file.LoadPath,
+	}
+	buildEntry(ctx, yamlFilePath(dagDir, file), entry, flags, loadOpts...)
+	return entry
 }
 
 // buildEntry loads one DAG file and fills the rest of a freshly allocated entry,
@@ -171,56 +223,7 @@ func buildEntry(
 		entry.LoadError = joinErrors(dag.BuildErrors)
 	}
 
-	_, flagged := flags[SuspendFlagName(entryFileName(entry.FilePath))]
-	entry.Suspended = flagged
-}
-
-// RefreshFailures re-reads the files whose cached entry records a load error and
-// reports whether any of them changed.
-//
-// A cached success stays valid as long as the file is untouched, but a cached
-// failure does not: the error describes the parser that produced it, so a DAG
-// using syntax a newer binary understands would keep showing the old error until
-// its file happened to change.
-func RefreshFailures(
-	ctx context.Context,
-	dagDir string,
-	yamlFiles []YAMLFileMeta,
-	entries []*indexv1.DAGIndexEntry,
-	flags SuspendFlags,
-	loadOpts ...spec.LoadOption,
-) bool {
-	filesByName := make(map[string]YAMLFileMeta, len(yamlFiles))
-	for _, file := range yamlFiles {
-		filesByName[file.Name] = file
-	}
-
-	var changed bool
-	for i, entry := range entries {
-		if entry.LoadError == "" {
-			continue
-		}
-		if ctx.Err() != nil {
-			break
-		}
-		file := filesByName[entry.FilePath]
-		if file.Name == "" {
-			file.Name = entry.FilePath
-		}
-		refreshed := &indexv1.DAGIndexEntry{
-			FilePath: entry.FilePath,
-			FileSize: entry.FileSize,
-			ModTime:  entry.ModTime,
-			LoadPath: file.LoadPath,
-		}
-		buildEntry(ctx, yamlFilePath(dagDir, file), refreshed, flags, loadOpts...)
-		if proto.Equal(entry, refreshed) {
-			continue
-		}
-		entries[i] = refreshed
-		changed = true
-	}
-	return changed
+	entry.Suspended = isSuspended(entry.FilePath, flags)
 }
 
 func yamlFilePath(dagDir string, file YAMLFileMeta) string {
@@ -230,21 +233,23 @@ func yamlFilePath(dagDir string, file YAMLFileMeta) string {
 	return filepath.Join(dagDir, filepath.FromSlash(file.Name))
 }
 
-// NewIndex wraps entries in an index ready to be written.
-func NewIndex(entries []*indexv1.DAGIndexEntry) *indexv1.DAGIndex {
-	return &indexv1.DAGIndex{
+// Encode marshals an index of entries that a scan begun at scannedAt checked
+// against the DAG files, ready to be written.
+func Encode(entries []*indexv1.DAGIndexEntry, scannedAt time.Time) ([]byte, error) {
+	data, err := proto.Marshal(&indexv1.DAGIndex{
 		Version:     IndexVersion,
-		BuiltAtUnix: time.Now().Unix(),
+		BuiltAtUnix: scannedAt.Unix(),
 		Entries:     entries,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal DAG index: %w", err)
 	}
+	return data, nil
 }
 
-// Write atomically writes the index to disk, creating its directory if needed.
-func Write(indexPath string, idx *indexv1.DAGIndex) error {
-	data, err := proto.Marshal(idx)
-	if err != nil {
-		return fmt.Errorf("failed to marshal DAG index: %w", err)
-	}
+// Write atomically writes a marshaled index to disk, creating its directory if
+// needed.
+func Write(indexPath string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(indexPath), 0750); err != nil {
 		return fmt.Errorf("failed to create DAG index directory: %w", err)
 	}

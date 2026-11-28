@@ -252,7 +252,8 @@ type Store struct {
 	skipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
 	project                *projectScope            // Project whose lookups the store resolves, or nil
 	baseConfigMu           sync.Mutex               // Protects base config state refresh and invalidation
-	indexMu                sync.Mutex               // Protects index load/rebuild/invalidate
+	indexMu                sync.Mutex               // Protects index load/rebuild/invalidate and indexCopy
+	indexCopy              []byte                   // Index loaded last, to rebuild a removed index from
 	savedIndex             savedIndexCache          // Catalog of the last saved index read
 }
 
@@ -449,7 +450,7 @@ func (store *Store) refreshBaseConfigState() string {
 		if store.fileCache != nil {
 			store.fileCache.InvalidateAll()
 		}
-		store.invalidateIndex()
+		store.resetIndex()
 		store.baseConfigState = state
 	}
 	return store.baseConfigState
@@ -467,7 +468,7 @@ func (store *Store) refreshCalendarsState() {
 	store.baseConfigMu.Lock()
 	defer store.baseConfigMu.Unlock()
 	if state != store.calendarsState {
-		store.invalidateIndex()
+		store.resetIndex()
 		store.calendarsState = state
 		// The state follows content, which a cached calendar misses when a
 		// rewrite keeps the file's identity, size and modification time.
@@ -833,8 +834,9 @@ func (store *Store) ensureDirExist() error {
 	return nil
 }
 
-// loadIndex returns validated index entries, rebuilding the index when needed.
-func (store *Store) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*indexv1.DAGIndexEntry, error) {
+// loadIndex returns the index entries of the DAG files, which a scan begun at
+// scannedAt found, and saves them when they differ from the saved index.
+func (store *Store) loadIndex(ctx context.Context, files []DiscoveredFile, scannedAt time.Time) ([]*indexv1.DAGIndexEntry, error) {
 	store.refreshBaseConfigState()
 	store.refreshCalendarsState()
 
@@ -857,37 +859,74 @@ func (store *Store) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*i
 		return nil, err
 	}
 
-	indexPath := store.indexPath
-
-	// Try loading existing index. A cached load error is re-checked against the
-	// current parser before it is served, so upgrading Dagu clears errors that
-	// only an older build produced.
-	if cached := dagindex.Load(indexPath, yamlFiles, flags); cached != nil {
-		if dagindex.RefreshFailures(ctx, store.baseDir, yamlFiles, cached, flags, store.defaultLoadOptions()...) {
-			if err := dagindex.Write(indexPath, dagindex.NewIndex(cached)); err != nil {
-				logger.Warn(ctx, "Failed to write DAG definition index", tag.Error(err))
-			}
+	data := store.readIndex()
+	saved, checkedAt, ok := dagindex.Decode(data)
+	if !ok {
+		// A write to a DAG removes the index. The copy spares loading again
+		// the DAG files that did not change.
+		data = nil
+		saved, checkedAt, _ = dagindex.Decode(store.indexCopy)
+		if len(saved) == 0 && len(yamlFiles) > 0 {
+			logger.Info(ctx, "Rebuilding DAG definition index", tag.Dir(store.baseDir))
 		}
-		return cached, nil
 	}
-
-	// Rebuild.
-	logger.Info(ctx, "Rebuilding DAG definition index", tag.Dir(store.baseDir))
-	idx := dagindex.Build(ctx, store.baseDir, yamlFiles, flags, store.defaultLoadOptions()...)
-	// A cancel stops the build part way, and a partial index would hide DAGs.
-	if err := ctx.Err(); err != nil {
+	// A file modified close to the scan that checked its entry can be written
+	// again without a change to its size or modification time, so it is
+	// loaded again. A cached load error is checked again against the current
+	// parser, so upgrading Dagu clears errors that only an older build produced.
+	trustBefore := checkedAt.Add(-minStampAge)
+	entries, changed, err := dagindex.Refresh(ctx, store.baseDir, saved, trustBefore, yamlFiles, flags, store.defaultLoadOptions()...)
+	if err != nil {
+		// A cancel stops the load part way, and a partial index would hide DAGs.
 		return nil, err
 	}
-	if err := dagindex.Write(indexPath, idx); err != nil {
-		logger.Warn(ctx, "Failed to write DAG definition index", tag.Error(err))
+	// Saving the entries with this scan lets later loads trust the files that
+	// it checked long enough after their last modification. The index records
+	// the scan to the second.
+	trustedNow := time.Unix(scannedAt.Unix(), 0).Add(-minStampAge)
+	settled := slices.ContainsFunc(entries, func(entry *indexv1.DAGIndexEntry) bool {
+		modTime := time.Unix(0, entry.ModTime)
+		return modTime.After(trustBefore) && !modTime.After(trustedNow)
+	})
+	if data == nil || changed || settled {
+		if data, err = dagindex.Encode(entries, scannedAt); err != nil {
+			logger.Warn(ctx, "Failed to write DAG definition index", tag.Error(err))
+			store.indexCopy = nil
+			return entries, nil
+		}
+		if err := dagindex.Write(store.indexPath, data); err != nil {
+			logger.Warn(ctx, "Failed to write DAG definition index", tag.Error(err))
+		}
 	}
-	return idx.Entries, nil
+	store.indexCopy = data
+	return entries, nil
 }
 
-// invalidateIndex removes the index file so the next read triggers a rebuild.
+// readIndex returns the saved index, or nil when it cannot be read.
+func (store *Store) readIndex() []byte {
+	data, err := fileutil.ReadFile(store.indexPath)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+// invalidateIndex removes the index file after a write to a DAG file or a
+// suspend flag, so that no reader trusts it. The next load reloads only the
+// DAG files that changed since this store loaded the index.
 func (store *Store) invalidateIndex() {
 	store.indexMu.Lock()
 	defer store.indexMu.Unlock()
+	_ = fileutil.Remove(store.indexPath)
+}
+
+// resetIndex removes the index file and the copy of it that the store keeps,
+// so that the next load loads every DAG file. A change to a file that every
+// DAG depends on, such as the base config, needs it.
+func (store *Store) resetIndex() {
+	store.indexMu.Lock()
+	defer store.indexMu.Unlock()
+	store.indexCopy = nil
 	_ = fileutil.Remove(store.indexPath)
 }
 

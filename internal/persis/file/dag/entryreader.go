@@ -172,7 +172,7 @@ const (
 	// is re-pointed under the same name.
 	defaultSymlinkPollInterval = 5 * time.Second
 	// minStampAge is how long before its load a file must have been last
-	// modified for a full refresh to trust an unchanged stamp. File systems
+	// modified for a later load to trust an unchanged stamp. File systems
 	// record modification times in ticks of up to 2s, so a write in the same
 	// tick as the load can leave the stamp unchanged.
 	minStampAge = 5 * time.Second

@@ -19,21 +19,21 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestLoad_MissingFile(t *testing.T) {
-	entries := Load("/nonexistent/.dag.index", nil, nil)
-	assert.Nil(t, entries)
+func TestReadEntries_MissingFile(t *testing.T) {
+	_, ok := ReadEntries("/nonexistent/.dag.index")
+	assert.False(t, ok)
 }
 
-func TestLoad_CorruptFile(t *testing.T) {
+func TestReadEntries_CorruptFile(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, IndexFileName)
 	require.NoError(t, os.WriteFile(indexPath, []byte("corrupt data"), 0600))
 
-	entries := Load(indexPath, nil, nil)
-	assert.Nil(t, entries)
+	_, ok := ReadEntries(indexPath)
+	assert.False(t, ok)
 }
 
-func TestLoad_VersionMismatch(t *testing.T) {
+func TestReadEntries_VersionMismatch(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, IndexFileName)
 
@@ -42,115 +42,8 @@ func TestLoad_VersionMismatch(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(indexPath, data, 0600))
 
-	entries := Load(indexPath, nil, nil)
-	assert.Nil(t, entries)
-}
-
-func TestLoad_FileCountMismatch(t *testing.T) {
-	dir := t.TempDir()
-	indexPath := filepath.Join(dir, IndexFileName)
-
-	idx := &indexv1.DAGIndex{
-		Version: IndexVersion,
-		Entries: []*indexv1.DAGIndexEntry{
-			{FilePath: "a.yaml", FileSize: 10, ModTime: 100},
-		},
-	}
-	data, err := proto.Marshal(idx)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(indexPath, data, 0600))
-
-	// No YAML files → count mismatch
-	entries := Load(indexPath, nil, nil)
-	assert.Nil(t, entries)
-}
-
-func TestLoad_SizeMismatch(t *testing.T) {
-	dir := t.TempDir()
-	indexPath := filepath.Join(dir, IndexFileName)
-
-	idx := &indexv1.DAGIndex{
-		Version: IndexVersion,
-		Entries: []*indexv1.DAGIndexEntry{
-			{FilePath: "a.yaml", FileSize: 999, ModTime: 100},
-		},
-	}
-	data, err := proto.Marshal(idx)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(indexPath, data, 0600))
-
-	files := []YAMLFileMeta{{Name: "a.yaml", Size: 10, ModTime: 100}}
-	entries := Load(indexPath, files, nil)
-	assert.Nil(t, entries)
-}
-
-func TestLoad_ModTimeMismatch(t *testing.T) {
-	dir := t.TempDir()
-	indexPath := filepath.Join(dir, IndexFileName)
-
-	idx := &indexv1.DAGIndex{
-		Version: IndexVersion,
-		Entries: []*indexv1.DAGIndexEntry{
-			{FilePath: "a.yaml", FileSize: 10, ModTime: 100},
-		},
-	}
-	data, err := proto.Marshal(idx)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(indexPath, data, 0600))
-
-	files := []YAMLFileMeta{{Name: "a.yaml", Size: 10, ModTime: 200}}
-	entries := Load(indexPath, files, nil)
-	assert.Nil(t, entries)
-}
-
-func TestLoad_SuspendMismatch(t *testing.T) {
-	dir := t.TempDir()
-	indexPath := filepath.Join(dir, IndexFileName)
-
-	idx := &indexv1.DAGIndex{
-		Version: IndexVersion,
-		Entries: []*indexv1.DAGIndexEntry{
-			{FilePath: "a.yaml", FileSize: 10, ModTime: 100, Name: "a", Suspended: false},
-		},
-	}
-	data, err := proto.Marshal(idx)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(indexPath, data, 0600))
-
-	files := []YAMLFileMeta{{Name: "a.yaml", Size: 10, ModTime: 100}}
-	flags := SuspendFlags{"a.suspend": {}}
-	entries := Load(indexPath, files, flags)
-	assert.Nil(t, entries)
-}
-
-func TestLoad_Valid(t *testing.T) {
-	dir := t.TempDir()
-	indexPath := filepath.Join(dir, IndexFileName)
-
-	idx := &indexv1.DAGIndex{
-		Version: IndexVersion,
-		Entries: []*indexv1.DAGIndexEntry{
-			{
-				FilePath:  "a.yaml",
-				FileSize:  10,
-				ModTime:   100,
-				Name:      "a",
-				Labels:    []string{"env=prod"},
-				Suspended: true,
-			},
-		},
-	}
-	data, err := proto.Marshal(idx)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(indexPath, data, 0600))
-
-	files := []YAMLFileMeta{{Name: "a.yaml", Size: 10, ModTime: 100}}
-	flags := SuspendFlags{"a.suspend": {}}
-	entries := Load(indexPath, files, flags)
-	require.Len(t, entries, 1)
-	assert.Equal(t, "a", entries[0].Name)
-	assert.Equal(t, []string{"env=prod"}, entries[0].Labels)
-	assert.True(t, entries[0].Suspended)
+	_, ok := ReadEntries(indexPath)
+	assert.False(t, ok)
 }
 
 func TestBuild_BasicDAGs(t *testing.T) {
@@ -239,15 +132,9 @@ func TestWrite_Atomic(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, IndexFileName)
 
-	idx := &indexv1.DAGIndex{
-		Version:     IndexVersion,
-		BuiltAtUnix: time.Now().Unix(),
-		Entries: []*indexv1.DAGIndexEntry{
-			{FilePath: "a.yaml", Name: "a"},
-		},
-	}
-
-	require.NoError(t, Write(indexPath, idx))
+	encoded, err := Encode([]*indexv1.DAGIndexEntry{{FilePath: "a.yaml", Name: "a"}}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, Write(indexPath, encoded))
 
 	// Verify file exists and can be read back.
 	data, err := os.ReadFile(indexPath)
@@ -288,10 +175,13 @@ func TestRoundTrip(t *testing.T) {
 	// Build and write.
 	idx := Build(context.Background(), dir, files, nil)
 	indexPath := filepath.Join(dir, IndexFileName)
-	require.NoError(t, Write(indexPath, idx))
+	data, err := Encode(idx.Entries, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, Write(indexPath, data))
 
-	// Load and validate.
-	entries := Load(indexPath, files, nil)
+	// Read back.
+	entries, ok := ReadEntries(indexPath)
+	require.True(t, ok)
 	require.Len(t, entries, 2)
 
 	cronDAG := DAGFromEntry(entries[0], dir)
@@ -467,21 +357,21 @@ func TestDAGFromEntry_NoSchedule(t *testing.T) {
 }
 
 func TestWrite_InvalidPath(t *testing.T) {
-	idx := &indexv1.DAGIndex{
-		Version: IndexVersion,
-		Entries: []*indexv1.DAGIndexEntry{{FilePath: "a.yaml", Name: "a"}},
-	}
+	data, err := Encode([]*indexv1.DAGIndexEntry{{FilePath: "a.yaml", Name: "a"}}, time.Now())
+	require.NoError(t, err)
 	// A regular file in place of the index directory cannot be created over,
 	// on every platform and for every user.
 	blocker := filepath.Join(t.TempDir(), "blocker")
 	require.NoError(t, os.WriteFile(blocker, nil, 0600))
-	err := Write(filepath.Join(blocker, "dir", ".dag.index"), idx)
+	err = Write(filepath.Join(blocker, "dir", ".dag.index"), data)
 	require.Error(t, err)
 }
 
 func TestWrite_CreatesDirectory(t *testing.T) {
 	indexPath := filepath.Join(t.TempDir(), "cache", "dag-index", "x.index")
-	require.NoError(t, Write(indexPath, NewIndex(nil)))
+	data, err := Encode(nil, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, Write(indexPath, data))
 	assert.FileExists(t, indexPath)
 }
 
@@ -510,26 +400,6 @@ func TestBuild_SpecLoadFailure(t *testing.T) {
 	require.Len(t, idx.Entries, 1)
 	assert.Equal(t, "noperm", idx.Entries[0].Name)
 	assert.NotEmpty(t, idx.Entries[0].LoadError, "should record error when file is unreadable")
-}
-
-func TestLoad_FilePathMismatch(t *testing.T) {
-	dir := t.TempDir()
-	indexPath := filepath.Join(dir, IndexFileName)
-
-	idx := &indexv1.DAGIndex{
-		Version: IndexVersion,
-		Entries: []*indexv1.DAGIndexEntry{
-			{FilePath: "a.yaml", FileSize: 10, ModTime: 100, Name: "a"},
-		},
-	}
-	data, err := proto.Marshal(idx)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(indexPath, data, 0600))
-
-	// YAML file name doesn't match index entry → returns nil.
-	files := []YAMLFileMeta{{Name: "b.yaml", Size: 10, ModTime: 100}}
-	entries := Load(indexPath, files, nil)
-	assert.Nil(t, entries, "should return nil when file path doesn't match index")
 }
 
 func TestParseScheduleExpressions_EmptyString(t *testing.T) {
