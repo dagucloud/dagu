@@ -153,7 +153,8 @@ A model connection has the Spec 107 metadata fields `name`, `project`,
   [Status](#status).
 - A rotation replaces the key in one place: the connection for an own key,
   the app for a shared key. Every connection on a shared key sends the new key
-  from its next request.
+  from its next request. A key, its URLs, and its auth change together:
+  each request uses the URLs and auth saved with the key it sends.
 - The key is stored as Spec 107 [Records](107-connections.md#records)
   state: encrypted with the server's key, and never in the secret store.
 
@@ -372,7 +373,9 @@ A CLI step takes the first of these that applies:
   `model` and `effort`, and passes neither as a flag of its own name.
   Without it, both keep their Spec 067 behavior. Each `fallback` entry
   takes the same keys. A step whose `provider` is a reference cannot
-  have `connection`, since its meaning depends on the provider.
+  have `connection`, since its meaning depends on the provider. When it
+  would inherit `llm.connection`, the policy and protocol checks run
+  after the reference resolves, before the CLI starts.
 - A step that uses a model connection, by any rule above, cannot have a
   CLI option that changes the CLI's provider, base URL, credential, or
   server, such as `attach` or `managed: true` for `opencode`. Such a step

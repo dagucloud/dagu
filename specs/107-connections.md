@@ -231,7 +231,8 @@ A worker has neither.
 - A new app has `status: ok`.
 - Only the broker sets `invalid`, as [Refresh Results](#refresh-results)
   states. Only an admin's change to `client_id` or `client_secret` sets it
-  back to `ok`.
+  back to `ok`. A `model` app follows the 401 and rotation rules of
+  [Spec 093](093-model-connections.md#connection-status) instead.
 - An app that a connection uses cannot be deleted.
 - A `dcr` app belongs to the one connection that registered it. It is
   created and deleted with that connection, and no other connection may use
