@@ -37,7 +37,10 @@ const (
 	removalRereadInterval = 30 * time.Second
 	// strandedRunWindow is how long after a revocation a coordinator looks
 	// for the runs bound to its worker that no worker took, a few claim
-	// timeouts, so a claim that expires late is still found.
+	// timeouts, so a claim that expires late is still found. A task marked
+	// retiring is resumed only within it too, so one stays marked when
+	// every coordinator stops mid-retirement and stays down for the whole
+	// window.
 	strandedRunWindow = 10 * time.Minute
 	// recordPruneInterval is how often a coordinator prunes the certificate
 	// and invite records.
