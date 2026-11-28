@@ -22,6 +22,7 @@ const (
 	builtinFromInvite     = "Peer transport: built-in TLS (from worker.invite)"
 	builtinFromWorkerCert = "Peer transport: built-in TLS (from worker certificate)"
 	workerEnrolled        = "Worker enrolled"
+	lockWaiting           = "Another worker holds the certificate of this data directory"
 	// lockWait is how long a second worker waits for the certificate lock
 	// before it exits.
 	lockWait = 30 * time.Second
@@ -103,15 +104,22 @@ func TestWorkerInviteEnrollment(t *testing.T) {
 	secret := created.Invite[strings.LastIndex(created.Invite, ".")+1:]
 
 	worker := dagu.StartWithEnv(inviteWorkerEnv(dagu, "host-a", created.Invite), inviteWorkerArgs("worker-a", coord.addr)...)
-	output := waitForOutput(t, worker, builtinFromInvite, workerEnrolled)
+	waitForOutput(t, worker, builtinFromInvite, workerEnrolled)
 	coord.waitForWorker(t, "worker-a")
 	worker.Stop()
-	assert.NotContains(t, output, secret)
+	assert.NotContains(t, worker.Output(), secret, "the whole output, shutdown included")
 
+	// A worker killed without its shutdown frees the certificate at once:
+	// the restart takes it without waiting.
 	restarted := dagu.StartWithEnv(inviteWorkerEnv(dagu, "host-a", created.Invite), inviteWorkerArgs("worker-a-restarted", coord.addr)...)
-	output = waitForOutput(t, restarted, builtinFromWorkerCert)
+	waitForOutput(t, restarted, builtinFromWorkerCert)
 	coord.waitForWorker(t, "worker-a-restarted")
-	assert.NotContains(t, output, workerEnrolled)
+	restarted.Kill()
+	assert.NotContains(t, restarted.Output(), workerEnrolled)
+	again := dagu.StartWithEnv(inviteWorkerEnv(dagu, "host-a", created.Invite), inviteWorkerArgs("worker-a-again", coord.addr)...)
+	waitForOutput(t, again, builtinFromWorkerCert)
+	coord.waitForWorker(t, "worker-a-again")
+	assert.NotContains(t, again.Output(), lockWaiting)
 	invites, err := coord.admin.ListInvites(coord.context(t), &coordinatorv1.ListInvitesRequest{})
 	require.NoError(t, err)
 	require.Len(t, invites.Invites, 1)
@@ -124,9 +132,26 @@ func TestWorkerInviteEnrollment(t *testing.T) {
 	assert.NotContains(t, other.Stderr()+other.Stdout(), secret)
 }
 
+// A worker whose settings fail at start does so before it enrolls, so its
+// single-use invite stays unused and enrolls a worker started right.
+func TestWorkerInviteBadLabel(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	coord := startInviteCoordinator(t, dagu)
+	invite := coord.createInvite(t, false).Invite
+
+	bad := dagu.RunWithEnv(inviteWorkerEnv(dagu, "host-a", invite), append(inviteWorkerArgs("worker-a", coord.addr), "--worker.labels=team=data eng")...)
+	bad.ExpectExitCode(1)
+	assert.NotContains(t, bad.Stdout()+bad.Stderr(), workerEnrolled)
+
+	worker := dagu.StartWithEnv(inviteWorkerEnv(dagu, "host-a", invite), inviteWorkerArgs("worker-a", coord.addr)...)
+	waitForOutput(t, worker, workerEnrolled)
+	coord.waitForWorker(t, "worker-a")
+}
+
 // Two workers on one data directory never share a certificate: the second
-// waits 30 seconds while the first keeps the lock, then exits (Spec 108
-// §Two Workers on One Volume).
+// waits 30 seconds while the first keeps the lock, also while the first is
+// paused, then exits (Spec 108 §Two Workers on One Volume).
 func TestWorkerInviteSameDataDir(t *testing.T) {
 	t.Parallel()
 	dagu := harness.NewRunner(t)
@@ -135,6 +160,7 @@ func TestWorkerInviteSameDataDir(t *testing.T) {
 
 	first := dagu.StartWithEnv(inviteWorkerEnv(dagu, "volume", invite), inviteWorkerArgs("worker-1", coord.addr)...)
 	waitForOutput(t, first, workerEnrolled)
+	pauseProcess(t, first.PID())
 
 	started := time.Now()
 	second := dagu.WithCommandTimeout(lockWait+harness.WaitTimeout(t)).
