@@ -1319,6 +1319,10 @@ The Workers page is the list of workers on System status.
   when the admin opened them. When the worker connects with another
   certificate before the admin confirms, they say so and send nothing; a
   new confirmation is needed.
+- Only the admin closes the confirmation and **Stop runs now**. They keep
+  their outcome when a refresh of the list changes or drops the worker's
+  row, or fails, and a request that ends after its dialog was closed
+  leaves a newer one open.
 - With running runs, the confirmation lists them and offers
   **Remove after its runs finish** (`finish`, the default) and
   **Stop its runs and remove** (`stop`). A `removing` worker shows

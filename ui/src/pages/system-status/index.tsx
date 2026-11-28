@@ -8,6 +8,7 @@ import WorkersSummary from '../../features/dashboard/components/WorkersSummary';
 import WorkerInvites, {
   inviteBaseline,
 } from '../../features/workers/components/WorkerInvites';
+import { WorkerActionsHost } from '../../features/workers/components/WorkerRemoval';
 import H2CCallers from '../../features/system-status/components/H2CCallers';
 import PathsCard from '../../features/system-status/components/PathsCard';
 import ResourceChart from '../../features/system-status/components/ResourceChart';
@@ -277,13 +278,15 @@ function SystemStatus() {
         className="card-obsidian flex max-h-[60vh] flex-col overflow-hidden"
         style={{ minHeight: '200px' }}
       >
-        <WorkersSummary
-          workers={workersData?.workers || []}
-          isLoading={!workersData && !workersError}
-          errors={
-            workersError ? [errorText(workersError)!] : workersData?.errors
-          }
-        />
+        <WorkerActionsHost workers={workersData?.workers || []}>
+          <WorkersSummary
+            workers={workersData?.workers || []}
+            isLoading={!workersData && !workersError}
+            errors={
+              workersError ? [errorText(workersError)!] : workersData?.errors
+            }
+          />
+        </WorkerActionsHost>
       </div>
       <WorkerInvites
         workers={inviteBaseline({

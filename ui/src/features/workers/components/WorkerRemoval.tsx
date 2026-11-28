@@ -57,29 +57,101 @@ function useLocalNode(): boolean {
   return useRemoteNode() === 'local';
 }
 
+type ActionKind = 'remove' | 'stop';
+
+const SCROLLING_DIALOG =
+  'sm:max-w-[500px] max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto]';
+const SCROLLING_BODY = 'min-h-0 overflow-y-auto';
+
+// An open confirmation: the worker as the list showed it when the admin
+// clicked, the certificate it acts on, and its own number, so that a
+// request that ends after its dialog was closed cannot close a newer one.
+interface OpenAction {
+  kind: ActionKind;
+  worker: Worker;
+  certificateId: string;
+  request: number;
+}
+
+const StartActionContext = React.createContext<
+  ((kind: ActionKind, worker: Worker) => void) | null
+>(null);
+
+/**
+ * WorkerActionsHost holds the Remove and Stop runs now confirmations of the
+ * workers list it wraps. A confirmation stays open, with its outcome, until
+ * the admin closes it, also when a refresh drops its row, its button, or
+ * the whole list. `workers` is the page's latest workers list.
+ */
+export function WorkerActionsHost({
+  workers,
+  children,
+}: {
+  workers: Worker[];
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = React.useState<OpenAction | null>(null);
+  const requests = React.useRef(0);
+  const start = React.useCallback((kind: ActionKind, worker: Worker) => {
+    const certificateId = worker.certificateId;
+    if (!certificateId) return;
+    setOpen({ kind, worker, certificateId, request: ++requests.current });
+  }, []);
+  const close = React.useCallback(
+    (request: number) =>
+      setOpen((current) => (current?.request === request ? null : current)),
+    []
+  );
+
+  // The row as the latest list shows it, or as it was when the admin
+  // clicked once the list no longer has it.
+  const worker =
+    open &&
+    (workers.find((candidate) => candidate.id === open.worker.id) ??
+      open.worker);
+  return (
+    <StartActionContext.Provider value={start}>
+      {children}
+      {open && worker && open.kind === 'remove' && (
+        <RemoveWorkerDialog
+          key={open.request}
+          worker={worker}
+          certificateId={open.certificateId}
+          workers={workers}
+          onClose={() => close(open.request)}
+        />
+      )}
+      {open && worker && open.kind === 'stop' && (
+        <StopRunsDialog
+          key={open.request}
+          worker={worker}
+          certificateId={open.certificateId}
+          onClose={() => close(open.request)}
+        />
+      )}
+    </StartActionContext.Provider>
+  );
+}
+
 /**
  * WorkerRemoveAction is the Remove action of a worker row, for admins on the
- * local node. The
- * `column` action is an icon in its own column of a wide list, with a slot on
- * every row so the columns stay aligned. The `inline` action is a text button
- * under the worker ID of a narrow list, so the ID keeps the row's width.
+ * local node, inside a WorkerActionsHost. The `column` action is an icon in
+ * its own column of a wide list, with a slot on every row so the columns
+ * stay aligned. The `inline` action is a text button under the worker ID of
+ * a narrow list, so the ID keeps the row's width.
  */
 export function WorkerRemoveAction({
   worker,
-  workers,
   layout,
 }: {
   worker: Worker;
-  workers: Worker[];
   layout: 'column' | 'inline';
 }) {
   const { ts } = useI18n();
   const isAdmin = useIsAdmin();
   const local = useLocalNode();
-  // The certificate the list showed when Remove was clicked; the dialog
-  // acts on it only.
-  const [confirming, setConfirming] = React.useState<string | null>(null);
-  if (!isAdmin || !local) return null;
+  const start = React.useContext(StartActionContext);
+  if (!isAdmin || !local || !start) return null;
   const removable = canRemove(worker);
   if (layout === 'inline' && !removable) return null;
 
@@ -98,7 +170,7 @@ export function WorkerRemoveAction({
             variant="ghost"
             aria-label={label}
             title={label}
-            onClick={() => setConfirming(worker.certificateId ?? null)}
+            onClick={() => start('remove', worker)}
           >
             <UserMinus />
           </Button>
@@ -108,19 +180,11 @@ export function WorkerRemoveAction({
             variant="link"
             className="h-auto px-0 text-xs"
             aria-label={label}
-            onClick={() => setConfirming(worker.certificateId ?? null)}
+            onClick={() => start('remove', worker)}
           >
             <I18nText text="Remove" />
           </Button>
         ))}
-      {confirming && (
-        <RemoveWorkerDialog
-          worker={worker}
-          certificateId={confirming}
-          workers={workers}
-          onClose={() => setConfirming(null)}
-        />
-      )}
     </div>
   );
 }
@@ -133,8 +197,7 @@ export function WorkerRemovalProgress({ worker }: { worker: Worker }) {
   const { ts } = useI18n();
   const isAdmin = useIsAdmin();
   const local = useLocalNode();
-  // The certificate the list showed when Stop runs now was clicked.
-  const [stopping, setStopping] = React.useState<string | null>(null);
+  const start = React.useContext(StartActionContext);
   if (worker.removing !== true) return null;
   const left = worker.runningTasks?.length ?? 0;
 
@@ -153,25 +216,16 @@ export function WorkerRemovalProgress({ worker }: { worker: Worker }) {
           values={{ count: left }}
         />
       </span>
-      {isAdmin && local && left > 0 && (
-        <>
-          <Button
-            size="xs"
-            variant="link"
-            className="h-auto min-w-0 shrink whitespace-normal px-0 text-left text-xs"
-            aria-label={ts('Stop runs now on {worker}', { worker: worker.id })}
-            onClick={() => setStopping(worker.certificateId ?? null)}
-          >
-            <I18nText text="Stop runs now" />
-          </Button>
-          {stopping && (
-            <StopRunsDialog
-              worker={worker}
-              certificateId={stopping}
-              onClose={() => setStopping(null)}
-            />
-          )}
-        </>
+      {isAdmin && local && start && left > 0 && (
+        <Button
+          size="xs"
+          variant="link"
+          className="h-auto min-w-0 shrink whitespace-normal px-0 text-left text-xs"
+          aria-label={ts('Stop runs now on {worker}', { worker: worker.id })}
+          onClick={() => start('stop', worker)}
+        >
+          <I18nText text="Stop runs now" />
+        </Button>
       )}
     </div>
   );
@@ -223,6 +277,12 @@ function removalAdvice(ts: (source: string) => string): {
         change: ts(
           'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.'
         ),
+      }),
+      [WorkerAccessReason.older_coordinator]: () => ({
+        cause: ts(
+          'The coordinator runs an earlier Dagu release that cannot remove workers.'
+        ),
+        change: ts('Upgrade the coordinator.'),
       }),
       [WorkerAccessReason.peer_token_worker]: () => ({
         cause: ts(
@@ -280,7 +340,7 @@ function ReplacedNotice() {
     <p className="rounded border px-3 py-2">
       <I18nText
         text={
-          'This worker now connects with another certificate. Close this dialog and confirm again for it.'
+          'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.'
         }
       />
     </p>
@@ -371,6 +431,10 @@ function RemoveWorkerDialog({
       // The invite warning must be on screen before the removal can start.
       submitDisabled={submitting || lookup.reading || replaced}
       initialFocus="cancel"
+      // A long list of runs or workers scrolls inside the dialog, so the
+      // buttons stay on screen.
+      contentClassName={SCROLLING_DIALOG}
+      bodyClassName={SCROLLING_BODY}
     >
       <div className="space-y-3 text-sm">
         <p>
@@ -607,6 +671,10 @@ function StopRunsDialog({
       onSubmit={() => void submit()}
       submitDisabled={submitting || replaced}
       initialFocus="cancel"
+      // A long list of runs or workers scrolls inside the dialog, so the
+      // buttons stay on screen.
+      contentClassName={SCROLLING_DIALOG}
+      bodyClassName={SCROLLING_BODY}
     >
       <div className="space-y-2 text-sm">
         <p>

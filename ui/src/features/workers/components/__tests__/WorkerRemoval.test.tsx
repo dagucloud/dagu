@@ -11,10 +11,12 @@ import {
   WorkerInviteKind,
   type components,
 } from '@/api/v1/schema';
+import { QueryFeedback } from '@/components/QueryFeedback';
 import { useIsAdmin } from '@/contexts/AuthContext';
 import WorkersSummary from '@/features/dashboard/components/WorkersSummary';
 import { useQuery } from '@/hooks/api';
 import WorkerInvites from '../WorkerInvites';
+import { WorkerActionsHost } from '../WorkerRemoval';
 import {
   Providers,
   installServer,
@@ -35,16 +37,20 @@ vi.mock('@/hooks/api', async () =>
 );
 vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: vi.fn() }));
 
-// System status renders the workers list and the invites list side by
-// side; both read through one cache. The page also reads /workers, which a
-// removal reads again.
-function Page({ workers }: { workers: Worker[] }) {
+// System status renders the workers list, inside the host of its
+// confirmations, and the invites list side by side; both read through one
+// cache. The page also reads /workers, which a removal reads again, and
+// shows the page's notices of failed background reads. `errors` is a failed
+// refresh of the workers list.
+function Page({ workers, errors }: { workers: Worker[]; errors?: string[] }) {
   useQuery('/workers', { params: { query: { remoteNode: 'local' } } });
   return (
-    <>
-      <WorkersSummary workers={workers} isLoading={false} />
+    <QueryFeedback>
+      <WorkerActionsHost workers={workers}>
+        <WorkersSummary workers={workers} isLoading={false} errors={errors} />
+      </WorkerActionsHost>
       <WorkerInvites workers={workers} live refreshes={0} />
-    </>
+    </QueryFeedback>
   );
 }
 
@@ -52,7 +58,8 @@ function renderPage(workers: Worker[]) {
   const view = render(<Page workers={workers} />, { wrapper: Providers });
   return {
     ...view,
-    update: (next: Worker[]) => view.rerender(<Page workers={next} />),
+    update: (next: Worker[], errors?: string[]) =>
+      view.rerender(<Page workers={next} errors={errors} />),
   };
 }
 
@@ -207,7 +214,7 @@ describe('Remove', () => {
     );
     expect(alert).toHaveTextContent('The worker was not removed.');
     expect(screen.getByRole('dialog')).toHaveTextContent(
-      'This worker now connects with another certificate.'
+      'This worker no longer connects with the certificate shown when this dialog opened.'
     );
   });
 
@@ -430,7 +437,7 @@ describe('Remove', () => {
     update([worker('worker-a1', { certificateId: 'cert-new' })]);
 
     expect(dialog).toHaveTextContent(
-      'This worker now connects with another certificate. Close this dialog and confirm again for it.'
+      'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.'
     );
     expect(
       within(dialog).getByRole('button', { name: 'Remove' })
@@ -457,7 +464,7 @@ describe('Remove', () => {
     update([removing('cert-2')]);
 
     expect(dialog).toHaveTextContent(
-      'This worker now connects with another certificate.'
+      'This worker no longer connects with the certificate shown when this dialog opened.'
     );
     expect(
       within(dialog).getByRole('button', { name: 'Stop runs' })
@@ -614,6 +621,11 @@ describe('Remove', () => {
       'Stop it on its host, or change the peer token.',
     ],
     [
+      refused(409, 'older', 'conflict', 'older_coordinator'),
+      'The coordinator runs an earlier Dagu release that cannot remove workers.',
+      'Upgrade the coordinator.',
+    ],
+    [
       refused(503, 'no coordinator', 'internal_error', 'no_coordinator'),
       'No coordinator is running or reachable.',
       'Start the coordinator, or check that this server can reach it, then try again.',
@@ -648,6 +660,160 @@ describe('Remove', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     }
   );
+
+  // A request that ends after its dialog was closed leaves a newer
+  // confirmation of the same row open.
+  it('keeps a newer confirmation open when an older removal ends', async () => {
+    let answer: (value: { status: number; body: unknown }) => void = () =>
+      undefined;
+    server.del = () => new Promise((resolve) => (answer = resolve));
+    renderPage([worker('worker-a1')]);
+    let dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Cancel' })
+    );
+    dialog = await openRemove('worker-a1');
+
+    await act(async () => answer({ status: 200, body: { state: 'removing' } }));
+
+    expect(screen.getByRole('dialog')).toBe(dialog);
+  });
+
+  // Only the admin closes a confirmation: a refresh that takes away its
+  // button keeps it, with its refusal, and its button disabled.
+  it('keeps Stop runs now open when the worker joins again', async () => {
+    server.del = () =>
+      refused(409, 'certificate changed', 'conflict', 'certificate_changed');
+    const { update } = renderPage([
+      worker('worker-b1', {
+        removing: true,
+        runningTasks: [task('etl', 'run-1')],
+      }),
+    ]);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop runs now on worker-b1' })
+    );
+    const dialog = screen.getByRole('dialog');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Stop runs' })
+    );
+    const alert = await within(dialog).findByRole('alert');
+
+    update([worker('worker-b1', { certificateId: 'cert-new' })]);
+
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(alert).toHaveTextContent('The worker was not removed.');
+    expect(
+      within(dialog).getByRole('button', { name: 'Stop runs' })
+    ).toBeDisabled();
+  });
+
+  it('keeps Remove open when the worker comes back on the peer token', async () => {
+    server.del = () =>
+      refused(409, 'certificate changed', 'conflict', 'certificate_changed');
+    const { update } = renderPage([worker('worker-a1')]);
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+    const alert = await within(dialog).findByRole('alert');
+
+    update([
+      worker('worker-a1', {
+        connection: WorkerConnection.tls,
+        certificateId: undefined,
+      }),
+    ]);
+
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(alert).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    ).toBeDisabled();
+  });
+
+  // A failed refresh of the workers list takes the rows away; the outcome
+  // of the removal stays until the admin closes it.
+  it('keeps the outcome when the workers refresh fails', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    server.del = (request) =>
+      request.path.endsWith('/certificate')
+        ? refused(503, '', 'internal_error', 'no_coordinator')
+        : { status: 204 };
+    const { update } = renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
+    await screen.findByText('Reusable');
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: /Also delete the invite/ })
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+    await within(dialog).findByRole('alert');
+
+    update([], ['no coordinator is running or reachable']);
+
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(within(dialog).getByRole('status')).toHaveTextContent(
+      'The invite was deleted.'
+    );
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(
+      'No coordinator is running or reachable.'
+    );
+  });
+
+  // The dialog explains a failed invite lookup itself, with no page notice
+  // that would show the server's words.
+  it('raises no page notice for a failed invite lookup', async () => {
+    server.invites = refused(
+      503,
+      'the coordinator refused the server: run the server where it reads the data directory',
+      'internal_error',
+      'peer_token_missing'
+    );
+    renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
+
+    const dialog = await openRemove('worker-a1');
+
+    await waitFor(() =>
+      expect(dialog).toHaveTextContent(
+        'This server has no peer token for the coordinator.'
+      )
+    );
+    expect(screen.queryByText(/data directory/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Background request failed')
+    ).not.toBeInTheDocument();
+  });
+
+  // A long list scrolls inside the dialog, which never grows past the
+  // screen, so its buttons stay in reach.
+  it('scrolls a long confirmation inside the dialog', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    const others = Array.from({ length: 60 }, (_, i) =>
+      worker(`worker-${i}`, { inviteId: 'inv-r' })
+    );
+    renderPage([worker('worker-a1', { inviteId: 'inv-r' }), ...others]);
+    await screen.findByText('Reusable');
+
+    const dialog = await openRemove('worker-a1');
+
+    expect(dialog).toHaveClass('max-h-[calc(100dvh-2rem)]');
+    const body = within(dialog)
+      .getByText(/Other workers on this invite/)
+      .closest('.overflow-y-auto');
+    expect(body).not.toBeNull();
+    expect(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    ).toBeVisible();
+  });
 
   // A plain removal changes no invite, so only the workers are read again.
   it('rereads the workers, not the invites, after a removal', async () => {

@@ -137,11 +137,13 @@ export const workerAdminMessages = defineMessages({
       'Its run gets a stop request, as with Stop. The worker is removed once it ends.',
     'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
       'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.',
-    'This worker now connects with another certificate. Close this dialog and confirm again for it.':
-      'This worker now connects with another certificate. Close this dialog and confirm again for it.',
+    'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
+      'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       'The invite it joined with no longer exists, so it lets no new worker join.',
     'The invite was deleted.': 'The invite was deleted.',
+    'The coordinator runs an earlier Dagu release that cannot remove workers.':
+      'The coordinator runs an earlier Dagu release that cannot remove workers.',
     'Invite {id} was not deleted.': 'Invite {id} was not deleted.',
     'The selected node has no peer token for its coordinator.':
       'The selected node has no peer token for its coordinator.',
@@ -291,11 +293,13 @@ export const workerAdminMessages = defineMessages({
       '其运行会像“停止”一样收到停止请求。运行结束后移除该 Worker。',
     'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
       '其 {count} 个运行都会像“停止”一样收到停止请求。运行结束后移除该 Worker。',
-    'This worker now connects with another certificate. Close this dialog and confirm again for it.':
-      '此 Worker 现在使用另一个证书连接。请关闭此对话框，并为它重新确认。',
+    'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
+      '此 Worker 已不再使用此对话框打开时显示的证书连接。请关闭此对话框，并为它重新确认。',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       '它加入时使用的邀请已不存在，因此不会再有新的 Worker 通过它加入。',
     'The invite was deleted.': '邀请已删除。',
+    'The coordinator runs an earlier Dagu release that cannot remove workers.':
+      'Coordinator 运行的是无法移除 Worker 的较早 Dagu 版本。',
     'Invite {id} was not deleted.': '邀请 {id} 未被删除。',
     'The selected node has no peer token for its coordinator.':
       '所选节点没有其 Coordinator 的 peer token。',
@@ -449,11 +453,13 @@ export const workerAdminMessages = defineMessages({
       '実行に「停止」と同じ停止要求を送ります。終わるとワーカーが削除されます。',
     'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
       '{count} 件の実行それぞれに「停止」と同じ停止要求を送ります。終わるとワーカーが削除されます。',
-    'This worker now connects with another certificate. Close this dialog and confirm again for it.':
-      'このワーカーは別の証明書で接続しています。このダイアログを閉じて、改めて確認してください。',
+    'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
+      'このワーカーは、このダイアログを開いたときに表示した証明書で接続していません。このダイアログを閉じて、改めて確認してください。',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       '参加に使った招待はもう存在しないため、新しいワーカーはそれで参加できません。',
     'The invite was deleted.': '招待は削除されました。',
+    'The coordinator runs an earlier Dagu release that cannot remove workers.':
+      'コーディネーターはワーカーを削除できない以前の Dagu を動かしています。',
     'Invite {id} was not deleted.': '招待 {id} は削除されませんでした。',
     'The selected node has no peer token for its coordinator.':
       '選択したノードには、そのコーディネーターの peer token がありません。',
@@ -608,11 +614,13 @@ export const workerAdminMessages = defineMessages({
       'Sein Lauf erhält eine Stoppanfrage wie mit Stoppen. Der Worker wird entfernt, sobald er endet.',
     'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
       'Jeder seiner {count} Läufe erhält eine Stoppanfrage wie mit Stoppen. Der Worker wird entfernt, sobald sie enden.',
-    'This worker now connects with another certificate. Close this dialog and confirm again for it.':
-      'Dieser Worker verbindet sich jetzt mit einem anderen Zertifikat. Schließen Sie diesen Dialog und bestätigen Sie für ihn erneut.',
+    'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
+      'Dieser Worker verbindet sich nicht mehr mit dem Zertifikat, das beim Öffnen dieses Dialogs angezeigt wurde. Schließen Sie diesen Dialog und bestätigen Sie für ihn erneut.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       'Die Einladung, mit der er beigetreten ist, gibt es nicht mehr, daher kann kein neuer Worker damit beitreten.',
     'The invite was deleted.': 'Die Einladung wurde gelöscht.',
+    'The coordinator runs an earlier Dagu release that cannot remove workers.':
+      'Der Coordinator läuft mit einer älteren Dagu-Version, die keine Worker entfernen kann.',
     'Invite {id} was not deleted.': 'Die Einladung {id} wurde nicht gelöscht.',
     'The selected node has no peer token for its coordinator.':
       'Der ausgewählte Knoten hat kein Peer-Token für seinen Coordinator.',
@@ -767,11 +775,13 @@ export const workerAdminMessages = defineMessages({
       'Son exécution reçoit une demande d’arrêt, comme avec Arrêter. Le worker est retiré une fois qu’elle est terminée.',
     'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
       'Chacune de ses {count} exécutions reçoit une demande d’arrêt, comme avec Arrêter. Le worker est retiré une fois qu’elles sont terminées.',
-    'This worker now connects with another certificate. Close this dialog and confirm again for it.':
-      'Ce worker se connecte maintenant avec un autre certificat. Fermez cette boîte de dialogue et confirmez à nouveau pour lui.',
+    'This worker no longer connects with the certificate shown when this dialog opened. Close this dialog and confirm again for it.':
+      'Ce worker ne se connecte plus avec le certificat affiché à l’ouverture de cette boîte de dialogue. Fermez-la et confirmez à nouveau pour lui.',
     'The invite it joined with no longer exists, so it lets no new worker join.':
       'L’invitation qu’il a utilisée n’existe plus, aucun nouveau worker ne peut donc rejoindre avec elle.',
     'The invite was deleted.': 'L’invitation a été supprimée.',
+    'The coordinator runs an earlier Dagu release that cannot remove workers.':
+      'Le coordinateur exécute une version antérieure de Dagu qui ne peut pas retirer de workers.',
     'Invite {id} was not deleted.': 'L’invitation {id} n’a pas été supprimée.',
     'The selected node has no peer token for its coordinator.':
       'Le nœud sélectionné n’a pas de jeton de pair pour son coordinateur.',

@@ -188,11 +188,7 @@ function WorkersSummary({ workers, isLoading, errors }: WorkersSummaryProps) {
                           <WorkerConnection worker={worker} />
                         </div>
                         <WorkerRemovalProgress worker={worker} />
-                        <WorkerRemoveAction
-                          worker={worker}
-                          workers={workers}
-                          layout="inline"
-                        />
+                        <WorkerRemoveAction worker={worker} layout="inline" />
                       </div>
 
                       <div className="flex min-w-0 flex-wrap gap-1 sm:max-w-[50%] sm:justify-end">
@@ -242,11 +238,7 @@ function WorkersSummary({ workers, isLoading, errors }: WorkersSummaryProps) {
                       compact
                     />
 
-                    <WorkerRemoveAction
-                      worker={worker}
-                      workers={workers}
-                      layout="column"
-                    />
+                    <WorkerRemoveAction worker={worker} layout="column" />
                   </div>
 
                   {isExpanded && hasRunningTasks && (
