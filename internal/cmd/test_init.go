@@ -28,6 +28,8 @@ func checkInitArgs(opts testOptions, args []string) error {
 		return errors.New("--keep cannot be used with --init")
 	case opts.json:
 		return errors.New("--format json cannot be used with --init")
+	case opts.junit:
+		return errors.New("--format junit cannot be used with --init")
 	}
 	return nil
 }

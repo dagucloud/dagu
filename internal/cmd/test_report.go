@@ -168,9 +168,11 @@ func (c caseResult) result() string {
 // report is written as each case ends.
 type testReport struct {
 	out io.Writer
-	// json collects the report for --format json, which is written once
-	// every case has ended. Nil writes text.
+	// json and junit collect the report for --format json and --format
+	// junit, which is written once every case has ended. Both nil writes
+	// text.
 	json         *jsonTestReport
+	junit        *junitTestReport
 	passed       int
 	failed       int
 	invalid      int
@@ -181,6 +183,10 @@ func (r *testReport) writeInvalidFile(file string, errs []dagtest.Finding) {
 	r.invalidFiles++
 	if r.json != nil {
 		r.json.InvalidFiles = append(r.json.InvalidFiles, jsonInvalidFile{File: file, Errors: jsonErrors(errs)})
+		return
+	}
+	if r.junit != nil {
+		r.junit.addInvalidFile(file, errs)
 		return
 	}
 	r.printf("INVALID %s\n", file)
@@ -202,21 +208,35 @@ func (r *testReport) writeCase(c caseResult) {
 		r.json.Cases = append(r.json.Cases, jsonCaseOf(c))
 		return
 	}
+	if r.junit != nil {
+		r.junit.addCase(c)
+		return
+	}
 	switch c.result() {
 	case resultInvalid:
 		r.printf("INVALID %s: %s\n", c.file, c.name)
+	case resultFail:
+		r.printf("FAIL %s: %s (%.2fs)\n", c.file, c.name, c.duration.Seconds())
+	default:
+		r.printf("PASS %s: %s (%.2fs)\n", c.file, c.name, c.duration.Seconds())
+	}
+	r.writeCaseDetails(c)
+}
+
+// writeCaseDetails writes the lines that follow the case's line in the text
+// report.
+func (r *testReport) writeCaseDetails(c caseResult) {
+	switch c.result() {
+	case resultInvalid:
 		for _, err := range c.errors {
 			r.printf("  %s\n", err)
 		}
 		r.writeFix("fix, ready to paste:", c.fix)
 		r.writeFix("fix for the test file, ready to paste:", c.fileFix)
 	case resultFail:
-		r.printf("FAIL %s: %s (%.2fs)\n", c.file, c.name, c.duration.Seconds())
 		for _, failure := range c.failures {
 			r.printf("  %s\n", failure)
 		}
-	default:
-		r.printf("PASS %s: %s (%.2fs)\n", c.file, c.name, c.duration.Seconds())
 	}
 	if len(c.defaultMocked) > 0 {
 		r.printf("  default mock: %s\n", strings.Join(c.defaultMocked, ", "))
@@ -250,10 +270,13 @@ func (r *testReport) writeFix(title, fix string) {
 }
 
 // writeSummary ends the report: the text report's last line, which counts
-// the cases by outcome, or the JSON object.
+// the cases by outcome, the JSON object, or the JUnit XML document.
 func (r *testReport) writeSummary() error {
 	if r.json != nil {
 		return json.NewEncoder(r.out).Encode(r.json)
+	}
+	if r.junit != nil {
+		return r.junit.write(r.out)
 	}
 	total := r.passed + r.failed + r.invalid
 	r.printf("%d %s: %d passed, %d failed", total, plural(total, "case", "cases"), r.passed, r.failed)
