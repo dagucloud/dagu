@@ -431,7 +431,7 @@ The server drops a display name that is empty, is not a string, has a control ch
 256 characters. The model stays in the list with no display name. A bad detail never fails the read. The
 protocol `openai` gives no detail, so its list has names only.
 
-The models URL of a preset follows the base URL of the endpoint. The text `{base_url}` of the table
+The models URL of a preset follows the base URL of the endpoint. The text `<base_url>` of the table
 stands for the base URL. Some URLs of the table start with the default base URL of the row. For such a
 URL, the server puts the base URL of the endpoint in place of the default, and keeps the rest. The preset Custom uses
 its field `models_url`.
