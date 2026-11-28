@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"fmt"
+	"io"
 	"math"
 	"net"
 	"os"
@@ -18,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -358,8 +361,8 @@ func TestWorkerInviteOneOfTwoNotReady(t *testing.T) {
 }
 
 // A refused create reaches the user with the coordinator's message. A
-// coordinator that stops answering after join readiness gets the change to
-// make instead of the transport error.
+// coordinator that stops answering after join readiness, or fails on its
+// side, is named with the kind of failure and where to look.
 func TestWorkerInviteRefused(t *testing.T) {
 	t.Parallel()
 
@@ -367,6 +370,7 @@ func TestWorkerInviteRefused(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		err  error
+		// want is the cause, with %s for the coordinator's address.
 		want string
 	}{
 		{name: "FailedPrecondition", err: status.Error(codes.FailedPrecondition, ownCertificates), want: ownCertificates},
@@ -374,16 +378,33 @@ func TestWorkerInviteRefused(t *testing.T) {
 		{
 			name: "Unavailable",
 			err:  status.Error(codes.Unavailable, "connection reset"),
-			want: "it could not be reached or did not answer: run dagu worker --check on this host to see why",
+			want: "coordinator %s could not be reached or did not answer: run dagu worker --check on this host to see why",
+		},
+		{
+			name: "WriteFailed",
+			err:  status.Error(codes.Internal, "failed to store the invite"),
+			want: "coordinator %s failed on its side (failed to store the invite): see its log for the cause",
+		},
+		{
+			name: "OtherServerError",
+			err:  status.Error(codes.DataLoss, "details"),
+			want: "coordinator %s failed on its side with code DataLoss: see its log for the cause",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			fake := &inviteCoordinator{readiness: readyReport(), createErr: tc.err}
-			out, _, err := runWorkerInvite(t, startInviteCoordinators(t, fake), "--address", testInviteAddress)
+			home := checkHome(t)
+			addr := serveInviteCoordinator(t, fake)
+			registerCoordinator(t, home, addr)
+			out, _, err := runWorkerInvite(t, home, "--address", testInviteAddress)
 
-			require.EqualError(t, err, "failed to create the invite: "+tc.want)
+			want := tc.want
+			if strings.Contains(want, "%s") {
+				want = fmt.Sprintf(want, addr)
+			}
+			require.EqualError(t, err, "failed to create the invite: "+want)
 			assert.Empty(t, out)
 		})
 	}
@@ -429,33 +450,73 @@ func TestWorkerInviteFlags(t *testing.T) {
 func TestWorkerInviteNotLogged(t *testing.T) {
 	t.Setenv("DEBUG", "1")
 	home := startInviteCoordinators(t, &inviteCoordinator{readiness: readyReport()})
+	logged := captureLog(t)
+
+	out, errOut, err := runWorkerInvite(t, home, "--address", testInviteAddress)
+	require.NoError(t, err)
+
+	assert.Contains(t, out, testInvite)
+	assert.NotContains(t, logged()+errOut, testInvite)
+}
+
+// On a host where Dagu never ran, the command sets up nothing a server
+// needs: it writes no example DAGs and logs no server warning. It replaces
+// os.Stderr like TestWorkerInviteNotLogged, so it does not run in parallel.
+func TestWorkerInviteFreshHome(t *testing.T) {
+	addr := serveInviteCoordinator(t, &inviteCoordinator{readiness: readyReport()})
+	home := t.TempDir()
+	t.Setenv("DAGU_WORKER_COORDINATORS", addr)
+	logged := captureLog(t)
+
+	command := daguRoot()
+	command.SetOut(io.Discard)
+	command.SetErr(io.Discard)
+	command.SetArgs([]string{"worker", "invite", "--dagu-home", home, "--address", testInviteAddress})
+	require.NoError(t, command.ExecuteContext(t.Context()))
+
+	assert.Empty(t, logged())
+	assert.NoDirExists(t, filepath.Join(home, "dags"))
+}
+
+// captureLog sends what the process writes to os.Stderr, where the logger
+// writes, to a file until the test ends, and returns a function that reads
+// it.
+func captureLog(t *testing.T) func() string {
+	t.Helper()
 	logFile, err := os.Create(filepath.Join(t.TempDir(), "stderr"))
 	require.NoError(t, err)
 	stderr := os.Stderr
 	os.Stderr = logFile
-	t.Cleanup(func() { os.Stderr = stderr })
-
-	out, errOut, err := runWorkerInvite(t, home, "--address", testInviteAddress)
-	require.NoError(t, err)
-	require.NoError(t, logFile.Close())
-
-	logged, err := os.ReadFile(logFile.Name())
-	require.NoError(t, err)
-	assert.Contains(t, out, testInvite)
-	assert.NotContains(t, string(logged)+errOut, testInvite)
+	t.Cleanup(func() {
+		os.Stderr = stderr
+		_ = logFile.Close()
+	})
+	return func() string {
+		logged, err := os.ReadFile(logFile.Name())
+		require.NoError(t, err)
+		return string(logged)
+	}
 }
 
 // runWorkerInvite runs dagu worker invite with home as DAGU_HOME and returns
 // its standard output and standard error.
 func runWorkerInvite(t *testing.T, home string, args ...string) (string, string, error) {
 	t.Helper()
-	command := cmd.CmdWorker()
+	command := daguRoot()
 	var out, errOut bytes.Buffer
 	command.SetOut(&out)
 	command.SetErr(&errOut)
-	command.SetArgs(append([]string{"invite", "--dagu-home", home, "--config", filepath.Join(home, "config.yaml")}, args...))
+	command.SetArgs(append([]string{"worker", "invite", "--dagu-home", home, "--config", filepath.Join(home, "config.yaml")}, args...))
 	err := command.ExecuteContext(t.Context())
 	return out.String(), errOut.String(), err
+}
+
+// daguRoot returns the dagu command with dagu worker below it, so the
+// invite command has the path it has in the binary.
+func daguRoot() *cobra.Command {
+	root := &cobra.Command{Use: "dagu"}
+	root.AddCommand(cmd.CmdWorker())
+	return root
 }
 
 // configHome returns a DAGU_HOME whose config file holds config.

@@ -26,6 +26,9 @@ const (
 	// workerJoinCommandFormat is the command that joins a worker host with
 	// an invite, from the coordinator address and the invite.
 	workerJoinCommandFormat = "dagu worker --worker.coordinators=%s --worker.invite=%s"
+	// workerInviteCommandName is the command family name of dagu worker
+	// invite.
+	workerInviteCommandName = "worker invite"
 	// allInterfacesHost is the coordinator.host that accepts workers from
 	// other hosts.
 	allInterfacesHost = "0.0.0.0"
@@ -39,6 +42,14 @@ var (
 	errInvitePeerSettings  = errors.New("this host's peer settings cannot be used: run dagu worker --check here to see why")
 	errNoInviteCoordinator = errors.New("no coordinator found: set worker.coordinators to the coordinators' addresses, or run this on a host that shares their data directory")
 )
+
+// connectionCodes are the codes of a call that did not reach a coordinator
+// or got no answer from it.
+var connectionCodes = map[codes.Code]bool{
+	codes.Unavailable:      true,
+	codes.DeadlineExceeded: true,
+	codes.Canceled:         true,
+}
 
 // refusalCodes are the codes of a coordinator's refusal, whose message
 // names the cause and the change without any file location.
@@ -146,7 +157,7 @@ func runWorkerInvite(ctx *Context, _ []string) error {
 		Address:          opts.address,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create the invite: %s", callFailure(err))
+		return fmt.Errorf("failed to create the invite: %s", callFailure(coordinatorsSubject(reports), err))
 	}
 	printInvite(ctx.Command.OutOrStdout(), opts.address, resp)
 	return nil
@@ -222,32 +233,56 @@ func expirySeconds(d time.Duration) int64 {
 	return seconds
 }
 
-// callFailure returns the cause of a failed coordinator call and the change
-// to make. It repeats a coordinator's refusal, and otherwise only the kind
-// of failure, since an error raised on this host may name a credential
-// file.
-func callFailure(err error) string {
+// callFailure returns the cause of a failed call to subject, the
+// coordinators asked, and the change to make. It repeats a coordinator's
+// refusal, and otherwise only the kind of failure, since an error raised on
+// this host may name a credential file.
+func callFailure(subject string, err error) string {
 	var carrier interface{ GRPCStatus() *status.Status }
 	if !errors.As(err, &carrier) {
 		return "the call failed on this host: run dagu worker --check here to see why"
 	}
 	st := carrier.GRPCStatus()
-	if refusalCodes[st.Code()] {
+	code := st.Code()
+	switch {
+	case refusalCodes[code]:
 		return st.Message()
+	case code == codes.Unimplemented:
+		return subject + " predates worker invites: upgrade it to create invites"
+	case connectionCodes[code]:
+		return subject + " could not be reached or did not answer: run dagu worker --check on this host to see why"
+	case code == codes.Internal:
+		// The coordinator words its internal failures without details.
+		return fmt.Sprintf("%s failed on its side (%s): see its log for the cause", subject, st.Message())
+	default:
+		return fmt.Sprintf("%s failed on its side with code %s: see its log for the cause", subject, code)
 	}
-	if st.Code() == codes.Unimplemented {
-		return "it predates worker invites: upgrade it to create invites"
+}
+
+// coordinatorsSubject names the coordinators of reports as the subject of
+// a sentence.
+func coordinatorsSubject(reports []coordinator.JoinReadiness) string {
+	addrs := make([]string, len(reports))
+	for i, report := range reports {
+		addrs[i] = coordinatorAddr(report)
 	}
-	return "it could not be reached or did not answer: run dagu worker --check on this host to see why"
+	if len(addrs) == 1 {
+		return "coordinator " + addrs[0]
+	}
+	return "one of the coordinators " + strings.Join(addrs, ", ")
+}
+
+func coordinatorAddr(report coordinator.JoinReadiness) string {
+	return net.JoinHostPort(report.Coordinator.Host, strconv.Itoa(report.Coordinator.Port))
 }
 
 // printJoinReadiness reports whether the coordinator of report accepts
 // workers from other hosts. When it does not, it prints why and the change
 // to make, as the Add worker dialog does.
 func printJoinReadiness(w io.Writer, report coordinator.JoinReadiness) bool {
-	addr := net.JoinHostPort(report.Coordinator.Host, strconv.Itoa(report.Coordinator.Port))
+	addr := coordinatorAddr(report)
 	if report.Err != nil {
-		_, _ = fmt.Fprintf(w, "Coordinator %s did not report whether it accepts workers: %s\n", addr, callFailure(report.Err))
+		_, _ = fmt.Fprintf(w, "Coordinator %s did not report whether it accepts workers: %s\n", addr, callFailure("it", report.Err))
 		return false
 	}
 	r := report.Report
