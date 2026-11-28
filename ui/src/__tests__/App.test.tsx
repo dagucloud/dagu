@@ -11,7 +11,7 @@ import App from '../App';
 import { useLicense } from '@/hooks/useLicense';
 import { useWorkflowOverlay } from '@/features/peek/WorkflowOverlay';
 import userEvent from '@testing-library/user-event';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const {
   clientMock,
@@ -48,11 +48,15 @@ vi.mock('@/hooks/api', () => ({
   useQuery: useQueryMock,
 }));
 
+// These tests cover the overlay, so they mount it whatever the default.
+vi.mock('@/features/peek/overlayMounted', () => ({ OVERLAY_MOUNTED: true }));
+
 vi.mock('../layouts/Layout', () => ({
   default: ({ children }: { children: React.ReactNode }) => {
     const license = useLicense();
     const { selectRemoteNode } = React.useContext(AppBarContext);
     const overlay = useWorkflowOverlay();
+    const navigate = useNavigate();
     return (
       <main>
         <output aria-label="Current license">
@@ -65,6 +69,7 @@ vi.mock('../layouts/Layout', () => ({
         <button onClick={() => overlay?.setSequence([{ dag: 'etl' }])}>
           List rows
         </button>
+        <button onClick={() => navigate('/dags')}>Show workflows</button>
         {children}
       </main>
     );
@@ -523,6 +528,31 @@ describe('App license routing', () => {
       await screen.findByRole('heading', { name: 'Unable to load this page' })
     ).toBeVisible();
     expect(screen.getByRole('button', { name: 'Reload' })).toBeVisible();
+
+    consoleError.mockRestore();
+  });
+
+  // A page that failed to load leaves the others usable: Back or a link to
+  // another page shows that page.
+  it('shows the next page after a lazy route chunk fails', async () => {
+    overviewImportError.current = true;
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+
+    renderAt('/');
+    expect(
+      await screen.findByRole('heading', { name: 'Unable to load this page' })
+    ).toBeVisible();
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Show workflows' })
+    );
+
+    expect(await screen.findByRole('heading', { name: 'DAGs' })).toBeVisible();
+    expect(
+      screen.queryByRole('heading', { name: 'Unable to load this page' })
+    ).not.toBeInTheDocument();
 
     consoleError.mockRestore();
   });

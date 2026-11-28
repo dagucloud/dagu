@@ -67,6 +67,7 @@ import {
 import { useOpenPage } from '@/features/dag-runs/lib/useOpenPage';
 import { overlayStepOfKey } from '@/features/peek/overlayKeys';
 import { peekPageURL, type PeekTarget } from '@/features/peek/peekParams';
+import { OVERLAY_MOUNTED } from '@/features/peek/overlayMounted';
 import {
   useWorkflowOverlay,
   WorkflowOverlayProvider,
@@ -309,6 +310,8 @@ function ActiveLicenseDeveloperElement({
 
 type LazyRouteErrorBoundaryProps = {
   children: React.ReactNode;
+  /** A change of this value clears the error, so that a new page can load. */
+  resetKey?: unknown;
 };
 
 type LazyRouteErrorBoundaryState = {
@@ -323,6 +326,17 @@ class LazyRouteErrorBoundary extends React.Component<
 
   static getDerivedStateFromError(): LazyRouteErrorBoundaryState {
     return { hasError: true };
+  }
+
+  componentDidUpdate(
+    prevProps: LazyRouteErrorBoundaryProps,
+    prevState: LazyRouteErrorBoundaryState
+  ): void {
+    // Clears only an error caught under an earlier key: one caught in the
+    // render that brought the new key belongs to the new page.
+    if (prevState.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false });
+    }
   }
 
   render(): React.ReactNode {
@@ -400,6 +414,11 @@ function preloadWhenIdle(): () => void {
   return () => window.clearTimeout(id);
 }
 
+// Without the overlay, the host renders nothing and no list shows a peek.
+const OverlayProvider = OVERLAY_MOUNTED
+  ? WorkflowOverlayProvider
+  : React.Fragment;
+
 function LazyRoutes({
   children,
 }: {
@@ -419,7 +438,7 @@ function LazyRoutes({
     [shown, children]
   );
   return (
-    <LazyRouteErrorBoundary>
+    <LazyRouteErrorBoundary resetKey={shown}>
       <React.Suspense fallback={<RouteFallback />}>
         <div className="contents" inert={overlay?.isOpen || undefined}>
           {routes}
@@ -970,7 +989,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                               path="/*"
                               element={
                                 <ProtectedRoute>
-                                  <WorkflowOverlayProvider>
+                                  <OverlayProvider>
                                     <Layout navbarColor={config.navbarColor}>
                                       <LazyRoutes>
                                         <Route
@@ -1239,7 +1258,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                       </LazyRoutes>
                                       <WorkflowOverlayHost />
                                     </Layout>
-                                  </WorkflowOverlayProvider>
+                                  </OverlayProvider>
                                 </ProtectedRoute>
                               }
                             />
