@@ -1019,13 +1019,14 @@ A coordinator reports, from its own host:
   The server does not forward a create, delete, or removal to a remote
   node, so the audit entry names the admin who made it.
 - `expiresIn` is a positive Go duration of at most 2562047h47m16s.
-- `address` is `host:port`. The host is a DNS hostname, an IPv4 address
-  in dotted decimal, or an IPv6 address in brackets without a zone. A
-  hostname has dot-separated labels of 1 to 63 ASCII letters, digits, and
-  hyphens, none starting or ending with a hyphen, at most 253 characters
-  in all, and no trailing dot. The port is a decimal number from 1 to
-  65535 without a sign or leading zero. Any other address, as one with
-  `/`, `?`, `#`, `@`, `_`, or whitespace, answers `400` before any
+- `address` is `host:port`. The host is a hostname, an IPv4 address in
+  dotted decimal, or an IPv6 address in brackets without a zone. A
+  hostname has dot-separated labels of 1 to 63 ASCII letters, digits,
+  hyphens, and underscores, as in a Compose service name such as
+  `dagu_coordinator`, none starting or ending with a hyphen, at most 253
+  characters in all, and no trailing dot. The port is a decimal number
+  from 1 to 65535 without a sign or leading zero. Any other address, as
+  one with `/`, `?`, `#`, `@`, or whitespace, answers `400` before any
   coordinator call.
 - With several coordinators, the server sends each call except join
   readiness to one of them, since they share the invite and certificate

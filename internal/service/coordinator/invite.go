@@ -228,9 +228,10 @@ func inviteSecretHash(secret []byte) []byte {
 
 // ValidInviteAddress reports whether addr can be an invite's address:
 // host:port, where host is one of
-//   - a DNS hostname: dot-separated labels of 1 to 63 ASCII letters, digits,
-//     and hyphens, neither starting nor ending with a hyphen, at most 253
-//     characters in all, with no trailing dot;
+//   - a hostname: dot-separated labels of 1 to 63 ASCII letters, digits,
+//     hyphens, and underscores, as in a Compose service name, neither
+//     starting nor ending with a hyphen, at most 253 characters in all,
+//     with no trailing dot;
 //   - an IPv4 address in dotted decimal;
 //   - an IPv6 address in brackets, without a zone;
 //
@@ -261,7 +262,7 @@ func validInvitePort(port string) bool {
 	return err == nil && n <= math.MaxUint16
 }
 
-// validHostname reports whether host is a DNS hostname as
+// validHostname reports whether host is a hostname as
 // [ValidInviteAddress] states.
 func validHostname(host string) bool {
 	if host == "" || len(host) > 253 {
@@ -269,7 +270,7 @@ func validHostname(host string) bool {
 	}
 	for label := range strings.SplitSeq(host, ".") {
 		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' ||
-			strings.Trim(label, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-") != "" {
+			strings.Trim(label, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") != "" {
 			return false
 		}
 	}
