@@ -86,11 +86,8 @@ func errAnswered(address, message string) failure {
 // answered reports an error that a coordinator returned, rather than one of
 // reaching it.
 func answered(err error) bool {
-	switch status.Code(err) {
-	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled, codes.Unknown:
-		return false
-	}
-	return true
+	code := status.Code(err)
+	return code != codes.Unavailable && code != codes.DeadlineExceeded && code != codes.Canceled && code != codes.Unknown
 }
 
 func errInvalidReply(address string) failure {
