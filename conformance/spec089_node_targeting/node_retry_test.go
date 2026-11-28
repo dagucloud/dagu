@@ -240,13 +240,29 @@ func TestNodeStepRetry(t *testing.T) {
 		run.dagu.ExpectFileContent("ran-web01", "10.0.1.11")
 	})
 
-	// A process that stopped while holding the run lock left it behind.
-	// The wait starts while the lock is fresh and keeps waiting while a
-	// retry fails on the lock. Once the lock is aged past the spec's 30
-	// seconds, the wait ends and the retry takes the lock over and runs.
-	// TestDataRootLockStaleAge checks that the lock code uses the same age.
+	// A process that stopped while holding the run lock left it behind. The
+	// lock is aged around the spec's 30 seconds by its timestamp. The retry
+	// waits up to retryLockWait for the lock, so the ages straddle the
+	// boundary by that wait:
+	//   - freshAge stays under 30 seconds through the whole wait, so the
+	//     retry fails. A shorter threshold lets it through.
+	//   - nearStaleAge passes 30 seconds early in the wait, so the retry
+	//     takes the lock over and runs. A threshold well past 30 seconds
+	//     makes it fail.
+	// lockAgeMargin leaves time for the retry to start on a slow host. The
+	// wait helper starts while the lock is fresh and must end once the lock
+	// is past 30 seconds. TestDataRootLockStaleAge checks the lock code's
+	// boundary exactly.
 	t.Run("after a stopped process left its run lock", func(t *testing.T) {
 		t.Parallel()
+
+		const (
+			specStaleAge  = 30 * time.Second // Spec 089 §Retrying a step with nodes
+			retryLockWait = 10 * time.Second // attempt creation's wait for the lock
+			lockAgeMargin = 5 * time.Second
+			freshAge      = specStaleAge - retryLockWait - lockAgeMargin
+			nearStaleAge  = specStaleAge - retryLockWait + lockAgeMargin
+		)
 
 		run := newRetriedRun(t, "retry-6")
 		run.touch(t, "ok-prepare", "ok-web01", "ok-web03")
@@ -255,6 +271,23 @@ func TestNodeStepRetry(t *testing.T) {
 		lock := runLockPath(run.dataDir, "retry")
 		require.NoError(t, os.Mkdir(lock, 0o700))
 		require.NoError(t, os.WriteFile(filepath.Join(lock, "owner.stopped"), []byte("stopped"), 0o600))
+		ageLock := func(age time.Duration) {
+			lockedAt := time.Now().Add(-age)
+			require.NoError(t, os.Chtimes(lock, lockedAt, lockedAt))
+		}
+		requireStale := func(want bool) {
+			stale, err := runLockIsStale(lock)
+			require.NoError(t, err)
+			require.Equal(t, want, stale)
+		}
+
+		// The wait helper's boundary is the spec's.
+		ageLock(specStaleAge - time.Second)
+		requireStale(false)
+		ageLock(specStaleAge + time.Second)
+		requireStale(true)
+
+		ageLock(freshAge)
 		budget := runLockStaleAge + harness.WaitTimeout(t)
 		waited := make(chan error, 1)
 		go func() {
@@ -271,11 +304,9 @@ func TestNodeStepRetry(t *testing.T) {
 		default:
 		}
 
-		const specStaleAge = 30 * time.Second
-		aged := time.Now().Add(-specStaleAge - 100*time.Millisecond)
-		require.NoError(t, os.Chtimes(lock, aged, aged))
-		require.NoError(t, <-waited)
+		ageLock(nearStaleAge)
 		run.retry(t, "retry").ExpectExitCode(0)
+		require.NoError(t, <-waited)
 		require.Equal(t, []string{"web01=succeeded", "web02=succeeded", "web03=succeeded"}, nodeStatuses(t, run.dagu))
 	})
 
