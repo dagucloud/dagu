@@ -64,12 +64,18 @@ func (i Invite) Names(ca *x509.Certificate) bool {
 // Digest identifies the invite, whatever its spelling, without holding its
 // secret: the hex SHA-256 of its canonical form.
 func (i Invite) Digest() string {
-	sum := sha256.Sum256([]byte(i.String()))
+	sum := sha256.Sum256([]byte(i.canonical()))
 	return hex.EncodeToString(sum[:])
 }
 
-// String returns the canonical form of the invite.
+// String returns the invite without its secret, so formatting one never
+// prints the secret.
 func (i Invite) String() string {
+	return strings.Join([]string{inviteVersion, i.pin, "********"}, ".")
+}
+
+// canonical returns the one spelling of the invite that Enroll sends.
+func (i Invite) canonical() string {
 	return strings.Join([]string{inviteVersion, i.pin, inviteEncoding.EncodeToString(i.secret)}, ".")
 }
 
@@ -95,7 +101,7 @@ func Enroll(ctx context.Context, config *Config, address string, req *coordinato
 	defer func() { _ = c.conn.Close() }()
 
 	req = proto.CloneOf(req)
-	req.Invite = config.invite.String()
+	req.Invite = config.invite.canonical()
 	callCtx, cancel := context.WithTimeout(ctx, config.DialTimeout)
 	defer cancel()
 	resp, err := c.client.Enroll(callCtx, req)

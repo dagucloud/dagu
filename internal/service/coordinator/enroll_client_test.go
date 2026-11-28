@@ -120,7 +120,8 @@ func TestInviteDigest(t *testing.T) {
 	other, ok := coordinator.ParseInvite(second)
 	require.True(t, ok)
 
-	assert.Equal(t, first, parsed.String())
+	assert.NotContains(t, fmt.Sprint(parsed), inviteSecret(first))
+	assert.NotContains(t, fmt.Sprintf("%+v", parsed), inviteSecret(first))
 	assert.NotEqual(t, parsed.Digest(), other.Digest())
 	assert.NotContains(t, parsed.Digest(), inviteSecret(first))
 	// The last character of a secret carries four unused bits, which a
