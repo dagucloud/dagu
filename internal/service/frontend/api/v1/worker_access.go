@@ -248,7 +248,8 @@ func (a *API) GetWorkerJoinReadiness(ctx context.Context, _ api.GetWorkerJoinRea
 		return nil, errNoCoordinator
 	}
 	resp := api.GetWorkerJoinReadiness200JSONResponse{Coordinators: make([]api.CoordinatorJoinReadiness, 0, len(reports))}
-	var firstErr error
+	// failure is the refusal to answer with when no coordinator reports.
+	var failure error
 	for _, report := range reports {
 		entry := api.CoordinatorJoinReadiness{
 			InstanceId: report.Coordinator.ID,
@@ -256,9 +257,7 @@ func (a *API) GetWorkerJoinReadiness(ctx context.Context, _ api.GetWorkerJoinRea
 			Port:       report.Coordinator.Port,
 		}
 		if report.Err != nil {
-			if firstErr == nil {
-				firstErr = report.Err
-			}
+			failure = moreTelling(failure, report.Err)
 			answer := coordinatorCallError(report.Err)
 			entry.Error = &answer.Message
 			entry.ErrorReason = errorReason(answer)
@@ -269,8 +268,8 @@ func (a *API) GetWorkerJoinReadiness(ctx context.Context, _ api.GetWorkerJoinRea
 	}
 	// With no report, the dialog has nothing to show, so the refusal is the
 	// answer.
-	if firstErr != nil && !slices.ContainsFunc(resp.Coordinators, func(c api.CoordinatorJoinReadiness) bool { return c.Report != nil }) {
-		return nil, coordinatorCallError(firstErr)
+	if failure != nil && !slices.ContainsFunc(resp.Coordinators, func(c api.CoordinatorJoinReadiness) bool { return c.Report != nil }) {
+		return nil, coordinatorCallError(failure)
 	}
 	invites, err := access.ListInvites(ctx)
 	if err != nil {
@@ -278,6 +277,25 @@ func (a *API) GetWorkerJoinReadiness(ctx context.Context, _ api.GetWorkerJoinRea
 	}
 	resp.LastInviteAddress = lastInviteAddress(invites)
 	return resp, nil
+}
+
+// moreTelling returns whichever of current and next says more about what to
+// change: a coordinator's refusal over a failure to reach one, or current
+// when both are of a kind.
+func moreTelling(current, next error) error {
+	if current == nil || (unreached(current) && !unreached(next)) {
+		return next
+	}
+	return current
+}
+
+// unreached reports whether err says only that no coordinator answered.
+func unreached(err error) bool {
+	if coordinator.RefusalReason(err) != "" {
+		return false
+	}
+	code := status.Code(err)
+	return code == codes.Unavailable || code == codes.DeadlineExceeded || code == codes.Unknown
 }
 
 // workerAccess returns the client for the invite and removal calls, once

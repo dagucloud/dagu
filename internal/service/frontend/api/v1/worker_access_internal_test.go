@@ -523,3 +523,22 @@ func TestDeleteWorkerInviteRefusesNonID(t *testing.T) {
 		assert.Empty(t, store.entries)
 	}
 }
+
+// With no report, a coordinator's refusal is the answer over a coordinator
+// that cannot be reached, whichever comes first.
+func TestGetWorkerJoinReadinessPrefersRefusal(t *testing.T) {
+	t.Parallel()
+
+	unreachable := coordinator.JoinReadiness{Err: status.Error(codes.Unavailable, "connection refused")}
+	refused := coordinator.JoinReadiness{Err: status.Error(codes.Unauthenticated, peerTokenRefusal)}
+	for name, readiness := range map[string][]coordinator.JoinReadiness{
+		"unreachable first": {unreachable, refused},
+		"refusal first":     {refused, unreachable},
+	} {
+		a, _ := rolesAPI(&inviteCoordinatorStub{readiness: readiness})
+		_, err := a.GetWorkerJoinReadiness(userContext(auth.RoleAdmin), openapiv1.GetWorkerJoinReadinessRequestObject{})
+		var apiErr *Error
+		require.ErrorAs(t, err, &apiErr, name)
+		assert.Equal(t, map[string]any{"reason": "peer_token_missing"}, apiErr.Details, name)
+	}
+}
