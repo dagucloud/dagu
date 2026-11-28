@@ -30,6 +30,8 @@ interface Request {
   method: string;
   path: string;
   query: URLSearchParams;
+  /** The JSON body of a POST. */
+  body?: Record<string, unknown>;
 }
 
 /**
@@ -42,7 +44,10 @@ export const server = {
   invites: { status: 200, body: { invites: [] } } as
     | Answer
     | (() => Answer | Promise<Answer>),
-  /** Answers a DELETE; a promise holds the answer until the test settles it. */
+  /**
+   * Answers a write, a DELETE or a POST; a promise holds the answer until the
+   * test settles it.
+   */
   del: ((): Answer => ({ status: 204 })) as (
     request: Request
   ) => Answer | Promise<Answer>,
@@ -93,10 +98,19 @@ export function installServer() {
       const method = (
         init?.method ?? (input instanceof Request ? input.method : 'GET')
       ).toUpperCase();
-      const request = { method, path: url.pathname, query: url.searchParams };
+      const body =
+        method === 'POST' && input instanceof Request
+          ? (JSON.parse(await input.clone().text()) as Record<string, unknown>)
+          : undefined;
+      const request = {
+        method,
+        path: url.pathname,
+        query: url.searchParams,
+        body,
+      };
       server.requests.push(request);
       const answer =
-        method === 'DELETE'
+        method === 'DELETE' || method === 'POST'
           ? await server.del(request)
           : url.pathname === '/api/v1/workers/invites'
             ? await (typeof server.invites === 'function'

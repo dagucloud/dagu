@@ -122,12 +122,9 @@ async function openRemove(workerId: string) {
   return screen.getByRole('dialog');
 }
 
-// A removal is a DELETE of the worker itself; an invite delete names an
-// invite under /workers/invites/.
 function isRemoval(request: { method: string; path: string }) {
   return (
-    request.method === 'DELETE' &&
-    /^\/api\/v1\/workers\/[^/]+$/.test(request.path)
+    request.method === 'POST' && request.path === '/api/v1/workers/removals'
   );
 }
 
@@ -219,9 +216,9 @@ describe('Remove', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     );
     expect(removals()).toHaveLength(1);
-    expect(removals()[0]?.path).toBe('/api/v1/workers/worker-a1');
-    expect(removals()[0]?.query.get('certificateId')).toBe('cert-worker-a1');
-    expect(removals()[0]?.query.get('runs')).toBe('finish');
+    expect(removals()[0]?.body?.workerId).toBe('worker-a1');
+    expect(removals()[0]?.body?.certificateId).toBe('cert-worker-a1');
+    expect(removals()[0]?.body?.runs).toBe('finish');
     expect(removals()[0]?.query.has('remoteNode')).toBe(false);
   });
 
@@ -840,7 +837,7 @@ describe('Remove', () => {
     );
 
     await waitFor(() => expect(removals()).toHaveLength(1));
-    expect(removals()[0]?.query.get('runs')).toBe('finish');
+    expect(removals()[0]?.body?.runs).toBe('finish');
   });
 
   it('stops the runs when the admin chooses so', async () => {
@@ -855,7 +852,7 @@ describe('Remove', () => {
     );
 
     await waitFor(() => expect(removals()).toHaveLength(1));
-    expect(removals()[0]?.query.get('runs')).toBe('stop');
+    expect(removals()[0]?.body?.runs).toBe('stop');
   });
 
   // The stop choice applies to the runs on screen. Once the refresh shows
@@ -878,7 +875,7 @@ describe('Remove', () => {
     );
 
     await waitFor(() => expect(removals()).toHaveLength(1));
-    expect(removals()[0]?.query.get('runs')).toBe('finish');
+    expect(removals()[0]?.body?.runs).toBe('finish');
   });
 
   // Runs that all end take the stop choice with them. A row the list drops
@@ -905,7 +902,7 @@ describe('Remove', () => {
     );
 
     await waitFor(() => expect(removals()).toHaveLength(1));
-    expect(removals()[0]?.query.get('runs')).toBe('finish');
+    expect(removals()[0]?.body?.runs).toBe('finish');
   });
 
   // Runs that start after the earlier ones ended need the stop choice made
@@ -1062,8 +1059,8 @@ describe('Remove', () => {
     );
 
     await waitFor(() => expect(removals()).toHaveLength(1));
-    expect(removals()[0]?.path).toBe('/api/v1/workers/worker-a1');
-    expect(removals()[0]?.query.get('runs')).toBe('stop');
+    expect(removals()[0]?.body?.workerId).toBe('worker-a1');
+    expect(removals()[0]?.body?.runs).toBe('stop');
   });
 
   // Runs that all ended leave nothing to stop: Stop runs now stays open,
@@ -1155,7 +1152,7 @@ describe('Remove', () => {
       within(dialog).getByRole('button', { name: 'Remove' })
     );
     await waitFor(() => expect(removals()).toHaveLength(1));
-    expect(removals()[0]?.query.get('runs')).toBe('finish');
+    expect(removals()[0]?.body?.runs).toBe('finish');
   });
 
   // A failed refresh hides the rows, so no row is current: both dialogs
@@ -1234,12 +1231,13 @@ describe('Remove', () => {
       within(dialog).getByRole('button', { name: 'Remove' })
     );
     await waitFor(() => expect(removals()).toHaveLength(1));
-    expect(removals()[0]?.query.get('runs')).toBe('finish');
+    expect(removals()[0]?.body?.runs).toBe('finish');
   });
 
-  // A worker ID can match a fixed route under /workers; the removal names
-  // the worker, not the invites or the join readiness.
-  it.each(['invites', 'join-readiness'])(
+  // The worker ID travels in the body as it is, so an ID that names a
+  // route, holds a slash or an escape, or is a dot segment reaches the
+  // server intact.
+  it.each(['invites', 'join-readiness', 'a/b', 'a%2Fb', '.', '..'])(
     'removes a worker named %s',
     async (id) => {
       renderPage([worker(id)]);
@@ -1249,16 +1247,15 @@ describe('Remove', () => {
         within(dialog).getByRole('button', { name: 'Remove' })
       );
 
-      await waitFor(() =>
-        expect(
-          server.requests.filter((request) => request.method === 'DELETE')
-        ).toHaveLength(1)
-      );
-      const [removal] = server.requests.filter(
-        (request) => request.method === 'DELETE'
-      );
-      expect(removal?.path).toBe(`/api/v1/workers/${id}`);
-      expect(removal?.query.get('certificateId')).toBe(`cert-${id}`);
+      await waitFor(() => expect(removals()).toHaveLength(1));
+      expect(removals()[0]?.body).toEqual({
+        workerId: id,
+        certificateId: `cert-${id}`,
+        runs: 'finish',
+      });
+      expect(
+        server.requests.filter((request) => request.method === 'DELETE')
+      ).toHaveLength(0);
     }
   );
 
@@ -1295,9 +1292,12 @@ describe('Remove', () => {
     );
     expect(
       server.requests
-        .filter((request) => request.method === 'DELETE')
-        .map((request) => request.path)
-    ).toEqual(['/api/v1/workers/worker-a1', '/api/v1/workers/invites/inv-r']);
+        .filter((request) => request.method !== 'GET')
+        .map((request) => `${request.method} ${request.path}`)
+    ).toEqual([
+      'POST /api/v1/workers/removals',
+      'DELETE /api/v1/workers/invites/inv-r',
+    ]);
   });
 
   // The invites list already read the invites; the confirmation uses them

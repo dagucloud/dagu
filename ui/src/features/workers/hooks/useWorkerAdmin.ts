@@ -387,15 +387,15 @@ export function useWorkerActions() {
     ): Promise<WorkerRemovalState> => {
       // The certificate the admin confirmed: a worker that joined again with
       // another one answers 409 instead of being removed.
-      const { data, error, response } = await client.DELETE(
-        '/workers/{workerId}',
-        {
-          params: {
-            path: { workerId: worker.id },
-            query: { certificateId: worker.certificateId, runs },
-          },
-        }
-      );
+      // The worker ID goes in the body as it is, so any ID, such as one
+      // with a slash or one that names a route, reaches the server intact.
+      const { data, error, response } = await client.POST('/workers/removals', {
+        body: {
+          workerId: worker.id,
+          certificateId: worker.certificateId,
+          runs,
+        },
+      });
       // Only a state the API defines counts as accepted; an answer such as
       // `{}` is a failure, so nothing that depends on the removal follows.
       if (!response.ok || !isRemovalState(data?.state)) {
